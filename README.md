@@ -60,7 +60,7 @@ node ~/cheap-mem/bin/mem log event --title "started using cheap-mem" --tags setu
 node ~/cheap-mem/bin/mem context
 ```
 
-## Autostart on macOS / Linux
+## Autostart on macOS / Linux / Windows
 
 Have the librarian watcher run at login and restart on failure:
 
@@ -74,6 +74,12 @@ CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
 ```bash
 CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
   bash ~/cheap-mem/install/linux.sh
+```
+
+**Windows (Task Scheduler)** — [install-windows.md](docs/install-windows.md)
+```powershell
+$env:CHEAP_MEM_ROOT="$HOME\my-memory"; $env:MEM_WATCH_WHO="librarian"
+powershell -File $HOME\cheap-mem\install\windows.ps1
 ```
 
 The watcher polls the git remote every 15 seconds via `git ls-tree`
