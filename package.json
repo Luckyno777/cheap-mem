@@ -1,0 +1,25 @@
+{
+  "name": "cheap-mem",
+  "version": "0.1.0",
+  "description": "Cheap in tokens, rich in memory. A local-first, git-backed persistent memory layer for AI coding assistants.",
+  "type": "module",
+  "bin": {
+    "mem": "./bin/mem",
+    "mem-mcp": "./bin/mem-mcp"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Luckyno777/cheap-mem"
+  },
+  "keywords": ["ai", "memory", "claude", "chatgpt", "cursor", "gemini", "mcp", "cli"]
+}

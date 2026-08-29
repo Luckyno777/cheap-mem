@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# mem-handle-post — default handler invoked by mem-watch when new
+# inbox mail arrives. Spawns an AI CLI in headless mode to process it.
+#
+# Override with env MEM_WATCH_HANDLER=/path/to/your/handler if you want
+# a custom flow (e.g. a python script, or no AI at all).
+#
+# Required env (set by mem-watch):
+#   CHEAP_MEM_ROOT   memory root
+#   MEM_WATCH_WHO    who this install is (from mem-watch env)
+#   MEM_HEADLESS     set to 'watcher' by mem-watch (so mem-reflect skips)
+#
+# Optional env:
+#   MEM_HANDLER_CMD     AI CLI to spawn. Default: `claude -p`
+#                        Override to `chatgpt`, `gemini`, `mistral -p`, etc.
+#   MEM_HANDLER_PROMPT  override prompt.
+
+set -u
+
+if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
+  echo "mem-handle-post: CHEAP_MEM_ROOT not set" >&2
+  exit 2
+fi
+if [ -z "${MEM_WATCH_WHO:-}" ]; then
+  echo "mem-handle-post: MEM_WATCH_WHO not set" >&2
+  exit 2
+fi
+
+CMD="${MEM_HANDLER_CMD:-claude -p}"
+
+DEFAULT_PROMPT="You are the '$MEM_WATCH_WHO' role in this cheap-mem installation. Read \$CHEAP_MEM_ROOT/.mem/config.json for context. Then process new inbox mail addressed to you:
+
+  1. node \$CHEAP_MEM_ROOT/bin/mem inbox new --as $MEM_WATCH_WHO
+  2. For each new message: node \$CHEAP_MEM_ROOT/bin/mem inbox show <name> --as $MEM_WATCH_WHO
+  3. Do what the message asks. If it needs a log entry: node \$CHEAP_MEM_ROOT/bin/mem log <type> ...
+  4. If it needs a reply: node \$CHEAP_MEM_ROOT/bin/mem inbox write --as $MEM_WATCH_WHO --to <sender> --subject ...
+  5. Acknowledge: node \$CHEAP_MEM_ROOT/bin/mem inbox ack <name> processed
+  6. Commit and push explicitly to main:
+       git -C \$CHEAP_MEM_ROOT add -A
+       git -C \$CHEAP_MEM_ROOT commit -m 'handler: <summary>'
+       git -C \$CHEAP_MEM_ROOT push origin HEAD:main
+
+Exit after the last message. Do not start new work of your own."
+
+PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
+
+# shellcheck disable=SC2086
+$CMD "$PROMPT"

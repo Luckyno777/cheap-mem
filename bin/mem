@@ -1,0 +1,490 @@
+#!/usr/bin/env node
+/**
+ * mem — cheap-mem CLI entry point.
+ *
+ * Subcommands:
+ *   init                     one-time setup (creates .mem/config.json + skel)
+ *   log <type> --<field> ... append a JSONL entry
+ *   find "<pattern>"         search across log files
+ *   context [--n N]          compact dump for session start
+ *   project init <name>      idempotent project skeleton
+ *   inbox schreib|new|show|ack   inbox operations (was: post)
+ *   inbox watch              remote-only "post ready" check, exit 0/1/3
+ *   whoami / whoami <name>   who this install is in the channel
+ *   correction <type> <old-id> --<field> ...
+ */
+
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
+import * as memory from '../src/memory.mjs';
+import * as inbox from '../src/inbox.mjs';
+import * as cfgmod from '../src/config.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PKG_ROOT = path.dirname(HERE);
+
+function parseArgs(argv) {
+  const args = {};
+  const rest = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        args[key] = next;
+        i += 1;
+      } else {
+        args[key] = true;
+      }
+    } else {
+      rest.push(a);
+    }
+  }
+  return { args, rest };
+}
+
+function out(t) { process.stdout.write(`${t}\n`); }
+function die(t) { process.stderr.write(`${t}\n`); process.exit(1); }
+
+function checkFlags(args, known, sub) {
+  const bad = Object.keys(args).filter((k) => k !== 'help' && k !== 'root' && !known.includes(k));
+  if (bad.length) {
+    die([
+      `${sub}: unknown flag '--${bad[0]}'`,
+      `Known: ${known.map((k) => `--${k}`).join(', ') || '(none)'}`,
+    ].join('\n'));
+  }
+}
+
+function isHelp(args) { return args.help === true; }
+
+function findRoot(args) {
+  if (args.root) return path.resolve(String(args.root));
+  const env = process.env.CHEAP_MEM_ROOT;
+  if (env) return path.resolve(env);
+  const walked = cfgmod.findRoot(process.cwd());
+  if (walked) return walked;
+  return process.cwd();
+}
+
+async function readStdin() {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function requireConfig(root) {
+  try {
+    return cfgmod.readConfig(root);
+  } catch (e) {
+    if (e.code === 'ENOCONFIG') die(e.message);
+    die(`Config error: ${e.message}`);
+  }
+}
+
+function whoAmIOrDie(root, args, cfg) {
+  const stored = inbox.whoAmI(root);
+  const chosen = args.as ?? stored;
+  if (!chosen) {
+    die([
+      `Who is this install in the channel?`,
+      `  Once:      mem whoami <${Object.keys(cfg.participants).join('|')}>`,
+      `  Per call:  --as <name>`,
+    ].join('\n'));
+  }
+  if (!Object.hasOwn(cfg.participants, chosen)) {
+    die(`'${chosen}' has no inbox. Known: ${Object.keys(cfg.participants).join(', ')}`);
+  }
+  return chosen;
+}
+
+const COMMANDS = {
+  init: async ({ args }) => {
+    checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
+    const root = args.root ? path.resolve(String(args.root)) : process.cwd();
+    const cfgPath = cfgmod.configPath(root);
+    if (fs.existsSync(cfgPath) && !args.force) {
+      out(`Already initialized: ${cfgPath}`);
+      out(`Pass --force to overwrite the config.`);
+      return;
+    }
+    let participants = cfgmod.DEFAULT_CONFIG.participants;
+    if (args.participants && typeof args.participants === 'string') {
+      participants = {};
+      for (const p of args.participants.split(',').map((s) => s.trim()).filter(Boolean)) {
+        participants[p] = `(role: ${p})`;
+      }
+    }
+    const cfg = {
+      ...cfgmod.DEFAULT_CONFIG,
+      participants,
+      defaultBranch: args.branch ?? cfgmod.DEFAULT_CONFIG.defaultBranch,
+      defaultRemote: args.remote ?? cfgmod.DEFAULT_CONFIG.defaultRemote,
+    };
+    cfgmod.writeConfig(root, cfg);
+
+    fs.mkdirSync(path.join(root, 'global'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'projects'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'inbox'), { recursive: true });
+
+    for (const f of ['decisions.jsonl', 'errors.jsonl', 'events.jsonl', 'timeline.jsonl']) {
+      const p = path.join(root, 'global', f);
+      if (!fs.existsSync(p)) fs.writeFileSync(p, '', 'utf8');
+    }
+    const facts = path.join(root, 'global', 'facts.yaml');
+    if (!fs.existsSync(facts)) fs.writeFileSync(facts,
+      '# stable facts about the user / setup\n# edited by humans or the librarian\n', 'utf8');
+    const people = path.join(root, 'global', 'people.yaml');
+    if (!fs.existsSync(people)) fs.writeFileSync(people, '# people directory\n', 'utf8');
+    const factsMd = path.join(root, 'FACTS.md');
+    if (!fs.existsSync(factsMd)) fs.writeFileSync(factsMd,
+      '# FACTS (always loaded at session start)\n\n' +
+      'Keep this short. Only what is TRUE RIGHT NOW and matters to every session.\n', 'utf8');
+
+    out(`Initialized cheap-mem at ${root}`);
+    out(`  config:       ${path.relative(root, cfgPath)}`);
+    out(`  participants: ${Object.keys(cfg.participants).join(', ')}`);
+    out(``);
+    out(`Next:`);
+    out(`  mem whoami <${Object.keys(cfg.participants).join('|')}>`);
+    out(`  git init && git add -A && git commit -m "init cheap-mem" && git remote add origin <url>`);
+  },
+
+  whoami: async ({ rest, args }) => {
+    checkFlags(args, [], 'whoami');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const name = rest[0];
+    if (!name) {
+      const now = inbox.whoAmI(root);
+      out(now ? `whoami: ${now}` : 'whoami: (not set)');
+      return;
+    }
+    inbox.setWhoAmI(root, cfg.participants, name);
+    out(`whoami: ${name} (saved to ${inbox.WHOAMI_FILE})`);
+  },
+
+  inbox: async ({ rest, args }) => {
+    const sub = rest[0] ?? 'new';
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+
+    if (sub === 'write') {
+      checkFlags(args, ['as', 'to', 'subject', 'text'], 'inbox write');
+      const from = whoAmIOrDie(root, args, cfg);
+      if (!args.to) die("Missing --to");
+      if (!args.subject) die("Missing --subject");
+      const text = args.text ?? await readStdin();
+      if (!text.trim()) die("Empty text (neither --text nor stdin)");
+      const { path: p } = inbox.write(root, cfg.participants, {
+        from, to: args.to, subject: args.subject, text,
+      });
+      out(`Written: ${path.relative(root, p)}`);
+      out('');
+      out(`Delivered only after:  git add . && git commit -m "inbox: ${args.subject}" && git push`);
+      return;
+    }
+
+    if (sub === 'all') {
+      checkFlags(args, ['as'], 'inbox all');
+      const to = whoAmIOrDie(root, args, cfg);
+      const { dir, messages } = inbox.read(root, cfg.participants, { to });
+      if (dir === null) { out(`No inbox dir yet under ${inbox.INBOX_DIR}.`); return; }
+      if (messages.length === 0) { out(`Empty inbox for '${to}'.`); return; }
+      out(`${messages.length} messages for '${to}':`);
+      for (const m of messages) {
+        out(`  [${m.state}] ${m.name}`);
+        out(`         ${m.subject} (from ${m.from})`);
+      }
+      return;
+    }
+
+    if (sub === 'new') {
+      checkFlags(args, ['as', 'no-mark'], 'inbox new');
+      const to = whoAmIOrDie(root, args, cfg);
+      const { new: fresh, known } = inbox.newFor(root, cfg.participants, { to });
+      if (fresh.length === 0) {
+        out(`Nothing new for '${to}'. ${known} known.`);
+        return;
+      }
+      out(`${fresh.length} new for '${to}': (${known} known)`);
+      for (const m of fresh) {
+        out(`  [${m.state}] ${m.name}`);
+        out(`         ${m.subject} (from ${m.from})`);
+      }
+      if (!args['no-mark']) {
+        inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
+      }
+      return;
+    }
+
+    if (sub === 'show') {
+      checkFlags(args, ['as'], 'inbox show');
+      const to = whoAmIOrDie(root, args, cfg);
+      const name = rest[1];
+      if (!name) die("Missing name (inbox show <name>)");
+      const p = path.join(inbox.inboxDir(root), name);
+      if (!fs.existsSync(p)) die(`'${name}' is not in the inbox`);
+      const content = fs.readFileSync(p, 'utf8');
+      const m = inbox.parse(content);
+      if (m.to !== to) out(`(Warning: this message is to '${m.to}', not '${to}')`);
+      process.stdout.write(content);
+      return;
+    }
+
+    if (sub === 'ack') {
+      checkFlags(args, [], 'inbox ack');
+      const name = rest[1];
+      const newState = rest[2] ?? 'replied';
+      if (!name) die("Missing name (inbox ack <name> [state])");
+      const m = inbox.setState(root, cfg.participants, name, newState);
+      out(`${name}: state -> ${m.state}`);
+      return;
+    }
+
+    if (sub === 'watch') {
+      checkFlags(args, ['as', 'branch', 'remote', 'skip-fetch'], 'inbox watch');
+      const to = args.as ?? inbox.whoAmI(root);
+      if (!to) die([
+        "Missing --as and no default set.",
+        "  Once: mem whoami <name>",
+        "  Or:   mem inbox watch --as <name>",
+      ].join('\n'));
+      const r = inbox.watch(root, cfg.participants, {
+        to,
+        branch: args.branch ?? cfg.defaultBranch,
+        remote: args.remote ?? cfg.defaultRemote,
+        skipFetch: Boolean(args['skip-fetch']),
+      });
+      if (r.status === 'broken') {
+        process.stderr.write(`broken: ${r.reason} — ${r.detail}\n`);
+        process.exit(3);
+      }
+      for (const u of (r.unreadable ?? [])) {
+        process.stderr.write(`unreadable name in inbox: ${u}\n`);
+      }
+      if (r.status === 'nothing') {
+        out(`nothing new for '${to}' (${r.known} known)`);
+        process.exit(0);
+      }
+      out(`${r.new.length} new for '${to}':`);
+      for (const n of r.new) out(`  ${n}`);
+      process.exit(1);
+    }
+
+    die([
+      `inbox: unknown subcommand '${sub}'`,
+      'Known: new (default), all, write, show, ack, watch',
+    ].join('\n'));
+  },
+
+  log: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        "mem log <type> [--project <name>] --<field> <value> [...]",
+        "",
+        `  Types: ${Object.keys(memory.TYPES).join(', ')}`,
+        "  Reserved: --project, --root",
+        "  Every other --flag becomes a field in the JSONL entry.",
+        "  --tags takes a comma-separated list.",
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    const type = rest[0];
+    if (!type) die([
+      "log: which type?",
+      `  Known: ${Object.keys(memory.TYPES).join(', ')}`,
+    ].join('\n'));
+    if (!Object.hasOwn(memory.TYPES, type)) {
+      die(`log: unknown type '${type}'. Known: ${Object.keys(memory.TYPES).join(', ')}`);
+    }
+    const data = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (k === 'project' || k === 'root' || k === 'help') continue;
+      if (k === 'tags' && typeof v === 'string') {
+        data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        data[k] = v;
+      }
+    }
+    if (Object.keys(data).length === 0) die("log: no data. Give at least one --field.");
+    const { path: p, entry } = memory.logEntry(root, type, data, { project: args.project ?? null });
+    out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
+    out(`  id: ${entry.id}`);
+    out(`  ts: ${entry.ts}`);
+    out('');
+    out(`Delivered after:  git add . && git commit -m "log ${type}: ..." && git push`);
+  },
+
+  find: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem find "<pattern>" [--type <t>] [--project <name>|global] [--since 7d|24h|30m|ISO]',
+        "",
+        `  --type: one of ${Object.keys(memory.TYPES).join(', ')}`,
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['type', 'project', 'since'], 'find');
+    const root = findRoot(args);
+    requireConfig(root);
+    const pattern = rest[0];
+    if (!pattern) die("find: no pattern. Example: mem find 'auth'");
+    const types = args.type ? [args.type] : Object.keys(memory.TYPES);
+    const projects = args.project
+      ? [args.project === 'global' ? null : args.project]
+      : null;
+    const since = args.since ? sinceOf(args.since) : null;
+    const hits = memory.find(root, pattern, { types, projects, since });
+    if (hits.length === 0) { out(`Nothing for '${pattern}'.`); return; }
+    out(`${hits.length} hits for '${pattern}':`);
+    for (const h of hits) {
+      out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}`);
+    }
+  },
+
+  context: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        "mem context [--n <count>]",
+        "",
+        "  --n: number of recent error entries (default 20)",
+        "         decisions and events show half of that.",
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['n'], 'context');
+    const root = findRoot(args);
+    requireConfig(root);
+    const n = Number(args.n ?? 20);
+    process.stdout.write(memory.context(root, { n }));
+    process.stdout.write('\n');
+  },
+
+  project: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem project init <name> [--title "Display name"]',
+        "",
+        "  Creates projects/<name>/ idempotently.",
+      ].join('\n'));
+      return;
+    }
+    const sub = rest[0];
+    if (sub !== 'init') {
+      die(`project: unknown subcommand '${sub ?? '(missing)'}'`);
+    }
+    checkFlags(args, ['title'], 'project init');
+    const root = findRoot(args);
+    requireConfig(root);
+    const name = rest[1];
+    if (!name) die("project init: name missing");
+    const { dir, created, existed } = memory.projectInit(root, name, { title: args.title ?? null });
+    out(`Project: ${path.relative(root, dir)}`);
+    if (created.length) out(`  created: ${created.join(', ')}`);
+    if (existed.length) out(`  existed: ${existed.join(', ')}`);
+  },
+
+  correction: async ({ rest, args }) => {
+    const type = rest[0];
+    const oldId = rest[1];
+    if (!type) die("correction: which type?");
+    if (!oldId) die("correction: old id missing");
+    const root = findRoot(args);
+    requireConfig(root);
+    const data = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (k === 'project' || k === 'root' || k === 'help') continue;
+      if (k === 'tags' && typeof v === 'string') {
+        data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        data[k] = v;
+      }
+    }
+    if (Object.keys(data).length === 0) die("correction: no fields");
+    const { path: p, entry } = memory.correctionEntry(
+      root, type, oldId, data, { project: args.project ?? null });
+    out(`Correction: ${path.relative(root, p)}`);
+    out(`  new id:     ${entry.id}`);
+    out(`  replaces:   ${entry.replaces_id}`);
+  },
+
+  version: async () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
+    out(`cheap-mem ${pkg.version}`);
+  },
+};
+
+function sinceOf(s) {
+  const m = /^(\d+)([dhm])$/.exec(s);
+  if (m) {
+    const [, n, unit] = m;
+    const ms = { d: 86400000, h: 3600000, m: 60000 }[unit] * Number(n);
+    return new Date(Date.now() - ms);
+  }
+  return new Date(s);
+}
+
+function compactLine(e) {
+  const parts = [];
+  if (e.class) parts.push(`[${e.class}]`);
+  if (e.topic) parts.push(`[${e.topic}]`);
+  if (e.title) parts.push(e.title);
+  if (e.choice) parts.push(`→ ${e.choice}`);
+  if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
+  if (e.why) parts.push(`because ${String(e.why).slice(0, 60)}`);
+  return parts.join(' — ') || '(no compact text)';
+}
+
+function countLines(p) {
+  return fs.readFileSync(p, 'utf8').split('\n').filter((z) => z.trim()).length;
+}
+
+// Pre-scan for a leading --root <path>, so it can appear before the subcommand.
+let raw = process.argv.slice(2);
+if (raw[0] === '--root' && raw[1] && !raw[1].startsWith('--')) {
+  process.env.CHEAP_MEM_ROOT = raw[1];
+  raw = raw.slice(2);
+}
+const [head, ...rest] = raw;
+const { args, rest: leftover } = parseArgs(rest);
+
+if (!head || head === '--help' || head === '-h' || head === 'help') {
+  out("mem — cheap-mem CLI");
+  out("");
+  out("Setup:");
+  out("  init [--participants a,b,c] [--branch main] [--remote origin]");
+  out("  whoami [<name>]                       who this install is (or set)");
+  out("");
+  out("Memory (append-only logs):");
+  out("  log <type>       [--project X] --<field> <value> ...");
+  out(`                    types: ${Object.keys(memory.TYPES).join(', ')}`);
+  out('  find "<pattern>" [--type T] [--project P|global] [--since 7d|24h|30m|ISO]');
+  out("  context          [--n 20]");
+  out("  correction <type> <old-id> [--project X] --<field> <value>");
+  out("  project init <name> [--title \"...\"]");
+  out("");
+  out("Inbox (cross-session messages):");
+  out("  inbox new        [--as N]              what is new for me");
+  out("  inbox all        [--as N]              all messages to me");
+  out("  inbox write      [--as N] --to N --subject \"...\" [< text.md]");
+  out("  inbox show <name> [--as N]");
+  out("  inbox ack <name> [state]               state -> replied (default)");
+  out("  inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]");
+  out("                    Exit code 0/1/3 for shell pollers.");
+  out("");
+  out("Global flags: --root <path>   memory root (else CHEAP_MEM_ROOT or walk cwd)");
+  process.exit(0);
+}
+
+const cmd = COMMANDS[head];
+if (!cmd) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
+try {
+  await cmd({ rest: leftover, args });
+} catch (e) {
+  die(`mem ${head}: ${e.message}`);
+}

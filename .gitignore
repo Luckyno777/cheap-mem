@@ -141,3 +141,10 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# cheap-mem local state (only appears in a user's memory clone, not this repo)
+.mem/inbox-seen.json
+.mem/inbox-whoami
+.mem/watch.log
+.mem/watch.lock
+.mem/reflect-marker/
