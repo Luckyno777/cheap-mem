@@ -129,3 +129,29 @@ test('prose about secrets is not treated as a secret', () => {
   const real = 'MY_TOKEN=supersecrettoken123';
   assert.notEqual(redaction.redact(real).text, real, 'a real secret slipped through');
 });
+
+test('the prose exception is not a hole for real secrets', () => {
+  // The first version tested the VALUE, and a real secret may contain
+  // a colon — so `MY_TOKEN=secret:aB3xY9kQ...` looked like prose and
+  // survived. Three of four realistic shapes got through.
+  //
+  // The exception now applies only when the value contains nothing
+  // that looks like a credential: a run of at least twelve characters
+  // mixing letters and digits.
+  for (const real of [
+    'export MY_TOKEN=secret:aB3xY9kQ7mZ2pL5wQ1',
+    'DB_PASSWORD=token:Xk9mQ2pL5wR8vT3n',
+    'API_KEY=password:s3cr3tV4lu3Str1ng',
+    'SESSION_KEY=credential:9fK2mZ8qR4tW7yB1',
+  ]) {
+    assert.notEqual(redaction.redact(real).text, real, `slipped through: ${real.slice(0, 30)}...`);
+  }
+
+  // And the prose the exception exists for stays intact.
+  for (const prose of [
+    'the patterns token=/api_key= are still missing',
+    'we match on password: and secret= in assignments',
+  ]) {
+    assert.equal(redaction.redact(prose).text, prose, `redacted prose: ${prose}`);
+  }
+});
