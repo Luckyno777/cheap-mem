@@ -34,8 +34,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import * as memory from '../../src/memory.mjs';
-import * as search from '../../src/search.mjs';
+import * as memory from '../src/memory.mjs';
+import * as search from '../src/search.mjs';
 
 const CHARS_PER_TOKEN = 4;
 const TOP = Number(process.env.BENCH_TOP ?? 5);

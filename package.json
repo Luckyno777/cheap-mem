@@ -8,8 +8,8 @@
     "mem-mcp": "./bin/mem-mcp"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "bench": "node test/bench/tokens.mjs"
+    "test": "node --test",
+    "bench": "node bench/tokens.mjs"
   },
   "engines": {
     "node": ">=18"

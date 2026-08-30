@@ -212,8 +212,15 @@ export function capture(root, transcriptPath, {
   };
 
   const body = [header, ...captured].map((o) => JSON.stringify(o)).join('\n') + '\n';
-  const dest = capturePath(root, stamp, now);
+  // The name has second resolution, so two captures of the same session
+  // inside one second land on the same path — and the second one used
+  // to overwrite the first, silently losing everything it held. The
+  // Stop hook can fire twice that fast.
+  let dest = capturePath(root, stamp, now);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
+  for (let n = 2; fs.existsSync(dest) && n < 1000; n += 1) {
+    dest = capturePath(root, stamp, now).replace(/\.jsonl\.gz$/, `-${n}.jsonl.gz`);
+  }
   fs.writeFileSync(dest, zlib.gzipSync(Buffer.from(body, 'utf8'), { level: 9 }));
 
   allOffsets[key] = { bytes: size, path: transcriptPath, last: header.__captured_at };

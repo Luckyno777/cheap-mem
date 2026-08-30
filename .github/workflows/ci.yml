@@ -1,0 +1,231 @@
+name: CI
+
+# Runs on every push and pull request. The point is not ceremony: the
+# tests only ever ran when a human remembered, and that human was always
+# the same person. This is the check that survives them.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: tests · ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Do not stop the others when one fails. A Windows-only failure is
+      # exactly the kind of thing worth seeing alongside a green Linux.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # --omit=optional on purpose: better-sqlite3 and sqlite-vec are
+      # optional dependencies, and the whole point is that cheap-mem
+      # works without them. Installing them here would hide a break in
+      # exactly the path most users take.
+      - run: npm ci --omit=optional
+
+      # `node --test` with no argument, never `test/*.test.mjs`:
+      # PowerShell does not expand globs, so the glob form passes on
+      # Linux and fails on Windows for a reason that has nothing to do
+      # with the code.
+      - run: npm test
+
+  smoke:
+    name: smoke · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+
+      # Can a stranger actually start? Unit tests answer "do the parts
+      # work"; this answers "does the thing run at all", which is the
+      # question the first user asks.
+      - name: init a fresh memory and check it
+        shell: bash
+        run: |
+          set -euo pipefail
+          MEMDIR="$(mktemp -d)"
+          node bin/mem --root "$MEMDIR" init
+          node bin/mem --root "$MEMDIR" log decision \
+            --topic ci --choice "run on three platforms" --why "windows breaks differently"
+          node bin/mem --root "$MEMDIR" find "why three platforms"
+          node bin/mem --root "$MEMDIR" duties
+          # doctor exits 1 on warnings; a fresh memory has some (no git
+          # hook, no stop hook), so only a hard failure counts here.
+          node bin/mem --root "$MEMDIR" doctor || test $? -ne 2
+
+      # The secret check must actually block a commit — not merely be
+      # configured. A hook can be wired up perfectly and never run.
+      - name: prove the redaction hook blocks a decoy
+        shell: bash
+        run: |
+          set -euo pipefail
+          MEMDIR="$(mktemp -d)"
+          cd "$MEMDIR"
+          git init -q .
+          git config user.email ci@example.test
+          git config user.name CI
+          node "$GITHUB_WORKSPACE/bin/mem" init
+          git add -A && git commit -q -m base --no-verify
+          node "$GITHUB_WORKSPACE/bin/mem" hooks install
+          printf 'Decoy, not a real secret.\nghp_%s\n' "$(printf 'A%.0s' $(seq 36))" > decoy.txt
+          git add decoy.txt
+          BEFORE="$(git rev-parse HEAD)"
+          if git commit -m "must be blocked"; then
+            echo "::error::the pre-commit hook let a planted token through"
+            exit 1
+          fi
+          test "$(git rev-parse HEAD)" = "$BEFORE"
+          echo "hook blocked the decoy, HEAD unchanged"
+
+  powershell:
+    name: powershell · windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+
+      # Until this job existed, the two PowerShell scripts had been
+      # written and reviewed but never executed — there is no PowerShell
+      # in the environment they were written in. Reading them found two
+      # real bugs, which is a poor argument that there are no more.
+      - name: parse the scripts
+        shell: pwsh
+        run: |
+          $failed = $false
+          $files = Get-ChildItem -Recurse -Filter *.ps1 |
+            Where-Object { $_.FullName -notmatch 'node_modules' }
+          if ($files.Count -lt 6) {
+            Write-Host "::error::expected at least 6 .ps1 files, found $($files.Count)"
+            exit 1
+          }
+          foreach ($f in $files) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              Write-Host "::error file=$($f.Name)::$($errors.Count) parse error(s)"
+              $errors | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
+              $failed = $true
+            } else { Write-Host "ok  $($f.Name)" }
+          }
+          if ($failed) { exit 1 }
+
+      # Parsing proves it is valid PowerShell. This proves it works:
+      # a real transcript in, a real capture out.
+      - name: mem-capture.ps1 actually captures
+        shell: pwsh
+        run: |
+          $mem = Join-Path $PWD 'bin/mem'
+          $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $memdir | Out-Null
+          node $mem --root $memdir init | Out-Null
+
+          # A transcript big enough to pass the capture threshold.
+          $lines = 1..400 | ForEach-Object {
+            @{ timestamp = '2026-01-01T00:00:00Z'
+               message = @{ content = "line $_ about deployment and errors" } } | ConvertTo-Json -Compress
+          }
+          $transcript = Join-Path $memdir 'transcript.jsonl'
+          Set-Content -Path $transcript -Value $lines
+
+          $env:CHEAP_MEM_ROOT = $memdir
+          $env:CLAUDE_TRANSCRIPT_PATH = $transcript
+          # Pipe a payload in rather than inheriting the runner's stdin:
+          # the hook reads stdin to the end when it is redirected, and an
+          # inherited handle that never closes hangs the job.
+          '{}' | & pwsh -NoProfile -File bin/mem-capture.ps1
+
+          $captured = Get-ChildItem -Path (Join-Path $memdir 'raw') -Recurse -Filter *.jsonl.gz -ErrorAction SilentlyContinue
+          if (-not $captured) {
+            Write-Host "::error::mem-capture.ps1 produced no capture"
+            exit 1
+          }
+          Write-Host "captured $($captured.Count) file(s)"
+
+          # And the redaction has to work on this path too.
+          Add-Content -Path $transcript -Value (
+            @{ message = @{ content = ("export GITHUB_TOKEN=ghp_" + ('K' * 36)) } } | ConvertTo-Json -Compress)
+          Add-Content -Path $transcript -Value ($lines[0..200])
+          '{}' | & pwsh -NoProfile -File bin/mem-capture.ps1
+
+          # Two captures, two files. They may well land in the same
+          # second, which is exactly the case that used to overwrite the
+          # first one and lose everything in it.
+          $after = Get-ChildItem -Path (Join-Path $memdir 'raw') -Recurse -Filter *.jsonl.gz
+          if ($after.Count -lt 2) {
+            Write-Host "::error::second capture did not produce its own file ($($after.Count) total)"
+            exit 1
+          }
+
+          $found = node $mem --root $memdir raw check
+          Write-Host $found
+          if ($found -notmatch 'Nothing found') {
+            Write-Host "::error::a secret survived capture on Windows"
+            exit 1
+          }
+
+      - name: mem-digest.ps1 exits cleanly when nothing is due
+        shell: pwsh
+        run: |
+          $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-d-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $memdir | Out-Null
+          node (Join-Path $PWD 'bin/mem') --root $memdir init | Out-Null
+          $env:CHEAP_MEM_ROOT = $memdir
+          # No captures, so nothing is due: the tick must be back out
+          # immediately with 0, starting no model.
+          '{}' | & pwsh -NoProfile -File bin/mem-digest.ps1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::digest tick exited $LASTEXITCODE with nothing to do"
+            exit 1
+          }
+
+  bench:
+    name: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+
+      # The README quotes numbers from this. Running it on every commit
+      # is what keeps them from quietly becoming false.
+      - name: token benchmark
+        run: |
+          set -euo pipefail
+          npm run bench | tee bench.txt
+          RECALL="$(grep -oE 'answer retrieved: +[0-9]+/[0-9]+' bench.txt | grep -oE '[0-9]+/[0-9]+')"
+          GOT="${RECALL%%/*}"
+          WANT="${RECALL##*/}"
+          echo "recall: $GOT of $WANT"
+          # A saving with a miss rate is not a saving. If retrieval drops
+          # below 12 of 15, the numbers in the README stop being true.
+          if [ "$GOT" -lt 12 ]; then
+            echo "::error::retrieval fell to $GOT/$WANT — the README claim no longer holds"
+            exit 1
+          fi

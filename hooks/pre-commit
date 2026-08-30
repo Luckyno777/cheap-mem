@@ -39,8 +39,12 @@ fi
 
 # First check that the redaction itself is intact. A broken guard that
 # says "all clear" is worse than no guard.
+# pathToFileURL, not a bare path: on Windows $PKG starts with a drive
+# letter, and node reads C: as a URL scheme — the import fails before it
+# ever looks at the file.
 HEALTH="$(node -e "
-import('$PKG/src/redaction.mjs').then(r=>{
+const {pathToFileURL}=require('url');
+import(pathToFileURL('$PKG/src/redaction.mjs').href).then(r=>{
   const t=r.selfTest();
   process.stdout.write(t.ok?'ok':'broken:'+t.failed.map(a=>a.type).join(','));
 }).catch(e=>process.stdout.write('broken:'+e.message))" 2>/dev/null)"
@@ -55,8 +59,9 @@ fi
 # already redacted at capture time and cannot be read usefully here.
 FINDINGS="$(git diff --cached --name-only --diff-filter=ACM | node -e "
 const fs=require('fs');
+const {pathToFileURL}=require('url');
 let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{
-  const r=await import('$PKG/src/redaction.mjs');
+  const r=await import(pathToFileURL('$PKG/src/redaction.mjs').href);
   const secrets=r.envSecrets();
   const found=[];
   for (const file of d.split('\n').filter(Boolean)) {

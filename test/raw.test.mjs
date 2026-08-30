@@ -141,3 +141,31 @@ test('marking digested is a union, never a replacement', () => {
     assert.deepEqual(wm.digested, ['a.gz', 'b.gz']);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('two captures in the same second keep both files', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-raw-'));
+  try {
+    // The Stop hook can fire twice inside one second. The storage name
+    // has second resolution, so the second capture used to overwrite
+    // the first — everything it held was gone, silently.
+    const now = new Date('2026-01-01T12:00:00Z');
+    const t = transcript(root, 't.jsonl', talk(200, 'talking about deployment'));
+    const a = raw.capture(root, t, { now });
+    assert.equal(a.status, 'captured');
+
+    fs.appendFileSync(t, `${talk(200, 'and more about errors')
+      .map((l) => JSON.stringify(l)).join('\n')}\n`);
+    const b = raw.capture(root, t, { now });
+    assert.equal(b.status, 'captured');
+
+    const files = fs.readdirSync(path.join(root, 'raw', '2026', '01'));
+    assert.equal(files.length, 2, `both captures should survive, got ${files.join(', ')}`);
+
+    const lines = files
+      .map((f) => zlib.gunzipSync(fs.readFileSync(path.join(root, 'raw', '2026', '01', f))))
+      .map((b2) => b2.toString('utf8').trim().split('\n').length)
+      .reduce((x, y) => x + y, 0);
+    // 200 + 200 payload lines plus one header per file.
+    assert.equal(lines, 402, 'no captured line may go missing');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
