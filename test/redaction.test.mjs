@@ -111,3 +111,21 @@ test('git and CI variables are not treated as secrets', () => {
   assert.deepEqual(flagged, ['MY_TOKEN'],
     `wrongly flagged: ${flagged.filter((n) => n !== 'MY_TOKEN').join(', ')}`);
 });
+
+test('prose about secrets is not treated as a secret', () => {
+  // Writing down which patterns are still missing — `token=/api_key=` —
+  // makes the env pattern match itself. Without this exception you can
+  // never commit your own bug report about the redaction. It happened.
+  for (const prose of [
+    'the patterns token=/api_key= are still missing',
+    'set GITHUB_TOKEN=<your-token> before running',
+    'we match on password: and secret= in assignments',
+  ]) {
+    assert.equal(redaction.redact(prose).text, prose, `redacted prose: ${prose}`);
+  }
+
+  // But a real secret whose VALUE happens to contain the word must
+  // still be caught — the exception requires a second assignment.
+  const real = 'MY_TOKEN=supersecrettoken123';
+  assert.notEqual(redaction.redact(real).text, real, 'a real secret slipped through');
+});

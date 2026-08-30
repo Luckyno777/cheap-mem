@@ -89,9 +89,26 @@ const HARMLESS = [
   /^\.\.\./,
 ];
 
+/**
+ * A "value" that itself looks like another assignment is prose ABOUT
+ * secrets, not a secret.
+ *
+ * Writing down which patterns are still missing — `token=/api_key=` —
+ * makes the env pattern match itself. Whoever writes about the rules
+ * trips them; without this exception you can never commit your own bug
+ * report about the redaction.
+ *
+ * Deliberately narrow: it requires a keyword FOLLOWED by `=` or `:`. A
+ * real secret like `supersecrettoken123` contains 'token' but no second
+ * assignment, so it still gets redacted.
+ */
+const PROSE_ABOUT_SECRETS =
+  /(token|secret|password|passwd|passphrase|apikey|api_key|private_key|credential|session_key)\s*[:=]/i;
+
 function isHarmless(s) {
   const t = String(s).trim();
   if (t.length < 8) return true;
+  if (PROSE_ABOUT_SECRETS.test(t)) return true;
   return HARMLESS.some((r) => r.test(t));
 }
 
