@@ -90,17 +90,33 @@ const HARMLESS = [
 ];
 
 /**
+ * Does this value look like an actual credential?
+ *
+ * Criterion: a contiguous run of at least 12 characters from the
+ * base64/hex alphabet that mixes LETTERS AND DIGITS. Prose almost
+ * never does that; generated keys almost always do.
+ */
+function looksLikeCredential(s) {
+  const runs = String(s).match(/[A-Za-z0-9_\-+/=]{12,}/g) ?? [];
+  return runs.some((r) => /[A-Za-z]/.test(r) && /\d/.test(r));
+}
+
+/**
  * A "value" that itself looks like another assignment is prose ABOUT
  * secrets, not a secret.
  *
- * Writing down which patterns are still missing — `token=/api_key=` —
- * makes the env pattern match itself. Whoever writes about the rules
- * trips them; without this exception you can never commit your own bug
- * report about the redaction.
+ * Writing down which patterns are still missing makes the env pattern
+ * match itself. Whoever writes about the rules trips them.
  *
- * Deliberately narrow: it requires a keyword FOLLOWED by `=` or `:`. A
- * real secret like `supersecrettoken123` contains 'token' but no second
- * assignment, so it still gets redacted.
+ * **The first version of this exception was a hole.** It tests the
+ * VALUE, and a real secret is allowed to contain a colon:
+ * `MY_TOKEN=secret:aB3xY9kQ7mZ2pL5wQ1` therefore looked like prose and
+ * survived unredacted. Three of four realistic shapes got through.
+ *
+ * So the exception now applies ONLY when the value contains nothing
+ * that looks like a credential. When in doubt, redact: an unreadable
+ * line of documentation costs readability, a leaked secret costs a key
+ * rotation.
  */
 const PROSE_ABOUT_SECRETS =
   /(token|secret|password|passwd|passphrase|apikey|api_key|private_key|credential|session_key)\s*[:=]/i;
@@ -108,7 +124,7 @@ const PROSE_ABOUT_SECRETS =
 function isHarmless(s) {
   const t = String(s).trim();
   if (t.length < 8) return true;
-  if (PROSE_ABOUT_SECRETS.test(t)) return true;
+  if (PROSE_ABOUT_SECRETS.test(t) && !looksLikeCredential(t)) return true;
   return HARMLESS.some((r) => r.test(t));
 }
 
