@@ -33,10 +33,20 @@ small English corpus: **13 of 14 queries returned the right top hit,
 until the OOM killer"). Details and the honest failure mode:
 [docs/architecture.md](docs/architecture.md).
 
-> **Not yet measured:** how many tokens this saves against an
-> Obsidian-style always-in-context setup. The design should use far
-> fewer, but until there is a benchmark in this repo, treat any
-> percentage you see as a guess. If you run one, send the numbers.
+**Tokens, measured** (`npm run bench`, 228 entries, 15 questions):
+
+| pattern | tokens | notes |
+|---|---:|---|
+| whole memory in every prompt | ~170,000 | always has the answer, pays for everything |
+| `mem context` once + `mem find` per question | ~5,800 | **96.6% less** |
+
+The benchmark also reports how often the cheap path actually retrieved
+the entry holding the answer — **14 of 15**. A saving with a miss rate
+is not a saving, so the number is printed next to the percentage and
+the miss is named. Tokens are estimated as characters/4, applied
+identically to both sides: trust the ratio, not the absolutes.
+
+Run it against your own memory and send the numbers if they differ.
 
 ## What lives where
 
@@ -128,7 +138,16 @@ mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem hooks install|check        arm and prove the secret check
 mem doctor                     is this memory healthy?
+
+mem embed setup|backfill|status    optional: semantic escalation
+mem find-embed "<query>"           paraphrase search (needs a key)
 ```
+
+`mem find` is the one you want. `find-embed` exists for the case BM25
+honestly cannot do — a true paraphrase with no word in common — and it
+costs a key, a network call and two native dependencies. Use `ollama`
+as the provider if the memory holds anything you would not send to a
+vendor.
 
 ## Autostart on macOS / Linux / Windows
 

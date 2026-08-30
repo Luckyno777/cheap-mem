@@ -14,6 +14,7 @@
 #
 # Uninstall:
 #   Unregister-ScheduledTask -TaskName 'cheap-mem-watch' -Confirm:$false
+#   Unregister-ScheduledTask -TaskName 'cheap-mem-digest' -Confirm:$false
 
 param(
   [switch]$SkipTask,
@@ -89,6 +90,58 @@ if (-not $SkipTask) {
   Write-Host "  user env:       CHEAP_MEM_ROOT=$env:CHEAP_MEM_ROOT"
   Write-Host "  user env:       MEM_WATCH_WHO=$env:MEM_WATCH_WHO"
   Write-Host ""
+
+  # ---------- 1b. The digest tick ----------
+  #
+  # A second task, every 10 minutes. It is deliberately cheap: it asks
+  # `mem digest due` and is normally back out in milliseconds without a
+  # lock, without git and without a model. The decision sits in the
+  # dueness check (volume / quiet / ceiling), not in the schedule.
+  #
+  # Skip with MEM_SKIP_DIGEST=1 — useful when the digest should run on
+  # a server rather than on this laptop.
+  if ($env:MEM_SKIP_DIGEST -ne '1') {
+    $DigestScript = Join-Path $RepoRoot 'bin\mem-digest.ps1'
+    if (-not (Test-Path $DigestScript)) {
+      Write-Warning "mem-digest.ps1 not found at $DigestScript — skipping the digest task"
+    } else {
+      $DigestTask = 'cheap-mem-digest'
+      Unregister-ScheduledTask -TaskName $DigestTask -Confirm:$false -ErrorAction SilentlyContinue
+
+      $dAction = New-ScheduledTaskAction `
+        -Execute 'powershell.exe' `
+        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$DigestScript`""
+
+      # At logon plus every 10 minutes, indefinitely.
+      $dTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+      $dTrigger.Repetition = (New-ScheduledTaskTrigger `
+        -Once -At (Get-Date) `
+        -RepetitionInterval (New-TimeSpan -Minutes 10) `
+        -RepetitionDuration ([TimeSpan]::MaxValue)).Repetition
+
+      # No RestartCount here: a failed digest must NOT be retried in a
+      # tight loop. The next tick is ten minutes away, and that is the
+      # right amount of patience for something that costs a model call.
+      $dSettings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+
+      Register-ScheduledTask `
+        -TaskName $DigestTask `
+        -Action $dAction `
+        -Trigger $dTrigger `
+        -Settings $dSettings `
+        -Principal $principal `
+        -Description 'cheap-mem digest tick (one model call when the pile is ripe)' | Out-Null
+
+      Write-Host "  scheduled task: $DigestTask (every 10 minutes)"
+      Write-Host "                  it only checks; the model runs when the pile is ripe"
+      Write-Host ""
+    }
+  }
 }
 
 # ---------- 2. Claude Desktop MCP registration ----------

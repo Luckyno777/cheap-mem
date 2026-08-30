@@ -148,3 +148,13 @@ vite.config.ts.timestamp-*
 .mem/watch.log
 .mem/watch.lock
 .mem/reflect-marker/
+
+# A memory accidentally created inside the package. `mem init` writes
+# these into whatever directory it is pointed at; running it here by
+# mistake must not put someone's memory skeleton into the tool.
+/.mem/
+/FACTS.md
+/global/
+/projects/
+/inbox/
+/raw/

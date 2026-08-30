@@ -27,6 +27,8 @@ import * as raw from '../src/raw.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
+import * as embedmod from '../src/embed/index.mjs';
+import * as embedHook from '../src/embed-hook.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -110,7 +112,17 @@ function whoAmIOrDie(root, args, cfg) {
 const COMMANDS = {
   init: async ({ args }) => {
     checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
-    const root = args.root ? path.resolve(String(args.root)) : process.cwd();
+    // `mem --root X init` and `mem init --root X` must mean the same
+    // thing. The pre-scan strips a LEADING --root out of argv and puts
+    // it in the environment, so args.root is empty in that form — and
+    // init silently initialised the current directory instead. That is
+    // how a stray .mem/ ended up inside this package during testing.
+    const root = args.root
+      ? path.resolve(String(args.root))
+      : (process.env.CHEAP_MEM_ROOT
+        ? path.resolve(process.env.CHEAP_MEM_ROOT)
+        : process.cwd());
+    fs.mkdirSync(root, { recursive: true });
     const cfgPath = cfgmod.configPath(root);
     if (fs.existsSync(cfgPath) && !args.force) {
       out(`Already initialized: ${cfgPath}`);
@@ -135,6 +147,8 @@ const COMMANDS = {
     fs.mkdirSync(path.join(root, 'global'), { recursive: true });
     fs.mkdirSync(path.join(root, 'projects'), { recursive: true });
     fs.mkdirSync(path.join(root, 'inbox'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'raw'), { recursive: true });
+    writeMemoryGitignore(root);
 
     for (const f of ['decisions.jsonl', 'errors.jsonl', 'events.jsonl', 'timeline.jsonl']) {
       const p = path.join(root, 'global', f);
@@ -597,6 +611,167 @@ const COMMANDS = {
     for (const g of thesaurus.THESAURUS) out(`  ${g.join(', ')}`);
   },
 
+  embed: async ({ rest, args }) => {
+    if (isHelp(args) || rest.length === 0) {
+      out([
+        'mem embed setup [--provider voyage|openai|ollama] [--model M]',
+        'mem embed backfill [--force]      embed entries written before setup',
+        'mem embed status                  provider, model, how many are stored',
+        'mem find-embed "<query>"          semantic search',
+        '',
+        '  This is the ESCALATION, not the default. `mem find` works with',
+        '  no key, no network and no cost — use it. Reach for embeddings',
+        '  only for true paraphrase with no word in common.',
+        '',
+        '  Needs: npm install better-sqlite3 sqlite-vec  (optional deps)',
+        '  Keys:  VOYAGE_API_KEY / OPENAI_API_KEY, or .mem/embed.env',
+        '         ollama needs no key and sends nothing off the machine.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (rest[0] === 'setup') {
+      checkFlags(args, ['provider', 'model', 'on-fail'], 'embed setup');
+      const provider = args.provider ?? 'voyage';
+      if (!embedmod.knownProviders().includes(provider)) {
+        die(`embed setup: unknown provider '${provider}'. `
+          + `Known: ${embedmod.knownProviders().join(', ')}`);
+      }
+      const cfg = { ...embedmod.DEFAULTS, provider, model: args.model ?? null };
+      if (args['on-fail']) cfg.onFail = args['on-fail'];
+      const written = embedmod.writeConfig(root, cfg);
+      // Read it back, so what we report is the model that will really
+      // be used — writeConfig stores `null` and readConfig resolves it.
+      const eff = embedmod.readConfig(root);
+      out(`Wrote ${path.relative(root, written)}`);
+      out(`  provider: ${eff.provider}`);
+      out(`  model:    ${eff.model} (${embedmod.dimensions(eff.provider, eff.model)} dim)`);
+      out('');
+      out('Next: npm install better-sqlite3 sqlite-vec');
+      out('      mem embed backfill');
+      return;
+    }
+
+    if (rest[0] === 'status') {
+      let cfg;
+      try { cfg = embedmod.readConfig(root); }
+      catch (e) { die(`embed status: ${e.message}`); }
+      out(`provider: ${cfg.provider}`);
+      out(`model:    ${cfg.model} (${embedmod.dimensions(cfg.provider, cfg.model)} dim)`);
+      const store = await import('../src/embed/store.mjs');
+      try {
+        const db = await store.open(root, embedmod.dimensions(cfg.provider, cfg.model));
+        out(`stored:   ${store.count(db)} entries`);
+        db.close();
+      } catch (e) {
+        out(`stored:   not readable — ${e.message.split('\n')[0]}`);
+      }
+      return;
+    }
+
+    if (rest[0] === 'backfill') {
+      checkFlags(args, ['force', 'project'], 'embed backfill');
+      const store = await import('../src/embed/store.mjs');
+      if (args.force) store.deleteDb(root);
+      let fresh = 0; let skipped = 0; let broken = 0;
+      let noKey = null;
+      const cfg = embedmod.readConfig(root);
+      const dim = embedmod.dimensions(cfg.provider, cfg.model);
+      const db = await store.open(root, dim);
+      try {
+        for (const project of [null, ...memory.listProjects(root)]) {
+          for (const type of Object.keys(memory.TYPES)) {
+            const file = memory.logPath(root, type, project);
+            if (!fs.existsSync(file)) continue;
+            const lines = fs.readFileSync(file, 'utf8').split('\n');
+            for (let i = 0; i < lines.length; i += 1) {
+              if (!lines[i].trim()) continue;
+              let e;
+              try { e = JSON.parse(lines[i]); } catch { continue; }
+              if (!e.id) continue;
+              const rel = path.relative(root, file);
+              if (!args.force && store.exists(db, rel, i + 1, e.id)) { skipped += 1; continue; }
+              const r = await embedHook.embedEntry(root, file, i + 1, e);
+              if (r.status === 'ok') fresh += 1;
+              else if (r.status === 'empty') skipped += 1;
+              else if (r.status === 'off') { noKey = r.reason; break; }
+              else {
+                broken += 1;
+                process.stderr.write(`${rel}:${i + 1} ${embedHook.warning(r)}\n`);
+              }
+            }
+            if (noKey) break;
+          }
+          if (noKey) break;
+        }
+      } finally { try { db.close(); } catch { /* fine */ } }
+
+      if (noKey) {
+        // Without a key not one entry can succeed. Say it once and
+        // stop, instead of counting thousands of identical failures.
+        process.stderr.write(`Backfill stopped: ${noKey}.\n`
+          + '  Embeddings are the optional escalation. Without a key,\n'
+          + '  `mem find` (BM25, no model) is unaffected.\n');
+        process.exit(2);
+      }
+      out(`Backfill done. new: ${fresh}, skipped: ${skipped}, broken: ${broken}`);
+      return;
+    }
+    die(`embed: unknown subcommand '${rest[0]}'. Known: setup, backfill, status`);
+  },
+
+  'find-embed': async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem find-embed "<query>" [--top N] [--type T] [--project P] [--since 7d]',
+        '',
+        '  Semantic search over the vector store. Needs `mem embed setup`',
+        '  and a backfill first. For everything else use `mem find` — it',
+        '  is faster, free, and works offline.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['top', 'type', 'project', 'since'], 'find-embed');
+    const root = findRoot(args);
+    requireConfig(root);
+    const query = rest[0];
+    if (!query) die('find-embed: no query.');
+
+    const store = await import('../src/embed/store.mjs');
+    const cfg = embedmod.readConfig(root);
+    const dim = embedmod.dimensions(cfg.provider, cfg.model);
+
+    let vector;
+    try { vector = await embedmod.embed(root, query, { cfg }); }
+    catch (e) {
+      if (e.code === 'NO_KEY') {
+        die(`find-embed: ${e.message}\n  Or just use: mem find "${query}"`);
+      }
+      die(`find-embed: ${e.message}`);
+    }
+
+    const db = await store.open(root, dim);
+    try {
+      const hits = store.search(db, vector, {
+        top: args.top ? Number(args.top) : 5,
+        type: args.type ?? null,
+        project: args.project ?? null,
+        since: args.since ? sinceOf(args.since) : null,
+      });
+      if (hits.length === 0) {
+        out(`Nothing for '${query}' (${store.count(db)} embedded entries).`);
+        return;
+      }
+      out(`${hits.length} semantic hits for '${query}':`);
+      for (const h of hits) {
+        out(`  ${h.source_file}:${h.line_number}  [${h.ts}]  ${h.score.toFixed(3)}`);
+        out(`    ${h.text.replace(/\s+/g, ' ').slice(0, 160)}`);
+      }
+    } finally { try { db.close(); } catch { /* fine */ } }
+  },
+
   hooks: async ({ rest, args }) => {
     if (isHelp(args) || rest.length === 0) {
       out([
@@ -933,4 +1108,46 @@ function proveHook(root) {
   lines.push('  LET THROUGH — the hook does not catch the decoy.');
   lines.push('  The third redaction layer is NOT armed.');
   return { ok: false, lines };
+}
+
+/**
+ * The memory's own .gitignore.
+ *
+ * **This is not tidiness, it is the difference between a key on your
+ * disk and a key in a public repository.** `.mem/embed.env` holds an
+ * API key; without this file the first `git add -A` commits it, and git
+ * forgets nothing. Everything else here is derived state that would
+ * only produce merge conflicts.
+ *
+ * Written on init, and merged (never overwritten) if one already
+ * exists — someone's own rules must survive.
+ */
+function writeMemoryGitignore(root) {
+  const p = path.join(root, '.gitignore');
+  const wanted = [
+    ['.mem/embed.env', 'API keys. NEVER commit this.'],
+    ['.mem/search-index.json', 'derived: rebuilt in milliseconds'],
+    ['.mem/vectors.db', 'derived: rebuild with `mem embed backfill`'],
+    ['.mem/raw-offsets.json', 'per-machine read positions'],
+    ['.mem/digest-bell.json', 'transient'],
+    ['.mem/digest.lock', 'transient'],
+    ['.mem/digest.log', 'local log'],
+    ['.mem/hooks/', 'generated by `mem hooks install`, machine-specific'],
+  ];
+  const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+  // Compare against the RULE, not the whole line: what gets written is
+  // the rule plus padding plus a comment. Matching whole lines made a
+  // second `mem init` append every rule again.
+  const present = existing.split('\n')
+    .map((l) => l.trim().split('#')[0].trim())
+    .filter(Boolean);
+  const have = new Set(present);
+  const missing = wanted.filter(([rule]) => !have.has(rule));
+  if (missing.length === 0) return { added: 0, path: p };
+
+  const block = ['', '# cheap-mem: derived state and secrets']
+    .concat(missing.map(([rule, why]) => `${rule.padEnd(26)}# ${why}`))
+    .join('\n');
+  fs.writeFileSync(p, existing ? `${existing.replace(/\n*$/, '')}\n${block}\n` : `${block.trimStart()}\n`);
+  return { added: missing.length, path: p };
 }
