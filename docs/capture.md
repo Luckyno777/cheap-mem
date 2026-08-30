@@ -120,3 +120,54 @@ machine name. There is a test for that.
 
 `__redacted` reports what was removed, by type and count. **The value
 itself is never recorded**, not here and not in any log.
+
+## Two checks that exist because of one bad afternoon
+
+`mem doctor` carries two findings that are not about whether the system
+runs, but about whether it is still protecting you.
+
+### `legacy` — what was captured under weaker rules
+
+The redaction only protects what was captured **after** it. Every gap
+closed later leaves material behind that was written under the old
+rules, and nobody looks again.
+
+That is not hypothetical. A capture made at 05:52 held three dashboard
+tokens in URLs; the pattern that would have caught them landed at
+06:37. The values stayed in the repository, and it surfaced only
+because a human grepped by hand.
+
+So `mem doctor` re-runs today's rules over yesterday's captures:
+
+```
+FAIL  legacy       162 spots in old raw material that today's rules
+                   would catch: env-secret x152, url-credentials x6
+```
+
+`mem raw check` lists where, by capture and line number. **Neither
+prints a value** — printing it would spread it a second time, into
+your terminal and your scrollback. To actually look, you ask for that
+line explicitly.
+
+The remedy is rotation, not history rewriting. Rewriting git history
+is expensive, breaks every clone, and does not reach forks or caches.
+Rotating a key takes a minute and is complete.
+
+### `behind` — pushed is not fixed
+
+Capture loads `src/redaction.mjs` from **its own clone** and never
+pulls by itself. A security fix sitting on `main` takes effect only
+after someone pulls — and in between, the machine keeps capturing with
+the old rules.
+
+That gap was an hour long once, and nobody noticed until the clone was
+updated for an unrelated reason.
+
+```
+WARN  behind       3 commits behind origin/main
+                   -> Capture uses the redaction from THIS clone.
+                      While it lags, it captures with old rules.
+```
+
+The check reads only what git already fetched — no network call, so
+`mem doctor` does not hang offline.

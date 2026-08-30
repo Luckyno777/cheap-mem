@@ -65,6 +65,8 @@ export function checkAll(root) {
   f.push(checkDigest(root));
   f.push(checkIndex(root));
   f.push(checkStopHook(root));
+  f.push(checkLegacyLeaks(root));
+  f.push(checkBehind(root));
   f.push(checkGitState(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
@@ -283,4 +285,86 @@ export function report({ findings, worst, summary }, { problemsOnly = false } = 
     + (worst === LEVEL.GOOD && summary.unknown
       ? ` (${summary.unknown} not checkable from here)` : ''));
   return lines.join('\n');
+}
+
+/**
+ * Do already-captured files contain secrets that TODAY's rules would
+ * catch?
+ *
+ * The redaction only protects what was captured after it. Every gap
+ * closed later leaves material behind that was written under weaker
+ * rules — and nobody looks again.
+ *
+ * That is not hypothetical: in the private ancestor, a capture made at
+ * 05:52 held three dashboard tokens in URLs; the gap was closed at
+ * 06:37, and the values stayed in the repository. It surfaced only
+ * because a human grepped by hand.
+ *
+ * **The finding never names a value.** Only kind and count.
+ */
+function checkLegacyLeaks(root) {
+  let captures;
+  try { captures = raw.listCaptures(root); }
+  catch { return finding('legacy', LEVEL.UNKNOWN, 'raw material unreadable'); }
+  if (captures.length === 0) return finding('legacy', LEVEL.GOOD, 'no raw material');
+
+  const CAP = 8 * 1024 * 1024;
+  let read = 0;
+  let truncated = false;
+  const hits = new Map();
+
+  for (const rel of captures) {
+    if (read >= CAP) { truncated = true; break; }
+    let lines;
+    try { ({ lines } = raw.readCapture(root, rel)); }
+    catch { continue; }
+    for (const l of lines) {
+      const text = JSON.stringify(l);
+      read += text.length;
+      if (read >= CAP) { truncated = true; break; }
+      for (const f of redaction.redact(text).found) {
+        hits.set(f.type, (hits.get(f.type) ?? 0) + f.count);
+      }
+    }
+  }
+
+  const total = [...hits.values()].reduce((a, b) => a + b, 0);
+  if (total === 0) {
+    return finding('legacy', LEVEL.GOOD,
+      `${captures.length} captures checked${truncated ? ' (cap reached)' : ''}, nothing found`);
+  }
+  const kinds = [...hits].sort((a, b) => b[1] - a[1]).map(([t, n]) => `${t} x${n}`).join(', ');
+  return finding('legacy', LEVEL.ERROR,
+    `${total} spots in old raw material that today's rules would catch: ${kinds}`,
+    'These values were written under weaker rules and sit unredacted in the repository. '
+    + 'Rotate the affected keys — cheaper and safer than rewriting git history. '
+    + 'Locations without values: mem raw check');
+}
+
+/**
+ * Is this clone behind origin?
+ *
+ * **Pushed is not fixed.** Capture loads src/redaction.mjs from THIS
+ * clone and never pulls by itself. A security fix sitting on main takes
+ * effect here only after a pull — and in between, the machine keeps
+ * capturing with the old rules.
+ *
+ * Uses only `git rev-list` against the already-fetched origin: no
+ * network, so doctor does not hang offline.
+ */
+function checkBehind(root) {
+  const branch = quietRun('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD']);
+  if (branch === null) return finding('behind', LEVEL.UNKNOWN, 'git not runnable');
+  const b = branch.trim();
+  const count = quietRun('git', ['-C', root, 'rev-list', '--count', `HEAD..origin/${b}`]);
+  if (count === null) {
+    return finding('behind', LEVEL.UNKNOWN, `no origin/${b} known — never fetched?`,
+      `git -C ${root} fetch origin ${b}`);
+  }
+  const n = Number(count.trim());
+  if (!Number.isFinite(n)) return finding('behind', LEVEL.UNKNOWN, 'count unreadable');
+  if (n === 0) return finding('behind', LEVEL.GOOD, `up to date with origin/${b}`);
+  return finding('behind', LEVEL.WARN, `${n} commits behind origin/${b}`,
+    'Capture uses the redaction from THIS clone. While it lags, it captures with '
+    + `old rules: git -C ${root} pull`);
 }

@@ -443,6 +443,7 @@ const COMMANDS = {
         'mem raw pending [--json]        what the digest has not processed yet',
         'mem raw show <path> [--head] [--from N] [--count M]',
         'mem raw digested <path> ...     mark captures as digested',
+        'mem raw check                   old captures that today\'s rules would redact',
         '',
         '  A capture can hold thousands of lines. Read a big one in',
         '  windows: --head reports __lines, then --from/--count.',
@@ -484,6 +485,47 @@ const COMMANDS = {
       return;
     }
 
+    if (sub === 'check') {
+      // Show where old raw material still holds secrets that today's
+      // rules would catch. NEVER prints a value: printing it would
+      // spread it a second time, into the terminal and the scrollback.
+      checkFlags(args, ['json'], 'raw check');
+      const captures = raw.listCaptures(root);
+      const seen = new Map();
+      for (const rel of captures) {
+        let lines;
+        try { ({ lines } = raw.readCapture(root, rel)); } catch { continue; }
+        for (let i = 0; i < lines.length; i += 1) {
+          const found = redaction.redact(JSON.stringify(lines[i])).found;
+          for (const f of found) {
+            const k = `${f.type}|${rel}`;
+            if (!seen.has(k)) seen.set(k, { type: f.type, capture: rel, lines: new Set(), count: 0 });
+            const g = seen.get(k);
+            g.count += f.count;
+            g.lines.add(i + 1);
+          }
+        }
+      }
+      if (seen.size === 0) { out('Nothing found.'); return; }
+      if (args.json) {
+        out(JSON.stringify([...seen.values()].map((g) => ({
+          type: g.type, capture: g.capture, count: g.count, lines: [...g.lines].slice(0, 20),
+        })), null, 2));
+        return;
+      }
+      out(`${seen.size} locations across ${captures.length} captures.`);
+      out('Values are deliberately not shown.');
+      out('');
+      for (const g of [...seen.values()].sort((a, b) => b.count - a.count)) {
+        out(`  ${g.type.padEnd(20)} x${String(g.count).padStart(4)}  ${g.capture}`);
+        out(`  ${' '.repeat(20)}       lines ${[...g.lines].slice(0, 6).join(', ')}${g.lines.size > 6 ? ' …' : ''}`);
+      }
+      out('');
+      out('To look (the value then appears in your terminal):');
+      out('  mem raw show <capture> --from <line-1> --count 1');
+      return;
+    }
+
     if (sub === 'digested') {
       const paths = rest.slice(1);
       if (paths.length === 0) die('raw digested: name at least one capture');
@@ -491,7 +533,7 @@ const COMMANDS = {
       out(`${n} captures marked digested.`);
       return;
     }
-    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested`);
+    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check`);
   },
 
   digest: async ({ rest, args }) => {
