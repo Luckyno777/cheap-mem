@@ -4,8 +4,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const MEM = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..', 'bin', 'mem');
+// fileURLToPath, not URL.pathname: on Windows the pathname is
+// "/D:/a/..." with a leading slash, and path.resolve then glues the
+// current drive in front of it — "D:\\D:\\a\\...", which resolves to
+// nothing. Every test using this helper failed on Windows and only
+// there.
+const MEM = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'mem');
 
 function init(root, extra = []) {
   return execFileSync('node', [MEM, '--root', root, 'init', ...extra],

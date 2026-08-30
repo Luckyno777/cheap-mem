@@ -133,9 +133,15 @@ function checkGitHook(root) {
     return finding('git-hook', LEVEL.ERROR, `core.hooksPath=${p}, but ${hookPath} is missing`,
       'mem hooks install');
   }
+  // On Windows git runs hooks through its bundled bash, so that is
+  // what has to be probed; starting the file itself would always fail
+  // and report a broken hook that works perfectly.
   let attempt;
-  try { attempt = spawnSync(hookPath, [], { encoding: 'utf8', timeout: 10000 }); }
-  catch (e) { attempt = { error: e }; }
+  try {
+    attempt = process.platform === 'win32'
+      ? spawnSync('bash', [hookPath], { encoding: 'utf8', timeout: 10000 })
+      : spawnSync(hookPath, [], { encoding: 'utf8', timeout: 10000 });
+  } catch (e) { attempt = { error: e }; }
   if (attempt.error) {
     const reason = attempt.error.code === 'EACCES'
       ? 'execve refused (noexec mount? container volume?)'

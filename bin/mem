@@ -1142,7 +1142,15 @@ function proveHook(root) {
     const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
     spawnSync('git', ['-C', root, 'read-tree', 'HEAD'], { env, stdio: 'ignore' });
     spawnSync('git', ['-C', root, 'add', '-f', decoy], { env, stdio: 'ignore' });
-    const r = spawnSync(hookPath, [], { env, cwd: root, stdio: 'ignore' });
+    // How git starts a hook differs by platform, and the point of this
+    // probe is to start it the same way git will. On unix that is
+    // execve on the file itself — which is what catches a noexec
+    // mount. On Windows git hands the file to its bundled bash, so
+    // starting the file directly would always fail and report a
+    // problem that is not there.
+    const r = process.platform === 'win32'
+      ? spawnSync('bash', [hookPath], { env, cwd: root, stdio: 'ignore' })
+      : spawnSync(hookPath, [], { env, cwd: root, stdio: 'ignore' });
     blocked = r.error ? -1 : (r.status ?? 0);
   } finally {
     try { fs.unlinkSync(decoy); } catch { /* fine */ }
