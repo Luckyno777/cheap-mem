@@ -1,0 +1,372 @@
+#!/usr/bin/env node
+/**
+ * mem-mcp — MCP server that exposes cheap-mem operations as tools.
+ *
+ * Uses stdio transport. Wire it up in any MCP-capable client:
+ *
+ *   Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json):
+ *     {
+ *       "mcpServers": {
+ *         "cheap-mem": {
+ *           "command": "node",
+ *           "args": ["/absolute/path/to/cheap-mem/bin/mem-mcp"],
+ *           "env": { "CHEAP_MEM_ROOT": "/absolute/path/to/your/memory" }
+ *         }
+ *       }
+ *     }
+ *
+ *   Cursor:
+ *     Settings → MCP → Add server, same shape.
+ *
+ *   Claude Code:
+ *     claude mcp add cheap-mem --scope user -- node /path/to/mem-mcp
+ *
+ * Requires CHEAP_MEM_ROOT env (or the client's env config) to point at
+ * an initialized memory (a dir containing .mem/config.json).
+ */
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as memory from '../src/memory.mjs';
+import * as search from '../src/search.mjs';
+import * as thesaurus from '../src/thesaurus.mjs';
+import * as raw from '../src/raw.mjs';
+import * as inbox from '../src/inbox.mjs';
+import * as cfgmod from '../src/config.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PKG_ROOT = path.dirname(HERE);
+
+function resolveRoot() {
+  if (process.env.CHEAP_MEM_ROOT) return path.resolve(process.env.CHEAP_MEM_ROOT);
+  const walked = cfgmod.findRoot(process.cwd());
+  if (walked) return walked;
+  throw new Error(
+    'No memory root found. Set env CHEAP_MEM_ROOT to a directory that has .mem/config.json ' +
+    '(create it with `mem init`).');
+}
+
+function textResult(text) {
+  return { content: [{ type: 'text', text }] };
+}
+
+const TOOLS = [
+  {
+    name: 'mem_log',
+    description:
+      'Append an entry to the memory log. Nine types: decision, error, event, timeline, ' +
+      'thought, learning, duty, skill, update. ' +
+      'Provide `type`, optionally `project`, and any string fields (title, text, topic, choice, why, class). ' +
+      '`tags` can be an array. Use this whenever the user makes a decision, hits an error, ' +
+      'completes something notable, or a fact about them changes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        type: { type: 'string', enum: Object.keys(memory.TYPES) },
+        project: { type: 'string', description: 'Project key (else global)' },
+        title: { type: 'string' },
+        text: { type: 'string' },
+        topic: { type: 'string' },
+        choice: { type: 'string' },
+        why: { type: 'string' },
+        class: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['type'],
+    },
+  },
+  {
+    name: 'mem_find',
+    description:
+      'Ranked search across the memory — no model, no network, a few milliseconds. ' +
+      'BM25 over weighted fields, widened by a curated thesaurus and by a tag graph ' +
+      'learned from the user\'s own entries, so it finds things worded differently. ' +
+      'Raw captures not yet digested are included at low weight and marked. ' +
+      'Use this BEFORE logging (to avoid duplicates) and whenever the user references ' +
+      'something you might already know.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Natural words, not a regex' },
+        type: { type: 'string', enum: Object.keys(memory.TYPES) },
+        project: { type: 'string' },
+        since: { type: 'string', description: 'ISO time or relative: 7d, 24h, 30m' },
+        top: { type: 'number', description: 'How many hits (default 10)' },
+        literal: { type: 'boolean', description: 'Plain substring search instead' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'mem_duties',
+    description:
+      'What is still owed. Duty is the only type with a lifecycle: closing one appends ' +
+      'a line rather than editing the original, and this folds the log into a current view. ' +
+      'Call it when the user asks what is open, or at the start of a work session.',
+    inputSchema: {
+      type: 'object',
+      properties: { project: { type: 'string' } },
+    },
+  },
+  {
+    name: 'mem_duty_close',
+    description:
+      'Close a duty that has been fulfilled. Appends a closing line; the original stays. ' +
+      'Only use this when there is evidence the thing was actually done.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        why: { type: 'string' },
+        state: { type: 'string', enum: ['done', 'dropped'] },
+        project: { type: 'string' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'mem_context',
+    description:
+      'Compact dump of the memory (recent errors, decisions, events, and project list). ' +
+      'Call this at the start of a session, once, to know what has happened.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        n: { type: 'number', description: 'Recent errors to show (default 20)' },
+      },
+    },
+  },
+  {
+    name: 'mem_inbox_new',
+    description:
+      'List new inbox messages addressed to `to`. Marks them seen unless no_mark is true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Participant name (else uses whoami)' },
+        no_mark: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'mem_inbox_show',
+    description: 'Show one inbox message in full.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Message filename' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'mem_inbox_write',
+    description: 'Write a new inbox message. Delivered only after commit + push.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Participant (else uses whoami)' },
+        to: { type: 'string' },
+        subject: { type: 'string' },
+        text: { type: 'string' },
+      },
+      required: ['to', 'subject', 'text'],
+    },
+  },
+  {
+    name: 'mem_inbox_ack',
+    description: 'Change the state of a message (open|replied|processed|closed).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        state: { type: 'string', enum: ['open', 'replied', 'processed', 'closed'] },
+      },
+      required: ['name', 'state'],
+    },
+  },
+  {
+    name: 'mem_project_init',
+    description: 'Idempotently create projects/<name>/ with the standard skeleton.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        title: { type: 'string' },
+      },
+      required: ['name'],
+    },
+  },
+];
+
+async function handleCall(name, args) {
+  const root = resolveRoot();
+  const cfg = cfgmod.readConfig(root);
+
+  switch (name) {
+    case 'mem_log': {
+      const { type, project = null, tags, ...fields } = args;
+      const data = { ...fields };
+      if (Array.isArray(tags)) data.tags = tags;
+      const { path: p, entry } = memory.logEntry(root, type, data, { project });
+      return textResult(
+        `Appended: ${path.relative(root, p)}\n  id: ${entry.id}\n  ts: ${entry.ts}\n\n` +
+        `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'log ${type}: ...' && git -C ${root} push`);
+    }
+    case 'mem_find': {
+      const { query, pattern, type, project, since, top, literal } = args;
+      const q = query ?? pattern;   // `pattern` kept for older callers
+      if (!q) return textResult('mem_find needs a query.');
+      const s = since ? sinceOf(since) : null;
+
+      if (literal) {
+        const types = type ? [type] : Object.keys(memory.TYPES);
+        const projects = project ? [project === 'global' ? null : project] : null;
+        const hits = memory.find(root, q, { types, projects, since: s });
+        if (!hits.length) return textResult(`No literal hits for '${q}'.`);
+        return textResult(hits.slice(0, 50).map((h) =>
+          `${h._source}:${h._line}  [${h.ts ?? '?'}]  ${shortLine(h)}`).join('\n'));
+      }
+
+      const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
+      thesaurus.loadUserGroups(root, fs, path);
+      const index = search.loadIndex(root, { language: cfg.language });
+      const ranked = search.search(index, q, {
+        top: top ?? 10, type: type ?? null, project: project ?? null,
+        since: s, language: cfg.language,
+      });
+      if (!ranked.length) {
+        return textResult(`No hits for '${q}' (${index.N} entries). Try literal:true.`);
+      }
+      return textResult(ranked.map((h) => {
+        const mark = h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '';
+        const preview = h.raw
+          ? (raw.snippet(root, h.source, q) || String(h.entry.text ?? '').slice(0, 200))
+          : shortLine(h.entry);
+        return `${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}\n`
+          + `  ${String(preview).replace(/\s+/g, ' ').slice(0, 200)}`;
+      }).join('\n'));
+    }
+
+    case 'mem_duties': {
+      const { open, done } = memory.openDuties(root,
+        { project: args.project === undefined ? undefined : args.project });
+      if (!open.length) return textResult(`Nothing open (${done.length} closed).`);
+      return textResult([`${open.length} open:`, ...open.map((d) =>
+        `  [${d.id}] ${d.owner ? `@${d.owner} ` : ''}${d.title ?? d.text ?? '?'}  (since ${d.ts})`)]
+        .join('\n'));
+    }
+
+    case 'mem_duty_close': {
+      const { entry } = memory.closeDuty(root, args.id, {
+        state: args.state ?? memory.DUTY_STATE.DONE,
+        why: args.why ?? null,
+        project: args.project ?? null,
+      });
+      return textResult(`Closed ${args.id} (${entry.state}). New line: ${entry.id}`);
+    }
+
+    case 'mem_context': {
+      const n = Number(args?.n ?? 20);
+      return textResult(memory.context(root, { n }));
+    }
+    case 'mem_inbox_new': {
+      const to = args?.to ?? inbox.whoAmI(root);
+      if (!to) throw new Error("no 'to' and whoami not set");
+      const { new: fresh, known } = inbox.newFor(root, cfg.participants, { to });
+      if (!args?.no_mark && fresh.length) {
+        inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
+      }
+      if (!fresh.length) return textResult(`Nothing new for '${to}'. ${known} known.`);
+      return textResult(
+        `${fresh.length} new for '${to}': (${known} known)\n` +
+        fresh.map((m) => `  [${m.state}] ${m.name}\n         ${m.subject} (from ${m.from})`).join('\n'));
+    }
+    case 'mem_inbox_show': {
+      const p = path.join(inbox.inboxDir(root), args.name);
+      const fs = await import('node:fs');
+      if (!fs.existsSync(p)) throw new Error(`'${args.name}' not found`);
+      return textResult(fs.readFileSync(p, 'utf8'));
+    }
+    case 'mem_inbox_write': {
+      const from = args.from ?? inbox.whoAmI(root);
+      if (!from) throw new Error("no 'from' and whoami not set");
+      const { path: p } = inbox.write(root, cfg.participants, {
+        from, to: args.to, subject: args.subject, text: args.text,
+      });
+      return textResult(
+        `Written: ${path.relative(root, p)}\n\n` +
+        `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'inbox: ${args.subject}' && git -C ${root} push`);
+    }
+    case 'mem_inbox_ack': {
+      const m = inbox.setState(root, cfg.participants, args.name, args.state);
+      return textResult(`${args.name}: state -> ${m.state}`);
+    }
+    case 'mem_project_init': {
+      const { dir, created, existed } = memory.projectInit(root, args.name, { title: args.title ?? null });
+      return textResult(
+        `Project: ${path.relative(root, dir)}\n` +
+        (created.length ? `  created: ${created.join(', ')}\n` : '') +
+        (existed.length ? `  existed: ${existed.join(', ')}\n` : ''));
+    }
+    default:
+      throw new Error(`Unknown tool: ${name}`);
+  }
+}
+
+function sinceOf(s) {
+  const m = /^(\d+)([dhm])$/.exec(s);
+  if (m) {
+    const [, n, unit] = m;
+    const ms = { d: 86400000, h: 3600000, m: 60000 }[unit] * Number(n);
+    return new Date(Date.now() - ms);
+  }
+  return new Date(s);
+}
+
+function shortLine(e) {
+  const parts = [];
+  if (e.class) parts.push(`[${e.class}]`);
+  if (e.topic) parts.push(`[${e.topic}]`);
+  if (e.title) parts.push(e.title);
+  if (e.choice) parts.push(`→ ${e.choice}`);
+  if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
+  return parts.join(' — ') || '(no summary)';
+}
+
+async function main() {
+  const fs = await import('node:fs');
+  const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
+
+  const server = new Server(
+    { name: 'cheap-mem', version: pkg.version },
+    { capabilities: { tools: {} } },
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    try {
+      return await handleCall(req.params.name, req.params.arguments ?? {});
+    } catch (e) {
+      return {
+        content: [{ type: 'text', text: `Error: ${e.message}` }],
+        isError: true,
+      };
+    }
+  });
+
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+}
+
+main().catch((e) => {
+  process.stderr.write(`mem-mcp fatal: ${e.stack || e.message}\n`);
+  process.exit(1);
+});

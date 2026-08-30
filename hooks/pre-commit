@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# pre-commit — the third line of defence against secrets.
+#
+# The redaction inside capture (src/redaction.mjs) is the first layer,
+# the env match is the second. This hook is the third: it checks what
+# is ACTUALLY about to be committed — no matter who wrote it, no matter
+# which path it came in by.
+#
+# With it, a leak needs two mistakes instead of one.
+#
+# Install (once per clone):  bash hooks/install.sh
+#   That script also proves the hook really fires, which `git config`
+#   alone cannot tell you.
+#
+# Bypass (only with a good reason):  git commit --no-verify
+
+set -u
+
+# Two different directories, and mixing them up is the whole trap:
+#   ROOT  the memory being committed to (found from the working tree)
+#   PKG   the cheap-mem installation that owns the redaction module
+#
+# The generated hook in the memory passes PKG in. If it is missing we
+# fall back to this file's own location — that covers running the hook
+# straight out of a cheap-mem checkout.
+#
+# An earlier version looked for src/redaction.mjs under ROOT and quietly
+# exited 0 when it was not there. That is a hook which reports success
+# while checking nothing; a planted token went straight through.
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+PKG="${CHEAP_MEM_PKG:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+if [ ! -f "$PKG/src/redaction.mjs" ]; then
+  echo "pre-commit: cannot find the redaction module (looked in $PKG)." >&2
+  echo "  The commit is refused, because the check cannot run." >&2
+  echo "  Fix with: mem hooks install" >&2
+  exit 1
+fi
+
+# First check that the redaction itself is intact. A broken guard that
+# says "all clear" is worse than no guard.
+HEALTH="$(node -e "
+import('$PKG/src/redaction.mjs').then(r=>{
+  const t=r.selfTest();
+  process.stdout.write(t.ok?'ok':'broken:'+t.failed.map(a=>a.type).join(','));
+}).catch(e=>process.stdout.write('broken:'+e.message))" 2>/dev/null)"
+
+if [ "${HEALTH#broken}" != "$HEALTH" ]; then
+  echo "pre-commit: the redaction has failed ($HEALTH)." >&2
+  echo "  The commit is refused, because the check cannot be trusted." >&2
+  exit 1
+fi
+
+# Check the staged content. Text files only; gz and binaries were
+# already redacted at capture time and cannot be read usefully here.
+FINDINGS="$(git diff --cached --name-only --diff-filter=ACM | node -e "
+const fs=require('fs');
+let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{
+  const r=await import('$PKG/src/redaction.mjs');
+  const secrets=r.envSecrets();
+  const found=[];
+  for (const file of d.split('\n').filter(Boolean)) {
+    if (/\.(gz|png|jpg|jpeg|gif|pdf|zip|woff2?|ico)\$/i.test(file)) continue;
+    let content;
+    try { content=fs.readFileSync('$ROOT/'+file,'utf8'); } catch { continue; }
+    if (content.length > 5*1024*1024) continue;
+    // Files that deliberately contain sample secrets (the redaction
+    // itself, its tests) carry the marker CANARY FILE. Without that,
+    // redaction.mjs could never be committed. A path list would be
+    // wrong here — it goes stale; the marker travels with the file.
+    if (content.includes('CANARY'+' FILE')) continue;
+    const a=r.redact(content);
+    const b=r.redactAgainstEnv(content, secrets);
+    for (const f of [...a.found, ...b.found]) found.push(file+': '+f.type+' x'+f.count);
+  }
+  process.stdout.write(found.join('\n'));
+});" 2>/dev/null)"
+
+if [ -n "$FINDINGS" ]; then
+  echo "" >&2
+  echo "pre-commit: POSSIBLE SECRETS in the staged content:" >&2
+  echo "" >&2
+  echo "$FINDINGS" | sed 's/^/  /' >&2
+  echo "" >&2
+  echo "  The value is deliberately not shown." >&2
+  echo "  Check the spot, remove the secret, and rotate the key if it" >&2
+  echo "  ever reached anywhere." >&2
+  echo "" >&2
+  echo "  False positive?  git commit --no-verify" >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

@@ -141,3 +141,20 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# cheap-mem local state (only appears in a user's memory clone, not this repo)
+.mem/inbox-seen.json
+.mem/inbox-whoami
+.mem/watch.log
+.mem/watch.lock
+.mem/reflect-marker/
+
+# A memory accidentally created inside the package. `mem init` writes
+# these into whatever directory it is pointed at; running it here by
+# mistake must not put someone's memory skeleton into the tool.
+/.mem/
+/FACTS.md
+/global/
+/projects/
+/inbox/
+/raw/

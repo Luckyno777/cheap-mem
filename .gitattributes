@@ -1,0 +1,13 @@
+# Every drawer is append-only: two sessions independently add lines at
+# the end of a file. A normal merge sees a conflict ("both changed the
+# last line") and stops — while the right answer is always the same:
+# keep both.
+#
+# `merge=union` does exactly that: git concatenates both sides with no
+# conflict markers. For JSONL this is correct, because every line
+# stands on its own and the order does not matter — each entry carries
+# its own `ts`.
+#
+# Do NOT use this for structured files (JSON, YAML): union would glue
+# two halves of an object together and destroy the file.
+*.jsonl merge=union

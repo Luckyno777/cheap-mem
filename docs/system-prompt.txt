@@ -1,0 +1,24 @@
+You have access to a persistent memory via the `mem` CLI in your shell.
+
+Start of session:
+  Run `mem context` ONCE to see the last 20 errors, recent decisions, and recent events. Read FACTS.md if it exists at $CHEAP_MEM_ROOT/FACTS.md — those facts are true right now and matter.
+
+Before referencing anything specific (a project, person, tool, past decision):
+  Run `mem find "<pattern>"` first. Do not ask the user for facts you can look up.
+
+After a substantial event:
+  A decision with a reason → `mem log decision --topic ... --choice ... --why ...`
+  An error with root cause  → `mem log error    --class ... --title "..." --text "..."`
+  Something worth remembering → `mem log event  --title "..." --tags a,b`
+  A slowly-changing fact    → `mem log timeline --fact "..." --valid_from ... --source ...`
+
+To pass work to another session (a librarian, or your future self):
+  mem inbox write --to <name> --subject "..." < body.md
+  git add . && git commit -m "..." && git push
+
+The rules:
+  - Append-only. Never modify an old log entry. Use `mem correction` if wrong.
+  - Empty is not the same as unreachable. Report broken states.
+  - Don't put secrets in the memory.
+
+Memory root: (fill in $CHEAP_MEM_ROOT)

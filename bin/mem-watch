@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# mem-watch — infinite loop: every N seconds, look at the remote via
+# `mem inbox watch`. Exit 1 means "post ready". Then: git pull, run
+# the librarian handler (an AI session), keep watching.
+#
+# Ported from lucky-mem/bin/bibliothekar-waechter.sh (originally German).
+#
+# Design (why bash, not node):
+#   - This runs OUTSIDE any AI session. If it were node, it would need
+#     to be restart-safe itself. Bash + a supervisor (launchd, systemd,
+#     docker restart) is simpler.
+#   - Poll pattern uses `git fetch` + `git ls-tree` against the remote,
+#     never `git pull`. No fight for the working tree with a builder.
+#
+# Two required env vars:
+#   CHEAP_MEM_ROOT       Absolute path to the memory root (has .mem/config.json)
+#   MEM_WATCH_WHO        Who this installation is (e.g. librarian, user, session)
+#
+# Optional:
+#   MEM_WATCH_INTERVAL   Seconds between polls (default: 15)
+#   MEM_WATCH_BROKEN_WAIT Seconds after a network error (default: 60)
+#   MEM_WATCH_LOG        Log file (default: $CHEAP_MEM_ROOT/.mem/watch.log)
+#   MEM_WATCH_HANDLER    Path to a script run when new post arrives.
+#                        Default: bin/mem-handle-post next to this script.
+#   MEM_WATCH_HANDLER_TIMEOUT  Seconds — max time for one handler run (default 300)
+#   MEM_WATCH_BRANCH     Remote branch to watch (default: config defaultBranch)
+#   MEM_WATCH_REMOTE     Remote name (default: config defaultRemote)
+
+set -u
+
+if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
+  echo "error: env CHEAP_MEM_ROOT missing" >&2
+  exit 2
+fi
+if [ ! -d "$CHEAP_MEM_ROOT/.git" ]; then
+  echo "error: CHEAP_MEM_ROOT='$CHEAP_MEM_ROOT' is not a git clone" >&2
+  exit 2
+fi
+if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
+  echo "error: no .mem/config.json under CHEAP_MEM_ROOT — run 'mem init' first" >&2
+  exit 2
+fi
+if [ -z "${MEM_WATCH_WHO:-}" ]; then
+  echo "error: env MEM_WATCH_WHO missing (participant name from .mem/config.json)" >&2
+  exit 2
+fi
+
+INTERVAL="${MEM_WATCH_INTERVAL:-15}"
+BROKEN_WAIT="${MEM_WATCH_BROKEN_WAIT:-60}"
+LOG="${MEM_WATCH_LOG:-$CHEAP_MEM_ROOT/.mem/watch.log}"
+HANDLER_TIMEOUT="${MEM_WATCH_HANDLER_TIMEOUT:-300}"
+
+# Locate mem CLI relative to this script.
+HERE="$(cd "$(dirname "$0")" && pwd)"
+MEM_CLI="$HERE/mem"
+if [ ! -f "$MEM_CLI" ]; then
+  MEM_CLI="mem"   # fall back to PATH
+fi
+
+# Default handler is bin/mem-handle-post next to this script.
+HANDLER="${MEM_WATCH_HANDLER:-$HERE/mem-handle-post}"
+
+mkdir -p "$(dirname "$LOG")"
+
+note() {
+  local t
+  t="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  echo "[$t] $*" | tee -a "$LOG"
+}
+
+LOCK="$CHEAP_MEM_ROOT/.mem/watch.lock"
+
+do_work() {
+  # FD isolation via subshell — without the (), FD 9 leaks into the
+  # parent shell, the lock never releases, and every subsequent call
+  # says "handler already running" even though nothing runs.
+  (
+    exec 9>"$LOCK"
+    if ! flock -n 9; then
+      note "handler: already running, skipping"
+      exit 0
+    fi
+
+    note "handler: git pull --ff-only"
+    if ! git -C "$CHEAP_MEM_ROOT" pull --ff-only >>"$LOG" 2>&1; then
+      note "handler: git pull failed — not running handler"
+      exit 1
+    fi
+
+    if [ ! -x "$HANDLER" ] && [ ! -f "$HANDLER" ]; then
+      note "handler: no handler script at $HANDLER — post remains for a human to process"
+      exit 1
+    fi
+
+    note "handler: running $HANDLER (timeout ${HANDLER_TIMEOUT}s)"
+    # Handler runs with these env vars available:
+    #   CHEAP_MEM_ROOT, MEM_WATCH_WHO, MEM_HEADLESS=watcher
+    if ( export CHEAP_MEM_ROOT MEM_WATCH_WHO; \
+         export MEM_HEADLESS=watcher; \
+         cd "$CHEAP_MEM_ROOT" && \
+         timeout "$HANDLER_TIMEOUT" bash "$HANDLER" ) >>"$LOG" 2>&1; then
+      note "handler: done"
+      exit 0
+    else
+      note "handler: exit $? (timeout or error)"
+      exit 1
+    fi
+  )
+  return $?
+}
+
+clean_exit() {
+  note "signal received, watcher shutting down"
+  exit 0
+}
+trap clean_exit INT TERM
+
+note "watcher awake. INTERVAL=${INTERVAL}s BROKEN_WAIT=${BROKEN_WAIT}s WHO=${MEM_WATCH_WHO} ROOT=${CHEAP_MEM_ROOT}"
+
+# Failure guard: if handler fails 3x in a row (same post keeps arriving),
+# back off for 15 min rather than burn tokens on a broken loop.
+FAIL=0
+FAIL_MAX=3
+FAIL_WAIT=900
+
+# Assemble watch flags from optional env.
+WATCH_ARGS=(inbox watch --as "$MEM_WATCH_WHO")
+if [ -n "${MEM_WATCH_BRANCH:-}" ]; then WATCH_ARGS+=(--branch "$MEM_WATCH_BRANCH"); fi
+if [ -n "${MEM_WATCH_REMOTE:-}" ]; then WATCH_ARGS+=(--remote "$MEM_WATCH_REMOTE"); fi
+
+while true; do
+  # `mem inbox watch` exits 0 (nothing) / 1 (new) / 3 (unreachable).
+  # Any other code is treated like 3 — not measurable.
+  node "$MEM_CLI" "${WATCH_ARGS[@]}" --root "$CHEAP_MEM_ROOT" >>"$LOG" 2>&1
+  code=$?
+
+  case "$code" in
+    0)
+      sleep "$INTERVAL"
+      ;;
+    1)
+      note "watch: exit=1 — post for '$MEM_WATCH_WHO' on the remote"
+      if do_work; then
+        FAIL=0
+      else
+        FAIL=$((FAIL + 1))
+        if [ "$FAIL" -ge "$FAIL_MAX" ]; then
+          note "handler: $FAIL failures in a row — long pause ${FAIL_WAIT}s (loop-guard)"
+          sleep "$FAIL_WAIT"
+          FAIL=0
+          continue
+        fi
+      fi
+      sleep "$INTERVAL"
+      ;;
+    3)
+      note "watch: exit=3 — remote unreachable, waiting ${BROKEN_WAIT}s"
+      sleep "$BROKEN_WAIT"
+      ;;
+    *)
+      note "watch: unexpected exit $code, waiting ${BROKEN_WAIT}s"
+      sleep "$BROKEN_WAIT"
+      ;;
+  esac
+done

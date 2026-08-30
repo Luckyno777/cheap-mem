@@ -3,22 +3,259 @@
 > Cheap in tokens, rich in memory.
 
 A local-first, git-backed persistent memory layer for AI coding assistants.
+Works with **Claude Code**, **Claude Desktop**, **Cursor**, **ChatGPT**, **Gemini**,
+**Mistral**, and any other model that speaks a shell or MCP.
 
-Works with Claude Code, Claude Desktop, Cursor, ChatGPT, Gemini, Mistral, and
-any other model via a small CLI and an MCP server. Your memory lives in a git
-repo you own — sync across machines is just `git pull`.
+Your memory is a directory of small text files in a git repo you own.
+Cross-device sync is `git pull`. Cross-session messaging is `git push`.
 
-## Why cheap?
+## Why "cheap"?
 
-Most personal-memory patterns (Obsidian second-brain, RAG-heavy setups) load
-your whole knowledge base into every context. cheap-mem does the opposite:
-tiny always-loaded facts file, everything else pulled on demand. Rough
-measurements: **80-95% fewer tokens per session** than typical RAG-second-brain
-setups.
+Most memory tools put a model in the read path: every recall costs a
+call, adds latency, and stops working on a plane. cheap-mem puts the
+model in exactly one place — a timer, far from anything you wait for.
 
-## Status
+```
+LANE 1  CAPTURE   every session    no model    ~50 ms   0 cost
+LANE 2  DIGEST    when ripe        ONE call    ~30 s
+LANE 3  SEARCH    every query      no model    ~3 ms    0 cost
+```
 
-Early development. Ported from the private [lucky-mem] design.
-Not yet ready for daily use — check back soon.
+Storing is cheap, thinking is expensive. So store everything at once
+and stupidly, think about the whole pile every few hours, and read with
+pure code.
 
-[lucky-mem]: https://github.com/Luckyno777/lucky-mem
+**Search is BM25** over weighted fields, widened by a curated thesaurus
+and by a tag graph the tool learns from your own entries. Measured on a
+small English corpus: **13 of 14 queries returned the right top hit,
+0.3 ms average**, including ones with no literal word in common
+("flaky tests" → "aborts sporadically", "ram leak" → "heap climbs
+until the OOM killer"). Details and the honest failure mode:
+[docs/architecture.md](docs/architecture.md).
+
+**Tokens, measured** (`npm run bench`, 228 entries, 15 questions):
+
+| pattern | tokens | notes |
+|---|---:|---|
+| whole memory in every prompt | ~170,000 | always has the answer, pays for everything |
+| `mem context` once + `mem find` per question | ~5,800 | **96.6% less** |
+
+The benchmark also reports how often the cheap path actually retrieved
+the entry holding the answer — **14 of 15**. A saving with a miss rate
+is not a saving, so the number is printed next to the percentage and
+the miss is named. Tokens are estimated as characters/4, applied
+identically to both sides: trust the ratio, not the absolutes.
+
+Run it against your own memory and send the numbers if they differ.
+
+## What lives where
+
+```
+your-memory/
+  .mem/config.json         participants, defaults    (created by `mem init`)
+  FACTS.md                 always-loaded facts       (~100 lines)
+  global/
+    facts.yaml             stable facts (YAML)
+    people.yaml            people directory
+    decisions.jsonl        a choice, with the reason for it
+    errors.jsonl           something broke, and why
+    events.jsonl           it happened
+    timeline.jsonl         a fact that changes over time
+    thoughts.jsonl         reasoning not yet a decision
+    learnings.jsonl        what to do differently next time
+    duties.jsonl           what is owed — the only type with a lifecycle
+    skills.jsonl           a capability acquired, with evidence
+    updates.jsonl          a version, a dependency, a config change
+  projects/<name>/         same shape, per project
+  inbox/                   messages between sessions (git-synced)
+  raw/YYYY/MM/*.jsonl.gz   captured transcripts, redacted
+```
+
+All logs are append-only. A correction is a **new line** carrying
+`replaces_id` — never an edit. A memory that rewrites its own history
+is worse than no memory.
+
+## Quickstart
+
+```bash
+git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
+cd ~/cheap-mem && npm install
+
+# Create your memory
+mkdir ~/my-memory && cd ~/my-memory
+node ~/cheap-mem/bin/mem init
+node ~/cheap-mem/bin/mem whoami user
+
+# Put it under git and push somewhere private
+git init && git add -A && git commit -m "init"
+git remote add origin git@github.com:you/your-memory.git
+git push -u origin main
+
+# Arm the secret check — it proves itself with a decoy token
+node ~/cheap-mem/bin/mem hooks install
+
+# Log something
+node ~/cheap-mem/bin/mem log event --title "started using cheap-mem" --tags setup
+node ~/cheap-mem/bin/mem find "cheap-mem"
+node ~/cheap-mem/bin/mem doctor
+```
+
+## Turn on capture and digest
+
+Capture is a Stop hook — it copies each session's transcript into the
+memory, redacted and gzipped, **without starting a model**. Add to your
+assistant's settings:
+
+```json
+"hooks": {
+  "Stop": [{ "hooks": [{ "type": "command",
+    "command": "bash ~/cheap-mem/bin/mem-capture" }] }]
+}
+```
+
+The digest is a timer. It checks in milliseconds whether the pile is
+ripe and only then makes its one model call:
+
+```bash
+# every 10 minutes, e.g. via cron or a systemd timer
+CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/bin/mem-digest
+```
+
+Nothing captured means no bell, and no bell means no call — a week away
+costs exactly zero. See [docs/architecture.md](docs/architecture.md).
+
+## Commands
+
+```
+mem init                       one-time setup
+mem log <type> --<field> ...   append an entry (nine types)
+mem find "<query>"             ranked search, no model    [--literal --fresh]
+mem duties                     what is still owed
+mem duties close <id>          append a closing line
+mem context                    compact dump for session start
+mem raw pending|show|digested  the captured material
+mem digest due|bell            is the pile ripe?
+mem thesaurus [--graph]        word groups, and what the tag graph learned
+mem hooks install|check        arm and prove the secret check
+mem doctor                     is this memory healthy?
+
+mem embed setup|backfill|status    optional: semantic escalation
+mem find-embed "<query>"           paraphrase search (needs a key)
+```
+
+`mem find` is the one you want. `find-embed` exists for the case BM25
+honestly cannot do — a true paraphrase with no word in common — and it
+costs a key, a network call and two native dependencies. Use `ollama`
+as the provider if the memory holds anything you would not send to a
+vendor.
+
+## Autostart on macOS / Linux / Windows
+
+Have the librarian watcher run at login and restart on failure:
+
+**macOS (launchd)**
+```bash
+CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
+  bash ~/cheap-mem/install/macos.sh
+```
+
+**Linux (systemd user)**
+```bash
+CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
+  bash ~/cheap-mem/install/linux.sh
+```
+
+**Windows (Task Scheduler)** — [install-windows.md](docs/install-windows.md)
+```powershell
+$env:CHEAP_MEM_ROOT="$HOME\my-memory"; $env:MEM_WATCH_WHO="librarian"
+powershell -File $HOME\cheap-mem\install\windows.ps1
+```
+
+The watcher polls the git remote every 15 seconds via `git ls-tree`
+(never `git pull` — never fights a builder for the working tree).
+When new inbox mail lands, it pulls and runs the handler.
+
+## Wire into your AI
+
+### Claude Code (hooks + MCP)
+
+```bash
+CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/install/claude-code.sh
+```
+
+This drops a SessionStart hook (prints `FACTS.md` + context) and a
+Stop hook (byte-delta throttled reflector) into `~/.claude/hooks/`, and
+merges the needed permissions into `~/.claude/settings.json`.
+
+For MCP tools also:
+```bash
+claude mcp add cheap-mem --scope user \
+  --env CHEAP_MEM_ROOT=~/my-memory \
+  -- node ~/cheap-mem/bin/mem-mcp
+```
+
+### Claude Desktop / Cursor / any MCP-capable client
+
+Add to the client's `mcp_servers` config:
+```json
+{
+  "mcpServers": {
+    "cheap-mem": {
+      "command": "node",
+      "args": ["/absolute/path/to/cheap-mem/bin/mem-mcp"],
+      "env": { "CHEAP_MEM_ROOT": "/absolute/path/to/your-memory" }
+    }
+  }
+}
+```
+
+See [docs/mcp-setup.md](docs/mcp-setup.md) for per-client instructions.
+
+### CLI-only models (Gemini, Mistral, ChatGPT via `codex`, etc.)
+
+Point the model at `~/cheap-mem/bin/mem` and tell it the commands.
+No MCP needed — a shell tool is enough. See [docs/cli-integration.md](docs/cli-integration.md).
+
+## Design principles
+
+- **Append-only.** A log entry is never modified. Corrections write a
+  new line with `replaces_id`. Deleting the past is worse than being wrong.
+- **Three states, never two.** No config vs. valid config vs. broken.
+  Empty inbox vs. no inbox vs. remote unreachable. A "no" that looks
+  like "nothing" is worse than any real error.
+- **The tool is small on purpose.** ~500 lines of JS. The system is the
+  file layout and the rules — the code is the thin glue.
+- **No hardcoded names.** Participants, branch, remote — all in
+  `.mem/config.json`. cheap-mem does not assume anyone is called anything.
+
+## Commands
+
+```
+mem init                                one-time setup
+mem whoami [<name>]                     who this install is in the channel
+
+mem log <type> --<field> ...            append a JSONL entry
+mem find "<pattern>" [--type T]         substring search across logs
+mem context [--n 20]                    compact recent-activity dump
+mem project init <name>                 idempotent project skeleton
+mem correction <type> <old-id> ...      append correction linked to old entry
+
+mem inbox new  [--as N]                 what is new for me
+mem inbox all  [--as N]                 all messages to me
+mem inbox write --to N --subject ...    send a message
+mem inbox show <name>                   read one message
+mem inbox ack  <name> [state]           set state (replied|processed|closed)
+mem inbox watch --as N                  poll remote (exit 0/1/3 for shells)
+
+mem version
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+## Origin
+
+Ported from the private `lucky-mem` design that has been running under
+continuous use since summer 2026. The port is generic, English, and
+adds `mem init`, launchd/systemd install scripts, and the MCP server.

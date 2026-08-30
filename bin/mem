@@ -1,0 +1,1153 @@
+#!/usr/bin/env node
+/**
+ * mem — cheap-mem CLI entry point.
+ *
+ * Subcommands:
+ *   init                     one-time setup (creates .mem/config.json + skel)
+ *   log <type> --<field> ... append a JSONL entry
+ *   find "<pattern>"         search across log files
+ *   context [--n N]          compact dump for session start
+ *   project init <name>      idempotent project skeleton
+ *   inbox schreib|new|show|ack   inbox operations (was: post)
+ *   inbox watch              remote-only "post ready" check, exit 0/1/3
+ *   whoami / whoami <name>   who this install is in the channel
+ *   correction <type> <old-id> --<field> ...
+ */
+
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
+import { execFileSync, spawnSync } from 'node:child_process';
+import * as memory from '../src/memory.mjs';
+import * as inbox from '../src/inbox.mjs';
+import * as cfgmod from '../src/config.mjs';
+import * as search from '../src/search.mjs';
+import * as raw from '../src/raw.mjs';
+import * as thesaurus from '../src/thesaurus.mjs';
+import * as redaction from '../src/redaction.mjs';
+import * as doctor from '../src/doctor.mjs';
+import * as embedmod from '../src/embed/index.mjs';
+import * as embedHook from '../src/embed-hook.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const PKG_ROOT = path.dirname(HERE);
+
+function parseArgs(argv) {
+  const args = {};
+  const rest = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a.startsWith('--')) {
+      const key = a.slice(2);
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        args[key] = next;
+        i += 1;
+      } else {
+        args[key] = true;
+      }
+    } else {
+      rest.push(a);
+    }
+  }
+  return { args, rest };
+}
+
+function out(t) { process.stdout.write(`${t}\n`); }
+function die(t) { process.stderr.write(`${t}\n`); process.exit(1); }
+
+function checkFlags(args, known, sub) {
+  const bad = Object.keys(args).filter((k) => k !== 'help' && k !== 'root' && !known.includes(k));
+  if (bad.length) {
+    die([
+      `${sub}: unknown flag '--${bad[0]}'`,
+      `Known: ${known.map((k) => `--${k}`).join(', ') || '(none)'}`,
+    ].join('\n'));
+  }
+}
+
+function isHelp(args) { return args.help === true; }
+
+function findRoot(args) {
+  if (args.root) return path.resolve(String(args.root));
+  const env = process.env.CHEAP_MEM_ROOT;
+  if (env) return path.resolve(env);
+  const walked = cfgmod.findRoot(process.cwd());
+  if (walked) return walked;
+  return process.cwd();
+}
+
+async function readStdin() {
+  const chunks = [];
+  for await (const c of process.stdin) chunks.push(c);
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function requireConfig(root) {
+  try {
+    return cfgmod.readConfig(root);
+  } catch (e) {
+    if (e.code === 'ENOCONFIG') die(e.message);
+    die(`Config error: ${e.message}`);
+  }
+}
+
+function whoAmIOrDie(root, args, cfg) {
+  const stored = inbox.whoAmI(root);
+  const chosen = args.as ?? stored;
+  if (!chosen) {
+    die([
+      `Who is this install in the channel?`,
+      `  Once:      mem whoami <${Object.keys(cfg.participants).join('|')}>`,
+      `  Per call:  --as <name>`,
+    ].join('\n'));
+  }
+  if (!Object.hasOwn(cfg.participants, chosen)) {
+    die(`'${chosen}' has no inbox. Known: ${Object.keys(cfg.participants).join(', ')}`);
+  }
+  return chosen;
+}
+
+const COMMANDS = {
+  init: async ({ args }) => {
+    checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
+    // `mem --root X init` and `mem init --root X` must mean the same
+    // thing. The pre-scan strips a LEADING --root out of argv and puts
+    // it in the environment, so args.root is empty in that form — and
+    // init silently initialised the current directory instead. That is
+    // how a stray .mem/ ended up inside this package during testing.
+    const root = args.root
+      ? path.resolve(String(args.root))
+      : (process.env.CHEAP_MEM_ROOT
+        ? path.resolve(process.env.CHEAP_MEM_ROOT)
+        : process.cwd());
+    fs.mkdirSync(root, { recursive: true });
+    const cfgPath = cfgmod.configPath(root);
+    if (fs.existsSync(cfgPath) && !args.force) {
+      out(`Already initialized: ${cfgPath}`);
+      out(`Pass --force to overwrite the config.`);
+      return;
+    }
+    let participants = cfgmod.DEFAULT_CONFIG.participants;
+    if (args.participants && typeof args.participants === 'string') {
+      participants = {};
+      for (const p of args.participants.split(',').map((s) => s.trim()).filter(Boolean)) {
+        participants[p] = `(role: ${p})`;
+      }
+    }
+    const cfg = {
+      ...cfgmod.DEFAULT_CONFIG,
+      participants,
+      defaultBranch: args.branch ?? cfgmod.DEFAULT_CONFIG.defaultBranch,
+      defaultRemote: args.remote ?? cfgmod.DEFAULT_CONFIG.defaultRemote,
+    };
+    cfgmod.writeConfig(root, cfg);
+
+    fs.mkdirSync(path.join(root, 'global'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'projects'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'inbox'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'raw'), { recursive: true });
+    writeMemoryGitignore(root);
+
+    for (const f of ['decisions.jsonl', 'errors.jsonl', 'events.jsonl', 'timeline.jsonl']) {
+      const p = path.join(root, 'global', f);
+      if (!fs.existsSync(p)) fs.writeFileSync(p, '', 'utf8');
+    }
+    const facts = path.join(root, 'global', 'facts.yaml');
+    if (!fs.existsSync(facts)) fs.writeFileSync(facts,
+      '# stable facts about the user / setup\n# edited by humans or the librarian\n', 'utf8');
+    const people = path.join(root, 'global', 'people.yaml');
+    if (!fs.existsSync(people)) fs.writeFileSync(people, '# people directory\n', 'utf8');
+    const factsMd = path.join(root, 'FACTS.md');
+    if (!fs.existsSync(factsMd)) fs.writeFileSync(factsMd,
+      '# FACTS (always loaded at session start)\n\n' +
+      'Keep this short. Only what is TRUE RIGHT NOW and matters to every session.\n', 'utf8');
+
+    out(`Initialized cheap-mem at ${root}`);
+    out(`  config:       ${path.relative(root, cfgPath)}`);
+    out(`  participants: ${Object.keys(cfg.participants).join(', ')}`);
+    out(``);
+    out(`Next:`);
+    out(`  mem whoami <${Object.keys(cfg.participants).join('|')}>`);
+    out(`  git init && git add -A && git commit -m "init cheap-mem" && git remote add origin <url>`);
+  },
+
+  whoami: async ({ rest, args }) => {
+    checkFlags(args, [], 'whoami');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const name = rest[0];
+    if (!name) {
+      const now = inbox.whoAmI(root);
+      out(now ? `whoami: ${now}` : 'whoami: (not set)');
+      return;
+    }
+    inbox.setWhoAmI(root, cfg.participants, name);
+    out(`whoami: ${name} (saved to ${inbox.WHOAMI_FILE})`);
+  },
+
+  inbox: async ({ rest, args }) => {
+    const sub = rest[0] ?? 'new';
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+
+    if (sub === 'write') {
+      checkFlags(args, ['as', 'to', 'subject', 'text'], 'inbox write');
+      const from = whoAmIOrDie(root, args, cfg);
+      if (!args.to) die("Missing --to");
+      if (!args.subject) die("Missing --subject");
+      const text = args.text ?? await readStdin();
+      if (!text.trim()) die("Empty text (neither --text nor stdin)");
+      const { path: p } = inbox.write(root, cfg.participants, {
+        from, to: args.to, subject: args.subject, text,
+      });
+      out(`Written: ${path.relative(root, p)}`);
+      out('');
+      out(`Delivered only after:  git add . && git commit -m "inbox: ${args.subject}" && git push`);
+      return;
+    }
+
+    if (sub === 'all') {
+      checkFlags(args, ['as'], 'inbox all');
+      const to = whoAmIOrDie(root, args, cfg);
+      const { dir, messages } = inbox.read(root, cfg.participants, { to });
+      if (dir === null) { out(`No inbox dir yet under ${inbox.INBOX_DIR}.`); return; }
+      if (messages.length === 0) { out(`Empty inbox for '${to}'.`); return; }
+      out(`${messages.length} messages for '${to}':`);
+      for (const m of messages) {
+        out(`  [${m.state}] ${m.name}`);
+        out(`         ${m.subject} (from ${m.from})`);
+      }
+      return;
+    }
+
+    if (sub === 'new') {
+      checkFlags(args, ['as', 'no-mark'], 'inbox new');
+      const to = whoAmIOrDie(root, args, cfg);
+      const { new: fresh, known } = inbox.newFor(root, cfg.participants, { to });
+      if (fresh.length === 0) {
+        out(`Nothing new for '${to}'. ${known} known.`);
+        return;
+      }
+      out(`${fresh.length} new for '${to}': (${known} known)`);
+      for (const m of fresh) {
+        out(`  [${m.state}] ${m.name}`);
+        out(`         ${m.subject} (from ${m.from})`);
+      }
+      if (!args['no-mark']) {
+        inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
+      }
+      return;
+    }
+
+    if (sub === 'show') {
+      checkFlags(args, ['as'], 'inbox show');
+      const to = whoAmIOrDie(root, args, cfg);
+      const name = rest[1];
+      if (!name) die("Missing name (inbox show <name>)");
+      const p = path.join(inbox.inboxDir(root), name);
+      if (!fs.existsSync(p)) die(`'${name}' is not in the inbox`);
+      const content = fs.readFileSync(p, 'utf8');
+      const m = inbox.parse(content);
+      if (m.to !== to) out(`(Warning: this message is to '${m.to}', not '${to}')`);
+      process.stdout.write(content);
+      return;
+    }
+
+    if (sub === 'ack') {
+      checkFlags(args, [], 'inbox ack');
+      const name = rest[1];
+      const newState = rest[2] ?? 'replied';
+      if (!name) die("Missing name (inbox ack <name> [state])");
+      const m = inbox.setState(root, cfg.participants, name, newState);
+      out(`${name}: state -> ${m.state}`);
+      return;
+    }
+
+    if (sub === 'watch') {
+      checkFlags(args, ['as', 'branch', 'remote', 'skip-fetch'], 'inbox watch');
+      const to = args.as ?? inbox.whoAmI(root);
+      if (!to) die([
+        "Missing --as and no default set.",
+        "  Once: mem whoami <name>",
+        "  Or:   mem inbox watch --as <name>",
+      ].join('\n'));
+      const r = inbox.watch(root, cfg.participants, {
+        to,
+        branch: args.branch ?? cfg.defaultBranch,
+        remote: args.remote ?? cfg.defaultRemote,
+        skipFetch: Boolean(args['skip-fetch']),
+      });
+      if (r.status === 'broken') {
+        process.stderr.write(`broken: ${r.reason} — ${r.detail}\n`);
+        process.exit(3);
+      }
+      for (const u of (r.unreadable ?? [])) {
+        process.stderr.write(`unreadable name in inbox: ${u}\n`);
+      }
+      if (r.status === 'nothing') {
+        out(`nothing new for '${to}' (${r.known} known)`);
+        process.exit(0);
+      }
+      out(`${r.new.length} new for '${to}':`);
+      for (const n of r.new) out(`  ${n}`);
+      process.exit(1);
+    }
+
+    die([
+      `inbox: unknown subcommand '${sub}'`,
+      'Known: new (default), all, write, show, ack, watch',
+    ].join('\n'));
+  },
+
+  log: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        "mem log <type> [--project <name>] --<field> <value> [...]",
+        "",
+        `  Types: ${Object.keys(memory.TYPES).join(', ')}`,
+        "  Reserved: --project, --root",
+        "  Every other --flag becomes a field in the JSONL entry.",
+        "  --tags takes a comma-separated list.",
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    const type = rest[0];
+    if (!type) die([
+      "log: which type?",
+      `  Known: ${Object.keys(memory.TYPES).join(', ')}`,
+    ].join('\n'));
+    if (!Object.hasOwn(memory.TYPES, type)) {
+      die(`log: unknown type '${type}'. Known: ${Object.keys(memory.TYPES).join(', ')}`);
+    }
+    const data = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (k === 'project' || k === 'root' || k === 'help') continue;
+      if (k === 'tags' && typeof v === 'string') {
+        data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        data[k] = v;
+      }
+    }
+    if (Object.keys(data).length === 0) die("log: no data. Give at least one --field.");
+    const { path: p, entry } = memory.logEntry(root, type, data, { project: args.project ?? null });
+    out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
+    out(`  id: ${entry.id}`);
+    out(`  ts: ${entry.ts}`);
+    out('');
+    out(`Delivered after:  git add . && git commit -m "log ${type}: ..." && git push`);
+  },
+
+  find: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem find "<query>" [--type <t>] [--project <name>|global]',
+        '          [--since 7d|24h|ISO] [--top N] [--literal] [--fresh]',
+        '          [--no-raw] [--only-raw]',
+        '',
+        '  Ranked search, no model, no network. BM25 over weighted',
+        '  fields, widened by a curated thesaurus and by a tag graph',
+        '  learned from your own entries.',
+        '',
+        '  --literal  plain substring search instead (the old behaviour)',
+        '  --fresh    rebuild the index instead of using the cache',
+        '  --no-raw   digested entries only, skip raw captures',
+        `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
+      'no-raw', 'only-raw', 'json'], 'find');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const query = rest[0];
+    if (!query) die("find: no query. Example: mem find 'flaky ci'");
+    const since = args.since ? sinceOf(args.since) : null;
+
+    if (args.literal) {
+      const types = args.type ? [args.type] : Object.keys(memory.TYPES);
+      const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
+      const hits = memory.find(root, query, { types, projects, since });
+      if (hits.length === 0) { out(`Nothing for '${query}'.`); return; }
+      out(`${hits.length} literal hits for '${query}':`);
+      for (const h of hits) out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}`);
+      return;
+    }
+
+    thesaurus.loadUserGroups(root, fs, path);
+    const t0 = Date.now();
+    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+    const hits = search.search(index, query, {
+      top: args.top ? Number(args.top) : 10,
+      type: args.type ?? null,
+      project: args.project ?? null,
+      since,
+      noRaw: Boolean(args['no-raw']),
+      onlyRaw: Boolean(args['only-raw']),
+      language: cfg.language,
+    });
+    const ms = Date.now() - t0;
+
+    if (args.json) { out(JSON.stringify({ query, ms, hits }, null, 2)); return; }
+    if (hits.length === 0) {
+      out(`Nothing for '${query}' (${index.N} entries, ${ms}ms).`);
+      out('  Try --literal for a plain substring search.');
+      return;
+    }
+    out(`${hits.length} hits for '${query}' (${index.N} entries, ${ms}ms):`);
+    for (const h of hits) {
+      const mark = h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '';
+      out(`  ${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}`);
+      const preview = h.raw
+        ? (raw.snippet(root, h.source, query) || String(h.entry.text ?? '').slice(0, 160))
+        : compactLine(h.entry);
+      out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
+    }
+  },
+
+  'raw-capture': async ({ args }) => {
+    // Used by the mem-capture Stop hook. Separate from `raw` so the
+    // hook path stays a single, obvious call with no subcommand
+    // parsing between it and the work.
+    if (isHelp(args)) {
+      out('mem raw-capture --transcript <path> [--min-bytes N] [--project X]');
+      return;
+    }
+    checkFlags(args, ['transcript', 'min-bytes', 'project', 'json'], 'raw-capture');
+    const root = findRoot(args);
+    requireConfig(root);
+    const transcript = args.transcript;
+    if (!transcript) die('raw-capture: --transcript is required');
+    const r = raw.capture(root, transcript, {
+      minBytes: args['min-bytes'] ? Number(args['min-bytes']) : 4096,
+      stampExtra: args.project ? { project: args.project } : {},
+    });
+    if (args.json) { out(JSON.stringify(r)); return; }
+    if (r.status === 'captured') {
+      out(`captured ${r.path} (${r.lines} lines, ${r.bytes} bytes)`);
+      if (r.redacted.length) {
+        out(`  redacted: ${r.redacted.map((x) => `${x.type} x${x.count}`).join(', ')}`);
+      }
+      return;
+    }
+    if (r.status === 'nothing') { out(`nothing new (${r.reason ?? `${r.fresh} < ${r.threshold} bytes`})`); return; }
+    die(`capture failed: ${r.reason} — ${r.detail ?? ''}`);
+  },
+
+  raw: async ({ rest, args }) => {
+    if (isHelp(args) || rest.length === 0) {
+      out([
+        'mem raw pending [--json]        what the digest has not processed yet',
+        'mem raw show <path> [--head] [--from N] [--count M]',
+        'mem raw digested <path> ...     mark captures as digested',
+        '',
+        '  A capture can hold thousands of lines. Read a big one in',
+        '  windows: --head reports __lines, then --from/--count.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    const sub = rest[0];
+
+    if (sub === 'pending') {
+      const st = raw.pending(root);
+      if (args.json) { out(JSON.stringify(st)); return; }
+      out(`${st.open.length} pending (${st.bytes} bytes), ${st.done} digested`);
+      if (st.last) out(`  last digest: ${st.last}`);
+      for (const f of st.open) out(`  ${f}`);
+      return;
+    }
+
+    if (sub === 'show') {
+      checkFlags(args, ['head', 'from', 'count'], 'raw show');
+      const rel = rest[1];
+      if (!rel) die('raw show: which capture? (mem raw pending lists them)');
+      const { header, lines } = raw.readCapture(root, rel);
+      const from = args.from === undefined ? 0 : Math.max(0, Number(args.from));
+      if (!Number.isFinite(from)) die('raw show: --from needs a number');
+      const count = args.count === undefined ? null : Number(args.count);
+      if (count !== null && (!Number.isFinite(count) || count <= 0)) {
+        die('raw show: --count needs a positive number');
+      }
+      out(JSON.stringify({ ...(header ?? {}), __lines: lines.length }, null, 2));
+      if (args.head) return;
+      const to = count === null ? lines.length : Math.min(lines.length, from + count);
+      for (let i = from; i < to; i += 1) process.stdout.write(`${JSON.stringify(lines[i])}\n`);
+      if (to < lines.length) {
+        process.stderr.write(`-- ${to} of ${lines.length} lines. Continue with: `
+          + `--from ${to}${count === null ? '' : ` --count ${count}`}\n`);
+      }
+      return;
+    }
+
+    if (sub === 'digested') {
+      const paths = rest.slice(1);
+      if (paths.length === 0) die('raw digested: name at least one capture');
+      const n = raw.markDigested(root, paths);
+      out(`${n} captures marked digested.`);
+      return;
+    }
+    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested`);
+  },
+
+  digest: async ({ rest, args }) => {
+    if (isHelp(args) || rest.length === 0) {
+      out([
+        'mem digest due [--volume-now KB] [--volume-min KB] [--quiet MIN] [--ceiling H]',
+        'mem digest bell                 when the bell last rang',
+        '',
+        '  `due` exits 0 = not due, 1 = due, 3 = cannot tell.',
+        '  Meant for a timer that runs often and cheaply: it does no',
+        '  work and starts no model, it only answers the question.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (rest[0] === 'bell') {
+      const b = raw.bellState(root);
+      if (!b) { out('No bell since the last digest.'); return; }
+      out(`first ${b.first}, last ${b.last}, ${b.count} rings`);
+      return;
+    }
+
+    if (rest[0] === 'due') {
+      checkFlags(args, ['volume-now', 'volume-min', 'quiet', 'ceiling', 'json'], 'digest due');
+      const th = {};
+      if (args['volume-now']) th.volumeNow = Number(args['volume-now']) * 1024;
+      if (args['volume-min']) th.volumeMin = Number(args['volume-min']) * 1024;
+      if (args.quiet) th.quietMs = Number(args.quiet) * 60000;
+      if (args.ceiling) th.ceilingMs = Number(args.ceiling) * 3600000;
+      let d;
+      try { d = raw.due(root, { thresholds: th }); }
+      catch (e) { out(`cannot tell: ${e.message}`); process.exit(3); }
+      if (args.json) { out(JSON.stringify(d)); process.exit(d.due ? 1 : 0); }
+      const size = d.bytes ? `${Math.round(d.bytes / 1024)} KB` : '0 KB';
+      out(d.due
+        ? `DUE (${d.reason}), ${d.captures ?? 0} captures, ${size}`
+        : `not due (${d.reason}), ${d.captures ?? 0} captures, ${size}`);
+      process.exit(d.due ? 1 : 0);
+    }
+    die(`digest: unknown subcommand '${rest[0]}'. Known: due, bell`);
+  },
+
+  duties: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem duties [--project <name>|global] [--all]',
+        'mem duties close <id> [--why "..."] [--state done|dropped]',
+        '',
+        '  Duty is the only type with a lifecycle. Closing appends a',
+        '  new line; the original is never touched.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (rest[0] === 'close') {
+      checkFlags(args, ['why', 'state', 'project'], 'duties close');
+      const id = rest[1];
+      if (!id) die('duties close: which id? (mem duties lists them)');
+      const { entry } = memory.closeDuty(root, id, {
+        state: args.state ?? memory.DUTY_STATE.DONE,
+        why: args.why ?? null,
+        project: args.project ?? null,
+      });
+      out(`Closed ${id} (${entry.state}). New line: ${entry.id}`);
+      return;
+    }
+
+    checkFlags(args, ['project', 'all'], 'duties');
+    const { open, done } = memory.openDuties(root,
+      { project: args.project === undefined ? undefined : args.project });
+    out(`${open.length} open, ${done.length} closed`);
+    out('');
+    for (const d of open) {
+      out(`  [${d.id}] ${d.owner ? `@${d.owner} ` : ''}${d.title ?? d.text ?? '?'}`);
+      out(`      since ${d.ts}  ${d._source}:${d._line}`);
+    }
+    if (args.all) {
+      out('');
+      for (const d of done) {
+        out(`  [done] ${d.title ?? d.text ?? '?'}  (${d._closed.state}, ${d._closed.ts})`);
+      }
+    }
+  },
+
+  thesaurus: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem thesaurus [--graph] [--top N]',
+        '',
+        '  Without --graph: the curated groups.',
+        '  With --graph: what the tag graph learned from YOUR entries.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['graph', 'top'], 'thesaurus');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const loaded = thesaurus.loadUserGroups(root, fs, path);
+    if (loaded.error) out(`warning: ${loaded.error}`);
+
+    if (args.graph) {
+      const index = search.loadIndex(root, { language: cfg.language });
+      if (index.tagGraph.size === 0) {
+        out('The tag graph is empty — entries need `tags` for it to learn anything.');
+        return;
+      }
+      out(`${index.tagGraph.size} tags with learned neighbours:`);
+      out(thesaurus.graphReport(index.tagGraph, { top: args.top ? Number(args.top) : 20 }));
+      return;
+    }
+    out(`${thesaurus.THESAURUS.length} curated groups`
+      + (loaded.loaded ? `, ${loaded.loaded} of your own from .mem/thesaurus.json` : ''));
+    for (const g of thesaurus.THESAURUS) out(`  ${g.join(', ')}`);
+  },
+
+  embed: async ({ rest, args }) => {
+    if (isHelp(args) || rest.length === 0) {
+      out([
+        'mem embed setup [--provider voyage|openai|ollama] [--model M]',
+        'mem embed backfill [--force]      embed entries written before setup',
+        'mem embed status                  provider, model, how many are stored',
+        'mem find-embed "<query>"          semantic search',
+        '',
+        '  This is the ESCALATION, not the default. `mem find` works with',
+        '  no key, no network and no cost — use it. Reach for embeddings',
+        '  only for true paraphrase with no word in common.',
+        '',
+        '  Needs: npm install better-sqlite3 sqlite-vec  (optional deps)',
+        '  Keys:  VOYAGE_API_KEY / OPENAI_API_KEY, or .mem/embed.env',
+        '         ollama needs no key and sends nothing off the machine.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (rest[0] === 'setup') {
+      checkFlags(args, ['provider', 'model', 'on-fail'], 'embed setup');
+      const provider = args.provider ?? 'voyage';
+      if (!embedmod.knownProviders().includes(provider)) {
+        die(`embed setup: unknown provider '${provider}'. `
+          + `Known: ${embedmod.knownProviders().join(', ')}`);
+      }
+      const cfg = { ...embedmod.DEFAULTS, provider, model: args.model ?? null };
+      if (args['on-fail']) cfg.onFail = args['on-fail'];
+      const written = embedmod.writeConfig(root, cfg);
+      // Read it back, so what we report is the model that will really
+      // be used — writeConfig stores `null` and readConfig resolves it.
+      const eff = embedmod.readConfig(root);
+      out(`Wrote ${path.relative(root, written)}`);
+      out(`  provider: ${eff.provider}`);
+      out(`  model:    ${eff.model} (${embedmod.dimensions(eff.provider, eff.model)} dim)`);
+      out('');
+      out('Next: npm install better-sqlite3 sqlite-vec');
+      out('      mem embed backfill');
+      return;
+    }
+
+    if (rest[0] === 'status') {
+      let cfg;
+      try { cfg = embedmod.readConfig(root); }
+      catch (e) { die(`embed status: ${e.message}`); }
+      out(`provider: ${cfg.provider}`);
+      out(`model:    ${cfg.model} (${embedmod.dimensions(cfg.provider, cfg.model)} dim)`);
+      const store = await import('../src/embed/store.mjs');
+      try {
+        const db = await store.open(root, embedmod.dimensions(cfg.provider, cfg.model));
+        out(`stored:   ${store.count(db)} entries`);
+        db.close();
+      } catch (e) {
+        out(`stored:   not readable — ${e.message.split('\n')[0]}`);
+      }
+      return;
+    }
+
+    if (rest[0] === 'backfill') {
+      checkFlags(args, ['force', 'project'], 'embed backfill');
+      const store = await import('../src/embed/store.mjs');
+      if (args.force) store.deleteDb(root);
+      let fresh = 0; let skipped = 0; let broken = 0;
+      let noKey = null;
+      const cfg = embedmod.readConfig(root);
+      const dim = embedmod.dimensions(cfg.provider, cfg.model);
+      const db = await store.open(root, dim);
+      try {
+        for (const project of [null, ...memory.listProjects(root)]) {
+          for (const type of Object.keys(memory.TYPES)) {
+            const file = memory.logPath(root, type, project);
+            if (!fs.existsSync(file)) continue;
+            const lines = fs.readFileSync(file, 'utf8').split('\n');
+            for (let i = 0; i < lines.length; i += 1) {
+              if (!lines[i].trim()) continue;
+              let e;
+              try { e = JSON.parse(lines[i]); } catch { continue; }
+              if (!e.id) continue;
+              const rel = path.relative(root, file);
+              if (!args.force && store.exists(db, rel, i + 1, e.id)) { skipped += 1; continue; }
+              const r = await embedHook.embedEntry(root, file, i + 1, e);
+              if (r.status === 'ok') fresh += 1;
+              else if (r.status === 'empty') skipped += 1;
+              else if (r.status === 'off') { noKey = r.reason; break; }
+              else {
+                broken += 1;
+                process.stderr.write(`${rel}:${i + 1} ${embedHook.warning(r)}\n`);
+              }
+            }
+            if (noKey) break;
+          }
+          if (noKey) break;
+        }
+      } finally { try { db.close(); } catch { /* fine */ } }
+
+      if (noKey) {
+        // Without a key not one entry can succeed. Say it once and
+        // stop, instead of counting thousands of identical failures.
+        process.stderr.write(`Backfill stopped: ${noKey}.\n`
+          + '  Embeddings are the optional escalation. Without a key,\n'
+          + '  `mem find` (BM25, no model) is unaffected.\n');
+        process.exit(2);
+      }
+      out(`Backfill done. new: ${fresh}, skipped: ${skipped}, broken: ${broken}`);
+      return;
+    }
+    die(`embed: unknown subcommand '${rest[0]}'. Known: setup, backfill, status`);
+  },
+
+  'find-embed': async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem find-embed "<query>" [--top N] [--type T] [--project P] [--since 7d]',
+        '',
+        '  Semantic search over the vector store. Needs `mem embed setup`',
+        '  and a backfill first. For everything else use `mem find` — it',
+        '  is faster, free, and works offline.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['top', 'type', 'project', 'since'], 'find-embed');
+    const root = findRoot(args);
+    requireConfig(root);
+    const query = rest[0];
+    if (!query) die('find-embed: no query.');
+
+    const store = await import('../src/embed/store.mjs');
+    const cfg = embedmod.readConfig(root);
+    const dim = embedmod.dimensions(cfg.provider, cfg.model);
+
+    let vector;
+    try { vector = await embedmod.embed(root, query, { cfg }); }
+    catch (e) {
+      if (e.code === 'NO_KEY') {
+        die(`find-embed: ${e.message}\n  Or just use: mem find "${query}"`);
+      }
+      die(`find-embed: ${e.message}`);
+    }
+
+    const db = await store.open(root, dim);
+    try {
+      const hits = store.search(db, vector, {
+        top: args.top ? Number(args.top) : 5,
+        type: args.type ?? null,
+        project: args.project ?? null,
+        since: args.since ? sinceOf(args.since) : null,
+      });
+      if (hits.length === 0) {
+        out(`Nothing for '${query}' (${store.count(db)} embedded entries).`);
+        return;
+      }
+      out(`${hits.length} semantic hits for '${query}':`);
+      for (const h of hits) {
+        out(`  ${h.source_file}:${h.line_number}  [${h.ts}]  ${h.score.toFixed(3)}`);
+        out(`    ${h.text.replace(/\s+/g, ' ').slice(0, 160)}`);
+      }
+    } finally { try { db.close(); } catch { /* fine */ } }
+  },
+
+  hooks: async ({ rest, args }) => {
+    if (isHelp(args) || rest.length === 0) {
+      out([
+        'mem hooks install [--dir <path>]   arm the pre-commit secret check',
+        'mem hooks check                    prove it fires, with a decoy',
+        '',
+        '  The memory and this tool are different directories, so the',
+        '  hook has to be generated: a small script inside the memory',
+        '  that calls this package\'s redaction module by absolute path.',
+        '',
+        '  --dir  put the hook somewhere else. Needed when the memory',
+        '         sits on a noexec mount — git starts hooks with execve,',
+        '         and no chmod can help there.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (rest[0] === 'install') {
+      checkFlags(args, ['dir'], 'hooks install');
+      const r = installHook(root, args.dir ?? null);
+      for (const l of r.lines) out(l);
+      if (!r.ok) process.exit(1);
+      return;
+    }
+    if (rest[0] === 'check') {
+      const r = proveHook(root);
+      for (const l of r.lines) out(l);
+      process.exit(r.ok ? 0 : 1);
+    }
+    die(`hooks: unknown subcommand '${rest[0]}'. Known: install, check`);
+  },
+
+  doctor: async ({ args }) => {
+    if (isHelp(args)) {
+      out('mem doctor [--quiet]   check the memory; --quiet hides what is fine');
+      return;
+    }
+    checkFlags(args, ['quiet'], 'doctor');
+    const root = findRoot(args);
+    requireConfig(root);
+    const result = doctor.checkAll(root);
+    out(doctor.report(result, { problemsOnly: Boolean(args.quiet) }));
+    process.exit(result.worst === doctor.LEVEL.ERROR ? 2
+      : result.worst === doctor.LEVEL.WARN ? 1 : 0);
+  },
+
+  context: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        "mem context [--n <count>]",
+        "",
+        "  --n: number of recent error entries (default 20)",
+        "         decisions and events show half of that.",
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['n'], 'context');
+    const root = findRoot(args);
+    requireConfig(root);
+    const n = Number(args.n ?? 20);
+    process.stdout.write(memory.context(root, { n }));
+    process.stdout.write('\n');
+  },
+
+  project: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem project init <name> [--title "Display name"]',
+        "",
+        "  Creates projects/<name>/ idempotently.",
+      ].join('\n'));
+      return;
+    }
+    const sub = rest[0];
+    if (sub !== 'init') {
+      die(`project: unknown subcommand '${sub ?? '(missing)'}'`);
+    }
+    checkFlags(args, ['title'], 'project init');
+    const root = findRoot(args);
+    requireConfig(root);
+    const name = rest[1];
+    if (!name) die("project init: name missing");
+    const { dir, created, existed } = memory.projectInit(root, name, { title: args.title ?? null });
+    out(`Project: ${path.relative(root, dir)}`);
+    if (created.length) out(`  created: ${created.join(', ')}`);
+    if (existed.length) out(`  existed: ${existed.join(', ')}`);
+  },
+
+  correction: async ({ rest, args }) => {
+    const type = rest[0];
+    const oldId = rest[1];
+    if (!type) die("correction: which type?");
+    if (!oldId) die("correction: old id missing");
+    const root = findRoot(args);
+    requireConfig(root);
+    const data = {};
+    for (const [k, v] of Object.entries(args)) {
+      if (k === 'project' || k === 'root' || k === 'help') continue;
+      if (k === 'tags' && typeof v === 'string') {
+        data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      } else {
+        data[k] = v;
+      }
+    }
+    if (Object.keys(data).length === 0) die("correction: no fields");
+    const { path: p, entry } = memory.correctionEntry(
+      root, type, oldId, data, { project: args.project ?? null });
+    out(`Correction: ${path.relative(root, p)}`);
+    out(`  new id:     ${entry.id}`);
+    out(`  replaces:   ${entry.replaces_id}`);
+  },
+
+  version: async () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
+    out(`cheap-mem ${pkg.version}`);
+  },
+};
+
+function sinceOf(s) {
+  const m = /^(\d+)([dhm])$/.exec(s);
+  if (m) {
+    const [, n, unit] = m;
+    const ms = { d: 86400000, h: 3600000, m: 60000 }[unit] * Number(n);
+    return new Date(Date.now() - ms);
+  }
+  return new Date(s);
+}
+
+function compactLine(e) {
+  const parts = [];
+  if (e.class) parts.push(`[${e.class}]`);
+  if (e.topic) parts.push(`[${e.topic}]`);
+  if (e.title) parts.push(e.title);
+  if (e.choice) parts.push(`→ ${e.choice}`);
+  if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
+  if (e.why) parts.push(`because ${String(e.why).slice(0, 60)}`);
+  return parts.join(' — ') || '(no compact text)';
+}
+
+function countLines(p) {
+  return fs.readFileSync(p, 'utf8').split('\n').filter((z) => z.trim()).length;
+}
+
+// Pre-scan for a leading --root <path>, so it can appear before the subcommand.
+// Named argv, not `raw` — that name belongs to the raw-capture module.
+let argv = process.argv.slice(2);
+if (argv[0] === '--root' && argv[1] && !argv[1].startsWith('--')) {
+  process.env.CHEAP_MEM_ROOT = argv[1];
+  argv = argv.slice(2);
+}
+const [head, ...rest] = argv;
+const { args, rest: leftover } = parseArgs(rest);
+
+if (!head || head === '--help' || head === '-h' || head === 'help') {
+  out("mem — cheap-mem CLI");
+  out("");
+  out("Setup:");
+  out("  init [--participants a,b,c] [--branch main] [--remote origin]");
+  out("  whoami [<name>]                       who this install is (or set)");
+  out("");
+  out("Memory (append-only logs):");
+  out("  log <type>       [--project X] --<field> <value> ...");
+  out(`                    types: ${Object.keys(memory.TYPES).join(', ')}`);
+  out('  find "<query>"   [--type T] [--project P|global] [--since 7d|24h|ISO]');
+  out("                    ranked, no model. --literal for substring, --fresh to rebuild");
+  out("  duties           [--all]              what is still owed");
+  out("  duties close <id> [--why \"...\"]      append a closing line");
+  out("  context          [--n 20]");
+  out("  correction <type> <old-id> [--project X] --<field> <value>");
+  out("  project init <name> [--title \"...\"]");
+  out("");
+  out("Inbox (cross-session messages):");
+  out("  inbox new        [--as N]              what is new for me");
+  out("  inbox all        [--as N]              all messages to me");
+  out("  inbox write      [--as N] --to N --subject \"...\" [< text.md]");
+  out("  inbox show <name> [--as N]");
+  out("  inbox ack <name> [state]               state -> replied (default)");
+  out("  inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]");
+  out("                    Exit code 0/1/3 for shell pollers.");
+  out("");
+  out("");
+  out("Capture, digest, upkeep:");
+  out("  raw pending|show <path>|digested <path>...   the captured material");
+  out("  digest due|bell                              is the pile ripe? (exit 0/1/3)");
+  out("  thesaurus [--graph]                          word groups; --graph = what it learned");
+  out("  hooks install|check                          arm and prove the secret check");
+  out("  doctor [--quiet]                             is this memory healthy?");
+  out("");
+  out("Global flags: --root <path>   memory root (else CHEAP_MEM_ROOT or walk cwd)");
+  process.exit(0);
+}
+
+const cmd = COMMANDS[head];
+if (!cmd) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
+try {
+  await cmd({ rest: leftover, args });
+} catch (e) {
+  die(`mem ${head}: ${e.message}`);
+}
+
+// --- git hook installation ------------------------------------------
+//
+// The memory is the user's data repository; this package is the tool.
+// They live in different places, so the hook cannot simply be a file
+// in the repo — it has to know where the redaction module is.
+//
+// So we generate it, with the package path baked in.
+
+function canExecuteIn(dir) {
+  const probe = path.join(dir, `.exec-probe.${process.pid}`);
+  try {
+    fs.writeFileSync(probe, '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(probe, 0o755);
+    const r = spawnSync(probe, [], { stdio: 'ignore' });
+    fs.unlinkSync(probe);
+    return !r.error;
+  } catch {
+    try { fs.unlinkSync(probe); } catch { /* fine */ }
+    return false;
+  }
+}
+
+function hookBody() {
+  // CHEAP_MEM_PKG tells the shared script where the redaction module
+  // lives. Without it the script cannot find it and — in an earlier
+  // version — exited 0, reporting success while checking nothing.
+  return `#!/usr/bin/env bash
+# pre-commit — third line of defence against secrets. Generated by
+# \`mem hooks install\`; the logic lives in the cheap-mem package.
+export CHEAP_MEM_PKG=${JSON.stringify(PKG_ROOT)}
+exec bash ${JSON.stringify(path.join(PKG_ROOT, 'hooks', 'pre-commit'))} "$@"
+`;
+}
+
+function installHook(root, dirOverride) {
+  const lines = [];
+  let target;
+
+  if (dirOverride) {
+    target = path.resolve(dirOverride);
+    fs.mkdirSync(target, { recursive: true });
+  } else if (canExecuteIn(root)) {
+    lines.push('Memory mount allows execve — installing inside the memory.');
+    target = path.join(root, '.mem', 'hooks');
+    fs.mkdirSync(target, { recursive: true });
+  } else {
+    // git starts hooks with execve. On a noexec mount the kernel
+    // refuses even though the x-bit is set, git prints "hook was
+    // ignored because it's not set as executable" — and commits
+    // anyway. chmod cannot fix it; the hook has to live elsewhere.
+    lines.push('Memory mount forbids execve (noexec?) — installing outside the memory.');
+    target = path.join(process.env.HOME ?? '/tmp', '.cheap-mem-hooks');
+    fs.mkdirSync(target, { recursive: true });
+  }
+
+  const hookPath = path.join(target, 'pre-commit');
+  fs.writeFileSync(hookPath, hookBody());
+  fs.chmodSync(hookPath, 0o755);
+
+  if (!canExecuteIn(target)) {
+    lines.push(`  ${target} is not executable either.`);
+    lines.push('  Pick another place: mem hooks install --dir /some/path');
+    return { ok: false, lines };
+  }
+
+  try {
+    execFileSync('git', ['-C', root, 'config', 'core.hooksPath', target], { stdio: 'ignore' });
+  } catch (e) {
+    lines.push(`  could not set core.hooksPath: ${e.message}`);
+    lines.push('  Is the memory a git repository? (git init)');
+    return { ok: false, lines };
+  }
+  lines.push(`Hook written: ${hookPath}`);
+  lines.push(`core.hooksPath = ${target}`);
+  lines.push('');
+
+  const proof = proveHook(root);
+  lines.push(...proof.lines);
+  return { ok: proof.ok, lines };
+}
+
+/**
+ * Prove the hook fires, using a decoy secret in a THROWAWAY index.
+ * Neither the real index nor the history is touched.
+ *
+ * "Configured, therefore fine" is exactly the mistake this whole
+ * design exists to avoid: a hook can be configured perfectly and still
+ * never run.
+ */
+function proveHook(root) {
+  const lines = ['Test: does the hook catch a planted token?'];
+  let set;
+  try {
+    set = execFileSync('git', ['-C', root, 'config', '--get', 'core.hooksPath'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch { set = ''; }
+  if (!set) {
+    lines.push('  core.hooksPath is not set — run: mem hooks install');
+    return { ok: false, lines };
+  }
+  const hookPath = path.isAbsolute(set) ? path.join(set, 'pre-commit') : path.join(root, set, 'pre-commit');
+  if (!fs.existsSync(hookPath)) {
+    lines.push(`  ${hookPath} is missing — run: mem hooks install`);
+    return { ok: false, lines };
+  }
+
+  const decoy = path.join(root, `.decoy-probe.${process.pid}`);
+  const tmpIndex = path.join(os.tmpdir(), `cheap-mem-index-${process.pid}`);
+  fs.writeFileSync(decoy,
+    `Decoy, not a real secret.\nghp_${'A'.repeat(36)}\n`);
+  let blocked = 0;
+  try {
+    const env = { ...process.env, GIT_INDEX_FILE: tmpIndex };
+    spawnSync('git', ['-C', root, 'read-tree', 'HEAD'], { env, stdio: 'ignore' });
+    spawnSync('git', ['-C', root, 'add', '-f', decoy], { env, stdio: 'ignore' });
+    const r = spawnSync(hookPath, [], { env, cwd: root, stdio: 'ignore' });
+    blocked = r.error ? -1 : (r.status ?? 0);
+  } finally {
+    try { fs.unlinkSync(decoy); } catch { /* fine */ }
+    try { fs.unlinkSync(tmpIndex); } catch { /* fine */ }
+  }
+
+  if (blocked === -1) {
+    lines.push('  the hook could not be started at all (noexec mount?)');
+    lines.push('  Try: mem hooks install --dir ~/.cheap-mem-hooks');
+    return { ok: false, lines };
+  }
+  if (blocked !== 0) {
+    lines.push(`  blocked (exit ${blocked}) — the third redaction layer is alive.`);
+    return { ok: true, lines };
+  }
+  lines.push('  LET THROUGH — the hook does not catch the decoy.');
+  lines.push('  The third redaction layer is NOT armed.');
+  return { ok: false, lines };
+}
+
+/**
+ * The memory's own .gitignore.
+ *
+ * **This is not tidiness, it is the difference between a key on your
+ * disk and a key in a public repository.** `.mem/embed.env` holds an
+ * API key; without this file the first `git add -A` commits it, and git
+ * forgets nothing. Everything else here is derived state that would
+ * only produce merge conflicts.
+ *
+ * Written on init, and merged (never overwritten) if one already
+ * exists — someone's own rules must survive.
+ */
+function writeMemoryGitignore(root) {
+  const p = path.join(root, '.gitignore');
+  const wanted = [
+    ['.mem/embed.env', 'API keys. NEVER commit this.'],
+    ['.mem/search-index.json', 'derived: rebuilt in milliseconds'],
+    ['.mem/vectors.db', 'derived: rebuild with `mem embed backfill`'],
+    ['.mem/raw-offsets.json', 'per-machine read positions'],
+    ['.mem/digest-bell.json', 'transient'],
+    ['.mem/digest.lock', 'transient'],
+    ['.mem/digest.log', 'local log'],
+    ['.mem/hooks/', 'generated by `mem hooks install`, machine-specific'],
+  ];
+  const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
+  // Compare against the RULE, not the whole line: what gets written is
+  // the rule plus padding plus a comment. Matching whole lines made a
+  // second `mem init` append every rule again.
+  const present = existing.split('\n')
+    .map((l) => l.trim().split('#')[0].trim())
+    .filter(Boolean);
+  const have = new Set(present);
+  const missing = wanted.filter(([rule]) => !have.has(rule));
+  if (missing.length === 0) return { added: 0, path: p };
+
+  const block = ['', '# cheap-mem: derived state and secrets']
+    .concat(missing.map(([rule, why]) => `${rule.padEnd(26)}# ${why}`))
+    .join('\n');
+  fs.writeFileSync(p, existing ? `${existing.replace(/\n*$/, '')}\n${block}\n` : `${block.trimStart()}\n`);
+  return { added: missing.length, path: p };
+}

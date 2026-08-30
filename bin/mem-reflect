@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# mem-reflect — Stop-Hook style reflector. Reads the session transcript
+# and, throttled by byte-delta, spawns an AI headless session that
+# decides whether anything substantial happened and writes a log entry
+# + inbox message + git push.
+#
+# Ported from lucky-mem/bin/bibliothekar-reflektor.sh.
+#
+# Wired in Claude Code as a Stop hook (see install/hooks/session-stop.sh).
+# Other clients can pipe the same JSON envelope on stdin.
+#
+# Throttle: only actually reflect when the transcript has grown by at
+# least MEM_REFLECT_THRESHOLD_BYTES (default 400_000 ≈ 100k tokens)
+# since the last reflect. State lives under .mem/reflect-marker/.
+#
+# Required env:
+#   CHEAP_MEM_ROOT
+#
+# Optional env:
+#   MEM_HEADLESS         if set, we do NOT recurse (a spawned session that
+#                         also fires the Stop-Hook would loop forever)
+#   MEM_REFLECT_THRESHOLD_BYTES  default 400000
+#   MEM_REFLECT_CMD      the AI CLI to spawn. Default: `claude -p`.
+#                         Set to `chatgpt`, `gemini`, `mistral`, etc.
+#                         The prompt is passed as the final argument.
+#   MEM_REFLECT_TIMEOUT  seconds (default 90)
+#   MEM_REFLECT_PROMPT   override the reflector prompt (default: see below)
+
+set -u
+
+# Never recurse.
+if [ -n "${MEM_HEADLESS:-}" ]; then
+  exit 0
+fi
+
+if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
+  # No memory attached — nothing to do, but a Stop hook must exit 0
+  # or it blocks the host session's shutdown.
+  exit 0
+fi
+if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
+  exit 0
+fi
+
+THRESHOLD="${MEM_REFLECT_THRESHOLD_BYTES:-400000}"
+TIMEOUT="${MEM_REFLECT_TIMEOUT:-90}"
+CMD="${MEM_REFLECT_CMD:-claude -p}"
+
+# Stop-hook stdin (Claude Code) is a JSON with transcript_path. Read it.
+STDIN_JSON="$(cat 2>/dev/null || true)"
+TRANSCRIPT_PATH=""
+if [ -n "$STDIN_JSON" ]; then
+  TRANSCRIPT_PATH="$(printf '%s' "$STDIN_JSON" | node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{const j=JSON.parse(d);process.stdout.write(j.transcript_path||"")}catch{}
+    })')"
+fi
+
+# Fall back to env if the client did not pass a path.
+if [ -z "$TRANSCRIPT_PATH" ] && [ -n "${TRANSCRIPT_PATH_ENV:-}" ]; then
+  TRANSCRIPT_PATH="$TRANSCRIPT_PATH_ENV"
+fi
+
+if [ -z "$TRANSCRIPT_PATH" ] || [ ! -f "$TRANSCRIPT_PATH" ]; then
+  # No transcript to reflect on — silent success.
+  exit 0
+fi
+
+# Byte-delta throttle. Marker keyed by transcript path (hashed).
+HASH="$(printf '%s' "$TRANSCRIPT_PATH" | node -e '
+  let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+    let h=5381;for(let i=0;i<d.length;i++)h=((h*33)^d.charCodeAt(i))&0xffffffff;
+    process.stdout.write((h>>>0).toString(36))})')"
+MARKER_DIR="$CHEAP_MEM_ROOT/.mem/reflect-marker"
+mkdir -p "$MARKER_DIR"
+MARKER="$MARKER_DIR/$HASH"
+
+CUR_SIZE="$(stat -c '%s' "$TRANSCRIPT_PATH" 2>/dev/null || stat -f '%z' "$TRANSCRIPT_PATH" 2>/dev/null || echo 0)"
+LAST_SIZE=0
+if [ -f "$MARKER" ]; then
+  LAST_SIZE="$(cat "$MARKER" 2>/dev/null || echo 0)"
+fi
+
+DELTA=$((CUR_SIZE - LAST_SIZE))
+if [ "$DELTA" -lt "$THRESHOLD" ]; then
+  # Under threshold — silent success. Do NOT update the marker; wait
+  # until the transcript actually crosses the threshold.
+  exit 0
+fi
+
+# Above threshold — record now (so a concurrent Stop does not re-fire),
+# then run the AI reflector.
+echo "$CUR_SIZE" > "$MARKER"
+
+DEFAULT_PROMPT="You are the reflector for cheap-mem. Read the transcript at \$TRANSCRIPT_PATH (env). Decide whether anything substantial happened since the last reflect (marker-based throttling handled the trigger; you decide relevance).
+
+If YES, write ONE inbox message to the librarian summarizing what you saw, and log at most three JSONL entries (event, decision, error — whichever fits). Use absolute paths since your cwd is NOT the memory root:
+
+  git -C \$CHEAP_MEM_ROOT pull --ff-only
+  node \$CHEAP_MEM_ROOT/bin/mem log <type> --title ... --tags ...
+  node \$CHEAP_MEM_ROOT/bin/mem inbox write --as session --to librarian --subject ... < body.md
+  git -C \$CHEAP_MEM_ROOT add -A
+  git -C \$CHEAP_MEM_ROOT commit -m 'reflect: <summary>'
+  git -C \$CHEAP_MEM_ROOT push origin HEAD:main
+
+Push explicitly to HEAD:main so a stray feature-branch checkout does not misroute the memory.
+
+If NO substantial change: exit silently, no log, no commit."
+
+PROMPT="${MEM_REFLECT_PROMPT:-$DEFAULT_PROMPT}"
+
+# Export the vars the spawned session will read.
+export TRANSCRIPT_PATH
+export CHEAP_MEM_ROOT
+export MEM_HEADLESS=reflector
+
+# Run the reflector CLI. CMD may contain flags (e.g. `claude -p`), so
+# split it on whitespace. The prompt is the final argument.
+# shellcheck disable=SC2086
+timeout "$TIMEOUT" $CMD "$PROMPT" >/dev/null 2>&1 || true
+
+exit 0
