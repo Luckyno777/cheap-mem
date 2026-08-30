@@ -15,12 +15,43 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Known log types. Each has its own JSONL per project + global. */
+/**
+ * Known log types. Each has its own JSONL per project + global.
+ *
+ * Five of these exist because a digest run kept producing entries that
+ * did not fit the original four. A `thought` is not an `event`; a
+ * `duty` is not a `decision`. Forcing them into the wrong drawer makes
+ * the search worse, because the field weights stop meaning anything.
+ *
+ * All of them are append-only. A correction is a NEW line carrying
+ * `replaces_id` — never an edit. Rewriting history is how a memory
+ * starts lying.
+ */
 export const TYPES = Object.freeze({
-  decision: 'decisions.jsonl',
-  error: 'errors.jsonl',
-  event: 'events.jsonl',
-  timeline: 'timeline.jsonl',
+  decision: 'decisions.jsonl',   // a choice, with the reason for it
+  error: 'errors.jsonl',         // something broke, and why
+  event: 'events.jsonl',         // it happened: a release, a hire, a start
+  timeline: 'timeline.jsonl',    // a fact that changes over time
+  thought: 'thoughts.jsonl',     // reasoning worth keeping, not yet a decision
+  learning: 'learnings.jsonl',   // what to do differently next time
+  duty: 'duties.jsonl',          // something owed to someone
+  skill: 'skills.jsonl',         // a capability acquired, with evidence
+  update: 'updates.jsonl',       // a version, a dependency, a config change
+});
+
+/**
+ * Duty is the ONLY type with a lifecycle.
+ *
+ * Closing one does not overwrite the original line; it appends a new
+ * line carrying `closes_id`. `openDuties()` folds the two into a
+ * current view. That keeps the append-only rule intact while still
+ * answering "what do I still owe?" — the one question a flat log
+ * cannot answer.
+ */
+export const DUTY_STATE = Object.freeze({
+  OPEN: 'open',
+  DONE: 'done',
+  DROPPED: 'dropped',
 });
 
 const PROJECT_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
@@ -295,4 +326,79 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
       `Old id '${oldId}' not found in ${type}${project ? ` (project ${project})` : ''}. Correction without original is not allowed.`);
   }
   return logEntry(root, type, { ...newData, replaces_id: oldId }, { project });
+}
+
+
+/**
+ * Fold the duty log into "still open" and "closed".
+ *
+ * A line with `closes_id` closes the duty with that id. The original
+ * line stays exactly where it is — this function is a view, not a
+ * mutation. It is the only folded view in the whole memory, and it
+ * exists because an unfolded duty list is useless: nobody can read
+ * fifty lines to work out which three things they still owe.
+ */
+export function openDuties(root, { project = undefined } = {}) {
+  const targets = project === undefined
+    ? [null, ...listProjects(root)]
+    : [project === 'global' ? null : project];
+
+  const all = new Map();      // id -> entry
+  const closed = new Map();   // id -> {state, by, ts}
+
+  for (const p of targets) {
+    const file = logPath(root, 'duty', p);
+    if (!fs.existsSync(file)) continue;
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      if (!lines[i].trim()) continue;
+      let e;
+      try { e = JSON.parse(lines[i]); } catch { continue; }
+      if (e.closes_id) {
+        closed.set(e.closes_id, {
+          state: e.state ?? DUTY_STATE.DONE,
+          by: e.id,
+          ts: e.ts,
+          why: e.why ?? e.text ?? null,
+        });
+        continue;
+      }
+      if (!e.id) continue;
+      all.set(e.id, {
+        ...e,
+        _source: path.relative(root, file),
+        _line: i + 1,
+        _project: p,
+      });
+    }
+  }
+
+  const open = [];
+  const done = [];
+  for (const [id, e] of all) {
+    const shut = closed.get(id);
+    if (shut) done.push({ ...e, _closed: shut });
+    else open.push(e);
+  }
+  open.sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
+  done.sort((a, b) => (b._closed.ts ?? '').localeCompare(a._closed.ts ?? ''));
+  return { open, done };
+}
+
+/**
+ * Close a duty. Appends a line; never touches the original.
+ * Refuses if the id does not exist — closing a duty that was never
+ * opened means someone mistyped, and a memory that accepts that is
+ * quietly wrong.
+ */
+export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, project = null } = {}) {
+  if (typeof id !== 'string' || !id) throw new Error('closeDuty needs an id');
+  if (!Object.values(DUTY_STATE).includes(state)) {
+    throw new Error(`Unknown duty state '${state}'. Known: ${Object.values(DUTY_STATE).join(', ')}`);
+  }
+  const { open } = openDuties(root, { project: project ?? undefined });
+  if (!open.some((d) => d.id === id)) {
+    throw new Error(`No open duty with id '${id}'.`);
+  }
+  return logEntry(root, 'duty', { closes_id: id, state, why }, { project });
 }

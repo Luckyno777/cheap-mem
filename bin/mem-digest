@@ -1,0 +1,199 @@
+#!/usr/bin/env bash
+# mem-digest — lane 2: the one model call.
+#
+# Runs on a timer. Checks whether the pile is ripe, and if so makes
+# EXACTLY ONE model call that sorts the raw material into drawers.
+#
+# **This is the only model call in the memory loop.** Capturing (the
+# Stop hook) and searching (`mem find`) run without one.
+#
+# Required:
+#   CHEAP_MEM_ROOT       absolute path to the memory
+#
+# Optional:
+#   MEM_DIGEST_MAX_BYTES  most raw material per run (default 2000000)
+#                         the rest stays pending for the next tick
+#   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
+#   MEM_DIGEST_CMD        model CLI (default: claude -p)
+#   MEM_DIGEST_LOG        log file (default: $ROOT/.mem/digest.log)
+#
+# Exit codes:
+#   0  ran, or nothing to do
+#   1  the model call failed, or did nothing
+#   2  configuration error
+
+set -u
+
+if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
+  echo "error: CHEAP_MEM_ROOT is not set" >&2
+  exit 2
+fi
+ROOT="$CHEAP_MEM_ROOT"
+[ -d "$ROOT/.mem" ] || { echo "error: '$ROOT' has no .mem — run mem init" >&2; exit 2; }
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MEM="$HERE/mem"
+TIMEOUT="${MEM_DIGEST_TIMEOUT:-600}"
+CMD="${MEM_DIGEST_CMD:-claude -p}"
+LOG="${MEM_DIGEST_LOG:-$ROOT/.mem/digest.log}"
+MAX_BYTES="${MEM_DIGEST_MAX_BYTES:-2000000}"
+mkdir -p "$(dirname "$LOG")"
+
+note() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
+
+# --- Check dueness BEFORE taking the lock ---------------------------
+#
+# The tick runs often. In the normal case it must be back out within
+# milliseconds and with no side effect — no lock, no git, no model.
+# Only a ripe pile goes further.
+#
+# Exit codes of `mem digest due`: 0 no, 1 yes, 3 cannot tell.
+STATE="$(node "$MEM" --root "$ROOT" digest due 2>>"$LOG")"
+case $? in
+  0) exit 0 ;;
+  1) : ;;
+  3) note "cannot tell whether due: $STATE"; exit 1 ;;
+  *) note "unexpected exit from the dueness check"; exit 1 ;;
+esac
+
+note "due: $STATE"
+
+LOCK="$ROOT/.mem/digest.lock"
+
+# Never two digests at once. The subshell isolates the file descriptor:
+# without the parentheses FD 9 stays open in the parent process and the
+# lock is never released.
+(
+  exec 9>"$LOCK"
+  if ! flock -n 9; then
+    note "already running, skipping"
+    exit 0
+  fi
+
+  PENDING_JSON="$(node "$MEM" --root "$ROOT" raw pending --json 2>>"$LOG")"
+  if [ -z "$PENDING_JSON" ]; then
+    note "could not read the pending state"
+    exit 1
+  fi
+
+  # Only hand one run as much material as a session can actually read.
+  # A week of backlog can be megabytes; without a cap the session
+  # suffocates on context and reports nothing useful. The rest simply
+  # stays pending and the next tick takes it, so a backlog drains over
+  # several runs instead of failing in one.
+  SELECTION="$(printf '%s' "$PENDING_JSON" | MAX="$MAX_BYTES" ROOT="$ROOT" node -e '
+    const fs=require("fs"), path=require("path");
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      let o;try{o=JSON.parse(d)}catch{process.exit(1)}
+      const max=Number(process.env.MAX), root=process.env.ROOT;
+      if(!root){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
+      // A file whose size we cannot read counts as LARGE. The other way
+      // round (unknown = 0) lets a silent stat error eat the whole cap:
+      // the sum never grows, everything is selected, and the limit is
+      // useless without anyone noticing.
+      // Smallest first, so one huge capture that no session can finish
+      // does not block everything behind it forever.
+      const sized=(o.open||[]).map(f=>{
+        let s=Infinity;
+        try{s=fs.statSync(path.join(root,f)).size}
+        catch(e){process.stderr.write("selection: "+f+" unreadable\n")}
+        return {f,s};
+      }).sort((a,b)=>a.s-b.s);
+      const chosen=[];let sum=0;
+      for(const {f,s} of sized){
+        if(chosen.length && sum+s>max) break;
+        chosen.push(f);sum+=s;
+        if(sum>=max) break;
+      }
+      console.log(JSON.stringify({chosen,sum,total:(o.open||[]).length}));
+    })' 2>>"$LOG")"
+
+  CHOSEN="$(printf '%s' "$SELECTION" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{for(const f of JSON.parse(d).chosen)console.log(f)}catch{}})')"
+  if [ -z "$CHOSEN" ]; then
+    note "nothing selected — nothing to do"
+    exit 0
+  fi
+  N_CHOSEN="$(printf '%s\n' "$CHOSEN" | grep -c .)"
+  N_TOTAL="$(printf '%s' "$SELECTION" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{process.stdout.write(String(JSON.parse(d).total))}catch{process.stdout.write("?")}})')"
+  [ "$N_CHOSEN" != "$N_TOTAL" ] && \
+    note "backlog: $N_CHOSEN of $N_TOTAL captures this run, rest next tick"
+
+  PROMPT="You are the digest for a cheap-mem memory. Read \$ROOT/DIGEST.md first and follow it.
+
+Root: $ROOT
+CLI:  node $MEM --root $ROOT <command>
+
+Raw material for THIS run (only these, no more):
+$(printf '%s' "$CHOSEN" | sed 's/^/  /')
+
+Work like this:
+1. Read each capture: mem raw show <path>
+   Do NOT read a large capture in one go. Get the header first
+   (--head reports __lines), then read in windows:
+     mem raw show <path> --from 0 --count 400
+     mem raw show <path> --from 400 --count 400
+   Write down what you learned after each window instead of holding it
+   all in your head. If a capture is too large to finish: do NOT mark
+   it digested, write what you have, and log an error with
+   --class digest-overflow.
+2. Before writing anything, check for duplicates:
+     mem find \"<keyword>\" --since 7d
+3. Sort into drawers, every entry WITH --origin:
+     mem log <type> --title ... --text ... --tags ... \\
+       --origin '{\"raw\":\"<path>\",\"session_id\":\"<id>\"}'
+4. Close any duty that is now fulfilled (mem duties lists them)
+5. Mark as digested: mem raw digested <path1> <path2> ...
+6. Commit and push.
+
+Three to ten entries is normal. More than fifteen means you are not
+condensing enough. Stop after the push."
+
+  # Remember how much was pending. The model call's exit code alone
+  # says NOTHING about whether work happened — a session that fails on
+  # permissions explains itself at length and exits 0. That is exactly
+  # what happened on the first real run: "done" reported, nothing done.
+  BEFORE="$(node "$MEM" --root "$ROOT" raw pending --json 2>/dev/null | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{process.stdout.write(String((JSON.parse(d).open||[]).length))}
+      catch{process.stdout.write("-1")}})')"
+
+  # MEM_HEADLESS stops this call from triggering the Stop hook — the
+  # digest would otherwise capture itself.
+  ( cd "$ROOT" && MEM_HEADLESS=digest timeout "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
+  MODEL_EXIT=$?
+
+  if [ "$MODEL_EXIT" -ne 0 ]; then
+    note "model call exited $MODEL_EXIT (timeout or error)"
+    exit 1
+  fi
+
+  # **Check the effect, do not trust the exit code.** If not a single
+  # capture was marked digested, the digest did nothing — whatever it
+  # claims. A silent failure reported as success is worse than a loud
+  # error.
+  AFTER="$(node "$MEM" --root "$ROOT" raw pending --json 2>/dev/null | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{process.stdout.write(String((JSON.parse(d).open||[]).length))}
+      catch{process.stdout.write("-1")}})')"
+
+  if [ "$BEFORE" = "-1" ] || [ "$AFTER" = "-1" ]; then
+    note "effect not measurable (raw pending unreadable) — treating as failure"
+    exit 1
+  fi
+
+  if [ "$AFTER" -ge "$BEFORE" ]; then
+    note "FAILED: the model call exited 0 but digested nothing ($BEFORE -> $AFTER)."
+    note "  Most common cause: the session was not allowed to run 'node bin/mem'."
+    note "  Check the permissions of your assistant's headless mode."
+    note "  The end of $LOG shows what the session reported."
+    exit 1
+  fi
+
+  note "done — $((BEFORE - AFTER)) captures digested"
+  exit 0
+)
+exit $?

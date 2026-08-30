@@ -11,16 +11,32 @@ Cross-device sync is `git pull`. Cross-session messaging is `git push`.
 
 ## Why "cheap"?
 
-Second-brain-in-context patterns (Obsidian-style dumps, RAG-heavy setups)
-push the same big blob into every prompt. cheap-mem does the opposite:
+Most memory tools put a model in the read path: every recall costs a
+call, adds latency, and stops working on a plane. cheap-mem puts the
+model in exactly one place — a timer, far from anything you wait for.
 
-- A **tiny always-loaded facts file** (~100 lines max)
-- A **compact context dump** at session start (~20 recent items)
-- **Append-only JSONL logs** searched on demand — never streamed in full
-- **File-based inbox** — one 5-line header + body, pulled only when needed
+```
+LANE 1  CAPTURE   every session    no model    ~50 ms   0 cost
+LANE 2  DIGEST    when ripe        ONE call    ~30 s
+LANE 3  SEARCH    every query      no model    ~3 ms    0 cost
+```
 
-Rough measurements against a full Obsidian-in-context pattern:
-**~80–95% fewer tokens per session** for the same working recall.
+Storing is cheap, thinking is expensive. So store everything at once
+and stupidly, think about the whole pile every few hours, and read with
+pure code.
+
+**Search is BM25** over weighted fields, widened by a curated thesaurus
+and by a tag graph the tool learns from your own entries. Measured on a
+small English corpus: **13 of 14 queries returned the right top hit,
+0.3 ms average**, including ones with no literal word in common
+("flaky tests" → "aborts sporadically", "ram leak" → "heap climbs
+until the OOM killer"). Details and the honest failure mode:
+[docs/architecture.md](docs/architecture.md).
+
+> **Not yet measured:** how many tokens this saves against an
+> Obsidian-style always-in-context setup. The design should use far
+> fewer, but until there is a benchmark in this repo, treat any
+> percentage you see as a guess. If you run one, send the numbers.
 
 ## What lives where
 
@@ -31,13 +47,23 @@ your-memory/
   global/
     facts.yaml             stable facts (YAML)
     people.yaml            people directory
-    decisions.jsonl        append-only decision log
-    errors.jsonl           append-only error log
-    events.jsonl           append-only event log
-    timeline.jsonl         append-only timeline
+    decisions.jsonl        a choice, with the reason for it
+    errors.jsonl           something broke, and why
+    events.jsonl           it happened
+    timeline.jsonl         a fact that changes over time
+    thoughts.jsonl         reasoning not yet a decision
+    learnings.jsonl        what to do differently next time
+    duties.jsonl           what is owed — the only type with a lifecycle
+    skills.jsonl           a capability acquired, with evidence
+    updates.jsonl          a version, a dependency, a config change
   projects/<name>/         same shape, per project
   inbox/                   messages between sessions (git-synced)
+  raw/YYYY/MM/*.jsonl.gz   captured transcripts, redacted
 ```
+
+All logs are append-only. A correction is a **new line** carrying
+`replaces_id` — never an edit. A memory that rewrites its own history
+is worse than no memory.
 
 ## Quickstart
 
@@ -55,9 +81,53 @@ git init && git add -A && git commit -m "init"
 git remote add origin git@github.com:you/your-memory.git
 git push -u origin main
 
+# Arm the secret check — it proves itself with a decoy token
+node ~/cheap-mem/bin/mem hooks install
+
 # Log something
 node ~/cheap-mem/bin/mem log event --title "started using cheap-mem" --tags setup
-node ~/cheap-mem/bin/mem context
+node ~/cheap-mem/bin/mem find "cheap-mem"
+node ~/cheap-mem/bin/mem doctor
+```
+
+## Turn on capture and digest
+
+Capture is a Stop hook — it copies each session's transcript into the
+memory, redacted and gzipped, **without starting a model**. Add to your
+assistant's settings:
+
+```json
+"hooks": {
+  "Stop": [{ "hooks": [{ "type": "command",
+    "command": "bash ~/cheap-mem/bin/mem-capture" }] }]
+}
+```
+
+The digest is a timer. It checks in milliseconds whether the pile is
+ripe and only then makes its one model call:
+
+```bash
+# every 10 minutes, e.g. via cron or a systemd timer
+CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/bin/mem-digest
+```
+
+Nothing captured means no bell, and no bell means no call — a week away
+costs exactly zero. See [docs/architecture.md](docs/architecture.md).
+
+## Commands
+
+```
+mem init                       one-time setup
+mem log <type> --<field> ...   append an entry (nine types)
+mem find "<query>"             ranked search, no model    [--literal --fresh]
+mem duties                     what is still owed
+mem duties close <id>          append a closing line
+mem context                    compact dump for session start
+mem raw pending|show|digested  the captured material
+mem digest due|bell            is the pile ripe?
+mem thesaurus [--graph]        word groups, and what the tag graph learned
+mem hooks install|check        arm and prove the secret check
+mem doctor                     is this memory healthy?
 ```
 
 ## Autostart on macOS / Linux / Windows

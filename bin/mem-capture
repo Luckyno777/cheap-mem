@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# mem-capture — lane 1: the Stop hook.
+#
+# Copies the new part of the session transcript into the memory,
+# redacted and gzipped. **Starts no model.** Cost: nothing. Runtime:
+# about 50 ms.
+#
+# Wire it up in your assistant's settings as a Stop hook:
+#   "Stop": [{"hooks": [{"type": "command",
+#     "command": "bash /path/to/cheap-mem/bin/mem-capture"}]}]
+#
+# Environment:
+#   CHEAP_MEM_ROOT      memory root (otherwise searched upward from cwd)
+#   MEM_CAPTURE_MIN     bytes of growth before capturing (default 4096)
+#   MEM_CAPTURE_OFF=1   disable for this session
+#   MEM_HEADLESS        set = we are a machine session, do not capture
+#
+# The hook receives the assistant's JSON on stdin; we read the
+# transcript path from it and fall back to $CLAUDE_TRANSCRIPT_PATH.
+
+set -u
+
+[ "${MEM_CAPTURE_OFF:-}" = "1" ] && exit 0
+
+# Never capture ourselves. The digest sets this flag, otherwise the
+# digest session's own transcript becomes the next thing to digest and
+# the snake eats its tail.
+[ -n "${MEM_HEADLESS:-}" ] && exit 0
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+STDIN_JSON=""
+if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
+
+TRANSCRIPT="${CLAUDE_TRANSCRIPT_PATH:-}"
+if [ -z "$TRANSCRIPT" ] && [ -n "$STDIN_JSON" ]; then
+  TRANSCRIPT="$(printf '%s' "$STDIN_JSON" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{const o=JSON.parse(d);
+        process.stdout.write(o.transcript_path||o.transcriptPath||"")}catch{}})' 2>/dev/null)"
+fi
+
+[ -z "$TRANSCRIPT" ] && exit 0
+[ -f "$TRANSCRIPT" ] || exit 0
+
+# A hook that fails must never break the session it is attached to.
+# Every error goes to the log and the exit code stays 0.
+node "$HERE/mem" raw-capture --transcript "$TRANSCRIPT" >/dev/null 2>&1 || true
+exit 0
