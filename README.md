@@ -1,5 +1,7 @@
 # cheap-mem
 
+[![CI](https://github.com/Luckyno777/cheap-mem/actions/workflows/ci.yml/badge.svg)](https://github.com/Luckyno777/cheap-mem/actions/workflows/ci.yml)
+
 > Cheap in tokens, rich in memory.
 
 A local-first, git-backed persistent memory layer for AI coding assistants.
