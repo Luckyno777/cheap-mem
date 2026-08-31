@@ -57,6 +57,13 @@ chmod +x "$HOOKS_DIR/cheap-mem-session-start.sh"
 } > "$HOOKS_DIR/cheap-mem-session-stop.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-session-stop.sh"
 
+{
+  echo "#!/usr/bin/env bash"
+  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  tail -n +2 "$HERE/hooks/user-prompt.sh"
+} > "$HOOKS_DIR/cheap-mem-user-prompt.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
+
 # Merge settings.json without touching unrelated config.
 node - "$SETTINGS" "$HOOKS_DIR" "$CHEAP_MEM_ROOT" <<'NODE_MERGE'
 const fs = require('fs');
@@ -76,7 +83,8 @@ function upsertHook(event, cmd) {
   cfg.hooks[event].push({ hooks: [{ type: 'command', command: cmd }] });
 }
 upsertHook('SessionStart', path.join(hooksDir, 'cheap-mem-session-start.sh'));
-upsertHook('Stop',         path.join(hooksDir, 'cheap-mem-session-stop.sh'));
+upsertHook('Stop',            path.join(hooksDir, 'cheap-mem-session-stop.sh'));
+upsertHook('UserPromptSubmit', path.join(hooksDir, 'cheap-mem-user-prompt.sh'));
 
 cfg.permissions = cfg.permissions || {};
 const allow = [
@@ -109,9 +117,10 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-session-{start,stop}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt}.sh"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"
 echo "  - SessionStart hook prints FACTS.md + mem context"
+echo "  - UserPromptSubmit hook recalls matching memory on every message"
 echo "  - Stop hook triggers mem-reflect (byte-delta throttled)"

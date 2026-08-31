@@ -96,6 +96,30 @@ jobs:
           test "$(git rev-parse HEAD)" = "$BEFORE"
           echo "hook blocked the decoy, HEAD unchanged"
 
+  retrieve:
+    name: recall · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+
+      # Lane 3 is the one that turns "can remember" into "remembers".
+      # It runs on every message, so the test that matters most measures
+      # that it never blocks the prompt — against a git that hangs on
+      # pull. The rest guards the throttle, the dirty-tree skip, and the
+      # score threshold.
+      - name: recall runs on every turn without ever waiting
+        shell: bash
+        run: bash test/retrieve.sh
+
   powershell:
     name: powershell · windows
     runs-on: windows-latest
