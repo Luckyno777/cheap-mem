@@ -19,6 +19,12 @@ GREEN=0; RED=0
 ok()  { GREEN=$((GREEN+1)); echo "  ok   $1"; }
 bad() { RED=$((RED+1));     echo "  FAIL $1"; }
 
+# Epoch milliseconds, portably. `date +%s%N` is a GNU-ism — BSD date
+# (macOS) has no %N and returns a literal N, which would make the wait
+# arithmetic garbage. node's clock is the same everywhere. (Fitting,
+# for a test in a project whose whole theme is GNU-vs-BSD skew.)
+now_ms() { node -e 'process.stdout.write(String(Date.now()))'; }
+
 # A memory that carries the tool (memory == code repo, cheap-mem's
 # hook shape). Built with `git archive` so it has a clean one-commit
 # history that can be pushed to an empty bare remote — a shallow clone
@@ -84,18 +90,19 @@ build_memory
 remote_ahead
 mkdir -p "$WORK/bin"
 rm -f "$WORK/pull-started"
+REAL_GIT="$(command -v git)"        # resolve BEFORE the stub shadows it
 cat > "$WORK/bin/git" <<GITEND
 #!/usr/bin/env bash
 for a in "\$@"; do
   [ "\$a" = "pull" ] && { echo x >> "$WORK/pull-started"; sleep 25; exit 0; }
 done
-exec /usr/bin/git "\$@"
+exec "$REAL_GIT" "\$@"
 GITEND
 chmod +x "$WORK/bin/git"
-START=$(date +%s%N)
+START=$(now_ms)
 printf '%s' "$FRAGE" | env PATH="$WORK/bin:$PATH" MEM_RETRIEVE_FRESH_MIN=0 \
   CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" >/dev/null 2>&1
-MS=$(( ($(date +%s%N) - START) / 1000000 ))
+MS=$(( $(now_ms) - START ))
 echo "     waited ${MS} ms (hanging git: 25 s)"
 [ "$MS" -lt 3000 ] && ok "returns at once" || bad "waited ${MS} ms — stdout held open"
 [ -f "$WORK/pull-started" ] && ok "the hanging pull was actually started" \
