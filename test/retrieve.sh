@@ -76,12 +76,24 @@ FRAGE='{"prompt":"why is the flaky payment integration test failing on timeout?"
 
 echo "1) a real question yields context, and it is valid JSON"
 build_memory
-OUT="$(run MEM_RETRIEVE_NO_PULL=1)"
+# Split into two halves so a failure names the guilty side, not "test 1":
+# first the search itself (corpus + tokenisation), then the hook wrapping
+# it. BM25 scores vary a little across Node/platform, so the hook half
+# uses a low, deterministic threshold — the point here is the envelope
+# and the banner, not the exact score (test 9 guards the threshold).
+Q="$(printf '%s' "$FRAGE" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.parse(d).prompt))')"
+HITS="$(node "$WORK/mem/bin/mem" --root "$WORK/mem" find "$Q" --top 3 --json 2>/dev/null)"
+N="$(printf '%s' "$HITS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(String((JSON.parse(d).hits||[]).length))}catch{process.stdout.write("0")}})')"
+if [ "${N:-0}" -ge 1 ]; then ok "search finds the entry ($N hit(s))"; else
+  bad "search found nothing — corpus/tokenisation problem"
+  echo "     find --json said: $(printf '%s' "$HITS" | head -c 200)"
+fi
+OUT="$(run MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1)"
 printf '%s' "$OUT" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
   if(!d)process.exit(1); try{const o=JSON.parse(d);
     process.exit(o.hookSpecificOutput&&o.hookSpecificOutput.hookEventName==="UserPromptSubmit"?0:1);
   }catch{process.exit(1)}})' \
-  && ok "additionalContext, valid envelope" || bad "no/!invalid context"
+  && ok "additionalContext, valid envelope" || { bad "no/!invalid context"; echo "     hook said: $(printf '%s' "$OUT" | head -c 200)"; }
 printf '%s' "$OUT" | grep -q "Recalled automatically from memory" \
   && ok "carries the data-not-instructions banner" || bad "banner missing"
 
@@ -105,7 +117,16 @@ printf '%s' "$FRAGE" | env PATH="$WORK/bin:$PATH" MEM_RETRIEVE_FRESH_MIN=0 \
 MS=$(( $(now_ms) - START ))
 echo "     waited ${MS} ms (hanging git: 25 s)"
 [ "$MS" -lt 3000 ] && ok "returns at once" || bad "waited ${MS} ms — stdout held open"
-[ -f "$WORK/pull-started" ] && ok "the hanging pull was actually started" \
+# The pull is detached: the parent returns first, the child reaches the
+# git stub a moment later. Checking pull-started synchronously right
+# after the 129 ms return is a race — it passed on the fast Linux runner
+# and lost on macOS. So wait for the side-effect, up to a few seconds.
+STARTED=""
+for _ in $(seq 1 40); do
+  [ -f "$WORK/pull-started" ] && { STARTED=1; break; }
+  sleep 0.25
+done
+[ -n "$STARTED" ] && ok "the hanging pull was actually started" \
   || bad "no pull attempted — the timing proves nothing"
 
 echo "3) throttle: a second call within the window does not pull again"
