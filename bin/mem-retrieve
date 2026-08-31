@@ -58,6 +58,21 @@ fi
 MIN="${MEM_RETRIEVE_MIN:-5.0}"
 TOP="${MEM_RETRIEVE_TOP:-3}"
 
+# A cap on how long a call may run, portably. GNU `timeout` is not on
+# macOS by default (there it is `gtimeout` from coreutils, if at all).
+# A hard dependency on it made the whole hook silently produce nothing
+# on macOS — find and pull both ran through it and both failed. So:
+# use whichever exists, and when neither does, run the command directly.
+# The background pull can't block the prompt regardless (it is detached);
+# the cap only keeps a hung git from lingering.
+if command -v timeout >/dev/null 2>&1; then CAP=(timeout)
+elif command -v gtimeout >/dev/null 2>&1; then CAP=(gtimeout)
+else CAP=(); fi
+capped() {  # capped <seconds> <cmd...>
+  local secs="$1"; shift
+  if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$secs" "$@"; else "$@"; fi
+}
+
 # --- Keep the clone from going stale --------------------------------
 #
 # Recall only READS. Without this, the clone is pulled once at session
@@ -102,7 +117,7 @@ refresh() {
   touch "$marker" 2>/dev/null || return 0
   remote="${MEM_RETRIEVE_REMOTE:-origin}"
   branch="${MEM_RETRIEVE_BRANCH:-main}"
-  ( timeout 30 git -C "$ROOT" pull --ff-only --quiet "$remote" "$branch" ) >/dev/null 2>&1 &
+  ( capped 30 git -C "$ROOT" pull --ff-only --quiet "$remote" "$branch" ) >/dev/null 2>&1 &
   return 0
 }
 refresh
@@ -123,7 +138,7 @@ PROMPT="$(node -e '
 # a stable shape. The prompt goes in as an argv value, never through a
 # shell — node does not evaluate argv, so an odd character in the
 # prompt cannot turn into a command.
-HITS="$(timeout 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)" || exit 0
+HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)" || exit 0
 [ -z "$HITS" ] && exit 0
 
 # Keep only what clears the bar, render one line each, and wrap it in the

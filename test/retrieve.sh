@@ -180,6 +180,26 @@ OUT="$(printf '%s' '{"prompt":"yes"}' | env MEM_RETRIEVE_FRESH_MIN=0 \
 [ -z "$OUT" ] && ok "no context for 'yes'" || bad "showed context for 'yes'"
 pulled && ok "still refreshed" || bad "a short prompt froze the clone"
 
+echo "9b) works even when timeout is absent (the macOS case)"
+# GNU timeout is not on macOS by default. A hard dependency on it made
+# the whole hook silently produce nothing there. Reproduce it: a PATH
+# with the tools the hook needs but NO timeout/gtimeout.
+build_memory
+SAFE="$WORK/safe-path"; mkdir -p "$SAFE"
+for t in node git bash env cat printf grep find sed awk date sleep mktemp          dirname touch wc head tail tr cut basename rm mkdir chmod ln seq; do
+  p="$(command -v "$t" 2>/dev/null)"; [ -n "$p" ] && ln -sf "$p" "$SAFE/$t"
+done
+if PATH="$SAFE" command -v timeout >/dev/null 2>&1 \
+   || PATH="$SAFE" command -v gtimeout >/dev/null 2>&1; then
+  echo "     (skipped: this box still exposes timeout on the trimmed PATH)"
+else
+  OUT="$(printf '%s' "$FRAGE" | env PATH="$SAFE" MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+    CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+  printf '%s' "$OUT" | grep -q "Recalled automatically from memory" \
+    && ok "context produced without timeout on PATH" \
+    || { bad "hook went silent without timeout"; echo "     hook said: $(printf '%s' "$OUT" | head -c 120)"; }
+fi
+
 echo "9) below-threshold match stays hidden"
 build_memory
 OUT="$(printf '%s' '{"prompt":"a totally unrelated question about weather"}' \
