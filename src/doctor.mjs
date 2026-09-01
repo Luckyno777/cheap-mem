@@ -63,6 +63,7 @@ export function checkAll(root) {
   f.push(...checkDrawers(root));
   f.push(checkCaptures(root));
   f.push(checkDigest(root));
+  f.push(checkDigestYield(root));
   f.push(checkIndex(root));
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
@@ -80,6 +81,45 @@ export function checkAll(root) {
   const count = { good: 0, warn: 0, error: 0, unknown: 0 };
   for (const x of f) count[x.level] += 1;
   return { findings: f, worst, summary: count };
+}
+
+// Digest yield: makes the silent loss measurable. The digest (lane 2)
+// is the net under discipline — when I forget to log, IT should pull the
+// decision/error out of the raw material. An unmeasured net is as good
+// as none. So count: how many digested captures produced NO entry (no
+// entry's origin.raw points at them)? A high ratio is the signal that
+// the digest is dropping content.
+function checkDigestYield(root) {
+  const ratioThreshold = 0.4;
+  let captures = [];
+  let open = new Set();
+  try { captures = raw.listCaptures(root); } catch { /* no raw/ */ }
+  try { open = new Set(raw.pending(root).open); } catch { /* no watermark */ }
+  const digested = captures.filter((f) => !open.has(f));
+  if (digested.length === 0) {
+    return finding('digest-yield', LEVEL.GOOD, 'nothing digested yet — nothing to measure');
+  }
+  const referenced = new Set();
+  let withOrigin = 0;
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const type of Object.keys(memory.TYPES)) {
+      const { entries } = memory.readLog(root, type, { project });
+      for (const e of entries) {
+        const src = e && e.origin && e.origin.raw;
+        if (src) { withOrigin += 1; referenced.add(src); }
+      }
+    }
+  }
+  const gaps = digested.filter((f) => !referenced.has(f));
+  const ratio = gaps.length / digested.length;
+  const core = `digest yield: ${withOrigin} entries from ${digested.length} digested `
+    + `captures; ${gaps.length} produced nothing (${Math.round(ratio * 100)}%).`;
+  if (digested.length >= 3 && ratio > ratioThreshold) {
+    return finding('digest-yield', LEVEL.WARN, core,
+      'Many digested captures produced no entry — the digest may be dropping '
+      + `content (or it was just tool noise). Spot-check: ${gaps.slice(0, 2).join(', ')}`);
+  }
+  return finding('digest-yield', LEVEL.GOOD, core);
 }
 
 function checkRoot(root) {

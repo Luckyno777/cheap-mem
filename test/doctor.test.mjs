@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as doctor from '../src/doctor.mjs';
+import * as memory from '../src/memory.mjs';
+import * as raw from '../src/raw.mjs';
 
 test('the legacy finding never names a value', () => {
   // The redaction only protects what was captured after it. A gap
@@ -48,4 +50,50 @@ test('the behind check makes no network call', () => {
   const fn = end === -1 ? block : block.slice(0, end);
   assert.ok(!/'fetch'|"fetch"/.test(fn), 'checkBehind must not run git fetch');
   assert.match(fn, /rev-list/);
+});
+
+// --- Digest yield (point 2) -----------------------------------------
+function findFinding(result, name) {
+  return result.findings.find((x) => x.name === name);
+}
+function putCapture(root, name) {
+  const rel = path.join('raw', '2026', '08', name);
+  const full = path.join(root, rel);
+  fs.mkdirSync(path.dirname(full), { recursive: true });
+  fs.writeFileSync(full, zlib.gzipSync('{"text":"x"}\n'));
+  return rel;
+}
+
+test('digest yield: nothing digested yet is GOOD (nothing to measure)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-yield-'));
+  const b = findFinding(doctor.checkAll(root), 'digest-yield');
+  assert.equal(b.level, 'good');
+  assert.match(b.text, /nothing to measure/);
+});
+
+test('digest yield: a high gap ratio warns with a spot-check', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-yield-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  const b2 = putCapture(root, '2026-08-30T02-00-00Z--bbb.jsonl.gz');
+  const c = putCapture(root, '2026-08-30T03-00-00Z--ccc.jsonl.gz');
+  raw.markDigested(root, [a, b2, c]);
+  memory.logEntry(root, 'thought', { text: 'from capture a', origin: { raw: a, session_id: 'aaa' } });
+  const b = findFinding(doctor.checkAll(root), 'digest-yield');
+  assert.equal(b.level, 'warn');
+  assert.match(b.text, /1 entries from 3 digested captures; 2 produced nothing/);
+  assert.ok(b.advice && /Spot-check/.test(b.advice));
+});
+
+test('digest yield: full coverage stays GOOD', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-yield-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  const b2 = putCapture(root, '2026-08-30T02-00-00Z--bbb.jsonl.gz');
+  const c = putCapture(root, '2026-08-30T03-00-00Z--ccc.jsonl.gz');
+  raw.markDigested(root, [a, b2, c]);
+  memory.logEntry(root, 'thought', { text: 'one', origin: { raw: a } });
+  memory.logEntry(root, 'error', { title: 'two', origin: { raw: b2 } });
+  memory.logEntry(root, 'event', { title: 'three', origin: { raw: c } });
+  const b = findFinding(doctor.checkAll(root), 'digest-yield');
+  assert.equal(b.level, 'good');
+  assert.match(b.text, /0 produced nothing/);
 });
