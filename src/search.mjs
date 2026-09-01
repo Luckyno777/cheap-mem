@@ -33,6 +33,12 @@ const B = 0.75;
 
 export const CACHE_FILE = path.join('.mem', 'search-index.json');
 
+// Cache schema version. When the shape of an index document changes
+// (e.g. the new `retired` field), an old cache MUST be discarded — else
+// recall would keep showing retired entries until the corpus happens to
+// change. Bumping this forces a rebuild.
+export const CACHE_VERSION = 2;
+
 /**
  * Field weights. The same word means more in a title than in a body:
  * a title is what someone chose to call the thing.
@@ -286,8 +292,19 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     documents.push({ ...doc, length });
   };
 
+  // Retired map from the SAME corpus. Tombstone lines are not indexed
+  // at all (they are bookkeeping, not content); every other doc carries
+  // its retired state so search can hide it in everyday recall.
+  const retired = memory.retiredMap(rawEntries.map((r) => r.entry));
+
   for (const r of rawEntries) {
-    addDoc({ ...r, weights: fieldsOfEntry(r.entry, { lexicon: lang.compounds ? lexicon : null, lang }) });
+    if (memory.isClosingLine(r.entry)) continue;
+    const info = r.entry.id ? retired.get(r.entry.id) : null;
+    addDoc({
+      ...r,
+      weights: fieldsOfEntry(r.entry, { lexicon: lang.compounds ? lexicon : null, lang }),
+      ...(info ? { retired: info } : {}),
+    });
   }
 
   // --- Index the raw material too --------------------------------
@@ -332,6 +349,7 @@ export function search(index, query, {
   minScore = 0.01,
   noRaw = false,
   onlyRaw = false,
+  withRetired = false,   // include retired (done/discarded/superseded)?
   language = null,
 } = {}) {
   const lang = pack(language ?? index.language ?? 'en');
@@ -355,6 +373,7 @@ export function search(index, query, {
   const hits = [];
   for (const doc of index.documents) {
     const isRaw = doc.type === 'raw';
+    if (doc.retired && !withRetired) continue;
     if (noRaw && isRaw) continue;
     if (onlyRaw && !isRaw) continue;
     if (type && doc.type !== type) continue;
@@ -390,6 +409,7 @@ export function search(index, query, {
       entry: doc.entry,
       raw: isRaw,
       pending: doc.pending ?? false,
+      ...(doc.retired ? { retired: doc.retired } : {}),
     });
   }
 
@@ -436,7 +456,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   if (!fresh && fs.existsSync(cachePath)) {
     try {
       const c = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      if (c.stamp === stamp && c.language === pack(language).name) {
+      if (c.version === CACHE_VERSION && c.stamp === stamp && c.language === pack(language).name) {
         return {
           ...c.index,
           documents: c.index.documents.map((d) => ({ ...d, weights: new Map(d.weights) })),
@@ -452,6 +472,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   try {
     fs.mkdirSync(path.dirname(cachePath), { recursive: true });
     fs.writeFileSync(cachePath, JSON.stringify({
+      version: CACHE_VERSION,
       stamp,
       language: index.language,
       index: {

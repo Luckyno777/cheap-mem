@@ -132,6 +132,7 @@ costs exactly zero. See [docs/architecture.md](docs/architecture.md).
 mem init                       one-time setup
 mem log <type> --<field> ...   append an entry (nine types)
 mem find "<query>"             ranked search, no model    [--literal --fresh]
+mem discard <id> / done <id>   retire a thought/task (recall hides it)
 mem duties                     what is still owed
 mem duties close <id>          append a closing line
 mem context                    compact dump for session start

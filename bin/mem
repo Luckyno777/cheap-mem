@@ -361,7 +361,7 @@ const COMMANDS = {
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
-      'no-raw', 'only-raw', 'json'], 'find');
+      'no-raw', 'only-raw', 'json', 'with-retired'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     const query = rest[0];
@@ -371,10 +371,15 @@ const COMMANDS = {
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
       const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
-      const hits = memory.find(root, query, { types, projects, since });
+      const hits = memory.find(root, query, {
+        types, projects, since, withRetired: Boolean(args['with-retired']),
+      });
       if (hits.length === 0) { out(`Nothing for '${query}'.`); return; }
       out(`${hits.length} literal hits for '${query}':`);
-      for (const h of hits) out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}`);
+      for (const h of hits) {
+        const mark = h._retired ? `  [${h._retired.state}]` : '';
+        out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}${mark}`);
+      }
       return;
     }
 
@@ -388,6 +393,7 @@ const COMMANDS = {
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
+      withRetired: Boolean(args['with-retired']),
       language: cfg.language,
     });
     const ms = Date.now() - t0;
@@ -400,7 +406,8 @@ const COMMANDS = {
     }
     out(`${hits.length} hits for '${query}' (${index.N} entries, ${ms}ms):`);
     for (const h of hits) {
-      const mark = h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '';
+      const mark = (h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '')
+        + (h.retired ? `  [${h.retired.state}]` : '');
       out(`  ${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}`);
       const preview = h.raw
         ? (raw.snippet(root, h.source, query) || String(h.entry.text ?? '').slice(0, 160))
@@ -408,6 +415,9 @@ const COMMANDS = {
       out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
     }
   },
+
+  discard: async ({ rest, args }) => retireCmd('discarded', rest, args),
+  done: async ({ rest, args }) => retireCmd('done', rest, args),
 
   'raw-capture': async ({ args }) => {
     // Used by the mem-capture Stop hook. Separate from `raw` so the
@@ -1013,6 +1023,34 @@ function countLines(p) {
   return fs.readFileSync(p, 'utf8').split('\n').filter((z) => z.trim()).length;
 }
 
+// discard/done: retire an entry without deleting it. Appends a tombstone
+// line to the same log; recall hides the original from here on, the
+// viewer keeps it (marked).
+function retireCmd(state, rest, args) {
+  const verb = state === 'discarded' ? 'discard' : 'done';
+  if (isHelp(args)) {
+    out([
+      `mem ${verb} <id> [--why "..."] [--type <type>] [--project <name>]`,
+      "",
+      `  Marks entry <id> as ${state} without deleting it. Recall stops`,
+      "  showing it; the viewer keeps it (struck through). --type/--project",
+      "  are only needed when the id is not uniquely locatable.",
+    ].join('\n'));
+    return;
+  }
+  checkFlags(args, ['why', 'type', 'project'], verb);
+  const root = findRoot(args);
+  requireConfig(root);
+  const id = rest[0];
+  if (!id) die(`${verb}: which id? Example: mem ${verb} a1b2c3 --why "..."`);
+  const loc = args.type
+    ? { type: args.type, project: args.project ? (args.project === 'global' ? null : args.project) : null }
+    : memory.findEntryLocation(root, id);
+  if (!loc) die(`${verb}: id '${id}' not found in any log. (a tombstone? already retired?)`);
+  memory.retireEntry(root, loc.type, id, { state, why: args.why ?? null, project: loc.project });
+  out(`${state}: ${id} (${loc.type}${loc.project ? `/${loc.project}` : ''})`);
+}
+
 // Pre-scan for a leading --root <path>, so it can appear before the subcommand.
 // Named argv, not `raw` — that name belongs to the raw-capture module.
 let argv = process.argv.slice(2);
@@ -1035,6 +1073,9 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out(`                    types: ${Object.keys(memory.TYPES).join(', ')}`);
   out('  find "<query>"   [--type T] [--project P|global] [--since 7d|24h|ISO]');
   out("                    ranked, no model. --literal for substring, --fresh to rebuild");
+  out("                    retired (done/discarded/superseded) hidden; --with-retired shows them");
+  out("  discard <id>     [--why \"...\"]        retire a discarded thought");
+  out("  done <id>        [--why \"...\"]        retire a finished entry");
   out("  duties           [--all]              what is still owed");
   out("  duties close <id> [--why \"...\"]      append a closing line");
   out("  context          [--n 20]");

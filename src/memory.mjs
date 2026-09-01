@@ -135,10 +135,15 @@ export function find(root, pattern, {
   types = Object.keys(TYPES),
   projects = null,   // null = global + all projects
   since = null,
+  withRetired = false,  // include retired (done/discarded/superseded)?
 } = {}) {
   const needle = String(pattern).toLowerCase();
   const scopes = projects === null ? [null, ...listProjects(root)] : projects;
-  const hits = [];
+
+  // Pass 1: parse every line of the target logs. Only after that is it
+  // known what is retired — a tombstone sits in the same log as its
+  // target, but possibly further down.
+  const raw = [];
   for (const project of scopes) {
     for (const type of types) {
       const p = logPath(root, type, project);
@@ -147,21 +152,31 @@ export function find(root, pattern, {
       for (let i = 0; i < lines.length; i += 1) {
         const line = lines[i];
         if (!line.trim()) continue;
-        if (!line.toLowerCase().includes(needle)) continue;
         let entry;
         try { entry = JSON.parse(line); }
         catch { entry = { __broken: true, raw: line }; }
-        if (since) {
-          const sinceTs = since instanceof Date ? since.toISOString() : String(since);
-          if (!entry.ts || entry.ts < sinceTs) continue;
-        }
-        hits.push({
-          ...entry,
-          _source: path.relative(root, p),
-          _line: i + 1,
-        });
+        raw.push({ entry, p, line: i + 1, text: line });
       }
     }
+  }
+  const retired = retiredMap(raw.map((r) => r.entry));
+
+  // Pass 2: filter and emit. Tombstone lines never surface as hits;
+  // retired entries only with withRetired (then annotated _retired).
+  const hits = [];
+  const sinceTs = since ? (since instanceof Date ? since.toISOString() : String(since)) : null;
+  for (const { entry, p, line, text } of raw) {
+    if (isClosingLine(entry)) continue;
+    if (needle && !text.toLowerCase().includes(needle)) continue;
+    if (sinceTs && (!entry.ts || entry.ts < sinceTs)) continue;
+    const info = entry.id ? retired.get(entry.id) : null;
+    if (info && !withRetired) continue;
+    hits.push({
+      ...entry,
+      _source: path.relative(root, p),
+      _line: line,
+      ...(info ? { _retired: info } : {}),
+    });
   }
   return hits;
 }
@@ -401,4 +416,98 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
     throw new Error(`No open duty with id '${id}'.`);
   }
   return logEntry(root, 'duty', { closes_id: id, state, why }, { project });
+}
+
+// --- Lifecycle: discarded / done / superseded ----------------------
+//
+// A memory that shows the user stale material in everyday recall loses
+// its trust. A discarded thought or a finished task must stop surfacing
+// as if it were still live — but append-only means never delete, never
+// rewrite. So: append a "tombstone" line pointing at the id. The
+// original stays put (the viewer still shows it, marked); recall hides
+// it from here on.
+//
+// Three sources of a retirement, all append-only, all in the SAME log
+// as their target:
+//   - retires_id  : the general tombstone (mem discard / mem done)
+//   - closes_id   : closing a duty (already existed)
+//   - replaces_id : a correction supersedes the original (already existed)
+
+/**
+ * Build the map of retired ids from parsed entries:
+ * id -> { state, why, by, ts }. Pure, no I/O, so the BM25 index
+ * (search.mjs), memory.find and the viewer share one truth.
+ */
+export function retiredMap(entries) {
+  const map = new Map();
+  for (const e of entries) {
+    if (!e) continue;
+    if (e.retires_id) {
+      map.set(e.retires_id, {
+        state: e.state ?? DUTY_STATE.DONE,
+        why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
+      });
+    }
+    if (e.closes_id) {
+      map.set(e.closes_id, {
+        state: e.state ?? DUTY_STATE.DONE,
+        why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
+      });
+    }
+    if (e.replaces_id) {
+      map.set(e.replaces_id, {
+        state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
+      });
+    }
+  }
+  return map;
+}
+
+/**
+ * Is this a pure closing/tombstone line with no content of its own?
+ * (Correction lines carrying `replaces_id` DO carry the new content and
+ * do NOT count — they are the current truth.)
+ */
+export function isClosingLine(e) {
+  return Boolean(e && (e.retires_id || e.closes_id));
+}
+
+/** Allowed states when retiring an entry. */
+export const RETIRE_STATE = Object.freeze(['done', 'discarded', 'obsolete']);
+
+/**
+ * Retire an entry — mark it done/discarded/obsolete without deleting it.
+ * Appends a tombstone line into the SAME log:
+ *   { id, ts, retires_id: <id>, state, why? }
+ */
+export function retireEntry(root, type, id, { state = 'done', why = null, project = null } = {}) {
+  if (typeof id !== 'string' || !id) throw new Error('Retiring needs an id');
+  if (!RETIRE_STATE.includes(state)) {
+    throw new Error(`Unknown state '${state}'. Allowed: ${RETIRE_STATE.join(', ')}`);
+  }
+  const { entries } = readLog(root, type, { project });
+  const target = entries.find((e) => e.id === id && !isClosingLine(e));
+  if (!target) {
+    throw new Error(`id '${id}' not found in ${type}${project ? ` (project ${project})` : ''}.`);
+  }
+  const data = { retires_id: id, state };
+  if (why) data.why = why;
+  return logEntry(root, type, data, { project });
+}
+
+/**
+ * Where does this id live? Scans every log (global + projects) for the
+ * CONTENT entry with this id (not a tombstone). Returns { type, project }
+ * or null.
+ */
+export function findEntryLocation(root, id) {
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      const { entries } = readLog(root, type, { project });
+      if (entries.some((e) => e.id === id && !isClosingLine(e))) {
+        return { type, project };
+      }
+    }
+  }
+  return null;
 }

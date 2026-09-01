@@ -100,6 +100,19 @@ test('an empty memory renders a valid, zero-row page', () => {
   assert.equal(json.stats.total, 0);
 });
 
+test('retired entries are shown in the viewer, marked', () => {
+  const root = tmpRoot();
+  const { entry } = memory.logEntry(root, 'thought', { text: 'discarded idea zebra' });
+  memory.retireEntry(root, 'thought', entry.id, { state: 'discarded' });
+  const rows = viewer.collect(root);
+  const r = rows.find((x) => x.headline.includes('zebra'));
+  assert.ok(r, 'retired entry still in the viewer (history stays)');
+  assert.equal(r.retired.state, 'discarded');
+  const { html } = viewer.build(root, {});
+  assert.equal(html.includes('badge gone'), true);
+  assert.equal(html.includes('only live'), true);
+});
+
 test('a broken (non-JSON) log line does not crash the viewer', () => {
   const root = tmpRoot();
   seed(root);

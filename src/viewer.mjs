@@ -94,7 +94,10 @@ function headline(e) {
  * show, gathered by the same code the search uses.
  */
 export function collect(root) {
-  const all = memory.find(root, '', {});
+  // withRetired: the viewer shows the WHOLE history — done/discarded/
+  // superseded too, just marked. Everyday recall hides the same ones;
+  // here, rummaging, you want them.
+  const all = memory.find(root, '', { withRetired: true });
   const rows = all.map((e) => {
     const type = typeOfEntry(e);
     const project = projectOfEntry(e);
@@ -114,6 +117,7 @@ export function collect(root) {
       source: e._source || '',
       line: e._line || 0,
       headline: headline(e),
+      retired: e._retired ? { state: e._retired.state, why: e._retired.why || null } : null,
       details,
     };
   });
@@ -193,6 +197,9 @@ export function renderHtml(rows, { title = 'cheap-mem', generatedAt = new Date()
   .meta { color:var(--muted); font-size:12px; margin-top:4px;
     display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .badge { border-radius:6px; padding:1px 7px; font-size:11px; background:var(--chip); }
+  .badge.gone { background:#c0392b; color:#fff; }
+  .card.gone { opacity:.6; }
+  .card.gone h2 { text-decoration:line-through; }
   .tag { color:var(--accent); font-size:11px; }
   details { margin-top:8px; }
   summary { cursor:pointer; color:var(--muted); font-size:12px; }
@@ -213,6 +220,7 @@ export function renderHtml(rows, { title = 'cheap-mem', generatedAt = new Date()
     <div class="spark" id="spark" title="entries per day"></div>
     <div class="controls">
       <input id="q" type="search" placeholder="rummage… (searches everything)" autocomplete="off">
+      <span class="chip" id="live"></span>
       <span id="types"></span>
     </div>
     <div class="controls" id="projects"></div>
@@ -228,10 +236,26 @@ export function renderHtml(rows, { title = 'cheap-mem', generatedAt = new Date()
   var DATA = JSON.parse(document.getElementById('data').textContent);
   var rows = DATA.rows;
   var stats = DATA.stats;
-  var state = { q: '', type: null, project: null };
+  var state = { q: '', type: null, project: null, onlyLive: false };
 
+  var goneCount = rows.filter(function (r) { return r.retired; }).length;
   document.getElementById('sub').textContent =
-    stats.total + ' entries · generated ' + new Date(DATA.generatedAt).toLocaleString();
+    stats.total + ' entries' + (goneCount ? ' (' + goneCount + ' retired)' : '')
+    + ' · generated ' + new Date(DATA.generatedAt).toLocaleString();
+
+  // "only live" toggle: hides retired (done/discarded/superseded) — the
+  // same view everyday recall has.
+  var liveEl = document.getElementById('live');
+  if (goneCount) {
+    liveEl.textContent = 'only live';
+    liveEl.onclick = function () {
+      state.onlyLive = !state.onlyLive;
+      liveEl.classList.toggle('on', state.onlyLive);
+      render();
+    };
+  } else {
+    liveEl.style.display = 'none';
+  }
 
   // Activity sparkline: one bar per day between first and last entry.
   (function () {
@@ -320,6 +344,7 @@ export function renderHtml(rows, { title = 'cheap-mem', generatedAt = new Date()
   function render() {
     var q = state.q;
     var shown = rows.filter(function (r) {
+      if (state.onlyLive && r.retired) return false;
       if (state.type && r.type !== state.type) return false;
       if (state.project && r.project !== state.project) return false;
       if (q && hay(r).indexOf(q) < 0) return false;
@@ -330,8 +355,9 @@ export function renderHtml(rows, { title = 'cheap-mem', generatedAt = new Date()
     var html = '';
     for (var i = 0; i < shown.length; i++) {
       var r = shown[i];
-      html += '<div class="card"><h2>' + highlight(r.headline, q) + '</h2>';
+      html += '<div class="card' + (r.retired ? ' gone' : '') + '"><h2>' + highlight(r.headline, q) + '</h2>';
       html += '<div class="meta"><span class="badge">' + esc(r.typeLabel) + '</span>';
+      if (r.retired) html += '<span class="badge gone">' + esc(r.retired.state) + '</span>';
       if (r.day) html += '<span>' + esc(r.day) + '</span>';
       if (r.project) html += '<span>· ' + esc(r.project) + '</span>';
       if (r.id) html += '<span>· ' + esc(r.id) + '</span>';
