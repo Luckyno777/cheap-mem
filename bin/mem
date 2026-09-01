@@ -30,6 +30,8 @@ import * as doctor from '../src/doctor.mjs';
 import * as embedmod from '../src/embed/index.mjs';
 import * as embedHook from '../src/embed-hook.mjs';
 import * as viewer from '../src/viewer.mjs';
+import * as timeexpr from '../src/timeexpr.mjs';
+import * as timesearch from '../src/timesearch.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -375,6 +377,10 @@ const COMMANDS = {
         '  fields, widened by a curated thesaurus and by a tag graph',
         '  learned from your own entries.',
         '',
+        '  A query that names a time ("yesterday afternoon", "last friday',
+        '  3-8pm", "last 12 hours") becomes time-range recall (see `mem when`).',
+        '  --literal and --since bypass that.',
+        '',
         '  --literal  plain substring search instead (the old behaviour)',
         '  --fresh    rebuild the index instead of using the cache',
         '  --no-raw   digested entries only, skip raw captures',
@@ -389,6 +395,17 @@ const COMMANDS = {
     const query = rest[0];
     if (!query) die("find: no query. Example: mem find 'flaky ci'");
     const since = args.since ? sinceOf(args.since) : null;
+
+    // Time router: if the query names a window ("yesterday afternoon", "last
+    // friday between 3 and 8pm", "last 12 hours"), it becomes time-range
+    // retrieval instead of keyword search — so recall triggers on language,
+    // not on a typed command. Because mem-retrieve calls `mem find`, this
+    // applies to the hook too. --literal and --since bypass it.
+    if (!args.literal && !args.since) {
+      const zone = process.env.MEM_TZ || cfg.timezone || undefined;
+      const window = timeexpr.windowFor(query, { zone });
+      if (window) { showWindow(root, query, window, args); return; }
+    }
 
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
@@ -460,6 +477,47 @@ const COMMANDS = {
 
   discard: async ({ rest, args }) => retireCmd('discarded', rest, args),
   done: async ({ rest, args }) => retireCmd('done', rest, args),
+
+  when: async ({ rest, args }) => {
+    if (args.help) {
+      out([
+        'mem when "<time expression>" [--raw] [--project X] [--tz IANA/Zone]',
+        'mem when --from <ISO> --to <ISO> [--raw] ...',
+        '',
+        '  Time-range recall, no model. Natural language (system zone by',
+        '  default, or --tz / MEM_TZ / config.timezone):',
+        '    "yesterday afternoon", "last friday between 3 and 8pm",',
+        '    "last 12 hours", "2026-08-29 from 15:00 to 20:00".',
+        '  Shows the digested entries in the window.',
+        '  --raw: also the redacted raw conversation lines in the window.',
+        '  --json: stable contract (same shape as find --json).',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['from', 'to', 'project', 'raw', 'raw-max', 'json', 'tz'], 'when');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const text = rest.join(' ').trim();
+    const zone = args.tz || process.env.MEM_TZ || cfg.timezone || undefined;
+    let window = null;
+    if (args.from || args.to) {
+      const from = args.from ? new Date(args.from) : new Date(0);
+      const to = args.to ? new Date(args.to) : new Date();
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        die('when: --from/--to must be an ISO time (e.g. 2026-08-29T15:00Z)');
+      }
+      window = { from, to, label: `${args.from ?? 'start'} .. ${args.to ?? 'now'}` };
+    } else if (text) {
+      window = timeexpr.windowFor(text, { zone });
+      if (!window) {
+        die(`when: no time expression in '${text}'. Examples: "yesterday afternoon",`
+          + ' "last friday 3-8pm" — or --from/--to ISO.');
+      }
+    } else {
+      die('when: missing time. A phrase ("yesterday afternoon") or --from/--to.');
+    }
+    showWindow(root, text, window, args);
+  },
 
   show: async ({ rest, args }) => {
     if (isHelp(args)) {
@@ -1075,6 +1133,48 @@ function sinceOf(s) {
     return new Date(Date.now() - ms);
   }
   return new Date(s);
+}
+
+// Shared output for the time router (find) and `when`. `query` supplies the
+// subject words to narrow by; empty = the whole window.
+function showWindow(root, query, window, args) {
+  const t0 = Date.now();
+  const words = timesearch.keywordsOf(query);
+  const project = args.project && args.project !== 'global' ? args.project : null;
+  const entries = timesearch.entriesInWindow(root, {
+    from: window.from, to: window.to, project, words,
+  });
+  const ms = Date.now() - t0;
+  const wj = { from: window.from.toISOString(), to: window.to.toISOString(), label: window.label };
+
+  if (args.json) {
+    // Newest first, capped: the hook takes only the top few — they should be
+    // the freshest of the window, not the oldest.
+    const newest = [...entries].reverse().slice(0, 20);
+    const hits = newest.map((e, i) => ({
+      score: 1000 - i, source: e._source, line: e._line, entry: e,
+    }));
+    out(JSON.stringify({ query, ms, window: wj, hits }, null, 2));
+    return;
+  }
+
+  const narrow = words.length ? `, narrowed to ${words.join('/')}` : '';
+  out(`${entries.length} entries in window '${window.label}' (${wj.from} .. ${wj.to}${narrow}, ${ms}ms):`);
+  for (const e of entries) {
+    out(`  [${e.ts}] ${e._source}:${e._line}`);
+    out(`         ${compactLine(e)}`);
+  }
+  if (entries.length === 0) {
+    out('  (nothing digested in this window — try --raw for the raw transcript)');
+  }
+  if (args.raw) {
+    const { lines, capped, files } = timesearch.rawInWindow(root, {
+      from: window.from, to: window.to, maxLines: Number(args['raw-max'] ?? 200),
+    });
+    out('');
+    out(`--- raw conversation in window (${lines.length} lines from ${files} captures${capped ? ', capped' : ''}) ---`);
+    for (const l of lines) out(`  [${l.ts}] ${l.type || ''}: ${l.text}`);
+  }
 }
 
 function compactLine(e) {
