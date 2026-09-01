@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# mem-stop — the ONE environment-independent Stop hook.
+#
+# The problem this fixes: the installed Stop hook delegated to mem-reflect
+# (a MODEL call), and the model-free mem-capture was not the registered
+# hook. In a cloud sandbox the model call does not run, so the session
+# captured NOTHING. And even where capture ran, nothing pushed it — the
+# watcher only pulls inbound mail, it never pushes captures out. So an
+# ephemeral environment lost the capture, and a machine without a watcher
+# never synced it. Gappy.
+#
+# This hook makes capture model-free AND persistent, everywhere:
+#
+#   1. Capture   model-free (~50ms), ALWAYS, every environment / repo.
+#   2. Persist   commit raw/ + push — SYNCHRONOUS, best-effort. Nothing
+#                else pushes captures, so this hook does. Synchronous
+#                because an ephemeral environment (cloud) is reclaimed
+#                right after; a detached push would not arrive. Best-effort
+#                because an offline laptop keeps the capture committed
+#                locally and the next run pushes it — nothing is lost as
+#                long as the disk persists. Opt out with MEM_STOP_NO_PUSH=1.
+#   3. Reflect   the MODEL summary (mem-reflect) runs only when opted in
+#                (MEM_REFLECT=1) — off by default so the Stop path stays
+#                model-free, matching cheap-mem's whole design.
+#
+# Always exits 0: a Stop hook must never break the session it is attached to.
+
+set -u
+[ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
+[ "${MEM_CAPTURE_OFF:-}" = "1" ] && exit 0
+# Never capture ourselves — the digest/worker sets this to avoid the
+# snake eating its tail.
+[ -n "${MEM_HEADLESS:-}" ] && exit 0
+
+# Resolve the memory root (has .mem/config.json). CHEAP_MEM_ROOT is what
+# the installer hardcodes; the probe keeps the hook usable by hand.
+PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+ROOT=""
+# shellcheck disable=SC2086
+for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+  [ -z "$k" ] && continue
+  [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
+done
+[ -z "$ROOT" ] && exit 0
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+
+STDIN_JSON=""
+if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
+
+# Portable time cap: GNU `timeout` is absent on macOS by default (there
+# it is `gtimeout`, if installed). Without either, run directly — the
+# push is synchronous but best-effort; a hang costs at most the cap that
+# then does not exist.
+if   command -v timeout  >/dev/null 2>&1; then CAP=(timeout)
+elif command -v gtimeout >/dev/null 2>&1; then CAP=(gtimeout)
+else CAP=(); fi
+cap() { local s="$1"; shift; if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$s" "$@"; else "$@"; fi; }
+
+# --- 1) Capture (model-free, always) --------------------------------
+CAPTURE=""
+if   [ -f "$ROOT/bin/mem-capture" ]; then CAPTURE="$ROOT/bin/mem-capture"
+elif [ -f "$HERE/mem-capture" ];    then CAPTURE="$HERE/mem-capture"
+fi
+if [ -n "$CAPTURE" ]; then
+  printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" bash "$CAPTURE" >/dev/null 2>&1 || true
+fi
+
+# --- 2) Persist (commit raw/ + push, best-effort) -------------------
+if [ "${MEM_STOP_NO_PUSH:-}" != "1" ] && [ -d "$ROOT/.git" ]; then
+  if [ -n "$(git -C "$ROOT" status --porcelain raw/ 2>/dev/null)" ]; then
+    # Bring the remote in first (untracked captures never block a
+    # fast-forward), then stage ONLY raw/ — never `git add -A`, which
+    # would drag local pipeline state in.
+    cap 30 git -C "$ROOT" pull --ff-only -q >/dev/null 2>&1 || true
+    git -C "$ROOT" add raw/ >/dev/null 2>&1 || true
+    if git -C "$ROOT" commit -q -m "capture: $(date -u +%Y-%m-%dT%H-%M-%SZ)" >/dev/null 2>&1; then
+      if ! ( cap 30 git -C "$ROOT" push -q origin HEAD:main ) >/dev/null 2>&1; then
+        # Remote moved ahead — rebase once and retry.
+        cap 30 git -C "$ROOT" pull --rebase -q >/dev/null 2>&1 || true
+        cap 30 git -C "$ROOT" push -q origin HEAD:main >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
+fi
+
+# --- 3) Reflect (model, opt-in only) --------------------------------
+if [ "${MEM_REFLECT:-}" = "1" ]; then
+  REFLECTOR="$ROOT/bin/mem-reflect"
+  [ -f "$REFLECTOR" ] || REFLECTOR="$HERE/mem-reflect"
+  if [ -f "$REFLECTOR" ]; then
+    printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" bash "$REFLECTOR" >/dev/null 2>&1 || true
+  fi
+fi
+
+exit 0

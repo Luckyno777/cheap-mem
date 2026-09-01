@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # install/claude-code.sh — installs cheap-mem into Claude Code
 # (user-level hooks and permissions), so every Claude Code session on
-# this machine loads the memory context, and the Stop hook triggers
-# the reflector.
+# this machine loads the memory context, and the Stop hook captures the
+# session model-free and persists it (push) — see bin/mem-stop.
 #
 # Usage:
 #   CHEAP_MEM_ROOT=/absolute/path/to/memory \
@@ -50,9 +50,13 @@ mkdir -p "$HOOKS_DIR"
 } > "$HOOKS_DIR/cheap-mem-session-start.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-session-start.sh"
 
+CODE_ROOT="$(dirname "$HERE")"
 {
   echo "#!/usr/bin/env bash"
   echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  # Where the code lives — so the stop hook finds bin/mem-stop even when
+  # the memory does not carry the tool (separate checkout).
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
   tail -n +2 "$HERE/hooks/session-stop.sh"
 } > "$HOOKS_DIR/cheap-mem-session-stop.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-session-stop.sh"

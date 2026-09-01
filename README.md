@@ -105,15 +105,23 @@ node ~/cheap-mem/bin/mem doctor
 ## Turn on capture and digest
 
 Capture is a Stop hook — it copies each session's transcript into the
-memory, redacted and gzipped, **without starting a model**. Add to your
-assistant's settings:
+memory, redacted and gzipped, **without starting a model**, and then
+**persists it** (commit + push), so an ephemeral environment (a cloud
+sandbox) does not lose it. Add to your assistant's settings:
 
 ```json
 "hooks": {
   "Stop": [{ "hooks": [{ "type": "command",
-    "command": "bash ~/cheap-mem/bin/mem-capture" }] }]
+    "command": "bash ~/cheap-mem/bin/mem-stop" }] }]
 }
 ```
+
+`mem-stop` runs `mem-capture` (model-free) and then pushes the capture —
+nothing else pushes captures, the watcher only pulls. It pushes only
+what it captured (`raw/`), synchronously and best-effort (an offline
+machine keeps it committed locally for the next run). Set
+`MEM_STOP_NO_PUSH=1` to capture without pushing, or `MEM_REFLECT=1` to
+also run the optional model summary at session end.
 
 The digest is a timer. It checks in milliseconds whether the pile is
 ripe and only then makes its one model call:

@@ -120,6 +120,13 @@ jobs:
         shell: bash
         run: bash test/retrieve.sh
 
+      # Lane 1 must be environment-independent: the Stop hook captures
+      # model-free AND persists it (push), because nothing else pushes
+      # captures. Without this an ephemeral environment loses the capture.
+      - name: the Stop hook persists the capture (push)
+        shell: bash
+        run: bash test/stop-persists.sh
+
   powershell:
     name: powershell · windows
     runs-on: windows-latest
