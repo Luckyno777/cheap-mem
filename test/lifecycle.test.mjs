@@ -95,3 +95,12 @@ test('BM25 index never ingests tombstone lines', () => {
   const index = search.buildIndex(root);
   assert.equal(search.search(index, 'tombstonetext unique', { top: 10, withRetired: true }).length, 0);
 });
+
+test('getEntry: second stage — full text by id, null when missing', () => {
+  const root = tmp();
+  const { entry } = memory.logEntry(root, 'decision', { topic: 't', choice: 'x', why: 'y' });
+  const full = memory.getEntry(root, entry.id);
+  assert.equal(full.choice, 'x');
+  assert.equal(full._type, 'decision');
+  assert.equal(memory.getEntry(root, 'nope'), null);
+});

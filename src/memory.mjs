@@ -511,3 +511,19 @@ export function findEntryLocation(root, id) {
   }
   return null;
 }
+
+/**
+ * Fetch one entry by id — the second stage of retrieval. `find` returns
+ * compact hits; when the caller wants the FULL text of one of them, it
+ * pulls it here instead of every hit landing full in the prompt. Returns
+ * the entry (with _source/_type/_project) or null.
+ */
+export function getEntry(root, id) {
+  const loc = findEntryLocation(root, id);
+  if (!loc) return null;
+  const { entries } = readLog(root, loc.type, { project: loc.project });
+  const e = entries.find((x) => x.id === id && !isClosingLine(x));
+  if (!e) return null;
+  return { ...e, _type: loc.type, _project: loc.project,
+    _source: `${loc.type}${loc.project ? `/${loc.project}` : ''}` };
+}

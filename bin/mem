@@ -361,7 +361,7 @@ const COMMANDS = {
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
-      'no-raw', 'only-raw', 'json', 'with-retired'], 'find');
+      'no-raw', 'only-raw', 'json', 'with-retired', 'brief'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     const query = rest[0];
@@ -398,7 +398,27 @@ const COMMANDS = {
     });
     const ms = Date.now() - t0;
 
-    if (args.json) { out(JSON.stringify({ query, ms, hits }, null, 2)); return; }
+    if (args.json) {
+      // --brief is the first stage of a two-stage recall: id + a compact
+      // label + score, NOT the full entry. The caller scans these cheaply
+      // and pulls only the ones it wants with `mem show <id>`. Measured
+      // on a real corpus this cut broad-query tokens ~63% vs full hits.
+      if (args.brief) {
+        const brief = hits.map((h) => ({
+          id: h.entry.id ?? null,
+          score: h.score,
+          source: h.source,
+          line: h.line,
+          ts: h.entry.ts ?? null,
+          label: compactLine(h.entry),
+          ...(h.retired ? { state: h.retired.state } : {}),
+        }));
+        out(JSON.stringify({ query, ms, hits: brief }, null, 2));
+        return;
+      }
+      out(JSON.stringify({ query, ms, hits }, null, 2));
+      return;
+    }
     if (hits.length === 0) {
       out(`Nothing for '${query}' (${index.N} entries, ${ms}ms).`);
       out('  Try --literal for a plain substring search.');
@@ -418,6 +438,33 @@ const COMMANDS = {
 
   discard: async ({ rest, args }) => retireCmd('discarded', rest, args),
   done: async ({ rest, args }) => retireCmd('done', rest, args),
+
+  show: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem show <id> [--json]',
+        "",
+        "  Second stage of retrieval: fetch the FULL entry for an id.",
+        "  `find --brief` returns compact hits (id + label); pull the full",
+        "  text of the one you want here, instead of every hit landing full",
+        "  in the prompt. Saves tokens on broad queries.",
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json'], 'show');
+    const root = findRoot(args);
+    requireConfig(root);
+    const id = rest[0];
+    if (!id) die('show: which id? Example: mem show a1b2c3');
+    const e = memory.getEntry(root, id);
+    if (!e) die(`show: id '${id}' not found (or retired/tombstone).`);
+    if (args.json) { out(JSON.stringify(e)); return; }
+    out(`${e._source}  [${e.ts ?? '?'}]  id=${e.id}`);
+    for (const [k, v] of Object.entries(e)) {
+      if (k.startsWith('_') || k === 'id' || k === 'ts') continue;
+      out(`  ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+    }
+  },
 
   'raw-capture': async ({ args }) => {
     // Used by the mem-capture Stop hook. Separate from `raw` so the
@@ -1076,6 +1123,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("                    retired (done/discarded/superseded) hidden; --with-retired shows them");
   out("  discard <id>     [--why \"...\"]        retire a discarded thought");
   out("  done <id>        [--why \"...\"]        retire a finished entry");
+  out("  find --brief / show <id>       two-stage recall: scan labels, pull one full");
   out("  duties           [--all]              what is still owed");
   out("  duties close <id> [--why \"...\"]      append a closing line");
   out("  context          [--n 20]");
