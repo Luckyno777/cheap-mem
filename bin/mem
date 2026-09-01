@@ -110,6 +110,26 @@ function whoAmIOrDie(root, args, cfg) {
   return chosen;
 }
 
+/**
+ * Reading is not a receipt. `inbox new`/`inbox all` only records a message
+ * as locally seen (.mem/inbox-seen.json); it does NOT change the message's
+ * State, so for the sender it stays 'open' forever until the recipient runs
+ * `inbox ack`. Nobody notices, because reading and acking feel like one
+ * mechanism and are two. So when mail addressed to me is still open, say once
+ * how to send a receipt. Auto-acking on read would be wrong: it turns every
+ * poll into a git write and hides which messages were actually acted on. A
+ * hint, not a silent write.
+ */
+function receiptHint(messages) {
+  const open = (messages ?? []).filter((m) => m.state === inbox.STATE.OPEN);
+  if (open.length === 0) return;
+  out('');
+  out(`Note: reading is not a receipt — for the sender these ${open.length}`);
+  out(`still read 'open'. When you have dealt with one:`);
+  out(`  mem inbox ack <name> [replied|processed|closed]`);
+  out(`  then git add/commit/push — otherwise the sender never sees the receipt.`);
+}
+
 const COMMANDS = {
   init: async ({ args }) => {
     checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
@@ -220,6 +240,7 @@ const COMMANDS = {
         out(`  [${m.state}] ${m.name}`);
         out(`         ${m.subject} (from ${m.from})`);
       }
+      receiptHint(messages);
       return;
     }
 
@@ -239,6 +260,7 @@ const COMMANDS = {
       if (!args['no-mark']) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
       }
+      receiptHint(fresh);
       return;
     }
 
