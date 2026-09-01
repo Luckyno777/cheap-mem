@@ -50,10 +50,13 @@ const HEADLINE_FIELDS = ['class', 'title', 'topic', 'choice', 'text', 'summary',
 // table (they are shown as chips/meta instead), so the table is signal.
 const META_KEYS = new Set(['ts', 'id', 'type', 'tags', '_source', '_line']);
 
+// _source comes from path.relative, so on Windows it carries backslashes.
+// Normalise to forward slashes before matching, or type/project mapping
+// silently fails there (and the viewer mislabels every entry).
 function typeOfEntry(e) {
   // find() annotates _source like "global/decisions.jsonl" or
   // "projects/x/errors.jsonl". Map the filename back to a type key.
-  const file = String(e._source || '').split('/').pop();
+  const file = String(e._source || '').replace(/\\/g, '/').split('/').pop();
   for (const [type, fname] of Object.entries(memory.TYPES)) {
     if (fname === file) return type;
   }
@@ -61,7 +64,7 @@ function typeOfEntry(e) {
 }
 
 function projectOfEntry(e) {
-  const src = String(e._source || '');
+  const src = String(e._source || '').replace(/\\/g, '/');
   const m = src.match(/^projects\/([^/]+)\//);
   return m ? m[1] : null;
 }
