@@ -29,6 +29,7 @@ import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
 import * as embedmod from '../src/embed/index.mjs';
 import * as embedHook from '../src/embed-hook.mjs';
+import * as viewer from '../src/viewer.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -880,6 +881,59 @@ const COMMANDS = {
     process.stdout.write('\n');
   },
 
+  viewer: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem viewer [--out <file.html>] [--title "..."] [--open]',
+        "",
+        "  Writes ONE self-contained HTML file — every entry embedded,",
+        "  search and filtering done in the browser. No server, no model,",
+        "  no network. Open it and rummage through the memory.",
+        "",
+        "  --out:   where to write (default: a temp file, printed below)",
+        "  --title: heading (default: the memory's display name)",
+        "  --open:  also try to open it in the default browser",
+        "",
+        "  It reads only the redacted logs, never raw/. The file carries",
+        "  real memory content: it is not committed and not for publishing.",
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['out', 'title', 'open'], 'viewer');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const title = (typeof args.title === 'string' && args.title)
+      || cfg.displayName || cfg.channel || 'cheap-mem';
+    const { html, count } = viewer.build(root, { title });
+
+    // Default outside any repo: a temp file. A viewer carries real
+    // memory content, and the surest way not to commit or publish it by
+    // accident is to write it where neither git nor a publish step
+    // looks. --out overrides for when you want it somewhere on purpose.
+    let outPath;
+    if (typeof args.out === 'string' && args.out) {
+      outPath = path.resolve(String(args.out));
+    } else {
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      outPath = path.join(os.tmpdir(), `mem-viewer-${stamp}.html`);
+    }
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, html, 'utf8');
+    out(`Viewer: ${outPath}`);
+    out(`  ${count} entr${count === 1 ? 'y' : 'ies'} embedded`);
+    // A gentle reminder only when the file landed inside the memory, so
+    // a stray `git add -A` cannot sweep private content into a commit.
+    if (outPath.startsWith(path.resolve(root) + path.sep)) {
+      out(`  note: this file is inside the memory — it holds real content, do not commit it.`);
+    }
+    if (args.open) {
+      const opener = process.platform === 'darwin' ? 'open'
+        : process.platform === 'win32' ? 'start' : 'xdg-open';
+      try { spawnSync(opener, [outPath], { stdio: 'ignore', shell: process.platform === 'win32' }); }
+      catch { /* opening is a convenience, never a failure */ }
+    }
+  },
+
   project: async ({ rest, args }) => {
     if (isHelp(args)) {
       out([
@@ -984,6 +1038,8 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  duties           [--all]              what is still owed");
   out("  duties close <id> [--why \"...\"]      append a closing line");
   out("  context          [--n 20]");
+  out("  viewer           [--out f.html] [--title \"...\"] [--open]");
+  out("                    one self-contained HTML page to browse it all");
   out("  correction <type> <old-id> [--project X] --<field> <value>");
   out("  project init <name> [--title \"...\"]");
   out("");

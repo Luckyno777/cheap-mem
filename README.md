@@ -135,6 +135,7 @@ mem find "<query>"             ranked search, no model    [--literal --fresh]
 mem duties                     what is still owed
 mem duties close <id>          append a closing line
 mem context                    compact dump for session start
+mem viewer [--out f.html]      one self-contained HTML page to browse it all
 mem raw pending|show|digested  the captured material
 mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
@@ -264,6 +265,7 @@ mem whoami [<name>]                     who this install is in the channel
 mem log <type> --<field> ...            append a JSONL entry
 mem find "<pattern>" [--type T]         substring search across logs
 mem context [--n 20]                    compact recent-activity dump
+mem viewer [--out f.html] [--open]      one self-contained HTML page, no model/server
 mem project init <name>                 idempotent project skeleton
 mem correction <type> <old-id> ...      append correction linked to old entry
 
