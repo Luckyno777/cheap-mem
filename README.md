@@ -27,13 +27,23 @@ Storing is cheap, thinking is expensive. So store everything at once
 and stupidly, think about the whole pile every few hours, and read with
 pure code.
 
+**Private by default.** Everything is captured through a redaction pass
+first: tokens, API keys, passwords and credential-shaped strings are
+masked before a single line touches the disk. Your memory is a directory
+of plain files you own — nothing leaves the machine except what you
+`git push` yourself. No vault plugin, no external vector database in the
+path.
+
 **Search is BM25** over weighted fields, widened by a curated thesaurus
-and by a tag graph the tool learns from your own entries. Measured on a
-small English corpus: **13 of 14 queries returned the right top hit,
-0.3 ms average**, including ones with no literal word in common
-("flaky tests" → "aborts sporadically", "ram leak" → "heap climbs
-until the OOM killer"). Details and the honest failure mode:
-[docs/architecture.md](docs/architecture.md).
+and by a tag graph the tool learns from your own entries — no model, no
+network. Measured (`node bench/retrieval.mjs`, 22 entries, 16 queries):
+**search median 0.028 ms**, exact-keyword queries **100% top-1**, and
+paraphrases with no shared word **100% by rank 5** ("a shopper paid two
+times" → "billed twice from a race condition"). The one honest miss is a
+purely conceptual query sharing no term; for that, `mem find-hybrid`
+fuses BM25 with an optional **local** embedding rerank (ollama, still 0
+API cost). The benchmark prints the failure mode rather than hiding it
+in an average. Details: [docs/architecture.md](docs/architecture.md).
 
 **Tokens, measured** (`npm run bench`, 228 entries, 15 questions):
 

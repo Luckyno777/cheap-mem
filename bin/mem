@@ -29,6 +29,7 @@ import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
 import * as embedmod from '../src/embed/index.mjs';
 import * as embedHook from '../src/embed-hook.mjs';
+import * as hybrid from '../src/hybrid.mjs';
 import * as viewer from '../src/viewer.mjs';
 import * as timeexpr from '../src/timeexpr.mjs';
 import * as timesearch from '../src/timesearch.mjs';
@@ -950,6 +951,54 @@ const COMMANDS = {
         out(`    ${h.text.replace(/\s+/g, ' ').slice(0, 160)}`);
       }
     } finally { try { db.close(); } catch { /* fine */ } }
+  },
+
+  'find-hybrid': async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem find-hybrid "<query>" [--top N] [--fresh]',
+        '',
+        '  BM25 and semantic recall, fused (Reciprocal Rank Fusion). It uses',
+        '  embeddings only when `mem embed setup` + a backfill were run;',
+        '  without them it is exactly `mem find`, at the same cost. Best for a',
+        '  paraphrase that shares no word with the entry you want.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['top', 'fresh'], 'find-hybrid');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    const query = rest[0];
+    if (!query) die('find-hybrid: no query.');
+
+    thesaurus.loadUserGroups(root, fs, path);
+    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+    const semantic = await hybrid.makeSemantic(root);
+    const t0 = Date.now();
+    const fused = await hybrid.hybridSearch(index, query, {
+      top: args.top ? Number(args.top) : 10,
+      semantic,
+    });
+    const ms = Date.now() - t0;
+
+    // Honest label: report what actually happened, not what was configured.
+    // A configured provider whose store is empty or whose key is missing
+    // yields no semantic hits and must not be advertised as "hybrid".
+    const usedSemantic = fused.some((f) => f.found_by.includes('semantic'));
+    const mode = usedSemantic
+      ? 'hybrid: bm25 + semantic'
+      : 'bm25 only — run `mem embed setup` + backfill to add semantic';
+    if (fused.length === 0) { out(`Nothing for '${query}' (${mode}, ${ms}ms).`); return; }
+    out(`${fused.length} hits for '${query}' (${mode}, ${ms}ms):`);
+    for (const f of fused) {
+      const h = f.hit;
+      const src = h.source ?? h.source_file;
+      const line = h.line ?? h.line_number;
+      const ts = h.entry?.ts ?? h.ts ?? '?';
+      const preview = h.entry ? compactLine(h.entry) : String(h.text ?? '');
+      out(`  ${src}:${line}  [${ts}]  [${f.found_by.join('+')}]`);
+      out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
+    }
   },
 
   hooks: async ({ rest, args }) => {
