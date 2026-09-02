@@ -162,14 +162,23 @@ mem hooks install|check        arm and prove the secret check
 mem doctor                     is this memory healthy?
 
 mem embed setup|backfill|status    optional: semantic escalation
-mem find-embed "<query>"           paraphrase search (needs a key)
+mem find-embed "<query>"           pure semantic search (needs embeddings)
+mem find-hybrid "<query>"          BM25 + semantic, fused (RRF)
 ```
 
-`mem find` is the one you want. `find-embed` exists for the case BM25
-honestly cannot do — a true paraphrase with no word in common — and it
-costs a key, a network call and two native dependencies. Use `ollama`
-as the provider if the memory holds anything you would not send to a
-vendor.
+`mem find` is the one you want. The other two only matter for the case
+BM25 honestly cannot do — a true paraphrase with no word in common:
+
+- `find-embed` searches the vector store alone.
+- `find-hybrid` runs BM25 **and** the semantic search and fuses the two
+  rankings, so an entry surfaced by either survives. When embeddings are
+  not set up it is exactly `mem find`, at the same cost and with no wasted
+  network call; a missing key or empty store degrades silently to BM25.
+  Its label reports what actually ran, never what was merely configured.
+
+Both need `mem embed setup` + a backfill first. Use `ollama` as the
+provider — local, free, no key — if the memory holds anything you would
+not send to a vendor.
 
 ## Autostart on macOS / Linux / Windows
 

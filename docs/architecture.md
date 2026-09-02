@@ -157,8 +157,22 @@ structure, not the findability.
 
 True paraphrase with no lexical overlap. *"the customer was unhappy"*
 finds *"complaint received"* only if a matching synonym pair exists.
-For that case there is `mem find-embed` — the escalation, not the
-default.
+For that case there are two escalations, never the default:
+
+- `mem find-embed` — semantic search over the vector store alone.
+- `mem find-hybrid` — runs BM25 **and** the semantic search and fuses the
+  two rankings with Reciprocal Rank Fusion, so an entry surfaced by either
+  ranker survives. RRF needs no score normalisation across the BM25
+  magnitude and cosine scales — only the ranks matter, which is what makes
+  it robust. Without embeddings configured it is exactly `mem find`, at
+  the same cost; a missing key or empty store degrades silently to BM25,
+  and the label reports what actually ran.
+
+The measured shape of this loss lives in `bench/retrieval.mjs`: lexical
+queries score 100% top-1, paraphrases reach 100% by rank 5, and the one
+purely conceptual query sharing no term is the case `find-hybrid` exists
+for. The benchmark prints that miss by name rather than burying it in an
+average.
 
 ---
 
