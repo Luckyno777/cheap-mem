@@ -94,8 +94,17 @@ export function checkAll(root) {
 function checkDigestYield(root) {
   const ratioThreshold = 0.4;
   let captures = [];
-  let open = new Set();
   try { captures = raw.listCaptures(root); } catch { /* no raw/ */ }
+  // Without the watermark, which captures are digested is unknowable —
+  // same boundary as checkDigest. With no raw material at all there is
+  // provably nothing to measure (GOOD, below).
+  const watermarkHere = fs.existsSync(path.join(root, raw.WATERMARK_FILE));
+  if (captures.length > 0 && !watermarkHere) {
+    return finding('digest-yield', LEVEL.UNKNOWN,
+      'no watermark in this clone — which captures are digested is not known from here',
+      'Measure on the machine that digests. ' + raw.WATERMARK_FILE + ' is gitignored.');
+  }
+  let open = new Set();
   try { open = new Set(raw.pending(root).open); } catch { /* no watermark */ }
   const digested = captures.filter((f) => !open.has(f));
   if (digested.length === 0) {
@@ -301,6 +310,34 @@ function checkCaptures(root) {
 }
 
 function checkDigest(root) {
+  // Without the watermark, this check cannot judge the digest state — and
+  // the watermark (.mem/, gitignored) does not travel with the repo. Every
+  // checked-in capture then looks pending. A clone that captures locally
+  // even writes its own bell, so "bell present" cannot separate a real
+  // backlog from git-imported captures: that exact confusion once made a
+  // cloud session report "87 pending, 19.8 MB, 41 h" while the digesting
+  // machine was healthy with 3 truly-open captures. So: no watermark ->
+  // `?`, never a fabricated count. With no raw material at all there is
+  // provably nothing pending (handled after the guard).
+  const watermarkHere = fs.existsSync(path.join(root, raw.WATERMARK_FILE));
+  if (!watermarkHere) {
+    let count = 0;
+    try { count = raw.listCaptures(root).length; } catch { /* no raw/ */ }
+    if (count === 0) {
+      return finding('digest', LEVEL.GOOD, 'nothing pending');
+    }
+    const bell = raw.bellState(root);
+    return finding('digest', LEVEL.UNKNOWN,
+      bell
+        ? `no watermark in this clone — it captures here (bell is set), but which of the ${count} `
+          + 'checked-in captures are already digested is not judgeable from here'
+        : `no digest state on this machine — the ${count} captures came in via git, nothing is `
+          + 'captured or digested here',
+      'The state lives in ' + raw.WATERMARK_FILE + ', gitignored (.mem/), and does not travel with '
+      + 'the repo. Without it every checked-in capture looks pending, even long-digested ones — '
+      + 'neither the count nor the age of a backlog can be derived. Measure on the digesting '
+      + 'machine: mem raw due.');
+  }
   const st = raw.pending(root);
   if (st.open.length === 0) {
     return finding('digest', LEVEL.GOOD,

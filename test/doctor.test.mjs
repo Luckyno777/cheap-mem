@@ -97,3 +97,38 @@ test('digest yield: full coverage stays GOOD', () => {
   assert.equal(b.level, 'good');
   assert.match(b.text, /0 produced nothing/);
 });
+
+// --- Digest state without a watermark (the cloud false-positive) -----
+// A clone captures locally (its own Stop hook writes the bell) but never
+// digests; the watermark lives in .mem/, which is gitignored and does not
+// travel. Without it every git-imported capture looks pending. The old
+// check would have called that a backlog; the corrected one says `?`.
+
+test('digest: without a watermark the state is unknown, even with a bell', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-digest-'));
+  putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  raw.ring(root); // a local Stop hook rings the bell
+  assert.ok(raw.bellState(root), 'precondition: bell is set');
+  assert.ok(!fs.existsSync(path.join(root, raw.WATERMARK_FILE)), 'precondition: no watermark');
+  const b = findFinding(doctor.checkAll(root), 'digest');
+  assert.equal(b.level, 'unknown');
+  assert.match(b.text, /watermark/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('digest: with a watermark and everything digested is GOOD', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-digest-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  raw.markDigested(root, [a]); // writes the watermark, clears the bell
+  const b = findFinding(doctor.checkAll(root), 'digest');
+  assert.equal(b.level, 'good');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('digest-yield: captures without a watermark is unknown, not a fake ratio', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-yield-'));
+  putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  const b = findFinding(doctor.checkAll(root), 'digest-yield');
+  assert.equal(b.level, 'unknown');
+  fs.rmSync(root, { recursive: true, force: true });
+});
