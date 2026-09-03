@@ -146,10 +146,22 @@ Work like this:
      mem log <type> --title ... --text ... --tags ... \\
        --origin '{\"raw\":\"<path>\",\"session_id\":\"<id>\"}'
 4. Close any duty that is now fulfilled (mem duties lists them)
-5. Mark as digested: mem raw digested <path1> <path2> ...
-6. Commit and push.
+5. Synthesise — ONLY when a pattern is genuinely there (usually none):
+   If, across the entries you just wrote and ones you find with
+   'mem find', a clear recurring pattern stands out that is NOT already
+   captured as a learning, you may add AT MOST TWO learning entries that
+   name it. Each MUST cite the real entries it draws from:
+     mem log learning --title ... --text ... \\
+       --origin '{\"derived_from\":[\"<id>\",\"<id>\"]}'
+   Rules that do not bend: only from entries you actually read or found;
+   never invent a link, a cause, or a fact; if nothing clearly recurs,
+   add NONE. This is the one step that truly needs a model — keep it rare
+   and honest, or skip it.
+6. Mark as digested: mem raw digested <path1> <path2> ...
+7. Commit and push.
 
-Three to ten entries is normal. More than fifteen means you are not
+Three to ten sorted entries is normal, plus at most two synthesised
+learnings and only when warranted. More than fifteen means you are not
 condensing enough. Stop after the push."
 
   # Remember how much was pending. The model call's exit code alone

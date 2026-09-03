@@ -55,6 +55,32 @@ are not condensing enough** — you are copying, not digesting.
   `thought` entry. A wrong synonym group poisons every future search;
   that needs a human yes.
 
+## Synthesis (rare, and only a model can do it)
+
+Sorting is the job. Synthesis is the bonus, and usually you add none.
+
+If — across the entries you just wrote and ones you find with `mem find`
+— a clear recurring pattern stands out that is **not already** a
+learning, you may add **at most two** `learning` entries that name it.
+This is the one thing deterministic code cannot do, which is why it lives
+in this single model call and nowhere else.
+
+```
+mem log learning --title "..." --text "..." \
+  --origin '{"derived_from":["<id>","<id>","<id>"]}'
+```
+
+Rules that do not bend:
+
+- Only from entries you **actually read or found**. No half-remembered links.
+- **Never invent** a cause, a connection, or a fact to make a tidier story.
+- Cite the real entry ids in `derived_from`. A synthesis without its
+  sources is a guess, not a memory.
+- If nothing clearly recurs, add **none**. That is the normal outcome.
+
+Contradictions and dangling links are **not** your job — `mem doctor`
+finds those deterministically. Do not hunt for them here.
+
 ## When a capture is too big
 
 Read it in windows and write as you go. If you cannot finish it:

@@ -64,6 +64,8 @@ export function checkAll(root) {
   f.push(checkCaptures(root));
   f.push(checkDigest(root));
   f.push(checkDigestYield(root));
+  f.push(checkFactConflicts(root));
+  f.push(checkOrphans(root));
   f.push(checkIndex(root));
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
@@ -120,6 +122,55 @@ function checkDigestYield(root) {
       + `content (or it was just tool noise). Spot-check: ${gaps.slice(0, 2).join(', ')}`);
   }
   return finding('digest-yield', LEVEL.GOOD, core);
+}
+
+// Fact conflicts: two versions of the same living fact carry the SAME
+// valid_from but disagree on the value. That is not a normal update (a new
+// date superseding an old one) — it is a contradiction the memory cannot
+// resolve on its own, and everyday recall would surface one or the other
+// at random. Deterministic; reuses the freshness resolver.
+export function checkFactConflicts(root) {
+  let facts = [];
+  try { facts = memory.currentFacts(root); }
+  catch { return finding('fact-conflicts', LEVEL.UNKNOWN, 'could not resolve timeline facts'); }
+  const clashes = facts.filter((f) => f.conflict);
+  if (clashes.length === 0) {
+    return finding('fact-conflicts', LEVEL.GOOD, `${facts.length} tracked facts, no conflicts`);
+  }
+  const keys = clashes.map((f) => f.key).slice(0, 5).join(', ');
+  return finding('fact-conflicts', LEVEL.WARN,
+    `${clashes.length} fact${clashes.length === 1 ? '' : 's'} have two versions with the same date but different values: ${keys}`,
+    'Resolve each with a newer `mem log timeline --key <k> --value <correct> --valid_from <later date>`, '
+    + 'or retire the wrong version with `mem discard <id>`.');
+}
+
+// Orphans: a correction or a duty-closing line that points at an id which
+// does not exist in the corpus. The pointer resolves to nothing, so the
+// supersede/close silently never takes effect. Deterministic.
+export function checkOrphans(root) {
+  const ids = new Set();
+  const pointers = []; // { field, to }
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const type of Object.keys(memory.TYPES)) {
+      let entries;
+      try { ({ entries } = memory.readLog(root, type, { project })); } catch { continue; }
+      for (const e of entries) {
+        if (e.__broken || !e.id) continue;
+        ids.add(e.id);
+        if (e.replaces_id) pointers.push({ field: 'replaces_id', to: e.replaces_id });
+        if (e.closes_id) pointers.push({ field: 'closes_id', to: e.closes_id });
+      }
+    }
+  }
+  const orphans = pointers.filter((p) => !ids.has(p.to));
+  if (orphans.length === 0) {
+    return finding('orphans', LEVEL.GOOD, `${pointers.length} correction/close links, all resolve`);
+  }
+  const sample = orphans.slice(0, 3).map((o) => `${o.field}->${o.to}`).join(', ');
+  return finding('orphans', LEVEL.WARN,
+    `${orphans.length} correction/close link${orphans.length === 1 ? '' : 's'} point at a missing id: ${sample}`,
+    'The target was never written or the id is mistyped, so the supersede/close does not take effect. '
+    + 'Check the id, or write the correction against the real entry.');
 }
 
 function checkRoot(root) {
