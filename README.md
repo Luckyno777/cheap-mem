@@ -154,6 +154,7 @@ mem discard <id> / done <id>   retire a thought/task (recall hides it)
 mem duties                     what is still owed
 mem duties close <id>          append a closing line
 mem context                    compact dump for session start
+mem facts [--stale --conflicts]  current value of each changing fact (freshness)
 mem viewer [--out f.html]      one self-contained HTML page to browse it all
 mem raw pending|show|digested  the captured material
 mem digest due|bell            is the pile ripe?

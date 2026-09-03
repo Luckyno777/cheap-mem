@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import * as freshness from './freshness.mjs';
 
 /**
  * Known log types. Each has its own JSONL per project + global.
@@ -194,6 +195,22 @@ export function listProjects(root) {
  * Compact context dump for session start.
  * Recent errors, decisions, and events across global + all projects.
  */
+/**
+ * Current facts across global + every project, resolved for freshness.
+ * Reads only the `timeline` log — facts meant to change — and folds each
+ * `key` down to its current value, dropping retired versions. Pure over
+ * the files it reads; no model, no network.
+ */
+export function currentFacts(root, { now = new Date(), staleDays = 120 } = {}) {
+  const all = [];
+  for (const project of [null, ...listProjects(root)]) {
+    for (const e of readLog(root, 'timeline', { project }).entries) {
+      if (!e.__broken) all.push(e);
+    }
+  }
+  return freshness.resolveFacts(all, { now, staleDays, retired: retiredMap(all) });
+}
+
 export function context(root, { n = 20 } = {}) {
   const half = Math.max(1, Math.floor(n / 2));
   const out = [];
@@ -233,6 +250,13 @@ export function context(root, { n = 20 } = {}) {
     if (short) out.push(`    ${short}`);
   }
   out.push('');
+
+  const facts = currentFacts(root);
+  if (facts.length) {
+    out.push(`--- current facts (${facts.length}) ---`);
+    for (const f of facts.slice(0, n)) out.push('  ' + freshness.formatFact(f));
+    out.push('');
+  }
 
   const projects = listProjects(root);
   out.push(`--- projects (${projects.length}) ---`);

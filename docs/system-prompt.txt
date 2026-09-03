@@ -10,7 +10,8 @@ After a substantial event:
   A decision with a reason → `mem log decision --topic ... --choice ... --why ...`
   An error with root cause  → `mem log error    --class ... --title "..." --text "..."`
   Something worth remembering → `mem log event  --title "..." --tags a,b`
-  A slowly-changing fact    → `mem log timeline --fact "..." --valid_from ... --source ...`
+  A slowly-changing fact    → `mem log timeline --key <k> --value "..." --valid_from ... --source ...`
+                              (give it a --key so `mem facts` can fold versions to the current one)
 
 To pass work to another session (a librarian, or your future self):
   mem inbox write --to <name> --subject "..." < body.md

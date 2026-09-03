@@ -1067,6 +1067,48 @@ const COMMANDS = {
     process.stdout.write('\n');
   },
 
+  facts: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem facts [--stale] [--conflicts] [--key <k>] [--stale-days N]',
+        '',
+        '  Current value of every fact that changes over time — resolved from',
+        '  the timeline log, newest valid_from per `key` wins, retired versions',
+        '  dropped. No model, no network.',
+        '',
+        '  Log one with:  mem log timeline --key server.users --value 13 \\',
+        '                   --valid_from 2026-07-13 --source "ops dashboard"',
+        '',
+        '  --stale       only facts not refreshed within --stale-days (default 120)',
+        '  --conflicts   only facts with two versions that disagree on the same date',
+        '  --key <k>     only this key',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['stale', 'conflicts', 'key', 'stale-days'], 'facts');
+    const root = findRoot(args);
+    requireConfig(root);
+    const staleDays = args['stale-days'] ? Number(args['stale-days']) : 120;
+    let facts = memory.currentFacts(root, { staleDays });
+    if (args.key) facts = facts.filter((f) => f.key === args.key);
+    if (args.stale) facts = facts.filter((f) => f.stale);
+    if (args.conflicts) facts = facts.filter((f) => f.conflict);
+    if (facts.length === 0) {
+      out('No tracked facts.  Log one with a --key: mem log timeline --key <k> --value <v> --valid_from <date>');
+      return;
+    }
+    const fresh = await import('../src/freshness.mjs');
+    out(`${facts.length} fact${facts.length === 1 ? '' : 's'}:`);
+    for (const f of facts) {
+      out('  ' + fresh.formatFact(f));
+      for (const h of f.history) {
+        const val = h.value ?? h.fact ?? h.text ?? '';
+        const when = (h.valid_from ?? h.ts ?? '').slice(0, 10);
+        out(`      was: ${val}  (${when})`);
+      }
+    }
+  },
+
   viewer: async ({ args }) => {
     if (isHelp(args)) {
       out([
