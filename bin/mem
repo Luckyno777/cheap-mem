@@ -354,6 +354,15 @@ const COMMANDS = {
       if (k === 'project' || k === 'root' || k === 'help') continue;
       if (k === 'tags' && typeof v === 'string') {
         data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      } else if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
+        // Provenance is a STRUCTURE, and every doc tells you to pass it as
+        // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat
+        // it parses as nothing — origin.raw is undefined, so the
+        // digest-yield check measures no provenance at all, and
+        // origin.derived_from stays invisible, so no learning can ever be
+        // backed. The documented syntax has to actually mean something.
+        try { data.origin = JSON.parse(v); }
+        catch { die(`--origin is not valid JSON: ${v}`); }
       } else {
         data[k] = v;
       }
@@ -1115,6 +1124,46 @@ const COMMANDS = {
     }
   },
 
+  experiences: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem experiences [--all] [--type learning]',
+        '',
+        '  What the memory is prepared to stand behind: learnings ranked by',
+        '  how much of the rest of the memory leans on them — entries citing',
+        '  them in origin.derived_from, and link edges pointing at them.',
+        '',
+        '  Strength is CITATION, not retrieval frequency: counting how often',
+        '  something is looked up rewards popularity, not usefulness, and',
+        '  would need per-machine telemetry that never travels with the repo.',
+        '',
+        '  A `contradicts` edge marks an experience [CONTESTED] — it is never',
+        '  deleted or quietly weakened. An experience you cannot argue with',
+        '  is a dogma.',
+        '',
+        '  --all    include uncited ones (a claim nothing leans on yet)',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['all', 'type'], 'experiences');
+    const root = findRoot(args);
+    requireConfig(root);
+    const list = memory.experiences(root, {
+      minCited: args.all ? 0 : 1,
+      type: args.type ?? 'learning',
+    });
+    if (list.length === 0) {
+      out(args.all ? 'No learnings yet.' : 'No backed experience yet.  --all shows unbacked claims too.');
+      return;
+    }
+    out(`${list.length} ${args.all ? 'learning' : 'backed experience'}${list.length === 1 ? '' : 's'}:`);
+    for (const e of list) {
+      const mark = e.contested ? '  [CONTESTED]' : '';
+      out(`  x${String(e.cited).padStart(2)}  ${e.id}  ${compactLine(e)}${mark}`);
+      if (e.backedBy.length) out(`        backed by: ${e.backedBy.slice(0, 5).join(', ')}`);
+    }
+  },
+
   links: async ({ rest, args }) => {
     if (isHelp(args) || !rest[0]) {
       out([
@@ -1332,6 +1381,15 @@ const COMMANDS = {
       if (k === 'project' || k === 'root' || k === 'help') continue;
       if (k === 'tags' && typeof v === 'string') {
         data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      } else if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
+        // Provenance is a STRUCTURE, and every doc tells you to pass it as
+        // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat
+        // it parses as nothing — origin.raw is undefined, so the
+        // digest-yield check measures no provenance at all, and
+        // origin.derived_from stays invisible, so no learning can ever be
+        // backed. The documented syntax has to actually mean something.
+        try { data.origin = JSON.parse(v); }
+        catch { die(`--origin is not valid JSON: ${v}`); }
       } else {
         data[k] = v;
       }

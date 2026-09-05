@@ -228,3 +228,73 @@ test('the link vocabulary stays closed', () => {
   assert.deepEqual(Object.keys(memory.LINK_KINDS).sort(),
     ['causes', 'contradicts', 'generalizes', 'resolves']);
 });
+
+// --- experience: a claim becomes experience by being leaned on ----------
+
+test('standing counts citations and link edges, not retrievals', () => {
+  const root = tmpRoot();
+  const { entry: lesson } = memory.logEntry(root, 'learning', { title: 'never deploy on friday' });
+  const { entry: err } = memory.logEntry(root, 'error', {
+    title: 'friday outage again', origin: { derived_from: [lesson.id] },
+  });
+  memory.logEntry(root, 'link', { from: err.id, to: lesson.id, kind: 'generalizes' });
+
+  const st = memory.standing(root).get(lesson.id);
+  assert.equal(st.cited, 2, 'one derived_from citation plus one incoming edge');
+  assert.equal(st.contested, false);
+});
+
+test('a contradicts edge marks an experience contested, never removes it', () => {
+  const root = tmpRoot();
+  const { entry: lesson } = memory.logEntry(root, 'learning', { title: 'sessions are fine' });
+  const { entry: proof } = memory.logEntry(root, 'error', { title: 'sessions leaked' });
+  memory.logEntry(root, 'link', { from: proof.id, to: lesson.id, kind: 'contradicts' });
+
+  const st = memory.standing(root).get(lesson.id);
+  assert.equal(st.contested, true);
+  assert.equal(st.cited, 0, 'a contradiction must not count as backing');
+  const listed = memory.experiences(root, { minCited: 0 });
+  assert.ok(listed.some((e) => e.id === lesson.id && e.contested),
+    'the contested experience must still be listed, flagged');
+});
+
+test('experiences rank by how much leans on them; uncited are held back', () => {
+  const root = tmpRoot();
+  const { entry: weak } = memory.logEntry(root, 'learning', { title: 'weak claim' });
+  const { entry: strong } = memory.logEntry(root, 'learning', { title: 'strong lesson' });
+  for (let i = 0; i < 3; i += 1) {
+    memory.logEntry(root, 'event', { title: `e${i}`, origin: { derived_from: [strong.id] } });
+  }
+  const backed = memory.experiences(root, { minCited: 1 });
+  assert.deepEqual(backed.map((e) => e.id), [strong.id], 'only the backed one counts');
+  const all = memory.experiences(root, { minCited: 0 });
+  assert.equal(all.length, 2);
+  assert.equal(all[0].id, strong.id, 'strongest first');
+  assert.ok(all.some((e) => e.id === weak.id));
+});
+
+test('the core carries backed experience alongside the facts', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'timeline', { key: 'k', value: 'v', valid_from: '2026-08-20' });
+  const { entry: lesson } = memory.logEntry(root, 'learning', { title: 'the backed lesson' });
+  memory.logEntry(root, 'event', { title: 'cites it', origin: { derived_from: [lesson.id] } });
+  const text = memory.core(root, { now: new Date('2026-09-01T00:00:00Z') });
+  assert.match(text, /the backed lesson/);
+  assert.match(text, /backed x1/);
+});
+
+test('origin passed as JSON is stored as a structure, not a string', () => {
+  // Regression: the CLI stored --origin flat, so origin.raw was undefined
+  // (digest-yield measured no provenance at all) and origin.derived_from
+  // was invisible (no learning could ever be backed) — while every doc
+  // told the digest to pass exactly that JSON.
+  const root = tmpRoot();
+  const { entry } = memory.logEntry(root, 'event', {
+    title: 'x', origin: { raw: 'raw/2026/09/a.jsonl.gz', derived_from: ['abc'] },
+  });
+  const { entries } = memory.readLog(root, 'event');
+  assert.equal(typeof entries[0].origin, 'object', 'origin must round-trip as an object');
+  assert.equal(entries[0].origin.raw, 'raw/2026/09/a.jsonl.gz');
+  assert.deepEqual(entries[0].origin.derived_from, ['abc']);
+  assert.ok(entry.id);
+});

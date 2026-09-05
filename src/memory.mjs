@@ -286,6 +286,80 @@ export function linksOf(root, id) {
 }
 
 /**
+ * How well each entry is BACKED by the rest of the memory.
+ *
+ * **What makes an experience real.** A conclusion drawn once is a guess.
+ * It becomes experience when reality keeps re-confirming it — so strength
+ * here is not a usage counter and not a model's opinion, it is simply
+ * *how many other entries lean on this one*: entries that cite it in
+ * `origin.derived_from`, and link edges that point at it.
+ *
+ * That choice matters. Counting how often something is *retrieved* would
+ * reward popularity, not usefulness, and would need per-machine telemetry
+ * that never travels with the repo. Citations are already in the corpus,
+ * are written deliberately, and every clone computes the same number.
+ *
+ * `contested` is the falsifiability half: a `contradicts` edge pointing at
+ * an entry does NOT delete or weaken it silently — it flags it, so the
+ * claim keeps standing in the open, with its challenge attached. An
+ * experience you cannot argue with is a dogma.
+ */
+export function standing(root) {
+  const byId = entriesById(root);
+  const rec = new Map();
+  const of = (id) => {
+    if (!rec.has(id)) rec.set(id, { id, cited: 0, contested: false, by: [] });
+    return rec.get(id);
+  };
+
+  for (const [, e] of byId) {
+    const from = e.origin && e.origin.derived_from;
+    if (Array.isArray(from)) {
+      for (const src of from) {
+        if (typeof src !== 'string' || !byId.has(src)) continue;
+        const r = of(src);
+        r.cited += 1;
+        r.by.push(e.id);
+      }
+    }
+  }
+
+  for (const project of [null, ...listProjects(root)]) {
+    let res;
+    try { res = readLog(root, 'link', { project }); } catch { continue; }
+    for (const l of res.entries) {
+      if (l.__broken || isClosingLine(l)) continue;
+      const to = l.to ?? l.target ?? null;
+      const fromId = l.from ?? l.source ?? null;
+      if (!to || !byId.has(to)) continue;
+      const r = of(to);
+      if (l.kind === 'contradicts') r.contested = true;
+      else { r.cited += 1; if (fromId) r.by.push(fromId); }
+    }
+  }
+  return rec;
+}
+
+/**
+ * The experiences the memory is prepared to stand behind: learnings,
+ * strongest first, each with what backs it and whether anything disputes
+ * it. Deterministic — no model, no telemetry.
+ */
+export function experiences(root, { minCited = 0, type = 'learning' } = {}) {
+  const back = standing(root);
+  const out = [];
+  for (const [, e] of entriesById(root)) {
+    if (e._type !== type) continue;
+    const r = back.get(e.id) ?? { cited: 0, contested: false, by: [] };
+    if (r.cited < minCited) continue;
+    out.push({ ...e, cited: r.cited, contested: r.contested, backedBy: r.by });
+  }
+  out.sort((a, b) => (b.cited - a.cited)
+    || String(b.ts ?? '').localeCompare(String(a.ts ?? '')));
+  return out;
+}
+
+/**
  * Every entry that belongs to a topic, across all types and projects.
  *
  * **Why topics exist.** `timeline` already folds a changing FACT onto its
@@ -388,7 +462,9 @@ export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } 
   return { kept, omitted: Math.max(0, stable.length - kept.length), total: stable.length };
 }
 
-export function core(root, { now = new Date(), staleDays = 120, max = 40 } = {}) {
+export function core(root, {
+  now = new Date(), staleDays = 120, max = 40, maxExperiences = 8,
+} = {}) {
   const { kept, omitted } = coreFacts(root, { now, staleDays, max });
   const out = [];
   out.push('=== cheap-mem core (stable facts, always-load) ===');
@@ -404,6 +480,23 @@ export function core(root, { now = new Date(), staleDays = 120, max = 40 } = {})
     out.push('');
     out.push(`(${omitted} more stable fact${omitted === 1 ? '' : 's'} beyond the budget `
       + `of ${max}; raise --max to include them)`);
+  }
+
+  // Backed experience rides the same rail as the facts: a lesson the rest
+  // of the memory keeps leaning on belongs in EVERY session, not only in
+  // the one that happens to search for it. Only cited ones — an uncited
+  // learning is still just a claim — and a contested one says so rather
+  // than quietly passing as settled.
+  if (maxExperiences > 0) {
+    const exp = experiences(root, { minCited: 1 }).slice(0, maxExperiences);
+    if (exp.length) {
+      out.push('');
+      out.push('--- experience (backed by the rest of the memory) ---');
+      for (const e of exp) {
+        const mark = e.contested ? '  [CONTESTED]' : '';
+        out.push(`${e.title ?? e.text ?? e.id}  (backed x${e.cited})${mark}`);
+      }
+    }
   }
   return out.join('\n');
 }
