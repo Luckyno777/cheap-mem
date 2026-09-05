@@ -894,3 +894,120 @@ export function getEntry(root, id) {
   return { ...e, _type: loc.type, _project: loc.project,
     _source: `${loc.type}${loc.project ? `/${loc.project}` : ''}` };
 }
+
+// ---------------------------------------------------------------------
+// Topics: the shape, not just the content
+//
+// **Measured on 2026-09-05, on a real 553-entry memory.** 69 entries
+// carried a `topic`, and those produced 69 distinct topics. Ratio 1.00.
+// Of 65 first-path-segment roots, 63 had exactly one child. Several
+// "topics" were whole sentences.
+//
+// A topic with exactly one entry is not a topic. It is a second title
+// field. The thread a topic is supposed to carry — a decision, later the
+// error against it, later the lesson from that — only exists once a LATER
+// entry reuses the same topic.
+//
+// The cause was a missing rule, not a model failure: the digest spec
+// listed `topic` as required without ever saying what a topic IS. Given a
+// required field and no definition, a model fills it per entry. That is
+// rational behaviour.
+//
+// What follows is the deterministic half of the repair: a check that
+// reports broken shapes at write time, and a tree that makes an existing
+// pile of singletons legible without rewriting one line of history.
+
+/** A topic is at most this long. Past it, it is a title. */
+export const TOPIC_MAX = 40;
+
+/**
+ * Checks the SHAPE of a topic — not whether it is the right one.
+ *
+ * Deliberately a warning and never an abort: `mem log` is the path along
+ * which things get saved that would otherwise be forgotten. A write that
+ * fails on a naming rule loses the content. Better recorded and flagged
+ * than clean and gone.
+ */
+export function checkTopic(topic) {
+  const t = String(topic ?? '').trim();
+  if (!t) return { ok: true, warnings: [] };
+  const w = [];
+  if (t.length > TOPIC_MAX) {
+    w.push(`${t.length} characters (over ${TOPIC_MAX}) — that is a title, not a topic`);
+  }
+  if (/[.!?,;:]|\s\(/.test(t)) {
+    w.push('punctuation — a topic is a handle like "viewer/design", not a sentence');
+  }
+  if (t.split(/\s+/).length > 4) {
+    w.push('more than four words — shorter, and split it with /');
+  }
+  if (!t.includes('/')) {
+    w.push('no "/" — without an area it lands as a singleton next to all the others');
+  }
+  return { ok: w.length === 0, warnings: w, topic: t };
+}
+
+/**
+ * Topics as a TREE over their path segments, biggest branch first.
+ *
+ * Why this is half the fix: `viewer/design`, `viewer/motion` and
+ * `viewer/pwa` are three rows among sixty-six in a flat list. As a branch
+ * they are one row with three children — and you can see at a glance what
+ * is actually a thread and what is orphaned.
+ *
+ * Computed purely from the existing names. No model, no rewriting, no new
+ * field: today's singletons become legible immediately rather than after
+ * a cleanup pass.
+ */
+export function topicTree(root) {
+  const flat = topics(root);
+  const branches = new Map();
+  for (const t of flat) {
+    const parts = t.topic.split('/');
+    const area = parts.length > 1 ? parts[0] : '(no area)';
+    if (!branches.has(area)) {
+      branches.set(area, { area, count: 0, last: '', children: [] });
+    }
+    const b = branches.get(area);
+    b.children.push({ ...t, leaf: parts.length > 1 ? parts.slice(1).join('/') : t.topic });
+    b.count += t.count;
+    if (String(t.last ?? '') > b.last) b.last = String(t.last ?? '');
+  }
+  return [...branches.values()]
+    .map((b) => ({
+      ...b,
+      // A branch with one child is itself a singleton — the tree should
+      // show that, not hide it.
+      orphan: b.children.length === 1,
+      children: b.children.sort((x, y) => String(y.last ?? '').localeCompare(String(x.last ?? ''))),
+    }))
+    .sort((x, y) => y.children.length - x.children.length
+      || String(y.last ?? '').localeCompare(String(x.last ?? '')));
+}
+
+/**
+ * What there is to say about the topic landscape, as numbers.
+ *
+ * So that "the digest slices topics too finely" stops being taste and
+ * becomes a figure you measure before and after a change. `mem doctor`
+ * reads this.
+ */
+export function topicQuality(root) {
+  const flat = topics(root);
+  const tree = topicTree(root);
+  const withTopic = topicEntries(root).length;
+  const singles = flat.filter((t) => t.count === 1).length;
+  const malformed = flat.filter((t) => !checkTopic(t.topic).ok).length;
+  return {
+    topics: flat.length,
+    entriesWithTopic: withTopic,
+    // 1.00 means every topic has exactly one entry — then the field
+    // carries no thread, it duplicates the title.
+    entriesPerTopic: flat.length ? Number((withTopic / flat.length).toFixed(2)) : 0,
+    singleTopics: singles,
+    singleShare: flat.length ? Number((singles / flat.length).toFixed(2)) : 0,
+    areas: tree.length,
+    orphanAreas: tree.filter((b) => b.orphan).length,
+    malformed,
+  };
+}

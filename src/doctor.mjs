@@ -66,6 +66,7 @@ export function checkAll(root) {
   f.push(checkDigestYield(root));
   f.push(checkFactConflicts(root));
   f.push(checkOrphans(root));
+  f.push(checkTopicQuality(root));
   f.push(checkIndex(root));
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
@@ -156,6 +157,41 @@ export function checkFactConflicts(root) {
     `${clashes.length} fact${clashes.length === 1 ? '' : 's'} have two versions with the same date but different values: ${keys}`,
     'Resolve each with a newer `mem log timeline --key <k> --value <correct> --valid_from <later date>`, '
     + 'or retire the wrong version with `mem discard <id>`.');
+}
+
+// Topic quality: does `topic` carry a thread, or duplicate the title?
+//
+// Measured on 2026-09-05 against a real 553-entry memory: 69 entries with
+// a topic produced 69 distinct topics — a ratio of exactly 1.00. A topic
+// with exactly one entry is not a topic, it is a second title field; the
+// thread it is meant to carry (a decision, later the error against it,
+// later the lesson) only exists once a LATER entry reuses it.
+//
+// The cause was a missing rule, not a model failure: the digest spec
+// listed `topic` as required without ever saying what a topic is. The
+// rule is in the spec now; this check measures whether it works.
+// Deterministic.
+export function checkTopicQuality(root) {
+  let q;
+  try { q = memory.topicQuality(root); }
+  catch { return finding('topic-quality', LEVEL.UNKNOWN, 'topics unreadable'); }
+  if (q.topics === 0) {
+    return finding('topic-quality', LEVEL.GOOD, 'no topics assigned yet');
+  }
+  const parts = [`${q.topics} topics across ${q.areas} areas`,
+    `${q.entriesPerTopic} entries per topic`];
+  if (q.malformed) parts.push(`${q.malformed} malformed`);
+  // Below 1.2 essentially no topic carries more than one entry. The
+  // threshold sits deliberately just above 1.0: a few real threads lift
+  // it, a single outlier does not.
+  if (q.entriesPerTopic >= 1.2 && q.malformed === 0) {
+    return finding('topic-quality', LEVEL.GOOD, parts.join(', '));
+  }
+  return finding('topic-quality', LEVEL.WARN, parts.join(', '),
+    `${q.singleTopics} of ${q.topics} topics have exactly one entry`
+    + `${q.orphanAreas ? `, ${q.orphanAreas} areas have a single child` : ''}. `
+    + 'The digest should reuse existing topics instead of inventing new ones: '
+    + 'run `mem topics --names-only` before a pass, rule in the digest spec.');
 }
 
 // Orphans: a correction or a duty-closing line that points at an id which

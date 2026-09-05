@@ -183,10 +183,26 @@ export function collectMemory(root, { name = null } = {}) {
     })),
   }));
 
+  // The TREE over the path segments, not just the flat list. Sixty-nine
+  // topics stacked under each other is exactly the unreadability this was
+  // reported for; grouped by area it is seven rows. Computed from the
+  // existing names alone: no model, no rewritten line, works on today's
+  // pile immediately.
+  const areas = memory.topicTree(root).map((b) => ({
+    area: b.area,
+    count: b.count,
+    last: b.last,
+    orphan: b.orphan,
+    children: b.children.map((c) => c.topic),
+  }));
+  const quality = memory.topicQuality(root);
+
   return {
     name: name || path.basename(path.resolve(root)),
     entries: rows,
     topics,
+    areas,
+    quality,
     links,
     experiences,
     facts,
@@ -287,7 +303,7 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
   // passes rows keeps working instead of rendering an empty page.
   const payload = Array.isArray(data)
     ? { generatedAt: generatedAt.toISOString(),
-      memories: [{ name: title, entries: data, topics: [], links: [], experiences: [], facts: [], counts: summarize(data) }] }
+      memories: [{ name: title, entries: data, topics: [], areas: [], quality: null, links: [], experiences: [], facts: [], counts: summarize(data) }] }
     : data;
   const total = payload.memories.reduce((n, m) => n + m.entries.length, 0);
   const when = new Date(payload.generatedAt || generatedAt).toISOString().replace('T', ' ').slice(0, 16);
@@ -525,6 +541,18 @@ td.v{white-space:pre-wrap; word-break:break-word; font-family:var(--prose)}
 mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius:2px}
 
 /* ---- lists that are not cards ---- */
+/* Area heading above a topic group. Deliberately quiet: it orders, it is
+   not the content. The number beside it is the only place you can tell a
+   singleton from a thread without counting. */
+h2.area{
+  font-family:var(--code); font-size:12px; font-weight:400; letter-spacing:.04em;
+  color:var(--faint); margin:24px 0 8px; display:flex; align-items:center; gap:7px;
+}
+h2.area:first-child{margin-top:0}
+h2.area .n{
+  font-size:11px; color:var(--muted); background:var(--sunk);
+  border-radius:3px; padding:1px 6px;
+}
 .list{display:grid; gap:0; border:1px solid var(--rule); border-radius:8px; background:var(--raised); overflow:hidden}
 .item{padding:13px 16px; border-top:1px solid var(--rule-soft); cursor:pointer; background:none; border-left:0; border-right:0; border-bottom:0; text-align:left; width:100%; font-family:inherit; color:inherit; font-size:inherit}
 .item:first-child{border-top:0}
@@ -703,40 +731,74 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
     if (rows.length > 500) h += '<p class="empty">' + (rows.length - 500) + ' more \\u2014 narrow the search.</p>';
     return h;
   }
+// One topic card. Split out because it is now built from two
+  // directions: under an area, and in the flat search view.
+  function topicCard(t, leaf) {
+    var cur = byId(t.current);
+    var h = '<button class="item" data-topic="' + esc(t.topic) + '">';
+    h += '<h3>' + esc(leaf || t.topic) + '</h3>';
+    // For a topic entry the headline starts with the topic itself (it is
+    // the second-best headline field). Under a heading that already IS
+    // the topic, that is a repetition.
+    var sub = cur ? cur.headline : '(nothing current)';
+    if (cur && sub.indexOf(t.topic + ' \u2014 ') === 0) sub = sub.slice(t.topic.length + 3);
+    h += '<div class="sub">' + esc(sub) + '</div>';
+    h += '<div class="row" style="margin-top:7px">';
+    h += '<span class="chip mono">' + t.count + (t.count === 1 ? ' entry' : ' entries') + '</span>';
+    h += '<span class="chip mono">last ' + esc(when(t.last)) + '</span>';
+    for (var j = 0; j < t.types.length; j++) h += '<span class="chip">' + esc(t.types[j]) + '</span>';
+    h += '</div>';
+    if (t.trail.length) {
+      h += '<div class="trail">';
+      for (var k = 0; k < t.trail.length && k < 4; k++) {
+        var pp = byId(t.trail[k]);
+        if (!pp) continue;
+        h += '<div><span class="when">' + esc(when(pp.ts)) + '</span>' + esc(pp.headline) + '</div>';
+      }
+      if (t.trail.length > 4) h += '<div><span class="when"></span>' + (t.trail.length - 4) + ' earlier \\u2026</div>';
+      h += '</div>';
+    }
+    return h + '</button>';
+  }
+
   function viewTopics() {
     var m = mem(), q = state.q.toLowerCase();
     var list = m.topics.filter(function (t) { return !q || t.topic.toLowerCase().indexOf(q) !== -1; });
     if (!list.length) {
-      return '<p class="empty">No topics yet. Give an entry a <code>--topic</code> and every later entry with the same one joins its thread.</p>';
+      return '<p class="empty">No topics yet. Give an entry a <code>--topic</code>, and every later one with the same topic joins its thread.</p>';
+    }
+    // Grouped by AREA, not flat. Sixty-nine topics under each other is a
+    // list you search; bundled by first path segment you see in seven rows
+    // what is a thread and what is orphaned. While searching the grouping
+    // falls away — then the result list IS the answer, and a folder around
+    // it would be in the way.
+    if (!q && m.areas && m.areas.length) {
+      var byName = {};
+      for (var a = 0; a < m.topics.length; a++) byName[m.topics[a].topic] = m.topics[a];
+      var outHtml = '';
+      if (m.quality && m.quality.entriesPerTopic <= 1) {
+        // Not decoration, the finding: while every topic has exactly one
+        // entry, the field only duplicates the title.
+        outHtml += '<p class="lead" style="margin:0 0 16px">' + m.quality.topics
+          + ' topics, ' + m.quality.entriesPerTopic + ' entries per topic \u2014 '
+          + 'none of them carries a thread yet.</p>';
+      }
+      for (var b = 0; b < m.areas.length; b++) {
+        var ar = m.areas[b];
+        outHtml += '<h2 class="area">' + esc(ar.area)
+          + '<span class="n">' + ar.children.length + '</span></h2><div class="list">';
+        for (var c = 0; c < ar.children.length; c++) {
+          var child = byName[ar.children[c]];
+          if (!child) continue;
+          var parts = child.topic.split('/');
+          outHtml += topicCard(child, parts.length > 1 ? parts.slice(1).join('/') : child.topic);
+        }
+        outHtml += '</div>';
+      }
+      return outHtml;
     }
     var h = '<div class="list">';
-    for (var i = 0; i < list.length; i++) {
-      var t = list[i], cur = byId(t.current);
-      h += '<button class="item" data-topic="' + esc(t.topic) + '">';
-      h += '<h3>' + esc(t.topic) + '</h3>';
-      // For a topic entry the headline starts with the topic itself (it is
-      // the second-best headline field). Under a heading that already IS
-      // the topic, that is a repetition.
-      var sub = cur ? cur.headline : '(nothing current)';
-      if (cur && sub.indexOf(t.topic + ' \u2014 ') === 0) sub = sub.slice(t.topic.length + 3);
-      h += '<div class="sub">' + esc(sub) + '</div>';
-      h += '<div class="row" style="margin-top:7px">';
-      h += '<span class="chip mono">' + t.count + (t.count === 1 ? ' entry' : ' entries') + '</span>';
-      h += '<span class="chip mono">last ' + esc(when(t.last)) + '</span>';
-      for (var j = 0; j < t.types.length; j++) h += '<span class="chip">' + esc(t.types[j]) + '</span>';
-      h += '</div>';
-      if (t.trail.length) {
-        h += '<div class="trail">';
-        for (var k = 0; k < t.trail.length && k < 4; k++) {
-          var p = byId(t.trail[k]);
-          if (!p) continue;
-          h += '<div><span class="when">' + esc(when(p.ts)) + '</span>' + esc(p.headline) + '</div>';
-        }
-        if (t.trail.length > 4) h += '<div><span class="when"></span>' + (t.trail.length - 4) + ' earlier \\u2026</div>';
-        h += '</div>';
-      }
-      h += '</button>';
-    }
+    for (var i = 0; i < list.length; i++) h += topicCard(list[i]);
     return h + '</div>';
   }
   function viewLinks() {

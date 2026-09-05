@@ -61,6 +61,9 @@ function parseArgs(argv) {
 
 function out(t) { process.stdout.write(`${t}\n`); }
 function die(t) { process.stderr.write(`${t}\n`); process.exit(1); }
+// On stderr, so that --json callers and hooks parsing stdout see nothing
+// of it. A warning may disturb a write; it must never break a contract.
+function warn(text) { process.stderr.write(`! ${text}\n`); }
 
 function checkFlags(args, known, sub) {
   const bad = Object.keys(args).filter((k) => k !== 'help' && k !== 'root' && !known.includes(k));
@@ -369,6 +372,19 @@ const COMMANDS = {
       }
     }
     if (Object.keys(data).length === 0) die("log: no data. Give at least one --field.");
+    // Report the topic's shape, but do NOT abort. `mem log` is the path
+    // along which things get saved that would otherwise be forgotten — a
+    // write that fails on a naming rule loses the content. Better recorded
+    // and flagged than clean and gone. (Until 2026-09-05 there was no such
+    // warning, and 69 topics grew for 69 entries.)
+    if (data.topic) {
+      const chk = memory.checkTopic(data.topic);
+      if (!chk.ok) {
+        for (const w of chk.warnings) warn(`topic: ${w}`);
+        warn('  see the existing topics: mem topics --names-only');
+      }
+    }
+
     const { path: p, entry } = memory.logEntry(root, type, data, { project: args.project ?? null });
     out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
     out(`  id: ${entry.id}`);
@@ -1341,18 +1357,46 @@ const COMMANDS = {
       ].join('\n'));
       return;
     }
-    checkFlags(args, [], 'topics');
+    checkFlags(args, ['names-only', 'flat'], 'topics');
     const root = findRoot(args);
     requireConfig(root);
     const list = memory.topics(root);
     if (list.length === 0) {
-      out('No topics yet.  Add one with: mem log <type> --topic <key> ...');
+      out('No topics yet.  Add one with: mem log <type> --topic <area>/<thing> ...');
       return;
     }
-    out(`${list.length} topic${list.length === 1 ? '' : 's'}:`);
-    for (const t of list) {
-      out(`  ${t.topic.padEnd(34)} ${String(t.count).padStart(3)} entries  `
-        + `last ${(t.last || '?').slice(0, 10)}  [${t.types.join(', ')}]`);
+    // --names-only is for the digest: it MUST see the existing topics
+    // before inventing a new one. Without this list it can only guess,
+    // and guessing produces a fresh topic per entry.
+    if (args['names-only']) {
+      for (const t of list) out(t.topic);
+      return;
+    }
+    if (args.flat) {
+      out(`${list.length} topic${list.length === 1 ? '' : 's'}:`);
+      for (const t of list) {
+        out(`  ${t.topic.padEnd(34)} ${String(t.count).padStart(3)} entries  `
+          + `last ${(t.last || '?').slice(0, 10)}  [${t.types.join(', ')}]`);
+      }
+      return;
+    }
+    // The TREE is the default. A flat list of sixty-nine names is exactly
+    // the unreadability this was reported for; grouped by area it is seven
+    // rows with children under them.
+    const tree = memory.topicTree(root);
+    const q = memory.topicQuality(root);
+    out(`${list.length} topics across ${tree.length} areas `
+      + `(${q.entriesPerTopic} entries per topic):`);
+    for (const branch of tree) {
+      out(`\n  ${branch.children.length > 1 ? `${branch.area} (${branch.children.length})` : branch.area}`);
+      for (const c of branch.children) {
+        out(`    ${c.leaf.padEnd(38)} ${String(c.count).padStart(3)}  `
+          + `${(c.last || '?').slice(0, 10)}  [${c.types.join(', ')}]`);
+      }
+    }
+    if (q.entriesPerTopic <= 1) {
+      out(`\n  Note: ${q.singleTopics} of ${q.topics} topics have exactly ONE entry.`
+        + `\n  A topic with one entry is not a thread, it is a second title.`);
     }
   },
 

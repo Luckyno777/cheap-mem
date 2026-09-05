@@ -37,6 +37,49 @@ mem raw digested <path> ...         only when you are really finished
 Three to ten entries per run is normal. **More than fifteen means you
 are not condensing enough** — you are copying, not digesting.
 
+## `topic` — the rule that was missing until 2026-09-05
+
+The drawer table above lists `topic` as required. What a topic *is* was
+written down nowhere. Measured result on a real memory: **553 entries, 69
+with a `topic`, producing 69 distinct topics. Ratio 1.00.** Fifty-nine of
+them had no slash; several were whole sentences. That is not a model
+failure — given a required field and no definition, you fill it per entry.
+
+**A topic with exactly one entry is not a topic. It is a second title
+field.** The thread a topic is supposed to carry — the decision, later the
+error against it, later the lesson from that — only comes into being when
+a LATER entry reuses the same topic. A topic you invent is a bet that it
+will never come up again.
+
+Before every pass, fetch the existing ones:
+
+    mem topics --names-only
+
+Then, in this order:
+
+1. **Does an existing topic fit? Use it.** Verbatim. "Almost the same" is
+   the same — `retrieval` and `retrieval-quality` are one topic, not two.
+2. **Does an existing area fit but not the leaf?** Hang it underneath:
+   `viewer/print`, not `printview`.
+3. **New is only what opens a new AREA** — and then with a slash, so the
+   second leaf has somewhere to go later.
+
+**Shape.** `area/thing`, lowercase, at most four words, at most 40
+characters, no punctuation, no brackets, no reference numbers. A topic is
+a handle you pull on — not a title.
+
+    good    viewer/design · cheap-mem/retrieval · legal/payment-terms
+    bad     Where a rule repeated three times belongs
+            Sentences with a value in them (slide 3, 42 seconds)
+            payments   (no area, becomes a singleton)
+
+**When in doubt, no `topic` at all.** An entry without one is still
+findable through search. An invented one is permanent noise in a list that
+is supposed to stay readable — and append-only means it does not go away.
+
+`mem doctor` measures this now (`entriesPerTopic`). Once the number rises
+above 1.0, the field is carrying a thread again.
+
 ## Hard limits
 
 - **Never change an existing JSONL line.** A correction is a new line
