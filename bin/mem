@@ -33,6 +33,7 @@ import * as hybrid from '../src/hybrid.mjs';
 import * as viewer from '../src/viewer.mjs';
 import * as timeexpr from '../src/timeexpr.mjs';
 import * as timesearch from '../src/timesearch.mjs';
+import * as browse from '../src/browse.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -1124,6 +1125,35 @@ const COMMANDS = {
     }
   },
 
+  browse: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem browse [--fresh]',
+        '',
+        '  Search the memory interactively: results re-rank on every',
+        '  keystroke, because the search costs 0.027 ms and can afford it.',
+        '',
+        '    type          search as you go',
+        '    up / down     move            enter    open the full entry',
+        '    tab           cycle type      ctrl-u   clear the query',
+        '    esc           back / quit     ctrl-c   quit',
+        '',
+        '  Needs a terminal. Piping? `mem find "..."` prints and exits.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['fresh'], 'browse');
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    thesaurus.loadUserGroups(root, fs, path);
+    const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+    try {
+      await browse.run(index);
+    } catch (e) {
+      die(e.message);
+    }
+  },
+
   setup: async ({ rest, args }) => {
     // Honest scope. Wiring an agent means writing into its config, and a
     // config written from a guessed format is worse than none at all: it
@@ -1627,6 +1657,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  discard <id>     [--why \"...\"]        retire a discarded thought");
   out("  done <id>        [--why \"...\"]        retire a finished entry");
   out("  find --brief / show <id>       two-stage recall: scan labels, pull one full");
+  out("  browse           [--fresh]            interactive: it re-ranks as you type");
   out("  duties           [--all]              what is still owed");
   out("  duties close <id> [--why \"...\"]      append a closing line");
   out("  context          [--n 20]");
