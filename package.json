@@ -9,7 +9,7 @@
     "cheap-mem": "./bin/mem"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\"",
+    "test": "node --test",
     "bench": "node bench/tokens.mjs && node bench/retrieval.mjs",
     "verify": "node bench/mutation.mjs && node bench/fuzz.mjs && node bench/composed.mjs && node bench/byzantine.mjs && node bench/cache-attack.mjs && node bench/query-independence.mjs && node bench/merge-driver.mjs"
   },

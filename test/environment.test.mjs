@@ -12,7 +12,14 @@ import {
   checkEnvironment, environmentOk, LAYER,
 } from '../src/environment.mjs';
 
-function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'cm-env-')); }
+// The git-layer checks are about repository CONFIGURATION, so a fixture
+// that is not a repository tests nothing about them — it exercises the
+// not-applicable branch instead. Every fixture here is a real repository.
+function tmp() {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-env-'));
+  execFileSync('git', ['-C', d, 'init', '-q'], { stdio: 'ignore' });
+  return d;
+}
 const git = (root, ...a) => execFileSync('git', ['-C', root, ...a], { stdio: 'ignore' });
 
 test('a missing .gitattributes fails, and the advice says what it costs', () => {
@@ -144,5 +151,18 @@ test('init is idempotent — running it twice does not duplicate the rule', () =
   const hits = fs.readFileSync(path.join(root, '.gitattributes'), 'utf8')
     .split('\n').filter((l) => /^\s*\*\.jsonl\s+merge=union\s*$/.test(l));
   assert.equal(hits.length, 1);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('outside a git repository the git-layer checks are unknown, not failed', () => {
+  // A freshly initialised memory that is not versioned yet is a CORRECT
+  // state. Reporting it as an error made `mem doctor` exit 2 and held CI
+  // red on all three platforms for three runs, unread.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-nogit-'));
+  for (const c of [checkMergeDriver(root), checkPreCommitHook(root)]) {
+    assert.equal(c.ok, null, `${c.name} must be unknown outside a repository`);
+    assert.equal(c.layer, LAYER.GIT);
+    assert.match(c.detail, /not a git repository/);
+  }
   fs.rmSync(root, { recursive: true, force: true });
 });

@@ -48,12 +48,24 @@ const git = (root, ...args) => {
 
 const check = (name, layer, ok, detail, fix = null) => ({ name, layer, ok, detail, fix });
 
+// Is this root a git working tree at all? Both git-layer checks below are
+// about repository CONFIGURATION, and a memory that is not a repository
+// has no configuration to be wrong. Reporting a FAILURE there says the
+// environment is broken when nothing is: a freshly initialised memory with
+// no git in sight is a correct state, and `mem doctor` calling it an error
+// is how CI stayed red on three platforms without anyone reading it.
+const isRepo = (root) => git(root, 'rev-parse', '--git-dir') !== null;
+
 /**
  * The merge driver. Without it, a git merge of two independently appended
  * logs produces conflict markers, and the parser then drops those lines
  * without a word.
  */
 export function checkMergeDriver(root) {
+  if (!isRepo(root)) {
+    return check('merge-driver', LAYER.GIT, null, 'not a git repository — nothing to configure',
+      'Only relevant once the memory is versioned. `git init` here, then re-check.');
+  }
   const p = path.join(root, '.gitattributes');
   if (!fs.existsSync(p)) {
     return check('merge-driver', LAYER.GIT, false, '.gitattributes is missing',
@@ -72,6 +84,10 @@ export function checkMergeDriver(root) {
  * the original refused.
  */
 export function checkPreCommitHook(root) {
+  if (!isRepo(root)) {
+    return check('pre-commit', LAYER.GIT, null, 'not a git repository — no commits to guard',
+      'Only relevant once the memory is versioned. `git init` here, then run the hook installer.');
+  }
   const configured = git(root, 'config', '--get', 'core.hooksPath');
   if (!configured) {
     return check('pre-commit', LAYER.GIT, false, 'core.hooksPath is not set',

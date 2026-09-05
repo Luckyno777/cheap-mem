@@ -60,7 +60,17 @@ test('the MCP server says what to install instead of throwing MODULE_NOT_FOUND',
     'the failure must name the command that fixes it');
 });
 
-test('the test script matches how the tests actually run', () => {
-  // `node --test` alone walks directories here and dies on MODULE_NOT_FOUND.
-  assert.match(pkg.scripts.test, /test\/\*\.test\.mjs/);
+test('the test script runs on every supported Node, not just this one', () => {
+  // The quoted glob `node --test "test/*.test.mjs"` is expanded by neither
+  // the shell (it is quoted) nor by Node before 21. On Node 20 it is a
+  // literal path that does not exist, so `npm test` exits 1 having run
+  // nothing — which is how CI stayed red on four jobs while this machine
+  // reported 392 passing.
+  //
+  // A directory argument is no better: `node --test test` resolves it as a
+  // MODULE and dies on MODULE_NOT_FOUND. Bare `node --test` scans the
+  // working directory and is the one form that works everywhere, PowerShell
+  // included. The comment this replaces claimed the opposite, and pinned
+  // the broken form in place.
+  assert.equal(pkg.scripts.test.trim(), 'node --test');
 });
