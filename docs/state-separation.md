@@ -298,3 +298,31 @@ The measured evidence in this document was produced by instruments that
 were, at the time, partly lying. The numbers survived re-measurement with
 the instruments fixed — but the lesson is that "measured, not asserted" is
 only as good as the last time anyone attacked the measuring device.
+
+**And then the gate was read, which had not happened either.** The verify
+job passed on its first run and showed that the rest of CI had been
+failing for three runs already. `npm test` ran `node --test
+"test/*.test.mjs"`: the shell does not expand a quoted glob and neither
+does Node before 21, so on Node 20 it was a literal path that does not
+exist — `npm test` exited 1 having run **zero tests**, on four of the
+fourteen jobs. A test in `packaging.test.mjs` pinned that exact form in
+place, with a comment claiming the working alternative dies on
+MODULE_NOT_FOUND. It defended the broken one.
+
+Fixing it ran the suite on Windows for the first time in the project's
+life. Seven failures, four of them one bug: **the pre-commit secret hook
+did not work on Windows at all.** Git-Bash `pwd` answers `/c/Users/...`,
+an MSYS path that Windows Node reads as relative to the current drive, so
+the import of `redaction.mjs` failed and the hook — correctly failing
+closed — refused *every* commit, including one that removes a secret. A
+guard that blocks everything is bypassed with `--no-verify`, which is a
+guard that checks nothing. The hook already carried a comment about
+`pathToFileURL` and Windows drive letters: it had fixed the half of the
+problem someone had reasoned about, and left the half that only running
+it could find.
+
+That is the shape of this whole round. Every finding was invisible to
+reasoning and immediate to execution, and each layer that was supposed to
+catch the one below it was itself unrun: the tests did not run on Windows,
+the benchmarks ran on one machine, the mutation harness credited mutants
+it never applied, and the build was red with nobody reading it.
