@@ -29,6 +29,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+// Relative paths reported by this module are IDENTIFIERS — printed,
+// compared, and travelling with the memory — not handles for the local
+// filesystem. path.relative answers in the native separator, so the same
+// memory would say agents/old on Linux and agents\\old on Windows and the
+// two would not compare equal. Filesystem access keeps using path.join.
+const rel = (from, to) => path.relative(from, to).split(path.sep).join('/');
+
 export const AGENTS_DIR = 'agents';
 
 /** Allowed agent names: the same strict pattern as project names. */
@@ -121,9 +128,9 @@ export function readAgent(root, name) {
     // field being set. Retiring one is the exception.
     active: head.active !== false,
     inherits_from: head.inherits_from ?? head['inherits-from'] ?? null,
-    home: path.relative(root, home) || AGENTS_DIR,
-    content: path.relative(root, content) || '.',
-    prompt: promptPath ? path.relative(root, promptPath) : null,
+    home: rel(root, home) || AGENTS_DIR,
+    content: rel(root, content) || '.',
+    prompt: promptPath ? rel(root, promptPath) : null,
     knowledge: entriesIn('knowledge', '.md'),
     skills: entriesIn('skills', null),
     note: head.note ?? '',
@@ -170,5 +177,5 @@ export function createAgent(root, name, { role = '', model = '', path: at = null
       + 'What this agent always carries lives under `knowledge/`.\n'
       + 'Its own skills live under `skills/<name>/SKILL.md`.\n', 'utf8');
   }
-  return { isNew, home: path.relative(root, home) };
+  return { isNew, home: rel(root, home) };
 }

@@ -30,6 +30,17 @@ set -u
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
 PKG="${CHEAP_MEM_PKG:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
+# Git-Bash `pwd` answers /c/Users/... — an MSYS path that Windows node
+# reads as RELATIVE to the current drive, so pathToFileURL turns it into
+# C:\c\Users\... and the import fails. The hook then refuses every commit,
+# including one that removes a secret. Measured on windows-latest,
+# 2026-09-05, the first time the tests had ever run there at all.
+#
+# cygpath -m gives C:/Users/... — a Windows path with forward slashes, so
+# it also survives being interpolated into a single-quoted JS string.
+# Absent outside MSYS, where the path is already right.
+if command -v cygpath >/dev/null 2>&1; then PKG="$(cygpath -m "$PKG")"; fi
+
 if [ ! -f "$PKG/src/redaction.mjs" ]; then
   echo "pre-commit: cannot find the redaction module (looked in $PKG)." >&2
   echo "  The commit is refused, because the check cannot run." >&2

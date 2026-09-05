@@ -20,7 +20,10 @@ test('the register goes in the repo, the bytes do not', () => {
     const l = store.put(r, file('# report\n'), { purpose: 'handover', agent: 'session' });
     assert.match(fs.readFileSync(path.join(r, store.REGISTER), 'utf8'), /"sha256":/);
     assert.ok(fs.existsSync(store.objectPath(r, l.sha256)));
-    assert.ok(store.objectPath(r, l.sha256).includes(`objects/${l.sha256.slice(0, 2)}/`));
+    // objectPath is a real filesystem path and correctly native; the
+    // assertion was the thing assuming a separator.
+    assert.ok(store.objectPath(r, l.sha256)
+      .includes(path.join('objects', l.sha256.slice(0, 2), l.sha256)));
     assert.equal(l.checked, true, 'text must have passed redaction');
   } finally { rm(r); }
 });
