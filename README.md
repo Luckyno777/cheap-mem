@@ -216,11 +216,25 @@ When new inbox mail lands, it pulls and runs the handler.
 ### Claude Code (hooks + MCP)
 
 ```bash
-CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/install/claude-code.sh
+mem setup claude              # add --dry-run to see it first
 ```
 
-This drops three hooks into `~/.claude/hooks/` and merges the needed
-permissions into `~/.claude/settings.json`:
+Claude Code is the only agent with a one-command recipe, and that is
+deliberate: writing an agent's config from a *guessed* format fails
+silently, in someone's home directory, in a file they did not know was
+touched. Any MCP-capable agent can use the server today by pointing at
+`bin/mem-mcp` — see [docs/mcp-setup.md](docs/mcp-setup.md).
+
+The same thing by hand, if you would rather see every step:
+
+```bash
+CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/install/claude-code.sh
+claude mcp add cheap-mem -- node ~/cheap-mem/bin/mem-mcp
+```
+
+Either way it is idempotent — run it again after moving the memory and
+it re-points. It drops three hooks into `~/.claude/hooks/` and merges
+the needed permissions into `~/.claude/settings.json`:
 
 - **SessionStart** — prints `FACTS.md` + context at the top of a session.
 - **UserPromptSubmit** — on *every* message, recalls matching memory

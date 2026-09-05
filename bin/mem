@@ -1124,6 +1124,83 @@ const COMMANDS = {
     }
   },
 
+  setup: async ({ rest, args }) => {
+    // Honest scope. Wiring an agent means writing into its config, and a
+    // config written from a guessed format is worse than none at all: it
+    // fails silently, in someone else's home directory, in a file they did
+    // not know we touched. So this supports what can actually be verified,
+    // and says so instead of listing a dozen agents it cannot test.
+    const AGENTS = {
+      claude: 'Claude Code — user-level hooks, permissions and the MCP server',
+    };
+    const agent = rest[0];
+    if (isHelp(args) || !agent) {
+      out([
+        'mem setup <agent> [--dry-run]',
+        '',
+        '  Wire this memory into an agent: context on session start, recall on',
+        '  every prompt, capture on session end, and the MCP tools.',
+        '',
+        '  Idempotent — run it again after moving the memory and it re-points.',
+        '',
+        '  Supported:',
+        ...Object.entries(AGENTS).map(([k, v]) => `    ${k.padEnd(8)} ${v}`),
+        '',
+        '  Only Claude Code is supported, on purpose. Any MCP-capable agent can',
+        '  use the server today by pointing at bin/mem-mcp; what is NOT offered',
+        '  is a one-command install for agents whose config format cannot be',
+        '  verified here. A wrong config fails silently in your home directory.',
+        '',
+        '  --dry-run   print what would happen, change nothing',
+      ].join('\n'));
+      return;
+    }
+    if (!Object.hasOwn(AGENTS, agent)) {
+      die(`setup: no recipe for '${agent}'. Supported: ${Object.keys(AGENTS).join(', ')}`);
+    }
+
+    checkFlags(args, ['dry-run'], 'setup');
+    const root = findRoot(args);
+    requireConfig(root);
+    const script = path.join(PKG_ROOT, 'install', 'claude-code.sh');
+    if (!fs.existsSync(script)) die(`setup: ${script} is missing from this install`);
+
+    const mcpCmd = `claude mcp add cheap-mem -- node ${path.join(PKG_ROOT, 'bin', 'mem-mcp')}`;
+    if (args['dry-run']) {
+      out('Would run:');
+      out(`  CHEAP_MEM_ROOT=${root} bash ${script}`);
+      out('    -> ~/.claude/hooks/cheap-mem-{session-start,session-stop,user-prompt}.sh');
+      out('    -> merges ~/.claude/settings.json (keeps what is there)');
+      out('  and register the MCP server:');
+      out(`  ${mcpCmd}`);
+      return;
+    }
+
+    out(`Wiring ${root} into Claude Code ...`);
+    const r = spawnSync('bash', [script], {
+      encoding: 'utf8',
+      env: { ...process.env, CHEAP_MEM_ROOT: root },
+      stdio: 'inherit',
+    });
+    if (r.status !== 0) die(`setup: ${script} failed (exit ${r.status})`);
+
+    // The MCP server is the one piece the install script does not do.
+    // Registering it needs the claude CLI; when that is absent, say the
+    // command rather than pretending the step happened.
+    const hasClaude = spawnSync('claude', ['--version'], { stdio: 'ignore' }).status === 0;
+    if (hasClaude) {
+      const m = spawnSync('claude', ['mcp', 'add', 'cheap-mem', '--',
+        'node', path.join(PKG_ROOT, 'bin', 'mem-mcp')], { encoding: 'utf8' });
+      out(m.status === 0
+        ? 'MCP server registered as "cheap-mem".'
+        : `MCP registration did not succeed — run it yourself:\n  ${mcpCmd}`);
+    } else {
+      out(`claude CLI not found. Register the MCP server yourself:\n  ${mcpCmd}`);
+    }
+    out('');
+    out('Check it took: mem doctor   (the stop-hook and git-hook findings)');
+  },
+
   experiences: async ({ args }) => {
     if (isHelp(args)) {
       out([
@@ -1518,6 +1595,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("");
   out("Setup:");
   out("  init [--participants a,b,c] [--branch main] [--remote origin]");
+  out("  setup <agent> [--dry-run]             wire it into an agent (claude)");
   out("  whoami [<name>]                       who this install is (or set)");
   out("");
   out("Memory (append-only logs):");
@@ -1536,6 +1614,10 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("                    current value of every fact that changes over time");
   out("  core             [--max 40] [--stale-days N]");
   out("                    always-load block of settled facts (bake-in, no training)");
+  out("  topics / topic <key> [--all]          subjects, and where one stands now");
+  out("  links <id>                            typed edges in and out of one entry");
+  out("  experiences      [--all] [--type T]   what the memory stands behind");
+  out("                    ranked by citations, not by how often it was read");
   out("  viewer           [--out f.html] [--title \"...\"] [--open]");
   out("                    one self-contained HTML page to browse it all");
   out("  correction <type> <old-id> [--project X] --<field> <value>");
