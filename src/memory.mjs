@@ -211,6 +211,53 @@ export function currentFacts(root, { now = new Date(), staleDays = 120 } = {}) {
   return freshness.resolveFacts(all, { now, staleDays, retired: retiredMap(all) });
 }
 
+/**
+ * The always-load core — cheap-mem's answer to "bake context into the
+ * model" (Engram), minus the training. Instead of retraining weights or
+ * re-retrieving every turn, it distills the *settled* facts worth carrying
+ * in EVERY session into a small, bounded block you load once at the top.
+ *
+ * A fact belongs in the core when it is current, not stale, and not in
+ * conflict — a truth that has stopped moving. The block is bounded (`max`)
+ * so it stays cheap enough to always load; when more stable facts exist
+ * than the budget, the *freshest* survive and the rest are counted, never
+ * silently dropped.
+ *
+ * Pure over the `timeline` log: no model, no network, no write. Same
+ * contract as search and facts.
+ */
+export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } = {}) {
+  const stable = currentFacts(root, { now, staleDays })
+    .filter((f) => !f.stale && !f.conflict);
+  const when = (f) => Date.parse(f.current.valid_from ?? f.current.ts ?? 0) || 0;
+  // Rank by recency so the budget keeps the freshest truths ...
+  const byFresh = [...stable].sort((a, b) => when(b) - when(a));
+  const kept = byFresh.slice(0, Math.max(0, max));
+  // ... but present in key order, so the block reads like a settled table.
+  kept.sort((a, b) => a.key.localeCompare(b.key));
+  return { kept, omitted: Math.max(0, stable.length - kept.length), total: stable.length };
+}
+
+export function core(root, { now = new Date(), staleDays = 120, max = 40 } = {}) {
+  const { kept, omitted } = coreFacts(root, { now, staleDays, max });
+  const out = [];
+  out.push('=== cheap-mem core (stable facts, always-load) ===');
+  out.push('# Current, non-stale, non-conflicting timeline facts. Deterministic, no model.');
+  out.push('');
+  if (kept.length === 0) {
+    out.push('(no stable facts yet — log some with '
+      + '`mem log timeline --key ... --value ... --valid_from ...`)');
+  } else {
+    for (const f of kept) out.push(freshness.formatFact(f));
+  }
+  if (omitted > 0) {
+    out.push('');
+    out.push(`(${omitted} more stable fact${omitted === 1 ? '' : 's'} beyond the budget `
+      + `of ${max}; raise --max to include them)`);
+  }
+  return out.join('\n');
+}
+
 export function context(root, { n = 20 } = {}) {
   const half = Math.max(1, Math.floor(n / 2));
   const out = [];

@@ -1109,6 +1109,33 @@ const COMMANDS = {
     }
   },
 
+  core: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem core [--max N] [--stale-days N]',
+        '',
+        '  The always-load core: the settled facts worth carrying in EVERY',
+        '  session, rendered compact and deterministic. Instead of retraining a',
+        '  model on your context or re-retrieving every turn, distill the stable',
+        '  facts once and load this small block at the top of a session.',
+        '',
+        '  A fact is in the core when it is current, not stale, and not in',
+        '  conflict. The block is bounded so it stays cheap to always load.',
+        '',
+        '  --max N         cap the core at N facts (default 40); freshest survive',
+        '  --stale-days N  a fact older than this is not core (default 120)',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['max', 'stale-days'], 'core');
+    const root = findRoot(args);
+    requireConfig(root);
+    const staleDays = args['stale-days'] ? Number(args['stale-days']) : 120;
+    const max = args.max ? Number(args.max) : 40;
+    process.stdout.write(memory.core(root, { staleDays, max }));
+    process.stdout.write('\n');
+  },
+
   viewer: async ({ args }) => {
     if (isHelp(args)) {
       out([
@@ -1340,6 +1367,10 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  duties           [--all]              what is still owed");
   out("  duties close <id> [--why \"...\"]      append a closing line");
   out("  context          [--n 20]");
+  out("  facts            [--stale] [--conflicts] [--key k] [--stale-days N]");
+  out("                    current value of every fact that changes over time");
+  out("  core             [--max 40] [--stale-days N]");
+  out("                    always-load block of settled facts (bake-in, no training)");
   out("  viewer           [--out f.html] [--title \"...\"] [--open]");
   out("                    one self-contained HTML page to browse it all");
   out("  correction <type> <old-id> [--project X] --<field> <value>");

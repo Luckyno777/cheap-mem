@@ -87,3 +87,51 @@ test('context returns something even on empty root', () => {
   assert.ok(out.includes('cheap-mem context'));
   assert.ok(out.includes('(none)'));
 });
+
+// --- core: the always-load block of settled facts (Engram-inspired) ------
+const CORE_NOW = new Date('2026-09-01T00:00:00Z');
+
+test('core holds current, non-stale, non-conflicting facts', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'timeline', { key: 'server.users', value: '10', valid_from: '2026-08-01' });
+  memory.logEntry(root, 'timeline', { key: 'server.users', value: '13', valid_from: '2026-08-20' });
+  const { kept } = memory.coreFacts(root, { now: CORE_NOW });
+  assert.equal(kept.length, 1);
+  assert.equal(kept[0].key, 'server.users');
+  assert.equal(kept[0].current.value, '13'); // newest wins
+  const text = memory.core(root, { now: CORE_NOW });
+  assert.match(text, /server\.users = 13/);
+  assert.match(text, /always-load/);
+});
+
+test('core excludes stale and conflicting facts', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'timeline', { key: 'fresh.k', value: 'v', valid_from: '2026-08-20' });
+  memory.logEntry(root, 'timeline', { key: 'old.k', value: 'x', valid_from: '2026-01-01' }); // > 120d stale
+  memory.logEntry(root, 'timeline', { key: 'clash.k', value: 'a', valid_from: '2026-08-10' });
+  memory.logEntry(root, 'timeline', { key: 'clash.k', value: 'b', valid_from: '2026-08-10' }); // same date, differ
+  const { kept } = memory.coreFacts(root, { now: CORE_NOW, staleDays: 120 });
+  const keys = kept.map((f) => f.key);
+  assert.deepEqual(keys, ['fresh.k']); // old.k stale, clash.k conflict -> out
+});
+
+test('core is bounded: freshest survive, the rest are counted', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'timeline', { key: 'a', value: '1', valid_from: '2026-08-01' });
+  memory.logEntry(root, 'timeline', { key: 'b', value: '2', valid_from: '2026-08-10' });
+  memory.logEntry(root, 'timeline', { key: 'c', value: '3', valid_from: '2026-08-20' });
+  const { kept, omitted, total } = memory.coreFacts(root, { now: CORE_NOW, max: 2 });
+  assert.equal(total, 3);
+  assert.equal(omitted, 1);
+  assert.equal(kept.length, 2);
+  // freshest two are b (08-10) and c (08-20); a (08-01) is dropped
+  assert.deepEqual(kept.map((f) => f.key), ['b', 'c']); // displayed in key order
+  const text = memory.core(root, { now: CORE_NOW, max: 2 });
+  assert.match(text, /1 more stable fact beyond the budget of 2/);
+});
+
+test('core on an empty memory says so, does not crash', () => {
+  const root = tmpRoot();
+  const text = memory.core(root, { now: CORE_NOW });
+  assert.match(text, /no stable facts yet/);
+});
