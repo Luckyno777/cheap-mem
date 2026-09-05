@@ -184,6 +184,21 @@ test('a memory that digested before the ledger existed is seeded, not restarted'
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('the yield check answers from the ledger too, not only the watermark', () => {
+  // Both findings read the same data. Leaving this one on the watermark
+  // would have had `mem doctor` in a fresh clone print the digest state
+  // and, one line below, `?` for the yield over exactly those captures.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ledger-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  raw.markDigested(root, [a]);
+  memory.logEntry(root, 'thought', { text: 'from a', origin: { raw: a } });
+  fs.rmSync(path.join(root, '.mem'), { recursive: true, force: true }); // the clone
+  const f = findFinding(doctor.checkAll(root), 'digest-yield');
+  assert.notEqual(f.level, 'unknown', 'the tracked ledger makes the yield computable');
+  assert.match(f.text, /0 produced nothing/);
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('the ledger is append-only: a second run adds a line, never rewrites', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ledger-'));
   const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');

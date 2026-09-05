@@ -95,14 +95,19 @@ function checkDigestYield(root) {
   const ratioThreshold = 0.4;
   let captures = [];
   try { captures = raw.listCaptures(root); } catch { /* no raw/ */ }
-  // Without the watermark, which captures are digested is unknowable —
-  // same boundary as checkDigest. With no raw material at all there is
-  // provably nothing to measure (GOOD, below).
+  // Without any record, which captures are digested is unknowable — same
+  // boundary as checkDigest, and it narrows the same way: the ledger is
+  // tracked, so where it exists the state is readable from any clone and
+  // the yield is computable. Otherwise the ledger would have answered one
+  // finding and left the one beside it at `?`, over the same data. With no
+  // raw material at all there is provably nothing to measure (GOOD, below).
   const watermarkHere = fs.existsSync(path.join(root, raw.WATERMARK_FILE));
-  if (captures.length > 0 && !watermarkHere) {
+  const ledgerHere = fs.existsSync(path.join(root, raw.LEDGER_FILE));
+  if (captures.length > 0 && !watermarkHere && !ledgerHere) {
     return finding('digest-yield', LEVEL.UNKNOWN,
-      'no watermark in this clone — which captures are digested is not known from here',
-      'Measure on the machine that digests. ' + raw.WATERMARK_FILE + ' is gitignored.');
+      'no digest record in this clone — which captures are digested is not known from here',
+      'Measure on the machine that digests, or digest once and commit there: '
+      + `${raw.LEDGER_FILE} travels, ${raw.WATERMARK_FILE} is gitignored.`);
   }
   let open = new Set();
   try { open = new Set(raw.pending(root).open); } catch { /* no watermark */ }
