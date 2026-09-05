@@ -388,7 +388,7 @@ ${markLink()}
   :root:not([data-theme="light"]){
     --paper:#141716; --raised:#1B1F1D; --sunk:#202523;
     --ink:#E7EAE6; --muted:#B4BBB5; --faint:#8B9089;
-    --rule:#2C332F; --rule-soft:#242A27;
+    --rule:#454E48; --rule-soft:#2E3632;
     --accent:#7FC3D4; --accent-soft:#172C32;
     --warn:#D9A758; --warn-soft:#2B2416;
     --gone:#E08C85; --gone-soft:#2E1D1C;
@@ -398,7 +398,7 @@ ${markLink()}
 :root[data-theme="dark"]{
   --paper:#141716; --raised:#1B1F1D; --sunk:#202523;
   --ink:#E7EAE6; --muted:#B4BBB5; --faint:#8B9089;
-  --rule:#2C332F; --rule-soft:#242A27;
+  --rule:#454E48; --rule-soft:#2E3632;
   --accent:#7FC3D4; --accent-soft:#172C32;
   --warn:#D9A758; --warn-soft:#2B2416;
   --gone:#E08C85; --gone-soft:#2E1D1C;
@@ -568,6 +568,7 @@ main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
 .chip.type{background:var(--accent-soft); color:var(--accent); border-color:transparent; font-weight:500}
 .chip.gone{background:var(--gone-soft); color:var(--gone); border-color:transparent}
 .chip.warn{background:var(--warn-soft); color:var(--warn); border-color:transparent}
+.chip.fresh{color:var(--fresh); border-color:var(--fresh); background:none}
 .chip.tag{background:none; border-color:var(--rule)}
 .chip.act{cursor:pointer}
 .chip.act{transition:border-color var(--dur-instant) var(--ease-standard),
@@ -628,10 +629,33 @@ h2.area .n{
 .trail{margin:8px 0 0; padding:0 0 0 14px; border-left:2px solid var(--rule); display:grid; gap:5px}
 .trail div{font-size:13px; color:var(--muted)}
 .trail .when{font-family:var(--code); font-size:11px; color:var(--faint); margin-right:7px}
+/* The page is print-shaped anyway: paper ground, serif prose, no shadow.
+   What was missing is clearing away the controls — printed, a tab is a
+   line that does nothing and the reading rail is a stripe of colour in
+   the margin. With this, "mem view" becomes a report you can hand
+   someone. */
+@media print{
+  :root{ --paper:#fff; --raised:#fff; --sunk:#fff; --rule:#bbb; --rule-soft:#ddd }
+  header{ position:static; border:0 }
+  header::after, .tools, .tabs, .lead{ display:none }
+  main{ max-width:none; padding:0 }
+  .card{ break-inside:avoid; page-break-inside:avoid; content-visibility:visible }
+  details{ display:block }
+  details > summary{ display:none }
+  details > *:not(summary){ display:revert }
+  a[href]::after{ content:"" }
+}
+
 @media (max-width:620px){
   /* ~36px tall tabs are a poor thumb target; 44px is the usual floor. At
      a desk it stays compact. */
   .tab{padding:13px 14px}
+  /* The search field and selects sat at 37 and 33px. They grow to 44 only
+     BELOW 620px — at a desk the header would otherwise be needlessly
+     tall, and there you hit them with a mouse anyway. */
+  #q{padding:12px 12px}
+  select{padding:13px 10px}
+  .live{min-height:44px}
   .edge{grid-template-columns:1fr; gap:5px}
   .fact{grid-template-columns:1fr; gap:2px}
 }
@@ -764,7 +788,13 @@ h2.area .n{
     if (e.project) h += '<span class="chip">' + esc(e.project) + '</span>';
     if (e.retired) h += '<span class="chip gone">' + esc(e.retired.state) + '</span>';
     var tags = e.tags || [];
-    for (var i = 0; i < tags.length; i++) h += '<span class="chip tag">' + esc(tags[i]) + '</span>';
+    // Tags filter. The chip.act class was styled and emitted by no lens —
+    // a hover state with no element. Here it earns its place: clicking a
+    // tag is the shortest question you can put to a memory.
+    for (var i = 0; i < tags.length; i++) {
+      h += '<span class="chip tag act" data-tag="' + esc(tags[i]) + '" role="button" tabindex="0">'
+        + esc(tags[i]) + '</span>';
+    }
     if (e.id) h += '<span class="chip mono">' + esc(e.id) + '</span>';
     h += '</div>';
     if (parts.body) h += '<p class="prose">' + mark(parts.body, state.q) + '</p>';
@@ -1016,6 +1046,15 @@ function viewAgents() {
       h += '<span class="key">' + mark(f.key, state.q) + '</span>';
       h += '<span class="val">' + mark(f.value, state.q) + '</span>';
       h += '<span class="since">since ' + esc(f.validFrom || '?') + '</span></div>';
+      // --fresh was declared and used nowhere until 2026-09-05 — a token
+      // nothing references is a promise the design does not keep. Here it
+      // earns its place: a fact confirmed within the last 30 days is one
+      // you can lean on today. Without the mark a 3-day-old fact looks
+      // exactly like a 100-day-old one.
+      if (!f.stale && !f.conflict && typeof f.ageDays === 'number' && f.ageDays <= 30) {
+        h += '<div class="row" style="margin-top:6px"><span class="chip fresh">'
+          + 'confirmed ' + f.ageDays + (f.ageDays === 1 ? ' day' : ' days') + ' ago</span></div>';
+      }
       if (f.stale || f.conflict) {
         h += '<div class="row" style="margin-top:6px">';
         if (f.stale) h += '<span class="chip warn">not confirmed for ' + esc(f.ageDays) + ' days</span>';
@@ -1166,6 +1205,17 @@ function viewAgents() {
     if (it) {
       withTransition(function () {
         state.topic = it.getAttribute('data-topic'); state.view = 'timeline'; state.focus = null; draw();
+      });
+      return;
+    }
+    var tag = ev.target.closest ? ev.target.closest('[data-tag]') : null;
+    if (tag) {
+      withTransition(function () {
+        var box = document.getElementById('q');
+        box.value = tag.getAttribute('data-tag');
+        state.q = box.value;
+        state.focus = null; state.topic = null;
+        draw();
       });
       return;
     }

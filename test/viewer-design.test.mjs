@@ -119,3 +119,42 @@ test('switching lenses does not cross-fade the whole surface', () => {
   assert.match(c, /::view-transition-old\(root\)[^{]*\{\s*animation:none/);
   assert.match(c, /view-transition-name:lens/);
 });
+
+test('no backtick in the page template', () => {
+  // On 2026-09-05 the template broke FOUR times in the same place — the
+  // fourth time inside the comment warning about this very trap.
+  //
+  // A backtick in a CSS or JS comment ends the template literal the whole
+  // page is built inside. Sometimes the module then fails to parse;
+  // worse, sometimes it parses on and a comment word becomes a property
+  // access that only blows up at runtime.
+  //
+  // The SOURCE is checked, not the output: in the output a backtick can
+  // legitimately sit inside a memory entry.
+  const src = fs.readFileSync(new URL('../src/viewer.mjs', import.meta.url), 'utf8');
+  const start = src.indexOf('return `<!doctype html>');
+  assert.ok(start > 0, 'the page template was not found');
+  const end = src.indexOf('</html>`;', start);
+  assert.ok(end > start, 'the end of the template was not found');
+  assert.equal(src.slice(start + 'return `'.length, end).includes('`'), false,
+    'a backtick sits in the page template and ends it early');
+});
+
+test('printed, the controls fall away and the content stays', () => {
+  const c = css(page());
+  const i = c.indexOf('@media print');
+  assert.ok(i > 0, 'no print block');
+  const block = c.slice(i, i + 900);
+  assert.match(block, /display:none/, 'the controls stay on the page');
+  assert.match(block, /break-inside:avoid/, 'cards may not break mid-way');
+});
+
+test('every declared colour is actually used', () => {
+  // A token nothing references is a promise the design does not keep.
+  // --fresh sat unused for half a year.
+  const c = css(page());
+  const root = c.slice(c.indexOf(':root{'), c.indexOf('@media (prefers-color-scheme:dark)'));
+  for (const m of root.matchAll(/--([a-z-]+):#/g)) {
+    assert.ok(c.includes(`var(--${m[1]})`), `--${m[1]} is declared but used nowhere`);
+  }
+});

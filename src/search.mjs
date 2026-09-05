@@ -883,3 +883,127 @@ function countLines(root, rel) {
     return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
   } catch { return 0; }
 }
+
+
+// ---------------------------------------------------------------------
+// Content words: what is left of a spoken question
+//
+// **The finding (2026-09-05).** The retrieval hook pushed the user's
+// whole message into BM25. In a 45-word conversational sentence maybe
+// three words carry the question; the rest is connective tissue that
+// appears in EVERY entry and therefore distinguishes nothing. BM25 does
+// weight rare terms higher, but with enough filler the mass wins.
+//
+// Nothing is stripped that could be a subject: technical terms, proper
+// nouns, verbs with content all stay. When in doubt a word survives — one
+// word too many costs a little rank, one word too few costs the hit.
+
+const FILLER = new Set([
+  // articles, pronouns, prepositions, conjunctions
+  'the', 'a', 'an', 'this', 'that', 'these', 'those', 'it', 'its', 'we', 'us',
+  'our', 'you', 'your', 'they', 'them', 'their', 'he', 'she', 'his', 'her',
+  'and', 'or', 'but', 'so', 'if', 'then', 'than', 'as', 'because', 'while',
+  'with', 'without', 'for', 'from', 'into', 'onto', 'about', 'over', 'under',
+  'between', 'through', 'against', 'upon', 'per', 'via',
+  // auxiliaries and all-purpose verbs
+  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am',
+  'have', 'has', 'had', 'do', 'does', 'did', 'done',
+  'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
+  'get', 'gets', 'got', 'make', 'makes', 'made', 'take', 'takes', 'give',
+  'go', 'goes', 'want', 'need', 'let', 'put', 'use', 'using', 'see', 'look',
+  // vague filler that appears in every entry
+  'just', 'also', 'still', 'only', 'even', 'very', 'really', 'quite', 'maybe',
+  'perhaps', 'actually', 'simply', 'always', 'never', 'again', 'more', 'most',
+  'less', 'much', 'many', 'some', 'any', 'all', 'both', 'each', 'other',
+  'here', 'there', 'now', 'today', 'yesterday', 'tomorrow', 'thing', 'things',
+  'good', 'better', 'best', 'nice', 'please', 'thanks', 'like', 'well',
+  'what', 'which', 'who', 'when', 'where', 'why', 'how', 'not', 'no', 'yes',
+  // German, because captures are bilingual
+  'der', 'die', 'das', 'und', 'ist', 'nicht', 'auch', 'noch', 'aber', 'wir',
+  'ich', 'mit', 'ein', 'eine', 'dass', 'wie', 'was', 'schon', 'nur', 'mal',
+]);
+
+const SHORT_OK = new Set(['mem', 'pwa', 'api', 'css', 'git', 'vm', 'ui', 'ux', 'js', 'id']);
+
+/** Content words: at least four characters, not filler. */
+export function contentWords(text) {
+  const raw = String(text ?? '').toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  const out = [];
+  for (const w of raw) {
+    if (FILLER.has(w)) continue;
+    if (w.length >= 4 || SHORT_OK.has(w)) out.push(w);
+  }
+  // Drop duplicates, keep order: saying "topic" three times must not make
+  // the question three times as heavy as it is.
+  return [...new Set(out)];
+}
+
+/**
+ * The question as retrieval should ask it.
+ *
+ * Capped past a handful of words — but NOT by position. That was the
+ * first draft and it was wrong: in German (and often in English) the
+ * subject arrives late in the sentence, so taking the first eight words
+ * threw away the very word the question was about.
+ *
+ * Ranked by RARITY instead: the words appearing in the fewest entries
+ * carry the question. That is the same quantity BM25 weights by
+ * afterwards, and it comes free from the existing index.
+ *
+ * With nothing left after stripping ("yes", "do that"), the original
+ * question comes back — better a vague search than none.
+ */
+export const RETRIEVE_WORDS_MAX = 8;
+
+export function retrievalQuery(text, { root = null, index = null } = {}) {
+  const w = contentWords(text);
+  if (!w.length) return String(text ?? '').trim();
+  if (w.length <= RETRIEVE_WORDS_MAX) return w.join(' ');
+
+  let idx = index;
+  if (!idx && root) {
+    try { idx = loadIndex(root); } catch { idx = null; }
+  }
+  if (!idx || !idx.docFreq) return w.slice(0, RETRIEVE_WORDS_MAX).join(' ');
+
+  // Through the SAME tokenisation as the index, or the lookup misses on
+  // an ending and every word would look equally rare. A word the index
+  // does not know at all is maximally rare — and often exactly the
+  // technical term being asked about.
+  const rarity = (x) => {
+    let lowest = Infinity;
+    for (const t of tokenize(x)) lowest = Math.min(lowest, idx.docFreq.get(t) ?? 0);
+    return Number.isFinite(lowest) ? lowest : 0;
+  };
+  return [...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX).join(' ');
+}
+
+/**
+ * Is this hit essentially the question itself?
+ *
+ * The retrieval hook runs on EVERY message, and the stop hook files every
+ * message as a raw capture. So the next time something similar is asked,
+ * the best hit is the user's own sentence from before. Measured on
+ * 2026-09-05: 13 of 18 injected hits were such echoes.
+ *
+ * They are not wrong — they really are in the memory — but they answer
+ * nothing. A block that hands you back your own question gets skimmed
+ * past after the third time, and then the whole retrieval is gone.
+ *
+ * Overlap is measured in ONE direction: how much of the HIT is already in
+ * the question. A long entry that happens to contain the question stays;
+ * only the short echo falls.
+ */
+export const ECHO_OVER = 0.7;
+
+export function isEcho(questionText, hitText, { threshold = ECHO_OVER } = {}) {
+  const q = new Set(contentWords(questionText));
+  const h = contentWords(hitText);
+  if (!q.size || h.length < 3) return false;
+  let inside = 0;
+  for (const w of h) if (q.has(w)) inside += 1;
+  return inside / h.length >= threshold;
+}

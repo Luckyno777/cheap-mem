@@ -420,11 +420,24 @@ const COMMANDS = {
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
-      'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda'], 'find');
+      'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
+      'content-words', 'no-echo'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
-    const query = rest[0];
+    let query = rest[0];
     if (!query) die("find: no query. Example: mem find 'flaky ci'");
+
+    // --content-words: pull the carrying words out of a SPOKEN question,
+    // ranked by rarity in the index, at most eight. The retrieval hook
+    // uses this — before 2026-09-05 it got the user's whole message, and
+    // in a 45-word sentence the technical term drowns in connective
+    // tissue. Not the default: whoever types `mem find "..."` by hand has
+    // already chosen the words.
+    const askedAs = query;
+    if (args['content-words']) {
+      const shortened = search.retrievalQuery(query, { root });
+      if (shortened && shortened !== query) query = shortened;
+    }
     const since = args.since ? sinceOf(args.since) : null;
 
     // Time router: if the query names a window ("yesterday afternoon", "last
@@ -456,8 +469,10 @@ const COMMANDS = {
     thesaurus.loadUserGroups(root, fs, path);
     const t0 = Date.now();
     const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
-    const hits = search.search(index, query, {
-      top: args.top ? Number(args.top) : 10,
+    // With --no-echo, fetch wider so enough survives the filter.
+    const wanted = args.top ? Number(args.top) : 10;
+    const hits0 = search.search(index, query, {
+      top: args['no-echo'] ? wanted * 3 : wanted,
       type: args.type ?? null,
       project: args.project ?? null,
       since,
@@ -470,6 +485,16 @@ const COMMANDS = {
       mmr: !args['no-mmr'],
       mmrLambda: args['mmr-lambda'] ? Number(args['mmr-lambda']) : 0.7,
     });
+    // Drop the echo: the retrieval hook runs on every message and the stop
+    // hook files every message as a raw capture, so the best hit for a
+    // similar question is the user's own sentence from before. Measured on
+    // 2026-09-05: 13 of 18 injected hits.
+    const shortOf = (h) => (h.raw
+      ? (raw.excerpt(root, h.source, String(query).split(/\s+/)) || compactLine(h.entry))
+      : compactLine(h.entry)) || '';
+    const hits = (args['no-echo']
+      ? hits0.filter((h) => !search.isEcho(askedAs, shortOf(h)))
+      : hits0).slice(0, wanted);
     const ms = Date.now() - t0;
 
     if (args.json) {

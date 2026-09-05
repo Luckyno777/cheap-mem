@@ -292,3 +292,58 @@ test('a multi-word tag makes one node, not two ghosts', () => {
   assert.deepEqual((g.get('ci') ?? []).map(([w]) => w), ['auth model']);
   assert.ok(!g.has('auth') && !g.has('model'), 'no ghost nodes from splitting the tag');
 });
+
+// --- Content words and the echo filter --------------------------------
+
+test('contentWords keeps the technical terms and drops the connective tissue', () => {
+  const w = search.contentWords(
+    'could we maybe make this a bit more robust and also have a look at proper '
+    + 'memory animations because I noticed the digest slices topics too finely');
+  for (const must of ['robust', 'memory', 'animations', 'noticed', 'digest', 'topics']) {
+    assert.ok(w.includes(must), `missing: ${must}`);
+  }
+  for (const gone of ['could', 'maybe', 'this', 'also', 'have', 'because', 'the', 'more']) {
+    assert.equal(w.includes(gone), false, `should have been dropped: ${gone}`);
+  }
+  // Umlauts are folded so they match the index.
+  assert.ok(search.contentWords('Gedächtnis').includes('gedaechtnis'));
+  // Duplicates go: saying it three times does not make it three times heavier.
+  assert.deepEqual(search.contentWords('topic topic topic'), ['topic']);
+});
+
+test('short prompts are left alone', () => {
+  // With nothing left, the original comes back — better a vague search
+  // than none at all.
+  for (const short of ['yes do that', 'go on', 'and then?']) {
+    assert.equal(search.retrievalQuery(short), short.trim());
+  }
+});
+
+test('capping is by rarity, not by position', () => {
+  // The first draft took the first eight words — and the subject often
+  // arrives late in the sentence. Exactly that word fell out.
+  const q = 'viewer motion icon rail indicator fade cards topics areas agents '
+    + 'store register canary chirps';
+  const all = search.contentWords(q);
+  assert.ok(all.length > 8, 'the fixture needs more than eight content words');
+  // The fake index is built through the SAME tokenisation as the search,
+  // or the lookup finds nothing and the ranking is inert — which is the
+  // very bug this test exists to catch.
+  const docFreq = new Map();
+  all.forEach((w, i) => { for (const t of search.tokenize(w)) docFreq.set(t, all.length - i); });
+  const picked = search.retrievalQuery(q, { index: { docFreq } }).split(' ');
+  assert.ok(picked.includes('chirps'), `last and rarest, yet dropped: ${picked}`);
+  assert.equal(picked.includes('viewer'), false, `most common survived: ${picked}`);
+});
+
+test('isEcho spots the question itself, not every hit containing it', () => {
+  const q = 'the digest slices topics too finely we need subcategories';
+  assert.equal(search.isEcho(q, 'digest slices topics too finely, subcategories needed'), true);
+  // A long entry that happens to contain the question stays.
+  assert.equal(search.isEcho(q,
+    'The digest sliced topics too finely — the cause was a missing rule in the spec, '
+    + 'which listed topic as required without saying what a topic is, measured across '
+    + '553 entries at a ratio of 1.00 and fixed by deriving the area from the project'), false);
+  // Too short to judge: leave it standing.
+  assert.equal(search.isEcho(q, 'ok'), false);
+});
