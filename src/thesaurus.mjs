@@ -230,6 +230,141 @@ export function buildTagGraph(entries, { minPairs = 2, maxNeighbours = 8 } = {})
 }
 
 /**
+ * Does this token look like a WORD, rather than machine debris?
+ *
+ * Measured against a real 458-entry corpus, the co-occurrence graph's
+ * worst output was not wrong associations between words — it was tight,
+ * high-scoring clusters of things that are not words at all: git file
+ * modes (100644 <-> 100755 <-> chmod), capture filenames and timestamps
+ * (2026-08-30t05-52-53z <-> 30t05 <-> 53z <-> gz), shell fragments. They
+ * cluster *especially* hard precisely because they always travel together,
+ * and nPMI rewards exactly that. No statistic can fix this; only knowing
+ * that a query will never usefully expand to "100644" can.
+ *
+ * So: must start with a letter, be at least three characters, and contain
+ * only letters plus internal hyphen/underscore. Anything with a digit is
+ * out — domain vocabulary essentially never carries one, machine debris
+ * almost always does.
+ */
+function wordLike(t) {
+  return /^\p{L}[\p{L}\-_]{2,}$/u.test(t);
+}
+
+/**
+ * The learned co-occurrence thesaurus: which CONTENT WORDS hang together
+ * in this corpus.
+ *
+ * **Why this exists.** Query expansion had two legs: a hand-curated
+ * synonym list and the tag graph. Both are limited in the same way — the
+ * curated list only knows the domain its maintainer wrote synonyms for
+ * (for a public tool, that is half-blind for everybody else), and the tag
+ * graph is sparse because only tagged entries contribute. This third leg
+ * learns relatedness from the full text of the corpus itself: words that
+ * keep showing up in the same entry are related, by the same nPMI maths
+ * the tag graph already uses. No model, no network, no dependency — it is
+ * derived once while the index is built.
+ *
+ * **Why it is tuned tighter than the tag graph.** Tags are deliberate,
+ * short category names; content words are noisy. So: a pair must co-occur
+ * more often (`minPairs`), a term must be neither too rare to carry signal
+ * nor so common it is a de-facto stopword (`minDocFreq`/`maxDocFraction`),
+ * only each document's strongest terms count (`termsPerDoc`, which also
+ * keeps pair counting O(N*k^2) instead of quadratic in document length),
+ * and the weight ceiling is LOWER (0.35 vs 0.5). A learned association
+ * must never outweigh a literal hit — that rule gets stricter, not looser,
+ * the noisier the signal.
+ *
+ * @param docs  array of Map(term -> weight), one per document
+ * @returns Map(term -> [[neighbour, weight], ...])
+ */
+export function buildTermGraph(docs, {
+  minPairs = 3,
+  maxNeighbours = 6,
+  minDocFreq = 3,
+  // A term in more than half the corpus is a de-facto stopword. This is
+  // only a backstop: nPMI already punishes ubiquity by itself (if two
+  // words are both everywhere, pAB/(pA*pB) tends to 1 and the pair falls
+  // out at pmi <= 0). Set too tight, this cutoff throws away exactly the
+  // domain vocabulary the graph exists to learn.
+  maxDocFraction = 0.5,
+  termsPerDoc = 40,
+  weightCap = 0.35,
+  minWeight = 0.10,
+  stopwords = null,
+} = {}) {
+  const n = docs.length;
+  if (n < 4) return new Map();   // too little corpus to learn anything honest
+
+  // Pass 1: document frequency, to drop the too-rare and the too-common.
+  const docFreq = new Map();
+  for (const w of docs) {
+    for (const t of w.keys()) docFreq.set(t, (docFreq.get(t) ?? 0) + 1);
+  }
+  const maxDF = Math.max(minDocFreq, Math.floor(n * maxDocFraction));
+  const usable = (t) => {
+    if (!wordLike(t)) return false;
+    if (stopwords && stopwords.has(t)) return false;
+    const df = docFreq.get(t) ?? 0;
+    return df >= minDocFreq && df <= maxDF;
+  };
+
+  // Pass 2: co-occurrence over each document's strongest usable terms.
+  const single = new Map();
+  const pairs = new Map();
+  let counted = 0;
+  for (const w of docs) {
+    const terms = [...w.entries()]
+      .filter(([t]) => usable(t))
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, termsPerDoc)
+      .map(([t]) => t)
+      .sort();
+    if (terms.length === 0) continue;
+    // The probability base must be EVERY document that carries a usable
+    // term, not only those with a pair. Counting just the pair-bearing
+    // documents makes any surviving pair perfectly correlated inside its
+    // own sample — pAB/(pA*pB) collapses to 1, pmi to 0, and the honest
+    // associations get dropped by the very filter meant to catch noise.
+    counted += 1;
+    for (const t of terms) single.set(t, (single.get(t) ?? 0) + 1);
+    if (terms.length < 2) continue;
+    for (let i = 0; i < terms.length; i += 1) {
+      for (let j = i + 1; j < terms.length; j += 1) {
+        const key = `${terms[i]} ${terms[j]}`;
+        pairs.set(key, (pairs.get(key) ?? 0) + 1);
+      }
+    }
+  }
+  if (counted === 0) return new Map();
+
+  const graph = new Map();
+  for (const [key, nAB] of pairs) {
+    if (nAB < minPairs) continue;
+    const sp = key.indexOf(' ');
+    const a = key.slice(0, sp);
+    const b = key.slice(sp + 1);
+    const pA = single.get(a) / counted;
+    const pB = single.get(b) / counted;
+    const pAB = nAB / counted;
+    const pmi = Math.log(pAB / (pA * pB));
+    if (pmi <= 0) continue;
+    const npmi = pmi / -Math.log(pAB);
+    const weight = Math.min(weightCap, Math.max(0, npmi) * weightCap);
+    if (weight < minWeight) continue;
+    if (!graph.has(a)) graph.set(a, []);
+    if (!graph.has(b)) graph.set(b, []);
+    graph.get(a).push([b, weight]);
+    graph.get(b).push([a, weight]);
+  }
+
+  for (const [term, neighbours] of graph) {
+    neighbours.sort((x, y) => y[1] - x[1]);
+    graph.set(term, neighbours.slice(0, maxNeighbours));
+  }
+  return graph;
+}
+
+/**
  * Collect an entry's tags. Besides `tags`, the fields `class` and
  * `topic` count as tag-like — they are equally short category names.
  */
@@ -252,13 +387,16 @@ function normaliseTags(e) {
  * Expand query terms. Returns a list of [word, weight].
  *
  * Weights:
- *   thesaurus neighbour   0.6   (curated, reliable)
- *   tag-graph neighbour   nPMI  (0.05 .. 0.5, learned)
+ *   thesaurus neighbour   0.6           (curated, reliable)
+ *   tag-graph neighbour   nPMI 0.05..0.5 (learned from tags)
+ *   term-graph neighbour  nPMI 0.10..0.35 (learned from full text)
  *
- * Both stay below 1.0 — the original word always wins.
+ * All stay below 1.0 — the original word always wins. The term graph is
+ * capped lowest because it is the noisiest of the three sources.
  */
-export function expand(terms, tagGraph = null, lang = null) {
+export function expand(terms, tagGraph = null, lang = null, termGraph = null) {
   const l = lang ?? { name: 'raw', normalize: (w) => w, stem: (w) => w };
+  const own = new Set(terms);
   const out = new Map();
   for (const t of terms) {
     for (const n of thesaurusNeighbours(t, l)) {
@@ -266,6 +404,15 @@ export function expand(terms, tagGraph = null, lang = null) {
     }
     if (tagGraph && tagGraph.has(t)) {
       for (const [n, g] of tagGraph.get(t)) {
+        out.set(n, Math.max(out.get(n) ?? 0, g));
+      }
+    }
+    if (termGraph && termGraph.has(t)) {
+      for (const [n, g] of termGraph.get(t)) {
+        // Never expand onto a word the user already typed: search() would
+        // overwrite it anyway, but keeping it out here means the honest
+        // count of "what did the expansion add" stays honest.
+        if (own.has(n)) continue;
         out.set(n, Math.max(out.get(n) ?? 0, g));
       }
     }

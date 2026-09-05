@@ -37,7 +37,9 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // (e.g. the new `retired` field), an old cache MUST be discarded — else
 // recall would keep showing retired entries until the corpus happens to
 // change. Bumping this forces a rebuild.
-export const CACHE_VERSION = 2;
+// 3: the index carries the learned term co-occurrence graph. An older
+// cache has no termGraph, so it must be rebuilt rather than loaded.
+export const CACHE_VERSION = 3;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -320,11 +322,31 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
 
   const tagGraph = thesaurus.buildTagGraph(rawEntries.map((r) => r.entry));
 
+  // The learned co-occurrence thesaurus, over the structured entries only.
+  // Captures are deliberately excluded: they are raw transcript, and their
+  // boilerplate and tool output would dominate the statistics and teach the
+  // graph associations that say more about the terminal than about the work.
+  // Stopwords of the corpus language AND of English: quoted error messages
+  // drag foreign filler in ("because it was ignored not ..."), and that
+  // filler clusters tightly enough to look like a real association.
+  // Stemmed AND unstemmed: the graph works on stemmed terms, so a raw list
+  // of stopwords misses them all — "because" never matches the "becaus"
+  // that actually sits in the index, and the filler sails straight through.
+  const stopwords = new Set();
+  for (const w of [...lang.stopwords, ...pack('en').stopwords]) {
+    stopwords.add(w);
+    stopwords.add(lang.stem(lang.normalize(w)));
+  }
+  const termGraph = thesaurus.buildTermGraph(
+    documents.filter((d) => d.type !== 'raw').map((d) => d.weights),
+    { stopwords });
+
   return {
     documents,
     docFreq,
     lexicon,
     tagGraph,
+    termGraph,
     language: lang.name,
     N: documents.length,
     avgLength: documents.length ? lengthSum / documents.length : 1,
@@ -414,7 +436,7 @@ export function search(index, query, {
   const terms = new Map();
   for (const t of own) terms.set(t, Math.max(terms.get(t) ?? 0, 1.0));
 
-  for (const [syn, g] of thesaurus.expand(own, index.tagGraph, lang)) {
+  for (const [syn, g] of thesaurus.expand(own, index.tagGraph, lang, index.termGraph)) {
     const stemmed = lang.stem(lang.normalize(syn));
     if (terms.has(stemmed)) continue;   // the original beats the expansion
     terms.set(stemmed, g);
@@ -522,6 +544,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           docFreq: new Map(c.index.docFreq),
           lexicon: new Set(c.index.lexicon),
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
+          termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
           fromCache: true,
         };
       }
@@ -540,6 +563,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
         docFreq: [...index.docFreq],
         lexicon: [...index.lexicon],
         tagGraph: thesaurus.packTagGraph(index.tagGraph),
+        termGraph: thesaurus.packTagGraph(index.termGraph),
       },
     }));
   } catch { /* an unwritable cache costs speed, not correctness */ }

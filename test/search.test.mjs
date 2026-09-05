@@ -205,3 +205,73 @@ test('search --mmr pulls a distinct relevant hit over a near-duplicate', () => {
   assert.ok(!('__w' in diverse[0]), '__w must be stripped from returned hits');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// --- The learned co-occurrence thesaurus (third expansion leg) -----------
+
+/** Build term-weight maps from plain word lists, as buildIndex would. */
+function docsOf(...wordLists) {
+  return wordLists.map((words) => new Map(words.map((w) => [w, 1])));
+}
+
+test('buildTermGraph stays silent on a corpus too small to learn from', () => {
+  // Three documents cannot tell a real association from a coincidence.
+  const g = thesaurus.buildTermGraph(docsOf(
+    ['deploy', 'staging'], ['deploy', 'staging'], ['deploy', 'staging'],
+  ));
+  assert.equal(g.size, 0, 'under the corpus floor it must learn nothing');
+});
+
+test('buildTermGraph learns a real pair and ignores a coincidence', () => {
+  // 'deploy'+'staging' co-occur in 6 of 10 docs -> real.
+  // 'moon' appears with 'deploy' exactly once -> coincidence, must not stick.
+  const docs = docsOf(
+    ['deploy', 'staging', 'alpha'],
+    ['deploy', 'staging', 'beta'],
+    ['deploy', 'staging', 'gamma'],
+    ['deploy', 'staging', 'delta'],
+    ['deploy', 'staging', 'epsilon'],
+    ['deploy', 'staging', 'zeta'],
+    ['deploy', 'moon', 'eta'],
+    ['unrelated', 'theta', 'iota'],
+    ['unrelated', 'kappa', 'lambda'],
+    ['unrelated', 'mu', 'nu'],
+  );
+  // maxDocFraction is raised for this toy corpus: with only 10 docs the
+  // pair under test is in 60% of them, which the real default would (very
+  // reasonably) treat as a stopword. Here we are testing the association
+  // maths, not the stopword cutoff — that has its own test below.
+  const g = thesaurus.buildTermGraph(docs, { minDocFreq: 2, minPairs: 3, maxDocFraction: 0.9 });
+  const neighbours = (t) => (g.get(t) ?? []).map(([n]) => n);
+  assert.ok(neighbours('deploy').includes('staging'), 'the real pair must be learned');
+  assert.ok(!neighbours('deploy').includes('moon'), 'a single co-occurrence must not stick');
+});
+
+test('buildTermGraph drops de-facto stopwords (too common to mean anything)', () => {
+  // 'the' is in every document: it carries no association, only noise.
+  const docs = docsOf(
+    ...Array.from({ length: 10 }, (_, i) => ['the', `w${i}`, `x${i % 3}`]),
+  );
+  const g = thesaurus.buildTermGraph(docs, { minDocFreq: 2, minPairs: 2 });
+  assert.equal(g.has('the'), false, 'a term in every doc must be excluded');
+});
+
+test('learned weights never outweigh a literal hit, and are capped below tags', () => {
+  const docs = docsOf(
+    ...Array.from({ length: 8 }, () => ['deploy', 'staging']),
+    ['other', 'thing'], ['more', 'stuff'],
+  );
+  const g = thesaurus.buildTermGraph(docs, { minDocFreq: 2, minPairs: 3 });
+  for (const [, neighbours] of g) {
+    for (const [, w] of neighbours) {
+      assert.ok(w <= 0.35, `learned weight ${w} must stay under the 0.35 cap`);
+      assert.ok(w < 1.0, 'an expansion must never reach a literal hit');
+    }
+  }
+});
+
+test('expand adds term-graph neighbours but never a word already typed', () => {
+  const termGraph = new Map([['deploy', [['staging', 0.3], ['deploy', 0.9]]]]);
+  const got = new Map(thesaurus.expand(['deploy'], null, pack('en'), termGraph));
+  assert.equal(got.get('staging'), 0.3);
+  assert.equal(got.has('deploy'), false, 'must not expand onto the original term');
+});
