@@ -428,6 +428,7 @@ export function search(index, query, {
   language = null,
   mmr = false,           // re-rank the top for diversity (MMR)
   mmrLambda = 0.7,       // 1 = pure relevance, 0 = pure diversity
+  coverage = 1,          // reward covering more of the TYPED query (0 = off)
 } = {}) {
   const lang = pack(language ?? index.language ?? 'en');
   const own = tokenize(query, { lexicon: index.lexicon, lang });
@@ -435,6 +436,7 @@ export function search(index, query, {
 
   const terms = new Map();
   for (const t of own) terms.set(t, Math.max(terms.get(t) ?? 0, 1.0));
+  const ownSet = new Set(own);
 
   for (const [syn, g] of thesaurus.expand(own, index.tagGraph, lang, index.termGraph)) {
     const stemmed = lang.stem(lang.normalize(syn));
@@ -461,13 +463,24 @@ export function search(index, query, {
     if (sinceTs && (!doc.entry.ts || doc.entry.ts < sinceTs)) continue;
 
     let score = 0;
+    let covered = 0;
     for (const [term, qWeight] of terms) {
       const f = doc.weights.get(term);
       if (!f) continue;
       const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / index.avgLength));
       score += qWeight * idf(index, term) * norm;
+      if (ownSet.has(term)) covered += 1;
     }
     if (score <= 0) continue;
+
+    // Coordination. BM25 adds up term scores and has no notion of "this
+    // document answered MORE of the question", so one common word carried
+    // often can outrank a document that contains every word typed. Only
+    // the terms the user actually TYPED count — rewarding coverage of the
+    // thesaurus expansion would reward the expansion, not the query.
+    if (coverage > 0 && ownSet.size > 1) {
+      score *= (covered / ownSet.size) ** coverage;
+    }
 
     // Mild recency bonus: max +15%, halved after 90 days.
     if (doc.entry.ts) {

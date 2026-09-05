@@ -25,6 +25,23 @@
 // version of this corpus moved by exactly zero in either direction and
 // could not have told us any of this.
 //
+// **Coordination (`coverage`), found by using the tool** (2026-09-05).
+// Browsing a real 607-entry memory for "viewer ausfall", the entry
+// containing BOTH words sat at rank 2 (score 15.16) behind one carrying
+// only "ausfall" (16.10). BM25 sums term scores and has no notion of
+// "answered more of the question", so a frequent word out-sums an exact
+// match. Multiplying by (typed terms matched / typed terms)^1 fixes it:
+//
+//   here        MRR 0.830 -> 0.834, lexical R@1 stays 100%, flat across
+//               the exponent, never worse at any setting
+//   real corpus 1 of 9 hand queries changed its top hit — the broken one,
+//               from wrong to right; the other 8 did not move
+//
+// On by default, because unlike the experiment below it helped on both
+// corpora and harmed neither. Only the words actually TYPED count:
+// rewarding coverage of the thesaurus expansion would reward the
+// expansion, not the query.
+//
 // **Pseudo-relevance feedback: measured, and deliberately NOT shipped**
 // (2026-09-05). PRF borrows the words shared by the first pass's own top
 // hits and searches again. Built it, measured it, threw it away:
