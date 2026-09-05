@@ -442,10 +442,13 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
 /**
  * Search. Returns the best `top` hits, descending by score.
  */
+const TIERS_KNOWN = new Set(['user', 'system', 'agent', 'external', 'inferred', 'unknown']);
+
 export function search(index, query, {
   top = 10,
   type = null,
   project = null,
+  authority = null,      // restrict to one tier — used for per-tier candidates
   since = null,
   minScore = 0.01,
   noRaw = false,
@@ -484,6 +487,15 @@ export function search(index, query, {
     if (noRaw && isRaw) continue;
     if (onlyRaw && !isRaw) continue;
     if (type && doc.type !== type) continue;
+    // Tier filter. Exists so a caller can generate candidates PER TIER
+    // instead of taking the global top-k: a lower tier with enough volume
+    // otherwise fills the candidate set before a higher tier is looked at,
+    // and no policy applied afterwards can recover a claim that was never
+    // a candidate. Measured 2026-09-05 (bench/byzantine.mjs).
+    if (authority !== null) {
+      const t = String(doc.entry?.authority ?? 'unknown').toLowerCase();
+      if ((TIERS_KNOWN.has(t) ? t : 'unknown') !== authority) continue;
+    }
     if (project !== null && project !== undefined) {
       const target = project === 'global' ? null : project;
       if (doc.project !== target) continue;

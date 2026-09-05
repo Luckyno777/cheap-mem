@@ -31,6 +31,26 @@ test('a .gitattributes without the rule is not mistaken for one with it', () => 
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+test('a file that MENTIONS jsonl without declaring the driver still fails', () => {
+  // The check must match the whole rule, not the word. A substring test
+  // would pass on any of these, and mutation testing found exactly that
+  // gap: narrowing the regex to /jsonl/ left every test green.
+  for (const text of [
+    '*.jsonl text\n',
+    '*.jsonl diff=json\n',
+    '# TODO: add *.jsonl merge=union one day\n',
+    'merge=union\n',
+    '*.jsonl merge=ours\n',
+    'notes.jsonl -text\n',
+  ]) {
+    const root = tmp();
+    fs.writeFileSync(path.join(root, '.gitattributes'), text);
+    assert.equal(checkMergeDriver(root).ok, false,
+      `accepted ${JSON.stringify(text)} as the merge driver`);
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('the rule is recognised with surrounding comments and blank lines', () => {
   const root = tmp();
   fs.writeFileSync(path.join(root, '.gitattributes'), '# note\n\n*.jsonl merge=union\n\n# more\n');

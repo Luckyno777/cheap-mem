@@ -40,11 +40,24 @@ export const LIMITS = Object.freeze({
 });
 
 /** A claim as it leaves the memory. Fields only — no assembled text. */
-function toClaim(hit, { retired, bodyChars }) {
+function toClaim(hit, { bodyChars }) {
   const e = hit.entry;
   const body = bodyOf(e);
   const truncated = body.length > bodyChars;
-  const state = retired.get(e.id)?.state ?? 'active';
+
+  // Status comes from the INDEX, which computed it over the whole corpus.
+  //
+  // The first version recomputed `retiredMap` from the returned HITS,
+  // which is wrong by construction: status is a property of the LOG, not
+  // of a result set. If the retiring line did not match the query, the
+  // retirement was invisible and the claim came back `active`.
+  //
+  // Measured 2026-09-05, and it was not cosmetic. An attacker controls
+  // their own wording: write a poisoning claim that matches the queries
+  // you want to reach, in words the victim's claim does not share, and
+  // the disputed status never surfaced — the entire supersession
+  // authorisation could be walked around without breaking any rule.
+  const state = hit.retired?.state ?? 'active';
   return {
     id: e.id ?? null,
     type: e.type ?? hit.type ?? null,
@@ -135,23 +148,68 @@ export function retrieve(root, query, capability, {
   // Over-fetch, because scope, validity and quota all remove candidates
   // after ranking. Bounded by maxResults so this cannot become the DoS it
   // is meant to prevent.
+  // Candidates are generated PER AUTHORITY TIER, then merged in tier order.
+  //
+  // The measured failure this fixes (bench/byzantine.mjs, 2026-09-05): a
+  // writer who breaks no rule — own scope, own tier, no supersession,
+  // every body distinct — wrote 20 000 plausible claims about one subject.
+  // A single `user`-tier claim stating the truth was NOT RETURNED AT ALL.
+  // It never entered the candidate set: sixty higher-scoring near-variants
+  // filled it first, and no policy applied afterwards can recover a claim
+  // that was never a candidate. The author-share cap could only halve an
+  // answer that was already entirely the attacker's.
+  //
+  // Per-tier candidates give REPRESENTATION, not precedence: a `user`
+  // claim that matches at all reaches the answer regardless of how much
+  // lower-tier noise exists, and within the answer relevance still orders.
+  // Precedence would be the other error — it would bury a genuine agent
+  // finding under a stale user note. Tier decides only where claims
+  // CONFLICT; here it decides only who gets looked at.
+  //
   // `withRetired: true` on purpose. search() would otherwise drop
   // superseded and disputed claims itself, one layer down and without a
-  // word — and then this gateway could not say WHY something is missing,
-  // which is the half of explainability that matters. Every exclusion is
-  // decided here, and every decision is recorded.
-  const raw = search(idx, useQuery, {
-    top: Math.min(want * 6, limits.maxResults * 6),
-    withRetired: true,
-  });
+  // word — and then this gateway could not say WHY something is missing.
+  const perTier = Math.min(want * 6, limits.maxResults * 6);
+  const seenIds = new Set();
+  const byTier = [];
+  for (const tier of authority.TIERS) {
+    const hits = [];
+    for (const hit of search(idx, useQuery, { top: perTier, withRetired: true, authority: tier })) {
+      const id = hit.entry?.id;
+      if (id && seenIds.has(id)) continue;
+      if (id) seenIds.add(id);
+      hits.push(hit);
+    }
+    if (hits.length) byTier.push(hits);
+  }
 
-  const retired = memory.retiredMap(raw.map((h) => h.entry));
+  // Interleave the tiers round-robin, THEN order the answer by score.
+  //
+  // Two wrong versions preceded this, and both are worth naming because
+  // they are the two ways to get it wrong:
+  //
+  //   consuming tier by tier      -> PRECEDENCE. A less relevant user
+  //                                  claim came out ahead of a more
+  //                                  relevant agent one.
+  //   flattening and sorting      -> no representation at all. The high
+  //                                  scores of a flood fill every slot
+  //                                  before a quieter tier is reached, so
+  //                                  the truth is out again.
+  //
+  // Round-robin gives each tier a slot in turn — representation — while
+  // the final sort keeps relevance in charge of the ORDER. Bounded: at
+  // most one pass per tier per slot.
+  const raw = [];
+  for (let i = 0; byTier.some((h) => i < h.length); i += 1) {
+    for (const hits of byTier) if (i < hits.length) raw.push(hits[i]);
+  }
+
   const claims = [];
   const seenBody = new Map();
   let budget = limits.contextChars;
 
   for (const hit of raw) {
-    const c = toClaim(hit, { retired, bodyChars: limits.bodyChars });
+    const c = toClaim(hit, { bodyChars: limits.bodyChars });
 
     if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); continue; }
     if (type && c.type && c.type !== type) { note(c.id, `wrong type (${c.type})`); continue; }
@@ -178,9 +236,13 @@ export function retrieve(root, query, capability, {
     if (claims.length >= want) break;
   }
 
-  const fair = enforceAuthorShare(claims, limits, note);
+  // Relevance decides the ORDER of what was selected; the round-robin
+  // above decided WHO got looked at.
+  const fair = enforceAuthorShare(claims, limits, note)
+    .sort((a, b) => b.score - a.score);
 
   return {
+    contested: potentialConflicts(fair),
     query: useQuery,
     queryTruncated: qCapped,
     scopes: capability.scopes,
@@ -255,6 +317,66 @@ export function enforceAuthorShare(claims, limits = LIMITS, note = () => {}) {
     out.push(c);
   }
   return out;
+}
+
+/**
+ * Claims in one answer that MAY contradict each other.
+ *
+ * Deliberately the weakest possible detector, and deliberately named
+ * "potential". What is decidable without a world model:
+ *
+ *   same topic + same scope + overlapping validity + different authors
+ *
+ * That is a structural coincidence, not a semantic judgement. It cannot
+ * tell that "runs in Frankfurt" and "runs in Berlin" conflict; it can tell
+ * that two different people made claims about the same thing at the same
+ * time, which is when a reader should look.
+ *
+ * Why it exists: the Byzantine benchmark returns an answer whose context
+ * is mostly false and, until now, said nothing about it. A memory that
+ * cannot decide which claim is true can still refuse to present a
+ * contested subject as settled. That refusal is cheap, deterministic, and
+ * needs no model.
+ *
+ * What it deliberately does NOT do: pick a winner. Tier decides only where
+ * a conflict is ESTABLISHED — an explicit supersession — not where one is
+ * merely suspected. Guessing here would be worse than saying nothing,
+ * because a wrong resolution is invisible and a flag is not.
+ */
+export function potentialConflicts(claims) {
+  const groups = new Map();
+  for (const c of claims) {
+    if (!c.topic) continue;
+    const key = `${c.scope}\u0000${c.topic}`;
+    const g = groups.get(key) ?? [];
+    g.push(c);
+    groups.set(key, g);
+  }
+  const out = [];
+  for (const [key, g] of groups) {
+    if (g.length < 2) continue;
+    const authors = new Set(g.map((c) => c.author ?? '(none)'));
+    if (authors.size < 2) continue;
+    // Overlapping validity: absent bounds are open, so absent overlaps all.
+    const overlapping = g.filter((a) => g.some((b) => a !== b && intervalsOverlap(a, b)));
+    if (overlapping.length < 2) continue;
+    const [scope, topic] = key.split('\u0000');
+    out.push({
+      scope, topic,
+      authors: [...authors].sort(),
+      ids: overlapping.map((c) => c.id).sort(),
+    });
+  }
+  return out;
+}
+
+function intervalsOverlap(a, b) {
+  const af = a.valid_from ? Date.parse(a.valid_from) : -Infinity;
+  const au = a.valid_until ? Date.parse(a.valid_until) : Infinity;
+  const bf = b.valid_from ? Date.parse(b.valid_from) : -Infinity;
+  const bu = b.valid_until ? Date.parse(b.valid_until) : Infinity;
+  const f = (x, d) => (Number.isFinite(x) ? x : d);
+  return f(af, -Infinity) < f(bu, Infinity) && f(bf, -Infinity) < f(au, Infinity);
 }
 
 /**

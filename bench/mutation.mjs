@@ -117,6 +117,163 @@ const MUTANTS=[
    from:'  if (rank(t) < rank(ceiling)) return { tier: ceiling, clamped: true, from: t };',
    to:'  if (false) return { tier: ceiling, clamped: true, from: t };  // MUTANT',
    tests:['test/write-ceiling.test.mjs'] },
+
+ // --- semantic mutants: the RULE changed, not the mechanism removed ------
+ //
+ // Mechanism mutants ask "does the code run?". These ask "does the code
+ // mean what the documentation says?" — a boundary flipped, a comparison
+ // inverted, a default reversed. That is the class the status-from-hits
+ // bug belonged to: every mechanism was present and each one ran.
+
+ { name:'SEM tier order reversed (lower wins)',
+   file:'src/authority.mjs',
+   from:'export function outranks(a, b) {\n  return rank(a) < rank(b);',
+   to:'export function outranks(a, b) {\n  return rank(a) > rank(b);  // MUTANT',
+   tests:['test/authority.test.mjs','test/write-ceiling.test.mjs'] },
+
+ { name:'SEM same-author check becomes any-author',
+   file:'src/authority.mjs',
+   from:"  if (ca !== null && ta !== null && ca === ta) {",
+   to:"  if (ca !== null && ta !== null) {  // MUTANT: any author",
+   tests:['test/authority.test.mjs'] },
+
+ { name:'SEM outranks becomes >= (equal tier may supersede)',
+   file:'src/authority.mjs',
+   from:'  if (outranks(ct, tt)) {',
+   to:'  if (rank(ct) <= rank(tt)) {  // MUTANT',
+   tests:['test/authority.test.mjs'] },
+
+ { name:'SEM clampTier uses <= (clamps an equal tier too)',
+   file:'src/authority.mjs',
+   from:'  if (rank(t) < rank(ceiling)) return { tier: ceiling, clamped: true, from: t };',
+   to:'  if (rank(t) <= rank(ceiling)) return { tier: ceiling, clamped: true, from: t };  // MUTANT',
+   tests:['test/write-ceiling.test.mjs'] },
+
+ { name:'SEM valid_until becomes inclusive',
+   file:'src/retrieval.mjs',
+   from:'  if (Number.isFinite(until) && t >= until) return false;',
+   to:'  if (Number.isFinite(until) && t > until) return false;  // MUTANT',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM valid_from becomes exclusive',
+   file:'src/retrieval.mjs',
+   from:'  if (Number.isFinite(from) && t < from) return false;',
+   to:'  if (Number.isFinite(from) && t <= from) return false;  // MUTANT',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM global becomes invisible to a project capability',
+   file:'src/capability.mjs',
+   from:"    if (id === GLOBAL && this.rights.includes('read')) return true;",
+   to:'    // MUTANT: global no longer inherited',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM narrow() may widen',
+   file:'src/capability.mjs',
+   from:'    const keep = (scopes ?? this.scopes).filter((s) => this.admits(s));',
+   to:'    const keep = (scopes ?? this.scopes);  // MUTANT: no filter',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM disputed becomes included by default',
+   file:'src/retrieval.mjs',
+   from:"    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }",
+   to:"    if (c.status === 'disputed' && withDisputed) { note(c.id, 'MUTANT'); continue; }",
+   tests:['test/retrieval.test.mjs','test/authority.test.mjs'] },
+
+ { name:'SEM status read from the RESULT SET, not the log',
+   file:'src/retrieval.mjs',
+   from:"  const state = hit.retired?.state ?? 'active';",
+   to:"  const state = 'active';  // MUTANT: the exact bug found on 2026-09-05",
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM author share becomes a flat cap of one',
+   file:'src/retrieval.mjs',
+   from:'  const cap = Math.max(1, Math.floor(claims.length * limits.perAuthorShare));',
+   to:'  const cap = 1;  // MUTANT',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM user tier loses its quota exemption',
+   file:'src/retrieval.mjs',
+   from:"    if (c.authority === 'user' || !c.author) { out.push(c); continue; }",
+   to:'    if (!c.author) { out.push(c); continue; }  // MUTANT',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM canonicalBody also folds case',
+   file:'src/retrieval.mjs',
+   from:"  return String(text ?? '').normalize('NFC').replace(/\\r\\n/g, '\\n').replace(/\\s+/g, ' ').trim();",
+   to:"  return String(text ?? '').normalize('NFC').toLowerCase().replace(/\\r\\n/g, '\\n').replace(/\\s+/g, ' ').trim();  // MUTANT",
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM an unrecognised tier ranks FIRST instead of last',
+   file:'src/authority.mjs',
+   from:'  return i === -1 ? TIERS.length : i;',
+   to:'  return i === -1 ? -1 : i;  // MUTANT',
+   tests:['test/authority.test.mjs','test/write-ceiling.test.mjs'] },
+
+ { name:'SEM legacy data (no author, no tier) may no longer correct',
+   file:'src/authority.mjs',
+   from:"  if (ca === null && ta === null) {",
+   to:"  if (false) {  // MUTANT",
+   tests:['test/authority.test.mjs','test/properties.test.mjs'] },
+
+ { name:'SEM rollback compares COUNTS only, not the retired set',
+   file:'src/epoch.mjs',
+   from:'  const resurrected = (mark.retiredIds ?? []).filter((id) => !nowRetired.has(id));',
+   to:'  const resurrected = [];  // MUTANT: count-only comparison',
+   tests:['test/epoch.test.mjs'] },
+
+ { name:'SEM growth and rollback are conflated',
+   file:'src/epoch.mjs',
+   from:'  const lostClaims = mark.claims - cur.claims;',
+   to:'  const lostClaims = 0;  // MUTANT',
+   tests:['test/epoch.test.mjs'] },
+
+ { name:'SEM merge driver matched anywhere, not as a whole line',
+   file:'src/environment.mjs',
+   from:'  const ok = /^\\s*\\*\\.jsonl\\s+merge=union\\s*$/m.test(text);',
+   to:'  const ok = /jsonl/.test(text);  // MUTANT',
+   tests:['test/environment.test.mjs'] },
+
+ { name:'SEM unknown environment counts as OK under --strict',
+   file:'src/environment.mjs',
+   from:'  return checks.every((c) => (strict ? c.ok === true : c.ok !== false));',
+   to:'  return checks.every((c) => c.ok !== false);  // MUTANT',
+   tests:['test/environment.test.mjs'] },
+
+ { name:'SEM a fork is reported as a cycle',
+   file:'src/integrity.mjs',
+   from:'    if (ids.length > 1) forks.push({ target, by: ids.slice().sort() });',
+   to:'    if (ids.length > 1) cycles.push(ids.slice().sort());  // MUTANT',
+   tests:['test/integrity.test.mjs'] },
+
+ { name:'SEM candidates no longer generated per tier',
+   file:'src/retrieval.mjs',
+   from:'  for (const tier of authority.TIERS) {',
+   to:'  for (const tier of [null]) {  // MUTANT: global top-k again',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM tier PRECEDENCE instead of representation',
+   file:'src/retrieval.mjs',
+   from:'  const fair = enforceAuthorShare(claims, limits, note);',
+   to:"  const fair = enforceAuthorShare(claims.slice().sort((a,b)=>authority.rank(a.authority)-authority.rank(b.authority)), limits, note);  // MUTANT",
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM one author saying two things counts as contested',
+   file:'src/retrieval.mjs',
+   from:'    if (authors.size < 2) continue;',
+   to:'    // MUTANT: same-author revision now flagged',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM non-overlapping intervals count as contested',
+   file:'src/retrieval.mjs',
+   from:'    if (overlapping.length < 2) continue;',
+   to:'    // MUTANT: a succession is now a conflict',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'SEM contested claims are dropped instead of flagged',
+   file:'src/retrieval.mjs',
+   from:'    contested: potentialConflicts(fair),',
+   to:'    contested: [],  // MUTANT: never flag',
+   tests:['test/retrieval.test.mjs'] },
 ];
 
 let survived=0;
