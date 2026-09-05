@@ -275,3 +275,20 @@ test('expand adds term-graph neighbours but never a word already typed', () => {
   assert.equal(got.get('staging'), 0.3);
   assert.equal(got.has('deploy'), false, 'must not expand onto the original term');
 });
+
+test('a multi-word tag makes one node, not two ghosts', () => {
+  // Regression: the pair key was joined with a space and split on one, so
+  // any tag containing a space broke apart. `class` and `topic` count as
+  // tags and are free text, so `class: "auth model"` was ordinary input —
+  // it produced ghost nodes "auth" and "model" and lost the real edge.
+  const entries = [];
+  for (let i = 0; i < 6; i += 1) entries.push({ tags: ['ci'], class: 'auth model' });
+  // Filler without the pair: if both tags sat in EVERY document they would
+  // be perfectly correlated, pmi would collapse to 0, and nPMI would drop
+  // the pair before the separator bug could even show itself.
+  for (let i = 0; i < 4; i += 1) entries.push({ tags: ['billing'] });
+  const g = thesaurus.buildTagGraph(entries);
+  assert.ok(g.has('auth model'), 'the multi-word tag must be one node');
+  assert.deepEqual((g.get('ci') ?? []).map(([w]) => w), ['auth model']);
+  assert.ok(!g.has('auth') && !g.has('model'), 'no ghost nodes from splitting the tag');
+});

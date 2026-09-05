@@ -174,6 +174,19 @@ function thesaurusNeighbours(word, lang) {
 }
 
 /**
+ * Separator for the "a + b" pair keys of both graphs.
+ *
+ * It used to be a space, which quietly broke on any tag containing one —
+ * and `class`/`topic` count as tags, so `class: "auth model"` was normal
+ * input. The pair key then split into three parts: the association was
+ * lost entirely and two ghost nodes ("auth", "model") appeared instead.
+ * A unit separator cannot occur in a tag or a token, and unlike the NUL
+ * byte that would also work, it does not make git treat the file as
+ * binary and hide every future line diff.
+ */
+const PAIR_SEP = '\u001f';
+
+/**
  * Build the tag graph from tag co-occurrence.
  *
  * Uses normalised pointwise mutual information (nPMI): how much more
@@ -196,7 +209,9 @@ export function buildTagGraph(entries, { minPairs = 2, maxNeighbours = 8 } = {})
     for (const t of tags) single.set(t, (single.get(t) ?? 0) + 1);
     for (let i = 0; i < tags.length; i += 1) {
       for (let j = i + 1; j < tags.length; j += 1) {
-        const key = tags[i] < tags[j] ? `${tags[i]} ${tags[j]}` : `${tags[j]} ${tags[i]}`;
+        const key = tags[i] < tags[j]
+          ? `${tags[i]}${PAIR_SEP}${tags[j]}`
+          : `${tags[j]}${PAIR_SEP}${tags[i]}`;
         pairs.set(key, (pairs.get(key) ?? 0) + 1);
       }
     }
@@ -207,7 +222,7 @@ export function buildTagGraph(entries, { minPairs = 2, maxNeighbours = 8 } = {})
   const graph = new Map();
   for (const [key, nAB] of pairs) {
     if (nAB < minPairs) continue;
-    const [a, b] = key.split(' ');
+    const [a, b] = key.split(PAIR_SEP);
     const pA = single.get(a) / docs;
     const pB = single.get(b) / docs;
     const pAB = nAB / docs;
@@ -330,7 +345,7 @@ export function buildTermGraph(docs, {
     if (terms.length < 2) continue;
     for (let i = 0; i < terms.length; i += 1) {
       for (let j = i + 1; j < terms.length; j += 1) {
-        const key = `${terms[i]} ${terms[j]}`;
+        const key = `${terms[i]}${PAIR_SEP}${terms[j]}`;
         pairs.set(key, (pairs.get(key) ?? 0) + 1);
       }
     }
@@ -340,7 +355,7 @@ export function buildTermGraph(docs, {
   const graph = new Map();
   for (const [key, nAB] of pairs) {
     if (nAB < minPairs) continue;
-    const sp = key.indexOf(' ');
+    const sp = key.indexOf(PAIR_SEP);
     const a = key.slice(0, sp);
     const b = key.slice(sp + 1);
     const pA = single.get(a) / counted;
