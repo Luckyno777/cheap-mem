@@ -404,7 +404,75 @@
     "anydesign.notes": [
       "There is no shadow token. Depth is surface tone plus a hairline, two tiers only.",
       "There is no webfont and no pill radius, both deliberate. See docs/viewer-design.md.",
-      "Every pair in docs/viewer-design-a11y.md passes WCAG AA for normal text."
+      "Every pair in docs/viewer-design-a11y.md passes WCAG AA for normal text.",
+      "Four moving things, each answering a question: reading rail, gliding tab underline, card approach, lens fade. Nothing is infinite (WCAG 2.2.2) and nothing loads, so there are no loading states.",
+      "Every animation-timeline sits inside @supports — without it, a fill mode leaves the element permanently invisible where the feature is missing."
     ]
+  },
+  "duration": {
+    "instant": {
+      "$value": "100ms",
+      "$type": "duration",
+      "$description": "chip hover, disclosure arrow, summary colour"
+    },
+    "quick": {
+      "$value": "160ms",
+      "$type": "duration",
+      "$description": "tab colour, row hover, lens fade-in"
+    },
+    "normal": {
+      "$value": "220ms",
+      "$type": "duration",
+      "$description": "the gliding tab underline"
+    },
+    "slow": {
+      "$value": "320ms",
+      "$type": "duration",
+      "$description": "the citation bar filling"
+    },
+    "$description": "Named after the DISTANCE travelled, not by importance. All four become 0ms under prefers-reduced-motion, which is a token layer of its own rather than a patch."
+  },
+  "cubicBezier": {
+    "standard": {
+      "$value": [
+        0.2,
+        0,
+        0,
+        1
+      ],
+      "$type": "cubicBezier",
+      "$description": "state changes"
+    },
+    "in": {
+      "$value": [
+        0.05,
+        0.7,
+        0.1,
+        1
+      ],
+      "$type": "cubicBezier",
+      "$description": "something arriving"
+    },
+    "out": {
+      "$value": [
+        0.3,
+        0,
+        0.8,
+        0.15
+      ],
+      "$type": "cubicBezier",
+      "$description": "something leaving"
+    },
+    "crisp": {
+      "$value": [
+        0.19,
+        1,
+        0.22,
+        1
+      ],
+      "$type": "cubicBezier",
+      "$description": "the tool-like snap; the tab underline"
+    },
+    "$description": "Split by DIRECTION — coming in and going out are not the same movement."
   }
 }

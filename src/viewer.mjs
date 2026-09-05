@@ -334,6 +334,33 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
   --gone:#E08C85; --gone-soft:#2E1D1C;
   --fresh:#6FBF97;
 }
+
+/* ---- Motion ----
+   Durations named after the DISTANCE travelled, not by importance: a status
+   dot needs less than something crossing half the screen. Curves split by
+   DIRECTION — coming in and going out are not the same movement. Values sit
+   inside both Material 3's band (50-600ms) and Apple's (0.2-0.5s for
+   interactive), copying neither.
+
+   Reduced motion is its own token layer, not a patch bolted on afterwards:
+   someone who sets prefers-reduced-motion gets THIS page with duration 0,
+   not a second, half-maintained one. */
+:root{
+  --dur-instant:100ms;
+  --dur-quick:160ms;
+  --dur-normal:220ms;
+  --dur-slow:320ms;
+  --ease-standard:cubic-bezier(.2,0,0,1);
+  --ease-in:cubic-bezier(.05,.7,.1,1);
+  --ease-out:cubic-bezier(.3,0,.8,.15);
+  --ease-crisp:cubic-bezier(.19,1,.22,1);
+}
+@media (prefers-reduced-motion:reduce){
+  :root{
+    --dur-instant:0ms; --dur-quick:0ms; --dur-normal:0ms; --dur-slow:0ms;
+  }
+}
+
 *{box-sizing:border-box}
 html,body{margin:0}
 body{
@@ -348,6 +375,22 @@ header{
   position:sticky; top:0; z-index:20; background:var(--paper);
   border-bottom:1px solid var(--rule);
 }
+/* Reading rail. At 500 entries "how far in am I?" is a real question, and
+   on a phone the scrollbar does not answer it at all. Driven by
+   animation-timeline on the compositor — no scroll listener, no repaint per
+   scroll tick. It moves only BECAUSE you scroll; it never animates on its
+   own, which is why it stays under reduced motion. */
+header::after{
+  content:""; position:absolute; left:0; bottom:-1px; height:2px; width:100%;
+  background:var(--accent); transform-origin:0 50%; transform:scaleX(0);
+}
+/* Without support it stays at scaleX(0) — invisible, not broken. That is
+   exactly why the guard is here: with a fill mode and no @supports, an
+   element in an older browser would be permanently gone. */
+@supports (animation-timeline:scroll()){
+  header::after{ animation:rail linear both; animation-timeline:scroll(root); }
+}
+@keyframes rail{ from{transform:scaleX(0)} to{transform:scaleX(1)} }
 .bar{max-width:1080px; margin:0 auto; padding:14px 20px 0}
 .brand{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
 h1{font-size:20px; font-weight:700; margin:0; letter-spacing:-.015em}
@@ -366,7 +409,20 @@ select{
 }
 .live{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); cursor:pointer; user-select:none}
 .live input{accent-color:var(--accent); cursor:pointer}
-.tabs{display:flex; gap:2px; margin:12px 0 0; overflow-x:auto}
+.tabs{display:flex; gap:2px; margin:12px 0 0; overflow-x:auto; position:relative}
+/* The active underline is ONE element that glides, rather than a border
+   jumping from tab to tab. It is the one movement on this page that buys
+   spatial continuity: you see where you came FROM. No transition before the
+   first measurement, or it crawls in from the left edge on load. */
+.tabs::after{
+  content:""; position:absolute; left:0; bottom:0; height:2px; border-radius:1px;
+  width:var(--ind-w,0); transform:translateX(var(--ind-x,0));
+  background:var(--accent);
+}
+.tabs.ready::after{
+  transition:transform var(--dur-normal) var(--ease-crisp),
+             width var(--dur-normal) var(--ease-crisp);
+}
 /* This page is driven from the keyboard (/ jumps to search, Esc clears).
    Without a visible focus ring you lose your place while tabbing — until
    now only the search field had one. :focus-visible so the ring does not
@@ -379,13 +435,29 @@ summary:focus-visible,.live input:focus-visible{
   appearance:none; border:0; background:none; cursor:pointer;
   font-family:inherit; font-size:14px; color:var(--muted);
   padding:9px 13px; border-bottom:2px solid transparent; white-space:nowrap;
+  transition:color var(--dur-quick) var(--ease-standard);
 }
 .tab:hover{color:var(--ink)}
-.tab[aria-selected="true"]{color:var(--accent); border-bottom-color:var(--accent); font-weight:700}
+.tab[aria-selected="true"]{color:var(--accent); font-weight:700}
 .tab .n{font-family:var(--code); font-size:11px; color:var(--faint); margin-left:5px}
 
 /* ---- body ---- */
 main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
+/* Switching lenses. By default the View Transition API cross-fades the
+   WHOLE surface — at 500 cards that looks coarse and stutters. So only the
+   view area is named and root is explicitly silenced. And rows arrive
+   TOGETHER in one short fade, never staggered one after another:
+   staggering reads as a landing page and tires you out in daily use. */
+#view{ view-transition-name:lens }
+::view-transition-old(root),::view-transition-new(root){ animation:none }
+::view-transition-old(lens){
+  animation:fade-out var(--dur-instant) var(--ease-out) both;
+}
+::view-transition-new(lens){
+  animation:fade-in var(--dur-quick) var(--ease-in) both;
+}
+@keyframes fade-out{ to{opacity:0} }
+@keyframes fade-in{ from{opacity:0; transform:translateY(3px)} }
 .lead{color:var(--muted); font-size:14px; margin:0 0 18px; max-width:70ch}
 .empty{color:var(--faint); text-align:center; padding:56px 20px; font-size:14px}
 
@@ -393,7 +465,24 @@ main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
 .card{
   background:var(--raised); border:1px solid var(--rule); border-radius:8px;
   padding:14px 16px; margin:0 0 10px;
+  /* At 500 cards this skips layout and paint outside the viewport. Without
+     contain-intrinsic-size the scrollbar jumps; the number is the estimated
+     height of an average card. */
+  content-visibility:auto; contain-intrinsic-size:0 190px;
 }
+/* No reveal effect. Exaggerated scroll entrances now read as a step back
+   from speed, and a list you read daily must not make an entrance every
+   time. What is left is depth of field: the next thing is not quite here
+   yet, over a very short range. Notice it if you look; not if you read.
+   Guarded with @supports, because a fill mode without support would leave an
+   element permanently invisible. */
+@supports (animation-timeline:view()){
+  @media not (prefers-reduced-motion:reduce){
+    .card{ animation:approach linear both; animation-timeline:view();
+           animation-range:entry 0% entry 18%; }
+  }
+}
+@keyframes approach{ from{opacity:.5; transform:translateY(4px)} to{opacity:1; transform:none} }
 .card.gone{background:var(--sunk); border-style:dashed}
 .card h2{
   font-family:var(--prose); font-size:17px; font-weight:600;
@@ -411,11 +500,22 @@ main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
 .chip.warn{background:var(--warn-soft); color:var(--warn); border-color:transparent}
 .chip.tag{background:none; border-color:var(--rule)}
 .chip.act{cursor:pointer}
+.chip.act{transition:border-color var(--dur-instant) var(--ease-standard),
+                      color var(--dur-instant) var(--ease-standard)}
 .chip.act:hover{border-color:var(--accent); color:var(--accent)}
 .prose{font-family:var(--prose); font-size:15px; color:var(--muted); margin:6px 0 0}
 details{margin-top:9px}
 summary{cursor:pointer; color:var(--faint); font-size:12px; font-family:var(--code)}
+summary{transition:color var(--dur-instant) var(--ease-standard)}
 summary:hover{color:var(--accent)}
+/* The disclosure arrow turns rather than swapping — 100ms, small distance.
+   Its only job is to show that both states are the same switch. */
+summary::marker{content:""}
+summary::before{
+  content:"▸"; display:inline-block; margin-right:6px; color:var(--faint);
+  transition:transform var(--dur-instant) var(--ease-standard);
+}
+details[open] summary::before{ transform:rotate(90deg) }
 table{width:100%; border-collapse:collapse; margin-top:8px; font-size:13px}
 td{border-top:1px solid var(--rule-soft); padding:6px 8px; vertical-align:top}
 td.k{color:var(--faint); width:110px; white-space:nowrap; font-family:var(--code); font-size:12px}
@@ -426,12 +526,14 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
 .list{display:grid; gap:0; border:1px solid var(--rule); border-radius:8px; background:var(--raised); overflow:hidden}
 .item{padding:13px 16px; border-top:1px solid var(--rule-soft); cursor:pointer; background:none; border-left:0; border-right:0; border-bottom:0; text-align:left; width:100%; font-family:inherit; color:inherit; font-size:inherit}
 .item:first-child{border-top:0}
+.item{transition:background var(--dur-quick) var(--ease-standard)}
 .item:hover{background:var(--sunk)}
 .item h3{font-size:15px; margin:0 0 4px; font-weight:700; letter-spacing:-.005em}
 .item .sub{color:var(--muted); font-size:14px; font-family:var(--prose)}
 .bar-wrap{display:flex; align-items:center; gap:10px; margin-top:6px}
 .bar-track{flex:0 0 96px; height:5px; background:var(--sunk); border-radius:3px; overflow:hidden}
-.bar-fill{height:100%; background:var(--accent)}
+.bar-fill{height:100%; background:var(--accent);
+  transition:width var(--dur-slow) var(--ease-standard)}
 .edge{display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:center}
 .edge .side{min-width:0}
 .edge .side b{display:block; font-weight:400; font-family:var(--prose); font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
@@ -727,7 +829,7 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
       var v = VIEWS[i];
       h += '<button class="tab" role="tab" data-view="' + v.id + '" aria-selected="' +
         (state.view === v.id ? 'true' : 'false') + '">' + v.label +
-        '<span class="n">' + c[v.id] + '</span></button>';
+        '<span class="n" data-lens="' + v.id + '">' + c[v.id] + '</span></button>';
     }
     document.getElementById('tabs').innerHTML = h;
   }
@@ -754,6 +856,47 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
     t.style.display = state.view === 'timeline' ? '' : 'none';
     document.querySelector('.live').style.display = state.view === 'timeline' ? '' : 'none';
   }
+  // A change is cross-faded when the browser can and nobody asked for calm.
+  // When it cannot, an ordinary DOM swap happens — no break, no fallback
+  // path to maintain, no polyfill.
+  function withTransition(render) {
+    if (!document.startViewTransition ||
+        matchMedia('(prefers-reduced-motion: reduce)').matches) { render(); return; }
+    document.startViewTransition(render);
+  }
+
+  // The gliding underline beneath the active tab. It is measured, not
+  // computed — tab widths depend on the font, and that is only settled once
+  // the browser has laid it out.
+  var indicatorReady = false;
+  function placeIndicator() {
+    var bar = document.getElementById('tabs');
+    var active = bar.querySelector('.tab[aria-selected="true"]');
+    if (!active) return;
+    bar.style.setProperty('--ind-x', (active.offsetLeft - bar.scrollLeft) + 'px');
+    bar.style.setProperty('--ind-w', active.offsetWidth + 'px');
+    // Only after the first measurement may it glide, or it crawls in from
+    // the left edge on load.
+    if (!indicatorReady) { requestAnimationFrame(function () { bar.classList.add('ready'); }); indicatorReady = true; }
+  }
+
+  // When a tab count changes (because the search filtered), it fades rather
+  // than snapping. 150ms, no scaling, no blinking — a state change in a
+  // cell, not an event.
+  var lastCounts = {};
+  function fadeCounts() {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var n = document.querySelectorAll('#tabs .n');
+    for (var i = 0; i < n.length; i++) {
+      var id = n[i].getAttribute('data-lens'), val = n[i].textContent;
+      if (lastCounts[id] !== undefined && lastCounts[id] !== val && n[i].animate) {
+        n[i].animate([{ opacity: 0 }, { opacity: 1 }],
+          { duration: 150, easing: 'cubic-bezier(.2,0,0,1)' });
+      }
+      lastCounts[id] = val;
+    }
+  }
+
   function draw() {
     drawTabs();
     drawSelects();
@@ -764,6 +907,8 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
     if (state.focus) lead = 'One entry \\u2014 clear the search to see everything again.';
     document.getElementById('lead').textContent = lead;
     document.getElementById('view').innerHTML = RENDER[state.view]();
+    placeIndicator();
+    fadeCounts();
   }
 
   document.getElementById('q').addEventListener('input', function (ev) {
@@ -780,18 +925,41 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
   document.getElementById('live').addEventListener('change', function (ev) {
     state.live = ev.target.checked; draw();
   });
+  // Only what the user experiences as a JUMP gets cross-faded: switching
+  // lens, following a topic, pointing at one entry. Typing in the search box
+  // does NOT — a fade per keystroke is exactly the kind of movement that
+  // makes a tool feel cheap.
   document.addEventListener('click', function (ev) {
     var tab = ev.target.closest ? ev.target.closest('.tab') : null;
-    if (tab) { state.view = tab.getAttribute('data-view'); state.topic = null; state.focus = null; draw(); return; }
+    if (tab) {
+      withTransition(function () {
+        state.view = tab.getAttribute('data-view'); state.topic = null; state.focus = null; draw();
+      });
+      return;
+    }
     var it = ev.target.closest ? ev.target.closest('[data-topic]') : null;
-    if (it) { state.topic = it.getAttribute('data-topic'); state.view = 'timeline'; state.focus = null; draw(); return; }
+    if (it) {
+      withTransition(function () {
+        state.topic = it.getAttribute('data-topic'); state.view = 'timeline'; state.focus = null; draw();
+      });
+      return;
+    }
     var f = ev.target.closest ? ev.target.closest('[data-focus]') : null;
-    if (f) { state.focus = f.getAttribute('data-focus'); state.view = 'timeline'; state.topic = null; draw(); }
+    if (f) {
+      withTransition(function () {
+        state.focus = f.getAttribute('data-focus'); state.view = 'timeline'; state.topic = null; draw();
+      });
+    }
   });
   document.addEventListener('keydown', function (ev) {
     if (ev.key === '/' && document.activeElement.id !== 'q') { ev.preventDefault(); document.getElementById('q').focus(); }
     if (ev.key === 'Escape') { state.topic = null; state.focus = null; document.getElementById('q').value = ''; state.q = ''; draw(); }
   });
+  // The indicator hangs off measured edges, so it must re-measure whenever
+  // those edges move: when the tab bar scrolls, and on window resize.
+  document.getElementById('tabs').addEventListener('scroll', placeIndicator, { passive: true });
+  addEventListener('resize', placeIndicator, { passive: true });
+
   draw();
 })();
 </script>

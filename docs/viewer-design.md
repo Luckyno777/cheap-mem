@@ -8,7 +8,8 @@ description: |
   single deep-teal accent that only ever marks "you are here" or "this is a type".
   The remembered text is set in a serif and the machinery — ids, timestamps, file
   paths, counts — in a monospace, so at a glance you can tell what a person wrote
-  from what the system recorded. Nothing glows, nothing floats, nothing animates.
+  from what the system recorded. Nothing glows and nothing floats; what moves,
+  moves a few pixels and is over in under a fifth of a second.
 
 colors:
   paper: "#FAF9F6"
@@ -56,6 +57,18 @@ typography:
 spacing:
   base: 4px
   scale: [2, 4, 5, 6, 8, 10, 12, 14, 16, 20, 22, 56, 80]
+
+motion:
+  # Flat on purpose: the body references these as `x`, and durations
+  # are named by distance travelled, curves by direction.
+  instant: 100ms
+  quick: 160ms
+  normal: 220ms
+  slow: 320ms
+  ease-standard: "cubic-bezier(.2,0,0,1)"
+  ease-in: "cubic-bezier(.05,.7,.1,1)"
+  ease-out: "cubic-bezier(.3,0,.8,.15)"
+  ease-crisp: "cubic-bezier(.19,1,.22,1)"
 
 rounded:
   xs: 3px
@@ -139,8 +152,10 @@ A document, not a dashboard. Warm paper (`paper`), hairline rules and a single d
 accent (`accent`) reserved for "you are here" and "this is a type" — everything else is
 neutral. The one real move is **the two-face split**: remembered content in a serif,
 machine facts in a monospace, so a reader can tell a human sentence from a recorded id
-without reading either. Actionable: the pre-audit `faint` grey was below WCAG AA on the
-page's *smallest* text; it is now `#696E6B`.
+without reading either. Motion is present but rationed: one gliding
+underline, one scroll rail, one short lens fade — nothing that makes an entrance.
+Actionable: the pre-audit `faint` grey was below WCAG AA on the page's *smallest*
+text; it is now `#696E6B`.
 
 ---
 
@@ -285,6 +300,8 @@ Two tiers only, and that is the point.
 
 **There is no shadow in this design.** Not a subtle one, not on hover, not on the sticky
 header. Depth is expressed as surface tone and a hairline. Do not add a third tier.
+The one exception to flatness is temporal, not spatial: a card entering the viewport
+finishes arriving (see 2.8), which reads as depth of field rather than elevation.
 
 #### Decorative depth
 
@@ -299,6 +316,64 @@ has nothing to gain from atmosphere.
 - Retired cards switch to `dashed` — the only border-style change in the system
 - Focus: `2px solid {colors.accent}`, `outline-offset:2px` (inset by −1px on the search
   field so the ring replaces rather than surrounds its border)
+
+### 2.8 Motion
+
+Durations are named after the **distance travelled**, not by importance — a status dot
+needs less than something crossing half the screen. Curves are split by **direction**,
+because coming in and going out are not the same movement. The values sit inside both
+Material 3's band (50–600ms) and Apple's (0.2–0.5s for interactive elements) without
+copying either.
+
+| Token | Value | Use |
+|---|---|---|
+| ``instant`` | 100ms | chip hover, disclosure arrow, summary colour |
+| ``quick`` | 160ms | tab colour, row hover, the lens fade-in |
+| ``normal`` | 220ms | the gliding tab underline |
+| ``slow`` | 320ms | the citation bar filling |
+| ``ease-standard`` | `cubic-bezier(.2,0,0,1)` | state changes |
+| ``ease-in`` | `cubic-bezier(.05,.7,.1,1)` | something arriving |
+| ``ease-out`` | `cubic-bezier(.3,0,.8,.15)` | something leaving |
+| ``ease-crisp`` | `cubic-bezier(.19,1,.22,1)` | the tool-like snap, used on the underline |
+
+**Reduced motion is its own token layer, not a patch.** Under
+`prefers-reduced-motion: reduce` all four durations become `0ms`, so someone who asked
+for calm gets *this* page instantly rather than a second, half-maintained one. The two
+scroll-driven effects additionally opt out entirely.
+
+There are exactly **four** moving things, and each answers a question:
+
+1. **Reading rail** — a 2px accent line under the header, driven by
+   `animation-timeline: scroll(root)`. At 500 entries "how far in am I?" is a real
+   question and a phone scrollbar does not answer it. It only moves *because* you
+   scroll; it never animates on its own.
+2. **Gliding tab underline** — one element that moves between lenses instead of a border
+   that jumps. It buys spatial continuity: you see where you came from. Positions are
+   *measured* after layout, never computed, because tab widths depend on the font.
+3. **Card approach** — `animation-timeline: view()` over `entry 0% → 18%`, from
+   `opacity:.5` and 4px down. Deliberately not a reveal: exaggerated scroll entrances
+   now read as a step back from speed, and a list you read daily must not make an
+   entrance every time.
+4. **Lens fade** — `document.startViewTransition`, 100ms out / 160ms in. Rows arrive
+   **together**, never staggered one after another; staggering reads as a landing page
+   and tires you out in daily use.
+
+Two traps are load-bearing, not stylistic:
+
+- **Every `animation-timeline` sits inside `@supports`.** With a fill mode and no
+  support, the element stays permanently invisible — a page nobody can read is worse
+  than a page without the effect.
+- **The View Transition names only `#view` and silences `root`.** By default the API
+  cross-fades the whole surface, which at 500 cards looks coarse and stutters.
+
+Also here: `content-visibility:auto` with `contain-intrinsic-size:0 190px` on cards.
+That is performance, not motion, but the intrinsic size is what stops the scrollbar
+from jumping — omitting it is the standard mistake.
+
+**Nothing is `infinite`.** WCAG 2.2.2 wants a stop past five seconds of continuous
+motion, so there is no continuous motion at all: no spinner, no shimmer, no pulsing dot.
+The data is already in the file — nothing ever loads, so there are no loading states to
+animate.
 
 ### 2.7 Accessibility quick-check
 
@@ -452,7 +527,8 @@ stylesheet. Custom properties do the work a framework would.
 
 - ~~Visible keyboard focus~~ — added in this audit for tabs, rows, selects and summaries
 - Hover on cards: deliberately absent (cards are not clickable; rows are)
-- Loading: not applicable, the data is already in the file
+- Loading: not applicable, the data is already in the file — so no spinner and no
+  skeleton, which is the right answer rather than a missing one
 - Empty: defined per lens, each naming the command that would create the first entry
 
 ### Confidence map
@@ -484,6 +560,8 @@ stylesheet. Custom properties do the work a framework would.
 - **Give every interactive element a `:focus-visible` ring in `accent`.** The page is meant
   to be driven from the keyboard.
 - **Name empty states after the command that would fill them** (`mem log timeline --key …`).
+- **Move only where movement answers a question**, and keep the distance small: 2–8px at
+  100–220ms. Small steps, precise — not big jumps, fast.
 
 ### Don't
 
@@ -498,8 +576,15 @@ stylesheet. Custom properties do the work a framework would.
   reserved for the brand and list headings; the weight ceiling is deliberate.
 - **Don't add half-pixel font sizes.** The scale is 11 / 12 / 13 / 14 / 15 / 17 / 20 and
   half-steps round inconsistently across platforms.
-- **Don't animate anything.** There is no transition in the stylesheet, on purpose — a
-  generated report does not move.
+- **Don't stagger a list.** Rows appear together in one short fade or not at all. Per-row
+  entrances read as a landing page and tire you out on a page you open daily.
+- **Don't add a fifth moving thing** without removing one. Two moving elements per view is
+  the ceiling; the four here are already spread across different views.
+- **Don't animate on every keystroke.** The search filters instantly; a cross-fade per
+  character is exactly what makes a tool feel cheap.
+- **Don't use a spring, an overshoot, or a scale past 100% on a state change.** Playful,
+  not precise — high-end tools go 98 → 100, not 80 → 110. And never ship an
+  `animation-timeline` outside `@supports`, or let anything run `infinite`.
 
 ---
 
