@@ -1115,6 +1115,69 @@ const COMMANDS = {
     }
   },
 
+  topics: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem topics',
+        '',
+        '  Every subject the memory is tracking, most recently touched first.',
+        '  A topic is any string in an entry\'s `topic` field — log one with',
+        '  e.g. `mem log decision --topic architecture/auth-model --title ...`',
+        '  and every later entry with the same topic joins the thread.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, [], 'topics');
+    const root = findRoot(args);
+    requireConfig(root);
+    const list = memory.topics(root);
+    if (list.length === 0) {
+      out('No topics yet.  Add one with: mem log <type> --topic <key> ...');
+      return;
+    }
+    out(`${list.length} topic${list.length === 1 ? '' : 's'}:`);
+    for (const t of list) {
+      out(`  ${t.topic.padEnd(34)} ${String(t.count).padStart(3)} entries  `
+        + `last ${(t.last || '?').slice(0, 10)}  [${t.types.join(', ')}]`);
+    }
+  },
+
+  topic: async ({ rest, args }) => {
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem topic <key> [--all]',
+        '',
+        '  Where one subject stands NOW, and how it got there. Entries of any',
+        '  type that share a `topic` form one thread; the newest is the current',
+        '  state, the rest is the trail. Append-only — nothing is rewritten.',
+        '  Retired (done/discarded/superseded) entries drop out.',
+        '',
+        '  --all   print the whole trail, not just the last few steps',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['all'], 'topic');
+    const root = findRoot(args);
+    requireConfig(root);
+    const st = memory.topicState(root, rest[0]);
+    if (!st.current) {
+      out(`Nothing under topic '${rest[0]}'.  See: mem topics`);
+      return;
+    }
+    out(`topic ${st.topic}  (${st.count} entr${st.count === 1 ? 'y' : 'ies'})`);
+    out('');
+    out(`  now  [${st.current.ts ?? '?'}] ${st.current._type}  ${compactLine(st.current)}`);
+    const trail = args.all ? st.history : st.history.slice(0, 8);
+    if (trail.length) {
+      out('');
+      out(`  how it got here${args.all ? '' : st.history.length > trail.length
+        ? ` (${trail.length} of ${st.history.length}, --all for the rest)` : ''}:`);
+      for (const e of trail) {
+        out(`    [${e.ts ?? '?'}] ${e._type.padEnd(10)} ${compactLine(e)}`);
+      }
+    }
+  },
+
   core: async ({ args }) => {
     if (isHelp(args)) {
       out([

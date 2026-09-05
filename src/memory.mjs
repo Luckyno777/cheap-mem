@@ -212,6 +212,82 @@ export function currentFacts(root, { now = new Date(), staleDays = 120 } = {}) {
 }
 
 /**
+ * Every entry that belongs to a topic, across all types and projects.
+ *
+ * **Why topics exist.** `timeline` already folds a changing FACT onto its
+ * current value via `key`. But most knowledge is not a fact with a value —
+ * it is a subject that keeps developing: `architecture/auth-model` gathers
+ * a decision, later an error against it, later a learning. Without a
+ * handle for that, the only way to see "where does X stand now" is to
+ * search and read everything. A `topic` is that handle: entries of ANY
+ * type that share one, read newest-first, are the thread of a subject.
+ *
+ * Append-only stays intact — nothing is updated in place. The newest entry
+ * is simply the current state, the rest is how it got there. Retired
+ * (done/discarded/superseded) entries and closing lines drop out.
+ *
+ * Pure over the logs: no model, no network, no write.
+ */
+export function topicEntries(root, key = null) {
+  const all = [];
+  const seen = [];
+  let seq = 0;
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      let res;
+      try { res = readLog(root, type, { project }); } catch { continue; }
+      for (let i = 0; i < res.entries.length; i += 1) {
+        const e = res.entries[i];
+        seen.push(e);
+        seq += 1;
+        if (e.__broken || isClosingLine(e)) continue;
+        const t = typeof e.topic === 'string' ? e.topic.trim() : '';
+        if (!t) continue;
+        if (key !== null && t !== key) continue;
+        all.push({ ...e, _type: type, _project: project, _topic: t, _seq: seq });
+      }
+    }
+  }
+  const retired = retiredMap(seen);
+  const live = all.filter((e) => !(e.id && retired.has(e.id)));
+  // Timestamps are second-resolution, so three entries logged in one second
+  // tie — and "what is the current state of this topic" must not then be
+  // decided at random. `_seq` is the read order, which inside one log file
+  // IS the write order. Across files within the same second it is merely
+  // stable, not chronological; sub-second timestamps would be the real fix.
+  live.sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')) || (b._seq - a._seq));
+  return live;
+}
+
+/** All topics with how big and how fresh they are, busiest first. */
+export function topics(root) {
+  const byKey = new Map();
+  for (const e of topicEntries(root)) {
+    if (!byKey.has(e._topic)) {
+      byKey.set(e._topic, { topic: e._topic, count: 0, last: '', types: new Set() });
+    }
+    const t = byKey.get(e._topic);
+    t.count += 1;
+    t.types.add(e._type);
+    if (String(e.ts ?? '') > t.last) t.last = String(e.ts ?? '');
+  }
+  return [...byKey.values()]
+    .map((t) => ({ ...t, types: [...t.types].sort() }))
+    .sort((a, b) => (b.last.localeCompare(a.last)) || (b.count - a.count));
+}
+
+/** One topic folded to its current state plus the trail that led there. */
+export function topicState(root, key) {
+  const entries = topicEntries(root, key);
+  return {
+    topic: key,
+    current: entries[0] ?? null,
+    history: entries.slice(1),
+    count: entries.length,
+  };
+}
+
+/**
  * The always-load core — cheap-mem's answer to "bake context into the
  * model" (Engram), minus the training. Instead of retraining weights or
  * re-retrieving every turn, it distills the *settled* facts worth carrying
