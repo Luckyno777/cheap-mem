@@ -334,6 +334,60 @@ See [docs/mcp-setup.md](docs/mcp-setup.md) for per-client instructions.
 Point the model at `~/cheap-mem/bin/mem` and tell it the commands.
 No MCP needed — a shell tool is enough. See [docs/cli-integration.md](docs/cli-integration.md).
 
+## Retrieval that carries its provenance
+
+`mem retrieve` returns **structured claims**, not a paragraph. Each one
+says who asserted it, at what authority, in which scope, and whether it
+still holds:
+
+```bash
+mem retrieve "how do we take payment"
+# a1  [agent/alice]  project:pay  2026-01-01T00:00:00Z  0.09
+#   SEPA transfer up front — settles reliably
+# ! 1 excluded — mem explain <id> says why
+
+mem explain "how do we take payment" m1
+# m1: not returned — disputed supersession
+```
+
+Three things follow from that, and they are the reason it exists.
+
+**Nobody can overrule anybody.** A supersession (`replaces_id`) is honoured
+only when the same author corrects their own claim, or when a strictly
+higher authority tier overrules a lower one
+(`user > system > agent > external > inferred > unknown`). An unauthorised
+attempt is not rejected — append-only means nothing is ever removed — the
+target simply stays active and the attempt reads as *disputed*, out of
+retrieval and visible in `mem doctor`.
+
+**Scope is a boundary, not an argument.** `retrieve` takes a capability the
+caller must hold, not a `scope` string it can type. Narrowing works;
+widening has no method.
+
+**Why a claim did *not* come back** is answerable. `mem explain` is
+deterministic — no model, nothing computed that the ranker did not compute
+anyway.
+
+Full details, including what is *not* solved:
+[docs/security-model.md](docs/security-model.md).
+
+## Checking the guarantees that are not ours
+
+Some of what makes cheap-mem correct lives outside its code: append
+atomicity is a filesystem property, `*.jsonl merge=union` is one line in
+`.gitattributes`, and the pre-commit hook is a local git setting that a
+clone does not inherit. Each is invisible when present and silent when
+absent — which is exactly how a memory loses entries without anyone
+noticing.
+
+```bash
+mem doctor            # says which layer owns each guarantee
+mem doctor --strict   # for CI: an UNVERIFIABLE guarantee is a failure
+```
+
+A check that guesses is worse than none, so where the filesystem cannot be
+determined the result is `unknown`, not `ok`.
+
 ## Design principles
 
 - **Append-only.** A log entry is never modified. Corrections write a
@@ -354,6 +408,11 @@ mem whoami [<name>]                     who this install is in the channel
 
 mem log <type> --<field> ...            append a JSONL entry
 mem find "<pattern>" [--type T]         substring search across logs
+mem retrieve "<question>" [--json]      STRUCTURED claims: author, authority,
+                                        scope, validity, status, score
+mem explain "<question>" <claim-id>     why a claim did (not) come back
+mem doctor [--strict]                   health, plus the guarantees that
+                                        are not cheap-mem's to provide
 mem context [--n 20]                    compact recent-activity dump
 mem viewer [--out f.html] [--open]      one self-contained HTML page, no model/server
 mem project init <name>                 idempotent project skeleton

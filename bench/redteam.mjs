@@ -19,8 +19,21 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
   const idx=buildIndex(d);
   const nurA=search(idx,'kolibri',{project:'a'}).map(h=>h.entry.id);
   const offen=search(idx,'kolibri',{}).map(h=>h.entry.id);
+  // Both layers, because only one of them was fixed and saying so is the
+  // point. search() is still a ranker with no boundary -- that is its job.
+  // retrieve() is the gateway, and there is no argument shape that widens
+  // what a capability admits.
+  const cap = await import('/home/user/cheap-mem/src/capability.mjs');
+  const ret = await import('/home/user/cheap-mem/src/retrieval.mjs');
+  const gated = ret.retrieve(d, 'kolibri', cap.grantProject('a', { subject: 'redteam' }))
+    .claims.map((c) => c.id);
   result(2,'project A retrieves project B',
-    `with project:'a' -> [${nurA}] ; WITHOUT the filter -> [${offen}]  => isolation is an opt-in parameter, not a boundary`);
+    `search() with project:'a' -> [${nurA}] ; search() WITHOUT the filter -> [${offen}]`
+    + `   (still an opt-in parameter -- search is a ranker, not a boundary)\n`
+    + `     retrieve() with a project capability -> [${gated}]`
+    + `   ${gated.length === 1 && gated[0] === 'a1'
+        ? 'HELD: the gateway admits only what the capability names'
+        : 'FAILED: the gateway leaked across scopes'}`);
   fs.rmSync(d,{recursive:true,force:true}); }
 
 // --- 3: a memory contains a secret ---------------------------------------
