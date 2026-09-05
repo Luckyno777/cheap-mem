@@ -12,6 +12,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import * as agents from './agents.mjs';
 
 export const CONFIG_DIR = '.mem';
 export const CONFIG_FILE = 'config.json';
@@ -54,7 +55,21 @@ export function readConfig(root) {
   if (!raw.participants || typeof raw.participants !== 'object') {
     throw new Error(`Config at ${p} has no 'participants' map`);
   }
-  return { ...DEFAULT_CONFIG, ...raw, participants: { ...raw.participants } };
+  // Registered agents are participants too. Without this, creating an
+  // agent would not make it addressable — `mem post write --to vm-admin`
+  // would be refused, and the inbox could not actually route to it no
+  // matter how many agents existed. The config list stays the floor: it
+  // holds roles (a human, a session) that are not agents, and it has to
+  // keep working when `agents/` is missing (fresh clone, half a setup).
+  const participants = { ...raw.participants };
+  try {
+    for (const a of agents.listAgents(root)) {
+      if (!Object.hasOwn(participants, a.name)) {
+        participants[a.name] = a.role || `agent: ${a.name}`;
+      }
+    }
+  } catch { /* no agents/ — then just the configured ones */ }
+  return { ...DEFAULT_CONFIG, ...raw, participants };
 }
 
 export function writeConfig(root, cfg) {

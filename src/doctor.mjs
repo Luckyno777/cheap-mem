@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from './memory.mjs';
+import * as agents from './agents.mjs';
+import * as inbox from './inbox.mjs';
 import * as raw from './raw.mjs';
 import * as search from './search.mjs';
 import * as redaction from './redaction.mjs';
@@ -67,6 +69,7 @@ export function checkAll(root) {
   f.push(checkFactConflicts(root));
   f.push(checkOrphans(root));
   f.push(checkTopicQuality(root));
+  f.push(checkDelivery(root));
   f.push(checkIndex(root));
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
@@ -192,6 +195,43 @@ export function checkTopicQuality(root) {
     + `${q.orphanAreas ? `, ${q.orphanAreas} areas have a single child` : ''}. `
     + 'The digest should reuse existing topics instead of inventing new ones: '
     + 'run `mem topics --names-only` before a pass, rule in the digest spec.');
+}
+
+// Delivery: is there mail for a recipient nobody reads?
+//
+// The inbox can address a specific recipient, and at multi-agent scale
+// that is exactly where things vanish quietly: a recipient who was valid
+// once and is not any more, and the message sits in the drawer forever
+// with no exception and no log. Nobody ever collects it.
+//
+// A recipient counts as known if it is registered under agents/ or has
+// written something itself (then it exists, folder or not).
+// Deterministic.
+export function checkDelivery(root) {
+  let messages = [];
+  try { messages = inbox.read(root, {}).messages ?? []; }
+  catch { return finding('delivery', LEVEL.UNKNOWN, 'drawer unreadable'); }
+  if (!messages.length) return finding('delivery', LEVEL.GOOD, 'drawer empty');
+
+  const registered = new Set(agents.listAgents(root).map((a) => a.name));
+  const senders = new Set(messages.map((m) => m.from).filter(Boolean));
+  const open = messages.filter((m) => m.state !== 'done' && m.state !== 'answered');
+
+  const unknown = new Map();
+  for (const m of open) {
+    const to = m.to;
+    if (!to || registered.has(to) || senders.has(to)) continue;
+    unknown.set(to, (unknown.get(to) ?? 0) + 1);
+  }
+  if (!unknown.size) {
+    return finding('delivery', LEVEL.GOOD,
+      `${messages.length} messages, ${open.length} open, every recipient known`);
+  }
+  const list = [...unknown.entries()].map(([a, n]) => `${a} (${n})`).join(', ');
+  return finding('delivery', LEVEL.WARN,
+    `mail for ${unknown.size} unknown recipients: ${list}`,
+    'Nobody collects these. Register the recipient (`mem agent new <name>`) '
+    + 'or fix the name in the message.');
 }
 
 // Orphans: a correction or a duty-closing line that points at an id which

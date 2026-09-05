@@ -127,6 +127,20 @@ export function logPath(root, type, project = null) {
  * If an entry needs correction, a new line with `replaces_id` is written.
  */
 export function logEntry(root, type, data, { project = null, now = new Date() } = {}) {
+  // The agent comes from the origin stamp when it is not set explicitly.
+  // Two routes, so the second axis fills itself without every caller
+  // having to remember:
+  //   origin.agent    what the digest writes in
+  //   origin.surface  vm -> vm-admin, cloud -> session
+  // Without this the agent board stays empty while several agents write —
+  // and then nobody can see who actually contributed what.
+  if (!data.agent && data.origin && typeof data.origin === 'object') {
+    const o = data.origin;
+    const derived = o.agent ?? ({ vm: 'vm-admin', cloud: 'session' })[o.surface];
+    if (typeof derived === 'string' && derived.trim()) {
+      data = { ...data, agent: derived.trim() };
+    }
+  }
   const p = logPath(root, type, project);
   const ts = data.ts ?? new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const id = data.id ?? shortId(ts, type);
@@ -416,6 +430,7 @@ export function experiences(root, { minCited = 0, type = 'learning' } = {}) {
  * Pure over the logs: no model, no network, no write.
  */
 export function topicEntries(root, key = null) {
+  const alias = topicAliases(root);
   const all = [];
   const seen = [];
   let seq = 0;
@@ -428,10 +443,13 @@ export function topicEntries(root, key = null) {
         seen.push(e);
         seq += 1;
         if (e.__broken || isClosingLine(e)) continue;
-        const t = typeof e.topic === 'string' ? e.topic.trim() : '';
-        if (!t) continue;
+        const raw = typeof e.topic === 'string' ? e.topic.trim() : '';
+        if (!raw) continue;
+        // Merged topics resolve on READ. The line on disk stays exactly
+        // as it was written.
+        const t = alias.get(raw) ?? raw;
         if (key !== null && t !== key) continue;
-        all.push({ ...e, _type: type, _project: project, _topic: t, _seq: seq });
+        all.push({ ...e, _type: type, _project: project, _topic: t, _topic_raw: raw, _seq: seq });
       }
     }
   }
@@ -451,15 +469,30 @@ export function topics(root) {
   const byKey = new Map();
   for (const e of topicEntries(root)) {
     if (!byKey.has(e._topic)) {
-      byKey.set(e._topic, { topic: e._topic, count: 0, last: '', types: new Set() });
+      byKey.set(e._topic, {
+        topic: e._topic, count: 0, last: '', types: new Set(), projects: new Map(),
+      });
     }
     const t = byKey.get(e._topic);
     t.count += 1;
     t.types.add(e._type);
+    // The project of an entry IS the topic's area — not a prefix somebody
+    // has to type into the name. See topicTree(): this is what the
+    // grouping hangs off.
+    const pj = e._project ?? '(global)';
+    t.projects.set(pj, (t.projects.get(pj) ?? 0) + 1);
     if (String(e.ts ?? '') > t.last) t.last = String(e.ts ?? '');
   }
   return [...byKey.values()]
-    .map((t) => ({ ...t, types: [...t.types].sort() }))
+    .map((t) => ({
+      ...t,
+      types: [...t.types].sort(),
+      // The area is whichever project contributes most of the topic's
+      // entries. A topic that spans projects belongs where its centre of
+      // gravity is, and `projects` stays beside it so you can see the rest.
+      area: [...t.projects.entries()].sort((a, b) => b[1] - a[1])[0][0],
+      projects: Object.fromEntries(t.projects),
+    }))
     .sort((a, b) => (b.last.localeCompare(a.last)) || (b.count - a.count));
 }
 
@@ -917,6 +950,71 @@ export function getEntry(root, id) {
 // reports broken shapes at write time, and a tree that makes an existing
 // pile of singletons legible without rewriting one line of history.
 
+// --- Merging topics without rewriting history -------------------------
+//
+// Even after deriving the area from the project, one memory still had 40
+// topics for 40 entries in a single area — four of which (`payments`,
+// `payment-transfer`, `payment-details`, `payment-class`) were plainly the
+// same subject. Renaming them would mean touching lines that were already
+// written; the memory is append-only, and that is precisely what makes it
+// trustworthy.
+//
+// So: a second log rather than a correction. A merge is a NEW line saying
+// "these two names mean the same thing". It is applied on READ; nothing
+// about writing changes. Whoever opens the raw file still sees what stood
+// there at the time — and, beside it, how it reads today.
+
+export const ALIAS_LOG = 'global/topic-aliases.jsonl';
+
+/**
+ * The merges as a resolved map: old name -> final name.
+ *
+ * Chains are followed (a->b, b->c yields a->c); cycles stop instead of
+ * spinning. A cycle is an operator mistake, not a reason to crash.
+ */
+export function topicAliases(root) {
+  const p = path.join(root, ALIAS_LOG);
+  const raw = new Map();
+  if (fs.existsSync(p)) {
+    for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line);
+        if (typeof e.from === 'string' && typeof e.to === 'string' && e.from !== e.to) {
+          raw.set(e.from, e.to);
+        }
+      } catch { /* skip a broken line */ }
+    }
+  }
+  const resolved = new Map();
+  for (const start of raw.keys()) {
+    let target = raw.get(start);
+    const seen = new Set([start]);
+    while (raw.has(target) && !seen.has(target)) { seen.add(target); target = raw.get(target); }
+    resolved.set(start, target);
+  }
+  return resolved;
+}
+
+/** Fold two or more topics into one name. */
+export function mergeTopics(root, from, to, { why = '', agent = null, now = new Date() } = {}) {
+  const target = String(to ?? '').trim();
+  if (!target) throw new Error('mergeTopics: no target topic.');
+  const sources = (Array.isArray(from) ? from : [from]).map((v) => String(v ?? '').trim()).filter(Boolean);
+  if (!sources.length) throw new Error('mergeTopics: no source topic.');
+  const p = path.join(root, ALIAS_LOG);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const ts = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  const written = [];
+  for (const src of sources) {
+    if (src === target) continue;
+    const line = { ts, from: src, to: target, why: String(why || ''), ...(agent ? { agent } : {}) };
+    fs.appendFileSync(p, `${JSON.stringify(line)}\n`, 'utf8');
+    written.push(line);
+  }
+  return { target, written };
+}
+
 /** A topic is at most this long. Past it, it is a title. */
 export const TOPIC_MAX = 40;
 
@@ -928,7 +1026,7 @@ export const TOPIC_MAX = 40;
  * fails on a naming rule loses the content. Better recorded and flagged
  * than clean and gone.
  */
-export function checkTopic(topic) {
+export function checkTopic(topic, { area = null } = {}) {
   const t = String(topic ?? '').trim();
   if (!t) return { ok: true, warnings: [] };
   const w = [];
@@ -941,8 +1039,13 @@ export function checkTopic(topic) {
   if (t.split(/\s+/).length > 4) {
     w.push('more than four words — shorter, and split it with /');
   }
-  if (!t.includes('/')) {
-    w.push('no "/" — without an area it lands as a singleton next to all the others');
+  // No "/" is NOT an error any more. Until 2026-09-05 this check demanded
+  // a prefix — and that was backwards: the area comes from the entry's
+  // project, not from the name. A prefix repeating the project is, if
+  // anything, noise.
+  if (area && t.startsWith(`${area}/`)) {
+    w.push(`repeats the project ('${area}') — the area already comes from there, `
+      + `shorter: '${t.slice(area.length + 1)}'`);
   }
   return { ok: w.length === 0, warnings: w, topic: t };
 }
@@ -963,13 +1066,22 @@ export function topicTree(root) {
   const flat = topics(root);
   const branches = new Map();
   for (const t of flat) {
+    // The area comes from the PROJECT, not from a prefix in the name.
+    // That is the 2026-09-05 correction: 72 topics looked like 72 areas
+    // when in truth there were four. The grouping people were asking for
+    // had been there all along — it was called `project`. A prefix in the
+    // topic name was a duplicate of it (`cheap-mem/retrieval` inside
+    // `project: cheap-mem`) and helped precisely where it was not needed.
+    const area = t.area;
+    // If the name repeats the area, the prefix goes — otherwise the same
+    // word would stand twice in one row.
     const parts = t.topic.split('/');
-    const area = parts.length > 1 ? parts[0] : '(no area)';
+    const leaf = (parts.length > 1 && parts[0] === area) ? parts.slice(1).join('/') : t.topic;
     if (!branches.has(area)) {
       branches.set(area, { area, count: 0, last: '', children: [] });
     }
     const b = branches.get(area);
-    b.children.push({ ...t, leaf: parts.length > 1 ? parts.slice(1).join('/') : t.topic });
+    b.children.push({ ...t, leaf });
     b.count += t.count;
     if (String(t.last ?? '') > b.last) b.last = String(t.last ?? '');
   }
@@ -997,7 +1109,7 @@ export function topicQuality(root) {
   const tree = topicTree(root);
   const withTopic = topicEntries(root).length;
   const singles = flat.filter((t) => t.count === 1).length;
-  const malformed = flat.filter((t) => !checkTopic(t.topic).ok).length;
+  const malformed = flat.filter((t) => !checkTopic(t.topic, { area: t.area }).ok).length;
   return {
     topics: flat.length,
     entriesWithTopic: withTopic,
@@ -1010,4 +1122,101 @@ export function topicQuality(root) {
     orphanAreas: tree.filter((b) => b.orphan).length,
     malformed,
   };
+}
+
+
+// ---------------------------------------------------------------------
+// Agents as a second axis
+//
+// `project` says WHAT ABOUT, `agent` says WHO. Two axes, not substitutes:
+// the same entry belongs to `project: payments` and to `agent: vm-admin`.
+// The field is an address, not a fence — every agent still reads
+// everything, and the single digest still sees it all together.
+//
+// It is read from the entry itself (`agent`) or, failing that, from the
+// origin stamp (`origin.agent`). The stamp is the older form and is never
+// rewritten after the fact.
+
+const agentOf = (e) => {
+  const a = e.agent ?? (e.origin && (e.origin.agent ?? e.origin.agent_name));
+  return typeof a === 'string' && a.trim() ? a.trim() : null;
+};
+
+/**
+ * What the memory knows about ONE agent: what it contributed, what it
+ * works on, when it last left something behind.
+ *
+ * This is the data behind the agent board. Deliberately from the same
+ * logs as everything else — an agent gets no store of its own, only its
+ * own view of the shared one.
+ */
+export function agentState(root, name) {
+  const wanted = String(name ?? '').trim();
+  const entries = [];
+  const seen = [];
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      let res;
+      try { res = readLog(root, type, { project }); } catch { continue; }
+      for (const e of res.entries) {
+        seen.push(e);
+        if (e.__broken || isClosingLine(e)) continue;
+        if (agentOf(e) !== wanted) continue;
+        entries.push({ ...e, _type: type, _project: project });
+      }
+    }
+  }
+  const retired = retiredMap(seen);
+  const live = entries.filter((e) => !retired.has(e.id));
+  live.sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')));
+
+  const types = {};
+  const projects = {};
+  const topicSet = new Set();
+  for (const e of live) {
+    types[e._type] = (types[e._type] ?? 0) + 1;
+    const p = e._project ?? '(global)';
+    projects[p] = (projects[p] ?? 0) + 1;
+    if (typeof e.topic === 'string' && e.topic.trim()) topicSet.add(e.topic.trim());
+  }
+  return {
+    agent: wanted,
+    count: live.length,
+    retired: entries.length - live.length,
+    last: live[0] ? String(live[0].ts ?? '') : '',
+    types,
+    projects,
+    topics: [...topicSet].sort(),
+    newest: live.slice(0, 10).map((e) => e.id).filter(Boolean),
+  };
+}
+
+/**
+ * Every agent that APPEARS in the memory — even without a folder under
+ * `agents/`.
+ *
+ * That is the whole point: the board should show the difference. An agent
+ * with a folder but no entries has never worked. An agent with entries but
+ * no folder writes into the memory without anyone knowing its
+ * instructions — at multi-agent scale, the more uncomfortable of the two
+ * gaps.
+ */
+export function agentsInLog(root) {
+  const tally = new Map();
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      let res;
+      try { res = readLog(root, type, { project }); } catch { continue; }
+      for (const e of res.entries) {
+        if (e.__broken || isClosingLine(e)) continue;
+        const a = agentOf(e);
+        if (!a) continue;
+        if (!tally.has(a)) tally.set(a, { agent: a, count: 0, last: '' });
+        const t = tally.get(a);
+        t.count += 1;
+        if (String(e.ts ?? '') > t.last) t.last = String(e.ts ?? '');
+      }
+    }
+  }
+  return [...tally.values()].sort((a, b) => b.count - a.count);
 }

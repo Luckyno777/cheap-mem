@@ -39,6 +39,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
+import * as agentsModule from './agents.mjs';
+import * as storeModule from './store.mjs';
 import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
@@ -194,8 +196,55 @@ export function collectMemory(root, { name = null } = {}) {
     last: b.last,
     orphan: b.orphan,
     children: b.children.map((c) => c.topic),
+    leaves: b.children.map((c) => c.leaf),
   }));
   const quality = memory.topicQuality(root);
+
+  // The agent board. It DELIBERATELY shows both sides at once: who is
+  // registered and who appears in the memory. An agent with a folder but
+  // no entries has never worked; one with entries but no folder writes
+  // along without anyone knowing its instructions — at multi-agent scale
+  // the more uncomfortable gap.
+  let agentList = [];
+  try {
+    const inLog = new Map(memory.agentsInLog(root).map((a) => [a.agent, a]));
+    const registered = agentsModule.listAgents(root);
+    const names = new Set([...registered.map((a) => a.name), ...inLog.keys()]);
+    agentList = [...names].sort().map((n) => {
+      const a = registered.find((x) => x.name === n) ?? null;
+      const st = memory.agentState(root, n);
+      return {
+        name: n,
+        role: a ? a.role : '',
+        model: a ? a.model : '',
+        active: a ? a.active : true,
+        registered: Boolean(a),
+        knowledge: a ? a.knowledge : [],
+        skills: a ? a.skills : [],
+        folder: a ? a.content : null,
+        count: st.count,
+        last: st.last,
+        types: st.types,
+        projects: st.projects,
+        topics: st.topics,
+      };
+    });
+  } catch { agentList = []; }
+
+  // The store. Only the REGISTER travels, never the bytes — the page
+  // already carries real memory content, and an embedded video would be
+  // the end of the one-file promise.
+  let storeList = [];
+  let storeState = null;
+  try {
+    storeList = storeModule.holdings(root).map((l) => ({
+      sha256: l.sha256, name: l.name ?? '?', ts: l.ts ?? '', size: l.size ?? 0,
+      mime: l.mime ?? '', purpose: l.purpose ?? '', checked: Boolean(l.checked),
+      agent: l.agent ?? null, project: l.project ?? null,
+      deleted_at: l.deleted_at ?? null, delete_reason: l.delete_reason ?? null,
+    }));
+    storeState = storeModule.verify(root);
+  } catch { storeList = []; }
 
   return {
     name: name || path.basename(path.resolve(root)),
@@ -203,6 +252,9 @@ export function collectMemory(root, { name = null } = {}) {
     topics,
     areas,
     quality,
+    agents: agentList,
+    store: storeList,
+    storeState,
     links,
     experiences,
     facts,
@@ -303,7 +355,7 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
   // passes rows keeps working instead of rendering an empty page.
   const payload = Array.isArray(data)
     ? { generatedAt: generatedAt.toISOString(),
-      memories: [{ name: title, entries: data, topics: [], areas: [], quality: null, links: [], experiences: [], facts: [], counts: summarize(data) }] }
+      memories: [{ name: title, entries: data, topics: [], areas: [], quality: null, agents: [], store: [], storeState: null, links: [], experiences: [], facts: [], counts: summarize(data) }] }
     : data;
   const total = payload.memories.reduce((n, m) => n + m.entries.length, 0);
   const when = new Date(payload.generatedAt || generatedAt).toISOString().replace('T', ' ').slice(0, 16);
@@ -621,6 +673,10 @@ h2.area .n{
       lead: 'What the digest connected, and how. The vocabulary is closed on purpose, so these can be walked by code.' },
     { id: 'experiences', label: 'Experience',
       lead: 'Learnings ranked by how much of the rest of the memory leans on them \\u2014 citations, not how often they were read.' },
+    { id: 'agents', label: 'Agents',
+      lead: 'Who writes here. Registered and present in the memory are two different things \u2014 the board shows both.' },
+    { id: 'store', label: 'Store',
+      lead: 'Generated files with provenance and a fingerprint. This is the register, never the bytes.' },
     { id: 'facts', label: 'Facts',
       lead: 'What is true right now, and since when. A fact that changed keeps its earlier values.' }
   ];
@@ -790,8 +846,9 @@ h2.area .n{
         for (var c = 0; c < ar.children.length; c++) {
           var child = byName[ar.children[c]];
           if (!child) continue;
-          var parts = child.topic.split('/');
-          outHtml += topicCard(child, parts.length > 1 ? parts.slice(1).join('/') : child.topic);
+          // The leaf comes from the tree, not from the name: the area is
+          // the project, and a prefix in the name would only repeat it.
+          outHtml += topicCard(child, ar.leaves[c] || child.topic);
         }
         outHtml += '</div>';
       }
@@ -849,6 +906,103 @@ h2.area .n{
     }
     return h + '</div>';
   }
+function viewAgents() {
+    var m = mem(), q = state.q.toLowerCase();
+    var list = (m.agents || []).filter(function (a) {
+      return !q || (a.name + ' ' + a.role).toLowerCase().indexOf(q) !== -1;
+    });
+    if (!list.length) {
+      return '<p class="empty">No agents yet. <code>mem agent new &lt;name&gt; --role "…"</code> creates one.</p>';
+    }
+    var h = '<div class="list">';
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i];
+      h += '<div class="item" style="cursor:default">';
+      h += '<h3>' + mark(a.name, state.q) + '</h3>';
+      if (a.role) h += '<div class="sub">' + mark(a.role, state.q) + '</div>';
+      h += '<div class="row" style="margin-top:7px">';
+      // The two gaps are the whole point of this board, so they lead the
+      // row rather than hiding in the small print.
+      if (!a.registered) {
+        h += '<span class="chip warn">no folder</span>';
+      } else if (!a.count) {
+        h += '<span class="chip warn">never active</span>';
+      }
+      if (!a.active) h += '<span class="chip gone">retired</span>';
+      h += '<span class="chip mono">' + a.count + (a.count === 1 ? ' entry' : ' entries') + '</span>';
+      if (a.last) h += '<span class="chip mono">last ' + esc(when(a.last)) + '</span>';
+      if (a.model) h += '<span class="chip">' + esc(a.model) + '</span>';
+      if (a.knowledge.length) h += '<span class="chip">' + a.knowledge.length + ' knowledge</span>';
+      if (a.skills.length) h += '<span class="chip">' + a.skills.length + ' skills</span>';
+      h += '</div>';
+      var rows = [];
+      if (a.folder) rows.push(['folder', a.folder]);
+      var pj = Object.keys(a.projects || {});
+      if (pj.length) rows.push(['projects', pj.map(function (k) { return k + ':' + a.projects[k]; }).join('  ')]);
+      if ((a.topics || []).length) rows.push(['topics', a.topics.join(', ')]);
+      if (rows.length) {
+        h += '<div class="trail">';
+        for (var z = 0; z < rows.length; z++) {
+          h += '<div><span class="when">' + esc(rows[z][0]) + '</span>' + esc(rows[z][1]) + '</div>';
+        }
+        h += '</div>';
+      }
+      h += '</div>';
+    }
+    return h + '</div>';
+  }
+
+  function viewStore() {
+    var m = mem(), q = state.q.toLowerCase();
+    var all = m.store || [];
+    var list = all.filter(function (l) {
+      if (state.live && l.deleted_at) return false;
+      return !q || (l.name + ' ' + l.purpose + ' ' + l.sha256).toLowerCase().indexOf(q) !== -1;
+    });
+    if (!list.length) {
+      return '<p class="empty">Nothing stored. <code>mem store put &lt;file&gt; --purpose "…"</code> takes something in — '
+        + 'register here, bytes beside it.</p>';
+    }
+    var h = '';
+    var st = m.storeState;
+    if (st) {
+      // The state goes on top, because a store without an integrity
+      // statement is only a list. Missing and changed are findings, not
+      // footnotes.
+      var bits = [st.registered + ' registered', (st.bytes / 1024).toFixed(1) + ' kB'];
+      if (st.deleted) bits.push(st.deleted + ' deleted');
+      if (st.unchecked) bits.push(st.unchecked + ' unchecked');
+      if (st.missing.length) bits.push(st.missing.length + ' MISSING');
+      if (st.changed.length) bits.push(st.changed.length + ' CHANGED');
+      h += '<p class="lead" style="margin:0 0 16px">' + esc(bits.join(' · ')) + '</p>';
+    }
+    h += '<div class="list">';
+    for (var i = 0; i < list.length; i++) {
+      var l = list[i];
+      h += '<div class="item" style="cursor:default">';
+      h += '<h3>' + mark(l.name, state.q) + '</h3>';
+      if (l.purpose) h += '<div class="sub">' + mark(l.purpose, state.q) + '</div>';
+      h += '<div class="row" style="margin-top:7px">';
+      if (l.deleted_at) h += '<span class="chip gone">deleted ' + esc(when(l.deleted_at)) + '</span>';
+      if (!l.checked && !l.deleted_at) h += '<span class="chip warn">unchecked</span>';
+      h += '<span class="chip mono">' + (l.size > 1024 ? (l.size / 1024).toFixed(1) + ' kB' : l.size + ' B') + '</span>';
+      h += '<span class="chip mono">' + esc(when(l.ts)) + '</span>';
+      if (l.mime) h += '<span class="chip">' + esc(l.mime) + '</span>';
+      if (l.agent) h += '<span class="chip">' + esc(l.agent) + '</span>';
+      if (l.project) h += '<span class="chip">' + esc(l.project) + '</span>';
+      h += '</div>';
+      h += '<div class="trail"><div><span class="when">sha256</span>'
+        + '<code>' + esc(l.sha256) + '</code></div>';
+      // A deleted item keeps its reason. The tombstone is the proof that
+      // deletion HAPPENED — not a hole in the list.
+      if (l.deleted_at && l.delete_reason) {
+        h += '<div><span class="when">reason</span>' + esc(l.delete_reason) + '</div>';
+      }
+      h += '</div></div>';
+    }
+    return h + '</div>';
+  }
+
   function viewFacts() {
     var m = mem(), q = state.q.toLowerCase();
     var list = m.facts.filter(function (f) {
@@ -879,13 +1033,16 @@ h2.area .n{
     }
     return h + '</div>';
   }
-  var RENDER = { timeline: viewTimeline, topics: viewTopics, links: viewLinks, experiences: viewExperiences, facts: viewFacts };
+  var RENDER = { timeline: viewTimeline, topics: viewTopics, links: viewLinks,
+    experiences: viewExperiences, agents: viewAgents, store: viewStore, facts: viewFacts };
 
   // --- chrome ----------------------------------------------------------
   function counts() {
     var m = mem();
     return { timeline: m.entries.length, topics: m.topics.length, links: m.links.length,
-      experiences: m.experiences.length, facts: m.facts.length };
+      experiences: m.experiences.length, agents: (m.agents || []).length,
+      store: (m.store || []).filter(function (l) { return !l.deleted_at; }).length,
+      facts: m.facts.length };
   }
   function drawTabs() {
     var c = counts(), h = '';
@@ -918,7 +1075,11 @@ h2.area .n{
     }
     t.innerHTML = opts;
     t.style.display = state.view === 'timeline' ? '' : 'none';
-    document.querySelector('.live').style.display = state.view === 'timeline' ? '' : 'none';
+    // The "only living" switch covers retired entries AND deleted store
+    // items — the same question either way: show the history, or only
+    // what stands now.
+    document.querySelector('.live').style.display =
+      (state.view === 'timeline' || state.view === 'store') ? '' : 'none';
   }
   // A change is cross-faded when the browser can and nobody asked for calm.
   // When it cannot, an ordinary DOM swap happens — no break, no fallback

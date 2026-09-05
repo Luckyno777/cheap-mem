@@ -20,6 +20,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
+import * as agents from '../src/agents.mjs';
+import * as store from '../src/store.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
 import * as search from '../src/search.mjs';
@@ -1343,6 +1345,242 @@ const COMMANDS = {
       out('  DANGLING (an edge into nothing — the target was never written):');
       for (const r of g.dangling) line(r, '!!');
     }
+  },
+
+  agents: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem agents',
+        '',
+        '  The agent board: who is registered, who appears in the memory,',
+        '  and where the two diverge.',
+        '',
+        '  An agent WITH a folder but NO entries has never worked. An agent',
+        '  WITH entries but NO folder writes into the memory without anyone',
+        '  knowing its instructions — at multi-agent scale, the more',
+        '  uncomfortable of the two gaps.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, [], 'agents');
+    const root = findRoot(args);
+    requireConfig(root);
+    const list = agents.listAgents(root);
+    const inLog = memory.agentsInLog(root);
+    const withFolder = new Set(list.map((a) => a.name));
+    const withEntries = new Map(inLog.map((a) => [a.agent, a]));
+
+    if (!list.length && !inLog.length) {
+      out('No agents yet.  Create one with: mem agent new <name> --role "..."');
+      return;
+    }
+    out(`${list.length} registered, ${inLog.length} in the memory:`);
+    for (const a of list) {
+      const st = withEntries.get(a.name);
+      const bits = [
+        st ? `${String(st.count).padStart(4)} entries` : '   0 entries',
+        st ? `last ${st.last.slice(0, 10)}` : 'never active',
+      ];
+      if (a.knowledge.length) bits.push(`${a.knowledge.length} knowledge`);
+      if (a.skills.length) bits.push(`${a.skills.length} skills`);
+      if (!a.active) bits.push('RETIRED');
+      out(`  ${a.name.padEnd(20)} ${bits.join('  ')}`);
+      if (a.role) out(`  ${' '.repeat(20)} ${a.role}`);
+    }
+    const noFolder = inLog.filter((a) => !withFolder.has(a.agent));
+    if (noFolder.length) {
+      out('\n  In the memory, but with no folder:');
+      for (const a of noFolder) {
+        out(`  ${a.agent.padEnd(20)} ${String(a.count).padStart(4)} entries  last ${a.last.slice(0, 10)}`);
+      }
+      out('  -> register with: mem agent new <name> --role "..."');
+    }
+  },
+
+  agent: async ({ rest, args }) => {
+    const subs = ['new', 'show'];
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem agent new <name> [--role "..."] [--model "..."] [--path <dir>]',
+        'mem agent show <name>',
+        '',
+        '  An agent gets agents/<name>/ with AGENT.yaml, PROMPT.md,',
+        '  knowledge/ and skills/. The memory stays shared — `agent` is an',
+        '  address, not a fence.',
+        '',
+        '  --path points at a DIFFERENT folder, for enrolling an agent that',
+        '  already grew somewhere else without moving it.',
+      ].join('\n'));
+      return;
+    }
+    const [what, name] = rest;
+    if (!subs.includes(what)) die(`agent: '${what}' unknown. Known: ${subs.join(', ')}`);
+    if (!name) die(`agent ${what}: name missing.`);
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (what === 'new') {
+      checkFlags(args, ['role', 'model', 'path'], 'agent new');
+      const r = agents.createAgent(root, name, {
+        role: args.role ?? '', model: args.model ?? '', path: args.path ?? null,
+      });
+      out(r.isNew ? `Created: ${r.home}` : `Already existed: ${r.home} (nothing overwritten)`);
+      return;
+    }
+
+    checkFlags(args, [], 'agent show');
+    const a = agents.readAgent(root, name);
+    if (!a) die(`No agent '${name}'. See: mem agents`);
+    const st = memory.agentState(root, name);
+    out(`${a.name}${a.active ? '' : '  [RETIRED]'}`);
+    if (a.role) out(`  Role     ${a.role}`);
+    if (a.model) out(`  Model    ${a.model}`);
+    out(`  Folder   ${a.content}${a.content === a.home ? '' : `  (registered in ${a.home})`}`);
+    if (a.prompt) out(`  Prompt   ${a.prompt}`);
+    if (a.knowledge.length) out(`  Knowledge ${a.knowledge.join(', ')}`);
+    if (a.skills.length) out(`  Skills   ${a.skills.join(', ')}`);
+    out(`\n  In the memory: ${st.count} entries`
+      + `${st.retired ? ` (+${st.retired} retired)` : ''}`
+      + `${st.last ? `, last ${st.last.slice(0, 10)}` : ''}`);
+    if (st.count) {
+      out(`  Drawers  ${Object.entries(st.types).map(([k, v]) => `${k}:${v}`).join(' ')}`);
+      out(`  Projects ${Object.entries(st.projects).map(([k, v]) => `${k}:${v}`).join(' ')}`);
+      if (st.topics.length) out(`  Topics   ${st.topics.join(', ')}`);
+    }
+  },
+
+  store: async ({ rest, args }) => {
+    const subs = ['put', 'list', 'get', 'verify', 'remove'];
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem store put <file> --purpose "..." [--agent x] [--project y] [--large]',
+        'mem store list [--agent x] [--project y] [--all]',
+        'mem store get <hash>',
+        'mem store verify',
+        'mem store remove <hash> --reason "..."',
+        '',
+        '  Keep generated files provable. The REGISTER lives in the repo',
+        '  (hash, size, type, origin, purpose); the BYTES do not — they sit',
+        '  content-addressed under store/objects/ and are deletable.',
+        '  That is exactly what "commit everything" cannot do: there, every',
+        '  version stays in history forever.',
+        '',
+        '  Text files pass redaction and are REJECTED on a hit rather than',
+        '  quietly cleaned — cleaned bytes would hash differently from what',
+        '  you produced, and the audit trail would prove the wrong thing.',
+        '  Binaries cannot be read by it; that stands as checked:false in',
+        '  the register rather than being passed over.',
+      ].join('\n'));
+      return;
+    }
+    const what = rest[0];
+    if (!subs.includes(what)) die(`store: '${what}' unknown. Known: ${subs.join(', ')}`);
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (what === 'put') {
+      checkFlags(args, ['purpose', 'agent', 'project', 'session', 'entry-id', 'retention', 'large'], 'store put');
+      if (!rest[1]) die('store put: file missing.');
+      let r;
+      try {
+        r = store.put(root, rest[1], {
+          purpose: args.purpose ?? '', agent: args.agent ?? null, project: args.project ?? null,
+          session: args.session ?? null, entry_id: args['entry-id'] ?? null,
+          retention: args.retention ?? null, large: Boolean(args.large),
+        });
+      } catch (e) { die(e.message); }
+      out(`${r.already ? 'Already held' : 'Stored'}: ${r.name}  ${r.size} B  ${r.mime}`);
+      out(`  ${r.sha256}`);
+      if (!r.checked) warn('did not pass redaction (not text) — content unchecked');
+      return;
+    }
+
+    if (what === 'list') {
+      checkFlags(args, ['agent', 'project', 'all'], 'store list');
+      let list = store.holdings(root);
+      if (!args.all) list = list.filter((l) => !l.deleted_at);
+      if (args.agent) list = list.filter((l) => l.agent === args.agent);
+      if (args.project) list = list.filter((l) => l.project === args.project);
+      if (!list.length) { out('Nothing stored.'); return; }
+      const total = list.reduce((n, l) => n + (l.size ?? 0), 0);
+      out(`${list.length} items, ${(total / 1024).toFixed(1)} kB:`);
+      for (const l of list) {
+        const mark = l.deleted_at ? ' [DELETED]' : (l.checked ? '' : ' [unchecked]');
+        out(`  ${l.sha256.slice(0, 12)}  ${String(l.ts ?? '').slice(0, 10)}  `
+          + `${String(l.size ?? 0).padStart(8)} B  ${(l.name ?? '?').padEnd(28)}${mark}`);
+        if (l.purpose) out(`                ${l.purpose}`);
+      }
+      return;
+    }
+
+    if (what === 'get') {
+      checkFlags(args, [], 'store get');
+      if (!rest[1]) die('store get: hash missing.');
+      const hits = store.holdings(root).filter((l) => l.sha256.startsWith(rest[1].toLowerCase()));
+      if (!hits.length) die(`No item with hash '${rest[1]}'.`);
+      if (hits.length > 1) die(`'${rest[1]}' is ambiguous (${hits.length} matches).`);
+      const l = hits[0];
+      if (l.deleted_at) {
+        die(`Deleted on ${l.deleted_at}${l.delete_reason ? `: ${l.delete_reason}` : ''}. `
+          + 'The proof remains, the bytes are gone.');
+      }
+      out(store.objectPath(root, l.sha256));
+      return;
+    }
+
+    if (what === 'verify') {
+      checkFlags(args, [], 'store verify');
+      const v = store.verify(root);
+      out(`${v.registered} registered (${(v.bytes / 1024).toFixed(1)} kB), ${v.deleted} deleted`);
+      if (v.unchecked) out(`  ${v.unchecked} did not pass redaction (binaries)`);
+      let bad = false;
+      for (const [label, l] of [['missing', v.missing], ['CHANGED', v.changed]]) {
+        if (!l.length) continue;
+        bad = true;
+        out(`  ${l.length} ${label}:`);
+        for (const x of l) out(`    ${x.sha256.slice(0, 12)}  ${x.name ?? '?'}`);
+      }
+      if (v.orphans.length) {
+        out(`  ${v.orphans.length} orphaned (on disk, in no register):`);
+        for (const h of v.orphans.slice(0, 10)) out(`    ${h.slice(0, 12)}`);
+      }
+      if (!bad && !v.orphans.length) out('  all intact');
+      return;
+    }
+
+    checkFlags(args, ['reason'], 'store remove');
+    if (!rest[1]) die('store remove: hash missing.');
+    const hits = store.holdings(root).filter((l) => l.sha256.startsWith(rest[1].toLowerCase()));
+    if (!hits.length) die(`No item with hash '${rest[1]}'.`);
+    if (hits.length > 1) die(`'${rest[1]}' is ambiguous (${hits.length} matches).`);
+    const r = store.remove(root, hits[0].sha256, { reason: args.reason ?? '' });
+    out(`Bytes ${r.bytesRemoved ? 'removed' : 'were already gone'}: ${r.hash.slice(0, 16)}…`);
+    out('  The register line stays as a tombstone — the hash still proves what was there.');
+  },
+
+  'topic-merge': async ({ rest, args }) => {
+    if (isHelp(args) || rest.length < 1 || !args.to) {
+      out([
+        'mem topic-merge <old> [<old2> ...] --to <new> [--why "..."]',
+        '',
+        '  Fold two or more topics into one name.',
+        '',
+        '  NOTHING is rewritten. The merge is a new line in',
+        '  global/topic-aliases.jsonl, applied on READ — whoever opens the',
+        '  raw file still finds what stood there. That is precisely what',
+        '  makes the memory trustworthy.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['to', 'why', 'agent'], 'topic-merge');
+    const root = findRoot(args);
+    requireConfig(root);
+    const r = memory.mergeTopics(root, rest, args.to, { why: args.why ?? '', agent: args.agent ?? null });
+    if (!r.written.length) { out('Nothing to do (source equals target).'); return; }
+    out(`${r.written.length} merged into '${r.target}':`);
+    for (const l of r.written) out(`  ${l.from}`);
+    const q = memory.topicQuality(root);
+    out(`\n  now ${q.topics} topics across ${q.areas} areas, ${q.entriesPerTopic} entries per topic`);
   },
 
   topics: async ({ args }) => {

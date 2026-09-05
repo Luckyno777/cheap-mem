@@ -51,6 +51,16 @@ error against it, later the lesson from that — only comes into being when
 a LATER entry reuses the same topic. A topic you invent is a bet that it
 will never come up again.
 
+**The area is the PROJECT. Do not put it in the name.** This was the
+second half of the same mistake: topics like `cheap-mem/retrieval` were
+written on entries already carrying `project: cheap-mem`, so the prefix
+repeated what was already known and helped precisely nowhere. The
+grouping people ask for when they say "72 topics is far too fine" already
+exists — it is called `project`, and on a real memory it produced **four**
+areas where the topic names suggested seventy-two.
+
+So a topic names only **the thing within its project**.
+
 Before every pass, fetch the existing ones:
 
     mem topics --names-only
@@ -59,19 +69,23 @@ Then, in this order:
 
 1. **Does an existing topic fit? Use it.** Verbatim. "Almost the same" is
    the same — `retrieval` and `retrieval-quality` are one topic, not two.
-2. **Does an existing area fit but not the leaf?** Hang it underneath:
-   `viewer/print`, not `printview`.
-3. **New is only what opens a new AREA** — and then with a slash, so the
-   second leaf has somewhere to go later.
+2. **Would a new one sit right beside an existing one?** Then it is that
+   one. Ask what you would call the pair; that name is the topic.
+3. **New is only genuinely new ground** inside this project.
 
-**Shape.** `area/thing`, lowercase, at most four words, at most 40
-characters, no punctuation, no brackets, no reference numbers. A topic is
-a handle you pull on — not a title.
+**Shape.** lowercase, at most four words, at most 40 characters, no
+punctuation, no brackets, no reference numbers, and **no project prefix**.
+A topic is a handle you pull on — not a title.
 
-    good    viewer/design · cheap-mem/retrieval · legal/payment-terms
+    good    design · retrieval · payment-terms
     bad     Where a rule repeated three times belongs
             Sentences with a value in them (slide 3, 42 seconds)
-            payments   (no area, becomes a singleton)
+            cheap-mem/retrieval   (inside project cheap-mem — repeats it)
+
+**Fixing what is already there.** Topics that turned out to be the same
+subject are folded with `mem topic-merge <old> ... --to <new>`. Nothing is
+rewritten: the merge is a new line applied on read, so the raw file still
+shows what stood there. Merging is cheap — inventing is not.
 
 **When in doubt, no `topic` at all.** An entry without one is still
 findable through search. An invented one is permanent noise in a list that
@@ -219,8 +233,29 @@ next run will pick it up; a lie will not be noticed for months.
 ## Every entry needs an origin
 
 ```
---origin '{"raw":"raw/2026/08/....jsonl.gz","session_id":"a1b2c3d"}'
+--origin '{"raw":"raw/2026/08/....jsonl.gz","session_id":"a1b2c3d","surface":"cloud","agent":"vm-admin"}'
 ```
 
 That is what makes an entry traceable back to the line it came from.
 An entry without provenance is a claim; with it, it is evidence.
+
+### `agent` belongs in the stamp
+
+`agent` is the second axis beside `project`: **`project` says what about,
+`agent` says who.** The same entry belongs to both. Without the field the
+agent board (`mem agents`) stays empty while several agents write — and
+then nobody can see who actually contributed what.
+
+Where to take it from, in this order:
+
+1. If `agent` is already in the capture header, use it.
+2. Otherwise from `surface`: `vm` → `vm-admin`, `cloud` → `session`.
+   (`mem log` does this derivation itself, so the axis fills even when
+   nobody remembers.)
+3. If YOU write the entry from your own judgement — synthesis, links,
+   core upkeep — it is your own name, not the session whose capture you
+   read. Whoever writes, owns it.
+
+Registered agents live under `agents/`; `mem agents` lists them. Using a
+name that is not registered is allowed and shows on the board as "in the
+memory, but with no folder" — a finding, not an error.

@@ -34,33 +34,86 @@ test('checkTopic flags the shapes that were actually in the corpus', () => {
   assert.equal(memory.checkTopic(null).ok, true);
 });
 
-test('a topic without a slash is reported as a future singleton', () => {
-  const c = memory.checkTopic('payments');
+test('a topic that repeats its project is reported', () => {
+  // Until 2026-09-05 the check demanded a prefix. That was backwards: the
+  // area comes from the entry's PROJECT, so a prefix in the name repeats it.
+  assert.equal(memory.checkTopic('payments').ok, true, 'no slash is no longer an error');
+  const c = memory.checkTopic('cheap-mem/retrieval', { area: 'cheap-mem' });
   assert.equal(c.ok, false);
-  assert.equal(c.warnings.length, 1);
-  assert.match(c.warnings[0], /no "\/"/);
+  assert.match(c.warnings[0], /repeats the project/);
+  assert.match(c.warnings[0], /'retrieval'/, 'the shorter form is suggested');
+  // In a different project the same prefix is not an error.
+  assert.equal(memory.checkTopic('cheap-mem/retrieval', { area: 'payments' }).ok, true);
 });
 
-test('topicTree bundles by the first path segment', () => {
+test('topicTree branches by PROJECT, not by the name', () => {
+  // The 2026-09-05 correction: 72 topics looked like 72 areas when there
+  // were four. The grouping had been there all along, called `project`.
   const r = root();
   try {
-    for (const [t, i] of [['viewer/design', 1], ['viewer/motion', 2], ['viewer/pwa', 3],
-      ['retrieval/bm25', 4], ['loose', 5]]) {
+    for (const [t, i] of [['transfers', 1], ['clauses', 2], ['translation', 3]]) {
       memory.logEntry(r, 'decision', { topic: t, choice: 'x', why: 'y' },
-        { now: new Date(`2026-01-0${i}T00:00:00Z`) });
+        { project: 'payments', now: new Date(`2026-01-0${i}T00:00:00Z`) });
     }
+    memory.logEntry(r, 'decision', { topic: 'quote', choice: 'x', why: 'y' },
+      { project: 'sales', now: new Date('2026-01-04T00:00:00Z') });
+    memory.logEntry(r, 'decision', { topic: 'no-project', choice: 'x', why: 'y' },
+      { now: new Date('2026-01-05T00:00:00Z') });
+
     const tree = memory.topicTree(r);
-    const viewer = tree.find((b) => b.area === 'viewer');
-    assert.equal(viewer.children.length, 3);
-    assert.equal(viewer.orphan, false);
-    assert.deepEqual(viewer.children.map((c) => c.leaf).sort(), ['design', 'motion', 'pwa']);
-    // A branch with one child is itself a singleton — the tree shows it.
-    assert.equal(tree.find((b) => b.area === 'retrieval').orphan, true);
-    // Topics without a slash land in a visible bucket of their own rather
-    // than hiding among the real areas.
-    assert.equal(tree.find((b) => b.area === '(no area)').children.length, 1);
-    // Biggest branch first: the ordering should show where things grow.
-    assert.equal(tree[0].area, 'viewer');
+    assert.deepEqual(tree.map((b) => b.area).sort(), ['(global)', 'payments', 'sales']);
+    assert.equal(tree[0].area, 'payments', 'biggest branch first');
+    assert.equal(tree.find((b) => b.area === 'payments').children.length, 3);
+    assert.equal(tree.find((b) => b.area === 'sales').orphan, true);
+  } finally { rm(r); }
+});
+
+test('a prefix repeating the project drops out of the tree', () => {
+  const r = root();
+  try {
+    memory.logEntry(r, 'decision', { topic: 'cheap-mem/retrieval', choice: 'x', why: 'y' },
+      { project: 'cheap-mem' });
+    memory.logEntry(r, 'decision', { topic: 'memory/store', choice: 'x', why: 'y' },
+      { project: 'cheap-mem' });
+    const b = memory.topicTree(r).find((x) => x.area === 'cheap-mem');
+    assert.deepEqual(b.children.map((c) => c.leaf).sort(), ['memory/store', 'retrieval'],
+      'only the repeated prefix goes; a foreign one stays');
+  } finally { rm(r); }
+});
+
+test('merging topics rewrites no line', () => {
+  // Append-only is why the memory can be trusted. A merge is therefore a
+  // NEW line applied on read; the old one stays exactly as written.
+  const r = root();
+  try {
+    memory.logEntry(r, 'decision', { topic: 'payments', choice: 'a', why: 'x' });
+    memory.logEntry(r, 'decision', { topic: 'payment-transfer', choice: 'b', why: 'x' });
+    memory.logEntry(r, 'decision', { topic: 'payment-details', choice: 'c', why: 'x' });
+    assert.equal(memory.topics(r).length, 3);
+
+    const raw = fs.readFileSync(path.join(r, 'global/decisions.jsonl'), 'utf8');
+    memory.mergeTopics(r, ['payment-transfer', 'payment-details'], 'payments',
+      { why: 'same subject, named three times' });
+
+    const t = memory.topics(r);
+    assert.equal(t.length, 1, 'on READ they are now one');
+    assert.equal(t[0].topic, 'payments');
+    assert.equal(t[0].count, 3);
+    assert.equal(fs.readFileSync(path.join(r, 'global/decisions.jsonl'), 'utf8'), raw,
+      'a written line was touched');
+    assert.ok(memory.topicEntries(r, 'payments').some((x) => x._topic_raw === 'payment-details'));
+  } finally { rm(r); }
+});
+
+test('chains resolve, cycles stop', () => {
+  const r = root();
+  try {
+    memory.logEntry(r, 'decision', { topic: 'a', choice: 'x', why: 'y' });
+    memory.mergeTopics(r, 'a', 'b');
+    memory.mergeTopics(r, 'b', 'c');
+    assert.equal(memory.topics(r)[0].topic, 'c', 'a->b->c must land on c');
+    memory.mergeTopics(r, 'c', 'a');
+    assert.doesNotThrow(() => memory.topics(r));
   } finally { rm(r); }
 });
 
@@ -73,7 +126,7 @@ test('topicQuality measures exactly the finding it exists for', () => {
     let q = memory.topicQuality(r);
     assert.equal(q.entriesPerTopic, 1, 'one entry per topic is the finding');
     assert.equal(q.singleShare, 1);
-    assert.equal(q.malformed, 5, 'all five without an area');
+    assert.equal(q.malformed, 0, 'a missing slash is no longer malformed');
 
     // Now later entries join existing topics — which is what turns a
     // topic into a thread in the first place.

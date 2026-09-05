@@ -158,3 +158,12 @@ vite.config.ts.timestamp-*
 /projects/
 /inbox/
 /raw/
+
+# Store: the BYTES stay out, the register stays in.
+# The audit trail is store/register.jsonl (hash, size, type, origin,
+# purpose) — small, readable, redactable. The objects themselves do not
+# belong in a history that never forgets: the clone would grow without
+# bound, and deleted content could never actually be removed (GDPR
+# Art. 17). Bytes gone, register line kept as a tombstone — that is the
+# deletion that works.
+store/objects/
