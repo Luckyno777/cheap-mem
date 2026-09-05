@@ -680,6 +680,29 @@ export const CACHE_WRITE_AFTER_BYTES = 4 * 1024 * 1024;
 /**
  * Add newly appended lines to an already-loaded index.
  *
+ * **What this does and does not keep exact.** Two layers, and only one of
+ * them is exact after an append:
+ *
+ *   exact        documents, docFreq, lexicon, avgLength. An appended
+ *                entry is findable immediately and its term statistics
+ *                are the same as a full rebuild would produce.
+ *   approximate  tagGraph and termGraph. These are NOT extended here.
+ *                They stay exactly as the last full build left them.
+ *
+ * The graphs are global co-occurrence structures with relative
+ * thresholds, so recomputing them means walking the whole corpus — which
+ * is the cost this path exists to avoid. Worse, a pair can DROP OUT of
+ * the graph as the corpus grows, because significance is relative: at 60
+ * documents a corpus had three learned pairs and at 71 it had two.
+ * Measured 2026-09-05 by a property test, after a weaker measurement in
+ * the round-two audit had reported "no divergence" from too few cases.
+ *
+ * So `rebuild == incremental` is TRUE for the exact layer and FALSE for
+ * ranking until the next full build. REBUILD_AFTER_FRACTION bounds how
+ * far ranking can drift; `loadIndex(root, { fresh: true })` removes the
+ * drift entirely. The returned index carries `graphsStale` so a caller
+ * that needs exactness can tell rather than assume.
+ *
  * Returns null when the change is not a pure append — a shrunk file, a
  * changed prefix, a file that disappeared — in which case the caller
  * falls back to a full build. Refusing is always safe; guessing is not.
@@ -851,7 +874,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
         const grown = appendToIndex(root, index, c.files, now, lang);
 
         if (grown && grown.added === 0) {
-          return { ...index, fromCache: true, appended: 0 };
+          return { ...index, fromCache: true, appended: 0, graphsStale: false };
         }
         // Rebuild rather than append once enough of the corpus is new that
         // the lexicon and the learned graphs would be measurably behind.
@@ -864,7 +887,13 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
             }
             writeCache(index, files, fullAt);
           }
-          return { ...index, fromCache: true, appended: grown.added };
+          // The learned graphs are NOT extended by an append — see
+          // appendToIndex. They are exactly the ones the last full build
+          // produced, so ranking lags behind the newest entries even
+          // though finding them does not. Saying so is the point: an
+          // approximation nobody declares is how a memory starts giving
+          // two different answers to the same question.
+          return { ...index, fromCache: true, appended: grown.added, graphsStale: grown.added > 0 };
         }
       }
     } catch { /* a broken cache is not an error, just a rebuild */ }
@@ -872,7 +901,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
 
   const index = buildIndex(root, { language });
   writeCache(index, stateOf(now, null), index.N);
-  return { ...index, fromCache: false, appended: 0 };
+  return { ...index, fromCache: false, appended: 0, graphsStale: false };
 }
 
 /** Lines in a file — only ever called on a full build. */
