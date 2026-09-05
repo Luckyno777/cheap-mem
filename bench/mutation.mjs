@@ -274,6 +274,64 @@ const MUTANTS=[
    from:'    contested: potentialConflicts(fair),',
    to:'    contested: [],  // MUTANT: never flag',
    tests:['test/retrieval.test.mjs'] },
+
+ // --- composed / architectural mutants ------------------------------------
+ //
+ // These do not remove a mechanism or flip a boundary. They violate an
+ // ARCHITECTURAL ASSUMPTION — where state may come from, in what order the
+ // layers run, whether a cache may decide meaning. Every fundamental bug
+ // found in this project belonged here, and none of the earlier mutants
+ // could have caught them.
+
+ { name:'ARCH state derived from the retrieval subset',
+   file:'src/state.mjs',
+   from:'export function deriveState(root) {',
+   to:'export function deriveState(root, hits) {\n  if (hits) return memory.retiredMap(hits);  // MUTANT: the original bug',
+   tests:['test/state.test.mjs'] },
+
+ { name:'ARCH state read from the index instead of the log',
+   file:'src/retrieval.mjs',
+   from:'  const claimState = statusOf(state, e.id);',
+   to:"  const claimState = hit.retired?.state ?? 'active';  // MUTANT: cache is truth again",
+   tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
+
+ { name:'ARCH state derived once per HIT instead of once per call',
+   file:'src/retrieval.mjs',
+   from:'  const state = deriveState(root);',
+   to:'  const state = new Map();  // MUTANT: no state at all',
+   tests:['test/state.test.mjs','test/retrieval.test.mjs','test/authority.test.mjs'] },
+
+ { name:'ARCH scope applied AFTER the result is assembled',
+   file:'src/retrieval.mjs',
+   from:'    if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); continue; }',
+   to:'    // MUTANT: scope checked nowhere',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'ARCH conflict flagged from the RAW hits, before filtering',
+   file:'src/retrieval.mjs',
+   from:'    contested: potentialConflicts(fair),',
+   to:'    contested: potentialConflicts(raw.map((h) => ({ topic: h.entry?.topic, scope: "x", author: h.entry?.author, id: h.entry?.id }))),  // MUTANT',
+   tests:['test/retrieval.test.mjs'] },
+
+ // NOTE: an earlier mutant here added an unused `deriveStateForQuery`
+ // export. It survived — correctly. Adding a function nobody calls changes
+ // no behaviour, so it is an EQUIVALENT mutant and no test can or should
+ // catch it. A surviving equivalent mutant is not a coverage gap; treating
+ // it as one would push toward tests that assert shapes instead of
+ // behaviour. It was replaced by the one below, which changes what the
+ // function actually returns.
+
+ { name:'ARCH state derived from only the first drawer',
+   file:'src/state.mjs',
+   from:'  for (const f of integrity.logFiles(root)) {',
+   to:'  for (const f of integrity.logFiles(root).slice(0, 1)) {  // MUTANT',
+   tests:['test/state.test.mjs','test/properties.test.mjs'] },
+
+ { name:'ARCH statusOf defaults to active for anything it does not know',
+   file:'src/state.mjs',
+   from:"  return state.get(id)?.state ?? 'active';",
+   to:"  return 'active';  // MUTANT: state ignored entirely",
+   tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
 ];
 
 let survived=0;

@@ -21,6 +21,7 @@
 import crypto from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
+import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
 import { loadIndex, search } from './search.mjs';
 
@@ -40,24 +41,32 @@ export const LIMITS = Object.freeze({
 });
 
 /** A claim as it leaves the memory. Fields only — no assembled text. */
-function toClaim(hit, { bodyChars }) {
+function toClaim(hit, { bodyChars, state }) {
   const e = hit.entry;
   const body = bodyOf(e);
   const truncated = body.length > bodyChars;
 
-  // Status comes from the INDEX, which computed it over the whole corpus.
+  // Status comes from the LOG, via deriveState — never from the index.
   //
-  // The first version recomputed `retiredMap` from the returned HITS,
-  // which is wrong by construction: status is a property of the LOG, not
-  // of a result set. If the retiring line did not match the query, the
-  // retirement was invisible and the claim came back `active`.
+  // Two bugs, one lesson. The first version recomputed status from the
+  // returned HITS, so a retirement whose line did not match the query was
+  // invisible. The second read it from `doc.retired` in the index, which
+  // is correct over the whole corpus but lives in `.mem/search-index.json`
+  // — gitignored, unsigned, outside the merge driver, outside the epoch
+  // watermark, invisible to git review. Editing that file changed what the
+  // memory considered active, both ways: a disputed poisoning claim served
+  // as active, and a genuine user claim suppressed. Measured 2026-09-05.
   //
-  // Measured 2026-09-05, and it was not cosmetic. An attacker controls
-  // their own wording: write a poisoning claim that matches the queries
-  // you want to reach, in words the victim's claim does not share, and
-  // the disputed status never surfaced — the entire supersession
-  // authorisation could be walked around without breaking any rule.
-  const state = hit.retired?.state ?? 'active';
+  // A cache had become the source of truth about MEANING, not speed. So:
+  //
+  //   the log decides what is TRUE
+  //   the index decides only what is FAST TO FIND
+  //
+  // 174 ms per derivation at 100 000 entries — the same order as the
+  // search it accompanies, and three orders of magnitude above the corpus
+  // this was built for. Correctness is worth that; the alternative is a
+  // security rule guarded by an unsigned local file.
+  const claimState = statusOf(state, e.id);
   return {
     id: e.id ?? null,
     type: e.type ?? hit.type ?? null,
@@ -71,7 +80,7 @@ function toClaim(hit, { bodyChars }) {
     ts: e.ts ?? null,
     valid_from: e.valid_from ?? null,
     valid_until: e.valid_until ?? null,
-    status: state,
+    status: claimState,
     score: hit.score,
   };
 }
@@ -204,12 +213,17 @@ export function retrieve(root, query, capability, {
     for (const hits of byTier) if (i < hits.length) raw.push(hits[i]);
   }
 
+  // Derived ONCE per call, from the log, with no query parameter. A
+  // function that reads the log itself cannot be handed a subset — which
+  // is how the first status bug happened.
+  const state = deriveState(root);
+
   const claims = [];
   const seenBody = new Map();
   let budget = limits.contextChars;
 
   for (const hit of raw) {
-    const c = toClaim(hit, { bodyChars: limits.bodyChars });
+    const c = toClaim(hit, { bodyChars: limits.bodyChars, state });
 
     if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); continue; }
     if (type && c.type && c.type !== type) { note(c.id, `wrong type (${c.type})`); continue; }
