@@ -39,7 +39,7 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // change. Bumping this forces a rebuild.
 // 3: the index carries the learned term co-occurrence graph. An older
 // cache has no termGraph, so it must be rebuilt rather than loaded.
-export const CACHE_VERSION = 3;
+export const CACHE_VERSION = 4;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -189,10 +189,13 @@ export const RAW_WEIGHT = 0.35;
  * One capture becomes ONE document (not one per line) — otherwise a
  * single long session would swamp the whole index.
  */
-function* rawDocuments(root, lexicon, lang) {
+function* rawDocuments(root, lexicon, lang, only = null) {
   let captures;
-  try { captures = raw.listCaptures(root); }
-  catch { return; }
+  if (only) captures = only;
+  else {
+    try { captures = raw.listCaptures(root); }
+    catch { return; }
+  }
 
   const openSet = (() => {
     try { return new Set(raw.pending(root).open); }
@@ -558,6 +561,68 @@ export function search(index, query, {
  * milliseconds (~10^12), so growth within the same millisecond was
  * invisible and the cache served stale hits.
  */
+/**
+ * Per-file state, cheap enough to compute on every search.
+ *
+ * The corpus stamp answers "did anything change" in one number, which is
+ * all a full rebuild needs to know. Appending needs more: WHICH file grew,
+ * by how much, and whether what came before is still the same bytes. So
+ * each log and each capture is tracked by its size plus a hash of the
+ * last slice of the part already indexed.
+ *
+ * That tail hash is the guard against the case that makes naive
+ * append-tracking wrong: `git pull --rebase` replays a local commit on
+ * top of a remote one, so a line can appear in the MIDDLE of a file that
+ * only ever gets appended to locally. Size alone would then read the
+ * wrong tail and index a line twice while missing another. Hashing the
+ * end of the indexed prefix catches exactly that, with one positioned
+ * read of at most 4 KB instead of a pass over the file.
+ */
+const TAIL_BYTES = 4096;
+
+function tailHash(file, upto) {
+  if (upto <= 0) return '0';
+  const from = Math.max(0, upto - TAIL_BYTES);
+  const len = upto - from;
+  const buf = Buffer.allocUnsafe(len);
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    fs.readSync(fd, buf, 0, len, from);
+  } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* fine */ } }
+  // FNV-1a: no dependency, and collisions here cost a needless rebuild,
+  // never a wrong answer.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < buf.length; i += 1) {
+    h ^= buf[i];
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${len}:${h.toString(36)}`;
+}
+
+/** Every file the index is built from, with its current size. */
+export function indexedFiles(root, { types = null } = {}) {
+  const out = new Map();
+  const targetTypes = types ?? Object.keys(memory.TYPES);
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const type of targetTypes) {
+      let p;
+      try { p = memory.logPath(root, type, project); } catch { continue; }
+      let st;
+      try { st = fs.statSync(p); } catch { continue; }
+      out.set(path.relative(root, p), { bytes: st.size, kind: 'log', type, project });
+    }
+  }
+  let captures = [];
+  try { captures = raw.listCaptures(root); } catch { /* no raw/ */ }
+  for (const rel of captures) {
+    let st;
+    try { st = fs.statSync(path.join(root, rel)); } catch { continue; }
+    out.set(rel, { bytes: st.size, kind: 'raw' });
+  }
+  return out;
+}
+
 export function corpusStamp(root) {
   let files = 0;
   let bytes = 0;
@@ -578,41 +643,243 @@ export function corpusStamp(root) {
   return `${files}:${bytes}:${newest}`;
 }
 
+/**
+ * How much of the corpus may be added incrementally before the index is
+ * rebuilt from scratch.
+ *
+ * Appending updates the documents, the term frequencies and the
+ * averages exactly. It does NOT recompute the compound lexicon or the
+ * two learned graphs (tags, term co-occurrence) — those are corpus-wide
+ * statistics, and recomputing them is most of what a build costs. They
+ * drift instead, and this threshold bounds the drift: once a fifth of
+ * the corpus arrived after the last full build, the next search pays for
+ * a real one. Retrieval quality therefore lags the newest entries a
+ * little; finding them does not, because the documents themselves are in
+ * the index immediately.
+ */
+export const REBUILD_AFTER_FRACTION = 0.2;
+
+/**
+ * How many new log bytes may accumulate before the cache file is written
+ * again.
+ *
+ * Writing it costs a full serialization — 82 MB of JSON at 200k entries,
+ * about 2.6 s. Doing that after every appended line turns a 1.5 s load
+ * into a 4.2 s one and throws away most of what appending buys. So the
+ * cache is left alone while the un-cached tail stays small: the next
+ * search re-reads and re-parses those same few lines, which costs
+ * milliseconds, and the expensive write happens once per few thousand
+ * entries instead of once per entry.
+ *
+ * The trade is bounded in both directions: never more than this many
+ * bytes re-parsed per search, never more than one full write per this
+ * many bytes captured.
+ */
+export const CACHE_WRITE_AFTER_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Add newly appended lines to an already-loaded index.
+ *
+ * Returns null when the change is not a pure append — a shrunk file, a
+ * changed prefix, a file that disappeared — in which case the caller
+ * falls back to a full build. Refusing is always safe; guessing is not.
+ */
+function appendToIndex(root, index, before, now, lang) {
+  const added = [];
+  const lastLines = new Map();   // rel -> line count after this append
+  let newBytes = 0;
+
+  for (const [rel, cur] of now) {
+    const old = before[rel];
+    if (!old) {                       // a file that did not exist before
+      newBytes += cur.bytes;
+      if (cur.kind === 'log') {
+        const parsed = parseLogTail(root, rel, { ...cur, linesBefore: 0 }, 0);
+        if (!parsed) return null;
+        added.push(...parsed);
+        lastLines.set(rel, parsed.length ? parsed[parsed.length - 1].line : 0);
+      }
+      continue;                       // new captures are handled below
+    }
+    if (cur.bytes === old.bytes) {
+      if (tailHash(path.join(root, rel), cur.bytes) !== old.tail) return null;
+      continue;                       // untouched
+    }
+    if (cur.bytes < old.bytes) return null;              // shrunk: rewritten
+    if (tailHash(path.join(root, rel), old.bytes) !== old.tail) return null;  // prefix moved
+    if (cur.kind !== 'log') return null;                 // a capture never grows
+    newBytes += cur.bytes - old.bytes;
+    const parsed = parseLogTail(root, rel, { ...cur, linesBefore: old.lines ?? 0 }, old.bytes);
+    if (!parsed) return null;
+    added.push(...parsed);
+    lastLines.set(rel, parsed.length ? parsed[parsed.length - 1].line : (old.lines ?? 0));
+  }
+  for (const rel of Object.keys(before)) {
+    if (!now.has(rel)) return null;   // something was deleted: rebuild
+  }
+
+  // Captures are whole new files; index them the same way a build does.
+  const knownRaw = new Set(Object.keys(before).filter((r) => before[r].kind === 'raw'));
+  const freshRaw = [...now.keys()].filter((r) => now.get(r).kind === 'raw' && !knownRaw.has(r));
+  const rawDocs = freshRaw.length
+    ? [...rawDocuments(root, lang.compounds ? index.lexicon : null, lang, freshRaw)]
+    : [];
+
+  // A tombstone or correction in the new lines retires an entry that is
+  // already indexed — so the retired map is applied to the WHOLE index,
+  // not only to what just arrived. Missing this would leave a discarded
+  // entry answering searches until the next full build.
+  const retired = memory.retiredMap(added.map((d) => d.entry));
+  if (retired.size) {
+    for (const doc of index.documents) {
+      const info = doc.entry && doc.entry.id ? retired.get(doc.entry.id) : null;
+      if (info) doc.retired = info;
+    }
+  }
+
+  let lengthSum = index.avgLength * index.N;
+  const push = (doc) => {
+    if (doc.weights.size === 0) return;
+    let length = 0;
+    for (const g of doc.weights.values()) length += g;
+    lengthSum += length;
+    for (const t of doc.weights.keys()) index.docFreq.set(t, (index.docFreq.get(t) ?? 0) + 1);
+    index.documents.push({ ...doc, length });
+  };
+  for (const d of added) {
+    if (memory.isClosingLine(d.entry)) continue;
+    const info = d.entry.id ? retired.get(d.entry.id) : null;
+    push({
+      ...d,
+      weights: fieldsOfEntry(d.entry, { lexicon: lang.compounds ? index.lexicon : null, lang }),
+      ...(info ? { retired: info } : {}),
+    });
+  }
+  for (const d of rawDocs) push(d);
+
+  index.N = index.documents.length;
+  index.avgLength = index.N ? lengthSum / index.N : 1;
+  return { added: added.length + rawDocs.length, newBytes, lastLines };
+}
+
+/** The lines of one log file from byte `from` on, as index entries. */
+function parseLogTail(root, rel, info, from) {
+  const full = path.join(root, rel);
+  let text;
+  try {
+    const fd = fs.openSync(full, 'r');
+    try {
+      const len = info.bytes - from;
+      const buf = Buffer.allocUnsafe(len);
+      fs.readSync(fd, buf, 0, len, from);
+      text = buf.toString('utf8');
+    } finally { fs.closeSync(fd); }
+  } catch { return null; }
+
+  // Line numbers keep counting from the start of the file, or every
+  // `source:line` the search prints would be wrong. The count comes from
+  // the stored state — re-reading the prefix just to count newlines would
+  // put the whole file back in the hot path, which is the cost this
+  // function exists to avoid.
+  let lineNo = (info.linesBefore ?? 0) + 1;
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (line.trim()) {
+      let e;
+      try { e = JSON.parse(line); } catch { lineNo += 1; continue; }
+      out.push({ entry: e, type: info.type, project: info.project, source: rel, line: lineNo });
+    }
+    lineNo += 1;
+  }
+  return out;
+}
+
 export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   const cachePath = path.join(root, CACHE_FILE);
-  const stamp = corpusStamp(root);
+  const lang = pack(language);
+
+  const writeCache = (index, files, fullAt) => {
+    try {
+      fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+      fs.writeFileSync(cachePath, JSON.stringify({
+        version: CACHE_VERSION,
+        language: index.language,
+        files,
+        fullAt,
+        index: {
+          ...index,
+          documents: index.documents.map((d) => ({ ...d, weights: [...d.weights] })),
+          docFreq: [...index.docFreq],
+          lexicon: [...index.lexicon],
+          tagGraph: thesaurus.packTagGraph(index.tagGraph),
+          termGraph: thesaurus.packTagGraph(index.termGraph),
+        },
+      }));
+    } catch { /* an unwritable cache costs speed, not correctness */ }
+  };
+
+  // The state of every file the index covers, right now.
+  const now = indexedFiles(root);
+  const stateOf = (files, lines) => {
+    const out = {};
+    for (const [rel, info] of files) {
+      out[rel] = {
+        bytes: info.bytes,
+        kind: info.kind,
+        type: info.type,
+        project: info.project,
+        lines: lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
+        tail: tailHash(path.join(root, rel), info.bytes),
+      };
+    }
+    return out;
+  };
+
   if (!fresh && fs.existsSync(cachePath)) {
     try {
       const c = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      if (c.version === CACHE_VERSION && c.stamp === stamp && c.language === pack(language).name) {
-        return {
+      if (c.version === CACHE_VERSION && c.language === lang.name && c.files) {
+        const index = {
           ...c.index,
           documents: c.index.documents.map((d) => ({ ...d, weights: new Map(d.weights) })),
           docFreq: new Map(c.index.docFreq),
           lexicon: new Set(c.index.lexicon),
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
           termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
-          fromCache: true,
         };
+        const fullAt = c.fullAt ?? index.N;
+        const grown = appendToIndex(root, index, c.files, now, lang);
+
+        if (grown && grown.added === 0) {
+          return { ...index, fromCache: true, appended: 0 };
+        }
+        // Rebuild rather than append once enough of the corpus is new that
+        // the lexicon and the learned graphs would be measurably behind.
+        if (grown && index.N <= fullAt * (1 + REBUILD_AFTER_FRACTION)) {
+          if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) {
+            const files = stateOf(now, grown.lastLines);
+            // Line counts for untouched files carry over unchanged.
+            for (const [rel, old] of Object.entries(c.files)) {
+              if (files[rel] && !grown.lastLines.has(rel)) files[rel].lines = old.lines ?? files[rel].lines;
+            }
+            writeCache(index, files, fullAt);
+          }
+          return { ...index, fromCache: true, appended: grown.added };
+        }
       }
-    } catch { /* broken cache is not an error, just a rebuild */ }
+    } catch { /* a broken cache is not an error, just a rebuild */ }
   }
+
   const index = buildIndex(root, { language });
+  writeCache(index, stateOf(now, null), index.N);
+  return { ...index, fromCache: false, appended: 0 };
+}
+
+/** Lines in a file — only ever called on a full build. */
+function countLines(root, rel) {
   try {
-    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-    fs.writeFileSync(cachePath, JSON.stringify({
-      version: CACHE_VERSION,
-      stamp,
-      language: index.language,
-      index: {
-        ...index,
-        documents: index.documents.map((d) => ({ ...d, weights: [...d.weights] })),
-        docFreq: [...index.docFreq],
-        lexicon: [...index.lexicon],
-        tagGraph: thesaurus.packTagGraph(index.tagGraph),
-        termGraph: thesaurus.packTagGraph(index.termGraph),
-      },
-    }));
-  } catch { /* an unwritable cache costs speed, not correctness */ }
-  return { ...index, fromCache: false };
+    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    if (!text) return 0;
+    return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
+  } catch { return 0; }
 }

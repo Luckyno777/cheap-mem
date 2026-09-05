@@ -73,7 +73,16 @@ if [ "${MEM_STOP_NO_PUSH:-}" != "1" ] && [ -d "$ROOT/.git" ]; then
     # fast-forward), then stage ONLY raw/ — never `git add -A`, which
     # would drag local pipeline state in.
     cap 30 git -C "$ROOT" pull --ff-only -q >/dev/null 2>&1 || true
-    git -C "$ROOT" add raw/ >/dev/null 2>&1 || true
+    # Two sessions ending at once fight over .git/index.lock, and git
+    # simply fails. Measured: of eight concurrent capture-commits, one
+    # got through. Every loser swallowed its error here and the hook
+    # still reported success — so in a container that gets reclaimed,
+    # that capture was gone. Waiting a moment costs nothing and turns
+    # the collision into a queue.
+    for attempt in 1 2 3 4 5; do
+      git -C "$ROOT" add raw/ >/dev/null 2>&1 && break
+      sleep 1
+    done
     if git -C "$ROOT" commit -q -m "capture: $(date -u +%Y-%m-%dT%H-%M-%SZ)" >/dev/null 2>&1; then
       if ! ( cap 30 git -C "$ROOT" push -q origin HEAD:main ) >/dev/null 2>&1; then
         # Remote moved ahead — rebase once and retry.

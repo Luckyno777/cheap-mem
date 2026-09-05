@@ -68,6 +68,15 @@ identically to both sides: trust the ratio, not the absolutes.
 
 Run it against your own memory and send the numbers if they differ.
 
+## How big can one memory get
+
+Keep one memory under about **50,000 entries**; split into one memory per
+team or product past that. Measured, not estimated: at 50k a search costs
+61 ms and loading the index 430 ms; at 200k that is 247 ms and 1.7 s, and
+the recall hook stops being invisible. At 500–1000 entries a day that
+point arrives in a few months, so decide the boundary early —
+[docs/scale.md](docs/scale.md) has the numbers and the reasoning.
+
 ## What lives where
 
 ```

@@ -424,8 +424,31 @@ function checkGitState(root) {
   const branch = quietRun('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD']);
   if (branch === null) return finding('git', LEVEL.UNKNOWN, 'not a git clone (or git missing)');
   const dirty = quietRun('git', ['-C', root, 'status', '--porcelain']);
-  const n = dirty ? dirty.split('\n').filter(Boolean).length : 0;
-  return finding('git', LEVEL.GOOD, `${branch.trim()}${n ? `, ${n} uncommitted changes` : ', clean'}`);
+  const lines = dirty ? dirty.split('\n').filter(Boolean) : [];
+  if (lines.length === 0) return finding('git', LEVEL.GOOD, `${branch.trim()}, clean`);
+
+  // Uncommitted MEMORY is the visible end of a silent failure. The Stop
+  // hook and the digest both commit best-effort and swallow what goes
+  // wrong — two sessions sharing a clone collide on git's index lock,
+  // one of them writes its capture and never commits it, and the hook
+  // still reports success. In an environment that gets reclaimed, that
+  // capture is simply gone.
+  //
+  // This check used to report GOOD no matter how much was uncommitted,
+  // which made the one place that could have surfaced the loss stay
+  // quiet about it. Content is now a warning; a dirty working copy of
+  // the tooling is not.
+  const CONTENT = /^..\s+(raw\/|global\/|projects\/|inbox\/|digested\.jsonl|FACTS\.md)/;
+  const content = lines.filter((l) => CONTENT.test(l));
+  if (content.length === 0) {
+    return finding('git', LEVEL.GOOD,
+      `${branch.trim()}, ${lines.length} uncommitted (none of them memory)`);
+  }
+  return finding('git', LEVEL.WARN,
+    `${branch.trim()}, ${content.length} uncommitted memory files`,
+    'Memory that is not committed does not travel and does not survive a '
+    + 'rebuilt container. Commit and push them: git add -A && git commit && git push. '
+    + `First: ${content.slice(0, 2).map((l) => l.slice(3)).join(', ')}`);
 }
 
 /** Findings as text. `problemsOnly` hides what is fine. */
