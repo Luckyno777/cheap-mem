@@ -55,28 +55,73 @@ if [ "${HEALTH#broken}" != "$HEALTH" ]; then
   exit 1
 fi
 
-# Check the staged content. Text files only; gz and binaries were
-# already redacted at capture time and cannot be read usefully here.
-FINDINGS="$(git diff --cached --name-only --diff-filter=ACM | node -e "
-const fs=require('fs');
+# Check only the ADDED lines of the staged diff, read from the index —
+# not the working tree.
+#
+# Two reasons, both learned expensively:
+#
+# 1. Whole-file checking locked append-only logs forever. On 2026-09-03 a
+#    false positive from late August blocked a memory's errors.jsonl for
+#    good: a redaction pattern added later matched, retroactively, prose
+#    that had been committed before it existed. JSONL is append-only and
+#    must not be redacted backwards, so the file could only be committed
+#    with --no-verify — that is, with no check at all. A gate that forces
+#    people to bypass it protects worse than one that checks only what is
+#    new.
+#
+# 2. Working tree instead of index was a hole. The file on disk was read,
+#    but the index is what gets committed. Staging a secret and then
+#    cleaning the file got through — exactly backwards from the intent.
+#
+# What the diff no longer sees, the watcher sees across the whole history.
+# This layer has one job: let nothing NEW through.
+FINDINGS="$(git diff --cached --diff-filter=ACM -U0 | node -e "
+const {execFileSync}=require('child_process');
 const {pathToFileURL}=require('url');
 let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{
   const r=await import(pathToFileURL('$PKG/src/redaction.mjs').href);
   const secrets=r.envSecrets();
+
+  // Split the diff into added lines per file.
+  const perFile=new Map();
+  let file=null;
+  for (const line of d.split('\n')) {
+    if (line.startsWith('+++ ')) {
+      const p=line.slice(4);
+      file = p === '/dev/null' ? null : p.startsWith('b/') ? p.slice(2) : p;
+      continue;
+    }
+    if (line.startsWith('--- ') || line.startsWith('diff --git')) continue;
+    if (file && line.startsWith('+')) {
+      if (!perFile.has(file)) perFile.set(file, []);
+      perFile.get(file).push(line.slice(1));
+    }
+  }
+
   const found=[];
-  for (const file of d.split('\n').filter(Boolean)) {
-    if (/\.(gz|png|jpg|jpeg|gif|pdf|zip|woff2?|ico)\$/i.test(file)) continue;
-    let content;
-    try { content=fs.readFileSync('$ROOT/'+file,'utf8'); } catch { continue; }
+  for (const [name, lines] of perFile) {
+    if (/\.(gz|png|jpg|jpeg|gif|pdf|zip|woff2?|ico)\$/i.test(name)) continue;
+    const content=lines.join('\n');
+    if (!content.trim()) continue;
     if (content.length > 5*1024*1024) continue;
-    // Files that deliberately contain sample secrets (the redaction
-    // itself, its tests) carry the marker CANARY FILE. Without that,
-    // redaction.mjs could never be committed. A path list would be
-    // wrong here — it goes stale; the marker travels with the file.
-    if (content.includes('CANARY'+' FILE')) continue;
+
     const a=r.redact(content);
     const b=r.redactAgainstEnv(content, secrets);
-    for (const f of [...a.found, ...b.found]) found.push(file+': '+f.type+' x'+f.count);
+    const hits=[...a.found, ...b.found];
+    if (hits.length === 0) continue;
+
+    // Files that deliberately contain sample secrets (the redaction
+    // itself, its tests) carry the marker CANARY FILE. Without that,
+    // redaction.mjs could never be committed. The marker sits somewhere
+    // in the file, not necessarily in the diff — so read it from the
+    // INDEX, not from disk. A path list would be wrong here: it goes
+    // stale; the marker travels with the file.
+    let staged='';
+    try { staged=execFileSync('git',['show',':'+name],{encoding:'utf8',maxBuffer:64*1024*1024}); }
+    catch { /* deleted or unreadable — then without */ }
+    if (staged.includes('CANARY'+' FILE')) continue;
+
+    for (const f of hits) found.push(name+': '+f.type+' x'+f.count);
   }
   process.stdout.write(found.join('\n'));
 });" 2>/dev/null)"
