@@ -76,7 +76,7 @@ test('the embedded JSON payload parses and escapes </script>', () => {
   assert.ok(m, 'data block present');
   assert.equal(m[1].includes('</script>'), false);
   const json = JSON.parse(m[1].replace(/<\\\//g, '</').replace(/<\\!--/g, '<!--'));
-  assert.equal(json.rows[0].headline.includes('break </script> out'), true);
+  assert.equal(json.memories[0].entries[0].headline.includes('break </script> out'), true);
 });
 
 test('the viewer never reads raw/ (redaction stays upstream)', () => {
@@ -96,8 +96,12 @@ test('an empty memory renders a valid, zero-row page', () => {
   assert.match(html, /^<!doctype html>/i);
   const m = html.match(/<script id="data"[^>]*>([\s\S]*?)<\/script>/);
   const json = JSON.parse(m[1].replace(/<\\\//g, '</').replace(/<\\!--/g, '<!--'));
-  assert.equal(json.rows.length, 0);
-  assert.equal(json.stats.total, 0);
+  // The payload carries a LIST of memories, one today. Shaped that way
+  // from the start so sharding — which docs/scale.md tells teams to do
+  // past 50k entries — does not need the format changed later.
+  assert.equal(json.memories.length, 1);
+  assert.equal(json.memories[0].entries.length, 0);
+  assert.equal(json.memories[0].counts.total, 0);
 });
 
 test('retired entries are shown in the viewer, marked', () => {
@@ -109,7 +113,9 @@ test('retired entries are shown in the viewer, marked', () => {
   assert.ok(r, 'retired entry still in the viewer (history stays)');
   assert.equal(r.retired.state, 'discarded');
   const { html } = viewer.build(root, {});
-  assert.equal(html.includes('badge gone'), true);
+  // Shown, and marked as retired — the class carries the marking, and a
+  // switch turns the viewer back into the everyday-recall view.
+  assert.equal(html.includes('chip gone'), true);
   assert.equal(html.includes('only live'), true);
 });
 
