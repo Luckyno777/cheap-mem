@@ -25,6 +25,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
 import * as environment from './environment.mjs';
+import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
 import * as raw from './raw.mjs';
@@ -78,6 +79,7 @@ export function checkAll(root) {
   f.push(checkBehind(root));
   f.push(checkGitState(root));
   f.push(checkIntegrity(root));
+  f.push(checkRollback(root));
   f.push(...checkEnvironmentContract(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
@@ -734,4 +736,47 @@ function newestTimestamp(root) {
     }
   }
   return newest;
+}
+
+
+// --- did the memory go backwards? ------------------------------------------
+
+/**
+ * Rollback and resurrection.
+ *
+ * Check out an older commit, or restore a stale backup, and a claim that
+ * had been superseded is active again — and from inside that state
+ * everything looks correct, because it WAS correct then. The only way to
+ * know is to have seen further, which is what the local watermark records.
+ *
+ * Reported as an ERROR rather than a warning: silently answering from a
+ * rolled-back memory is the failure this exists to prevent.
+ */
+export function checkRollback(root) {
+  let state;
+  try { state = epoch.checkEpoch(root); }
+  catch { return finding('rollback', LEVEL.UNKNOWN, 'could not compare against the watermark'); }
+
+  if (state.status === 'semantics-changed') {
+    return finding('rollback', LEVEL.WARN,
+      `watermark predates a rules change (${state.detail})`,
+      'The derived state is not comparable across a semantic version bump, so a '
+      + 'rollback cannot be detected until the mark is retaken: `mem epoch record --force`.');
+  }
+  if (state.status === 'first') {
+    return finding('rollback', LEVEL.UNKNOWN,
+      'no watermark yet — this run cannot detect a rollback, only establish the mark',
+      'Run `mem epoch record` once on a state you trust. A fresh clone always starts here.');
+  }
+  if (state.status === 'rollback') {
+    const names = state.resurrected.slice(0, 5).join(', ');
+    return finding('rollback', LEVEL.ERROR,
+      `the memory went BACKWARDS: ${state.lostClaims > 0 ? `${state.lostClaims} claim(s) gone, ` : ''}`
+      + `${state.resurrected.length} retired claim(s) active again${names ? ` (${names})` : ''}`,
+      'An older checkout or a stale backup. Restore the newer state, or — if the '
+      + 'rollback was intended — accept it deliberately with `mem epoch record --force`.');
+  }
+  return finding('rollback', LEVEL.GOOD,
+    `${state.current.claims} claims, ${state.current.retiredCount} retired `
+    + `(watermark from ${state.mark.seenAt})`);
 }

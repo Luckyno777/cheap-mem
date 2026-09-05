@@ -30,6 +30,7 @@ import * as thesaurus from '../src/thesaurus.mjs';
 import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
 import * as retrieval from '../src/retrieval.mjs';
+import * as epoch from '../src/epoch.mjs';
 import * as capability from '../src/capability.mjs';
 import * as embedmod from '../src/embed/index.mjs';
 import * as embedHook from '../src/embed-hook.mjs';
@@ -1186,6 +1187,48 @@ const COMMANDS = {
       : `${id}: not returned — ${r.reason}`);
   },
 
+  epoch: async ({ rest, args }) => {
+    const sub = rest[0] ?? 'show';
+    if (isHelp(args) || !['show', 'record'].includes(sub)) {
+      out([
+        'mem epoch [show|record] [--force]',
+        '',
+        '  show    has the memory gone backwards since this machine last looked?',
+        '  record  move the watermark forward. Refuses to lower it without --force.',
+        '',
+        '  The watermark is LOCAL and gitignored on purpose: one committed',
+        '  alongside the log would travel back with the checkout it is meant',
+        '  to detect. It stores no memory content — only how far this machine',
+        '  has already seen. Delete it and you lose detection, not data.',
+        '',
+        '  Limits, stated plainly: a fresh clone has no watermark and so cannot',
+        '  detect anything on its first run; and anyone who can write the',
+        '  repository can delete the file. This catches accidents and stale',
+        '  restores, not a determined adversary with filesystem access.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['force'], 'epoch');
+    const root = findRoot(args);
+    requireConfig(root);
+    if (sub === 'show') {
+      const s = epoch.checkEpoch(root);
+      out(`status: ${s.status}`);
+      out(`  now:  ${s.current.claims} claims, ${s.current.retiredCount} retired`);
+      if (s.mark) out(`  mark: ${s.mark.claims} claims, ${s.mark.retiredCount} retired (${s.mark.seenAt})`);
+      if (s.resurrected.length) out(`  resurrected: ${s.resurrected.join(', ')}`);
+      process.exit(s.status === 'rollback' ? 2 : 0);
+    }
+    const r = epoch.recordEpoch(root, { force: Boolean(args.force) });
+    if (!r.written) {
+      warn('refusing to lower the watermark — the memory is BEHIND what this machine saw.');
+      warn(`  ${r.resurrected.length} retired claim(s) are active again: ${r.resurrected.slice(0, 5).join(', ')}`);
+      warn('  Pass --force only if this rollback is intended.');
+      process.exit(2);
+    }
+    out(`watermark: ${r.current.claims} claims, ${r.current.retiredCount} retired`);
+  },
+
   doctor: async ({ args }) => {
     if (isHelp(args)) {
       out([
@@ -2315,6 +2358,7 @@ function writeMemoryGitignore(root) {
   const p = path.join(root, '.gitignore');
   const wanted = [
     ['.mem/embed.env', 'API keys. NEVER commit this.'],
+    ['.mem/epoch.json', 'Local rollback watermark. Never commit: a tracked one\n     travels back with the checkout it is meant to detect.'],
     ['.mem/search-index.json', 'derived: rebuilt in milliseconds'],
     ['.mem/vectors.db', 'derived: rebuild with `mem embed backfill`'],
     ['.mem/raw-offsets.json', 'per-machine read positions'],

@@ -93,3 +93,41 @@ export function maySupersede(claim, target) {
   }
   return { ok: false, reason: `${ct} does not outrank ${tt}` };
 }
+
+/**
+ * The highest tier a writer is permitted to assert.
+ *
+ * The gap this closes (found 2026-09-05, in the final verification round):
+ * the digest is the ONE place a model writes claims into the log, and it
+ * had no ceiling at all. `authority` was whatever the model emitted. That
+ * composes badly with the injection threat — text in a captured transcript
+ * can steer what the digest writes — so a sentence in someone else's
+ * document could mint a `user`-tier claim and overrule everything.
+ *
+ * A model's output is an inference over other claims. That is exactly what
+ * the `inferred` tier means, and it is where the ceiling belongs.
+ *
+ * Enforced on the WRITE path rather than by asking the digest nicely: an
+ * instruction in a prompt is a request, and the thing being constrained
+ * here is precisely a process that may have been told otherwise.
+ */
+export const CEILING_ENV = 'CHEAP_MEM_MAX_AUTHORITY';
+
+export function ceilingFromEnv(env = process.env) {
+  const raw = String(env[CEILING_ENV] ?? '').toLowerCase().trim();
+  return TIERS.includes(raw) ? raw : null;
+}
+
+/**
+ * Lower `tier` to `ceiling` when it claims more. Never raises.
+ *
+ * Returns `{ tier, clamped, from }` so the caller can record that a
+ * demotion happened — a silent one would hide exactly the event worth
+ * seeing.
+ */
+export function clampTier(tier, ceiling) {
+  const t = TIERS.includes(String(tier ?? '').toLowerCase()) ? String(tier).toLowerCase() : DEFAULT_TIER;
+  if (!ceiling || !TIERS.includes(ceiling)) return { tier: t, clamped: false, from: t };
+  if (rank(t) < rank(ceiling)) return { tier: ceiling, clamped: true, from: t };
+  return { tier: t, clamped: false, from: t };
+}

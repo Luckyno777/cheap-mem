@@ -37,6 +37,21 @@ TIMEOUT="${MEM_DIGEST_TIMEOUT:-600}"
 CMD="${MEM_DIGEST_CMD:-claude -p}"
 LOG="${MEM_DIGEST_LOG:-$ROOT/.mem/digest.log}"
 MAX_BYTES="${MEM_DIGEST_MAX_BYTES:-2000000}"
+
+# Authority ceiling for everything this run writes.
+#
+# The digest is the ONE place a model writes claims into the log, and until
+# 2026-09-05 it had no ceiling: `authority` was whatever the model emitted.
+# That composes badly with injection — text inside a captured transcript
+# steers what the digest produces — so a sentence in someone else's
+# document could mint a `user`-tier claim and overrule everything.
+#
+# A model's output is an inference over other claims, which is precisely
+# what `inferred` means. Set here rather than requested in the prompt: an
+# instruction is a request, and the process being constrained is exactly
+# the one that may have been told otherwise. src/memory.mjs enforces it
+# and records any demotion in `authority_clamped_from`.
+export CHEAP_MEM_MAX_AUTHORITY="${CHEAP_MEM_MAX_AUTHORITY:-inferred}"
 mkdir -p "$(dirname "$LOG")"
 
 note() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }

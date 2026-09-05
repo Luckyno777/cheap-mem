@@ -168,10 +168,35 @@ test('an oversized query is capped rather than passed through', () => {
 });
 
 test('top is clamped to maxResults however large a caller asks', () => {
-  const many = Array.from({ length: 120 }, (_, i) => claim(`e${i}`));
+  // DISTINCT bodies, and more of them than the cap.
+  //
+  // The first version of this test used 120 IDENTICAL claims. They all
+  // collapsed into one through body deduplication, so the result was a
+  // single claim and the assertion held whether or not the cap existed.
+  // Mutation testing caught it: removing the clamp left this test green.
+  // A test that passes with the mechanism disabled proves nothing and
+  // reads like proof.
+  const many = Array.from({ length: 120 }, (_, i) =>
+    claim(`e${i}`, { why: `distinct reasoning number ${i} about kolibri routing` }));
   const root = memoryWith({ a: many });
-  const r = retrieve(root, 'kolibri', grantProject('a'), { top: 10000 });
+  const r = retrieve(root, 'kolibri routing', grantProject('a'), { top: 10000 });
+  assert.ok(r.claims.length > 1, 'the fixture degenerated — the cap is not being exercised');
+  assert.ok(r.claims.length <= LIMITS.maxResults,
+    `${r.claims.length} claims returned, cap is ${LIMITS.maxResults}`);
+  rm(root);
+});
+
+test('the over-fetch is bounded too — a huge top must not scan without limit', () => {
+  // The clamp above bounds what comes BACK. This bounds what is looked at:
+  // an unbounded over-fetch would turn `top: 1e9` into a denial of service
+  // even though the answer stays small.
+  const many = Array.from({ length: 200 }, (_, i) =>
+    claim(`e${i}`, { why: `distinct reasoning number ${i} about kolibri routing` }));
+  const root = memoryWith({ a: many });
+  const started = Date.now();
+  const r = retrieve(root, 'kolibri routing', grantProject('a'), { top: 1e9 });
   assert.ok(r.claims.length <= LIMITS.maxResults);
+  assert.ok(Date.now() - started < 5000, 'an absurd top made retrieval slow');
   rm(root);
 });
 

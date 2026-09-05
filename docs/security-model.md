@@ -221,7 +221,50 @@ every fresh memory started without the guarantee its own design depends on.
 | **T3** | secret in a body | redacted before disk | canary, hook | 7 separator + 7 space look-alikes | an unknown shape |
 | **T5 malicious merge** | conflict destroys lines | prevented | `env/merge-driver` | `merge=union` | driver must be present |
 | **T7 corruption** | truncated line | skipped **and counted** | `doctor` integrity | — | the entry is gone |
-| **T6 stale backup** | restore resurrects retired state | **undetected** | — | **unsolved** | see below |
+| **T6 stale backup** | restore resurrects retired state | detected, ids named | `doctor` rollback | local watermark | fresh clone cannot detect; file is deletable |
+| **T9 model output** | digest emits `authority: user` | demoted to `inferred` | `authority_clamped_from` | write-path ceiling | a writer without the ceiling set is unconstrained |
+
+### Closed in the final verification round
+
+**Rollback / resurrection (I12) — now detected.** `.mem/epoch.json` is a
+LOCAL, gitignored high-water mark of what this machine has already seen:
+claim count, newest `ts`, and the SET of retired ids. A checkout that
+resurrects a superseded claim shrinks that set, and `mem doctor` reports it
+as an ERROR naming the resurrected ids. `mem epoch record` refuses to lower
+the mark without `--force`.
+
+It is gitignored on purpose: a marker committed alongside the log travels
+back with the checkout it is meant to detect. It stores no memory content —
+only how far this machine has looked — so it is an observation about
+history, not a second source of truth. Delete it and you lose detection,
+not data.
+
+Two limits, tested as explicitly as the guarantee: a **fresh clone** has no
+mark and cannot detect anything on its first run (it establishes one), and
+anyone who can write the repository can delete the file. This catches
+accidents and stale restores, not a determined adversary with filesystem
+access.
+
+**Semantic versioning.** `SEMANTIC_VERSION` (currently 1) covers every rule
+that changes DERIVED state — supersession, tier order, conflict resolution,
+interval comparison, what counts as retired. A watermark taken under
+different semantics is not compared: doing so would report a rules change
+as a rollback and hide a real one in the noise. Not a migration engine;
+nothing is rewritten, because old entries were correct under the rules of
+their day.
+
+**The model was an unconstrained writer.** The digest is the ONE place a
+model writes claims into the log, and it had no ceiling: `authority` was
+whatever the model emitted. That composes with injection — text inside a
+captured transcript steers what the digest produces — so a sentence in
+someone else's document could mint a `user`-tier claim and overrule
+everything. `CHEAP_MEM_MAX_AUTHORITY` is now enforced on the WRITE path and
+set to `inferred` by `bin/mem-digest`. Enforced rather than requested,
+because an instruction is a request and the process being constrained is
+precisely the one that may have been told otherwise. A demotion is
+recorded in `authority_clamped_from`, never silent. The ceiling only ever
+lowers: an unstamped write stays unstamped, since stamping it would raise
+an entry of genuinely unknown provenance.
 
 ### Unsolved, explicitly
 
@@ -230,11 +273,10 @@ every fresh memory started without the guarantee its own design depends on.
   stuffing needed). Authority tiering only helps where the claims
   *conflict*, and detecting that is open (§5). Anyone who may write may
   still influence what is retrieved.
-- **Rollback / resurrection (I12).** Restoring an old checkout or backup
-  makes a superseded claim current again, and nothing notices. A monotonic
-  epoch or trusted checkpoint would detect it; neither is built, and
-  choosing one badly would add a second source of truth to a design whose
-  whole strength is having one.
+- **Near-duplicate flooding.** Byte-identical bodies collapse. Vary one
+  word and the flood is back. Every similarity threshold is uncalibratable
+  — the same objection that ruled out numeric confidence — so nothing is
+  built here rather than something that would need a magic number.
 - **Contradiction detection** (§5).
 - **Identity.** Everything above rests on fields anyone with repo write
   access can set.
@@ -256,7 +298,9 @@ every fresh memory started without the guarantee its own design depends on.
 | **I9c** | a fresh load removes the drift | `test/properties.test.mjs` |
 | I10 | merge safety | `test/environment.test.mjs`, `bench/merge-driver.mjs` |
 | I11 | secret patterns survive Unicode variants | `test/redaction-unicode.test.mjs` |
-| I12 | rollback detection | **not built** |
+| I12 | rollback detection | `test/epoch.test.mjs` |
+| I16 | semantic version guards derived-state comparison | `test/epoch.test.mjs` |
+| I17 | a model cannot write above its ceiling | `test/write-ceiling.test.mjs` |
 | I13 | resource bounds | `test/retrieval.test.mjs` |
 | I14 | structured retrieval | `test/retrieval.test.mjs` |
 
@@ -266,3 +310,33 @@ graphs, because recomputing them means walking the whole corpus. A pair can
 even drop out as the corpus grows (three learned pairs at 60 documents, two
 at 71), so ranking differs, top-1 included. Split into three invariants
 that are each true.
+
+
+---
+
+## 10. Are these guarantees enforced, or only written down?
+
+Answered by breaking each mechanism on purpose and checking that a test
+notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
+guarantee that lives in documentation and nowhere else.
+
+**16 mutants, 16 caught.** Including: supersession always allowed,
+`admits()` always true, the disputed filter removed, deduplication removed,
+resource limits ignored, the redaction class narrowed back to ASCII, broken
+lines silently skipped again, cycles never reported, the merge driver
+always OK, `docFreq` not updated on append, `replaces_id` ignored entirely,
+rollback never reported, the watermark allowed to move backwards, semantics
+compared across a bump, the write ceiling ignored, and `clampTier` refusing
+to lower.
+
+It found a real one on the first run: the resource-limit test used 120
+IDENTICAL claims, which deduplication collapsed into a single result, so
+the assertion held whether or not the cap existed. It read like proof and
+was worth nothing.
+
+`node bench/fuzz.mjs` throws malformed and hostile input at every parser —
+redaction, capability, temporal intervals, authority, the replacement
+graph, dedup normalisation, and retrieval with a bogus capability. Looking
+specifically for the failure that matters here: garbage producing a MORE
+permissive answer rather than an error. Currently clean, and verified to
+have teeth by breaking the capability boundary and confirming it fires.

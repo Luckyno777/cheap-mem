@@ -383,7 +383,25 @@ noticing.
 ```bash
 mem doctor            # says which layer owns each guarantee
 mem doctor --strict   # for CI: an UNVERIFIABLE guarantee is a failure
+mem epoch show        # has the memory gone BACKWARDS since this machine looked?
 ```
+
+`mem epoch` catches the case where an old checkout or a stale backup makes
+a superseded claim current again — from inside that state everything looks
+right, because it *was* right then. The watermark is local and gitignored
+on purpose: one committed alongside the log would travel back with the
+checkout it is meant to detect.
+
+And the guarantees themselves are checked by breaking them:
+
+```bash
+node bench/mutation.mjs   # disable each mechanism, confirm a test notices
+node bench/fuzz.mjs       # malformed input at every parser
+```
+
+A test suite that passes proves the tests pass. It does not prove the
+mechanism exists. Mutation testing found one guarantee here that lived only
+in documentation.
 
 A check that guesses is worse than none, so where the filesystem cannot be
 determined the result is `unknown`, not `ok`.
@@ -413,6 +431,7 @@ mem retrieve "<question>" [--json]      STRUCTURED claims: author, authority,
 mem explain "<question>" <claim-id>     why a claim did (not) come back
 mem doctor [--strict]                   health, plus the guarantees that
                                         are not cheap-mem's to provide
+mem epoch [show|record] [--force]       did the memory go backwards?
 mem context [--n 20]                    compact recent-activity dump
 mem viewer [--out f.html] [--open]      one self-contained HTML page, no model/server
 mem project init <name>                 idempotent project skeleton

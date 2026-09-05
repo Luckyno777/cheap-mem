@@ -156,6 +156,30 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
     data = { ...data, authority: authority.TIERS.includes(t) ? t : authority.DEFAULT_TIER };
   }
 
+  // Ceiling on the write path.
+  //
+  // A process may be run with CHEAP_MEM_MAX_AUTHORITY, and then no entry
+  // it writes can claim a higher tier than that — whatever it puts in the
+  // field. The digest sets it to `inferred`, because a model's output IS
+  // an inference over other claims, and because text inside a captured
+  // transcript can steer what the digest emits. Without the ceiling a
+  // sentence in someone else's document could mint a `user`-tier claim.
+  //
+  // Enforced here rather than by instructing the writer: an instruction is
+  // a request, and the thing being constrained is precisely a process that
+  // may have been told otherwise. The demotion is RECORDED, never silent.
+  const ceiling = authority.ceilingFromEnv();
+  if (ceiling) {
+    const c = authority.clampTier(data.authority ?? authority.DEFAULT_TIER, ceiling);
+    // Only ever LOWERS. An unstamped write stays unstamped — stamping it
+    // with the ceiling would turn a ceiling into a floor and raise an
+    // entry of genuinely unknown provenance above `unknown`, which is the
+    // opposite of what this is for.
+    if (c.clamped) {
+      data = { ...data, authority: c.tier, authority_clamped_from: c.from };
+    }
+  }
+
   const p = logPath(root, type, project);
   const ts = data.ts ?? new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const id = data.id ?? shortId(ts, type);
