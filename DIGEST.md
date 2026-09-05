@@ -111,6 +111,35 @@ model that already reads everything, and from then on `mem links <id>`
 walks them with no model at all. That is the trade — pay at sorting time,
 travel free forever after.
 
+## The second gate on secrets
+
+The redaction runs before anything reaches disk, and the pre-commit hook
+checks again before anything reaches git. Both work on **patterns** —
+shapes, names, entropy. That is most of the problem, and it is genuinely
+strong, but a pattern gate can only catch the shapes it knows.
+
+You are the only reader in the whole chain that understands what the text
+**means**. So while you sort, you are the second gate:
+
+- If something reads like a credential, a private key, an internal
+  hostname or a personal detail — even redacted, even partial — **do not
+  carry it into an entry.** Not in a title, not in a quote, not as
+  "context".
+- If it slipped through the redaction and sits unmasked in the capture,
+  log it as an error with the location and **never the value**:
+
+```
+mem log error --class secret-leak \
+  --title "unmasked credential in raw/2026/09/....jsonl.gz" \
+  --text "line ~120, an API token in a shell command. Value deliberately not quoted."
+```
+
+Then tell the human. A leak that only you noticed is still a leak.
+
+This costs nothing extra: you are already reading every line. It is the
+one check that pattern matching cannot do, which is why it belongs here
+and not in the code.
+
 ## When a capture is too big
 
 Read it in windows and write as you go. If you cannot finish it:
