@@ -38,6 +38,22 @@ export const TYPES = Object.freeze({
   duty: 'duties.jsonl',          // something owed to someone
   skill: 'skills.jsonl',         // a capability acquired, with evidence
   update: 'updates.jsonl',       // a version, a dependency, a config change
+  link: 'links.jsonl',           // a typed relation between two entries
+});
+
+/**
+ * The closed vocabulary of relations between entries.
+ *
+ * Deliberately small. An open vocabulary would let every digest run invent
+ * a new verb, and a graph whose edges mean whatever the writer felt that
+ * day cannot be traversed by code — only re-read by a model, which is the
+ * cost this whole design exists to avoid.
+ */
+export const LINK_KINDS = Object.freeze({
+  causes: 'the source brought the target about',
+  generalizes: 'the source is the lesson drawn from the target(s)',
+  contradicts: 'the source and target cannot both be right',
+  resolves: 'the source closed the target out',
 });
 
 /**
@@ -209,6 +225,64 @@ export function currentFacts(root, { now = new Date(), staleDays = 120 } = {}) {
     }
   }
   return freshness.resolveFacts(all, { now, staleDays, retired: retiredMap(all) });
+}
+
+/**
+ * Every entry in the memory, indexed by id — the substrate the link graph
+ * is traversed against. Ids are unique across types, so one flat map is
+ * enough. Closing lines are bookkeeping, not content, and stay out.
+ */
+export function entriesById(root) {
+  const byId = new Map();
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      let res;
+      try { res = readLog(root, type, { project }); } catch { continue; }
+      for (const e of res.entries) {
+        if (e.__broken || !e.id || isClosingLine(e)) continue;
+        if (!byId.has(e.id)) byId.set(e.id, { ...e, _type: type, _project: project });
+      }
+    }
+  }
+  return byId;
+}
+
+/**
+ * The link graph around one entry: what points at it, and what it points
+ * at. Both directions, because "why did this break" and "what did this
+ * cause" are the same edge read from opposite ends.
+ *
+ * **Model-free.** The edges were written by the digest — the one place a
+ * model runs — but walking them is pure code. That is the whole trade:
+ * pay a model once, at sorting time, to earn a structure that costs
+ * nothing to use forever after.
+ *
+ * A link whose `from`/`to` does not resolve is reported as `dangling`
+ * rather than silently skipped: an edge into nothing is a real defect,
+ * and hiding it would make the graph look healthier than it is.
+ */
+export function linksOf(root, id) {
+  const byId = entriesById(root);
+  const out = [];
+  const incoming = [];
+  const dangling = [];
+  for (const project of [null, ...listProjects(root)]) {
+    let res;
+    try { res = readLog(root, 'link', { project }); } catch { continue; }
+    for (const l of res.entries) {
+      if (l.__broken || isClosingLine(l)) continue;
+      const from = l.from ?? l.source ?? null;
+      const to = l.to ?? l.target ?? null;
+      if (!from || !to) continue;
+      if (from !== id && to !== id) continue;
+      const other = from === id ? to : from;
+      const rec = { link: l, kind: l.kind ?? '?', from, to, other, entry: byId.get(other) ?? null };
+      if (!byId.has(from) || !byId.has(to)) dangling.push(rec);
+      else if (from === id) out.push(rec);
+      else incoming.push(rec);
+    }
+  }
+  return { id, entry: byId.get(id) ?? null, out, incoming, dangling };
 }
 
 /**

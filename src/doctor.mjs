@@ -168,6 +168,16 @@ export function checkOrphans(root) {
         ids.add(e.id);
         if (e.replaces_id) pointers.push({ field: 'replaces_id', to: e.replaces_id });
         if (e.closes_id) pointers.push({ field: 'closes_id', to: e.closes_id });
+        // A link is two pointers. An edge into nothing is exactly the same
+        // defect as an orphaned correction: it resolves to no entry, so it
+        // silently does nothing — and a graph is only worth walking if its
+        // edges are known to land.
+        if (type === 'link') {
+          const from = e.from ?? e.source ?? null;
+          const to = e.to ?? e.target ?? null;
+          if (from) pointers.push({ field: 'link.from', to: from });
+          if (to) pointers.push({ field: 'link.to', to: to });
+        }
       }
     }
   }
@@ -176,8 +186,10 @@ export function checkOrphans(root) {
     return finding('orphans', LEVEL.GOOD, `${pointers.length} correction/close links, all resolve`);
   }
   const sample = orphans.slice(0, 3).map((o) => `${o.field}->${o.to}`).join(', ');
+  const one = orphans.length === 1;
   return finding('orphans', LEVEL.WARN,
-    `${orphans.length} correction/close link${orphans.length === 1 ? '' : 's'} point at a missing id: ${sample}`,
+    `${orphans.length} pointer${one ? '' : 's'} (correction, close or link edge) `
+    + `${one ? 'points' : 'point'} at a missing id: ${sample}`,
     'The target was never written or the id is mistyped, so the supersede/close does not take effect. '
     + 'Check the id, or write the correction against the real entry.');
 }

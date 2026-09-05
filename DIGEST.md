@@ -81,6 +81,36 @@ Rules that do not bend:
 Contradictions and dangling links are **not** your job — `mem doctor`
 finds those deterministically. Do not hunt for them here.
 
+## Linking (also rare, same discipline)
+
+While sorting you sometimes see that two entries stand in a **definite**
+relation. Record it as an edge, not as prose:
+
+```
+mem log link --from <id> --to <id> --kind causes \
+  --why "one line: what you actually saw" \
+  --origin '{"derived_from":["<raw-or-entry-id>"]}'
+```
+
+The vocabulary is **closed** — `causes`, `generalizes`, `contradicts`,
+`resolves` — and that is on purpose. An edge whose meaning is whatever
+the writer felt that day cannot be walked by code, only re-read by a
+model, which is the cost this whole design exists to avoid.
+
+The same rules that bind synthesis bind linking, and one more:
+
+- Only between entries you **actually read or found**, by their real ids.
+- **Never invent** a relation to make the story connect. "These two are
+  both about auth" is a shared `topic`, **not** a `causes` edge.
+- An edge is a claim with a receipt: cite where you saw it in `--origin`.
+- Prefer **none**. At most a handful per run — if you are drawing edges
+  everywhere, you are guessing, and `mem doctor` will show them dangling.
+
+Why this is worth one model call: the edges are written once, by the one
+model that already reads everything, and from then on `mem links <id>`
+walks them with no model at all. That is the trade — pay at sorting time,
+travel free forever after.
+
 ## When a capture is too big
 
 Read it in windows and write as you go. If you cannot finish it:

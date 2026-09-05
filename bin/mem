@@ -1115,6 +1115,44 @@ const COMMANDS = {
     }
   },
 
+  links: async ({ rest, args }) => {
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem links <id>',
+        '',
+        '  What this entry points at, and what points at it. Typed relations',
+        `  (${Object.keys(memory.LINK_KINDS).join(', ')}) written by the digest`,
+        '  while it sorts — walking them costs no model at all.',
+        '',
+        '  Log one by hand with:',
+        '    mem log link --from <id> --to <id> --kind causes --why "..."',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, [], 'links');
+    const root = findRoot(args);
+    requireConfig(root);
+    const g = memory.linksOf(root, rest[0]);
+    if (!g.entry) out(`(no entry with id ${g.id} — showing links anyway)`);
+    else out(`${g.entry._type}  ${compactLine(g.entry)}`);
+    if (g.out.length === 0 && g.incoming.length === 0 && g.dangling.length === 0) {
+      out('');
+      out('  no links yet.');
+      return;
+    }
+    const line = (r, arrow) => {
+      const what = r.entry ? `${r.entry._type}: ${compactLine(r.entry)}` : '(missing entry)';
+      out(`    ${arrow} ${String(r.kind).padEnd(12)} ${r.other}  ${what}`);
+    };
+    if (g.out.length) { out(''); out('  this entry ->'); for (const r of g.out) line(r, '->'); }
+    if (g.incoming.length) { out(''); out('  -> this entry'); for (const r of g.incoming) line(r, '<-'); }
+    if (g.dangling.length) {
+      out('');
+      out('  DANGLING (an edge into nothing — the target was never written):');
+      for (const r of g.dangling) line(r, '!!');
+    }
+  },
+
   topics: async ({ args }) => {
     if (isHelp(args)) {
       out([

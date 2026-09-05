@@ -55,3 +55,12 @@ test('orphans: warns when a correction points at a missing id', () => {
   assert.ok(f.advice);
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+test('orphans: a link edge into nothing is caught like any dead pointer', () => {
+  const root = tmpRoot();
+  const { entry } = memory.logEntry(root, 'decision', { title: 'real' });
+  memory.logEntry(root, 'link', { from: entry.id, to: 'ghost-edge-1', kind: 'causes' });
+  const f = checkOrphans(root);
+  assert.equal(f.level, LEVEL.WARN);
+  assert.match(f.text, /ghost-edge-1/);
+});

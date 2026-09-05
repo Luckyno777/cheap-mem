@@ -59,13 +59,19 @@ test('an unknown state is refused', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('all nine types are writable and land in their own file', () => {
+test('every type is writable and lands in its own file', () => {
+  // Asserted against the table itself rather than a hard count. What
+  // matters is that no two types share a file and every one of them
+  // actually writes; pinning the number only made this test rot the
+  // first time a type was added.
   const root = fresh();
   try {
+    const files = new Set();
     for (const type of Object.keys(memory.TYPES)) {
       const { path: p } = memory.logEntry(root, type, { title: `a ${type}` });
       assert.ok(p.endsWith(memory.TYPES[type]), `${type} landed in ${p}`);
+      files.add(memory.TYPES[type]);
     }
-    assert.equal(Object.keys(memory.TYPES).length, 9);
+    assert.equal(files.size, Object.keys(memory.TYPES).length, 'two types share one file');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

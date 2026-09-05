@@ -194,3 +194,37 @@ test('same-second entries in one topic still order deterministically', () => {
   assert.deepEqual(a.history.map((e) => e.title), b.history.map((e) => e.title),
     'repeated reads must agree');
 });
+
+// --- links: the typed graph the digest earns while sorting --------------
+
+test('linksOf reads an edge from both ends', () => {
+  const root = tmpRoot();
+  const { entry: dec } = memory.logEntry(root, 'decision', { title: 'ship on friday' });
+  const { entry: err } = memory.logEntry(root, 'error', { title: 'weekend outage' });
+  memory.logEntry(root, 'link', { from: dec.id, to: err.id, kind: 'causes' });
+
+  const fromDecision = memory.linksOf(root, dec.id);
+  assert.equal(fromDecision.out.length, 1);
+  assert.equal(fromDecision.out[0].kind, 'causes');
+  assert.match(fromDecision.out[0].entry.title, /weekend outage/);
+
+  const fromError = memory.linksOf(root, err.id);
+  assert.equal(fromError.incoming.length, 1, 'the same edge must be visible from the target');
+  assert.match(fromError.incoming[0].entry.title, /ship on friday/);
+});
+
+test('an edge into nothing is reported, not silently skipped', () => {
+  const root = tmpRoot();
+  const { entry } = memory.logEntry(root, 'decision', { title: 'real one' });
+  memory.logEntry(root, 'link', { from: entry.id, to: 'ghost-id-999', kind: 'causes' });
+  const g = memory.linksOf(root, entry.id);
+  assert.equal(g.out.length, 0, 'a dangling edge must not count as a normal link');
+  assert.equal(g.dangling.length, 1);
+  assert.equal(g.dangling[0].to, 'ghost-id-999');
+});
+
+test('the link vocabulary stays closed', () => {
+  // An open vocabulary makes the graph untraversable by code.
+  assert.deepEqual(Object.keys(memory.LINK_KINDS).sort(),
+    ['causes', 'contradicts', 'generalizes', 'resolves']);
+});
