@@ -39,6 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
+import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
 // like filenames. Unknown types fall back to their own key.
@@ -297,6 +298,7 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapeHtml(title)}</title>
+${markLink()}
 <style>
 /* System fonts only. This page shows private memory content and is meant
    to work on a plane; a webfont request would both break that and tell a

@@ -496,8 +496,16 @@ scrolls horizontally instead of collapsing into a menu.
 
 ### 4.4 Image behavior
 
-No images of any kind — no logo, no icons, no illustrations. Every glyph on the page is
-text. This is what allows the whole page to be one file with no network.
+No photographs, no illustrations, no icon set. Every glyph on the page is text — that is
+what lets the whole page be one file with no network.
+
+The one image is **the mark**, and it is drawn in code (`src/icon.mjs`) rather than
+committed as a file: a vertical `accent` spine with three `ink` lines getting shorter
+beside it. It is lifted straight from the page — the spine is `.trail`'s left rule, which
+stands wherever something has a history, and the three lines are an entry and what came
+before it. At 48px exactly that survives. It ships as a `data:` URI in a
+`<link rel="icon">`, so the tab has an icon and nothing is fetched. A checked-in PNG would
+drift from the palette the moment the palette moves; this one cannot.
 
 ---
 
@@ -603,6 +611,12 @@ stylesheet. Custom properties do the work a framework would.
    no shadow). One `@media print` block would make `mem view > report.pdf` a real workflow.
 - **`chip.act` (hoverable chip) is styled but not currently emitted** by any lens. Same
    question as `fresh`.
+- **cheap-mem has no host, so it has no installable shell.** A manifest and a service
+   worker need a real origin — a service worker cannot be registered from `file://` — so
+   the PWA parts live with lucky-mem's `bin/mem-ansicht-server.mjs`: manifest and worker
+   behind the same auth as the page, icons as `data:` URIs inside the manifest, and
+   offline caching off by default because the response is `no-store` for a reason. Only
+   the mark is ported here. Porting the host is its own stage, not a detail of this one.
 
 ---
 
