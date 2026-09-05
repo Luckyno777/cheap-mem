@@ -179,6 +179,15 @@ const COMMANDS = {
     fs.mkdirSync(path.join(root, 'inbox'), { recursive: true });
     fs.mkdirSync(path.join(root, 'raw'), { recursive: true });
     writeMemoryGitignore(root);
+    // The merge driver is not a nicety. Without `*.jsonl merge=union` a
+    // git merge of two independently appended logs produces conflict
+    // markers, and a line with markers no longer parses — so entries are
+    // lost, and the loss is silent because unparseable lines are skipped.
+    // Measured 2026-09-05: three of six valid lines destroyed.
+    //
+    // init used to leave this out entirely, which meant every fresh
+    // memory shipped without the guarantee its own design depends on.
+    writeMergeDriver(root);
 
     for (const f of ['decisions.jsonl', 'errors.jsonl', 'events.jsonl', 'timeline.jsonl']) {
       const p = path.join(root, 'global', f);
@@ -198,9 +207,18 @@ const COMMANDS = {
     out(`  config:       ${path.relative(root, cfgPath)}`);
     out(`  participants: ${Object.keys(cfg.participants).join(', ')}`);
     out(``);
+    out(`  merge driver: .gitattributes (*.jsonl merge=union)`);
+    out(``);
     out(`Next:`);
     out(`  mem whoami <${Object.keys(cfg.participants).join('|')}>`);
     out(`  git init && git add -A && git commit -m "init cheap-mem" && git remote add origin <url>`);
+    out(`  mem hooks install       <- do this one. Without it nothing stops a`);
+    out(`                             secret from reaching git. core.hooksPath is`);
+    out(`                             local config: a clone does not inherit it,`);
+    out(`                             so every checkout needs it again.`);
+    out(``);
+    out(`Then: mem doctor --strict   (it verifies the guarantees above, and says`);
+    out(`                             which layer owns each one)`);
   },
 
   whoami: async ({ rest, args }) => {
@@ -1096,15 +1114,30 @@ const COMMANDS = {
 
   doctor: async ({ args }) => {
     if (isHelp(args)) {
-      out('mem doctor [--quiet]   check the memory; --quiet hides what is fine');
+      out([
+        'mem doctor [--quiet] [--strict]',
+        '',
+        '  --quiet   hide what is fine',
+        '  --strict  an UNVERIFIABLE guarantee counts as a failure.',
+        '            For CI, where the environment is fixed and known:',
+        '            there, refusing to determine a property IS the defect.',
+        '            Normal runs treat unknown as unknown.',
+        '',
+        '  exit 0 fine · 1 warnings · 2 errors (or, with --strict, unknowns)',
+      ].join('\n'));
       return;
     }
-    checkFlags(args, ['quiet'], 'doctor');
+    checkFlags(args, ['quiet', 'strict'], 'doctor');
     const root = findRoot(args);
     requireConfig(root);
     const result = doctor.checkAll(root);
     out(doctor.report(result, { problemsOnly: Boolean(args.quiet) }));
-    process.exit(result.worst === doctor.LEVEL.ERROR ? 2
+
+    if (args.strict && result.summary.unknown > 0) {
+      warn(`--strict: ${result.summary.unknown} guarantee(s) could not be verified.`);
+    }
+    const strictFail = Boolean(args.strict) && result.summary.unknown > 0;
+    process.exit(result.worst === doctor.LEVEL.ERROR || strictFail ? 2
       : result.worst === doctor.LEVEL.WARN ? 1 : 0);
   },
 
@@ -2177,6 +2210,33 @@ function proveHook(root) {
  * Written on init, and merged (never overwritten) if one already
  * exists — someone's own rules must survive.
  */
+/**
+ * Declare the union merge driver for every drawer.
+ *
+ * Appends rather than overwrites: a repository may already have its own
+ * .gitattributes, and clobbering it to install one line would be a poor
+ * trade. Idempotent — running init twice does not duplicate the rule.
+ */
+function writeMergeDriver(root) {
+  const p = path.join(root, '.gitattributes');
+  const rule = '*.jsonl merge=union';
+  const note = [
+    '# Every drawer is append-only: two sessions independently add lines at',
+    '# the end of a file. A normal merge sees a conflict ("both changed the',
+    '# last line") and stops -- while the right answer is always the same:',
+    '# keep both. `merge=union` does exactly that.',
+    '#',
+    '# Do NOT use this for structured files (JSON, YAML): union would glue',
+    '# two halves of an object together and destroy the file.',
+    rule,
+    '',
+  ].join('\n');
+  if (!fs.existsSync(p)) { fs.writeFileSync(p, note, 'utf8'); return; }
+  const cur = fs.readFileSync(p, 'utf8');
+  if (new RegExp(`^\\s*\\*\\.jsonl\\s+merge=union\\s*$`, 'm').test(cur)) return;
+  fs.writeFileSync(p, `${cur.replace(/\n*$/, '')}\n\n${note}`, 'utf8');
+}
+
 function writeMemoryGitignore(root) {
   const p = path.join(root, '.gitignore');
   const wanted = [

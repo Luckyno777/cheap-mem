@@ -23,6 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from './memory.mjs';
+import * as integrity from './integrity.mjs';
+import * as environment from './environment.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
 import * as raw from './raw.mjs';
@@ -75,6 +77,8 @@ export function checkAll(root) {
   f.push(checkLegacyLeaks(root));
   f.push(checkBehind(root));
   f.push(checkGitState(root));
+  f.push(checkIntegrity(root));
+  f.push(...checkEnvironmentContract(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
@@ -624,4 +628,110 @@ function checkBehind(root) {
   return finding('behind', LEVEL.WARN, `${n} commits behind origin/${b}`,
     'Capture uses the redaction from THIS clone. While it lags, it captures with '
     + `old rules: git -C ${root} pull`);
+}
+
+
+// --- integrity of the log itself -------------------------------------------
+
+/**
+ * Broken lines, duplicate ids, impossible timestamps, and the shape of the
+ * replacement graph.
+ *
+ * Until 2026-09-05 an unparseable line was stepped over without a word, so
+ * a truncated file or a bad merge lost entries and nothing said so.
+ * Skipping is still the right recovery — refusing to open a memory over
+ * one bad byte is worse — but it is now counted and located.
+ *
+ * Never prints line content: a half-written line can hold a half-written
+ * secret, and a diagnostic that quotes it turns a corruption report into a
+ * leak.
+ */
+export function checkIntegrity(root) {
+  let r;
+  try { r = integrity.scanIntegrity(root); }
+  catch { return finding('integrity', LEVEL.UNKNOWN, 'logs unreadable'); }
+
+  const parts = [`${r.entries} entries in ${r.lines} lines`];
+  const problems = [];
+  if (r.broken.length) {
+    problems.push(`${r.broken.length} unparseable line(s): `
+      + r.broken.slice(0, 5).map((b) => `${b.file}:${b.line}`).join(', ')
+      + (r.broken.length > 5 ? ' ...' : ''));
+  }
+  if (r.duplicateIds.length) {
+    problems.push(`${r.duplicateIds.length} duplicate id(s): `
+      + r.duplicateIds.slice(0, 3).map((d) => d.id).join(', '));
+  }
+  if (r.replacement.missing.length) {
+    problems.push(`${r.replacement.missing.length} replacement(s) point at an id that does not exist`);
+  }
+  if (r.replacement.cycles.length) {
+    problems.push(`${r.replacement.cycles.length} replacement cycle(s)`);
+  }
+  if (r.replacement.tooDeep) {
+    problems.push(`a replacement chain is ${r.replacement.maxDepth} deep`);
+  }
+  if (r.badTimestamp.length) {
+    parts.push(`${r.badTimestamp.length} questionable timestamp(s)`);
+  }
+  if (r.replacement.forks.length) {
+    // Not a defect: merge=union produces a fork whenever two sessions
+    // correct the same entry without seeing each other.
+    parts.push(`${r.replacement.forks.length} fork(s) — two claims replacing one target`);
+  }
+
+  if (!problems.length) return finding('integrity', LEVEL.GOOD, parts.join(', '));
+  return finding('integrity', LEVEL.ERROR, `${parts[0]}; ${problems.join('; ')}`,
+    'A broken line cannot be repaired in place — the log is append-only. '
+    + 'Recover the entry from git history and append it again, or accept the '
+    + 'loss knowingly. Duplicate ids and cycles need a correcting entry.');
+}
+
+// --- guarantees that are not ours ------------------------------------------
+
+/**
+ * The properties cheap-mem depends on but does not provide: the merge
+ * driver, the pre-commit hook, append atomicity, the clock.
+ *
+ * These were the failure class behind the others — invisible when present,
+ * silent when absent. Each finding names the LAYER responsible, because
+ * cheap-mem cannot fix a filesystem, only refuse to pretend it checked
+ * one.
+ */
+export function checkEnvironmentContract(root) {
+  let newestTs = null;
+  try {
+    const r = integrity.scanIntegrity(root);
+    void r;
+    newestTs = newestTimestamp(root);
+  } catch { /* an unreadable log is the integrity check's problem, not this one */ }
+
+  let checks;
+  try { checks = environment.checkEnvironment(root, { newestTs }); }
+  catch { return [finding('environment', LEVEL.UNKNOWN, 'environment could not be checked')]; }
+
+  return checks.map((c) => {
+    const name = `env/${c.name}`;
+    if (c.ok === true) return finding(name, LEVEL.GOOD, `[${c.layer}] ${c.detail}`);
+    if (c.ok === null) return finding(name, LEVEL.UNKNOWN, `[${c.layer}] ${c.detail}`, c.fix);
+    return finding(name, LEVEL.ERROR, `[${c.layer}] ${c.detail}`,
+      c.fix ?? 'This guarantee is not cheap-mem\'s to provide — fix it in that layer.');
+  });
+}
+
+/** Newest `ts` across all logs, for the clock check. */
+function newestTimestamp(root) {
+  let newest = null;
+  for (const f of integrity.logFiles(root)) {
+    let raw;
+    try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { continue; }
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line);
+        if (typeof e.ts === 'string' && (!newest || e.ts > newest)) newest = e.ts;
+      } catch { /* the integrity check reports this line */ }
+    }
+  }
+  return newest;
 }

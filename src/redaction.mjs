@@ -29,6 +29,27 @@
  * removed: `[REDACTED:openai-key]` is a usable hint, `[REDACTED]` is
  * just a hole.
  */
+/**
+ * Separator and space classes that also accept the Unicode look-alikes.
+ *
+ * A secret written `NAME＝value` with a FULLWIDTH EQUALS SIGN (U+FF1D)
+ * passed every assignment pattern unredacted — measured 2026-09-05, it
+ * reached disk and passed the pre-commit hook. The patterns hang on
+ * `[:=]` and `\s`, so the fix belongs there and nowhere else.
+ *
+ * Deliberately NOT solved by normalising the text: NFKC changes string
+ * length (ﬁ becomes fi), which breaks the offsets `String.replace`
+ * relies on, and it would rewrite legitimate full-width content that a
+ * user wrote on purpose. Widening the class leaves the text untouched
+ * and cannot introduce a new failure class.
+ *
+ * Covered: fullwidth = : - _ , the modifier and mathematical colons,
+ * the non-breaking and ideographic spaces, and the zero-width joiners
+ * that can pad a key name.
+ */
+export const SEP = '[:=\\uFF1D\\uFF1A\\u2236\\u02D0\\u205D]';
+export const SP = '[\\s\\u00A0\\u1680\\u2000-\\u200D\\u202F\\u205F\\u2060\\u3000\\uFEFF]';
+
 export const PATTERNS = Object.freeze([
   // --- Provider keys with an unambiguous prefix ----------------------
   ['anthropic-key',   /\bsk-ant-[A-Za-z0-9_-]{20,}/g],
@@ -60,7 +81,7 @@ export const PATTERNS = Object.freeze([
   ['bearer',          /\b[Bb]earer\s+[A-Za-z0-9._~+/-]{20,}=*/g],
   ['basic-auth',      /\b[Bb]asic\s+[A-Za-z0-9+/]{20,}=*/g],
   ['url-credentials', /\b([a-z][a-z0-9+.-]*):\/\/[^\s:@/]+:[^\s@/]+@/gi],
-  ['x-api-key',       /\b(x-api-key|api[_-]?key|apikey)\s*[:=]\s*["']?[A-Za-z0-9._-]{16,}["']?/gi],
+  ['x-api-key',       new RegExp(`\\b(x-api-key|api[_-]?key|apikey)${SP}*${SEP}${SP}*["']?[A-Za-z0-9._-]{16,}["']?`, 'gi')],
 
   // --- Environment variables -----------------------------------------
   // Covers `export FOO_TOKEN=...`, `FOO_SECRET: ...`, `"password": "..."`
@@ -68,11 +89,11 @@ export const PATTERNS = Object.freeze([
     // The prefix before the keyword is OPTIONAL. It used to be
     // [A-Za-z_][A-Za-z0-9_]* — at least one character — which let a
     // bare `token=...` in a URL slip through.
-    /\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]*)\s*[:=]\s*["']?([^\s"'`,;&]{8,})["']?/gi],
+    new RegExp(`\\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]*)${SP}*${SEP}${SP}*["']?([^\\s"'\`,;&]{8,})["']?`, 'gi')],
 
   // Lowercase in JSON/YAML: "password": "...", secret: ...
   ['json-secret',
-    /(["']?(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)["']?\s*[:=]\s*)["']([^"'\s]{8,})["']/gi],
+    new RegExp(`(["']?(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{8,})["']`, 'gi')],
 ]);
 
 /**
