@@ -159,3 +159,49 @@ test('the index cache notices growth within the same millisecond', () => {
     assert.notEqual(search.corpusStamp(root), before);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// --- MMR: diversity re-ranking (engram.so-inspired, deterministic) --------
+
+test('docSimilarity: identical vectors 1, disjoint 0, partial in between', () => {
+  const a = new Map([['x', 1], ['y', 1]]);
+  assert.ok(Math.abs(search.docSimilarity(a, a) - 1) < 1e-9); // float: ~1
+  assert.equal(search.docSimilarity(a, new Map([['z', 1]])), 0);
+  const partial = search.docSimilarity(a, new Map([['x', 1]]));
+  assert.ok(partial > 0.7 && partial < 0.72); // 1/sqrt(2) ~ 0.707
+  assert.equal(search.docSimilarity(a, new Map()), 0);
+});
+
+test('mmrRerank: prefers a diverse result over a near-duplicate', () => {
+  const cands = [{ id: 'a', score: 10 }, { id: 'b', score: 9 }, { id: 'c', score: 8 }];
+  const sim = (x, y) => {
+    const k = [x.id, y.id].sort().join('');
+    return ({ ab: 0.9, ac: 0.1, bc: 0.1 })[k] ?? (x.id === y.id ? 1 : 0);
+  };
+  // lambda 0.7: b is near-identical to a and gets penalized, c wins the 2nd slot
+  const out = search.mmrRerank(cands, { lambda: 0.7, top: 2, simOf: sim });
+  assert.deepEqual(out.map((o) => o.id), ['a', 'c']);
+  // lambda 1: pure relevance, similarity ignored -> original order
+  const pure = search.mmrRerank(cands, { lambda: 1, top: 2, simOf: sim });
+  assert.deepEqual(pure.map((o) => o.id), ['a', 'b']);
+});
+
+test('search --mmr pulls a distinct relevant hit over a near-duplicate', () => {
+  const root = corpus([
+    ['event', { title: 'deploy staging cache warmup latency' }],   // e1
+    ['event', { title: 'deploy staging cache warmup latency' }],   // e2 == e1 (sim 1.0)
+    ['event', { title: 'deploy staging rollback guide manual' }],  // e3 distinct, equally relevant
+  ]);
+  const idx = search.buildIndex(root, { language: 'en' });
+
+  const plain = search.search(idx, 'deploy staging', { top: 2, mmr: false });
+  const plainTitles = plain.map((h) => h.entry.title).join(' | ');
+  assert.ok(!/rollback/.test(plainTitles), `no-mmr top2 should be the two near-dupes, got: ${plainTitles}`);
+
+  const diverse = search.search(idx, 'deploy staging', { top: 2, mmr: true });
+  const divTitles = diverse.map((h) => h.entry.title).join(' | ');
+  assert.ok(/rollback/.test(divTitles), `mmr top2 should include the distinct hit, got: ${divTitles}`);
+
+  // MMR must not leak its internal term-vector helper into results.
+  assert.ok(!('__w' in diverse[0]), '__w must be stripped from returned hits');
+  fs.rmSync(root, { recursive: true, force: true });
+});

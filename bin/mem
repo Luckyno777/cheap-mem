@@ -385,12 +385,14 @@ const COMMANDS = {
         '  --literal  plain substring search instead (the old behaviour)',
         '  --fresh    rebuild the index instead of using the cache',
         '  --no-raw   digested entries only, skip raw captures',
+        '  --no-mmr   pure BM25 order (default re-ranks the top for diversity)',
+        '  --mmr-lambda F  0..1, higher = more relevance, lower = more diversity (default 0.7)',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
       ].join('\n'));
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
-      'no-raw', 'only-raw', 'json', 'with-retired', 'brief'], 'find');
+      'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     const query = rest[0];
@@ -435,6 +437,10 @@ const COMMANDS = {
       onlyRaw: Boolean(args['only-raw']),
       withRetired: Boolean(args['with-retired']),
       language: cfg.language,
+      // MMR on by default: keep the top-k from filling with near-duplicates.
+      // --no-mmr restores pure BM25 order.
+      mmr: !args['no-mmr'],
+      mmrLambda: args['mmr-lambda'] ? Number(args['mmr-lambda']) : 0.7,
     });
     const ms = Date.now() - t0;
 

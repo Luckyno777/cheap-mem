@@ -339,6 +339,59 @@ function idf(index, term) {
 }
 
 /**
+ * Cosine similarity between two documents' term-weight vectors. Pure,
+ * deterministic, no embeddings — it reuses the same weighted term maps
+ * BM25 already builds, so feeding MMR costs nothing extra.
+ */
+export function docSimilarity(aW, bW) {
+  if (!aW || !bW || aW.size === 0 || bW.size === 0) return 0;
+  let na = 0; for (const v of aW.values()) na += v * v;
+  let nb = 0; for (const v of bW.values()) nb += v * v;
+  if (na === 0 || nb === 0) return 0;
+  const [small, big] = aW.size <= bW.size ? [aW, bW] : [bW, aW];
+  let dot = 0;
+  for (const [t, v] of small) { const w = big.get(t); if (w) dot += v * w; }
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
+
+/**
+ * Maximal Marginal Relevance re-ranking. Greedily picks the next result
+ * that best trades relevance against redundancy with what is already
+ * chosen:  val = lambda*rel - (1-lambda)*max_sim_to_selected.
+ *
+ * Relevance is normalized to [0,1] by the top score so it is comparable to
+ * the [0,1] cosine similarity. This is cheap-mem's answer to the problem
+ * engram.so solves with MMR: stop the top-k from filling with near-
+ * duplicates (repeated sessions log near-identical lines), without a model
+ * or embeddings. Deterministic — on a tie the earlier (higher-scored)
+ * candidate wins. `simOf(a, b)` must return similarity in [0,1].
+ */
+export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
+  if (candidates.length <= 1) return candidates.slice(0, top);
+  const maxScore = candidates.reduce((m, c) => (c.score > m ? c.score : m), 0);
+  const remaining = candidates.map((c) => c);
+  const selected = [];
+  while (selected.length < top && remaining.length) {
+    let bestPos = 0;
+    let bestVal = -Infinity;
+    for (let p = 0; p < remaining.length; p += 1) {
+      const cand = remaining[p];
+      const rel = maxScore > 0 ? cand.score / maxScore : 0;
+      let maxSim = 0;
+      for (const s of selected) {
+        const sim = simOf(cand, s);
+        if (sim > maxSim) maxSim = sim;
+      }
+      const val = lambda * rel - (1 - lambda) * maxSim;
+      // Strictly greater keeps the earlier (higher-ranked) one on ties.
+      if (val > bestVal) { bestVal = val; bestPos = p; }
+    }
+    selected.push(remaining.splice(bestPos, 1)[0]);
+  }
+  return selected;
+}
+
+/**
  * Search. Returns the best `top` hits, descending by score.
  */
 export function search(index, query, {
@@ -351,6 +404,8 @@ export function search(index, query, {
   onlyRaw = false,
   withRetired = false,   // include retired (done/discarded/superseded)?
   language = null,
+  mmr = false,           // re-rank the top for diversity (MMR)
+  mmrLambda = 0.7,       // 1 = pure relevance, 0 = pure diversity
 } = {}) {
   const lang = pack(language ?? index.language ?? 'en');
   const own = tokenize(query, { lexicon: index.lexicon, lang });
@@ -410,14 +465,18 @@ export function search(index, query, {
       raw: isRaw,
       pending: doc.pending ?? false,
       ...(doc.retired ? { retired: doc.retired } : {}),
+      __w: doc.weights,   // internal: term vector for MMR; stripped below
     });
   }
 
   hits.sort((a, b) => b.score - a.score);
   const maxScore = hits.length ? hits[0].score : 0;
-  return hits
-    .filter((t) => maxScore === 0 || t.score / maxScore >= minScore)
-    .slice(0, top);
+  const kept = hits.filter((t) => maxScore === 0 || t.score / maxScore >= minScore);
+  const out = (mmr && kept.length > 1)
+    ? mmrRerank(kept, { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w) })
+    : kept.slice(0, top);
+  for (const t of out) delete t.__w;   // internal helper never leaves search()
+  return out;
 }
 
 // --- Index cache -----------------------------------------------------
