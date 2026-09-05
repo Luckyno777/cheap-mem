@@ -18,6 +18,7 @@
 // the layer above it that decides what a caller is allowed to see, and it
 // fails closed — no capability, no results.
 
+import crypto from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import * as capabilityMod from './capability.mjs';
@@ -146,6 +147,7 @@ export function retrieve(root, query, capability, {
 
   const retired = memory.retiredMap(raw.map((h) => h.entry));
   const claims = [];
+  const seenBody = new Map();
   let budget = limits.contextChars;
 
   for (const hit of raw) {
@@ -157,7 +159,20 @@ export function retrieve(root, query, capability, {
     if (c.status === 'superseded') { note(c.id, 'superseded'); continue; }
     if (!validAt(c, asOf)) { note(c.id, `not valid at ${asOf}`); continue; }
 
+    // Deduplicate DURING selection, not after.
+    //
+    // Doing it afterwards was a real defect in the first version of this
+    // function, found by attacking it: twenty identical claims under
+    // twenty author names filled all ten slots, dedup then removed nine,
+    // and the answer was a single flood claim with every genuine entry
+    // gone. Filtering after a cutoff cannot restore what the cutoff
+    // already discarded.
+    const h = bodyHash(c.body);
+    const first = seenBody.get(h);
+    if (first) { note(c.id, `identical body to ${first}`); continue; }
+
     if (c.body.length > budget) { note(c.id, 'context budget exhausted'); continue; }
+    seenBody.set(h, c.id);
     claims.push(c);
     budget -= c.body.length;
     if (claims.length >= want) break;
@@ -175,6 +190,46 @@ export function retrieve(root, query, capability, {
     truncated: fair.length < raw.length,
     limits,
   };
+}
+
+/**
+ * Collapse claims whose bodies are identical after normalisation.
+ *
+ * The author-share cap below bounds a NAMED flooder. It does nothing
+ * against an actor who rotates author names — tested after writing it:
+ * twenty claims under twenty names all survived. Rotating names needs the
+ * same write access as one name, so the cap alone was worth little.
+ *
+ * Content is the thing an attacker cannot vary and still rank: flooding
+ * works by repeating what matches the query. So identical bodies collapse
+ * to the first (highest-ranked) one, whatever they are signed with.
+ *
+ * Normalisation is deliberately conservative — Unicode NFC, CRLF to LF,
+ * runs of whitespace to one, and nothing else. No case folding, no
+ * punctuation stripping: aggressive normalisation makes DIFFERENT content
+ * collide, and a memory that silently merges two different claims is worse
+ * than one that shows a duplicate. Near-duplicates are left alone; they
+ * are a `possible_duplicate` relation to surface, not a merge to perform.
+ */
+export function canonicalBody(text) {
+  return String(text ?? '').normalize('NFC').replace(/\r\n/g, '\n').replace(/\s+/g, ' ').trim();
+}
+
+export function bodyHash(text) {
+  return crypto.createHash('sha256').update(canonicalBody(text), 'utf8').digest('hex').slice(0, 16);
+}
+
+export function dedupeBodies(claims, note = () => {}) {
+  const seen = new Map();
+  const out = [];
+  for (const c of claims) {
+    const h = bodyHash(c.body);
+    const first = seen.get(h);
+    if (first) { note(c.id, `identical body to ${first}`); continue; }
+    seen.set(h, c.id);
+    out.push(c);
+  }
+  return out;
 }
 
 /**

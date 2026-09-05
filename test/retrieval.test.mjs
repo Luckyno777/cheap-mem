@@ -69,7 +69,10 @@ test('a capability without read returns nothing', () => {
 });
 
 test('the everything-capability still works — the boundary must not break legitimate breadth', () => {
-  const root = memoryWith({ a: [claim('a1')], b: [claim('b1')] });
+  // Distinct bodies on purpose: identical ones now collapse, which is
+  // correct and is tested separately.
+  const root = memoryWith({ a: [claim('a1', { why: 'reason for a' })],
+                            b: [claim('b1', { why: 'reason for b' })] });
   const r = retrieve(root, 'kolibri', grantAll('owner'));
   assert.deepEqual(r.claims.map((c) => c.id).sort(), ['a1', 'b1']);
   rm(root);
@@ -136,8 +139,8 @@ test('an as-of query excludes claims that had stopped holding', () => {
 
 test('a disputed claim is excluded with its reason, and reachable on request', () => {
   const root = memoryWith({ a: [
-    claim('a1', { author: 'alice', authority: 'agent' }),
-    claim('m1', { author: 'mallory', authority: 'agent', replaces_id: 'a1' }),
+    claim('a1', { author: 'alice', authority: 'agent', why: 'the original reasoning' }),
+    claim('m1', { author: 'mallory', authority: 'agent', why: 'a different text', replaces_id: 'a1' }),
   ] });
   const r = retrieve(root, 'kolibri', grantProject('a'));
   assert.deepEqual(r.claims.map((c) => c.id), ['a1']);
@@ -218,9 +221,56 @@ test('explainMissing says WHY a named claim did not come back', () => {
 
 test('narrowing a capability can never widen it', () => {
   const p = grantProject('a');
-  assert.deepEqual(p.narrow({ scopes: ['global'] }).scopes, []);
+  // `global` is the root of the lattice: any read capability may see facts
+  // that belong to no project, so narrowing TO global is legal. What must
+  // stay impossible is reaching a sibling scope.
+  const g = p.narrow({ scopes: ['global'] });
+  assert.equal(g.admits('project:b'), false, 'narrowing produced a wider capability');
+  assert.equal(g.admits('project:a'), false);
   assert.deepEqual(p.narrow({ rights: ['write'] }).rights, []);
   assert.ok(p instanceof Capability);
+});
+
+test('global facts are visible to a project capability — and siblings are not', () => {
+  // Found by attacking the first version: a project capability returned
+  // nothing global at all, which in production reads as "the memory forgot
+  // who I am". A global fact is by definition not another project's secret.
+  const root = memoryWith({});
+  fs.mkdirSync(path.join(root, 'global'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'global', 'decisions.jsonl'),
+    JSON.stringify(claim('g1', { choice: 'kolibri timezone is Europe/Berlin' })) + '\n');
+  fs.mkdirSync(path.join(root, 'projects', 'a'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'projects', 'a', 'decisions.jsonl'),
+    JSON.stringify(claim('a1', { why: 'project a reasoning' })) + '\n');
+  fs.mkdirSync(path.join(root, 'projects', 'b'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'projects', 'b', 'decisions.jsonl'),
+    JSON.stringify(claim('b1', { why: 'project b reasoning' })) + '\n');
+
+  const ids = retrieve(root, 'kolibri', grantProject('a'), { top: 10 })
+    .claims.map((c) => c.id).sort();
+  assert.deepEqual(ids, ['a1', 'g1']);
+  rm(root);
+});
+
+test('identical bodies collapse, whatever they are signed with', () => {
+  // The author-share cap bounds a NAMED flooder and nothing else: twenty
+  // claims under twenty names all survived it. Content is what an attacker
+  // cannot vary and still rank, so identical bodies collapse to the
+  // highest-ranked one — and the collapse happens DURING selection, since
+  // filtering after a cutoff cannot restore what the cutoff discarded.
+  const genuine = Array.from({ length: 5 }, (_, i) =>
+    claim(`e${i}`, { author: 'alice', authority: 'agent',
+      choice: `kolibri routing variant ${i}`, why: `distinct reasoning number ${i}` }));
+  const sybil = Array.from({ length: 20 }, (_, i) =>
+    claim(`s${i}`, { author: `sybil${i}`, authority: 'agent',
+      choice: 'kolibri routing', why: 'kolibri routing' }));
+  const root = memoryWith({ a: [...genuine, ...sybil] });
+  const r = retrieve(root, 'kolibri routing', grantProject('a'), { top: 10 });
+  const floods = r.claims.filter((c) => c.id.startsWith('s')).length;
+  const real = r.claims.filter((c) => c.id.startsWith('e')).length;
+  assert.equal(floods, 1, `${floods} of 20 identical claims survived`);
+  assert.ok(real >= 3, `only ${real} genuine claims survived the flood`);
+  rm(root);
 });
 
 // --- the surfaces, so the gateway is actually used and not merely available

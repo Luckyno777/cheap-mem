@@ -57,10 +57,24 @@ export class Capability {
     Object.freeze(this);
   }
 
-  /** Does this capability admit the given scope? */
+  /**
+   * Does this capability admit the given scope?
+   *
+   * `global` is the ROOT of the lattice, not a sibling: facts that belong
+   * to no project — the person, the timezone, the setup — are what every
+   * scope inherits. A project capability that could not see them would
+   * make a project session dumber than a global one for no security
+   * benefit, since a global fact is by definition not another project's
+   * secret.
+   *
+   * Found by attacking this file after writing it: a project capability
+   * returned nothing global at all, which would have been discovered in
+   * production as "the memory forgot who I am".
+   */
   admits(scope) {
     const id = parseScope(scope).id;
     if (this.scopes.includes(id)) return true;
+    if (id === GLOBAL && this.rights.includes('read')) return true;
     // `global` with descendants is the everything-capability. Spelled out
     // rather than special-cased silently, so that reading the code tells
     // you what it means.

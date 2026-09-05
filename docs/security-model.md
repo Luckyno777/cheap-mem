@@ -83,6 +83,13 @@ Stated because the benchmark shows both: `search()` without a project still
 returns everything, and that is its job. Code that needs a boundary calls
 the gateway.
 
+**`global` is the root, not a sibling.** Facts belonging to no project —
+the person, the timezone, the setup — are visible to every read
+capability. Found by attacking this design after building it: a project
+capability first returned nothing global at all, which in production reads
+as "the memory forgot who I am". A global fact is by definition not another
+project's secret.
+
 **Where it ends.** In-process. Another process can construct a permissive
 capability; this is not a sandbox. What it prevents is the accident — the
 forgotten argument, the copied call site, the helper that quietly widened.
@@ -157,6 +164,25 @@ legitimately writes most of a memory, and a flat cap would suppress the
 most useful author. `user` tier is exempt — the owner cannot poison their
 own memory in the sense this defends against.
 
+**The share alone is nearly worthless, and the fix is content.** Attacking
+it showed twenty identical claims under twenty author names passing
+untouched: rotating a name costs an attacker nothing. So identical bodies
+(NFC, CRLF→LF, whitespace collapsed — no case folding, no punctuation
+stripping) collapse to the highest-ranked one, whoever signed them.
+Measured: a 20-claim flood returns as 1, with genuine entries still in the
+answer.
+
+That collapse happens **during** selection, not after. Doing it afterwards
+was a real defect in the first version: the flood filled all ten slots,
+dedup then removed nine, and the answer was a single flood claim with every
+genuine entry gone. Filtering after a cutoff cannot restore what the cutoff
+discarded.
+
+Near-duplicates are deliberately left alone. They are a `possible_duplicate`
+relation to surface, not a merge to perform — aggressive normalisation makes
+DIFFERENT content collide, and a memory that silently merges two different
+claims is worse than one that shows a duplicate.
+
 ---
 
 ## 7. Environment contract
@@ -189,6 +215,7 @@ every fresh memory started without the guarantee its own design depends on.
 | **T2 malicious agent** | supersede another's claim | refused | `doctor` integrity, `mem explain` | authority rule | can forge `author` with repo write |
 | **T2** | flood disputed claims | no context effect *(measured, 50 claims)* | `doctor` | disputed is unindexed | disk grows |
 | **T2** | short claim with the query words | **still works** | — | **unsolved** | see below |
+| **T2** | flood under many author names | collapses to one *(measured)* | `mem explain` | identical bodies dedupe during selection | near-duplicates survive |
 | **T1/T2** | read another scope | refused at the gateway | excluded-with-reason | capability | `search()` is still open by design |
 | **T3 malicious document** | injection in a body | returned as a labelled record | — | structured retrieval | a client may re-flatten |
 | **T3** | secret in a body | redacted before disk | canary, hook | 7 separator + 7 space look-alikes | an unknown shape |
