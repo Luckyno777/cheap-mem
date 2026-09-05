@@ -29,6 +29,8 @@ import * as raw from '../src/raw.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
+import * as retrieval from '../src/retrieval.mjs';
+import * as capability from '../src/capability.mjs';
 import * as embedmod from '../src/embed/index.mjs';
 import * as embedHook from '../src/embed-hook.mjs';
 import * as hybrid from '../src/hybrid.mjs';
@@ -1110,6 +1112,78 @@ const COMMANDS = {
       process.exit(r.ok ? 0 : 1);
     }
     die(`hooks: unknown subcommand '${rest[0]}'. Known: install, check`);
+  },
+
+  retrieve: async ({ rest, args }) => {
+    if (isHelp(args) || !rest.length) {
+      out([
+        'mem retrieve "<question>" [--project <p>] [--type <t>] [--top <n>]',
+        '                          [--as-of <iso>] [--with-disputed] [--json]',
+        '',
+        '  Structured claims, not a paragraph. Each carries who asserted it,',
+        '  at what authority, in which scope, and whether it still holds.',
+        '',
+        '  Scope is a BOUNDARY here, not a filter: without --project you get',
+        '  what this session may see, and there is no argument that widens it.',
+        '',
+        '  --as-of        what held THEN, not what is recorded now',
+        '  --with-disputed  include claims whose supersession was refused',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['project', 'type', 'top', 'as-of', 'with-disputed', 'json'], 'retrieve');
+    const root = findRoot(args);
+    requireConfig(root);
+    const cap = args.project
+      ? capability.grantProject(String(args.project), { subject: 'cli' })
+      : capability.grantAll('cli');
+    const r = retrieval.retrieve(root, rest.join(' '), cap, {
+      top: args.top ? Number(args.top) : 10,
+      asOf: args['as-of'] ? String(args['as-of']) : null,
+      type: args.type ? String(args.type) : null,
+      withDisputed: Boolean(args['with-disputed']),
+    });
+    if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+    if (!r.claims.length) {
+      out(`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`);
+    }
+    for (const c of r.claims) {
+      out(`${c.id}  [${c.authority}${c.author ? '/' + c.author : ''}]  ${c.scope}  `
+        + `${c.ts ?? '?'}  ${c.score.toFixed(2)}${c.bodyTruncated ? '  (body truncated)' : ''}`);
+      out(`  ${c.body.replace(/\s+/g, ' ')}`);
+    }
+    if (r.excluded.length) {
+      warn(`${r.excluded.length} excluded — mem explain <id> says why`);
+    }
+  },
+
+  explain: async ({ rest, args }) => {
+    if (isHelp(args) || rest.length < 2) {
+      out([
+        'mem explain "<question>" <claim-id> [--project <p>] [--json]',
+        '',
+        '  Why a NAMED claim did or did not come back: rank and score if it',
+        '  did, the exclusion reason if it did not.',
+        '',
+        '  This is the half of explainability nothing else offers, and it is',
+        '  deterministic — no model, and nothing computed that the ranker did',
+        '  not compute anyway.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['project', 'json'], 'explain');
+    const root = findRoot(args);
+    requireConfig(root);
+    const id = rest[rest.length - 1];
+    const q = rest.slice(0, -1).join(' ');
+    const cap = args.project
+      ? capability.grantProject(String(args.project), { subject: 'cli' })
+      : capability.grantAll('cli');
+    const r = retrieval.explainMissing(root, q, cap, id);
+    if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+    out(r.returned
+      ? `${id}: returned at rank ${r.rank}, score ${r.score.toFixed(4)}`
+      : `${id}: not returned — ${r.reason}`);
   },
 
   doctor: async ({ args }) => {

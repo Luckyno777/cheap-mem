@@ -51,6 +51,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
+import * as retrieval from '../src/retrieval.mjs';
+import * as capability from '../src/capability.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as raw from '../src/raw.mjs';
 import * as inbox from '../src/inbox.mjs';
@@ -70,6 +72,27 @@ function resolveRoot() {
 
 function textResult(text) {
   return { content: [{ type: 'text', text }] };
+}
+
+/**
+ * A structured result.
+ *
+ * `structuredContent` is the machine-readable half; the text block is a
+ * fallback for clients that do not read it. Both are built from the SAME
+ * records, and the text block deliberately reads as a table rather than as
+ * prose — a memory that writes sentences is a memory that can be made to
+ * write a sentence someone else chose.
+ *
+ * MCP is not a prompt-injection defence on its own: a client can always
+ * flatten these fields back into a paragraph. What it does is remove the
+ * step where the MEMORY does the flattening, which is the step this side
+ * of the boundary controls.
+ */
+function structuredResult(data, lines) {
+  return {
+    content: [{ type: 'text', text: lines.join('\n') }],
+    structuredContent: data,
+  };
 }
 
 const TOOLS = [
@@ -117,6 +140,62 @@ const TOOLS = [
         literal: { type: 'boolean', description: 'Plain substring search instead' },
       },
       required: ['query'],
+    },
+  },
+  {
+    name: 'mem_retrieve',
+    description:
+      'Ranked retrieval that returns STRUCTURED claims — id, body, author, authority, '
+      + 'scope, validity, status, score — instead of a paragraph. Prefer this over '
+      + 'mem_find when the result will be used to decide something: every claim carries '
+      + 'who asserted it and at what authority, superseded and disputed claims are '
+      + 'excluded with a reason, and scope is enforced rather than requested. '
+      + 'The body is the entry\'s own words and nothing else.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Natural words, not a regex' },
+        project: { type: 'string', description: 'Restrict to one project. Omit for everything the session may see.' },
+        type: { type: 'string', enum: Object.keys(memory.TYPES) },
+        top: { type: 'number', description: 'How many claims (default 10, capped)' },
+        as_of: { type: 'string', description: 'ISO time: what held THEN, not what is recorded now' },
+        with_disputed: { type: 'boolean', description: 'Include claims whose supersession was refused' },
+      },
+      required: ['query'],
+    },
+    outputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        scopes: { type: 'array', items: { type: 'string' } },
+        claims: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              body: { type: 'string' },
+              author: { type: ['string', 'null'] },
+              authority: { type: 'string' },
+              scope: { type: 'string' },
+              topic: { type: ['string', 'null'] },
+              ts: { type: ['string', 'null'] },
+              valid_from: { type: ['string', 'null'] },
+              valid_until: { type: ['string', 'null'] },
+              status: { type: 'string' },
+              score: { type: 'number' },
+              bodyTruncated: { type: 'boolean' },
+            },
+          },
+        },
+        excluded: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: { id: { type: ['string', 'null'] }, why: { type: 'string' } },
+          },
+        },
+      },
     },
   },
   {
@@ -235,6 +314,33 @@ async function handleCall(name, args) {
         `Appended: ${path.relative(root, p)}\n  id: ${entry.id}\n  ts: ${entry.ts}\n\n` +
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'log ${type}: ...' && git -C ${root} push`);
     }
+    case 'mem_retrieve': {
+      const { query, project, type, top, as_of: asOf, with_disputed: withDisputed } = args;
+      if (!query) return textResult('mem_retrieve needs a query.');
+      // The session's capability. Narrow when a project is named, and the
+      // everything-capability otherwise -- an MCP session speaks for the
+      // owner of the memory it was pointed at. Minting it HERE rather than
+      // taking a scope argument is the point: there is no request shape
+      // that widens what this session may reach.
+      const cap = project
+        ? capability.grantProject(project, { subject: 'mcp' })
+        : capability.grantAll('mcp');
+      const r = retrieval.retrieve(root, query, cap, {
+        top: top ?? 10, asOf: asOf ?? null, type: type ?? null,
+        withDisputed: Boolean(withDisputed),
+      });
+      const lines = r.claims.length
+        ? r.claims.map((c) => `${c.id}  [${c.authority}${c.author ? '/' + c.author : ''}]  `
+            + `${c.scope}  ${c.ts ?? '?'}  ${c.score.toFixed(2)}\n  `
+            + `${c.body.replace(/\s+/g, ' ').slice(0, 300)}`)
+        : [`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`];
+      if (r.excluded.length) {
+        lines.push('', `excluded: ${r.excluded.length}`);
+        for (const e of r.excluded.slice(0, 10)) lines.push(`  ${e.id ?? '-'}: ${e.why}`);
+      }
+      return structuredResult(r, lines);
+    }
+
     case 'mem_find': {
       const { query, pattern, type, project, since, top, literal } = args;
       const q = query ?? pattern;   // `pattern` kept for older callers
