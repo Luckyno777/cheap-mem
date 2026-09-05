@@ -73,9 +73,23 @@ export const DUTY_STATE = Object.freeze({
 
 const PROJECT_NAME_RE = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
 
+/**
+ * Names a project may not take, because something else already means
+ * them. `global` is the sharp one: every filter treats `project:
+ * 'global'` as "the root bucket, not a project", so a project actually
+ * named global becomes unreachable through its own name — the query
+ * silently answers about somewhere else.
+ */
+export const RESERVED_PROJECT_NAMES = Object.freeze(['global', 'raw', 'inbox']);
+
 export function checkProjectName(name) {
   if (typeof name !== 'string' || name.length === 0) {
     throw new Error('Project name missing');
+  }
+  if (RESERVED_PROJECT_NAMES.includes(name)) {
+    throw new Error(
+      `Project name '${name}' is reserved — it already means something else `
+      + `in every filter. Reserved: ${RESERVED_PROJECT_NAMES.join(', ')}`);
   }
   if (name.length > 40) {
     throw new Error(`Project name '${name}' too long (>40 chars)`);
@@ -90,6 +104,18 @@ export function logPath(root, type, project = null) {
   if (!Object.hasOwn(TYPES, type)) {
     throw new Error(`Unknown type '${type}'. Known: ${Object.keys(TYPES).join(', ')}`);
   }
+  // The project name is validated HERE, not only where a project is
+  // created. checkProjectName existed from the start but was called
+  // only from projectInit, so `mem log --project ../../../../tmp/x`
+  // walked straight out of the memory and logEntry created the
+  // directories on the way: verified, a file landed outside the root.
+  //
+  // It matters more than a stray file. The permission the docs describe
+  // as narrow — `Bash(node <root>/bin/mem:*)`, granted to the unattended
+  // digest — was enough on its own to write anywhere the process can
+  // reach, with no git or file permission at all. This is the one place
+  // every caller (CLI, MCP server, library) funnels through.
+  if (project !== null && project !== undefined) checkProjectName(project);
   const file = TYPES[type];
   return project
     ? path.join(root, 'projects', project, file)
@@ -204,6 +230,12 @@ export function listProjects(root) {
   return fs.readdirSync(dir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)
+    // A directory whose name logPath would reject must not be handed
+    // back either — enumeration would otherwise feed an invalid name
+    // straight into the function that refuses it, and every read across
+    // all projects (context, core, search) would throw on one stray
+    // directory rather than skip it.
+    .filter((name) => { try { checkProjectName(name); return true; } catch { return false; } })
     .sort();
 }
 
@@ -238,8 +270,15 @@ export function entriesById(root) {
     for (const type of Object.keys(TYPES)) {
       let res;
       try { res = readLog(root, type, { project }); } catch { continue; }
+      // Retirement is per log file, so the map is built from the same
+      // lines. Everything downstream of this — links, standing,
+      // experiences, and through them `mem core` — inherits the answer,
+      // which is why a retired learning used to keep showing up as
+      // something the memory stands behind.
+      const retired = retiredMap(res.entries);
       for (const e of res.entries) {
         if (e.__broken || !e.id || isClosingLine(e)) continue;
+        if (retired.has(e.id)) continue;
         if (!byId.has(e.id)) byId.set(e.id, { ...e, _type: type, _project: project });
       }
     }
@@ -571,8 +610,22 @@ export function recentEntries(root, type, n) {
       all.push({ ...e, _source: path.relative(root, p), _line: i + 1 });
     }
   }
-  all.sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
-  return all.slice(0, n);
+
+  // Retired entries and their tombstones are BOTH dropped here, and that
+  // is not tidiness. This feeds `mem context` and `mem core`, which the
+  // SessionStart hook prints into every session — so without it, advice
+  // the user explicitly discarded keeps being loaded as current, while
+  // `mem find` correctly hides it. Two answers from one memory about the
+  // same entry is worse than either answer alone.
+  //
+  // The tombstone has to go too: it carries only `why`, so it rendered
+  // as an entry of its own ("because vendor X shut down") with no hint
+  // that it is a retraction of the line above it.
+  const retired = retiredMap(all);
+  const live = all.filter((e) => !isClosingLine(e) && !retired.has(e.id));
+
+  live.sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
+  return live.slice(0, n);
 }
 
 function shortText(e) {

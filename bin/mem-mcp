@@ -305,10 +305,11 @@ async function handleCall(name, args) {
         fresh.map((m) => `  [${m.state}] ${m.name}\n         ${m.subject} (from ${m.from})`).join('\n'));
     }
     case 'mem_inbox_show': {
-      const p = path.join(inbox.inboxDir(root), args.name);
-      const fs = await import('node:fs');
-      if (!fs.existsSync(p)) throw new Error(`'${args.name}' not found`);
-      return textResult(fs.readFileSync(p, 'utf8'));
+      // Through inbox.readMessage, which guards the name. This used to
+      // join args.name onto the inbox directory itself, so a client
+      // could ask for '../../../../etc/passwd' and get it back as tool
+      // output — while setState, right next to it, had the guard.
+      return textResult(inbox.readMessage(root, args.name));
     }
     case 'mem_inbox_write': {
       const from = args.from ?? inbox.whoAmI(root);

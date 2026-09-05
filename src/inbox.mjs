@@ -99,15 +99,69 @@ export function fileName(participants, { time, from, to }) {
 
 export function inboxDir(root) { return path.join(root, INBOX_DIR); }
 
+/**
+ * A message name is a FILENAME, never a path.
+ *
+ * This check lived inline inside setState, which meant it protected
+ * exactly one of the places that join a caller-supplied name onto the
+ * inbox directory — `mem_inbox_show` in the MCP server did its own
+ * path.join and read whatever it was handed. Same shape of mistake as
+ * checkProjectName, which also existed and was also only called once.
+ * A guard that is not the single entry point is a guard for one caller.
+ */
+export function checkMessageName(name) {
+  if (typeof name !== 'string' || name.length === 0) {
+    throw new Error('Message name missing');
+  }
+  if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+    throw new Error(`'${name}' is a path, not a filename`);
+  }
+}
+
+/**
+ * One message, by filename. The one way to read a message by name, so
+ * the guard above cannot be walked around by joining the path yourself.
+ */
+export function readMessage(root, name) {
+  checkMessageName(name);
+  const p = path.join(inboxDir(root), name);
+  if (!fs.existsSync(p)) throw new Error(`No message '${name}'`);
+  return fs.readFileSync(p, 'utf8');
+}
+
 export function write(root, participants, { from, to, subject, text, now = new Date() }) {
   const time = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const content = build(participants, { from, to, time, subject, text });
-  const name = fileName(participants, { time, from, to });
+  const base = fileName(participants, { time, from, to });
   const dir = inboxDir(root);
   fs.mkdirSync(dir, { recursive: true });
-  const p = path.join(dir, name);
-  fs.writeFileSync(p, content, 'utf8');
-  return { path: p, name, time };
+
+  // The name has second resolution and no disambiguator, so two messages
+  // from the same sender to the same recipient inside one second landed
+  // on the same path — and the second write destroyed the first one
+  // completely. No error, no suffix, no trace, and both calls printed
+  // "Written". Verified through the CLI. This is the channel every
+  // session is told to use at session end, so the lost message was
+  // typically a handover.
+  //
+  // raw.mjs solved the same second-collision for captures long ago; this
+  // file never got it. It checks existsSync and then writes, which
+  // leaves a gap between the two — the exclusive-create flag has no gap
+  // at all: the filesystem either creates the file or tells us it is
+  // taken, in one operation.
+  let name = base;
+  let p = path.join(dir, name);
+  for (let n = 2; n < 1000; n += 1) {
+    try {
+      fs.writeFileSync(p, content, { encoding: 'utf8', flag: 'wx' });
+      return { path: p, name, time };
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      name = base.replace(/\.md$/, `-${n}.md`);
+      p = path.join(dir, name);
+    }
+  }
+  throw new Error(`Inbox: 1000 messages in one second for '${base}' — refusing to guess`);
 }
 
 /**
@@ -133,9 +187,7 @@ export function setState(root, participants, name, newState) {
   if (!Object.values(STATE).includes(newState)) {
     throw new Error(`Unknown state '${newState}'. Known: ${Object.values(STATE).join(', ')}`);
   }
-  if (name.includes('/') || name.includes('\\') || name.includes('..')) {
-    throw new Error(`'${name}' is a path, not a filename`);
-  }
+  checkMessageName(name);
   const p = path.join(inboxDir(root), name);
   if (!fs.existsSync(p)) throw new Error(`No message '${name}'`);
   const old = parse(fs.readFileSync(p, 'utf8'));
