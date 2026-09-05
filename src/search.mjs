@@ -97,15 +97,37 @@ export function splitCompound(word, lexicon, lang, minPart = 4) {
  * Text to tokens. Returns base forms, plus — when a lexicon is given —
  * the parts of compounds.
  */
-export function tokenize(text, { lexicon = null, lang = pack('en') } = {}) {
+export function tokenize(text, opts = {}) {
+  return tokenizeGroups(text, opts).flat();
+}
+
+/**
+ * The same tokens, but grouped by the word they came from.
+ *
+ * One typed word can produce several tokens: `pull-request` yields the
+ * whole form and both parts, and `datastore` yields itself plus `data`
+ * and `store` once the lexicon knows them. For scoring that flattening is
+ * exactly right — every form is a chance to match.
+ *
+ * For anything that asks "how much of what the user TYPED does this
+ * document cover", it is exactly wrong, and quietly so: coverage counted
+ * over flat tokens treated `datastore` as three typed words, so the
+ * document saying "data store" — the one the compound splitter exists to
+ * find — covered 2 of 3 and lost a third of its score. Grouping keeps
+ * one typed word worth one word.
+ *
+ * `tokenize` is this function flattened, so the two cannot drift apart.
+ */
+export function tokenizeGroups(text, { lexicon = null, lang = pack('en') } = {}) {
   if (typeof text !== 'string') return [];
   const rawWords = text
     .toLowerCase()
     .split(/[^\p{L}\p{N}_-]+/u)
     .filter((w) => w.length >= 2 && !lang.stopwords.has(w));
 
-  const out = [];
+  const groups = [];
   for (const w of rawWords) {
+    const out = [];
     // Hyphenated words yield BOTH the full form (`pull-request`) and
     // the parts (`pull`, `request`). Without that, "embedding" never
     // finds the entry "embeddings-endpoint".
@@ -124,8 +146,9 @@ export function tokenize(text, { lexicon = null, lang = pack('en') } = {}) {
         if (parts) for (const p of parts) out.push(lang.stem(p));
       }
     }
+    if (out.length) groups.push(out);
   }
-  return out;
+  return groups;
 }
 
 /**
@@ -431,12 +454,14 @@ export function search(index, query, {
   coverage = 1,          // reward covering more of the TYPED query (0 = off)
 } = {}) {
   const lang = pack(language ?? index.language ?? 'en');
-  const own = tokenize(query, { lexicon: index.lexicon, lang });
+  // Grouped, not flat: coverage below counts TYPED WORDS, and one typed
+  // word can expand into several tokens (hyphen parts, compound parts).
+  const groups = tokenizeGroups(query, { lexicon: index.lexicon, lang });
+  const own = groups.flat();
   if (own.length === 0) return [];
 
   const terms = new Map();
   for (const t of own) terms.set(t, Math.max(terms.get(t) ?? 0, 1.0));
-  const ownSet = new Set(own);
 
   for (const [syn, g] of thesaurus.expand(own, index.tagGraph, lang, index.termGraph)) {
     const stemmed = lang.stem(lang.normalize(syn));
@@ -463,23 +488,32 @@ export function search(index, query, {
     if (sinceTs && (!doc.entry.ts || doc.entry.ts < sinceTs)) continue;
 
     let score = 0;
-    let covered = 0;
     for (const [term, qWeight] of terms) {
       const f = doc.weights.get(term);
       if (!f) continue;
       const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / index.avgLength));
       score += qWeight * idf(index, term) * norm;
-      if (ownSet.has(term)) covered += 1;
     }
     if (score <= 0) continue;
 
     // Coordination. BM25 adds up term scores and has no notion of "this
     // document answered MORE of the question", so one common word carried
-    // often can outrank a document that contains every word typed. Only
-    // the terms the user actually TYPED count — rewarding coverage of the
-    // thesaurus expansion would reward the expansion, not the query.
-    if (coverage > 0 && ownSet.size > 1) {
-      score *= (covered / ownSet.size) ** coverage;
+    // often can outrank a document that contains every word typed.
+    //
+    // Counted over TYPED WORDS, not tokens. Only the words the user
+    // actually typed count at all — rewarding coverage of the thesaurus
+    // expansion would reward the expansion, not the query — and a word
+    // that expanded into several tokens still counts once. Over flat
+    // tokens this was measurably wrong: `datastore` looked like three
+    // typed words, so the document saying "data store" covered 2 of 3
+    // and lost a third of its score, which is the opposite of what the
+    // compound splitter is for.
+    if (coverage > 0 && groups.length > 1) {
+      let covered = 0;
+      for (const g of groups) {
+        for (const t of g) { if (doc.weights.has(t)) { covered += 1; break; } }
+      }
+      score *= (covered / groups.length) ** coverage;
     }
 
     // Mild recency bonus: max +15%, halved after 90 days.
