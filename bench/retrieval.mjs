@@ -25,6 +25,27 @@
 // version of this corpus moved by exactly zero in either direction and
 // could not have told us any of this.
 //
+// **Pseudo-relevance feedback: measured, and deliberately NOT shipped**
+// (2026-09-05). PRF borrows the words shared by the first pass's own top
+// hits and searches again. Built it, measured it, threw it away:
+//
+//   on this corpus   3 of 42 queries moved: 2 up, 1 down (net +1 on R@1)
+//   drift curve      borrowed-term weight 0.35 -> lexical R@1 100%
+//                    weight 1.0 -> 95%, weight 2.0 -> 80%, weight 5.0 -> 75%
+//
+// A wash here. What killed it was the REAL corpus (601 entries): the guard
+// against drift was agreement — only borrow a word that several of the top
+// hits share. On a real memory that guard inverts. Asked "where are the
+// secrets and how are they protected", two of the three top hits happened
+// to come from the largest topic cluster, so the borrowed words were
+// `fass, faellig, timer, befund, faelligkeits-logik` — every one of them
+// about a digest timer, none about secrets — and the one genuinely correct
+// hit was pushed down. Agreement among top hits is not agreement with the
+// query; in a memory dominated by one busy topic they are opposites.
+//
+// Recorded here rather than deleted, because "we tried it, here is the
+// number, here is why not" is worth more than a knob nobody should turn.
+//
 // Pure Node, zero dependencies, deterministic. Run:
 //   node bench/retrieval.mjs           # human table
 //   node bench/retrieval.mjs --json    # + machine-readable result
@@ -231,7 +252,12 @@ function quantile(xs, p) {
 
 // --- The benchmark ------------------------------------------------------
 
-export function runBenchmark({ repeats = 200 } = {}) {
+export function runBenchmark({ repeats = 200, opts = {} } = {}) {
+  // `opts` is merged into every search call, so an A/B (with and without
+  // a retrieval feature) is one flag away and reproducible by anyone —
+  // rather than a temporary edit that leaves no trace of how a number in
+  // the header block was produced.
+  const searchOpts = { top: 10, minScore: 0, ...opts };
   const root = buildCorpus();
   try {
     const tBuild0 = performance.now();
@@ -242,7 +268,7 @@ export function runBenchmark({ repeats = 200 } = {}) {
     const latencies = [];
     for (const { q, gold, kind } of QUERIES) {
       // rank of the first gold id in the top-10, or Infinity if missed
-      const hits = search(index, q, { top: 10, minScore: 0 });
+      const hits = search(index, q, searchOpts);
       let rank = Infinity;
       for (let i = 0; i < hits.length; i += 1) {
         if (gold.includes(hits[i].entry.id)) { rank = i + 1; break; }
@@ -250,7 +276,7 @@ export function runBenchmark({ repeats = 200 } = {}) {
       // time only the search call, many times, to get a stable figure
       for (let r = 0; r < repeats; r += 1) {
         const t0 = performance.now();
-        search(index, q, { top: 10, minScore: 0 });
+        search(index, q, searchOpts);
         latencies.push(performance.now() - t0);
       }
       perQuery.push({ q, kind, rank });
@@ -284,6 +310,7 @@ export function runBenchmark({ repeats = 200 } = {}) {
       overall: scoreOf(perQuery),
       byKind: Object.fromEntries(Object.entries(byKind).map(([k, rows]) => [k, scoreOf(rows)])),
       misses: perQuery.filter((r) => r.rank === Infinity).map((r) => r.q),
+      perQuery,   // per-query ranks, so an A/B can say WHICH query moved
     };
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
