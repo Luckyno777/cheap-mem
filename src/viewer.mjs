@@ -307,7 +307,7 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
   --prose:Charter,"Bitstream Charter","Sitka Text",Cambria,Georgia,serif;
   --code:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
   --paper:#FAF9F6; --raised:#FFFFFF; --sunk:#F1EFE9;
-  --ink:#1A1C1B; --muted:#5F6461; --faint:#8B8F8A;
+  --ink:#1A1C1B; --muted:#4D5350; --faint:#696E6B;
   --rule:#E4E1D9; --rule-soft:#EFECE5;
   --accent:#1F5E70; --accent-soft:#E1EDF0;
   --warn:#8A5A12; --warn-soft:#F6EEDE;
@@ -317,7 +317,7 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
 @media (prefers-color-scheme:dark){
   :root:not([data-theme="light"]){
     --paper:#141716; --raised:#1B1F1D; --sunk:#202523;
-    --ink:#E7EAE6; --muted:#9EA5A0; --faint:#79817B;
+    --ink:#E7EAE6; --muted:#B4BBB5; --faint:#8B9089;
     --rule:#2C332F; --rule-soft:#242A27;
     --accent:#7FC3D4; --accent-soft:#172C32;
     --warn:#D9A758; --warn-soft:#2B2416;
@@ -327,7 +327,7 @@ export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date()
 }
 :root[data-theme="dark"]{
   --paper:#141716; --raised:#1B1F1D; --sunk:#202523;
-  --ink:#E7EAE6; --muted:#9EA5A0; --faint:#79817B;
+  --ink:#E7EAE6; --muted:#B4BBB5; --faint:#8B9089;
   --rule:#2C332F; --rule-soft:#242A27;
   --accent:#7FC3D4; --accent-soft:#172C32;
   --warn:#D9A758; --warn-soft:#2B2416;
@@ -350,14 +350,14 @@ header{
 }
 .bar{max-width:1080px; margin:0 auto; padding:14px 20px 0}
 .brand{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap}
-h1{font-size:17px; font-weight:700; margin:0; letter-spacing:-.01em}
+h1{font-size:20px; font-weight:700; margin:0; letter-spacing:-.015em}
 .meta{font-family:var(--code); font-size:11px; color:var(--faint)}
 .tools{display:flex; gap:10px; align-items:center; margin:12px 0 0; flex-wrap:wrap}
 #q{
   flex:1 1 260px; min-width:200px; padding:8px 12px;
   border:1px solid var(--rule); border-radius:6px;
   background:var(--raised); color:var(--ink);
-  font-family:inherit; font-size:14px;
+  font-family:inherit; font-size:15px;
 }
 #q:focus{outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent}
 select{
@@ -367,9 +367,17 @@ select{
 .live{display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); cursor:pointer; user-select:none}
 .live input{accent-color:var(--accent); cursor:pointer}
 .tabs{display:flex; gap:2px; margin:12px 0 0; overflow-x:auto}
+/* This page is driven from the keyboard (/ jumps to search, Esc clears).
+   Without a visible focus ring you lose your place while tabbing — until
+   now only the search field had one. :focus-visible so the ring does not
+   show up on a mouse click. */
+.tab:focus-visible,.item:focus-visible,select:focus-visible,
+summary:focus-visible,.live input:focus-visible{
+  outline:2px solid var(--accent); outline-offset:2px; border-radius:4px;
+}
 .tab{
   appearance:none; border:0; background:none; cursor:pointer;
-  font-family:inherit; font-size:13.5px; color:var(--muted);
+  font-family:inherit; font-size:14px; color:var(--muted);
   padding:9px 13px; border-bottom:2px solid transparent; white-space:nowrap;
 }
 .tab:hover{color:var(--ink)}
@@ -378,7 +386,7 @@ select{
 
 /* ---- body ---- */
 main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
-.lead{color:var(--muted); font-size:13.5px; margin:0 0 18px; max-width:70ch}
+.lead{color:var(--muted); font-size:14px; margin:0 0 18px; max-width:70ch}
 .empty{color:var(--faint); text-align:center; padding:56px 20px; font-size:14px}
 
 /* ---- entry card ---- */
@@ -394,7 +402,7 @@ main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
 .card.gone h2{color:var(--muted); text-decoration:line-through}
 .row{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:0 0 6px}
 .chip{
-  font-family:var(--code); font-size:10.5px; letter-spacing:.03em;
+  font-family:var(--code); font-size:11px; letter-spacing:.03em;
   padding:2px 7px; border-radius:3px; background:var(--sunk); color:var(--muted);
   border:1px solid var(--rule-soft);
 }
@@ -404,13 +412,13 @@ main{max-width:1080px; margin:0 auto; padding:22px 20px 80px}
 .chip.tag{background:none; border-color:var(--rule)}
 .chip.act{cursor:pointer}
 .chip.act:hover{border-color:var(--accent); color:var(--accent)}
-.prose{font-family:var(--prose); font-size:14.5px; color:var(--muted); margin:6px 0 0}
+.prose{font-family:var(--prose); font-size:15px; color:var(--muted); margin:6px 0 0}
 details{margin-top:9px}
 summary{cursor:pointer; color:var(--faint); font-size:12px; font-family:var(--code)}
 summary:hover{color:var(--accent)}
 table{width:100%; border-collapse:collapse; margin-top:8px; font-size:13px}
 td{border-top:1px solid var(--rule-soft); padding:6px 8px; vertical-align:top}
-td.k{color:var(--faint); width:110px; white-space:nowrap; font-family:var(--code); font-size:11.5px}
+td.k{color:var(--faint); width:110px; white-space:nowrap; font-family:var(--code); font-size:12px}
 td.v{white-space:pre-wrap; word-break:break-word; font-family:var(--prose)}
 mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius:2px}
 
@@ -419,24 +427,27 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
 .item{padding:13px 16px; border-top:1px solid var(--rule-soft); cursor:pointer; background:none; border-left:0; border-right:0; border-bottom:0; text-align:left; width:100%; font-family:inherit; color:inherit; font-size:inherit}
 .item:first-child{border-top:0}
 .item:hover{background:var(--sunk)}
-.item h3{font-size:14.5px; margin:0 0 4px; font-weight:700; letter-spacing:-.005em}
-.item .sub{color:var(--muted); font-size:13px; font-family:var(--prose)}
+.item h3{font-size:15px; margin:0 0 4px; font-weight:700; letter-spacing:-.005em}
+.item .sub{color:var(--muted); font-size:14px; font-family:var(--prose)}
 .bar-wrap{display:flex; align-items:center; gap:10px; margin-top:6px}
 .bar-track{flex:0 0 96px; height:5px; background:var(--sunk); border-radius:3px; overflow:hidden}
 .bar-fill{height:100%; background:var(--accent)}
 .edge{display:grid; grid-template-columns:1fr auto 1fr; gap:10px; align-items:center}
 .edge .side{min-width:0}
-.edge .side b{display:block; font-weight:400; font-family:var(--prose); font-size:13.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.edge .kind{font-family:var(--code); font-size:10.5px; color:var(--accent); padding:2px 8px; background:var(--accent-soft); border-radius:3px; white-space:nowrap}
+.edge .side b{display:block; font-weight:400; font-family:var(--prose); font-size:14px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.edge .kind{font-family:var(--code); font-size:11px; color:var(--accent); padding:2px 8px; background:var(--accent-soft); border-radius:3px; white-space:nowrap}
 .edge .kind.contradicts{color:var(--warn); background:var(--warn-soft)}
 .fact{display:grid; grid-template-columns:minmax(120px,auto) 1fr auto; gap:14px; align-items:baseline}
-.fact .key{font-family:var(--code); font-size:12.5px; color:var(--muted)}
+.fact .key{font-family:var(--code); font-size:13px; color:var(--muted)}
 .fact .val{font-family:var(--prose); font-size:15px}
 .fact .since{font-family:var(--code); font-size:11px; color:var(--faint); white-space:nowrap}
 .trail{margin:8px 0 0; padding:0 0 0 14px; border-left:2px solid var(--rule); display:grid; gap:5px}
 .trail div{font-size:13px; color:var(--muted)}
 .trail .when{font-family:var(--code); font-size:11px; color:var(--faint); margin-right:7px}
 @media (max-width:620px){
+  /* ~36px tall tabs are a poor thumb target; 44px is the usual floor. At
+     a desk it stays compact. */
+  .tab{padding:13px 14px}
   .edge{grid-template-columns:1fr; gap:5px}
   .fact{grid-template-columns:1fr; gap:2px}
 }

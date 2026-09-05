@@ -1,0 +1,410 @@
+{
+  "$description": "cheap-mem viewer design tokens. Extracted from the inline <style> block of src/viewer.mjs, so every colour is a declared CSS custom property, not an inference. Mirrored byte-for-byte by lucky-mem/src/ansicht.mjs.",
+  "color": {
+    "light": {
+      "paper": {
+        "$value": "#FAF9F6",
+        "$type": "color",
+        "$description": "page ground",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "raised": {
+        "$value": "#FFFFFF",
+        "$type": "color",
+        "$description": "card and list surface",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "sunk": {
+        "$value": "#F1EFE9",
+        "$type": "color",
+        "$description": "recessed fill: chips, bar tracks, retired cards, row hover",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "ink": {
+        "$value": "#1A1C1B",
+        "$type": "color",
+        "$description": "primary text",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "muted": {
+        "$value": "#4D5350",
+        "$type": "color",
+        "$description": "secondary text: prose, leads, chips",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "faint": {
+        "$value": "#696E6B",
+        "$type": "color",
+        "$description": "tertiary text: timestamps, counts, file paths",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "rule": {
+        "$value": "#E4E1D9",
+        "$type": "color",
+        "$description": "structural border",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "rule-soft": {
+        "$value": "#EFECE5",
+        "$type": "color",
+        "$description": "internal divider",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "accent": {
+        "$value": "#1F5E70",
+        "$type": "color",
+        "$description": "state and type only: active lens, type chip, link kind, focus ring",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "accent-soft": {
+        "$value": "#E1EDF0",
+        "$type": "color",
+        "$description": "accent fill",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "warn": {
+        "$value": "#8A5A12",
+        "$type": "color",
+        "$description": "caution: contested, stale, contradicting",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "warn-soft": {
+        "$value": "#F6EEDE",
+        "$type": "color",
+        "$description": "caution fill, also the search highlight",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "gone": {
+        "$value": "#8C3A34",
+        "$type": "color",
+        "$description": "retired or broken",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "gone-soft": {
+        "$value": "#F6E6E4",
+        "$type": "color",
+        "$description": "retired fill",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "fresh": {
+        "$value": "#2C6B4F",
+        "$type": "color",
+        "$description": "confirmed-recent; declared but currently unused",
+        "$extensions": {
+          "anydesign.confidence": "medium"
+        }
+      }
+    },
+    "dark": {
+      "paper": {
+        "$value": "#141716",
+        "$type": "color",
+        "$description": "page ground",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "raised": {
+        "$value": "#1B1F1D",
+        "$type": "color",
+        "$description": "card and list surface",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "sunk": {
+        "$value": "#202523",
+        "$type": "color",
+        "$description": "recessed fill",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "ink": {
+        "$value": "#E7EAE6",
+        "$type": "color",
+        "$description": "primary text",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "muted": {
+        "$value": "#B4BBB5",
+        "$type": "color",
+        "$description": "secondary text",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "faint": {
+        "$value": "#8B9089",
+        "$type": "color",
+        "$description": "tertiary text",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "rule": {
+        "$value": "#2C332F",
+        "$type": "color",
+        "$description": "structural border; only ~1.4:1 on paper, see Open Questions",
+        "$extensions": {
+          "anydesign.confidence": "medium"
+        }
+      },
+      "rule-soft": {
+        "$value": "#242A27",
+        "$type": "color",
+        "$description": "internal divider",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "accent": {
+        "$value": "#7FC3D4",
+        "$type": "color",
+        "$description": "state and type only",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "accent-soft": {
+        "$value": "#172C32",
+        "$type": "color",
+        "$description": "accent fill",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "warn": {
+        "$value": "#D9A758",
+        "$type": "color",
+        "$description": "caution",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "warn-soft": {
+        "$value": "#2B2416",
+        "$type": "color",
+        "$description": "caution fill",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "gone": {
+        "$value": "#E08C85",
+        "$type": "color",
+        "$description": "retired or broken",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "gone-soft": {
+        "$value": "#2E1D1C",
+        "$type": "color",
+        "$description": "retired fill",
+        "$extensions": {
+          "anydesign.confidence": "high"
+        }
+      },
+      "fresh": {
+        "$value": "#6FBF97",
+        "$type": "color",
+        "$description": "confirmed-recent; declared but currently unused",
+        "$extensions": {
+          "anydesign.confidence": "medium"
+        }
+      }
+    }
+  },
+  "fontFamily": {
+    "ui": {
+      "$value": "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+      "$type": "fontFamily",
+      "$description": "chrome: tabs, controls, leads"
+    },
+    "prose": {
+      "$value": "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
+      "$type": "fontFamily",
+      "$description": "anything a person or model SAID"
+    },
+    "code": {
+      "$value": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace",
+      "$type": "fontFamily",
+      "$description": "anything the system RECORDED"
+    }
+  },
+  "typography": {
+    "brand": {
+      "$value": {
+        "fontFamily": "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+        "fontSize": "20px",
+        "fontWeight": 700,
+        "letterSpacing": "-0.015em"
+      },
+      "$type": "typography",
+      "$description": "page title",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    },
+    "entry-title": {
+      "$value": {
+        "fontFamily": "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
+        "fontSize": "17px",
+        "fontWeight": 600,
+        "lineHeight": "1.35",
+        "letterSpacing": "-0.005em"
+      },
+      "$type": "typography",
+      "$description": "card headline",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    },
+    "prose": {
+      "$value": {
+        "fontFamily": "Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif",
+        "fontSize": "15px",
+        "fontWeight": 400,
+        "lineHeight": "1.55"
+      },
+      "$type": "typography",
+      "$description": "remembered text, fact values, search field",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    },
+    "ui": {
+      "$value": {
+        "fontFamily": "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+        "fontSize": "14px",
+        "fontWeight": 400
+      },
+      "$type": "typography",
+      "$description": "tabs, leads, list rows",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    },
+    "ui-sm": {
+      "$value": {
+        "fontFamily": "system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+        "fontSize": "13px",
+        "fontWeight": 400
+      },
+      "$type": "typography",
+      "$description": "selects, tables, trail",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    },
+    "meta": {
+      "$value": {
+        "fontFamily": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace",
+        "fontSize": "12px",
+        "fontWeight": 400
+      },
+      "$type": "typography",
+      "$description": "table keys, disclosure summaries",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    },
+    "chip-mono": {
+      "$value": {
+        "fontFamily": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace",
+        "fontSize": "11px",
+        "fontWeight": 400,
+        "letterSpacing": "0.03em"
+      },
+      "$type": "typography",
+      "$description": "chips, counts, dates, link kinds",
+      "$extensions": {
+        "anydesign.confidence": "high"
+      }
+    }
+  },
+  "dimension": {
+    "radius": {
+      "xs": {
+        "$value": "3px",
+        "$type": "dimension",
+        "$description": "chips, bar track, link kinds"
+      },
+      "sm": {
+        "$value": "6px",
+        "$type": "dimension",
+        "$description": "inputs, selects, focus rings"
+      },
+      "md": {
+        "$value": "8px",
+        "$type": "dimension",
+        "$description": "cards, lists"
+      }
+    },
+    "border": {
+      "hairline": {
+        "$value": "1px",
+        "$type": "dimension",
+        "$description": "the only elevation tier"
+      },
+      "spine": {
+        "$value": "2px",
+        "$type": "dimension",
+        "$description": "trail left rule, active tab underline, focus ring"
+      }
+    },
+    "container": {
+      "$value": "1080px",
+      "$type": "dimension",
+      "$description": "max content width"
+    },
+    "measure": {
+      "$value": "70ch",
+      "$type": "dimension",
+      "$description": "lead paragraph cap"
+    },
+    "breakpoint-mobile": {
+      "$value": "620px",
+      "$type": "dimension",
+      "$description": "the only breakpoint"
+    }
+  },
+  "$extensions": {
+    "anydesign.notes": [
+      "There is no shadow token. Depth is surface tone plus a hairline, two tiers only.",
+      "There is no webfont and no pill radius, both deliberate. See docs/viewer-design.md.",
+      "Every pair in docs/viewer-design-a11y.md passes WCAG AA for normal text."
+    ]
+  }
+}
