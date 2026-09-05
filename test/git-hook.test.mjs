@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 
 const PKG_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -51,7 +51,10 @@ test('an old false positive does not lock the file against new lines', async () 
 
     // Prove the WHOLE file would be red today — otherwise this test only
     // proves that a harmless file is harmless.
-    const red = await import(path.join(r, 'src', 'redaction.mjs'));
+    // pathToFileURL: on Windows an absolute path starts with a drive
+    // letter and the ESM loader reads `c:` as a URL scheme. The same
+    // mistake the hook itself made, one layer up.
+    const red = await import(pathToFileURL(path.join(r, 'src', 'redaction.mjs')).href);
     assert.ok(red.redact(fs.readFileSync(log, 'utf8')).found.length > 0,
       'precondition: the whole file must carry a finding');
 
