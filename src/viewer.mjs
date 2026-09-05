@@ -542,9 +542,24 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
     if (!a && !b) return e.headline;
     return (a ? a.headline : d.from) + '  \u2192 ' + (d.kind || 'related') + ' \u2192  ' + (b ? b.headline : d.to);
   }
+  // A headline is two fields joined with " \u2014 ": for a learning, the
+  // title and the text. Both short, and it reads as one line. When the
+  // second is a paragraph \u2014 and real learnings often are \u2014 the
+  // heading becomes six lines and the card has no head left to skim. So it
+  // breaks at exactly that seam: title above, body as prose below.
+  var BREAK_OVER = 160;   // past this, the line is no longer a heading
+  var HEAD_MAX = 240;     // and past this, neither is the head
+  function headAndBody(e) {
+    var s = headlineOf(e), i = s.indexOf(' \u2014 ');
+    // No separator, short enough, or a head that is itself a paragraph:
+    // nothing to gain, so the line stays as it is.
+    if (s.length <= BREAK_OVER || i < 1 || i > HEAD_MAX) return { head: s, body: '' };
+    return { head: s.slice(0, i), body: s.slice(i + 3) };
+  }
   function card(e) {
+    var parts = headAndBody(e);
     var h = '<article class="card' + (e.retired ? ' gone' : '') + '" id="e-' + esc(e.id) + '">';
-    h += '<h2>' + mark(headlineOf(e), state.q) + '</h2><div class="row">';
+    h += '<h2>' + mark(parts.head, state.q) + '</h2><div class="row">';
     h += '<span class="chip type">' + esc(e.typeLabel || e.type) + '</span>';
     h += '<span class="chip mono">' + esc(when(e.ts)) + '</span>';
     if (e.project) h += '<span class="chip">' + esc(e.project) + '</span>';
@@ -553,6 +568,7 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
     for (var i = 0; i < tags.length; i++) h += '<span class="chip tag">' + esc(tags[i]) + '</span>';
     if (e.id) h += '<span class="chip mono">' + esc(e.id) + '</span>';
     h += '</div>';
+    if (parts.body) h += '<p class="prose">' + mark(parts.body, state.q) + '</p>';
     if (e.retired && e.retired.why) h += '<p class="prose">Retired: ' + mark(e.retired.why, state.q) + '</p>';
     var keys = Object.keys(e.details || {});
     if (keys.length) {
@@ -583,9 +599,14 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
       var t = list[i], cur = byId(t.current);
       h += '<button class="item" data-topic="' + esc(t.topic) + '">';
       h += '<h3>' + esc(t.topic) + '</h3>';
-      h += '<div class="sub">' + esc(cur ? cur.headline : '(nothing current)') + '</div>';
+      // For a topic entry the headline starts with the topic itself (it is
+      // the second-best headline field). Under a heading that already IS
+      // the topic, that is a repetition.
+      var sub = cur ? cur.headline : '(nothing current)';
+      if (cur && sub.indexOf(t.topic + ' \u2014 ') === 0) sub = sub.slice(t.topic.length + 3);
+      h += '<div class="sub">' + esc(sub) + '</div>';
       h += '<div class="row" style="margin-top:7px">';
-      h += '<span class="chip mono">' + t.count + ' entries</span>';
+      h += '<span class="chip mono">' + t.count + (t.count === 1 ? ' entry' : ' entries') + '</span>';
       h += '<span class="chip mono">last ' + esc(when(t.last)) + '</span>';
       for (var j = 0; j < t.types.length; j++) h += '<span class="chip">' + esc(t.types[j]) + '</span>';
       h += '</div>';
@@ -633,15 +654,19 @@ mark{background:var(--warn-soft); color:var(--ink); padding:0 1px; border-radius
     var m = mem(), q = state.q.toLowerCase();
     var list = m.experiences.filter(function (x) { return !q || x.title.toLowerCase().indexOf(q) !== -1; });
     if (!list.length) return '<p class="empty">Nothing is cited yet. An experience is a learning the rest of the memory leans on.</p>';
+    // When everything leans equally hard (the normal case in a young
+    // memory: exactly one citation each), a bar draws a ranking that is
+    // not there. Then it stays away.
     var max = 1;
     for (var i = 0; i < list.length; i++) if (list[i].cited > max) max = list[i].cited;
+    var ranked = max > 1;
     var h = '<div class="list">';
     for (var j = 0; j < list.length; j++) {
       var x = list[j];
       h += '<button class="item" data-focus="' + esc(x.id) + '">';
       h += '<h3>' + mark(x.title, state.q) + '</h3><div class="bar-wrap">';
-      h += '<span class="bar-track"><span class="bar-fill" style="width:' + Math.round(x.cited / max * 100) + '%"></span></span>';
-      h += '<span class="chip mono">' + x.cited + ' citing</span>';
+      if (ranked) h += '<span class="bar-track"><span class="bar-fill" style="width:' + Math.round(x.cited / max * 100) + '%"></span></span>';
+      h += '<span class="chip mono">' + x.cited + (x.cited === 1 ? ' citation' : ' citations') + '</span>';
       if (x.contested) h += '<span class="chip warn">contested</span>';
       h += '</div></button>';
     }
