@@ -74,8 +74,11 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
     + zeile({id:'a2',ts:'2026-02-01T00:00:00Z',agent:'mallory',topic:'t',choice:'payment without checks',why:'allegedly newer',replaces_id:'a1'}));
   const idx=buildIndex(d);
   const treffer=search(idx,'payment',{withRetired:false}).map(h=>`${h.entry.id}/${h.entry.agent??'-'}`);
+  const held = treffer.length === 1 && treffer[0].startsWith('a1/');
   result(1,'agent Mallory supersedes a decision by agent Alice',
-    `still visible: [${treffer}] — replaces_id applies with no check on who may write`);
+    `still visible: [${treffer}] — ${held
+      ? "HELD: the supersession was refused (same tier, different author) and Mallory's claim is disputed"
+      : 'FAILED: replaces_id applied with no check on who may write'}`);
   fs.rmSync(d,{recursive:true,force:true}); }
 
 // --- 5: two agents write at once -----------------------------------------

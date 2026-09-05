@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as freshness from './freshness.mjs';
+import * as authority from './authority.mjs';
 
 /**
  * Known log types. Each has its own JSONL per project + global.
@@ -141,6 +142,20 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
       data = { ...data, agent: derived.trim() };
     }
   }
+  // Authority: normalised if given, left ABSENT if not.
+  //
+  // Deliberately not defaulted to a tier here. A CLI write could be the
+  // owner typing or an agent scripting, and this function cannot tell —
+  // guessing 'user' would hand every script the top tier, and stamping
+  // 'unknown' on everything would make legacy and new data
+  // indistinguishable. An absent field reads as `unknown` at comparison
+  // time, which is the same conservative answer without pretending the
+  // question was asked.
+  if (data.authority !== undefined) {
+    const t = String(data.authority).toLowerCase().trim();
+    data = { ...data, authority: authority.TIERS.includes(t) ? t : authority.DEFAULT_TIER };
+  }
+
   const p = logPath(root, type, project);
   const ts = data.ts ?? new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const id = data.id ?? shortId(ts, type);
@@ -840,6 +855,16 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
  */
 export function retiredMap(entries) {
   const map = new Map();
+
+  // A supersession has to be checked against the claim it supersedes, so
+  // the log is indexed first. Two passes, because a correction may appear
+  // before its target in file order — merge=union makes no promise about
+  // which side lands first.
+  const byId = new Map();
+  for (const e of entries) {
+    if (e && typeof e.id === 'string' && e.id && !byId.has(e.id)) byId.set(e.id, e);
+  }
+
   for (const e of entries) {
     if (!e) continue;
     if (e.retires_id) {
@@ -855,9 +880,36 @@ export function retiredMap(entries) {
       });
     }
     if (e.replaces_id) {
-      map.set(e.replaces_id, {
-        state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
-      });
+      const target = byId.get(e.replaces_id);
+
+      // Target not in this set: a drawer read in isolation cannot see a
+      // correction that lives elsewhere. Allowing it preserves the
+      // behaviour every caller had before the rule existed; the GLOBAL
+      // check, where every entry is visible, is `mem doctor` (integrity).
+      // Refusing here would break legitimate cross-drawer corrections to
+      // catch an attacker who can simply write in the same drawer anyway.
+      const verdict = target
+        ? authority.maySupersede(e, target)
+        : { ok: true, reason: 'target not in this view — checked globally by doctor' };
+
+      if (verdict.ok) {
+        map.set(e.replaces_id, {
+          state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
+        });
+      } else if (e.id) {
+        // Append-only: the attempt is NOT rejected and NOT removed. The
+        // target simply stays active, and the attempting claim is marked
+        // disputed — which keeps it out of retrieval while leaving it
+        // fully readable in the log, in `doctor`, and in the viewer.
+        //
+        // That asymmetry is the defence against flooding: writing
+        // disputed claims costs the attacker writes and the defender
+        // bytes, and buys no influence over any assembled context.
+        map.set(e.id, {
+          state: 'disputed', why: verdict.reason,
+          by: e.replaces_id, ts: e.ts ?? null,
+        });
+      }
     }
   }
   return map;
