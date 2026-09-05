@@ -148,14 +148,17 @@ costs exactly zero. See [docs/architecture.md](docs/architecture.md).
 
 ```
 mem init                       one-time setup
-mem log <type> --<field> ...   append an entry (nine types)
+mem log <type> --<field> ...   append an entry (ten types)
 mem find "<query>"             ranked search, no model    [--literal --fresh]
 mem discard <id> / done <id>   retire a thought/task (recall hides it)
 mem duties                     what is still owed
 mem duties close <id>          append a closing line
 mem context                    compact dump for session start
 mem facts [--stale --conflicts]  current value of each changing fact (freshness)
-mem core [--max 40]            always-load block of settled facts (bake-in, no training)
+mem core [--max 40]            always-load block of settled facts + backed experience
+mem topics / mem topic <key>   where a subject stands now, and how it got there
+mem links <id>                 typed edges in and out (causes, generalizes, ...)
+mem experiences [--all]        lessons ranked by how much of the memory leans on them
 mem viewer [--out f.html]      one self-contained HTML page to browse it all
 mem raw pending|show|digested  the captured material
 mem digest due|bell            is the pile ripe?
