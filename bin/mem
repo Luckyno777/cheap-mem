@@ -1173,6 +1173,7 @@ const COMMANDS = {
       out('    -> merges ~/.claude/settings.json (keeps what is there)');
       out('  and register the MCP server:');
       out(`  ${mcpCmd}`);
+      out('    (needs the optional peer @modelcontextprotocol/sdk)');
       return;
     }
 
@@ -1187,6 +1188,25 @@ const COMMANDS = {
     // The MCP server is the one piece the install script does not do.
     // Registering it needs the claude CLI; when that is absent, say the
     // command rather than pretending the step happened.
+    // The SDK is an optional peer: the hooks above are the bigger half and
+    // need nothing, so a missing SDK must not abort the wiring — it just
+    // means the MCP half cannot start yet, and saying so here beats the
+    // user finding out from a client that only reports "server failed".
+    let sdkHere = true;
+    try { await import('@modelcontextprotocol/sdk/server/index.js'); }
+    catch { sdkHere = false; }
+    if (!sdkHere) {
+      out('');
+      out('Note: the MCP server needs @modelcontextprotocol/sdk, which is not');
+      out('installed (it is an optional peer — 28 MB the rest of cheap-mem does');
+      out('not need). The hooks above work without it. To add the MCP tools:');
+      out('  npm install -g @modelcontextprotocol/sdk');
+      out(`  ${mcpCmd}`);
+      out('');
+      out('Check it took: mem doctor   (the stop-hook and git-hook findings)');
+      return;
+    }
+
     const hasClaude = spawnSync('claude', ['--version'], { stdio: 'ignore' }).status === 0;
     if (hasClaude) {
       const m = spawnSync('claude', ['mcp', 'add', 'cheap-mem', '--',

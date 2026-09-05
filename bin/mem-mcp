@@ -25,12 +25,27 @@
  * an initialized memory (a dir containing .mem/config.json).
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
+// The SDK is an OPTIONAL peer dependency, loaded here and nowhere else.
+// It carries an HTTP server stack (express, cors, ajv) that this stdio
+// server never uses — 28 MB across 91 packages, measured — so making it
+// a hard dependency would have charged every `npx cheap-mem` for a file
+// most people never run. A missing peer must say what to do about it:
+// a bare MODULE_NOT_FOUND inside an MCP client is invisible, because the
+// client reports only that the server would not start.
+let Server; let StdioServerTransport;
+let CallToolRequestSchema; let ListToolsRequestSchema;
+try {
+  ({ Server } = await import('@modelcontextprotocol/sdk/server/index.js'));
+  ({ StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js'));
+  ({ CallToolRequestSchema, ListToolsRequestSchema } =
+    await import('@modelcontextprotocol/sdk/types.js'));
+} catch {
+  process.stderr.write(
+    'cheap-mem: the MCP server needs @modelcontextprotocol/sdk, which is not installed.\n'
+    + '  npm install -g @modelcontextprotocol/sdk     (or locally, next to cheap-mem)\n'
+    + '\nEverything else — capture, search, digest — works without it.\n');
+  process.exit(1);
+}
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

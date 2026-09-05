@@ -6,7 +6,7 @@ Get a working cheap-mem in ~5 minutes.
 
 ```bash
 git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
-cd ~/cheap-mem && npm install
+cd ~/cheap-mem       # nothing to npm install — the core has no dependencies
 ```
 
 Optional: symlink so `mem` is on your PATH.

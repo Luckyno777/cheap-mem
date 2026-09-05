@@ -11,7 +11,7 @@
 
 ```bash
 git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
-cd ~/cheap-mem && npm install
+cd ~/cheap-mem       # nothing to npm install — the core has no dependencies
 ```
 
 ## Create your memory

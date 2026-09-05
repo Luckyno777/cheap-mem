@@ -10,7 +10,7 @@ works unchanged.
 ```bash
 # inside your WSL2 distro
 git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
-cd ~/cheap-mem && npm install
+cd ~/cheap-mem       # nothing to npm install — the core has no dependencies
 
 mkdir ~/my-memory && cd ~/my-memory
 node ~/cheap-mem/bin/mem init
@@ -43,7 +43,7 @@ For users without WSL2, or who want everything native.
 ```powershell
 git clone https://github.com/Luckyno777/cheap-mem $HOME\cheap-mem
 cd $HOME\cheap-mem
-npm install
+# nothing to install — the core has no dependencies
 ```
 
 ### Create your memory

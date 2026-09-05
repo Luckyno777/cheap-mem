@@ -24,7 +24,7 @@ worth their price.
 ## Setup
 
 ```bash
-npm install better-sqlite3 sqlite-vec     # optional deps, not installed by default
+npm install better-sqlite3 sqlite-vec     # optional peers: 14 MB, not fetched until you ask
 mem embed setup --provider voyage         # or openai, or ollama
 mem embed backfill                        # embed what is already written
 mem find-embed "the customer was unhappy"

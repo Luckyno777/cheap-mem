@@ -4,6 +4,19 @@ cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes eight tools:
 `mem_log`, `mem_find`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`,
 `mem_inbox_write`, `mem_inbox_ack`, `mem_project_init`.
 
+**First: install the SDK.** `mem-mcp` needs `@modelcontextprotocol/sdk`,
+which is an *optional peer* — it is 28 MB across 91 packages (an HTTP
+server stack this stdio server never uses), so it is not fetched unless
+you want the MCP tools:
+
+```bash
+npm install -g @modelcontextprotocol/sdk
+```
+
+Without it `mem-mcp` exits with that command rather than a stack trace —
+an import failure inside an MCP client is otherwise invisible, since the
+client reports only that the server would not start.
+
 Every MCP config below just points at `bin/mem-mcp` and sets `CHEAP_MEM_ROOT`.
 
 ## Claude Code
@@ -17,7 +30,7 @@ claude mcp add cheap-mem --scope user \
 Or for hooks + permissions (recommended):
 ```bash
 CHEAP_MEM_ROOT=/absolute/path/to/your-memory \
-  bash /absolute/path/to/cheap-mem/install/claude-code.sh
+  bash /absolute/path/to/cheap-mem/install/claude-code.sh   # or: mem setup claude
 ```
 
 That merges into `~/.claude/settings.json` and drops SessionStart +

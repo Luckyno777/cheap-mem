@@ -5,17 +5,15 @@
   "type": "module",
   "bin": {
     "mem": "./bin/mem",
-    "mem-mcp": "./bin/mem-mcp"
+    "mem-mcp": "./bin/mem-mcp",
+    "cheap-mem": "./bin/mem"
   },
   "scripts": {
-    "test": "node --test",
-    "bench": "node bench/tokens.mjs"
+    "test": "node --test \"test/*.test.mjs\"",
+    "bench": "node bench/tokens.mjs && node bench/retrieval.mjs"
   },
   "engines": {
     "node": ">=18"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0"
   },
   "license": "MIT",
   "repository": {
@@ -32,8 +30,30 @@
     "mcp",
     "cli"
   ],
-  "optionalDependencies": {
+  "files": [
+    "bin/",
+    "src/",
+    "install/",
+    "hooks/",
+    "docs/",
+    "DIGEST.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^11.0.0",
     "sqlite-vec": "^0.1.6"
+  },
+  "peerDependenciesMeta": {
+    "@modelcontextprotocol/sdk": {
+      "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "sqlite-vec": {
+      "optional": true
+    }
   }
 }

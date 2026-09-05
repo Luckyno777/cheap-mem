@@ -35,15 +35,23 @@ of plain files you own — nothing leaves the machine except what you
 path.
 
 **Search is BM25** over weighted fields, widened by a curated thesaurus
-and by a tag graph the tool learns from your own entries — no model, no
-network. Measured (`node bench/retrieval.mjs`, 22 entries, 16 queries):
-**search median 0.028 ms**, exact-keyword queries **100% top-1**, and
-paraphrases with no shared word **100% by rank 5** ("a shopper paid two
-times" → "billed twice from a race condition"). The one honest miss is a
-purely conceptual query sharing no term; for that, `mem find-hybrid`
-fuses BM25 with an optional **local** embedding rerank (ollama, still 0
-API cost). The benchmark prints the failure mode rather than hiding it
-in an average. Details: [docs/architecture.md](docs/architecture.md).
+and by two graphs the tool learns from your own entries — a tag graph and
+a term co-occurrence graph — no model, no network. Measured
+(`node bench/retrieval.mjs`, 67 entries, 42 queries):
+
+| query kind | R@1 | R@5 | MRR |
+|---|---:|---:|---:|
+| lexical (shares a word) | 100% | 100% | 1.00 |
+| paraphrase (shares none) | 50% | 88% | 0.64 |
+| concept (broad, indirect) | 67% | 83% | 0.77 |
+
+**Search median 0.027 ms.** Paraphrase is the honest hard case and the
+number stands on its own line rather than inside an average; for that,
+`mem find-hybrid` fuses BM25 with an optional **local** embedding rerank
+(ollama, still 0 API cost). The benchmark also records what was tried and
+rejected — the term graph's real gain, and why pseudo-relevance feedback
+was measured and thrown away. Details:
+[docs/architecture.md](docs/architecture.md).
 
 **Tokens, measured** (`npm run bench`, 228 entries, 15 questions):
 
@@ -90,13 +98,12 @@ is worse than no memory.
 ## Quickstart
 
 ```bash
-git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
-cd ~/cheap-mem && npm install
+npm install -g cheap-mem        # 588 kB, one package, no dependencies
 
 # Create your memory
 mkdir ~/my-memory && cd ~/my-memory
-node ~/cheap-mem/bin/mem init
-node ~/cheap-mem/bin/mem whoami user
+mem init
+mem whoami user
 
 # Put it under git and push somewhere private
 git init && git add -A && git commit -m "init"
@@ -104,13 +111,39 @@ git remote add origin git@github.com:you/your-memory.git
 git push -u origin main
 
 # Arm the secret check — it proves itself with a decoy token
-node ~/cheap-mem/bin/mem hooks install
+mem hooks install
 
 # Log something
-node ~/cheap-mem/bin/mem log event --title "started using cheap-mem" --tags setup
-node ~/cheap-mem/bin/mem find "cheap-mem"
-node ~/cheap-mem/bin/mem doctor
+mem log event --title "started using cheap-mem" --tags setup
+mem find "cheap-mem"
+mem doctor
 ```
+
+Or without installing anything: `npx cheap-mem init`, `npx cheap-mem find "..."`.
+
+From source instead, if you would rather read it first:
+
+```bash
+git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
+node ~/cheap-mem/bin/mem init     # no npm install needed — there is nothing to install
+```
+
+### What is NOT installed
+
+Nothing, by design. The core — capture, search, digest — is plain Node
+with zero dependencies. Two features are optional peers, because measured
+on 2026-09-05 they cost far more than the tool itself:
+
+| you want | install | cost |
+|---|---|---|
+| the MCP server (`mem-mcp`) | `npm i -g @modelcontextprotocol/sdk` | 28 MB, 91 packages |
+| semantic search (`mem embed`) | `npm i -g better-sqlite3 sqlite-vec` | 14 MB, 40 packages |
+
+Together those are 43 MB around a 194 kB tool. They used to be installed
+for everyone — the SDK as a hard dependency, the sqlite pair as
+`optionalDependencies`, which npm installs unless the *build* fails and
+is therefore not opt-in at all. Now neither is fetched until you ask, and
+the two commands that need them say exactly what to run.
 
 ## Turn on capture and digest
 
