@@ -3,8 +3,8 @@
 // docs/architecture-audit-2026-09-05.md section 4.
 
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { buildIndex, search, loadIndex } from '/home/user/cheap-mem/src/search.mjs';
-const R='/home/user/cheap-mem/src/';
+import { buildIndex, search, loadIndex } from '../src/search.mjs';
+const R='../src/';
 const mem=await import(R+'memory.mjs'); const red=await import(R+'redaction.mjs');
 function neu(){ const d=fs.mkdtempSync(path.join(os.tmpdir(),'ang-'));
   for(const p of ['a','b']) fs.mkdirSync(path.join(d,'projects',p),{recursive:true});
@@ -23,8 +23,8 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
   // point. search() is still a ranker with no boundary -- that is its job.
   // retrieve() is the gateway, and there is no argument shape that widens
   // what a capability admits.
-  const cap = await import('/home/user/cheap-mem/src/capability.mjs');
-  const ret = await import('/home/user/cheap-mem/src/retrieval.mjs');
+  const cap = await import('../src/capability.mjs');
+  const ret = await import('../src/retrieval.mjs');
   const gated = ret.retrieve(d, 'kolibri', cap.grantProject('a', { subject: 'redteam' }))
     .claims.map((c) => c.id);
   result(2,'project A retrieves project B',

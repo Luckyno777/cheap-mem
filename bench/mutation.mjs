@@ -19,7 +19,9 @@
 
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
-const ROOT='/home/user/cheap-mem';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const ROOT=path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 const MUTANTS=[
  { name:'authority: maySupersede always allows',
@@ -42,8 +44,8 @@ const MUTANTS=[
 
  { name:'retrieval: drop body deduplication',
    file:'src/retrieval.mjs',
-   from:"    if (first) { note(c.id, `identical body to ${first}`); continue; }",
-   to:"    // MUTANT: dedup removed",
+   from:'    const first = seenBody.get(h);',
+   to:'    const first = null;  // MUTANT: dedup removed',
    tests:['test/retrieval.test.mjs'] },
 
  { name:'retrieval: ignore every resource limit',
@@ -181,9 +183,9 @@ const MUTANTS=[
 
  { name:'SEM status read from the RESULT SET, not the log',
    file:'src/retrieval.mjs',
-   from:"  const state = hit.retired?.state ?? 'active';",
-   to:"  const state = 'active';  // MUTANT: the exact bug found on 2026-09-05",
-   tests:['test/retrieval.test.mjs'] },
+   from:'  const claimState = statusOf(state, e.id);',
+   to:"  const claimState = hit.retired?.state ?? 'active';  // MUTANT: the exact bug of 2026-09-05, status back from the index",
+   tests:['test/retrieval.test.mjs','test/state.test.mjs'] },
 
  { name:'SEM author share becomes a flat cap of one',
    file:'src/retrieval.mjs',
@@ -253,8 +255,8 @@ const MUTANTS=[
 
  { name:'SEM tier PRECEDENCE instead of representation',
    file:'src/retrieval.mjs',
-   from:'  const fair = enforceAuthorShare(claims, limits, note);',
-   to:"  const fair = enforceAuthorShare(claims.slice().sort((a,b)=>authority.rank(a.authority)-authority.rank(b.authority)), limits, note);  // MUTANT",
+   from:'    .sort((a, b) => b.score - a.score);',
+   to:'    .sort((a, b) => authority.rank(a.authority) - authority.rank(b.authority));  // MUTANT',
    tests:['test/retrieval.test.mjs'] },
 
  { name:'SEM one author saying two things counts as contested',
@@ -334,13 +336,51 @@ const MUTANTS=[
    tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
 ];
 
-let survived=0;
+// A mutant counts as caught when the tests fail. So on a suite that is
+// ALREADY failing, every mutant counts as caught and the score is perfect.
+// Found on 2026-09-05 by stripping assertions out of state.test.mjs: one
+// test broke, `npm test` went red, and this harness printed 48/48 green.
+// A verification tool that scores highest when the thing it verifies is
+// broken is worse than none.
+{
+  const suites=[...new Set(MUTANTS.flatMap((m)=>m.tests))];
+  try{ execFileSync('node',['--test',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
+  catch(e){
+    const out=String(e.stdout||'');
+    const bad=(out.match(/^not ok [0-9]+ - (.*)$/gm)||[]).slice(0,10);
+    console.log('The suites these mutants rely on are already failing:\n');
+    for(const b of bad) console.log('  '+b);
+    console.log('\nMutation testing needs a green baseline. On a red suite every');
+    console.log('mutant is "caught" by a failure that was there before it.');
+    process.exit(1);
+  }
+}
+
+let survived=0, skipped=0, ambiguous=0, misScoped=0;
+
+// A killed run used to leave the mutant on disk — the header claims every
+// file is restored "including on failure", and SIGINT is a failure. One
+// interrupted run left `t <= from` in src/retrieval.mjs and the tree looked
+// like ordinary work in progress.
+let inFlight=null;
+const restore=()=>{ if(inFlight){ fs.writeFileSync(inFlight.path, inFlight.orig); inFlight=null; } };
+for(const sig of ['SIGINT','SIGTERM','SIGHUP']) process.on(sig, ()=>{ restore(); process.exit(130); });
+process.on('uncaughtException', (e)=>{ restore(); throw e; });
+
 console.log('Mutant                                           | do tests fail?');
 console.log('-------------------------------------------------+----------------');
 for(const m of MUTANTS){
   const p=`${ROOT}/${m.file}`;
   const orig=fs.readFileSync(p,'utf8');
-  if(!orig.includes(m.from)){ console.log(`${m.name.padEnd(48)} | ANCHOR MISSING — the mutant no longer applies`); continue; }
+  const hits=orig.split(m.from).length-1;
+  // A mutant that cannot be applied proves nothing. It used to be counted
+  // as caught, which is how "48/48" stayed green while one guarantee had
+  // quietly stopped being tested at all.
+  if(hits===0){ skipped++; console.log(`${m.name.padEnd(48)} | ANCHOR GONE — never applied, NOT a pass`); continue; }
+  // Two matches means replace() mutates the first and leaves the second,
+  // so a green run would say more than it knows.
+  if(hits>1){ ambiguous++; console.log(`${m.name.padEnd(48)} | ANCHOR AMBIGUOUS (${hits}x) — only the first would mutate`); continue; }
+  inFlight={path:p, orig};
   fs.writeFileSync(p, orig.replace(m.from,m.to));
   let failed=false, detail='';
   try{
@@ -351,9 +391,22 @@ for(const m of MUTANTS){
     const n=(out.match(/^not ok /gm)||[]).length;
     detail=` (${n} test${n===1?'':'s'})`;
   }
-  fs.writeFileSync(p,orig);
-  if(!failed) survived++;
-  console.log(`${m.name.padEnd(48)} | ${failed?'yes'+detail:'NO — SURVIVED'}`);
+  let elsewhere=false;
+  if(!failed){
+    try{ execFileSync('node',['--test'],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
+    catch{ elsewhere=true; }
+  }
+  restore();
+  if(!failed && !elsewhere) survived++;
+  if(!failed && elsewhere) misScoped++;
+  console.log(`${m.name.padEnd(48)} | ${failed?'yes'+detail
+    :elsewhere?'not by its own suite — caught elsewhere, list is wrong':'NO — SURVIVED'}`);
 }
-console.log(`\n${MUTANTS.length-survived}/${MUTANTS.length} mutants caught by tests.`);
-if(survived) { console.log(`${survived} surviving mutant(s) = ${survived} guarantee(s) that exist only in documentation.`); process.exitCode = 1; }
+
+const applied=MUTANTS.length-skipped-ambiguous;
+console.log(`\n${applied-survived}/${applied} applied mutants caught by tests`
+  + ` (of ${MUTANTS.length} defined; ${skipped} anchor gone, ${ambiguous} ambiguous).`);
+if(survived) console.log(`${survived} surviving mutant(s) = ${survived} guarantee(s) that exist only in documentation.`);
+if(skipped||ambiguous) console.log(`${skipped+ambiguous} mutant(s) did not run. An untested guarantee is not a kept one — re-anchor them.`);
+if(misScoped) console.log(`${misScoped} mutant(s) name the wrong suite: the guarantee is kept, the bookkeeping is not.`);
+if(survived||skipped||ambiguous) process.exitCode = 1;

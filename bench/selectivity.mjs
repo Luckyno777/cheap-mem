@@ -8,9 +8,9 @@
 // ueber die seltenen Terme muesste dieselben Top-10 liefern — und zwar
 // um Groessenordnungen billiger. Hier gemessen, nicht behauptet.
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { buildIndex, search, tokenizeGroups } from '/home/user/cheap-mem/src/search.mjs';
-import * as thesaurus from '/home/user/cheap-mem/src/thesaurus.mjs';
-import { pack } from '/home/user/cheap-mem/src/language.mjs';
+import { buildIndex, search, tokenizeGroups } from '../src/search.mjs';
+import * as thesaurus from '../src/thesaurus.mjs';
+import { pack } from '../src/language.mjs';
 const TOPICS=['billing','auth','database','ci','ops','frontend','security','deploy','cache','queue'];
 const VERBS=['fixed','moved','removed','added','renamed','split','merged','reverted'];
 function rnd(s){return()=>((s=s*1103515245+12345&0x7fffffff)/0x7fffffff);}

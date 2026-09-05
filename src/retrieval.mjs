@@ -295,28 +295,34 @@ export function bodyHash(text) {
   return crypto.createHash('sha256').update(canonicalBody(text), 'utf8').digest('hex').slice(0, 16);
 }
 
-export function dedupeBodies(claims, note = () => {}) {
-  const seen = new Map();
-  const out = [];
-  for (const c of claims) {
-    const h = bodyHash(c.body);
-    const first = seen.get(h);
-    if (first) { note(c.id, `identical body to ${first}`); continue; }
-    seen.set(h, c.id);
-    out.push(c);
-  }
-  return out;
-}
-
 /**
  * No single sub-user author may take more than `perAuthorShare` of the
- * answer.
+ * CANDIDATES considered. Not of the answer — and the difference matters.
+ *
+ * The filtering shrinks its own denominator: 9 flood claims plus 1 genuine
+ * one give cap 5, so 5 are dropped and the answer is 6, of which 5 are the
+ * flood. A promised ceiling of 50% delivers 83%. Measured, not reasoned:
+ * bench/byzantine.mjs, 2026-09-05.
+ *
+ * Computing the share against the answer instead was tried and reverted.
+ * It works by iterating to a fixed point, and it is correct — but the
+ * corpus it shrinks is not only the flood. A normal memory is one user
+ * claim and a productive digest agent, which has the same authorship shape
+ * as a flood, so the same fixed point cuts a real answer to two claims.
+ * Authorship cannot distinguish a flood from a useful writer; only content
+ * can, and near-duplicate detection was rejected for having no calibratable
+ * threshold. So the bound stays where it is honest.
+ *
+ * What a flood is actually caught by: `potentialConflicts` flags it as
+ * contested, the genuine `user` claim is exempt from the cap and stays in
+ * the answer, and the caller is told both. Bounded domination is NOT among
+ * the guarantees; a caller that needs it must lower `perAuthorShare`
+ * itself and accept the shorter answers.
  *
  * Deliberately NOT a flat "max n per author": a digest agent legitimately
  * writes most of a memory, and a flat cap would make the most useful
- * author the most suppressed. A SHARE bounds domination without punishing
- * productivity, and `user` tier is exempt because the owner cannot poison
- * their own memory in the sense this defends against.
+ * author the most suppressed. `user` tier is exempt because the owner
+ * cannot poison their own memory in the sense this defends against.
  */
 export function enforceAuthorShare(claims, limits = LIMITS, note = () => {}) {
   if (claims.length <= 2) return claims;

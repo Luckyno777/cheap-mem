@@ -5,9 +5,11 @@ true, with retrieval deciding only what we see?**
 
 **Answer: yes, now.** It did not when this round began.
 
-Reproduce: `npm test` (392) · `bench/mutation.mjs` (48/48) ·
-`bench/query-independence.mjs` · `bench/cache-attack.mjs` ·
-`bench/composed.mjs` · `bench/byzantine.mjs` · `bench/fuzz.mjs`
+Reproduce: `npm test` (392) and `npm run verify` — mutation (48/48
+applied), fuzz, composed, byzantine, cache-attack, query-independence and
+the merge-driver contract. Both run in CI on every push, so a guarantee
+that stops being enforced fails the build instead of waiting for the next
+audit round.
 
 ---
 
@@ -253,8 +255,17 @@ Proven by, not asserted from:
   integrity floor in §6.
 - **Property tests** — six queries over disjoint subsets agree on every
   claim's status; retrieval never mutates log or state.
-- **Mutation tests** — 48/48, of which seven are architectural. Restoring
-  any of the four historical failures makes tests fail.
+- **Mutation tests** — 48/48 *applied*, of which seven are architectural.
+  Restoring any of the four historical failures makes tests fail. The count
+  says "applied" because the harness used to lie in three ways, all found
+  on 2026-09-05 while wiring it into CI: a mutant whose anchor had rotted
+  away was skipped and counted as CAUGHT (one had — the round-robin fix had
+  moved its line); an anchor matching twice mutated only the first; and a
+  run against an ALREADY-FAILING suite scored 48/48, because a mutant
+  counts as caught when the tests fail and they were failing before it. The
+  harness now requires a green baseline, refuses to credit a mutant it did
+  not apply, and re-checks each survivor against the whole suite before
+  calling it a gap.
 - **Adversarial tests** — cache tampering in both directions, seven
   composed attacks, the Byzantine writer, fuzzing for permissive failure.
 
@@ -267,3 +278,23 @@ with "nothing fundamental is open". Three of those were wrong. The fourth
 is stated with better evidence than the others — 48 mutants, seven composed
 attacks, a query-independence property — but the base rate of that claim in
 this project is 1 in 4. Take the evidence; discount the confidence.
+
+**The fifth round did not begin with an audit; it began with wiring the
+fourth round's evidence into CI. That alone found four things**, and the
+pattern in them is worth more than the fixes:
+
+1. Every benchmark imported through an absolute `/home/user/cheap-mem`
+   path. None of them had ever run anywhere else. "All runnable" was true
+   of exactly one machine.
+2. The mutation harness credited mutants it had never applied — and one had
+   silently stopped applying when a fix moved its anchor line.
+3. The same harness scores 48/48 on a suite that is already failing,
+   because a mutant counts as caught when the tests fail.
+4. The author-share cap is documented as a share of the answer and is a
+   share of the candidates: 50% promised, 83% delivered.
+
+Three of those four are defects in *the instruments*, not in the system.
+The measured evidence in this document was produced by instruments that
+were, at the time, partly lying. The numbers survived re-measurement with
+the instruments fixed — but the lesson is that "measured, not asserted" is
+only as good as the last time anyone attacked the measuring device.

@@ -157,12 +157,33 @@ timestamps (`ageDays >= 0`), so a 2099 entry buys nothing — measured.
 | max results | 50 | a hard ceiling regardless of what a caller asks |
 | body chars | 4000 | per claim, in the returned record only |
 | context chars | 24000 | total across returned bodies |
-| per-author share | 0.5 | no sub-user author takes the whole answer |
+| per-author share | 0.5 | no sub-user author takes half the CANDIDATES |
 
 The author limit is a **share**, not a flat count: a digest agent
 legitimately writes most of a memory, and a flat cap would suppress the
 most useful author. `user` tier is exempt — the owner cannot poison their
 own memory in the sense this defends against.
+
+**The share is of the candidates, not of the answer, and the difference is
+not small.** The filter shrinks its own denominator: 9 flood claims plus 1
+genuine one give cap 5, five are dropped, and the answer is 6 — of which 5
+are the flood. A promised 50% delivers 83%. Measured by
+`bench/byzantine.mjs`, 2026-09-05, after the docstring had claimed the
+stronger property for weeks.
+
+Computing the share against the answer instead was implemented and
+reverted. It is correct and it terminates, but the corpus it shrinks is not
+only the flood: a normal memory is one user claim plus a productive digest
+agent, which has the same authorship shape as a flood, so the same fixed
+point cuts a real answer to two claims. **Authorship cannot distinguish a
+flood from a useful writer** — only content can, and near-duplicate
+detection is rejected below for having no calibratable threshold.
+
+So bounded domination is **not** a guarantee cheap-mem offers. What
+actually catches a flood: `potentialConflicts` reports it as contested, the
+`user`-tier claim is exempt from the cap and stays in the answer, and the
+caller is told both. A caller who needs a real bound lowers
+`perAuthorShare` themselves and accepts shorter answers.
 
 **The share alone is nearly worthless, and the fix is content.** Attacking
 it showed twenty identical claims under twenty author names passing

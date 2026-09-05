@@ -6,8 +6,8 @@
 
 // Haengt der abgeleitete Zustand von der Anfrage ab?
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { retrieve } from '/home/user/cheap-mem/src/retrieval.mjs';
-import { grantProject } from '/home/user/cheap-mem/src/capability.mjs';
+import { retrieve } from '../src/retrieval.mjs';
+import { grantProject } from '../src/capability.mjs';
 const z=o=>JSON.stringify(o)+'\n';
 const root=fs.mkdtempSync(path.join(os.tmpdir(),'qi-'));
 fs.mkdirSync(path.join(root,'projects','a'),{recursive:true});
@@ -49,7 +49,20 @@ for(const id of ['A','B','M']){
     .map(v=>String(v).startsWith('excl:')?String(v).replace(/^excl:/,''):v));
   if(werte.size>1) konflikte.push(`${id}: {${[...werte].join(' | ')}}`);
 }
+// Konsistenz ueber lauter leere Sichten ist keine Konsistenz. Bevor das
+// Ergebnis etwas heisst, muss die Tabelle beides gezeigt haben: mindestens
+// einen Anspruch als aktiv und mindestens einen als verdraengt/bestritten.
+const alleWerte=sichten.flatMap(([,m])=>Object.values(m)).map(String);
+const sahAktiv=alleWerte.some(v=>v==='active');
+const sahTot=alleWerte.some(v=>/superseded|disputed/.test(v));
+const leer=[];
+if(!sahAktiv) leer.push('keine einzige Anfrage sah einen aktiven Anspruch');
+if(!sahTot)   leer.push('keine einzige Anfrage sah einen verdraengten oder bestrittenen Anspruch');
+
 console.log('\n'+(konflikte.length
   ? '  ==> ZUSTAND HAENGT VON DER ANFRAGE AB:\n     '+konflikte.join('\n     ')
-  : '  ==> Zustand ist ueber alle Anfragen konsistent.'));
+  : leer.length
+    ? '  ==> AUSSAGELOS: '+leer.join('; ')+'. Die Tabelle prueft sich selbst, nicht den Code.'
+    : '  ==> Zustand ist ueber alle Anfragen konsistent.'));
 fs.rmSync(root,{recursive:true,force:true});
+if(konflikte.length||leer.length) process.exitCode=1;

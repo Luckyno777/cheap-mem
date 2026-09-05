@@ -68,6 +68,29 @@ identically to both sides: trust the ratio, not the absolutes.
 
 Run it against your own memory and send the numbers if they differ.
 
+## Are the guarantees enforced, or only documented?
+
+`npm test` answers "do the tests pass". `npm run verify` answers the other
+question — and CI runs both on every push, so a guarantee that stops being
+enforced fails the build rather than waiting for someone to audit it.
+
+| check | what a red run means |
+|---|---|
+| `bench/mutation.mjs` | one of 48 guarantees was broken on purpose and no test noticed |
+| `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
+| `bench/composed.mjs` | seven attacks that are only dangerous in combination |
+| `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
+| `bench/cache-attack.mjs` | an unsigned local file changed what the memory means |
+| `bench/query-independence.mjs` | two queries disagreed about whether the same claim is active |
+| `bench/merge-driver.mjs` | the `*.jsonl merge=union` contract stopped holding |
+
+Each of these also refuses to pass for the wrong reason: mutation needs a
+green baseline and will not credit a mutant it could not apply, and every
+adversarial bench asserts that its own fixture is non-degenerate before it
+reports anything. That is not decoration — wiring this into CI found three
+defects in the measuring instruments themselves, described in
+[docs/state-separation.md](docs/state-separation.md).
+
 ## How big can one memory get
 
 Keep one memory under about **50,000 entries**; split into one memory per

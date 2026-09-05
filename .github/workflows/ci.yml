@@ -260,3 +260,56 @@ jobs:
             echo "::error::retrieval fell to $GOT/$WANT — the README claim no longer holds"
             exit 1
           fi
+
+  verify:
+    name: guarantees
+    runs-on: ubuntu-latest
+    # Mutation runs the test suite once per mutant, plus a full-suite
+    # re-check for each survivor. Slower than the rest of CI put together
+    # and worth every second of it.
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+
+      # Everything under `npm test` answers "do the tests pass". This job
+      # answers the question that actually matters: are the guarantees
+      # ENFORCED, or do they only exist in documentation?
+      #
+      # It exists because the answer had been "an audit round finds out,
+      # eventually". Four rounds each ended with "nothing fundamental is
+      # open"; three of those were wrong. The point of a gate is that the
+      # fourth kind of finding arrives as a red build instead.
+      #
+      #   mutation           48 mutants: break one guarantee, expect a
+      #                      test to notice. Skipped and ambiguous
+      #                      anchors fail too — a mutant that never ran
+      #                      used to be counted as caught.
+      #   fuzz               no crash, hang, unbounded growth or bypass
+      #   composed           7 attacks that are only dangerous combined
+      #   byzantine          a flood of rule-abiding liars: the genuine
+      #                      claim survives and the conflict is reported
+      #   cache-attack       an unsigned local file cannot change meaning
+      #   query-independence state(log) does not depend on the query
+      #   merge-driver       the *.jsonl merge=union contract, with a
+      #                      control case proving the driver does work
+      - name: the guarantees, enforced
+        run: npm run verify
+
+      # git config, not code: the mutation harness writes into src/ and
+      # restores it. If a run ever leaves a mutant behind, the next job to
+      # touch this tree inherits a silent bug.
+      - name: no mutant left behind
+        run: |
+          set -euo pipefail
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "::error::the verify run left the working tree dirty"
+            git status --porcelain
+            git --no-pager diff
+            exit 1
+          fi
+          echo "working tree clean"

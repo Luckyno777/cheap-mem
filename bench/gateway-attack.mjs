@@ -5,9 +5,9 @@
 // See docs/security-model.md section 8.
 
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { retrieve, enforceAuthorShare, LIMITS } from '/home/user/cheap-mem/src/retrieval.mjs';
-import { grantProject, grantAll } from '/home/user/cheap-mem/src/capability.mjs';
-import * as memory from '/home/user/cheap-mem/src/memory.mjs';
+import { retrieve, enforceAuthorShare, LIMITS } from '../src/retrieval.mjs';
+import { grantProject, grantAll } from '../src/capability.mjs';
+import * as memory from '../src/memory.mjs';
 const R=(n,t,b)=>console.log(`\n[${n}] ${t}\n     ${b}`);
 function mem(byScope){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'v3-'));

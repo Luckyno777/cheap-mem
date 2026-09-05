@@ -89,13 +89,33 @@ for (const c of res.claims) {
 console.log(`\n  the true claim ranked: ${rank || 'NOT RETURNED'} of ${res.claims.length}`);
 console.log(`  byzantine claims in the answer: ${byz}/${res.claims.length}`);
 console.log(`  distinct contradictory locations offered: ${cities.size}`);
-console.log(`  author-share cap kept it to: ${byz} (perAuthorShare ${res.limits.perAuthorShare})`);
+console.log(`  share of the answer from one author: ${(byz/res.claims.length*100).toFixed(0)}% (cap is ${res.limits.perAuthorShare*100}% of the CANDIDATES, not of the answer)`);
 console.log(`  potential conflicts flagged: ${res.contested.length}`
   + (res.contested.length ? ` (${res.contested[0].authors.join(' vs ')}, ${res.contested[0].ids.length} claims)` : ''));
+
+// What this bench is allowed to conclude, and what it is not.
+//
+// The share cap bounds one author's take of the CANDIDATES, not of the
+// answer — the filtering shrinks its own denominator, so a 50% cap here
+// delivers about 83%. That is documented at enforceAuthorShare and is not
+// a bug to be caught below; bounded domination is not a guarantee.
+//
+// What IS guaranteed under a flood, and gated here:
+//   1. the genuine user claim is still returned  (user tier is exempt)
+//   2. the contradiction is reported as contested (the caller is told)
+//   3. the cap actually ran           (or 1 and 2 hold for the wrong reason)
+const capped = res.excluded.filter((e) => /author share/.test(e.why || '')).length;
+const fehler = [];
+if (rank === 0) fehler.push('the genuine claim is no longer returned at all');
+if (!res.contested.length) fehler.push('the contradiction was not reported as contested');
+if (!capped) fehler.push(`the share cap excluded nothing (${FLOOD} flood claims and no candidate dropped) — this run proves less than it looks`);
+
 console.log('');
-console.log(rank === 0
-  ? '  ==> the memory no longer contains a findable answer. INTEGRITY, not ranking.'
+console.log(`  share cap excluded: ${capped} candidate(s)`);
+console.log(fehler.length
+  ? '  ==> ' + fehler.join('\n  ==> ')
   : byz > res.claims.length / 2
-    ? '  ==> the answer survives, but the context is mostly false. Caller must judge.'
+    ? '  ==> the answer survives and is flagged contested, but the context is mostly false. Caller must judge.'
     : '  ==> the answer survives and the flood is bounded.');
 fs.rmSync(root, { recursive: true, force: true });
+if (fehler.length) process.exitCode = 1;

@@ -1,7 +1,7 @@
 // Fehlerklassen, die weder im Auftrag noch im ersten Audit vorkamen.
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { buildIndex, search, loadIndex } from '/home/user/cheap-mem/src/search.mjs';
+import { buildIndex, search, loadIndex } from '../src/search.mjs';
 const z=(o)=>JSON.stringify(o)+'\n';
 function neu(){const d=fs.mkdtempSync(path.join(os.tmpdir(),'ue-'));
  fs.mkdirSync(path.join(d,'projects','a'),{recursive:true});fs.mkdirSync(path.join(d,'global'),{recursive:true});return d;}
@@ -70,7 +70,7 @@ const R=(n,t,b)=>console.log(`\n[${n}] ${t}\n     ${b}`);
   fs.rmSync(d,{recursive:true,force:true}); }
 
 // --- D: Unicode / Homoglyphen gegen Redaktion und Suche
-{ const red=await import('/home/user/cheap-mem/src/redaction.mjs');
+{ const red=await import('../src/redaction.mjs');
   const name='AWS_SECRET'+'_ACCESS_KEY'; const wert='wJalrXUtnFEMI'+'K7MDENGbPxRfiCYEXAMPLEKEY';
   const normal=`export ${name}=${wert}`;
   const mitNBSP=`export ${name} =${wert}`;        // geschuetztes Leerzeichen

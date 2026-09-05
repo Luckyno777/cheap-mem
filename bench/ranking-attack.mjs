@@ -1,5 +1,5 @@
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { buildIndex, search } from '/home/user/cheap-mem/src/search.mjs';
+import { buildIndex, search } from '../src/search.mjs';
 const z=(o)=>JSON.stringify(o)+'\n';
 function probe(gift){
   const d=fs.mkdtempSync(path.join(os.tmpdir(),'rk-'));
