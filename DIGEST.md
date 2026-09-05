@@ -111,6 +111,28 @@ model that already reads everything, and from then on `mem links <id>`
 walks them with no model at all. That is the trade — pay at sorting time,
 travel free forever after.
 
+## Mark what you digested — and commit it
+
+When you are done, mark the captures:
+
+```
+mem raw digested <path> <path> ...
+git add -A && git commit -m "digest: ..." && git push
+```
+
+That writes two records, and the difference matters:
+
+- `.mem/raw-watermark.json` — a fast local cache. Gitignored.
+- `digested.jsonl` — the **ledger**, append-only and **tracked**.
+
+Only the ledger travels. Before it existed, two things went wrong: a fresh
+clone saw every checked-in capture as pending and reported a backlog that
+was not there, and a rebuilt container would have digested everything a
+second time, paying for every model call twice.
+
+So: **the commit is part of the digest, not an afterthought.** A run that
+digests without committing leaves the record only on that one machine.
+
 ## The second gate on secrets
 
 The redaction runs before anything reaches disk, and the pre-commit hook

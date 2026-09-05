@@ -22,6 +22,49 @@ import * as redaction from './redaction.mjs';
 export const RAW_DIR = 'raw';
 export const OFFSET_FILE = path.join('.mem', 'raw-offsets.json');
 export const WATERMARK_FILE = path.join('.mem', 'raw-watermark.json');
+
+/**
+ * The digest ledger — the record of what has been digested, in the repo.
+ *
+ * **Why this exists.** The watermark lives under `.mem/`, which is
+ * gitignored, so it does not travel and does not survive a rebuilt
+ * container. Two real failures came out of that: `mem doctor` in a fresh
+ * clone saw every checked-in capture as pending and reported a backlog
+ * that did not exist, and a container rebuild would have re-digested
+ * everything, paying for every model call twice.
+ *
+ * The ledger is append-only and TRACKED — one line per digest run. Since
+ * the digest already commits after it writes, the record travels with the
+ * memory itself, and any clone can answer "what is still open" honestly.
+ *
+ * The watermark stays as a fast local cache. `pending()` takes the UNION
+ * of both, which is the safe direction by construction: the union can only
+ * ever mark MORE captures as done, so this change can prevent double
+ * digestion but never cause it.
+ */
+export const LEDGER_FILE = 'digested.jsonl';
+
+/** Everything the ledger says has been digested. */
+export function ledgerDigested(root) {
+  const p = path.join(root, LEDGER_FILE);
+  const done = new Set();
+  if (!fs.existsSync(p)) return done;
+  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    for (const c of rec.captures ?? []) done.add(c);
+  }
+  return done;
+}
+
+/** Append one run to the ledger. Append-only: never rewrite a line. */
+function appendLedger(root, captures, extra = {}) {
+  if (captures.length === 0) return;
+  const p = path.join(root, LEDGER_FILE);
+  const rec = { ts: isoSeconds(new Date()), captures: [...captures].sort(), ...extra };
+  fs.appendFileSync(p, `${JSON.stringify(rec)}\n`, 'utf8');
+}
 export const BELL_FILE = path.join('.mem', 'digest-bell.json');
 
 /** Short, stable hash — for identification only, not for security. */
@@ -331,7 +374,10 @@ export function readCapture(root, relPath) {
  */
 export function pending(root) {
   const wm = loadJson(path.join(root, WATERMARK_FILE), { digested: [] });
-  const done = new Set(wm.digested ?? []);
+  // Union of the tracked ledger and the local cache. Strictly additive, so
+  // a clone that has only the ledger, and a machine that has only the
+  // watermark, both answer correctly.
+  const done = new Set([...(wm.digested ?? []), ...ledgerDigested(root)]);
   const open = listCaptures(root).filter((f) => !done.has(f));
   let bytes = 0;
   for (const f of open) {
@@ -344,7 +390,21 @@ export function pending(root) {
 export function markDigested(root, paths) {
   const p = path.join(root, WATERMARK_FILE);
   const wm = loadJson(p, { digested: [] });
-  wm.digested = [...new Set([...(wm.digested ?? []), ...paths])].sort();
+  const before = new Set(wm.digested ?? []);
+
+  // Migration, once: a memory that digested before the ledger existed has
+  // its whole history only in the untracked watermark. Carry it over on the
+  // first run so the record is complete rather than starting from today —
+  // otherwise every capture from before this change would look pending in
+  // any fresh clone, which is exactly the bug the ledger removes.
+  if (!fs.existsSync(path.join(root, LEDGER_FILE)) && before.size > 0) {
+    appendLedger(root, [...before], { note: 'seeded from the local watermark' });
+  }
+
+  const added = paths.filter((f) => !before.has(f));
+  appendLedger(root, added, { entries: added.length });
+
+  wm.digested = [...new Set([...before, ...paths])].sort();
   wm.last = isoSeconds(new Date());
   saveJson(p, wm);
   clearBell(root);   // pile cleared, reset the bell

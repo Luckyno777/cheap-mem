@@ -132,3 +132,67 @@ test('digest-yield: captures without a watermark is unknown, not a fake ratio', 
   assert.equal(b.level, 'unknown');
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+// --- The digest ledger: the record that travels -------------------------
+
+test('a fresh clone reads the digest state from the tracked ledger', () => {
+  // The failure this removes: the watermark is under gitignored .mem/, so a
+  // clone saw every checked-in capture as pending and reported a backlog
+  // that did not exist.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ledger-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  raw.markDigested(root, [a]);
+  assert.ok(fs.existsSync(path.join(root, raw.LEDGER_FILE)), 'the ledger must be written');
+
+  // Simulate the clone: the tracked ledger travels, .mem/ does not.
+  fs.rmSync(path.join(root, '.mem'), { recursive: true, force: true });
+  assert.equal(raw.pending(root).open.length, 0,
+    'without the watermark the ledger alone must still answer');
+  const f = findFinding(doctor.checkAll(root), 'digest');
+  assert.notEqual(f.level, 'unknown', 'with a ledger the state is knowable from any clone');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a rebuilt container does not re-digest what the ledger already holds', () => {
+  // The other failure: the watermark does not survive a container rebuild,
+  // so everything would be digested a second time — every model call paid
+  // twice.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ledger-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  const b = putCapture(root, '2026-08-30T02-00-00Z--bbb.jsonl.gz');
+  raw.markDigested(root, [a, b]);
+  fs.rmSync(path.join(root, '.mem'), { recursive: true, force: true }); // rebuild
+  assert.deepEqual(raw.pending(root).open, [], 'nothing may come round again');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('a memory that digested before the ledger existed is seeded, not restarted', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ledger-'));
+  const old = putCapture(root, '2026-08-01T01-00-00Z--old.jsonl.gz');
+  // Pre-ledger world: only the watermark knows about `old`.
+  fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+  fs.writeFileSync(path.join(root, raw.WATERMARK_FILE),
+    JSON.stringify({ digested: [old], last: '2026-08-01T01:00:00Z' }));
+  assert.ok(!fs.existsSync(path.join(root, raw.LEDGER_FILE)));
+
+  const fresh = putCapture(root, '2026-09-01T01-00-00Z--new.jsonl.gz');
+  raw.markDigested(root, [fresh]);
+
+  const inLedger = raw.ledgerDigested(root);
+  assert.ok(inLedger.has(old), 'history from the watermark must be carried over');
+  assert.ok(inLedger.has(fresh));
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('the ledger is append-only: a second run adds a line, never rewrites', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ledger-'));
+  const a = putCapture(root, '2026-08-30T01-00-00Z--aaa.jsonl.gz');
+  const b = putCapture(root, '2026-08-30T02-00-00Z--bbb.jsonl.gz');
+  raw.markDigested(root, [a]);
+  const first = fs.readFileSync(path.join(root, raw.LEDGER_FILE), 'utf8');
+  raw.markDigested(root, [b]);
+  const second = fs.readFileSync(path.join(root, raw.LEDGER_FILE), 'utf8');
+  assert.ok(second.startsWith(first), 'the earlier line must stay byte-for-byte');
+  assert.equal(second.trim().split('\n').length, 2);
+  fs.rmSync(root, { recursive: true, force: true });
+});

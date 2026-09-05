@@ -331,8 +331,12 @@ function checkDigest(root) {
   // machine was healthy with 3 truly-open captures. So: no watermark ->
   // `?`, never a fabricated count. With no raw material at all there is
   // provably nothing pending (handled after the guard).
+  // The ledger is tracked, so when it exists the digest state IS knowable
+  // from any clone — that is the whole point of it, and the `?` below
+  // narrows to the case where neither record is present.
+  const ledgerHere = fs.existsSync(path.join(root, raw.LEDGER_FILE));
   const watermarkHere = fs.existsSync(path.join(root, raw.WATERMARK_FILE));
-  if (!watermarkHere) {
+  if (!watermarkHere && !ledgerHere) {
     let count = 0;
     try { count = raw.listCaptures(root).length; } catch { /* no raw/ */ }
     if (count === 0) {
@@ -345,7 +349,10 @@ function checkDigest(root) {
           + 'checked-in captures are already digested is not judgeable from here'
         : `no digest state on this machine — the ${count} captures came in via git, nothing is `
           + 'captured or digested here',
-      'The state lives in ' + raw.WATERMARK_FILE + ', gitignored (.mem/), and does not travel with '
+      'Neither ' + raw.LEDGER_FILE + ' (tracked) nor ' + raw.WATERMARK_FILE
+      + ' (gitignored, .mem/) is here. The ledger travels with the repo, so once the '
+      + 'digest has run once and committed, this question is answerable from any clone. '
+      + 'Until then the watermark does not travel with '
       + 'the repo. Without it every checked-in capture looks pending, even long-digested ones — '
       + 'neither the count nor the age of a backlog can be derived. Measure on the digesting '
       + 'machine: mem raw due.');
