@@ -91,8 +91,16 @@ shows what stood there. Merging is cheap — inventing is not.
 findable through search. An invented one is permanent noise in a list that
 is supposed to stay readable — and append-only means it does not go away.
 
-`mem doctor` measures this now (`entriesPerTopic`). Once the number rises
-above 1.0, the field is carrying a thread again.
+A slash is allowed, but only for a real sub-division *inside* the project
+— `memory/agents`, `memory/topics`, `memory/store`. No slash is not a
+fault: `retrieval`, `payment-terms` and `operations` are complete topics
+on their own.
+
+`mem doctor` measures both halves of this: `entriesPerTopic` for whether
+the field carries a thread at all, and `malformed` for the project-prefix
+rule. It reports GOOD only when the ratio is at or above 1.2 **and**
+`malformed` is zero — so a single prefixed topic keeps the whole check
+amber until it is folded away.
 
 ## Hard limits
 
