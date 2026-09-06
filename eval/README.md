@@ -109,3 +109,46 @@ Der synthetische Korpus erzeugt Scores von 0,5–5,5, der echte 2–93. Kurze
 Kunsteintraege sind kein Ersatz fuer gewachsene. Bevor die Baseline laeuft,
 muss der Korpus dem echten in Laenge und Dichte aehneln — sonst ist jede
 Retrieval-Zahl um eine Groessenordnung daneben.
+
+## Der gepaarte Test — das Einzige, wofuer ein Modell noetig war
+
+40 Aufrufe, 0,70 USD, Haiku 4.5, sauberer Korpus. Gefahren wurde nur auf
+den 5 Aufgaben, bei denen das Gold ueberhaupt im Kontext ankommt; bei den
+uebrigen 13 ist die Antwort schon ohne Modell bekannt. Beide Bedingungen
+bekommen gleich viele Claims — der Gold-Claim wird durch den naechstbesten
+Nicht-Gold-Claim ersetzt, nicht ersatzlos entfernt.
+
+| Task | entfernt | MIT | OHNE | Delta |
+|---|---|---:|---:|---:|
+| C3 | F-db | 4/4 | 4/4 | 0 |
+| D3 | F-port-neu | 0/4 | 0/4 | 0 |
+| E2 | F-konflikt-a | 0/4 | 0/4 | 0 |
+| H2 | F-lockin | 3/4 | 1/4 | **+50 %** |
+| H3 | F-lockin | 4/4 | 4/4 | 0 |
+
+Gesamt 11/20 gegen 9/20. Eine Aufgabe unterscheidet sich, vier nicht.
+**Vorzeichentest: p = 1,000.** Bei einer einzigen abweichenden Aufgabe ist
+das kleinste erreichbare p ebenfalls 1,000 — diese Stichprobe KANN keinen
+Effekt zeigen, egal wie er ausfaellt.
+
+**Ergebnis: kein nachweisbarer Effekt bei n=5 Aufgaben.**
+
+### Und ein Befund gegen das eigene Messgeraet
+
+Der Blick in die Antworten zeigt Unterschiede, die die binaere Bewertung
+nicht sieht:
+
+- **D3** ohne Gold: *"**3000** — die Notiz [V-metrikendienst-6] gibt an,
+  dass der Metrikendienst auf Port 3000 laeuft"* — eine selbstbewusste
+  falsche Zahl aus einem Ablenkungseintrag. Mit Gold: kein Zahlensprung,
+  sondern ein Vorbehalt. Beides zaehlt als Misserfolg.
+- **E2** ohne Gold: *"Ja, 5 MB sind unter dem Artifact-Limit von 16 MB"* —
+  eine erfundene Grenze. Mit Gold: *"Nein, maximal 2 MB"* — sachlich
+  richtig, aber ohne den Widerspruch zu nennen, den mein Raster verlangt.
+  Und nennen konnte das Modell ihn nicht: der Abruf lieferte nur EINE der
+  beiden Seiten.
+
+Das ist eine Hypothese fuer die naechste Runde, kein Ergebnis dieser: sie
+entstand NACH dem Blick auf die Daten. Wer sie jetzt als Kennzahl
+nachtraegt und dieselben Laeufe neu auswertet, misst seine eigene
+Erwartung. Sie gehoert vorher festgelegt und an neuen Aufgaben geprueft.
