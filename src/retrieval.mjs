@@ -127,6 +127,11 @@ export function retrieve(root, query, capability, {
   withDisputed = false,
   limits = LIMITS,
   index = null,
+  // Vorgabe wie in `mem find`. Ueberschreibbar, damit ein Aufrufer, der
+  // reine Relevanzreihenfolge will, sie bekommt — und damit ein Test beide
+  // Wege vergleichen kann.
+  mmr = true,
+  mmrLambda = 0.7,
 } = {}) {
   const excluded = [];
   const note = (id, why) => excluded.push({ id: id ?? null, why });
@@ -183,7 +188,27 @@ export function retrieve(root, query, capability, {
   const byTier = [];
   for (const tier of authority.TIERS) {
     const hits = [];
-    for (const hit of search(idx, useQuery, { top: perTier, withRetired: true, authority: tier })) {
+    // MMR an, mit demselben Lambda wie `mem find`.
+    //
+    // Bis 2026-09-06 stand hier nichts, und `search()` hat `mmr: false` als
+    // Vorgabe. `bin/mem find` schaltet es ein — der Gateway nicht. Damit war
+    // der AGENTENPFAD (mem retrieve, MCP mem_retrieve) schlechter als der
+    // Menschenpfad: reine BM25-Reihenfolge, und zwoelf Fast-Duplikate
+    // desselben Themas fuellen die Trefferliste, waehrend die Antwort auf
+    // die eigentliche Frage darunter liegt.
+    //
+    // Gemessen am eval-Korpus: das gesuchte Claim war ohne MMR bei 7 von 18
+    // Aufgaben in den top-5, mit MMR bei 9 von 18.
+    //
+    // Die Neuordnung wirkt auf die AUSWAHL, nicht auf die Ausgabe: unten
+    // sortiert `.sort((a, b) => b.score - a.score)` wieder nach Relevanz.
+    // MMR entscheidet also, WER angeschaut wird, die Punktzahl in welcher
+    // Reihenfolge er erscheint — dieselbe Trennung wie beim Rundlauf ueber
+    // die Autoritaetsstufen.
+    for (const hit of search(idx, useQuery, {
+      top: perTier, withRetired: true, authority: tier,
+      mmr, mmrLambda,
+    })) {
       const id = hit.entry?.id;
       if (id && seenIds.has(id)) continue;
       if (id) seenIds.add(id);

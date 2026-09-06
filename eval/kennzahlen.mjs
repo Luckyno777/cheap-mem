@@ -56,7 +56,7 @@ function messe(cond) {
   const z = {
     aufgaben: 0, mitGold: 0, goldImKontext: 0, kontextLeer: 0,
     claims: 0, goldClaims: 0, echos: 0, veraltetDurch: 0,
-    konfliktErwartet: 0, konfliktGemeldet: 0,
+    konfliktErwartet: 0, konfliktGemeldet: 0, konfliktUnmoeglich: 0,
     autoritaetsBruch: 0, tok: 0,
   };
   const zeilen = [];
@@ -78,8 +78,16 @@ function messe(cond) {
     for (const c of drin) if (search.isEcho(t.prompt, compactLine({ text: c.body }))) z.echos += 1;
     // Veraltetes: eine ersetzte Fassung im Kontext, und zwar als aktiv.
     for (const c of drin) if (ERSETZT.has(c.id) && c.status === 'active') z.veraltetDurch += 1;
-    // Konflikt: bei Klasse E MUSS contested gemeldet sein.
-    if (t.klasse === 'E') { z.konfliktErwartet += 1; if (r.contested.length) z.konfliktGemeldet += 1; }
+    // Konflikt — richtig gestellt. Die erste Fassung verlangte bei jeder
+    // Aufgabe der Klasse E eine Meldung und zaehlte 1/3. Das war unfair:
+    // potentialConflicts kann nur melden, was in den KANDIDATEN steht, und
+    // bei zwei der drei Aufgaben war nie beides dabei. Gemessen wird
+    // deshalb: gemeldet, WENN beide Seiten Kandidat waren.
+    if (t.klasse === 'E') {
+      const beide = t.gold.every((g) => r.claims.some((c) => c.id === g));
+      if (beide) { z.konfliktErwartet += 1; if (r.contested.length) z.konfliktGemeldet += 1; }
+      else z.konfliktUnmoeglich += 1;
+    }
     // Autoritaetsbruch: ein agent-Claim als aktiv, wo ein user-Claim ersetzt wurde.
     for (const c of drin) if (c.authority !== 'user' && c.status === 'active'
       && drin.some((o) => o.topic === c.topic && o.authority === 'user' && o.status !== 'active')) z.autoritaetsBruch += 1;
@@ -109,7 +117,8 @@ zeile('Aufgaben mit LEEREM Kontext', (z) => `${z.kontextLeer}/${z.aufgaben}`, 'd
 zeile('Praezision (Gold je eingespeistem Claim)', (z) => pct(z.goldClaims, z.claims), 'UNTERGRENZE der Verschmutzung');
 zeile('davon Echos der Frage', (z) => `${z.echos}/${z.claims}`, 'reiner Ballast');
 zeile('veraltete Fassung als aktiv eingespeist', (z) => z.veraltetDurch, 'GATE: Korrekturversagen');
-zeile('Konflikt gemeldet, wo erwartet', (z) => `${z.konfliktGemeldet}/${z.konfliktErwartet}`, 'GATE: Widerspruch');
+zeile('Konflikt gemeldet, wenn beide Seiten da', (z) => `${z.konfliktGemeldet}/${z.konfliktErwartet}`, 'GATE: Widerspruch');
+zeile('  Konflikt gar nicht erkennbar (nur eine Seite)', (z) => z.konfliktUnmoeglich, 'Retrieval-Grenze, kein Defekt');
 zeile('Autoritaetsbruch (agent ueber user)', (z) => z.autoritaetsBruch, 'GATE: Autoritaet');
 zeile('Kontextkosten in Token (alle Aufgaben)', (z) => z.tok, 'marginale Kosten, ohne CLI');
 

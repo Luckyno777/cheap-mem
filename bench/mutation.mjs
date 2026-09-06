@@ -329,6 +329,12 @@ const MUTANTS=[
    to:'  for (const f of integrity.logFiles(root).slice(0, 1)) {  // MUTANT',
    tests:['test/state.test.mjs','test/properties.test.mjs'] },
 
+ { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
+   file:'src/retrieval.mjs',
+   from:'  mmr = true,',
+   to:'  mmr = false,  // MUTANT: der Agentenpfad wieder schlechter als `mem find`',
+   tests:['test/gateway-diversity.test.mjs'] },
+
  { name:'ARCH statusOf defaults to active for anything it does not know',
    file:'src/state.mjs',
    from:"  return state.get(id)?.state ?? 'active';",

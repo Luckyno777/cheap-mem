@@ -69,7 +69,8 @@ verschwendetes Geld.
 | Praezision (Gold je Claim) | **12 %** | 7 % |
 | davon Echos der Frage | 0/42 | **21/59 = 36 %** |
 | veraltete Fassung als aktiv | 0 | 0 |
-| Konflikt gemeldet, wo erwartet | **1/3** | 2/3 |
+| Konflikt gemeldet, **wenn beide Seiten Kandidat** | 1/1 | 2/2 |
+| Konflikt gar nicht erkennbar (nur eine Seite da) | 2 | 1 |
 | Autoritaetsbruch | 0 | 0 |
 | Kontextkosten | 6143 Token | 6533 Token |
 
@@ -79,8 +80,19 @@ nicht die gesuchte Angabe. Der moegliche Nutzen liegt in einem schmalen
 Band, und nur dafuer lohnt ein Modellversuch — gepaart (dieselbe Aufgabe
 mit und ohne genau diesen Claim), damit die Aufgabenvarianz herausfaellt.
 
-Zwei Gates: **Konflikte werden nur in 1 von 3 Faellen gemeldet**, in denen
-sie erwartet sind. Korrektur und Autoritaet halten (0 Verletzungen).
+Alle Gates halten. Die erste Fassung dieser Tabelle meldete "Konflikt nur
+1 von 3" und sah nach einem Defekt in `potentialConflicts` aus. Die
+Diagnose zeigte etwas anderes: bei zwei der drei Aufgaben war nie BEIDES in
+den Kandidaten, und melden kann nur, was da ist. Die Kennzahl war falsch
+gestellt, nicht der Code.
+
+Dabei fiel der eigentliche Befund an: **`search()` hat `mmr: false` als
+Vorgabe. `bin/mem find` schaltet die Vielfalts-Neuordnung ein,
+`src/retrieval.mjs` tat es nicht** — der Agentenpfad (`mem retrieve`, MCP
+`mem_retrieve`) war also schlechter als der Menschenpfad. Fast gleiche
+Eintraege desselben Themas fuellten die Trefferliste. Gemessen: das gesuchte
+Claim war in den top-5 bei **7 von 18** Aufgaben ohne MMR und bei **9 von
+18** mit. Behoben, mit Test und Mutant (`test/gateway-diversity.test.mjs`).
 
 Im vergifteten Korpus schiessen die Scores auf 60-128, weil die Echos die
 Frage woertlich enthalten — sie verdraengen alles andere. Das ist die
