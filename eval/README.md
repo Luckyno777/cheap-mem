@@ -330,3 +330,59 @@ Modellrichter. Sie prueft die Hypothese aus dem Vortag (Memory verhindert
 womoeglich eher das Erfinden, als die richtige Antwort zu liefern) an
 Daten, aus denen sie NICHT stammt. Klasse F ist ausgenommen: dort rechnet
 das Modell zu Recht.
+
+# Stufe 7 — der gepaarte Lauf auf dem erweiterten Satz (0,77 USD)
+
+48 Aufrufe, 6 Aufgaben mit ankommendem Gold, Haiku 4.5, sauberer Korpus.
+
+| Task | entfernt | MIT | OHNE | erfundene Zahlen MIT/OHNE |
+|---|---|---:|---:|---:|
+| C3 | F-db | 4/4 | 4/4 | 0 / 0 |
+| D3 | F-port-neu | 0/4 | 0/4 | **2 / 0** |
+| E2 | F-konflikt-a | 0/4 | 0/4 | **0 / 4** |
+| H1 | F-lockin | 4/4 | 4/4 | 0 / 0 |
+| H2 | F-lockin | 1/4 | 0/4 | 0 / 0 |
+| H3 | F-lockin | 4/4 | 4/4 | 0 / 0 |
+
+Erfolg 13/24 gegen 12/24, **eine** Aufgabe unterscheidet sich, p = 1,000.
+Erfundene Zahlen 2 gegen 4, **eine Aufgabe besser, eine schlechter**,
+p = 1,000.
+
+## Die vorab festgelegte Hypothese ist NICHT bestaetigt
+
+Sie geht in beide Richtungen: bei E2 verhinderte Memory die Erfindung, bei
+D3 verursachte sie eine. Genau dafuer gibt es Vorab-Festlegung — haette
+ich nach dem Lauf nur E2 angesehen, waere die Hypothese "bestaetigt"
+gewesen.
+
+## Und die Kennzahl selbst taugt nicht, was der Blick in die Antworten zeigt
+
+Das ist eine Feststellung nach dem Lauf und aendert am Ergebnis nichts —
+sie sagt nur, was beim naechsten Mal anders sein muss:
+
+- **D3 ohne Gold**: *"**3000** — das ist der Port des Metrikendiensts
+  gemaess Notiz [V-metrikendienst-1]"*. Falsche Antwort, selbstbewusst,
+  **nicht als erfunden gezaehlt** — die Zahl stand ja im (unpassenden)
+  Kontext.
+- **E2 ohne Gold**: *"maximal 2 MB je Datei"* — die RICHTIGE Antwort,
+  **als erfunden gezaehlt**, weil die 2 nicht im Kontext stand.
+
+Die Kennzahl misst "Zahl nicht im Kontext" und vermengt damit drei Dinge:
+eine falsche Zahl erfinden (schlecht), eine richtige aus Modellwissen
+nennen (unbedenklich), eine falsche aus unpassendem Kontext abschreiben
+(schlecht, aber ungezaehlt). Sie braucht die RICHTIGKEIT als Bezug, nicht
+die Herkunft.
+
+# Stufe 8 — Feature-Tests: nicht gefahren
+
+Abbruch nach der eigenen Regel. Die Obergrenze ist 28 %: bei 33 Aufgaben
+mit Gold kommen 6 an, und ueber 6 Aufgaben kann kein Vorzeichentest ein
+p < 0,05 erreichen, wenn nicht alle sechs gleichsinnig ausfallen. Empty
+Answer Semantics, `why` als Feld, Widerspruchspruefung und Sectioning
+haetten dieselbe Decke.
+
+Geld fuer eine Messung auszugeben, deren Aussagekraft vorher schon null
+ist, waere genau der Fehler, gegen den diese ganze Reihe gebaut wurde.
+
+**Der Engpass ist nicht das Modell und nicht das Feature. Es ist der
+Recall.**
