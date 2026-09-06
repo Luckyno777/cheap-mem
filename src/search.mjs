@@ -39,7 +39,7 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // change. Bumping this forces a rebuild.
 // 3: the index carries the learned term co-occurrence graph. An older
 // cache has no termGraph, so it must be rebuilt rather than loaded.
-export const CACHE_VERSION = 4;
+export const CACHE_VERSION = 5;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -311,12 +311,23 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   const docFreq = new Map();
   let lengthSum = 0;
 
+  // Zweite, gepflegte Statistik: dieselben Zahlen, aber OHNE Rohfang.
+  // Wozu, steht bei `statsN` im Rueckgabewert.
+  const curatedFreq = new Map();
+  let curatedLengthSum = 0;
+  let curatedN = 0;
+
   const addDoc = (doc) => {
     if (doc.weights.size === 0) return;
     let length = 0;
     for (const g of doc.weights.values()) length += g;
     lengthSum += length;
     for (const t of doc.weights.keys()) docFreq.set(t, (docFreq.get(t) ?? 0) + 1);
+    if (doc.type !== 'raw') {
+      curatedN += 1;
+      curatedLengthSum += length;
+      for (const t of doc.weights.keys()) curatedFreq.set(t, (curatedFreq.get(t) ?? 0) + 1);
+    }
     documents.push({ ...doc, length });
   };
 
@@ -376,14 +387,38 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     language: lang.name,
     N: documents.length,
     avgLength: documents.length ? lengthSum / documents.length : 1,
+    // Was BM25 als "selten" und "lang" ansieht, kommt aus dem gepflegten
+    // Teil der Memory — nicht aus dem Rohfang.
+    //
+    // Der Rohfang ist Mitschrift, keine Aussage. Er waechst mit jeder
+    // Sitzung, er enthaelt jede Frage im Wortlaut, und er ist genau das
+    // Material, das die Woerter der haeufigsten Fragen haeufig macht.
+    // Laesst man ihn die idf bestimmen, verliert der gepflegte Eintrag
+    // seinen Vorsprung gegenueber thematischen Nachbarn — und zwar bei
+    // genau den Fragen, die am oeftesten gestellt werden.
+    //
+    // Gemessen am eval-Korpus (39 Rohfaenge mit den Frageworten):
+    // Gold-im-Kontext 11/33 -> 8/33, ohne dass eine einzige Quittung
+    // ausgestellt wird; das Gold wird gar nicht erst Kandidat.
+    //
+    // Dass der Rohfang die Statistik nicht formen soll, war hier schon
+    // entschieden — `termGraph` schliesst ihn aus. Nur docFreq, N und
+    // avgLength taten es nicht. Rohfaenge werden weiterhin GEFUNDEN;
+    // sie werden nur nicht mehr gefragt, was ein seltenes Wort ist.
+    statsN: curatedN || documents.length,
+    statsDocFreq: curatedN ? curatedFreq : docFreq,
+    statsAvgLength: curatedN ? (curatedLengthSum / curatedN)
+      : (documents.length ? lengthSum / documents.length : 1),
     builtAt: new Date().toISOString(),
   };
 }
 
 /** BM25 IDF (with +1 to keep very common terms from going negative). */
 function idf(index, term) {
-  const n = index.docFreq.get(term) ?? 0;
-  return Math.log(1 + (index.N - n + 0.5) / (n + 0.5));
+  const df = index.statsDocFreq ?? index.docFreq;
+  const N = index.statsN ?? index.N;
+  const n = df.get(term) ?? 0;
+  return Math.log(1 + (N - n + 0.5) / (n + 0.5));
 }
 
 /**
@@ -506,7 +541,8 @@ export function search(index, query, {
     for (const [term, qWeight] of terms) {
       const f = doc.weights.get(term);
       if (!f) continue;
-      const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / index.avgLength));
+      const avg = index.statsAvgLength ?? index.avgLength;
+      const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / avg));
       score += qWeight * idf(index, term) * norm;
     }
     if (score <= 0) continue;
@@ -773,12 +809,24 @@ function appendToIndex(root, index, before, now, lang) {
   }
 
   let lengthSum = index.avgLength * index.N;
+  // Die gepflegte Statistik waechst nur mit gepflegten Zeilen mit. Genau
+  // hier waere der Unterschied sonst wieder verloren: der Anhaenge-Pfad
+  // ist der, den der Stop-Hook bei JEDER Sitzung ausloest.
+  let statsLengthSum = (index.statsAvgLength ?? index.avgLength) * (index.statsN ?? index.N);
+  let statsN = index.statsN ?? index.N;
   const push = (doc) => {
     if (doc.weights.size === 0) return;
     let length = 0;
     for (const g of doc.weights.values()) length += g;
     lengthSum += length;
     for (const t of doc.weights.keys()) index.docFreq.set(t, (index.docFreq.get(t) ?? 0) + 1);
+    if (doc.type !== 'raw') {
+      statsN += 1;
+      statsLengthSum += length;
+      for (const t of doc.weights.keys()) {
+        index.statsDocFreq.set(t, (index.statsDocFreq.get(t) ?? 0) + 1);
+      }
+    }
     index.documents.push({ ...doc, length });
   };
   for (const d of added) {
@@ -794,6 +842,8 @@ function appendToIndex(root, index, before, now, lang) {
 
   index.N = index.documents.length;
   index.avgLength = index.N ? lengthSum / index.N : 1;
+  index.statsN = statsN || index.N;
+  index.statsAvgLength = statsN ? statsLengthSum / statsN : index.avgLength;
   return { added: added.length + rawDocs.length, newBytes, lastLines };
 }
 
@@ -845,6 +895,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           ...index,
           documents: index.documents.map((d) => ({ ...d, weights: [...d.weights] })),
           docFreq: [...index.docFreq],
+          statsDocFreq: [...index.statsDocFreq],
           lexicon: [...index.lexicon],
           tagGraph: thesaurus.packTagGraph(index.tagGraph),
           termGraph: thesaurus.packTagGraph(index.termGraph),
@@ -878,6 +929,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           ...c.index,
           documents: c.index.documents.map((d) => ({ ...d, weights: new Map(d.weights) })),
           docFreq: new Map(c.index.docFreq),
+          statsDocFreq: new Map(c.index.statsDocFreq ?? c.index.docFreq),
           lexicon: new Set(c.index.lexicon),
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
           termGraph: thesaurus.unpackTagGraph(c.index.termGraph),

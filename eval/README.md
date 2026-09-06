@@ -72,6 +72,45 @@ verschwendetes Geld.
   frueher Fassung dieses Verzeichnisses meldete 1,1 % — das war der
   synthetische Korpus, nicht cheap-mem.
 
+## Der Rohfang hat die eigene Suche verschlechtert (2026-09-06)
+
+Gefunden beim Aufraeumen des Korpus, nicht gesucht. Nachdem die Echos
+ehrlich als Rohfang gepflanzt waren, fiel **Gold-im-Kontext von 11/33 auf
+8/33** — mit Filter wie ohne. Die drei verlorenen Aufgaben haben KEINE
+Quittung: das Gold wird gar nicht erst Kandidat.
+
+Am Index nachgemessen: die Schwelle ist nicht schuld (6/33 ueber 5,0,
+beidesmal), der mittlere Gold-Score faellt nur von 3,52 auf 3,29 — aber
+der mittlere Rang bricht von 9,1 auf 21,6 ein.
+
+Der Grund ist eine Asymmetrie, die seit dem Rohfang-Einbau im Code stand:
+`termGraph` schliesst Rohfang aus, `docFreq`, `N` und `avgLength` nicht.
+Der Stop-Hook legt jede Nachricht ab, also enthaelt der Rohfang jede
+Frage im Wortlaut — und macht damit genau die Woerter haeufig, nach denen
+am oeftesten gesucht wird. Die idf dieser Woerter faellt, und der
+gepflegte Eintrag verliert seinen Vorsprung gegenueber thematischen
+Nachbarn. **Die Memory wird genau dort schlechter, wo sie am meisten
+benutzt wird.**
+
+Behoben: BM25 rechnet mit einer zweiten Statistik (`statsN`,
+`statsDocFreq`, `statsAvgLength`) aus dem gepflegten Teil. Rohfaenge
+werden weiter gefunden; sie werden nur nicht mehr gefragt, was ein
+seltenes Wort ist. Auch der Anhaenge-Pfad — der, den der Betrieb bei
+jeder Sitzung geht — haelt sich daran.
+
+Was es bringt, ehrlich:
+
+| | vorher | nachher |
+|---|---:|---:|
+| Gold, sauberer Korpus | 12/33 | 12/33 |
+| Gold, vergiftet (39 Rohfaenge) | 8/33 | **9/33** |
+| `bench/retrieval.mjs` R@5 | 93 % | 93 % |
+
+**Eine von drei verlorenen Aufgaben kommt zurueck, zwei nicht.** Der
+Mechanismus ist also erkannt, aber nicht erschoepft: die Statistik war
+ein Teil der Ursache, nicht die ganze. Was die anderen zwei kostet, ist
+noch offen.
+
 ## Die Falle, in die dieses Verzeichnis dreimal getappt ist
 
 1. **Sonde statt Sache gemessen.** Die erste Echo-Messung uebergab die

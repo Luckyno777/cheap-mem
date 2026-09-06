@@ -359,6 +359,24 @@ const MUTANTS=[
    to:"  return isEcho(questionText, `${hit.entry?.title ?? ''} ${hit.entry?.text ?? ''}`, opts);  // MUTANT",
    tests:['test/paths-agree.test.mjs'] },
 
+ { name:'ARCH raw captures shape the idf again',
+   file:'src/search.mjs',
+   from:"    statsDocFreq: curatedN ? curatedFreq : docFreq,",
+   to:"    statsDocFreq: docFreq,  // MUTANT: der Rohfang bestimmt wieder, was selten ist",
+   tests:['test/raw-stats.test.mjs'] },
+
+ { name:'ARCH raw captures shape the length normalisation again',
+   file:'src/search.mjs',
+   from:"    statsN: curatedN || documents.length,",
+   to:"    statsN: documents.length,  // MUTANT: N wieder inklusive Rohfang",
+   tests:['test/raw-stats.test.mjs'] },
+
+ { name:'ARCH the append path lets fresh captures back into the stats',
+   file:'src/search.mjs',
+   from:"    if (doc.type !== 'raw') {\n      statsN += 1;",
+   to:"    if (true) {  // MUTANT: jeder frische Fang zaehlt wieder mit\n      statsN += 1;",
+   tests:['test/raw-stats.test.mjs','test/search.test.mjs'] },
+
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',
    from:'  mmr = true,',
