@@ -214,6 +214,8 @@ costs exactly zero. See [docs/architecture.md](docs/architecture.md).
 ```
 mem init                       one-time setup
 mem log <type> --<field> ...   append an entry (ten types)
+                               --asked "word, word" = words to FIND it by,
+                               which the entry itself does not contain
 mem find "<query>"             ranked search, no model    [--literal --fresh]
 mem browse                     interactive search: re-ranks on every keystroke
 mem discard <id> / done <id>   retire a thought/task (recall hides it)

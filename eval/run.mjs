@@ -88,6 +88,10 @@ for (const cond of CORPORA) {
   build(root, {
     poisoned: cond === 'poisoned', seed: SEED,
     echoes: cond === 'poisoned' ? tasks.map((t) => t.prompt) : [],
+    // `--frageworte` misst cheap-mem SO WIE ES HEUTE IST. Ohne den
+    // Schalter fehlt dem Korpus das `asked`-Feld, und der Lauf misst
+    // einen Stand, den niemand mehr ausliefert.
+    frageworte: flag('frageworte'),
   });
   roots[cond] = root;
 }

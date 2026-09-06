@@ -113,12 +113,41 @@ after. No change means failure, whatever the model claims.
 score = BM25(tokens)              k1=1.2, b=0.75
       + thesaurus expansion       curated, weight 0.6
       + tag-graph expansion       learned, weight = nPMI (max 0.5)
-      × field weight              title 3.0 … text 1.0
+      × field weight              title 3.0 … asked 2.0 … text 1.0
       × recency                   max +15%, halved after 90 days
 ```
 
 Every expansion stays **below 1.0**, so a synonym never outranks a
 literal hit.
+
+Three things sit **beside** that score rather than inside it, because
+each is a different kind of statement — and a weighted sum cannot say
+which of its terms spoke:
+
+- **The statistics exclude raw captures.** `docFreq`, `N` and average
+  length come from the digested part only (`statsN`, `statsDocFreq`,
+  `statsAvgLength`). The Stop hook files every message, so raw material
+  contains every question verbatim — letting it decide what is *rare*
+  makes the memory worse exactly where it is used most. Measured on a
+  real memory: 53 % of average document frequency came from captures.
+- **Raw is the reserve lane.** Captures fill only what curated entries
+  leave open. A capture is by construction not yet a claim; putting one
+  ahead of a reviewed decision makes lane 1 the main lane and the digest
+  pointless. Measured: 42 % of injected slots went to captures, and
+  every one of them was already digested — pure duplication.
+- **An exact identifier match bypasses the threshold.** If the question
+  names a path, ticket number, service name or version that occurs in at
+  most `top` entries, that entry is admitted regardless of score. The
+  threshold is for *similarity*; naming the thing is not similarity. The
+  bound has no free parameter — it is the answer size. Limit: this helps
+  when the question **names** the identifier, not when it **asks for**
+  one.
+
+And one field carries words that are deliberately **not** in the entry:
+`asked`, written by the digest — three to five words someone would
+*search* with. Retrieval cost: zero. Embeddings cost a call per query;
+this costs a few tokens per digest run. Measured: gold in context
+24/63 → 28/63, nothing lost.
 
 ### The tag graph is the actual trick
 
