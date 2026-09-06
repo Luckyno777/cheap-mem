@@ -88,6 +88,25 @@ if (mitGold.length && mitGold[0].erfunden !== undefined) {
     + (nE ? `  (kleinstes erreichbares p: ${(2 / 2 ** nE).toFixed(3)})` : ''));
 }
 
+// Ist die Paarung ueberhaupt ausgeglichen? Ohne diese Pruefung misst der
+// Vergleich womoeglich Kontextmenge statt Inhalt — genau das ist am
+// 2026-09-06 passiert: MIT hatte in 9 von 12 Paaren einen Claim mehr, und
+// der gemessene Vorteil steckte vollstaendig in diesen 9.
+{
+  let schief = 0;
+  for (const id of tasks) {
+    const m = zeilen.find((z) => z.task_id === id && z.bedingung === 'mit');
+    const o = zeilen.find((z) => z.task_id === id && z.bedingung === 'ohne');
+    if (m && o && m.claim_ids.length !== o.claim_ids.length) schief += 1;
+  }
+  if (schief) {
+    console.log(`\n  ==> WARNUNG: ${schief} von ${tasks.length} Paaren sind NICHT ausgeglichen.`);
+    console.log('      Der Vergleich misst dann auch Kontextmenge. Ergebnis nicht belastbar.');
+  } else {
+    console.log(`\n  (alle ${tasks.length} Paare tragen beidseitig gleich viele Claims)`);
+  }
+}
+
 const tok = zeilen.filter((z) => z.bedingung === 'mit').reduce((s, z) => s + z.prompt_tok, 0)
   - zeilen.filter((z) => z.bedingung === 'ohne').reduce((s, z) => s + z.prompt_tok, 0);
 const kosten = zeilen.reduce((s, z) => s + (z.kosten ?? 0), 0);

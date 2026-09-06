@@ -55,11 +55,31 @@ for (const t of TASKS) {
   const drin = r.claims.filter((c) => c.score >= MIN);
   const gold = drin.filter((c) => t.gold.includes(c.id));
   if (!gold.length) continue;
-  // Ersatz gleicher Groessenordnung: der beste Nicht-Gold-Treffer, der noch
-  // nicht im Kontext ist. Ohne ihn waere OHNE einfach kuerzer, und dann
-  // misst der Vergleich Kontextlaenge statt Inhalt.
-  const ersatz = r.claims.filter((c) => !drin.some((d) => d.id === c.id) && !t.gold.includes(c.id));
+
+  // Ersatz gleicher ANZAHL. Sonst ist OHNE einfach kuerzer, und der
+  // Vergleich misst Kontextmenge statt Inhalt.
+  //
+  // Der erste Lauf am 2026-09-06 hatte genau diesen Fehler: der
+  // Ersatzvorrat kam aus derselben top-N-Abfrage, war also leer, sobald
+  // der Abruf N Treffer lieferte. Ergebnis: MIT hatte in 9 von 12 Paaren
+  // einen Claim mehr (~900 gegen ~710 Token), und der gemessene Vorteil
+  // von 83 % gegen 63 % steckte VOLLSTAENDIG in genau diesen 9 Paaren —
+  // bei den 3 ausgeglichenen stand es 1:1. Der Lauf war damit wertlos.
+  //
+  // Also: Vorrat aus einer breiteren Abfrage, und wer sich nicht
+  // ausgleichen laesst, faellt raus statt das Ergebnis zu faerben.
+  const breit = retrieval.retrieve(root, t.prompt, cap, { top: TOP * 4 });
+  const ersatz = breit.claims.filter((c) => !drin.some((d) => d.id === c.id)
+    && !t.gold.includes(c.id));
+  if (ersatz.length < gold.length) {
+    console.log(`  ${t.id}: uebersprungen — nur ${ersatz.length} Ersatz fuer ${gold.length} Gold-Claims`);
+    continue;
+  }
   const ohne = drin.filter((c) => !t.gold.includes(c.id)).concat(ersatz.slice(0, gold.length));
+  if (ohne.length !== drin.length) {
+    console.log(`  ${t.id}: uebersprungen — Paar nicht ausgeglichen (${drin.length}/${ohne.length})`);
+    continue;
+  }
   paare.push({ t, mit: drin, ohne, contested: r.contested, entfernt: gold.map((c) => c.id) });
 }
 
@@ -67,7 +87,7 @@ const est = (s) => Math.ceil(String(s).length / 4);
 console.log(`Korpus ${COND}, Modell ${MODEL}, ${RUNS} Wiederholungen`);
 console.log(`Aufgaben mit Gold im Kontext: ${paare.length} von ${TASKS.filter((t) => t.gold.length).length}`);
 for (const p of paare) {
-  console.log(`  ${p.t.id} (${p.t.klasse})  MIT ${p.mit.length} Claims / OHNE ${p.ohne.length}  entfernt: ${p.entfernt.join(',')}`);
+  console.log(`  ${p.t.id} (${p.t.klasse})  ${p.mit.length} Claims beidseitig  entfernt: ${p.entfernt.join(',')}`);
 }
 const aufrufe = paare.length * 2 * RUNS;
 console.log(`\nModellaufrufe: ${aufrufe}   Grobkosten: ~${(aufrufe * 0.05).toFixed(2)} USD`);
