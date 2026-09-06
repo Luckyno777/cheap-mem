@@ -177,6 +177,25 @@ Zwei Dinge, die dabei ehrlich dazugehoeren:
   noch nicht gelaufen ist. Was das Vorzeichen entscheidet, ist die
   Verzoegerung des Fassers — laeuft er stuendlich, ist das Fenster
   schmal; laeuft er nie, ist "nur im Rohfang" der Normalfall.
+
+  **Wie schnell "nie" eintritt, war schaerfer als zuerst berichtet.** Der
+  erste Bericht sagte "auf einem dichten Korpus". Gemessen mit einer
+  wachsenden Zahl gepflegter Eintraege, die zur Frage passen, und fuenf
+  Rohfaengen daneben:
+
+  | gepflegte Eintraege | 0 | 1 | 2 | 3 | 4 | **5** | 6 | 12 | 100 |
+  |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+  | Rohfang-Claims von 5 | 5 | 4 | 3 | 2 | 1 | **0** | 0 | 0 | 0 |
+
+  **Fuenf passende gepflegte Eintraege, und die Rohfang-Bahn ist zu.**
+  Nicht "ein dichter Korpus" — fuenf. Eine gewachsene Memory ist damit
+  praktisch immer zu, und der ungefasste Fang ist fuer den Agenten nicht
+  vorhanden.
+
+  Was daraus folgt, und es ist keine Kleinigkeit: **cheap-mem haengt jetzt
+  daran, dass der Fasser laeuft.** Vorher war ein Rueckstand unordentlich,
+  jetzt ist er eine Luecke im Abrufbaren. `mem doctor` sagt das seitdem
+  dazu, statt nur die Zahl zu melden.
 - **Der Echo-Filter hat dadurch weniger zu tun.** Im vergifteten Korpus
   verwirft er jetzt 0 statt 39 — nicht weil er schlechter wurde, sondern
   weil die Echos gar nicht mehr bis zur Auswahl kommen. Er zaehlt noch,

@@ -22,6 +22,19 @@
 // Zweimal dieselbe Klasse heisst: es gibt eine dritte Stelle. Dieser Test
 // ist nicht gegen die beiden bekannten Faelle gerichtet, sondern gegen die
 // naechste.
+//
+// EIN Unterschied ist Absicht und steht deshalb hier, statt geprueft zu
+// werden: die Reserve-Bahn fuer Rohfang (seit 2026-09-06) gilt nur im
+// Gateway. `mem find` mischt den Fang weiter nach Punktzahl ein und
+// markiert ihn mit `[raw]`.
+//
+// Der Grund ist der Zweck. Der Gateway FUELLT EIN BUDGET fuer ein Modell,
+// das nicht nachfragen kann; da ist ein ungefasstes Protokoll vor einer
+// gepruefte Entscheidung ein Fehler. `mem find` legt einem Menschen eine
+// Liste hin, der die Markierung sieht und `--only-raw` kennt.
+//
+// Wer das aendert, aendert also nicht eine Ungereimtheit, sondern eine
+// Entscheidung. Faellt der Grund weg, faellt der Unterschied mit.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

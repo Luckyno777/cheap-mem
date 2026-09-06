@@ -454,14 +454,26 @@ function checkDigest(root) {
   }
   const d = raw.due(root);
   const kb = Math.round(st.bytes / 1024);
+  // Since 2026-09-06 a backlog is no longer only untidy — it is material
+  // the agent CANNOT SEE. The gateway treats raw captures as a reserve
+  // lane: they fill only what the curated entries leave empty, and five
+  // curated entries matching the question are enough to leave nothing.
+  // So an undigested capture is, for retrieval purposes, not in the
+  // memory at all. That belongs in the advice, or the check reports a
+  // hygiene problem while the real one is a gap in what can be recalled.
+  const unsichtbar = 'Until the digest runs, these captures are effectively invisible to '
+    + 'retrieval: the gateway fills the answer from curated entries first and only falls '
+    + 'back to captures for the slots they leave — five matching entries are enough to '
+    + 'leave none. `mem find --only-raw` still reads them directly.';
   if (d.due) {
     return finding('digest', LEVEL.WARN,
       `${st.open.length} pending (${kb} KB), due since ${d.reason}`,
       'The timer should pick this up within minutes. If it does not, '
-      + 'check that the digest job is installed and running.');
+      + 'check that the digest job is installed and running. ' + unsichtbar);
   }
   return finding('digest', LEVEL.GOOD,
-    `${st.open.length} pending (${kb} KB), not due yet (${d.reason})`);
+    `${st.open.length} pending (${kb} KB), not due yet (${d.reason})`,
+    unsichtbar);
 }
 
 
