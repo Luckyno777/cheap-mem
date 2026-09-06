@@ -302,6 +302,60 @@ fest, dass keins durchkommt. Im Betrieb gibt es keine Bewertungsregel,
 dort DARF der Fasser `cookie` schreiben — **die gemessene Wirkung ist
 also eine Untergrenze.**
 
+## Nuetzt Memory einem Agenten? Ja — unter benannten Bedingungen (2026-09-06)
+
+Die Frage, um die es die ganze Zeit ging. `node eval/paar-a-c.mjs`:
+dieselbe Aufgabe zweimal, Arm A (kein Kontext) gegen Arm C (Kontext
+eingespeist), Sonnet 5, 63 Aufgaben mit Gold, ~3,15 USD.
+
+| | |
+|---|---:|
+| ohne Memory richtig | 12/63 = 19 % |
+| mit Memory richtig | **34/63 = 54 %** |
+| besser mit Memory | **22** |
+| schlechter | **0** |
+| unveraendert | 41 |
+
+Vorzeichentest ueber die 22 abweichenden Aufgaben: **p < 0,0001**.
+Auf den 28 Aufgaben, bei denen die Angabe tatsaechlich ankam: 19 besser,
+0 schlechter.
+
+Nach Klasse:
+
+| | ohne | mit |
+|---|---:|---:|
+| D (Korrektur) | 0/18 | **8/18** |
+| I (Bezeichner) | 0/18 | **9/18** |
+| E (Konflikt) | 1/3 | 3/3 |
+| H (Lock-In) | 4/6 | 5/6 |
+| A, B | 5/12 | 7/12 |
+| C | 2/6 | 2/6 |
+
+**Was das heisst und was nicht.** Der fruehere gepaarte Lauf desselben
+Tages ergab 35/48 gegen 28/48 bei p = 0,625 — nicht signifikant. Der
+Unterschied liegt nicht am Abruf, sondern am Aufgabensatz: dort waren
+die meisten Fragen ohne Gedaechtnis zu erraten, hier sind 36 von 63 aus
+Klassen, deren Grundwert null ist.
+
+Die absoluten 54 % sind deshalb **eine Eigenschaft dieser Aufgabenmischung,
+keine Rate, die sich uebertragen laesst**. Was sich uebertragen laesst,
+ist die bedingte Aussage: *wo die Angabe nur im Gedaechtnis steht,
+liefert cheap-mem sie, und das Modell nutzt sie* — 22 Verbesserungen,
+keine einzige Verschlechterung.
+
+Die Grenzen, ungeschminkt: ein Lauf je Bedingung (ein einzelner
+Unterschied kann Rauschen sein, nur die Bilanz traegt), ein Modell, ein
+synthetischer Korpus. Und 29 der 63 Aufgaben bleiben auch mit Memory
+falsch — bei den meisten, weil die Angabe gar nicht erst ankommt.
+
+**Ein eigener Fehler beim Auswerten**, weil er die Klasse zeigt: ich habe
+`gold_retrieved` als Ja/Nein gelesen. Es ist eine LISTE, und ein leeres
+Array ist in JavaScript truthy — meine erste Zwischenzahl sagte
+"63 von 63 hatten Gold im Kontext" statt 28. Der Vergleich `=== true`
+liess die Teilauswertung dann still ausfallen, statt zu klagen. Beides
+haette niemand bemerkt. Das Skript wirft jetzt, wenn das Feld eine
+unerwartete Form hat, und sagt es laut, wenn die Teilmenge leer ist.
+
 ## Die Falle, in die dieses Verzeichnis dreimal getappt ist
 
 1. **Sonde statt Sache gemessen.** Die erste Echo-Messung uebergab die

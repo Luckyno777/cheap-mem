@@ -53,8 +53,19 @@ for (const t of TASKS) {
   const a = ohne.get(t.id);
   const c = mit.get(t.id);
   if (!a || !c) continue;
+  // `gold_retrieved` ist eine LISTE der gefundenen Gold-Ids, kein
+  // Ja/Nein. Ein leeres Array ist in JavaScript truthy — wer es als
+  // Wahrheitswert liest, bekommt ueberall "ja". Genau das ist beim
+  // Schreiben dieses Skripts passiert, und der Vergleich `=== true` hat
+  // die Teilauswertung dann still uebersprungen statt zu klagen. Beides
+  // waere unbemerkt geblieben.
+  const g = c.retrieval?.gold_retrieved;
+  if (g !== undefined && !Array.isArray(g)) {
+    throw new Error(`gold_retrieved hat eine unerwartete Form (${typeof g}) — `
+      + 'die Auswertung darunter wuerde raten statt messen');
+  }
   zeilen.push({ id: t.id, klasse: t.klasse, ohne: a.success, mit: c.success,
-    goldDa: c.retrieval?.gold_retrieved ?? null });
+    goldDa: Array.isArray(g) ? g.length > 0 : null });
 }
 if (!zeilen.length) { console.log('Keine gemeinsamen Aufgaben in beiden Laeufen.'); process.exit(1); }
 
@@ -88,7 +99,10 @@ for (const [kl, k] of [...proKlasse].sort()) {
 // Die Aufgaben, bei denen die Angabe gar nicht ankam, koennen nichts
 // zeigen — sie gehoeren nicht in die Bilanz, sondern daneben.
 const mitGold = zeilen.filter((z) => z.goldDa === true);
-if (mitGold.length) {
+if (!mitGold.length) {
+  console.log('\nKeine Aufgabe mit Gold im Kontext — das ist ein Befund, kein Grund');
+  console.log('zum Ueberspringen. Ist die Quittung leer, stimmt der Lauf nicht.');
+} else {
   const b2 = mitGold.filter((z) => z.mit && !z.ohne).length;
   const s2 = mitGold.filter((z) => !z.mit && z.ohne).length;
   console.log(`\nNur die ${mitGold.length} Aufgaben, bei denen die Angabe ankam:`);
