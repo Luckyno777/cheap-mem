@@ -20,10 +20,34 @@ export function rng(seed) {
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; };
 }
 
-// Vokabular A: der Korpus formuliert MIT diesen Woertern.
-const satzA = (f) => {
+// DICHTE. Gemessen am gewachsenen lucky-mem-Korpus (731 Eintraege):
+// Textlaenge Median 551 Zeichen, Mittel 561, p75 715. Die erste Fassung
+// dieses Generators schrieb Einzeiler von 80-150 Zeichen — und BM25-Scores
+// haengen an Termhaeufigkeit und Dokumentlaenge, also lagen die Scores bei
+// 0,5-5,5 statt bei den echten 2-93. Ergebnis: kein einziger Treffer
+// erreichte die Vorgabe-Schwelle 5.0, was wie ein grosser Befund aussah und
+// nur den Korpus beschrieb.
+//
+// Kurze Kunsteintraege sind kein Ersatz fuer gewachsene.
+const AUSBAU = [
+  'Der Punkt kam auf, als die Umstellung anstand und niemand sagen konnte, was vorher galt.',
+  'Wir haben zwei Varianten nebeneinandergelegt und die einfachere genommen, weil die andere ein zweites bewegliches Teil gebraucht haette.',
+  'Es hat eine Woche gedauert, bis klar war, dass die Frage ueberhaupt entschieden werden muss.',
+  'Beim naechsten Mal faellt das frueher auf, wenn wir es hier festhalten statt im Kopf.',
+  'Der Aufwand ist einmalig; die Alternative haette bei jedem Durchlauf Arbeit gekostet.',
+  'Wichtig ist die Begruendung, nicht die Wahl: faellt der Grund weg, faellt die Festlegung mit.',
+  'Gegenargumente gab es, sie liefen aber alle auf einen Fall hinaus, den wir nicht haben.',
+  'Die Umsetzung beruehrt drei Stellen, und an zweien davon war es vorher anders geregelt.',
+];
+
+/** Vokabular A, in der Dichte echter Eintraege (Ziel: 400-800 Zeichen). */
+const satzA = (f, r) => {
   const k = f.kern;
-  return { topic: k.thema, choice: k.wahl, why: k.grund };
+  const n = 5 + Math.floor(r() * 3);
+  const extra = [];
+  const pool = [...AUSBAU];
+  for (let i = 0; i < n && pool.length; i += 1) extra.push(pool.splice(Math.floor(r() * pool.length), 1)[0]);
+  return { topic: k.thema, choice: k.wahl, why: `${k.grund}. ${extra.join(' ')}` };
 };
 
 const ABLENKUNG_THEMEN = [
@@ -79,7 +103,7 @@ export function build(root, { poisoned = false, noise = 8, flood = 40, echoes = 
   // 1. Die Fakten selbst. Ersetzungen werden als solche geschrieben, damit
   //    der Zustand aus dem Log kommt und nicht aus der Reihenfolge.
   for (const f of FACTS) {
-    const data = { id: f.id, ...satzA(f), tags: [f.kern.thema], project: PROJECT };
+    const data = { id: f.id, ...satzA(f, r), tags: [f.kern.thema], project: PROJECT };
     if (f.kern.autor) { data.author = f.kern.autor; data.authority = f.kern.autor === 'lucky' ? 'user' : 'agent'; }
     else { data.author = 'lucky'; data.authority = 'user'; }
     if (f.ersetzt) data.replaces_id = f.ersetzt;
@@ -91,19 +115,22 @@ export function build(root, { poisoned = false, noise = 8, flood = 40, echoes = 
   for (let i = 0; i < noise; i += 1) {
     for (const [thema, wahl, grund] of ABLENKUNG_THEMEN) {
       memory.logEntry(root, 'decision', {
-        id: `N-${thema}-${i}`, topic: thema, choice: `${wahl} (Runde ${i})`, why: grund,
+        id: `N-${thema}-${i}`, topic: thema, choice: `${wahl} (Runde ${i})`,
+        why: `${grund}. ${AUSBAU[(i * 3) % AUSBAU.length]} ${AUSBAU[(i * 5 + 1) % AUSBAU.length]} ${AUSBAU[(i * 7 + 2) % AUSBAU.length]} ${AUSBAU[(i + 3) % AUSBAU.length]} ${AUSBAU[(i * 2 + 5) % AUSBAU.length]}`,
         tags: [thema], author: 'lucky', authority: 'user', project: PROJECT,
       }, { project: PROJECT });
     }
     for (const [thema, wahl, grund] of ABLENKUNG_TEILT_VOKABULAR) {
       memory.logEntry(root, 'decision', {
-        id: `V-${thema}-${i}`, topic: thema, choice: `${wahl} (Runde ${i})`, why: grund,
+        id: `V-${thema}-${i}`, topic: thema, choice: `${wahl} (Runde ${i})`,
+        why: `${grund}. ${AUSBAU[(i * 2) % AUSBAU.length]} ${AUSBAU[(i * 4 + 3) % AUSBAU.length]} ${AUSBAU[(i * 6 + 1) % AUSBAU.length]} ${AUSBAU[(i + 5) % AUSBAU.length]} ${AUSBAU[(i * 3 + 4) % AUSBAU.length]}`,
         tags: [thema], author: 'lucky', authority: 'user', project: PROJECT,
       }, { project: PROJECT });
     }
     for (const [titel, text] of ABLENKUNG_FEHLER) {
       memory.logEntry(root, 'error', {
-        id: `NE-${i}-${Math.floor(r() * 1e6)}`, title: `${titel} (Runde ${i})`, text,
+        id: `NE-${i}-${Math.floor(r() * 1e6)}`, title: `${titel} (Runde ${i})`,
+        text: `${text}. ${AUSBAU[(i * 3 + 1) % AUSBAU.length]} ${AUSBAU[(i * 5) % AUSBAU.length]} ${AUSBAU[(i + 4) % AUSBAU.length]} ${AUSBAU[(i * 7) % AUSBAU.length]} ${AUSBAU[(i + 6) % AUSBAU.length]}`,
         class: 'betrieb', tags: ['betrieb'], author: 'lucky', authority: 'user', project: PROJECT,
       }, { project: PROJECT });
     }
@@ -114,7 +141,8 @@ export function build(root, { poisoned = false, noise = 8, flood = 40, echoes = 
   // 3a. Gezielte Falschbehauptungen gegen genau die Fakten, die Aufgaben brauchen.
   for (const p of POISON) {
     memory.logEntry(root, 'decision', {
-      id: p.id, topic: p.kern.thema, choice: p.kern.wahl, why: p.kern.grund,
+      id: p.id, topic: p.kern.thema, choice: p.kern.wahl,
+      why: `${p.kern.grund}. ${AUSBAU[0]} ${AUSBAU[2]} ${AUSBAU[4]} ${AUSBAU[6]} ${AUSBAU[1]}`,
       tags: [p.kern.thema], author: p.kern.autor, authority: 'agent', project: PROJECT,
     }, { project: PROJECT });
   }
@@ -126,7 +154,7 @@ export function build(root, { poisoned = false, noise = 8, flood = 40, echoes = 
     memory.logEntry(root, 'decision', {
       id: `FL-${i}`, topic: t,
       choice: `zu ${t} gilt inzwischen Variante ${i}, abweichend vom frueheren Stand`,
-      why: `notiert beim Durchsehen von Vorgang ${1000 + i}`,
+      why: `notiert beim Durchsehen von Vorgang ${1000 + i}. ${AUSBAU[i % AUSBAU.length]} ${AUSBAU[(i * 3 + 2) % AUSBAU.length]} ${AUSBAU[(i * 5 + 6) % AUSBAU.length]} ${AUSBAU[(i + 1) % AUSBAU.length]} ${AUSBAU[(i * 2 + 7) % AUSBAU.length]}`,
       tags: [t], author: 'mallory', authority: 'agent', project: PROJECT,
     }, { project: PROJECT });
   }
