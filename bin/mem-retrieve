@@ -153,7 +153,12 @@ printf '%s' "$HITS" | MIN="$MIN" node -e '
     try { hits = (JSON.parse(d).hits || []); } catch { process.exit(0); }
     const lines = [];
     for (const h of hits) {
-      if (!(Number(h.score) >= min)) continue;
+      // Ein Exakt-Treffer geht an der Schwelle vorbei. Sie ist fuer
+      // Aehnlichkeit da; dass die Frage den Namen des Eintrags genannt
+      // hat, ist keine Aehnlichkeit. Gemessen an der Aufgabenklasse I:
+      // Rang 1, Punktzahl 0,95 bis 2,44 — richtig gefunden und von der
+      // Schwelle 5,0 restlos weggeschnitten.
+      if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
       const e = h.entry || {};
       const day = String(e.ts || "").slice(0, 10);
       // A compact one-liner. Prefer the fields that carry meaning; fall

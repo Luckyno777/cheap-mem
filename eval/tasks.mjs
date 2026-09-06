@@ -168,6 +168,44 @@ export const TASKS = [
       prompt: 'Der Abnehmer akzeptiert kein Tabellenformat mehr. Was liefern wir? Antworte in einem Satz.',
       must: [/json|schnittstelle|anders|anpass/i], mustNot: [],
       gates: { lock_in: [/\bcsv\b[^.]*\b(bleibt|weiterhin|stattdessen)\b/i] } }),
+  // ---- I: Entity-Lookup (2026-09-06, nur dev/val) ---------------------
+  //
+  // Maschinenfoermige Terme: Pfad, Vorgangsnummer, Dienstname, Fassung.
+  // Die Aufgabe nennt die Sache mit einem ANDEREN Wort als der Korpus —
+  // sonst misst sie Zeichenketten-Vergleich statt Abruf. Aber sie nennt
+  // das THEMA, denn wer nach einem Pfad fragt, weiss wovon er redet.
+  //
+  // Die erste Fassung ging zu weit: bei vier von sechs Aufgaben gab es
+  // gar keinen gemeinsamen Term mehr, das Gold war nicht im Fang, Rang
+  // unendlich. Das ist kein schwerer Abruf, das ist ein Raetsel — und
+  // ein Benchmark, dessen Gold unerreichbar ist, misst nichts. Genau in
+  // diese Falle ist dieses Verzeichnis schon einmal getappt
+  // (siehe README, "Unabhaengigkeit ueberoptimiert").
+  //
+  // Bewusst KEINE final-Aufgaben: der final-Split ist am 2026-09-06
+  // versiegelt (test/eval-frozen.test.mjs). Wer ihn nachtraeglich
+  // erweitert, hebt das Siegel auf und misst danach, wie gut die
+  // Aufgaben an das Ergebnis angepasst wurden. Diese Klasse waechst in
+  // dev/val und wird spaeter EIGENS eingefroren, wenn ueberhaupt.
+  T({ id: 'I1', klasse: 'I', split: 'dev', gold: ['F-pfad'],
+      prompt: 'In welcher Datei liegt die Selbstpruefung der Redaktion? Nenne nur den Pfad.',
+      must: [/src\/redaktion\/kanarienvogel\.mjs/], mustNot: [], gates: {} }),
+  T({ id: 'I2', klasse: 'I', split: 'val', gold: ['F-vorgang'],
+      prompt: 'Unter welcher Nummer ist die Blockade von damals vollstaendig nachzulesen? Nenne nur die Zahl.',
+      must: [/7318/], mustNot: [], gates: {} }),
+  T({ id: 'I3', klasse: 'I', split: 'dev', gold: ['F-dienst'],
+      prompt: 'In welchem Container laeuft bei uns der Takt? Nenne nur den Namen.',
+      must: [/kolibri-taktgeber/i], mustNot: [], gates: {} }),
+  T({ id: 'I4', klasse: 'I', split: 'val', gold: ['F-fassung'],
+      prompt: 'Auf welche Fassung ist unsere Vorlagenbibliothek festgelegt? Nenne nur die Nummer.',
+      must: [/3\.7\.2/], mustNot: [], gates: {} }),
+  T({ id: 'I5', klasse: 'I', split: 'dev', gold: ['F-pfad'],
+      prompt: 'Ich will die Selbstpruefung der Redaktion erweitern. Wo finde ich sie im Baum? Nenne nur den Pfad.',
+      must: [/src\/redaktion\/kanarienvogel\.mjs/], mustNot: [], gates: {} }),
+  T({ id: 'I6', klasse: 'I', split: 'val', gold: ['F-fassung'],
+      prompt: 'Darf ich die Vorlagenbibliothek auf die neueste Fassung heben? Nenne die Fassung, auf der wir stehen.',
+      must: [/3\.7\.2/], mustNot: [], gates: {} }),
+
 ];
 
 

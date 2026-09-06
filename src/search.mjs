@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as thesaurus from './thesaurus.mjs';
+import * as entity from './entity.mjs';
 import * as raw from './raw.mjs';
 import { pack } from './language.mjs';
 
@@ -39,7 +40,7 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // change. Bumping this forces a rebuild.
 // 3: the index carries the learned term co-occurrence graph. An older
 // cache has no termGraph, so it must be rebuilt rather than loaded.
-export const CACHE_VERSION = 5;
+export const CACHE_VERSION = 6;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -378,12 +379,17 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     documents.filter((d) => d.type !== 'raw').map((d) => d.weights),
     { stopwords });
 
+  // Der Exakt-Index ueber maschinenfoermige Bezeichner. Er zaehlt nichts
+  // und gewichtet nichts — er merkt sich nur, wo eine Zeichenkette steht.
+  const entityIndex = entity.baueIndex(documents, entityText);
+
   return {
     documents,
     docFreq,
     lexicon,
     tagGraph,
     termGraph,
+    entityIndex,
     language: lang.name,
     N: documents.length,
     avgLength: documents.length ? lengthSum / documents.length : 1,
@@ -411,6 +417,23 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
       : (documents.length ? lengthSum / documents.length : 1),
     builtAt: new Date().toISOString(),
   };
+}
+
+/**
+ * The text an exact-identifier index should look at: the entry as
+ * written, not the weighted term map. A path survives tokenisation
+ * badly — that is the whole reason this index exists — so it must be
+ * read from the original strings.
+ */
+export function entityText(doc) {
+  const e = doc?.entry ?? {};
+  const teile = [];
+  for (const v of Object.values(e)) {
+    if (typeof v === 'string') teile.push(v);
+    else if (Array.isArray(v)) for (const x of v) if (typeof x === 'string') teile.push(x);
+  }
+  if (doc?.source) teile.push(String(doc.source));
+  return teile.join(' ');
 }
 
 /** BM25 IDF (with +1 to keep very common terms from going negative). */
@@ -820,6 +843,13 @@ function appendToIndex(root, index, before, now, lang) {
     for (const g of doc.weights.values()) length += g;
     lengthSum += length;
     for (const t of doc.weights.keys()) index.docFreq.set(t, (index.docFreq.get(t) ?? 0) + 1);
+    // Der Exakt-Index waechst mit: sonst waere ein frisch geschriebener
+    // Pfad erst nach dem naechsten Vollbau auffindbar.
+    for (const b of entity.bezeichner(entityText(doc))) {
+      let set = index.entityIndex.get(b);
+      if (!set) { set = new Set(); index.entityIndex.set(b, set); }
+      set.add(index.documents.length);
+    }
     if (doc.type !== 'raw') {
       statsN += 1;
       statsLengthSum += length;
@@ -896,6 +926,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           documents: index.documents.map((d) => ({ ...d, weights: [...d.weights] })),
           docFreq: [...index.docFreq],
           statsDocFreq: [...index.statsDocFreq],
+          entityIndex: entity.packe(index.entityIndex),
           lexicon: [...index.lexicon],
           tagGraph: thesaurus.packTagGraph(index.tagGraph),
           termGraph: thesaurus.packTagGraph(index.termGraph),
@@ -930,6 +961,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           documents: c.index.documents.map((d) => ({ ...d, weights: new Map(d.weights) })),
           docFreq: new Map(c.index.docFreq),
           statsDocFreq: new Map(c.index.statsDocFreq ?? c.index.docFreq),
+          entityIndex: entity.entpacke(c.index.entityIndex),
           lexicon: new Set(c.index.lexicon),
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
           termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
@@ -1079,6 +1111,41 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
     return Number.isFinite(lowest) ? lowest : 0;
   };
   return [...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX).join(' ');
+}
+
+/**
+ * Exact identifier hits, as ordinary hits.
+ *
+ * Deliberately NOT a scoring path: these carry the BM25 score they would
+ * have had (often near zero) plus the list of identifiers that matched.
+ * The gateway decides what to do with them — here we only say WHICH
+ * documents contain the exact string the question named.
+ *
+ * `platz` is the answer size, and it is the whole bound: an identifier
+ * in more documents than there are slots is not identifying, it is
+ * furniture. No free parameter, nothing to calibrate.
+ */
+export function exactHits(index, query, platz) {
+  const gefunden = entity.treffer(index.entityIndex, query, platz);
+  const raus = [];
+  for (const [i, welche] of gefunden) {
+    const doc = index.documents[i];
+    if (!doc) continue;
+    raus.push({
+      score: 0,
+      type: doc.type,
+      project: doc.project,
+      source: doc.source,
+      line: doc.line,
+      entry: doc.entry,
+      raw: doc.type === 'raw',
+      pending: doc.pending ?? false,
+      ...(doc.retired ? { retired: doc.retired } : {}),
+      exact: welche,
+      __w: doc.weights,
+    });
+  }
+  return raus;
 }
 
 /**

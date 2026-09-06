@@ -343,8 +343,8 @@ const MUTANTS=[
 
  { name:'ARCH `mem find` stops dropping echoes by default',
    file:'bin/mem',
-   from:"    const hits = (args['with-echo']",
-   to:"    const hits = (true  // MUTANT: Vorgabe wieder auf durchlassen\n      || args['with-echo']",
+   from:"    const gefiltert = args['with-echo']",
+   to:"    const gefiltert = true  // MUTANT: Vorgabe wieder auf durchlassen\n      || args['with-echo']",
    tests:['test/paths-agree.test.mjs'] },
 
  { name:'ARCH echo filter forgets that it is only for raw captures',
@@ -385,8 +385,8 @@ const MUTANTS=[
 
  { name:'ARCH raw captures are dropped from the gateway entirely',
    file:'src/retrieval.mjs',
-   from:"    ? [...gereiht.filter((h) => h.type !== 'raw'), ...gereiht.filter((h) => h.type === 'raw')]",
-   to:"    ? gereiht.filter((h) => h.type !== 'raw')  // MUTANT: Reserve heisst nie",
+   from:"       ...gereiht.filter((h) => h.type === 'raw' && !exaktIds.has(h.entry?.id))]",
+   to:"       ]  // MUTANT: Reserve heisst nie",
    tests:['test/raw-reserve.test.mjs'] },
 
  { name:'ARCH the retrieval query asks the raw captures what is rare',
@@ -394,6 +394,30 @@ const MUTANTS=[
    from:"  const df = idx.statsDocFreq ?? idx.docFreq;",
    to:"  const df = idx.docFreq;  // MUTANT: der Fang bestimmt die acht Woerter",
    tests:['test/raw-stats.test.mjs','test/search.test.mjs','test/retrieval.test.mjs'] },
+
+ { name:'ARCH the exact lane forgets its own bound',
+   file:'src/entity.mjs',
+   from:'    if (!s || s.size === 0 || s.size > platz) continue;',
+   to:'    if (!s || s.size === 0) continue;  // MUTANT: auch Ausstattung zaehlt als Bezeichner',
+   tests:['test/exact-lane.test.mjs'] },
+
+ { name:'ARCH the gateway drops the exact lane',
+   file:'src/retrieval.mjs',
+   from:'  const exakte = exactHits(idx, useQuery, want);',
+   to:'  const exakte = [];  // MUTANT: Exakt-Treffer fallen wieder unter die Schwelle',
+   tests:['test/exact-lane.test.mjs'] },
+
+ { name:'ARCH `mem find` drops the exact lane',
+   file:'bin/mem',
+   from:'    const exakt = search.exactHits(index, query, wanted);',
+   to:'    const exakt = [];  // MUTANT: nur der Gateway kennt die Bahn, der Hook nicht',
+   tests:['test/exact-lane.test.mjs'] },
+
+ { name:'SEM identifier patterns swallow ordinary prose',
+   file:'src/entity.mjs',
+   from:"  { name: 'nummer', re: /\\b\\d{4,8}\\b/g },",
+   to:"  { name: 'nummer', re: /\\b\\d{1,8}\\b/g },  // MUTANT: jede Alltagszahl wird Bezeichner",
+   tests:['test/exact-lane.test.mjs'] },
 
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',

@@ -92,7 +92,8 @@ export function sectionedContext(claims, contested) {
 export function recall(root, query, { top = 5, min = 5.0 } = {}) {
   const cap = grantProject(PROJECT);
   const r = retrieval.retrieve(root, query, cap, { top });
-  const kept = r.claims.filter((c) => c.score >= min);
+  // Exakt-Treffer gehen an der Schwelle vorbei — wie im Abruf-Hook.
+  const kept = r.claims.filter((c) => c.score >= min || (c.exact && c.exact.length));
   return { ...r, claims: kept, dropped: r.claims.length - kept.length };
 }
 

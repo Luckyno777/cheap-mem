@@ -525,9 +525,19 @@ const COMMANDS = {
     // Ohne diese Einschraenkung faellt eine kurze Entscheidung, die in den
     // Worten des Nutzers abgelegt wurde — gemessen an "zahlung nur per
     // vorkasse" gegen die Frage "zahlung vorkasse entscheidung".
-    const hits = (args['with-echo']
+    const gefiltert = args['with-echo']
       ? hits0
-      : hits0.filter((h) => !search.isEchoHit(askedAs, h))).slice(0, wanted);
+      : hits0.filter((h) => !search.isEchoHit(askedAs, h));
+    // Die Exakt-Bahn, wie im Gateway. Nennt die Frage einen Bezeichner,
+    // der in hoechstens `wanted` Eintraegen steht, gehoert der Eintrag
+    // nach vorn — unabhaengig von der Punktzahl. Genau deshalb steht die
+    // Regel in `search.exactHits` und nicht hier: `mem find` und
+    // `retrieve()` sind schon zweimal auseinandergelaufen (siehe
+    // test/paths-agree.test.mjs).
+    const exakt = search.exactHits(index, query, wanted);
+    const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));
+    const hits = [...exakt, ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id))]
+      .slice(0, wanted);
     const ms = Date.now() - t0;
 
     if (args.json) {

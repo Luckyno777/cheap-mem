@@ -23,7 +23,7 @@ import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
-import { loadIndex, search, isEchoHit } from './search.mjs';
+import { loadIndex, search, isEchoHit, exactHits } from './search.mjs';
 
 /**
  * Resource bounds (I13). Defaults, not laws — but never unbounded.
@@ -77,6 +77,12 @@ function toClaim(hit, { bodyChars, state }) {
     scope: capabilityMod.scopeOf({ project: hit.project ?? e.project ?? null }),
     project: hit.project ?? e.project ?? null,
     topic: e.topic ?? null,
+    // Welche Bezeichner die Frage woertlich getroffen hat. Vorhanden
+    // heisst: dieser Anspruch steht nicht wegen einer Punktzahl hier,
+    // sondern weil die Frage seinen Namen genannt hat. Wer eine Schwelle
+    // anwendet, muss ihn davon ausnehmen — sonst schneidet die Schwelle
+    // fuer Aehnlichkeit die Gewissheiten weg.
+    ...(hit.exact ? { exact: hit.exact } : {}),
     ts: e.ts ?? null,
     valid_from: e.valid_from ?? null,
     valid_until: e.valid_until ?? null,
@@ -253,6 +259,31 @@ export function retrieve(root, query, capability, {
     for (const hits of byTier) if (i < hits.length) gereiht.push(hits[i]);
   }
 
+  // Die Exakt-Bahn, ganz vorn.
+  //
+  // Nennt die Frage `7318` und genau ein Eintrag enthaelt `7318`, ist das
+  // keine Aehnlichkeit, sondern eine Gewissheit — und Gewissheit gehoert
+  // nicht hinter eine Punktzahl gereiht. Gemessen an der Aufgabenklasse I
+  // (Pfade, Vorgangsnummern, Dienstnamen, Fassungen): das Ranking war
+  // schon richtig, fuenf von sechs auf Rang 1, aber JEDE Punktzahl lag
+  // unter der Abrufschwelle 5,0 (0,95 bis 2,44). Nicht die Reihenfolge
+  // blockierte diese Klasse, sondern die Schwelle.
+  //
+  // Die Bahn ist selbstbegrenzend: ein Bezeichner zaehlt nur, wenn er in
+  // hoechstens `want` Dokumenten steht — also in so wenigen, dass sie
+  // ohnehin alle in die Antwort passen. Kein freier Parameter.
+  //
+  // Doppelte fallen weiter unten heraus: die Auswahl kennt `seenIds`
+  // nicht, aber die Koerper-Entdopplung greift, und ein Eintrag, der
+  // ueber beide Bahnen kommt, ist derselbe Koerper.
+  const exakte = exactHits(idx, useQuery, want);
+  const exaktIds = new Set(exakte.map((h) => h.entry?.id).filter(Boolean));
+  const raw = rawReserve
+    ? [...exakte,
+       ...gereiht.filter((h) => h.type !== 'raw' && !exaktIds.has(h.entry?.id)),
+       ...gereiht.filter((h) => h.type === 'raw' && !exaktIds.has(h.entry?.id))]
+    : [...exakte, ...gereiht.filter((h) => !exaktIds.has(h.entry?.id))];
+
   // Rohfang ist keine Autoritaetsstufe, sondern die Reserve-Bahn.
   //
   // Er landet in der Stufe 'unknown' und bekam damit im Rundlauf denselben
@@ -276,9 +307,7 @@ export function retrieve(root, query, capability, {
   // nur im Fang und liefert das Gepflegte fuenf mittelmaessige Treffer,
   // kommt der Fang nicht mehr durch. Der eval-Korpus kann das nicht
   // zeigen, weil dort alles Gold gepflegt ist.
-  const raw = rawReserve
-    ? [...gereiht.filter((h) => h.type !== 'raw'), ...gereiht.filter((h) => h.type === 'raw')]
-    : gereiht;
+
 
   // Derived ONCE per call, from the log, with no query parameter. A
   // function that reads the log itself cannot be handed a subset — which

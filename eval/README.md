@@ -201,6 +201,55 @@ Zwei Dinge, die dabei ehrlich dazugehoeren:
   weil die Echos gar nicht mehr bis zur Auswahl kommen. Er zaehlt noch,
   wo der Fang leere Plaetze fuellt.
 
+## Der zustandslose Grundwert — der Kopfraum ist 15 %, nicht 36 % (2026-09-06)
+
+`node eval/run.mjs --split all --arms A --model claude-sonnet-5` — Arm A
+ist die blosse Frage, kein Kontext, kein Verlauf. 45 Aufgaben, ~2 USD.
+`node eval/grundwert.mjs <lauf>` wertet aus.
+
+**Warum ueberhaupt.** "Bei 38 % der Aufgaben kommt die noetige Angabe im
+Kontext an" sagt nur, ob sie ANKOMMT — nicht, ob das Modell sie ohnehin
+gewusst haette. Bei "UTC, ISO-8601" raet es richtig, und an solchen
+Aufgaben misst der Benchmark nichts.
+
+| | ohne Memory richtig | 95 % |
+|---|---:|---|
+| als ratbar vorhergesagt (18) | 39 % | 20-61 |
+| als nicht ratbar vorhergesagt (21) | 24 % | 11-45 |
+| ohne Gold, Klasse F (6) | 83 % | 44-97 |
+
+Nach Klasse, und hier steht das Ergebnis: **D (Korrektur) 0/6, I
+(Entity-Lookup) 0/6** — ohne Gedaechtnis kommt das Modell dort nie hin.
+**H (Lock-In) 4/6, F 5/6** — dort braucht es keins.
+
+**Der Kopfraum.** Beide Zahlen einzeln zu berichten ueberschaetzt den
+Nutzen, weil die Mengen ueberlappen:
+
+| | |
+|---|---:|
+| Angabe kommt im Kontext an | 15/39 = 38 % |
+| Modell antwortet ohne Memory richtig | 12/39 = 31 % |
+| **beides: Angabe da UND ohne sie gescheitert** | **6/39 = 15 %** |
+| ohne Angabe trotzdem richtig (Weltwissen) | 3/39 = 8 % |
+
+**15 % ist die Obergrenze dessen, was Memory hier ueberhaupt bewirken
+kann** — und drei der sechs (I4, I5, I6) gibt es erst seit heute. Auf dem
+alten Aufgabensatz waren es 3 von 33, also 9 %.
+
+Das erklaert den gepaarten Modelltest vom selben Tag (35/48 gegen 28/48,
+p = 0,625, nicht signifikant) besser als jede Vermutung ueber das
+Retrieval: bei einem Kopfraum von 9 % ist ein nicht signifikantes
+Ergebnis kein Raetsel, sondern die Erwartung.
+
+**Das Label war schlechter als die Messung, und das war der Punkt.**
+`erratbar` in world.mjs ist eine ausdrueckliche VORHERSAGE. Wie unsicher
+sie ist, wurde zweifach gezeigt: eine unabhaengige zweite Einschaetzung
+derselben 15 Fakten stimmte bei 9 ueberein, und gegen die Messung trifft
+das Label bei 23 von 39 Aufgaben — 59 %. Elf als "ratbar" gelabelte
+Aufgaben scheiterten ohne Memory, fuenf als "nicht ratbar" gelabelte
+gelangen. Ein Urteil mit dieser Trefferquote darf keine Kennzahl tragen;
+es steht im Korpus, damit die Messung es korrigieren kann.
+
 ## Die Falle, in die dieses Verzeichnis dreimal getappt ist
 
 1. **Sonde statt Sache gemessen.** Die erste Echo-Messung uebergab die
