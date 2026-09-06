@@ -462,3 +462,66 @@ Gemessen:
 kleiner sprachuebergreifender Effekt ist messbar, ein Recall-Gewinn ist es
 NICHT. Behalten, weil es kein Verhalten aendert und keine Laufzeit kostet
 — nicht, weil es sich bewaehrt haette.
+
+---
+
+# Der entscheidende Lauf — und was er nach der Korrektur sagt
+
+Zwei Laeufe auf dem treuen Korpus, 12 Aufgaben mit ankommendem Gold,
+je 96 Aufrufe.
+
+## Lauf 1: schief gepaart, verworfen
+
+83 % gegen 63 %, sieben Aufgaben besser, eine schlechter, p = 0,070. Das
+sah nach dem ersten echten Signal dieser Reihe aus.
+
+Der Token-Unterschied lag bei **+7416**, obwohl er gepaart nahe null sein
+muss. Der Ersatzvorrat fuer den entfernten Gold-Claim kam aus derselben
+top-N-Abfrage und war leer, sobald der Abruf N Treffer lieferte: MIT trug
+in 9 von 12 Paaren einen Claim mehr.
+
+| | Paare | besser | schlechter |
+|---|---:|---:|---:|
+| ausgeglichen | 3 | 1 | 1 |
+| unausgeglichen | 9 | **6** | 0 |
+
+Der gesamte Effekt steckte in den schiefen Paaren. **Verworfen.**
+
+## Lauf 2: ausgeglichen
+
+Alle 12 Paare tragen beidseitig gleich viele Claims, Token-Unterschied
++1252 ueber 96 Aufrufe (rund 13 je Aufruf, aus unterschiedlich langen
+Ersatz-Claims).
+
+| Task | Kl | MIT | OHNE | Delta |
+|---|---|---:|---:|---:|
+| H1 | H | 4/4 | 0/4 | **+100 %** |
+| E3 | E | 3/4 | 0/4 | **+75 %** |
+| C5 | C | 4/4 | 2/4 | **+50 %** |
+| H4 | H | 1/4 | 3/4 | **−50 %** |
+| B1 B3 B5 C3 D3 E2 H2 H3 | | | | 0 |
+
+**Erfolg 35/48 (73 %) gegen 28/48 (58 %). Drei Aufgaben besser, eine
+schlechter, acht gleich. Vorzeichentest p = 0,625 — nicht signifikant.**
+
+Erfundene Zahlen: MIT 0, OHNE 1. Eine Aufgabe unterscheidet sich, p = 1,000.
+
+## Das Ergebnis dieser Phase
+
+**Frage 1 bleibt unbewiesen.** Nicht mehr aus Mangel an Trennschaerfe —
+die war nach der Korpus- und Retrieval-Arbeit da (12 Aufgaben statt 6,
+p < 0,05 erreichbar) — sondern weil der Effekt bei sauberer Paarung auf
+3 zu 1 zusammenschrumpft.
+
+Die aggregierten 73 % gegen 58 % sehen nach etwas aus. Die Einheit der
+Aussage ist aber die Aufgabe, nicht der Lauf, und auf Aufgabenebene steht
+es 3:1 bei acht Unentschieden.
+
+**Wo Memory sichtbar half:** H1 (eine alte Festlegung gilt nicht mehr, 4/4
+gegen 0/4), E3 (ein Widerspruch muss offengelegt werden, 3/4 gegen 0/4),
+C5 (eine Benutzerpraeferenz, 4/4 gegen 2/4). Alle drei sind Faelle, in
+denen die Antwort NICHT aus dem Modellwissen kommen kann.
+
+**Wo sie schadete:** H4, 1/4 gegen 3/4. Die alte Freigabe-Regel im Kontext
+haelt das Modell davon ab, sie fuer ueberholt zu erklaeren — Historical
+Lock-In, live gemessen.
