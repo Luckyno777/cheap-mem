@@ -106,6 +106,42 @@ export const FACTS = [
     vokA: ['berichtsformat', 'CSV', 'excel'],
     vokB: ['export', 'ausgeben'],
   },
+  {
+    id: 'F-backup', klasse: 'A',
+    kern: { thema: 'sicherung', wahl: 'taegliche Sicherung um 03:00, sieben Staende vorhalten', grund: 'ein Ausfall am Freitag blieb bis Montag unbemerkt' },
+    vokA: ['sicherung', 'staende', 'ausfall'],
+    vokB: ['backup', 'nachts', 'wiederherstellen'],
+  },
+  {
+    id: 'F-mail', klasse: 'B',
+    kern: { thema: 'versand', wahl: 'Sammelmail einmal taeglich statt Einzelmail', grund: 'sieben Mails am Tag hat niemand gelesen' },
+    vokA: ['versand', 'sammelmail', 'einzelmail'],
+    vokB: ['benachrichtigen', 'informieren'],
+  },
+  {
+    id: 'F-fehler', klasse: 'C',
+    kern: { thema: 'fehlerseiten', wahl: 'Klartext statt Fehlernummer, ohne Stapelspur', grund: 'Handwerker rufen sonst an und lesen Hexadezimalzahlen vor' },
+    vokA: ['fehlerseiten', 'klartext', 'stapelspur', 'hexadezimalzahlen'],
+    vokB: ['problem', 'anzeigen', 'nutzer'],
+  },
+  {
+    id: 'F-tarif-alt', klasse: 'D', veraltet: true,
+    kern: { thema: 'preisliste', wahl: '19 Euro je Monat', grund: 'Startpreis' },
+    vokA: ['preisliste', '19'],
+    vokB: [],
+  },
+  {
+    id: 'F-tarif-neu', klasse: 'D', ersetzt: 'F-tarif-alt',
+    kern: { thema: 'preisliste', wahl: '29 Euro je Monat', grund: 'die Kalkulation ging bei 19 nicht auf, seit die Speicherkosten dazukamen' },
+    vokA: ['preisliste', '29', 'kalkulation', 'speicherkosten'],
+    vokB: ['kosten', 'monatlich', 'berechnen'],
+  },
+  {
+    id: 'F-freigabe', klasse: 'H',
+    kern: { thema: 'freigabeweg', wahl: 'jede Aenderung braucht ein zweites Augenpaar', grund: 'damals waren wir zu zweit und beide unerfahren' },
+    vokA: ['freigabeweg', 'augenpaar', 'unerfahren'],
+    vokB: ['pruefen', 'aendern', 'allein'],
+  },
 ];
 
 /** Der vergiftete Anteil. Steht nie im sauberen Korpus. */

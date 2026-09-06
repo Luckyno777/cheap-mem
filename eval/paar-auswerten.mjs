@@ -58,6 +58,36 @@ console.log(p <= 0.05
   : `  ==> NICHT signifikant. Bei ${nEff} Aufgaben ist selbst ein einheitliches Ergebnis`
     + `\n      mit Zufall vereinbar (kleinstes erreichbares p waere ${nEff ? (2 / 2 ** nEff).toFixed(3) : '—'}).`);
 
+// --- Vorab festgelegte Zweitkennzahl: erfundene Zahlen ---------------
+// Gepaart und ordinal statt binaer, deshalb deutlich trennschaerfer als
+// der Vorzeichentest ueber Erfolg/Misserfolg. Klasse F ist ausgenommen:
+// dort rechnet das Modell zu Recht Zahlen aus, die nirgends stehen.
+const mitGold = zeilen.filter((z) => z.klasse !== 'F');
+if (mitGold.length && mitGold[0].erfunden !== undefined) {
+  console.log('');
+  console.log('Erfundene Zahlen (weder in Frage noch Kontext), vorab festgelegt:');
+  console.log('Task | MIT (Summe/Laeufe) | OHNE | Delta | Beispiele OHNE');
+  console.log('-----+--------------------+------+-------+----------------');
+  let dM = 0, dO = 0, besser = 0, schlechter = 0;
+  for (const id of [...new Set(mitGold.map((z) => z.task_id))].sort()) {
+    const m = mitGold.filter((z) => z.task_id === id && z.bedingung === 'mit');
+    const o = mitGold.filter((z) => z.task_id === id && z.bedingung === 'ohne');
+    const sm = m.reduce((a, z) => a + z.erfunden, 0), so = o.reduce((a, z) => a + z.erfunden, 0);
+    dM += sm; dO += so;
+    if (sm < so) besser += 1; else if (sm > so) schlechter += 1;
+    const bsp = [...new Set(o.flatMap((z) => z.welche ?? []))].slice(0, 4).join(' ') || '—';
+    console.log(`${id.padEnd(4)} | ${`${sm}/${m.length}`.padStart(18)} | ${`${so}/${o.length}`.padStart(4)} | ${(sm - so >= 0 ? '+' : '') + (sm - so)}`.padEnd(40) + ` | ${bsp}`);
+  }
+  console.log('');
+  console.log(`Summe erfundener Zahlen  MIT ${dM}   OHNE ${dO}`);
+  console.log(`Aufgaben mit weniger Erfindung dank Memory: ${besser}   mit mehr: ${schlechter}`);
+  const nE = besser + schlechter;
+  const bin2 = (k, n) => { let s2 = 0; for (let i = k; i <= n; i += 1) { let c = 1; for (let j = 0; j < i; j += 1) c = c * (n - j) / (j + 1); s2 += c; } return s2 / 2 ** n; };
+  const pE = nE ? Math.min(1, 2 * bin2(Math.max(besser, schlechter), nE)) : 1;
+  console.log(`Vorzeichentest ueber ${nE} Aufgaben mit Unterschied: p = ${pE.toFixed(3)}`
+    + (nE ? `  (kleinstes erreichbares p: ${(2 / 2 ** nE).toFixed(3)})` : ''));
+}
+
 const tok = zeilen.filter((z) => z.bedingung === 'mit').reduce((s, z) => s + z.prompt_tok, 0)
   - zeilen.filter((z) => z.bedingung === 'ohne').reduce((s, z) => s + z.prompt_tok, 0);
 const kosten = zeilen.reduce((s, z) => s + (z.kosten ?? 0), 0);

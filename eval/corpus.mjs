@@ -77,6 +77,17 @@ const ABLENKUNG_TEILT_VOKABULAR = [
   ['rechnungen', 'Rechnungen 10 Jahre aufheben', 'handelsrechtliche Frist, nicht verhandelbar'],
   ['zwischenspeicher', 'Zwischenspeicher nach 7 Tagen leeren', 'danach ist er ohnehin kalt'],
   ['ausgabeformate', 'Listen zusaetzlich als JSON anbieten', 'die Auswertung haengt sonst am Tabellenprogramm'],
+  // Zweite Welle, fuer die Aufgaben ab 2026-09-06. Gleiche Regel: ein
+  // Nutzer sagt "Sicherung", wenn er eine Sicherung meint — also darf das
+  // Wort nicht nur im Gold-Eintrag stehen.
+  ['archivsicherung', 'Archive monatlich auf das zweite Laufwerk sichern', 'das erste stand im selben Schrank'],
+  ['sicherungspruefung', 'jede Sicherung einmal im Quartal zurueckspielen', 'eine ungepruefte Sicherung ist eine Vermutung'],
+  ['versandwege', 'Versand ueber den Hausanbieter statt eigenem Relais', 'ein eigenes Relais landet im Spam'],
+  ['fehlerprotokoll', 'Fehler mit Stapelspur ins Protokoll, nicht auf die Seite', 'die Seite liest ein Handwerker, das Protokoll ein Entwickler'],
+  ['preisstaffel', 'ab zehn Plaetzen zehn Prozent Nachlass', 'die Betreuung skaliert nicht linear'],
+  ['zahlungsziel', 'Rechnungen 14 Tage netto', 'kuerzer will die Buchhaltung nicht mahnen'],
+  ['freigabefristen', 'Freigaben verfallen nach 30 Tagen', 'eine alte Freigabe sagt nichts ueber den heutigen Stand'],
+  ['pruefumfang', 'nur geaenderte Zeilen pruefen, nicht die ganze Datei', 'sonst prueft niemand'],
 ];
 
 const ABLENKUNG_FEHLER = [

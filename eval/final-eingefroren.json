@@ -1,0 +1,204 @@
+[
+  {
+    "id": "A3",
+    "klasse": "A",
+    "gold": [
+      "F-tz"
+    ],
+    "prompt": "Der Support meldet, dass die Zeitstempel in der Liste verwirren. Was ist bei uns dazu festgelegt? Antworte in einem Satz.",
+    "must": [
+      "/utc/i"
+    ],
+    "mustNot": [],
+    "gates": {}
+  },
+  {
+    "id": "B3",
+    "klasse": "B",
+    "gold": [
+      "F-deploy"
+    ],
+    "prompt": "Ein Kollege schlaegt vor, die Auslieferung kuenftig ueber Container zu fahren. Passt das zu unserem Aufbau? Antworte in einem Satz.",
+    "must": [
+      "/systemd|einzelne|eine vm|passt nicht|nein/i"
+    ],
+    "mustNot": [],
+    "gates": {}
+  },
+  {
+    "id": "C3",
+    "klasse": "C",
+    "gold": [
+      "F-db"
+    ],
+    "prompt": "Brauchen wir fuer die Ablage der Auswertung eine externe Datenbank? Antworte mit ja oder nein und einem Halbsatz Begruendung.",
+    "must": [
+      "/\\bnein\\b|\\bkein/i"
+    ],
+    "mustNot": [],
+    "gates": {
+      "false_memory": [
+        "/^\\s*ja\\b/i"
+      ]
+    }
+  },
+  {
+    "id": "D3",
+    "klasse": "D",
+    "gold": [
+      "F-port-neu"
+    ],
+    "prompt": "Die Ueberwachung meldet nichts. Auf welchem Port laeuft die Gesundheitspruefung? Nenne die Zahl.",
+    "must": [
+      "/9443/"
+    ],
+    "mustNot": [
+      "/8080/"
+    ],
+    "gates": {
+      "correction_failure": [
+        "/8080/"
+      ]
+    }
+  },
+  {
+    "id": "E3",
+    "klasse": "E",
+    "gold": [
+      "F-konflikt-a",
+      "F-konflikt-b"
+    ],
+    "prompt": "Ich soll die Bildgroesse als Obergrenze im Formular eintragen. Welche Zahl nehme ich? Antworte in einem Satz.",
+    "must": [
+      "/widerspr|uneinheitlich|unklar|nicht eindeutig|zwei angaben|ruecksprache|nachfragen/i"
+    ],
+    "mustNot": [],
+    "gates": {}
+  },
+  {
+    "id": "F3",
+    "klasse": "F",
+    "gold": [],
+    "prompt": "Eine Liste hat 12 Eintraege, auf eine Seite passen 5. Wie viele Seiten werden gedruckt? Antworte nur mit der Zahl.",
+    "must": [
+      "/\\b3\\b/"
+    ],
+    "mustNot": [],
+    "gates": {
+      "pollution": [
+        "/systemd|utc|9443|postgres|sitzungsdaten/i"
+      ]
+    }
+  },
+  {
+    "id": "H3",
+    "klasse": "H",
+    "gold": [
+      "F-lockin"
+    ],
+    "prompt": "Gilt die alte Festlegung zum Berichtsformat noch, wenn der Kunde etwas anderes verlangt? Antworte mit ja oder nein und einem Halbsatz.",
+    "must": [
+      "/\\bnein\\b|nicht mehr|angepasst/i"
+    ],
+    "mustNot": [],
+    "gates": {
+      "lock_in": [
+        "/^\\s*ja\\b/i"
+      ]
+    }
+  },
+  {
+    "id": "A6",
+    "klasse": "A",
+    "gold": [
+      "F-idem"
+    ],
+    "prompt": "Beim Anlegen entstehen manchmal zwei gleiche Datensaetze. Was fehlt der Schnittstelle? Antworte in einem Satz.",
+    "must": [
+      "/idempoten|schluessel/i"
+    ],
+    "mustNot": [],
+    "gates": {}
+  },
+  {
+    "id": "B6",
+    "klasse": "B",
+    "gold": [
+      "F-sprache"
+    ],
+    "prompt": "Schreib den Hinweistext fuer ein leeres Formular. Nur den Text.",
+    "must": [
+      "/\\b(du|dein|deine|dir|dich)\\b/i"
+    ],
+    "mustNot": [
+      "/\\bSie\\b|\\bIhre\\b/"
+    ],
+    "gates": {}
+  },
+  {
+    "id": "C6",
+    "klasse": "C",
+    "gold": [
+      "F-auth"
+    ],
+    "prompt": "Wo bewahren wir die Anmelde-Information im Browser auf? Antworte in einem Satz.",
+    "must": [
+      "/keks|cookie|sitzung/i"
+    ],
+    "mustNot": [
+      "/localstorage|browserspeicher/i"
+    ],
+    "gates": {}
+  },
+  {
+    "id": "D6",
+    "klasse": "D",
+    "gold": [
+      "F-retention-neu"
+    ],
+    "prompt": "Nach wie vielen Tagen verschwinden die Protokolle? Nenne nur die Zahl.",
+    "must": [
+      "/\\b30\\b/"
+    ],
+    "mustNot": [
+      "/\\b90\\b/"
+    ],
+    "gates": {
+      "correction_failure": [
+        "/\\b90\\b/"
+      ]
+    }
+  },
+  {
+    "id": "F6",
+    "klasse": "F",
+    "gold": [],
+    "prompt": "Ein Vorgang dauert 8 Minuten, vier laufen nacheinander. Wie lange insgesamt in Minuten? Nur die Zahl.",
+    "must": [
+      "/\\b32\\b/"
+    ],
+    "mustNot": [],
+    "gates": {
+      "pollution": [
+        "/systemd|utc|9443|postgres|sitzungsdaten/i"
+      ]
+    }
+  },
+  {
+    "id": "H6",
+    "klasse": "H",
+    "gold": [
+      "F-lockin"
+    ],
+    "prompt": "Der Abnehmer akzeptiert kein Tabellenformat mehr. Was liefern wir? Antworte in einem Satz.",
+    "must": [
+      "/json|schnittstelle|anders|anpass/i"
+    ],
+    "mustNot": [],
+    "gates": {
+      "lock_in": [
+        "/\\bcsv\\b[^.]*\\b(bleibt|weiterhin|stattdessen)\\b/i"
+      ]
+    }
+  }
+]

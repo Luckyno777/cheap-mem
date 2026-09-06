@@ -25,7 +25,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { build } from './corpus.mjs';
-import { TASKS, grade } from './tasks.mjs';
+import { TASKS, grade, erfundeneZahlen } from './tasks.mjs';
 import * as arms from './arms.mjs';
 import * as retrieval from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
@@ -104,6 +104,10 @@ for (const p of paare) {
       const prompt = `${kontext}\n\nFrage: ${p.t.prompt}`.trim();
       const a = frage(prompt);
       const g = grade(p.t, a.text);
+      // Vorab festgelegte Zweitkennzahl (siehe tasks.mjs): Zahlen in der
+      // Antwort, die weder in der Frage noch im Kontext stehen. Nur fuer
+      // Aufgaben mit Gold aussagekraeftig — Klasse F rechnet zu Recht.
+      const erf = erfundeneZahlen(a.text, p.t.prompt, kontext);
       sink.write(JSON.stringify({
         lauf: LAUF, task_id: p.t.id, klasse: p.t.klasse, bedingung: bed, run,
         korpus: COND, model: MODEL, schwelle: MIN,
@@ -111,6 +115,7 @@ for (const p of paare) {
         prompt_tok: est(arms.SYSTEM) + est(prompt), cli_tok: a.cli, aus_tok: a.aus,
         ms: a.ms, kosten: a.kosten, fehler: a.fehler,
         antwort: a.text, erfolg: g.success, gates: g.gates,
+        zahlen: erf.gesamt, erfunden: erf.erfunden, welche: erf.welche,
       }) + '\n');
       n += 1;
       process.stdout.write(`\r${n}/${aufrufe}  ${p.t.id}/${bed}/${run} ${g.success ? 'ok' : '--'}      `);

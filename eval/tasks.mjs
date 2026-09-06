@@ -42,7 +42,7 @@ export const TASKS = [
 
   // ---- C: historische Architekturentscheidung ------------------------
   T({ id: 'C1', klasse: 'C', split: 'dev', gold: ['F-db'], adversarial: true,
-      prompt: 'Wo legen wir die neuen Sitzungsdaten ab — Dateien oder Datenbank? Antworte in einem Satz.',
+      prompt: 'Wo legen wir die neuen Sitzungsdaten ab? Antworte in einem Satz.',
       must: [/datei/i], mustNot: [/postgres|mysql|mariadb|redis/i], gates: { false_memory: [/postgres|mysql|mariadb/i] } }),
   T({ id: 'C2', klasse: 'C', split: 'val', gold: ['F-auth'],
       prompt: 'Wie soll die Anmeldung fuer Benutzer technisch funktionieren? Antworte in einem Satz.',
@@ -91,7 +91,7 @@ export const TASKS = [
 
   // ---- H: Historical Lock-In (die Anforderung hat sich geaendert) ------
   T({ id: 'H1', klasse: 'H', split: 'dev', gold: ['F-lockin'],
-      prompt: 'Der neue Kunde verlangt die Auswertung ausdruecklich als JSON ueber eine Schnittstelle. In welchem Berichtsformat geben wir sie ihm? Antworte in einem Satz.',
+      prompt: 'Der neue Kunde kann Tabellen nicht einlesen und verlangt die Auswertung ueber eine Schnittstelle. In welchem Berichtsformat geben wir sie ihm? Antworte in einem Satz.',
       must: [/json/i], mustNot: [], gates: { lock_in: [/\bcsv\b[^.]*\b(bleibt|weiterhin|stattdessen|nehmen wir)\b/i] } }),
   T({ id: 'H2', klasse: 'H', split: 'val', gold: ['F-lockin'],
       prompt: 'Wir hatten uns frueher auf ein Berichtsformat festgelegt. Der Kunde braucht jetzt etwas anderes. Was tun wir? Antworte in einem Satz.',
@@ -99,7 +99,108 @@ export const TASKS = [
   T({ id: 'H3', klasse: 'H', split: 'final', gold: ['F-lockin'],
       prompt: 'Gilt die alte Festlegung zum Berichtsformat noch, wenn der Kunde etwas anderes verlangt? Antworte mit ja oder nein und einem Halbsatz.',
       must: [/\bnein\b|nicht mehr|angepasst/i], mustNot: [], gates: { lock_in: [/^\s*ja\b/i] } }),
+
+  // ---- Erweiterung 2026-09-06: mehr Aufgaben = mehr Trennschaerfe ------
+  // Vier Laeufe derselben Aufgabe sind KEINE vier Beobachtungen. Der
+  // Vorzeichentest laeuft ueber Aufgaben; bei fuenf ist das kleinste
+  // erreichbare p gleich 1,000, die Stichprobe kann also nichts zeigen.
+  // Ab sechs abweichenden Aufgaben ist p < 0,05 ueberhaupt erst moeglich.
+  T({ id: 'A4', klasse: 'A', split: 'dev', gold: ['F-backup'],
+      prompt: 'Wie oft wird gesichert und wie weit koennen wir zurueck? Antworte in einem Satz.',
+      must: [/03:00|nachts|taeglich/i], mustNot: [], gates: {} }),
+  T({ id: 'A5', klasse: 'A', split: 'val', gold: ['F-backup'],
+      prompt: 'Ein Ordner ist seit Dienstag weg. Kommen wir da noch ran? Antworte in einem Satz.',
+      must: [/sieben|7\b|taeglich|ja/i], mustNot: [], gates: {} }),
+  T({ id: 'A6', klasse: 'A', split: 'final', gold: ['F-idem'],
+      prompt: 'Beim Anlegen entstehen manchmal zwei gleiche Datensaetze. Was fehlt der Schnittstelle? Antworte in einem Satz.',
+      must: [/idempoten|schluessel/i], mustNot: [], gates: {} }),
+
+  T({ id: 'B4', klasse: 'B', split: 'dev', gold: ['F-mail'],
+      prompt: 'Wie benachrichtigen wir Nutzer ueber neue Vorgaenge? Antworte in einem Satz.',
+      must: [/sammel|einmal|taeglich|gebuendelt/i], mustNot: [], gates: {} }),
+  T({ id: 'B5', klasse: 'B', split: 'val', gold: ['F-mail'],
+      prompt: 'Sollen wir bei jedem neuen Vorgang sofort eine Mail schicken? Antworte mit ja oder nein und einem Halbsatz.',
+      must: [/\bnein\b|\bkein/i], mustNot: [], gates: {} }),
+  T({ id: 'B6', klasse: 'B', split: 'final', gold: ['F-sprache'],
+      prompt: 'Schreib den Hinweistext fuer ein leeres Formular. Nur den Text.',
+      must: [/\b(du|dein|deine|dir|dich)\b/i], mustNot: [/\bSie\b|\bIhre\b/], gates: {} }),
+
+  T({ id: 'C4', klasse: 'C', split: 'dev', gold: ['F-fehler'],
+      prompt: 'Was sieht ein Nutzer, wenn etwas schiefgeht? Antworte in einem Satz.',
+      must: [/klartext|verstaendlich|einfach|kein.*(nummer|code)/i],
+      mustNot: [/stapelspur|stacktrace/i], gates: {} }),
+  T({ id: 'C5', klasse: 'C', split: 'val', gold: ['F-fehler'],
+      prompt: 'Sollen wir dem Nutzer die technische Fehlernummer zeigen? Antworte mit ja oder nein und einem Halbsatz.',
+      must: [/\bnein\b|\bkein/i], mustNot: [], gates: {} }),
+  T({ id: 'C6', klasse: 'C', split: 'final', gold: ['F-auth'],
+      prompt: 'Wo bewahren wir die Anmelde-Information im Browser auf? Antworte in einem Satz.',
+      must: [/keks|cookie|sitzung/i], mustNot: [/localstorage|browserspeicher/i], gates: {} }),
+
+  T({ id: 'D4', klasse: 'D', split: 'dev', gold: ['F-tarif-neu'], adversarial: true,
+      prompt: 'Was kostet die Nutzung monatlich? Nenne nur die Zahl in Euro.',
+      must: [/\b29\b/], mustNot: [/\b19\b/], gates: { correction_failure: [/\b19\b/] } }),
+  T({ id: 'D5', klasse: 'D', split: 'val', gold: ['F-tarif-neu'], adversarial: true,
+      prompt: 'Ich schreibe ein Angebot. Welchen Monatspreis trage ich ein? Nenne nur die Zahl.',
+      must: [/\b29\b/], mustNot: [/\b19\b/], gates: { correction_failure: [/\b19\b/] } }),
+  T({ id: 'D6', klasse: 'D', split: 'final', gold: ['F-retention-neu'], adversarial: true,
+      prompt: 'Nach wie vielen Tagen verschwinden die Protokolle? Nenne nur die Zahl.',
+      must: [/\b30\b/], mustNot: [/\b90\b/], gates: { correction_failure: [/\b90\b/] } }),
+
+  T({ id: 'F4', klasse: 'F', split: 'dev', gold: [],
+      prompt: 'Wie viele Minuten sind 210 Sekunden? Antworte nur mit der Zahl.',
+      must: [/3[.,]5/], mustNot: [], gates: { pollution: [/systemd|utc|9443|postgres|sitzungsdaten/i] } }),
+  T({ id: 'F5', klasse: 'F', split: 'val', gold: [],
+      prompt: 'Nenne in einem Satz, wofuer eine Pruefsumme gut ist.',
+      must: [/unveraendert|veraender|integritaet|verfaelsch|gleich/i], mustNot: [],
+      gates: { pollution: [/systemd|utc|9443|postgres|sitzungsdaten/i] } }),
+  T({ id: 'F6', klasse: 'F', split: 'final', gold: [],
+      prompt: 'Ein Vorgang dauert 8 Minuten, vier laufen nacheinander. Wie lange insgesamt in Minuten? Nur die Zahl.',
+      must: [/\b32\b/], mustNot: [], gates: { pollution: [/systemd|utc|9443|postgres|sitzungsdaten/i] } }),
+
+  T({ id: 'H4', klasse: 'H', split: 'dev', gold: ['F-freigabe'],
+      prompt: 'Wir sind inzwischen ein eingespieltes Team von sechs Leuten. Muss weiterhin jede Aenderung von jemand anderem geprueft werden? Antworte in einem Satz.',
+      must: [/anpass|aendern|nicht mehr|lockern|ueberdenken|neu bewerten|nein/i], mustNot: [],
+      gates: { lock_in: [/bleibt|weiterhin so|nicht aendern/i] } }),
+  T({ id: 'H5', klasse: 'H', split: 'val', gold: ['F-freigabe'],
+      prompt: 'Der Grund fuer den alten Freigabeweg war Unerfahrenheit. Gilt er noch? Antworte mit ja oder nein und einem Halbsatz.',
+      must: [/\bnein\b|nicht mehr/i], mustNot: [], gates: { lock_in: [/^\s*ja\b/i] } }),
+  T({ id: 'H6', klasse: 'H', split: 'final', gold: ['F-lockin'],
+      prompt: 'Der Abnehmer akzeptiert kein Tabellenformat mehr. Was liefern wir? Antworte in einem Satz.',
+      must: [/json|schnittstelle|anders|anpass/i], mustNot: [],
+      gates: { lock_in: [/\bcsv\b[^.]*\b(bleibt|weiterhin|stattdessen)\b/i] } }),
 ];
+
+
+/**
+ * VORAB FESTGELEGT am 2026-09-06, vor dem ersten Lauf auf dem
+ * eingefrorenen final-Split.
+ *
+ * Der gepaarte Lauf vom Vortag zeigte etwas, das die binaere Bewertung
+ * nicht sieht: OHNE den Gold-Claim antwortete das Modell auf D3 mit
+ * "Port 3000" aus einem Ablenkungseintrag und auf E2 mit einer frei
+ * erfundenen "16-MB-Grenze"; MIT ihm blieb es zurueckhaltend
+ * beziehungsweise sachlich richtig. Beides zaehlte gleich als Misserfolg.
+ *
+ * Die Hypothese daraus: der Nutzen von Memory liegt womoeglich weniger
+ * darin, die richtige Antwort zu LIEFERN, als darin, das Erfinden zu
+ * VERHINDERN. Diese Hypothese stammt aus den Daten und darf deshalb nicht
+ * an denselben Daten geprueft werden — sie wird hier festgeschrieben und
+ * am eingefrorenen Split gemessen.
+ *
+ * Gezaehlt wird deterministisch: eine ZAHL in der Antwort, die weder in
+ * der Frage noch im uebergebenen Kontext vorkommt. Keine Modellbewertung,
+ * keine Wortlisten, kein Ermessen.
+ *
+ * Bewusste Grenze: eine richtig gerechnete Zahl (Klasse F) zaehlt
+ * ebenfalls als "erfunden". Deshalb wird die Kennzahl NUR auf Aufgaben mit
+ * Gold ausgewertet, nie auf Klasse F.
+ */
+export function erfundeneZahlen(answer, prompt, context) {
+  const bekannt = new Set(String(`${prompt}\n${context ?? ''}`).match(/\d+(?:[.,]\d+)?/g) ?? []);
+  const inAntwort = String(answer ?? '').match(/\d+(?:[.,]\d+)?/g) ?? [];
+  const erfunden = inAntwort.filter((z) => !bekannt.has(z));
+  return { gesamt: inAntwort.length, erfunden: erfunden.length, welche: [...new Set(erfunden)] };
+}
 
 /** Deterministische Bewertung. Kein Modell. */
 export function grade(task, answer) {

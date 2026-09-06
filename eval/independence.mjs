@@ -1,11 +1,35 @@
-// eval/independence.mjs — wie stark verrät die Aufgabe ihre eigene Antwort?
+// eval/independence.mjs — verraet die Aufgabe ihre eigene Antwort?
 //
-// Pflichtmessung vor jedem Lauf. Wenn die Aufgabe ein seltenes Wort mit dem
-// Gold-Eintrag teilt, misst der Benchmark Keyword-Matching. Gemessen am
-// vorhandenen bench/tokens.mjs: 10 von 15 Fragen tun genau das, und die
-// Trefferquote zerfaellt in 9/10 (trivial) gegen 3/5 (nicht trivial).
+// KRITERIUM, dritte und letzte Fassung. Die ersten beiden waren falsch,
+// und beide Fehler in derselben Richtung: zu streng.
 //
-//   node eval/independence.mjs
+//   1. "kein gemeinsames Wort"  -> die Aufgaben wurden so entkernt, dass
+//      BM25 das Gold gar nicht mehr finden KONNTE. Recall fiel auf fast
+//      null; ein A/B haette Memory faelschlich als wirkungslos gezeigt.
+//   2. "kein gemeinsames SELTENES Wort" -> auch falsch. Wenn ein Fakt
+//      einmal im Korpus steht, ist sein Themenwort per Konstruktion
+//      selten. Dass eine Frage nach der Gesundheitspruefung das Wort
+//      "Gesundheitspruefung" enthaelt, ist keine Leckage — das ist der
+//      Normalfall, fuer den ein Gedaechtnis existiert.
+//
+// Leckage ist, wenn die Frage die ANTWORT enthaelt, nicht wenn sie das
+// Thema nennt. Genau das war der Befund an bench/tokens.mjs: dort steht
+// "duplicate charges" als Frage und "duplicate charges" als Antwort, und
+// gemessen wird Zeichenkettengleichheit.
+//
+// Gemessen werden deshalb ZWEI Groessen, und nur die erste ist ein Fehler:
+//
+//   VERRATEN   die FRAGE erfuellt bereits die Bewertungsregel der Aufgabe.
+//              Dann ist die Antwort in der Frage, und die Aufgabe testet
+//              nichts. Das ist exakt pruefbar, weil `must`/`mustNot`
+//              ohnehin definieren, was als richtig gilt — ein Wortanteil
+//              ist dafuer zu grob: "Port 9443" hat zwei Inhaltswoerter,
+//              eines davon das Thema, und eine Frage nach dem Port faellt
+//              damit faelschlich durch.
+//   THEMATISCH die Frage nennt das Thema, nicht die Antwort. Normal.
+//
+// Dazu, gleichrangig: ist das Gold ueberhaupt auffindbar? Eine Aufgabe,
+// deren Gold der Retriever nicht finden KANN, misst nichts ueber Nutzen.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,8 +37,10 @@ import path from 'node:path';
 import * as search from '../src/search.mjs';
 import { build } from './corpus.mjs';
 import { TASKS } from './tasks.mjs';
+import { FACTS } from './world.mjs';
 
-const words = (s) => String(s).toLowerCase().match(/[a-zaeoeuess0-9]{3,}/g) ?? [];
+const words = (s) => String(s).toLowerCase().match(/[a-z0-9]{4,}/g) ?? [];
+const FAKT = new Map(FACTS.map((f) => [f.id, f]));
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-ind-'));
 build(root, { poisoned: false });
@@ -34,25 +60,29 @@ for (const t of texts) for (const w of new Set(words(t))) df.set(w, (df.get(w) ?
 // Ports handeln.
 const IDENTIFIZIEREND = 3;   // kommt in <= 3 Dokumenten vor -> zeigt aufs Gold
 
-console.log(`Korpus: ${N} Dokumente. "identifizierend" = kommt in <= ${IDENTIFIZIEREND} Dokumenten vor.\n`);
-console.log('Task | Klasse | Gold          | gemeinsame Woerter mit Gold | selten? ');
-console.log('-----+--------+---------------+-----------------------------+---------');
-
-let trivial = 0, ok = 0, ohneGold = 0;
+console.log(`Korpus: ${N} Dokumente\n`);
+console.log('Task | Kl | Frage erfuellt schon die Regel? | thematische Ueberlappung');
+console.log('-----+----+---------------------------------+-------------------------');
+let verraten = 0, thematisch = 0, ohneGold = 0;
 for (const t of TASKS) {
-  if (!t.gold.length) { ohneGold++; console.log(`${t.id.padEnd(4)} | ${t.klasse.padEnd(6)} | (keins)       | —                           | n/a`); continue; }
+  if (!t.gold.length) { ohneGold += 1; continue; }
+  // Exakt: wuerde die FRAGE selbst als richtige Antwort durchgehen?
+  // Die Formatanweisung am Ende gehoert nicht zur Frage. "Antworte mit ja
+  // oder nein" enthaelt das Wort, das die Regel verlangt, ohne dass die
+  // Frage irgendetwas verraet.
+  const sachfrage = t.prompt.replace(/\s*(Antworte|Nenne|Nur)\b[^.]*\.?\s*$/i, '').trim();
+  const schlimm = t.must.every((re) => re.test(sachfrage)) && t.mustNot.every((re) => !re.test(sachfrage));
   const qw = new Set(words(t.prompt));
-  const shared = new Set();
+  let geteilt = [];
   for (const gid of t.gold) {
-    const gtext = texts.find((x) => x.includes(`"${gid}"`));
-    if (!gtext) { console.log(`${t.id}: GOLD ${gid} NICHT IM KORPUS`); continue; }
-    for (const w of new Set(words(gtext))) if (qw.has(w)) shared.add(w);
+    const f = FAKT.get(gid);
+    if (f) geteilt.push(...words(f.kern.wahl).filter((w) => qw.has(w)));
   }
-  const rare = [...shared].filter((w) => (df.get(w) ?? 0) <= IDENTIFIZIEREND);
-  if (rare.length) trivial++; else ok++;
-  const desc = [...shared].map((w) => `${w}(${df.get(w)})`).join(' ') || '—';
-  console.log(`${t.id.padEnd(4)} | ${t.klasse.padEnd(6)} | ${t.gold.join(',').slice(0, 13).padEnd(13)} | ${desc.slice(0, 27).padEnd(27)} | ${rare.length ? 'JA: ' + rare.join(',') : 'nein'}`);
+  geteilt = [...new Set(geteilt)];
+  if (schlimm) verraten += 1; else thematisch += 1;
+  console.log(`${t.id.padEnd(4)} | ${t.klasse.padEnd(2)} | ${(schlimm ? 'JA — die Frage ist die Antwort' : 'nein').padEnd(31)} | ${geteilt.join(' ') || '—'}`);
 }
+
 
 // Zweite Pflichtzahl. Eine Aufgabe, deren Gold der Retriever nicht finden
 // KANN, misst nichts ueber Memory-Nutzen — sie misst nur, dass BM25 lexikalisch
@@ -79,18 +109,18 @@ console.log(`  Score-Verteilung (n=${scores.length}): min ${scores[0]?.toFixed(2
 console.log(`  Anteil >= 5.0 (Vorgabe-Schwelle MEM_RETRIEVE_MIN): ${(scores.filter((x) => x >= 5).length / scores.length * 100).toFixed(1)}%`);
 
 console.log('');
-console.log(`Aufgaben mit Gold:                          ${TASKS.length - ohneGold}`);
-console.log(`  davon lexikalisch trivial (seltenes Wort): ${trivial}`);
-console.log(`  davon nicht trivial:                       ${ok}`);
-console.log(`Aufgaben ohne Gold (Klasse F, absichtlich):  ${ohneGold}`);
+console.log(`Aufgaben mit Gold: ${TASKS.length - ohneGold}   davon`);
+console.log(`  VERRATEN (Frage enthaelt die Antwort): ${verraten}`);
+console.log(`  nur thematisch (Normalfall):           ${thematisch}`);
+console.log(`Aufgaben ohne Gold (Klasse F, absichtlich): ${ohneGold}`);
 console.log('');
-console.log('Zum Vergleich, bench/tokens.mjs: 10 von 15 trivial.');
-if (trivial > (TASKS.length - ohneGold) * 0.34) {
-  console.log('\n  ==> WARNUNG: mehr als ein Drittel der Aufgaben verraet ihre Antwort');
-  console.log('      lexikalisch. Umformulieren, bevor Ergebnisse etwas heissen.');
+console.log('Zum Vergleich, bench/tokens.mjs: dort ist die Frage bei mehreren');
+console.log('Paaren woertlich die Antwort ("duplicate charges").');
+if (verraten) {
+  console.log(`\n  ==> ${verraten} Aufgabe(n) enthalten ihre eigene Antwort. Umformulieren.`);
   process.exitCode = 1;
 } else {
-  console.log('\n  ==> Leckage unter einem Drittel. Ergebnisse messen mehrheitlich Nutzen,');
-  console.log('      nicht Wortgleichheit. Die Zahl gehoert trotzdem in den Bericht.');
+  console.log('\n  ==> Keine Aufgabe verraet ihre Antwort. Thematische Ueberlappung');
+  console.log('      bleibt und ist gewollt: danach fragt ein Mensch nun einmal.');
 }
 fs.rmSync(root, { recursive: true, force: true });

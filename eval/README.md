@@ -280,3 +280,53 @@ Die erste Fassung dieser Datei meldete fuer JEDE Flutmenge "verdraengt",
 auch fuer 0 — bei Schwelle 5.0 kam auf dem damals zu duennen Korpus gar
 nichts an. Ein Messgeraet, das ohne Angriff schon Alarm schlaegt, misst
 nichts. Jetzt laeuft eine Positivkontrolle davor.
+
+# Stufe 5 — Kennzahlen nach den Reparaturen (0 USD)
+
+Obergrenze unveraendert bei **5/18 = 28 %**; MMR half in den top-5
+(7 -> 9), die Schwelle schneidet den Gewinn wieder ab. Alle Gates halten.
+
+**Abgleich gegen den echten Korpus, als Grenze notiert statt weggetunt:**
+eigener Korpus p50 4,84 / 47,6 % ueber der Schwelle; echter p50 11,34 /
+93,3 %. Die Dichte stimmt jetzt (Median 563 gegen 551 Zeichen), die
+Score-Verteilung nicht. Jede Zahl hier gilt fuer diesen Korpus.
+
+# Stufe 6 — mehr Aufgaben, und eingefroren (0 USD)
+
+21 -> **39 Aufgaben**, 13 je Split, 7 Klassen. Trennschaerfe haengt an der
+Aufgabenzahl: vier Laeufe derselben Aufgabe sind keine vier Beobachtungen,
+und bei fuenf Aufgaben ist das kleinste erreichbare p gleich 1,000.
+
+## Das Unabhaengigkeitskriterium, dritte und letzte Fassung
+
+Die ersten beiden waren falsch, beide zu streng:
+
+1. *"kein gemeinsames Wort"* — entkernte die Aufgaben so, dass BM25 das
+   Gold gar nicht mehr finden konnte. Ein A/B haette Memory faelschlich
+   als wirkungslos gezeigt.
+2. *"kein gemeinsames SELTENES Wort"* — auch falsch. Steht ein Fakt einmal
+   im Korpus, ist sein Themenwort per Konstruktion selten. Dass eine Frage
+   nach der Gesundheitspruefung das Wort "Gesundheitspruefung" enthaelt,
+   ist keine Leckage, sondern der Normalfall, fuer den ein Gedaechtnis
+   existiert.
+
+Richtig ist: **verraet die Frage die ANTWORT?** Exakt pruefbar, weil
+`must`/`mustNot` ohnehin definieren, was als richtig gilt — wuerde die
+Frage selbst als Antwort durchgehen, testet die Aufgabe nichts. Ergebnis
+nach zwei echten Korrekturen (C1 bot "Dateien oder Datenbank" an, H1
+nannte JSON): **0 von 33 verraten, 33 nur thematisch.**
+
+## Eingefroren
+
+`eval/final-eingefroren.json` + `.sha256`, versiegelt durch
+`test/eval-frozen.test.mjs`. Ab hier keine Umformulierung, keine
+gelockerte Regel, keine Sonderbehandlung auf final.
+
+## Vorab festgelegte Zweitkennzahl
+
+`erfundeneZahlen(antwort, frage, kontext)` — Zahlen in der Antwort, die
+weder in der Frage noch im Kontext stehen. Deterministisch, kein
+Modellrichter. Sie prueft die Hypothese aus dem Vortag (Memory verhindert
+womoeglich eher das Erfinden, als die richtige Antwort zu liefern) an
+Daten, aus denen sie NICHT stammt. Klasse F ist ausgenommen: dort rechnet
+das Modell zu Recht.
