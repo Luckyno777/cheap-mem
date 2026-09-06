@@ -106,10 +106,64 @@ Was es bringt, ehrlich:
 | Gold, vergiftet (39 Rohfaenge) | 8/33 | **9/33** |
 | `bench/retrieval.mjs` R@5 | 93 % | 93 % |
 
-**Eine von drei verlorenen Aufgaben kommt zurueck, zwei nicht.** Der
-Mechanismus ist also erkannt, aber nicht erschoepft: die Statistik war
-ein Teil der Ursache, nicht die ganze. Was die anderen zwei kostet, ist
-noch offen.
+**Eine von drei verlorenen Aufgaben kommt zurueck, zwei nicht.** Die
+Statistik war ein Teil der Ursache, nicht die ganze.
+
+### Die anderen zwei: der Fang draengt sich vor
+
+Fuer C3 aufgeschluesselt, mit sauberer Statistik. Die Punktzahlen der
+gepflegten Eintraege sind mit und ohne Flut **identisch** — die
+Verschmutzung ist weg. Trotzdem faellt die Antwort raus:
+
+```
+ohne Flut                          mit Flut
+  N-abhaengigkeiten-0   22.57        [roh] echo37          30.31
+  V-metrikendienst-2    19.64        N-abhaengigkeiten-0   22.57
+  FL-25                 18.91        V-metrikendienst-2    19.64
+  F-db (GOLD)           18.77        FL-25                 18.91
+  P-db                  13.83        P-db                  13.83
+```
+
+Ein einziger Rohfang mit 30,31 nimmt den Platz der Antwort mit 18,77.
+Der Echo-Filter laesst ihn zu Recht in Ruhe: der Fang gehoert zu einer
+ANDEREN Frage, er ist kein Echo dieser hier.
+
+Der Fang gewinnt fast immer, wenn er antritt — er ist lang,
+zusammengeklebt und enthaelt viele Frageworte. Und er trat gleichberechtigt
+an, weil er in der Stufe `unknown` landet und der Rundlauf jeder Stufe
+denselben Platz pro Runde gibt. Ein Fang = ein verdraengter gepflegter
+Anspruch.
+
+Das kehrt den Entwurf um. Die drei Bahnen sind fangen -> verdichten ->
+abrufen; ein Fang ist per Definition **noch kein Anspruch**, der Fasser
+ist noch nicht darueber gelaufen. Ein unverarbeitetes Protokoll vor eine
+geprueste Entscheidung zu stellen, macht Bahn 1 zur Hauptbahn und den
+Fasser ueberfluessig.
+
+**Rohfang ist jetzt die Reserve-Bahn**: erst alles Gepflegte, dann der
+Fang. Nicht "Fang raus" — auf einer frischen Memory ist er das einzige
+Material, und dann sind die Plaetze ohnehin frei.
+
+| | vorher | Statistik | + Reserve-Bahn |
+|---|---:|---:|---:|
+| Gold, sauberer Korpus | 12/33 | 12/33 | 12/33 |
+| Gold, vergiftet (39 Rohfaenge) | 8/33 | 9/33 | **11/33** |
+| Kontextkosten vergiftet (Token) | 17 601 | 18 241 | 22 234 |
+| `bench/retrieval.mjs` R@5 | 93 % | 93 % | 93 % |
+
+Die Flut kostet damit noch **eine** Aufgabe statt drei.
+
+Zwei Dinge, die dabei ehrlich dazugehoeren:
+
+- **Der Preis ist nicht gemessen.** Steht eine Angabe nur im Fang und
+  liefert das Gepflegte fuenf mittelmaessige Treffer, kommt der Fang
+  nicht mehr durch. Der eval-Korpus kann das nicht zeigen, weil dort
+  alles Gold gepflegt ist. Ein Aufgabensatz, bei dem die Antwort NUR im
+  Rohfang steht, fehlt noch.
+- **Der Echo-Filter hat dadurch weniger zu tun.** Im vergifteten Korpus
+  verwirft er jetzt 0 statt 39 — nicht weil er schlechter wurde, sondern
+  weil die Echos gar nicht mehr bis zur Auswahl kommen. Er zaehlt noch,
+  wo der Fang leere Plaetze fuellt.
 
 ## Die Falle, in die dieses Verzeichnis dreimal getappt ist
 

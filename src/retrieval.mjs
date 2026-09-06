@@ -247,10 +247,38 @@ export function retrieve(root, query, capability, {
   // Round-robin gives each tier a slot in turn — representation — while
   // the final sort keeps relevance in charge of the ORDER. Bounded: at
   // most one pass per tier per slot.
-  const raw = [];
+  const gereiht = [];
   for (let i = 0; byTier.some((h) => i < h.length); i += 1) {
-    for (const hits of byTier) if (i < hits.length) raw.push(hits[i]);
+    for (const hits of byTier) if (i < hits.length) gereiht.push(hits[i]);
   }
+
+  // Rohfang ist keine Autoritaetsstufe, sondern die Reserve-Bahn.
+  //
+  // Er landet in der Stufe 'unknown' und bekam damit im Rundlauf denselben
+  // Platz pro Runde wie 'user'. Bei fuenf Plaetzen heisst das: ein einziger
+  // Fang verdraengt einen gepflegten Anspruch. Und der Fang gewinnt das
+  // Rennen fast immer — er ist lang, zusammengeklebt und enthaelt viele
+  // Frageworte. Gemessen an C3: ein Fang mit 30,31 draengt die Antwort mit
+  // 18,77 aus den top-5, obwohl er zu einer ANDEREN Frage gehoert und der
+  // Echo-Filter ihn deshalb zu Recht in Ruhe laesst.
+  //
+  // Das kehrt den ganzen Entwurf um. Rohfang ist per Definition noch kein
+  // Anspruch: der Fasser ist noch nicht darueber gelaufen. Ein
+  // unverarbeitetes Gespraechsprotokoll VOR eine gepruefte Entscheidung zu
+  // stellen, macht Bahn 1 zur Hauptbahn und den Fasser ueberfluessig.
+  //
+  // Also: erst alles Gepflegte, dann der Fang. Nicht "Fang raus" — auf
+  // einer frischen Memory, ueber die der Fasser noch nie gelaufen ist, ist
+  // er das einzige Material, und dann sind die Plaetze ohnehin frei.
+  //
+  // Der Preis, offen benannt und hier NICHT gemessen: steht eine Angabe
+  // nur im Fang und liefert das Gepflegte fuenf mittelmaessige Treffer,
+  // kommt der Fang nicht mehr durch. Der eval-Korpus kann das nicht
+  // zeigen, weil dort alles Gold gepflegt ist.
+  const raw = [
+    ...gereiht.filter((h) => h.type !== 'raw'),
+    ...gereiht.filter((h) => h.type === 'raw'),
+  ];
 
   // Derived ONCE per call, from the log, with no query parameter. A
   // function that reads the log itself cannot be handed a subset — which

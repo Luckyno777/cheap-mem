@@ -377,6 +377,24 @@ const MUTANTS=[
    to:"    if (true) {  // MUTANT: jeder frische Fang zaehlt wieder mit\n      statsN += 1;",
    tests:['test/raw-stats.test.mjs','test/search.test.mjs'] },
 
+ { name:'ARCH raw captures compete with curated claims again',
+   file:'src/retrieval.mjs',
+   from:"  const raw = [\n    ...gereiht.filter((h) => h.type !== 'raw'),\n    ...gereiht.filter((h) => h.type === 'raw'),\n  ];",
+   to:"  const raw = gereiht;  // MUTANT: der Fang draengt sich wieder vor",
+   tests:['test/raw-reserve.test.mjs'] },
+
+ { name:'ARCH raw captures are dropped from the gateway entirely',
+   file:'src/retrieval.mjs',
+   from:"    ...gereiht.filter((h) => h.type === 'raw'),",
+   to:"    // MUTANT: Reserve heisst nie",
+   tests:['test/raw-reserve.test.mjs'] },
+
+ { name:'ARCH the retrieval query asks the raw captures what is rare',
+   file:'src/search.mjs',
+   from:"  const df = idx.statsDocFreq ?? idx.docFreq;",
+   to:"  const df = idx.docFreq;  // MUTANT: der Fang bestimmt die acht Woerter",
+   tests:['test/raw-stats.test.mjs','test/search.test.mjs','test/retrieval.test.mjs'] },
+
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',
    from:'  mmr = true,',

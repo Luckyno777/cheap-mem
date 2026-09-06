@@ -1060,15 +1060,22 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
   if (!idx && root) {
     try { idx = loadIndex(root); } catch { idx = null; }
   }
-  if (!idx || !idx.docFreq) return w.slice(0, RETRIEVE_WORDS_MAX).join(' ');
+  const df = idx.statsDocFreq ?? idx.docFreq;
+  if (!idx || !df) return w.slice(0, RETRIEVE_WORDS_MAX).join(' ');
 
+  // Aus der GEPFLEGTEN Statistik, aus demselben Grund wie bei der idf —
+  // und hier wiegt er schwerer. BM25 verschiebt einen Rang; dieser Schnitt
+  // wirft ein Wort ganz weg. Der Rohfang enthaelt jede Frage im Wortlaut,
+  // also macht er genau die Woerter haeufig, die die Frage tragen, und
+  // genau die fallen dann aus den acht heraus.
+  //
   // Through the SAME tokenisation as the index, or the lookup misses on
   // an ending and every word would look equally rare. A word the index
   // does not know at all is maximally rare — and often exactly the
   // technical term being asked about.
   const rarity = (x) => {
     let lowest = Infinity;
-    for (const t of tokenize(x)) lowest = Math.min(lowest, idx.docFreq.get(t) ?? 0);
+    for (const t of tokenize(x)) lowest = Math.min(lowest, df.get(t) ?? 0);
     return Number.isFinite(lowest) ? lowest : 0;
   };
   return [...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX).join(' ');

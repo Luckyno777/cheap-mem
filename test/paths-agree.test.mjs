@@ -38,7 +38,7 @@ const HIER = path.dirname(fileURLToPath(import.meta.url));
 const MEM = path.join(HIER, '..', 'bin', 'mem');
 const FRAGE = 'Wie halten wir die Ablage im Repository nachvollziehbar?';
 
-function bau() {
+function bau({ dups = 15 } = {}) {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-wege-'));
   execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
   const log = (d) => memory.logEntry(r, d.type ?? 'decision',
@@ -60,7 +60,7 @@ function bau() {
   ].join('\n') + '\n';
   fs.writeFileSync(path.join(rohDir, '2026-09-06T10-00-00Z--echo.jsonl.gz'), zlib.gzipSync(zeilen));
   // (b) Fast-Duplikate, die die Frage lexikalisch treffen.
-  for (let i = 0; i < 15; i += 1) {
+  for (let i = 0; i < dups; i += 1) {
     log({ id: `DUP-${i}`, topic: 'pakete',
       choice: `Abhaengigkeiten im Repository nachvollziehbar festnageln, Runde ${i}`,
       why: 'das Bild des Laufwerks driftete zweimal in einem Monat', tags: ['pakete'] });
@@ -79,7 +79,8 @@ function bau() {
 }
 
 const findIds = (root, extra = []) => {
-  const out = execFileSync('node', [MEM, '--root', root, 'find', FRAGE, '--top', '5', '--json', ...extra],
+  const top = extra.includes('--top') ? [] : ['--top', '5'];
+  const out = execFileSync('node', [MEM, '--root', root, 'find', FRAGE, ...top, '--json', ...extra],
     { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   return (JSON.parse(out).hits ?? []).map((h) => h.entry?.id ?? '?');
 };
@@ -87,18 +88,28 @@ const gatewayIds = (root, opt = {}) =>
   retrieve(root, FRAGE, grantAll(['read']), { top: 5, ...opt }).claims.map((c) => c.id);
 
 test('beide Wege verwerfen per Vorgabe das Echo der Frage', () => {
-  const r = bau();
+  // Wenig gepflegte Konkurrenz, und das ist kein Detail: seit dem
+  // 2026-09-06 ist der Rohfang im Gateway die Reserve-Bahn — er kommt
+  // erst dran, wenn das Gepflegte die Plaetze nicht fuellt. Mit den
+  // fuenfzehn Fast-Duplikaten der anderen Vorrichtung waere gar kein
+  // Platz frei, und die Positivkontrolle waere rot, obwohl der Filter
+  // nichts falsch macht.
+  const r = bau({ dups: 1 });
   try {
+    const WEIT = 12;
+    const istRoh = (ids) => ids.some((x) => x === null || String(x).includes('raw') || x === '?');
+    const ohne = () => findIds(r, ['--with-echo', '--top', String(WEIT)]);
+    const mit = () => findIds(r, ['--top', String(WEIT)]);
+
     // Positivkontrolle zuerst: ohne die Politik MUSS das Echo auftauchen,
     // sonst prueft die Zusicherung darunter nichts.
-    const istRoh = (ids) => ids.some((x) => x === null || String(x).includes('raw') || x === '?');
-    assert.ok(istRoh(findIds(r, ['--with-echo'])),
-      `die Vorrichtung erzeugt kein Rohfang-Echo: ${findIds(r, ['--with-echo']).join(' ')}`);
-    assert.ok(istRoh(gatewayIds(r, { dropEcho: false })),
-      `kein Rohfang-Echo im Gateway: ${gatewayIds(r, { dropEcho: false }).join(' ')}`);
+    assert.ok(istRoh(ohne()), `die Vorrichtung erzeugt kein Rohfang-Echo: ${ohne().join(' ')}`);
+    assert.ok(istRoh(gatewayIds(r, { dropEcho: false, top: WEIT })),
+      `kein Rohfang-Echo im Gateway: ${gatewayIds(r, { dropEcho: false, top: WEIT }).join(' ')}`);
 
-    assert.ok(!istRoh(findIds(r)), `\`mem find\` speist das Echo ein: ${findIds(r).join(' ')}`);
-    assert.ok(!istRoh(gatewayIds(r)), `der Gateway speist das Echo ein: ${gatewayIds(r).join(' ')}`);
+    assert.ok(!istRoh(mit()), `\`mem find\` speist das Echo ein: ${mit().join(' ')}`);
+    assert.ok(!istRoh(gatewayIds(r, { top: WEIT })),
+      `der Gateway speist das Echo ein: ${gatewayIds(r, { top: WEIT }).join(' ')}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 

@@ -141,6 +141,52 @@ test('auch der Anhaenge-Pfad laesst frischen Rohfang nicht in die Statistik', ()
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
+test('der Rohfang entscheidet nicht, welche acht Woerter die Frage tragen', () => {
+  // Dieselbe Regel eine Ebene hoeher — und hier wiegt sie schwerer. BM25
+  // verschiebt einen Rang; `retrievalQuery` wirft ein Wort GANZ weg: aus
+  // einer langen Frage bleiben die acht seltensten Inhaltswoerter. Ist
+  // das tragende Wort im Rohfang haeufig, faellt es heraus, und die
+  // Suche fragt nach etwas anderem als der Nutzer.
+  const FRAGE_LANG = 'welche festlegung gilt eigentlich fuer den kanarienvogel bei der'
+    + ' redaktion der ablage im repository der auswertung';
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-frage-'));
+  try {
+    execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
+    const log = (d) => memory.logEntry(r, 'decision',
+      { ...d, author: 'lucky', authority: 'user' });
+    log({ id: 'ANTWORT', topic: 'redaktion',
+      choice: 'der kanarienvogel laeuft vor jedem fang',
+      why: 'lieber eine luecke als ein geheimnis in der historie' });
+    for (let i = 0; i < 30; i += 1) {
+      log({ id: `N-${i}`, topic: 'ablage',
+        choice: `zur ablage der auswertung im repository gilt festlegung ${i}`,
+        why: `redaktion war damals kein thema, sondern tempo ${i}` });
+    }
+    const dir = path.join(r, 'raw', '2026', '09');
+    fs.mkdirSync(dir, { recursive: true });
+    for (let i = 0; i < 40; i += 1) {
+      const zeile = JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user',
+        text: `kanarienvogel kanarienvogel gespraech ${i}` });
+      fs.writeFileSync(path.join(dir, `2026-09-01T10-00-00Z--k${i}.jsonl.gz`),
+        zlib.gzipSync(`${zeile}\n`));
+    }
+    const idx = search.buildIndex(r, { language: 'de' });
+
+    // Positivkontrolle: mit den vollen Zahlen MUSS das Wort herausfallen.
+    // Sonst prueft die Zusicherung darunter einen Fall, den es nicht gibt.
+    const alt = search.retrievalQuery(FRAGE_LANG, { index: { ...idx, statsDocFreq: null } });
+    assert.ok(!alt.includes('kanarienvogel'),
+      `die Vorrichtung erzeugt den Schaden gar nicht: ${JSON.stringify(alt)}`);
+
+    const jetzt = search.retrievalQuery(FRAGE_LANG, { index: idx });
+    assert.ok(jetzt.includes('kanarienvogel'),
+      `das tragende Wort ist aus der Frage gefallen: ${JSON.stringify(jetzt)}`);
+    const treffer = search.search(idx, jetzt, { top: 5, mmr: true, mmrLambda: 0.7 });
+    assert.ok(treffer.some((h) => h.entry?.id === 'ANTWORT'),
+      `die Antwort ist nicht mehr in den top-5: ${treffer.map((h) => h.entry?.id ?? h.type).join(' ')}`);
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
 test('Rohfang wird weiterhin gefunden — er formt nur die Statistik nicht', () => {
   // Die Gegenprobe zur Zusicherung darueber. Eine Statistik ohne Rohfang
   // darf nicht heissen, dass Rohfang unauffindbar wird: er ist bei einer
