@@ -50,6 +50,63 @@ const satzA = (f, r) => {
   return { topic: k.thema, choice: k.wahl, why: `${k.grund}. ${extra.join(' ')}` };
 };
 
+
+// ---------------------------------------------------------------------
+// VOKABULAR-REICHTUM. Gemessen am gewachsenen lucky-mem (930 Dokumente):
+// 8944 verschiedene Woerter, Median 61 Woerter je Dokument. Die erste
+// Fassung dieses Generators kam auf 403 verschiedene Woerter bei 259
+// Dokumenten — Wortzahl je Dokument stimmte, das Vokabular war 22-fach zu
+// arm. Folge: bei 403 Woertern ist jedes haeufig, also ist jede idf
+// winzig, also liegen alle BM25-Scores bei 0-10 statt bei den echten
+// 2-93, und keine Retrieval-Aenderung laesst sich sinnvoll bewerten.
+//
+// Deutsche Komposita loesen das ohne Wortliste: 60 Bestimmungswoerter mal
+// 60 Grundwoerter ergeben 3600 verschiedene, plausible Fachbegriffe. Jeder
+// Ablenkungs-Eintrag bekommt ein eigenes Thema aus diesem Vorrat — kein
+// Buendel fast gleicher Eintraege mehr, das dem termGraph falsche
+// Ko-Okkurrenz beibringt.
+const BESTIMMUNG = ['abrechnung', 'protokoll', 'zugriff', 'vorlage', 'auftrag', 'termin',
+  'material', 'werkzeug', 'baustelle', 'fahrzeug', 'lager', 'einkauf', 'angebot', 'rechnung',
+  'mahnung', 'gutschrift', 'stundenzettel', 'urlaub', 'schicht', 'zeiterfassung', 'kunde',
+  'lieferant', 'kontakt', 'adresse', 'standort', 'gewerk', 'leistung', 'aufmass', 'nachtrag',
+  'abnahme', 'maengel', 'gewaehrleistung', 'sicherheit', 'unterweisung', 'schulung',
+  'zertifikat', 'pruefbuch', 'wartung', 'stoerung', 'ersatzteil', 'garantie', 'versicherung',
+  'steuer', 'buchung', 'kasse', 'zahlung', 'bank', 'export', 'import', 'schnittstelle',
+  'anbindung', 'oberflaeche', 'formular', 'bericht', 'auswertung', 'kennzahl', 'archiv',
+  'papierkorb', 'benachrichtigung', 'freigabe'];
+const GRUNDWORT = ['modul', 'puffer', 'lauf', 'pfad', 'regel', 'frist', 'grenze', 'liste',
+  'feld', 'maske', 'ansicht', 'zeile', 'spalte', 'stapel', 'warteschlange', 'dienst', 'auftrag',
+  'vorgang', 'schritt', 'stufe', 'zustand', 'wechsel', 'abgleich', 'pruefung', 'meldung',
+  'hinweis', 'vermerk', 'eintrag', 'satz', 'block', 'gruppe', 'kette', 'reihe', 'folge',
+  'zaehler', 'messwert', 'schwelle', 'quote', 'anteil', 'summe', 'saldo', 'posten', 'beleg',
+  'nummer', 'kennung', 'marke', 'stempel', 'schluessel', 'zuordnung', 'verweis', 'bezug',
+  'abhaengigkeit', 'ordnung', 'sortierung', 'filter', 'sicht', 'auszug', 'ablauf', 'plan', 'takt'];
+const VERB = ['pruefen', 'sperren', 'freigeben', 'nachziehen', 'verwerfen', 'sammeln',
+  'trennen', 'buendeln', 'verschieben', 'vorhalten', 'nachreichen', 'abgleichen', 'melden',
+  'stapeln', 'kuerzen', 'ergaenzen', 'anlegen', 'schliessen'];
+const UMSTAND = ['seit der Umstellung', 'im Nachtlauf', 'bei hoher Last', 'am Monatsende',
+  'im Aussendienst', 'nach dem Umzug', 'bei mehreren Standorten', 'im Vertretungsfall',
+  'bei Teillieferung', 'nach einer Stornierung', 'bei ungueltigem Beleg', 'im Probebetrieb'];
+
+const wort = (r) => BESTIMMUNG[Math.floor(r() * BESTIMMUNG.length)] + GRUNDWORT[Math.floor(r() * GRUNDWORT.length)];
+const einer = (a, r) => a[Math.floor(r() * a.length)];
+
+/** Ein Ablenkungs-Eintrag mit eigenem Thema und eigenem Wortschatz. */
+function streuEintrag(r, i) {
+  const thema = wort(r);
+  const teile = [];
+  for (let k = 0; k < 7; k += 1) {
+    teile.push(`${einer(UMSTAND, r)} muss der ${wort(r)} den ${wort(r)} ${einer(VERB, r)}`);
+  }
+  return {
+    id: `S-${i}`,
+    topic: thema,
+    choice: `${thema}: ${wort(r)} vor ${wort(r)} ${einer(VERB, r)}`,
+    why: `${teile.join('. ')}.`,
+    tags: [thema],
+  };
+}
+
 const ABLENKUNG_THEMEN = [
   ['protokollierung', 'strukturierte JSON-Zeilen', 'grep gibt es ueberall, ein Betrachter nicht'],
   ['pakete', 'ein Repository, viele Pakete', 'querschneidende Aenderungen waren vorher drei Anfragen'],
@@ -102,11 +159,12 @@ const ABLENKUNG_FEHLER = [
  * @param {string} root       Zielverzeichnis
  * @param {object} opt
  * @param {boolean} opt.poisoned
- * @param {number} opt.noise   wie viele Ablenkungsrunden (Groesse des Korpus)
+ * @param {number} opt.noise   Ablenkungsrunden mit geteiltem Vokabular
+ * @param {number} opt.streu   Eintraege mit je eigenem Thema (Vokabular-Reichtum)
  * @param {number} opt.flood   wie viele Flutungs-Eintraege eines Autors (nur poisoned)
  * @param {string[]} opt.echoes  Fragetexte, die als Rohfang-Echo abgelegt werden
  */
-export function build(root, { poisoned = false, noise = 8, flood = 40, echoes = [], seed = 7 } = {}) {
+export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], seed = 7 } = {}) {
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   const r = rng(seed);
   const ids = [];
@@ -122,7 +180,17 @@ export function build(root, { poisoned = false, noise = 8, flood = 40, echoes = 
     ids.push(f.id);
   }
 
-  // 2. Ablenkung: thematisch benachbart, fuer keine Aufgabe die Antwort.
+  // 2a. Streuung: viele Eintraege mit je eigenem Thema und eigenem
+  //     Wortschatz. Das ist es, was den Korpus dem echten aehnlich macht —
+  //     nicht mehr Runden desselben Themas.
+  for (let i = 0; i < streu; i += 1) {
+    memory.logEntry(root, i % 3 === 0 ? 'error' : 'decision',
+      { ...streuEintrag(r, i), author: 'lucky', authority: 'user', project: PROJECT,
+        ...(i % 3 === 0 ? { title: `Stoerung im ${wort(r)}`, class: 'betrieb' } : {}) },
+      { project: PROJECT });
+  }
+
+  // 2b. Ablenkung: thematisch benachbart, fuer keine Aufgabe die Antwort.
   for (let i = 0; i < noise; i += 1) {
     for (const [thema, wahl, grund] of ABLENKUNG_THEMEN) {
       memory.logEntry(root, 'decision', {

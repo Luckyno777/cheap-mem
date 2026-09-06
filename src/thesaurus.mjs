@@ -41,59 +41,102 @@
  */
 export const THESAURUS = Object.freeze([
   // Failure shapes
-  ['error', 'bug', 'defect', 'broken', 'problem', 'failure', 'fault'],
-  ['flake', 'flaky', 'intermittent', 'sporadic', 'unstable', 'unreliable'],
-  ['timeout', 'hang', 'hung', 'stuck', 'blocked', 'deadlock', 'frozen'],
-  ['crash', 'panic', 'abort', 'segfault', 'died', 'killed'],
+  ['error', 'bug', 'defect', 'broken', 'problem', 'failure', 'fault',
+   'fehler', 'defekt', 'kaputt', 'stoerung', 'ausfall', 'panne'],
+  ['flake', 'flaky', 'intermittent', 'sporadic', 'unstable', 'unreliable',
+   'sporadisch', 'unzuverlaessig', 'wackelig'],
+  ['timeout', 'hang', 'hung', 'stuck', 'blocked', 'deadlock', 'frozen',
+   'haengt', 'blockiert', 'eingefroren', 'zeitueberschreitung'],
+  ['crash', 'panic', 'abort', 'segfault', 'died', 'killed',
+   'absturz', 'abgestuerzt', 'abbruch'],
   ['leak', 'leaking', 'unbounded', 'growing', 'oom'],
   ['race', 'racy', 'concurrent', 'interleaving'],
   ['regression', 'regressed', 'broke', 'worse'],
 
   // State / lifecycle
-  ['start', 'begin', 'launch', 'boot', 'startup', 'init'],
-  ['stop', 'shutdown', 'halt', 'terminate', 'teardown'],
-  ['restart', 'reboot', 'relaunch', 'bounce'],
-  ['done', 'finished', 'complete', 'completed', 'shipped', 'merged'],
-  ['open', 'pending', 'outstanding', 'todo', 'unfinished'],
+  ['start', 'begin', 'launch', 'boot', 'startup', 'init',
+   'starten', 'beginn', 'hochfahren', 'anlaufen'],
+  ['stop', 'shutdown', 'halt', 'terminate', 'teardown',
+   'stoppen', 'beenden', 'herunterfahren', 'anhalten'],
+  ['restart', 'reboot', 'relaunch', 'bounce',
+   'neustart', 'neustarten'],
+  ['done', 'finished', 'complete', 'completed', 'shipped', 'merged',
+   'fertig', 'erledigt', 'abgeschlossen'],
+  ['open', 'pending', 'outstanding', 'todo', 'unfinished',
+   'offen', 'ausstehend', 'unerledigt'],
   ['waiting', 'stalled', 'gated', 'queued'],
 
   // Build / delivery
   ['build', 'compile', 'compilation', 'bundling'],
-  ['deploy', 'release', 'ship', 'rollout', 'publish'],
-  ['test', 'testing', 'check', 'verify', 'verification', 'assertion'],
+  ['deploy', 'release', 'ship', 'rollout', 'publish',
+   'auslieferung', 'ausliefern', 'ausrollen', 'inbetriebnahme', 'veroeffentlichen'],
+  ['test', 'testing', 'check', 'verify', 'verification', 'assertion',
+   'pruefung', 'pruefen', 'kontrolle', 'nachweis', 'gesundheitspruefung'],
   ['ci', 'pipeline', 'workflow', 'action', 'runner', 'job'],
   ['merge', 'pr', 'pull-request', 'mr', 'patch'],
   ['branch', 'ref', 'head'],
-  ['rollback', 'revert', 'undo', 'backout'],
+  ['rollback', 'revert', 'undo', 'backout',
+   'zuruecknehmen', 'ruecknahme', 'rueckabwicklung'],
 
   // Performance
-  ['slow', 'sluggish', 'latency', 'lag', 'delay'],
+  ['slow', 'sluggish', 'latency', 'lag', 'delay',
+   'langsam', 'verzoegerung', 'traege'],
   ['fast', 'quick', 'speedy', 'throughput'],
   ['ram', 'heap', 'allocation', 'gc'],
 
   // Security
-  ['secret', 'token', 'credential', 'key', 'password'],
+  ['secret', 'token', 'credential', 'key', 'password',
+   'geheimnis', 'zugangsdaten', 'kennwort', 'passwort'],
   ['exposure', 'disclosure', 'exfiltration'],
-  ['auth', 'authentication', 'authorization', 'login', 'signin'],
-  ['permission', 'access', 'privilege', 'grant', 'scope'],
+  ['auth', 'authentication', 'authorization', 'login', 'signin',
+   'anmeldung', 'anmelden', 'einloggen', 'zugang'],
+  ['permission', 'access', 'privilege', 'grant', 'scope',
+   'berechtigung', 'zugriff', 'freigabe', 'geltungsbereich'],
 
   // Data
-  ['database', 'db', 'datastore', 'store', 'storage', 'persistence'],
-  ['query', 'lookup', 'search', 'find', 'retrieval'],
+  ['database', 'db', 'datastore', 'store', 'storage', 'persistence',
+   'datenbank', 'ablage', 'ablegen', 'speichern', 'aufbewahren', 'sicherung'],
+  ['query', 'lookup', 'search', 'find', 'retrieval',
+   'anfrage', 'suche', 'suchen', 'finden', 'abruf'],
   ['index', 'indexing', 'indexed'],
   ['migration', 'schema', 'ddl'],
 
   // Decisions and reasoning
-  ['decision', 'decided', 'chose', 'choose', 'choosing', 'choice', 'picked', 'selected'],
-  ['because', 'reason', 'rationale', 'why', 'motivation'],
+  ['decision', 'decided', 'chose', 'choose', 'choosing', 'choice', 'picked', 'selected',
+   'entscheidung', 'entschieden', 'festlegung', 'festgelegt', 'wahl'],
+  ['because', 'reason', 'rationale', 'why', 'motivation',
+   'weil', 'grund', 'begruendung', 'warum'],
   ['tradeoff', 'compromise', 'balance', 'cost'],
 
   // The memory system itself
-  ['memory', 'mem', 'recall', 'remember'],
+  ['memory', 'mem', 'recall', 'remember',
+   'gedaechtnis', 'erinnerung', 'erinnern'],
   ['capture', 'raw', 'transcript', 'log'],
   ['digest', 'condense', 'summarize', 'compact'],
-  ['duty', 'obligation', 'promise', 'commitment', 'owed'],
-  ['learning', 'lesson', 'insight', 'takeaway'],
+  ['duty', 'obligation', 'promise', 'commitment', 'owed',
+   'pflicht', 'zusage', 'versprechen', 'schuldig'],
+  ['learning', 'lesson', 'insight', 'takeaway',
+   'lehre', 'erkenntnis', 'einsicht'],
+
+  // Deutsche Gruppen ohne englisches Gegenstueck oben. Gemessen am
+  // 2026-09-06: vor dieser Erweiterung ergab die kuratierte Schicht fuer
+  // deutsche Anfragen NULL Synonyme — 0 aus 342 Termen ueber 39 Fragen,
+  // gegen 53 aus 44 auf Englisch. Der Mechanismus arbeitete, er griff nur
+  // nicht, und nichts sagte es einem.
+  //
+  // Deutsch steht MIT in den Gruppen oben, nicht daneben: damit findet eine
+  // deutsche Frage auch einen englischen Eintrag und umgekehrt. Gemischte
+  // Memories sind der Normalfall, sobald Werkzeuge englisch protokollieren.
+  ['zeitstempel', 'zeitangabe', 'uhrzeit', 'datum'],
+  ['oberflaeche', 'maske', 'formular', 'ansicht', 'darstellung'],
+  ['meldung', 'hinweis', 'benachrichtigung', 'mitteilung'],
+  ['bericht', 'auswertung', 'uebersicht', 'zusammenstellung'],
+  ['aufbewahrung', 'vorhaltezeit', 'loeschfrist', 'aufbewahrungsfrist'],
+  ['obergrenze', 'hoechstwert', 'maximalwert', 'limit', 'begrenzung'],
+  ['kunde', 'abnehmer', 'auftraggeber', 'besteller'],
+  ['aenderung', 'anpassung', 'umstellung', 'korrektur'],
+  ['wiederholung', 'idempotenz', 'doppelt', 'mehrfach'],
+  ['nutzer', 'benutzer', 'anwender'],
 ]);
 
 let userGroups = [];

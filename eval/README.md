@@ -386,3 +386,79 @@ ist, waere genau der Fehler, gegen den diese ganze Reihe gebaut wurde.
 
 **Der Engpass ist nicht das Modell und nicht das Feature. Es ist der
 Recall.**
+
+---
+
+# Der treue Korpus — und was er an den eigenen Befunden widerlegt
+
+Bis hierher lagen alle Zahlen auf einem Korpus, dessen Score-Verteilung um
+das Doppelte danebenlag. Gemessen am gewachsenen lucky-mem (930 Dokumente):
+**8944 verschiedene Woerter**, Median 61 je Dokument. Der Generator kam auf
+**403** bei 259 Dokumenten — Wortzahl je Dokument stimmte, das Vokabular
+war 22-fach zu arm. Bei 403 Woertern ist jedes haeufig, jede idf winzig,
+und alle Scores liegen bei 0-10 statt bei den echten 2-93.
+
+Deutsche Komposita loesen das ohne Wortliste: 60 Bestimmungswoerter mal 60
+Grundwoerter ergeben 3600 plausible Fachbegriffe, jeder Ablenkungs-Eintrag
+bekommt ein eigenes Thema daraus.
+
+| | Dokumente | verschiedene Woerter | p50 | >= 5,0 |
+|---|---:|---:|---:|---:|
+| alt | 259 | 403 | 4,84 | 47,6 % |
+| **neu** | **839** | **3915** | **9,89** | **94,9 %** |
+| **echt** | **930** | **8944** | **11,34** | **93,3 %** |
+
+## Drei eigene Befunde, die damit fallen
+
+**1. "Der termGraph schadet auf Deutsch" — WIDERRUFEN.** Auf dem treuen
+Korpus:
+
+| | top-5 | ueber Schwelle | leerer Kontext |
+|---|---:|---:|---:|
+| voll | 13/33 | **13/33** | **0** |
+| ohne termGraph | 18/33 | 12/33 | **15** |
+
+Der Ranking-Schaden bleibt, schlaegt aber nicht auf das durch, was
+eingespeist wird — und **ohne** den termGraph bekommen 15 von 33 Aufgaben
+gar keinen Kontext. Der frueher gemessene Schaden (9/18 gegen 16/18) war
+ein Artefakt der Wiederholung im armen Korpus.
+
+**2. "8 von 21 Aufgaben bekommen leeren Kontext" — WIDERRUFEN.** Auf dem
+treuen Korpus: **0 von 39.** Damit faellt auch die Hauptbegruendung fuer
+die Empty-Answer-Semantik als vordringliches Feature.
+
+**3. Obergrenze 28 % — korrigiert auf 36 %** (12 von 33).
+
+## Was haelt
+
+- **Die Echo-Rate waechst mit der Memory-Groesse**: 31,3 / 57,3 / 66,8 %
+  bei 829 / 1159 / 2039 Dokumenten (umformulierte Fragen). Der Befund ist
+  korpusunabhaengig.
+- **Die Schwelle 5 ist richtig**: der Recall ist von 0 bis 6 flach
+  (13/33) und faellt erst ab 7. Stufe 3 bestaetigt.
+- **Alle Gates halten**: kein Korrekturversagen, Konflikte 2/2 gemeldet,
+  kein Autoritaetsbruch.
+- **Verdraengung findet nicht statt**, Flutung ist selbstbegrenzend.
+
+# Deutsche Synonyme: INCONCLUSIVE, behalten
+
+`THESAURUS` ist um deutsche Woerter erweitert, und zwar **in** den
+bestehenden Gruppen statt daneben — damit findet eine deutsche Frage auch
+einen englischen Eintrag. Gemischte Memories sind der Normalfall, sobald
+Werkzeuge englisch protokollieren und der Mensch deutsch fragt.
+
+Gemessen:
+
+- Deckung: vorher **0 Synonyme aus 342 Termen** ueber 39 deutsche Fragen,
+  jetzt gedeckt. Die Luecke war real.
+- **Recall auf dem Benchmark: 13/33 vorher, 13/33 nachher. Keine Wirkung.**
+  Die Gruppen ueberbruecken nicht die Wortpaare, die dieser Benchmark
+  trennt.
+- Sprachuebergreifend, deutsche Frage auf englischen Eintrag: **0/4 vorher,
+  1/4 nachher.** Der Mechanismus greift ("Zugangsdaten" fand `credential`
+  auf Rang 2), die Wirkung ist klein und n=4.
+
+**Urteil: INCONCLUSIVE.** Ein realer Deckungsmangel ist geschlossen, ein
+kleiner sprachuebergreifender Effekt ist messbar, ein Recall-Gewinn ist es
+NICHT. Behalten, weil es kein Verhalten aendert und keine Laufzeit kostet
+— nicht, weil es sich bewaehrt haette.

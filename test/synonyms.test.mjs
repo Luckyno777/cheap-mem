@@ -10,16 +10,26 @@ import assert from 'node:assert/strict';
 import * as thesaurus from '../src/thesaurus.mjs';
 import { pack } from '../src/language.mjs';
 
-test('curatedCoverage trennt eine gedeckte von einer ungedeckten Sprache', () => {
+test('curatedCoverage trennt gedecktes von ungedecktem Vokabular', () => {
+  // Stand 2026-09-06 NACH der Erweiterung: Deutsch steht jetzt mit in den
+  // Gruppen. Vorher ergab die kuratierte Schicht fuer deutsche Anfragen
+  // null Synonyme (0 aus 342 Termen ueber 39 Fragen, gegen 53 aus 44 auf
+  // Englisch) — diese Zusicherung hat den Zustand festgehalten und ist
+  // jetzt umgekehrt zu lesen.
   const en = ['deploy', 'error', 'test', 'build', 'slow', 'restart', 'merge', 'branch', 'timeout', 'crash'];
-  const de = ['zeitstempel', 'auslieferung', 'ablage', 'anmeldung', 'bildgroesse',
-    'aufbewahrung', 'berichtsformat', 'oberflaeche', 'pruefung', 'vorgang'];
-  const a = thesaurus.curatedCoverage(en, pack('en'));
-  const b = thesaurus.curatedCoverage(de, pack('de'));
-  // Positivkontrolle zuerst: ohne sie waere "0 Treffer" nicht von einer
-  // kaputten Messung zu unterscheiden.
-  assert.equal(a.covered, en.length, 'englische Woerter muessen gedeckt sein — sonst misst die Funktion nichts');
-  assert.equal(b.covered, 0, 'deutsche Woerter duerfen nicht gedeckt sein, solange die Liste englisch ist');
+  const de = ['auslieferung', 'fehler', 'pruefung', 'anmeldung', 'datenbank',
+    'entscheidung', 'gedaechtnis', 'zeitstempel', 'obergrenze', 'aufbewahrung'];
+  // Vokabular, das die Liste bewusst NICHT kennt — die Negativkontrolle.
+  // Ohne sie waere "alles gedeckt" nicht von einer kaputten Messung zu
+  // unterscheiden, die immer wahr sagt.
+  const fremd = ['abrechnungsmodul', 'stundenzettelpuffer', 'aufmasszeile',
+    'gewerkstapel', 'nachtragsposten'];
+  assert.equal(thesaurus.curatedCoverage(en, pack('en')).covered, en.length,
+    'englische Woerter muessen gedeckt sein');
+  assert.equal(thesaurus.curatedCoverage(de, pack('de')).covered, de.length,
+    'deutsche Woerter muessen seit der Erweiterung gedeckt sein');
+  assert.equal(thesaurus.curatedCoverage(fremd, pack('de')).covered, 0,
+    'erfundene Fachbegriffe duerfen NICHT gedeckt sein — sonst misst die Funktion nichts');
 });
 
 test('eine eigene Wortliste schliesst die Luecke', async () => {
