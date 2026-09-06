@@ -61,7 +61,7 @@ was measured and thrown away. Details:
 | `mem context` once + `mem find` per question | ~5,800 | **96.6% less** |
 
 The benchmark also reports how often the cheap path actually retrieved
-the entry holding the answer — **14 of 15**. A saving with a miss rate
+the entry holding the answer — **12 of 15**. A saving with a miss rate
 is not a saving, so the number is printed next to the percentage and
 the miss is named. Tokens are estimated as characters/4, applied
 identically to both sides: trust the ratio, not the absolutes.
