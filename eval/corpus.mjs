@@ -164,15 +164,39 @@ const ABLENKUNG_FEHLER = [
  * @param {number} opt.streu   Eintraege mit je eigenem Thema (Vokabular-Reichtum)
  * @param {number} opt.flood   wie viele Flutungs-Eintraege eines Autors (nur poisoned)
  * @param {string[]} opt.echoes  Fragetexte, die als Rohfang-Echo abgelegt werden
+ * @param {string[]} opt.nurRoh  Fakt-IDs, die NUR als Rohfang existieren —
+ *   ungefasst, so wie der Stop-Hook sie ablegt, bevor der Fasser gelaufen
+ *   ist. Damit laesst sich der PREIS der Reserve-Bahn messen: eine Angabe,
+ *   die es nirgends gepflegt gibt.
  */
-export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], seed = 7 } = {}) {
+export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], nurRoh = [], seed = 7 } = {}) {
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   const r = rng(seed);
   const ids = [];
 
   // 1. Die Fakten selbst. Ersetzungen werden als solche geschrieben, damit
   //    der Zustand aus dem Log kommt und nicht aus der Reihenfolge.
+  const nurRohSet = new Set(nurRoh);
+  const rohDir = path.join(root, 'raw', '2026', '08');
   for (const f of FACTS) {
+    if (nurRohSet.has(f.id)) {
+      // Ungefasst: derselbe Satz, aber als Mitschrift eines Gespraechs,
+      // eingebettet in Umgebungsgerede — so wie er wirklich anfaellt.
+      fs.mkdirSync(rohDir, { recursive: true });
+      const satz = satzA(f, r);
+      const zeilen = [
+        `kurz zu ${satz.topic}: was machen wir da eigentlich`,
+        `wir nehmen ${satz.choice}`,
+        `weil ${satz.why}`,
+        'ok, notiert. naechstes thema.',
+      ].map((t, i) => JSON.stringify({
+        ts: `2026-08-2${i % 10}T09:00:00Z`, role: i % 2 ? 'assistant' : 'user', text: t,
+      })).join('\n');
+      fs.writeFileSync(path.join(rohDir, `2026-08-20T09-00-00Z--${f.id}.jsonl.gz`),
+        zlib.gzipSync(`${zeilen}\n`));
+      ids.push(f.id);
+      continue;
+    }
     const data = { id: f.id, ...satzA(f, r), tags: [f.kern.thema], project: PROJECT };
     if (f.kern.autor) { data.author = f.kern.autor; data.authority = f.kern.autor === 'lucky' ? 'user' : 'agent'; }
     else { data.author = 'lucky'; data.authority = 'user'; }

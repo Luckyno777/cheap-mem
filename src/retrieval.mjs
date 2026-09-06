@@ -146,6 +146,7 @@ export function retrieve(root, query, capability, {
   // zurueckgibt, wird nach dem dritten Mal ueberlesen — und dann ist der
   // ganze Abruf weg.
   dropEcho = true,
+  rawReserve = true,
 } = {}) {
   const excluded = [];
   const note = (id, why) => excluded.push({ id: id ?? null, why });
@@ -275,10 +276,9 @@ export function retrieve(root, query, capability, {
   // nur im Fang und liefert das Gepflegte fuenf mittelmaessige Treffer,
   // kommt der Fang nicht mehr durch. Der eval-Korpus kann das nicht
   // zeigen, weil dort alles Gold gepflegt ist.
-  const raw = [
-    ...gereiht.filter((h) => h.type !== 'raw'),
-    ...gereiht.filter((h) => h.type === 'raw'),
-  ];
+  const raw = rawReserve
+    ? [...gereiht.filter((h) => h.type !== 'raw'), ...gereiht.filter((h) => h.type === 'raw')]
+    : gereiht;
 
   // Derived ONCE per call, from the log, with no query parameter. A
   // function that reads the log itself cannot be handed a subset — which

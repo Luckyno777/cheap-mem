@@ -28,6 +28,7 @@ verschwendetes Geld.
 |---|---|---|
 | `independence.mjs` | verraet die Aufgabe ihre eigene Antwort? Und ist das Gold ueberhaupt auffindbar? | nein |
 | `echo.mjs` | wie viel des automatisch Eingespeisten ist die eigene Frage von vorher? | nein |
+| `nur-roh.mjs` | was kostet die Reserve-Bahn, wenn eine Angabe nur ungefasst vorliegt? | nein |
 | `flood.mjs` | ab welcher Menge verdraengt reine Masse die Wahrheit? | nein |
 | `kennzahlen.mjs` | Ober- und Untergrenze des Nutzens, alle Gates | nein |
 | `run.mjs` | loesen Agenten die Aufgabe mit Memory besser? | **ja** |
@@ -155,11 +156,27 @@ Die Flut kostet damit noch **eine** Aufgabe statt drei.
 
 Zwei Dinge, die dabei ehrlich dazugehoeren:
 
-- **Der Preis ist nicht gemessen.** Steht eine Angabe nur im Fang und
-  liefert das Gepflegte fuenf mittelmaessige Treffer, kommt der Fang
-  nicht mehr durch. Der eval-Korpus kann das nicht zeigen, weil dort
-  alles Gold gepflegt ist. Ein Aufgabensatz, bei dem die Antwort NUR im
-  Rohfang steht, fehlt noch.
+- **Der Preis, jetzt gemessen** (`node eval/nur-roh.mjs`). Ein Drittel
+  der Fakten existiert dort NUR als Rohfang — ungefasst, so wie der
+  Stop-Hook sie ablegt, bevor der Fasser gelaufen ist. Das trifft 14 der
+  33 Aufgaben.
+
+  | Bedingung | Fakt im Kontext | davon betroffene | Rohfang-Claims |
+  |---|---:|---:|---:|
+  | alles gepflegt (Grundlinie) | 12/33 | 5/14 | 0 |
+  | ein Drittel nur Rohfang, Reserve-Bahn | 12/33 | **4/14** | 0 |
+  | dieselbe Verlagerung, Rohfang gleichberechtigt | 12/33 | **6/14** | 27 |
+
+  Die Reserve-Bahn kostet also **2 der 14 betroffenen Aufgaben**
+  gegenueber dem gleichberechtigten Fang. Und noch schaerfer: auf diesem
+  Korpus kommt der Fang **nie** durch — 0 Rohfang-Claims, obwohl sieben
+  Fakten nur dort stehen. Das Gepflegte fuellt die fuenf Plaetze immer.
+
+  Der Handel ist damit benannt, nicht wegerklaert: die Regel gewinnt 2
+  Aufgaben, wo die Memory geflutet ist, und verliert 2, wo der Fasser
+  noch nicht gelaufen ist. Was das Vorzeichen entscheidet, ist die
+  Verzoegerung des Fassers — laeuft er stuendlich, ist das Fenster
+  schmal; laeuft er nie, ist "nur im Rohfang" der Normalfall.
 - **Der Echo-Filter hat dadurch weniger zu tun.** Im vergifteten Korpus
   verwirft er jetzt 0 statt 39 — nicht weil er schlechter wurde, sondern
   weil die Echos gar nicht mehr bis zur Auswahl kommen. Er zaehlt noch,

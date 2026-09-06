@@ -379,14 +379,14 @@ const MUTANTS=[
 
  { name:'ARCH raw captures compete with curated claims again',
    file:'src/retrieval.mjs',
-   from:"  const raw = [\n    ...gereiht.filter((h) => h.type !== 'raw'),\n    ...gereiht.filter((h) => h.type === 'raw'),\n  ];",
-   to:"  const raw = gereiht;  // MUTANT: der Fang draengt sich wieder vor",
+   from:'  rawReserve = true,',
+   to:'  rawReserve = false,  // MUTANT: der Fang draengt sich wieder vor',
    tests:['test/raw-reserve.test.mjs'] },
 
  { name:'ARCH raw captures are dropped from the gateway entirely',
    file:'src/retrieval.mjs',
-   from:"    ...gereiht.filter((h) => h.type === 'raw'),",
-   to:"    // MUTANT: Reserve heisst nie",
+   from:"    ? [...gereiht.filter((h) => h.type !== 'raw'), ...gereiht.filter((h) => h.type === 'raw')]",
+   to:"    ? gereiht.filter((h) => h.type !== 'raw')  // MUTANT: Reserve heisst nie",
    tests:['test/raw-reserve.test.mjs'] },
 
  { name:'ARCH the retrieval query asks the raw captures what is rare',
