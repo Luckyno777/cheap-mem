@@ -379,8 +379,16 @@ const COMMANDS = {
     const data = {};
     for (const [k, v] of Object.entries(args)) {
       if (k === 'project' || k === 'root' || k === 'help') continue;
-      if (k === 'tags' && typeof v === 'string') {
-        data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
+        // Hier in `mem log`, und weiter unten noch einmal — beide Stellen
+        // muessen dasselbe tun, sonst haengt die Form eines Feldes davon
+        // ab, welcher Befehl es geschrieben hat.
+        //
+        // `asked` sind FRAGEWORTE: womit wuerde jemand danach fragen,
+        // ohne die Woerter des Eintrags zu benutzen. Kommagetrennt wie
+        // Tags, denn das sind sie — Zugriffswoerter fuer Fragen statt
+        // fuer Themen.
+        data[k] = v.split(',').map((x) => x.trim()).filter(Boolean);
       } else if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
         // Provenance is a STRUCTURE, and every doc tells you to pass it as
         // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat
@@ -1985,8 +1993,12 @@ const COMMANDS = {
     const data = {};
     for (const [k, v] of Object.entries(args)) {
       if (k === 'project' || k === 'root' || k === 'help') continue;
-      if (k === 'tags' && typeof v === 'string') {
-        data.tags = v.split(',').map((s) => s.trim()).filter(Boolean);
+      if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
+        // `asked` sind FRAGEWORTE: womit wuerde jemand danach fragen,
+        // ohne die Woerter des Eintrags zu benutzen. Kommagetrennt wie
+        // Tags, denn das sind sie — Zugriffswoerter fuer Fragen statt
+        // fuer Themen.
+        data[k] = v.split(',').map((x) => x.trim()).filter(Boolean);
       } else if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
         // Provenance is a STRUCTURE, and every doc tells you to pass it as
         // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat

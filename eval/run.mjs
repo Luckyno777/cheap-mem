@@ -28,7 +28,14 @@ const TOP = Number(arg('top', '5'));
 const OUT = arg('out', `eval/runs/${SPLIT}-${Date.now()}.jsonl`);
 const SEED = Number(arg('seed', '7'));
 
-const tasks = TASKS.filter((t) => SPLIT === 'all' || t.split === SPLIT);
+// `--only A1,B2` fuer den Nachlauf: waechst der Aufgabensatz, muessen die
+// schon gemessenen Aufgaben nicht noch einmal bezahlt werden. Die alten
+// Zeilen bleiben gueltig — gleiches Modell, gleicher Arm, gleiche Bedingung.
+const ONLY = arg('only', '');
+const nurIds = ONLY ? new Set(ONLY.split(',').map((x) => x.trim())) : null;
+const tasks = TASKS
+  .filter((t) => SPLIT === 'all' || t.split === SPLIT)
+  .filter((t) => !nurIds || nurIds.has(t.id));
 const est = (s) => Math.ceil(String(s).length / 4);
 // E und F brauchen zwei Modellaufrufe (Entwurf + Pruefung).
 const callsFor = (a) => (a === 'E' || a === 'F' ? 2 : 1);

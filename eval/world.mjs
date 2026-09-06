@@ -226,6 +226,113 @@ export const FACTS = [
     vokA: ['vorlagenbibliothek', 'festgenagelt', '3.7.2', 'umbruchsteuerung'],
     vokB: ['fassung', 'abhaengigkeit', 'welche'],
   },
+
+  // ---- Ausbau D und I (2026-09-06) ----------------------------------
+  //
+  // WARUM GERADE DIESE ZWEI. Der zustandslose Lauf hat gemessen, wo ein
+  // Modell ohne Gedaechtnis scheitern MUSS: Klasse D (Korrektur) 0 von 6,
+  // Klasse I (Bezeichner) 0 von 6. Ueberall sonst raet es teilweise
+  // richtig — Klasse H 4 von 6, Klasse F 5 von 6.
+  //
+  // Der Kopfraum lag damit bei 6 von 39 Aufgaben. Sechs Aufgaben tragen
+  // keine Statistik: ein Hebel, der zwei davon gewinnt, ist von Zufall
+  // nicht zu unterscheiden. Also wachsen genau die beiden Klassen, bei
+  // denen der Grundwert null ist, und nur sie — die anderen zu vergroessern
+  // wuerde den Benchmark nur teurer machen, nicht schaerfer.
+  //
+  // Alle Werte willkuerlich: eine Frist, ein Kontingent, ein Skonto sind
+  // Geschaeftsentscheidungen. Keine davon ist ableitbar.
+
+  { id: 'F-timeout-alt', klasse: 'D', veraltet: true,
+    erratbar: false, warum: 'willkuerliche Zeitspanne',
+    kern: { thema: 'zeitueberschreitung', wahl: '12 Sekunden', grund: 'erste Schaetzung' },
+    vokA: ['zeitueberschreitung', '12'], vokB: [] },
+  { id: 'F-timeout-neu', klasse: 'D', ersetzt: 'F-timeout-alt',
+    erratbar: false, warum: 'willkuerliche Zeitspanne',
+    kern: { thema: 'zeitueberschreitung', wahl: '45 Sekunden', grund: 'der Bilderdienst braucht bei grossen Anhaengen laenger' },
+    vokA: ['zeitueberschreitung', '45', 'bilderdienst', 'anhaenge'],
+    vokB: ['abbruch', 'warten', 'aufgeben'] },
+
+  { id: 'F-kontingent-alt', klasse: 'D', veraltet: true,
+    erratbar: false, warum: 'willkuerliche Zahl',
+    kern: { thema: 'kontingent', wahl: '500 Anfragen je Stunde', grund: 'Startwert' },
+    vokA: ['kontingent', '500'], vokB: [] },
+  { id: 'F-kontingent-neu', klasse: 'D', ersetzt: 'F-kontingent-alt',
+    erratbar: false, warum: 'willkuerliche Zahl',
+    kern: { thema: 'kontingent', wahl: '1200 Anfragen je Stunde', grund: 'die Tourenplanung fragt beim Morgenlauf gebuendelt ab' },
+    vokA: ['kontingent', '1200', 'tourenplanung', 'morgenlauf'],
+    vokB: ['drosselung', 'obergrenze', 'stunde'] },
+
+  { id: 'F-meldeweg-alt', klasse: 'D', veraltet: true,
+    erratbar: false, warum: 'organisatorische Festlegung, nicht ableitbar',
+    kern: { thema: 'meldeweg', wahl: 'Telefonkette', grund: 'zu zweit ging das' },
+    vokA: ['meldeweg', 'telefonkette'], vokB: [] },
+  { id: 'F-meldeweg-neu', klasse: 'D', ersetzt: 'F-meldeweg-alt',
+    erratbar: false, warum: 'organisatorische Festlegung, nicht ableitbar',
+    kern: { thema: 'meldeweg', wahl: 'Sammelpostfach im Ticketsystem', grund: 'bei der Telefonkette blieb nachts jede Meldung liegen' },
+    vokA: ['meldeweg', 'sammelpostfach', 'ticketsystem'],
+    vokB: ['stoerung', 'melden', 'wohin'] },
+
+  { id: 'F-sortierung-alt', klasse: 'D', veraltet: true,
+    erratbar: false, warum: 'Produktentscheidung',
+    kern: { thema: 'sortierung', wahl: 'nach Name', grund: 'einfachste Umsetzung' },
+    vokA: ['sortierung', 'name'], vokB: [] },
+  { id: 'F-sortierung-neu', klasse: 'D', ersetzt: 'F-sortierung-alt',
+    erratbar: false, warum: 'Produktentscheidung',
+    kern: { thema: 'sortierung', wahl: 'nach letzter Aenderung', grund: 'die Betriebe suchen ihren gestrigen Vorgang, nicht den Buchstaben' },
+    vokA: ['sortierung', 'aenderung', 'betriebe'],
+    vokB: ['reihenfolge', 'liste', 'anzeigen'] },
+
+  { id: 'F-frist-alt', klasse: 'D', veraltet: true,
+    erratbar: false, warum: 'willkuerliche Frist',
+    kern: { thema: 'widerspruchsfrist', wahl: '14 Tage', grund: 'uebernommen aus dem Musterschreiben' },
+    vokA: ['widerspruchsfrist', '14'], vokB: [] },
+  { id: 'F-frist-neu', klasse: 'D', ersetzt: 'F-frist-alt',
+    erratbar: false, warum: 'willkuerliche Frist',
+    kern: { thema: 'widerspruchsfrist', wahl: '21 Tage', grund: 'die Betriebe rechnen erst am Monatsende ab, 14 Tage reichten nie' },
+    vokA: ['widerspruchsfrist', '21', 'monatsende'],
+    vokB: ['einspruch', 'zeit', 'kunde'] },
+
+  { id: 'F-skonto-alt', klasse: 'D', veraltet: true,
+    erratbar: false, warum: 'Geschaeftsentscheidung',
+    kern: { thema: 'skonto', wahl: '2 Prozent', grund: 'branchenueblich abgeschaut' },
+    vokA: ['skonto', '2'], vokB: [] },
+  { id: 'F-skonto-neu', klasse: 'D', ersetzt: 'F-skonto-alt',
+    erratbar: false, warum: 'Geschaeftsentscheidung',
+    kern: { thema: 'skonto', wahl: '3 Prozent', grund: 'zwei Prozent haben die Zahlungsmoral nicht bewegt' },
+    vokA: ['skonto', '3', 'zahlungsmoral'],
+    vokB: ['abzug', 'schnellzahler', 'gewaehren'] },
+
+  { id: 'F-modul', klasse: 'I',
+    erratbar: false, warum: 'Dateipfad in einem fremden Projekt',
+    kern: { thema: 'rundung', wahl: 'lib/abrechnung/rundung.mjs', grund: 'die Regel steht an einer Stelle, damit sie nur einmal falsch sein kann' },
+    vokA: ['rundung', 'abrechnung', 'lib'],
+    vokB: ['kaufmaennisch', 'wo', 'code'] },
+  { id: 'F-ticket', klasse: 'I',
+    erratbar: false, warum: 'Vorgangsnummer',
+    kern: { thema: 'doppelbuchung', wahl: 'Vorgang 9204', grund: 'dort steht der ganze Ablauf mit Zeitstempeln' },
+    vokA: ['doppelbuchung', 'vorgang', '9204'],
+    vokB: ['zweimal', 'gebucht', 'nachlesen'] },
+  { id: 'F-behaelter', klasse: 'I',
+    erratbar: false, warum: 'selbst vergebener Name',
+    kern: { thema: 'postausgang', wahl: 'Container kolibri-postausgang', grund: 'getrennt, damit ein haengender Versand nichts anderes blockiert' },
+    vokA: ['postausgang', 'kolibri-postausgang', 'container'],
+    vokB: ['mails', 'raus', 'wo'] },
+  { id: 'F-ablageformat', klasse: 'I',
+    erratbar: false, warum: 'festgenagelte Fassungsnummer',
+    kern: { thema: 'ablageformat', wahl: 'Fassung 7.1.4', grund: 'ab 7.2 aendert sich die Spaltenreihenfolge und die Altdaten passen nicht mehr' },
+    vokA: ['ablageformat', '7.1.4', 'spaltenreihenfolge', 'altdaten'],
+    vokB: ['format', 'stand', 'welche'] },
+  { id: 'F-variable', klasse: 'I',
+    erratbar: false, warum: 'selbst vergebener Variablenname',
+    kern: { thema: 'fangweg', wahl: 'KOLIBRI_FANGWEG', grund: 'ohne sie schreibt der Fang in das Arbeitsverzeichnis der Sitzung' },
+    vokA: ['fangweg', 'kolibri_fangweg'],
+    vokB: ['einstellung', 'ablageort', 'wie heisst'] },
+  { id: 'F-zweig', klasse: 'I',
+    erratbar: false, warum: 'selbst vergebener Zweigname',
+    kern: { thema: 'pflegezweig', wahl: 'pflege/abrechnung-2026', grund: 'die Abrechnung wird getrennt gepflegt, weil sie eigene Freigaben braucht' },
+    vokA: ['pflegezweig', 'pflege/abrechnung-2026', 'freigaben'],
+    vokB: ['zweig', 'wartung', 'welcher'] },
 ];
 
 /** Der vergiftete Anteil. Steht nie im sauberen Korpus. */

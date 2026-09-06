@@ -157,9 +157,18 @@ Work like this:
    --class digest-overflow.
 2. Before writing anything, check for duplicates:
      mem find \"<keyword>\" --since 7d
-3. Sort into drawers, every entry WITH --origin:
+3. Sort into drawers, every entry WITH --origin AND --asked:
      mem log <type> --title ... --text ... --tags ... \\
+       --asked '<3-5 words someone would ASK with>' \\
        --origin '{\"raw\":\"<path>\",\"session_id\":\"<id>\"}'
+   --asked is the one place you add words that are NOT in the entry.
+   Ask yourself: months from now, in what words would someone come
+   looking for this — not knowing the words it is written in? Those.
+   Rules: at most five; a word already in the entry does not count and
+   must be left out; no invented facts, only other words for the same
+   thing. If nothing genuinely different comes to mind, leave it off —
+   an empty field is honest, a padded one is noise in every future
+   search.
 4. Close any duty that is now fulfilled (mem duties lists them)
 5. Synthesise — ONLY when a pattern is genuinely there (usually none):
    If, across the entries you just wrote and ones you find with

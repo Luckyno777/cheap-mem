@@ -201,7 +201,7 @@ Zwei Dinge, die dabei ehrlich dazugehoeren:
   weil die Echos gar nicht mehr bis zur Auswahl kommen. Er zaehlt noch,
   wo der Fang leere Plaetze fuellt.
 
-## Der zustandslose Grundwert — der Kopfraum ist 15 %, nicht 36 % (2026-09-06)
+## Der zustandslose Grundwert — der Kopfraum, nicht die Obergrenze (2026-09-06)
 
 `node eval/run.mjs --split all --arms A --model claude-sonnet-5` — Arm A
 ist die blosse Frage, kein Kontext, kein Verlauf. 45 Aufgaben, ~2 USD.
@@ -225,16 +225,32 @@ Nach Klasse, und hier steht das Ergebnis: **D (Korrektur) 0/6, I
 **Der Kopfraum.** Beide Zahlen einzeln zu berichten ueberschaetzt den
 Nutzen, weil die Mengen ueberlappen:
 
+Erster Lauf, 39 Aufgaben mit Gold:
+
 | | |
 |---|---:|
 | Angabe kommt im Kontext an | 15/39 = 38 % |
 | Modell antwortet ohne Memory richtig | 12/39 = 31 % |
 | **beides: Angabe da UND ohne sie gescheitert** | **6/39 = 15 %** |
-| ohne Angabe trotzdem richtig (Weltwissen) | 3/39 = 8 % |
 
-**15 % ist die Obergrenze dessen, was Memory hier ueberhaupt bewirken
-kann** — und drei der sechs (I4, I5, I6) gibt es erst seit heute. Auf dem
-alten Aufgabensatz waren es 3 von 33, also 9 %.
+Sechs Aufgaben tragen keine Statistik. Also wuchsen genau die zwei
+Klassen, bei denen der Grundwert **null** ist — D (Korrektur) und I
+(Bezeichner) — von je 6 auf je 18. Nur sie: die anderen zu vergroessern
+haette den Benchmark teurer gemacht, nicht schaerfer.
+
+Zweiter Lauf, 63 Aufgaben mit Gold (24 neue, `--only` spart die schon
+gemessenen):
+
+| | |
+|---|---:|
+| Angabe kommt im Kontext an | 24/63 = 38 % |
+| Modell antwortet ohne Memory richtig | 12/63 = 19 % |
+| **KOPFRAUM: Angabe da UND ohne sie gescheitert** | **15/63 = 24 %** |
+| ohne Angabe trotzdem richtig (Weltwissen) | 3/63 = 5 % |
+
+Nach Klasse ist das Bild sauber: **D 0/18, I 0/18** ohne Gedaechtnis —
+dort MUSS ein zustandsloser Agent scheitern. **H 4/6, F 5/6** — dort
+braucht es keins.
 
 Das erklaert den gepaarten Modelltest vom selben Tag (35/48 gegen 28/48,
 p = 0,625, nicht signifikant) besser als jede Vermutung ueber das
@@ -249,6 +265,42 @@ das Label bei 23 von 39 Aufgaben — 59 %. Elf als "ratbar" gelabelte
 Aufgaben scheiterten ohne Memory, fuenf als "nicht ratbar" gelabelte
 gelangen. Ein Urteil mit dieser Trefferquote darf keine Kennzahl tragen;
 es steht im Korpus, damit die Messung es korrigieren kann.
+
+## Frageworte: der einzige Hebel, der den Kopfraum vergroessert (2026-09-06)
+
+Der Fasser schreibt beim Verdichten je Eintrag drei bis fuenf Woerter
+dazu, mit denen jemand danach SUCHEN wuerde und die im Eintrag selbst
+nicht vorkommen (`mem log --asked`, Feldgewicht wie `tags`). Kosten im
+Abruf: null — die Arbeit passiert auf Bahn 2, wo ohnehin ein Modell
+laeuft. Embeddings kosten einen Aufruf je ANFRAGE, das hier einen je
+Verdichtungslauf.
+
+`node eval/frageworte-wirkung.mjs`, derselbe Korpus zweimal:
+
+| | ohne | mit |
+|---|---:|---:|
+| Gold im eingespeisten Kontext | 24/63 = 38 % | **28/63 = 44 %** |
+| Praezision (Gold je Claim) | 10 % | 11 % |
+| **Kopfraum** | 15/63 = 24 % | **19/63 = 30 %** |
+
+Gewonnen: A3, E1, D10, D15. Verloren: keine. Alle vier liegen IM
+Kopfraum — das Modell scheitert dort ohne Memory, und jetzt kommt die
+Angabe an.
+
+**Woher die Woerter stammen, entscheidet ueber den Wert der Zahl.** Sie
+kommen aus einem getrennten Modelllauf, der nur die Korpus-Eintraege
+gesehen hat und keine einzige Aufgabe — genau die Lage des Fassers im
+Betrieb. Waeren sie aus `vokB` abgeschrieben, dem Wortschatz der
+Aufgaben, haette der Benchmark seine eigene Vorlage gemessen.
+
+**Und ein Riegel danach.** Von 31 Eintraegen trug jeder dritte ein Wort,
+das die BEWERTUNGSREGEL einer Aufgabe erfuellt: `cookie` gegen
+`/keks|cookie|sitzung/`, `textdatei` gegen `/datei/`, `ticket` gegen
+`/sammelpostfach|ticket/`. Solche Woerter sind nicht Frage, sondern
+Antwort. `sicher()` wirft sie heraus (141 -> 132 Woerter), ein Test haelt
+fest, dass keins durchkommt. Im Betrieb gibt es keine Bewertungsregel,
+dort DARF der Fasser `cookie` schreiben — **die gemessene Wirkung ist
+also eine Untergrenze.**
 
 ## Die Falle, in die dieses Verzeichnis dreimal getappt ist
 

@@ -51,6 +51,15 @@ export const FIELD_WEIGHTS = Object.freeze({
   topic: 2.5,
   class: 2.0,
   tags: 2.0,
+  // Frageworte: womit jemand danach FRAGEN wuerde, geschrieben vom
+  // Fasser beim Verdichten. Sie kosten im Abruf nichts — die Arbeit
+  // passiert auf Bahn 2, wo ohnehin ein Modell laeuft.
+  //
+  // Gewicht wie `tags`, und aus demselben Grund: beides sind kurze,
+  // absichtlich gesetzte Zugriffswoerter, keine Prosa. Hoeher als der
+  // Titel waere falsch — dann uebersteuert ein geratenes Frageworte-
+  // Feld den tatsaechlichen Gegenstand des Eintrags.
+  asked: 2.0,
   skill: 2.0,
   choice: 1.5,
   learning: 1.5,

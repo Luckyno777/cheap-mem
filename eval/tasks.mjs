@@ -206,6 +206,92 @@ export const TASKS = [
       prompt: 'Darf ich die Vorlagenbibliothek auf die neueste Fassung heben? Nenne die Fassung, auf der wir stehen.',
       must: [/3\.7\.2/], mustNot: [], gates: {} }),
 
+  // ---- Ausbau D und I (2026-09-06, nur dev/val) -----------------------
+  //
+  // Die beiden Klassen, bei denen der zustandslose Grundwert null ist —
+  // dort und nur dort kann Memory etwas beweisen. Sechs Aufgaben trugen
+  // keine Statistik; mit je achtzehn ist ein Hebel, der drei gewinnt,
+  // von Zufall unterscheidbar.
+  //
+  // Jede D-Aufgabe hat ein GATE auf den alten Wert: wer die ersetzte
+  // Angabe nennt, hat nicht schlechter geantwortet, sondern falsch.
+  T({ id: 'D7', klasse: 'D', split: 'dev', gold: ['F-timeout-neu'], adversarial: true,
+      prompt: 'Nach wie vielen Sekunden geben wir eine haengende Anfrage auf? Nenne nur die Zahl.',
+      must: [/\b45\b/], mustNot: [/\b12\b/], gates: { correction_failure: [/\b12\b/] } }),
+  T({ id: 'D8', klasse: 'D', split: 'val', gold: ['F-timeout-neu'], adversarial: true,
+      prompt: 'Ein Kollege setzt die Zeitueberschreitung auf zwoelf Sekunden. Stimmt das noch? Antworte in einem Satz mit der geltenden Zahl.',
+      must: [/\b45\b/], mustNot: [], gates: { correction_failure: [/stimmt|richtig|korrekt/i] } }),
+  T({ id: 'D9', klasse: 'D', split: 'dev', gold: ['F-kontingent-neu'], adversarial: true,
+      prompt: 'Wie viele Anfragen je Stunde laesst die Drosselung durch? Nenne nur die Zahl.',
+      must: [/\b1200\b/], mustNot: [/\b500\b/], gates: { correction_failure: [/\b500\b/] } }),
+  T({ id: 'D10', klasse: 'D', split: 'val', gold: ['F-kontingent-neu'], adversarial: true,
+      prompt: 'Die Tourenplanung meldet Abweisungen am Morgen. Welche Obergrenze gilt bei uns? Nenne die Zahl.',
+      must: [/\b1200\b/], mustNot: [/\b500\b/], gates: { correction_failure: [/\b500\b/] } }),
+  T({ id: 'D11', klasse: 'D', split: 'dev', gold: ['F-meldeweg-neu'], adversarial: true,
+      prompt: 'Wohin meldet jemand nachts eine Stoerung? Antworte in einem Satz.',
+      must: [/sammelpostfach|ticket/i], mustNot: [/telefon/i], gates: { correction_failure: [/telefon/i] } }),
+  T({ id: 'D12', klasse: 'D', split: 'val', gold: ['F-meldeweg-neu'], adversarial: true,
+      prompt: 'Ist die Telefonkette fuer Stoerungen noch der richtige Weg? Antworte in einem Satz.',
+      must: [/nein|nicht mehr|sammelpostfach|ticket/i], mustNot: [], gates: { correction_failure: [/^\s*ja\b/i] } }),
+  T({ id: 'D13', klasse: 'D', split: 'dev', gold: ['F-sortierung-neu'], adversarial: true,
+      prompt: 'Wonach ist die Liste der Vorgaenge sortiert? Antworte in einem Satz.',
+      must: [/aenderung|geaendert|zuletzt/i], mustNot: [/alphabet/i], gates: { correction_failure: [/nach name|alphabet/i] } }),
+  T({ id: 'D14', klasse: 'D', split: 'val', gold: ['F-sortierung-neu'], adversarial: true,
+      // `must` darf kein Wort enthalten, das schon in der Frage steht —
+      // die erste Fassung liess "oben" zu und war damit selbstbeantwortend
+      // (von eval/independence.mjs gefangen, 1 von 63).
+      prompt: 'Ein Betrieb sucht seinen Vorgang von gestern. Findet er ihn weit oben, und wonach richtet sich das? Antworte in einem Satz.',
+      must: [/aenderung|geaendert|zuletzt/i], mustNot: [], gates: { correction_failure: [/nach name|alphabet/i] } }),
+  T({ id: 'D15', klasse: 'D', split: 'dev', gold: ['F-frist-neu'], adversarial: true,
+      prompt: 'Wie lange hat ein Kunde Zeit fuer einen Einspruch? Nenne nur die Zahl der Tage.',
+      must: [/\b21\b/], mustNot: [/\b14\b/], gates: { correction_failure: [/\b14\b/] } }),
+  T({ id: 'D16', klasse: 'D', split: 'val', gold: ['F-frist-neu'], adversarial: true,
+      prompt: 'Im Musterschreiben stehen vierzehn Tage Widerspruchsfrist. Passt das zu unserer Festlegung? Nenne die geltende Zahl.',
+      must: [/\b21\b/], mustNot: [], gates: { correction_failure: [/passt|stimmt|ja\b/i] } }),
+  T({ id: 'D17', klasse: 'D', split: 'dev', gold: ['F-skonto-neu'], adversarial: true,
+      prompt: 'Wie viel Abzug gewaehren wir Schnellzahlern? Nenne nur die Zahl.',
+      must: [/\b3\b/], mustNot: [/\b2\b/], gates: { correction_failure: [/\b2\s*(%|prozent)/i] } }),
+  T({ id: 'D18', klasse: 'D', split: 'val', gold: ['F-skonto-neu'], adversarial: true,
+      prompt: 'Der Vertrieb will das Skonto anheben, weil zwei Prozent nichts bewirkt haben. Wo stehen wir heute? Nenne die Zahl.',
+      must: [/\b3\b/], mustNot: [], gates: { correction_failure: [/heute\s*bei\s*2|weiterhin\s*2/i] } }),
+
+  T({ id: 'I7', klasse: 'I', split: 'dev', gold: ['F-modul'],
+      prompt: 'Wo steht bei uns die kaufmaennische Rundung im Code? Nenne nur den Pfad.',
+      must: [/lib\/abrechnung\/rundung\.mjs/], mustNot: [], gates: {} }),
+  T({ id: 'I8', klasse: 'I', split: 'val', gold: ['F-modul'],
+      prompt: 'Ich will die Rundung der Abrechnung aendern. In welcher Datei? Nenne nur den Pfad.',
+      must: [/lib\/abrechnung\/rundung\.mjs/], mustNot: [], gates: {} }),
+  T({ id: 'I9', klasse: 'I', split: 'dev', gold: ['F-ticket'],
+      prompt: 'Unter welcher Nummer ist der Fall mit den zweimal gebuchten Posten dokumentiert? Nenne nur die Zahl.',
+      must: [/9204/], mustNot: [], gates: {} }),
+  T({ id: 'I10', klasse: 'I', split: 'val', gold: ['F-ticket'],
+      prompt: 'Wo kann ich den Ablauf der Doppelbuchung mit Zeitstempeln nachlesen? Nenne die Vorgangsnummer.',
+      must: [/9204/], mustNot: [], gates: {} }),
+  T({ id: 'I11', klasse: 'I', split: 'dev', gold: ['F-behaelter'],
+      prompt: 'In welchem Container laeuft bei uns der Postausgang? Nenne nur den Namen.',
+      must: [/kolibri-postausgang/i], mustNot: [], gates: {} }),
+  T({ id: 'I12', klasse: 'I', split: 'val', gold: ['F-behaelter'],
+      prompt: 'Der Mailversand haengt. Welchen Container muss ich anschauen? Nenne nur den Namen.',
+      must: [/kolibri-postausgang/i], mustNot: [], gates: {} }),
+  T({ id: 'I13', klasse: 'I', split: 'dev', gold: ['F-ablageformat'],
+      prompt: 'Auf welchem Stand ist unser Ablageformat festgelegt? Nenne nur die Nummer.',
+      must: [/7\.1\.4/], mustNot: [], gates: {} }),
+  T({ id: 'I14', klasse: 'I', split: 'val', gold: ['F-ablageformat'],
+      prompt: 'Darf ich das Ablageformat anheben? Nenne die Fassung, auf der wir stehen.',
+      must: [/7\.1\.4/], mustNot: [], gates: {} }),
+  T({ id: 'I15', klasse: 'I', split: 'dev', gold: ['F-variable'],
+      prompt: 'Mit welcher Einstellung legt man den Ablageort des Fangs fest? Nenne nur den Namen.',
+      must: [/KOLIBRI_FANGWEG/i], mustNot: [], gates: {} }),
+  T({ id: 'I16', klasse: 'I', split: 'val', gold: ['F-variable'],
+      prompt: 'Der Fang landet im falschen Verzeichnis. Welche Einstellung fehlt? Nenne nur den Namen.',
+      must: [/KOLIBRI_FANGWEG/i], mustNot: [], gates: {} }),
+  T({ id: 'I17', klasse: 'I', split: 'dev', gold: ['F-zweig'],
+      prompt: 'Auf welchem Zweig wird die Abrechnung gepflegt? Nenne nur den Namen.',
+      must: [/pflege\/abrechnung-2026/i], mustNot: [], gates: {} }),
+  T({ id: 'I18', klasse: 'I', split: 'val', gold: ['F-zweig'],
+      prompt: 'Ich habe eine Korrektur fuer die Abrechnung. Wohin damit? Nenne den Zweig.',
+      must: [/pflege\/abrechnung-2026/i], mustNot: [], gates: {} }),
+
 ];
 
 

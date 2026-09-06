@@ -14,6 +14,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import * as memory from '../src/memory.mjs';
 import { FACTS, POISON, PROJECT } from './world.mjs';
+import { sicher } from './frageworte.mjs';
 
 /** Deterministischer Zufall: derselbe Seed, derselbe Korpus. */
 export function rng(seed) {
@@ -164,12 +165,15 @@ const ABLENKUNG_FEHLER = [
  * @param {number} opt.streu   Eintraege mit je eigenem Thema (Vokabular-Reichtum)
  * @param {number} opt.flood   wie viele Flutungs-Eintraege eines Autors (nur poisoned)
  * @param {string[]} opt.echoes  Fragetexte, die als Rohfang-Echo abgelegt werden
+ * @param {boolean} opt.frageworte  Frageworte mit in die Eintraege schreiben
+ *   (das `asked`-Feld, das der Fasser im Betrieb fuellt). Vorgabe aus,
+ *   damit A/B messbar bleibt.
  * @param {string[]} opt.nurRoh  Fakt-IDs, die NUR als Rohfang existieren —
  *   ungefasst, so wie der Stop-Hook sie ablegt, bevor der Fasser gelaufen
  *   ist. Damit laesst sich der PREIS der Reserve-Bahn messen: eine Angabe,
  *   die es nirgends gepflegt gibt.
  */
-export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], nurRoh = [], seed = 7 } = {}) {
+export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], nurRoh = [], frageworte = false, seed = 7 } = {}) {
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   const r = rng(seed);
   const ids = [];
@@ -198,6 +202,15 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
       continue;
     }
     const data = { id: f.id, ...satzA(f, r), tags: [f.kern.thema], project: PROJECT };
+    // Die Frageworte kommen NICHT aus vokB. Sie stammen aus einem
+    // getrennten Modelllauf, der nur die Eintraege gesehen hat und keine
+    // einzige Aufgabe — genau wie der Fasser im Betrieb. Waeren sie aus
+    // vokB abgeschrieben, wuerde der Benchmark seine eigene Antwort
+    // messen und jede Zahl daraus waere wertlos.
+    if (frageworte) {
+      const w = sicher(f.id);
+      if (w.length) data.asked = w;
+    }
     if (f.kern.autor) { data.author = f.kern.autor; data.authority = f.kern.autor === 'lucky' ? 'user' : 'agent'; }
     else { data.author = 'lucky'; data.authority = 'user'; }
     if (f.ersetzt) data.replaces_id = f.ersetzt;

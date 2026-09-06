@@ -419,6 +419,24 @@ const MUTANTS=[
    to:"  { name: 'nummer', re: /\\b\\d{1,8}\\b/g },  // MUTANT: jede Alltagszahl wird Bezeichner",
    tests:['test/exact-lane.test.mjs'] },
 
+ { name:'SEM Frageworte are not indexed at all',
+   file:'src/search.mjs',
+   from:'  asked: 2.0,',
+   to:'  // MUTANT: das Feld faellt aus der Indizierung',
+   tests:['test/asked.test.mjs'] },
+
+ { name:'SEM Frageworte outweigh the title',
+   file:'src/search.mjs',
+   from:'  asked: 2.0,',
+   to:'  asked: 5.0,  // MUTANT: geratene Woerter uebersteuern den Gegenstand',
+   tests:['test/asked.test.mjs'] },
+
+ { name:'SEM `--asked` is stored flat, as one string',
+   file:'bin/mem',
+   from:"      if ((k === 'tags' || k === 'asked') && typeof v === 'string') {\n        // Hier in `mem log`",
+   to:"      if (k === 'tags' && typeof v === 'string') {  // MUTANT: asked bleibt Zeichenkette\n        // Hier in `mem log`",
+   tests:['test/asked.test.mjs'] },
+
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',
    from:'  mmr = true,',
