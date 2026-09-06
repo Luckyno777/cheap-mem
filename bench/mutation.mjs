@@ -335,6 +335,30 @@ const MUTANTS=[
    to:'  for (const t of terms) if (thesaurusNeighbours(t, l).length) covered += 1;  // MUTANT',
    tests:['test/synonyms.test.mjs'] },
 
+ { name:'ARCH gateway stops dropping echoes of the question',
+   file:'src/retrieval.mjs',
+   from:'  dropEcho = true,',
+   to:'  dropEcho = false,  // MUTANT: die eigene Frage kommt wieder zurueck',
+   tests:['test/paths-agree.test.mjs'] },
+
+ { name:'ARCH `mem find` stops dropping echoes by default',
+   file:'bin/mem',
+   from:"    const hits = (args['with-echo']",
+   to:"    const hits = (true  // MUTANT: Vorgabe wieder auf durchlassen\n      || args['with-echo']",
+   tests:['test/paths-agree.test.mjs'] },
+
+ { name:'ARCH echo filter forgets that it is only for raw captures',
+   file:'src/search.mjs',
+   from:"  if (!hit || !(hit.type === 'raw' || hit.raw === true)) return false;",
+   to:"  if (!hit) return false;  // MUTANT: getippte Eintraege fallen mit",
+   tests:['test/paths-agree.test.mjs'] },
+
+ { name:'ARCH echo check counts the synthetic raw title again',
+   file:'src/search.mjs',
+   from:"  return isEcho(questionText, String(hit.entry?.text ?? ''), opts);",
+   to:"  return isEcho(questionText, `${hit.entry?.title ?? ''} ${hit.entry?.text ?? ''}`, opts);  // MUTANT",
+   tests:['test/paths-agree.test.mjs'] },
+
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',
    from:'  mmr = true,',

@@ -435,6 +435,7 @@ const COMMANDS = {
         '  --fresh    rebuild the index instead of using the cache',
         '  --no-raw   digested entries only, skip raw captures',
         '  --no-mmr   pure BM25 order (default re-ranks the top for diversity)',
+        '  --with-echo  keep hits that merely repeat the question (default: dropped)',
         '  --mmr-lambda F  0..1, higher = more relevance, lower = more diversity (default 0.7)',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
       ].join('\n'));
@@ -442,7 +443,7 @@ const COMMANDS = {
     }
     checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'no-echo'], 'find');
+      'content-words', 'with-echo'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -490,10 +491,10 @@ const COMMANDS = {
     thesaurus.loadUserGroups(root, fs, path);
     const t0 = Date.now();
     const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
-    // With --no-echo, fetch wider so enough survives the filter.
     const wanted = args.top ? Number(args.top) : 10;
     const hits0 = search.search(index, query, {
-      top: args['no-echo'] ? wanted * 3 : wanted,
+      // Breiter holen, damit nach dem Filter genug uebrig bleibt.
+      top: args['with-echo'] ? wanted : wanted * 3,
       type: args.type ?? null,
       project: args.project ?? null,
       since,
@@ -510,12 +511,23 @@ const COMMANDS = {
     // hook files every message as a raw capture, so the best hit for a
     // similar question is the user's own sentence from before. Measured on
     // 2026-09-05: 13 of 18 injected hits.
-    const shortOf = (h) => (h.raw
-      ? (raw.excerpt(root, h.source, String(query).split(/\s+/)) || compactLine(h.entry))
-      : compactLine(h.entry)) || '';
-    const hits = (args['no-echo']
-      ? hits0.filter((h) => !search.isEcho(askedAs, shortOf(h)))
-      : hits0).slice(0, wanted);
+    // Die Entscheidung, WAS ein Echo ist, steht in search.isEchoHit —
+    // derselbe Aufruf wie im Gateway. Hier stand bis zum 2026-09-06 eine
+    // eigene Fassung, die `raw.excerpt` aufrief; die Funktion gab es nie,
+    // und jede Suche, die einen Rohfang traf, stuerzte ab. Gemerkt hat es
+    // niemand, weil sie nur hinter `--no-echo` lag und `--no-echo` niemand
+    // setzte. Genau die Klasse, gegen die test/paths-agree.test.mjs steht.
+    // Vorgabe: filtern. Bis 2026-09-06 steckte das hinter `--no-echo`, und
+    // NIEMAND setzte es — auch der Abruf-Hook nicht, der die 13 von 18
+    // gemessen hat. Eine Abwehr, die man einschalten muss und niemand
+    // einschaltet, ist keine. `--with-echo` gibt den alten Stand zurueck.
+    // Nur Rohfang: ein getippter Eintrag ist nicht die Frage des Nutzers.
+    // Ohne diese Einschraenkung faellt eine kurze Entscheidung, die in den
+    // Worten des Nutzers abgelegt wurde — gemessen an "zahlung nur per
+    // vorkasse" gegen die Frage "zahlung vorkasse entscheidung".
+    const hits = (args['with-echo']
+      ? hits0
+      : hits0.filter((h) => !search.isEchoHit(askedAs, h))).slice(0, wanted);
     const ms = Date.now() - t0;
 
     if (args.json) {

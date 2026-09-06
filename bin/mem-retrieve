@@ -162,7 +162,20 @@ printf '%s' "$HITS" | MIN="$MIN" node -e '
       const bits = [e.class, e.title, e.topic, e.choice, e.text, e.summary]
         .filter(Boolean).map(String);
       let label = bits.length ? bits.join(" — ") : JSON.stringify(e);
-      if (label.length > 160) label = label.slice(0, 157) + "...";
+      // Der GRUND gehoert dazu, nicht nur der Beschluss.
+      //
+      // Ob eine alte Festlegung noch bindet, entscheidet ihr Grund: faellt
+      // er weg, faellt sie mit. Ohne ihn liest ein Modell eine Regel und
+      // haelt sich daran, auch wenn die Lage sich geaendert hat. Gemessen
+      // am 2026-09-06: bei einer Aufgabe, in der die alte Regel ausdruecklich
+      // ueberholt war, loeste das Modell MIT der Notiz 1 von 4 Laeufen und
+      // OHNE sie 3 von 4. Der Kontext machte es schlechter, weil er den
+      // Beschluss zeigte und die Begruendung verschwieg.
+      if (e.why) {
+        const w = String(e.why);
+        label += " — weil " + (w.length > 70 ? w.slice(0, 67) + "..." : w);
+      }
+      if (label.length > 220) label = label.slice(0, 217) + "...";
       lines.push(`  ${day}  ${label}`);
     }
     if (!lines.length) process.exit(0);

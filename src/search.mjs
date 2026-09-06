@@ -1037,6 +1037,14 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * Overlap is measured in ONE direction: how much of the HIT is already in
  * the question. A long entry that happens to contain the question stays;
  * only the short echo falls.
+ *
+ * How often this actually fires, measured 2026-09-06 on 483 real captures
+ * from a working memory with 211 hand-typed user messages as questions:
+ * 27 of 535 injected hits = 5.0% (95% 3.5-7.2). The 13/18 above was one
+ * session and a corpus where each capture held a single message; with a
+ * capture per session (12 messages) the rate is 0.0% (95% 0.0-0.2). See
+ * eval/README.md — the number is small, and stating it as 72% would be
+ * selling the filter on the best case it has.
  */
 export const ECHO_OVER = 0.7;
 
@@ -1047,4 +1055,30 @@ export function isEcho(questionText, hitText, { threshold = ECHO_OVER } = {}) {
   let inside = 0;
   for (const w of h) if (q.has(w)) inside += 1;
   return inside / h.length >= threshold;
+}
+
+/**
+ * The echo policy itself — one place, so both recall paths obey the same
+ * one. `mem find` and `retrieve()` each carried their own copy of this
+ * decision, and each drifted from the other within a day.
+ *
+ * Two things it settles:
+ *
+ * 1. ONLY raw captures. A typed entry is by construction not the user's
+ *    question: it went through the digest or was filed deliberately.
+ *    Without the restriction a genuine claim falls — the question
+ *    "zahlung vorkasse entscheidung" against the decision "zahlung nur
+ *    per vorkasse — meine entscheidung" is three of four content words,
+ *    0.75 over the 0.7 threshold.
+ *
+ * 2. The CAPTURED text, not the record around it. A raw hit carries a
+ *    synthetic title (`[raw] <file>.jsonl.gz`) that no question contains.
+ *    Counting it dilutes the one-directional overlap with words that
+ *    cannot match: a capture holding the question verbatim scored 0.53
+ *    with the title and 1.00 without — the filter would have passed the
+ *    purest echo there is.
+ */
+export function isEchoHit(questionText, hit, opts = {}) {
+  if (!hit || !(hit.type === 'raw' || hit.raw === true)) return false;
+  return isEcho(questionText, String(hit.entry?.text ?? ''), opts);
 }

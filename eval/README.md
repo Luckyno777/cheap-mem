@@ -41,18 +41,52 @@ verschwendetes Geld.
   Umformulierung 37,8 % / 59,8 % / 69,7 % bei 107 / 389 / 1141 Dokumenten.
   **Die Rate waechst mit der Memory-Groesse** — das ist neu und war bei
   n=18 nicht sichtbar.
+  **Zurueckgenommen am 2026-09-06** — siehe den naechsten Punkt. Diese
+  Zahlen beschreiben, wie viele Treffer *Echos sind*, gemessen an
+  nachgebauten `thought`-Eintraegen. Sie beschreiben nicht, wie viele der
+  ausgelieferte Filter *verwirft*.
+- **Was der ausgelieferte Echo-Filter wirklich verwirft** (2026-09-06,
+  nach `search.isEchoHit`, dem Aufruf, den `mem find` und der Gateway
+  tatsaechlich machen):
+
+  | Bedingung | Rohfaenge | Fragen | eingespeist | verworfen | 95 % |
+  |---|---|---|---|---|---|
+  | synthetisch, 1 Nachricht je Fang (Obergrenze) | 600 | 600 | 1800 | 66,8 % | 64,6–69,0 |
+  | synthetisch, 12 Nachrichten je Fang (Sitzungsform) | 50 | 600 | 1800 | **0,0 %** | 0,0–0,2 |
+  | **echt** (lucky-mem, 483 Faenge, 211 getippte Nutzernachrichten) | 483 | 211 | 535 | **5,0 %** | 3,5–7,2 |
+
+  Am echten Material verlieren 4 von 211 Fragen (1,9 %) ihren ganzen
+  Kontext an den Filter, 17 (8,1 %) einen Teil. Die Stichprobe der
+  Verworfenen sind wortgleiche Wiederholungen — der Filter trifft, was er
+  treffen soll, nur viel seltener als „72 %" nahelegt.
+
+  Der Mechanismus dahinter ist eine Grenze, keine Meinung: `isEchoHit`
+  sieht `entry.text`, also die ersten 400 Zeichen des Fangs. Eine
+  Nachricht, die nicht in den ersten 400 Zeichen steht, kann nicht als
+  Echo erkannt werden. Das ist richtig so — eingespeist wuerden genau
+  diese 400 Zeichen; was nicht gezeigt wird, darf auch nicht der Grund
+  zum Verwerfen sein. Es heisst aber: der Filter greift praktisch nur bei
+  Fangen, die mit der wiederholten Frage *beginnen*.
 - **Die Schwelle `MEM_RETRIEVE_MIN=5.0` ist am echten Korpus richtig
   kalibriert**: 93,3 % der Treffer liegen darueber, Median 11,34. Eine
   frueher Fassung dieses Verzeichnisses meldete 1,1 % — das war der
   synthetische Korpus, nicht cheap-mem.
 
-## Die Falle, in die dieses Verzeichnis zweimal getappt ist
+## Die Falle, in die dieses Verzeichnis dreimal getappt ist
 
 1. **Sonde statt Sache gemessen.** Die erste Echo-Messung uebergab die
    JSON-Zeile an `isEcho`; deren Schluesselnamen druecken die Ueberlappung
    unter die Schwelle. Ergebnis: 0 von 2532 Echos. Seitdem laeuft eine
    Positivkontrolle vor jeder Messung.
-2. **Unabhaengigkeit ueberoptimiert.** Um lexikalische Leckage auf null zu
+2. **Den Pfad gemessen, den niemand geht.** Die zweite Fassung derselben
+   Messung legte jede frühere Frage als `thought`-Eintrag ab und pruefte
+   mit `isEcho(frage, compactLine(eintrag))`. Im Betrieb schreibt der
+   Stop-Hook aber eine gzip-Datei unter `raw/`, und der ausgelieferte
+   Filter sieht nur Rohfang und darin nur den gefangenen Text. Die
+   Positivkontrolle war da — sie prueft nur die Sonde, nicht ob die Sonde
+   an der Stelle steht, an der die Sache passiert. `echo.mjs` legt jetzt
+   echte Rohfaenge an und zaehlt mit `isEchoHit`.
+3. **Unabhaengigkeit ueberoptimiert.** Um lexikalische Leckage auf null zu
    bringen, wurden die Aufgaben so entkernt, dass BM25 den Gold-Eintrag
    nicht mehr finden konnte. Ein A/B haette Memory faelschlich als
    wirkungslos gezeigt. Das Kriterium ist jetzt nicht "kein gemeinsames
@@ -433,7 +467,8 @@ die Empty-Answer-Semantik als vordringliches Feature.
 
 - **Die Echo-Rate waechst mit der Memory-Groesse**: 31,3 / 57,3 / 66,8 %
   bei 829 / 1159 / 2039 Dokumenten (umformulierte Fragen). Der Befund ist
-  korpusunabhaengig.
+  korpusunabhaengig — gilt aber fuer Fange mit EINER Nachricht. Bei
+  Sitzungsform (12 Nachrichten je Fang) faellt er auf 0,0 %.
 - **Die Schwelle 5 ist richtig**: der Recall ist von 0 bis 6 flach
   (13/33) und faellt erst ab 7. Stufe 3 bestaetigt.
 - **Alle Gates halten**: kein Korrekturversagen, Konflikte 2/2 gemeldet,

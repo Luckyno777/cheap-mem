@@ -23,7 +23,7 @@ import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
-import { loadIndex, search } from './search.mjs';
+import { loadIndex, search, isEchoHit } from './search.mjs';
 
 /**
  * Resource bounds (I13). Defaults, not laws — but never unbounded.
@@ -132,6 +132,20 @@ export function retrieve(root, query, capability, {
   // Wege vergleichen kann.
   mmr = true,
   mmrLambda = 0.7,
+  // Echos verwerfen: ein Treffer, der im Wesentlichen die Frage selbst ist.
+  //
+  // isEcho existiert seit dem 2026-09-05, ist getestet und mit einer
+  // Messung begruendet (13 von 18 eingespeisten Treffern waren Echos) —
+  // und wurde von NICHTS aufgerufen. In `mem find` steckt es hinter
+  // `--no-echo`, das niemand setzt; der Abruf-Hook, der die 13/18 gemessen
+  // hat, setzt es auch nicht. Die Abwehr gegen das gemessene Problem war
+  // toter Code.
+  //
+  // Vorgabe an, weil der Gateway der automatische Pfad ist: dort kann
+  // niemand eingreifen, und ein Block, der einem die eigene Frage
+  // zurueckgibt, wird nach dem dritten Mal ueberlesen — und dann ist der
+  // ganze Abruf weg.
+  dropEcho = true,
 } = {}) {
   const excluded = [];
   const note = (id, why) => excluded.push({ id: id ?? null, why });
@@ -255,6 +269,24 @@ export function retrieve(root, query, capability, {
     if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }
     if (c.status === 'superseded') { note(c.id, 'superseded'); continue; }
     if (!validAt(c, asOf)) { note(c.id, `not valid at ${asOf}`); continue; }
+    // In der Auswahl, nicht danach: nachtraeglich zu filtern kann nicht
+    // zurueckholen, was der Schnitt schon verworfen hat. Derselbe Fehler
+    // steckte in der ersten Fassung der Koerper-Entdopplung.
+    // NUR Rohfang. Ein getippter Eintrag ist per Konstruktion nicht die
+    // Frage des Nutzers — er ist durch den Fasser gegangen oder wurde
+    // absichtlich abgelegt. Echos sind ein Lane-1-Artefakt.
+    //
+    // Ohne diese Einschraenkung faellt ein echter Anspruch: die Frage
+    // "zahlung vorkasse entscheidung" gegen die Entscheidung "zahlung nur
+    // per vorkasse — meine entscheidung" ergibt drei von vier
+    // Inhaltswoertern, also 0,75 ueber der Schwelle 0,7 — und eine
+    // Benutzerentscheidung waere unterdrueckt worden. Ein Test hat das
+    // gefangen (state.test.mjs, "a tampered cache cannot suppress a
+    // genuine claim"), bevor es jemand im Betrieb gemerkt haette.
+    if (dropEcho && isEchoHit(useQuery, hit)) {
+      note(c.id, 'echo of the question — answers nothing');
+      continue;
+    }
 
     // Deduplicate DURING selection, not after.
     //

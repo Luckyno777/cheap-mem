@@ -7,11 +7,26 @@
 // frühere Frage. Gemessen wird der Anteil solcher Treffer an dem, was
 // tatsaechlich eingespeist wuerde (Score >= Schwelle).
 //
-//   node eval/echo.mjs [--min 5] [--top 3]
+//   node eval/echo.mjs [--min 5] [--top 3] [--umformuliert] [--je-fang N]
+//
+// 2026-09-06 KORRIGIERT. Die erste Fassung legte jede frühere Frage als
+// `thought`-Eintrag ab und mass mit `isEcho(frage, compactLine(eintrag))`.
+// Beides gibt es im Betrieb nicht: der Stop-Hook schreibt eine gzip-Datei
+// unter raw/, und der ausgelieferte Filter (search.isEchoHit) sieht NUR
+// Rohfang und darin nur den gefangenen Text. Die Messung beschrieb also
+// einen Pfad, den niemand geht — und ihr Ergebnis ("39 von 39 weg") war
+// keine Aussage ueber das, was ausgeliefert wird.
+//
+// Gegen ECHTES Material gemessen (483 Rohfaenge aus lucky-mem, 211 von
+// Hand getippte Nutzernachrichten als Fragen): 27 von 535 eingespeisten
+// Treffern verworfen = 5,0 % (95 %: 3,5-7,2 %). 4 von 211 Fragen verlieren
+// dadurch ihren ganzen Kontext, 17 einen Teil. Das ist die Groessenordnung,
+// nicht die 72 % aus dem urspruenglichen Befund.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
 import { build, rng } from './corpus.mjs';
@@ -42,12 +57,12 @@ function fragen(r, n) {
 }
 
 /**
- * So rendert der Hook einen Treffer (bin/mem:2047 compactLine). NICHT die
- * JSON-Zeile: deren Schluesselnamen (title, tags, author, authority,
- * project) sind Inhaltswoerter, die in keiner Frage vorkommen, und
- * druecken die Ueberlappung unter die Schwelle. Eine erste Fassung dieser
- * Messung tat genau das und meldete 0 von 2532 Echos — ein Nullergebnis,
- * das nur die Sonde beschrieb.
+ * Nur noch fuer die Stichprobe in der Ausgabe. Gezaehlt wird mit
+ * search.isEchoHit — derselbe Aufruf, den `mem find` und der Gateway
+ * machen. Eine Messung, die ihre eigene Wiedergabe erfindet, misst ihre
+ * eigene Wiedergabe: eine frühere Fassung uebergab die JSON-Zeile, deren
+ * Schluesselnamen die Ueberlappung unter die Schwelle druecken, und
+ * meldete 0 von 2532 Echos.
  */
 function compactLine(e) {
   const parts = [];
@@ -73,9 +88,16 @@ function wilson(k, n, z = 1.96) {
 // kaputten Sonde unterschieden werden.
 {
   const q = 'Welchen Port trage ich fuer die Erreichbarkeitspruefung ein';
-  const echo = compactLine({ title: q, text: q });
-  const fremd = compactLine({ topic: 'zwischenspeicher', choice: 'nach sieben Tagen leeren', why: 'danach ist er kalt' });
-  const a = search.isEcho(q, echo), b = search.isEcho(q, fremd);
+  const rohEcho = { type: 'raw', entry: { title: '[raw] a.jsonl.gz', text: q } };
+  const rohFremd = { type: 'raw', entry: { title: '[raw] b.jsonl.gz',
+    text: 'Der Zwischenspeicher wird nach sieben Tagen geleert, danach ist er kalt.' } };
+  const getippt = { type: 'thought', entry: { title: q, text: q } };
+  const a = search.isEchoHit(q, rohEcho), b = search.isEchoHit(q, rohFremd);
+  // Dritte Kontrolle: der Filter DARF getippte Eintraege nicht anfassen.
+  if (search.isEchoHit(q, getippt)) {
+    console.log('Positivkontrolle: der Filter greift an getippten Eintraegen. Abbruch.');
+    process.exit(1);
+  }
   console.log(`Positivkontrolle: echtes Echo erkannt = ${a}, fremder Treffer als Echo = ${b}`);
   if (!a || b) { console.log('  ==> Die Sonde misst nicht, was sie messen soll. Abbruch.'); process.exit(1); }
 }
@@ -89,7 +111,24 @@ function umformulieren(q, r) {
 }
 
 const MODUS = process.argv.includes('--umformuliert') ? 'umformuliert' : 'wortgleich';
-console.log(`Modus: ${MODUS}   Schwelle ${MIN}, top ${TOP}\n`);
+const JE_FANG = Math.max(1, arg('je-fang', 1));
+const proben = [];
+
+/** Schreibt die Fragen als echte Rohfaenge, `je` Nachrichten pro Datei. */
+function fangAblegen(root, pool, je) {
+  const dir = path.join(root, 'raw', '2026', '09');
+  fs.mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < pool.length; i += je) {
+    const stueck = pool.slice(i, i + je);
+    const zeilen = stueck.map((q, k) => JSON.stringify({
+      ts: `2026-09-0${1 + (i % 5)}T10:${String(k % 60).padStart(2, '0')}:00Z`,
+      role: 'user', text: q,
+    })).join('\n') + '\n';
+    fs.writeFileSync(path.join(dir, `2026-09-01T10-00-${String(i % 60).padStart(2, '0')}Z--f${i}.jsonl.gz`),
+      zlib.gzipSync(zeilen));
+  }
+}
+console.log(`Modus: ${MODUS}   Schwelle ${MIN}, top ${TOP}, ${JE_FANG} Nachricht(en) je Rohfang\n`);
 console.log('Memory | Fragen | Abrufe | eingespeiste Treffer | Echos | Rate  | 95%-Intervall');
 console.log('-------+--------+--------+----------------------+-------+-------+----------------');
 
@@ -99,11 +138,12 @@ for (const groesse of [50, 200, 600]) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-echo-'));
   build(root, { poisoned: false, noise: Math.max(1, Math.round(groesse / 25)), seed: 11 });
   const pool = fragen(r, groesse);
-  // Der Rohfang: jede frühere Frage liegt als Eintrag in der Memory.
-  pool.forEach((q, i) => memory.logEntry(root, 'thought', {
-    id: `Q-${i}`, title: q, text: q, tags: ['fang'],
-    author: 'session', authority: 'inferred', project: PROJECT,
-  }, { project: PROJECT }));
+  // Der Rohfang, so wie der Stop-Hook ihn anlegt: gzip-JSONL unter
+  // raw/JJJJ/MM/. `--je-fang N` legt N Nachrichten in EINE Datei, wie eine
+  // echte Sitzung. Das ist kein Detail: ein Fang mit zwoelf Nachrichten ist
+  // EIN Dokument, und die Ueberlappung mit einer einzelnen Frage faellt
+  // entsprechend. Vorgabe 1 = die Obergrenze, nicht der Alltag.
+  fangAblegen(root, pool, JE_FANG);
 
   const idx = search.buildIndex(root);
   let treffer = 0, echos = 0, abrufe = 0;
@@ -121,9 +161,11 @@ for (const groesse of [50, 200, 600]) {
     const bucket = q.length < 60 ? 'kurz' : q.length < 110 ? 'mittel' : 'lang';
     const b = nachLaenge.get(bucket) ?? { t: 0, e: 0 };
     for (const h of hits) {
-      const text = compactLine(h.entry);
       treffer += 1; b.t += 1;
-      if (search.isEcho(q, text)) { echos += 1; b.e += 1; }
+      if (search.isEchoHit(q, h)) {
+        echos += 1; b.e += 1;
+        if (proben.length < 3) proben.push([q, String(h.entry.text ?? compactLine(h.entry))]);
+      }
     }
     nachLaenge.set(bucket, b);
   }
