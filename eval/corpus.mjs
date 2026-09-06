@@ -11,6 +11,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import * as memory from '../src/memory.mjs';
 import { FACTS, POISON, PROJECT } from './world.mjs';
 
@@ -239,13 +240,23 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
   }
 
   // 3c. Echos: die Frage selbst, als Rohfang abgelegt. Genau der Effekt, den
-  //     src/search.mjs:1031 mit 13 von 18 gemessen hat.
-  echoes.forEach((q, i) => {
-    memory.logEntry(root, 'thought', {
-      id: `ECHO-${i}`, title: q, text: q,
-      tags: ['fang'], author: 'session', authority: 'inferred', project: PROJECT,
-    }, { project: PROJECT });
-  });
+  //     src/search.mjs mit 13 von 18 gemessen hat.
+  //
+  //     Bis zum 2026-09-06 stand hier `logEntry(root, 'thought', ...)` —
+  //     der Kommentar sagte "Rohfang", der Code legte einen getippten
+  //     Eintrag an. Damit stand der Angriff auf einer Bahn, auf der die
+  //     Abwehr per Bauart nicht steht, und die Kennzahl "36 % Echos"
+  //     mass einen Gegner, den es so nicht gibt. Jetzt schreibt der
+  //     Korpus, was der Stop-Hook schreibt: gzip-JSONL unter raw/.
+  if (echoes.length) {
+    const dir = path.join(root, 'raw', '2026', '09');
+    fs.mkdirSync(dir, { recursive: true });
+    echoes.forEach((q, i) => {
+      const zeile = JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user', text: q });
+      fs.writeFileSync(path.join(dir, `2026-09-01T10-00-00Z--echo${i}.jsonl.gz`),
+        zlib.gzipSync(`${zeile}\n`));
+    });
+  }
 
   return { ids, poisoned: true };
 }

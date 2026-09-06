@@ -55,7 +55,7 @@ function messe(cond) {
   const cap = grantProject(PROJECT);
   const z = {
     aufgaben: 0, mitGold: 0, goldImKontext: 0, kontextLeer: 0,
-    claims: 0, goldClaims: 0, echos: 0, veraltetDurch: 0,
+    claims: 0, goldClaims: 0, echos: 0, echosVerworfen: 0, veraltetDurch: 0,
     konfliktErwartet: 0, konfliktGemeldet: 0, konfliktUnmoeglich: 0,
     autoritaetsBruch: 0, tok: 0,
   };
@@ -74,7 +74,21 @@ function messe(cond) {
       if (goldDrin.length) z.goldImKontext += 1;
       z.goldClaims += goldDrin.length;
     }
-    // Echos: waere das eingespeist worden, obwohl es nur die Frage ist?
+    // Echos, in zwei Zahlen, und der Unterschied ist der ganze Punkt:
+    //
+    //   echosVerworfen  was der Gateway TATSAECHLICH weggeworfen hat —
+    //                   aus seinen eigenen Quittungen (r.excluded), nicht
+    //                   aus einer nachgebauten Regel.
+    //   echos           was trotzdem drin ist und der Frage aehnelt. Das
+    //                   ist seit dem 2026-09-06 kein Versagen mehr: der
+    //                   Filter greift absichtlich nur am Rohfang, und ein
+    //                   getippter Eintrag in den Worten des Nutzers SOLL
+    //                   bleiben.
+    //
+    // Bis zum 2026-09-06 stand hier nur die zweite Zahl, gemessen mit der
+    // losen Regel — und wurde als "reiner Ballast" gemeldet, obwohl der
+    // Gateway zu dem Zeitpunkt ueberhaupt nicht filterte.
+    z.echosVerworfen += r.excluded.filter((e) => e.why?.startsWith('echo of the question')).length;
     for (const c of drin) if (search.isEcho(t.prompt, compactLine({ text: c.body }))) z.echos += 1;
     // Veraltetes: eine ersetzte Fassung im Kontext, und zwar als aktiv.
     for (const c of drin) if (ERSETZT.has(c.id) && c.status === 'active') z.veraltetDurch += 1;
@@ -115,7 +129,9 @@ zeile('Gold im eingespeisten Kontext', (z) => `${z.goldImKontext}/${z.mitGold}`,
 zeile('  als Anteil', (z) => pct(z.goldImKontext, z.mitGold), '');
 zeile('Aufgaben mit LEEREM Kontext', (z) => `${z.kontextLeer}/${z.aufgaben}`, 'da kann Memory nichts bewirken');
 zeile('Praezision (Gold je eingespeistem Claim)', (z) => pct(z.goldClaims, z.claims), 'UNTERGRENZE der Verschmutzung');
-zeile('davon Echos der Frage', (z) => `${z.echos}/${z.claims}`, 'reiner Ballast');
+zeile('vom Gateway als Echo verworfen', (z) => `${z.echosVerworfen}`, 'aus den Quittungen');
+zeile('davon Echos der Frage', (z) => `${z.echos}/${z.claims}`,
+  'aehnelt der Frage, bleibt aber absichtlich (kein Rohfang)');
 zeile('veraltete Fassung als aktiv eingespeist', (z) => z.veraltetDurch, 'GATE: Korrekturversagen');
 zeile('Konflikt gemeldet, wenn beide Seiten da', (z) => `${z.konfliktGemeldet}/${z.konfliktErwartet}`, 'GATE: Widerspruch');
 zeile('  Konflikt gar nicht erkennbar (nur eine Seite)', (z) => z.konfliktUnmoeglich, 'Retrieval-Grenze, kein Defekt');
