@@ -233,3 +233,50 @@ bei geringfuegig weniger Token.
 
 **Was daraus NICHT folgt:** den termGraph abzuschalten. Die englische
 Messung sagt das Gegenteil. Was folgt, steht in Stufe 2.
+
+---
+
+# Stufe 3 — Schwelle: beide Kandidaten abgelehnt (0 USD)
+
+Kalibriert auf dev+val, final unberuehrt.
+
+| Regel | deutsch Gold | Claims | Praez. | englisch Gold | Claims | Praez. |
+|---|---:|---:|---:|---:|---:|---:|
+| absolut >= 5 *(heute)* | 2/14 | 29 | 7 % | 12/15 | 68 | 79 % |
+| absolut >= 3 | 4/14 | 63 | 6 % | 13/15 | 75 | 79 % |
+| relativ >= 0,5x Bester | 4/14 | 70 | 6 % | 13/15 | 75 | 79 % |
+| relativ >= 0,8x Bester | 3/14 | 62 | 5 % | 13/15 | 73 | 81 % |
+
+**REJECT: relative Schwelle.** Sie bringt gegenueber `absolut >= 3` auf
+beiden Korpora nichts. Die Vermutung, eine absolute BM25-Schwelle sei
+fragil, weil die Score-Verteilungen sich um eine Groessenordnung
+unterscheiden (eigener Korpus 0-10, echter 2-93), hat sich in den Zahlen
+nicht niedergeschlagen.
+
+**REJECT: Vorgabe von 5 auf 3 senken.** Sie kauft auf Deutsch +2 Gold fuer
++34 Rausch-Claims bei unveraenderter Praezision (6 %). Am echten Korpus
+liegen ohnehin 93,3 % der Treffer ueber 5, dort aendert es fast nichts.
+
+Der informative Teil des Nullergebnisses: **die Schwelle ist nicht die
+bindende Grenze.** Das Ranking ist es. Wer den Recall heben will, muss an
+der Reihenfolge arbeiten, nicht am Filter.
+
+# Stufe 4 — Verdraengung: haelt (0 USD)
+
+`node eval/flood.mjs` — vier Bedingungen (Angreifer als agent/user,
+thematisch aehnlich/unaehnlich, kurz/lang), Flut von 0 bis 400 Eintraegen.
+
+**Der echte Anspruch wird in keiner Bedingung verdraengt.** Er bleibt auf
+Rang 1-4, und der Widerspruch wird ab dem ERSTEN Flut-Eintrag gemeldet.
+
+Und ein Mechanismus, der vorher niemandem aufgefallen war: **ab etwa 34
+Flut-Eintraegen verschwindet der Angreifer ganz** aus dem eingespeisten
+Kontext. Je mehr Kopien er schreibt, desto haeufiger werden seine Woerter,
+desto kleiner ihre idf, desto niedriger jeder einzelne Score. **BM25 macht
+Massenflutung selbstbegrenzend.** Das ist kein Entwurf, sondern eine
+Eigenschaft, die hier zum ersten Mal gemessen wurde.
+
+Die erste Fassung dieser Datei meldete fuer JEDE Flutmenge "verdraengt",
+auch fuer 0 — bei Schwelle 5.0 kam auf dem damals zu duennen Korpus gar
+nichts an. Ein Messgeraet, das ohne Angriff schon Alarm schlaegt, misst
+nichts. Jetzt laeuft eine Positivkontrolle davor.

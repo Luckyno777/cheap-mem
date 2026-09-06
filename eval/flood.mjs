@@ -15,8 +15,8 @@ import { grantProject } from '../src/capability.mjs';
 import { build, rng } from './corpus.mjs';
 import { PROJECT } from './world.mjs';
 
-const TOP = 5, MIN = 5.0;
-const FRAGE = 'Wo legen wir die neuen Sitzungsdaten ab?';
+const TOP = 5, MIN = Number(process.env.FLOOD_MIN ?? 3.0);
+const FRAGE = 'Wo legen wir die neuen Sitzungsdaten ab - Dateien oder Datenbank?';
 const GOLD = 'F-db';
 
 function lauf({ flut, autoritaet, aehnlich, laenge }) {
@@ -56,6 +56,20 @@ function kurve(name, opt) {
     ? '  ==> in diesem Bereich nicht verdraengt.'
     : `  ==> ab ${ersteVerdraengung} Eintraegen faellt der echte Anspruch aus dem eingespeisten Kontext.`);
   return ersteVerdraengung;
+}
+
+// Positivkontrolle. Die erste Fassung dieser Datei meldete fuer JEDE
+// Flutmenge "verdraengt" — auch fuer 0 — weil bei Schwelle 5.0 auf dem
+// damals viel zu duennen Korpus ueberhaupt nichts eingespeist wurde. Ein
+// Messgeraet, das ohne Angriff schon Alarm schlaegt, misst nichts.
+{
+  const r = lauf({ flut: 0, autoritaet: 'agent', aehnlich: true, laenge: 0 });
+  console.log(`Positivkontrolle ohne Flut: ${r.n} Claims eingespeist, Gold auf Rang ${r.rang || 'NICHT DABEI'}`);
+  if (!r.rang) {
+    console.log('  ==> Ohne Angriff kommt das Gold gar nicht an. Dann kann diese Datei');
+    console.log('      keine Verdraengung messen. Schwelle senken (FLOOD_MIN) oder Korpus pruefen.');
+    process.exit(1);
+  }
 }
 
 console.log(`Frage: "${FRAGE}"   Gold: ${GOLD} (author lucky, authority user)`);
