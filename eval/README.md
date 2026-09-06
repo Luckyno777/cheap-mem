@@ -152,3 +152,84 @@ Das ist eine Hypothese fuer die naechste Runde, kein Ergebnis dieser: sie
 entstand NACH dem Blick auf die Daten. Wer sie jetzt als Kennzahl
 nachtraegt und dieselben Laeufe neu auswertet, misst seine eigene
 Erwartung. Sie gehoert vorher festgelegt und an neuen Aufgaben geprueft.
+
+---
+
+# Stufe 1 — warum kommt die Angabe nicht an? (0 USD)
+
+`node eval/ablation.mjs`
+
+## Befund A: die kuratierten Synonyme sind englisch
+
+| Sprache | Fragen | Terme | Synonyme | Fragen mit mindestens einem |
+|---|---:|---:|---:|---:|
+| deutsch | 21 | 198 | **0** | **0/21** |
+| englisch | 15 | 44 | 53 | 11/15 |
+
+`THESAURUS` in `src/thesaurus.mjs`: 39 Gruppen, 188 Woerter, kein einziges
+deutsches. Fuer eine deutsche Memory traegt diese Schicht **nichts** bei.
+Die englische Messung ist die Positivkontrolle: der Mechanismus
+funktioniert, er greift nur nicht.
+
+Das betrifft lucky-mem unmittelbar — das ist eine deutsche Memory.
+Der Ausweg existiert (`.mem/thesaurus.json`, `loadUserGroups`), wird aber
+nirgends angezeigt: ein deutscher Nutzer bekommt still schlechteren Abruf,
+bis er die Datei von sich aus entdeckt.
+
+## Befund B: der gelernte termGraph schadet auf Deutsch und nuetzt auf Englisch
+
+Gold-Claim in den top-5, gleicher Code, gleiche Aufrufe:
+
+| Schwelle | deutsch mit | deutsch ohne | englisch mit | englisch ohne |
+|---:|---:|---:|---:|---:|
+| 2 | 9/18 | **14/18** | 13/15 | 13/15 |
+| 3 | 8/18 | **12/18** | **13/15** | 10/15 |
+| 4 | 7/18 | 8/18 | **13/15** | 8/15 |
+| 5 | 5/18 | 6/18 | **12/15** | 7/15 |
+
+Kein Score-Inflations-Artefakt: bei Schwelle 2 sind die englischen Zahlen
+gleich, darueber haelt der termGraph die richtigen Dokumente oben. Auf
+Deutsch schadet er bei jeder Schwelle.
+
+## Befund C: der Schaden waechst mit der Wiederholung im Korpus
+
+| Wiederholungen | Dokumente | mit termGraph | ohne |
+|---:|---:|---:|---:|
+| 1 | 35 | 16/18 | 16/18 |
+| 2 | 57 | 16/18 | 16/18 |
+| 4 | 101 | 12/18 | 16/18 |
+| 8 | 189 | 9/18 | 16/18 |
+| 16 | 365 | 8/18 | 16/18 |
+
+Ohne termGraph bleibt der Recall konstant, mit ihm faellt er monoton.
+`buildTermGraph` schuetzt gegen ALLGEGENWART (maxDocFraction, nPMI), nicht
+gegen LOKALE Redundanz: ein Buendel fast gleicher Eintraege laesst zwei
+Rauschwoerter perfekt ko-okkurrieren, und nPMI belohnt genau das maximal.
+
+Zusammen mit der Echo-Rate, die ebenfalls mit der Groesse waechst, ergibt
+das ein Muster: **die Abrufguete verschlechtert sich, waehrend die Memory
+waechst.**
+
+## Gegenprobe gegen mich selbst
+
+Mein Dichte-Ausbau zog ALLE Eintraege aus einem Pool von acht Saetzen —
+das erzeugt genau die Ko-Okkurrenz, die den Befund treibt. Mit eindeutiger
+Fuellung je Eintrag: mit termGraph 7/18, ohne 10/18. Der Abstand schrumpft
+von 7 auf 3 und **verschwindet nicht**. Ein Teil des Befundes war mein
+Artefakt, der Rest steht.
+
+## Kalibrierung auf dev+val (final unberuehrt)
+
+| termGraph | Schwelle | Gold | Claims | Praezision | Token | leerer Kontext |
+|---|---:|---:|---:|---:|---:|---:|
+| mit | 5 *(heutige Vorgabe)* | 2/12 | 29 | 7 % | 5439 | 6 |
+| mit | 3 | 4/12 | 63 | 6 % | 11729 | 1 |
+| **ohne** | **3** | **8/12** | **27** | **33 %** | **5339** | **4** |
+| ohne | 2 | 8/12 | 39 | 26 % | 7574 | 4 |
+
+Auf diesem Korpus dominiert `ohne termGraph, Schwelle 3` die heutige
+Vorgabe auf **jeder** Achse: viermal so viel Gold, fuenfmal die Praezision,
+bei geringfuegig weniger Token.
+
+**Was daraus NICHT folgt:** den termGraph abzuschalten. Die englische
+Messung sagt das Gegenteil. Was folgt, steht in Stufe 2.
