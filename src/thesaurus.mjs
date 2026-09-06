@@ -435,6 +435,44 @@ export function expand(terms, tagGraph = null, lang = null, termGraph = null) {
   return [...out];
 }
 
+
+/**
+ * Deckt die kuratierte Wortliste die Sprache dieser Memory ueberhaupt ab?
+ *
+ * Gemessen am 2026-09-06: `THESAURUS` enthaelt 39 Gruppen und 188 Woerter,
+ * alle englisch. Eine deutsche Memory bekommt aus dieser Schicht NULL
+ * Synonyme — 0 Treffer aus 198 Anfrage-Termen ueber 21 Fragen, gegen 53
+ * aus 44 Termen auf Englisch. Der Mechanismus arbeitet, er greift nur
+ * nicht, und nichts sagt es einem.
+ *
+ * Das ist die Sorte Luecke, gegen die dieses Projekt sonst antritt:
+ * unsichtbar bei Anwesenheit, still bei Abwesenheit. Also wird sie
+ * gemessen statt vorausgesetzt.
+ *
+ * Gezaehlt wird ueber die HAEUFIGSTEN Inhaltswoerter der Memory, nicht
+ * ueber Anfragen: der Doktor hat keine Anfragen, und das Vokabular der
+ * Eintraege sagt dasselbe.
+ *
+ * @param {string[]} terms  Inhaltswoerter der Memory, haeufigste zuerst
+ * @param {object} lang     Sprachpaket (normalize/stem)
+ */
+export function curatedCoverage(terms, lang = null) {
+  const l = lang ?? { name: 'raw', normalize: (w) => w, stem: (w) => w };
+  let covered = 0;
+  // Die Terme werden hier GESTAMMT, weil der Index nach Stamm schluesselt
+  // und der echte Suchpfad ebenfalls gestammte Terme uebergibt
+  // (search.mjs: tokenizeGroups -> expand).
+  //
+  // Eine erste Fassung reichte rohe Woerter durch. Auf Englisch fiel das
+  // nicht auf — der Stemmer laesst kurze Woerter meist unveraendert, also
+  // traf der Schluessel zufaellig. Auf Deutsch traf er nie, und die
+  // Funktion meldete fuer JEDE deutsche Memory null Deckung, auch mit
+  // eigener Wortliste. Das sah nach einem Defekt in cheap-mem aus und war
+  // einer in dieser Funktion.
+  for (const t of terms) if (thesaurusNeighbours(l.stem(l.normalize(t)), l).length) covered += 1;
+  return { checked: terms.length, covered, fraction: terms.length ? covered / terms.length : null };
+}
+
 /** For the index cache: Map -> Array and back. */
 export function packTagGraph(graph) { return [...graph]; }
 export function unpackTagGraph(raw) { return new Map(raw ?? []); }

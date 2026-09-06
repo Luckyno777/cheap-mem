@@ -329,6 +329,12 @@ const MUTANTS=[
    to:'  for (const f of integrity.logFiles(root).slice(0, 1)) {  // MUTANT',
    tests:['test/state.test.mjs','test/properties.test.mjs'] },
 
+ { name:'SEM curatedCoverage stops stemming its input',
+   file:'src/thesaurus.mjs',
+   from:'  for (const t of terms) if (thesaurusNeighbours(l.stem(l.normalize(t)), l).length) covered += 1;',
+   to:'  for (const t of terms) if (thesaurusNeighbours(t, l).length) covered += 1;  // MUTANT',
+   tests:['test/synonyms.test.mjs'] },
+
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',
    from:'  mmr = true,',

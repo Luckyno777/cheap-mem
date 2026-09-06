@@ -32,6 +32,8 @@ import * as raw from './raw.mjs';
 import * as search from './search.mjs';
 import * as redaction from './redaction.mjs';
 import * as cfgmod from './config.mjs';
+import * as thesaurus from './thesaurus.mjs';
+import { pack } from './language.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -74,6 +76,7 @@ export function checkAll(root) {
   f.push(checkTopicQuality(root));
   f.push(checkDelivery(root));
   f.push(checkIndex(root));
+  f.push(checkSynonyms(root));
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
   f.push(checkBehind(root));
@@ -459,6 +462,62 @@ function checkDigest(root) {
   }
   return finding('digest', LEVEL.GOOD,
     `${st.open.length} pending (${kb} KB), not due yet (${d.reason})`);
+}
+
+
+/**
+ * Greifen die kuratierten Synonyme in DIESER Memory?
+ *
+ * `THESAURUS` in thesaurus.mjs ist englisch — 39 Gruppen, 188 Woerter.
+ * Gemessen am 2026-09-06: eine deutsche Memory bekommt daraus null
+ * Synonyme (0 Treffer aus 198 Anfrage-Termen ueber 21 Fragen; englisch
+ * 53 aus 44). Der Abruf laeuft trotzdem, nur eine seiner drei
+ * Erweiterungsschichten ist stumm — und nichts sagt es einem.
+ *
+ * Genau die Sorte Luecke, gegen die dieses Projekt sonst antritt:
+ * unsichtbar bei Anwesenheit, still bei Abwesenheit. Also gemessen.
+ *
+ * Gezaehlt wird ueber das haeufigste Vokabular der Memory selbst, nicht
+ * ueber Anfragen — der Doktor hat keine, und die Eintraege sagen dasselbe.
+ */
+function checkSynonyms(root) {
+  let cfg; try { cfg = cfgmod.readConfig(root); } catch { cfg = { language: 'en' }; }
+  let idx;
+  try { idx = search.loadIndex(root, { language: cfg.language }); }
+  catch { return finding('synonyms', LEVEL.UNKNOWN, 'index not readable'); }
+  const docs = idx.documents ?? [];
+  if (docs.length < 5) return finding('synonyms', LEVEL.UNKNOWN, 'too few entries to judge');
+
+  // Haeufigste Inhaltswoerter der Memory.
+  const df = new Map();
+  for (const d of docs) {
+    const text = JSON.stringify(d.entry ?? d).toLowerCase();
+    for (const w of new Set(text.match(/[a-z][a-z0-9]{3,}/g) ?? [])) df.set(w, (df.get(w) ?? 0) + 1);
+  }
+  const top = [...df.entries()].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([w]) => w);
+  const cov = thesaurus.curatedCoverage(top, pack(cfg.language ?? 'en'));
+  const eigene = thesaurus.loadUserGroups(root, fs, path).loaded ?? 0;
+  const pct = cov.fraction === null ? 0 : Math.round(cov.fraction * 100);
+
+  if (cov.covered === 0 && eigene === 0) {
+    return finding('synonyms', LEVEL.WARN,
+      `the curated synonyms match NONE of this memory's 60 commonest words (language ${cfg.language ?? 'en'})`,
+      'The built-in list is English. Retrieval still works, but one of its '
+      + 'three expansion layers is silent here. Add your own groups in '
+      + '.mem/thesaurus.json — an array of arrays, e.g. '
+      + '[["auslieferung","deploy","ausrollen"]]. No word may appear twice.');
+  }
+  if (eigene > 0) {
+    return finding('synonyms', LEVEL.GOOD,
+      `${eigene} own group(s), curated list covers ${pct}% of the commonest words`);
+  }
+  if (pct < 10) {
+    return finding('synonyms', LEVEL.WARN,
+      `the curated synonyms cover only ${pct}% of this memory's commonest words`,
+      'Mostly an English list against a vocabulary it does not know. '
+      + 'Add your own groups in .mem/thesaurus.json.');
+  }
+  return finding('synonyms', LEVEL.GOOD, `curated list covers ${pct}% of the commonest words`);
 }
 
 function checkIndex(root) {
