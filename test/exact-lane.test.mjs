@@ -145,3 +145,93 @@ test('die Bahn hilft NICHT, wenn die Frage nach dem Bezeichner fragt', () => {
       'die Bahn hat gegriffen, obwohl die Frage keinen Bezeichner nennt — schoen, aber dann stimmt dieser Kommentar nicht mehr');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
+
+// --- Die Bahn reiht innen (2026-09-07) --------------------------------
+//
+// Der Kommentar ueber `exactHits` hat immer behauptet, die Treffer
+// truegen "the BM25 score they would have had". Der Code setzte
+// `score: 0` auf jeden einzelnen und gab sie in Indexreihenfolge
+// heraus; beide Aufrufer stellten die Bahn unveraendert nach vorn. Wer
+// in der Datei frueher stand, gewann.
+//
+// In lucky-mem gemessen, gleicher Code, gleiche Form: eine Frage nannte
+// `1029`, sieben Eintraege tragen die Nummer. Eine Zip-Bomben-Notiz
+// (BM25 2,26) kam auf Rang 2 heraus, der Eintrag mit der Antwort
+// (19,96) auf Rang 5, der staerkste der ganzen Bahn (36,26) auf Rang 7.
+// Ein Briefing, das je Frage drei Treffer mitnimmt, verlor die Antwort.
+//
+// Sieben Nennungen sind keine Gewissheit, sondern ein Thema.
+
+const NR = '1029';
+
+function bauBahn() {
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-bahn-'));
+  execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
+  const log = (typ, d) => memory.logEntry(r, typ, { ...d, author: 'lucky', authority: 'user' });
+  // Der Eintrag, der die Frage beantwortet — und der in der Datei ZULETZT
+  // steht, damit die Indexreihenfolge ihn nach hinten legt.
+  log('learning', { id: 'ZIP', title: 'Zip bomb in the attachment path',
+    text: `An archive unpacked past the ceiling. See ${NR}.` });
+  log('learning', { id: 'PAR', title: 'Paragraph number chosen by hand',
+    text: `Two plan items pointed at ${NR}.` });
+  log('learning', { id: 'ORD', title: 'Order of the guards',
+    text: `Placeholder first, then ${NR}.` });
+  log('decision', { id: 'DIG', topic: 'translation',
+    choice: `The digit rule looks the whole string up in the catalogue (${NR})`,
+    why: `A measured value is never in the catalogue. Guard ${NR}.` });
+  log('learning', { id: 'ZIEL', topic: 'translation',
+    title: `The tab reads french instead of german after ${NR}, and the cause stays unproven`,
+    text: `The tab is french instead of german; nothing is proven about the cause. Number ${NR}.` });
+  for (let i = 0; i < 12; i += 1) {
+    log('decision', { id: `X${i}`, topic: `topic${i}`,
+      choice: `for topic${i} the filing stays`, why: `decided at case ${600 + i}` });
+  }
+  return r;
+}
+
+const FRAGE_BAHN = `Which tab reads french instead of german after ${NR}, and what is proven about the cause?`;
+
+test('DER FALL: der beantwortende Eintrag steht in den ersten drei', () => {
+  const r = bauBahn();
+  try {
+    const bahn = search.exactHits(search.loadIndex(r), FRAGE_BAHN, 9);
+    assert.ok(bahn.length > 1, `Der Fall braucht mehrere Exakt-Treffer, hat ${bahn.length}`);
+    const ids = bahn.map((h) => h.entry.id);
+    assert.ok(ids.slice(0, 3).includes('ZIEL'),
+      `erwartet ZIEL in den ersten drei, bekam: ${ids.join(', ')}`);
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('die Bahn ist innen nach Punktzahl absteigend geordnet', () => {
+  const r = bauBahn();
+  try {
+    const bahn = search.exactHits(search.loadIndex(r), FRAGE_BAHN, 9);
+    for (let i = 1; i < bahn.length; i += 1) {
+      assert.ok(bahn[i - 1].score >= bahn[i].score,
+        `Rang ${i} (${bahn[i - 1].score}) steht ueber Rang ${i + 1} (${bahn[i].score})`);
+    }
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('die Bahn traegt echte Punktzahlen, nicht 0', () => {
+  // Der Kommentar hat das immer behauptet; der Code tat es nicht.
+  const r = bauBahn();
+  try {
+    const bahn = search.exactHits(search.loadIndex(r), FRAGE_BAHN, 9);
+    assert.ok(bahn.some((h) => h.score > 0), 'kein einziger Exakt-Treffer hat Punkte');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('beide Abrufwege sehen dieselbe Reihenfolge in der Bahn', () => {
+  // `mem find` und `retrieve()` sind schon zweimal auseinandergelaufen.
+  // Die Reihung wohnt darum IN exactHits und nicht in den Aufrufern —
+  // dieser Test haelt fest, dass es dabei bleibt.
+  const r = bauBahn();
+  try {
+    const idx = search.loadIndex(r);
+    const a = search.exactHits(idx, FRAGE_BAHN, 9).map((h) => h.entry.id);
+    const b = search.exactHits(idx, FRAGE_BAHN, 9).map((h) => h.entry.id);
+    assert.deepEqual(a, b);
+    assert.ok(a.length > 1);
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
