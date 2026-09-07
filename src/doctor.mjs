@@ -83,6 +83,7 @@ export function checkAll(root) {
   f.push(checkGitState(root));
   f.push(checkIntegrity(root));
   f.push(checkEntryForm(root));
+  f.push(checkGitignoreEffective(root));
   f.push(checkRollback(root));
   f.push(...checkEnvironmentContract(root));
 
@@ -880,6 +881,53 @@ export function checkRollback(root) {
  * the cap cannot exist since the write path closed, and is a real
  * warning.
  */
+/**
+ * Does the memory's .gitignore actually ignore what it claims?
+ *
+ * **Asked of git, not of the file.** The file looked right for weeks
+ * and ignored nothing: `writeMemoryGitignore` wrote
+ * `<rule><padding># <why>` on one line, and git has no trailing
+ * comments — `#` only starts a comment at the start of a line. All nine
+ * rules were patterns matching nothing, the first of them
+ * `.mem/embed.env`, whose entire job is to keep an API key out of the
+ * repository. Found 2026-09-07 on a fresh Windows install, by someone
+ * who read the file and then asked git.
+ *
+ * That is why this check shells out to `git check-ignore` instead of
+ * parsing the file: a parser of ours would have made the same
+ * assumption the writer made. The authority on what git ignores is git.
+ *
+ * Silent (UNKNOWN) where there is no git repository — a memory that is
+ * not versioned cannot fail this, and a check that fires there would
+ * train people to ignore the output.
+ */
+export function checkGitignoreEffective(root) {
+  const PFLICHT = ['.mem/embed.env', '.mem/epoch.json', '.mem/search-index.json'];
+  if (!fs.existsSync(path.join(root, '.git'))) {
+    return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');
+  }
+  const offen = [];
+  for (const regel of PFLICHT) {
+    const r = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', regel],
+      { encoding: 'utf8' });
+    // 0 = ignored, 1 = not ignored, anything else = git could not answer.
+    if (r.status === 1) offen.push(regel);
+    else if (r.status !== 0) {
+      return finding('gitignore', LEVEL.UNKNOWN,
+        `git check-ignore could not answer (${r.status})`);
+    }
+  }
+  if (!offen.length) {
+    return finding('gitignore', LEVEL.GOOD,
+      `git ignores all ${PFLICHT.length} required paths`);
+  }
+  const geheim = offen.includes('.mem/embed.env');
+  return finding('gitignore', geheim ? LEVEL.ERROR : LEVEL.WARN,
+    `git does NOT ignore: ${offen.join(', ')}`
+    + (geheim ? ' — embed.env holds API keys' : ''),
+    'run `mem init` again in this memory: it rewrites the block and repairs broken lines');
+}
+
 export function checkEntryForm(root) {
   const TEXT_FIELDS = ['title', 'text', 'topic', 'choice', 'why', 'fact', 'summary'];
   const broken = [];
