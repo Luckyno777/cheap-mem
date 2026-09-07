@@ -245,7 +245,22 @@ export function redactObject(o, found = new Map()) {
  * a false positive. Silencing it by shortening the list would be
  * wrong; naming the specific offenders is the honest fix.
  */
-const ENV_HARMLESS = /^(PATH|HOME|PWD|OLDPWD|SHELL|TERM|LANG|LC_[A-Z]+|USER|LOGNAME|HOSTNAME|TMPDIR|EDITOR|PAGER|SHLVL|_|NODE_PATH|npm_.*|XDG_.*|LS_COLORS|MANPATH|INFOPATH|GIT_CONFIG_.*|GIT_(DIR|WORK_TREE|INDEX_FILE|AUTHOR_.*|COMMITTER_.*|EDITOR|PAGER|EXEC_PATH|PREFIX)|CI|GITHUB_(WORKSPACE|REPOSITORY|REF.*|SHA|ACTOR|WORKFLOW|RUN_.*|ACTION.*|EVENT_NAME|BASE_REF|HEAD_REF|SERVER_URL|API_URL|GRAPHQL_URL|JOB|PATH|ENV|STEP_SUMMARY|OUTPUT|STATE))$/;
+// **The Windows half was missing, and that made the tool unusable there.**
+// The list knew USER and LOGNAME but not USERNAME. On a machine where
+// the account is `Administrator`, that name sits inside every path
+// under `C:\\Users\\` — so redaction replaced every path it saw, and
+// the pre-commit hook refused every commit that mentioned one. Reported
+// 2026-09-07 from a fresh Windows install and reproduced here.
+//
+// Case-insensitive for the same reason: Windows environment variable
+// names are case-insensitive, and a program may hand us `Username` or
+// `USERPROFILE` in whatever case it likes. A list that only matches one
+// spelling is a list with holes in it.
+//
+// These names are harmless because they identify a MACHINE or an
+// ACCOUNT, not a credential. The value check below still applies to
+// everything not on this list.
+const ENV_HARMLESS = /^(PATH|HOME|PWD|OLDPWD|SHELL|TERM|LANG|LC_[A-Z]+|USER|LOGNAME|HOSTNAME|TMPDIR|EDITOR|PAGER|SHLVL|_|NODE_PATH|npm_.*|XDG_.*|LS_COLORS|MANPATH|INFOPATH|GIT_CONFIG_.*|GIT_(DIR|WORK_TREE|INDEX_FILE|AUTHOR_.*|COMMITTER_.*|EDITOR|PAGER|EXEC_PATH|PREFIX)|CI|GITHUB_(WORKSPACE|REPOSITORY|REF.*|SHA|ACTOR|WORKFLOW|RUN_.*|ACTION.*|EVENT_NAME|BASE_REF|HEAD_REF|SERVER_URL|API_URL|GRAPHQL_URL|JOB|PATH|ENV|STEP_SUMMARY|OUTPUT|STATE)|USERNAME|USERPROFILE|USERDOMAIN(_ROAMINGPROFILE)?|COMPUTERNAME|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|ALLUSERSPROFILE|PROGRAMDATA|PROGRAMFILES(\\(X86\\))?|PROGRAMW6432|COMMONPROGRAMFILES(\\(X86\\)|W6432)?|SYSTEMROOT|SYSTEMDRIVE|WINDIR|TEMP|TMP|COMSPEC|PATHEXT|PSMODULEPATH|PUBLIC|SESSIONNAME|OS|PROCESSOR_.*|NUMBER_OF_PROCESSORS|LOGONSERVER|DRIVERDATA|ONEDRIVE.*)$/i;
 
 /** Values that look like a path, a URL without credentials, or a
  *  version — long, but not a secret. */
