@@ -27,7 +27,7 @@ die elfte am 2026-09-07 dazu.
    Erkenntnis. Diese Regel hat in einer Sitzung sechsmal richtig
    ausgeloest. Schreib das Ergebnis der Kontrolle mit in die Ausgabe.
 
-4. **Der Benchmark darf seine eigene Antwort nie sehen.** Getrennte
+4. **Der Pruefstand darf seine eigene Antwort nie sehen.** Getrennte
    Wortschaetze, ein Leckage-Riegel, der den Lauf scheitern laesst,
    und Hilfstexte von einem Modell, das die Aufgaben nicht kennt.
    Kriterium fuer Leckage: das Wort erfuellt fuer sich allein die
