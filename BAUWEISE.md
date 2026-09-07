@@ -1,10 +1,11 @@
 # Bauweise: guenstig bauen, ehrlich messen
 
 Kurze Anweisung zum Mitnehmen in andere Sitzungen. Kein Manifest —
-zehn Regeln, die sich am 2026-09-06 an cheap-mem bewaehrt haben, mit
-den Kosten, die sie tatsaechlich verursacht haben.
+Regeln, die sich an cheap-mem und lucky-mem bewaehrt haben, mit den
+Kosten, die sie tatsaechlich verursacht haben. Zehn am 2026-09-06,
+die elfte am 2026-09-07 dazu.
 
-## Die zehn Regeln
+## Die Regeln
 
 1. **Code zuerst, Modell zuletzt.** Zerlege die Frage und beantworte
    jede Teilfrage, die Code beantworten kann, mit Code. Ein
@@ -67,9 +68,55 @@ den Kosten, die sie tatsaechlich verursacht haben.
    Punktzahl und ignoriert die Eingangsreihenfolge. Jede Bahn braucht
    ihren eigenen Durchlauf.
 
+   **Und eine Bahn ordnet auch INNEN.** Nachtrag vom 2026-09-07, der
+   die Regel ein Jahr zu spaeth bekommen haette. Die Exakt-Bahn gab
+   ihre Treffer in Indexreihenfolge heraus, alle mit Punktzahl 0 —
+   welcher Eintrag frueher in der Datei stand, gewann. Gemessen an
+   einer Frage, die `1029` nannte und sieben Eintraege traf: eine
+   thematisch unbeteiligte Notiz (BM25 2,26) auf Rang 2, die Antwort
+   (19,96) auf Rang 5, der staerkste der Bahn (36,26) auf Rang 7. Ein
+   Auszug, der drei Treffer je Frage mitnimmt, verlor damit die
+   Antwort — nicht weil die Suche sie verfehlte, sondern weil die
+   eigene Bahn sie begrub.
+
+   Die Bahn entscheidet die AUSWAHL, die Punktzahl die REIHENFOLGE
+   darin. Wer nur das erste haelt, hat eine Bahn gebaut, die
+   Willkuer transportiert.
+
+   Zwei Nebenbefunde, die dazugehoeren. Erstens: der Kommentar ueber
+   der Funktion behauptete seit jeher, die Treffer truegen "die
+   Punktzahl, die sie gehabt haetten" — der Code setzte 0. Eine
+   Zusicherung, die nur im Kommentar steht, ist Regel 8. Zweitens:
+   die Begruendung der Bahn lautet "ein genannter Bezeichner ist
+   Gewissheit". Das setzt stillschweigend voraus, dass es GENAU EINEN
+   Treffer gibt. Sieben Nennungen sind keine Gewissheit, sondern ein
+   Thema — und dann traegt nur noch die Reihung.
+
 10. **Nenne die Kosten, bevor du misst.** Jeder Messvorschlag kommt
     mit Preis. Der Auftraggeber entscheidet, ob die Antwort das wert
     ist — nicht du.
+
+11. **Ein Beobachter, der am Erwarteten erkennt, misst nur seine
+    Erwartung.** Wer auf ein Ereignis wartet, muss es am VORGANG
+    erkennen — an der Kennung, am Bezug, am Betreff — nie am
+    erwarteten Namen, Pfad oder Absender. Sonst meldet er nicht
+    "falsch", sondern "nichts da", und Abwesenheit sieht aus wie ein
+    Befund.
+
+    Gekostet am 2026-09-07: ein Wartesucher filterte auf den
+    Dateinamen `chatgpt-an-sitzung`. Die Antwort hiess
+    `chatgpt-an-vm-admin` — falsch adressiert, aber vollstaendig und
+    richtig. Er sah sie 18 Minuten lang nicht, lief in die
+    vorangemeldete Frist und meldete einen Ausfall. Sie lag seit 112
+    Sekunden da, und der Mensch bekam die falsche Meldung, weil kein
+    Fehler auftrat, den irgendjemand haette sehen koennen.
+
+    Praktisch heisst das zweierlei. Beim Bauen: das Merkmal aus dem
+    Vorgang nehmen, nicht aus der Erwartung. Beim Messen: bevor
+    "nicht da" gemeldet wird, einmal OHNE den eigenen Filter
+    nachsehen, was seit dem Start ueberhaupt eingegangen ist.
+    Verwandt mit Regel 3 — die Positivkontrolle fragt, ob die Sonde
+    ueberhaupt anschlaegt; diese fragt, ob sie das Richtige ansieht.
 
 ## Kosten zur Eichung (Sonnet 5, September 2026)
 

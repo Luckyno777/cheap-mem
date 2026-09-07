@@ -1133,15 +1133,48 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * `platz` is the answer size, and it is the whole bound: an identifier
  * in more documents than there are slots is not identifying, it is
  * furniture. No free parameter, nothing to calibrate.
+ *
+ * **The lane is ordered INSIDE, and it did not used to be.** The comment
+ * above always claimed these hits "carry the BM25 score they would have
+ * had"; the code set `score: 0` on every one of them and handed them
+ * back in index order. Both callers put the lane in front unchanged, so
+ * whichever document happened to sit earlier in the file won.
+ *
+ * Measured in lucky-mem on 2026-09-07, same code, same shape: a question
+ * naming `1029` matched seven entries. A zip-bomb note (BM25 2.26) came
+ * out at rank 2, the entry that answered the question (19.96) at rank 5,
+ * and the strongest of the whole lane (36.26) at rank 7. A briefing that
+ * takes the top three per question lost the answer — not because search
+ * missed it, but because the lane buried it.
+ *
+ * Seven mentions are not certainty, they are a topic. The lane still goes
+ * in front — a named identifier beats a guess — but the order INSIDE it
+ * follows the score. Same split as MMR and the raw reserve: the lane
+ * decides the SELECTION, the score decides the order within it.
+ *
+ * The scores come from one extra `search()` pass rather than from a list
+ * the caller hands in. That is deliberate: `mem find` and `retrieve()`
+ * have drifted apart twice already (see test/paths-agree.test.mjs), and a
+ * parameter each caller has to fill correctly is a third chance. The pass
+ * is BM25 over an in-memory index; it costs what it costs and nobody has
+ * to remember anything.
  */
 export function exactHits(index, query, platz) {
   const gefunden = entity.treffer(index.entityIndex, query, platz);
+  if (!gefunden.size && !gefunden.length) return [];
+  // minScore 0: a lane hit is often exactly the document BM25 rates near
+  // zero — that is the whole reason the lane exists.
+  const punkte = new Map();
+  for (const h of search(index, query, {
+    top: index.N ?? index.documents.length, minScore: 0,
+    withRetired: true, mmr: false,
+  })) punkte.set(`${h.source}:${h.line}`, h.score);
   const raus = [];
   for (const [i, welche] of gefunden) {
     const doc = index.documents[i];
     if (!doc) continue;
     raus.push({
-      score: 0,
+      score: punkte.get(`${doc.source}:${doc.line}`) ?? 0,
       type: doc.type,
       project: doc.project,
       source: doc.source,
@@ -1154,6 +1187,7 @@ export function exactHits(index, query, platz) {
       __w: doc.weights,
     });
   }
+  raus.sort((a, b) => b.score - a.score);
   return raus;
 }
 
