@@ -82,6 +82,7 @@ export function checkAll(root) {
   f.push(checkBehind(root));
   f.push(checkGitState(root));
   f.push(checkIntegrity(root));
+  f.push(checkEntryForm(root));
   f.push(checkRollback(root));
   f.push(...checkEnvironmentContract(root));
 
@@ -850,4 +851,89 @@ export function checkRollback(root) {
   return finding('rollback', LEVEL.GOOD,
     `${state.current.claims} claims, ${state.current.retiredCount} retired `
     + `(watermark from ${state.mark.seenAt})`);
+}
+
+/**
+ * The SHAPE of an entry — is it still the thing someone meant to write?
+ *
+ * `checkIntegrity` already covers unparseable lines, duplicate ids and
+ * the replacement graph. What it does not see is an entry that parses
+ * perfectly and is nonetheless destroyed. Two forms, both silent, both
+ * observed in the sibling project lucky-mem:
+ *
+ *   {"title": true, "--flag-ish text": true}      a swallowed value
+ *   {"tags": ["[\"a\"", "\"b\"]"]}                half-parsed JSON
+ *
+ * Valid JSON, exit 0, nothing said. The first destroys the content; the
+ * second makes the entry unfindable by any of its tags. lucky-mem
+ * carries two of the first and seventeen of the second.
+ *
+ * Both write paths are closed since 2026-09-07 (`fieldsFrom` in
+ * bin/mem), so new ones cannot appear. This check is the other half:
+ * what is already written STAYS written — rewriting a jsonl line is
+ * backwards redaction — and is therefore reported instead of removed.
+ *
+ * **Why the cap.** A finding that can never go green again does not get
+ * read; that is a failure mode, not diligence. So an appended entry of
+ * class `entry-form` caps everything written before it: the damage is
+ * on the record, still counted, no longer nagged about. Anything AFTER
+ * the cap cannot exist since the write path closed, and is a real
+ * warning.
+ */
+export function checkEntryForm(root) {
+  const TEXT_FIELDS = ['title', 'text', 'topic', 'choice', 'why', 'fact', 'summary'];
+  const broken = [];
+  let cap = null;
+
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const type of Object.keys(memory.TYPES)) {
+      const { entries, path: p } = memory.readLog(root, type, { project });
+      const rel = path.relative(root, p);
+      entries.forEach((e, i) => {
+        if (!e || typeof e !== 'object' || e.__broken) return;
+        if (e.class === 'entry-form' && e.ts && (!cap || String(e.ts) > cap)) {
+          cap = String(e.ts);
+        }
+        const where = `${rel}:${i + 1}`;
+        const ts = e.ts ? String(e.ts) : null;
+        const spaced = Object.keys(e).find((k) => /\s/.test(k));
+        if (spaced) {
+          broken.push({ where, ts, what: `field name with whitespace: "${spaced.slice(0, 40)}…"` });
+          return;
+        }
+        const empty = TEXT_FIELDS.find((f) => e[f] === true);
+        if (empty) {
+          broken.push({ where, ts, what: `${empty} is true instead of text` });
+          return;
+        }
+        if (Array.isArray(e.tags)
+          && e.tags.some((t) => typeof t === 'string' && /["[\]{}]/.test(t))) {
+          broken.push({ where, ts, what: 'half-parsed JSON in tags' });
+        }
+      });
+    }
+  }
+
+  // No ts counts as open. Better once too loud than quietly filed under a
+  // cap it may not belong to.
+  const open = cap ? broken.filter((b) => !b.ts || b.ts > cap) : broken;
+  const capped = broken.length - open.length;
+
+  if (!open.length) {
+    const extra = capped
+      ? `, ${capped} on the record (an entry-form note exists; the lines stay — append-only)`
+      : '';
+    return finding('entry-form', LEVEL.GOOD, `no malformed entries${extra}`);
+  }
+
+  return finding('entry-form', LEVEL.WARN,
+    `${open.length} malformed entr${open.length === 1 ? 'y' : 'ies'} (e.g. ${open[0].where}: ${open[0].what})`
+    + (capped ? `, ${capped} already on the record` : ''),
+    'The lines stay — rewriting one would be backwards redaction. Append a correction '
+    + 'with `mem correction <type> <id> --title ...` carrying the FULL content: a '
+    + 'correction writes only the fields you give it, so a partial one replaces the '
+    + 'entry with a stub. The write paths closed on 2026-09-07, so no new ones can '
+    + 'appear. To put the existing ones on the record: '
+    + '`mem log error --class entry-form --title "..." --text "..."` — that caps '
+    + 'everything written before it.');
 }

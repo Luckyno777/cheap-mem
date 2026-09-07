@@ -9,6 +9,13 @@ on:
   pull_request:
   workflow_dispatch:
 
+# One run per ref. Without this, a quick succession of pushes leaves older
+# runs burning minutes on commits nobody will look at again, and the run
+# that matters queues behind them.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: tests · ${{ matrix.os }} · node ${{ matrix.node }}

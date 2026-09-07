@@ -49,6 +49,16 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a.startsWith('--')) {
+      // `--key=value` first: here the value is unambiguous even when it
+      // begins with dashes. Without this form there is NO way to pass such
+      // a value — and the guard against a swallowed value recommends
+      // exactly this syntax, so leaving it out would make the advice a
+      // dead end. Found by the test for that advice, not by reading.
+      const eq = a.indexOf('=');
+      if (eq > 2) {
+        args[a.slice(2, eq)] = a.slice(eq + 1);
+        continue;
+      }
       const key = a.slice(2);
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith('--')) {
@@ -81,6 +91,114 @@ function checkFlags(args, known, sub) {
 }
 
 function isHelp(args) { return args.help === true; }
+
+// Text fields, i.e. the ones whose value is prose a user typed. If one of
+// these arrives as `true`, the value was eaten — see fieldsFrom().
+const TEXT_FIELDS = new Set(['title', 'text', 'topic', 'choice', 'why', 'fact',
+  'summary', 'class', 'source', 'subject']);
+
+/**
+ * Turn `--switches` into the fields of a JSONL entry.
+ *
+ * **Why this is one function and not two loops.** `mem log` and
+ * `mem correction` both write lines into the same files and both had
+ * their own copy of this loop. Copies drift, and nothing about either
+ * copy LOOKS wrong while they do — that is what makes the class of bug
+ * expensive. The sibling project lucky-mem carried the same rule in six
+ * places at one point; the second copy here was already one behind.
+ *
+ * Three things are enforced, all of them silent failures before:
+ *
+ *   1. A list may be given comma-separated OR as a JSON array. Half a
+ *      JSON array is refused instead of being cut at the commas —
+ *      `--tags '["a","b"]'` used to become the tags `["a` and `"b"]`.
+ *      Valid JSON, exit 0, no complaint, and the entry is no longer
+ *      findable by any of its tags. lucky-mem has 17 such entries.
+ *   2. `--origin` may be a JSON object (unchanged behaviour, kept here
+ *      so the two commands cannot disagree about it either).
+ *   3. A swallowed value is refused. `--title "--flag-ish text"` parses
+ *      as a switch, and the entry became
+ *      `{"title": true, "--flag-ish text": true}` — valid JSON,
+ *      destroyed content, no message. Both halves are safely
+ *      recognisable: a field name cannot contain whitespace, and a text
+ *      field cannot legitimately be `true`.
+ *
+ * `command` only appears in error messages, so someone running
+ * `mem correction` is not told what `log` disliked.
+ */
+function fieldsFrom(command, args, except = []) {
+  const data = {};
+  const skip = new Set(['project', 'root', 'help', ...except]);
+
+  for (const [k, v] of Object.entries(args)) {
+    if (skip.has(k)) continue;
+
+    if ((k === 'tags' || k === 'asked') && typeof v === 'string' && /^\s*\[/.test(v)) {
+      let list;
+      try { list = JSON.parse(v); }
+      catch (e) { die(`${command}: --${k} looks like JSON but is not: ${e.message}`); }
+      if (!Array.isArray(list) || list.some((x) => typeof x !== 'string')) {
+        die(`${command}: --${k} as JSON must be a list of strings.`);
+      }
+      data[k] = list.map((x) => x.trim()).filter(Boolean);
+      continue;
+    }
+
+    if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
+      // `asked` are QUESTION WORDS: what someone would search for
+      // without using the entry's own words. Comma-separated like tags,
+      // because that is what they are — access words for questions
+      // instead of for topics.
+      const parts = v.split(',').map((x) => x.trim()).filter(Boolean);
+      const bent = parts.filter((x) => /["[\]{}]/.test(x));
+      if (bent.length) {
+        die(`${command}: --${k} contains brackets or quotes (${JSON.stringify(bent[0])}). `
+          + 'Write it comma-separated, or as a JSON list — both work, half JSON does not.');
+      }
+      data[k] = parts;
+      continue;
+    }
+
+    if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
+      // Provenance is a STRUCTURE, and every doc tells you to pass it as
+      // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat
+      // it parses as nothing — origin.raw is undefined, so the
+      // digest-yield check measures no provenance at all, and
+      // origin.derived_from stays invisible, so no learning can ever be
+      // backed. The documented syntax has to actually mean something.
+      try { data.origin = JSON.parse(v); }
+      catch { die(`${command}: --origin is not valid JSON: ${v}`); }
+      continue;
+    }
+
+    data[k] = v;
+  }
+
+  // The swallowed value. No ordinary call trips this; the broken one
+  // always does.
+  for (const [k, v] of Object.entries(data)) {
+    if (/\s/.test(k)) {
+      die([
+        `${command}: '${k.slice(0, 60)}${k.length > 60 ? '…' : ''}'`,
+        '  arrived as a FIELD NAME, but field names have no whitespace.',
+        '  Almost certainly this was the value of a switch whose text starts',
+        '  with --. Write it unambiguously:',
+        '    --title="--your text"      (or put a space in front)',
+        '  Nothing was written.',
+      ].join('\n'));
+    }
+    if (v === true && TEXT_FIELDS.has(k)) {
+      die([
+        `${command}: --${k} arrived without a value.`,
+        '  If the value starts with --, the parser eats it as a switch:',
+        `    --${k}="--your text"`,
+        '  Nothing was written.',
+      ].join('\n'));
+    }
+  }
+
+  return data;
+}
 
 function findRoot(args) {
   if (args.root) return path.resolve(String(args.root));
@@ -377,31 +495,9 @@ const COMMANDS = {
       die(`log: unknown type '${type}'. Known: ${Object.keys(memory.TYPES).join(', ')}`);
     }
     const data = {};
-    for (const [k, v] of Object.entries(args)) {
-      if (k === 'project' || k === 'root' || k === 'help') continue;
-      if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
-        // Hier in `mem log`, und weiter unten noch einmal — beide Stellen
-        // muessen dasselbe tun, sonst haengt die Form eines Feldes davon
-        // ab, welcher Befehl es geschrieben hat.
-        //
-        // `asked` sind FRAGEWORTE: womit wuerde jemand danach fragen,
-        // ohne die Woerter des Eintrags zu benutzen. Kommagetrennt wie
-        // Tags, denn das sind sie — Zugriffswoerter fuer Fragen statt
-        // fuer Themen.
-        data[k] = v.split(',').map((x) => x.trim()).filter(Boolean);
-      } else if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
-        // Provenance is a STRUCTURE, and every doc tells you to pass it as
-        // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat
-        // it parses as nothing — origin.raw is undefined, so the
-        // digest-yield check measures no provenance at all, and
-        // origin.derived_from stays invisible, so no learning can ever be
-        // backed. The documented syntax has to actually mean something.
-        try { data.origin = JSON.parse(v); }
-        catch { die(`--origin is not valid JSON: ${v}`); }
-      } else {
-        data[k] = v;
-      }
-    }
+    // The rules live in fieldsFrom() — once, for `log` and `correction`
+    // together. They used to be written out here and again below.
+    Object.assign(data, fieldsFrom('log', args));
     if (Object.keys(data).length === 0) die("log: no data. Give at least one --field.");
     // Report the topic's shape, but do NOT abort. `mem log` is the path
     // along which things get saved that would otherwise be forgotten — a
@@ -1990,28 +2086,10 @@ const COMMANDS = {
     if (!oldId) die("correction: old id missing");
     const root = findRoot(args);
     requireConfig(root);
-    const data = {};
-    for (const [k, v] of Object.entries(args)) {
-      if (k === 'project' || k === 'root' || k === 'help') continue;
-      if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
-        // `asked` sind FRAGEWORTE: womit wuerde jemand danach fragen,
-        // ohne die Woerter des Eintrags zu benutzen. Kommagetrennt wie
-        // Tags, denn das sind sie — Zugriffswoerter fuer Fragen statt
-        // fuer Themen.
-        data[k] = v.split(',').map((x) => x.trim()).filter(Boolean);
-      } else if (k === 'origin' && typeof v === 'string' && /^\s*[{[]/.test(v)) {
-        // Provenance is a STRUCTURE, and every doc tells you to pass it as
-        // one: --origin '{"raw":"...","derived_from":["id"]}'. Stored flat
-        // it parses as nothing — origin.raw is undefined, so the
-        // digest-yield check measures no provenance at all, and
-        // origin.derived_from stays invisible, so no learning can ever be
-        // backed. The documented syntax has to actually mean something.
-        try { data.origin = JSON.parse(v); }
-        catch { die(`--origin is not valid JSON: ${v}`); }
-      } else {
-        data[k] = v;
-      }
-    }
+    // Same rules as `mem log` — they used to be written out a second time
+    // here and had already drifted: no JSON form, no guard against a
+    // swallowed value.
+    const data = fieldsFrom('correction', args);
     if (Object.keys(data).length === 0) die("correction: no fields");
     const { path: p, entry } = memory.correctionEntry(
       root, type, oldId, data, { project: args.project ?? null });
