@@ -541,6 +541,30 @@ const COMMANDS = {
     out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
+
+    // **The class as a warning, not a label.**
+    //
+    // On 2026-09-07 one first-time install produced four defects; three
+    // fell into classes the memory already held, one with the same root
+    // cause in the sibling repository. Nobody asked, because asking is
+    // a separate act. Here it asks itself, at the moment of logging.
+    //
+    // It interrupts nothing and demands nothing: whoever is filing an
+    // error sees in passing that it is the fifth of its kind — and that
+    // is a different message from "an error".
+    if (type === 'error' && entry.class) {
+      const seen = memory.sameClass(root, entry.class, { except: entry.id });
+      if (seen.count > 0) {
+        out('');
+        out(`  Class '${seen.className}': this is number ${seen.count + 1}. Most recent:`);
+        for (const h of seen.latest) {
+          out(`    ${String(h.ts).slice(0, 10)}  ${String(h.id).padEnd(14)} ${String(h.title).slice(0, 70)}`);
+        }
+        if (seen.count + 1 >= 3) {
+          out('    Three of a kind means the guard is missing, not the care.');
+        }
+      }
+    }
     out('');
     out(`Delivered after:  git add . && git commit -m "log ${type}: ..." && git push`);
   },

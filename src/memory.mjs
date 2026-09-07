@@ -265,6 +265,43 @@ function takenIds(root) {
 /**
  * Read a JSONL log. Three states: missing file, empty log, has entries.
  */
+/**
+ * What has already happened under this error class?
+ *
+ * **Why this exists.** On 2026-09-07 a first-time install on someone
+ * else's machine turned up four defects in one hour. Three of them fell
+ * into classes the memory already held — one with the same root cause,
+ * six days old, written down in the sibling repository and explicitly
+ * marked as a lesson. The knowledge was there every time. Nobody asked,
+ * because asking is a separate act.
+ *
+ * An archive you MUST query does not get queried. So it queries itself,
+ * at the moment of logging — when the class is being typed anyway and
+ * the head is already on the subject. One pass over the error drawers;
+ * no model, no network.
+ *
+ * `except` takes the id that was just written. Without it every log
+ * call would report itself as a repeat, and a warning that always fires
+ * is not a warning.
+ */
+export function sameClass(root, className, { except = null, max = 3 } = {}) {
+  const wanted = String(className ?? '').trim();
+  if (!wanted) return { className: wanted, count: 0, latest: [] };
+  const hits = [];
+  for (const project of [null, ...listProjects(root)]) {
+    let entries = [];
+    try { ({ entries } = readLog(root, 'error', { project })); } catch { continue; }
+    for (const e of entries) {
+      if (e?.class !== wanted) continue;
+      if (except && e.id === except) continue;
+      hits.push({ id: e.id, ts: e.ts ?? '', title: e.title ?? '', project });
+    }
+  }
+  // Newest first: the last case is the one still likely to hold.
+  hits.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+  return { className: wanted, count: hits.length, latest: hits.slice(0, max) };
+}
+
 export function readLog(root, type, { project = null } = {}) {
   const p = logPath(root, type, project);
   if (!fs.existsSync(p)) return { path: p, missing: true, entries: [] };
