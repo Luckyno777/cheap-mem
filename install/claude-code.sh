@@ -41,6 +41,37 @@ SETTINGS="$CLAUDE_HOME/settings.json"
 
 mkdir -p "$HOOKS_DIR"
 
+# **The hook command names its interpreter, and it is not optional.**
+#
+# This installer used to write the bare `.sh` path as the command. That
+# fails in two different ways, and we have now paid for both:
+#
+#   Linux/macOS — exit 126 the moment the execute bit is missing, which
+#   happens by itself on a clone where core.fileMode is false. Loud, at
+#   least; found in lucky-mem on 2026-09-01.
+#
+#   Windows — `bash` is not on the PATH that cmd.exe sees. A test run
+#   through cmd did not fail, it HUNG. A UserPromptSubmit hook that
+#   hangs blocks every single message until the timeout, so the memory
+#   turns the assistant unusable rather than merely staying silent.
+#   Reported 2026-09-07 from a fresh Windows install.
+#
+# So the interpreter is resolved HERE, where a working bash is proven
+# to exist (this script is running in it), and written out in full.
+BASH_BIN="$(command -v bash || true)"
+[ -n "$BASH_BIN" ] || BASH_BIN="bash"
+HOOKS_DIR_CMD="$HOOKS_DIR"
+# Under Git Bash / MSYS the paths this shell uses (`/c/Users/...`) mean
+# nothing to a Windows process. `cygpath` is the translator, and its
+# presence is also the most reliable sign that we are on Windows.
+#   -w for the executable: backslashes, the form Windows always accepts.
+#   -m for the script: forward slashes, which bash reads happily and
+#      which survive JSON without escaping.
+if command -v cygpath >/dev/null 2>&1; then
+  BASH_BIN="$(cygpath -w "$BASH_BIN")"
+  HOOKS_DIR_CMD="$(cygpath -m "$HOOKS_DIR")"
+fi
+
 # Copy hooks, injecting CHEAP_MEM_ROOT so they work regardless of the
 # calling shell's env.
 {
@@ -69,26 +100,39 @@ chmod +x "$HOOKS_DIR/cheap-mem-session-stop.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 
 # Merge settings.json without touching unrelated config.
-node - "$SETTINGS" "$HOOKS_DIR" "$CHEAP_MEM_ROOT" <<'NODE_MERGE'
+node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" <<'NODE_MERGE'
 const fs = require('fs');
 const path = require('path');
-const [, , settingsPath, hooksDir, memRoot] = process.argv;
+const [, , hooksDir, memRoot, bashBin] = process.argv.slice(1);
+const settingsPath = process.argv[2];
 
 let cfg = {};
 try { cfg = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) } catch {}
 
 cfg.hooks = cfg.hooks || {};
-function upsertHook(event, cmd) {
+
+// Quote anything with a space. `C:\\Program Files\\Git\\bin\\bash.exe` is
+// the normal case on Windows, not an exotic one.
+const q = (s) => (/[\s"]/.test(s) ? `"${s}"` : s);
+
+// An old install is recognised by the SCRIPT NAME, not by the path.
+// The path form changes between install runs — MSYS on one, Windows on
+// the next — and a filter keyed on the path would leave the old entry
+// in place and add a second one next to it. Two hooks on
+// UserPromptSubmit means every message pays twice.
+function upsertHook(event, script) {
+  const datei = `cheap-mem-${script}.sh`;
   cfg.hooks[event] = cfg.hooks[event] || [];
   cfg.hooks[event] = cfg.hooks[event].filter((entry) => {
     if (!entry.hooks) return true;
-    return !entry.hooks.some((h) => h.command && h.command.includes(hooksDir) && h.command.includes('cheap-mem'));
+    return !entry.hooks.some((h) => h.command && h.command.includes(datei));
   });
+  const cmd = `${q(bashBin)} ${q(`${hooksDir.replace(/[\\/]$/, '')}/${datei}`)}`;
   cfg.hooks[event].push({ hooks: [{ type: 'command', command: cmd }] });
 }
-upsertHook('SessionStart', path.join(hooksDir, 'cheap-mem-session-start.sh'));
-upsertHook('Stop',            path.join(hooksDir, 'cheap-mem-session-stop.sh'));
-upsertHook('UserPromptSubmit', path.join(hooksDir, 'cheap-mem-user-prompt.sh'));
+upsertHook('SessionStart', 'session-start');
+upsertHook('Stop', 'session-stop');
+upsertHook('UserPromptSubmit', 'user-prompt');
 
 cfg.permissions = cfg.permissions || {};
 const allow = [
