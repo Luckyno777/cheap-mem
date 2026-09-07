@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomBytes } from 'node:crypto';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
 
@@ -182,7 +183,28 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
 
   const p = logPath(root, type, project);
   const ts = data.ts ?? new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const id = data.id ?? shortId(ts, type);
+  // A SUPPLIED id is checked against the whole corpus; a generated one is
+  // not. That asymmetry is deliberate.
+  //
+  // Ids are unique across types and projects, and every resolver takes the
+  // FIRST match. A second line with the same id therefore does not surface
+  // an error — it silently moves what every link points at. The sibling
+  // project lucky-mem carries exactly one such duplicate, and it came in
+  // on this path: copied or migrated, not rolled.
+  //
+  // For generated ids the check would be theatre. At ~62 bits and a
+  // million entries the collision probability is around 1e-7, and putting
+  // an O(n) scan on the hot path would make a batch write O(n^2) for a
+  // case that does not occur. The doctor catches it if the maths ever
+  // surprises us.
+  if (data.id && takenIds(root).has(data.id)) {
+    throw new Error(
+      `The id '${data.id}' is already taken. Ids are unique across types and `
+      + 'projects; otherwise resolvers take the first match and every link '
+      + 'points somewhere else depending on scan order. Omit --id and one is '
+      + 'generated.');
+  }
+  const id = data.id ?? shortId();
   const entry = { id, ts, ...data };
 
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -195,13 +217,49 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   return { path: p, entry };
 }
 
-function shortId(ts, type) {
-  const raw = `${ts}|${type}|${Math.random()}`;
-  let h = 5381;
-  for (let i = 0; i < raw.length; i += 1) {
-    h = ((h * 33) ^ raw.charCodeAt(i)) & 0xffffffff;
+/** Length of a generated id. Always this, never "usually this". */
+export const ID_LENGTH = 12;
+
+/**
+ * A generated id: ~62 bits of real randomness, base36, fixed length.
+ *
+ * The previous version hashed `ts|type|Math.random()` with djb2 and masked
+ * the result to 32 bits. Two problems, and the second is the bad one:
+ *
+ *   - 32 bits is not enough. The birthday bound puts a collision at
+ *     roughly 1 % by 10k entries and about 69 % by 100k — for a memory
+ *     that is meant to be kept for years, that is a matter of when.
+ *   - `Math.random()` is not a source anyone should build identity on.
+ *
+ * The sibling project lucky-mem found a duplicate id in 874 entries and
+ * moved to this scheme; the same arithmetic applies to any corpus.
+ *
+ * Leading zeros are padded so the length is ALWAYS 12. Otherwise it would
+ * be 12 *most of the time*, and "most of the time" is exactly the kind of
+ * promise that surprises someone later.
+ */
+function shortId() {
+  let out = '';
+  while (out.length < ID_LENGTH) {
+    out += BigInt(`0x${randomBytes(8).toString('hex')}`).toString(36);
   }
-  return (h >>> 0).toString(36).padStart(7, '0').slice(0, 8);
+  return out.slice(0, ID_LENGTH);
+}
+
+/**
+ * Every id already handed out. Only used when a caller SUPPLIES an id —
+ * see the note at the call site for why generated ids skip it.
+ */
+function takenIds(root) {
+  const all = new Set();
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      for (const e of readLog(root, type, { project }).entries) {
+        if (e && e.id) all.add(e.id);
+      }
+    }
+  }
+  return all;
 }
 
 /**
