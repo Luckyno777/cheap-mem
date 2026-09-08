@@ -63,6 +63,26 @@ are the day the work landed on `main`.
 - `docs/CAPABILITIES.md` gained a **module inventory** — all 42 files in
   `src/`, one line each — plus sections 10.16 and 10.17 for the two new
   modules.
+- **A release path** (`.github/workflows/release.yml`). Publishing runs
+  on a `v*` tag and passes four gates: the tag must equal the manifest
+  version and the changelog must name it; lint and tests run on the
+  tagged commit; the tarball is packed, installed into an empty
+  directory and the CLI is run from it — the only check that sees the
+  package the way a stranger does, since every test in the repository
+  runs from a checkout where nothing can be missing. It also fails if a
+  memory, a raw capture or a `node_modules` reached the tarball.
+  `npm publish --provenance` over OIDC; the job holding the registry
+  token has read-only access to the repository. `workflow_dispatch`
+  exercises everything except the publish, because a release path only
+  ever run for real is one nobody has tested.
+- Two guards for the parts CI cannot reach: `test/package-contents.test.mjs`
+  walks every relative import from both entry points and asks whether
+  `package.json`'s `files` list would ship it (an omission there fails
+  only on a stranger's machine, after the release);
+  `test/release-workflow.test.mjs` checks the workflow's own shape — no
+  `needs:` pointing at a renamed job, the publish behind every gate and
+  behind its condition, no literal token, and no cancel-in-progress on a
+  release.
 
 ### Changed
 

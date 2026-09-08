@@ -49,3 +49,43 @@ Structural changes are a different category — splitting `bin/mem`,
 changing CI behaviour, publishing to npm, altering the on-disk format.
 Open an issue first. The guiding line: **logging runs, rebuilding
 asks.**
+
+## Releasing
+
+A release is a tag. `.github/workflows/release.yml` does the rest, and
+it refuses more often than it publishes — deliberately, because a
+published version cannot be replaced.
+
+```bash
+# 1. Name the release in CHANGELOG.md: turn "## Unreleased" into
+#    "## 0.2.0 — 2026-09-15" and start a fresh Unreleased above it.
+# 2. Bump and tag together. `npm version` does both in one commit, so
+#    the tag and the manifest cannot drift apart.
+npm version minor -m "release %s"
+git push origin main --follow-tags
+```
+
+The workflow then, in order:
+
+1. **gate** — the tag equals `v<package.json version>`, the changelog
+   has a section named for that version, and the registry does not
+   already have it. Seconds, so a typo is caught before the matrix runs.
+2. **verify** — `npm run lint` and `npm test` on the tagged commit.
+3. **pack** — `npm pack`, then install that tarball into an empty
+   directory and run the CLI from it. This is the only check that sees
+   the package as a stranger does: every test in the repository runs
+   from a checkout, where nothing can be missing from `files`. It also
+   fails if a memory, a raw capture or a `node_modules` made it into the
+   tarball.
+4. **publish** — `npm publish --provenance`, signed by the workflow via
+   OIDC. It carries `id-token: write` and nothing else; the repository
+   itself stays read-only for the job that holds the registry token.
+
+To exercise the whole path without publishing, run the workflow from the
+Actions tab with **dry-run** left on. Everything up to step 4 runs; step
+4 is skipped by its own condition. A release path that is only ever run
+for real is a release path nobody has tested.
+
+`NPM_TOKEN` is a repository secret, and the `npm` environment can carry
+a required reviewer if you want a human between the tag and the
+registry.

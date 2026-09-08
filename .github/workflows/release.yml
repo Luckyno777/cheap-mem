@@ -1,0 +1,226 @@
+name: Release
+
+# **Why a tag and not a button.** A publish that anyone can trigger from
+# a branch publishes whatever that branch happens to hold. A tag is a
+# name for one commit, and the checks below all measure THAT commit.
+#
+# The dry run exists so the whole path can be exercised without
+# publishing anything — every gate, `npm pack`, the install of the real
+# tarball, everything except the last step. A release path that is only
+# ever run for real is a release path nobody has tested.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Run every check and pack, but do NOT publish'
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel a publish half-way
+
+permissions:
+  contents: read
+
+jobs:
+  # --- 1. Does this commit deserve a version number? -------------------
+  #
+  # Deliberately separate from `verify`. These are the checks that can
+  # only be wrong at release time — the tag, the version, the changelog
+  # — and they cost seconds. Finding a typo in the tag after twenty
+  # minutes of matrix tests is a waste nobody needs twice.
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: v
+        name: the tag, the manifest and the changelog must agree
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # A dispatch run may be a dry run. A tag push never is.
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            echo "tag $TAG, manifest $VERSION"
+            # **The classic silent release defect.** `npm version` bumps
+            # both together; a hand-written tag does not, and npm happily
+            # publishes 0.1.0 from a commit tagged v0.2.0. Then the
+            # changelog, the release notes and the registry disagree
+            # forever, because a published version cannot be replaced.
+            if [ "$TAG" != "v$VERSION" ]; then
+              echo "::error::tag $TAG does not match package.json version $VERSION"
+              exit 1
+            fi
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.dry-run }}" = "false" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: the changelog has a section for this version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          # A release whose changes nobody wrote down is a release
+          # nobody can read the diff of. `Unreleased` is fine while
+          # nothing is being published; it is not fine at the moment of
+          # publishing, because it means the section was never named.
+          if [ "${{ steps.v.outputs.publish }}" = "true" ]; then
+            grep -qE "^## \[?${VERSION}\]?( |$|\s)" CHANGELOG.md \
+              || { echo "::error::CHANGELOG.md has no '## $VERSION' section"; exit 1; }
+          else
+            grep -qE "^## (\[?${VERSION}\]?|Unreleased)" CHANGELOG.md \
+              || { echo "::error::CHANGELOG.md has neither $VERSION nor Unreleased"; exit 1; }
+          fi
+
+      - name: this version is not already published
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.v.outputs.version }}"
+          # `npm view` exits non-zero for a package that does not exist
+          # yet — the first release. That is not an error, and treating
+          # it as one would make the first publish impossible.
+          if npm view "cheap-mem@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::cheap-mem@$VERSION is already on the registry. Bump the version."
+            exit 1
+          fi
+          echo "$VERSION is free"
+
+  # --- 2. The same checks a contributor runs, on the release commit ----
+  verify:
+    name: verify
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --omit=optional
+      - run: npm run lint
+      - run: npm test
+
+  # --- 3. What is actually in the tarball ------------------------------
+  #
+  # `test/package-contents.test.mjs` reads the manifest; this reads the
+  # artefact. They are different questions, and only this one accounts
+  # for `.npmignore`, npm's own always/never rules, and whatever the
+  # packing step does that nobody remembered.
+  pack:
+    name: pack and install it for real
+    needs: [gate, verify]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22, cache: npm }
+      - run: npm ci --omit=optional
+
+      - name: pack, and list what came out
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack --json > /tmp/pack.json
+          node -e "
+            const p = require('/tmp/pack.json')[0];
+            const names = p.files.map(f => f.path);
+            console.log(names.length + ' files, ' + (p.unpackedSize/1024).toFixed(0) + ' KB unpacked');
+            const need = ['bin/mem', 'bin/mem-mcp', 'src/memory.mjs', 'src/board.mjs',
+                          'src/errorclass.mjs', 'README.md', 'LICENSE'];
+            const missing = need.filter(n => !names.includes(n));
+            if (missing.length) {
+              console.error('::error::the tarball is missing: ' + missing.join(', '));
+              process.exit(1);
+            }
+            // And the other direction. A memory, a raw capture or a
+            // node_modules in the published package is not a packaging
+            // wart — it is somebody else's data on the registry.
+            const forbidden = names.filter(n =>
+              n.startsWith('.mem/') || n.startsWith('raw/') ||
+              n.startsWith('node_modules/') || n.startsWith('coverage/') ||
+              n.endsWith('.jsonl') || n.endsWith('.jsonl.gz'));
+            if (forbidden.length) {
+              console.error('::error::the tarball contains data that must never ship: '
+                + forbidden.slice(0, 20).join(', '));
+              process.exit(1);
+            }
+          "
+
+      - name: install the tarball into a clean place and run it
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARBALL="$(ls cheap-mem-*.tgz)"
+          WORK="$(mktemp -d)"
+          cd "$WORK"
+          npm init -y >/dev/null
+          npm i --omit=optional "$GITHUB_WORKSPACE/$TARBALL" >/dev/null
+
+          # **The question no test in the repository can answer**: does
+          # it work when it is NOT a checkout? Every unit test runs where
+          # every file is present. This is the first place a module left
+          # out of `files` becomes visible, and the last place before a
+          # stranger sees it.
+          MEMDIR="$(mktemp -d)"
+          npx --no-install mem --root "$MEMDIR" init
+          npx --no-install mem --root "$MEMDIR" log decision \
+            --topic release --choice "publish from a tag" --why "a tag names one commit"
+          npx --no-install mem --root "$MEMDIR" find "why publish from a tag"
+          npx --no-install mem --root "$MEMDIR" board
+          npx --no-install mem --root "$MEMDIR" classes
+          # No "|| true": `mem status` exits non-zero only on a BROKEN
+          # step, and a fresh install has none. Swallowing the exit code
+          # would make this line decorative.
+          npx --no-install mem --root "$MEMDIR" status
+          npx --no-install mem --root "$MEMDIR" version
+          echo "the installed package runs"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cheap-mem-${{ needs.gate.outputs.version }}
+          path: cheap-mem-*.tgz
+
+  # --- 4. Only now ------------------------------------------------------
+  publish:
+    name: publish to npm
+    needs: [gate, verify, pack]
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: npm          # a human approval gate, if one is configured
+    permissions:
+      contents: read
+      id-token: write         # provenance, signed by the workflow itself
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci --omit=optional
+
+      - name: publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: say what landed
+        run: |
+          echo "### cheap-mem ${{ needs.gate.outputs.version }} published" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "npm i -g cheap-mem@${{ needs.gate.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
