@@ -395,7 +395,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 44 commands
+### 7.1 CLI — 45 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -822,6 +822,49 @@ mem sources list [--kind file|address]
 - **The excerpt goes through redaction** before anything is written,
   and what was redacted is reported. A foreign document is exactly
   where a credential rides along.
+
+### 10.13 Storage places — `src/stores.mjs`, `mem raw archive --list-stores`
+
+The archive can live in a folder, on a mounted NAS share, or in Google
+Drive, iCloud, OneDrive or Dropbox. The last four cannot be named by
+hand — Google Drive on macOS lives under
+`~/Library/CloudStorage/GoogleDrive-<account>/My Drive`, with the
+account in the directory name — so they are found. `--set gdrive` then
+needs no path at all.
+
+Two candidates (two Google accounts on one machine) are reported as
+AMBIGUOUS rather than silently taking the first: "it went somewhere" is
+the failure the archive exists to avoid.
+
+A syncing store gets a warning naming three consequences, attached to
+the PATH rather than to the command, so typing the Dropbox path by hand
+warns too:
+
+- Files can be evicted to the cloud; reading one may fail while offline.
+  The memory reports that as an error, never as an empty result.
+- A write returning does not mean the bytes left this machine.
+- Two machines pointed at one folder share the archive.
+
+None of the three is fixable from here. The memory can only refuse to
+pretend they do not exist.
+
+### 10.14 Is it working? — `src/setup.mjs`, `mem status`
+
+`mem setup <agent>` installs. `mem status` reports — five steps, each
+answered with evidence rather than with a previous step's word: a
+memory exists, the archive is writable, the hooks are installed and
+name a path that exists HERE, the bridge is registered, the memory
+holds something.
+
+It exists because of the Windows install on 2026-09-08: a hook with the
+first machine's absolute path baked in, dead and silent on the second.
+Nobody had a command that would have said "the memory is not attached
+here". The hook step now reads every installed hook and checks the root
+it names.
+
+Three states per step, never two. `open` is a to-do list and exits 0;
+only `broken` is an error. A to-do list that returns non-zero breaks
+every script that calls it, and then nobody calls it.
 
 ### 10.12 The archive — `src/archive.mjs`, `mem raw archive`
 

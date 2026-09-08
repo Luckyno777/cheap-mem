@@ -29,6 +29,7 @@ import * as search from '../src/search.mjs';
 import * as raw from '../src/raw.mjs';
 import * as archive from '../src/archive.mjs';
 import * as stores from '../src/stores.mjs';
+import * as setup from '../src/setup.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
@@ -1481,6 +1482,50 @@ const COMMANDS = {
     }
     if (r.status === 'nothing') { out(`nothing new (${r.reason ?? `${r.fresh} < ${r.threshold} bytes`})`); return; }
     die(`capture failed: ${r.reason} — ${r.detail ?? ''}`);
+  },
+
+  // **Nicht `setup`.** Der Name war schon vergeben — `mem setup <agent>`
+  // verdrahtet das Gedaechtnis mit einem Agenten. Ich habe ihn am
+  // 2026-09-08 ein zweites Mal definiert; ein doppelter Objektschluessel
+  // gewinnt still, und die Hilfe zeigte weiter den alten Befehl.
+  // Dieselbe Klasse wie `mem frage` im Schwesterprojekt am selben Tag.
+  //
+  // Gefangen hat es die eslint-Regel `no-dupe-keys`, eine Stunde nach
+  // ihrem Einbau — der erste echte Fund des neuen Linters.
+  //
+  // `setup` INSTALLIERT, `status` BERICHTET. Zwei Verben, zwei Befehle.
+  status: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem status [--json]',
+        '',
+        '  What is between "installed" and "working", and which of it is',
+        '  still open. Changes nothing — it only looks.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    const res = setup.check(root);
+
+    if (args.json) { out(JSON.stringify(res)); return; }
+
+    const mark = { ok: ' ok ', open: ' -- ', broken: 'FAIL' };
+    for (const s of res.steps) {
+      out(`[${mark[s.state]}] ${s.title}`);
+      out(`         ${s.detail}`);
+      // The way out belongs next to the problem. A list of failures
+      // without commands sends people back to the documentation, and
+      // the documentation is what they already did not read.
+      if (s.fix) out(`         → ${s.fix}`);
+    }
+    out('');
+    out(`${res.ok} of ${res.steps.length} in place`
+      + (res.open ? `, ${res.open} open` : '')
+      + (res.broken ? `, ${res.broken} BROKEN` : ''));
+
+    // Only broken is an error. Open is a to-do list, and a to-do list
+    // that exits non-zero breaks every script that runs this.
+    if (res.broken) die(`${res.broken} step(s) are broken — see above.`);
   },
 
   raw: async ({ rest, args }) => {
