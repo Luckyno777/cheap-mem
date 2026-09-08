@@ -857,11 +857,29 @@ it says so rather than letting anyone believe otherwise.
 | `mem raw migrate [--remove]` | pull captures still in the repo into the archive |
 | `mem raw export --from … --to … [--hour-from N] [--hour-to N] --into <dir>` | write a time range out, decompressed |
 
-`CHEAP_MEM_ARCHIVE` names the location: a folder, a mounted NAS share, a
-synced cloud drive. Anything the operating system can mount is a path,
-which is why there is no network adapter — there would be no target to
-test it against. The default is `.mem/raw`, inside the working tree and
-outside git.
+The location comes from three places, and `mem raw archive` always says
+which one won:
+
+| rank | source | for |
+|---|---|---|
+| 1 | `CHEAP_MEM_ARCHIVE` | one run diverting |
+| 2 | `.mem/archive.json` | this machine — `mem raw archive --set <path>` |
+| 3 | `.mem/raw` | the default when nothing is set |
+
+The machine-local file exists because capturing happens in several
+places — a session's stop hook, the watcher, the digest. Naming the
+path in each of them would rebuild the bug found the same day: an
+absolute path in five places, one of which gets forgotten. `--set`
+creates the directory, writes a probe file into it and removes it
+again, and only then records the location; a failed probe records
+nothing.
+
+Note which memory the command acts on: not the current directory. The
+root comes from the environment or from where `bin/mem` itself lives.
+
+A folder, a mounted NAS share or a synced cloud drive all work, because
+anything the operating system can mount is a path — which is why there
+is no network adapter: there would be no target to test it against.
 
 What stays in the repository is `raw-record.jsonl`: one line per
 capture with stamp, time span, line count, bytes, SHA-256, location and

@@ -67,7 +67,7 @@ export const OLD_DIR = 'raw';
  * the capture somewhere arbitrary. Adding a kind means editing this
  * list — which is visible in a diff.
  */
-export const KINDS = Object.freeze(['datei']);
+export const KINDS = Object.freeze(['file']);
 
 /**
  * Wo liegt das Archiv?
@@ -78,15 +78,64 @@ export const KINDS = Object.freeze(['datei']);
  * That saves an adapter nobody could have tested; a real network
  * adapter arrives when there is a target to measure it against.
  */
+export const LOCATION_FILE = path.join('.mem', 'archive.json');
+
+/** Strip `file://` — otherwise the scheme becomes part of the path. */
+function stripScheme(raw) {
+  return raw.startsWith('file://') ? raw.slice('file://'.length) : raw;
+}
+
 export function readConfig(env = process.env, root = '.') {
-  const raw = String(env.CHEAP_MEM_ARCHIVE ?? '').trim();
-  if (!raw) {
-    return { kind: 'datei', location: path.resolve(root, DEFAULT_LOCATION), explicit: false };
+  const fromEnv = String(env.CHEAP_MEM_ARCHIVE ?? '').trim();
+  if (fromEnv) {
+    return { kind: 'file', location: path.resolve(root, stripScheme(fromEnv)), source: 'env', explicit: true };
   }
-  const noScheme = raw.startsWith('datei://') ? raw.slice('datei://'.length)
-    : raw.startsWith('file://') ? raw.slice('file://'.length)
-      : raw;
-  return { kind: 'datei', location: path.resolve(root, noScheme), explicit: true };
+
+  // The machine-local file. It sits under `.mem/`, so it is gitignored
+  // and does NOT travel — exactly right for a path that exists on this
+  // one machine only.
+  //
+  // **Why it exists at all.** Capturing happens in several places: a
+  // session's stop hook, the watcher, the digest. Naming the archive in
+  // each of them would rebuild the bug found the same day — a path in
+  // five places, one of which gets forgotten at the next rebuild.
+  //
+  // Set once, read everywhere. The environment variable still wins, so
+  // a single run can divert without reconfiguring the machine.
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(root, LOCATION_FILE), 'utf8'));
+    const loc = String(raw?.location ?? '').trim();
+    if (loc) {
+      return { kind: 'file', location: path.resolve(root, stripScheme(loc)), source: 'file', explicit: true };
+    }
+  } catch { /* no file, broken file — then the default */ }
+
+  return { kind: 'file', location: path.resolve(root, DEFAULT_LOCATION), source: 'default', explicit: false };
+}
+
+/**
+ * Set the location for THIS machine.
+ *
+ * Verifies it can be written BEFORE saving. An entry pointing at an
+ * unwritable directory would make every future capture fail — and only
+ * once somebody is in the middle of working. Better to refuse here.
+ *
+ * The write probe covers what `mkdirSync` waves through: a directory
+ * that EXISTS but cannot be written to. That case is not covered by a
+ * test, and the test file says why — it cannot be produced while the
+ * suite runs as root, measured rather than assumed.
+ */
+export function setLocation(root, location) {
+  const target = path.resolve(root, stripScheme(String(location).trim()));
+  fs.mkdirSync(target, { recursive: true });
+  const probe = path.join(target, `.writeprobe-${process.pid}`);
+  fs.writeFileSync(probe, 'ok');
+  fs.unlinkSync(probe);
+
+  const file = path.join(root, LOCATION_FILE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ location: target }, null, 2)}\n`, 'utf8');
+  return { location: target, file };
 }
 
 /**

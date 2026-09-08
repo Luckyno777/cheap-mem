@@ -212,3 +212,65 @@ test('a row without a time drops out instead of widening the range', () => {
       { from: '2026-09-01' }).map((r) => r.path),
     ['y']);
 });
+
+test('the location for this machine lives in ONE file, not in four units', () => {
+  // **Why this file exists.** Capturing happens in several places: a
+  // session's stop hook, the watcher, the digest. Naming the archive in
+  // each of them would rebuild the bug found on the same day — an
+  // absolute path baked into a hook, dead and silent on the second
+  // machine. One place to set it, everywhere reads it.
+  const r = root();
+  const target = path.join(r, 'elsewhere');
+
+  archive.setLocation(r, target);
+  const store = archive.readConfig({}, r);
+  assert.equal(store.location, target);
+  assert.equal(store.source, 'file');
+
+  // And a capture really lands there — writing the file is not the same
+  // as obeying it.
+  const e = raw.capture(r, transcript(r), { minBytes: 50 });
+  assert.equal(e.status, 'captured');
+  assert.ok(fs.existsSync(path.join(target, archive.pathInArchive(e.path))),
+    'the location was recorded but not used');
+});
+
+test('the environment beats the file, the file beats the default', () => {
+  const r = root();
+  assert.equal(archive.readConfig({}, r).source, 'default');
+
+  archive.setLocation(r, path.join(r, 'from-file'));
+  assert.equal(archive.readConfig({}, r).source, 'file');
+
+  const fromEnv = archive.readConfig({ CHEAP_MEM_ARCHIVE: path.join(r, 'from-env') }, r);
+  assert.equal(fromEnv.source, 'env');
+  assert.equal(fromEnv.location, path.join(r, 'from-env'));
+});
+
+test('setLocation refuses a target that is not a directory', () => {
+  const r = root();
+  const file = path.join(r, 'i-am-a-file');
+  fs.writeFileSync(file, 'not a directory');
+  assert.throws(() => archive.setLocation(r, file));
+  // And records nothing: a half-set location is worse than none.
+  assert.equal(fs.existsSync(path.join(r, archive.LOCATION_FILE)), false);
+});
+
+// **What is NOT tested here, and why that is written down.**
+//
+// `setLocation` also writes a probe file into the target and removes it
+// again. That catches what `mkdirSync` waves through: a directory that
+// EXISTS but cannot be written to — a read-only mount, a full disk, a
+// foreign owner.
+//
+// That case cannot be produced in this environment: the suite runs as
+// uid 0, and root ignores the permission bits. Measured, not assumed —
+// a `chmod 500` followed by a write went through anyway. A chmod-based
+// test would therefore be green without showing anything, which is the
+// decorative construction this project rejects.
+//
+// The probe stays in the code regardless. It defends a real and common
+// operating condition, it is cheap, and `mkdirSync` alone would accept
+// such a directory without complaint. Untested is not the same as
+// unjustified — but it belongs written down rather than left to look
+// like coverage.

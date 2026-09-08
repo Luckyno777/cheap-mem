@@ -1489,7 +1489,9 @@ const COMMANDS = {
         'mem raw show <path> [--head] [--from N] [--count M]',
         'mem raw digested <path> ...     mark captures as digested',
         'mem raw check                   old captures that today\'s rules would redact',
-        'mem raw archive                 where the raw capture lives, how much, reachable',
+        'mem raw archive [--set <path>]  where the raw capture lives, how much,',
+        '                                reachable; --set fixes the location of',
+        '                                THIS machine',
         'mem raw migrate [--remove]      pull captures still in the repo into the archive',
         'mem raw export --from <date> [--to <date>] [--hour-from N]',
         '               [--hour-to N] --into <dir>',
@@ -1510,6 +1512,16 @@ const COMMANDS = {
     const sub = rest[0];
 
     if (sub === 'archive') {
+      if (args.set) {
+        // Once per machine. After that the stop hook, the watcher and
+        // the digest all read the same location without anyone
+        // repeating it in four unit files.
+        const g = archive.setLocation(root, args.set);
+        out(`Archive location set: ${g.location}`);
+        out(`  recorded in ${path.relative(root, g.file)} (gitignored, does not travel)`);
+        out('  write probe passed.');
+        return;
+      }
       const store = archive.readConfig(process.env, root);
       const rows = archive.records(root);
       let here = 0; let missing = 0; let bytes = 0;
@@ -1524,7 +1536,14 @@ const COMMANDS = {
         return;
       }
       out(`Archive: ${store.location}`);
-      out(`  ${store.explicit ? 'from CHEAP_MEM_ARCHIVE' : 'default (.mem/raw)'}`);
+      // WHICH source won, not just THAT one did. Three possible origins,
+      // and picking the wrong one looks from outside exactly like
+      // picking the right one.
+      out(`  source: ${{
+        env: 'environment variable CHEAP_MEM_ARCHIVE',
+        file: `${archive.LOCATION_FILE} (this machine)`,
+        default: 'default (.mem/raw)',
+      }[store.source]}`);
       out(`  ${rows.length} records, ${here} reachable, ${missing} NOT reachable`);
       out(`  ${(bytes / 1048576).toFixed(2)} MB in the archive`);
       if (legacy > 0) out(`  ${legacy} captures still in the repo — pull them with: mem raw migrate`);
