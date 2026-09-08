@@ -154,3 +154,23 @@ test('fremde Hooks bleiben unangetastet', () => {
       'fremder Hook wurde entfernt');
   } finally { weg(tmp); }
 });
+
+test('was der Installer ANKUENDIGT, legt er auch an', () => {
+  // Die Schlusszeile nannte drei Hooks, angelegt wurden vier. Niemand
+  // haette den fehlenden vermisst — man liest die Zeile und glaubt sie.
+  // Genau die Klasse, gegen die dieses Repo den ganzen Tag gebaut hat,
+  // nur andersherum: die Darstellung war AERMER als die Sache.
+  const src = fs.readFileSync(path.join(REPO, 'install', 'claude-code.sh'), 'utf8');
+  const m = /cheap-mem-\{([^}]+)\}\.sh/.exec(src);
+  assert.ok(m, 'die Zusammenfassung nennt die Hooks nicht mehr in {a,b}-Form');
+  const angekuendigt = new Set(m[1].split(',').map((s) => s.trim()));
+  const angelegt = new Set(
+    [...src.matchAll(/\$HOOKS_DIR\/cheap-mem-([a-z-]+)\.sh"/g)].map((x) => x[1]),
+  );
+  for (const h of angelegt) {
+    assert.ok(angekuendigt.has(h), `${h}.sh wird angelegt, aber nicht angekuendigt`);
+  }
+  for (const h of angekuendigt) {
+    assert.ok(angelegt.has(h), `${h}.sh wird angekuendigt, aber nicht angelegt`);
+  }
+});

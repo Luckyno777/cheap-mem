@@ -151,6 +151,92 @@ const TOOLS = [
       required: ['query'],
     },
   },
+  // --- Die sechs, die es als CLI-Befehl laengst gab -----------------
+  //
+  // Gemessen am 2026-09-08: 35 CLI-Befehle, 11 MCP-Werkzeuge. links,
+  // experiences, topics, facts, show und explain waren gebaut, getestet
+  // und dokumentiert — und fuer jeden angeschlossenen Agenten schlicht
+  // nicht vorhanden. Dasselbe Muster wie beim Loggen, eine Ebene tiefer:
+  // nicht "die Faehigkeit fehlt", sondern "sie ist von dort, wo
+  // gearbeitet wird, nicht erreichbar".
+  {
+    name: 'mem_links',
+    description:
+      'What an entry points at, and what points at it. Typed relations '
+      + `(${Object.keys(memory.LINK_KINDS).join(', ')}) — walking them costs no model. `
+      + 'Call it after mem_find when you want the story around a hit, not just the hit: '
+      + 'what caused it, what generalises it, what contradicts it.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string', description: 'Entry id, from mem_find' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'mem_show',
+    description:
+      'One entry in full, by id. mem_find returns compact lines only. '
+      + 'Call it whenever a compact line looks like it decides your question — '
+      + 'act on the whole entry, never on the summary.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'mem_experiences',
+    description:
+      'The learnings the memory stands behind, strongest first. Strength is how many '
+      + 'other entries cite this one — not how often it was read, and not a model\'s '
+      + 'opinion. A [CONTESTED] mark means something contradicts it and it was NOT '
+      + 'quietly weakened. Read this before proposing an approach.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        min_cited: { type: 'number', description: 'Only those cited at least this often' },
+        type: { type: 'string', description: 'Default learning' },
+      },
+    },
+  },
+  {
+    name: 'mem_topics',
+    description:
+      'A subject as a thread: every entry of ANY type sharing one topic, newest first. '
+      + 'Without `key`, lists the topics that exist. Use it when you need "where does X '
+      + 'stand now" rather than single hits.',
+    inputSchema: {
+      type: 'object',
+      properties: { key: { type: 'string', description: 'Topic key; omit to list them' } },
+    },
+  },
+  {
+    name: 'mem_facts',
+    description:
+      'The facts that hold RIGHT NOW, from the timeline log — the newest version of '
+      + 'each tracked fact, with when it started holding and whether it has gone quiet. '
+      + 'Ask this instead of guessing a current value.',
+    inputSchema: {
+      type: 'object',
+      properties: { stale_days: { type: 'number', description: 'Flag facts older than this (default 120)' } },
+    },
+  },
+  {
+    name: 'mem_explain',
+    description:
+      'Why did an entry NOT come back for a query? Names the reason — scope, validity '
+      + 'window, superseded, below the bar, or simply not matching. Use it when you '
+      + 'expected something and got nothing, instead of assuming the memory is empty.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string' },
+        id: { type: 'string', description: 'The entry you expected' },
+        project: { type: 'string' },
+      },
+      required: ['query', 'id'],
+    },
+  },
   {
     name: 'mem_retrieve',
     description:
@@ -322,6 +408,63 @@ async function handleCall(name, args) {
       return textResult(
         `Appended: ${path.relative(root, p)}\n  id: ${entry.id}\n  ts: ${entry.ts}\n\n` +
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'log ${type}: ...' && git -C ${root} push`);
+    }
+    case 'mem_links': {
+      const g = memory.linksOf(root, args.id);
+      const zeilen = [];
+      zeilen.push(g.entry ? `${g.entry._type}  ${shortLine(g.entry)}` : `(no entry with id ${g.id})`);
+      const zeig = (r, pfeil) => `    ${pfeil} ${String(r.kind).padEnd(12)} ${r.other}  `
+        + (r.entry ? `${r.entry._type}: ${shortLine(r.entry)}` : '(missing entry)');
+      if (g.out.length) { zeilen.push('', '  this entry ->'); for (const r of g.out) zeilen.push(zeig(r, '->')); }
+      if (g.incoming.length) { zeilen.push('', '  -> this entry'); for (const r of g.incoming) zeilen.push(zeig(r, '<-')); }
+      if (!g.out.length && !g.incoming.length) zeilen.push('', '  no links yet.');
+      return textResult(zeilen.join('\n'));
+    }
+    case 'mem_show': {
+      const e = memory.entriesById(root).get(args.id);
+      if (!e) return textResult(`No entry with id ${args.id}.`);
+      return textResult(JSON.stringify(e, null, 2));
+    }
+    case 'mem_experiences': {
+      const xs = memory.experiences(root, {
+        minCited: args.min_cited ?? 0, type: args.type ?? 'learning',
+      });
+      if (!xs.length) return textResult('No experiences recorded yet.');
+      return textResult(xs.map((e) => `${e.id}  cited ${e.cited}`
+        + `${e.contested ? '  [CONTESTED]' : ''}  ${shortLine(e)}`).join('\n'));
+    }
+    case 'mem_topics': {
+      const key = args.key ?? null;
+      const xs = memory.topicEntries(root, key);
+      if (!key) {
+        // Ohne Schluessel: welche Themen gibt es ueberhaupt. Ein Agent,
+        // der die Namen nicht kennt, kann nach keinem fragen.
+        const zaehl = new Map();
+        for (const e of xs) zaehl.set(e._topic, (zaehl.get(e._topic) ?? 0) + 1);
+        if (!zaehl.size) return textResult('No topics yet.');
+        return textResult([...zaehl.entries()].sort((a, b) => b[1] - a[1])
+          .map(([t, n]) => `${String(n).padStart(4)}  ${t}`).join('\n'));
+      }
+      if (!xs.length) return textResult(`Nothing under topic '${key}'.`);
+      return textResult(xs.map((e) => `${String(e.ts ?? '').slice(0, 10)}  `
+        + `${e._type.padEnd(10)} ${e.id ?? ''}  ${shortLine(e)}`).join('\n'));
+    }
+    case 'mem_facts': {
+      const fs2 = memory.currentFacts(root, { staleDays: args.stale_days ?? 120 });
+      if (!fs2.length) return textResult('No tracked facts yet (log them as type timeline with --key).');
+      return textResult(fs2.map((f) => {
+        const c = f.current ?? {};
+        const seit = String(c.valid_from ?? c.ts ?? '').slice(0, 10);
+        return `${f.key}  =  ${c.value ?? shortLine(c)}   (as of ${seit}`
+          + `${f.stale ? ', STALE' : ''}${f.history?.length ? `, ${f.history.length} older` : ''})`;
+      }).join('\n'));
+    }
+    case 'mem_explain': {
+      const cap = args.project
+        ? capability.grantProject(args.project, { subject: 'mcp' })
+        : capability.grantAll('mcp');
+      const r = retrieval.explainMissing(root, args.query, cap, args.id);
+      return textResult(JSON.stringify(r, null, 2));
     }
     case 'mem_retrieve': {
       const { query, project, type, top, as_of: asOf, with_disputed: withDisputed } = args;
