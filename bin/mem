@@ -44,6 +44,10 @@ import * as heartbeat from '../src/heartbeat.mjs';
 import * as broadcast from '../src/broadcast.mjs';
 import * as procedure from '../src/procedure.mjs';
 import * as question from '../src/question.mjs';
+import * as neighbours from '../src/neighbours.mjs';
+import * as onboarding from '../src/onboarding.mjs';
+import * as source from '../src/source.mjs';
+import * as component from '../src/component.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -279,7 +283,193 @@ function receiptHint(messages) {
   out(`  then git add/commit/push — otherwise the sender never sees the receipt.`);
 }
 
+/**
+ * Show the onboarding status.
+ *
+ * Every open step names the COMMAND that closes it. A finding without
+ * a next move is a complaint.
+ */
+function showOnboarding(st) {
+  out(`Onboarding '${st.agent}':`);
+  for (const name of onboarding.STEPS) {
+    const s = st.steps[name];
+    out(`  ${s.state === 'green' ? 'ok  ' : 'OPEN'} ${name.padEnd(12)} ${s.why}`);
+    if (s.todo) for (const l of String(s.todo).split('\n')) out(`      -> ${l}`);
+  }
+  out('');
+  if (st.done) {
+    out('The loop stands: this agent writes and finds again.');
+  } else {
+    out(`${st.open.length} of ${onboarding.STEPS.length} steps open.`);
+    out("There is no 'essentially onboarded' — created is not connected.");
+  }
+}
+
 const COMMANDS = {
+  onboarding: async ({ rest, args }) => {
+    if (isHelp(args) || !rest.length) {
+      out([
+        'mem onboarding <agent>',
+        '',
+        '  Five checks, each of them evidenced by something in the memory —',
+        '  never by a tick. A tick you can set without having done the',
+        '  thing is the configuration illusion in new clothes.',
+        '',
+        '  A connected foreign agent once had the log tool for a whole day',
+        '  and used it not once. It was configured — inbox created, bridge',
+        '  connected, tools visible — and still not connected. We noticed',
+        '  after a day, by counting.',
+        '',
+        '  The last step proves the LOOP: the agent writes an entry itself',
+        '  and finds it again. Exit 1 while anything is open.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    checkFlags(args, ['root'], 'onboarding');
+    const st = onboarding.status(root, rest[0], { participants: cfg.participants });
+    showOnboarding(st);
+    if (!st.done) process.exitCode = 1;
+  },
+
+  sources: async ({ rest, args }) => {
+    const subs = ['add', 'list'];
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem sources add <url|path> [--title "..."] [--tags a,b] [--project x]',
+        '                          [--note "..."] [--max 4000]',
+        'mem sources list [--kind file|address] [--project x]',
+        '',
+        '  Takes in knowledge that already exists: a pointer, and enough',
+        '  text that search can find the document by its own words.',
+        '',
+        '  A LOCAL file goes content-addressed into the store; the entry',
+        `  carries only the hash. If it is text, an excerpt of at most`,
+        `  ${source.MAX_EXCERPT} characters travels with it — capped, because a 40 MB`,
+        '  document would otherwise answer every search with itself.',
+        '',
+        '  An ADDRESS stays a pointer. NOTHING is fetched: a memory that',
+        '  dereferences addresses is a crawler, and what it collects on',
+        '  the way nobody has read. Pass text yourself with --note.',
+        '',
+        '  The excerpt goes through redaction before anything is written —',
+        '  a foreign document is exactly where a credential rides along.',
+      ].join('\n'));
+      return;
+    }
+    const sub = rest[0];
+    if (!subs.includes(sub)) die(`sources: '${sub}' unknown. Known: ${subs.join(', ')}`);
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (sub === 'add') {
+      checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'root'], 'sources add');
+      const target = rest.slice(1).join(' ').trim();
+      if (!target) die('sources add: address or path missing.');
+      const tags = args.tags && args.tags !== true
+        ? String(args.tags).split(',').map((x) => x.trim()).filter(Boolean) : null;
+      let r;
+      try {
+        r = source.take(root, target, {
+          title: args.title && args.title !== true ? String(args.title) : null,
+          tags,
+          project: args.project ?? null,
+          note: args.note && args.note !== true ? String(args.note) : null,
+          agent: memory.agentDefault(),
+          max: args.max ? Number(args.max) : undefined,
+        });
+      } catch (e) { die(`sources add: ${e.message}`); }
+      out(`Appended: ${path.relative(root, r.path)}:${countLines(r.path)}`);
+      out(`  id: ${r.entry.id}   kind: ${r.entry.kind}`);
+      if (r.entry.hash) out(`  store: ${r.entry.hash.slice(0, 16)}  (${r.entry.bytes} bytes)`);
+      if (r.entry.excerpt) {
+        out(`  excerpt: ${r.entry.excerpt.length} characters`
+          + `${r.entry.truncated ? ' (truncated)' : ''}`);
+      }
+      // What was redacted is SAID. A silent redaction is worse than
+      // none: nobody looks, and the excerpt still differs from the
+      // document.
+      if (r.findings.length) {
+        warn(`redacted: ${r.findings.map((f) => `${f.type}x${f.count}`).join(', ')} `
+          + '— the excerpt differs from the original at those points.');
+      }
+      return;
+    }
+
+    checkFlags(args, ['kind', 'project', 'root'], 'sources list');
+    const project = args.project ? (args.project === 'global' ? null : args.project) : undefined;
+    const kind = args.kind && args.kind !== true ? String(args.kind) : null;
+    if (kind && !Object.hasOwn(source.KINDS, kind)) {
+      die(`sources list: --kind '${kind}' does not exist. Known: ${Object.keys(source.KINDS).join(', ')}`);
+    }
+    const list = source.all(root, { project, kind });
+    if (!list.length) {
+      out('No sources taken in. `mem sources add <url|path>`');
+      return;
+    }
+    for (const s of list) out(`  ${source.line(s)}`);
+    out('');
+    out(`${list.length} source(s). The text is an excerpt, not the document.`);
+  },
+
+  component: async ({ rest, args }) => {
+    if (isHelp(args) || !rest.length) {
+      out([
+        'mem component <path> [--top 8] [--json]',
+        '',
+        '  Everything about ONE file — literal, but over both spellings.',
+        '',
+        '  Measured: of 805 path mentions in the reference corpus, 22 % of',
+        '  components appear in more than one form, almost always just',
+        '  with or without a path prefix. The pre-edit hook asked',
+        '  literally with two segments and therefore saw 3 of 11 entries',
+        '  for one file, 0 of 10 for another.',
+        '',
+        '  A base-name hit only counts when it appears in the entry',
+        '  WITHOUT a prefix or with the SAME one. `projects/x/events.jsonl`',
+        '  answers no question about `global/events.jsonl` — the confusion',
+        '  would be worse than the gap.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    checkFlags(args, ['top', 'json', 'root'], 'component');
+    const p = rest.join(' ').trim();
+    const top = args.top ? Number(args.top) : 8;
+    const hits = component.find(root, p, {});
+    if (args.json) {
+      out(JSON.stringify({
+        path: p,
+        forms: component.forms(p),
+        n: hits.length,
+        hits: hits.slice(0, top).map((h) => ({
+          score: null,
+          form: h._form,
+          source: h._source,
+          line: h._line,
+          ts: h.ts ?? null,
+          raw: false,
+          label: compactLine(h) || '',
+        })),
+      }, null, 2));
+      return;
+    }
+    if (!hits.length) {
+      out(`Nothing about '${p}'. Asked for: ${component.forms(p).join(', ')}`);
+      return;
+    }
+    out(`${hits.length} entries about '${p}' (${component.forms(p).join(' | ')}):`);
+    for (const h of hits.slice(0, top)) {
+      // The form travels: a base hit is weaker evidence, and whoever
+      // reads it should see that.
+      out(`  ${h._form.padEnd(5)} ${h._source}:${h._line}  ${String(h.ts ?? '').slice(0, 10)}`);
+      out(`        ${compactLine(h).slice(0, 120)}`);
+    }
+    if (hits.length > top) out(`  (${hits.length - top} more, raise --top)`);
+  },
+
   broadcast: async ({ rest, args }) => {
     if (isHelp(args) || !rest.length) {
       out([
@@ -912,10 +1102,20 @@ const COMMANDS = {
       for (const w of qr.warnings) warn(w);
     }
 
+    // **What already stands about this subject — BEFORE the write.**
+    //
+    // The original brief said "conflict at write time instead of read
+    // time". Measured against the corpus, the obvious rule (same topic,
+    // different choice = conflict) would have been wrong five times out
+    // of five. So no verdict, only the neighbours — and the commands
+    // that resolve the case. See src/neighbours.mjs.
+    const around = neighbours.neighbours(root, type, data, { project: args.project ?? null });
+
     const { path: p, entry } = memory.logEntry(root, type, data, { project: args.project ?? null });
     out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
+    for (const l of neighbours.hint(around)) out(l);
 
     // **The class as a warning, not a label.**
     //

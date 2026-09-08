@@ -50,6 +50,11 @@ export const TYPES = Object.freeze({
                                  // issued. Only a human can issue one and
                                  // the MCP bridge does not write it at all.
                                  // See src/procedure.mjs.
+  source: 'sources.jsonl',       // a pointer at knowledge that already exists —
+                                 // indexed, not copied. Local files live in
+                                 // the store, the entry carries the hash and
+                                 // a capped, redacted excerpt. See
+                                 // src/source.mjs.
   update: 'updates.jsonl',       // a version, a dependency, a config change
   link: 'links.jsonl',           // a typed relation between two entries
 });

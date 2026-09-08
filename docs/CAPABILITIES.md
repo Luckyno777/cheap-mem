@@ -19,7 +19,7 @@ the verification commands at the end.
 
 | Area | What exists | Section |
 |---|---|---|
-| **Data model** | 12 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
+| **Data model** | 13 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
 | **Provenance** | `author`, `authority` tiers, `origin.derived_from`, `origin.raw`, git history | [1.3](#13-provenance) |
 | **Retrieval** | BM25 over weighted fields, curated thesaurus, learned tag graph, compound splitting, exact-identifier lane, MMR diversity, raw-capture reserve lane, recency bonus, optional embeddings fused by RRF, time-window search | [2](#2-retrieval) |
 | **Truth over time** | `valid_from` / `valid_until`, `key`-tracked changing facts, `as_of` historical queries, staleness flagging, supersession via `replaces_id`, contradiction marking | [3](#3-truth-over-time) |
@@ -28,7 +28,7 @@ the verification commands at the end.
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 35 CLI commands, 20 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
-| **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own | [10](#10-multi-agent) |
+| **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 15 benchmarks, an eval harness with a frozen reference run, 489 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
@@ -395,14 +395,14 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 41 commands
+### 7.1 CLI — 44 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
 thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
-procedures broadcast
+procedures broadcast onboarding sources component
 ```
 
 Every command takes `--help`. `mem doctor` is the self-check: it
@@ -739,3 +739,108 @@ truth about one state, and the two would drift.
 A missing question mark warns but does not block: a question gets noted
 in passing or not at all, and refusing one over punctuation is
 formalism.
+
+### 10.8 Neighbours at write time — `src/neighbours.mjs`
+
+The brief was "conflict at write time instead of read time". Measured
+against the reference corpus, and in that form **not built**:
+
+    108 decisions, 103 topics
+    5 topics with more than one decision and a different choice
+    of those, actually contradictory: 0
+
+All five are follow-up decisions under a coarse topic. Five false
+alarms out of five, and a warning that is always wrong teaches people
+to skip warnings.
+
+What is built is the useful half: while writing, what already stands
+about this subject is shown — with the three ways out, none of them
+asserted.
+
+```
+If this REPLACES the old state:  --replaces_id <id>
+If both hold side by side: do nothing.
+If they CONTRADICT:  mem log link --from <new> --to <id> --kind contradicts
+```
+
+Hit density 5 of 108, i.e. 4.6 %. A hint on every second entry is
+invisible within a week; one every twenty entries gets read. The
+neighbourhood is read BEFORE the write, or the hint would say
+"something already stands: your entry from a second ago".
+
+### 10.9 Onboarding, not configuration — `src/onboarding.mjs`
+
+A connected foreign agent had the log tool available for a whole day
+and used it not once. It was configured — inbox created, bridge
+connected, tools visible — and still not connected. We noticed after a
+day, by counting.
+
+Five steps, each mechanically checkable:
+
+```
+inbox   houserules   written   heartbeat   loop
+```
+
+A step counts because something in the memory EVIDENCES it — never
+because somebody ticked it. So somebody else's entry does not count
+either: you cannot onboard an agent by writing for it.
+
+The last step proves the whole loop — the agent writes an entry itself
+and finds it again. Both halves must hold; written alone would only
+mean it can send. A withdrawn probe stops proving it, which is what
+makes the second half more than decoration.
+
+`mem onboarding <agent>` exits 1 while anything is open and names the
+command that closes each step. There is no "essentially onboarded".
+
+### 10.10 Sources — `src/source.mjs`, `mem sources`
+
+A company's knowledge is already somewhere. The cheapest entrance is a
+boring one: a pointer plus a searchable excerpt. No connectors.
+
+```
+mem sources add <url|path> [--title] [--tags] [--note]
+mem sources list [--kind file|address]
+```
+
+- **Nothing is fetched.** An address stays a pointer. A memory that
+  dereferences addresses is a crawler, and what it collects on the way
+  nobody has read. Pass text yourself with `--note`. The address
+  pattern is narrow: http(s) and nothing else, no `file://`.
+- **A local file goes into the store**, content-addressed; the entry
+  carries the hash. Binary files get no excerpt — byte soup in the
+  index makes every search worse.
+- **The excerpt is capped** at 4000 characters and says when it
+  truncates. It weighs 0.8, below our own text: an excerpt is a
+  quotation, not a statement by the memory.
+- **The excerpt goes through redaction** before anything is written,
+  and what was redacted is reported. A foreign document is exactly
+  where a credential rides along.
+
+### 10.11 Components — `src/component.mjs`, `mem component`
+
+Measured across 805 path mentions: 312 distinct components, 70 of them
+(22 %) appearing in more than one spelling — almost always just the
+path prefix.
+
+That is expensive in exactly one place, and it is the most valuable
+one. The pre-edit hook asks literally with the last two path segments:
+
+    bin/capture.sh          3 of 11 entries
+    .claude/stop.sh         0 of 10
+    hooks/stop.sh           6 of 10
+
+The hook that fires DURING the work ran at a third of its reach. It
+now asks over both forms.
+
+**No alias table.** There is one for topics and it is right there —
+topics are invented, so their sameness must be asserted. A path is not
+invented; a curated table would mean maintaining by hand what is
+derivable.
+
+**The latch:** a base-name hit counts only when the entry names it
+without a prefix or with the same one. `projects/x/events.jsonl`
+answers no question about `global/events.jsonl` — the confusion would
+be worse than the gap, because it gives a hint the appearance of
+evidence. Every hit carries its form (`exact` / `base`) into the
+display: a base hit is weaker evidence and should look like it.

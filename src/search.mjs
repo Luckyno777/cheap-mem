@@ -86,6 +86,10 @@ export const FIELD_WEIGHTS = Object.freeze({
   // know about X" would otherwise not be answerable at all.
   question: 1.8,
   why: 1.2,
+  // The excerpt from a foreign source. Lower than our own text: it is a
+  // QUOTATION, not a statement by the memory. At equal weight one long
+  // document would push our own learnings out of every hit list.
+  excerpt: 0.8,
   description: 1.0,
   text: 1.0,
   fact: 1.0,

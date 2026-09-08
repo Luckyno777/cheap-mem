@@ -57,6 +57,7 @@ const TYPE_LABEL = Object.freeze({
   question: 'Open questions',
   skill: 'Skills',
   procedure: 'Procedures',
+  source: 'Sources',
   update: 'Updates',
 });
 
@@ -64,7 +65,7 @@ const TYPE_LABEL = Object.freeze({
 // picks the first few that are present; everything else shows in the
 // detail table. Kept in sync by intent with the retrieve hook's own
 // preference order — both answer "what is this entry, in one line?".
-const HEADLINE_FIELDS = ['class', 'title', 'topic', 'choice', 'rule', 'question', 'text', 'summary', 'fact'];
+const HEADLINE_FIELDS = ['class', 'title', 'topic', 'choice', 'rule', 'question', 'excerpt', 'text', 'summary', 'fact'];
 
 // Which JSON keys are bookkeeping, not content — hidden from the detail
 // table (they are shown as chips/meta instead), so the table is signal.

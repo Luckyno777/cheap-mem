@@ -109,7 +109,24 @@ mkdir -p "$MARKS" 2>/dev/null || exit 0
 [ -e "$MARKS/$SAFE" ] && exit 0
 touch "$MARKS/$SAFE" 2>/dev/null || true
 
-HITS="$(capped 5 "${RUN_MEM[@]}" find "$QUERY" --literal --json 2>/dev/null)" || exit 0
+# `component` instead of `find --literal`: the same literal strictness,
+# but across BOTH spellings of a file.
+#
+# Measured on 2026-09-08 across 805 path mentions in the reference
+# corpus: 22 % of components appear in more than one form, almost always
+# only with or without a path prefix. What this hook saw with two
+# segments alone:
+#
+#     bin/capture.sh          3 of 11
+#     .claude/stop.sh         0 of 10
+#     hooks/stop.sh           6 of 10
+#
+# So it ran at a third of its reach — and this is the hook that fires
+# DURING THE WORK. A base-name hit only counts when the entry names it
+# without a prefix or with the same one (src/component.mjs);
+# `projects/x/events.jsonl` answers no question about
+# `global/events.jsonl`.
+HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --json 2>/dev/null)" || exit 0
 [ -z "$HITS" ] && exit 0
 
 PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '

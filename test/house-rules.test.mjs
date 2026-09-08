@@ -116,3 +116,39 @@ test('SECOND CHANNEL: mem_log\'s description asks for unprompted logging', () =>
   assert.match(block, /on your own/i);
   assert.match(block, /during the work/i);
 });
+
+// --- The three drawers added 2026-09-08 -----------------------------
+//
+// They are named here because a foreign agent OTHERWISE DOES NOT KNOW
+// THEM. The house-rules text is the only thing it hears from us before
+// it does anything at all — a drawer whose occasion nobody names does
+// not get used. That was precisely the 2026-09-07 finding about the
+// log tool itself.
+
+test('the house rules name the open question as a drawer', () => {
+  const { reply } = connect();
+  assert.match(reply.result.instructions, /type: `?question`?/,
+    'an agent that does not know `question` notes none');
+});
+
+test('and the source, with the promise that nothing is fetched', () => {
+  const i = connect().reply.result.instructions;
+  assert.match(i, /source/);
+  assert.match(i, /[Nn]othing is fetched/,
+    'without this line an agent expects us to dereference the address');
+});
+
+test('THE NO WITH A WAY OUT: procedure is refused, and the reason is there', () => {
+  // A no without a reason and without an alternative turns a proposal
+  // into nothing. The latch itself lives in bin/mem-mcp; this says the
+  // agent learns about it BEFOREHAND rather than by running into it.
+  const i = connect().reply.result.instructions;
+  assert.match(i, /procedure/);
+  assert.match(i, /refused|not written/i);
+  assert.match(i, /thought/, 'the way out is missing');
+});
+
+test('the broadcast is announced — otherwise the post surprises', () => {
+  assert.match(connect().reply.result.instructions, /inbox/i,
+    'an agent given unannounced mail treats it as noise');
+});

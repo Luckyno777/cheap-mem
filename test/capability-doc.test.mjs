@@ -42,7 +42,7 @@ test('POSITIV: die Sonden lesen die Oberflaeche wirklich aus', () => {
   // Zuwachs von 10 auf 12 (question, procedure am 2026-09-08) still
   // durchgelassen, und genau dieser Test soll erzwingen, dass jemand
   // die Referenz anfasst, wenn sich die Oberflaeche aendert.
-  assert.equal(typen().length, 12);
+  assert.equal(typen().length, 13);
   assert.equal(kanten().length, 4);
   assert.ok(module().length >= 25);
 });

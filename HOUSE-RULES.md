@@ -60,6 +60,20 @@ routinely forget. Four occasions:
 - a finding that saves work next time → `type: learning`
 - an event that changes the state → `type: event`
 
+Three more drawers:
+
+- **What you do NOT know** → `type: question`. Noting it is cheaper
+  than asking it twice.
+- **A document somebody points at** → `type: source`.
+  Nothing is fetched; pass the text yourself.
+- **`type: procedure` is refused to you** — a norm for ALL agents
+  cannot come from one of them. Propose it as a `thought`.
+
+Two things happen by themselves when you log: an error that names a
+file goes as a note to whoever touched the same file (and such notes
+reach your inbox in return); and whatever already stands about your
+subject is shown to you right away.
+
 **Log during the work, not at the end.** At the end you no longer
 remember the cause, only the fix — and the cause is the part that
 carries next time. The right moment is the one where you think "ah,
