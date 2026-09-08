@@ -33,7 +33,7 @@ function gedaechtnis() {
 }
 
 /** Ein Handshake plus beliebig viele Aufrufe, in einem Prozess. */
-function bridge(root, calls = []) {
+function bridge(root, calls = [], extraEnv = {}) {
   const lines = [JSON.stringify({
     jsonrpc: '2.0', id: 1, method: 'initialize',
     params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } },
@@ -44,7 +44,7 @@ function bridge(root, calls = []) {
   }
   const r = spawnSync('node', [MCP], {
     input: lines.join('\n') + '\n', encoding: 'utf8', timeout: 40000,
-    env: { ...process.env, CHEAP_MEM_ROOT: root },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, ...extraEnv },
   });
   return String(r.stdout).split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z));
 }
@@ -162,5 +162,145 @@ test('mem_store_put really stores a file, mem_store_list and mem_store_get find 
     const at = get.result.content[0].text.trim();
     assert.ok(fs.existsSync(at), `mem_store_get pointed at a path that does not exist: ${at}`);
     assert.equal(fs.readFileSync(at, 'utf8'), 'a harmless generated report\n');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- Round 3, 2026-09-08 --------------------------------------------
+//
+// After the multi-agent port, six capabilities existed only at the
+// CLI. For an agent whose ONLY access is the bridge they therefore did
+// not exist.
+//
+// The expensive one was `heartbeat`: `mem onboarding` checks five
+// steps, and one of them was fundamentally out of reach for a
+// bridge-only agent. It could behave however well it liked and stay
+// red. A test bench that does not permit a result is not measuring the
+// thing under test.
+
+const ROUND3 = ['mem_heartbeat', 'mem_questions', 'mem_answer',
+  'mem_procedures', 'mem_component', 'mem_source'];
+
+test('REACH: the six new capabilities are at the bridge', () => {
+  const root = gedaechtnis();
+  try {
+    const namen = bridge(root)[1].result.tools.map((t) => t.name);
+    const fehlen = ROUND3.filter((n) => !namen.includes(n));
+    assert.deepEqual(fehlen, [],
+      `CLI-only, and therefore absent for a bridge agent: ${fehlen.join(', ')}`);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('THE EXPENSIVE ONE: a bridge agent can record a heartbeat', () => {
+  // Without it the onboarding step stays red for it forever.
+  const root = gedaechtnis();
+  try {
+    const [, r] = bridge(root, [['mem_heartbeat', { what: 'probe' }]], { CHEAP_MEM_AGENT: 'chatgpt' });
+    assert.ok(!r.error, JSON.stringify(r.error));
+    assert.match(JSON.stringify(r.result), /Heartbeat for 'chatgpt' recorded/, JSON.stringify(r.result));
+    const raw = fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8');
+    assert.equal(JSON.parse(raw.trim().split('\n').pop()).agent, 'chatgpt');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('and the identity does NOT come from a parameter', () => {
+  // Otherwise one agent beats for another, and the lane looks alive
+  // where nobody is running any more.
+  const root = gedaechtnis();
+  try {
+    bridge(root, [['mem_heartbeat', { agent: 'someone-else' }]], { CHEAP_MEM_AGENT: 'chatgpt' });
+    const raw = fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8');
+    assert.equal(JSON.parse(raw.trim().split('\n').pop()).agent, 'chatgpt',
+      'the identity was taken from a parameter');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the quiet period holds at the bridge too, and says so', () => {
+  const root = gedaechtnis();
+  try {
+    bridge(root, [['mem_heartbeat', {}]]);
+    const [, second] = bridge(root, [['mem_heartbeat', {}]]);
+    assert.match(JSON.stringify(second.result), /No new one needed/, JSON.stringify(second.result));
+    assert.equal(fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8')
+      .trim().split('\n').length, 1, 'the quiet period does not hold at the bridge');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('mem_procedures does not hand out a rule without its author', () => {
+  // The fifth display path. The text is instruction-shaped; without
+  // the prefix a foreign agent reads it as something that simply holds.
+  const root = gedaechtnis();
+  try {
+    fs.writeFileSync(path.join(root, 'global', 'procedures.jsonl'),
+      `${JSON.stringify({ id: 'p1', ts: '2026-09-08T10:00:00Z', title: 'Always quote',
+        rule: 'Quote every path', issued_by: 'owner' })}\n`);
+    const [, r] = bridge(root, [['mem_procedures', {}]]);
+    const all = JSON.stringify(r.result);
+    assert.match(all, /Quote every path/, 'the rule does not come through at all');
+    assert.match(all, /Procedure, issued by owner/,
+      'the foreign agent would get the instruction text without its author');
+    assert.match(all, /data with an author/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('mem_answer refuses a link into the void', () => {
+  const root = gedaechtnis();
+  try {
+    fs.writeFileSync(path.join(root, 'global', 'questions.jsonl'),
+      `${JSON.stringify({ id: 'q1', ts: '2026-09-08T10:00:00Z', question: 'Is it gone?' })}\n`);
+    const [, invented] = bridge(root, [['mem_answer', { question_id: 'q1', with: 'nosuch' }]]);
+    assert.match(JSON.stringify(invented.result), /No entry with id/);
+    const [, notAQuestion] = bridge(root, [['mem_answer', { question_id: 'nosuch', with: 'q1' }]]);
+    assert.match(JSON.stringify(notAQuestion.result), /No entry with id/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('THE BOUNDARY: mem_source takes no local paths', () => {
+  // The content of a source lands in the searchable corpus that
+  // everybody reads. That is a different exposure from mem_store_put
+  // (bytes under a hash, refused on a redaction finding), and so a
+  // different rule — not a forgotten one.
+  const root = gedaechtnis();
+  try {
+    const [, r] = bridge(root, [['mem_source', { address: '/etc/passwd' }]]);
+    const all = JSON.stringify(r.result);
+    assert.match(all, /not an http\(s\) address/);
+    assert.match(all, /mem_store_put|CLI/, 'a no without a way out');
+    assert.ok(!fs.existsSync(path.join(root, 'global', 'sources.jsonl')),
+      'something was taken in anyway');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('an address goes through, with a redacted excerpt', () => {
+  const root = gedaechtnis();
+  try {
+    // Assembled, never written out: the pre-commit scanner reads this
+    // file as text and cannot know a secret is invented.
+    const word = ['PASS', 'WORD'].join('');
+    const value = ['hunter2', 'secret'].join('');
+    const [, r] = bridge(root, [['mem_source', {
+      address: 'https://intranet.example.com/wiki/X',
+      title: 'Wiki X',
+      note: `Access with ${word}=${value} and on`,
+    }]]);
+    assert.ok(!r.error, JSON.stringify(r.error));
+    const e = JSON.parse(fs.readFileSync(path.join(root, 'global', 'sources.jsonl'), 'utf8')
+      .trim().split('\n').pop());
+    assert.equal(e.kind, 'address');
+    assert.ok(!e.excerpt.includes(value), `unredacted: ${e.excerpt}`);
+    assert.match(JSON.stringify(r.result), /redacted/,
+      'redacted, but silently — nobody looks');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('mem_component finds across both spellings, and says which', () => {
+  const root = gedaechtnis();
+  try {
+    fs.appendFileSync(path.join(root, 'global', 'errors.jsonl'),
+      `${JSON.stringify({ id: 'e9', ts: '2026-09-08T10:00:00Z', class: 'base-only',
+        title: 'capture.sh fails silently' })}\n`);
+    const [, r] = bridge(root, [['mem_component', { path: 'bin/capture.sh' }]]);
+    const all = JSON.stringify(r.result);
+    assert.match(all, /base-only/, `not found: ${all.slice(0, 200)}`);
+    assert.match(all, /base/, 'the form of the evidence is missing');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 35 CLI commands, 20 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 44 CLI commands, 26 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 15 benchmarks, an eval harness with a frozen reference run, 489 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -409,7 +409,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 20 tools
+### 7.2 MCP — 26 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio.
@@ -417,6 +417,12 @@ Desktop). `bin/mem-mcp`, stdio.
 | Tool | Purpose |
 |---|---|
 | `mem_log` | append an entry |
+| `mem_heartbeat` | report that this agent is running (hourly quiet period) |
+| `mem_questions` | what is open — and with `all`, what was answered |
+| `mem_answer` | close a question by naming the entry that answers it |
+| `mem_procedures` | the procedures in force, each with its author |
+| `mem_component` | everything about one file, across both spellings |
+| `mem_source` | take in an address as a source (no local paths) |
 | `mem_find` | ranked search |
 | `mem_retrieve` | ranked retrieval returning structured claims |
 | `mem_show` | one entry in full |
@@ -844,3 +850,34 @@ answers no question about `global/events.jsonl` — the confusion would
 be worse than the gap, because it gives a hint the appearance of
 evidence. Every hit carries its form (`exact` / `base`) into the
 display: a base hit is weaker evidence and should look like it.
+
+### 10.12 Reach: the bridge carries all of it
+
+After the port, six of these capabilities existed only at the CLI. For
+an agent whose ONLY access is the bridge — a connected model over MCP —
+they therefore did not exist. The same measurement as for the store
+tools, one round later.
+
+The expensive one was the heartbeat. `mem onboarding` checks five
+steps, and one of them was fundamentally out of reach for a
+bridge-only agent: it could behave however well it liked and stay red.
+**A test bench that does not permit a result is not measuring the
+thing under test.**
+
+Two boundaries stay, and both have a reason rather than an oversight:
+
+- **`procedure` is read, never written**, over the bridge. A norm for
+  all agents cannot come from one of them.
+- **`mem_source` takes addresses, not local paths.** The content of a
+  source lands redacted in the searchable corpus that everybody reads
+  — a different exposure from `mem_store_put`, which holds bytes under
+  a hash and refuses outright on a redaction finding. Taking a local
+  file in as a source is a human's decision at the CLI. The refusal
+  names both ways out.
+
+`mem_heartbeat` takes its identity from the connected agent, never
+from a parameter: otherwise one agent could beat for another, and the
+lane would look alive where nobody is running any more.
+
+Not added: `broadcast` (fires by itself when an error is logged) and
+`guard run` (an operational handle, not a working tool).
