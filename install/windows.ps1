@@ -192,9 +192,33 @@ if (-not $SkipClaudeCode) {
 
   @"
 # cheap-mem SessionStart hook (Windows).
-`$env:CHEAP_MEM_ROOT = '$($env:CHEAP_MEM_ROOT)'
+#
+# The path below is where the memory was at install time. It is a HINT,
+# not the answer: on a second machine that directory does not exist. The
+# hook used to exit 0 there — no memory, no error, no clue. Now it looks
+# the memory up and SAYS SO when it cannot find one.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
-if (-not (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT '.mem\config.json'))) { exit 0 }
+
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+
+if (-not `$memRoot) {
+  Write-Host 'cheap-mem: no memory found - this session starts WITHOUT it.'
+  Write-Host "  installed path was: `$hint"
+  Write-Host '  Looked in: %USERPROFILE%\cheap-mem, \my-memory, \.cheap-mem'
+  Write-Host '  Fix: clone the memory there, or re-run install\windows.ps1 on this machine.'
+  exit 0
+}
+`$env:CHEAP_MEM_ROOT = `$memRoot
 
 Write-Host '=== cheap-mem attached ==='
 Write-Host ''
@@ -220,9 +244,23 @@ if (Test-Path `$mem) {
 
   @"
 # cheap-mem Stop hook (Windows). Delegates to mem-reflect.ps1.
-`$env:CHEAP_MEM_ROOT = '$($env:CHEAP_MEM_ROOT)'
+# Same lookup as the start hook — see the note there. This one stays
+# quiet on a miss: the start hook has already said it once per session,
+# and repeating it after every turn would train people to ignore it.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
-if (-not (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT '.mem\config.json'))) { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
 `$reflect = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-reflect.ps1'
 if (-not (Test-Path `$reflect)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$reflect

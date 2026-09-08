@@ -19,6 +19,95 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import * as redaction from './redaction.mjs';
 
+/**
+ * What a capture DROPS before it stores anything — and why the memory
+ * would otherwise eat itself.
+ *
+ * **The finding (2026-09-08, reported from a Windows install.)** After
+ * 75 minutes of use the git pack was at 9.17 MB; a single capture was
+ * 8.6 MB gzipped. Extrapolated: about 6 MB/h, ~50 MB per working day,
+ * and git deletes nothing. Within a quarter the memory repository stops
+ * being clonable — which breaks the one promise the whole thing is
+ * built on.
+ *
+ * **What is actually in there.** Measured over 21 real Claude Code
+ * transcripts, 41.30 MB in total:
+ *
+ * | part            | size     | share |
+ * |-----------------|----------|-------|
+ * | `attachment`    | 21.34 MB | 51.7% |
+ * | `thinking`      |  2.60 MB |  6.3% |
+ * | `image`         |  1.91 MB |  4.6% |
+ * | housekeeping    |  1.52 MB |  3.7% |
+ *
+ * So over half the volume is `attachment` lines, and inside those the
+ * biggest single item is `task_reminder` — the task list, re-dumped on
+ * nearly every turn. Then the skill listing, the hook output, the token
+ * reminder. None of it is conversation. All of it is the harness
+ * talking to itself, repeated verbatim dozens of times.
+ *
+ * For a memory that is worse than merely large: identical text repeated
+ * hundreds of times dominates any term ranking, so the noise does not
+ * just cost space, it costs RECALL.
+ *
+ * **The rule, and why this direction.** `attachment` lines are dropped
+ * unless their subtype carries user or file content (`KEEP_ATTACHMENT`).
+ * A subtype the harness invents tomorrow is therefore dropped by
+ * default. That is the right default for a size problem and the wrong
+ * one for a content problem — so it is not silent: every capture header
+ * carries `__dropped` with a count per reason, and `mem doctor` can
+ * read it. A gap you can see is a decision; a gap you cannot see is a
+ * bug.
+ *
+ * `thinking` is deliberately NOT dropped. It is 6.3%, it is the only
+ * record of WHY something was done, and that is precisely what a
+ * digest is for.
+ */
+const DROP_LINE_TYPES = new Set([
+  'queue-operation', 'atis-latch', 'mode', 'last-prompt',
+]);
+
+/** Attachment subtypes that carry real content rather than harness chatter. */
+const KEEP_ATTACHMENT = new Set([
+  'file', 'edited_text_file', 'compact_file_reference',
+  'new_file', 'selected_lines', 'diagnostics', 'todo',
+]);
+
+/**
+ * Base64 image payloads. 4.6% of the volume and worth exactly nothing
+ * to a text digest — but the FACT that an image was there is worth
+ * something, so a marker stays behind.
+ */
+function stripImages(o, zaehler) {
+  const c = o?.message?.content;
+  if (!Array.isArray(c)) return o;
+  let getroffen = false;
+  const neu = c.map((part) => {
+    if (part?.type !== 'image') return part;
+    getroffen = true;
+    const bytes = Buffer.byteLength(JSON.stringify(part));
+    return { type: 'text', text: `[image elided by cheap-mem: ${bytes} bytes]` };
+  });
+  if (!getroffen) return o;
+  zaehler.set('image', (zaehler.get('image') ?? 0) + 1);
+  return { ...o, message: { ...o.message, content: neu } };
+}
+
+/**
+ * Should this transcript line be stored at all?
+ *
+ * Returns the reason for dropping it, or `null` to keep it.
+ */
+export function dropReason(o) {
+  if (!o || typeof o !== 'object') return null;
+  if (DROP_LINE_TYPES.has(o.type)) return `line:${o.type}`;
+  if (o.type === 'attachment') {
+    const sub = o?.attachment?.type ?? 'unknown';
+    if (!KEEP_ATTACHMENT.has(sub)) return `attachment:${sub}`;
+  }
+  return null;
+}
+
 export const RAW_DIR = 'raw';
 export const OFFSET_FILE = path.join('.mem', 'raw-offsets.json');
 export const WATERMARK_FILE = path.join('.mem', 'raw-watermark.json');
@@ -146,6 +235,10 @@ export function capture(root, transcriptPath, {
   minBytes = 4096,
   now = new Date(),
   stampExtra = {},
+  // Escape hatch, and the reason it exists: a filter you cannot switch
+  // off cannot be measured against itself. Every claim about how much
+  // it saves comes from running the same transcript both ways.
+  drop = true,
 } = {}) {
   if (!transcriptPath || !fs.existsSync(transcriptPath)) {
     return { status: 'broken', reason: 'no-transcript', detail: String(transcriptPath) };
@@ -215,6 +308,8 @@ export function capture(root, transcriptPath, {
 
   const captured = [];
   const allFound = new Map();
+  const dropped = new Map();
+  let droppedBytes = 0;
   let tsFrom = null;
   let tsTo = null;
 
@@ -224,14 +319,28 @@ export function capture(root, transcriptPath, {
     try { o = JSON.parse(l); }
     catch { o = { __unparsable: true, raw: l.slice(0, 2000) }; }
 
-    const { object, found } = redaction.redactEntry(o);
-    for (const f of found) allFound.set(f.type, (allFound.get(f.type) ?? 0) + f.count);
+    // Drop BEFORE redacting: redaction is the expensive part, and a
+    // task_reminder that is thrown away should not be paid for.
+    const weg = drop ? dropReason(o) : null;
+    if (weg) {
+      dropped.set(weg, (dropped.get(weg) ?? 0) + 1);
+      droppedBytes += Buffer.byteLength(l);
+      continue;
+    }
 
+    // The timestamp is read from the ORIGINAL line, before image
+    // stripping rebuilds the object — a rebuilt object is a copy, and
+    // reading a field off the copy would work today and break the day
+    // someone moves the field.
     const ts = o.timestamp ?? o.ts ?? null;
     if (ts) {
       if (!tsFrom || ts < tsFrom) tsFrom = ts;
       if (!tsTo || ts > tsTo) tsTo = ts;
     }
+
+    const { object, found } = redaction.redactEntry(drop ? stripImages(o, dropped) : o);
+    for (const f of found) allFound.set(f.type, (allFound.get(f.type) ?? 0) + f.count);
+
     captured.push(object);
   }
 
@@ -252,6 +361,9 @@ export function capture(root, transcriptPath, {
     __offset_from: from,
     __offset_to: size,
     __redacted: [...allFound].map(([type, count]) => ({ type, count })),
+    // Never silent: what was left out, why, and how much it weighed.
+    __dropped: [...dropped].map(([reason, count]) => ({ reason, count })),
+    __dropped_bytes: droppedBytes,
   };
 
   const body = [header, ...captured].map((o) => JSON.stringify(o)).join('\n') + '\n';
@@ -279,6 +391,8 @@ export function capture(root, transcriptPath, {
     lines: captured.length,
     bytes: fresh,
     redacted: header.__redacted,
+    dropped: header.__dropped,
+    droppedBytes,
     stamp,
     bell,
   };

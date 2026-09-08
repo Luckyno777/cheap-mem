@@ -111,6 +111,36 @@ const HARMLESS = [
 ];
 
 /**
+ * A REFERENCE to a secret is not the secret.
+ *
+ * `const token = process.env.GITHUB_TOKEN;` was being rewritten to
+ * `const token=[REDACTED:env-secret];` — reported from the field on
+ * 2026-09-08. The `env-secret` pattern matches anything to the right of
+ * a name containing TOKEN/SECRET/PASSWORD, and it never looked at what
+ * that anything WAS. In code that is nearly always an expression.
+ *
+ * Why this is the safe direction and not a hole: every shape below
+ * names a place where a value is FETCHED FROM. A generated credential
+ * cannot look like this — it has no `process.env.` prefix, no
+ * parentheses, no `$env:`. And the exemption is still gated on
+ * `looksLikeCredential` in `isHarmless`, so a value that carries a
+ * base64-ish run with letters AND digits is redacted even if it is
+ * dressed up as a call.
+ *
+ * What it deliberately does NOT cover: `config.token`, `settings.key`,
+ * `data.password`. Those are plain property reads and a config object
+ * really can hold an inlined literal in the same line elsewhere. Narrow
+ * beats clever here.
+ */
+const IS_REFERENCE = [
+  /^process\.env[.[]/,             // process.env.X, process.env['X']
+  /^(os\.environ[.[]|os\.getenv\()/, // Python
+  /^\$env:/i,                      // PowerShell $env:GITHUB_TOKEN
+  /^E?NV\[/i,                      // ENV['X'], env[...]
+  /^(await\s+)?[A-Za-z_$][\w$.]*\(.*\)$/, // getToken(), await readSecret(x)
+];
+
+/**
  * Does this value look like an actual credential?
  *
  * Criterion: a contiguous run of at least 12 characters from the
@@ -146,7 +176,30 @@ function isHarmless(s) {
   const t = String(s).trim();
   if (t.length < 8) return true;
   if (PROSE_ABOUT_SECRETS.test(t) && !looksLikeCredential(t)) return true;
+  // A reference to a secret is not the secret — but only while the value
+  // itself carries nothing credential-shaped. Same gate as the prose rule.
+  if (IS_REFERENCE.some((r) => r.test(t)) && !looksLikeCredential(t)) return true;
   return HARMLESS.some((r) => r.test(t));
+}
+
+/**
+ * Replace ONE group inside a match and leave every other byte alone.
+ *
+ * The old code rebuilt the match as `${name}=[REDACTED:...]`. That
+ * hardcoded `=` and dropped whatever stood between name and value:
+ * `const token = X` came back as `const token=[REDACTED]`, and a YAML
+ * line `FOO_TOKEN: X` came back with a `=` it never had. A redaction
+ * that reformats the surrounding code is a second, quieter corruption —
+ * the digest then reads source that never existed.
+ *
+ * `lastIndexOf` and not `indexOf`: the value sits at the END of the
+ * match, and a short value can also occur inside the key name
+ * (`TOKEN_TOKEN=TOKEN`).
+ */
+function replaceValue(match, value, ersatz) {
+  const at = match.lastIndexOf(value);
+  if (at < 0) return match;
+  return match.slice(0, at) + ersatz + match.slice(at + value.length);
 }
 
 /**
@@ -173,16 +226,16 @@ export function redact(text) {
       const real = groups.slice(0, -2).filter((g) => typeof g === 'string');
 
       if (type === 'env-secret' && real.length >= 2) {
-        const [name, value] = real;
+        const [, value] = real;
         if (isHarmless(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
-        return `${name}=[REDACTED:${type}]`;
+        return replaceValue(match, value, `[REDACTED:${type}]`);
       }
       if (type === 'json-secret' && real.length >= 2) {
-        const [prefix, value] = real;
+        const [, value] = real;
         if (isHarmless(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
-        return `${prefix}"[REDACTED:${type}]"`;
+        return replaceValue(match, value, `[REDACTED:${type}]`);
       }
       if (type === 'url-credentials' && real.length >= 1) {
         counter.set(type, (counter.get(type) ?? 0) + 1);
