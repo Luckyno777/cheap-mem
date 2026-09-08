@@ -35,6 +35,34 @@ are the day the work landed on `main`.
 - `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`.
 - A guard for the README's own numbers (`test/readme-zahlen.test.mjs`),
   because numbers in prose have no guard and therefore rot.
+- **The error-class vocabulary** (`src/errorclass.mjs`, `mem classes`).
+  Twelve closed classes, each with the question that decides it
+  (`looks-right-does-nothing` asks *"What would be visible if it did NOT
+  work?"*). Counted in the sibling project that motivated it: 303 error
+  entries in 212 class names, 167 used exactly once — the dominant
+  defect type was invisible because everyone coined a fresh name.
+  Old names map through a literal-only `ALIAS`; `normalise()` returns
+  `null` rather than guessing, and `coverage()` names what it could not
+  map. `mem log error` warns on an unknown class and **writes it
+  anyway** — a write that fails on a naming rule loses the content.
+- **The board** (`src/board.mjs`, `mem board`). Seven tiles on one
+  screen: raw archive, digest, error classes, agents, open questions,
+  installation, MCP bridge. Four states, never two — `calm`, `watch`,
+  `alarm`, and `unknown`, which is deliberately not green. `--html`
+  renders one self-contained page: no script, no external source,
+  because a board that stays empty when a script fails to load reports
+  calm by omission. Every tile carries its own age; a condition that is
+  normal is never drawn as a loss (a capture recorded by another machine
+  counts as `foreign`, not `missing`).
+- `mem bridge state <short-hash>` — an MCP bridge reports the checkout
+  it is serving. The board cannot measure that from inside, so it stays
+  `unknown` until something reports. On 2026-09-08 a bridge ran a whole
+  day on the previous day's checkout and an outside agent noticed; a
+  board that inferred the running state from the repo state would have
+  shown green for that entire day.
+- `docs/CAPABILITIES.md` gained a **module inventory** — all 42 files in
+  `src/`, one line each — plus sections 10.16 and 10.17 for the two new
+  modules.
 
 ### Changed
 
@@ -47,6 +75,31 @@ are the day the work landed on `main`.
   dropped and why.
 
 ### Fixed
+
+- **The record file had a German name in an English codebase.** The
+  archive was ported from a German-language sibling and kept
+  `raw-nachweis.jsonl`, while this CHANGELOG already called it
+  `raw-record.jsonl` — two truths, one of them the code. Renamed, with a
+  one-time move so a memory that already captured does not silently
+  start a second, empty record.
+- **The completeness guard for `docs/CAPABILITIES.md` was checking for
+  substrings.** `board`, `classes` and `bridge` all passed while the
+  reference named none of them: `board` sits inside "dashboard",
+  `bridge` in prose about the MCP bridge. The guard now asks a narrower
+  question per kind (a CLI command must be in the 7.1 block, a module
+  must appear as `<name>.mjs`) and carries a positive control. The
+  narrower guard immediately found 14 modules the reference had never
+  named.
+- **The README had two `## Commands` sections.** The lower one was older
+  and had drifted — it still called `mem find` a "substring search",
+  which stopped being true when ranking landed. Merged into one, with a
+  guard against a second appearing.
+- The command counts disagreed between the inventory table (44) and the
+  section heading (45) of `docs/CAPABILITIES.md`. Both are now guarded
+  against the code.
+- Section 10 of `docs/CAPABILITIES.md` had two subsections numbered
+  10.12 and its numbering ran 10.13, 10.14, 10.12, 10.11, 10.12.
+  Renumbered in file order.
 
 - **Redaction over-masked and reformatted while it did.** An env var
   *reference* was masked as if it were a value, and the separator around

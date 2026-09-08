@@ -54,7 +54,30 @@ import zlib from 'node:zlib';
 export const DEFAULT_LOCATION = path.join('.mem', 'raw');
 
 /** The record. TRACKED and append-only — this is what stays in the repo. */
-export const RECORD_FILE = 'raw-nachweis.jsonl';
+export const RECORD_FILE = 'raw-record.jsonl';
+
+/**
+ * What this file was called for half a day.
+ *
+ * The archive was ported from a German-language sibling project and the
+ * record kept its German name — in a codebase whose every other
+ * identifier is English. Nobody would have found it by guessing.
+ *
+ * It is not simply renamed away: a memory that already captured under
+ * the old name would silently start a second, empty record, and the
+ * first one would look like it had never existed. `records()` reads the
+ * old file when the new one is absent, and `writeRecord()` moves it
+ * across once, before appending.
+ */
+export const LEGACY_RECORD_FILE = 'raw-nachweis.jsonl';
+
+/** The record file in use here, preferring the current name. */
+function recordPath(root) {
+  const now = path.join(root, RECORD_FILE);
+  if (fs.existsSync(now)) return now;
+  const old = path.join(root, LEGACY_RECORD_FILE);
+  return fs.existsSync(old) ? old : now;
+}
 
 /** The old location. Stays READABLE so nothing already there vanishes. */
 export const OLD_DIR = 'raw';
@@ -229,7 +252,7 @@ export function reachable(archive, root, relPath) {
 
 /** Every record, oldest first. */
 export function records(root) {
-  const p = path.join(root, RECORD_FILE);
+  const p = recordPath(root);
   if (!fs.existsSync(p)) return [];
   const out = [];
   for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
@@ -241,8 +264,15 @@ export function records(root) {
 
 /** Append one record. Append-only — never rewrite a line. */
 export function writeRecord(root, row) {
-  fs.appendFileSync(path.join(root, RECORD_FILE),
-    `${JSON.stringify(row)}\n`, 'utf8');
+  const target = path.join(root, RECORD_FILE);
+  // The one-time move. Rename, never copy: two files holding the same
+  // append-only record is the two-truths class, and the second writer
+  // would win silently.
+  if (!fs.existsSync(target)) {
+    const old = path.join(root, LEGACY_RECORD_FILE);
+    if (fs.existsSync(old)) fs.renameSync(old, target);
+  }
+  fs.appendFileSync(target, `${JSON.stringify(row)}\n`, 'utf8');
 }
 
 /**

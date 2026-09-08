@@ -52,6 +52,8 @@ import * as neighbours from '../src/neighbours.mjs';
 import * as onboarding from '../src/onboarding.mjs';
 import * as source from '../src/source.mjs';
 import * as component from '../src/component.mjs';
+import * as errorclass from '../src/errorclass.mjs';
+import * as board from '../src/board.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -1016,6 +1018,29 @@ const COMMANDS = {
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args));
 
+    // **A class outside the vocabulary is warned about, never refused.**
+    //
+    // Counted in the sibling project on 2026-09-08: 303 error entries in
+    // 212 class names, 167 of them used exactly once. The dominant defect
+    // type was invisible because every writer coined a fresh name for it.
+    //
+    // The answer is not a hard check. `mem log` is the path along which
+    // things get saved that would otherwise be lost; a write that fails
+    // on a naming rule loses the content. So: warn, name the class the
+    // old name maps to if there is one, and print the twelve questions
+    // when there is not. The entry is written either way.
+    if (type === 'error' && data.class && !errorclass.valid(data.class)) {
+      const hit = errorclass.normalise(data.class);
+      if (hit) {
+        warn(`class: '${data.class}' is an old name for '${hit}'.`);
+        warn(`  It counts towards '${hit}'. Use that name for new entries.`);
+      } else {
+        warn(`class: '${data.class}' is outside the vocabulary — it will not be counted.`);
+        warn('  Pick the one whose question you can answer on this case:');
+        for (const block of errorclass.help()) for (const l of block.split('\n')) warn(l);
+      }
+    }
+
     // --- The latch, and its positive control -------------------------
     //
     // The three --guard-* flags are bundled into ONE field, so half a
@@ -1484,16 +1509,16 @@ const COMMANDS = {
     die(`capture failed: ${r.reason} — ${r.detail ?? ''}`);
   },
 
-  // **Nicht `setup`.** Der Name war schon vergeben — `mem setup <agent>`
-  // verdrahtet das Gedaechtnis mit einem Agenten. Ich habe ihn am
-  // 2026-09-08 ein zweites Mal definiert; ein doppelter Objektschluessel
-  // gewinnt still, und die Hilfe zeigte weiter den alten Befehl.
-  // Dieselbe Klasse wie `mem frage` im Schwesterprojekt am selben Tag.
+  // **Not `setup`.** The name was taken — `mem setup <agent>` wires the
+  // memory up to an agent. On 2026-09-08 I defined it a second time; a
+  // duplicate object key wins silently, and the help kept showing the
+  // old command. The same class as the sibling project's duplicated
+  // command on the same day.
   //
-  // Gefangen hat es die eslint-Regel `no-dupe-keys`, eine Stunde nach
-  // ihrem Einbau — der erste echte Fund des neuen Linters.
+  // Caught by the eslint rule `no-dupe-keys`, one hour after it was
+  // added — the new linter's first real find.
   //
-  // `setup` INSTALLIERT, `status` BERICHTET. Zwei Verben, zwei Befehle.
+  // `setup` INSTALLS, `status` REPORTS. Two verbs, two commands.
   status: async ({ args }) => {
     if (isHelp(args)) {
       out([
@@ -1526,6 +1551,117 @@ const COMMANDS = {
     // Only broken is an error. Open is a to-do list, and a to-do list
     // that exits non-zero breaks every script that runs this.
     if (res.broken) die(`${res.broken} step(s) are broken — see above.`);
+  },
+
+  board: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem board [--json] [--html] [--days N]',
+        '',
+        '  The operating state on one screen: raw archive, digest, error',
+        '  classes, agents, open questions, installation, MCP bridge.',
+        '',
+        '  Every tile says how old its answer is and whether it could be',
+        '  measured at all. A tile that could NOT be measured shows as',
+        '  "unmeasured" and does not count as calm — a board that reports',
+        '  green because it did not look is worse than no board.',
+        '',
+        '  --html writes a single self-contained page: no script, no',
+        '  external source. Readable over a tunnel on a phone.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'html', 'days', 'root'], 'board');
+    const root = findRoot(args);
+    const b = board.board(root, {
+      windowDays: args.days ? Number(args.days) : undefined,
+    });
+    if (args.json) { out(JSON.stringify(b)); return; }
+    if (args.html) { out(board.asHtml(b)); return; }
+    out(board.asText(b));
+  },
+
+  classes: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem classes [--open] [--json]',
+        '',
+        '  The twelve error classes, the question that decides each one,',
+        '  and how much of this memory they actually cover.',
+        '',
+        '  --open lists the class names in the log that are NOT mapped.',
+        '  That number is the point: it says how far the ranking above it',
+        '  may be trusted.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['open', 'json', 'root'], 'classes');
+    const root = findRoot(args);
+
+    const all = [];
+    for (const project of [null, ...memory.listProjects(root)]) {
+      try { all.push(...memory.readLog(root, 'error', { project }).entries); }
+      catch { /* log absent */ }
+    }
+    const c = errorclass.coverage(all);
+
+    if (args.json) { out(JSON.stringify({ classes: errorclass.CLASSES, ...c })); return; }
+
+    if (args.open) {
+      if (!c.openNames.length) { out('Every class name in the log is mapped.'); return; }
+      out(`${c.open} entries in ${c.openNames.length} unmapped names:`);
+      for (const [name, n] of c.openNames) out(`  ${String(n).padStart(4)}x  ${name}`);
+      out('');
+      out('  Unmapped is not an error. It is the honest half: a mapping');
+      out('  nobody checked would be a number nobody can stand behind.');
+      return;
+    }
+
+    const counts = new Map(c.byClass);
+    for (const name of errorclass.NAMES) {
+      const n = counts.get(name) ?? 0;
+      out(`  ${String(n).padStart(4)}x  ${name}`);
+      out(`          ${errorclass.CLASSES[name].short}`);
+      out(`          ? ${errorclass.CLASSES[name].question}`);
+    }
+    out('');
+    if (!c.total) { out('No error entries yet — nothing to count.'); return; }
+    out(`${c.mapped} of ${c.total} entries countable.`);
+    if (c.open) out(`${c.open} in ${c.openNames.length} names not mapped — see them with: mem classes --open`);
+  },
+
+  bridge: async ({ rest, args }) => {
+    const sub = rest[0];
+    if (isHelp(args) || !sub) {
+      out([
+        'mem bridge state <short-hash> [--version X]',
+        '',
+        '  An MCP bridge reports which checkout it is SERVING.',
+        '',
+        '  Why it has to be reported rather than measured: this repo does',
+        '  not know which process is running out there. On 2026-09-08 one',
+        '  bridge ran a whole day on the previous day\'s checkout — six',
+        '  tools missing from its list — and an outside agent noticed, not',
+        '  us. A board that inferred the running state from the repo state',
+        '  would have shown green for that whole day.',
+      ].join('\n'));
+      return;
+    }
+    if (sub !== 'state') die(`bridge: unknown subcommand '${sub}'. Known: state`);
+    checkFlags(args, ['version', 'root'], 'bridge state');
+    const hash = rest[1];
+    if (!hash) die('bridge state: which checkout? Give the short hash.');
+    const root = findRoot(args);
+    const row = {
+      version: args.version && args.version !== true ? String(args.version) : String(hash),
+      hash: String(hash),
+      seen_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      by: memory.agentDefault(),
+    };
+    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mem', 'bridge-state.json'),
+      `${JSON.stringify(row, null, 2)}\n`, 'utf8');
+    out(`Bridge reported: ${row.version} (${row.seen_at})`);
   },
 
   raw: async ({ rest, args }) => {
@@ -3188,6 +3324,14 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  thesaurus [--graph]                          word groups; --graph = what it learned");
   out("  hooks install|check                          arm and prove the secret check");
   out("  doctor [--quiet]                             is this memory healthy?");
+  out("  raw archive [--set <where>] [--list-stores]  where the raw capture lives");
+  out("  raw migrate [--remove] / raw export --from --to --into");
+  out("");
+  out("State at a glance:");
+  out("  board  [--html] [--json] [--days N]          every lane on one screen");
+  out("  status [--json]                              installed vs. actually working");
+  out("  classes [--open]                             the twelve error classes, and coverage");
+  out("  bridge state <short-hash>                    an MCP bridge reports its checkout");
   out("");
   out("Global flags: --root <path>   memory root (else CHEAP_MEM_ROOT or walk cwd)");
   process.exit(0);

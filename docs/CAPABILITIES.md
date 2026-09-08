@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 44 CLI commands, 26 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 48 CLI commands, 26 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 15 benchmarks, an eval harness with a frozen reference run, 489 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 687 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -39,6 +39,60 @@ authority-based conflict resolution and a structured retrieval gateway
 
 ---
 
+### 0.1 Every module in `src/`
+
+One line each, so a reader can tell what exists without opening the
+directory. The section number in brackets is where it is explained.
+
+| Module | What it is |
+|---|---|
+| `agents.mjs` | registered agents: who exists, what each is for |
+| `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
+| `authority.mjs` | who is entitled to overrule whom |
+| `board.mjs` | the operating state on one screen (10.17) |
+| `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
+| `browse.mjs` | the interactive search that re-ranks as you type |
+| `capability.mjs` | scope as a boundary, not an argument (5) |
+| `component.mjs` | one file, across both spellings (10.14) |
+| `config.mjs` | participants, defaults, the memory's own settings |
+| `doctor.mjs` | the self-check: configured, missing, or merely unknown |
+| `embed-hook.mjs` | embedding on write, without blocking the write |
+| `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
+| `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
+| `epoch.mjs` | noticing that the memory went backwards (4) |
+| `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
+| `freshness.mjs` | living facts, deterministic, no model (3) |
+| `guard.mjs` | a recorded error becomes a latch (10.2) |
+| `heartbeat.mjs` | running, or just nothing to do (10.3) |
+| `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
+| `icon.mjs` | the mark, drawn in code |
+| `inbox.mjs` | cross-session messages |
+| `integrity.mjs` | what is wrong with the log itself (4) |
+| `language.mjs` | stemming and stop words, per language |
+| `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
+| `neighbours.mjs` | what stood next to this at write time (10.8) |
+| `onboarding.mjs` | evidenced, not ticked (10.9) |
+| `procedure.mjs` | a norm only a human can issue (10.6) |
+| `question.mjs` | what we do NOT know (10.7) |
+| `raw.mjs` | capture, drop filter, digest bell, pending work |
+| `redaction.mjs` | secrets removed before anything reaches disk (5) |
+| `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
+| `search.mjs` | BM25, thesaurus, tag graph, the index |
+| `semantics.mjs` | which rules produced this state (4) |
+| `setup.mjs` | the five steps between installed and working (10.12) |
+| `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
+| `state.mjs` | the derived state, and nothing else derives it |
+| `store.mjs` | generated files provable by hash, without bloating the repo |
+| `stores.mjs` | the usual places people keep files, found by name (10.11) |
+| `thesaurus.mjs` | curated word groups plus what the memory learned |
+| `timeexpr.mjs` | natural language to a time window |
+| `timesearch.mjs` | retrieval by time window, no model |
+| `viewer.mjs` | one self-contained HTML page to rummage through it all |
+
+Plus `src/embed/` — the optional embedding lane (provider, store,
+index), which is off unless configured.
+
+---
 ## Read this first if you are evaluating cheap-mem
 
 These five claims are the ones evaluators have gotten wrong. Each names
@@ -395,15 +449,24 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 45 commands
+### 7.1 CLI — 48 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
 thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
-procedures broadcast onboarding sources component
+procedures broadcast onboarding sources component status board classes
+bridge
 ```
+
+`mem board` is the operating state on one screen — raw archive, digest,
+error classes, agents, open questions, installation, MCP bridge — with
+`--html` for a single self-contained page. Every tile reports how old
+its answer is, and a tile that could NOT be measured shows as
+`unmeasured` rather than as calm. `mem status` says which of the five
+installation steps has actually happened; `mem classes` is the error
+vocabulary and how much of this memory it covers.
 
 Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
@@ -470,7 +533,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 489 tests
+npm test                                    # 687 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
@@ -823,7 +886,7 @@ mem sources list [--kind file|address]
   and what was redacted is reported. A foreign document is exactly
   where a credential rides along.
 
-### 10.13 Storage places — `src/stores.mjs`, `mem raw archive --list-stores`
+### 10.11 Storage places — `src/stores.mjs`, `mem raw archive --list-stores`
 
 The archive can live in a folder, on a mounted NAS share, or in Google
 Drive, iCloud, OneDrive or Dropbox. The last four cannot be named by
@@ -848,7 +911,7 @@ warns too:
 None of the three is fixable from here. The memory can only refuse to
 pretend they do not exist.
 
-### 10.14 Is it working? — `src/setup.mjs`, `mem status`
+### 10.12 Is it working? — `src/setup.mjs`, `mem status`
 
 `mem setup <agent>` installs. `mem status` reports — five steps, each
 answered with evidence rather than with a previous step's word: a
@@ -866,7 +929,7 @@ Three states per step, never two. `open` is a to-do list and exits 0;
 only `broken` is an error. A to-do list that returns non-zero breaks
 every script that calls it, and then nobody calls it.
 
-### 10.12 The archive — `src/archive.mjs`, `mem raw archive`
+### 10.13 The archive — `src/archive.mjs`, `mem raw archive`
 
 **The raw capture does not live in the repository.** Reported from a
 Windows install on 2026-09-08: 9.17 MB of git pack in 75 minutes, one
@@ -950,7 +1013,7 @@ rather than from disk: the amount of open work decides whether the
 digest runs, and a digest that never fires again because a drive was
 unmounted is the most expensive kind of silence.
 
-### 10.11 Components — `src/component.mjs`, `mem component`
+### 10.14 Components — `src/component.mjs`, `mem component`
 
 Measured across 805 path mentions: 312 distinct components, 70 of them
 (22 %) appearing in more than one spelling — almost always just the
@@ -978,7 +1041,77 @@ be worse than the gap, because it gives a hint the appearance of
 evidence. Every hit carries its form (`exact` / `base`) into the
 display: a base hit is weaker evidence and should look like it.
 
-### 10.12 Reach: the bridge carries all of it
+### 10.16 Error classes — `src/errorclass.mjs`, `mem classes`
+
+A closed vocabulary of twelve, so that errors become countable at all.
+
+**The count that forced it (2026-09-08, in the sibling project this
+tool was extracted from).** 303 error entries, 212 distinct class
+names, 167 of them used exactly once. Fifty-five percent of all entries
+sat in a class with a single member — and a class with one member
+classifies nothing.
+
+The hand check made it plain: `looks-right-does-nothing` was written
+seven times, while `silent-failure`, `silent-loss`, `lying-check`,
+`falsely-green`, `watchdog-mute` and nine more names described the same
+defect about 27 times. **The dominant defect type was invisible because
+every writer coined a fresh name for it.**
+
+Three properties, each with a reason:
+
+- **Every class carries a falsifying question**, not just a label.
+  `looks-right-does-nothing` asks *"What would be visible if it did NOT
+  work?"* A list of labels invites mis-picking; a question can be
+  answered on the concrete case. When none of the twelve fits, that is
+  a finding — not a licence to invent a 213th name.
+- **Old names map through `ALIAS`, and only literally.** No fuzzy
+  matching, no keyword rule. `normalise()` returns `null` rather than
+  the nearest string. What is unmapped, `coverage()` counts as open and
+  names — a mapping nobody checked would be a number nobody can stand
+  behind.
+- **`mem log error` warns, and writes anyway.** `mem log` is the path
+  along which things get saved that would otherwise be lost; a write
+  that fails on a naming rule loses the content.
+
+`mem classes` lists the twelve with their questions and how many
+entries each holds; `mem classes --open` names what could not be
+mapped.
+
+### 10.17 The board — `src/board.mjs`, `mem board`
+
+Seven tiles on one screen: raw archive, digest, error classes, agents,
+open questions, installation, MCP bridge. Text for a terminal, or
+`--html` for a single self-contained page — no script, no external
+source, because a board that stays empty when a script fails to load
+reports calm by omission.
+
+**Four states, never two.** `calm`, `watch`, `alarm` — and `unknown`,
+which is deliberately not green. A tile that could not be measured is
+grey. The whole reason the module exists is that on 2026-09-08 four
+questions had no answer anywhere in the tooling:
+
+- Is the bridge serving the code that is in the repo? (One ran a whole
+  day on the previous day's checkout. An outside agent noticed.)
+- Is the raw capture where it is supposed to be? (672 captures still
+  sat in the repository while the report said they were archived.)
+- Is one defect type piling up? (Seven visible occurrences; twenty-eight
+  actual ones, under fourteen names.)
+- Is anyone still writing, or has a lane failed silently?
+
+Three rules the tiles follow. Each tile says **how old** its answer is.
+No tile is dropped for being calm — a board that hides quiet tiles
+loses the information that something was checked. And a condition that
+is normal is never rendered as a loss: a capture recorded by another
+machine counts as `foreign`, not as `missing`, or the board is
+permanently red on every machine but one.
+
+The bridge tile is the honest case. From inside, this repo cannot know
+which process is running out there, so it does not guess: it stays
+`unknown` until an agent reports with `mem bridge state <short-hash>`.
+A tile that inferred the running state from the repo state would have
+shown green for the whole day the bug lasted.
+
+### 10.15 Reach: the bridge carries all of it
 
 After the port, six of these capabilities existed only at the CLI. For
 an agent whose ONLY access is the bridge — a connected model over MCP —

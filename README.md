@@ -21,10 +21,10 @@ temporal and authority mechanism, every CLI command, every MCP tool,
 every module, the things that are deliberately absent, and the commands
 to verify each claim rather than believe it.
 
-<!-- ZAHLEN: von test/readme-zahlen.test.mjs geprueft. Nicht von Hand
-     aendern, ohne den Code gezaehlt zu haben. -->
-As of 2026-09-08: **45 CLI commands, 26 MCP tools, 40 modules, 652
-tests**, at **93.95 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
+<!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
+     hand without having counted the code. -->
+As of 2026-09-08: **48 CLI commands, 26 MCP tools, 42 modules, 689
+tests**, at **94.12 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
 code and fails when this line drifts.
 
 It exists because this README is not enough for a skim, and that was
@@ -265,6 +265,30 @@ mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem hooks install|check        arm and prove the secret check
 mem doctor                     is this memory healthy?
 
+mem board [--html --json]      the operating state on one screen: archive,
+                               digest, error classes, agents, questions,
+                               installation, bridge. A tile that could NOT
+                               be measured shows as "unmeasured", not calm.
+mem status                     which of the five install steps have happened
+mem classes [--open]           the twelve error classes, and how much of
+                               this memory they actually cover
+mem bridge state <short-hash>  an MCP bridge reports the checkout it serves
+
+mem whoami [<name>]            who this install is in the channel
+mem retrieve "<question>"      STRUCTURED claims: author, authority, scope,
+                               validity, status, score
+mem explain "<q>" <claim-id>   why a claim did (not) come back
+mem epoch [show|record]        did the memory go backwards?
+mem project init <name>        idempotent project skeleton
+mem correction <type> <id> ... append a correction linked to the old entry
+mem version
+
+mem inbox new|all [--as N]     what is new for me / everything to me
+mem inbox write --to N --subject ...   send a message
+mem inbox show <name>          read one message
+mem inbox ack <name> [state]   set state (replied|processed|closed)
+mem inbox watch --as N         poll remote (exit 0/1/3 for shells)
+
 mem embed setup|backfill|status    optional: semantic escalation
 mem find-embed "<query>"           pure semantic search (needs embeddings)
 mem find-hybrid "<query>"          BM25 + semantic, fused (RRF)
@@ -495,35 +519,6 @@ determined the result is `unknown`, not `ok`.
   now the one that is actually true: not small, but self-contained.
 - **No hardcoded names.** Participants, branch, remote — all in
   `.mem/config.json`. cheap-mem does not assume anyone is called anything.
-
-## Commands
-
-```
-mem init                                one-time setup
-mem whoami [<name>]                     who this install is in the channel
-
-mem log <type> --<field> ...            append a JSONL entry
-mem find "<pattern>" [--type T]         substring search across logs
-mem retrieve "<question>" [--json]      STRUCTURED claims: author, authority,
-                                        scope, validity, status, score
-mem explain "<question>" <claim-id>     why a claim did (not) come back
-mem doctor [--strict]                   health, plus the guarantees that
-                                        are not cheap-mem's to provide
-mem epoch [show|record] [--force]       did the memory go backwards?
-mem context [--n 20]                    compact recent-activity dump
-mem viewer [--out f.html] [--open]      one self-contained HTML page, no model/server
-mem project init <name>                 idempotent project skeleton
-mem correction <type> <old-id> ...      append correction linked to old entry
-
-mem inbox new  [--as N]                 what is new for me
-mem inbox all  [--as N]                 all messages to me
-mem inbox write --to N --subject ...    send a message
-mem inbox show <name>                   read one message
-mem inbox ack  <name> [state]           set state (replied|processed|closed)
-mem inbox watch --as N                  poll remote (exit 0/1/3 for shells)
-
-mem version
-```
 
 ## License
 

@@ -107,3 +107,52 @@ test('the historical measurement is dated, so it cannot be read as current', () 
   assert.match(umfeld, /September 2026|2026-09/,
     'the historical measurement carries no date — it will be read as current');
 });
+
+// --- The command list, and there being exactly one of it --------------
+//
+// **The finding (2026-09-08).** The README carried TWO `## Commands`
+// sections. The lower one was older and had drifted: it called
+// `mem find` a "substring search across logs", which stopped being true
+// when ranking landed. Whoever scrolled to the bottom read the stale
+// one, and nothing said which was current.
+//
+// Two lists of the same surface in one document is the two-truths class.
+// It is not enough to have merged them once — the merge has to stay
+// merged, so the guard is here.
+
+const CMD_BLOCK = () => {
+  const m = README.match(/## Commands\n+```\n([\s\S]*?)```/);
+  assert.ok(m, 'the README has no command block at all');
+  return m[1];
+};
+
+test('the README has exactly one command list', () => {
+  const n = (README.match(/^## Commands$/gm) ?? []).length;
+  assert.equal(n, 1, `${n} "## Commands" sections — one of them is going stale`);
+});
+
+test('every command the README names actually exists', () => {
+  // A README naming a command that does not exist is worse than one
+  // that omits a command: the reader runs it and gets an error that
+  // reads like their mistake.
+  const named = new Set([...CMD_BLOCK().matchAll(/^mem ([a-z-]+)/gm)].map((m) => m[1]));
+  const real = new Set([...read('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]));
+  // These three are documented spellings of `mem embed` / `mem find`
+  // subcommands rather than top-level commands of their own.
+  for (const alias of ['find-embed', 'find-hybrid']) named.delete(alias);
+  const invented = [...named].filter((n) => !real.has(n));
+  assert.deepEqual(invented, [],
+    `the README names commands that do not exist: ${invented.join(', ')}`);
+});
+
+test('the commands worth finding are in the list', () => {
+  // Not every command — the block is a tour, not the reference (that is
+  // docs/CAPABILITIES.md 7.1, which IS exhaustive and guarded). But a
+  // capability nobody can discover from the entry text is, for most
+  // readers, a capability that does not exist.
+  const block = CMD_BLOCK();
+  for (const c of ['mem init', 'mem log', 'mem find', 'mem doctor', 'mem board',
+    'mem status', 'mem classes', 'mem context', 'mem viewer']) {
+    assert.ok(block.includes(c), `${c} is not in the README's command list`);
+  }
+});

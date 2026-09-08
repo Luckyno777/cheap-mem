@@ -274,3 +274,25 @@ test('setLocation refuses a target that is not a directory', () => {
 // such a directory without complaint. Untested is not the same as
 // unjustified — but it belongs written down rather than left to look
 // like coverage.
+
+test('a record written under the old German name is carried across, not orphaned', () => {
+  // The archive was ported from a German-language sibling and its record
+  // kept the name `raw-nachweis.jsonl` in a codebase whose every other
+  // identifier is English. Renaming it outright would have started a
+  // second, empty record on any memory that had already captured — and
+  // the first one would have looked like it never existed.
+  const r = root();
+  fs.writeFileSync(path.join(r, archive.LEGACY_RECORD_FILE),
+    `${JSON.stringify({ path: 'raw/old.jsonl', bytes: 7 })}\n`);
+
+  // Read: the old file answers while the new one is absent.
+  assert.equal(archive.records(r).length, 1);
+
+  // Write: it MOVES, so there are never two records of the same thing.
+  archive.writeRecord(r, { path: 'raw/new.jsonl', bytes: 9 });
+  assert.equal(fs.existsSync(path.join(r, archive.LEGACY_RECORD_FILE)), false,
+    'both files exist now — two truths, and the second writer wins silently');
+  const rows = archive.records(r);
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((x) => x.path), ['raw/old.jsonl', 'raw/new.jsonl']);
+});

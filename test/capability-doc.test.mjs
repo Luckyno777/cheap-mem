@@ -47,20 +47,70 @@ test('POSITIV: die Sonden lesen die Oberflaeche wirklich aus', () => {
   assert.ok(module().length >= 25);
 });
 
-for (const [was, sonde] of [
-  ['CLI-Befehl', cliBefehle],
-  ['MCP-Werkzeug', mcpWerkzeuge],
-  ['Eintragstyp', typen],
-  ['Kanten-Art', kanten],
-  ['src-Modul', module],
+// **Der Riegel prueft nicht mehr auf Teilzeichenketten.**
+//
+// Bis zum 2026-09-08 hiess „steht drin" `DOC.includes(name)`. Drei neu
+// gebaute Befehle — `board`, `classes`, `bridge` — gingen damit
+// durch, ohne dass die Referenz sie nannte: „board" steckt in
+// „dashboard", „bridge" im Fliesstext ueber die MCP-Bruecke, „classes"
+// in „error classes". Ein Riegel, der gruen bleibt, waehrend genau die
+// Luecke entsteht, gegen die er gebaut wurde — die Klasse, die dieses
+// Haus `riegel-prueft-das-falsche` nennt, im Riegel selbst.
+//
+// Jetzt wird JE ART eine eigene, engere Frage gestellt:
+//   CLI       — steht der Name im Befehlsblock 7.1? (dieselbe Quelle,
+//               die auch die Umkehrung unten liest — beide Richtungen
+//               am selben Text)
+//   src-Modul — steht `<name>.mjs` da? Ein Dateiname ist eindeutig.
+//   Rest      — Teilzeichenkette genuegt: `mem_*`-Namen und Kantenarten
+//               sind bereits unverwechselbar.
+const cliBlock = () => {
+  const m = DOC.match(/### 7\.1 CLI[^\n]*\n+```\n([\s\S]*?)```/);
+  assert.ok(m, 'der CLI-Block in 7.1 ist nicht auffindbar');
+  return new Set(m[1].split(/\s+/).filter(Boolean));
+};
+
+for (const [was, sonde, drin] of [
+  ['CLI-Befehl', cliBefehle, (n) => cliBlock().has(n)],
+  ['MCP-Werkzeug', mcpWerkzeuge, (n) => DOC.includes(n)],
+  ['Eintragstyp', typen, (n) => DOC.includes(n)],
+  ['Kanten-Art', kanten, (n) => DOC.includes(n)],
+  ['src-Modul', module, (n) => DOC.includes(`${n}.mjs`)],
 ]) {
   test(`jeder ${was} steht in CAPABILITIES.md`, () => {
-    const fehlt = sonde().filter((x) => !DOC.includes(x));
+    const fehlt = sonde().filter((x) => !drin(x));
     assert.deepEqual(fehlt, [],
       `${was}e fehlen in der Referenz: ${fehlt.join(', ')} — `
       + 'ein Bewerter, der nur diese Datei liest, haelt sie fuer nicht vorhanden');
   });
 }
+
+/**
+ * NEGATIV-KONTROLLE fuer den Riegel selbst.
+ *
+ * Die Sonde muss etwas melden, das NICHT in der Referenz steht. Ohne
+ * diese Probe waere die Verschaerfung oben unbelegt — genau wie die
+ * Teilzeichenketten-Fassung, die zwei Jahre gruen geblieben waere.
+ */
+test('POSITIV: der Riegel meldet einen Befehl, den die Referenz nicht nennt', () => {
+  const block = cliBlock();
+  assert.equal(block.has('gibtesnicht'), false);
+  assert.equal(DOC.includes('gibtesnicht.mjs'), false);
+  // Und die Abschwaechung, die er vorher hatte, faellt jetzt auf:
+  assert.ok(DOC.includes('board'), 'Vorbedingung: das Wort kommt im Text vor');
+  assert.ok(block.has('board'), 'aber es steht auch wirklich im Befehlsblock');
+});
+
+/**
+ * Die Inventar-Zeile und die Ueberschrift von 7.1 sind ZWEI Angaben
+ * ueber dieselbe Zahl. Am 2026-09-08 standen dort 44 und 45.
+ */
+test('die Zahl der Befehle steht nur einmal richtig da', () => {
+  const inv = DOC.match(/\| \*\*Surfaces\*\* \| (\d+) CLI commands/);
+  assert.ok(inv, 'die Inventar-Zeile nennt keine Befehlszahl');
+  assert.equal(Number(inv[1]), cliBefehle().length,
+    `das Inventar sagt ${inv[1]}, der Code hat ${cliBefehle().length}`);
+});
 
 test('die Inventar-Tabelle steht VOR den Erklaerungen', () => {
   // Ein fluechtiger Leser bekommt nur die ersten Bildschirme. Steht die
