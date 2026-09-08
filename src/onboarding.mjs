@@ -103,7 +103,13 @@ function checkHeartbeat(root, name) {
   if (age === null) {
     return { state: 'red',
       why: 'never a heartbeat — "dead" and "had nothing to do" look the same',
-      todo: `CHEAP_MEM_AGENT=${name} mem heartbeat` };
+      // The bridge route first: until 2026-09-08 only the CLI command
+      // stood here, and `mem_heartbeat` did not exist at all. For a
+      // bridge-only agent this hint therefore read "have somebody else
+      // do it for you" — and a step somebody else performs evidences
+      // nothing about the agent under test.
+      todo: `over the bridge: mem_heartbeat (the agent itself, once)\n`
+        + `at the CLI:     CHEAP_MEM_AGENT=${name} mem heartbeat` };
   }
   return { state: 'green', why: `last seen ${Math.round(age)} min ago` };
 }

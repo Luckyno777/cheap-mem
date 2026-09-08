@@ -381,3 +381,19 @@ test('and stays silent where nothing stands', () => {
     assert.equal(r.stdout.trim(), '', `not silent: ${r.stdout}`);
   } finally { fs.rmSync(w, { recursive: true, force: true }); }
 });
+
+test('the heartbeat step names the BRIDGE route first', () => {
+  // Until 2026-09-08 only the CLI command stood there, and
+  // `mem_heartbeat` did not exist at all. For a bridge-only agent the
+  // hint therefore read "have somebody else do it for you" — and a
+  // step somebody else performs evidences nothing about the agent
+  // under test. That is what the rest of this file is against.
+  const w = world({ agents: ['foreign'] });
+  try {
+    const s = onboarding.status(w, 'foreign',
+      { participants: cfgmod.readConfig(w).participants }).steps.heartbeat;
+    assert.equal(s.state, 'red');
+    assert.match(s.todo, /mem_heartbeat/, 'CLI only — out of reach for a bridge agent');
+    assert.match(s.todo, /the agent itself/, 'it does not say that IT has to do it');
+  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+});
