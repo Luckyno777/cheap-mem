@@ -28,6 +28,7 @@ import * as cfgmod from '../src/config.mjs';
 import * as search from '../src/search.mjs';
 import * as raw from '../src/raw.mjs';
 import * as archive from '../src/archive.mjs';
+import * as stores from '../src/stores.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
@@ -1489,9 +1490,11 @@ const COMMANDS = {
         'mem raw show <path> [--head] [--from N] [--count M]',
         'mem raw digested <path> ...     mark captures as digested',
         'mem raw check                   old captures that today\'s rules would redact',
-        'mem raw archive [--set <path>]  where the raw capture lives, how much,',
+        'mem raw archive [--set <path|store>] [--list-stores]',
+        '                                where the raw capture lives, how much,',
         '                                reachable; --set fixes the location of',
-        '                                THIS machine',
+        '                                THIS machine (a folder, or one of:',
+        '                                gdrive, icloud, onedrive, dropbox)',
         'mem raw migrate [--remove]      pull captures still in the repo into the archive',
         'mem raw export --from <date> [--to <date>] [--hour-from N]',
         '               [--hour-to N] --into <dir>',
@@ -1512,14 +1515,66 @@ const COMMANDS = {
     const sub = rest[0];
 
     if (sub === 'archive') {
+      if (args['list-stores']) {
+        const found = stores.discover();
+        if (args.json) { out(JSON.stringify(found)); return; }
+        out('Storage found on this machine:');
+        out('');
+        for (const s of found) {
+          const mark = s.found.length ? 'yes' : ' - ';
+          out(`  [${mark}] ${s.id.padEnd(9)} ${s.label}${s.sync ? '  (syncing)' : ''}`);
+          // Every known store is listed, including the ones that are not
+          // here. "Not installed" and "never looked" are different
+          // statements and a list of hits alone cannot tell them apart.
+          for (const f of s.found) out(`          ${f}`);
+        }
+        out('');
+        out('  mem raw archive --set <id>        use one of them');
+        out('  mem raw archive --set <path>      or name a folder yourself');
+        return;
+      }
+
       if (args.set) {
         // Once per machine. After that the stop hook, the watcher and
         // the digest all read the same location without anyone
         // repeating it in four unit files.
-        const g = archive.setLocation(root, args.set);
+        // A store id, or a path. An id that is known but not usable
+        // here has to say WHY — "not installed" and "two candidates"
+        // need different answers from the user.
+        let target = args.set;
+        if (stores.STORES.some((s) => s.id === args.set)) {
+          const r = stores.resolve(args.set);
+          if (!r.ok) {
+            if (r.reason === 'needs-path') {
+              die(`'${args.set}' means a folder you choose. Name it: mem raw archive --set /some/folder`);
+            }
+            if (r.reason === 'not-installed') {
+              die(`${r.store.label} was not found on this machine.\n`
+                + '  Looked in the usual places; see: mem raw archive --list-stores');
+            }
+            if (r.reason === 'ambiguous') {
+              die(`${r.store.label} has more than one location here — pick one explicitly:\n`
+                + r.found.map((f) => `  --set "${path.join(f, stores.SUBFOLDER)}"`).join('\n'));
+            }
+            die(`cannot use '${args.set}': ${r.reason}`);
+          }
+          target = r.path;
+        }
+
+        const g = archive.setLocation(root, target);
         out(`Archive location set: ${g.location}`);
         out(`  recorded in ${path.relative(root, g.file)} (gitignored, does not travel)`);
         out('  write probe passed.');
+
+        // The warning belongs to the SITUATION, not to the command: it
+        // fires just as much for someone who typed the Dropbox path by
+        // hand as for someone who said --set dropbox.
+        const syncing = stores.syncingStoreFor(g.location);
+        if (syncing) {
+          out('');
+          out(`${syncing.label}:`);
+          for (const line of stores.SYNC_WARNING) out(`  ${line}`);
+        }
         return;
       }
       const store = archive.readConfig(process.env, root);
