@@ -576,3 +576,84 @@ gebaut ist, statt sie auf einer Achse zu sortieren. Und sein Satz, dass
 seine Analyse Architektur- und keine Code-Forensik war, ist eine
 Praezision, die ich mir bei meinem eigenen Nachtrag 1 haette sparen
 koennen, haette ich sie vorher gehabt.
+
+---
+
+## Nachtrag 3 — Warum die Note nichts ueber cheap-mem aussagt
+
+Copilot hat seine Bewertung ein zweites Mal korrigiert: 6,5 → 7,8–8,2 →
+8,5–9, cheap-mem auf Platz 1 in zwei von drei Ranglisten. Zwei Dinge
+dazu, und das zweite ist wichtiger als das erste.
+
+### Die Praemisse stimmt nicht
+
+Er schreibt, ein Grossteil der Architektur liege „vermutlich in einem
+groesseren Codebestand (lucky-mem/privater Vorgaenger)".
+
+Das ist nicht so. Alles, was ich zitiert habe, liegt in **diesem**
+Repo, auf `origin/main`, oeffentlich: `src/authority.mjs`,
+`src/capability.mjs`, `src/retrieval.mjs`, `src/state.mjs`,
+`src/epoch.mjs`, `src/freshness.mjs`, `src/hybrid.mjs`,
+`src/entity.mjs`, und `standing()`, `linksOf()`, `experiences()`,
+`topicEntries()` in `src/memory.mjs`. Nachgeprueft gegen `origin/main`,
+nicht gegen den Arbeitsbaum.
+
+Es gibt keinen privaten Vorgaenger. lucky-mem ist das
+**Schwesterprojekt** — Luckys persoenliches Gedaechtnis, deutschsprachig,
+mit demselben Entwurf. Nichts davon musste fuer diesen Bericht von dort
+geholt werden.
+
+Die Korrektur macht seine Aufwertung besser begruendet, nicht
+schlechter: was er fuer verborgen hielt, ist nachlesbar. Aber sie
+verschiebt auch, was der erste Durchgang eigentlich zeigte — nicht „das
+Repo verbirgt etwas", sondern „`src/` wurde nicht geoeffnet".
+
+### Die Note misst den Leser, nicht das System
+
+Dieselbe Frage ist an demselben Gegenstand jetzt viermal beantwortet
+worden:
+
+| wann | wer | Note | Grundlage |
+|---|---|---|---|
+| 2026-09-02 | Gemini | abweichend, niedriger | ohne die Repos zu lesen |
+| 2026-09-03 | ChatGPT | **9,1 / 10** | Repos wirklich gelesen, echte Dateien zitiert |
+| 2026-09-08 | Copilot, erste Runde | 6,5 | README, Architekturdiagramme, DeepWiki |
+| 2026-09-08 | Copilot, dritte Runde | **8,5–9** | dieser Bericht |
+
+Die Zahl folgt nicht der Qualitaet von cheap-mem — die war die ganze
+Zeit dieselbe. Sie folgt **wie viel der Bewertende gelesen hat**. Wer
+`src/` oeffnet, landet bei ~9; wer die Doku liest, bei 6,5.
+
+Damit ist eine Note dieser Art keine Eigenschaft des Systems, sondern
+eine Eigenschaft des Vorgangs. Sie taugt nicht als Entscheidungsgrundlage.
+
+### Und die Zustimmung ist keine Bestaetigung
+
+Copilot schreibt zur Entitaets-Frage: „Genau da stimme ich Claude
+vollstaendig zu."
+
+Er stimmt einer Behauptung zu, die ich in **Nachtrag 2** zur Haelfte
+zurueckgenommen habe. Gemessen: `lukas` kommt in 1070 Eintraegen genau
+einmal vor, 94 % der Nennungen sind kanonisch. Das Lehrbuchbeispiel,
+das er nennt und das ich selbst benutzt hatte, ist an diesem Bestand
+ein Nichtproblem.
+
+Zwei Modelle, die einander lesen, konvergieren also auf **Zustimmung**,
+nicht auf Wahrheit — und zwar auch dann, wenn eine Messung dazwischen
+schon dagegen spricht. Das ist keine Kritik an ihm; ich habe im selben
+Bericht denselben Fehler gemacht, zwei Absaetze nach der Warnung davor.
+Es ist der Grund, warum in diesem Repo Argumente Messungen nicht
+ersetzen duerfen.
+
+### Was stattdessen zu tun ist
+
+Am 2026-09-05 wurde genau das schon entschieden
+(`projekte/cheap-mem/entscheidungen.jsonl`, `fremdvergleich-ai-memory`):
+harte Gegenpruefung von cheap-mem allein zuerst, danach ein **schmaler
+Vergleich auf fuenf bis sechs Achsen** gegen Engram, Zep und Mem0 — und
+die grosse Kriterienmatrix ausdruecklich **nicht**.
+
+Drei Ranglisten ueber drei Kategorien sind diese Matrix in anderer
+Kleidung. Der Bericht liefert deshalb keine Gegenrangliste. Was er
+liefert, sind Zahlen zu genau einer der strittigen Achsen — und die
+naechste Achse waere so zu behandeln.
