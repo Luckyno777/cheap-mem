@@ -551,6 +551,44 @@ export function search(index, query, {
   mmrLambda = 0.7,       // 1 = pure relevance, 0 = pure diversity
   coverage = 1,          // reward covering more of the TYPED query (0 = off)
 } = {}) {
+  // --- The id lane: asking for an id means asking for ONE entry ----
+  //
+  // **The finding (2026-09-08, reported by a connected agent.)** It
+  // wrote an entry over the bridge and then looked for it with
+  // `mem_find <id>`: ZERO hits, even after waiting. The literal search
+  // found it at once — but a bridge agent does not have that one.
+  // `mem_find` is ranked and nothing else.
+  //
+  // Cause: the exact-identifier lane knows five shapes (path, version,
+  // hyphenated name, number, env var). An entry id like `8hyrg44w8htp`
+  // matches none of them. So "write it and find it again" — the loop
+  // the whole onboarding check rests on — could not be closed over the
+  // bridge at all.
+  //
+  // **Why a lookup and not a sixth pattern.** An id has no
+  // distinguishing shape: a pattern for "twelve alphanumeric
+  // characters" would swallow half a dictionary. The question "is this
+  // string an id we HOLD?" has zero false positives by construction.
+  const maybeId = String(query ?? '').trim();
+  if (/^[A-Za-z0-9]{6,20}$/.test(maybeId)) {
+    for (const doc of index.documents) {
+      if (doc?.entry?.id !== maybeId) continue;
+      // Retired ones only on request — the same rule as every other lane.
+      if (doc.retired && !withRetired) break;
+      return [{
+        score: 1000,
+        type: doc.type,
+        project: doc.project,
+        source: doc.source,
+        line: doc.line,
+        entry: doc.entry,
+        raw: doc.type === 'raw',
+        ...(doc.retired ? { retired: doc.retired } : {}),
+        exact: ['id'],
+      }];
+    }
+  }
+
   const lang = pack(language ?? index.language ?? 'en');
   // Grouped, not flat: coverage below counts TYPED WORDS, and one typed
   // word can expand into several tokens (hyphen parts, compound parts).

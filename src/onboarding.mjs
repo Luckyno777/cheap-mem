@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import * as memory from './memory.mjs';
 import * as agents from './agents.mjs';
 import * as heartbeat from './heartbeat.mjs';
+import * as search from './search.mjs';
 
 /** The tag the probe entry has to carry. */
 export const PROBE_TAG = 'onboarding';
@@ -127,12 +128,28 @@ function checkLoop(root, name, own) {
     return { state: 'red', why: `no entry tagged '${PROBE_TAG}'`,
       todo: probeTask(name).join('\n      ') };
   }
-  // Found again over the same literal path the hooks take — not over a
-  // direct file read. Otherwise the check tests its own setup instead
-  // of the lane.
+  // **Check the RANKED lane, not the literal one.**
+  //
+  // `memory.find` stood here — the literal search. On 2026-09-08 a
+  // connected agent reported that its entry was NOT findable through
+  // `mem_find`, while this check reported "written AND found again".
+  // Both were right: literal found it, ranked did not — and a
+  // bridge-only agent has ONLY the ranked lane.
+  //
+  // The check was therefore green for a route the agent under test
+  // cannot use. Exactly the class this file exists to catch, inside
+  // this file: a test bench measuring itself instead of the thing
+  // under test.
+  //
+  // The underlying cause is fixed (the id lane in src/search.mjs);
+  // asking the right lane HERE is the latch against it slipping back
+  // unnoticed.
   let hits = [];
-  try { hits = memory.find(root, probe.id, {}); } catch { /* empty stays empty */ }
-  return hits.some((e) => e.id === probe.id)
+  try {
+    hits = search.search(search.loadIndex(root), probe.id, { top: 5, minScore: 0 })
+      .map((h) => h.entry);
+  } catch { /* empty stays empty */ }
+  return hits.some((e) => e?.id === probe.id)
     ? { state: 'green', why: `probe ${probe.id} written AND found again` }
     : { state: 'red', why: `probe ${probe.id} exists but is not findable`,
       todo: 'check the index: mem doctor' };
