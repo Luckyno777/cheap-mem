@@ -461,3 +461,118 @@ Mem0 und Graphiti wirklich haben — und kostet keines der zehn Prinzipien.
 
 Alles andere, was diese Systeme koennen, kann cheap-mem bereits. Nur
 guenstiger, lesbarer und ohne Server.
+
+---
+
+## Nachtrag 2 — Die Entitaets-These gemessen (2026-09-08)
+
+Copilot hat auf den Bericht geantwortet, fair und mit zwei Einwaenden.
+Einer davon trifft; der andere liess sich messen statt bestreiten.
+
+### Was ich einraeume
+
+**„cheap-mem hat Temporalitaet" heisst nicht „cheap-mem spielt in
+Graphitis Liga".** Das ist richtig, und meine Formulierung „Graphitis
+Kernidee, ohne Graph" war zu schmeichelhaft. `valid_from`/`valid_until`
+ist EIN Baustein. Graphiti hat darueber hinaus Kanten-Ungueltigkeit als
+Ableitungsregel, bi-temporales Schliessen, Entitaets-Traversierung und
+einen Herkunftsgraphen. Ein Baustein ist keine Liga.
+
+Umgekehrt gilt derselbe Satz aber auch: „Graphiti hat mehr Bausteine"
+heisst nicht „Graphiti ist fuer diesen Bestand besser". Das war zu
+messen — und ist es jetzt.
+
+### Die Messung
+
+Copilots Kernpunkt: **Entity Resolution** sei die eigentliche Luecke,
+mit dem Standardbeispiel `Lukas = Lucky = die Mailadresse`. Ich hatte
+in Teil 2 dasselbe Beispiel benutzt. Gemessen an lucky-mem, 1070
+verdichteten Eintraegen (`scratchpad/alias.mjs`, rein lesend):
+
+| Entitaet | Nennungen | haeufigste Schreibweise deckt |
+|---|---:|---:|
+| Person Lucky | 394 (`lucky`) / 14 (`hauenstein`) / 12 (`luckyno777`) / **1** (`lukas`) | **94 %** |
+| Projekt cheap-mem | 196 | **100 %** |
+| VM diggi | 291 | **100 %** |
+| Agent Bibliothekar | 138 / 1 (`librarian`) | **99 %** |
+| MCP-Bruecke | 12 (`mcp-bruecke`) / 9 (`mcp-server`) / 7 (`mem-mcp`) | **43 %** |
+
+**Das Standardbeispiel ist hier ein Nichtproblem.** `lukas` kommt in
+1070 Eintraegen genau **einmal** vor. Personen, Projekte und Maschinen
+tragen im gewachsenen Bestand faktisch schon einen kanonischen Namen —
+niemand musste das durchsetzen, es ist von selbst passiert.
+
+**Wo es real ist, sind Bauteile.** Die MCP-Bruecke heisst dreimal
+verschieden, und keine Schreibweise hat die Mehrheit. Genau dort
+zerfaellt der Bestand.
+
+Zwei Gegenproben:
+
+- `mem finde "lukas"` liefert **einen** Treffer. Die anderen 393
+  Lucky-Eintraege sind unsichtbar. Der Alias-Mangel ist also am
+  Frageende real, auch wenn er am Bestandsende klein ist.
+- `mem finde "mcp bridge"` — eine Schreibweise, die **null** Mal im
+  Bestand steht — findet die `mcp-bruecke`-Eintraege trotzdem
+  (Punktzahl 8,8). Thesaurus und Kompositazerlegung ueberbruecken
+  einen Teil schon heute, ohne Graph.
+
+### Was daraus folgt — schaerfer als beide Vorfassungen
+
+Der eine Treffer auf `lukas` ist der Eintrag **„Luckys buergerlicher
+Vollname"**. Das heisst: *das Gedaechtnis weiss, dass Lukas und Lucky
+dieselbe Person sind.* Es steht als Inhalt drin. Es ist nur nicht
+benutzbar, weil kein Abruf einen Eintrag als Regel lesen kann.
+
+Das ist die praezise Fassung der Luecke, und sie ist kleiner und
+billiger als „cheap-mem braucht Entity Resolution":
+
+> Ein Entitaets-Layer wuerde diesem Gedaechtnis **kein neues Wissen**
+> geben. Er wuerde vorhandenes Wissen **operativ** machen.
+
+Damit aendert sich die Empfehlung fuer 2.x in zwei Punkten:
+
+1. **Nicht bei Personen anfangen, sondern bei Bauteilen.** Dort ist der
+   Zerfall gemessen (43 %), bei Personen nicht (94 %).
+2. **Der Layer muss aus dem Bestand gefuettert werden koennen**, nicht
+   von Hand: die Identitaetsaussagen liegen schon als Eintraege da. Ein
+   Verdichterlauf, der sie einsammelt, ist billiger als ein gepflegtes
+   Register — und bleibt append-only, weil das Register eine Ableitung
+   ist, keine Quelle.
+
+### Zu „welches Paradigma ist langfristig das maechtigste"
+
+Copilot sieht dort weiterhin Graphiti, Engram und Mem0 vorn. Dazu drei
+Anmerkungen, ohne Anspruch, ihn zu widerlegen:
+
+**Die Generationenleiter ist eine Taxonomie, keine Rangfolge.** Text →
+Fakt → Entitaet → temporaler Graph beschreibt zunehmende *Struktur*.
+Dass zunehmende Struktur zunehmende *Maechtigkeit* bedeutet, ist die
+eigentliche Behauptung — und sie stimmt nur, solange man den Preis der
+Struktur nicht mitzaehlt. Bei Graphiti und Mem0 ist dieser Preis ein
+Modell in der Aufnahmeschleife. Das ist genau die Groesse, die
+cheap-mem minimiert; es ist kein Feature, das fehlt, sondern eines, das
+abgelehnt wurde.
+
+**„Maechtigste" ohne Bestand und Budget ist nicht pruefbar.** Bei
+10 Millionen Fakten und einem Team hat Graphiti recht. Bei 1070
+Eintraegen, einer Person und einem Browser-SSH auf dem Handy zahlt man
+einen Server und einen Modellaufruf pro Fakt fuer eine Traversierung,
+die BM25 mit Thesaurus schon zu 8,8 Punkten hinbekommt. Beide Saetze
+koennen wahr sein.
+
+**Zur Note.** 6,5 → 7,8–8,2 ist freundlich, aber es ist eine Zahl ohne
+Skala und ohne Messvorschrift — und damit genau das, was
+`authority.mjs` an `confidence`-Feldern ablehnt: „eine Zahl, die
+niemand kalibrieren kann, wird zu einem Wert, den jeder auf ‚wird schon
+passen' rundet." Nuetzlicher waere: *welche Frage kann System A
+beantworten, die System B nicht beantworten kann?* Fuer die
+Entitaets-Frage steht die Antwort jetzt oben, mit Zahlen.
+
+### Wo Copilot uneingeschraenkt recht behaelt
+
+Seine Einordnung von cheap-mem als **Fact-Store** stimmt, und sie ist
+nuetzlicher als jede Note. Die Kategorien beschreiben, wofuer ein System
+gebaut ist, statt sie auf einer Achse zu sortieren. Und sein Satz, dass
+seine Analyse Architektur- und keine Code-Forensik war, ist eine
+Praezision, die ich mir bei meinem eigenen Nachtrag 1 haette sparen
+koennen, haette ich sie vorher gehabt.
