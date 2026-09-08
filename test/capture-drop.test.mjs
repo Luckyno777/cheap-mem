@@ -27,6 +27,20 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as raw from '../src/raw.mjs';
+import * as archive from '../src/archive.mjs';
+
+/**
+ * Where does a capture ACTUALLY live?
+ *
+ * This said `path.join(root, relPath)`. Since 2026-09-08 the raw
+ * capture no longer lives in the repository, and the test broke because
+ * it had rebuilt the storage layout by hand instead of asking for it.
+ * Exactly the kind of assumption a move finds.
+ */
+function captureFile(root, relPath) {
+  const store = archive.readConfig(process.env, root);
+  return path.join(store.location, archive.pathInArchive(relPath));
+}
 
 /** Pseudo-random but reproducible filler — see the note in `transkript`. */
 function rauschen(seed, laenge) {
@@ -78,7 +92,7 @@ function frischeWurzel() {
 }
 
 function text(root, rel) {
-  return zlib.gunzipSync(fs.readFileSync(path.join(root, rel))).toString('utf8');
+  return zlib.gunzipSync(fs.readFileSync(captureFile(root, rel))).toString('utf8');
 }
 
 test('the filter cuts the stored size by more than half', () => {
@@ -93,8 +107,8 @@ test('the filter cuts the stored size by more than half', () => {
   assert.equal(ohne.status, 'captured');
   assert.equal(mit.status, 'captured');
 
-  const groessOhne = fs.statSync(path.join(a, ohne.path)).size;
-  const groessMit = fs.statSync(path.join(b, mit.path)).size;
+  const groessOhne = fs.statSync(captureFile(a, ohne.path)).size;
+  const groessMit = fs.statSync(captureFile(b, mit.path)).size;
   const ersparnis = 1 - groessMit / groessOhne;
 
   // Deliberately a MARGIN, not "smaller than". A test that only asks

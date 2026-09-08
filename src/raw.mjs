@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as redaction from './redaction.mjs';
+import * as archive from './archive.mjs';
 
 /**
  * What a capture DROPS before it stores anything — and why the memory
@@ -371,12 +372,51 @@ export function capture(root, transcriptPath, {
   // inside one second land on the same path — and the second one used
   // to overwrite the first, silently losing everything it held. The
   // Stop hook can fire twice that fast.
-  let dest = capturePath(root, stamp, now);
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-  for (let n = 2; fs.existsSync(dest) && n < 1000; n += 1) {
-    dest = capturePath(root, stamp, now).replace(/\.jsonl\.gz$/, `-${n}.jsonl.gz`);
+  const store = archive.readConfig(process.env, root);
+  let relPath = path.relative(root, capturePath(root, stamp, now));
+  for (let n = 2; archive.reachable(store, root, relPath) && n < 1000; n += 1) {
+    relPath = path.relative(root, capturePath(root, stamp, now))
+      .replace(/\.jsonl\.gz$/, `-${n}.jsonl.gz`);
   }
-  fs.writeFileSync(dest, zlib.gzipSync(Buffer.from(body, 'utf8'), { level: 9 }));
+
+  const packed = zlib.gzipSync(Buffer.from(body, 'utf8'), { level: 9 });
+
+  // **No silent fallback into the repository.** If the archive is not
+  // writable (NAS off, drive not mounted), "then back to raw/" would be
+  // the comfortable path — and would undo the whole exercise while
+  // looking exactly like before. So the capture fails and says why, and
+  // the offset is NOT advanced, so the same stretch is still there on
+  // the next attempt.
+  let stored;
+  try {
+    stored = archive.put(store, relPath, packed);
+  } catch (e) {
+    return {
+      status: 'broken',
+      reason: 'archive-not-writable',
+      detail: `${store.location}: ${e.message}`,
+      hint: store.explicit
+        ? 'CHEAP_MEM_ARCHIVE points there. Is the target mounted?'
+        : 'The default is .mem/raw inside the working tree.',
+    };
+  }
+
+  // The record is what stays in the repository: one line instead of a
+  // megabyte. Written AFTER the file is safely down — a record pointing
+  // at nothing would be worse than no record.
+  archive.writeRecord(root, {
+    stamp,
+    path: relPath,
+    captured_at: header.__captured_at,
+    ts_from: tsFrom,
+    ts_to: tsTo,
+    lines: captured.length,
+    source_bytes: fresh,
+    ...stored,
+    redacted: header.__redacted,
+    dropped: header.__dropped,
+    dropped_bytes: droppedBytes,
+  });
 
   allOffsets[key] = { bytes: size, path: transcriptPath, last: header.__captured_at };
   saveJson(offsetPath, allOffsets);
@@ -387,7 +427,9 @@ export function capture(root, transcriptPath, {
 
   return {
     status: 'captured',
-    path: path.relative(root, dest),
+    path: relPath,
+    archive: stored.location,
+    sha256: stored.sha256,
     lines: captured.length,
     bytes: fresh,
     redacted: header.__redacted,
@@ -448,9 +490,25 @@ export function textOf(l) {
 }
 
 export function listCaptures(root) {
-  const base = path.join(root, RAW_DIR);
-  if (!fs.existsSync(base)) return [];
+  // Two sources, in this order: the record in the repository (the truth
+  // about what EXISTS) and the old directory (anything not migrated
+  // yet). Merged, no duplicates.
+  //
+  // Why the record comes first: after the move no capture lives in the
+  // repository, and a listing that only looks at the filesystem would
+  // be empty from then on — the search would report "nothing found" and
+  // hide a broken wiring. That is the most expensive failure this
+  // project knows.
   const out = [];
+  const seen = new Set();
+  for (const rec of archive.records(root)) {
+    if (!rec?.path || seen.has(rec.path)) continue;
+    seen.add(rec.path);
+    out.push(rec.path);
+  }
+
+  const base = path.join(root, RAW_DIR);
+  if (!fs.existsSync(base)) return out.sort();
   for (const year of fs.readdirSync(base).sort()) {
     const yp = path.join(base, year);
     if (!fs.statSync(yp).isDirectory()) continue;
@@ -459,17 +517,33 @@ export function listCaptures(root) {
       if (!fs.statSync(mp).isDirectory()) continue;
       for (const file of fs.readdirSync(mp).sort()) {
         if (!file.endsWith('.jsonl.gz')) continue;
-        out.push(path.join(RAW_DIR, year, month, file));
+        const p = path.join(RAW_DIR, year, month, file);
+        if (seen.has(p)) continue;
+        seen.add(p);
+        out.push(p);
       }
     }
   }
-  return out;
+  return out.sort();
 }
 
 /** Read one capture (decompressed). Returns `{header, lines}`. */
 export function readCapture(root, relPath) {
-  const full = path.join(root, relPath);
-  const text = zlib.gunzipSync(fs.readFileSync(full)).toString('utf8');
+  const store = archive.readConfig(process.env, root);
+  const data = archive.get(store, root, relPath);
+  if (data === null) {
+    // **Unreachable is not the same as empty.** A capture listed in the
+    // record but missing from the archive (NAS off, drive not mounted)
+    // must arrive as an error. Returning `{header: null, lines: []}`
+    // here would let the search read it as "nothing in it" — and an
+    // unreachable archive would look exactly like an empty memory.
+    const e = new Error(`capture unreachable: ${relPath} (archive: ${store.location})`);
+    e.code = 'ARCHIVE_UNREACHABLE';
+    e.relPath = relPath;
+    e.location = store.location;
+    throw e;
+  }
+  const text = zlib.gunzipSync(data).toString('utf8');
   const lines = [];
   let header = null;
   for (const l of text.split('\n')) {
@@ -493,8 +567,23 @@ export function pending(root) {
   // watermark, both answer correctly.
   const done = new Set([...(wm.digested ?? []), ...ledgerDigested(root)]);
   const open = listCaptures(root).filter((f) => !done.has(f));
+
+  // Sizes come from the RECORD, not from the disk.
+  //
+  // This is where the archive earns its keep: the amount of open work
+  // decides whether the digest runs, and that number has to be right
+  // even while the NAS is off. `statSync` against an unreachable
+  // archive returns nothing, which reads as "nothing to do" — a digest
+  // that never fires again because a drive was unmounted is a silent
+  // failure of the most expensive kind.
+  const fromRecord = new Map();
+  for (const rec of archive.records(root)) {
+    if (rec?.path && typeof rec.bytes === 'number') fromRecord.set(rec.path, rec.bytes);
+  }
   let bytes = 0;
   for (const f of open) {
+    if (fromRecord.has(f)) { bytes += fromRecord.get(f); continue; }
+    // Not migrated yet: then from the disk.
     try { bytes += fs.statSync(path.join(root, f)).size; } catch { /* gone */ }
   }
   return { open, bytes, done: done.size, last: wm.last ?? null };

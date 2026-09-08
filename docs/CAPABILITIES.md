@@ -823,6 +823,72 @@ mem sources list [--kind file|address]
   and what was redacted is reported. A foreign document is exactly
   where a credential rides along.
 
+### 10.12 The archive — `src/archive.mjs`, `mem raw archive`
+
+**The raw capture does not live in the repository.** Reported from a
+Windows install on 2026-09-08: 9.17 MB of git pack in 75 minutes, one
+capture 8.6 MB gzipped, extrapolated ~50 MB per working day. In the
+sibling project, checked afterwards, `raw/` was already 46 MB out of a
+45.74 MiB pack — the memory had become almost nothing but its own raw
+material.
+
+Compression was measured first, on real captures, and every route was
+single-digit:
+
+| approach | saving |
+|---|---|
+| 1296 most frequent words as short codes, in plaintext | 26.6 % |
+| the same substitution, after gzip | **6.8 %** |
+| a shared gzip dictionary across captures | 1.9 % |
+| exact duplicate lines across captures | 0.4 % |
+
+gzip already does that work. After it there is nothing left to squeeze,
+so the only levers are storing less (the drop filter, 10.13) and
+storing elsewhere — this.
+
+**An expiry date alone would not have helped: git deletes nothing.** A
+removed file is gone from the working tree and still in the pack.
+`mem raw migrate` therefore stops the GROWTH and reclaims nothing, and
+it says so rather than letting anyone believe otherwise.
+
+| command | what it does |
+|---|---|
+| `mem raw archive` | where it lives, how much, how much is reachable |
+| `mem raw migrate [--remove]` | pull captures still in the repo into the archive |
+| `mem raw export --from … --to … [--hour-from N] [--hour-to N] --into <dir>` | write a time range out, decompressed |
+
+`CHEAP_MEM_ARCHIVE` names the location: a folder, a mounted NAS share, a
+synced cloud drive. Anything the operating system can mount is a path,
+which is why there is no network adapter — there would be no target to
+test it against. The default is `.mem/raw`, inside the working tree and
+outside git.
+
+What stays in the repository is `raw-record.jsonl`: one line per
+capture with stamp, time span, line count, bytes, SHA-256, location and
+what was dropped. It answers, without touching the archive, whether a
+capture existed, when, how big, and whether it has been digested. It
+does NOT answer what is in it — deliberately. A memory that knows its
+own raw material only as a summary can no longer check whether the
+summary is true.
+
+The SHA is in the repository because an archive has no history: if
+someone overwrites a file on the NAS, nothing would notice.
+
+**Two guards, both about not lying:**
+
+- If the archive is not writable, the capture FAILS and says why. It
+  does not quietly fall back into the repository — that would undo the
+  whole exercise while looking exactly like before. The offset is not
+  advanced either, so the same stretch is still there next time.
+- `readCapture` THROWS when a recorded capture is unreachable. Returning
+  an empty result would let an unmounted drive look exactly like an
+  empty memory.
+
+For the same reason `pending()` takes its byte counts from the record
+rather than from disk: the amount of open work decides whether the
+digest runs, and a digest that never fires again because a drive was
+unmounted is the most expensive kind of silence.
+
 ### 10.11 Components — `src/component.mjs`, `mem component`
 
 Measured across 805 path mentions: 312 distinct components, 70 of them

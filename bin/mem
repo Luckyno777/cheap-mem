@@ -17,6 +17,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import zlib from 'node:zlib';
 import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
@@ -26,6 +27,7 @@ import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
 import * as search from '../src/search.mjs';
 import * as raw from '../src/raw.mjs';
+import * as archive from '../src/archive.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as redaction from '../src/redaction.mjs';
 import * as doctor from '../src/doctor.mjs';
@@ -1487,15 +1489,101 @@ const COMMANDS = {
         'mem raw show <path> [--head] [--from N] [--count M]',
         'mem raw digested <path> ...     mark captures as digested',
         'mem raw check                   old captures that today\'s rules would redact',
+        'mem raw archive                 where the raw capture lives, how much, reachable',
+        'mem raw migrate [--remove]      pull captures still in the repo into the archive',
+        'mem raw export --from <date> [--to <date>] [--hour-from N]',
+        '               [--hour-to N] --into <dir>',
+        '                                write out a time range, decompressed',
         '',
         '  A capture can hold thousands of lines. Read a big one in',
         '  windows: --head reports __lines, then --from/--count.',
+        '',
+        '  The capture does NOT live in the repository — only the record',
+        '  does (raw-record.jsonl). Point CHEAP_MEM_ARCHIVE at a folder,',
+        '  a mounted NAS share or a synced drive; the default is .mem/raw',
+        '  inside the working tree.',
       ].join('\n'));
       return;
     }
     const root = findRoot(args);
     requireConfig(root);
     const sub = rest[0];
+
+    if (sub === 'archive') {
+      const store = archive.readConfig(process.env, root);
+      const rows = archive.records(root);
+      let here = 0; let missing = 0; let bytes = 0;
+      for (const r of rows) {
+        if (archive.reachable(store, root, r.path)) { here += 1; bytes += r.bytes ?? 0; }
+        else missing += 1;
+      }
+      const legacy = raw.listCaptures(root).filter((p) => !rows.some((r) => r.path === p)).length;
+      if (args.json) {
+        out(JSON.stringify({ location: store.location, explicit: store.explicit,
+          records: rows.length, reachable: here, missing, bytes, legacy }));
+        return;
+      }
+      out(`Archive: ${store.location}`);
+      out(`  ${store.explicit ? 'from CHEAP_MEM_ARCHIVE' : 'default (.mem/raw)'}`);
+      out(`  ${rows.length} records, ${here} reachable, ${missing} NOT reachable`);
+      out(`  ${(bytes / 1048576).toFixed(2)} MB in the archive`);
+      if (legacy > 0) out(`  ${legacy} captures still in the repo — pull them with: mem raw migrate`);
+      // A missing capture is not cosmetic: the digest then works across
+      // gaps without noticing.
+      if (missing > 0) die(`${missing} captures are recorded but not reachable. Is the archive mounted?`);
+      return;
+    }
+
+    if (sub === 'migrate') {
+      const store = archive.readConfig(process.env, root);
+      const known = new Set(archive.records(root).map((r) => r.path));
+      const open = raw.listCaptures(root).filter((p) => !known.has(p));
+      if (!open.length) { out('Nothing to migrate — everything is already in the archive.'); return; }
+      const res = archive.migrate(store, root, open, { remove: Boolean(args.remove) });
+      if (args.json) { out(JSON.stringify(res)); return; }
+      out(`${res.done.length} captures pulled into ${store.location}.`);
+      for (const s2 of res.skipped) out(`  skipped: ${s2.path} (${s2.reason})`);
+      if (!args.remove) {
+        out('');
+        out('The copies in the repo are still there. Remove them with --remove,');
+        out('then: git rm -r --cached raw && git commit');
+        out('NOTE: this does NOT shrink the repository. Git keeps its history —');
+        out('the move stops the growth, it reclaims nothing.');
+      }
+      return;
+    }
+
+    if (sub === 'export') {
+      if (!args.into) die('raw export: --into <dir> is missing');
+      const store = archive.readConfig(process.env, root);
+      const hit = archive.inRange(archive.records(root), {
+        from: args.from, to: args.to,
+        hourFrom: args['hour-from'] == null ? null : Number(args['hour-from']),
+        hourTo: args['hour-to'] == null ? null : Number(args['hour-to']),
+      });
+      if (!hit.length) { out('No captures in that range.'); return; }
+      fs.mkdirSync(args.into, { recursive: true });
+      const written = []; const missing = [];
+      for (const r of hit) {
+        const data = archive.get(store, root, r.path);
+        if (!data) { missing.push(r.path); continue; }
+        const target = path.join(args.into, r.path.split(/[/\\]/).join('__').replace(/\.gz$/, ''));
+        fs.writeFileSync(target, zlib.gunzipSync(data));
+        written.push(target);
+      }
+      if (args.json) { out(JSON.stringify({ written, missing })); return; }
+      out(`${written.length} captures written to ${args.into}.`);
+      // Do NOT swallow the missing ones: an export that quietly delivers
+      // less than it should is the kind of gap later mistaken for
+      // "there was never anything there".
+      if (missing.length) {
+        out('');
+        out(`${missing.length} NOT exported — recorded but not reachable:`);
+        for (const m of missing) out(`  ${m}`);
+        die('Export incomplete. Is the archive mounted?');
+      }
+      return;
+    }
 
     if (sub === 'pending') {
       const st = raw.pending(root);

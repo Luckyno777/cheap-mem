@@ -5,6 +5,24 @@ import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as raw from '../src/raw.mjs';
+import * as archive from '../src/archive.mjs';
+
+/**
+ * Where does a capture ACTUALLY live?
+ *
+ * These tests rebuilt the storage layout by hand. Since 2026-09-08 the
+ * raw capture lives in the archive, not the repository — and that
+ * assumption is what broke. Asking beats guessing; it also survives the
+ * next move.
+ */
+function captureFile(root, relPath) {
+  const store = archive.readConfig(process.env, root);
+  return path.join(store.location, archive.pathInArchive(relPath));
+}
+function captureDir(root, ...parts) {
+  const store = archive.readConfig(process.env, root);
+  return path.join(store.location, ...parts);
+}
 
 function transcript(root, name, lines) {
   const p = path.join(root, name);
@@ -66,7 +84,7 @@ test('secrets are redacted before anything reaches the disk', () => {
     const e = raw.capture(root, t);
     assert.equal(e.status, 'captured');
     assert.ok(e.redacted.some((r) => r.type === 'github-token'), 'the token was not reported');
-    const onDisk = zlib.gunzipSync(fs.readFileSync(path.join(root, e.path))).toString('utf8');
+    const onDisk = zlib.gunzipSync(fs.readFileSync(captureFile(root, e.path))).toString('utf8');
     assert.ok(!onDisk.includes(token), 'the token is on disk — this is a leak');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -158,11 +176,11 @@ test('two captures in the same second keep both files', () => {
     const b = raw.capture(root, t, { now });
     assert.equal(b.status, 'captured');
 
-    const files = fs.readdirSync(path.join(root, 'raw', '2026', '01'));
+    const files = fs.readdirSync(captureDir(root, '2026', '01'));
     assert.equal(files.length, 2, `both captures should survive, got ${files.join(', ')}`);
 
     const lines = files
-      .map((f) => zlib.gunzipSync(fs.readFileSync(path.join(root, 'raw', '2026', '01', f))))
+      .map((f) => zlib.gunzipSync(fs.readFileSync(captureDir(root, '2026', '01', f))))
       .map((b2) => b2.toString('utf8').trim().split('\n').length)
       .reduce((x, y) => x + y, 0);
     // 200 + 200 payload lines plus one header per file.

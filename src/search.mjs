@@ -27,6 +27,25 @@ import * as memory from './memory.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import * as entity from './entity.mjs';
 import * as raw from './raw.mjs';
+import * as archive from './archive.mjs';
+
+/**
+ * The file path of one indexed piece.
+ *
+ * Log files live in the repository, captures live in the archive since
+ * 2026-09-08. Both cases in ONE function, so five callers do not each
+ * guess for themselves — which is exactly what happened: every one of
+ * them used `path.join(root, rel)`, every one failed after the move,
+ * every one with `continue` and no message.
+ */
+function piecePath(root, rel) {
+  const r = String(rel);
+  if (!r.startsWith(`${raw.RAW_DIR}/`) && !r.startsWith(`${raw.RAW_DIR}\\`)) {
+    return path.join(root, rel);
+  }
+  return archive.filePath(archive.readConfig(process.env, root), root, rel)
+    ?? path.join(root, rel);
+}
 import { pack } from './language.mjs';
 
 const K1 = 1.2;
@@ -760,7 +779,7 @@ export function indexedFiles(root, { types = null } = {}) {
   try { captures = raw.listCaptures(root); } catch { /* no raw/ */ }
   for (const rel of captures) {
     let st;
-    try { st = fs.statSync(path.join(root, rel)); } catch { continue; }
+    try { st = fs.statSync(piecePath(root, rel)); } catch { continue; }
     out.set(rel, { bytes: st.size, kind: 'raw' });
   }
   return out;
@@ -868,11 +887,11 @@ function appendToIndex(root, index, before, now, lang) {
       continue;                       // new captures are handled below
     }
     if (cur.bytes === old.bytes) {
-      if (tailHash(path.join(root, rel), cur.bytes) !== old.tail) return null;
+      if (tailHash(piecePath(root, rel), cur.bytes) !== old.tail) return null;
       continue;                       // untouched
     }
     if (cur.bytes < old.bytes) return null;              // shrunk: rewritten
-    if (tailHash(path.join(root, rel), old.bytes) !== old.tail) return null;  // prefix moved
+    if (tailHash(piecePath(root, rel), old.bytes) !== old.tail) return null;  // prefix moved
     if (cur.kind !== 'log') return null;                 // a capture never grows
     newBytes += cur.bytes - old.bytes;
     const parsed = parseLogTail(root, rel, { ...cur, linesBefore: old.lines ?? 0 }, old.bytes);
@@ -1018,7 +1037,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
         type: info.type,
         project: info.project,
         lines: lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
-        tail: tailHash(path.join(root, rel), info.bytes),
+        tail: tailHash(piecePath(root, rel), info.bytes),
       };
     }
     return out;
@@ -1075,7 +1094,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
 /** Lines in a file — only ever called on a full build. */
 function countLines(root, rel) {
   try {
-    const text = fs.readFileSync(path.join(root, rel), 'utf8');
+    const text = fs.readFileSync(piecePath(root, rel), 'utf8');
     if (!text) return 0;
     return text.split('\n').length - (text.endsWith('\n') ? 1 : 0);
   } catch { return 0; }
