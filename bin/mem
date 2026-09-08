@@ -39,6 +39,8 @@ import * as viewer from '../src/viewer.mjs';
 import * as timeexpr from '../src/timeexpr.mjs';
 import * as timesearch from '../src/timesearch.mjs';
 import * as browse from '../src/browse.mjs';
+import * as guard from '../src/guard.mjs';
+import * as heartbeat from '../src/heartbeat.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -133,7 +135,21 @@ function fieldsFrom(command, args, except = []) {
   for (const [k, v] of Object.entries(args)) {
     if (skip.has(k)) continue;
 
-    if ((k === 'tags' || k === 'asked') && typeof v === 'string' && /^\s*\[/.test(v)) {
+    // **Roads not taken are split on a SEMICOLON, not a comma.**
+    //
+    // The value is a sentence, not a keyword: "PostgreSQL: too heavy,
+    // and too much operations for a file database". A comma split turns
+    // that into two fragments, neither of which is a statement any
+    // more — the same silent damage that once made 17 entries
+    // unfindable by tag in the reference deployment.
+    if (k === 'rejected' && typeof v === 'string' && !/^\s*\[/.test(v)) {
+      const parts = v.split(';').map((x) => x.trim()).filter(Boolean);
+      if (!parts.length) die(`${command}: --rejected is empty.`);
+      data[k] = parts;
+      continue;
+    }
+
+    if ((k === 'tags' || k === 'asked' || k === 'rejected') && typeof v === 'string' && /^\s*\[/.test(v)) {
       let list;
       try { list = JSON.parse(v); }
       catch (e) { die(`${command}: --${k} looks like JSON but is not: ${e.message}`); }
@@ -261,6 +277,96 @@ function receiptHint(messages) {
 }
 
 const COMMANDS = {
+  guard: async ({ rest, args }) => {
+    if (args.help || (rest[0] && rest[0] !== 'run')) {
+      out([
+        'mem guard run [--duty]',
+        '',
+        '  Checks every latch in the memory. A latch hangs off an `error`',
+        '  entry and answers ONE question: is the error back?',
+        '',
+        `  Kinds: ${Object.keys(guard.GUARD_KINDS).join(', ')}`,
+        '',
+        '  Create one while logging:',
+        '    mem log error --class x --title "..." \\',
+        '      --guard-kind absent --guard-path src/foo.mjs --guard-pattern "bar"',
+        '',
+        '  A latch EXECUTES NOTHING — it reads files. An entry is data;',
+        '  if a latch were a shell command, any connected agent could',
+        '  drop code on this machine and wait for somebody to run the',
+        '  latches.',
+        '',
+        '  --duty: raise a duty for every red latch.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    const list = guard.all(root, { readLog: memory.readLog, listProjects: memory.listProjects });
+    if (!list.length) {
+      out('No latch yet. An error without a latch is a diary entry.');
+      out('43 % of classified errors recur (measured 2026-09-08, reference deployment).');
+      return;
+    }
+    const count = { green: 0, red: 0, broken: 0 };
+    const reds = [];
+    for (const g of list) {
+      const r = guard.check(g.guard, { root });
+      count[r.state] += 1;
+      if (r.state !== 'green') reds.push({ ...g, r });
+      const mark = { green: 'ok    ', red: 'RED   ', broken: 'broken' }[r.state];
+      out(`  ${mark} [${g.entry.class ?? '?'}] ${r.why}`);
+    }
+    out('');
+    out(`${list.length} latches: ${count.green} ok, ${count.red} red, ${count.broken} broken.`);
+    // `broken` is not `green`. A latch pointing at a deleted file has
+    // checked NOTHING — counting that as a pass would be the very class
+    // it is built against.
+    if (count.broken) out('A broken latch checks nothing. It is not a latch that passed.');
+    if (args.duty && reds.length) {
+      for (const g of reds) {
+        memory.logEntry(root, 'duty', {
+          title: `Latch ${g.r.state}: ${g.entry.class ?? g.entry.title}`,
+          text: `${g.r.why}\nBelongs to entry ${g.entry.id}.`,
+          owed_to: 'owner',
+        }, { project: g.project });
+      }
+      out(`${reds.length} duty/duties raised.`);
+    } else if (reds.length) {
+      out('With --duty these become duties, instead of staying one line.');
+    }
+    if (count.red) process.exitCode = 1;
+  },
+
+  heartbeat: async ({ args }) => {
+    if (args.help) {
+      out([
+        'mem heartbeat [--what "..."] [--gap <minutes>]',
+        '',
+        `  Records a heartbeat for this agent (CHEAP_MEM_AGENT).`,
+        '  It says: this agent was running at this time and could write.',
+        '  It does NOT say it is doing its job — its entries say that.',
+        '',
+        `  A pulse every three minutes would be 480 lines per agent per`,
+        `  day. Hence a quiet period: at most one new line every`,
+        `  ${heartbeat.MIN_GAP_MIN} minutes. Call it as often as you like;`,
+        '  writing happens rarely.',
+        '',
+        '  Without this path, "dead" and "had nothing to do" look the same.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    const me = memory.agentDefault();
+    const r = heartbeat.beat(root, me, {
+      what: args.what && args.what !== true ? String(args.what) : null,
+      minGapMin: args.gap ? Number(args.gap) : undefined,
+    });
+    if (r.written) out(`Heartbeat for '${me}' recorded (${r.line.where}).`);
+    else out(`No new one needed for '${me}': ${r.why}.`);
+  },
+
   init: async ({ args }) => {
     checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
     // `mem --root X init` and `mem init --root X` must mean the same
@@ -523,6 +629,49 @@ const COMMANDS = {
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args));
+
+    // --- The latch, and its positive control -------------------------
+    //
+    // The three --guard-* flags are bundled into ONE field, so half a
+    // latch never lands as a loose field in the entry.
+    //
+    // And then it is checked IMMEDIATELY. The reason is a lesson of its
+    // own: a latch that was never red is unproven — the same thing as a
+    // falsification test without a backdrop. At the moment of logging
+    // the error is THERE, so the latch MUST be red. If it is green it
+    // does not detect what it is supposed to detect.
+    //
+    // It is not rejected for that: sometimes you log the error only
+    // after fixing it. The finding is recorded IN THE ENTRY
+    // (`guard_at_creation`) instead — so it stays readable later
+    // whether this latch ever caught anything.
+    if (args['guard-kind'] || args['guard-path'] || args['guard-pattern']) {
+      for (const k of ['guard-kind', 'guard-path']) {
+        if (!args[k] || args[k] === true) die(`log: --${k} missing or without a value.`);
+      }
+      const kind = String(args['guard-kind']);
+      if (!Object.hasOwn(guard.GUARD_KINDS, kind)) {
+        die(`log: --guard-kind '${kind}' does not exist. Known: ${Object.keys(guard.GUARD_KINDS).join(', ')}`);
+      }
+      const g = { kind, path: String(args['guard-path']) };
+      if (args['guard-pattern'] && args['guard-pattern'] !== true) {
+        g.pattern = String(args['guard-pattern']);
+      }
+      for (const k of ['guard-kind', 'guard-path', 'guard-pattern']) delete data[k];
+      data.guard = g;
+
+      const probe = guard.check(g, { root });
+      data.guard_at_creation = probe.state;
+      if (probe.state === 'broken') die(`log: the latch is no good — ${probe.why}`);
+      if (probe.state === 'green') {
+        out('WARNING: the latch is GREEN at creation time.');
+        out(`  ${probe.why}`);
+        out('  It did NOT detect the error you are reporting right now.');
+        out('  Either it is cut wrong, or the error is already fixed.');
+        out('  Recorded as guard_at_creation: green — a latch that was never red');
+        out('  is unproven.');
+      }
+    }
     if (Object.keys(data).length === 0) die("log: no data. Give at least one --field.");
     // Report the topic's shape, but do NOT abort. `mem log` is the path
     // along which things get saved that would otherwise be forgotten — a

@@ -14,6 +14,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
@@ -128,6 +129,35 @@ export function logPath(root, type, project = null) {
  * Append a line to a JSONL log. Never modifies an existing line.
  * If an entry needs correction, a new line with `replaces_id` is written.
  */
+/**
+ * Who is writing, when nobody said.
+ *
+ * **The finding (2026-09-08, reference deployment).** 855 of 1081
+ * entries carried no agent field — 79 %. Only the MCP bridge stamped
+ * one; the CLI never did. A field that is absent three quarters of the
+ * time is not an axis, it is an anecdote: `mem agents`, every
+ * authority comparison and the error broadcast all rest on it.
+ *
+ * **Why never a fallback to 'session'.** That would be an INVENTED
+ * origin, and an invented origin is worse than none — it looks
+ * credible, so a later reader takes it for evidence. `human:<user>` is
+ * true: somebody typed this at a shell. The prefix keeps the human and
+ * machine sets disjoint so the agent board can show both without
+ * confusing them.
+ *
+ * **Old entries are NOT backfilled.** Stamping them now would be
+ * inventing origin at scale. The corpus heals forward.
+ */
+export function agentDefault(env = process.env) {
+  const set = String(env.CHEAP_MEM_AGENT ?? env.MEM_AGENT ?? '').trim();
+  if (set) return set;
+  let user = String(env.USER ?? env.LOGNAME ?? env.USERNAME ?? '').trim();
+  if (!user && env === process.env) {
+    try { user = String(os.userInfo().username ?? '').trim(); } catch { /* no account readable */ }
+  }
+  return user ? `human:${user}` : 'human:unnamed';
+}
+
 export function logEntry(root, type, data, { project = null, now = new Date() } = {}) {
   // The agent comes from the origin stamp when it is not set explicitly.
   // Two routes, so the second axis fills itself without every caller
@@ -143,6 +173,15 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
       data = { ...data, agent: derived.trim() };
     }
   }
+  // **Only now the default** — after the explicit field and after the
+  // origin stamp have had their turn. The first version of this stamped
+  // it FIRST and thereby won every time: `origin.surface` never derived
+  // anything again, and a digest run's entries came out as
+  // `human:<whoever ran it>`. A default that runs before the real
+  // sources is not a default, it is an override. Caught by the existing
+  // agents test, not by reading the code.
+  if (!data.agent) data = { ...data, agent: agentDefault() };
+
   // Authority: normalised if given, left ABSENT if not.
   //
   // Deliberately not defaulted to a tier here. A CLI write could be the

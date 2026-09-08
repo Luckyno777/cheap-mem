@@ -28,6 +28,7 @@ the verification commands at the end.
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 35 CLI commands, 20 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Multi-agent** | origin stamped on every write, error latches that turn a recorded error into a check, heartbeats separating "dead" from "nothing to do" | [10](#10-multi-agent) |
 | **Measurement** | 15 benchmarks, an eval harness with a frozen reference run, 489 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
@@ -394,13 +395,13 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 35 commands
+### 7.1 CLI — 37 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
 thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
-viewer project correction version
+viewer project correction version guard heartbeat
 ```
 
 Every command takes `--help`. `mem doctor` is the self-check: it
@@ -544,3 +545,105 @@ one needs to say so out loud:
 | Scaling numbers | [`scale.md`](scale.md) |
 | Why something is missing | [`deliberately-not-built.md`](deliberately-not-built.md) |
 | An external comparison | [`analyse-2026-09-08-vergleich-fremdsysteme.md`](analyse-2026-09-08-vergleich-fremdsysteme.md) |
+
+---
+
+## 10. Multi-agent
+
+Everything in this section exists because several agents share one
+memory and none of them reads it out of politeness. The numbers are
+measurements from the reference deployment (a ~1600-entry memory
+written by five agents over two weeks), not projections.
+
+### 10.1 Origin on every write — `src/memory.mjs`, `agentDefault()`
+
+Measured before the change: **855 of 1081 entries carried no agent
+field (79 %)**. Only the MCP bridge stamped one; the CLI never did.
+The second axis — who claimed this — was empty for three quarters of
+the corpus, and with it every authority comparison and the agent board.
+
+Now every write carries one. The order is: an explicit `agent` field,
+then the origin stamp (`origin.agent`, `origin.surface`), then
+`CHEAP_MEM_AGENT`, then `human:<os user>`.
+
+**Never a fallback to `session` or `unknown`.** An invented origin is
+worse than none, because it looks like evidence. `human:` as a prefix
+keeps human and machine names disjoint. Old entries are not
+backfilled — that would be inventing origin at scale; the corpus heals
+forward.
+
+### 10.2 Error latches — `src/guard.mjs`, `mem guard run`
+
+Measured: **289 classified errors, 42 classes recurring, 43 % of
+entries in repeat classes** — spread over days, not one bad session.
+The class warning ("the Nth time") fires while logging, i.e. after the
+error. It counts; it does not prevent.
+
+A latch hangs off an `error` entry and answers one question: is the
+error back?
+
+```
+mem log error --class silent-fail --title "..." \
+  --guard-kind absent --guard-path bin/hook.sh --guard-pattern "|| exit 0"
+mem guard run [--duty]
+```
+
+Four kinds, and the vocabulary is **closed**: `absent`, `present`,
+`file-there`, `file-gone`.
+
+**A latch executes nothing.** The obvious design — "a command that
+exits non-zero" — would be a serious hole: an entry is data, and a
+connected agent logs errors, so it could drop arbitrary code on the
+owner's machine and wait for the latches to be run. The pattern is
+literal text, not a regular expression, for the same reason plus one:
+a crafted regex can make a match run arbitrarily long. Paths cannot
+escape the memory root.
+
+**`broken` is not `green`.** A latch pointing at a deleted file has
+checked nothing; reporting that as a pass would be the very class it
+exists to catch. `mem guard run` exits 1 while anything is red.
+
+**A latch is checked at creation time**, and if it comes back green the
+entry records `guard_at_creation: green`. At the moment you log an
+error the error is *there*, so the latch must be red. A latch that was
+never red is unproven — the same thing as a falsification test without
+a backdrop.
+
+### 10.3 Heartbeats — `src/heartbeat.mjs`, `mem heartbeat`
+
+Measured: for twenty hours no agent but one session had written
+anything. Whether the others were *running* could not be established —
+there was no signal separate from work output. **"Dead" and "nothing to
+do" looked identical**, and while that is true a watchdog has nothing
+to watch.
+
+A heartbeat line says: this agent was running at this time and could
+write. It does **not** say the agent is doing its job — that is what
+its entries say, which is why the agent board shows both.
+
+The log is in git (a local pulse file is invisible to anyone asking
+from another machine), with a **quiet period**: at most one line per
+agent per hour. A pulse every three minutes would be 480 lines per
+agent per day, and the memory would be buried under its own pulse
+measurement. `written: false` is the normal answer, not a failure.
+
+`ageMin()` returns **`null`, not `Infinity`**, for an agent never seen.
+"Never seen" and "not seen in a while" are different statements, and
+the first usually means the agent does not call the heartbeat at all.
+
+### 10.4 Roads not taken — `rejected` on a decision
+
+Without the field, "have we already looked at PostgreSQL?" is not
+answerable: the entry only records that SQLite was chosen, so the next
+agent evaluates it again and the reason from last time is lost.
+
+Weight **1.2 — deliberately below `choice` (1.5)**. At equal or higher
+weight the damage would be worse than the one repaired: somebody
+searching for the tool they *use* would first find the decision in
+which it was *rejected*.
+
+`--rejected` splits on a **semicolon**, not a comma. The value is a
+sentence and naturally contains commas ("too heavy, and too much
+ops"); a comma split turns one statement into two fragments that say
+nothing. In the reference deployment the same mistake once made 17
+entries unfindable by tag.

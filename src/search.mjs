@@ -62,6 +62,18 @@ export const FIELD_WEIGHTS = Object.freeze({
   asked: 2.0,
   skill: 2.0,
   choice: 1.5,
+  // Roads not taken — LIGHTER than `choice`, and that is the whole
+  // point.
+  //
+  // Without this field "have we already looked at PostgreSQL?" is not
+  // answerable: the entry only records that SQLite was chosen, and the
+  // next agent evaluates it again from scratch.
+  //
+  // But at equal or higher weight the damage would be worse than the
+  // one repaired: somebody searching for the tool they USE would first
+  // find the decision in which it was REJECTED. 1.2 keeps it findable
+  // and behind the actual choice.
+  rejected: 1.2,
   learning: 1.5,
   duty: 1.5,
   why: 1.2,
