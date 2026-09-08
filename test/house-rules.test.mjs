@@ -152,3 +152,11 @@ test('the broadcast is announced — otherwise the post surprises', () => {
   assert.match(connect().reply.result.instructions, /inbox/i,
     'an agent given unannounced mail treats it as noise');
 });
+
+test('the heartbeat is named as a MOMENT, not just as a tool', () => {
+  // The same lesson as for the log tool: a tool whose occasion nobody
+  // names does not get used. That one cost a whole day.
+  const i = connect().reply.result.instructions;
+  assert.match(i, /mem_heartbeat/);
+  assert.match(i, /[Oo]nce at the start/, 'the moment is missing, only the name is there');
+});

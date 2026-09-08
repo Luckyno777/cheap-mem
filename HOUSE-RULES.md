@@ -69,6 +69,9 @@ Three more drawers:
 - **`type: procedure` is refused to you** — a norm for ALL agents
   cannot come from one of them. Propose it as a `thought`.
 
+**Once at the start: `mem_heartbeat`.** Otherwise "not running" and
+"had nothing to do" look the same. Nothing is written more than hourly.
+
 Two things happen by themselves when you log: an error that names a
 file goes as a note to whoever touched the same file (and such notes
 reach your inbox in return); and whatever already stands about your
