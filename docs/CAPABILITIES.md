@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 35 CLI commands, 17 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 35 CLI commands, 20 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Measurement** | 15 benchmarks, an eval harness with a frozen reference run, 489 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
@@ -407,7 +407,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 17 tools
+### 7.2 MCP — 20 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio.
@@ -431,6 +431,12 @@ Desktop). `bin/mem-mcp`, stdio.
 | `mem_inbox_write` | write a message to another agent |
 | `mem_inbox_ack` | change a message's state (open / replied / processed / closed) |
 | `mem_project_init` | create a project skeleton |
+| `mem_store_put` | register a local file in the content-addressed store |
+| `mem_store_list` | what is held in the file store right now |
+| `mem_store_get` | resolve a hash to the local path of the stored bytes |
+
+`mem store verify` and `mem store remove` stay off the bridge —
+deleting a registered artifact is a human's call at the CLI.
 
 The server also serves **`instructions`** at `initialize`
 (`HOUSE-RULES.md`), and every tool description names the **occasion**

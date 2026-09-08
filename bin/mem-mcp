@@ -57,6 +57,7 @@ import * as thesaurus from '../src/thesaurus.mjs';
 import * as raw from '../src/raw.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
+import * as store from '../src/store.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -393,6 +394,67 @@ const TOOLS = [
       required: ['name'],
     },
   },
+  // --- Three more that existed as a CLI command already -------------
+  //
+  // Measured 2026-09-08, same pattern as mem_links/mem_experiences/
+  // mem_topics above: `mem store` (put/list/get/verify/remove) was
+  // built, tested and documented, and reachable from nowhere a
+  // connected agent works. `verify` and `remove` deliberately stay off
+  // the bridge — deleting a registered artifact stays a human's call at
+  // the CLI, not a connected agent's.
+  {
+    name: 'mem_store_put',
+    description:
+      'Register a local file in the content-addressed store: hash it, keep the bytes ' +
+      'under store/objects/, and append one line to the audit register (hash, size, ' +
+      'mime, purpose). Text is REJECTED on a redaction hit rather than cleaned, so the ' +
+      'hash always proves what was actually produced. ' +
+      'Call it when you produce a file the user may need again later — a generated ' +
+      'report, a data export, a screenshot — so it is provably kept with a hash instead ' +
+      'of living only in a temp directory that disappears with the session.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', description: 'Path to the local file to store' },
+        purpose: { type: 'string', description: 'Why this file exists' },
+        agent: { type: 'string' },
+        project: { type: 'string' },
+        session: { type: 'string' },
+        entry_id: { type: 'string', description: 'A memory entry this artifact belongs to' },
+        retention: { type: 'string' },
+        large: { type: 'boolean', description: 'Allow files over 25 MB' },
+      },
+      required: ['source'],
+    },
+  },
+  {
+    name: 'mem_store_list',
+    description:
+      'What is held in the file store right now — hash, size, name, purpose, per item. ' +
+      'Use it before mem_store_put when you are not sure a file was already registered, ' +
+      'and whenever the user asks what has been generated and kept so far.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string' },
+        project: { type: 'string' },
+        all: { type: 'boolean', description: 'Include deleted (tombstoned) entries' },
+      },
+    },
+  },
+  {
+    name: 'mem_store_get',
+    description:
+      'Resolve a hash (or a unique prefix, from mem_store_list) to the local path of the ' +
+      'actual bytes. Call it right before you need to read, attach, or hand back a file ' +
+      'that was stored earlier — the register alone only proves the file existed, it does ' +
+      'not hand you the content.',
+    inputSchema: {
+      type: 'object',
+      properties: { hash: { type: 'string', description: 'Full hash or a unique prefix of one' } },
+      required: ['hash'],
+    },
+  },
 ];
 
 async function handleCall(name, args) {
@@ -590,6 +652,52 @@ async function handleCall(name, args) {
         (created.length ? `  created: ${created.join(', ')}\n` : '') +
         (existed.length ? `  existed: ${existed.join(', ')}\n` : ''));
     }
+    case 'mem_store_put': {
+      const source = String(args.source ?? '').trim();
+      if (!source) throw new Error('mem_store_put needs a source file path.');
+      const r = store.put(root, source, {
+        purpose: args.purpose ?? '', agent: args.agent ?? null, project: args.project ?? null,
+        session: args.session ?? null, entry_id: args.entry_id ?? null,
+        retention: args.retention ?? null, large: Boolean(args.large),
+      });
+      const lines = [
+        `${r.already ? 'Already held' : 'Stored'}: ${r.name}  ${r.size} B  ${r.mime}`,
+        `  ${r.sha256}`,
+      ];
+      if (!r.checked) lines.push('  did not pass redaction (not text) — content unchecked');
+      return structuredResult(r, lines);
+    }
+    case 'mem_store_list': {
+      let list = store.holdings(root);
+      if (!args.all) list = list.filter((l) => !l.deleted_at);
+      if (args.agent) list = list.filter((l) => l.agent === args.agent);
+      if (args.project) list = list.filter((l) => l.project === args.project);
+      if (!list.length) return textResult('Nothing stored.');
+      const total = list.reduce((n, l) => n + (l.size ?? 0), 0);
+      const lines = [`${list.length} items, ${(total / 1024).toFixed(1)} kB:`];
+      for (const l of list) {
+        const mark = l.deleted_at ? ' [DELETED]' : (l.checked ? '' : ' [unchecked]');
+        lines.push(`  ${l.sha256.slice(0, 12)}  ${String(l.ts ?? '').slice(0, 10)}  `
+          + `${String(l.size ?? 0).padStart(8)} B  ${(l.name ?? '?').padEnd(28)}${mark}`);
+        if (l.purpose) lines.push(`                ${l.purpose}`);
+      }
+      return structuredResult({ items: list }, lines);
+    }
+    case 'mem_store_get': {
+      const hash = String(args.hash ?? '').trim().toLowerCase();
+      if (!hash) throw new Error('mem_store_get needs a hash.');
+      const hits = store.holdings(root).filter((l) => l.sha256.startsWith(hash));
+      if (!hits.length) return textResult(`No item with hash '${args.hash}'.`);
+      if (hits.length > 1) return textResult(`'${args.hash}' is ambiguous (${hits.length} matches).`);
+      const l = hits[0];
+      if (l.deleted_at) {
+        return textResult(`Deleted on ${l.deleted_at}${l.delete_reason ? `: ${l.delete_reason}` : ''}. `
+          + 'The proof remains, the bytes are gone.');
+      }
+      return structuredResult({ sha256: l.sha256, at: store.objectPath(root, l.sha256) },
+        [store.objectPath(root, l.sha256)]);
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

@@ -1,13 +1,19 @@
 # MCP setup per client
 
-cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes 17 tools:
-`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_project_init`.
+cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes 20 tools:
+`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`.
 
 Six of them — `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`,
 `mem_facts`, `mem_explain` — were added on 2026-09-08. They had existed
 as CLI commands, with tests, for weeks; the bridge simply did not offer
 them, so no connected agent could walk the link graph, follow a topic
 thread, or ask why something did NOT come back.
+
+Three more — `mem_store_put`, `mem_store_list`, `mem_store_get` — were
+added the same day for the same reason: `mem store` was built, tested
+and documented, and unreachable from the bridge. `mem store verify` and
+`mem store remove` are deliberately left off — deletion stays a human's
+call at the CLI.
 
 **First: install the SDK.** `mem-mcp` needs `@modelcontextprotocol/sdk`,
 which is an *optional peer* — it is 28 MB across 91 packages (an HTTP
@@ -192,6 +198,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | CHEAP_MEM_ROOT=/tmp/nowhere node /path/to/cheap-mem/bin/mem-mcp
 ```
 
-You should see a JSON blob listing 17 tools. (The `mem_*` tools that
+You should see a JSON blob listing 20 tools. (The `mem_*` tools that
 touch the memory will fail because `/tmp/nowhere` is not initialized —
 that's fine, we only wanted `tools/list`.)

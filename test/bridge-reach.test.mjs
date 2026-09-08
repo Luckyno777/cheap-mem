@@ -111,3 +111,56 @@ test('die Beschreibungen der neuen Werkzeuge nennen den ANLASS', () => {
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// --- Three more, added 2026-09-08: the file store -------------------
+//
+// Same measurement, same fix: `mem store put/list/get` existed, tested
+// and documented, and unreachable from the bridge. `verify` and
+// `remove` stay off it on purpose — a connected agent can register and
+// read artifacts, never delete one.
+
+const STORE_TOOLS = ['mem_store_put', 'mem_store_list', 'mem_store_get'];
+
+test('THE GAP: the three store tools are actually offered', () => {
+  const root = gedaechtnis();
+  try {
+    const names = bridge(root).at(-1).result.tools.map((t) => t.name);
+    for (const n of STORE_TOOLS) assert.ok(names.includes(n), `${n} missing from the bridge`);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('their descriptions name the OCCASION, not just the capability', () => {
+  const root = gedaechtnis();
+  try {
+    const tools = Object.fromEntries(bridge(root).at(-1).result.tools.map((t) => [t.name, t.description]));
+    for (const n of STORE_TOOLS) {
+      assert.match(tools[n], /\b(call it|use it|use this|ask this|read this)\b/i,
+        `${n}: the description says only WHAT, not WHEN`);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('mem_store_put really stores a file, mem_store_list and mem_store_get find it again', () => {
+  // A tool that is listed and throws on call is worse than a missing
+  // one — the agent believes it asked.
+  const root = gedaechtnis();
+  const src = path.join(root, 'to-store.txt');
+  fs.writeFileSync(src, 'a harmless generated report\n');
+  try {
+    const [, put] = bridge(root, [['mem_store_put', { source: src, purpose: 'test artifact' }]]);
+    assert.ok(!put.error, `mem_store_put threw: ${JSON.stringify(put.error)}`);
+    assert.ok(!put.result?.isError, `mem_store_put isError: ${JSON.stringify(put.result)}`);
+    const hash = put.result.structuredContent.sha256;
+    assert.match(hash, /^[0-9a-f]{64}$/, 'no real sha256 came back');
+
+    const [, list] = bridge(root, [['mem_store_list', {}]]);
+    assert.ok(!list.error, `mem_store_list threw: ${JSON.stringify(list.error)}`);
+    assert.match(list.result.content[0].text, /to-store\.txt/);
+
+    const [, get] = bridge(root, [['mem_store_get', { hash: hash.slice(0, 12) }]]);
+    assert.ok(!get.error, `mem_store_get threw: ${JSON.stringify(get.error)}`);
+    const at = get.result.content[0].text.trim();
+    assert.ok(fs.existsSync(at), `mem_store_get pointed at a path that does not exist: ${at}`);
+    assert.equal(fs.readFileSync(at, 'utf8'), 'a harmless generated report\n');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
