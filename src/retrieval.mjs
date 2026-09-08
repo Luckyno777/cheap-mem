@@ -19,7 +19,6 @@
 // fails closed — no capability, no results.
 
 import crypto from 'node:crypto';
-import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';

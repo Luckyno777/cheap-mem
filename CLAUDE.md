@@ -5,7 +5,7 @@ installation — it is the tool that creates memories.
 
 ## What lives where
 
-- `bin/mem`            — the CLI (Node, ESM, ~500 lines)
+- `bin/mem`            — the CLI (Node, ESM; ~3,400 lines, no dependencies)
 - `bin/mem-mcp`        — MCP server (uses `@modelcontextprotocol/sdk`)
 - `bin/mem-watch`      — Bash poller (systemd/launchd wrap this)
 - `bin/mem-reflect`    — Stop-hook style transcript reflector

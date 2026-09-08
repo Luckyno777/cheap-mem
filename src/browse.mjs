@@ -47,6 +47,9 @@ export const TYPE_FILTERS = Object.freeze([
 
 /** Cut to width without ever emitting a half-truncated escape sequence. */
 export function fit(s, width) {
+  // ANSI-Codes zu entfernen ist der ZWECK dieser Zeile; das
+  // Steuerzeichen ist das Gesuchte, nicht ein Versehen.
+  // eslint-disable-next-line no-control-regex
   const flat = String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\x1b\[[0-9;]*m/g, '');
   if (width <= 0) return '';
   return flat.length <= width ? flat : `${flat.slice(0, Math.max(0, width - 1))}…`;

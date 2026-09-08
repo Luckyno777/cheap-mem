@@ -36,7 +36,6 @@
 //     OUTSIDE the memory (default: the OS temp dir), never committed,
 //     never published. The public repo ships this CODE, never a file.
 
-import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as agentsModule from './agents.mjs';
@@ -743,7 +742,7 @@ h2.area .n{
       // The dollar-brace here is escaped because this whole page is built
       // inside a template literal: unescaped, the outer literal would eat
       // it and the module would not even parse.
-      return out.replace(new RegExp('(' + q.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'ig'), '<mark>\$1</mark>');
+      return out.replace(new RegExp('(' + q.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'ig'), '<mark>$1</mark>');
     } catch (err) { return out; }
   }
   function when(ts) { return String(ts || '').slice(0, 10) || '\\u2014'; }

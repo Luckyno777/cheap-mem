@@ -107,14 +107,17 @@ const [,,t,who,size,rounds]=process.argv;
 const fill='x'.repeat(Number(size));
 for(let i=0;i<Number(rounds);i++) fs.appendFileSync(t,JSON.stringify({who,i,text:fill})+'\\n','utf8');`);
   const { spawn }=await import('node:child_process');
-  const run=(size,rounds,writers)=>new Promise(async res=>{
+  // Kein `new Promise(async …)`: eine Ablehnung im Inneren des
+  // Executors erreicht niemanden. Eine async-Funktion tut dasselbe
+  // und behaelt ihre Fehler.
+  const run=async (size,rounds,writers)=>{
     fs.writeFileSync(target,'');
     await Promise.all(Array.from({length:writers},(_,k)=>new Promise(r=>{
       spawn('node',[childSrc,target,'agent'+k,String(size),String(rounds)],{stdio:'ignore'}).on('exit',r);})));
     const lines=fs.readFileSync(target,'utf8').split('\n').filter(Boolean);
     let ok=0,bad=0; for(const l of lines){ try{ JSON.parse(l); ok++; }catch{ bad++; } }
-    res({expected:rounds*writers, lines:lines.length, ok, bad});
-  });
+    return {expected:rounds*writers, lines:lines.length, ok, bad};
+  };
   const rows=[];
   for(const size of [100,3000,8000,60000]) rows.push([size+60, await run(size,200,4)]);
   result(5,'two agents write at once (4 processes, 200 lines each)',

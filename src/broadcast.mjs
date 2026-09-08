@@ -45,7 +45,7 @@ import * as inbox from './inbox.mjs';
  * Deliberately narrow. `src/broadcast.mjs` hits, `something` does not,
  * and neither does `24/7` (no alphabetic extension).
  */
-export const PATH_PATTERN = /(?:^|[\s"'`(\[<])([A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z0-9]{1,5})/g;
+export const PATH_PATTERN = /(?:^|[\s"'`([<])([A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z0-9]{1,5})/g;
 
 /**
  * Paths that make no trigger at all — the memory's own data.

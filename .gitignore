@@ -171,3 +171,7 @@ store/objects/
 # Raw captures live in the archive, not the repo (src/archive.mjs).
 # Default location; another one is named by CHEAP_MEM_ARCHIVE.
 .mem/raw/
+
+# Coverage-Berichte
+coverage/
+.nyc_output/

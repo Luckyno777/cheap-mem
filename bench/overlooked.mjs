@@ -16,7 +16,8 @@ const R=(n,t,b)=>console.log(`\n[${n}] ${t}\n     ${b}`);
   const voll=buildIndex(d);                          // Vollbau
   const gleichN = ink.N===voll.N;
   const fragen=['alpha','epsilon zeta 3','gamma delta','alpha beta 7'];
-  let abw=0, details=[];
+  let abw=0;
+  const details=[];
   for(const f of fragen){
     const a=search(ink,f,{top:5}).map(h=>h.entry.id).join(',');
     const b=search(voll,f,{top:5}).map(h=>h.entry.id).join(',');

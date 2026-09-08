@@ -147,7 +147,7 @@ export function measure(n) {
   const { root, bytes } = buildCorpus(n);
   const genMs = performance.now() - t0;
   try {
-    if (global.gc) global.gc();
+    if (globalThis.gc) globalThis.gc();
     const memBefore = process.memoryUsage().heapUsed;
     const t1 = performance.now();
     const index = buildIndex(root, { language: 'en' });

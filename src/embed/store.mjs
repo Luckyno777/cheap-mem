@@ -17,14 +17,29 @@ import * as memory from '../memory.mjs';
 
 export const DB_PATH = path.join('.mem', 'vectors.db');
 
-let _sqlite = null;
-let _vec = null;
+/**
+ * The cached LOAD, not the loaded values.
+ *
+ * This used to cache `_sqlite` and `_vec` separately, and the guard read
+ * `if (_sqlite) return { sqlite: _sqlite, vec: _vec }`. Between the two
+ * awaits there is a window where `_sqlite` is set and `_vec` is still
+ * null — a second caller arriving in that window got a `vec` of null and
+ * failed somewhere else entirely, with an error naming the wrong thing.
+ *
+ * Found by the linter (`require-atomic-updates`) on its first run over
+ * this file, 2026-09-08. Caching the promise removes the window
+ * completely: everyone waits on the same load and nobody sees a half
+ * one.
+ */
+let _laden = null;
 
 async function loadSqliteVec() {
-  if (_sqlite) return { sqlite: _sqlite, vec: _vec };
+  if (_laden) return _laden;
+  _laden = (async () => {
   try {
-    _sqlite = (await import('better-sqlite3')).default;
-    _vec = await import('sqlite-vec');
+    const sqlite = (await import('better-sqlite3')).default;
+    const vec = await import('sqlite-vec');
+    return { sqlite, vec };
   } catch (e) {
     throw new Error(
       'sqlite-vec: better-sqlite3 and sqlite-vec are not installed.\n'
@@ -32,7 +47,12 @@ async function loadSqliteVec() {
       + '  (Optional dependencies, needed only for semantic search.)\n'
       + `Original error: ${e.message}`);
   }
-  return { sqlite: _sqlite, vec: _vec };
+  })();
+  // Ein gescheiterter Ladeversuch darf nicht fuer immer gecacht bleiben:
+  // wer die optionalen Pakete NACHtraeglich installiert, soll nicht den
+  // Prozess neu starten muessen.
+  _laden.catch(() => { _laden = null; });
+  return _laden;
 }
 
 /**

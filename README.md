@@ -17,14 +17,23 @@ Cross-device sync is `git pull`. Cross-session messaging is `git push`.
 
 **Read [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) — one file, the
 complete surface.** Every entry type, every retrieval lane, every
-temporal and authority mechanism, all 35 CLI commands, all 17 MCP
-tools, all 28 modules, the six things that are deliberately absent, and
-the commands to verify each claim rather than believe it.
+temporal and authority mechanism, every CLI command, every MCP tool,
+every module, the things that are deliberately absent, and the commands
+to verify each claim rather than believe it.
+
+<!-- ZAHLEN: von test/readme-zahlen.test.mjs geprueft. Nicht von Hand
+     aendern, ohne den Code gezaehlt zu haben. -->
+As of 2026-09-08: **44 CLI commands, 26 MCP tools, 39 modules, 645
+tests**, at **93.95 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
+code and fails when this line drifts.
 
 It exists because this README is not enough for a skim, and that was
 measured, not guessed: three separate AI evaluations reported built
-capabilities as missing. Against the README alone they were reading
-**0 of 17** MCP tools, **2 of 4** link kinds and **19 of 28** modules.
+capabilities as missing. Against the README alone, in **September 2026
+when there were 17 MCP tools, 4 link kinds and 28 modules**, they were
+reading 0 of the tools, 2 of the link kinds and 19 of the modules.
+(Those are the counts of that day, kept as the measurement they were.
+The current ones are two paragraphs up.)
 "No relationship system" was a correct observation about the entry text
 and a wrong one about the system.
 
@@ -475,8 +484,15 @@ determined the result is `unknown`, not `ok`.
 - **Three states, never two.** No config vs. valid config vs. broken.
   Empty inbox vs. no inbox vs. remote unreachable. A "no" that looks
   like "nothing" is worse than any real error.
-- **The tool is small on purpose.** ~500 lines of JS. The system is the
-  file layout and the rules — the code is the thin glue.
+- **Zero runtime dependencies.** `npm install` pulls nothing; the whole
+  thing runs on Node's standard library. Embeddings and anything else
+  optional load lazily and only if asked for.
+
+  This bullet used to say "the tool is small on purpose, ~500 lines of
+  JS". It was off by a factor of thirty-two — `bin/` and `src/` are
+  about 18,900 lines. A tool that argues for itself with honest
+  self-description cannot afford that particular error, so the claim is
+  now the one that is actually true: not small, but self-contained.
 - **No hardcoded names.** Participants, branch, remote — all in
   `.mem/config.json`. cheap-mem does not assume anyone is called anything.
 

@@ -7,7 +7,6 @@
  * losing a memory because an optional feature was unavailable.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import * as embed from './embed/index.mjs';
 import * as store from './embed/store.mjs';
