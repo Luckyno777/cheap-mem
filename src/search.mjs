@@ -76,6 +76,15 @@ export const FIELD_WEIGHTS = Object.freeze({
   rejected: 1.2,
   learning: 1.5,
   duty: 1.5,
+  // The text of a procedure. Weighted like `duty`: both are things
+  // that HOLD, not things somebody observed. Without this field a rule
+  // would only be findable by its title — and a norm you can only find
+  // if you already know its name is not one.
+  rule: 1.5,
+  // The text of an open question. Higher than `text`, because a
+  // question consists of nothing else — and because "what do we not
+  // know about X" would otherwise not be answerable at all.
+  question: 1.8,
   why: 1.2,
   description: 1.0,
   text: 1.0,

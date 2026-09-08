@@ -39,7 +39,17 @@ export const TYPES = Object.freeze({
   thought: 'thoughts.jsonl',     // reasoning worth keeping, not yet a decision
   learning: 'learnings.jsonl',   // what to do differently next time
   duty: 'duties.jsonl',          // something owed to someone
+  question: 'questions.jsonl',   // something we do NOT know. No debtor and
+                                 // no lifecycle of its own: it closes over
+                                 // the existing `resolves` edge. See
+                                 // src/question.mjs.
   skill: 'skills.jsonl',         // a capability acquired, with evidence
+  procedure: 'procedures.jsonl', // a norm for ALL — "this is how we do it
+                                 // here". NOT the same as `skill`: a
+                                 // capability is acquired, a procedure is
+                                 // issued. Only a human can issue one and
+                                 // the MCP bridge does not write it at all.
+                                 // See src/procedure.mjs.
   update: 'updates.jsonl',       // a version, a dependency, a config change
   link: 'links.jsonl',           // a typed relation between two entries
 });

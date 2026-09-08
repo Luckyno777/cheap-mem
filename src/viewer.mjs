@@ -41,6 +41,7 @@ import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as agentsModule from './agents.mjs';
 import * as storeModule from './store.mjs';
+import * as procedure from './procedure.mjs';
 import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
@@ -53,7 +54,9 @@ const TYPE_LABEL = Object.freeze({
   thought: 'Thoughts',
   learning: 'Learnings',
   duty: 'Duties',
+  question: 'Open questions',
   skill: 'Skills',
+  procedure: 'Procedures',
   update: 'Updates',
 });
 
@@ -61,7 +64,7 @@ const TYPE_LABEL = Object.freeze({
 // picks the first few that are present; everything else shows in the
 // detail table. Kept in sync by intent with the retrieve hook's own
 // preference order — both answer "what is this entry, in one line?".
-const HEADLINE_FIELDS = ['class', 'title', 'topic', 'choice', 'text', 'summary', 'fact'];
+const HEADLINE_FIELDS = ['class', 'title', 'topic', 'choice', 'rule', 'question', 'text', 'summary', 'fact'];
 
 // Which JSON keys are bookkeeping, not content — hidden from the detail
 // table (they are shown as chips/meta instead), so the table is signal.
@@ -88,6 +91,12 @@ function projectOfEntry(e) {
 
 function headline(e) {
   const bits = [];
+  // **A procedure does not come out of the viewer without its author
+  // either.** The viewer is the third display path next to CLI and
+  // bridge; a latch that hangs on two of three is not one. A human
+  // reading the rule here should see who set it, exactly as an agent
+  // does in its context.
+  if (e.rule) bits.push(procedure.mark(e));
   for (const k of HEADLINE_FIELDS) {
     if (e[k] != null && String(e[k]).trim()) bits.push(String(e[k]).trim());
     if (bits.length >= 2) break;

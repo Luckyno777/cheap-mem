@@ -41,6 +41,9 @@ import * as timesearch from '../src/timesearch.mjs';
 import * as browse from '../src/browse.mjs';
 import * as guard from '../src/guard.mjs';
 import * as heartbeat from '../src/heartbeat.mjs';
+import * as broadcast from '../src/broadcast.mjs';
+import * as procedure from '../src/procedure.mjs';
+import * as question from '../src/question.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -277,6 +280,195 @@ function receiptHint(messages) {
 }
 
 const COMMANDS = {
+  broadcast: async ({ rest, args }) => {
+    if (isHelp(args) || !rest.length) {
+      out([
+        'mem broadcast <error-id> [--dry-run]',
+        '',
+        '  Sends a recorded error to the agents who touched the same file.',
+        '  Runs by itself on `mem log error`; this command is for older',
+        '  entries and for looking before leaping.',
+        '',
+        '  --dry-run: only say who would get it. Writes nothing.',
+        '',
+        '  The trigger is a PATH, matched literally. If the error names',
+        '  none, nothing goes out — deliberately: a warning that fires at',
+        '  everybody on every error is noise after the third one.',
+        '',
+        '  A recipient is somebody who demonstrably touched the file: an',
+        '  entry of their own names the path AND carries an agent field.',
+        '  The evidence is in the note. Without origin stamping the',
+        '  broadcast finds nobody — that is the limit, not a fault.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    const cfg = requireConfig(root);
+    checkFlags(args, ['dry-run', 'root'], 'broadcast');
+    const id = rest[0];
+    const entry = memory.entriesById(root).get(id);
+    if (!entry) die(`broadcast: no entry with id '${id}'.`);
+    const r = broadcast.send(root, entry, {
+      participants: cfg.participants, dryRun: Boolean(args['dry-run']),
+    });
+    if (!r.triggers.length) {
+      out('No path in the entry — no trigger, no broadcast.');
+      return;
+    }
+    out(`Trigger: ${r.triggers.join(', ')}`);
+    if (!r.sent.length && !r.skipped.length) {
+      out('Nobody has demonstrably touched these files.');
+      if (r.withoutInbox.length) out(`  (without an inbox: ${r.withoutInbox.join(', ')})`);
+      return;
+    }
+    for (const g of r.sent) {
+      out(`  ${args['dry-run'] ? 'would go to' : 'sent to'} ${g.agent}`
+        + `  — evidence ${g.source}${g.line ? `:${g.line}` : ''}`);
+    }
+    for (const sk of r.skipped) out(`  skipped ${sk.agent}: ${sk.why}`);
+    if (r.withoutInbox.length) out(`  without an inbox (nothing arrives): ${r.withoutInbox.join(', ')}`);
+  },
+
+  questions: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem questions                    [--all] [--project <name>]',
+        'mem questions new "<text>"       [--why "..."] [--topic ...]',
+        '',
+        '  What we do NOT know. Without a subcommand: only the open ones.',
+        '',
+        '  Until 2026-09-08 this memory could only hold what was KNOWN:',
+        '  decisions, errors, learnings, duties. An open question fit in',
+        '  none of the drawers — and what has no drawer does not get',
+        '  written down.',
+        '',
+        '  Why not a `duty`: a duty has a debtor and counts as neglected',
+        '  when it sits. A question has no owner and may stay open for',
+        '  years without anybody being at fault.',
+        '',
+        '  It is closed by the entry that answers it:',
+        '    mem answer <question-id> --with <entry-id>',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (rest[0] === 'new') {
+      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root'], 'questions new');
+      const text = rest.slice(1).join(' ').trim();
+      const qr = question.check({ question: text });
+      if (!qr.ok) die(`questions new:\n  ${qr.errors.join('\n  ')}`);
+      for (const w of qr.warnings) warn(w);
+      const data = { question: text };
+      for (const k of ['why', 'topic']) if (args[k] && args[k] !== true) data[k] = String(args[k]);
+      if (args.tags && args.tags !== true) {
+        data.tags = String(args.tags).split(',').map((x) => x.trim()).filter(Boolean);
+      }
+      const { path: p, entry } = memory.logEntry(root, question.TYPE, data,
+        { project: args.project ?? null });
+      out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
+      out(`  id: ${entry.id}`);
+      out('  open, until an entry resolves it.');
+      return;
+    }
+    if (rest.length) {
+      die(`questions: '${rest[0]}' is not a subcommand. Known: new. `
+        + 'Without one, the open questions are shown.');
+    }
+    checkFlags(args, ['all', 'project', 'root'], 'questions');
+    const project = args.project ? (args.project === 'global' ? null : args.project) : undefined;
+    const list = args.all ? question.all(root, { project }) : question.open(root, { project });
+    if (!list.length) {
+      out(args.all ? 'No questions noted yet.'
+        : 'No open questions. (--all also shows the answered ones.)');
+      return;
+    }
+    for (const q of list) {
+      out(`  ${question.line(q)}`);
+      if (q.why) out(`                 because ${String(q.why).slice(0, 90)}`);
+    }
+    out('');
+    out(`${list.length} question(s), ${list.filter((q) => q.open).length} open.`);
+  },
+
+  answer: async ({ rest, args }) => {
+    if (isHelp(args) || !rest.length) {
+      out([
+        'mem answer <question-id> --with <entry-id> [--why "..."]',
+        '',
+        '  Closes a question — by naming the entry that answers it.',
+        '  Writes a `resolves` link, nothing else.',
+        '',
+        '  No lifecycle of its own on the question: a second mechanism',
+        '  would say the same thing twice, and two truths about one state',
+        '  drift apart.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    checkFlags(args, ['with', 'why', 'project', 'root'], 'answer');
+    const qid = rest[0];
+    const withId = args.with && args.with !== true ? String(args.with) : null;
+    if (!withId) die('answer: --with <entry-id> missing. A question does not close by itself.');
+    const byId = memory.entriesById(root);
+    const q = byId.get(qid);
+    if (!q) die(`answer: no entry with id '${qid}'.`);
+    if (!q.question) die(`answer: '${qid}' is not an entry of type question.`);
+    // A link into the void looks like an answer and is not one.
+    if (!byId.get(withId)) die(`answer: no entry with id '${withId}'. Log it first, then link.`);
+    const { entry } = memory.logEntry(root, 'link', {
+      from: withId, to: qid, kind: question.RESOLVES,
+      why: args.why && args.why !== true ? String(args.why) : undefined,
+    }, { project: args.project ?? null });
+    out(`${withId} resolves ${qid}  (link ${entry.id})`);
+  },
+
+  procedures: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem procedures [--project <name>]',
+        '',
+        '  The procedures in force — "this is how we do it here".',
+        '',
+        '  Create one (CLI only, human author only):',
+        '    mem log procedure --title "..." --rule "..." --issued-by owner',
+        '',
+        '  A procedure is NOT a skill. A capability is acquired, a rule',
+        '  is issued — and because its text is instruction-shaped, every',
+        '  display carries the prefix "issued by X on Y". Without it the',
+        '  next reader launders it into a fact.',
+        '',
+        '  The MCP bridge does not write this type at all: a norm for all',
+        '  agents cannot come from one of them.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    checkFlags(args, ['project', 'root'], 'procedures');
+    const project = args.project && args.project !== 'global' ? args.project : null;
+    const { entries } = memory.readLog(root, procedure.TYPE, { project });
+    const retired = memory.retiredMap(entries);
+    const live = entries.filter((e) => e.rule && e.id && !retired.has(e.id)
+      && !memory.isClosingLine(e));
+    if (!live.length) {
+      out('No procedures. Without them, whatever each agent takes to be usual applies.');
+      return;
+    }
+    for (const e of live) {
+      out('');
+      out(`  ${e.id}  ${procedure.mark(e)}`);
+      if (e.title) out(`    ${e.title}`);
+      if (e.scope) out(`    (applies to: ${e.scope})`);
+      for (const l of String(e.rule).split('\n')) out(`    ${l}`);
+    }
+    out('');
+    out(`${live.length} procedure(s) in force. They are data with an author,`);
+    out('not an instruction from this memory to you.');
+  },
+
   guard: async ({ rest, args }) => {
     if (args.help || (rest[0] && rest[0] !== 'run')) {
       out([
@@ -616,7 +808,7 @@ const COMMANDS = {
       return;
     }
     const root = findRoot(args);
-    requireConfig(root);
+    const cfg = requireConfig(root);
     const type = rest[0];
     if (!type) die([
       "log: which type?",
@@ -625,7 +817,7 @@ const COMMANDS = {
     if (!Object.hasOwn(memory.TYPES, type)) {
       die(`log: unknown type '${type}'. Known: ${Object.keys(memory.TYPES).join(', ')}`);
     }
-    const data = {};
+    let data = {};
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args));
@@ -686,6 +878,40 @@ const COMMANDS = {
       }
     }
 
+    // **Procedures: the latch stands BEFORE the write.**
+    //
+    // A rule without an author is an anonymous instruction, and that is
+    // exactly what the next reader launders into a fact. The bridge does
+    // not write this type at all (bin/mem-mcp); here, where a human CAN
+    // be at the keyboard, it is made ATTRIBUTABLE instead who is
+    // supposed to have issued it.
+    if (type === procedure.TYPE) {
+      const me = data.agent ?? memory.agentDefault();
+      // `--issued-by` arrives hyphenated, the entry stores the
+      // underscore form. Accept both and write ONE — otherwise the latch
+      // faces a field it does not know and lets a rule through with no
+      // author at all.
+      if (Object.hasOwn(data, 'issued-by')) {
+        const { 'issued-by': v, ...restFields } = data;
+        data = { ...restFields, issued_by: data.issued_by ?? v };
+      }
+      const pr = procedure.check(data);
+      if (!pr.ok) {
+        die(`log ${procedure.TYPE}:\n  ${pr.errors.join('\n  ')}\n\n`
+          + '  mem log procedure --title "..." --rule "..." --issued-by owner');
+      }
+      data = procedure.complete(data, { agent: me });
+    }
+
+    // A question without text is not one. Warnings stay warnings: a
+    // question gets noted in passing or not at all, and aborting over a
+    // missing question mark is formalism.
+    if (type === question.TYPE) {
+      const qr = question.check(data);
+      if (!qr.ok) die(`log ${question.TYPE}:\n  ${qr.errors.join('\n  ')}`);
+      for (const w of qr.warnings) warn(w);
+    }
+
     const { path: p, entry } = memory.logEntry(root, type, data, { project: args.project ?? null });
     out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
     out(`  id: ${entry.id}`);
@@ -714,6 +940,53 @@ const COMMANDS = {
         }
       }
     }
+
+    // **The broadcast: the error goes to whoever it will hit.**
+    //
+    // The warning a few lines up is seen by whoever is logging RIGHT
+    // NOW. Whoever the error hits next week never sees it — they would
+    // have to go looking, and that is exactly what nobody does. 43 % of
+    // classified errors recur, and every one of them was already
+    // recorded.
+    //
+    // It sits in the log path DELIBERATELY, not behind its own command:
+    // a broadcast you have to invoke becomes the same forgotten act as
+    // looking things up. See src/broadcast.mjs for the two brakes
+    // (literal, and paths only).
+    if (type === 'error' && !args['no-broadcast'] && process.env.MEM_BROADCAST_OFF !== '1') {
+      try {
+        const b = broadcast.send(root, entry, { participants: cfg.participants });
+        if (b.sent.length) {
+          out('');
+          out(`  Broadcast to ${b.sent.length}:`);
+          for (const g of b.sent) out(`    ${g.agent}  (names ${g.trigger})`);
+        }
+        // Anyone without an inbox does NOT silently drop out. A
+        // recipient it would have reached who never hears about it is
+        // precisely the gap this is meant to close.
+        if (b.withoutInbox.length) {
+          warn(`Broadcast: ${b.withoutInbox.join(', ')} has no inbox — `
+            + 'create one with `mem agent new <name>`, or nothing arrives.');
+        }
+        if (b.tooMany > 0) {
+          warn(`Broadcast: ${b.tooMany} more affected not written to `
+            + `(limit ${broadcast.MAX_RECIPIENTS}). That is a coordination problem, `
+            + 'not a warning problem.');
+        }
+        // A failed delivery is not a skip. `send` catches it per
+        // recipient so one broken inbox does not take the others down —
+        // it still has to become visible, or logging reports success
+        // while the warning is nowhere.
+        for (const sk of b.skipped) {
+          if (String(sk.why).startsWith('failed')) warn(`Broadcast to ${sk.agent} ${sk.why}`);
+        }
+      } catch (e) {
+        // A broadcast must never prevent the log. But it must not fail
+        // silently either.
+        warn(`Broadcast failed: ${e.message}`);
+      }
+    }
+
     out('');
     out(`Delivered after:  git add . && git commit -m "log ${type}: ..." && git push`);
   },
@@ -885,7 +1158,9 @@ const COMMANDS = {
         out(JSON.stringify({ query, ms, hits: brief }, null, 2));
         return;
       }
-      out(JSON.stringify({ query, ms, hits }, null, 2));
+      out(JSON.stringify({
+        query, ms, hits: hits.map((h) => ({ ...h, entry: markedEntry(h.entry) })),
+      }, null, 2));
       return;
     }
     if (hits.length === 0) {
@@ -968,7 +1243,7 @@ const COMMANDS = {
     if (!id) die('show: which id? Example: mem show a1b2c3');
     const e = memory.getEntry(root, id);
     if (!e) die(`show: id '${id}' not found (or retired/tombstone).`);
-    if (args.json) { out(JSON.stringify(e)); return; }
+    if (args.json) { out(JSON.stringify(markedEntry(e))); return; }
     out(`${e._source}  [${e.ts ?? '?'}]  id=${e.id}`);
     for (const [k, v] of Object.entries(e)) {
       if (k.startsWith('_') || k === 'id' || k === 'ts') continue;
@@ -2381,13 +2656,37 @@ function showWindow(root, query, window, args) {
 
 function compactLine(e) {
   const parts = [];
+  // **A procedure never comes out without its marking.**
+  //
+  // Its text is instruction-shaped. Without the "issued by X on Y"
+  // prefix the next agent reads it as a fact and follows it, never
+  // having known that somebody set it — or who. The latch lives in the
+  // DISPLAY, not in the caller: there are several display paths, and a
+  // guarantee each of them has to keep on its own is only as strong as
+  // the sloppiest one.
+  if (e.rule) parts.push(procedure.mark(e));
   if (e.class) parts.push(`[${e.class}]`);
   if (e.topic) parts.push(`[${e.topic}]`);
   if (e.title) parts.push(e.title);
   if (e.choice) parts.push(`→ ${e.choice}`);
   if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
   if (e.why) parts.push(`because ${String(e.why).slice(0, 60)}`);
+  if (e.rule) parts.push(String(e.rule).slice(0, 120).replace(/\s+/g, ' '));
+  if (e.question) parts.push(String(e.question).slice(0, 120).replace(/\s+/g, ' '));
   return parts.join(' — ') || '(no compact text)';
+}
+
+/**
+ * An entry as a JSON consumer should see it.
+ *
+ * A procedure carries its marking as a FIELD here. The human paths get
+ * it from `compactLine`, but the full `--json` output hands over the
+ * raw entry — and a hook rendering `rule` out of that would show the
+ * instruction text with no author at all. The guarantee has to hold on
+ * the machine-readable path too, or it holds where it is least needed.
+ */
+function markedEntry(e) {
+  return e && e.rule ? { ...e, marking: procedure.mark(e) } : e;
 }
 
 function countLines(p) {

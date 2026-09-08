@@ -19,7 +19,7 @@ the verification commands at the end.
 
 | Area | What exists | Section |
 |---|---|---|
-| **Data model** | 10 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
+| **Data model** | 12 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
 | **Provenance** | `author`, `authority` tiers, `origin.derived_from`, `origin.raw`, git history | [1.3](#13-provenance) |
 | **Retrieval** | BM25 over weighted fields, curated thesaurus, learned tag graph, compound splitting, exact-identifier lane, MMR diversity, raw-capture reserve lane, recency bonus, optional embeddings fused by RRF, time-window search | [2](#2-retrieval) |
 | **Truth over time** | `valid_from` / `valid_until`, `key`-tracked changing facts, `as_of` historical queries, staleness flagging, supersession via `replaces_id`, contradiction marking | [3](#3-truth-over-time) |
@@ -28,7 +28,7 @@ the verification commands at the end.
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 35 CLI commands, 20 MCP tools, an HTTP viewer, a self-check (`mem doctor`) | [7](#7-surfaces) |
-| **Multi-agent** | origin stamped on every write, error latches that turn a recorded error into a check, heartbeats separating "dead" from "nothing to do" | [10](#10-multi-agent) |
+| **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own | [10](#10-multi-agent) |
 | **Measurement** | 15 benchmarks, an eval harness with a frozen reference run, 489 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
@@ -395,13 +395,14 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 37 commands
+### 7.1 CLI — 41 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
 thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
-viewer project correction version guard heartbeat
+viewer project correction version guard heartbeat questions answer
+procedures broadcast
 ```
 
 Every command takes `--help`. `mem doctor` is the self-check: it
@@ -647,3 +648,94 @@ sentence and naturally contains commas ("too heavy, and too much
 ops"); a comma split turns one statement into two fragments that say
 nothing. In the reference deployment the same mistake once made 17
 entries unfindable by tag.
+
+### 10.5 Error broadcast — `src/broadcast.mjs`
+
+Measured: 43 % of classified errors recurred, across days rather than
+within one session. **Every one of them had already been recorded.** It
+just was not read, because reading was the reader's duty.
+
+If agent A logs an error about a file B has touched, B finds a note in
+its inbox — with evidence, no model call, and B does not have to
+remember.
+
+Two brakes, and they are the actual design:
+
+**The trigger is a PATH, matched literally.** If the error names no
+path, nothing goes out. A ranked search always returns something, and a
+broadcast that fires at everybody on every error is noise after the
+third one — worse than silence, because it takes the real warning with
+it. The memory's own log files are excluded: an error that talks about
+logging would otherwise match everybody who ever wrote about the log.
+
+**A duplicate marker in the subject** (`[bc:<id>]`). A channel that
+redelivers the same note on every run gets switched off, and then it is
+gone entirely.
+
+A recipient is somebody who demonstrably touched the file — evidenced
+by an entry of their own naming the path AND carrying an agent field.
+Recipients without an inbox are **reported, never dropped silently**.
+It hangs off both write paths, CLI and bridge: the bridge is where the
+foreign agents write, and a broadcast that only the CLI triggers would
+never carry an error filed by a connected model.
+
+Reach grows with origin stamping (10.1), not by loosening this. In the
+reference deployment a dry run over the last 60 errors found a
+recipient in 3 cases; that number is a statement about how much
+provenance exists, not about the lane.
+
+### 10.6 Procedures — `src/procedure.mjs`, `mem procedures`
+
+A `skill` here means "a capability acquired, with evidence" — a
+statement ABOUT an agent. A procedure is a norm FOR ALL. A capability
+is acquired; a procedure is issued. Conflating them is what made the
+original "skill lane" idea dangerous.
+
+**The body of a procedure IS an instruction**, which collides with the
+rule everything else rests on: what comes back out of the memory is
+data. So three latches, all mechanical:
+
+1. **The bridge does not write this type.** Not as a permission, not as
+   a flag — at all. `mem_log` refuses `type: procedure` and names the
+   way out (propose it as a `thought`, or message the owner). Anybody
+   can set a field; nobody can set a missing write path.
+2. **Issued and written are two fields.** `issued_by` must be a human
+   (`owner` or `human:<name>`); an agent name is refused. If somebody
+   else typed it, the entry carries `on_instruction: true`.
+3. **Every display carries the marking** "Procedure, issued by X on Y" —
+   the CLI's human line, `--json --brief`, the full `--json` (as a
+   `marking` field), the MCP bridge, and the viewer. Five paths, because
+   a guarantee each of them keeps on its own is only as strong as the
+   sloppiest.
+
+**What is NOT solved, stated plainly.** Who is "the user" for a foreign
+agent? It connects under an agent name, and "the owner asked me to" is
+unfalsifiable from there. No field fixes that — a field anybody can set
+is not authority. What is achieved is narrower: the write path is
+closed, and where writing happens it is attributable who claims to have
+ordered it. A forgeable claim becomes a forgeable but visible one.
+
+### 10.7 Open questions — `src/question.mjs`, `mem questions`
+
+Across the ten original entry types there was none for "we do not know
+this". Everything the memory could hold was known.
+
+```
+mem questions new "..."            note one
+mem questions [--all]              what is open
+mem answer <id> --with <entry-id>  close it
+```
+
+**Not a state on `duty`.** A duty has a debtor and counts as neglected
+when it sits; a question has no owner and may stay open for years
+without anybody being at fault. Filing questions as duties would
+manufacture a pile of apparently neglected work.
+
+**No lifecycle of its own.** A question closes when something answers
+it, and the `resolves` edge already exists. The state is read from the
+GRAPH and only from there — a field on the question would be a second
+truth about one state, and the two would drift.
+
+A missing question mark warns but does not block: a question gets noted
+in passing or not at all, and refusing one over punctuation is
+formalism.

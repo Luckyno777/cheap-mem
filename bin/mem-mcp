@@ -58,9 +58,28 @@ import * as raw from '../src/raw.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
 import * as store from '../src/store.mjs';
+import * as procedure from '../src/procedure.mjs';
+import * as broadcast from '../src/broadcast.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
+
+/**
+ * Who this bridge writes as.
+ *
+ * **Not `agentDefault()`.** That falls back to `human:<os user>`, which
+ * is true at a shell and a LIE here: a connected model is not the
+ * person whose account the server happens to run under. An invented
+ * origin looks like evidence, so it is worse than a vague one.
+ *
+ * `CHEAP_MEM_AGENT` is how a deployment names its connected agent
+ * (`chatgpt`, `codex`, `cursor`). Unset, the honest answer is that we
+ * only know it came over the bridge.
+ */
+function resolveAgent() {
+  const set = String(process.env.CHEAP_MEM_AGENT ?? '').trim();
+  return set || 'mcp-client';
+}
 
 function resolveRoot() {
   if (process.env.CHEAP_MEM_ROOT) return path.resolve(process.env.CHEAP_MEM_ROOT);
@@ -463,13 +482,62 @@ async function handleCall(name, args) {
 
   switch (name) {
     case 'mem_log': {
-      const { type, project = null, tags, ...fields } = args;
-      const data = { ...fields };
+      // **The bridge writes no procedures.**
+      //
+      // Not as a permission, not as a flag — at all. The body of a
+      // procedure IS an instruction; with this path open, a connected
+      // foreign agent could hand orders to every other agent, and
+      // retrieval would carry them instruction-shaped into every
+      // session.
+      //
+      // This is the one boundary no agent may cross. It stands HERE and
+      // not as a field check: anybody can set a field, nobody can set a
+      // missing write path.
+      if (args.type === procedure.TYPE) {
+        throw new Error(
+          `'${procedure.TYPE}' is not written over the bridge. A procedure is a norm `
+          + 'for ALL agents and therefore cannot come from one of them. A human creates '
+          + 'one at the CLI: mem log procedure --issued-by owner. To propose one: '
+          + 'mem_log with type thought, or a message to the owner.');
+      }
+      // Identity is not a parameter. Fields that determine origin cannot
+      // be set by the caller, or `agent` would be a claim instead of a
+      // fact — and a foreign agent could file its work under somebody
+      // else's name.
+      const { type, project = null, tags, agent: _ignored, id: _no, ts: _neither, ...fields } = args;
+      const data = { ...fields, agent: resolveAgent() };
       if (Array.isArray(tags)) data.tags = tags;
       const { path: p, entry } = memory.logEntry(root, type, data, { project });
-      return textResult(
-        `Appended: ${path.relative(root, p)}\n  id: ${entry.id}\n  ts: ${entry.ts}\n\n` +
+      const lines = [
+        `Appended: ${path.relative(root, p)}`,
+        `  id: ${entry.id}   agent: ${entry.agent}`,
+      ];
+
+      // **The broadcast belongs HERE too, not only in bin/mem.**
+      //
+      // It is the actual multi-agent function, and the bridge is where
+      // the FOREIGN agents write. If it hung only off the CLI, an error
+      // filed by a connected model would reach nobody — built, tested,
+      // documented and out of reach of the very agents it is for.
+      if (type === 'error') {
+        try {
+          const b = broadcast.send(root, entry, { participants: cfg.participants });
+          if (b.sent.length) {
+            lines.push(`Broadcast to ${b.sent.map((g) => g.agent).join(', ')} `
+              + `(they name ${[...new Set(b.sent.map((g) => g.trigger))].join(', ')}).`);
+          }
+          if (b.withoutInbox.length) {
+            lines.push(`No inbox, so not reached: ${b.withoutInbox.join(', ')}.`);
+          }
+        } catch (e) {
+          // Never topple the log — but never stay silent either.
+          lines.push(`Broadcast failed: ${e.message}`);
+        }
+      }
+
+      lines.push('',
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'log ${type}: ...' && git -C ${root} push`);
+      return textResult(lines.join('\n'));
     }
     case 'mem_links': {
       const g = memory.linksOf(root, args.id);
@@ -715,11 +783,22 @@ function sinceOf(s) {
 
 function shortLine(e) {
   const parts = [];
+  // **A procedure never comes out without its marking.**
+  //
+  // Its text is instruction-shaped. Without the "issued by X on Y"
+  // prefix the next agent reads it as a fact and follows it, never
+  // having known that somebody set it — or who. The latch lives in the
+  // DISPLAY, not in the caller: there are several display paths, and a
+  // guarantee each of them has to keep on its own is only as strong as
+  // the sloppiest one.
+  if (e.rule) parts.push(procedure.mark(e));
   if (e.class) parts.push(`[${e.class}]`);
   if (e.topic) parts.push(`[${e.topic}]`);
   if (e.title) parts.push(e.title);
   if (e.choice) parts.push(`→ ${e.choice}`);
   if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
+  if (e.rule) parts.push(String(e.rule).slice(0, 120).replace(/\s+/g, ' '));
+  if (e.question) parts.push(String(e.question).slice(0, 120).replace(/\s+/g, ' '));
   return parts.join(' — ') || '(no summary)';
 }
 

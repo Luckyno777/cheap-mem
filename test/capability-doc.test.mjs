@@ -38,7 +38,11 @@ const module = () => fs.readdirSync(path.join(REPO, 'src'))
 test('POSITIV: die Sonden lesen die Oberflaeche wirklich aus', () => {
   assert.ok(cliBefehle().length >= 30, `nur ${cliBefehle().length} CLI-Befehle gefunden`);
   assert.ok(mcpWerkzeuge().length >= 15, `nur ${mcpWerkzeuge().length} MCP-Werkzeuge gefunden`);
-  assert.equal(typen().length, 10);
+  // Feste Zahlen, keine Untergrenzen: eine Untergrenze haette den
+  // Zuwachs von 10 auf 12 (question, procedure am 2026-09-08) still
+  // durchgelassen, und genau dieser Test soll erzwingen, dass jemand
+  // die Referenz anfasst, wenn sich die Oberflaeche aendert.
+  assert.equal(typen().length, 12);
   assert.equal(kanten().length, 4);
   assert.ok(module().length >= 25);
 });
@@ -97,4 +101,33 @@ test('die README fuehrt zur Referenz, und zwar frueh', () => {
   const at = readme.indexOf('CAPABILITIES.md');
   assert.ok(at > 0, 'die README verweist nicht auf docs/CAPABILITIES.md');
   assert.ok(at < 3000, `der Verweis steht erst bei Zeichen ${at} — zu weit unten`);
+});
+
+// --- Und die andere Richtung ----------------------------------------
+//
+// Der Riegel oben prueft, ob jede EXISTIERENDE Faehigkeit in der
+// Referenz steht. Die Umkehrung fehlte, und sie ist beim Port am
+// 2026-09-08 sofort schiefgegangen: die Referenz nannte einen Befehl
+// `broadcast`, den es noch gar nicht gab. Eine Referenz, die zu VIEL
+// behauptet, ist genauso irrefuehrend wie eine, die zu wenig nennt —
+// nur schwerer zu bemerken, weil nichts fehlt.
+test('DIE UMKEHRUNG: die Referenz nennt keinen Befehl, den es nicht gibt', () => {
+  const doku = lies('docs/CAPABILITIES.md');
+  // Nur der Codeblock in 7.1 — Fliesstext nennt Befehle in Beispielen,
+  // und ein Beispiel ist keine Behauptung ueber die Oberflaeche.
+  const block = doku.match(/### 7\.1 CLI[^\n]*\n+```\n([\s\S]*?)```/);
+  assert.ok(block, 'der CLI-Block in 7.1 ist nicht auffindbar');
+  const genannt = block[1].split(/\s+/).filter(Boolean);
+  const echte = new Set(cliBefehle());
+  const erfunden = genannt.filter((n) => !echte.has(n));
+  assert.deepEqual(erfunden, [],
+    `die Referenz nennt Befehle, die es nicht gibt: ${erfunden.join(', ')}`);
+});
+
+test('und die Zahl im Titel stimmt', () => {
+  const doku = lies('docs/CAPABILITIES.md');
+  const m = doku.match(/### 7\.1 CLI — (\d+) commands/);
+  assert.ok(m, 'die Zahl im Titel von 7.1 fehlt');
+  assert.equal(Number(m[1]), cliBefehle().length,
+    `Titel sagt ${m[1]}, der Code hat ${cliBefehle().length}`);
 });
