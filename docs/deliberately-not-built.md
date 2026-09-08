@@ -124,9 +124,23 @@ only model call in the memory, and is told to check with `mem find`
 before writing (see `DIGEST.md`). Same effect, three orders of magnitude
 fewer calls.
 
-**What would change our mind:** a measured duplicate rate high enough
-that the digest is demonstrably not consolidating. That measurement is
-on the roadmap and has not been run.
+**Measured, 2026-09-08.** The rate is **1.8 %** — 8 suspect pairs among
+902 digested entries on a real corpus (`bench/duplicate-rate.mjs`,
+Jaccard ≥ 0.6 over title and text, no model). And the residue is not
+what the objection assumes: most pairs are the SAME entry filed both
+globally and under a project. That is a scoping question, not a digest
+failing to consolidate.
+
+A first run reported 5.6 %. It was counting alias records — four
+legitimate topic mappings that share one justification text. Excluding
+mappings (they are relations, not findings) brought it to 1.8 %. The
+raw number would have blamed the digest for something that is not a
+fault; the tool now excludes them and says so.
+
+**What would change our mind:** a rate high enough that the digest is
+demonstrably not consolidating. 1.8 %, dominated by double-filing, is
+not it. Re-run the bench on your own corpus before believing this
+number — it is one memory.
 
 ---
 
