@@ -186,10 +186,10 @@ test('the HTML escapes what came out of the memory', () => {
   // Every tile line is memory content. The bridge tile is the easiest
   // one to steer from outside — anything can write that file.
   const r = root();
-  fs.writeFileSync(path.join(r, '.mem', 'bridge-state.json'), JSON.stringify({
+  fs.appendFileSync(path.join(r, '.mem', 'bridge-reports.jsonl'), `${JSON.stringify({
     seen_at: '2026-09-08T11:00:00Z',
     version: '<script>alert(1)</script>',
-  }));
+  })}\n`);
   const html = board.asHtml(board.board(r, { now: NOW }));
   assert.ok(!html.includes('<script>alert(1)</script>'), 'unescaped into the page');
   assert.ok(html.includes('&lt;script&gt;'), 'not escaped, just missing');

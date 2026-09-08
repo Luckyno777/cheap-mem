@@ -23,7 +23,7 @@ to verify each claim rather than believe it.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-08: **48 CLI commands, 26 MCP tools, 42 modules, 708
+As of 2026-09-08: **48 CLI commands, 28 MCP tools, 42 modules, 715
 tests**, at **94.12 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
 code and fails when this line drifts.
 
@@ -272,7 +272,7 @@ mem board [--html --json]      the operating state on one screen: archive,
 mem status                     which of the five install steps have happened
 mem classes [--open]           the twelve error classes, and how much of
                                this memory they actually cover
-mem bridge state <short-hash>  an MCP bridge reports the checkout it serves
+mem bridge report <short-hash> an MCP bridge reports the checkout it serves
 
 mem whoami [<name>]            who this install is in the channel
 mem retrieve "<question>"      STRUCTURED claims: author, authority, scope,

@@ -64,6 +64,7 @@ import * as heartbeat from '../src/heartbeat.mjs';
 import * as question from '../src/question.mjs';
 import * as component from '../src/component.mjs';
 import * as source from '../src/source.mjs';
+import * as board from '../src/board.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -149,6 +150,44 @@ const TOOLS = [
       type: 'object',
       properties: {
         what: { type: 'string', description: 'What you are working on, half a sentence' },
+      },
+    },
+  },
+  {
+    name: 'mem_bridge_report',
+    description:
+      'Report which checkout YOU are serving — the short commit hash of the working '
+      + 'copy this server runs from. From inside, nothing can measure which process '
+      + 'is running out there: on 2026-09-08 an MCP server served a whole day from '
+      + 'the previous day\'s checkout, six entries missing from its tool list, and an '
+      + 'outside agent noticed rather than us. Without this report the bridge tile on '
+      + '`mem board` stays "unknown" forever. Once per process start is enough.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        version: {
+          type: 'string',
+          description: 'The short commit hash, e.g. from `git rev-parse --short HEAD` '
+            + 'in the directory this server runs from.',
+        },
+      },
+      required: ['version'],
+    },
+  },
+  {
+    name: 'mem_board',
+    description:
+      'The operating state on one screen: raw archive, digest, error classes, agents, '
+      + 'open questions, installation, bridge. Every tile says how old its answer is '
+      + 'and whether it could be measured at all — "unknown" is explicitly NOT calm. '
+      + 'Costs no model call; it only reads files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days: {
+          type: 'number',
+          description: 'Window for the error-class tile, in days (default 14).',
+        },
       },
     },
   },
@@ -619,6 +658,24 @@ async function handleCall(name, args) {
         'The quiet period is deliberate — a pulse every three minutes would be',
         '480 lines per agent per day.',
       ].join('\n'));
+    }
+
+    case 'mem_bridge_report': {
+      // Written through src/board.mjs, the same function `mem bridge
+      // report` uses. A second writer of one record would be the class
+      // this board exists to display.
+      const { row } = board.report(root, args.version, { by: resolveAgent() });
+      return textResult([
+        `Reported: ${row.version}, by '${row.by}'.`,
+        'It is on the board from now on. Please report again after a restart.',
+      ].join('\n'));
+    }
+
+    case 'mem_board': {
+      const b = board.board(root, {
+        windowDays: Number.isFinite(args.days) ? args.days : undefined,
+      });
+      return textResult(board.asText(b));
     }
 
     case 'mem_questions': {

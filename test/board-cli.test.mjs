@@ -110,9 +110,9 @@ test('mem classes --open names what it could not map', () => {
   assert.ok(!res.stdout.includes('looks-right-does-nothing'));
 });
 
-test('mem bridge state reports, and the board picks it up', () => {
+test('mem bridge report lands, and the board picks it up', () => {
   const r = root();
-  const set = mem(r, 'bridge', 'state', 'deadbee');
+  const set = mem(r, 'bridge', 'report', 'deadbee');
   assert.equal(set.status, 0, set.stderr);
   const res = mem(r, 'board');
   assert.match(res.stdout, /serving version deadbee/);
@@ -122,10 +122,10 @@ test('mem bridge state reports, and the board picks it up', () => {
   assert.equal(b.tiles.find((t) => t.id === 'bridge').state, 'calm');
 });
 
-test('mem bridge state without a hash refuses', () => {
+test('mem bridge report without a hash refuses', () => {
   const r = root();
-  const res = mem(r, 'bridge', 'state');
+  const res = mem(r, 'bridge', 'report');
   assert.notEqual(res.status, 0);
-  assert.equal(fs.existsSync(path.join(r, '.mem', 'bridge-state.json')), false,
+  assert.equal(fs.existsSync(path.join(r, '.mem', 'bridge-reports.jsonl')), false,
     'a half-set state was written anyway');
 });

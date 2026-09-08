@@ -254,6 +254,63 @@ export function tileSetup(root, { env = process.env, home } = {}) {
 }
 
 /**
+ * Where the reports live. Under `.mem/`, so gitignored — they are a
+ * finding about THIS machine.
+ *
+ * **Appended, never overwritten.** The first draft rewrote a single
+ * JSON file, and that broke the sibling project's rule that no bridge
+ * tool may change or delete anything. The rule was right and the draft
+ * was wrong. History falls out of it for free: since when has this
+ * server been serving the same checkout, and how often has it restarted.
+ */
+export const REPORT_FILE = path.join('.mem', 'bridge-reports.jsonl');
+
+/**
+ * Report the checkout being served.
+ *
+ * **Here, not in bin/mem.** The command started life in the CLI only —
+ * and the agents this is about come in over the BRIDGE and have no CLI.
+ * A capability missing where the work happens is not a capability, and
+ * it would have left the tile on `unknown` forever for exactly the
+ * cases it was built for. Two callers, one function: otherwise the two
+ * spellings of the record drift apart.
+ */
+export function report(root, version, { by = null } = {}) {
+  const v = String(version ?? '').trim();
+  if (!v) throw new Error('Nothing to report without a short hash.');
+  const row = {
+    version: v,
+    seen_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    by: by ?? process.env.CHEAP_MEM_AGENT ?? 'unknown',
+  };
+  const file = path.join(root, REPORT_FILE);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf8');
+  return { row, file };
+}
+
+/**
+ * The newest report, or null.
+ *
+ * Broken lines are SKIPPED, not swallowed: one half-written line must
+ * not make the tile say "never reported" while twenty good lines sit
+ * above it.
+ */
+export function readReport(root) {
+  let text;
+  try { text = fs.readFileSync(path.join(root, REPORT_FILE), 'utf8'); }
+  catch { return null; }
+  for (const line of text.split('\n').reverse()) {
+    if (!line.trim()) continue;
+    try {
+      const row = JSON.parse(line);
+      if (row?.seen_at) return row;
+    } catch { /* next */ }
+  }
+  return null;
+}
+
+/**
  * Is the bridge running the code that is in the repo?
  *
  * **The tile that cost 2026-09-08.** An MCP server ran a whole day on
@@ -267,16 +324,13 @@ export function tileSetup(root, { env = process.env, home } = {}) {
  * inferred one from the other would be guessing.
  */
 export function tileBridge(root) {
-  let state = null;
-  try {
-    state = JSON.parse(fs.readFileSync(path.join(root, '.mem', 'bridge-state.json'), 'utf8'));
-  } catch { /* nobody reported one */ }
+  const state = readReport(root);
 
   if (!state?.seen_at) {
     return {
       id: 'bridge', title: 'MCP bridge', state: STATE.UNKNOWN,
       line: 'no state reported — not measurable from here',
-      detail: 'An agent reports it with: mem bridge state <short-hash>',
+      detail: 'An agent reports it with: mem bridge report <short-hash>',
     };
   }
   return {

@@ -54,8 +54,13 @@ are the day the work landed on `main`.
   calm by omission. Every tile carries its own age; a condition that is
   normal is never drawn as a loss (a capture recorded by another machine
   counts as `foreign`, not `missing`).
-- `mem bridge state <short-hash>` — an MCP bridge reports the checkout
-  it is serving. The board cannot measure that from inside, so it stays
+- `mem bridge report <short-hash>` — an MCP bridge reports the checkout
+  it is serving. Reports are **appended** to
+  `.mem/bridge-reports.jsonl`, never overwritten: the first draft
+  rewrote one JSON file, which would have made it the only bridge tool
+  that CHANGES something. Appending also answers a question the
+  overwrite could not — since when has this server been on the same
+  checkout, and how often has it restarted. The board cannot measure that from inside, so it stays
   `unknown` until something reports. On 2026-09-08 a bridge ran a whole
   day on the previous day's checkout and an outside agent noticed; a
   board that inferred the running state from the repo state would have
@@ -75,6 +80,17 @@ are the day the work landed on `main`.
   token has read-only access to the repository. `workflow_dispatch`
   exercises everything except the publish, because a release path only
   ever run for real is one nobody has tested.
+- **`mem_bridge_report` and `mem_board` at the MCP bridge.** The bridge
+  tile asks whether the server outside is serving the code in this repo.
+  From inside that is unmeasurable, so the server must report it — and
+  the command for it existed only in the CLI, while the agents it is
+  about come in over the bridge and have no CLI. The tile would have
+  stayed `unknown` forever for exactly the cases it was built for.
+- The bridge tool list is now **asserted by name** in
+  `test/bridge-reach.test.mjs`. `docs/CAPABILITIES.md` had claimed that
+  guard existed since the port; it did not. A guarantee stated in the
+  reference and absent from the code is worse than a missing one,
+  because a reader who believes it stops looking.
 - Two guards for the parts CI cannot reach: `test/package-contents.test.mjs`
   walks every relative import from both entry points and asks whether
   `package.json`'s `files` list would ship it (an omission there fails

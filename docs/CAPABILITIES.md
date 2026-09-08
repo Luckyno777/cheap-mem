@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 48 CLI commands, 26 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 48 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 708 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 715 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -472,7 +472,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 26 tools
+### 7.2 MCP — 28 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio.
@@ -486,6 +486,8 @@ Desktop). `bin/mem-mcp`, stdio.
 | `mem_procedures` | the procedures in force, each with its author |
 | `mem_component` | everything about one file, across both spellings |
 | `mem_source` | take in an address as a source (no local paths) |
+| `mem_bridge_report` | report which checkout this server is serving |
+| `mem_board` | the operating state on one screen |
 | `mem_find` | ranked search |
 | `mem_retrieve` | ranked retrieval returning structured claims |
 | `mem_show` | one entry in full |
@@ -520,6 +522,20 @@ deletes, commits or pushes. The tool list is asserted **by name** in
 the test suite, so a new tool is a decision someone makes rather than
 one that happens.
 
+`mem_bridge_report` writes, and stays inside that rule the same way
+`mem_log` does: it APPENDS a line to `.mem/bridge-reports.jsonl` and
+there is no path through it that changes or removes an existing one.
+The first draft rewrote a single JSON file — which would have broken
+the rule, and the rule was right. Appending also answers a question the
+overwrite could not: since when has this server been on the same
+checkout, and how often has it restarted.
+
+It has to be here rather than only in the CLI. The bridge tile asks
+whether the server outside is serving the code in this repo; from
+inside that is unmeasurable, and the only party who knows is the server
+— which comes in over the bridge and has no CLI. A capability missing
+where the work happens is not a capability.
+
 ### 7.3 Viewer
 
 An HTTP view for rummaging through the memory, with the same scope
@@ -533,7 +549,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 708 tests
+npm test                                    # 715 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
@@ -1107,7 +1123,7 @@ permanently red on every machine but one.
 
 The bridge tile is the honest case. From inside, this repo cannot know
 which process is running out there, so it does not guess: it stays
-`unknown` until an agent reports with `mem bridge state <short-hash>`.
+`unknown` until an agent reports with `mem bridge report <short-hash>`.
 A tile that inferred the running state from the repo state would have
 shown green for the whole day the bug lasted.
 

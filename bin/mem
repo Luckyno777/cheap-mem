@@ -1634,7 +1634,7 @@ const COMMANDS = {
     const sub = rest[0];
     if (isHelp(args) || !sub) {
       out([
-        'mem bridge state <short-hash> [--version X]',
+        'mem bridge report <short-hash>',
         '',
         '  An MCP bridge reports which checkout it is SERVING.',
         '',
@@ -1647,20 +1647,15 @@ const COMMANDS = {
       ].join('\n'));
       return;
     }
-    if (sub !== 'state') die(`bridge: unknown subcommand '${sub}'. Known: state`);
-    checkFlags(args, ['version', 'root'], 'bridge state');
+    if (sub !== 'report') die(`bridge: unknown subcommand '${sub}'. Known: report`);
+    checkFlags(args, ['root'], 'bridge report');
     const hash = rest[1];
-    if (!hash) die('bridge state: which checkout? Give the short hash.');
+    if (!hash) die('bridge report: which checkout? Give the short hash.');
     const root = findRoot(args);
-    const row = {
-      version: args.version && args.version !== true ? String(args.version) : String(hash),
-      hash: String(hash),
-      seen_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-      by: memory.agentDefault(),
-    };
-    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
-    fs.writeFileSync(path.join(root, '.mem', 'bridge-state.json'),
-      `${JSON.stringify(row, null, 2)}\n`, 'utf8');
+    // The write lives in src/board.mjs — the same function the bridge
+    // calls. Two writers of one record would be two truths, and the
+    // tile reads only one of them.
+    const { row } = board.report(root, hash, { by: memory.agentDefault() });
     out(`Bridge reported: ${row.version} (${row.seen_at})`);
   },
 
@@ -3331,7 +3326,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  board  [--html] [--json] [--days N]          every lane on one screen");
   out("  status [--json]                              installed vs. actually working");
   out("  classes [--open]                             the twelve error classes, and coverage");
-  out("  bridge state <short-hash>                    an MCP bridge reports its checkout");
+  out("  bridge report <short-hash>                   an MCP bridge reports its checkout");
   out("");
   out("Global flags: --root <path>   memory root (else CHEAP_MEM_ROOT or walk cwd)");
   process.exit(0);

@@ -304,3 +304,145 @@ test('mem_component finds across both spellings, and says which', () => {
     assert.match(all, /base/, 'the form of the evidence is missing');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// --- The tool list, asserted by name ---------------------------------
+//
+// **This guard was documented before it existed.** `docs/CAPABILITIES.md`
+// 7.2 says: "The tool list is asserted **by name** in the test suite, so
+// a new tool is a decision someone makes rather than one that happens."
+// On 2026-09-08 that sentence was checked and there was no such
+// assertion anywhere. A guarantee stated in the reference and absent
+// from the code is worse than a missing guarantee: a reader who
+// believes it stops looking.
+//
+// The sibling project has had the list since the start, and it has
+// fallen twice — both times correctly, both times making somebody think
+// about what they had just added.
+
+const TOOLS = [
+  'mem_answer', 'mem_board', 'mem_bridge_report', 'mem_component',
+  'mem_context', 'mem_duties', 'mem_duty_close', 'mem_experiences',
+  'mem_explain', 'mem_facts', 'mem_find', 'mem_heartbeat',
+  'mem_inbox_ack', 'mem_inbox_new', 'mem_inbox_show', 'mem_inbox_write',
+  'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
+  'mem_questions', 'mem_retrieve', 'mem_show', 'mem_source',
+  'mem_store_get', 'mem_store_list', 'mem_store_put', 'mem_topics',
+];
+
+test('the tool list is exactly this, by name', () => {
+  const root = gedaechtnis();
+  try {
+    const names = bridge(root).at(-1).result.tools.map((t) => t.name).sort();
+    assert.deepEqual(names, TOOLS,
+      'the bridge surface changed — that is a decision, so it belongs in this list');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('no tool edits, deletes, commits or pushes', () => {
+  const root = gedaechtnis();
+  try {
+    const names = bridge(root).at(-1).result.tools.map((t) => t.name);
+    // Four tools write, and every one of them only APPENDS:
+    //   mem_log            a new line in a log
+    //   mem_heartbeat      a new line, at most hourly
+    //   mem_store_put      a new register line, a content-addressed file
+    //   mem_bridge_report  a new line in the bridge reports
+    //   mem_project_init   a directory skeleton, idempotent
+    //   mem_inbox_write    a new message file
+    //   mem_answer         a new `resolves` edge
+    //   mem_duty_close     a closing line; the original stays
+    // What is missing is any way to change or remove something that is
+    // already there. `mem_inbox_ack` moves one message's own state
+    // forward and nothing else.
+    for (const n of names) {
+      assert.ok(!/delete|remove|edit|update|overwrite|commit|push|reset|purge/i.test(n),
+        `${n} sounds like more than appending and reading`);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- The board and the bridge report ---------------------------------
+//
+// The bridge tile asks whether the server outside is serving the code in
+// this repo. From inside that is unmeasurable, so the server has to
+// REPORT it — and the command for that started life in the CLI only,
+// while the agents it is about come in over the bridge and have no CLI.
+// The tile would have stayed on `unknown` forever, for exactly the cases
+// it was built for.
+
+test('a foreign agent can report its checkout, and the board shows it', () => {
+  // The whole chain in one run: report, then look. A test that only
+  // checks the write leaves open whether the tile finds the record —
+  // and that is where the first version was wrong (two writers, one
+  // reader).
+  const root = gedaechtnis();
+  try {
+    const [, reported, boardAnswer] = bridge(root, [
+      ['mem_bridge_report', { version: 'cafe123' }],
+      ['mem_board', {}],
+    ]);
+    assert.ok(!reported.error, JSON.stringify(reported.error));
+    assert.match(reported.result.content[0].text, /cafe123/);
+    assert.ok(!boardAnswer.error, JSON.stringify(boardAnswer.error));
+    const text = boardAnswer.result.content[0].text;
+    assert.match(text, /cafe123/, 'reported, and the tile does not see it');
+    assert.ok(!/no state reported/.test(text));
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('without a report the board says unknown, not calm', () => {
+  // The counter-probe to the line above. Without it there is no way to
+  // tell whether the tile read the report or is simply always green.
+  const root = gedaechtnis();
+  try {
+    const [, a] = bridge(root, [['mem_board', {}]]);
+    assert.match(a.result.content[0].text, /no state reported/);
+    assert.match(a.result.content[0].text, /unmeasured/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('mem_bridge_report appends, so an earlier report survives', () => {
+  // The rule the first draft broke. It rewrote one JSON file, which
+  // would have made this tool the only one at the bridge that CHANGES
+  // something. Appending also answers a question the overwrite could
+  // not: since when has this server been on the same checkout.
+  const root = gedaechtnis();
+  try {
+    bridge(root, [
+      ['mem_bridge_report', { version: 'aaa1111' }],
+      ['mem_bridge_report', { version: 'bbb2222' }],
+    ]);
+    const lines = fs.readFileSync(path.join(root, '.mem', 'bridge-reports.jsonl'), 'utf8')
+      .split('\n').filter((l) => l.trim());
+    assert.equal(lines.length, 2, 'the second report replaced the first');
+    assert.equal(JSON.parse(lines[0]).version, 'aaa1111');
+    // And the tile takes the NEWEST, not the first.
+    const [, a] = bridge(root, [['mem_board', {}]]);
+    assert.match(a.result.content[0].text, /bbb2222/);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('mem_bridge_report without a version writes nothing', () => {
+  // A half-set report would be worse than none: the tile would go calm
+  // and name a version nobody is running.
+  const root = gedaechtnis();
+  try {
+    const [, a] = bridge(root, [['mem_bridge_report', {}]]);
+    assert.ok(a.error || /error|hash|version/i.test(a.result?.content?.[0]?.text ?? ''),
+      'an empty report was accepted');
+    assert.equal(fs.existsSync(path.join(root, '.mem', 'bridge-reports.jsonl')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the identity in a report comes from the connection, not a parameter', () => {
+  // Same rule as the heartbeat: otherwise one agent could report for
+  // another, and the tile would name the wrong server.
+  const root = gedaechtnis();
+  try {
+    bridge(root, [['mem_bridge_report', { version: 'ddd4444', by: 'somebody-else' }]],
+      { CHEAP_MEM_AGENT: 'session' });
+    const line = JSON.parse(fs.readFileSync(
+      path.join(root, '.mem', 'bridge-reports.jsonl'), 'utf8').trim());
+    assert.equal(line.by, 'session');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
