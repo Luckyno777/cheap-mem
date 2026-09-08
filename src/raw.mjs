@@ -397,7 +397,7 @@ export function capture(root, transcriptPath, {
       detail: `${store.location}: ${e.message}`,
       hint: store.explicit
         ? 'CHEAP_MEM_ARCHIVE points there. Is the target mounted?'
-        : 'The default is .mem/raw inside the working tree.',
+        : 'The default is the tracked raw/ inside the repository.',
     };
   }
 

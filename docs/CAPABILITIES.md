@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 48 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 715 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 718 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -549,7 +549,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 715 tests
+npm test                                    # 718 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
@@ -986,7 +986,25 @@ which one won:
 |---|---|---|
 | 1 | `CHEAP_MEM_ARCHIVE` | one run diverting |
 | 2 | `.mem/archive.json` | this machine — `mem raw archive --set <path>` |
-| 3 | `.mem/raw` | the default when nothing is set |
+| 3 | `raw/` | the default when nothing is set — **tracked** |
+
+> **Why the default is inside the repository rather than beside it.**
+> It read `.mem/raw` for half a day, and `.mem/` is gitignored. On a
+> machine with a disk that is fine. Wherever the repository IS the disk
+> — a cloud container, an ephemeral runner — the capture then reaches
+> nothing that outlives the process, and the stop hook is the only thing
+> that pushes.
+>
+> Measured in the sibling project's own container on 2026-09-08: the
+> last capture that reached the repository was at 19:36, and eight after
+> it would have gone with the container, including those from the
+> session that made the change. `test/stop-persists.sh` had been red
+> about it the whole time and was sitting on a list as an outdated shell
+> test. It was not outdated.
+>
+> So: whoever has a disk says so. Whoever says nothing gets the place
+> that survives. Growth is what a migration on a machine that stays is
+> for; nothing is for captures that are gone.
 
 The machine-local file exists because capturing happens in several
 places — a session's stop hook, the watcher, the digest. Naming the

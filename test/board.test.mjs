@@ -101,7 +101,11 @@ test('a capture missing from THIS archive is an alarm', () => {
 });
 
 test('a capture still in the repository is a task, not a loss', () => {
+  // With an archive SET elsewhere, a capture left in the repo is work
+  // that has not happened yet. Without one set, `raw/` IS the archive
+  // and there is nothing to do — which is why this probe sets one.
   const r = root();
+  archive.setLocation(r, fs.mkdtempSync(path.join(os.tmpdir(), 'cm-boardstore-')));
   fs.mkdirSync(path.join(r, 'raw'), { recursive: true });
   fs.writeFileSync(path.join(r, 'raw', 'old.jsonl'), '{}\n');
   archive.writeRecord(r, { path: 'raw/old.jsonl', bytes: 3, location: path.join(r, 'raw') });

@@ -1681,7 +1681,7 @@ const COMMANDS = {
         '',
         '  The capture does NOT live in the repository — only the record',
         '  does (raw-record.jsonl). Point CHEAP_MEM_ARCHIVE at a folder,',
-        '  a mounted NAS share or a synced drive; the default is .mem/raw',
+        '  a mounted NAS share or a synced drive; the default is the tracked raw/',
         '  inside the working tree.',
       ].join('\n'));
       return;
@@ -1773,7 +1773,7 @@ const COMMANDS = {
       out(`  source: ${{
         env: 'environment variable CHEAP_MEM_ARCHIVE',
         file: `${archive.LOCATION_FILE} (this machine)`,
-        default: 'default (.mem/raw)',
+        default: 'default (tracked raw/)',
       }[store.source]}`);
       out(`  ${rows.length} records, ${here} reachable, ${missing} NOT reachable`);
       out(`  ${(bytes / 1048576).toFixed(2)} MB in the archive`);

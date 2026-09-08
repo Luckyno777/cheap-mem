@@ -33,6 +33,27 @@ function root() {
   return r;
 }
 
+/**
+ * A memory with an archive NEXT TO the repository — the way a machine
+ * with a disk is set up.
+ *
+ * **Why this has to be set now.** Until 2026-09-08 the default was
+ * `.mem/raw` and therefore gitignored, so these probes got the archive
+ * for free. That same default lost eight captures in a cloud container,
+ * where the repository is the only store that survives. The default now
+ * points at the tracked `raw/`, and an archive outside it is a DECISION
+ * per machine.
+ *
+ * The probes now say what they mean: not "somewhere else", but "at the
+ * place this machine named".
+ */
+function withArchive() {
+  const r = root();
+  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-store-'));
+  archive.setLocation(r, store);
+  return { r, store };
+}
+
 function transcript(dir, word = 'zeppelinhall', n = 60, name = 'transcript.jsonl') {
   const lines = [];
   for (let i = 0; i < n; i += 1) {
@@ -47,12 +68,12 @@ function transcript(dir, word = 'zeppelinhall', n = 60, name = 'transcript.jsonl
   return p;
 }
 
-test('a capture lands in the archive and NOT in the repository', () => {
-  const r = root();
+test('a capture lands in the SET archive and NOT in the repository', () => {
+  const { r } = withArchive();
   const e = raw.capture(r, transcript(r), { minBytes: 50 });
   assert.equal(e.status, 'captured');
 
-  const store = archive.readConfig(process.env, r);
+  const store = archive.readConfig({}, r);
   assert.ok(fs.existsSync(path.join(store.location, archive.pathInArchive(e.path))),
     'not in the archive');
   assert.equal(fs.existsSync(path.join(r, e.path)), false,
@@ -295,4 +316,49 @@ test('a record written under the old German name is carried across, not orphaned
   const rows = archive.records(r);
   assert.equal(rows.length, 2);
   assert.deepEqual(rows.map((x) => x.path), ['raw/old.jsonl', 'raw/new.jsonl']);
+});
+
+// --- The default has to survive a fresh clone ------------------------
+//
+// **The defect these pin down (2026-09-08).** The default was
+// `.mem/raw`, and `.mem/` is gitignored. On a machine with a disk that
+// is fine. Wherever the repository IS the disk — a cloud container, an
+// ephemeral CI runner — the capture then reaches nothing that outlives
+// the process, and the stop hook is the only thing that pushes.
+//
+// Measured in the sibling project's own container: eight captures gone
+// after the change, including the ones from the session that made it.
+// `test/stop-persists.sh` had been red about it the whole time and was
+// on a list as an "outdated shell test". It was not outdated.
+
+test('the default points somewhere git takes along', () => {
+  const r = root();
+  const store = archive.readConfig({}, r);
+  assert.equal(store.explicit, false);
+  assert.equal(store.location, path.join(r, 'raw'));
+  assert.ok(!store.location.includes('.mem'),
+    'the default is back in an ignored folder — captures die with the container');
+});
+
+test('with no archive set, the capture is IN the repository', () => {
+  // The effect, not the constant. A probe on DEFAULT_LOCATION alone
+  // would not have caught this: the stretch where it went wrong is the
+  // path from the constant to the written file.
+  const r = root();
+  const e = raw.capture(r, transcript(r), { minBytes: 50 });
+  assert.equal(e.status, 'captured');
+  assert.ok(fs.existsSync(path.join(r, e.path)),
+    'the capture is not in the repository — in a container it would be lost');
+  assert.ok(!fs.existsSync(path.join(r, '.mem', 'raw', '2026')),
+    'and yet also written into the ignored folder');
+});
+
+test('a set archive still beats the default', () => {
+  // The counter-probe. If the default were hardwired, a machine with a
+  // disk could no longer name it — and the rebuild would have been
+  // reverted rather than corrected.
+  const { r, store } = withArchive();
+  const e = raw.capture(r, transcript(r), { minBytes: 50 });
+  assert.ok(fs.existsSync(path.join(store, archive.pathInArchive(e.path))));
+  assert.equal(fs.existsSync(path.join(r, e.path)), false);
 });

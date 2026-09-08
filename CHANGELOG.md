@@ -112,6 +112,22 @@ are the day the work landed on `main`.
 
 ### Fixed
 
+- **The default archive location was gitignored, and that loses data.**
+  It was `.mem/raw`; `.mem/` does not travel. On a machine with a disk
+  that is fine, and it is false wherever the repository IS the disk — a
+  cloud container, an ephemeral runner. Measured in the sibling
+  project's own container on 2026-09-08: the last capture to reach the
+  repository was at 19:36, and eight after it would have gone with the
+  container, including the ones from the session that made the change.
+  The default is now the tracked `raw/`; an archive elsewhere is a
+  decision per machine (`mem raw archive --set`, `CHEAP_MEM_ARCHIVE`),
+  and still wins.
+
+  `test/stop-persists.sh` had been reporting this the whole time and was
+  on a list as an outdated shell test. It was not outdated. It is green
+  again without one line of it having changed, which is the proof of
+  which side was wrong.
+
 - **The record file had a German name in an English codebase.** The
   archive was ported from a German-language sibling and kept
   `raw-nachweis.jsonl`, while this CHANGELOG already called it

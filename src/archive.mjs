@@ -40,18 +40,33 @@ import crypto from 'node:crypto';
 import zlib from 'node:zlib';
 
 /**
- * The default: `.mem/raw`.
+ * The default is the TRACKED `raw/`, not somewhere gitignored.
  *
- * `.mem/` is already gitignored, so the capture sits in the working
- * tree but outside version history. Deliberately NOT a path outside the
- * repository: a default pointing at a directory that does not exist on
- * the next machine is exactly the bug found the same day — an absolute
- * path baked into a hook, dead and silent on the second install.
+ * **What this line got wrong for half a day (2026-09-08).** It read
+ * `.mem/raw`, reasoning that `.mem/` is already gitignored so the
+ * capture sits in the working tree but outside version history. That
+ * holds on a machine with a disk. It is false wherever the repository
+ * IS the disk.
  *
- * A NAS, a cloud drive or any other store is mounted by the operating
- * system and then named here through `CHEAP_MEM_ARCHIVE`.
+ * Measured in the sibling project's own cloud container the same
+ * evening: the last capture that reached the repository was at 19:36;
+ * eight captures after it sat untracked and would have gone with the
+ * container. The session that built the archive would have lost its own
+ * record of building it. `test/stop-persists.sh` had been reporting it
+ * the whole time, and was on a list as an outdated shell test. It was
+ * not outdated.
+ *
+ * So the order is: whoever has a disk says so (`mem raw archive --set`,
+ * `CHEAP_MEM_ARCHIVE`). Whoever says nothing gets the place that
+ * survives. Growth is what a migration on a machine that stays is for;
+ * nothing is for captures that are gone.
+ *
+ * Still deliberately NOT an absolute path outside the repository: a
+ * default naming a directory that does not exist on the next machine is
+ * the bug found the same day — a baked-in path, dead and silent on the
+ * second install.
  */
-export const DEFAULT_LOCATION = path.join('.mem', 'raw');
+export const DEFAULT_LOCATION = 'raw';
 
 /** The record. TRACKED and append-only — this is what stays in the repo. */
 export const RECORD_FILE = 'raw-record.jsonl';
