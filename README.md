@@ -310,6 +310,16 @@ the needed permissions into `~/.claude/settings.json`:
   difference between a memory you *can* query and one that just
   *remembers*. It also refreshes the clone in the background (at most
   every 10 min, detached — the prompt never waits).
+- **PreToolUse** (Edit/Write/NotebookEdit) — before a file is changed,
+  searches the memory for that PATH, literally, and shows the errors,
+  decisions and learnings that name it. Once per file per session.
+  Literal, not ranked: if no entry names the file, nothing is shown —
+  a hint that appears on every edit gets skipped after the third time.
+
+  This is the moment the hook above misses. `UserPromptSubmit` fires
+  only when the person types; the building happens in between. Measured
+  2026-09-08 against four defects of one Windows install: for **three**
+  of them an entry already existed naming the very file being touched.
 - **Stop** — a byte-delta throttled reflector.
 
 The recall banner in the injected context reads *"Recalled automatically

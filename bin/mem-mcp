@@ -103,7 +103,13 @@ const TOOLS = [
       'thought, learning, duty, skill, update. ' +
       'Provide `type`, optionally `project`, and any string fields (title, text, topic, choice, why, class). ' +
       '`tags` can be an array. Use this whenever the user makes a decision, hits an error, ' +
-      'completes something notable, or a fact about them changes.',
+      'completes something notable, or a fact about them changes. ' +
+      // The occasion belongs in the description, not only in the house
+      // rules: those are heard once on connect, this is read in EVERY
+      // turn where the model weighs what to do next.
+      'Call it ON YOUR OWN, unasked, and DURING the work rather than after: ' +
+      'the moment a decision gets a reason, an error shows its cause, or something ' +
+      'surprises you. At the end you only remember the fix, not the cause.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -128,7 +134,10 @@ const TOOLS = [
       'learned from the user\'s own entries, so it finds things worded differently. ' +
       'Raw captures not yet digested are included at low weight and marked. ' +
       'Use this BEFORE logging (to avoid duplicates) and whenever the user references ' +
-      'something you might already know.',
+      'something you might already know. ' +
+      'Call it DURING the work too, not only when the user asks: before you touch a ' +
+      'file or a component (the path itself is a good query), before you propose an ' +
+      'approach, and after a failure before the second attempt.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -463,13 +472,43 @@ function shortLine(e) {
   return parts.join(' — ') || '(no summary)';
 }
 
+/**
+ * The house rules served as MCP `instructions`, or undefined.
+ *
+ * This is the only channel through which a connected agent hears
+ * anything from us before it acts for the first time. Without it an
+ * agent has `mem_log` and never calls it — measured on 2026-09-07:
+ * twelve tool calls in one task, every one a read, zero writes all day.
+ *
+ * The file's preamble (everything up to the first `---` line) explains
+ * why it exists and does NOT go out: it is written for us, and every
+ * line costs tokens on every connection.
+ *
+ * If the file is missing the server does NOT fail. A server without
+ * house rules is worse but usable; a server that won't start over a
+ * missing text file is not. Anything OTHER than "not found" is thrown —
+ * the first version swallowed everything here and hid a missing import,
+ * so `instructions` came out empty with nothing pointing at a fault.
+ */
+function houseRules(fs) {
+  try {
+    const raw = fs.readFileSync(path.join(PKG_ROOT, 'HOUSE-RULES.md'), 'utf8');
+    const at = raw.indexOf('\n---\n');
+    const body = (at >= 0 ? raw.slice(at + 5) : raw).trim();
+    return body || undefined;
+  } catch (e) {
+    if (e.code === 'ENOENT') return undefined;
+    throw e;
+  }
+}
+
 async function main() {
   const fs = await import('node:fs');
   const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
 
   const server = new Server(
     { name: 'cheap-mem', version: pkg.version },
-    { capabilities: { tools: {} } },
+    { capabilities: { tools: {} }, instructions: houseRules(fs) },
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));

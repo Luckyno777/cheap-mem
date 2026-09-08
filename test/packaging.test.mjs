@@ -74,3 +74,20 @@ test('the test script runs on every supported Node, not just this one', () => {
   // the broken form in place.
   assert.equal(pkg.scripts.test.trim(), 'node --test');
 });
+
+test('files the code READS at runtime are in the tarball', () => {
+  // HOUSE-RULES.md is read by bin/mem-mcp at every initialize and
+  // served as MCP `instructions`. It was NOT in `files` when it was
+  // added: from git everything worked, from `npm i -g cheap-mem` the
+  // server would have come up with no instructions and no sign of
+  // trouble — the same class of defect the rules themselves warn about.
+  //
+  // The check is a list, because there is no way to derive it: it is
+  // the non-code files the code opens by name.
+  const readAtRuntime = ['HOUSE-RULES.md'];
+  for (const f of readAtRuntime) {
+    assert.ok(fs.existsSync(path.join(PKG_ROOT, f)), `${f} is missing from the repo`);
+    const shipped = pkg.files.some((e) => e === f || (e.endsWith('/') && f.startsWith(e)));
+    assert.ok(shipped, `${f} is read at runtime but not in package.json files`);
+  }
+});

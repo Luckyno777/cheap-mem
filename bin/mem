@@ -632,6 +632,31 @@ const COMMANDS = {
       const hits = memory.find(root, query, {
         types, projects, since, withRetired: Boolean(args['with-retired']),
       });
+      // Same envelope as the ranked branch, so a tool can read both the
+      // same way. `--literal --json` silently printed prose until
+      // 2026-09-08: the flag was simply never looked at in this branch,
+      // and a consumer got something that LOOKS like output and is not
+      // JSON. Ported from lucky-mem, where the pre-edit hook needs it.
+      //
+      // `score` is deliberately null: the literal lane has no rank. A
+      // consumer that applies a threshold here should fail on null
+      // rather than on an invented number. `literal: true` says it too.
+      if (args.json) {
+        out(JSON.stringify({
+          query,
+          literal: true,
+          hits: hits.map((h) => ({
+            id: h.id ?? null,
+            score: null,
+            source: h._source,
+            line: h._line,
+            ts: h.ts ?? null,
+            state: h._retired?.state ?? null,
+            label: compactLine(h) || '',
+          })),
+        }, null, 2));
+        return;
+      }
       if (hits.length === 0) { out(`Nothing for '${query}'.`); return; }
       out(`${hits.length} literal hits for '${query}':`);
       for (const h of hits) {

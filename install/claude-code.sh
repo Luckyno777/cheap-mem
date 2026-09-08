@@ -99,6 +99,18 @@ chmod +x "$HOOKS_DIR/cheap-mem-session-stop.sh"
 } > "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 
+# Recall DURING the work. The hook above fires only when the person
+# types; between two of their messages is where the building — and the
+# breaking — happens. Measured 2026-09-08 on four Windows-install
+# defects: three had an entry naming the very file being touched.
+{
+  echo "#!/usr/bin/env bash"
+  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  tail -n +2 "$HERE/hooks/pre-edit.sh"
+} > "$HOOKS_DIR/cheap-mem-pre-edit.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
+
 # Merge settings.json without touching unrelated config.
 node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" <<'NODE_MERGE'
 const fs = require('fs');
@@ -120,7 +132,7 @@ const q = (s) => (/[\s"]/.test(s) ? `"${s}"` : s);
 // the next — and a filter keyed on the path would leave the old entry
 // in place and add a second one next to it. Two hooks on
 // UserPromptSubmit means every message pays twice.
-function upsertHook(event, script) {
+function upsertHook(event, script, matcher) {
   const datei = `cheap-mem-${script}.sh`;
   cfg.hooks[event] = cfg.hooks[event] || [];
   cfg.hooks[event] = cfg.hooks[event].filter((entry) => {
@@ -128,11 +140,16 @@ function upsertHook(event, script) {
     return !entry.hooks.some((h) => h.command && h.command.includes(datei));
   });
   const cmd = `${q(bashBin)} ${q(`${hooksDir.replace(/[\\/]$/, '')}/${datei}`)}`;
-  cfg.hooks[event].push({ hooks: [{ type: 'command', command: cmd }] });
+  const entry = { hooks: [{ type: 'command', command: cmd }] };
+  if (matcher) entry.matcher = matcher;
+  cfg.hooks[event].push(entry);
 }
 upsertHook('SessionStart', 'session-start');
 upsertHook('Stop', 'session-stop');
 upsertHook('UserPromptSubmit', 'user-prompt');
+// With a matcher — otherwise it would also run on Read and Bash, and
+// the path of a file being READ is not an intention to change it.
+upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit');
 
 cfg.permissions = cfg.permissions || {};
 const allow = [
@@ -171,4 +188,5 @@ echo ""
 echo "Next Claude Code session on this machine:"
 echo "  - SessionStart hook prints FACTS.md + mem context"
 echo "  - UserPromptSubmit hook recalls matching memory on every message"
+echo "  - PreToolUse hook warns before editing a file the memory knows about"
 echo "  - Stop hook triggers mem-reflect (byte-delta throttled)"

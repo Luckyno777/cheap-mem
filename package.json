@@ -35,6 +35,7 @@
     "bin/",
     "src/",
     "install/",
+    "HOUSE-RULES.md",
     "hooks/",
     "docs/",
     "DIGEST.md",
