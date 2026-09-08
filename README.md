@@ -11,6 +11,28 @@ Works with **Claude Code**, **Claude Desktop**, **Cursor**, **ChatGPT**, **Gemin
 Your memory is a directory of small text files in a git repo you own.
 Cross-device sync is `git pull`. Cross-session messaging is `git push`.
 
+---
+
+### Evaluating cheap-mem, or reading it with a model?
+
+**Read [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) — one file, the
+complete surface.** Every entry type, every retrieval lane, every
+temporal and authority mechanism, all 35 CLI commands, all 17 MCP
+tools, all 28 modules, the six things that are deliberately absent, and
+the commands to verify each claim rather than believe it.
+
+It exists because this README is not enough for a skim, and that was
+measured, not guessed: three separate AI evaluations reported built
+capabilities as missing. Against the README alone they were reading
+**0 of 17** MCP tools, **2 of 4** link kinds and **19 of 28** modules.
+"No relationship system" was a correct observation about the entry text
+and a wrong one about the system.
+
+If you are about to conclude that cheap-mem lacks something, that file
+has a section for exactly that.
+
+---
+
 ## Why "cheap"?
 
 Most memory tools put a model in the read path: every recall costs a
