@@ -39,6 +39,51 @@ export const LIMITS = Object.freeze({
   perAuthorShare: 0.5,     // no single sub-user author may exceed this share
 });
 
+/**
+ * How much of the search space this answer actually covered.
+ *
+ * **Why an answer needs this at all.** "Nothing found" and "nothing
+ * exists" are different sentences, and only one of them is ever
+ * provable from a ranked search. Until now the gateway returned
+ * `truncated: true|false` — two states for a three-state question, and
+ * the missing third is the one that matters: *we could not establish
+ * what the search space was.*
+ *
+ * The rule this encodes, in one line:
+ *
+ *     found evidence  ≠  complete evidence
+ *     no finding      ≠  proof of absence
+ *
+ * **`known_complete` does NOT mean "X does not exist".** It means: no
+ * limit cut this answer, so within THIS memory and THIS query nothing
+ * known was withheld. A different query would ask a different question.
+ * Anyone turning a complete answer into "there is no such thing" has
+ * made a claim the memory never made.
+ *
+ * Deliberately not a number. A coverage score would invite comparing
+ * 0.8 against 0.9, and neither would say WHICH limit bit. `reasons`
+ * names them.
+ */
+export const COVERAGE = Object.freeze({
+  COMPLETE: 'known_complete',   // no limit bit; everything matching was returned
+  PARTIAL: 'known_partial',     // something was cut, and we know what
+  UNKNOWN: 'unknown_coverage',  // the search space could not be established
+});
+
+/**
+ * Decide the coverage from what actually happened during the retrieval.
+ *
+ * Order matters: UNKNOWN beats PARTIAL beats COMPLETE. A run that could
+ * not establish its search space must never report a mere partial —
+ * that would read as "we looked and found some", when we did not look.
+ */
+export function coverageOf({ reasons = [] } = {}) {
+  const unknown = reasons.filter((r) => r.kind === 'unknown');
+  if (unknown.length) return { state: COVERAGE.UNKNOWN, reasons };
+  if (reasons.length) return { state: COVERAGE.PARTIAL, reasons };
+  return { state: COVERAGE.COMPLETE, reasons: [] };
+}
+
 /** A claim as it leaves the memory. Fields only — no assembled text. */
 function toClaim(hit, { bodyChars, state }) {
   const e = hit.entry;
@@ -163,12 +208,16 @@ export function retrieve(root, query, capability, {
     return {
       query: null, claims: [], excluded: [{ id: null, why: 'no capability presented' }],
       scopes: [], truncated: false, limits,
+      // Not "complete": nothing was searched. An empty answer that
+      // reports full coverage is the exact lie this field exists against.
+      coverage: coverageOf({ reasons: [{ kind: 'unknown', why: 'no capability presented' }] }),
     };
   }
   if (!capability.has('read')) {
     return {
       query: null, claims: [], excluded: [{ id: null, why: 'capability does not carry read' }],
       scopes: capability.scopes, truncated: false, limits,
+      coverage: coverageOf({ reasons: [{ kind: 'unknown', why: 'capability does not carry read' }] }),
     };
   }
 
@@ -206,6 +255,18 @@ export function retrieve(root, query, capability, {
   const perTier = Math.min(want * 6, limits.maxResults * 6);
   const seenIds = new Set();
   const byTier = [];
+  // Every limit that actually bit, collected as it happens rather than
+  // guessed at the end. A reason nobody recorded cannot be reported.
+  const coverageReasons = [];
+  if (qCapped) {
+    // The whole question was not even asked. Nothing about the search
+    // space follows from an answer to a truncated query.
+    coverageReasons.push({ kind: 'unknown', why: `query truncated at ${limits.queryChars} chars` });
+  }
+  // Tiers whose candidate pool came back FULL. More may have matched
+  // than were ever looked at, and no policy applied afterwards can
+  // recover a claim that was never a candidate.
+  const tiersAtCap = [];
   for (const tier of authority.TIERS) {
     const hits = [];
     // MMR an, mit demselben Lambda wie `mem find`.
@@ -234,6 +295,7 @@ export function retrieve(root, query, capability, {
       if (id) seenIds.add(id);
       hits.push(hit);
     }
+    if (hits.length === perTier) tiersAtCap.push(tier);
     if (hits.length) byTier.push(hits);
   }
 
@@ -368,6 +430,25 @@ export function retrieve(root, query, capability, {
   const fair = enforceAuthorShare(claims, limits, note)
     .sort((a, b) => b.score - a.score);
 
+  if (tiersAtCap.length) {
+    coverageReasons.push({
+      kind: 'partial',
+      why: `candidate pool full at ${perTier} for tier(s): ${tiersAtCap.join(', ')}`,
+    });
+  }
+  if (fair.length < raw.length) {
+    coverageReasons.push({
+      kind: 'partial',
+      why: `${raw.length - fair.length} candidate(s) removed after ranking`,
+    });
+  }
+  if (excluded.length) {
+    coverageReasons.push({ kind: 'partial', why: `${excluded.length} claim(s) excluded` });
+  }
+  if (fair.some((c) => c.bodyTruncated)) {
+    coverageReasons.push({ kind: 'partial', why: 'at least one body was cut to bodyChars' });
+  }
+
   return {
     contested: potentialConflicts(fair),
     query: useQuery,
@@ -377,6 +458,11 @@ export function retrieve(root, query, capability, {
     claims: fair,
     excluded,
     truncated: fair.length < raw.length,
+    // Kept alongside `truncated`, not instead of it: `truncated` answers
+    // "was this answer cut", `coverage` answers "what may I conclude
+    // from what is missing". Two different questions, and the second one
+    // had no field.
+    coverage: coverageOf({ reasons: coverageReasons }),
     limits,
   };
 }

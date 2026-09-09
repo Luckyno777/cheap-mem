@@ -56,6 +56,29 @@ export const MUSTER = Object.freeze([
   { name: 'nummer', re: /\b\d{4,8}\b/g },
   // GROSS_MIT_UNTERSTRICH — Umgebungsvariablen
   { name: 'umgebung', re: /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g },
+  // Qualifizierte Namen: `AuthService.refreshToken`, `store.put`,
+  // `README.md`. Punktgetrennt, ohne Leerzeichen.
+  //
+  // **Der Befund (2026-09-09).** Ein Eintrag durfte schon immer ein
+  // `symbols`-Feld tragen, und `entityText` liest jedes Zeichenketten-
+  // Feld. Trotzdem fand `mem find "TokenStore.write"` nichts: keines
+  // der fuenf Muster erkennt einen punktgetrennten Namen. Die Exakt-
+  // Bahn — die Bahn fuer genau diese Art Frage — war fuer Code-Symbole
+  // schlicht blind. Gemessen, nicht vermutet: `bezeichner()` gab auf
+  // dem Text mit dem Symbol eine leere Menge zurueck.
+  //
+  // **Warum das trotzdem eng bleibt.** Jedes Teilstueck mindestens
+  // ZWEI Zeichen: das wirft die haeufigsten Abkuerzungen raus, die im
+  // Deutschen wie ein qualifizierter Name aussehen — `z.B.`, `u.a.`,
+  // `d.h.`, `e.g.`, `i.e.` haben einbuchstabige Teile. Keine reinen
+  // Ziffernfolgen: `3.7.2` gehoert zu `fassung`, `1.5` ist eine Zahl.
+  //
+  // Und darueber liegt weiterhin die `platz`-Schranke: ein Bezeichner,
+  // der in mehr Dokumenten steht als die Antwort Plaetze hat, zaehlt
+  // nicht. Ein `README.md`, das ueberall vorkommt, identifiziert nichts
+  // und faellt von selbst wieder heraus. Die Regel kann per
+  // Konstruktion nicht mehr Kandidaten erzeugen, als gebraucht werden.
+  { name: 'qualifiziert', re: /\b(?![\d.]+\b)\w{2,}(?:\.\w{2,})+\b/g },
 ]);
 
 /** Alle maschinenfoermigen Bezeichner eines Textes, kleingeschrieben. */

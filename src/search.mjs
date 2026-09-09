@@ -59,7 +59,10 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // change. Bumping this forces a rebuild.
 // 3: the index carries the learned term co-occurrence graph. An older
 // cache has no termGraph, so it must be rebuilt rather than loaded.
-export const CACHE_VERSION = 6;
+// 7: `symbols` ist ein gewichtetes Feld, und der Exakt-Index kennt
+//    punktgetrennte Namen. Ein alter Cache hat beides nicht — er wuerde
+//    weiter nichts finden, und zwar still.
+export const CACHE_VERSION = 7;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -80,6 +83,22 @@ export const FIELD_WEIGHTS = Object.freeze({
   // Feld den tatsaechlichen Gegenstand des Eintrags.
   asked: 2.0,
   skill: 2.0,
+  // Code-Symbole, die ein Eintrag ausdruecklich benennt:
+  // `AuthService.refreshToken`, `store.put`.
+  //
+  // **Warum das Feld gefehlt hat, obwohl es schon gespeichert wurde.**
+  // Ein Eintrag durfte `symbols` immer tragen — freie Felder werden
+  // angenommen —, und `--literal` fand es auch. Die GERANKTE Suche
+  // nicht: ohne Gewicht sieht BM25 das Feld gar nicht, und die
+  // Exakt-Bahn erkannte punktgetrennte Namen nicht als Bezeichner.
+  // Abgelegt, auffindbar nur auf dem Umweg — die Klasse
+  // `built-but-out-of-reach`, gemessen am 2026-09-09.
+  //
+  // Gewicht wie `tags` und `asked`, aus demselben Grund: ein Symbol ist
+  // ein absichtlich gesetztes Zugriffswort, keine Prosa. Hoeher als der
+  // Titel waere falsch — dann uebersteuert eine Symbolliste den
+  // tatsaechlichen Gegenstand des Eintrags.
+  symbols: 2.0,
   choice: 1.5,
   // Roads not taken — LIGHTER than `choice`, and that is the whole
   // point.

@@ -913,6 +913,20 @@ async function handleCall(name, args) {
         lines.push('', `excluded: ${r.excluded.length}`);
         for (const e of r.excluded.slice(0, 10)) lines.push(`  ${e.id ?? '-'}: ${e.why}`);
       }
+      // **The coverage line goes to the bridge too, in the READABLE
+      // half.** The structured half already carries it, and an agent
+      // that only reads the prose would otherwise treat an empty answer
+      // as "there is nothing" — which is the one conclusion this field
+      // exists to forbid. Always printed, including when it is good
+      // news: silence would teach that no line means complete.
+      const cov = r.coverage ?? { state: 'unknown_coverage', reasons: [] };
+      lines.push('', `coverage: ${cov.state}`);
+      for (const why of cov.reasons) lines.push(`  ${why.why}`);
+      if (cov.state === 'known_complete') {
+        lines.push('  No limit cut this answer. That is NOT proof that nothing else exists.');
+      } else {
+        lines.push('  Draw no conclusion from what is missing here.');
+      }
       return structuredResult(r, lines);
     }
 

@@ -65,6 +65,42 @@ are the day the work landed on `main`.
   day on the previous day's checkout and an outside agent noticed; a
   board that inferred the running state from the repo state would have
   shown green for that entire day.
+- **Code symbols are findable by ranked search** (`symbols` field,
+  `qualifiziert` identifier pattern). An entry was always allowed to
+  carry `symbols` and `--literal` found it; ranked search did not.
+  Measured: symbol in the title → 1 hit, the same symbol only in
+  `symbols` → 0 hits, `--literal` → 1 hit. Two causes, both measured:
+  `symbols` had no field weight, so BM25 never saw it, and none of the
+  five identifier patterns recognised a dotted name — `bezeichner()`
+  returned an EMPTY set for `TokenStore.write`. The exact lane, built
+  for precisely this kind of question, was blind to code symbols.
+
+  The new pattern requires at least two characters per segment, which
+  keeps `z.B.`, `u.a.`, `d.h.`, `e.g.` and `i.e.` out of a German
+  corpus, and it needs no stop list: the existing `platz` bound already
+  removes anything occurring in more documents than the answer has
+  slots. Measured on 1153 real entries: 7469 identifiers before, 8610
+  after (+15.3 %), 488 distinct new ones, 416 of them (85 %) in at most
+  three entries.
+- **`coverage_state` on every retrieval.** The gateway returned
+  `truncated: true|false` — two states for a three-state question. The
+  missing third is the one that matters: *the search space could not be
+  established*. An empty answer from a caller with no capability used to
+  report `truncated: false`, which reads as "we looked and there was
+  nothing" when nothing was searched at all.
+
+  Now `known_complete` / `known_partial` / `unknown_coverage`, each with
+  the reasons that produced it — a state with reasons, never a number,
+  because 0.8 against 0.9 says nothing about WHICH limit bit. UNKNOWN
+  beats PARTIAL: a run that could not establish its space must not
+  report a mere partial. Printed by `mem retrieve` and by `mem_retrieve`
+  at the bridge **even when the news is good**, because printing it only
+  on a cut would teach that silence means completeness.
+
+  `known_complete` means no limit cut THIS answer. It is never proof
+  that nothing else exists, and the output says so.
+- `mem find --brief` now appears in `find --help`. It existed, it was in
+  the README, and it was missing from the one place someone looks.
 - **The console** (`mem serve`, `src/console.mjs`, `bin/mem-serve`). One
   fixed link carrying the state, the settings, the installation steps,
   the connections and the viewer — and the only place where anything can

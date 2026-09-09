@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 49 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 742 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 761 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -611,7 +611,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 742 tests
+npm test                                    # 761 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation

@@ -1239,6 +1239,8 @@ const COMMANDS = {
         '  --fresh    rebuild the index instead of using the cache',
         '  --no-raw   digested entries only, skip raw captures',
         '  --no-mmr   pure BM25 order (default re-ranks the top for diversity)',
+        '  --brief    id + a compact label per hit, no bodies — the first',
+        '             stage of a two-stage recall. Then: mem show <id>',
         '  --with-echo  keep hits that merely repeat the question (default: dropped)',
         '  --mmr-lambda F  0..1, higher = more relevance, lower = more diversity (default 0.7)',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
@@ -2335,6 +2337,12 @@ const COMMANDS = {
         'mem retrieve "<question>" [--project <p>] [--type <t>] [--top <n>]',
         '                          [--as-of <iso>] [--with-disputed] [--json]',
         '',
+        '  Every answer ends with a coverage line: known_complete,',
+        '  known_partial (with the limits that bit), or unknown_coverage.',
+        '  Complete means no limit cut THIS answer — never that nothing',
+        '  else exists. Found evidence is not complete evidence, and no',
+        '  finding is not proof of absence.',
+        '',
         '  Structured claims, not a paragraph. Each carries who asserted it,',
         '  at what authority, in which scope, and whether it still holds.',
         '',
@@ -2369,6 +2377,27 @@ const COMMANDS = {
     }
     if (r.excluded.length) {
       warn(`${r.excluded.length} excluded — mem explain <id> says why`);
+    }
+
+    // **The coverage line, and why it is printed even when it is good
+    // news.** An empty answer and a complete answer look identical on a
+    // terminal, and the difference between them is the difference
+    // between "we found nothing" and "there is nothing". Printing it
+    // only when something was cut would teach people that silence means
+    // completeness — the exact reading this field exists to prevent.
+    out('');
+    const cov = r.coverage ?? { state: 'unknown_coverage', reasons: [] };
+    if (cov.state === 'known_complete') {
+      out('Coverage: known_complete — no limit cut this answer.');
+      out('  That is NOT proof that nothing else exists: a different question');
+      out('  asks a different search space.');
+    } else if (cov.state === 'known_partial') {
+      out('Coverage: known_partial — this answer was cut:');
+      for (const why of cov.reasons) out(`    ${why.why}`);
+    } else {
+      out('Coverage: UNKNOWN — the search space could not be established:');
+      for (const why of cov.reasons) out(`    ${why.why}`);
+      out('  Draw no conclusion from what is missing here.');
     }
   },
 
