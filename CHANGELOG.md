@@ -82,6 +82,9 @@ are the day the work landed on `main`.
   slots. Measured on 1153 real entries: 7469 identifiers before, 8610
   after (+15.3 %), 488 distinct new ones, 416 of them (85 %) in at most
   three entries.
+- **`hasMore` and a corpus generation on every retrieval** — and,
+  deliberately, no cursor. See the Fixed entry below for why the
+  pagination this was meant to become was taken back out.
 - **`coverage_state` on every retrieval.** The gateway returned
   `truncated: true|false` — two states for a three-state question. The
   missing third is the one that matters: *the search space could not be
@@ -171,6 +174,32 @@ are the day the work landed on `main`.
   dropped and why.
 
 ### Fixed
+
+- **Snapshot-bound pagination was built and then removed, because it
+  cost two measured defences.** The path is the record:
+
+  First attempt (`selectWant = offset + want + 1`): one claim came back
+  on page 2 AND page 3 — nine entries from nine authors, 9 rows, 1 of
+  them twice. The author-share cap and the context budget work on the
+  SELECTION, not the corpus, so a different selection size means
+  different survivors and shifted offsets. A generation-bound cursor
+  could never have caught it: the corpus had not changed, only the
+  question about it had.
+
+  Second attempt (`selectWant = maxResults + 1`, constant): pages fit
+  together, and four existing probes went red. They were positive
+  controls — "if MMR changes nothing on this fixture, the comparison
+  above proves nothing". With 51 selected everything on a small fixture
+  gets in, so MMR no longer shaped the selection, which is exactly its
+  job here (measured 7/18 → 9/18 on the eval corpus). The flooding
+  defence from 2026-09-05 rests on the same property.
+
+  A measured defence had been traded for a convenience feature, and only
+  the shape of the old probes caught it. What remains is the honest
+  half: `hasMore`, derived from the selection loop stopping early, which
+  costs no widening and claims nothing about how many more exist. A
+  cursor is REFUSED rather than ignored — falling back to page one would
+  answer a question nobody asked and look like success.
 
 - **The secret latch flagged `token: env.FOO_TOKEN` as a secret.** That
   line NAMES an environment variable; it is not one. `process.env.X` was

@@ -22,7 +22,7 @@ import crypto from 'node:crypto';
 import * as authority from './authority.mjs';
 import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
-import { loadIndex, search, isEchoHit, exactHits } from './search.mjs';
+import { loadIndex, search, isEchoHit, exactHits, corpusGeneration } from './search.mjs';
 
 /**
  * Resource bounds (I13). Defaults, not laws — but never unbounded.
@@ -177,6 +177,10 @@ export function retrieve(root, query, capability, {
   withDisputed = false,
   limits = LIMITS,
   index = null,
+  // Paging. `cursor` wins over a bare `offset` — it carries the
+  // generation, and a page that cannot prove which snapshot it belongs
+  // to is not a page.
+  cursor = null,
   // Vorgabe wie in `mem find`. Ueberschreibbar, damit ein Aufrufer, der
   // reine Relevanzreihenfolge will, sie bekommt — und damit ein Test beide
   // Wege vergleichen kann.
@@ -228,6 +232,50 @@ export function retrieve(root, query, capability, {
   const idx = index ?? loadIndex(root);
   const want = Math.min(Math.max(1, Number(top) || 1), limits.maxResults);
 
+  // Die Generation dieses Laufs. Sie bindet den Cursor an einen
+  // Schnappschuss — siehe encodeCursor.
+  const generation = corpusGeneration(root);
+  // Ein Cursor wird ANGENOMMEN und abgelehnt, statt ignoriert zu werden.
+  // Ein stilles Zurueckfallen auf Seite 1 waere eine Antwort auf eine
+  // Frage, die niemand gestellt hat — und sie saehe aus wie Erfolg.
+  if (cursor != null && cursor !== '') {
+    return {
+      query: null, claims: [], excluded: [{ id: null, why: 'paging is not offered' }],
+      scopes: capability.scopes, truncated: false, limits, generation,
+      hasMore: false,
+      coverage: coverageOf({ reasons: [{
+        kind: 'unknown',
+        why: 'paging is not offered — ask again with a larger top (bounded by maxResults)',
+      }] }),
+    };
+  }
+  // **Die Auswahlgroesse ist `want`, und sie bleibt es.**
+  //
+  // Der Weg hierher ist der Punkt. Fuer seitenweises Blaettern hatte ich
+  // sie erst auf `offset + want + 1` gestellt — das lieferte einen
+  // Anspruch auf Seite 2 UND auf Seite 3, weil die Autoren-Quote und
+  // das Kontext-Budget auf der AUSWAHL arbeiten, nicht auf dem Korpus:
+  // andere Auswahlgroesse, andere Ueberlebende, verschobene Offsets.
+  //
+  // Dann auf `maxResults + 1` konstant — Seiten passten zusammen, und
+  // VIER vorhandene Proben fielen. Es waren Positiv-Kontrollen: „aendert
+  // MMR hier nichts, prueft der Vergleich nichts." Bei einer Auswahl von
+  // 51 kommt auf einer kleinen Vorrichtung ohnehin alles herein, also
+  // aenderte MMR die Auswahl nicht mehr. Und genau das ist MMRs Aufgabe
+  // hier: es entscheidet, WER angeschaut wird (gemessen 7/18 -> 9/18 am
+  // eval-Korpus). Dasselbe gilt fuer den Flutungs-Schutz, der am
+  // 2026-09-05 aus einem echten Angriff kam.
+  //
+  // Also: eine gemessene Abwehr gegen ein Komfort-Merkmal getauscht,
+  // still, und nur gefangen, weil die alten Proben Positiv-Kontrollen
+  // waren. Zurueckgenommen. Was bleibt, ist die ehrliche Auskunft
+  // `hasMore` — sie kostet nichts, weil sie aus dem Abbruch der
+  // Auswahlschleife folgt statt aus einer groesseren Auswahl. Wer mehr
+  // sehen will, fragt mit groesserem `top`; einen Cursor gibt es nicht,
+  // weil er in diesem Entwurf nur mit einer Auswahl zu haben waere, die
+  // von der Seite abhaengt.
+  const selectWant = want;
+
   // Over-fetch, because scope, validity and quota all remove candidates
   // after ranking. Bounded by maxResults so this cannot become the DoS it
   // is meant to prevent.
@@ -252,7 +300,7 @@ export function retrieve(root, query, capability, {
   // `withRetired: true` on purpose. search() would otherwise drop
   // superseded and disputed claims itself, one layer down and without a
   // word — and then this gateway could not say WHY something is missing.
-  const perTier = Math.min(want * 6, limits.maxResults * 6);
+  const perTier = Math.min(selectWant * 6, limits.maxResults * 6);
   const seenIds = new Set();
   const byTier = [];
   // Every limit that actually bit, collected as it happens rather than
@@ -377,6 +425,10 @@ export function retrieve(root, query, capability, {
 
   const claims = [];
   const seenBody = new Map();
+  // Hat die Auswahl aufgehoert, WEIL die Seite voll war — und lagen
+  // noch ungepruefte Kandidaten davor? Das ist die ehrliche Grundlage
+  // fuer `hasMore`, und sie kostet keine groessere Auswahl.
+  let stoppedEarly = false;
   let budget = limits.contextChars;
 
   for (const hit of raw) {
@@ -422,13 +474,43 @@ export function retrieve(root, query, capability, {
     seenBody.set(h, c.id);
     claims.push(c);
     budget -= c.body.length;
-    if (claims.length >= want) break;
+    if (claims.length >= selectWant) { stoppedEarly = true; break; }
   }
 
   // Relevance decides the ORDER of what was selected; the round-robin
   // above decided WHO got looked at.
   const fair = enforceAuthorShare(claims, limits, note)
-    .sort((a, b) => b.score - a.score);
+    // Nach Punktzahl, bei Gleichstand nach Id.
+    //
+    // **Was der zweite Schluessel NICHT tut**, obwohl der erste
+    // Kommentar hier das behauptete: er rettet die Reihenfolge nicht vor
+    // Undefiniertheit. `Array.prototype.sort` ist seit ES2019 stabil,
+    // Gleichstaende behalten also ihre Einfuegereihenfolge — und die
+    // Sabotage hat das prompt gezeigt: den Schluessel zu entfernen liess
+    // keine einzige Probe fallen.
+    //
+    // Was er tut: er macht die Ordnung unabhaengig davon, ueber WELCHE
+    // Bahn ein Anspruch hereinkam. Die Einfuegereihenfolge stammt aus
+    // dem Rundlauf ueber die Autoritaetsstufen und der Exakt-Bahn davor;
+    // wer dort eine Bahn einfuegt oder umstellt, verschiebt sonst
+    // stillschweigend jede Seitengrenze. Gemessen: bei sechs
+    // Entscheidungen zum selben Thema haben alle sechs praktisch
+    // dieselbe Punktzahl — Gleichstaende sind hier der Normalfall, nicht
+    // die Ausnahme.
+    //
+    // Also: kein Riegel gegen Chaos, sondern die Zusicherung, dass die
+    // Ordnung eine FUNKTION von (Punktzahl, Id) ist. Die Probe unten
+    // prueft genau das.
+    .sort((a, b) => (b.score - a.score) || String(a.id ?? '').localeCompare(String(b.id ?? '')));
+
+  // Die Seite herausschneiden. `fair` traegt bis zu einem Anspruch mehr,
+  // als die Seite fasst — genau der ist der Beleg fuer `hasMore`.
+  // `hasMore` aus dem Abbruch der Auswahlschleife, nicht aus einer
+  // groesseren Auswahl: die Schleife hat bei `want` aufgehoert, und es
+  // lagen noch ungepruefte Kandidaten davor. Das kostet nichts und
+  // behauptet nichts ueber ihre Zahl.
+  const seite = fair;
+  const hasMore = stoppedEarly && fair.length >= want;
 
   if (tiersAtCap.length) {
     coverageReasons.push({
@@ -442,22 +524,39 @@ export function retrieve(root, query, capability, {
       why: `${raw.length - fair.length} candidate(s) removed after ranking`,
     });
   }
+  if (hasMore) {
+    coverageReasons.push({ kind: 'partial', why: 'more claims match than fit on this page' });
+  }
+  if (fair.length > limits.maxResults) {
+    // Die harte Decke ist erreicht. Wie viele darueber hinaus passen
+    // wuerden, weiss dieser Lauf nicht — und darf es darum auch nicht
+    // andeuten.
+    coverageReasons.push({
+      kind: 'partial',
+      why: `the hard ceiling of ${limits.maxResults} results bounds this answer`,
+    });
+  }
   if (excluded.length) {
     coverageReasons.push({ kind: 'partial', why: `${excluded.length} claim(s) excluded` });
   }
-  if (fair.some((c) => c.bodyTruncated)) {
+  if (seite.some((c) => c.bodyTruncated)) {
     coverageReasons.push({ kind: 'partial', why: 'at least one body was cut to bodyChars' });
   }
 
   return {
-    contested: potentialConflicts(fair),
+    contested: potentialConflicts(seite),
     query: useQuery,
     queryTruncated: qCapped,
     scopes: capability.scopes,
     subject: capability.subject,
-    claims: fair,
+    claims: seite,
     excluded,
     truncated: fair.length < raw.length,
+    // Die Generation des Korpus. Sie sagt einem Aufrufer, ob zwei
+    // Antworten aus demselben Stand kommen — ohne dass daraus ein
+    // Seitenzeiger wird, den dieser Entwurf nicht tragen kann.
+    generation,
+    hasMore,
     // Kept alongside `truncated`, not instead of it: `truncated` answers
     // "was this answer cut", `coverage` answers "what may I conclude
     // from what is missing". Two different questions, and the second one

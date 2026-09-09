@@ -23,6 +23,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import * as entity from './entity.mjs';
@@ -782,6 +783,28 @@ function tailHash(file, upto) {
 }
 
 /** Every file the index is built from, with its current size. */
+/**
+ * A cheap fingerprint of the corpus, for binding a cursor to a snapshot.
+ *
+ * **Why byte counts and not a content hash.** The logs are append-only,
+ * so any change moves a byte count — and stat is free where reading
+ * every line is not. A rewritten line of the same length would slip
+ * through here, and that is fine: rewriting history is what the epoch
+ * watermark alarms on, a different question with a different answer.
+ *
+ * What this is for: telling page 2 that it belongs to the same memory
+ * page 1 came from. Without it, an append between two pages silently
+ * shifts every row, and the caller sees a view that never existed.
+ */
+export function corpusGeneration(root, { types = null } = {}) {
+  const parts = [];
+  for (const [rel, info] of indexedFiles(root, { types })) {
+    parts.push(`${rel}:${info.bytes}`);
+  }
+  parts.sort();
+  return createHash('sha256').update(parts.join('\n'), 'utf8').digest('hex').slice(0, 16);
+}
+
 export function indexedFiles(root, { types = null } = {}) {
   const out = new Map();
   const targetTypes = types ?? Object.keys(memory.TYPES);

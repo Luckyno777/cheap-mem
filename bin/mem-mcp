@@ -919,6 +919,11 @@ async function handleCall(name, args) {
       // as "there is nothing" — which is the one conclusion this field
       // exists to forbid. Always printed, including when it is good
       // news: silence would teach that no line means complete.
+      if (r.hasMore) {
+        lines.push('', `more match than the ${r.claims.length} shown — ask again with a larger top`);
+        lines.push('  There is no cursor: paging would widen the selection, and the');
+        lines.push('  selection is where the diversity and author-share latches work.');
+      }
       const cov = r.coverage ?? { state: 'unknown_coverage', reasons: [] };
       lines.push('', `coverage: ${cov.state}`);
       for (const why of cov.reasons) lines.push(`  ${why.why}`);

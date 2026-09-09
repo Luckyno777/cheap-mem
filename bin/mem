@@ -2378,6 +2378,12 @@ const COMMANDS = {
     if (r.excluded.length) {
       warn(`${r.excluded.length} excluded — mem explain <id> says why`);
     }
+    if (r.hasMore) {
+      out('');
+      out(`More match than the ${r.claims.length} shown. Ask with a larger --top.`);
+      out('  There is no cursor: paging would have to widen the selection, and the');
+      out('  selection is where the diversity and author-share latches do their work.');
+    }
 
     // **The coverage line, and why it is printed even when it is good
     // news.** An empty answer and a complete answer look identical on a
