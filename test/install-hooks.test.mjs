@@ -1,22 +1,21 @@
-// Das Hook-Kommando nennt seinen Interpreter.
+// The hook command names its interpreter.
 //
-// Der Installer trug lange den nackten `.sh`-Pfad als Kommando ein.
-// Das scheitert auf zwei Arten, und beide sind bezahlt:
+// For a long time the installer wrote the bare `.sh` path as the
+// command. That fails in two ways, and both have been paid for:
 //
-//   Linux/macOS — Exit 126, sobald das x-Bit fehlt. Das passiert von
-//   allein auf einem Klon mit core.fileMode=false. Wenigstens laut;
-//   in lucky-mem am 2026-09-01 gefunden.
+//   Linux/macOS — exit 126 as soon as the x bit is missing. That
+//   happens by itself on a clone with core.fileMode=false. At least it
+//   is loud; found in lucky-mem on 2026-09-01.
 //
-//   Windows — `bash` liegt nicht auf dem PATH, den cmd.exe sieht. Ein
-//   Testlauf ueber cmd ist nicht gescheitert, sondern HAENGENGEBLIEBEN.
-//   Ein UserPromptSubmit-Hook, der haengt, blockiert jede Nachricht bis
-//   zum Timeout — das Gedaechtnis macht den Assistenten dann unbenutzbar,
-//   statt nur stumm zu sein. Am 2026-09-07 von einer frischen
-//   Windows-Installation gemeldet.
+//   Windows — `bash` is not on the PATH cmd.exe sees. A test run
+//   through cmd did not fail, it HUNG. A UserPromptSubmit hook that
+//   hangs blocks every message until the timeout — the memory then
+//   makes the assistant unusable rather than merely mute. Reported by a
+//   fresh Windows install on 2026-09-07.
 //
-// Der Windows-Zweig (cygpath) laesst sich hier nicht fahren. Was sich
-// hier fahren laesst, ist alles andere — und das ist genau der Teil,
-// der auf jeder Plattform gleich sein muss.
+// The Windows branch (cygpath) cannot be exercised here. What can be
+// exercised is everything else — and that is exactly the part that has
+// to be identical on every platform.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -25,152 +24,151 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-const HIER = path.dirname(fileURLToPath(import.meta.url));
-const REPO = path.join(HIER, '..');
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO = path.join(HERE, '..');
 const MEM = path.join(REPO, 'bin', 'mem');
 const INSTALL = path.join(REPO, 'install', 'claude-code.sh');
-const EREIGNISSE = ['SessionStart', 'Stop', 'UserPromptSubmit'];
+const EVENTS = ['SessionStart', 'Stop', 'UserPromptSubmit'];
 
-// `heim` darf ein Leerzeichen enthalten — auf Windows ist das der
-// Normalfall, nicht die Ausnahme.
-function installiere({ heimName = 'claude home' } = {}) {
+// `home` may contain a space — on Windows that is the normal case, not
+// the exception.
+function install({ homeName = 'claude home' } = {}) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-inst-'));
-  const wurzel = path.join(tmp, 'memory');
-  fs.mkdirSync(wurzel, { recursive: true });
-  execFileSync('node', [MEM, '--root', wurzel, 'init'], { stdio: 'ignore' });
-  const claudeHome = path.join(tmp, heimName);
+  const root = path.join(tmp, 'memory');
+  fs.mkdirSync(root, { recursive: true });
+  execFileSync('node', [MEM, '--root', root, 'init'], { stdio: 'ignore' });
+  const claudeHome = path.join(tmp, homeName);
   execFileSync('bash', [INSTALL], {
-    env: { ...process.env, CHEAP_MEM_ROOT: wurzel, CLAUDE_HOME: claudeHome },
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CLAUDE_HOME: claudeHome },
     stdio: 'ignore',
   });
   const cfg = JSON.parse(fs.readFileSync(path.join(claudeHome, 'settings.json'), 'utf8'));
   return { tmp, claudeHome, cfg };
 }
-const weg = (t) => fs.rmSync(t, { recursive: true, force: true });
-const kommandos = (cfg) => EREIGNISSE.map((e) => cfg.hooks[e].at(-1).hooks[0].command);
+const wipe = (t) => fs.rmSync(t, { recursive: true, force: true });
+const commands = (cfg) => EVENTS.map((e) => cfg.hooks[e].at(-1).hooks[0].command);
 
-test('DER FALL: kein Kommando ist ein nackter Skriptpfad', () => {
-  const { tmp, cfg } = installiere();
+test('THE CASE: no command is a bare script path', () => {
+  const { tmp, cfg } = install();
   try {
-    for (const cmd of kommandos(cfg)) {
+    for (const cmd of commands(cfg)) {
       assert.ok(!/^\S*cheap-mem-[a-z-]+\.sh$/.test(cmd.trim()),
-        `nackter Pfad als Kommando: ${cmd}`);
-      assert.match(cmd, /bash/, `kein Interpreter genannt: ${cmd}`);
+        `bare path as command: ${cmd}`);
+      assert.match(cmd, /bash/, `no interpreter named: ${cmd}`);
     }
-  } finally { weg(tmp); }
+  } finally { wipe(tmp); }
 });
 
-test('ein Pfad mit Leerzeichen wird in Anfuehrungszeichen gesetzt', () => {
-  // `C:\Program Files\Git\bin\bash.exe` ist auf Windows der Normalfall.
-  const { tmp, cfg } = installiere({ heimName: 'claude home' });
+test('a path with a space is quoted', () => {
+  // `C:\Program Files\Git\bin\bash.exe` is the normal case on Windows.
+  const { tmp, cfg } = install({ homeName: 'claude home' });
   try {
-    for (const cmd of kommandos(cfg)) {
-      const teile = cmd.match(/"[^"]*"|\S+/g) ?? [];
-      assert.equal(teile.length, 2, `nicht genau zwei Teile: ${cmd}`);
-      assert.ok(teile[1].startsWith('"') && teile[1].endsWith('"'),
-        `Pfad mit Leerzeichen ohne Anfuehrungszeichen: ${cmd}`);
+    for (const cmd of commands(cfg)) {
+      const parts = cmd.match(/"[^"]*"|\S+/g) ?? [];
+      assert.equal(parts.length, 2, `not exactly two parts: ${cmd}`);
+      assert.ok(parts[1].startsWith('"') && parts[1].endsWith('"'),
+        `path with a space is unquoted: ${cmd}`);
     }
-  } finally { weg(tmp); }
+  } finally { wipe(tmp); }
 });
 
-test('das Kommando zeigt auf die Datei, die wirklich dort liegt', () => {
-  const { tmp, claudeHome, cfg } = installiere({ heimName: 'claudehome' });
+test('the command points at the file that is really there', () => {
+  const { tmp, claudeHome, cfg } = install({ homeName: 'claudehome' });
   try {
-    for (const cmd of kommandos(cfg)) {
-      const skript = (cmd.match(/(\S+cheap-mem-[a-z-]+\.sh)/) ?? [])[1];
-      assert.ok(skript, `kein Skriptpfad im Kommando: ${cmd}`);
-      assert.ok(fs.existsSync(skript), `Kommando zeigt ins Leere: ${skript}`);
-      assert.equal(path.dirname(skript), path.join(claudeHome, 'hooks'));
+    for (const cmd of commands(cfg)) {
+      const script = (cmd.match(/(\S+cheap-mem-[a-z-]+\.sh)/) ?? [])[1];
+      assert.ok(script, `no script path in the command: ${cmd}`);
+      assert.ok(fs.existsSync(script), `command points nowhere: ${script}`);
+      assert.equal(path.dirname(script), path.join(claudeHome, 'hooks'));
     }
-  } finally { weg(tmp); }
+  } finally { wipe(tmp); }
 });
 
-test('das Kommando laeuft und liefert, was der Hook liefern soll', () => {
-  // Der einzige Beweis, der zaehlt: nicht wie es aussieht, sondern ob
-  // es laeuft. Ohne diesen Test bliebe "nennt einen Interpreter" eine
-  // Behauptung ueber eine Zeichenkette.
-  const { tmp, cfg } = installiere({ heimName: 'claudehome' });
+test('the command runs and returns what the hook is supposed to return', () => {
+  // The only proof that counts: not how it looks, but whether it runs.
+  // Without this test "names an interpreter" would stay a claim about a
+  // string.
+  const { tmp, cfg } = install({ homeName: 'claudehome' });
   try {
     const cmd = cfg.hooks.UserPromptSubmit.at(-1).hooks[0].command;
-    const aus = execFileSync('bash', ['-c', cmd], {
+    const out = execFileSync('bash', ['-c', cmd], {
       input: JSON.stringify({ prompt: 'was ist mit dem gedaechtnis' }),
       encoding: 'utf8', timeout: 20000,
     });
-    // Leere Ausgabe ist erlaubt (frisches Gedaechtnis, kein Treffer);
-    // was NICHT erlaubt ist, ist ein Absturz oder Muell.
-    if (aus.trim()) JSON.parse(aus);
-  } finally { weg(tmp); }
+    // Empty output is allowed (fresh memory, no hit); what is NOT
+    // allowed is a crash or garbage.
+    if (out.trim()) JSON.parse(out);
+  } finally { wipe(tmp); }
 });
 
-test('ein zweiter Lauf ersetzt den Eintrag, statt einen zweiten anzuhaengen', () => {
-  // Zwei Hooks auf UserPromptSubmit heisst: jede Nachricht zahlt
-  // doppelt. Der alte Filter suchte nach dem PFAD — und der aendert
-  // sich zwischen zwei Laeufen, sobald die Form wechselt.
-  const { tmp, claudeHome, cfg } = installiere({ heimName: 'claudehome' });
+test('a second run replaces the entry instead of appending a second one', () => {
+  // Two hooks on UserPromptSubmit means every message pays twice. The
+  // old filter looked for the PATH — and that changes between two runs
+  // as soon as the form changes.
+  const { tmp, claudeHome, cfg } = install({ homeName: 'claudehome' });
   try {
-    const vorher = Object.fromEntries(EREIGNISSE.map((e) => [e, cfg.hooks[e].length]));
-    // Einen Eintrag in der alten Form unterschieben — und zwar mit einer
-    // ANDEREN PFADFORM. Das ist der Fall, der zaehlt: unter Git Bash
-    // schreibt der eine Lauf `/c/Users/...`, der naechste
-    // `C:/Users/...`. Ein Filter, der den Pfad vergleicht, sieht darin
-    // zwei verschiedene Hooks und laesst beide stehen.
+    const before = Object.fromEntries(EVENTS.map((e) => [e, cfg.hooks[e].length]));
+    // Slip in an entry in the old form — and with a DIFFERENT PATH
+    // FORM. That is the case that counts: under Git Bash one run writes
+    // `/c/Users/...`, the next one `C:/Users/...`. A filter comparing
+    // paths sees two different hooks there and leaves both standing.
     //
-    // Eine erste Fassung dieses Tests hat den Pfad einfach nachgebaut,
-    // wie ihn der Installer auch schreibt — und war damit auch mit dem
-    // alten, pfadbasierten Filter gruen. Ein Test, den die Sabotage
-    // nicht rot bekommt, prueft nichts.
-    const datei = path.join(claudeHome, 'settings.json');
-    const alt = JSON.parse(fs.readFileSync(datei, 'utf8'));
-    alt.hooks.UserPromptSubmit.push({ hooks: [{ type: 'command',
+    // A first version of this test simply rebuilt the path the way the
+    // installer writes it — and was therefore green with the old,
+    // path-based filter too. A test that sabotage cannot turn red
+    // proves nothing.
+    const file = path.join(claudeHome, 'settings.json');
+    const old = JSON.parse(fs.readFileSync(file, 'utf8'));
+    old.hooks.UserPromptSubmit.push({ hooks: [{ type: 'command',
       command: 'C:/Users/Administrator/.claude/hooks/cheap-mem-user-prompt.sh' }] });
-    fs.writeFileSync(datei, JSON.stringify(alt, null, 2));
+    fs.writeFileSync(file, JSON.stringify(old, null, 2));
 
-    const wurzel = path.join(tmp, 'memory');
+    const root = path.join(tmp, 'memory');
     execFileSync('bash', [INSTALL], {
-      env: { ...process.env, CHEAP_MEM_ROOT: wurzel, CLAUDE_HOME: claudeHome },
+      env: { ...process.env, CHEAP_MEM_ROOT: root, CLAUDE_HOME: claudeHome },
       stdio: 'ignore',
     });
-    const neu = JSON.parse(fs.readFileSync(datei, 'utf8'));
-    for (const e of EREIGNISSE) {
-      assert.equal(neu.hooks[e].length, vorher[e],
-        `${e} hat jetzt ${neu.hooks[e].length} Eintraege statt ${vorher[e]}`);
+    const now = JSON.parse(fs.readFileSync(file, 'utf8'));
+    for (const e of EVENTS) {
+      assert.equal(now.hooks[e].length, before[e],
+        `${e} now has ${now.hooks[e].length} entries instead of ${before[e]}`);
     }
-  } finally { weg(tmp); }
+  } finally { wipe(tmp); }
 });
 
-test('fremde Hooks bleiben unangetastet', () => {
-  const { tmp, claudeHome } = installiere({ heimName: 'claudehome' });
+test('foreign hooks are left untouched', () => {
+  const { tmp, claudeHome } = install({ homeName: 'claudehome' });
   try {
-    const datei = path.join(claudeHome, 'settings.json');
-    const cfg = JSON.parse(fs.readFileSync(datei, 'utf8'));
-    cfg.hooks.UserPromptSubmit.unshift({ hooks: [{ type: 'command', command: 'echo fremd' }] });
-    fs.writeFileSync(datei, JSON.stringify(cfg, null, 2));
+    const file = path.join(claudeHome, 'settings.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+    cfg.hooks.UserPromptSubmit.unshift({ hooks: [{ type: 'command', command: 'echo foreign' }] });
+    fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
     execFileSync('bash', [INSTALL], {
       env: { ...process.env, CHEAP_MEM_ROOT: path.join(tmp, 'memory'), CLAUDE_HOME: claudeHome },
       stdio: 'ignore',
     });
-    const neu = JSON.parse(fs.readFileSync(datei, 'utf8'));
-    assert.ok(neu.hooks.UserPromptSubmit.some((e) => e.hooks[0].command === 'echo fremd'),
-      'fremder Hook wurde entfernt');
-  } finally { weg(tmp); }
+    const now = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.ok(now.hooks.UserPromptSubmit.some((e) => e.hooks[0].command === 'echo foreign'),
+      'a foreign hook was removed');
+  } finally { wipe(tmp); }
 });
 
-test('was der Installer ANKUENDIGT, legt er auch an', () => {
-  // Die Schlusszeile nannte drei Hooks, angelegt wurden vier. Niemand
-  // haette den fehlenden vermisst — man liest die Zeile und glaubt sie.
-  // Genau die Klasse, gegen die dieses Repo den ganzen Tag gebaut hat,
-  // nur andersherum: die Darstellung war AERMER als die Sache.
+test('what the installer ANNOUNCES, it also creates', () => {
+  // The closing line named three hooks, four were created. Nobody would
+  // have missed the fourth — you read the line and believe it. Exactly
+  // the class this repository spent the day building against, only the
+  // other way round: the presentation was POORER than the thing.
   const src = fs.readFileSync(path.join(REPO, 'install', 'claude-code.sh'), 'utf8');
   const m = /cheap-mem-\{([^}]+)\}\.sh/.exec(src);
-  assert.ok(m, 'die Zusammenfassung nennt die Hooks nicht mehr in {a,b}-Form');
-  const angekuendigt = new Set(m[1].split(',').map((s) => s.trim()));
-  const angelegt = new Set(
+  assert.ok(m, 'the summary no longer names the hooks in {a,b} form');
+  const announced = new Set(m[1].split(',').map((x) => x.trim()));
+  const created = new Set(
     [...src.matchAll(/\$HOOKS_DIR\/cheap-mem-([a-z-]+)\.sh"/g)].map((x) => x[1]),
   );
-  for (const h of angelegt) {
-    assert.ok(angekuendigt.has(h), `${h}.sh wird angelegt, aber nicht angekuendigt`);
+  for (const h of created) {
+    assert.ok(announced.has(h), `${h}.sh is created but not announced`);
   }
-  for (const h of angekuendigt) {
-    assert.ok(angelegt.has(h), `${h}.sh wird angekuendigt, aber nicht angelegt`);
+  for (const h of announced) {
+    assert.ok(created.has(h), `${h}.sh is announced but not created`);
   }
 });
