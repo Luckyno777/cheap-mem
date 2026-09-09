@@ -1,22 +1,22 @@
-// docs/CAPABILITIES.md — vollstaendig, und zwar nachweislich.
+// docs/CAPABILITIES.md — complete, and demonstrably so.
 //
-// **Der Befund, der die Datei ausgeloest hat (2026-09-08).** Drei
-// AI-Bewertungen von cheap-mem kamen aus fluechtigen Lesungen zu
-// falschen Schluessen, immer mit derselben Form: eine GEBAUTE Faehigkeit
-// wurde als fehlend gemeldet. Nachgemessen an der damaligen README:
+// **The finding that triggered the file (2026-09-08).** Three AI
+// reviews of cheap-mem drew wrong conclusions from skimmed readings,
+// always in the same shape: a capability that IS built was reported as
+// missing. Measured against the README of the day:
 //
-//   MCP-Werkzeuge      0 von 17 genannt
-//   Kanten-Arten       2 von 4   (contradicts und resolves fehlten)
-//   src-Module        19 von 28
+//   MCP tools       0 of 17 named
+//   edge kinds      2 of 4   (contradicts and resolves were missing)
+//   src modules    19 of 28
 //
-// Wer nur die README las — und das tun Modelle — konnte gar nicht
-// wissen, dass es ein Kanten-System und temporale Gueltigkeit gibt.
-// „Kein Relationship-System" war eine korrekte Beobachtung ueber den
-// EINSTIEGSTEXT und eine falsche ueber das System.
+// Anyone reading only the README — and models do — could not possibly
+// know that an edge system and temporal validity exist. "No
+// relationship system" was a correct observation about the ENTRY TEXT
+// and a wrong one about the system.
 //
-// Der Riegel prueft deshalb nicht, ob die Datei GUT ist — das kann kein
-// Test —, sondern ob sie VOLLSTAENDIG ist. Eine Referenz, die still
-// veraltet, richtet mehr Schaden an als keine: sie sieht aus wie eine.
+// So this guard does not check whether the file is GOOD — no test can —
+// but whether it is COMPLETE. A reference that silently rots does more
+// damage than none: it looks like one.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,160 +24,160 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const lies = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
-const DOC = lies('docs/CAPABILITIES.md');
+const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
+const DOC = read('docs/CAPABILITIES.md');
 
-const cliBefehle = () => [...lies('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]);
-const mcpWerkzeuge = () => [...lies('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1]);
-const typen = () => [...lies('src/memory.mjs').matchAll(/^ {2}([a-z]+): '[a-z]+\.jsonl'/gm)].map((m) => m[1]);
-const kanten = () => [...lies('src/memory.mjs').matchAll(/^ {2}([a-z]+): 'the source/gm)].map((m) => m[1]);
-const module = () => fs.readdirSync(path.join(REPO, 'src'))
+const cliCommands = () => [...read('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]);
+const mcpTools = () => [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1]);
+const types = () => [...read('src/memory.mjs').matchAll(/^ {2}([a-z]+): '[a-z]+\.jsonl'/gm)].map((m) => m[1]);
+const edges = () => [...read('src/memory.mjs').matchAll(/^ {2}([a-z]+): 'the source/gm)].map((m) => m[1]);
+const modules = () => fs.readdirSync(path.join(REPO, 'src'))
   .filter((n) => n.endsWith('.mjs')).map((n) => n.replace('.mjs', ''));
 
-/** Die Sonde selbst muss etwas finden, sonst prueft der Riegel nichts. */
-test('POSITIV: die Sonden lesen die Oberflaeche wirklich aus', () => {
-  assert.ok(cliBefehle().length >= 30, `nur ${cliBefehle().length} CLI-Befehle gefunden`);
-  assert.ok(mcpWerkzeuge().length >= 15, `nur ${mcpWerkzeuge().length} MCP-Werkzeuge gefunden`);
-  // Feste Zahlen, keine Untergrenzen: eine Untergrenze haette den
-  // Zuwachs von 10 auf 12 (question, procedure am 2026-09-08) still
-  // durchgelassen, und genau dieser Test soll erzwingen, dass jemand
-  // die Referenz anfasst, wenn sich die Oberflaeche aendert.
-  assert.equal(typen().length, 13);
-  assert.equal(kanten().length, 4);
-  assert.ok(module().length >= 25);
+/** The probe itself has to find something, or the guard proves nothing. */
+test('POSITIVE: the probes really do read the surface', () => {
+  assert.ok(cliCommands().length >= 30, `only ${cliCommands().length} CLI commands found`);
+  assert.ok(mcpTools().length >= 15, `only ${mcpTools().length} MCP tools found`);
+  // Fixed numbers, not lower bounds: a lower bound would have let the
+  // growth from 10 to 12 (question, procedure on 2026-09-08) through
+  // silently, and this test exists to force somebody to touch the
+  // reference when the surface changes.
+  assert.equal(types().length, 13);
+  assert.equal(edges().length, 4);
+  assert.ok(modules().length >= 25);
 });
 
-// **Der Riegel prueft nicht mehr auf Teilzeichenketten.**
+// **The guard no longer checks substrings.**
 //
-// Bis zum 2026-09-08 hiess „steht drin" `DOC.includes(name)`. Drei neu
-// gebaute Befehle — `board`, `classes`, `bridge` — gingen damit
-// durch, ohne dass die Referenz sie nannte: „board" steckt in
-// „dashboard", „bridge" im Fliesstext ueber die MCP-Bruecke, „classes"
-// in „error classes". Ein Riegel, der gruen bleibt, waehrend genau die
-// Luecke entsteht, gegen die er gebaut wurde — die Klasse, die dieses
-// Haus `riegel-prueft-das-falsche` nennt, im Riegel selbst.
+// Until 2026-09-08 "is in there" meant `DOC.includes(name)`. Three
+// newly built commands — `board`, `classes`, `bridge` — passed that
+// without the reference naming them: "board" sits inside "dashboard",
+// "bridge" in the prose about the MCP bridge, "classes" in "error
+// classes". A guard that stays green while exactly the gap it was
+// built against opens up — the class this house calls
+// `guard-checks-the-wrong-thing`, inside the guard itself.
 //
-// Jetzt wird JE ART eine eigene, engere Frage gestellt:
-//   CLI       — steht der Name im Befehlsblock 7.1? (dieselbe Quelle,
-//               die auch die Umkehrung unten liest — beide Richtungen
-//               am selben Text)
-//   src-Modul — steht `<name>.mjs` da? Ein Dateiname ist eindeutig.
-//   Rest      — Teilzeichenkette genuegt: `mem_*`-Namen und Kantenarten
-//               sind bereits unverwechselbar.
+// Now each KIND gets its own, narrower question:
+//   CLI        — is the name in the command block of 7.1? (the same
+//                source the reverse check below reads — both
+//                directions against the same text)
+//   src module — is `<name>.mjs` there? A file name is unambiguous.
+//   rest       — a substring is enough: `mem_*` names and edge kinds
+//                are already unmistakable.
 const cliBlock = () => {
   const m = DOC.match(/### 7\.1 CLI[^\n]*\n+```\n([\s\S]*?)```/);
-  assert.ok(m, 'der CLI-Block in 7.1 ist nicht auffindbar');
+  assert.ok(m, 'the CLI block in 7.1 cannot be found');
   return new Set(m[1].split(/\s+/).filter(Boolean));
 };
 
-for (const [was, sonde, drin] of [
-  ['CLI-Befehl', cliBefehle, (n) => cliBlock().has(n)],
-  ['MCP-Werkzeug', mcpWerkzeuge, (n) => DOC.includes(n)],
-  ['Eintragstyp', typen, (n) => DOC.includes(n)],
-  ['Kanten-Art', kanten, (n) => DOC.includes(n)],
-  ['src-Modul', module, (n) => DOC.includes(`${n}.mjs`)],
+for (const [what, probe, inDoc] of [
+  ['CLI command', cliCommands, (n) => cliBlock().has(n)],
+  ['MCP tool', mcpTools, (n) => DOC.includes(n)],
+  ['entry type', types, (n) => DOC.includes(n)],
+  ['edge kind', edges, (n) => DOC.includes(n)],
+  ['src module', modules, (n) => DOC.includes(`${n}.mjs`)],
 ]) {
-  test(`jeder ${was} steht in CAPABILITIES.md`, () => {
-    const fehlt = sonde().filter((x) => !drin(x));
-    assert.deepEqual(fehlt, [],
-      `${was}e fehlen in der Referenz: ${fehlt.join(', ')} — `
-      + 'ein Bewerter, der nur diese Datei liest, haelt sie fuer nicht vorhanden');
+  test(`every ${what} is in CAPABILITIES.md`, () => {
+    const missing = probe().filter((x) => !inDoc(x));
+    assert.deepEqual(missing, [],
+      `${what}s missing from the reference: ${missing.join(', ')} — `
+      + 'a reviewer reading only this file will hold them to be absent');
   });
 }
 
 /**
- * NEGATIV-KONTROLLE fuer den Riegel selbst.
+ * NEGATIVE CONTROL for the guard itself.
  *
- * Die Sonde muss etwas melden, das NICHT in der Referenz steht. Ohne
- * diese Probe waere die Verschaerfung oben unbelegt — genau wie die
- * Teilzeichenketten-Fassung, die zwei Jahre gruen geblieben waere.
+ * The probe has to report something that is NOT in the reference.
+ * Without this check the tightening above would be unproven — exactly
+ * like the substring version, which would have stayed green for years.
  */
-test('POSITIV: der Riegel meldet einen Befehl, den die Referenz nicht nennt', () => {
+test('POSITIVE: the guard reports a command the reference does not name', () => {
   const block = cliBlock();
-  assert.equal(block.has('gibtesnicht'), false);
-  assert.equal(DOC.includes('gibtesnicht.mjs'), false);
-  // Und die Abschwaechung, die er vorher hatte, faellt jetzt auf:
-  assert.ok(DOC.includes('board'), 'Vorbedingung: das Wort kommt im Text vor');
-  assert.ok(block.has('board'), 'aber es steht auch wirklich im Befehlsblock');
+  assert.equal(block.has('doesnotexist'), false);
+  assert.equal(DOC.includes('doesnotexist.mjs'), false);
+  // And the weakening it used to have now shows up:
+  assert.ok(DOC.includes('board'), 'precondition: the word does occur in the text');
+  assert.ok(block.has('board'), 'but it really is in the command block too');
 });
 
 /**
- * Die Inventar-Zeile und die Ueberschrift von 7.1 sind ZWEI Angaben
- * ueber dieselbe Zahl. Am 2026-09-08 standen dort 44 und 45.
+ * The inventory line and the heading of 7.1 are TWO statements about
+ * one number. On 2026-09-08 they said 44 and 45.
  */
-test('die Zahl der Befehle steht nur einmal richtig da', () => {
+test('the number of commands is right in exactly one place', () => {
   const inv = DOC.match(/\| \*\*Surfaces\*\* \| (\d+) CLI commands/);
-  assert.ok(inv, 'die Inventar-Zeile nennt keine Befehlszahl');
-  assert.equal(Number(inv[1]), cliBefehle().length,
-    `das Inventar sagt ${inv[1]}, der Code hat ${cliBefehle().length}`);
+  assert.ok(inv, 'the inventory line names no command count');
+  assert.equal(Number(inv[1]), cliCommands().length,
+    `the inventory says ${inv[1]}, the code has ${cliCommands().length}`);
 });
 
-test('die Inventar-Tabelle steht VOR den Erklaerungen', () => {
-  // Ein fluechtiger Leser bekommt nur die ersten Bildschirme. Steht die
-  // Vollstaendigkeit unten, ist sie fuer ihn nicht da.
-  const inventar = DOC.indexOf('## 0. Inventory');
-  const erste = DOC.indexOf('## 1. The data model');
-  assert.ok(inventar > 0 && inventar < erste, 'das Inventar steht nicht ganz oben');
-  assert.ok(inventar < 2000, `das Inventar beginnt erst bei Zeichen ${inventar}`);
+test('the inventory table comes BEFORE the explanations', () => {
+  // A skimming reader gets only the first screens. Put completeness at
+  // the bottom and it is not there for them.
+  const inventory = DOC.indexOf('## 0. Inventory');
+  const first = DOC.indexOf('## 1. The data model');
+  assert.ok(inventory > 0 && inventory < first, 'the inventory is not right at the top');
+  assert.ok(inventory < 2000, `the inventory starts only at character ${inventory}`);
 });
 
-test('die haeufigsten Fehlurteile werden ausdruecklich widerlegt', () => {
-  // Der eigentliche Zweck. Wer „kein Relationship-System" schreibt, soll
-  // das im Dokument bereits beantwortet finden, statt es zu schliessen.
-  for (const stelle of [
+test('the most common wrong verdicts are refuted explicitly', () => {
+  // The actual purpose. Anyone about to write "no relationship system"
+  // should find that answered in the document instead of inferring it.
+  for (const spot of [
     /No relationship system/i,
     /No temporal modelling/i,
     /No importance or salience/i,
     /Missing feature X/i,
-  ]) assert.match(DOC, stelle, `das Fehlurteil ${stelle} wird nicht aufgegriffen`);
+  ]) assert.match(DOC, spot, `the wrong verdict ${spot} is not addressed`);
 });
 
-test('jede genannte Pruefung ist auch wirklich ausfuehrbar', () => {
-  // Ein „so kannst du es nachpruefen"-Abschnitt, der auf nicht
-  // vorhandene Dateien zeigt, ist schlimmer als keiner: er erzeugt
-  // Vertrauen, ohne es einzuloesen.
-  const genannt = [...DOC.matchAll(/node (bench|eval)\/([a-z-]+\.mjs)/g)]
+test('every check the document names can actually be run', () => {
+  // A "here is how you verify it" section pointing at files that do not
+  // exist is worse than none: it creates trust without redeeming it.
+  const named = [...DOC.matchAll(/node (bench|eval)\/([a-z-]+\.mjs)/g)]
     .map((m) => `${m[1]}/${m[2]}`);
-  assert.ok(genannt.length >= 5, 'kaum Pruefbefehle genannt');
-  for (const g of new Set(genannt)) {
-    assert.ok(fs.existsSync(path.join(REPO, g)), `${g} wird genannt, existiert aber nicht`);
+  assert.ok(named.length >= 5, 'barely any verification commands named');
+  for (const g of new Set(named)) {
+    assert.ok(fs.existsSync(path.join(REPO, g)), `${g} is named but does not exist`);
   }
 });
 
-test('die README fuehrt zur Referenz, und zwar frueh', () => {
-  // Der Einstieg bleibt die README. Wenn sie nicht auf die Referenz
-  // zeigt, aendert die Referenz nichts an dem Problem, das sie loest.
-  const readme = lies('README.md');
+test('the README leads to the reference, and does so early', () => {
+  // The entry point is still the README. If it does not point at the
+  // reference, the reference changes nothing about the problem it
+  // solves.
+  const readme = read('README.md');
   const at = readme.indexOf('CAPABILITIES.md');
-  assert.ok(at > 0, 'die README verweist nicht auf docs/CAPABILITIES.md');
-  assert.ok(at < 3000, `der Verweis steht erst bei Zeichen ${at} — zu weit unten`);
+  assert.ok(at > 0, 'the README does not link to docs/CAPABILITIES.md');
+  assert.ok(at < 3000, `the link is only at character ${at} — too far down`);
 });
 
-// --- Und die andere Richtung ----------------------------------------
+// --- And the other direction -----------------------------------------
 //
-// Der Riegel oben prueft, ob jede EXISTIERENDE Faehigkeit in der
-// Referenz steht. Die Umkehrung fehlte, und sie ist beim Port am
-// 2026-09-08 sofort schiefgegangen: die Referenz nannte einen Befehl
-// `broadcast`, den es noch gar nicht gab. Eine Referenz, die zu VIEL
-// behauptet, ist genauso irrefuehrend wie eine, die zu wenig nennt —
-// nur schwerer zu bemerken, weil nichts fehlt.
-test('DIE UMKEHRUNG: die Referenz nennt keinen Befehl, den es nicht gibt', () => {
-  const doku = lies('docs/CAPABILITIES.md');
-  // Nur der Codeblock in 7.1 — Fliesstext nennt Befehle in Beispielen,
-  // und ein Beispiel ist keine Behauptung ueber die Oberflaeche.
-  const block = doku.match(/### 7\.1 CLI[^\n]*\n+```\n([\s\S]*?)```/);
-  assert.ok(block, 'der CLI-Block in 7.1 ist nicht auffindbar');
-  const genannt = block[1].split(/\s+/).filter(Boolean);
-  const echte = new Set(cliBefehle());
-  const erfunden = genannt.filter((n) => !echte.has(n));
-  assert.deepEqual(erfunden, [],
-    `die Referenz nennt Befehle, die es nicht gibt: ${erfunden.join(', ')}`);
+// The guard above checks that every EXISTING capability is in the
+// reference. The reverse was missing, and it went wrong immediately
+// during the port on 2026-09-08: the reference named a command
+// `broadcast` that did not exist yet. A reference claiming TOO MUCH is
+// just as misleading as one naming too little — only harder to notice,
+// because nothing is absent.
+test('THE REVERSE: the reference names no command that does not exist', () => {
+  const doc = read('docs/CAPABILITIES.md');
+  // Only the code block in 7.1 — prose names commands in examples, and
+  // an example is not a claim about the surface.
+  const block = doc.match(/### 7\.1 CLI[^\n]*\n+```\n([\s\S]*?)```/);
+  assert.ok(block, 'the CLI block in 7.1 cannot be found');
+  const named = block[1].split(/\s+/).filter(Boolean);
+  const real = new Set(cliCommands());
+  const invented = named.filter((n) => !real.has(n));
+  assert.deepEqual(invented, [],
+    `the reference names commands that do not exist: ${invented.join(', ')}`);
 });
 
-test('und die Zahl im Titel stimmt', () => {
-  const doku = lies('docs/CAPABILITIES.md');
-  const m = doku.match(/### 7\.1 CLI — (\d+) commands/);
-  assert.ok(m, 'die Zahl im Titel von 7.1 fehlt');
-  assert.equal(Number(m[1]), cliBefehle().length,
-    `Titel sagt ${m[1]}, der Code hat ${cliBefehle().length}`);
+test('and the number in the heading is right', () => {
+  const doc = read('docs/CAPABILITIES.md');
+  const m = doc.match(/### 7\.1 CLI — (\d+) commands/);
+  assert.ok(m, 'the number in the heading of 7.1 is missing');
+  assert.equal(Number(m[1]), cliCommands().length,
+    `the heading says ${m[1]}, the code has ${cliCommands().length}`);
 });

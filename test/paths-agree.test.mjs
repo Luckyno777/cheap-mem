@@ -1,40 +1,39 @@
-// Die beiden Abrufwege duerfen nicht auseinanderlaufen.
+// The two retrieval paths must not drift apart.
 //
-// cheap-mem hat zwei: `mem find` (Mensch) und `retrieve()` (Agent, ueber
-// `mem retrieve` und MCP `mem_retrieve`). Sie duerfen verschieden RANKEN
-// — der Gateway macht einen Rundlauf ueber Autoritaetsstufen, den `find`
-// nicht kennt. Sie duerfen aber nicht verschiedene POLITIK fahren.
+// cheap-mem has two: `mem find` (human) and `retrieve()` (agent, via
+// `mem retrieve` and MCP `mem_retrieve`). They may RANK differently —
+// the gateway does a round-robin over authority levels that `find` does
+// not know. They must not run different POLICY.
 //
-// Genau das ist zweimal passiert, in einer einzigen Sitzung:
+// That happened twice, within a single session:
 //
-//   2026-09-06  `search()` hat mmr:false als Vorgabe. `mem find` schaltet
-//               es ein, der Gateway tat es nicht — der Agentenpfad bekam
-//               reine BM25-Reihenfolge und fuellte sich mit Fast-
-//               Duplikaten. Gemessen: Gold in top-5 bei 7 von 18 Aufgaben
-//               ohne MMR, 9 von 18 mit.
+//   2026-09-06  `search()` has mmr:false as its default. `mem find`
+//               turns it on, the gateway did not — the agent path got
+//               plain BM25 order and filled up with near-duplicates.
+//               Measured: gold in the top 5 for 7 of 18 tasks without
+//               MMR, 9 of 18 with.
 //
-//   2026-09-06  `isEcho` war implementiert, getestet und mit einer Messung
-//               begruendet (13 von 18 eingespeisten Treffern waren Echos)
-//               — und wurde von NICHTS aufgerufen. In `mem find` steckte
-//               es hinter `--no-echo`, das niemand setzte; der Abruf-Hook,
-//               der die 13/18 gemessen hatte, setzte es auch nicht.
+//   2026-09-06  `isEcho` was implemented, tested and justified by a
+//               measurement (13 of 18 injected hits were echoes) — and
+//               was called by NOTHING. In `mem find` it sat behind
+//               `--no-echo`, which nobody set; the retrieval hook that
+//               had measured the 13/18 did not set it either.
 //
-// Zweimal dieselbe Klasse heisst: es gibt eine dritte Stelle. Dieser Test
-// ist nicht gegen die beiden bekannten Faelle gerichtet, sondern gegen die
-// naechste.
+// The same class twice means there is a third place. This test is not
+// aimed at the two known cases but at the next one.
 //
-// EIN Unterschied ist Absicht und steht deshalb hier, statt geprueft zu
-// werden: die Reserve-Bahn fuer Rohfang (seit 2026-09-06) gilt nur im
-// Gateway. `mem find` mischt den Fang weiter nach Punktzahl ein und
-// markiert ihn mit `[raw]`.
+// ONE difference is intended, and therefore stated here instead of
+// being asserted: the reserve lane for raw captures (since 2026-09-06)
+// applies to the gateway only. `mem find` still mixes captures in by
+// score and marks them `[raw]`.
 //
-// Der Grund ist der Zweck. Der Gateway FUELLT EIN BUDGET fuer ein Modell,
-// das nicht nachfragen kann; da ist ein ungefasstes Protokoll vor einer
-// gepruefte Entscheidung ein Fehler. `mem find` legt einem Menschen eine
-// Liste hin, der die Markierung sieht und `--only-raw` kennt.
+// The reason is purpose. The gateway FILLS A BUDGET for a model that
+// cannot ask back; there an unprocessed transcript ahead of a reviewed
+// decision is a fault. `mem find` puts a list in front of a human who
+// sees the marker and knows `--only-raw`.
 //
-// Wer das aendert, aendert also nicht eine Ungereimtheit, sondern eine
-// Entscheidung. Faellt der Grund weg, faellt der Unterschied mit.
+// So changing that changes not an inconsistency but a decision. If the
+// reason falls away, the difference goes with it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -47,45 +46,45 @@ import * as memory from '../src/memory.mjs';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantAll } from '../src/capability.mjs';
 
-const HIER = path.dirname(fileURLToPath(import.meta.url));
-const MEM = path.join(HIER, '..', 'bin', 'mem');
-const FRAGE = 'Wie halten wir die Ablage im Repository nachvollziehbar?';
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const MEM = path.join(HERE, '..', 'bin', 'mem');
+const QUESTION = 'Wie halten wir die Ablage im Repository nachvollziehbar?';
 
-function bau({ dups = 15 } = {}) {
+function build({ dups = 15 } = {}) {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-wege-'));
   execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
   const log = (d) => memory.logEntry(r, d.type ?? 'decision',
     { ...d, author: 'lucky', authority: 'user' });
 
-  // (a) Ein Echo als ECHTER Rohfang, nicht als getippter Eintrag.
+  // (a) An echo as a REAL raw capture, not as a typed entry.
   //
-  // Das ist keine Kosmetik: der Filter greift absichtlich NUR bei
-  // Rohmaterial. Ein getippter Eintrag ist per Konstruktion nicht die
-  // Frage des Nutzers, und ohne diese Einschraenkung faellt eine kurze
-  // Entscheidung, die in seinen eigenen Worten abgelegt wurde. Eine erste
-  // Fassung dieser Vorrichtung legte das Echo als `thought` ab und
-  // pruefte damit einen Pfad, den es im Betrieb nicht gibt.
-  const rohDir = path.join(r, 'raw', '2026', '09');
-  fs.mkdirSync(rohDir, { recursive: true });
-  const zeilen = [
-    JSON.stringify({ ts: '2026-09-06T10:00:00Z', role: 'user', text: FRAGE }),
-    JSON.stringify({ ts: '2026-09-06T10:00:01Z', role: 'user', text: FRAGE }),
+  // That is not cosmetic: the filter deliberately applies to raw
+  // material ONLY. A typed entry is by construction not the user's
+  // question, and without that restriction a short decision recorded in
+  // their own words would drop out. A first version of this fixture
+  // stored the echo as a `thought` and thereby exercised a path that
+  // does not exist in production.
+  const rawDir = path.join(r, 'raw', '2026', '09');
+  fs.mkdirSync(rawDir, { recursive: true });
+  const lines = [
+    JSON.stringify({ ts: '2026-09-06T10:00:00Z', role: 'user', text: QUESTION }),
+    JSON.stringify({ ts: '2026-09-06T10:00:01Z', role: 'user', text: QUESTION }),
   ].join('\n') + '\n';
-  fs.writeFileSync(path.join(rohDir, '2026-09-06T10-00-00Z--echo.jsonl.gz'), zlib.gzipSync(zeilen));
-  // (b) Fast-Duplikate, die die Frage lexikalisch treffen.
+  fs.writeFileSync(path.join(rawDir, '2026-09-06T10-00-00Z--echo.jsonl.gz'), zlib.gzipSync(lines));
+  // (b) Near-duplicates that match the question lexically.
   for (let i = 0; i < dups; i += 1) {
     log({ id: `DUP-${i}`, topic: 'pakete',
       choice: `Abhaengigkeiten im Repository nachvollziehbar festnageln, Runde ${i}`,
       why: 'das Bild des Laufwerks driftete zweimal in einem Monat', tags: ['pakete'] });
   }
-  // (c) Genug unbeteiligter Korpus, damit idf etwas bedeutet.
-  for (const thema of ['protokoll', 'tests', 'rechte', 'bilder', 'zeitplan', 'suchfeld', 'meldung', 'archiv']) {
+  // (c) Enough unrelated corpus that idf means something.
+  for (const topic of ['protokoll', 'tests', 'rechte', 'bilder', 'zeitplan', 'suchfeld', 'meldung', 'archiv']) {
     for (let i = 0; i < 3; i += 1) {
-      log({ id: `X-${thema}-${i}`, topic: thema, choice: `zu ${thema} gilt Fassung ${i}`,
-        why: `entschieden bei Vorgang ${500 + i}, seitdem unveraendert`, tags: [thema] });
+      log({ id: `X-${topic}-${i}`, topic, choice: `zu ${topic} gilt Fassung ${i}`,
+        why: `entschieden bei Vorgang ${500 + i}, seitdem unveraendert`, tags: [topic] });
     }
   }
-  // (d) Eine Antwort mit eigenem Thema.
+  // (d) One answer, on a topic of its own.
   log({ id: 'ANTWORT', topic: 'ablage', choice: 'Dateien im Repository statt einer externen Datenbank',
     why: 'ein Dienst, den niemand wartet, ist teurer als eine Datei', tags: ['ablage'] });
   return r;
@@ -93,67 +92,68 @@ function bau({ dups = 15 } = {}) {
 
 const findIds = (root, extra = []) => {
   const top = extra.includes('--top') ? [] : ['--top', '5'];
-  const out = execFileSync('node', [MEM, '--root', root, 'find', FRAGE, ...top, '--json', ...extra],
+  const out = execFileSync('node', [MEM, '--root', root, 'find', QUESTION, ...top, '--json', ...extra],
     { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
   return (JSON.parse(out).hits ?? []).map((h) => h.entry?.id ?? '?');
 };
 const gatewayIds = (root, opt = {}) =>
-  retrieve(root, FRAGE, grantAll(['read']), { top: 5, ...opt }).claims.map((c) => c.id);
+  retrieve(root, QUESTION, grantAll(['read']), { top: 5, ...opt }).claims.map((c) => c.id);
 
-test('beide Wege verwerfen per Vorgabe das Echo der Frage', () => {
-  // Wenig gepflegte Konkurrenz, und das ist kein Detail: seit dem
-  // 2026-09-06 ist der Rohfang im Gateway die Reserve-Bahn — er kommt
-  // erst dran, wenn das Gepflegte die Plaetze nicht fuellt. Mit den
-  // fuenfzehn Fast-Duplikaten der anderen Vorrichtung waere gar kein
-  // Platz frei, und die Positivkontrolle waere rot, obwohl der Filter
-  // nichts falsch macht.
-  const r = bau({ dups: 1 });
+test('by default both paths drop the echo of the question', () => {
+  // Little curated competition, and that is not a detail: since
+  // 2026-09-06 raw captures are the gateway's reserve lane — they only
+  // get a turn once the curated material fails to fill the slots. With
+  // the fifteen near-duplicates of the other fixture no slot would be
+  // free, and the positive control would be red although the filter
+  // does nothing wrong.
+  const r = build({ dups: 1 });
   try {
-    const WEIT = 12;
-    const istRoh = (ids) => ids.some((x) => x === null || String(x).includes('raw') || x === '?');
-    const ohne = () => findIds(r, ['--with-echo', '--top', String(WEIT)]);
-    const mit = () => findIds(r, ['--top', String(WEIT)]);
+    const WIDE = 12;
+    const isRaw = (ids) => ids.some((x) => x === null || String(x).includes('raw') || x === '?');
+    const without = () => findIds(r, ['--with-echo', '--top', String(WIDE)]);
+    const with_ = () => findIds(r, ['--top', String(WIDE)]);
 
-    // Positivkontrolle zuerst: ohne die Politik MUSS das Echo auftauchen,
-    // sonst prueft die Zusicherung darunter nichts.
-    assert.ok(istRoh(ohne()), `die Vorrichtung erzeugt kein Rohfang-Echo: ${ohne().join(' ')}`);
-    assert.ok(istRoh(gatewayIds(r, { dropEcho: false, top: WEIT })),
-      `kein Rohfang-Echo im Gateway: ${gatewayIds(r, { dropEcho: false, top: WEIT }).join(' ')}`);
+    // Positive control first: without the policy the echo MUST show up,
+    // otherwise the assertion below proves nothing.
+    assert.ok(isRaw(without()), `the fixture produces no raw echo: ${without().join(' ')}`);
+    assert.ok(isRaw(gatewayIds(r, { dropEcho: false, top: WIDE })),
+      `no raw echo in the gateway: ${gatewayIds(r, { dropEcho: false, top: WIDE }).join(' ')}`);
 
-    assert.ok(!istRoh(mit()), `\`mem find\` speist das Echo ein: ${mit().join(' ')}`);
-    assert.ok(!istRoh(gatewayIds(r, { top: WEIT })),
-      `der Gateway speist das Echo ein: ${gatewayIds(r, { top: WEIT }).join(' ')}`);
+    assert.ok(!isRaw(with_()), `\`mem find\` feeds the echo in: ${with_().join(' ')}`);
+    assert.ok(!isRaw(gatewayIds(r, { top: WIDE })),
+      `the gateway feeds the echo in: ${gatewayIds(r, { top: WIDE }).join(' ')}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('der Echo-Filter greift nur am Rohfang, nicht an getippten Eintraegen', () => {
-  // Die Einschraenkung auf Rohfang ist kein Detail, sondern die Grenze
-  // zwischen zwei Bahnen: Lane 1 (Stop-Hook) legt jede Nachricht ab, also
-  // auch die Frage selbst. Was jemand von Hand ablegt, ist per Konstruktion
-  // etwas anderes — auch wenn es zufaellig mit denselben Woertern beginnt.
+test('the echo filter applies to raw captures only, not to typed entries', () => {
+  // The restriction to raw material is not a detail but the boundary
+  // between two lanes: lane 1 (stop hook) stores every message, hence
+  // the question itself. What somebody records by hand is by
+  // construction something else — even when it happens to start with
+  // the same words.
   //
-  // Ohne die Grenze faellt ein echter Anspruch. Gemessen: die Frage
-  // "zahlung vorkasse entscheidung" gegen die Entscheidung "zahlung nur
-  // per vorkasse — meine entscheidung" ergibt 3 von 4 Inhaltswoertern,
-  // also 0,75 ueber der Schwelle 0,7.
-  const r = bau();
+  // Without the boundary a real claim drops out. Measured: the question
+  // "zahlung vorkasse entscheidung" against the decision "zahlung nur
+  // per vorkasse — meine entscheidung" gives 3 of 4 content words, so
+  // 0.75, above the 0.7 threshold.
+  const r = build();
   try {
     memory.logEntry(r, 'thought', {
-      id: 'GETIPPT', topic: 'ablage', text: FRAGE,
+      id: 'GETIPPT', topic: 'ablage', text: QUESTION,
       author: 'lucky', authority: 'user', tags: ['ablage'],
     });
     assert.ok(findIds(r, ['--top', '10']).includes('GETIPPT'),
-      `\`mem find\` unterdrueckt einen getippten Eintrag: ${findIds(r, ['--top', '10']).join(' ')}`);
+      `\`mem find\` suppresses a typed entry: ${findIds(r, ['--top', '10']).join(' ')}`);
     assert.ok(gatewayIds(r, { top: 10 }).includes('GETIPPT'),
-      `der Gateway unterdrueckt einen getippten Eintrag: ${gatewayIds(r, { top: 10 }).join(' ')}`);
+      `the gateway suppresses a typed entry: ${gatewayIds(r, { top: 10 }).join(' ')}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('beide Wege fuellen die Trefferliste nicht allein mit Fast-Duplikaten', () => {
-  const r = bau();
+test('neither path fills the hit list with near-duplicates alone', () => {
+  const r = build();
   try {
-    const nurDup = (ids) => ids.length > 0 && ids.every((x) => String(x).startsWith('DUP-'));
-    assert.ok(!nurDup(findIds(r)), `\`mem find\` liefert nur Duplikate: ${findIds(r).join(' ')}`);
-    assert.ok(!nurDup(gatewayIds(r)), `der Gateway liefert nur Duplikate: ${gatewayIds(r).join(' ')}`);
+    const onlyDup = (ids) => ids.length > 0 && ids.every((x) => String(x).startsWith('DUP-'));
+    assert.ok(!onlyDup(findIds(r)), `\`mem find\` returns duplicates only: ${findIds(r).join(' ')}`);
+    assert.ok(!onlyDup(gatewayIds(r)), `the gateway returns duplicates only: ${gatewayIds(r).join(' ')}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });

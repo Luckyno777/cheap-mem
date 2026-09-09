@@ -1,14 +1,14 @@
-// Was die CLI kann und was ein angeschlossener Agent davon erreicht.
+// What the CLI can do, and how much of it a connected agent reaches.
 //
-// **Der Befund, 2026-09-08.** 35 CLI-Befehle, 11 MCP-Werkzeuge. `links`,
-// `experiences`, `topics`, `facts`, `show` und `explain` waren gebaut,
-// getestet und dokumentiert — und fuer jeden Fremdagenten schlicht nicht
-// vorhanden. Er konnte den Kanten-Graphen nicht ablaufen, keinen
-// Themenfaden verfolgen und nicht fragen, warum etwas NICHT kam.
+// **The finding, 2026-09-08.** 35 CLI commands, 11 MCP tools. `links`,
+// `experiences`, `topics`, `facts`, `show` and `explain` were built,
+// tested and documented — and for any foreign agent simply not there.
+// It could not walk the edge graph, follow a topic thread, or ask why
+// something did NOT come back.
 //
-// Dasselbe Muster wie beim Loggen am selben Tag, eine Ebene tiefer:
-// nicht "die Faehigkeit fehlt", sondern "sie ist von dort, wo
-// gearbeitet wird, nicht erreichbar".
+// The same pattern as with logging on the same day, one level down:
+// not "the capability is missing", but "it is not reachable from where
+// the work happens".
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -20,8 +20,8 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MCP = path.join(REPO, 'bin', 'mem-mcp');
 
-/** Ein Gedaechtnis mit genug Inhalt, dass jedes Werkzeug etwas zu sagen hat. */
-function gedaechtnis() {
+/** A memory with enough content that every tool has something to say. */
+function memory() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-reach-'));
   const mem = (...a) => spawnSync('node', [path.join(REPO, 'bin', 'mem'), ...a],
     { cwd: root, encoding: 'utf8', timeout: 30000 });
@@ -32,7 +32,7 @@ function gedaechtnis() {
   return root;
 }
 
-/** Ein Handshake plus beliebig viele Aufrufe, in einem Prozess. */
+/** One handshake plus any number of calls, in a single process. */
 function bridge(root, calls = [], extraEnv = {}) {
   const lines = [JSON.stringify({
     jsonrpc: '2.0', id: 1, method: 'initialize',
@@ -49,35 +49,35 @@ function bridge(root, calls = [], extraEnv = {}) {
   return String(r.stdout).split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z));
 }
 
-const PFLICHT = ['mem_links', 'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts', 'mem_explain'];
+const REQUIRED = ['mem_links', 'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts', 'mem_explain'];
 
-test('DER FALL: die sechs Werkzeuge werden ueberhaupt angeboten', () => {
-  const root = gedaechtnis();
+test('THE CASE: the six tools are offered at all', () => {
+  const root = memory();
   try {
-    const namen = bridge(root).at(-1).result.tools.map((t) => t.name);
-    for (const n of PFLICHT) assert.ok(namen.includes(n), `${n} fehlt an der Bruecke`);
+    const names = bridge(root).at(-1).result.tools.map((t) => t.name);
+    for (const n of REQUIRED) assert.ok(names.includes(n), `${n} is missing from the bridge`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('und sie ANTWORTEN auch, statt nur in der Liste zu stehen', () => {
-  // Ein Werkzeug, das gelistet ist und beim Aufruf wirft, ist schlimmer
-  // als eines, das fehlt: der Agent glaubt, es gefragt zu haben.
-  const root = gedaechtnis();
+test('and they ANSWER too, instead of only appearing in the list', () => {
+  // A tool that is listed and throws when called is worse than one
+  // that is missing: the agent believes it asked.
+  const root = memory();
   try {
-    const antworten = bridge(root, [
+    const answers = bridge(root, [
       ['mem_experiences', {}], ['mem_topics', {}], ['mem_facts', {}],
     ]).slice(1);
-    assert.equal(antworten.length, 3, 'nicht jeder Aufruf hat geantwortet');
-    for (const a of antworten) {
-      assert.ok(!a.error, `Fehler statt Antwort: ${JSON.stringify(a.error)}`);
+    assert.equal(answers.length, 3, 'not every call answered');
+    for (const a of answers) {
+      assert.ok(!a.error, `error instead of an answer: ${JSON.stringify(a.error)}`);
       assert.ok(!a.result?.isError, `isError: ${JSON.stringify(a.result)}`);
-      assert.ok(a.result.content[0].text.trim().length > 0, 'leere Antwort');
+      assert.ok(a.result.content[0].text.trim().length > 0, 'empty answer');
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('mem_facts nennt den derzeit gueltigen Wert', () => {
-  const root = gedaechtnis();
+test('mem_facts names the value valid right now', () => {
+  const root = memory();
   try {
     const [, a] = bridge(root, [['mem_facts', {}]]);
     assert.match(a.result.content[0].text, /server\.users/);
@@ -85,29 +85,29 @@ test('mem_facts nennt den derzeit gueltigen Wert', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('mem_topics ohne Schluessel listet die Themen, mit Schluessel den Faden', () => {
-  // Ein Agent, der die Themennamen nicht kennt, kann nach keinem fragen.
-  const root = gedaechtnis();
+test('mem_topics without a key lists topics, with a key the thread', () => {
+  // An agent that does not know the topic names cannot ask for one.
+  const root = memory();
   try {
-    const [, liste, faden] = bridge(root, [
+    const [, list, thread] = bridge(root, [
       ['mem_topics', {}], ['mem_topics', { key: 'install/windows' }],
     ]);
-    assert.match(liste.result.content[0].text, /install\/windows/);
-    const zeilen = faden.result.content[0].text.trim().split('\n');
-    assert.equal(zeilen.length, 2, 'der Faden soll beide Eintraege zeigen');
+    assert.match(list.result.content[0].text, /install\/windows/);
+    const lines = thread.result.content[0].text.trim().split('\n');
+    assert.equal(lines.length, 2, 'the thread should show both entries');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('die Beschreibungen der neuen Werkzeuge nennen den ANLASS', () => {
-  // Dieselbe Lehre wie bei mem_find und mem_log: ein Werkzeug, dessen
-  // Anlass niemand nennt, wird nicht benutzt. Die Liste steht in jedem
-  // Zug im Kontext — dort gehoert das Wann hin, nicht nur das Was.
-  const root = gedaechtnis();
+test('the descriptions of the new tools name the OCCASION', () => {
+  // The same lesson as with mem_find and mem_log: a tool whose occasion
+  // nobody states does not get used. The list is in the context on
+  // every turn — that is where the when belongs, not just the what.
+  const root = memory();
   try {
     const tools = Object.fromEntries(bridge(root).at(-1).result.tools.map((t) => [t.name, t.description]));
-    for (const n of PFLICHT) {
+    for (const n of REQUIRED) {
       assert.match(tools[n], /\b(call it|use it|use this|ask this|read this)\b/i,
-        `${n}: die Beschreibung sagt nur WAS, nicht WANN`);
+        `${n}: the description says only WHAT, not WHEN`);
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -122,7 +122,7 @@ test('die Beschreibungen der neuen Werkzeuge nennen den ANLASS', () => {
 const STORE_TOOLS = ['mem_store_put', 'mem_store_list', 'mem_store_get'];
 
 test('THE GAP: the three store tools are actually offered', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const names = bridge(root).at(-1).result.tools.map((t) => t.name);
     for (const n of STORE_TOOLS) assert.ok(names.includes(n), `${n} missing from the bridge`);
@@ -130,7 +130,7 @@ test('THE GAP: the three store tools are actually offered', () => {
 });
 
 test('their descriptions name the OCCASION, not just the capability', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const tools = Object.fromEntries(bridge(root).at(-1).result.tools.map((t) => [t.name, t.description]));
     for (const n of STORE_TOOLS) {
@@ -143,7 +143,7 @@ test('their descriptions name the OCCASION, not just the capability', () => {
 test('mem_store_put really stores a file, mem_store_list and mem_store_get find it again', () => {
   // A tool that is listed and throws on call is worse than a missing
   // one — the agent believes it asked.
-  const root = gedaechtnis();
+  const root = memory();
   const src = path.join(root, 'to-store.txt');
   fs.writeFileSync(src, 'a harmless generated report\n');
   try {
@@ -181,7 +181,7 @@ const ROUND3 = ['mem_heartbeat', 'mem_questions', 'mem_answer',
   'mem_procedures', 'mem_component', 'mem_source'];
 
 test('REACH: the six new capabilities are at the bridge', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const namen = bridge(root)[1].result.tools.map((t) => t.name);
     const fehlen = ROUND3.filter((n) => !namen.includes(n));
@@ -192,7 +192,7 @@ test('REACH: the six new capabilities are at the bridge', () => {
 
 test('THE EXPENSIVE ONE: a bridge agent can record a heartbeat', () => {
   // Without it the onboarding step stays red for it forever.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const [, r] = bridge(root, [['mem_heartbeat', { what: 'probe' }]], { CHEAP_MEM_AGENT: 'chatgpt' });
     assert.ok(!r.error, JSON.stringify(r.error));
@@ -205,7 +205,7 @@ test('THE EXPENSIVE ONE: a bridge agent can record a heartbeat', () => {
 test('and the identity does NOT come from a parameter', () => {
   // Otherwise one agent beats for another, and the lane looks alive
   // where nobody is running any more.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     bridge(root, [['mem_heartbeat', { agent: 'someone-else' }]], { CHEAP_MEM_AGENT: 'chatgpt' });
     const raw = fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8');
@@ -215,7 +215,7 @@ test('and the identity does NOT come from a parameter', () => {
 });
 
 test('the quiet period holds at the bridge too, and says so', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     bridge(root, [['mem_heartbeat', {}]]);
     const [, second] = bridge(root, [['mem_heartbeat', {}]]);
@@ -228,7 +228,7 @@ test('the quiet period holds at the bridge too, and says so', () => {
 test('mem_procedures does not hand out a rule without its author', () => {
   // The fifth display path. The text is instruction-shaped; without
   // the prefix a foreign agent reads it as something that simply holds.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     fs.writeFileSync(path.join(root, 'global', 'procedures.jsonl'),
       `${JSON.stringify({ id: 'p1', ts: '2026-09-08T10:00:00Z', title: 'Always quote',
@@ -243,7 +243,7 @@ test('mem_procedures does not hand out a rule without its author', () => {
 });
 
 test('mem_answer refuses a link into the void', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     fs.writeFileSync(path.join(root, 'global', 'questions.jsonl'),
       `${JSON.stringify({ id: 'q1', ts: '2026-09-08T10:00:00Z', question: 'Is it gone?' })}\n`);
@@ -259,7 +259,7 @@ test('THE BOUNDARY: mem_source takes no local paths', () => {
   // everybody reads. That is a different exposure from mem_store_put
   // (bytes under a hash, refused on a redaction finding), and so a
   // different rule — not a forgotten one.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const [, r] = bridge(root, [['mem_source', { address: '/etc/passwd' }]]);
     const all = JSON.stringify(r.result);
@@ -271,7 +271,7 @@ test('THE BOUNDARY: mem_source takes no local paths', () => {
 });
 
 test('an address goes through, with a redacted excerpt', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     // Assembled, never written out: the pre-commit scanner reads this
     // file as text and cannot know a secret is invented.
@@ -293,7 +293,7 @@ test('an address goes through, with a redacted excerpt', () => {
 });
 
 test('mem_component finds across both spellings, and says which', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     fs.appendFileSync(path.join(root, 'global', 'errors.jsonl'),
       `${JSON.stringify({ id: 'e9', ts: '2026-09-08T10:00:00Z', class: 'base-only',
@@ -330,7 +330,7 @@ const TOOLS = [
 ];
 
 test('the tool list is exactly this, by name', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const names = bridge(root).at(-1).result.tools.map((t) => t.name).sort();
     assert.deepEqual(names, TOOLS,
@@ -339,7 +339,7 @@ test('the tool list is exactly this, by name', () => {
 });
 
 test('no tool edits, deletes, commits or pushes', () => {
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const names = bridge(root).at(-1).result.tools.map((t) => t.name);
     // Four tools write, and every one of them only APPENDS:
@@ -375,7 +375,7 @@ test('a foreign agent can report its checkout, and the board shows it', () => {
   // checks the write leaves open whether the tile finds the record —
   // and that is where the first version was wrong (two writers, one
   // reader).
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const [, reported, boardAnswer] = bridge(root, [
       ['mem_bridge_report', { version: 'cafe123' }],
@@ -393,7 +393,7 @@ test('a foreign agent can report its checkout, and the board shows it', () => {
 test('without a report the board says unknown, not calm', () => {
   // The counter-probe to the line above. Without it there is no way to
   // tell whether the tile read the report or is simply always green.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const [, a] = bridge(root, [['mem_board', {}]]);
     assert.match(a.result.content[0].text, /no state reported/);
@@ -406,7 +406,7 @@ test('mem_bridge_report appends, so an earlier report survives', () => {
   // would have made this tool the only one at the bridge that CHANGES
   // something. Appending also answers a question the overwrite could
   // not: since when has this server been on the same checkout.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     bridge(root, [
       ['mem_bridge_report', { version: 'aaa1111' }],
@@ -425,7 +425,7 @@ test('mem_bridge_report appends, so an earlier report survives', () => {
 test('mem_bridge_report without a version writes nothing', () => {
   // A half-set report would be worse than none: the tile would go calm
   // and name a version nobody is running.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     const [, a] = bridge(root, [['mem_bridge_report', {}]]);
     assert.ok(a.error || /error|hash|version/i.test(a.result?.content?.[0]?.text ?? ''),
@@ -437,7 +437,7 @@ test('mem_bridge_report without a version writes nothing', () => {
 test('the identity in a report comes from the connection, not a parameter', () => {
   // Same rule as the heartbeat: otherwise one agent could report for
   // another, and the tile would name the wrong server.
-  const root = gedaechtnis();
+  const root = memory();
   try {
     bridge(root, [['mem_bridge_report', { version: 'ddd4444', by: 'somebody-else' }]],
       { CHEAP_MEM_AGENT: 'session' });

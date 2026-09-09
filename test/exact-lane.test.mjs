@@ -1,25 +1,23 @@
-// Nennt die Frage einen Bezeichner, ist das keine Aehnlichkeit.
+// When the question names an identifier, that is not similarity.
 //
-// Der Befund (2026-09-06). Eine Aufgabenklasse fragt nach Pfaden,
-// Vorgangsnummern, Dienstnamen und Fassungen. Das Ranking war richtig —
-// fuenf von sechs auf Rang 1 — und trotzdem kam keine Angabe an, weil
-// jede Punktzahl unter der Abrufschwelle 5,0 lag (0,95 bis 2,44). Eine
-// Frage nach einem Pfad hat nun einmal nur ein passendes Wort, und BM25
-// belohnt viele.
+// The finding (2026-09-06). One class of task asks about paths, case
+// numbers, service names and versions. The ranking was right — five of
+// six at rank 1 — and still nothing arrived, because every score sat
+// below the retrieval threshold of 5.0 (0.95 to 2.44). A question about
+// a path simply has one matching word, and BM25 rewards many.
 //
-// Also eine eigene Bahn: enthaelt die Frage einen Bezeichner, der in
-// hoechstens `top` Eintraegen steht, kommt der Eintrag nach vorn und an
-// der Schwelle vorbei. Kein Boost (koennte Besseres begraben), kein
-// Filter (koennte alles wegwerfen), kein weiteres Gewicht in einer Summe
-// (der naechste unkalibrierbare Knopf).
+// Hence a lane of its own: if the question contains an identifier that
+// occurs in at most `top` entries, that entry moves to the front and
+// past the threshold. No boost (could bury better material), no filter
+// (could throw everything away), no further weight in a sum (the next
+// uncalibratable knob).
 //
-// GRENZE, und sie steht hier, weil sie beim Bauen ueberrascht hat: die
-// Bahn hilft, wenn die Frage den Bezeichner NENNT ("was steht in
-// src/…/x.mjs"). Sie hilft NICHT, wenn die Frage nach ihm FRAGT ("in
-// welcher Datei liegt die Pruefung") — dann steht in der Frage kein
-// Bezeichner, den man nachschlagen koennte. Beide Richtungen werden
-// unten geprueft, damit die Grenze nicht in Vergessenheit geraet und
-// spaeter als Fehler gemeldet wird.
+// LIMIT, and it is written here because it surprised us while building:
+// the lane helps when the question NAMES the identifier ("what does
+// src/…/x.mjs say"). It does NOT help when the question ASKS FOR it
+// ("which file holds the check") — then the question contains no
+// identifier to look up. Both directions are asserted below, so that
+// the limit is not forgotten and later reported as a fault.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -33,31 +31,31 @@ import * as entity from '../src/entity.mjs';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantAll } from '../src/capability.mjs';
 
-const HIER = path.dirname(fileURLToPath(import.meta.url));
-const MEM = path.join(HIER, '..', 'bin', 'mem');
-// Ein Pfad, dessen TEILE haeufig sind — das ist der Fall, in dem BM25
-// nicht helfen kann: `src` und `mjs` stehen in jedem zweiten Eintrag,
-// ihre idf ist klein, und der Eintrag ist kurz. Ein Pfad mit einem
-// seltenen Wort darin (`…/kanarienvogel.mjs`) raeumt die Schwelle auch
-// ohne diese Bahn — daran ist die erste Fassung dieses Tests gescheitert.
-const PFAD = 'src/index.mjs';
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const MEM = path.join(HERE, '..', 'bin', 'mem');
+// A path whose PARTS are frequent — that is the case BM25 cannot help
+// with: `src` and `mjs` are in every second entry, their idf is small,
+// and the entry is short. A path containing a rare word
+// (`…/kanarienvogel.mjs`) clears the threshold without this lane too —
+// that is what the first version of this test foundered on.
+const PATH = 'src/index.mjs';
 
-function bau() {
+function build() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-exakt-'));
   execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
   const log = (d) => memory.logEntry(r, 'decision',
     { ...d, author: 'lucky', authority: 'user' });
-  // Das Thema nennt den Pfad NICHT noch einmal. Eine erste Fassung
-  // setzte `topic: 'kanarienvogel'` — damit stand das seltene Wort
-  // dreimal im Eintrag, die Punktzahl sprang auf 7,55, und die
-  // Positivkontrolle meldete zu Recht "der Test prueft nichts". Am
-  // realistischen Korpus liegt derselbe Fall bei 2,4.
+  // The topic does NOT repeat the path. A first version set
+  // `topic: 'kanarienvogel'` — the rare word then stood three times in
+  // the entry, the score jumped to 7.55, and the positive control
+  // rightly reported "this test proves nothing". On a realistic corpus
+  // the same case sits at 2.4.
   log({ id: 'ZIEL', topic: 'einstieg',
-    choice: `der einstieg liegt in ${PFAD}`,
+    choice: `der einstieg liegt in ${PATH}`,
     why: 'dort wird alles zusammengesetzt' });
-  // Genug lauter Korpus, dass die Punktzahl des Ziels klein bleibt und
-  // andere Eintraege die Plaetze fuellen — sonst gewinnt das Ziel auch
-  // ohne die Bahn und der Test prueft nichts.
+  // Enough noisy corpus that the target's score stays small and other
+  // entries fill the slots — otherwise the target wins without the lane
+  // and the test proves nothing.
   for (const t of ['ablage', 'tests', 'rechte', 'bilder', 'zeitplan', 'meldung', 'suchfeld']) {
     for (let i = 0; i < 6; i += 1) {
       log({ id: `X-${t}-${i}`, topic: t,
@@ -68,108 +66,107 @@ function bau() {
   return r;
 }
 
-test('Bezeichner werden erkannt, Fliesstext nicht', () => {
+test('identifiers are recognised, prose is not', () => {
   const b = entity.bezeichner(
     'Die Pruefung liegt in src/redaktion/kanarienvogel.mjs, festgenagelt auf 3.7.2, Container '
     + 'kolibri-taktgeber, Vorgang 7318, Variable MEM_RETRIEVE_MIN.');
   for (const x of ['src/redaktion/kanarienvogel.mjs', '3.7.2', 'kolibri-taktgeber', '7318', 'mem_retrieve_min']) {
-    assert.ok(b.has(x), `Bezeichner nicht erkannt: ${x} (gefunden: ${[...b].join(' ')})`);
+    assert.ok(b.has(x), `identifier not recognised: ${x} (found: ${[...b].join(' ')})`);
   }
-  // Und die Gegenprobe: gewoehnliche deutsche Woerter sind keine
-  // Bezeichner. Ohne sie waere ein Muster denkbar, das alles frisst.
+  // And the counter-check: ordinary German words are not identifiers.
+  // Without it a pattern that swallows everything would be conceivable.
   const c = entity.bezeichner('Die Ablage der Auswertung bleibt im Repository, 30 Tage lang.');
-  assert.equal(c.size, 0, `Fliesstext als Bezeichner gelesen: ${[...c].join(' ')}`);
+  assert.equal(c.size, 0, `prose read as identifiers: ${[...c].join(' ')}`);
 });
 
-test('ein Bezeichner in zu vielen Eintraegen identifiziert nichts mehr', () => {
-  // Die Schranke hat keinen freien Parameter: sie ist die Antwortgroesse.
-  const karte = new Map([['a/b.mjs', new Set([1])], ['src/index.mjs', new Set([1, 2, 3, 4, 5, 6, 7])]]);
-  const eng = entity.treffer(karte, 'schau in a/b.mjs und src/index.mjs', 5);
-  assert.equal(eng.size, 1, 'der haeufige Bezeichner haette nicht zaehlen duerfen');
-  assert.ok(eng.has(1));
+test('an identifier in too many entries identifies nothing any more', () => {
+  // The bound has no free parameter: it is the answer size.
+  const map = new Map([['a/b.mjs', new Set([1])], ['src/index.mjs', new Set([1, 2, 3, 4, 5, 6, 7])]]);
+  const narrow = entity.treffer(map, 'schau in a/b.mjs und src/index.mjs', 5);
+  assert.equal(narrow.size, 1, 'the frequent identifier should not have counted');
+  assert.ok(narrow.has(1));
 });
 
-test('nennt die Frage den Pfad, kommt der Eintrag an der Schwelle vorbei', () => {
-  const r = bau();
+test('when the question names the path, the entry gets past the threshold', () => {
+  const r = build();
   try {
     const cap = grantAll(['read']);
-    const frage = `Was ist zu ${PFAD} festgelegt?`;
-    const claims = retrieve(r, frage, cap, { top: 5 }).claims;
-    const ziel = claims.find((c) => c.id === 'ZIEL');
+    const question = `Was ist zu ${PATH} festgelegt?`;
+    const claims = retrieve(r, question, cap, { top: 5 }).claims;
+    const target = claims.find((c) => c.id === 'ZIEL');
 
-    // Positivkontrolle: ohne die Bahn muesste die Punktzahl UNTER der
-    // Schwelle liegen — sonst prueft die Zusicherung darunter nichts,
-    // weil das Ziel ohnehin durchgekommen waere.
+    // Positive control: without the lane the score has to be BELOW the
+    // threshold — otherwise the assertion underneath proves nothing,
+    // because the target would have got through anyway.
     const idx = search.loadIndex(r, { fresh: true });
-    const roh = search.search(idx, search.retrievalQuery(frage, { index: idx }), { top: 20 })
+    const raw = search.search(idx, search.retrievalQuery(question, { index: idx }), { top: 20 })
       .find((h) => h.entry?.id === 'ZIEL');
-    assert.ok(roh, 'die Vorrichtung findet das Ziel ueberhaupt nicht');
-    assert.ok(roh.score < 5.0,
-      `das Ziel raeumt die Schwelle schon ohne die Bahn (${roh.score.toFixed(2)}) — der Test prueft nichts`);
+    assert.ok(raw, 'the fixture does not find the target at all');
+    assert.ok(raw.score < 5.0,
+      `the target clears the threshold without the lane (${raw.score.toFixed(2)}) — the test proves nothing`);
 
-    assert.ok(ziel, `Ziel nicht im Kontext: ${claims.map((c) => c.id).join(' ')}`);
-    assert.ok(ziel.exact?.includes(PFAD),
-      `Ziel ist da, aber nicht ueber die Exakt-Bahn: ${JSON.stringify(ziel.exact)}`);
+    assert.ok(target, `target not in the context: ${claims.map((c) => c.id).join(' ')}`);
+    assert.ok(target.exact?.includes(PATH),
+      `target is there, but not through the exact lane: ${JSON.stringify(target.exact)}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('beide Abrufwege kennen die Exakt-Bahn', () => {
-  // `mem find` und `retrieve()` sind in einer einzigen Sitzung zweimal
-  // auseinandergelaufen (test/paths-agree.test.mjs). Eine dritte Regel,
-  // die nur einer von beiden kennt, waere die dritte Stelle — und der
-  // Abruf-Hook geht ueber `mem find`, nicht ueber den Gateway.
-  const r = bau();
+test('both retrieval paths know the exact lane', () => {
+  // `mem find` and `retrieve()` have drifted apart twice in a single
+  // session (test/paths-agree.test.mjs). A third rule known to only one
+  // of them would be the third place — and the retrieval hook goes
+  // through `mem find`, not through the gateway.
+  const r = build();
   try {
-    const frage = `Was ist zu ${PFAD} festgelegt?`;
-    const aus = execFileSync('node', [MEM, '--root', r, 'find', frage, '--top', '5', '--json'],
+    const question = `Was ist zu ${PATH} festgelegt?`;
+    const out = execFileSync('node', [MEM, '--root', r, 'find', question, '--top', '5', '--json'],
       { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-    const treffer = JSON.parse(aus).hits ?? [];
-    const ziel = treffer.find((h) => h.entry?.id === 'ZIEL');
-    assert.ok(ziel, `\`mem find\` liefert das Ziel nicht: ${treffer.map((h) => h.entry?.id).join(' ')}`);
-    assert.ok(Array.isArray(ziel.exact) && ziel.exact.includes(PFAD),
-      `\`mem find\` kennzeichnet den Exakt-Treffer nicht: ${JSON.stringify(ziel.exact)}`);
+    const hits = JSON.parse(out).hits ?? [];
+    const target = hits.find((h) => h.entry?.id === 'ZIEL');
+    assert.ok(target, `\`mem find\` does not return the target: ${hits.map((h) => h.entry?.id).join(' ')}`);
+    assert.ok(Array.isArray(target.exact) && target.exact.includes(PATH),
+      `\`mem find\` does not mark the exact hit: ${JSON.stringify(target.exact)}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('die Bahn hilft NICHT, wenn die Frage nach dem Bezeichner fragt', () => {
-  // Die Grenze, festgehalten statt vergessen. Fragt jemand "in welcher
-  // Datei liegt die Selbstpruefung", steht in der Frage kein Bezeichner
-  // — es gibt nichts nachzuschlagen. Wer diese Zusicherung eines Tages
-  // rot sieht, hat das Problem geloest und darf sie loeschen; wer sie
-  // nicht kennt, meldet die Bahn faelschlich als kaputt.
-  const r = bau();
+test('the lane does NOT help when the question asks for the identifier', () => {
+  // The limit, recorded rather than forgotten. If somebody asks "which
+  // file holds the self-check", the question contains no identifier —
+  // there is nothing to look up. Whoever sees this assertion red one
+  // day has solved the problem and may delete it; whoever does not know
+  // about it reports the lane as broken by mistake.
+  const r = build();
   try {
     const claims = retrieve(r, 'In welcher Datei liegt die Selbstpruefung?', grantAll(['read']),
       { top: 5 }).claims;
     assert.equal(claims.filter((c) => c.exact).length, 0,
-      'die Bahn hat gegriffen, obwohl die Frage keinen Bezeichner nennt — schoen, aber dann stimmt dieser Kommentar nicht mehr');
+      'the lane fired although the question names no identifier — nice, but then this comment is out of date');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-// --- Die Bahn reiht innen (2026-09-07) --------------------------------
+// --- The lane orders internally (2026-09-07) -------------------------
 //
-// Der Kommentar ueber `exactHits` hat immer behauptet, die Treffer
-// truegen "the BM25 score they would have had". Der Code setzte
-// `score: 0` auf jeden einzelnen und gab sie in Indexreihenfolge
-// heraus; beide Aufrufer stellten die Bahn unveraendert nach vorn. Wer
-// in der Datei frueher stand, gewann.
+// The comment above `exactHits` always claimed the hits carried "the
+// BM25 score they would have had". The code set `score: 0` on every
+// single one and returned them in index order; both callers put the
+// lane in front unchanged. Whoever stood earlier in the file won.
 //
-// In lucky-mem gemessen, gleicher Code, gleiche Form: eine Frage nannte
-// `1029`, sieben Eintraege tragen die Nummer. Eine Zip-Bomben-Notiz
-// (BM25 2,26) kam auf Rang 2 heraus, der Eintrag mit der Antwort
-// (19,96) auf Rang 5, der staerkste der ganzen Bahn (36,26) auf Rang 7.
-// Ein Briefing, das je Frage drei Treffer mitnimmt, verlor die Antwort.
+// Measured in lucky-mem, same code, same shape: a question named
+// `1029`, seven entries carry the number. A zip-bomb note (BM25 2.26)
+// came out at rank 2, the entry holding the answer (19.96) at rank 5,
+// the strongest of the whole lane (36.26) at rank 7. A briefing taking
+// three hits per question lost the answer.
 //
-// Sieben Nennungen sind keine Gewissheit, sondern ein Thema.
+// Seven occurrences are not certainty, they are a topic.
 
 const NR = '1029';
 
-function bauBahn() {
+function buildLane() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-bahn-'));
   execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
   const log = (typ, d) => memory.logEntry(r, typ, { ...d, author: 'lucky', authority: 'user' });
-  // Der Eintrag, der die Frage beantwortet — und der in der Datei ZULETZT
-  // steht, damit die Indexreihenfolge ihn nach hinten legt.
+  // The entry answering the question — and the one standing LAST in the
+  // file, so that index order pushes it to the back.
   log('learning', { id: 'ZIP', title: 'Zip bomb in the attachment path',
     text: `An archive unpacked past the ceiling. See ${NR}.` });
   log('learning', { id: 'PAR', title: 'Paragraph number chosen by hand',
@@ -189,48 +186,48 @@ function bauBahn() {
   return r;
 }
 
-const FRAGE_BAHN = `Which tab reads french instead of german after ${NR}, and what is proven about the cause?`;
+const LANE_QUESTION = `Which tab reads french instead of german after ${NR}, and what is proven about the cause?`;
 
-test('DER FALL: der beantwortende Eintrag steht in den ersten drei', () => {
-  const r = bauBahn();
+test('THE CASE: the answering entry is among the first three', () => {
+  const r = buildLane();
   try {
-    const bahn = search.exactHits(search.loadIndex(r), FRAGE_BAHN, 9);
-    assert.ok(bahn.length > 1, `Der Fall braucht mehrere Exakt-Treffer, hat ${bahn.length}`);
-    const ids = bahn.map((h) => h.entry.id);
+    const lane = search.exactHits(search.loadIndex(r), LANE_QUESTION, 9);
+    assert.ok(lane.length > 1, `the case needs several exact hits, has ${lane.length}`);
+    const ids = lane.map((h) => h.entry.id);
     assert.ok(ids.slice(0, 3).includes('ZIEL'),
-      `erwartet ZIEL in den ersten drei, bekam: ${ids.join(', ')}`);
+      `expected ZIEL among the first three, got: ${ids.join(', ')}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('die Bahn ist innen nach Punktzahl absteigend geordnet', () => {
-  const r = bauBahn();
+test('inside the lane the order is by descending score', () => {
+  const r = buildLane();
   try {
-    const bahn = search.exactHits(search.loadIndex(r), FRAGE_BAHN, 9);
-    for (let i = 1; i < bahn.length; i += 1) {
-      assert.ok(bahn[i - 1].score >= bahn[i].score,
-        `Rang ${i} (${bahn[i - 1].score}) steht ueber Rang ${i + 1} (${bahn[i].score})`);
+    const lane = search.exactHits(search.loadIndex(r), LANE_QUESTION, 9);
+    for (let i = 1; i < lane.length; i += 1) {
+      assert.ok(lane[i - 1].score >= lane[i].score,
+        `rank ${i} (${lane[i - 1].score}) sits above rank ${i + 1} (${lane[i].score})`);
     }
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('die Bahn traegt echte Punktzahlen, nicht 0', () => {
-  // Der Kommentar hat das immer behauptet; der Code tat es nicht.
-  const r = bauBahn();
+test('the lane carries real scores, not 0', () => {
+  // The comment always claimed it; the code did not do it.
+  const r = buildLane();
   try {
-    const bahn = search.exactHits(search.loadIndex(r), FRAGE_BAHN, 9);
-    assert.ok(bahn.some((h) => h.score > 0), 'kein einziger Exakt-Treffer hat Punkte');
+    const lane = search.exactHits(search.loadIndex(r), LANE_QUESTION, 9);
+    assert.ok(lane.some((h) => h.score > 0), 'not a single exact hit carries points');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('beide Abrufwege sehen dieselbe Reihenfolge in der Bahn', () => {
-  // `mem find` und `retrieve()` sind schon zweimal auseinandergelaufen.
-  // Die Reihung wohnt darum IN exactHits und nicht in den Aufrufern —
-  // dieser Test haelt fest, dass es dabei bleibt.
-  const r = bauBahn();
+test('both retrieval paths see the same order inside the lane', () => {
+  // `mem find` and `retrieve()` have drifted apart twice already. The
+  // ordering therefore lives IN exactHits and not in the callers — this
+  // test records that it stays that way.
+  const r = buildLane();
   try {
     const idx = search.loadIndex(r);
-    const a = search.exactHits(idx, FRAGE_BAHN, 9).map((h) => h.entry.id);
-    const b = search.exactHits(idx, FRAGE_BAHN, 9).map((h) => h.entry.id);
+    const a = search.exactHits(idx, LANE_QUESTION, 9).map((h) => h.entry.id);
+    const b = search.exactHits(idx, LANE_QUESTION, 9).map((h) => h.entry.id);
     assert.deepEqual(a, b);
     assert.ok(a.length > 1);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
