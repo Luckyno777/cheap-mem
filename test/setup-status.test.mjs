@@ -23,49 +23,48 @@ import * as setup from '../src/setup.mjs';
 
 const MEM = path.join(import.meta.dirname, '..', 'bin', 'mem');
 
-function frisch() {
+function fresh() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), '{}');
   return r;
 }
 
-test('kein Befehl ist zweimal definiert', () => {
-  // **Als TEXT gelesen, nicht als Objekt.** Genau darum geht es: im
-  // geladenen Objekt ist eine Dublette unsichtbar, weil der zweite
-  // Schluessel den ersten ersetzt hat. Nur die Datei selbst zeigt
-  // beide.
-  const quelle = fs.readFileSync(MEM, 'utf8');
-  const namen = [...quelle.matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]);
-  const doppelt = namen.filter((n, i) => namen.indexOf(n) !== i);
-  assert.deepEqual(doppelt, [], `doppelt definiert: ${doppelt.join(', ')}`);
-  assert.ok(namen.length > 30, `nur ${namen.length} Befehle gefunden — die Sonde ist kaputt`);
+test('no command is defined twice', () => {
+  // **Read as TEXT, not as an object.** That is the whole point: in the
+  // loaded object a duplicate is invisible, because the second key has
+  // replaced the first. Only the file itself shows both.
+  const source = fs.readFileSync(MEM, 'utf8');
+  const names = [...source.matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]);
+  const twice = names.filter((n, i) => names.indexOf(n) !== i);
+  assert.deepEqual(twice, [], `defined twice: ${twice.join(', ')}`);
+  assert.ok(names.length > 30, `only ${names.length} commands found — the probe is broken`);
 });
 
-test('jeder Schritt hat drei moegliche Zustaende, nicht zwei', () => {
-  // "ok / nicht ok" wuerde "noch nicht eingerichtet" und "kaputt" in
-  // einen Topf werfen. Die brauchen verschiedene Antworten: das eine
-  // ist eine Aufgabe, das andere ein Fehler.
+test('every step has three possible states, not two', () => {
+  // "ok / not ok" would put "not set up yet" and "broken" in one
+  // bucket. Those need different answers: one is a task, the other is
+  // a fault.
   assert.deepEqual(Object.values(setup.STATE).sort(), ['broken', 'ok', 'open']);
 });
 
-test('ein unlesbares config.json ist BROKEN, ein fehlendes OPEN', () => {
-  const leer = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
-  const fehlt = setup.check(leer).steps.find((s) => s.id === 'memory');
-  assert.equal(fehlt.state, setup.STATE.OPEN);
+test('an unreadable config.json is BROKEN, a missing one is OPEN', () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
+  const missing = setup.check(empty).steps.find((s) => s.id === 'memory');
+  assert.equal(missing.state, setup.STATE.OPEN);
 
-  const kaputt = frisch();
-  fs.writeFileSync(path.join(kaputt, '.mem', 'config.json'), '{ das ist kein JSON');
-  const b = setup.check(kaputt).steps.find((s) => s.id === 'memory');
+  const broken = fresh();
+  fs.writeFileSync(path.join(broken, '.mem', 'config.json'), '{ this is not JSON');
+  const b = setup.check(broken).steps.find((s) => s.id === 'memory');
   assert.equal(b.state, setup.STATE.BROKEN,
-    'eine unlesbare Konfiguration gilt als "noch nicht eingerichtet"');
+    'an unreadable configuration counts as "not set up yet"');
 });
 
-test('DER BEFUND VON WINDOWS: ein Hook auf einen toten Pfad ist BROKEN', () => {
-  // Das ist der Fall, fuer den es diesen Befehl gibt. Ein Hook, der
-  // einen Pfad nennt, den es hier nicht gibt, ist schlimmer als gar
-  // kein Hook: er laeuft, findet nichts und beendet sich leise.
-  const r = frisch();
+test('THE WINDOWS FINDING: a hook pointing at a dead path is BROKEN', () => {
+  // This is the case the command exists for. A hook naming a path that
+  // does not exist here is worse than no hook at all: it runs, finds
+  // nothing, and exits quietly.
+  const r = fresh();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
   const hooks = path.join(home, '.claude', 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
@@ -74,13 +73,13 @@ test('DER BEFUND VON WINDOWS: ein Hook auf einen toten Pfad ist BROKEN', () => {
 
   const s = setup.check(r, { env: {}, home }).steps.find((x) => x.id === 'hooks');
   assert.equal(s.state, setup.STATE.BROKEN);
-  assert.match(s.detail, /gibt\/es\/hier\/nicht/, 'der tote Pfad wird nicht genannt');
-  assert.ok(s.fix, 'kein Weg heraus angegeben');
+  assert.match(s.detail, /gibt\/es\/hier\/nicht/, 'the dead path is not named');
+  assert.ok(s.fix, 'no way out given');
 });
 
-test('ein Hook mit einem Pfad, den es GIBT, ist ok', () => {
-  // Gegenprobe: sonst waere die Regel „jeder Hook ist kaputt".
-  const r = frisch();
+test('a hook with a path that DOES exist is ok', () => {
+  // Counter-check: otherwise the rule would be "every hook is broken".
+  const r = fresh();
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
   const hooks = path.join(home, '.claude', 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
@@ -91,21 +90,21 @@ test('ein Hook mit einem Pfad, den es GIBT, ist ok', () => {
   assert.equal(s.state, setup.STATE.OK);
 });
 
-test('alle Schritte laufen, auch wenn der erste scheitert', () => {
-  // Ein Lauf, der beim ersten Problem abbricht, versteckt die anderen
-  // vier — und dann repariert jemand eine Sache pro Sitzung.
-  const leer = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
-  const res = setup.check(leer, { env: {}, home: leer });
+test('all steps run even when the first one fails', () => {
+  // A run that stops at the first problem hides the other four — and
+  // then somebody fixes one thing per session.
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
+  const res = setup.check(empty, { env: {}, home: empty });
   assert.equal(res.steps.length, 5);
   assert.equal(res.steps.filter((s) => s.state).length, 5);
 });
 
-test('OFFEN endet mit 0, KAPUTT nicht', () => {
-  // Offen ist eine Aufgabenliste. Wenn die den Rueckgabewert rot macht,
-  // bricht sie jedes Skript, das den Befehl aufruft — und dann nimmt
-  // ihn niemand mehr ins Skript.
-  const r = frisch();
+test('OPEN exits 0, BROKEN does not', () => {
+  // Open is a to-do list. If that turns the exit code red, it breaks
+  // every script calling the command — and then nobody puts it in a
+  // script any more.
+  const r = fresh();
   const a = spawnSync(process.execPath, [MEM, 'status'], { cwd: r, encoding: 'utf8' });
-  assert.equal(a.status, 0, `offene Schritte machten den Lauf rot:\n${a.stdout}${a.stderr}`);
+  assert.equal(a.status, 0, `open steps made the run red:\n${a.stdout}${a.stderr}`);
   assert.match(a.stdout, /of 5 in place/);
 });

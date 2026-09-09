@@ -1,15 +1,15 @@
-// Der Agentenpfad darf nicht schlechter sein als der Menschenpfad.
+// The agent path must not be worse than the human path.
 //
-// Befund vom 2026-09-06: `search()` hat `mmr: false` als Vorgabe.
-// `bin/mem find` schaltet die Vielfalts-Neuordnung ein, `src/retrieval.mjs`
-// tat es nicht — also bekamen `mem retrieve` und das MCP-Werkzeug
-// `mem_retrieve`, die ein Agent benutzt, reine BM25-Reihenfolge. Fast
-// gleiche Eintraege desselben Themas fuellen damit die Trefferliste, und
-// die Antwort auf die eigentliche Frage liegt darunter.
+// Finding from 2026-09-06: `search()` has `mmr: false` as its default.
+// `bin/mem find` turns the diversity re-ranking on, `src/retrieval.mjs`
+// did not — so `mem retrieve` and the MCP tool `mem_retrieve`, the ones
+// an agent uses, got plain BM25 order. Near-identical entries on one
+// topic fill the hit list, and the answer to the actual question sits
+// underneath them.
 //
-// Gemessen am eval-Korpus (189 Dokumente, 18 Aufgaben mit bekanntem Gold):
-// das gesuchte Claim war in den top-5 bei 7 von 18 Aufgaben ohne MMR und
-// bei 9 von 18 mit MMR.
+// Measured on the eval corpus (189 documents, 18 tasks with known
+// gold): the wanted claim was in the top 5 for 7 of 18 tasks without
+// MMR and for 9 of 18 with it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,33 +19,33 @@ import * as memory from '../src/memory.mjs';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
 
-// Gross genug, dass idf etwas bedeutet. Eine erste Fassung dieses Tests
-// benutzte 13 Dokumente — dort steht das gemeinsame Wort in 12 davon, hat
-// also fast kein Gewicht, und die Duplikate erreichten die Trefferliste
-// nie. Der Test haette dann die Groesse des Korpus geprueft, nicht den Code.
-function bau() {
+// Large enough that idf means something. A first version of this test
+// used 13 documents — there the shared word sits in 12 of them, carries
+// almost no weight, and the duplicates never reached the hit list. The
+// test would then have measured the size of the corpus, not the code.
+function build() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-div-'));
   fs.mkdirSync(path.join(r, 'projects', 'p'), { recursive: true });
   const log = (d) => memory.logEntry(r, 'decision', { ...d, author: 'lucky', authority: 'user', project: 'p' }, { project: 'p' });
 
-  // 15 fast gleiche Eintraege, die die Frage lexikalisch treffen.
+  // 15 near-identical entries that match the question lexically.
   for (let i = 0; i < 15; i += 1) {
     log({ id: `DUP-${i}`, topic: 'pakete',
       choice: `Abhaengigkeiten im Repository nachvollziehbar festnageln, Runde ${i}`,
       why: 'das Bild des Laufwerks driftete zweimal in einem Monat und kostete jedes Mal einen halben Tag Arbeit',
       tags: ['pakete'] });
   }
-  // 24 unbeteiligte Eintraege, damit der Korpus nicht aus zwei Themen besteht.
+  // 24 unrelated entries, so the corpus is not made of two topics.
   const rest = ['protokollierung', 'tests', 'suchfeld', 'rechte', 'bilder', 'benachrichtigung', 'zeitplan', 'fehlerbilder'];
-  rest.forEach((thema, k) => {
+  rest.forEach((topic, k) => {
     for (let i = 0; i < 3; i += 1) {
-      log({ id: `X-${thema}-${i}`, topic: thema,
-        choice: `zu ${thema} gilt Fassung ${i}`,
+      log({ id: `X-${topic}-${i}`, topic,
+        choice: `zu ${topic} gilt Fassung ${i}`,
         why: `entschieden bei Vorgang ${500 + k * 10 + i}, und seitdem unveraendert geblieben`,
-        tags: [thema] });
+        tags: [topic] });
     }
   });
-  // Genau EIN Eintrag beantwortet die Frage, mit einem anderen Thema.
+  // Exactly ONE entry answers the question, under a different topic.
   log({ id: 'ANTWORT', topic: 'ablage',
     choice: 'Dateien im Repository statt einer externen Datenbank',
     why: 'ein Dienst, den niemand wartet, ist teurer als eine Datei, und die Ablage bleibt nachvollziehbar',
@@ -53,41 +53,41 @@ function bau() {
   return r;
 }
 
-const FRAGE = 'Wie halten wir die Ablage im Repository nachvollziehbar?';
+const QUESTION = 'Wie halten wir die Ablage im Repository nachvollziehbar?';
 
-test('die Vorgabe des Gateways ist dieselbe wie die von `mem find`', () => {
-  // Der eigentliche Befund war kein Rankingproblem, sondern eine ABWEICHUNG:
-  // zwei Abrufwege mit verschiedenen Vorgaben, und der Agentenweg hatte die
-  // schlechtere. Genau das wird hier festgenagelt — nicht ueber ein
-  // Verhaltensmerkmal, das von der Vorrichtung abhaengt, sondern direkt.
+test('the gateway default is the same one `mem find` uses', () => {
+  // The finding was not a ranking problem but a DIVERGENCE: two
+  // retrieval paths with different defaults, and the agent path had the
+  // worse one. That is what gets pinned here — not through a behavioural
+  // symptom that depends on the fixture, but directly.
   //
-  // Eine erste Fassung dieses Tests prueft, ob Fast-Duplikate die
-  // Trefferliste fuellen. Sie war auch mit der ALTEN Vorgabe gruen und
-  // haette die Regression nicht gefangen.
-  const r = bau();
+  // A first version of this test checked whether near-duplicates fill
+  // the hit list. It was green with the OLD default too and would not
+  // have caught the regression.
+  const r = build();
   try {
-    const vorgabe = retrieve(r, FRAGE, grantProject('p'), { top: 5 });
-    const anMmr = retrieve(r, FRAGE, grantProject('p'), { top: 5, mmr: true });
-    const ohneMmr = retrieve(r, FRAGE, grantProject('p'), { top: 5, mmr: false });
+    const byDefault = retrieve(r, QUESTION, grantProject('p'), { top: 5 });
+    const withMmr = retrieve(r, QUESTION, grantProject('p'), { top: 5, mmr: true });
+    const withoutMmr = retrieve(r, QUESTION, grantProject('p'), { top: 5, mmr: false });
     const ids = (x) => x.claims.map((c) => c.id);
-    assert.deepEqual(ids(vorgabe), ids(anMmr),
-      'die Vorgabe entspricht nicht `mem find` (mmr an)');
-    assert.notDeepEqual(ids(ohneMmr), ids(anMmr),
-      'auf dieser Vorrichtung aendert MMR nichts — dann prueft der Vergleich oben nichts');
+    assert.deepEqual(ids(byDefault), ids(withMmr),
+      'the default does not match `mem find` (mmr on)');
+    assert.notDeepEqual(ids(withoutMmr), ids(withMmr),
+      'on this fixture MMR changes nothing — then the comparison above proves nothing');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('MMR aendert die AUSWAHL, und ohne MMR ist sie eintoeniger', () => {
-  // Ohne diesen Vergleich koennte der Test oben auch gruen sein, wenn MMR
-  // gar nichts tut und BM25 zufaellig schon vielfaeltig antwortet.
-  const r = bau();
+test('MMR changes the SELECTION, and without it the selection is flatter', () => {
+  // Without this comparison the test above could also be green if MMR
+  // does nothing at all and BM25 happens to answer diversely already.
+  const r = build();
   try {
-    const ohne = retrieve(r, FRAGE, grantProject('p'), { top: 5, mmr: false });
-    const mit = retrieve(r, FRAGE, grantProject('p'), { top: 5, mmr: true });
-    const themen = (x) => new Set(x.claims.map((c) => c.topic)).size;
-    assert.ok(themen(mit) >= themen(ohne),
-      `MMR verschlechtert die Vielfalt: ohne ${themen(ohne)} Themen, mit ${themen(mit)}`);
-    assert.notDeepEqual(ohne.claims.map((c) => c.id), mit.claims.map((c) => c.id),
-      'MMR aendert die Auswahl nicht — dann ist die Vorrichtung wirkungslos und der Test ohne Zaehne');
+    const without = retrieve(r, QUESTION, grantProject('p'), { top: 5, mmr: false });
+    const with_ = retrieve(r, QUESTION, grantProject('p'), { top: 5, mmr: true });
+    const topics = (x) => new Set(x.claims.map((c) => c.topic)).size;
+    assert.ok(topics(with_) >= topics(without),
+      `MMR makes diversity worse: without ${topics(without)} topics, with ${topics(with_)}`);
+    assert.notDeepEqual(without.claims.map((c) => c.id), with_.claims.map((c) => c.id),
+      'MMR does not change the selection — then the fixture is inert and the test has no teeth');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
