@@ -162,3 +162,65 @@ test('coverage is a state with reasons, never a number', () => {
     assert.equal(typeof res.coverage.confidence, 'undefined');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
+
+// --- hasMore said "no" while 110 fetchable claims were missing --------
+//
+// Measured on the eval corpus (861 documents, a real task, top=50) on
+// 2026-09-09: `hasMore: false`, and 119 claims absent — **110 of them
+// only because the context budget was full**. Those were available; a
+// second page would have brought them. A caller reading `hasMore` as
+// "there is nothing more" was misinformed, and that is exactly what the
+// field is named.
+//
+// The cause was not the mechanism but the vocabulary: `excluded` mixed
+// two kinds. "Outside your capability" and "did not fit" are different
+// answers to the same question, and only one of them means a second
+// page is pointless.
+test('space-limited claims make hasMore true, ineligible ones do not', async () => {
+  const mem = await import('../src/memory.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-more-'));
+  try {
+    const log = (d) => mem.logEntry(root, 'decision',
+      { ...d, author: 'lucky', authority: 'user' });
+    // Long bodies, so the budget runs out well before the entries do.
+    const body = 'die ablage der auswertung bleibt im repository '.repeat(40);
+    for (let i = 0; i < 25; i += 1) {
+      log({ id: `L-${i}`, topic: 'ablage', choice: `${body} fassung ${i}`, why: body });
+    }
+    const q = 'wie halten wir die ablage der auswertung im repository';
+    const wide = retrieval.retrieve(root, q, capability.grantAll(['read']), { top: 100 });
+
+    const space = wide.excluded.filter((x) => x.kind === 'capacity');
+    // Positive control: the fixture has to hit the budget at all,
+    // otherwise the assertion below checks a case that never happened.
+    assert.ok(space.length > 0,
+      `the fixture never exhausts the budget (${wide.excluded.length} excluded) — this test proves nothing`);
+    assert.equal(wide.hasMore, true,
+      'claims were dropped for space and hasMore still says there is nothing more');
+    assert.ok(wide.coverage.reasons.some((r) => /for space, not eligibility/.test(r.why)),
+      'the coverage reasons do not separate space from eligibility');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('every exclusion carries a kind, and only the two known ones', async () => {
+  // A closed vocabulary. An exclusion without a kind would silently
+  // count as ineligible — the direction that hides the defect above.
+  const mem = await import('../src/memory.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-kind-'));
+  try {
+    const body = 'die ablage der auswertung bleibt im repository '.repeat(40);
+    for (let i = 0; i < 20; i += 1) {
+      mem.logEntry(root, 'decision', {
+        id: `K-${i}`, topic: 'ablage', choice: `${body} ${i}`, why: body,
+        author: 'lucky', authority: 'user',
+      });
+    }
+    const r = retrieval.retrieve(root, 'ablage auswertung repository',
+      capability.grantAll(['read']), { top: 100 });
+    assert.ok(r.excluded.length > 0, 'nothing was excluded — this test proves nothing');
+    for (const x of r.excluded) {
+      assert.ok(['eligibility', 'capacity'].includes(x.kind),
+        `unknown kind: ${JSON.stringify(x)}`);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

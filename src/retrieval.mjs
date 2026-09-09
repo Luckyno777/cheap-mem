@@ -202,8 +202,24 @@ export function retrieve(root, query, capability, {
   dropEcho = true,
   rawReserve = true,
 } = {}) {
+  // **Zwei Gruende, ausgeschlossen zu werden — und sie sind nicht
+  // dasselbe.**
+  //
+  // `eligibility`  Der Anspruch ist fuer diesen Anrufer nicht zu haben:
+  //                ausserhalb der Vollmacht, ueberholt, falscher Typ,
+  //                Echo der Frage, Dublette. Auch eine zweite Seite
+  //                brachte ihn nicht.
+  // `capacity`     Er waere zu haben, es war nur kein Platz: das
+  //                Kontextbudget war voll, oder die Quote eines Autors.
+  //
+  // Warum das getrennt wird: `hasMore` kam vorher allein aus dem
+  // Abbruch der Auswahlschleife. Am eval-Korpus (861 Dokumente, echte
+  // Aufgabe, top=50) gemessen: `hasMore: false`, waehrend 119
+  // Anspruechen fehlten — **110 davon nur wegen des Budgets**. Ein
+  // Anrufer, der `hasMore` als „mehr gibt es nicht" liest, wurde
+  // falsch informiert, und genau so ist das Feld benannt.
   const excluded = [];
-  const note = (id, why) => excluded.push({ id: id ?? null, why });
+  const note = (id, why, kind = 'eligibility') => excluded.push({ id: id ?? null, why, kind });
 
   // Fail closed. Not a thrown error: a caller with no capability asking a
   // question should get an empty, explained answer rather than a stack
@@ -470,7 +486,7 @@ export function retrieve(root, query, capability, {
     const first = seenBody.get(h);
     if (first) { note(c.id, `identical body to ${first}`); continue; }
 
-    if (c.body.length > budget) { note(c.id, 'context budget exhausted'); continue; }
+    if (c.body.length > budget) { note(c.id, 'context budget exhausted', 'capacity'); continue; }
     seenBody.set(h, c.id);
     claims.push(c);
     budget -= c.body.length;
@@ -510,7 +526,15 @@ export function retrieve(root, query, capability, {
   // lagen noch ungepruefte Kandidaten davor. Das kostet nichts und
   // behauptet nichts ueber ihre Zahl.
   const seite = fair;
-  const hasMore = stoppedEarly && fair.length >= want;
+  // Zwei Wege zu „es gibt mehr", und beide sind noetig:
+  //   1. Die Auswahlschleife hat bei `want` aufgehoert und es lagen
+  //      noch ungeprueft Kandidaten davor.
+  //   2. Ansprueche fielen aus PLATZGRUENDEN heraus (Budget, Quote).
+  //      Die waren zu haben; nur nicht hier.
+  // Ohne (2) meldete der Abruf am eval-Korpus `false`, waehrend 110
+  // abrufbare Ansprueche fehlten.
+  const platzMangel = excluded.some((x) => x.kind === 'capacity');
+  const hasMore = (stoppedEarly && fair.length >= want) || platzMangel;
 
   if (tiersAtCap.length) {
     coverageReasons.push({
@@ -537,7 +561,22 @@ export function retrieve(root, query, capability, {
     });
   }
   if (excluded.length) {
-    coverageReasons.push({ kind: 'partial', why: `${excluded.length} claim(s) excluded` });
+    // Getrennt ausweisen. „119 ausgeschlossen" ist eine Zahl, aus der
+    // niemand ablesen kann, ob eine zweite Seite etwas braechte.
+    const platz = excluded.filter((x) => x.kind === 'capacity').length;
+    const nichtBerechtigt = excluded.length - platz;
+    if (nichtBerechtigt) {
+      coverageReasons.push({
+        kind: 'partial',
+        why: `${nichtBerechtigt} claim(s) not eligible for this caller`,
+      });
+    }
+    if (platz) {
+      coverageReasons.push({
+        kind: 'partial',
+        why: `${platz} claim(s) left out for space, not eligibility`,
+      });
+    }
   }
   if (seite.some((c) => c.bodyTruncated)) {
     coverageReasons.push({ kind: 'partial', why: 'at least one body was cut to bodyChars' });
@@ -630,7 +669,7 @@ export function enforceAuthorShare(claims, limits = LIMITS, note = () => {}) {
   for (const c of claims) {
     if (c.authority === 'user' || !c.author) { out.push(c); continue; }
     const n = (seen.get(c.author) ?? 0) + 1;
-    if (n > cap) { note(c.id, `author share exceeded (${c.author}, cap ${cap})`); continue; }
+    if (n > cap) { note(c.id, `author share exceeded (${c.author}, cap ${cap})`, 'capacity'); continue; }
     seen.set(c.author, n);
     out.push(c);
   }
