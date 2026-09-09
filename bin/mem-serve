@@ -1,0 +1,237 @@
+#!/usr/bin/env node
+// mem-serve — the console and the viewer at one fixed link.
+//
+// `mem viewer` writes a ONE-OFF HTML file: a photograph, thrown away
+// when it goes stale. That is deliberately not a server. This is the
+// other mode: one link that always shows the current state, and the
+// only place in this project where anything can be SET without a
+// shell.
+//
+// The trade is worth naming out loud. The viewer file was "no daemon,
+// nothing that keeps running". This IS a daemon. So it carries the two
+// properties the file had, and one more, because a link is reachable
+// from outside:
+//
+//  1. It renders only through `viewer.build()` and `console.collect()`,
+//     which read the redacted drawers — never `raw/`. No un-redacted
+//     capture material leaves the process.
+//  2. It never writes the rendered content to disk, commits nothing,
+//     publishes nothing. The HTML lives in RAM and goes to the browser
+//     that asked.
+//  3. Fail-closed on auth: with no CHEAP_MEM_SERVE_TOKEN it serves
+//     localhost ONLY. Binding to a public address without a token is
+//     REFUSED — the process does not start.
+//
+// The intended shape: bind to 127.0.0.1, put a tunnel or reverse proxy
+// in front, and let that (or the token) be the door.
+
+import http from 'node:http';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import * as viewer from '../src/viewer.mjs';
+import * as consolePage from '../src/console.mjs';
+import * as webauth from '../src/webauth.mjs';
+
+export function readConfig(env = process.env) {
+  return {
+    token: env.CHEAP_MEM_SERVE_TOKEN || '',
+    host: env.CHEAP_MEM_SERVE_HOST || '127.0.0.1',
+    port: Number(env.CHEAP_MEM_SERVE_PORT || 8847),
+    title: env.CHEAP_MEM_SERVE_TITLE || 'cheap-mem',
+    // **Writing is ON by default, and that is the decision, not the
+    // convenience.** A console that cannot set anything unless someone
+    // finds a flag is the built-but-out-of-reach class: shipped,
+    // documented, and absent where a person is standing. It is carried
+    // by three latches that already exist — the bind rule, the
+    // SameSite=Lax cookie, and the POST origin check.
+    readonly: env.CHEAP_MEM_SERVE_READONLY === '1',
+    origins: String(env.CHEAP_MEM_SERVE_ORIGINS ?? '')
+      .split(',').map((x) => x.trim()).filter(Boolean),
+  };
+}
+
+export function bindAllowed({ host, token }) {
+  return webauth.bindAllowed({ host, token, variable: 'CHEAP_MEM_SERVE_TOKEN' });
+}
+
+/** Token from query, cookie or bearer — in that order. */
+function tokenFrom(req, url) {
+  const q = url.searchParams.get('k');
+  if (q) return q;
+  const bearer = webauth.bearerFrom(req);
+  if (bearer) return bearer;
+  const cookie = req.headers.cookie || '';
+  const m = /(?:^|;\s*)mem_k=([^;]+)/.exec(cookie);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+
+/** The headers every content response carries. Once, not three times. */
+const HEAD = Object.freeze({
+  'cache-control': 'no-store',
+  // The content is private: no referrer, no framing, no sniffing.
+  'referrer-policy': 'no-referrer',
+  'x-content-type-options': 'nosniff',
+  'x-frame-options': 'DENY',
+});
+
+function short(res, code, text) {
+  res.writeHead(code, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
+    .end(`<!doctype html><meta charset="utf-8"><title>console</title>`
+      + `<body style="font:16px/1.5 system-ui;padding:1rem">`
+      + `<p><b>Not set.</b></p><p>${String(text).replace(/[<&]/g, '')}</p>`
+      + `<p><a href="/">back to the console</a></p>`);
+}
+
+/**
+ * @param env the environment `cfg` was BUILT from — not `process.env`.
+ * The sibling project shipped that mistake: the page then reports
+ * connections belonging to a different server than the one serving it.
+ */
+export function buildHandler(root, cfg, env = process.env) {
+  return function handler(req, res) {
+    let url;
+    try { url = new URL(req.url, 'http://x'); }
+    catch { res.writeHead(400).end('bad request'); return; }
+
+    // Health: no auth, so a tunnel or a supervisor can check without
+    // knowing the token. It reveals nothing about the content.
+    if (url.pathname === '/health') {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('ok');
+      return;
+    }
+
+    // A list, not a rule, so a new path is a decision.
+    const PATHS = ['/', '/viewer', '/setting', '/console.json'];
+    if (!PATHS.includes(url.pathname)) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
+      return;
+    }
+
+    // Destructured rather than read as a property of `cfg`: the secret
+    // latch flags a property read off a config object ON PURPOSE — such
+    // an object really can hold an inlined literal — and the right
+    // answer to a rule one disagrees with is not to loosen it.
+    const { token } = cfg;
+    const decision = webauth.authDecision({
+      token,
+      given: tokenFrom(req, url),
+      remoteLoopback: webauth.remoteIsLoopback(req),
+    });
+    if (!decision.allowed) {
+      // **Invisible principle**: no valid token gets EXACTLY the answer
+      // an unknown path gets — a bare 404. No "token required", no
+      // product name, no 401 that would reveal something guarded is
+      // here. A scanner sees "nothing".
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
+      return;
+    }
+
+    // Token arrived as ?k= → set it as a cookie and redirect without the
+    // query, so the secret leaves the address bar and the history.
+    // SameSite=Lax, not Strict: the path may lead through an identity
+    // provider and back, which is a cross-site top-level navigation.
+    if (decision.setCookie && url.searchParams.get('k')) {
+      res.writeHead(302, {
+        'set-cookie': `mem_k=${encodeURIComponent(url.searchParams.get('k'))}`
+          + '; Path=/; Max-Age=34560000; HttpOnly; Secure; SameSite=Lax',
+        location: '/',
+      }).end();
+      return;
+    }
+
+    // --- Setting: the only writing path of this server ---------------
+    if (url.pathname === '/setting') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' })
+          .end('POST only');
+        return;
+      }
+      if (cfg.readonly) {
+        short(res, 403, 'Writing is off (CHEAP_MEM_SERVE_READONLY=1).');
+        return;
+      }
+      if (!webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {
+        short(res, 403, 'Foreign or missing origin.');
+        return;
+      }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        // A cap, so a form cannot fill the process. Two named fields do
+        // not need a kilobyte.
+        if (body.length > 8192) { tooBig = true; return; }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooBig) { short(res, 413, 'Too much.'); return; }
+        const p = new URLSearchParams(body);
+        try {
+          consolePage.apply(root, p.get('id') ?? '', p.get('value') ?? '', { by: 'console' });
+        } catch (e) {
+          short(res, 400, e?.message || String(e));
+          return;
+        }
+        // Redirect after writing, rather than rendering: otherwise a
+        // reload applies the same change again.
+        res.writeHead(303, { location: '/' }).end();
+      });
+      return;
+    }
+
+    // --- The console --------------------------------------------------
+    if (url.pathname === '/' || url.pathname === '/console.json') {
+      let data;
+      try { data = consolePage.collect(root, { env, cfg }); }
+      catch (e) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+          .end(`console could not be built: ${e?.message || e}`);
+        return;
+      }
+      if (url.pathname === '/console.json') {
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify(data));
+        return;
+      }
+      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
+        .end(consolePage.asHtml(data, { writable: !cfg.readonly }));
+      return;
+    }
+
+    // --- The viewer ---------------------------------------------------
+    let html;
+    try {
+      ({ html } = viewer.build(root, { title: cfg.title }));
+      html = consolePage.insertNav(html, 'viewer');
+    } catch (e) {
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+        .end(`viewer could not be built: ${e?.message || e}`);
+      return;
+    }
+    res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' }).end(html);
+  };
+}
+
+export function serve(root, env = process.env) {
+  const cfg = readConfig(env);
+  const allowed = bindAllowed(cfg);
+  if (!allowed.ok) throw new Error(allowed.reason);
+  const server = http.createServer(buildHandler(root, cfg, env));
+  return new Promise((resolve) => {
+    server.listen(cfg.port, cfg.host, () => resolve({ server, cfg }));
+  });
+}
+
+// Started directly rather than imported: run it.
+if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+  const root = process.env.CHEAP_MEM_ROOT || process.cwd();
+  serve(root).then(({ server, cfg }) => {
+    const bound = server.address();
+    process.stderr.write(
+      `cheap-mem console on http://${cfg.host}:${bound.port}/ `
+      + `(root ${root}, ${cfg.token ? 'token set' : 'localhost only'}`
+      + `${cfg.readonly ? ', read-only' : ''})\n`);
+  }).catch((e) => {
+    process.stderr.write(`${e.message}\n`);
+    process.exit(1);
+  });
+}

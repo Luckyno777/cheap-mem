@@ -134,6 +134,19 @@ const HARMLESS = [
  */
 const IS_REFERENCE = [
   /^process\.env[.[]/,             // process.env.X, process.env['X']
+  // A parameter or local literally NAMED `env` — the house style for
+  // "the environment this was configured from", so that a service does
+  // not read `process.env` behind its caller's back. `env.FOO_TOKEN`
+  // names an environment variable exactly as much as `process.env.FOO_TOKEN`
+  // does; it is not one. Found on 2026-09-09, when this rule stopped a
+  // commit of `token: env.CHEAP_MEM_SERVE_TOKEN || ''`.
+  //
+  // Deliberately anchored to the bare name `env`, not to any object
+  // with an `env` property: `config.env.x` could be anything. And the
+  // `looksLikeCredential` gate still applies, so a value that merely
+  // starts with those four characters and IS credential-shaped is
+  // still caught.
+  /^env[.[]/,                      // env.X, env['X']
   /^(os\.environ[.[]|os\.getenv\()/, // Python
   /^\$env:/i,                      // PowerShell $env:GITHUB_TOKEN
   /^E?NV\[/i,                      // ENV['X'], env[...]

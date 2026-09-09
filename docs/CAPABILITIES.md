@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 48 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 49 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 718 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 742 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -54,6 +54,7 @@ directory. The section number in brackets is where it is explained.
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
 | `component.mjs` | one file, across both spellings (10.14) |
+| `console.mjs` | the console: state, settings, connections (7.4) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
@@ -88,6 +89,7 @@ directory. The section number in brackets is where it is explained.
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
+| `webauth.mjs` | the door in front of any HTTP service (7.4) |
 
 Plus `src/embed/` — the optional embedding lane (provider, store,
 index), which is off unless configured.
@@ -449,7 +451,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 48 commands
+### 7.1 CLI — 49 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -457,7 +459,7 @@ thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
-bridge
+bridge serve
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
@@ -538,8 +540,68 @@ where the work happens is not a capability.
 
 ### 7.3 Viewer
 
-An HTTP view for rummaging through the memory, with the same scope
-boundary as everything else. Raw captures are excluded from it.
+`mem viewer` writes ONE self-contained HTML page: every entry embedded,
+search and filters in the browser. No server, no model, no network — a
+photograph of the memory, thrown away when it goes stale. It reads only
+the redacted drawers; raw captures are excluded.
+
+### 7.4 Console — `mem serve`, `src/console.mjs`
+
+The other mode: one fixed link that always shows the current state, and
+the only place where anything can be SET without a shell. That matters
+where a shell is least available — a phone over browser-SSH, a tablet,
+somebody else's laptop. An archive path that can only be changed by
+typing a long command is, in practice, not changeable.
+
+| Path | What |
+|---|---|
+| `/` | state (the seven board tiles), settings, installation steps, connections, memory |
+| `/viewer` | the viewer, with a way back |
+| `/console.json` | the same numbers, for tools |
+| `/health` | no auth, reveals nothing — for a supervisor or tunnel |
+
+**It is a daemon, and the trade is worth naming.** The viewer file was
+"nothing that keeps running". This keeps running. So it carries the two
+properties the file had — it renders only the redacted drawers, and it
+writes no rendered content to disk — plus a third, because a link is
+reachable from outside:
+
+**Fail-closed.** With no `CHEAP_MEM_SERVE_TOKEN` it serves localhost
+only, and binding to a public address without one is REFUSED: the
+process does not start. Not warned about — refused. A warning in a log
+has never once prevented an open link. A request without a valid token
+gets exactly what an unknown path gets, a bare 404, so a scanner sees
+"nothing here" rather than "something guarded here". The rules live in
+`src/webauth.mjs`, once, because two copies of one door means one of
+them is tested and the other is the one with the hole.
+
+**Writing over HTTP has three latches**, and this is the only place in
+the project that writes over HTTP at all:
+
+1. **A closed list.** `SETTINGS` names every knob with its check and its
+   writer. A field name that is not in it is REFUSED, not ignored.
+2. **The same writer as the CLI.** `archive.setLocation` creates the
+   directory, writes a probe file, removes it, and records the location
+   only then. A second writer here would be two truths, and the second
+   would not have the probe.
+3. **Origin.** A POST without an `Origin` matching the request's own
+   `Host` is refused — stricter than the rule for reads, because a
+   browser always sends `Origin` on a POST, so a missing one on a
+   state-changing request is a form from somewhere else. The session
+   cookie is `SameSite=Lax` and would not travel with such a POST
+   anyway; this is the second, independent reason.
+
+Every change is logged, machine-locally, to `.mem/console-log.jsonl`,
+and the last five are shown on the page. A setting that changes
+silently is the state this project spends its time hunting.
+
+`CHEAP_MEM_SERVE_READONLY=1` shows everything and sets nothing — and
+the page says that it is in that mode, rather than looking broken.
+
+**Of any token, only WHETHER it is set is shown.** A console that
+printed the link with the token in it, so you could conveniently copy
+it, would have put that token into every screenshot and every browser
+history.
 
 ---
 
@@ -549,7 +611,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 718 tests
+npm test                                    # 742 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation

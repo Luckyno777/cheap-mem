@@ -65,9 +65,33 @@ are the day the work landed on `main`.
   day on the previous day's checkout and an outside agent noticed; a
   board that inferred the running state from the repo state would have
   shown green for that entire day.
-- `docs/CAPABILITIES.md` gained a **module inventory** — all 42 files in
-  `src/`, one line each — plus sections 10.16 and 10.17 for the two new
-  modules.
+- **The console** (`mem serve`, `src/console.mjs`, `bin/mem-serve`). One
+  fixed link carrying the state, the settings, the installation steps,
+  the connections and the viewer — and the only place where anything can
+  be SET without a shell. `/`, `/viewer`, `/console.json`, `/health`.
+
+  It is a daemon, which the viewer file deliberately was not, so it
+  carries that file's two properties (renders only the redacted drawers,
+  writes no rendered content to disk) plus a third: **fail-closed**.
+  With no `CHEAP_MEM_SERVE_TOKEN` it serves localhost only, and binding
+  to a public address without one is REFUSED — the process does not
+  start. A request without a valid token gets exactly what an unknown
+  path gets, a bare 404.
+
+  Writing over HTTP has three latches: a closed `SETTINGS` list (an
+  unknown field is refused, not ignored), the same writer the CLI uses
+  (`archive.setLocation` with its write probe), and an Origin check
+  stricter than the one for reads. Every change is logged to
+  `.mem/console-log.jsonl`. `CHEAP_MEM_SERVE_READONLY=1` shows
+  everything and sets nothing — and says so. Of any token, only WHETHER
+  it is set ever appears on the page.
+- **`src/webauth.mjs`** — the bind rule, the constant-time comparison,
+  the auth decision and the POST origin check, in one place, because two
+  copies of one door means one of them is tested and the other is the
+  one with the hole.
+- `docs/CAPABILITIES.md` gained a **module inventory** — every file in
+  `src/`, one line each — plus sections 10.16 and 10.17 for the error
+  classes and the board, and 7.4 for the console.
 - **A release path** (`.github/workflows/release.yml`). Publishing runs
   on a `v*` tag and passes four gates: the tag must equal the manifest
   version and the changelog must name it; lint and tests run on the
@@ -111,6 +135,29 @@ are the day the work landed on `main`.
   dropped and why.
 
 ### Fixed
+
+- **The secret latch flagged `token: env.FOO_TOKEN` as a secret.** That
+  line NAMES an environment variable; it is not one. `process.env.X` was
+  already treated as a reference, and a parameter literally called `env`
+  is the house style for "the environment this was configured from" —
+  exactly so a service does not read `process.env` behind its caller's
+  back. The rule now covers the bare name `env` too. This widens
+  PRECISION, never reach: the `looksLikeCredential` gate still applies,
+  so a value that merely starts with `env.` and is credential-shaped is
+  still caught, and `config.env.X` stays flagged because it could be
+  anything. Three probes and two sabotages hold both directions.
+
+- **`docs/CAPABILITIES.md` claimed an HTTP viewer that did not exist.**
+  The Surfaces row and section 7.3 both described one; `mem viewer`
+  writes a file. Third claim of the same family found this week, after
+  the by-name tool list and the substring completeness guard. Rather
+  than delete the claim, `mem serve` makes it true — and 7.3 now says
+  plainly what the file mode is.
+- The console's own store list announced four cloud drives on a Linux
+  container that has none: `stores.discover()` returns every store with
+  a possibly-empty `found` array, and the first draft mapped all of
+  them. A claim about the machine, produced by not reading a field — in
+  the page built to prevent exactly that.
 
 - **The default archive location was gitignored, and that loses data.**
   It was `.mem/raw`; `.mem/` does not travel. On a machine with a disk

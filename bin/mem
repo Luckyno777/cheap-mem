@@ -1553,6 +1553,58 @@ const COMMANDS = {
     if (res.broken) die(`${res.broken} step(s) are broken — see above.`);
   },
 
+  serve: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem serve [--port N] [--host H] [--readonly]',
+        '',
+        '  The console and the viewer at one fixed link, instead of a',
+        '  one-off HTML file. This is the only place where anything can',
+        '  be SET without a shell.',
+        '',
+        '  It renders in RAM and writes nothing to disk. With no',
+        '  CHEAP_MEM_SERVE_TOKEN it serves localhost ONLY — binding to a',
+        '  public address without one is refused, and the process does',
+        '  not start. An open link would put real memory content on the',
+        '  network unprotected, and a warning in a log has never once',
+        '  prevented that.',
+        '',
+        '  /               the console: state, settings, connections',
+        '  /viewer         the memory, searchable in the browser',
+        '  /console.json   the same numbers, for tools',
+        '  /health         no auth, reveals nothing — for supervisors',
+        '',
+        '  CHEAP_MEM_SERVE_TOKEN     the door. Without it: localhost only.',
+        '  CHEAP_MEM_SERVE_HOST      bind address (default 127.0.0.1)',
+        '  CHEAP_MEM_SERVE_PORT      port (default 8847)',
+        '  CHEAP_MEM_SERVE_READONLY  1 = show everything, set nothing',
+        '  CHEAP_MEM_SERVE_ORIGINS   extra origins allowed to POST',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['port', 'host', 'readonly', 'root'], 'serve');
+    const root = findRoot(args);
+    const mod = await import(new URL('./mem-serve', import.meta.url).href);
+    const env = { ...process.env };
+    if (args.port && args.port !== true) env.CHEAP_MEM_SERVE_PORT = String(args.port);
+    if (args.host && args.host !== true) env.CHEAP_MEM_SERVE_HOST = String(args.host);
+    if (args.readonly) env.CHEAP_MEM_SERVE_READONLY = '1';
+    let started;
+    try {
+      started = await mod.serve(root, env);
+    } catch (e) {
+      // The bind refusal is a decision, not a crash: say what to do.
+      die(e?.message || String(e));
+      return;
+    }
+    const bound = started.server.address();
+    out(`Console: http://${started.cfg.host}:${bound.port}/`);
+    out(`  root ${root}`);
+    out(`  ${started.cfg.token ? 'token set' : 'no token — localhost only'}`
+      + `${started.cfg.readonly ? ', read-only' : ''}`);
+    out('  Ctrl-C to stop.');
+  },
+
   board: async ({ args }) => {
     if (isHelp(args)) {
       out([
@@ -3323,6 +3375,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  raw migrate [--remove] / raw export --from --to --into");
   out("");
   out("State at a glance:");
+  out("  serve  [--port N] [--readonly]               console + viewer at one link");
   out("  board  [--html] [--json] [--days N]          every lane on one screen");
   out("  status [--json]                              installed vs. actually working");
   out("  classes [--open]                             the twelve error classes, and coverage");

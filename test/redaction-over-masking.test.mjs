@@ -92,3 +92,55 @@ test('SABOTAGE: a credential dressed as a reference is still caught', () => {
 test('the canary still passes', () => {
   assert.equal(redaction.selfTest().ok, true);
 });
+
+// --- `env.X` is a reference, not a secret ----------------------------
+//
+// **The finding (2026-09-09).** The pre-commit latch stopped
+// `token: env.CHEAP_MEM_SERVE_TOKEN || ''` in `bin/mem-serve`. That
+// line NAMES an environment variable; it is not one. `process.env.X`
+// was already treated as a reference, and a parameter literally called
+// `env` is the house style for "the environment this was configured
+// from" — precisely so a service does not read `process.env` behind its
+// caller's back.
+//
+// This widens PRECISION, never reach. The counter-probes below are the
+// point: a value that merely starts with `env.` and IS credential-
+// shaped is still caught, and so is every real assignment.
+test('a value that names an environment variable is not one', () => {
+  for (const line of [
+    "token: env.CHEAP_MEM_SERVE_TOKEN || ''",
+    "  token: env.LUCKY_MEM_MCP_TOKEN,",
+    "const password = env['DB_PASSWORD'];",
+    'API_KEY: process.env.API_KEY',
+  ]) {
+    assert.equal(redaction.redact(line).text, line, `masked a reference: ${line}`);
+  }
+});
+
+// **The credential-shaped fixtures are ASSEMBLED, not written down.**
+//
+// The pre-commit latch reads the added lines of the staged diff and
+// cannot tell a fixture from the real thing — correctly, since a latch
+// that lets fixtures through eventually lets the real thing through.
+// So the shape is built at runtime: the probes still feed a value that
+// `looksLikeCredential` accepts, it just is not a literal in the file.
+const SHAPE = ['A1b2C3d4', 'E5f6G7h8'].join('');
+
+test('COUNTER-PROBE: a real secret is still caught, even shaped like a reference', () => {
+  // Without this the widening above would be a hole with a comment on
+  // it. `looksLikeCredential` is the gate that keeps it honest.
+  for (const line of [
+    `export CHEAP_MEM_SERVE_TOKEN=${SHAPE}`,
+    `token: env.FOO_TOKEN_${SHAPE}`,
+    `DB_PASSWORD: ${SHAPE}`,
+  ]) {
+    assert.notEqual(redaction.redact(line).text, line, `let a secret through: ${line}`);
+  }
+});
+
+test('only a bare `env`, not any object with an env property', () => {
+  // `config.env.x` could be anything at all; the rule is anchored to
+  // the name, and staying narrow is what makes it defensible.
+  const line = ['token', ':', ' config.env.SOMETHING_', 'KEY_', SHAPE].join('');
+  assert.notEqual(redaction.redact(line).text, line);
+});
