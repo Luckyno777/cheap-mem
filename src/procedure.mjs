@@ -36,6 +36,9 @@
  * claim becomes a forgeable but VISIBLE claim.
  */
 
+import * as memory from './memory.mjs';
+import * as errorclass from './errorclass.mjs';
+
 /** The type name, written in exactly one place. */
 export const TYPE = 'procedure';
 
@@ -108,4 +111,56 @@ export function display(entry = {}) {
   const title = entry.title ? `${entry.title}\n` : '';
   const scope = entry.scope ? `  (applies to: ${entry.scope})\n` : '';
   return `${head}\n${title}${scope}${entry.rule ?? ''}`.trimEnd();
+}
+
+/**
+ * The error classes a procedure wants to be offered for.
+ *
+ * **Why a procedure gets a trigger at all.** A rule that only surfaces
+ * when somebody remembers to run `mem procedures` is a rule that
+ * applies when it is least needed. The moment a procedure is actually
+ * wanted is the moment somebody is filing the failure it was written
+ * for — and at that moment they are already typing the class name.
+ *
+ * **Why the closed vocabulary makes this cheap here.** Matching by
+ * keyword would mean guessing; matching by twelve fixed names is a
+ * lookup. This is the one place where having spent the effort on
+ * `errorclass.mjs` pays a second time.
+ *
+ * Stored as `on_class`, comma-separated. Unknown names are refused at
+ * write time (see bin/mem) rather than silently never firing.
+ */
+export function triggersOf(entry = {}) {
+  const raw = entry.on_class ?? entry.onClass ?? '';
+  const parts = (Array.isArray(raw) ? raw : String(raw).split(','))
+    .map((x) => String(x).trim()).filter(Boolean);
+  const out = [];
+  for (const p of parts) {
+    const n = errorclass.normalise(p);
+    if (n && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+/**
+ * The procedures in force that name this error class.
+ *
+ * Retired and closing lines are excluded the same way `mem procedures`
+ * excludes them — one reading of "in force", not two.
+ */
+export function forClass(root, className, { project = null } = {}) {
+  const wanted = errorclass.normalise(className);
+  if (!wanted) return [];
+  const out = [];
+  for (const p of [null, ...(project ? [project] : memory.listProjects(root))]) {
+    let entries;
+    try { ({ entries } = memory.readLog(root, TYPE, { project: p })); }
+    catch { continue; }
+    const retired = memory.retiredMap(entries);
+    for (const e of entries) {
+      if (!e.rule || !e.id || retired.has(e.id) || memory.isClosingLine(e)) continue;
+      if (triggersOf(e).includes(wanted)) out.push({ ...e, _project: p });
+    }
+  }
+  return out;
 }

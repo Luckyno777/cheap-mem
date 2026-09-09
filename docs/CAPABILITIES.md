@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 49 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 769 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 778 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -611,7 +611,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 769 tests
+npm test                                    # 778 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
@@ -1172,6 +1172,33 @@ Three properties, each with a reason:
 `mem classes` lists the twelve with their questions and how many
 entries each holds; `mem classes --open` names what could not be
 mapped.
+
+### 10.16b Procedures armed by error class — `--on-class`
+
+A procedure may name the error classes it was written against:
+
+```bash
+mem log procedure --title "Falsify, do not confirm" \
+  --rule "Ask what would be visible if it did NOT work, then build that probe." \
+  --issued-by owner --on-class looks-right-does-nothing,check-tests-the-wrong-thing
+```
+
+From then on, filing an error of that class offers the rule — at the one
+moment it is actually wanted. A procedure that only surfaces when
+somebody remembers to run `mem procedures` applies when it is least
+needed.
+
+**Cheap here, expensive elsewhere.** Matching a rule to a situation by
+keyword is guessing; matching against twelve fixed names is a lookup.
+The closed vocabulary of [10.16](#1016-error-classes) pays a second
+time.
+
+An unknown class is **refused at write time**, which is the opposite of
+what `mem log` does everywhere else. There the rule is "write and warn",
+because a refused write loses content. Here there is no content to lose:
+a trigger on a class that does not exist never fires, and the rule sits
+in the log looking armed. Old class names are accepted and normalised on
+the way in, so knowing the history is not punished.
 
 ### 10.17 The board — `src/board.mjs`, `mem board`
 

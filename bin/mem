@@ -1114,6 +1114,37 @@ const COMMANDS = {
         const { 'issued-by': v, ...restFields } = data;
         data = { ...restFields, issued_by: data.issued_by ?? v };
       }
+      // Same trap, same fix, one field later: `--on-class` arrives
+      // hyphenated and the entry stores the underscore form. Without
+      // this the trigger is written as `on-class`, `triggersOf` reads
+      // `on_class`, and the procedure never fires — a rule that exists
+      // and does nothing, which is the class it was probably written
+      // against.
+      if (Object.hasOwn(data, 'on-class')) {
+        const { 'on-class': v, ...restFields } = data;
+        data = { ...restFields, on_class: data.on_class ?? v };
+      }
+      // **An unknown trigger class is REFUSED, not warned about.**
+      //
+      // Everywhere else `mem log` writes and warns, because a write
+      // that fails on a naming rule loses content. Here there is no
+      // content to lose: a procedure whose trigger names a class that
+      // does not exist is simply a procedure that never fires. It would
+      // sit in the log looking armed. `procedure` is already the one
+      // type with a hard gate, and this is the same reasoning one field
+      // further.
+      if (data.on_class) {
+        const given = String(data.on_class).split(',').map((x) => x.trim()).filter(Boolean);
+        const bad = given.filter((x) => !errorclass.normalise(x));
+        if (bad.length) {
+          die(`log procedure: --on-class names ${bad.length > 1 ? 'classes' : 'a class'} `
+            + `that does not exist: ${bad.join(', ')}\n`
+            + '  A trigger on an unknown class never fires, and the rule would look armed.\n'
+            + `  Known: ${errorclass.NAMES.join(', ')}`);
+        }
+        // Stored normalised, so an old alias in the flag still fires.
+        data.on_class = given.map((x) => errorclass.normalise(x)).join(',');
+      }
       const pr = procedure.check(data);
       if (!pr.ok) {
         die(`log ${procedure.TYPE}:\n  ${pr.errors.join('\n  ')}\n\n`
@@ -1167,6 +1198,26 @@ const COMMANDS = {
         if (seen.count + 1 >= 3) {
           out('    Three of a kind means the guard is missing, not the care.');
         }
+      }
+    }
+
+    // **The procedure that was written for exactly this class.**
+    //
+    // A rule that only surfaces when somebody remembers to run
+    // `mem procedures` applies when it is least needed. The moment it
+    // is actually wanted is this one: somebody is filing the failure it
+    // was written for, and has just typed the class name.
+    //
+    // Cheap here in a way it is not elsewhere: matching by keyword
+    // would be guessing, matching against twelve fixed names is a
+    // lookup. The closed vocabulary pays a second time.
+    if (type === 'error' && entry.class) {
+      const armed = procedure.forClass(root, entry.class,
+        { project: args.project && args.project !== 'global' ? args.project : null });
+      if (armed.length) {
+        out('');
+        out(`  ${armed.length} procedure${armed.length === 1 ? '' : 's'} in force for this class:`);
+        for (const p of armed) out(`    ${procedure.display(p)}`);
       }
     }
 

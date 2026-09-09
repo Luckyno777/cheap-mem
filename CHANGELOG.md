@@ -82,6 +82,15 @@ are the day the work landed on `main`.
   slots. Measured on 1153 real entries: 7469 identifiers before, 8610
   after (+15.3 %), 488 distinct new ones, 416 of them (85 %) in at most
   three entries.
+- **Procedures can be armed by error class** (`--on-class`). Filing an
+  error of that class offers the rule that was written against it — at
+  the one moment it is wanted, rather than when somebody remembers to
+  run `mem procedures`. Cheap here and expensive elsewhere: matching by
+  keyword is guessing, matching against twelve fixed names is a lookup.
+  An unknown class is REFUSED at write time — the opposite of `mem log`
+  everywhere else, because there is no content to lose and a trigger on
+  a class that does not exist never fires while looking armed. Old class
+  names are normalised on the way in.
 - **`hasMore` and a corpus generation on every retrieval** — and,
   deliberately, no cursor. See the Fixed entry below for why the
   pagination this was meant to become was taken back out.
@@ -174,6 +183,11 @@ are the day the work landed on `main`.
   dropped and why.
 
 ### Fixed
+
+- `--on-class` arrived hyphenated and would have been stored as
+  `on-class` while the reader looked for `on_class` — the same trap
+  `--issued-by` fell into once, one field later. A rule that exists and
+  never fires is the class it was probably written against.
 
 - **Snapshot-bound pagination was built and then removed, because it
   cost two measured defences.** The path is the record:
