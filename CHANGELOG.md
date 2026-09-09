@@ -82,6 +82,16 @@ are the day the work landed on `main`.
   slots. Measured on 1153 real entries: 7469 identifiers before, 8610
   after (+15.3 %), 488 distinct new ones, 416 of them (85 %) in at most
   three entries.
+- **`bench/structural-recall.mjs`** — does a structural hop surface
+  history that word retrieval misses? Measured on 1153 real entries and
+  46 modules, with a random control and five seeds. Answer: **not
+  demonstrated on this corpus, so nothing was built for it.** Reach is
+  real (a name query returns that file's own history and nothing else,
+  at any `--top`), relevance is not: 4 files of 25 show any effect, 2 of
+  them at a perfect 1.000 on a sample of one entry. The mean of 0.108
+  against 0.010 was carried by those two — an aggregate that reads like
+  a finding, which is exactly the defect the bench was written to avoid
+  in someone else's comparison. The per-file distribution caught it.
 - **Procedures can be armed by error class** (`--on-class`). Filing an
   error of that class offers the rule that was written against it — at
   the one moment it is wanted, rather than when somebody remembers to
