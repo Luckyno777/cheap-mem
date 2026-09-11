@@ -834,14 +834,14 @@ async function handleCall(name, args) {
     }
     case 'mem_links': {
       const g = memory.linksOf(root, args.id);
-      const zeilen = [];
-      zeilen.push(g.entry ? `${g.entry._type}  ${shortLine(g.entry)}` : `(no entry with id ${g.id})`);
+      const lines = [];
+      lines.push(g.entry ? `${g.entry._type}  ${shortLine(g.entry)}` : `(no entry with id ${g.id})`);
       const zeig = (r, pfeil) => `    ${pfeil} ${String(r.kind).padEnd(12)} ${r.other}  `
         + (r.entry ? `${r.entry._type}: ${shortLine(r.entry)}` : '(missing entry)');
-      if (g.out.length) { zeilen.push('', '  this entry ->'); for (const r of g.out) zeilen.push(zeig(r, '->')); }
-      if (g.incoming.length) { zeilen.push('', '  -> this entry'); for (const r of g.incoming) zeilen.push(zeig(r, '<-')); }
-      if (!g.out.length && !g.incoming.length) zeilen.push('', '  no links yet.');
-      return textResult(zeilen.join('\n'));
+      if (g.out.length) { lines.push('', '  this entry ->'); for (const r of g.out) lines.push(zeig(r, '->')); }
+      if (g.incoming.length) { lines.push('', '  -> this entry'); for (const r of g.incoming) lines.push(zeig(r, '<-')); }
+      if (!g.out.length && !g.incoming.length) lines.push('', '  no links yet.');
+      return textResult(lines.join('\n'));
     }
     case 'mem_show': {
       const e = memory.entriesById(root).get(args.id);

@@ -3708,37 +3708,37 @@ function writeMemoryGitignore(root) {
   // question, so the next such break is a finding and not a surprise.
   //
   // Comments go on their own line above the rule.
-  const zeilen = existing.split('\n');
+  const lines = existing.split('\n');
   // A rule counts as present only if a line IS the rule. A line that
   // starts with the rule and then carries a `#` is the broken form and
   // has to go — otherwise this repair would skip exactly the files that
   // need it, and a memory written before today would stay unprotected
   // forever.
-  const kaputt = [];
+  const broken = [];
   const have = new Set();
-  for (const [i, l] of zeilen.entries()) {
+  for (const [i, l] of lines.entries()) {
     const t = l.trim();
     if (!t || t.startsWith('#')) continue;
     if (wanted.some(([rule]) => t === rule)) { have.add(t); continue; }
-    const treffer = wanted.find(([rule]) => t.startsWith(`${rule} `) && t.includes('#'));
-    if (treffer) kaputt.push(i);
+    const trailing = wanted.find(([rule]) => t.startsWith(`${rule} `) && t.includes('#'));
+    if (trailing) broken.push(i);
     // The old multi-line `why` also left a bare continuation line
     // behind — itself a pattern matching nothing. It has no rule in
     // front of it, so it is recognised by its text.
-    else if (/^travels back with the checkout/.test(t)) kaputt.push(i);
+    else if (/^travels back with the checkout/.test(t)) broken.push(i);
   }
   const missing = wanted.filter(([rule]) => !have.has(rule));
-  if (missing.length === 0 && kaputt.length === 0) return { added: 0, path: p, repaired: 0 };
+  if (missing.length === 0 && broken.length === 0) return { added: 0, path: p, repaired: 0 };
 
-  const behalten = zeilen.filter((_, i) => !kaputt.includes(i));
-  const rest = behalten.join('\n').replace(/\n{3,}/g, '\n\n');
+  const kept = lines.filter((_, i) => !broken.includes(i));
+  const rest = kept.join('\n').replace(/\n{3,}/g, '\n\n');
   const block = ['', '# cheap-mem: derived state and secrets'];
   for (const [rule, why] of missing) {
-    for (const z of String(why).split('\n')) block.push(`# ${z.trim()}`);
+    for (const line of String(why).split('\n')) block.push(`# ${line.trim()}`);
     block.push(rule);
   }
   const text = block.join('\n');
   fs.writeFileSync(p, rest.trim()
     ? `${rest.replace(/\n*$/, '')}\n${text}\n` : `${text.trimStart()}\n`);
-  return { added: missing.length, path: p, repaired: kaputt.length };
+  return { added: missing.length, path: p, repaired: broken.length };
 }

@@ -156,13 +156,13 @@ function bridgeStep(root, env, home) {
     ['Claude Desktop (macOS)', path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')],
     ['Claude Desktop (Windows)', path.join(env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')],
   ];
-  const gefunden = [];
+  const found = [];
   for (const [label, p] of kandidaten) {
     let text;
     try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
-    if (/mem-mcp|cheap-mem/.test(text)) gefunden.push(label);
+    if (/mem-mcp|cheap-mem/.test(text)) found.push(label);
   }
-  if (!gefunden.length) {
+  if (!found.length) {
     return {
       id: 'bridge',
       title: 'The MCP bridge is registered with a client',
@@ -175,7 +175,7 @@ function bridgeStep(root, env, home) {
     id: 'bridge',
     title: 'The MCP bridge is registered with a client',
     state: STATE.OK,
-    detail: gefunden.join(', '),
+    detail: found.join(', '),
   };
 }
 

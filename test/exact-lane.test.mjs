@@ -67,7 +67,7 @@ function build() {
 }
 
 test('identifiers are recognised, prose is not', () => {
-  const b = entity.bezeichner(
+  const b = entity.identifiers(
     'Die Pruefung liegt in src/redaktion/kanarienvogel.mjs, festgenagelt auf 3.7.2, Container '
     + 'kolibri-taktgeber, Vorgang 7318, Variable MEM_RETRIEVE_MIN.');
   for (const x of ['src/redaktion/kanarienvogel.mjs', '3.7.2', 'kolibri-taktgeber', '7318', 'mem_retrieve_min']) {
@@ -75,14 +75,14 @@ test('identifiers are recognised, prose is not', () => {
   }
   // And the counter-check: ordinary German words are not identifiers.
   // Without it a pattern that swallows everything would be conceivable.
-  const c = entity.bezeichner('Die Ablage der Auswertung bleibt im Repository, 30 Tage lang.');
+  const c = entity.identifiers('Die Ablage der Auswertung bleibt im Repository, 30 Tage lang.');
   assert.equal(c.size, 0, `prose read as identifiers: ${[...c].join(' ')}`);
 });
 
 test('an identifier in too many entries identifies nothing any more', () => {
   // The bound has no free parameter: it is the answer size.
   const map = new Map([['a/b.mjs', new Set([1])], ['src/index.mjs', new Set([1, 2, 3, 4, 5, 6, 7])]]);
-  const narrow = entity.treffer(map, 'schau in a/b.mjs und src/index.mjs', 5);
+  const narrow = entity.hits(map, 'schau in a/b.mjs und src/index.mjs', 5);
   assert.equal(narrow.size, 1, 'the frequent identifier should not have counted');
   assert.ok(narrow.has(1));
 });

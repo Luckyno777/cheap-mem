@@ -79,14 +79,14 @@ test('several symbols in one field are each findable', () => {
 
 test('the pattern recognises qualified names', () => {
   for (const s of ['AuthService.refreshToken', 'store.put', 'README.md', 'ab.cd.ef']) {
-    assert.ok(entity.bezeichner(s).has(s.toLowerCase()), `${s} not recognised`);
+    assert.ok(entity.identifiers(s).has(s.toLowerCase()), `${s} not recognised`);
   }
   // `a.b.c` is NOT one, and the first version of this probe expected it
   // to be — the fixture was wrong, not the rule. Single-character
   // segments are exactly what keeps `z.B.` and `e.g.` out; a name whose
   // parts are one letter each cannot be told apart from an
   // abbreviation, so it stays out too.
-  assert.equal(entity.bezeichner('a.b.c').size, 0);
+  assert.equal(entity.identifiers('a.b.c').size, 0);
 });
 
 test('COUNTER-PROBE: it does not eat German prose', () => {
@@ -96,7 +96,7 @@ test('COUNTER-PROBE: it does not eat German prose', () => {
   // most common abbreviations there are.
   for (const s of ['z.B. ein Beispiel', 'u.a. und d.h.', 'e.g. and i.e.',
     'Satz eins. Satz zwei', 'ende.']) {
-    assert.equal(entity.bezeichner(s).size, 0, `prose became an identifier: ${s}`);
+    assert.equal(entity.identifiers(s).size, 0, `prose became an identifier: ${s}`);
   }
 });
 
@@ -104,9 +104,9 @@ test('COUNTER-PROBE: a version stays a version, a number stays a number', () => 
   // `3.7.2` belongs to `fassung`, `1.5` is a plain number. Neither may
   // arrive through the new pattern, or the two lanes would disagree
   // about what an identifier is.
-  assert.deepEqual([...entity.bezeichner('3.7.2')], ['3.7.2']);
-  assert.equal(entity.bezeichner('1.5').size, 0);
-  assert.equal(entity.bezeichner('12.34').size, 0);
+  assert.deepEqual([...entity.identifiers('3.7.2')], ['3.7.2']);
+  assert.equal(entity.identifiers('1.5').size, 0);
+  assert.equal(entity.identifiers('12.34').size, 0);
 });
 
 test('the frequent ones are removed by the platz bound, not by a stop list', () => {
@@ -114,10 +114,10 @@ test('the frequent ones are removed by the platz bound, not by a stop list', () 
   // that handles it already existed; the new pattern must not need a
   // list of exceptions on top.
   const docs = Array.from({ length: 20 }, (_, i) => ({ text: `README.md and Thing${i}.method` }));
-  const index = entity.baueIndex(docs, (d) => d.text);
-  assert.equal(entity.treffer(index, 'README.md', 5).size, 0,
+  const index = entity.buildIndex(docs, (d) => d.text);
+  assert.equal(entity.hits(index, 'README.md', 5).size, 0,
     'a name in 20 of 20 documents was treated as identifying');
-  assert.equal(entity.treffer(index, 'Thing3.method', 5).size, 1);
+  assert.equal(entity.hits(index, 'Thing3.method', 5).size, 1);
 });
 
 test('`symbols` is a weighted field, and weighs like a deliberate access word', () => {

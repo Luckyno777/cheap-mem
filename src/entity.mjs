@@ -1,149 +1,145 @@
-// entity.mjs — maschinenfoermige Bezeichner, exakt statt aehnlich.
+// entity.mjs — machine-shaped identifiers, exact rather than similar.
 //
-// DER BEFUND, der das ausgeloest hat (2026-09-06). Eine neue
-// Aufgabenklasse fragt nach Pfaden, Vorgangsnummern, Dienstnamen und
-// Fassungen. Gemessen am eval-Korpus:
+// THE FINDING behind it (2026-09-06). A new class of task asks about
+// paths, case numbers, service names and versions. Measured on the eval
+// corpus:
 //
-//   I1  Gold-Rang 1..5   Score 1.35
-//   I2  Gold-Rang 1      Score 0.95
-//   I3  Gold-Rang 1      Score 1.23
-//   I4  Gold-Rang 1      Score 2.44
-//   I5  Gold-Rang 1      Score 1.12
-//   I6  Gold-Rang 1      Score 1.75
+//   I1  gold rank 1..5   score 1.35
+//   I2  gold rank 1      score 0.95
+//   I3  gold rank 1      score 1.23
+//   I4  gold rank 1      score 2.44
+//   I5  gold rank 1      score 1.12
+//   I6  gold rank 1      score 1.75
 //
-// Das Ranking ist also RICHTIG — fuenf von sechs auf Platz eins. Und
-// trotzdem kommt keine einzige Angabe an, weil jede Punktzahl unter der
-// Abrufschwelle 5,0 liegt. Nicht die Reihenfolge blockiert diese Klasse,
-// sondern die Schwelle.
+// So the ranking is RIGHT — five of six at rank one. And still nothing
+// arrives, because every score sits below the retrieval threshold of
+// 5.0. What blocks this class is not the order, it is the threshold.
 //
-// Der Grund ist strukturell: BM25 belohnt viele passende Woerter. Eine
-// Frage nach einem Pfad hat aber nur EIN passendes Wort, und der Eintrag
-// ist kurz. Eine Schwelle, die an Fliesstext kalibriert ist, schneidet
-// genau die praezisesten Treffer weg.
+// The cause is structural: BM25 rewards many matching words. A question
+// about a path has exactly ONE matching word, and the entry is short. A
+// threshold calibrated on prose cuts away precisely the most precise
+// hits.
 //
-// DIE ANTWORT IST NICHT MEHR PUNKTZAHL, SONDERN EINE ANDERE ART VON
-// AUSSAGE. Enthaelt die Frage `7318` und genau ein Eintrag enthaelt
-// `7318`, ist das keine Aehnlichkeit, sondern eine Gewissheit. Schwellen
-// sind fuer Aehnlichkeit da. Ein Exakt-Treffer geht an ihnen vorbei.
+// THE ANSWER IS NOT MORE SCORE, IT IS A DIFFERENT KIND OF STATEMENT. If
+// the question contains `7318` and exactly one entry contains `7318`,
+// that is not similarity, it is certainty. Thresholds are for
+// similarity. An exact hit goes past them.
 //
-// Was das NICHT ist: kein Boost (ein Boost kann eine bessere Antwort
-// begraben), kein Filter (ein Filter kann alles wegwerfen), kein
-// weiteres Gewicht in einer Summe (das waere der naechste Knopf, den
-// niemand kalibrieren kann). Es ist eine eigene Bahn — dieselbe Form,
-// die der Gateway schon fuer Autoritaetsstufen und fuer den Rohfang
-// benutzt.
+// What this is NOT: no boost (a boost can bury a better answer), no
+// filter (a filter can throw everything away), no further weight in a
+// sum (the next knob nobody can calibrate). It is a lane of its own —
+// the same shape the gateway already uses for authority tiers and for
+// raw captures.
 
 /**
- * Die Muster. Bewusst eng: jedes erkennt eine Form, die ein MENSCH nicht
- * zufaellig tippt, und die als Zeichenkette identifiziert.
+ * The patterns. Deliberately narrow: each recognises a form a HUMAN
+ * does not type by accident, and which identifies as a string.
  *
- * Was hier ABSICHTLICH fehlt: Grossschreibung. Im Deutschen ist jedes
- * Substantiv gross — als Heuristik fuer Eigennamen ist sie damit
- * wertlos, und sie wuerde den Index mit halbem Fliesstext fluten.
+ * What is DELIBERATELY absent: capitalisation. In German every noun is
+ * capitalised, which makes it worthless as a proper-noun heuristic and
+ * would flood the index with half the prose.
  */
-export const MUSTER = Object.freeze([
-  // Pfade: mindestens ein Schraegstrich, kein Leerzeichen, mit Endung
-  // oder Verzeichnistiefe. `src/redaktion/kanarienvogel.mjs`
-  { name: 'pfad', re: /\b[\w.-]+(?:\/[\w.-]+)+\b/g },
-  // Fassungen nach dem Muster x.y.z — `3.7.2`
-  { name: 'fassung', re: /\b\d+\.\d+\.\d+\b/g },
-  // Bindestrich-Namen mit mindestens zwei Teilen — `kolibri-taktgeber`.
-  // Zwei Buchstaben je Teil, damit "e-mail" und Silbentrennung draussen
-  // bleiben.
+export const PATTERNS = Object.freeze([
+  // Paths: at least one slash, no space, with an extension or directory
+  // depth. `src/redaktion/kanarienvogel.mjs`
+  { name: 'path', re: /\b[\w.-]+(?:\/[\w.-]+)+\b/g },
+  // Versions in the x.y.z shape — `3.7.2`
+  { name: 'version', re: /\b\d+\.\d+\.\d+\b/g },
+  // Hyphenated names with at least two parts — `kolibri-taktgeber`.
+  // Two letters per part, so "e-mail" and hyphenation stay out.
   { name: 'name', re: /\b[a-z]{2,}[a-z0-9]*(?:-[a-z0-9]{2,}[a-z0-9]*)+\b/gi },
-  // Vier- bis achtstellige Zahlen — Vorgangsnummern, Tickets, Ports.
-  // Unter vier Stellen ist zu viel Alltagszahl dabei ("30 Tage").
-  { name: 'nummer', re: /\b\d{4,8}\b/g },
-  // GROSS_MIT_UNTERSTRICH — Umgebungsvariablen
-  { name: 'umgebung', re: /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g },
-  // Qualifizierte Namen: `AuthService.refreshToken`, `store.put`,
-  // `README.md`. Punktgetrennt, ohne Leerzeichen.
+  // Four- to eight-digit numbers — case numbers, tickets, ports. Below
+  // four digits too much everyday number comes with it ("30 Tage").
+  { name: 'number', re: /\b\d{4,8}\b/g },
+  // UPPER_WITH_UNDERSCORE — environment variables
+  { name: 'environment', re: /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/g },
+  // Qualified names: `AuthService.refreshToken`, `store.put`,
+  // `README.md`. Dot-separated, no spaces.
   //
-  // **Der Befund (2026-09-09).** Ein Eintrag durfte schon immer ein
-  // `symbols`-Feld tragen, und `entityText` liest jedes Zeichenketten-
-  // Feld. Trotzdem fand `mem find "TokenStore.write"` nichts: keines
-  // der fuenf Muster erkennt einen punktgetrennten Namen. Die Exakt-
-  // Bahn — die Bahn fuer genau diese Art Frage — war fuer Code-Symbole
-  // schlicht blind. Gemessen, nicht vermutet: `bezeichner()` gab auf
-  // dem Text mit dem Symbol eine leere Menge zurueck.
+  // **The finding (2026-09-09).** An entry was always allowed to carry
+  // a `symbols` field, and `entityText` reads every string field. Still
+  // `mem find "TokenStore.write"` found nothing: none of the five
+  // patterns recognises a dot-separated name. The exact lane — the lane
+  // for exactly this kind of question — was simply blind to code
+  // symbols. Measured, not assumed: `identifiers()` returned an empty
+  // set on the text containing the symbol.
   //
-  // **Warum das trotzdem eng bleibt.** Jedes Teilstueck mindestens
-  // ZWEI Zeichen: das wirft die haeufigsten Abkuerzungen raus, die im
-  // Deutschen wie ein qualifizierter Name aussehen — `z.B.`, `u.a.`,
-  // `d.h.`, `e.g.`, `i.e.` haben einbuchstabige Teile. Keine reinen
-  // Ziffernfolgen: `3.7.2` gehoert zu `fassung`, `1.5` ist eine Zahl.
+  // **Why it still stays narrow.** Every segment at least TWO
+  // characters: that throws out the common abbreviations which look
+  // like a qualified name in German — `z.B.`, `u.a.`, `d.h.`, `e.g.`,
+  // `i.e.` all have single-letter segments. No pure digit runs: `3.7.2`
+  // belongs to `version`, `1.5` is a number.
   //
-  // Und darueber liegt weiterhin die `platz`-Schranke: ein Bezeichner,
-  // der in mehr Dokumenten steht als die Antwort Plaetze hat, zaehlt
-  // nicht. Ein `README.md`, das ueberall vorkommt, identifiziert nichts
-  // und faellt von selbst wieder heraus. Die Regel kann per
-  // Konstruktion nicht mehr Kandidaten erzeugen, als gebraucht werden.
-  { name: 'qualifiziert', re: /\b(?![\d.]+\b)\w{2,}(?:\.\w{2,})+\b/g },
+  // And above it the `slots` bound still applies: an identifier
+  // occurring in more documents than the answer has slots does not
+  // count. A `README.md` that appears everywhere identifies nothing and
+  // drops out by itself. By construction the rule cannot produce more
+  // candidates than are needed.
+  { name: 'qualified', re: /\b(?![\d.]+\b)\w{2,}(?:\.\w{2,})+\b/g },
 ]);
 
-/** Alle maschinenfoermigen Bezeichner eines Textes, kleingeschrieben. */
-export function bezeichner(text) {
+/** Every machine-shaped identifier in a text, lower-cased. */
+export function identifiers(text) {
   const s = String(text ?? '');
-  const raus = new Set();
-  for (const { re } of MUSTER) {
+  const out = new Set();
+  for (const { re } of PATTERNS) {
     re.lastIndex = 0;
-    for (const m of s.matchAll(re)) raus.add(m[0].toLowerCase());
+    for (const m of s.matchAll(re)) out.add(m[0].toLowerCase());
   }
-  return raus;
+  return out;
 }
 
 /**
- * Der Index: Bezeichner -> Menge von Dokumentnummern.
+ * The index: identifier -> set of document numbers.
  *
- * Rohfang zaehlt mit. Anders als bei der idf verzerrt er hier nichts —
- * ein Exakt-Treffer ist ein Exakt-Treffer, ganz gleich wo er steht, und
- * ein Pfad in einem Fang ist genau so eine Fundstelle wie einer in einem
- * Eintrag.
+ * Raw captures count here. Unlike with idf they distort nothing: an
+ * exact hit is an exact hit wherever it stands, and a path in a capture
+ * is just as much a location as one in an entry.
  */
-export function baueIndex(dokumente, textVon) {
-  const karte = new Map();
-  dokumente.forEach((doc, i) => {
-    for (const b of bezeichner(textVon(doc))) {
-      let s = karte.get(b);
-      if (!s) { s = new Set(); karte.set(b, s); }
+export function buildIndex(documents, textOf) {
+  const map = new Map();
+  documents.forEach((doc, i) => {
+    for (const b of identifiers(textOf(doc))) {
+      let s = map.get(b);
+      if (!s) { s = new Set(); map.set(b, s); }
       s.add(i);
     }
   });
-  return karte;
+  return map;
 }
 
 /**
- * Welche Dokumente trifft die Frage exakt?
+ * Which documents does the question hit exactly?
  *
- * Die Schranke hat KEINEN freien Parameter: ein Bezeichner zaehlt nur,
- * wenn er in hoechstens `platz` Dokumenten vorkommt — also in so wenigen,
- * dass sie ohnehin alle in die Antwort passen. Kommt er oefter vor, ist
- * er kein Bezeichner mehr, sondern Ausstattung (`src/index.mjs` in einem
- * JS-Projekt), und identifiziert nichts.
+ * The bound has NO free parameter: an identifier counts only if it
+ * occurs in at most `slots` documents — that is, in so few that they all
+ * fit into the answer anyway. Occurring more often it is no longer an
+ * identifier but furniture (`src/index.mjs` in a JS project), and
+ * identifies nothing.
  *
- * Damit ist die Regel selbstbegrenzend: sie kann per Konstruktion nicht
- * mehr Kandidaten erzeugen, als die Antwort Plaetze hat.
+ * That makes the rule self-limiting: by construction it cannot produce
+ * more candidates than the answer has slots.
  */
-export function treffer(karte, frage, platz) {
-  const raus = new Map();   // docIndex -> welche Bezeichner
-  if (!karte || !karte.size) return raus;
-  for (const b of bezeichner(frage)) {
-    const s = karte.get(b);
-    if (!s || s.size === 0 || s.size > platz) continue;
+export function hits(map, question, slots) {
+  const out = new Map();   // docIndex -> which identifiers
+  if (!map || !map.size) return out;
+  for (const b of identifiers(question)) {
+    const s = map.get(b);
+    if (!s || s.size === 0 || s.size > slots) continue;
     for (const i of s) {
-      let l = raus.get(i);
-      if (!l) { l = []; raus.set(i, l); }
+      let l = out.get(i);
+      if (!l) { l = []; out.set(i, l); }
       l.push(b);
     }
   }
-  return raus;
+  return out;
 }
 
-/** Fuer den Cache: Map<string, Set<number>> <-> JSON-taugliche Form. */
-export function packe(karte) {
-  return [...karte].map(([b, s]) => [b, [...s]]);
+/** For the cache: Map<string, Set<number>> <-> a JSON-able shape. */
+export function pack(map) {
+  return [...map].map(([b, s]) => [b, [...s]]);
 }
 
-export function entpacke(roh) {
-  return new Map((roh ?? []).map(([b, l]) => [b, new Set(l)]));
+export function unpack(raw) {
+  return new Map((raw ?? []).map(([b, l]) => [b, new Set(l)]));
 }

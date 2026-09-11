@@ -454,7 +454,7 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
 
   // Der Exakt-Index ueber maschinenfoermige Bezeichner. Er zaehlt nichts
   // und gewichtet nichts — er merkt sich nur, wo eine Zeichenkette steht.
-  const entityIndex = entity.baueIndex(documents, entityText);
+  const entityIndex = entity.buildIndex(documents, entityText);
 
   return {
     documents,
@@ -978,7 +978,7 @@ function appendToIndex(root, index, before, now, lang) {
     for (const t of doc.weights.keys()) index.docFreq.set(t, (index.docFreq.get(t) ?? 0) + 1);
     // Der Exakt-Index waechst mit: sonst waere ein frisch geschriebener
     // Pfad erst nach dem naechsten Vollbau auffindbar.
-    for (const b of entity.bezeichner(entityText(doc))) {
+    for (const b of entity.identifiers(entityText(doc))) {
       let set = index.entityIndex.get(b);
       if (!set) { set = new Set(); index.entityIndex.set(b, set); }
       set.add(index.documents.length);
@@ -1059,7 +1059,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           documents: index.documents.map((d) => ({ ...d, weights: [...d.weights] })),
           docFreq: [...index.docFreq],
           statsDocFreq: [...index.statsDocFreq],
-          entityIndex: entity.packe(index.entityIndex),
+          entityIndex: entity.pack(index.entityIndex),
           lexicon: [...index.lexicon],
           tagGraph: thesaurus.packTagGraph(index.tagGraph),
           termGraph: thesaurus.packTagGraph(index.termGraph),
@@ -1094,7 +1094,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           documents: c.index.documents.map((d) => ({ ...d, weights: new Map(d.weights) })),
           docFreq: new Map(c.index.docFreq),
           statsDocFreq: new Map(c.index.statsDocFreq ?? c.index.docFreq),
-          entityIndex: entity.entpacke(c.index.entityIndex),
+          entityIndex: entity.unpack(c.index.entityIndex),
           lexicon: new Set(c.index.lexicon),
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
           termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
@@ -1254,7 +1254,7 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * The gateway decides what to do with them — here we only say WHICH
  * documents contain the exact string the question named.
  *
- * `platz` is the answer size, and it is the whole bound: an identifier
+ * `slots` is the answer size, and it is the whole bound: an identifier
  * in more documents than there are slots is not identifying, it is
  * furniture. No free parameter, nothing to calibrate.
  *
@@ -1283,22 +1283,22 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * is BM25 over an in-memory index; it costs what it costs and nobody has
  * to remember anything.
  */
-export function exactHits(index, query, platz) {
-  const gefunden = entity.treffer(index.entityIndex, query, platz);
-  if (!gefunden.size && !gefunden.length) return [];
+export function exactHits(index, query, slots) {
+  const found = entity.hits(index.entityIndex, query, slots);
+  if (!found.size && !found.length) return [];
   // minScore 0: a lane hit is often exactly the document BM25 rates near
   // zero — that is the whole reason the lane exists.
-  const punkte = new Map();
+  const scores = new Map();
   for (const h of search(index, query, {
     top: index.N ?? index.documents.length, minScore: 0,
     withRetired: true, mmr: false,
-  })) punkte.set(`${h.source}:${h.line}`, h.score);
-  const raus = [];
-  for (const [i, welche] of gefunden) {
+  })) scores.set(`${h.source}:${h.line}`, h.score);
+  const out = [];
+  for (const [i, which] of found) {
     const doc = index.documents[i];
     if (!doc) continue;
-    raus.push({
-      score: punkte.get(`${doc.source}:${doc.line}`) ?? 0,
+    out.push({
+      score: scores.get(`${doc.source}:${doc.line}`) ?? 0,
       type: doc.type,
       project: doc.project,
       source: doc.source,
@@ -1307,12 +1307,12 @@ export function exactHits(index, query, platz) {
       raw: doc.type === 'raw',
       pending: doc.pending ?? false,
       ...(doc.retired ? { retired: doc.retired } : {}),
-      exact: welche,
+      exact: which,
       __w: doc.weights,
     });
   }
-  raus.sort((a, b) => b.score - a.score);
-  return raus;
+  out.sort((a, b) => b.score - a.score);
+  return out;
 }
 
 /**
