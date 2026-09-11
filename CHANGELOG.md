@@ -71,7 +71,7 @@ are the day the work landed on `main`.
   Measured: symbol in the title → 1 hit, the same symbol only in
   `symbols` → 0 hits, `--literal` → 1 hit. Two causes, both measured:
   `symbols` had no field weight, so BM25 never saw it, and none of the
-  five identifier patterns recognised a dotted name — `bezeichner()` (heute `identifiers()`)
+  five identifier patterns recognised a dotted name — `bezeichner()` (now `identifiers()`)
   returned an EMPTY set for `TokenStore.write`. The exact lane, built
   for precisely this kind of question, was blind to code symbols.
 
