@@ -44,7 +44,7 @@ function capture(r, name, text) {
     zlib.gzipSync(`${JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user', text })}\n`));
 }
 
-const ids = (r, top = 5) => retrieve(r, QUESTION, grantAll(['read']), { top }).claims
+const ids = (r, top = 5) => retrieve(r, QUESTION, grantAll(), { top }).claims
   .map((c) => c.id ?? '[roh]');
 
 test('a raw capture does not displace a curated claim', () => {
@@ -74,7 +74,7 @@ test('a raw capture does not displace a curated claim', () => {
     // anything". So open the list wide and compare the scores — if the
     // capture is weaker than the answer, the assertion below proves
     // nothing.
-    const wide = retrieve(r, QUESTION, grantAll(['read']), { top: 20 }).claims;
+    const wide = retrieve(r, QUESTION, grantAll(), { top: 20 }).claims;
     const bestRaw = Math.max(...wide.filter((c) => !c.id).map((c) => c.score), -Infinity);
     const answer = wide.find((c) => c.id === 'ANTWORT');
     assert.ok(answer, 'the fixture does not find the answer at all');

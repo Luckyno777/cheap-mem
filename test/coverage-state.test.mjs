@@ -188,7 +188,7 @@ test('space-limited claims make hasMore true, ineligible ones do not', async () 
       log({ id: `L-${i}`, topic: 'ablage', choice: `${body} fassung ${i}`, why: body });
     }
     const q = 'wie halten wir die ablage der auswertung im repository';
-    const wide = retrieval.retrieve(root, q, capability.grantAll(['read']), { top: 100 });
+    const wide = retrieval.retrieve(root, q, capability.grantAll(), { top: 100 });
 
     const space = wide.excluded.filter((x) => x.kind === 'capacity');
     // Positive control: the fixture has to hit the budget at all,
@@ -216,11 +216,67 @@ test('every exclusion carries a kind, and only the two known ones', async () => 
       });
     }
     const r = retrieval.retrieve(root, 'ablage auswertung repository',
-      capability.grantAll(['read']), { top: 100 });
+      capability.grantAll(), { top: 100 });
     assert.ok(r.excluded.length > 0, 'nothing was excluded — this test proves nothing');
     for (const x of r.excluded) {
       assert.ok(['eligibility', 'capacity'].includes(x.kind),
         `unknown kind: ${JSON.stringify(x)}`);
     }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+// --- known_complete IS reachable — measured twice, wrongly once ------
+//
+// On 2026-09-09 I measured 40 real task prompts against the eval corpus
+// and got `known_partial` 40 times, at top=5, 50 and 400 alike. I filed
+// that as "the third state is unreachable on a real corpus".
+//
+// It was my sample that was wrong. Task prompts are broad: they match
+// more than 30 candidates per tier, so the pool cap always bites. With
+// NARROW questions the state is reached exactly as designed — including
+// the case it exists for, a question with no answer at all.
+//
+// This test pins that, so the next person measuring broad prompts does
+// not file the same non-bug.
+test('a narrow question reaches known_complete, including with zero hits', async () => {
+  const mem = await import('../src/memory.mjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-complete-'));
+  try {
+    for (let i = 0; i < 12; i += 1) {
+      mem.logEntry(root, 'decision', {
+        id: `B-${i}`, topic: 'ablage', choice: `zur ablage gilt fassung ${i}`,
+        why: `entschieden bei vorgang ${500 + i}`, author: 'lucky', authority: 'user',
+      });
+    }
+    mem.logEntry(root, 'learning', {
+      id: 'ENG', topic: 'redaktion', title: 'der kanarienvogel laeuft vor jedem fang',
+      text: 'lieber eine luecke als ein geheimnis', author: 'lucky', authority: 'user',
+    });
+
+    const eins = retrieval.retrieve(root, 'kanarienvogel', capability.grantAll(), { top: 5 });
+    assert.equal(eins.coverage.state, 'known_complete',
+      `eine enge Frage muss vollstaendig sein, war ${eins.coverage.state}: `
+      + JSON.stringify(eins.coverage.reasons));
+    assert.equal(eins.claims.length, 1);
+
+    // Der Fall, fuer den der Zustand gebaut wurde: gesucht, nichts da —
+    // und das ist etwas anderes als "nicht gesucht".
+    const keins = retrieval.retrieve(root, 'xyzzy quastenflosser', capability.grantAll(), { top: 5 });
+    assert.equal(keins.claims.length, 0);
+    assert.equal(keins.coverage.state, 'known_complete',
+      'ein leeres Ergebnis ohne Grenze ist BEWIESENE Abwesenheit, nicht Unwissen');
+
+    // Und die Gegenprobe: ohne LESERECHT ist dasselbe leere Ergebnis
+    // `unknown_coverage`. Waeren beide gleich, sagte der Zustand nichts.
+    //
+    // `grant({rights: []})`, nicht `grantAll([])`: grantAll nimmt ein
+    // SUBJEKT, keine Rechteliste — `grantAll()` heisst also
+    // "Subjekt ['read'], Rechte read+write". Die erste Fassung dieses
+    // Tests ist darauf hereingefallen und hat eine Vollmacht mit vollen
+    // Rechten fuer eine ohne gehalten.
+    const ohne = capability.grant({ subject: null, scopes: ['global'], rights: [], descendants: true });
+    const leer = retrieval.retrieve(root, 'xyzzy quastenflosser', ohne, { top: 5 });
+    assert.equal(leer.coverage.state, 'unknown_coverage',
+      'ohne Leserecht sieht ein leeres Ergebnis aus wie ein geprueftes');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

@@ -90,7 +90,7 @@ test('an identifier in too many entries identifies nothing any more', () => {
 test('when the question names the path, the entry gets past the threshold', () => {
   const r = build();
   try {
-    const cap = grantAll(['read']);
+    const cap = grantAll();
     const question = `Was ist zu ${PATH} festgelegt?`;
     const claims = retrieve(r, question, cap, { top: 5 }).claims;
     const target = claims.find((c) => c.id === 'ZIEL');
@@ -137,7 +137,7 @@ test('the lane does NOT help when the question asks for the identifier', () => {
   // about it reports the lane as broken by mistake.
   const r = build();
   try {
-    const claims = retrieve(r, 'In welcher Datei liegt die Selbstpruefung?', grantAll(['read']),
+    const claims = retrieve(r, 'In welcher Datei liegt die Selbstpruefung?', grantAll(),
       { top: 5 }).claims;
     assert.equal(claims.filter((c) => c.exact).length, 0,
       'the lane fired although the question names no identifier — nice, but then this comment is out of date');

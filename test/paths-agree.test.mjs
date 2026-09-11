@@ -97,7 +97,7 @@ const findIds = (root, extra = []) => {
   return (JSON.parse(out).hits ?? []).map((h) => h.entry?.id ?? '?');
 };
 const gatewayIds = (root, opt = {}) =>
-  retrieve(root, QUESTION, grantAll(['read']), { top: 5, ...opt }).claims.map((c) => c.id);
+  retrieve(root, QUESTION, grantAll(), { top: 5, ...opt }).claims.map((c) => c.id);
 
 test('by default both paths drop the echo of the question', () => {
   // Little curated competition, and that is not a detail: since
