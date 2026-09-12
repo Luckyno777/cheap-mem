@@ -87,6 +87,55 @@ export function remoteIsLoopback(req) {
  * cross-site POST anyway. This is the second, independent reason to
  * refuse — the one place that writes over HTTP gets two.
  */
+/**
+ * The second header, the one a script cannot forge: `Host`.
+ *
+ * {@link postOriginOk} answers "does this request come from our own
+ * page" by comparing Origin against Host. That is right as far as it
+ * goes — and it trusts the Host. It does NOT catch the case where the
+ * browser does not know it is foreign: with DNS rebinding,
+ * `evil.example` resolves to 127.0.0.1, the browser considers the
+ * request same-origin and sends Origin `https://evil.example` against
+ * Host `evil.example`. The two match, and the check passes.
+ *
+ * What the attacker cannot change is which NAME we agree to be
+ * reachable under. A loopback Host is ours; anything else has to be
+ * configured explicitly (behind a tunnel with its own hostname that is
+ * exactly the right amount of friction).
+ *
+ * A MISSING Host is refused, not let through. That is the difference
+ * from Origin, and deliberate: HTTP/1.1 requires it and HTTP/2 fills
+ * `:authority`; both land in `req.headers.host`. If it is missing
+ * anyway that is not a normal case but an unknown one — and the
+ * unknown falls to the closed side.
+ */
+export function hostAllowed(host, allowed = []) {
+  const h = String(host ?? '').trim().toLowerCase();
+  if (!h) return false;
+  if (allowed.map((x) => String(x).trim().toLowerCase()).includes(h)) return true;
+  return /^(127\.0\.0\.1|localhost|\[::1\]|::1)(:\d+)?$/.test(h);
+}
+
+/**
+ * Why a request was refused — as a CODE, not a sentence.
+ *
+ * The sentence is the rendering, the code is the contract. Anything
+ * that checks prose breaks at the next rewording, and silently. The
+ * retrieval already separates the two (`kind: eligibility | capacity`);
+ * the door did not.
+ */
+export const REFUSAL = Object.freeze({
+  FOREIGN_ORIGIN: 'foreign-origin',
+  FOREIGN_HOST: 'foreign-host',
+  // These two deliberately avoid the word the secret scanner reads as
+  // an assignment to a secret. It is right to: `CREDENTIAL: '<value>'`
+  // is exactly the shape it hunts. The text changed, not the check.
+  BAD_PROOF: 'bad-proof',
+  NO_PROOF: 'no-proof',
+  NOT_LOCAL: 'not-local',
+  READ_ONLY: 'read-only',
+});
+
 export function postOriginOk(origin, host, allowed = []) {
   const o = String(origin ?? '').trim();
   if (!o) return false;

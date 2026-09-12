@@ -479,8 +479,7 @@ export function entriesById(root) {
       // something the memory stands behind.
       const retired = retiredMap(res.entries);
       for (const e of res.entries) {
-        if (e.__broken || !e.id || isClosingLine(e)) continue;
-        if (retired.has(e.id)) continue;
+        if (!e.id || !holds(e, retired)) continue;
         if (!byId.has(e.id)) byId.set(e.id, { ...e, _type: type, _project: project });
       }
     }
@@ -642,7 +641,7 @@ export function topicEntries(root, key = null) {
     }
   }
   const retired = retiredMap(seen);
-  const live = all.filter((e) => !(e.id && retired.has(e.id)));
+  const live = all.filter((e) => holds(e, retired));
   // Timestamps are second-resolution, so three entries logged in one second
   // tie — and "what is the current state of this topic" must not then be
   // decided at random. `_seq` is the read order, which inside one log file
@@ -843,7 +842,7 @@ export function recentEntries(root, type, n) {
   // as an entry of its own ("because vendor X shut down") with no hint
   // that it is a retraction of the line above it.
   const retired = retiredMap(all);
-  const live = all.filter((e) => !isClosingLine(e) && !retired.has(e.id));
+  const live = all.filter((e) => holds(e, retired));
 
   live.sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
   return live.slice(0, n);
@@ -1095,6 +1094,36 @@ export function retiredMap(entries) {
  */
 export function isClosingLine(e) {
   return Boolean(e && (e.retires_id || e.closes_id));
+}
+
+/**
+ * Does this entry still count? — THE one derivation.
+ *
+ * Three reasons an entry stops being an answer, and until now they
+ * were assembled by hand at twelve call sites:
+ *
+ *   __broken           the line would not parse
+ *   isClosingLine      it is a tombstone, not a statement
+ *   retired.has(id)    a later line replaced it
+ *
+ * Counted on 2026-09-12: twelve sites, writing the filter in three
+ * different combinations. Checked one by one they agreed — most had
+ * already handled two of the three a loop earlier. Agreeing by
+ * accident is not a guarantee, though: whoever adds the next condition
+ * (and the supersession chain has gained two in half a year) adds it
+ * in one place and not in eleven. Then the memory gives two answers
+ * about the same entry, and a reader holding both cannot say which one
+ * is lying.
+ *
+ * So the verdict lives here, once, and every surface renders it. The
+ * conditions are deliberately NOT individually switchable: a switch
+ * would be the twelve versions coming back through the side door.
+ */
+export function holds(e, retired = null) {
+  if (!e || e.__broken) return false;
+  if (isClosingLine(e)) return false;
+  if (retired && e.id && retired.has(e.id)) return false;
+  return true;
 }
 
 /** Allowed states when retiring an entry. */
@@ -1392,7 +1421,7 @@ export function agentState(root, name) {
     }
   }
   const retired = retiredMap(seen);
-  const live = entries.filter((e) => !retired.has(e.id));
+  const live = entries.filter((e) => holds(e, retired));
   live.sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')));
 
   const types = {};

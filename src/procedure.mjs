@@ -158,7 +158,7 @@ export function forClass(root, className, { project = null } = {}) {
     catch { continue; }
     const retired = memory.retiredMap(entries);
     for (const e of entries) {
-      if (!e.rule || !e.id || retired.has(e.id) || memory.isClosingLine(e)) continue;
+      if (!e.rule || !e.id || !memory.holds(e, retired)) continue;
       if (triggersOf(e).includes(wanted)) out.push({ ...e, _project: p });
     }
   }

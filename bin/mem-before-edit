@@ -99,15 +99,52 @@ QUERY="$(field query)"
 SESSION="$(field session)"
 [ -z "$QUERY" ] && exit 0
 
-# Once per file per session. Without it the same block would come back
-# on each of twenty edits to the same file — and a hint that is always
-# there is not a hint. The marks go under .mem/, which the memory's own
-# .gitignore already keeps out of commits.
+# Once per file per session — but not SILENTLY.
+#
+# This used to be `[ -e "$MARKS/$SAFE" ] && exit 0`: the second edit to
+# the same file got nothing. That is not neutral. Silence reads as
+# "there is nothing about this file", and that was wrong — there was
+# something, it had just been shown. And when a NEW error about the
+# same file is logged during the session (the normal case while working
+# on a file), the mark hid it until the session ended.
+#
+# Now three states: show / pointer / show again. Proven, not assumed:
+# the memory appends, so content can only change by growing. An equal
+# watermark means a provably equal result — the pointer then costs no
+# lookup at all.
 SAFE="$(printf '%s' "${SESSION}__${QUERY}" | tr -c 'A-Za-z0-9_.-' '_')"
 MARKS="${MEM_BEFORE_EDIT_MARKS:-$ROOT/.mem/before-edit}"
 mkdir -p "$MARKS" 2>/dev/null || exit 0
-[ -e "$MARKS/$SAFE" ] && exit 0
-touch "$MARKS/$SAFE" 2>/dev/null || true
+MARK="$MARKS/$SAFE.json"
+PTR="$HOOK_DIR/../src/pointer.mjs"
+
+LEVEL="$(MEM_ROOT_ARG="$ROOT" node -e '
+  import(process.argv[1]).then((p) => {
+    process.stdout.write(String(p.watermark(process.env.MEM_ROOT_ARG).bytes));
+  }).catch(() => process.stdout.write("0"));' "$PTR" 2>/dev/null)"
+[ -z "$LEVEL" ] && LEVEL=0
+
+AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
+  import(process.argv[1]).then((p) => {
+    const m = p.readMark(process.env.MEM_MARK);
+    const d = p.decide({ mark: m, levelNow: Number(process.env.MEM_LEVEL) });
+    process.stdout.write(JSON.stringify({ ...d, count: m?.shown ?? 0 }));
+  }).catch(() => process.stdout.write("{}"));' "$PTR" 2>/dev/null)"
+
+if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
+  printf '%s' "$AHEAD" | MEM_Q="$QUERY" node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      import(process.argv[1]).then((p) => {
+        let j = {}; try { j = JSON.parse(d); } catch {}
+        process.stdout.write(JSON.stringify({
+          suppressOutput: true,
+          hookSpecificOutput: { hookEventName: "PreToolUse",
+            additionalContext: p.pointerLine({ pathName: process.env.MEM_Q, count: j.count ?? 0 }) },
+        }));
+      });
+    })' "$PTR" 2>/dev/null
+  exit 0
+fi
 
 # `component` instead of `find --literal`: the same literal strictness,
 # but across BOTH spellings of a file.
@@ -148,6 +185,42 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
   })' 2>/dev/null)"
 
 [ -z "$PICK" ] && exit 0
+
+# Second round: the watermark grew, so the FINGERPRINT decides. An
+# entry about a different file moves the level but changes nothing
+# about this answer — then it stays a pointer.
+COUNT="$(printf '%s' "$PICK" | grep -c . || true)"
+VERDICT="$(printf '%s' "$PICK" | MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+    import(process.argv[1]).then((p) => {
+      const m = p.readMark(process.env.MEM_MARK);
+      const f = p.fingerprint(d);
+      const v = p.decide({ mark: m, levelNow: Number(process.env.MEM_LEVEL), newFingerprint: f });
+      process.stdout.write(JSON.stringify({ ...v, fingerprint: f, count: m?.shown ?? 0 }));
+    }).catch(() => process.stdout.write("{}"));
+  })' "$PTR" 2>/dev/null)"
+
+FP="$(printf '%s' "$VERDICT" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(JSON.parse(d).fingerprint||"")}catch{}})' 2>/dev/null)"
+MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" MEM_FP="$FP" MEM_COUNT="$COUNT" node -e '
+  import(process.argv[1]).then((p) => p.writeMark(process.env.MEM_MARK, {
+    level: Number(process.env.MEM_LEVEL), fingerprint: process.env.MEM_FP,
+    shown: Number(process.env.MEM_COUNT),
+  })).catch(() => {});' "$PTR" 2>/dev/null
+
+if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
+  printf '%s' "$VERDICT" | MEM_Q="$QUERY" node -e '
+    let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+      import(process.argv[1]).then((p) => {
+        let j = {}; try { j = JSON.parse(d); } catch {}
+        process.stdout.write(JSON.stringify({
+          suppressOutput: true,
+          hookSpecificOutput: { hookEventName: "PreToolUse",
+            additionalContext: p.pointerLine({ pathName: process.env.MEM_Q, count: j.count ?? 0 }) },
+        }));
+      });
+    })' "$PTR" 2>/dev/null
+  exit 0
+fi
 
 printf '%s' "$PICK" | MEM_Q="$QUERY" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{

@@ -74,7 +74,7 @@ export function neighbours(root, type, data = {}, { project = null, except = nul
   const hits = [];
   for (const e of res.entries) {
     if (e.__broken || !e.id) continue;
-    if (retired.has(e.id) || memory.isClosingLine(e)) continue;
+    if (!memory.holds(e, retired)) continue;
     if (except && e.id === except) continue;
     if (String(e[field] ?? '').trim().toLowerCase() !== same) continue;
     hits.push(e);

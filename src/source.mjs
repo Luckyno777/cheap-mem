@@ -132,7 +132,7 @@ export function all(root, { project = undefined, kind = null } = {}) {
     try { res = memory.readLog(root, TYPE, { project: p }); } catch { continue; }
     const retired = memory.retiredMap(res.entries);
     for (const e of res.entries) {
-      if (e.__broken || !e.id || retired.has(e.id) || memory.isClosingLine(e)) continue;
+      if (!e.id || !memory.holds(e, retired)) continue;
       if (kind && e.kind !== kind) continue;
       out.push({ ...e, _project: p });
     }

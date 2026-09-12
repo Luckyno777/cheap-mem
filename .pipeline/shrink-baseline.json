@@ -1,0 +1,12 @@
+{
+ "version": 1,
+ "ts": "2026-09-12T06:08:38Z",
+ "books": {
+  "eval/runs/mit-memory-sonnet5.jsonl": 54774,
+  "eval/runs/paar-sauber.jsonl": 23331,
+  "eval/runs/paar2-sauber.jsonl": 27729,
+  "eval/runs/paar3-treu.jsonl": 60631,
+  "eval/runs/paar4-ausgeglichen.jsonl": 60592,
+  "eval/runs/zustandslos-sonnet5.jsonl": 64190
+ }
+}

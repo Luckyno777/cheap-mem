@@ -45,6 +45,8 @@ export function readConfig(env = process.env) {
     // by three latches that already exist — the bind rule, the
     // SameSite=Lax cookie, and the POST origin check.
     readonly: env.CHEAP_MEM_SERVE_READONLY === '1',
+    hosts: String(env.CHEAP_MEM_SERVE_HOSTS ?? '')
+      .split(',').map((x) => x.trim()).filter(Boolean),
     origins: String(env.CHEAP_MEM_SERVE_ORIGINS ?? '')
       .split(',').map((x) => x.trim()).filter(Boolean),
   };
@@ -148,6 +150,14 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       if (cfg.readonly) {
         short(res, 403, 'Writing is off (CHEAP_MEM_SERVE_READONLY=1).');
+        return;
+      }
+      // Host first: Origin-against-Host is a same-origin check and
+      // trusts the Host. Under DNS rebinding both carry the
+      // attacker's name and match. Only the name we agree to be
+      // reachable under separates them.
+      if (!webauth.hostAllowed(req.headers.host, cfg.hosts)) {
+        short(res, 403, 'Foreign or missing host.');
         return;
       }
       if (!webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {

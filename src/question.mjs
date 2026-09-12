@@ -69,7 +69,7 @@ export function all(root, { project = undefined } = {}) {
     const retired = memory.retiredMap(res.entries);
     for (const e of res.entries) {
       if (e.__broken || !e.question || !e.id) continue;
-      if (retired.has(e.id) || memory.isClosingLine(e)) continue;
+      if (!memory.holds(e, retired)) continue;
       const g = memory.linksOf(root, e.id);
       const answers = g.incoming.filter((r) => r.kind === RESOLVES);
       out.push({

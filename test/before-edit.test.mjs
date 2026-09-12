@@ -97,12 +97,61 @@ test('warning lanes only — a thought about the same file stays out', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-test('twice on the same file in one session: only the first time', () => {
+test('twice on the same file: a pointer the second time, NEVER silence', () => {
+  // The old guarantee was `raw === ''` — the second edit got nothing.
+  // But silence reads as "there is nothing about this file", and that
+  // was wrong. Now: one line instead of a block.
   const root = memory(ENTRIES);
   try {
     const f = '/home/x/cheap-mem/install/claude-code.sh';
-    assert.ok(call(root, { file: f }).raw, 'even the first call was silent');
-    assert.equal(call(root, { file: f }).raw, '', 'the second call repeated itself');
+    const one = call(root, { file: f });
+    assert.ok(one.raw, 'even the first call was silent');
+    assert.match(one.json.hookSpecificOutput.additionalContext, /went wrong here before/);
+
+    const two = call(root, { file: f });
+    assert.ok(two.raw, 'the second call was silent — exactly the defect');
+    const t = two.json.hookSpecificOutput.additionalContext;
+    assert.match(t, /already injected/);
+    assert.match(t, /unchanged/);
+    assert.ok(!/went wrong here before/.test(t), 'the second call repeated the block');
+    assert.ok(two.raw.length < one.raw.length, 'the pointer is not shorter than the block');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('an entry arriving DURING the session brings the full block back', () => {
+  // The case the old mark hid until the session ended — and the normal
+  // one while working on a file: you build, it breaks, you log, you
+  // build on.
+  const root = memory(ENTRIES);
+  try {
+    const f = '/home/x/cheap-mem/install/claude-code.sh';
+    assert.ok(call(root, { file: f }).raw);
+    fs.appendFileSync(path.join(root, 'global', 'errors.jsonl'), JSON.stringify({
+      id: 'e2', ts: '2026-09-12T09:00:00Z', class: 'brand-new',
+      title: 'install/claude-code.sh also breaks on an empty HOME',
+      text: 'Happened today.',
+    }) + '\n');
+    const t = call(root, { file: f }).json.hookSpecificOutput.additionalContext;
+    assert.match(t, /brand-new|empty HOME|went wrong here before/,
+      'the new entry was withheld');
+    assert.ok(!/already injected/.test(t), 'only a pointer despite a new entry');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('when the memory grows ELSEWHERE it stays a pointer', () => {
+  // The watermark alone would show again here. Only the fingerprint
+  // says that nothing about THIS answer changed.
+  const root = memory(ENTRIES);
+  try {
+    const f = '/home/x/cheap-mem/install/claude-code.sh';
+    assert.ok(call(root, { file: f }).raw);
+    fs.appendFileSync(path.join(root, 'global', 'errors.jsonl'), JSON.stringify({
+      id: 'z9', ts: '2026-09-12T09:30:00Z', class: 'elsewhere',
+      title: 'src/somewhere-else.mjs falls over', text: 'Nothing to do with the installer.',
+    }) + '\n');
+    const t = call(root, { file: f }).json.hookSpecificOutput.additionalContext;
+    assert.match(t, /already injected/,
+      'a foreign entry triggered the whole block again');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

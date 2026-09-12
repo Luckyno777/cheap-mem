@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 49 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 54 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 778 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -49,13 +49,14 @@ directory. The section number in brackets is where it is explained.
 | `agents.mjs` | registered agents: who exists, what each is for |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
+| `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number (10.18) |
 | `board.mjs` | the operating state on one screen (10.17) |
 | `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
 | `component.mjs` | one file, across both spellings (10.14) |
-| `console.mjs` | the console: state, settings, connections (7.4) |
 | `config.mjs` | participants, defaults, the memory's own settings |
+| `console.mjs` | the console: state, settings, connections (7.4) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
@@ -63,17 +64,23 @@ directory. The section number in brackets is where it is explained.
 | `epoch.mjs` | noticing that the memory went backwards (4) |
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
+| `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
+| `injection.mjs` | the journal of what the hook put into a turn, and what it did not (10.19) |
 | `integrity.mjs` | what is wrong with the log itself (4) |
 | `language.mjs` | stemming and stop words, per language |
 | `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
+| `net.mjs` | what points at what — from declared links, not from similarity (10.20) |
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
+| `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree (10.21) |
+| `pointer.mjs` | a pointer instead of silence when something was already shown (10.22) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |
+| `provenance.mjs` | which clone answered, and how old it is (10.23) |
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
@@ -81,10 +88,12 @@ directory. The section number in brackets is where it is explained.
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
 | `setup.mjs` | the five steps between installed and working (10.12) |
+| `shrink.mjs` | an append-only memory must not get smaller (10.24) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
+| `teach.mjs` | what the memory has to say to a newcomer, in five sections (10.25) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
@@ -451,7 +460,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 49 commands
+### 7.1 CLI — 54 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -459,7 +468,7 @@ thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
-bridge serve
+bridge serve gauges shrink paths net teach
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
