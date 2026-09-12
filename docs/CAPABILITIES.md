@@ -73,6 +73,7 @@ directory. The section number in brackets is where it is explained.
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not (10.19) |
 | `integrity.mjs` | what is wrong with the log itself (4) |
 | `language.mjs` | stemming and stop words, per language |
+| `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing (10.26) |
 | `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
 | `net.mjs` | what points at what — from declared links, not from similarity (10.20) |

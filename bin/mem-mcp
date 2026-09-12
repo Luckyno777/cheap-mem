@@ -33,6 +33,10 @@
 // a bare MODULE_NOT_FOUND inside an MCP client is invisible, because the
 // client reports only that the server would not start.
 let Server; let StdioServerTransport;
+/** Read at start-up, not per call: a boundary that can change
+ *  mid-session is not one. */
+const PROFILE = mcpprofile.fromEnv();
+
 let CallToolRequestSchema; let ListToolsRequestSchema;
 try {
   ({ Server } = await import('@modelcontextprotocol/sdk/server/index.js'));
@@ -57,6 +61,7 @@ import * as thesaurus from '../src/thesaurus.mjs';
 import * as raw from '../src/raw.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
+import * as mcpprofile from '../src/mcpprofile.mjs';
 import * as store from '../src/store.mjs';
 import * as procedure from '../src/procedure.mjs';
 import * as broadcast from '../src/broadcast.mjs';
@@ -642,6 +647,14 @@ async function handleCall(name, args) {
   const root = resolveRoot();
   const cfg = cfgmod.readConfig(root);
 
+  // The read-only profile, in front of the dispatch and not only in
+  // the listing. Not listing a tool is a hint; a client that knows the
+  // name still calls it. Unknown counts as writing — see
+  // src/mcpprofile.mjs for why that is the only safe direction.
+  if (!mcpprofile.allowed(name, PROFILE)) {
+    return { content: [{ type: 'text', text: mcpprofile.refusal(name) }], isError: true };
+  }
+
   switch (name) {
     case 'mem_heartbeat': {
       // Identity comes from the connected agent, never from a
@@ -1153,7 +1166,8 @@ async function main() {
     { capabilities: { tools: {} }, instructions: houseRules(fs) },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: TOOLS }));
+  server.setRequestHandler(ListToolsRequestSchema,
+    async () => ({ tools: mcpprofile.visible(TOOLS, PROFILE) }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     try {
       return await handleCall(req.params.name, req.params.arguments ?? {});
