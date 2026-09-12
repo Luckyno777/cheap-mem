@@ -200,6 +200,31 @@ else
     || { bad "hook went silent without timeout"; echo "     hook said: $(printf '%s' "$OUT" | head -c 120)"; }
 fi
 
+echo "8b) same turn twice -> injected ONCE, however often the hook hangs"
+# Seen in the sibling memory's own journal on 2026-09-12: the same turn,
+# two injections, both complete, both the same size — two registrations
+# on UserPromptSubmit, both healthy. Removing one is configuration and
+# holds until the next machine, so the hook claims each turn itself.
+TURN='{"session_id":"lane-1","prompt":"why is the flaky payment integration test failing on timeout?"}'
+ONE="$(printf '%s' "$TURN" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+  CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+TWO="$(printf '%s' "$TURN" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+  CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+if [ -n "$ONE" ] && [ -z "$TWO" ]; then ok "second run of the same turn stays silent"
+else bad "same turn injected twice (first ${#ONE} chars, second ${#TWO} chars)"; fi
+
+echo "8c) a DIFFERENT turn in the same session is injected again"
+# The claim is per turn, not per session — otherwise nobody would get
+# anything from their second message onwards.
+# The phrasing matters: the first attempt at this probe used a
+# question that scored 0.53 against a threshold of 1.0 and was cut
+# correctly — the probe blamed the claim for the threshold's work.
+OTHER='{"session_id":"lane-1","prompt":"what about the flaky payment integration test timeout again"}'
+THREE="$(printf '%s' "$OTHER" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+  CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+if [ -n "$THREE" ]; then ok "a new question is served"
+else bad "a new question in the same session got nothing"; fi
+
 echo "9) below-threshold match stays hidden"
 build_memory
 OUT="$(printf '%s' '{"prompt":"a totally unrelated question about weather"}' \

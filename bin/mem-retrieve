@@ -125,13 +125,48 @@ refresh
 # The prompt itself. Too short means no signal — "yes", "go on", "do it"
 # are not questions for the memory, and showing hits for them is noise,
 # and noise is what people learn to skim past.
-PROMPT="$(node -e '
+IN="$(cat)"
+PROMPT="$(printf '%s' "$IN" | node -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
     try { const j = JSON.parse(d); process.stdout.write(j.prompt ?? j.user_prompt ?? ""); }
     catch { /* not JSON: then nothing */ }
   })' 2>/dev/null)"
+SESSION_ID="$(printf '%s' "$IN" | node -e '
+  let d = "";
+  process.stdin.on("data", (c) => (d += c)).on("end", () => {
+    try { process.stdout.write(String(JSON.parse(d).session_id ?? "")); } catch {}
+  })' 2>/dev/null)"
 [ "${#PROMPT}" -lt 12 ] && exit 0
+
+# --- Once per turn, however often it is registered --------------------
+#
+# Seen in the sibling memory's own journal on 2026-09-12: the same turn,
+# two injections, both complete, both the same size. Two registrations
+# on UserPromptSubmit — one written by the installer into the user
+# profile, one by the project — and both run this code. Neither is
+# broken; the memory just lands in the context twice, and the occupancy
+# is twice what it needs to be.
+#
+# The obvious repair is to remove one registration. That is
+# configuration and holds exactly until the next machine: the installer
+# writes one, the repo writes the other, and whoever runs both has them
+# back. So the hook makes ITSELF idempotent — then it does not matter
+# how many times it hangs.
+#
+# `mkdir` as the claim, not `[ -e ]` + `touch`: the two can run at the
+# same time, and check-then-set has a race inside it. `mkdir` is atomic
+# on POSIX — exactly one wins.
+#
+# The key is session + prompt, not session alone: the same text twice is
+# a new turn if the person really sends it twice.
+if [ -n "${SESSION_ID:-}" ]; then
+  TURN_ID="$(printf '%s' "${SESSION_ID}__${PROMPT}" | cksum | tr -d ' ')"
+  TURNS="${MEM_RETRIEVE_TURNS:-$ROOT/.mem/retrieve-turns}"
+  mkdir -p "$TURNS" 2>/dev/null || true
+  find "$TURNS" -maxdepth 1 -mmin +60 -type d -exec rm -rf {} + 2>/dev/null || true
+  mkdir "$TURNS/$TURN_ID" 2>/dev/null || exit 0
+fi
 
 # Ask the memory. --json is the contract, not the human output: the
 # human format is for people and may change; the JSON carries score and
