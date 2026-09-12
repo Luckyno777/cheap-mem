@@ -72,3 +72,53 @@ test('MEM_HOOK_OFF stays the one silent exit', () => {
   assert.equal((out + err).trim(), '',
     'an explicit opt-out must not print anything');
 });
+
+// ## The other end of the same variable
+//
+// Everything above tests the HOOK's reading of `CHEAP_MEM_ROOT`. The
+// hook then calls `bin/mem`, which reads it a second time — and that
+// end had no test at all.
+//
+// On 2026-09-12 a blanket rename of a local `ROOT` variable to `root`
+// in `bin/mem` also hit the STRING `CHEAP_MEM_ROOT`, turning it into
+// `CHEAP_MEM_root` in all seven places it appears there. The CLI then
+// ignored the variable that 43 other files — every hook, every
+// installer, every doc — set for it. `bin/mem` still worked when run
+// inside the memory (the cwd walk found it), so the whole suite stayed
+// green; only a hook, which runs in the SESSION's directory and not
+// the memory's, was cut off. The capture hook then captured nothing,
+// silently, exactly the failure mode the head of this file is about.
+//
+// The lesson is not "be careful with sed". It is that a variable read
+// at two ends needs a test at both, and this is the second one.
+test('bin/mem honours CHEAP_MEM_ROOT from a foreign cwd', () => {
+  const cli = path.join(import.meta.dirname, '..', 'bin', 'mem');
+  const mem = fs.mkdtempSync(path.join(os.tmpdir(), 'memroot-'));
+  spawnSync(process.execPath, [cli, '--root', mem, 'init'], { encoding: 'utf8' });
+
+  // A transcript over the capture threshold, and a cwd that is NOT the
+  // memory — that is how a hook runs: in the session's directory.
+  const tr = path.join(mem, '..', `transcript-${path.basename(mem)}.jsonl`);
+  fs.writeFileSync(tr, Array.from({ length: 200 }, (_, i) => JSON.stringify({
+    type: 'assistant',
+    message: { content: `line ${i}: capture root resolution across a foreign cwd ${i * 7919}` },
+  })).join('\n') + '\n');
+  const foreign = fs.mkdtempSync(path.join(os.tmpdir(), 'elsewhere-'));
+
+  const r = spawnSync(process.execPath, [cli, 'raw-capture', '--transcript', tr], {
+    cwd: foreign,
+    env: { ...process.env, CHEAP_MEM_ROOT: mem },
+    encoding: 'utf8',
+  });
+  const all = (r.stdout ?? '') + (r.stderr ?? '');
+
+  // The effect, not the message: a capture has to exist under the
+  // memory we pointed at.
+  const raw = path.join(mem, 'raw');
+  const captured = fs.existsSync(raw)
+    && fs.readdirSync(raw, { recursive: true }).some((f) => String(f).endsWith('.jsonl.gz'));
+  assert.ok(captured,
+    `CHEAP_MEM_ROOT ignored — nothing captured into ${mem}. Output was:\n${all}`);
+  assert.ok(fs.existsSync(path.join(mem, 'raw-record.jsonl')),
+    'capture without a record');
+});

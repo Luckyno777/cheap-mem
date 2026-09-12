@@ -26,6 +26,10 @@ build_memory() {
   tar --exclude=.git --exclude=node_modules -C "$ROOT_REPO" -cf - \
     bin src package.json 2>/dev/null | tar -xf - -C "$WORK/mem"
   node "$WORK/mem/bin/mem" --root "$WORK/mem" init >/dev/null 2>&1
+  # The record must be TRACKED in the fixture, or the ff probe below
+  # checks nothing: an untracked file never blocks a `pull --ff-only`,
+  # and that block was the real damage.
+  : >> "$WORK/mem/raw-record.jsonl"
   git -C "$WORK/mem" init -q -b main
   git -C "$WORK/mem" config user.email t@t
   git -C "$WORK/mem" config user.name T
@@ -60,6 +64,30 @@ if git -C "$WORK/remote" ls-tree -r --name-only main | grep -q '^raw/.*\.jsonl\.
 else
   bad "no raw/ capture in the pushed tree"
 fi
+# ... AND its record. This probe used to check the box and never the
+# receipt, which is how the sibling shipped 626 captures without one.
+# A probe that only looks for what it was built to find agrees with its
+# author.
+PUSHED_REC="$(git -C "$WORK/remote" show main:raw-record.jsonl 2>/dev/null || true)"
+if [ -n "$PUSHED_REC" ]; then
+  ok "the pushed commit carries the record"
+else
+  bad "raw-record.jsonl missing from the pushed tree — capture without a receipt"
+fi
+PUSHED_CAP="$(git -C "$WORK/remote" ls-tree -r --name-only main | grep '^raw/.*\.jsonl\.gz$' | head -1)"
+if [ -n "$PUSHED_CAP" ] && printf '%s' "$PUSHED_REC" | grep -qF "$PUSHED_CAP"; then
+  ok "the record names exactly the pushed capture"
+else
+  bad "the record does not name the pushed capture ($PUSHED_CAP)"
+fi
+# And nothing may be left behind: a left-over change to a TRACKED file
+# aborts the next `pull --ff-only`.
+LEFT="$(git -C "$WORK/mem" status --porcelain 2>/dev/null | grep -v '^??' || true)"
+if [ -z "$LEFT" ]; then
+  ok "nothing tracked left behind (the next ff-pull stays possible)"
+else
+  bad "left behind, blocks ff-pull: $(printf '%s' "$LEFT" | tr '\n' ' ')"
+fi
 
 echo "2) MEM_STOP_NO_PUSH=1 -> captured locally, not pushed"
 build_memory
@@ -93,6 +121,61 @@ STOPJSON "$T" | env CHEAP_MEM_ROOT="$WORK/mem" MEM_HEADLESS=1 bash "$STOP" >/dev
 [ "$(git -C "$WORK/remote" rev-parse main)" = "$BEFORE" ] \
   && [ -z "$(git -C "$WORK/mem" status --porcelain raw/ 2>/dev/null)" ] \
   && ok "headless stays silent" || bad "headless captured/pushed"
+
+echo "6) archive moved off the repo: raw/ is empty, the record must still go out"
+# The expensive case. CHEAP_MEM_ARCHIVE puts captures on a disk outside
+# the repo; only the record stays behind. A condition that looks at
+# raw/ alone never fires here, and not one byte of the session reaches
+# git.
+build_memory
+T="$(transcript)"
+mkdir -p "$WORK/disk"
+BEFORE="$(git -C "$WORK/remote" rev-parse main)"
+STOPJSON "$T" | env CHEAP_MEM_ROOT="$WORK/mem" CHEAP_MEM_ARCHIVE="$WORK/disk" bash "$STOP" >/dev/null 2>&1
+if [ "$(git -C "$WORK/remote" rev-parse main)" != "$BEFORE" ] \
+   && git -C "$WORK/remote" show main:raw-record.jsonl >/dev/null 2>&1; then
+  ok "record pushed even though the archive lives outside the repo"
+else
+  bad "archive outside -> nothing reached the repo at all"
+fi
+if find "$WORK/disk" -name '*.jsonl.gz' | grep -q .; then
+  ok "the capture is on the disk"
+else
+  bad "no capture on the disk — the case was never set up"
+fi
+
+echo "7) a capture waiting, no record -> the commit still happens"
+# git aborts on a pathspec that matches nothing and then stages NOTHING
+# — not even the captures it was supposed to stage. A memory that never
+# captured has no record; that is every memory's first day. Porting
+# this fix to the sibling without the existence guard killed its
+# janitor outright (its cleanup test fell from 40/0 to 31/9).
+build_memory
+rm -f "$WORK/mem/raw-record.jsonl"
+git -C "$WORK/mem" rm -q --cached raw-record.jsonl >/dev/null 2>&1 || true
+git -C "$WORK/mem" commit -qm "without record" >/dev/null 2>&1 || true
+git -C "$WORK/mem" push -q origin main >/dev/null 2>&1
+mkdir -p "$WORK/mem/raw/2026/01"
+printf 'x' | gzip > "$WORK/mem/raw/2026/01/old.jsonl.gz"
+printf '{"type":"assistant","message":{"content":"tiny"}}\n' > "$WORK/tiny.jsonl"
+BEFORE="$(git -C "$WORK/remote" rev-parse main)"
+STOPJSON "$WORK/tiny.jsonl" | env CHEAP_MEM_ROOT="$WORK/mem" bash "$STOP" >/dev/null 2>&1
+if [ -f "$WORK/mem/raw-record.jsonl" ]; then
+  bad "precondition missed: the capture wrote a record after all"
+elif [ "$(git -C "$WORK/remote" rev-parse main)" != "$BEFORE" ] \
+     && git -C "$WORK/remote" ls-tree -r --name-only main | grep -q '^raw/2026/01/old\.jsonl\.gz$'; then
+  ok "a missing record does not block the capture commit"
+else
+  bad "a missing record killed the whole commit"
+fi
+
+echo "8) the filename comes from the code, not from memory"
+FROM_CODE="$(node -e 'import("'"$ROOT_REPO"'/src/archive.mjs").then(m=>process.stdout.write(m.RECORD_FILE))' 2>/dev/null)"
+if [ -n "$FROM_CODE" ] && grep -qF "$FROM_CODE" "$STOP"; then
+  ok "mem-stop names '$FROM_CODE' (= archive.RECORD_FILE)"
+else
+  bad "mem-stop does not know '$FROM_CODE' — hook and archive are decoupled"
+fi
 
 echo
 echo "green=$GREEN red=$RED"
