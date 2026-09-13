@@ -48,6 +48,7 @@ function piecePath(root, rel) {
     ?? path.join(root, rel);
 }
 import { pack } from './language.mjs';
+import * as profile from './profile.mjs';
 
 const K1 = 1.2;
 const B = 0.75;
@@ -429,7 +430,16 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   // So captures are indexed as well, but **weighted low** and marked
   // `pending`. Nothing is ever invisible; the delay now affects only
   // the structure, not the findability.
-  for (const doc of rawDocuments(root, lang.compounds ? lexicon : null, lang)) addDoc(doc);
+  // The expensive section: measured in the sibling memory on
+  // 2026-09-12 at about 3.0 of 4.9 seconds, because every capture
+  // archive has to be read and decompressed. It grows with every
+  // session, and when it crosses the recall deadline the hook goes
+  // quiet. This is the number to ask for first.
+  profile.measure('index', 'raw', () => {
+    let n = 0;
+    for (const doc of rawDocuments(root, lang.compounds ? lexicon : null, lang)) { addDoc(doc); n += 1; }
+    return n;
+  }, { count: (n) => n });
 
   const tagGraph = thesaurus.buildTagGraph(rawEntries.map((r) => r.entry));
 

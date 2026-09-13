@@ -70,13 +70,29 @@ test('every documented tool count matches the server', () => {
   const n = toolNames().length;
   assert.ok(n > 0, 'no tools found — the parser broke, not the docs');
   const wrong = [];
+  let claimsChecked = 0;
   for (const f of docFiles()) {
     const text = fs.readFileSync(f, 'utf8');
     for (const [, claim] of text.matchAll(CLAIM)) {
+      claimsChecked += 1;
       const said = /^\d+$/.test(claim) ? Number(claim) : WORDS.indexOf(claim.toLowerCase());
       if (said !== n) wrong.push(`${path.relative(ROOT, f)}: says "${claim} tools", server serves ${n}`);
     }
   }
+
+  // The POSITIV test above proves the pattern CAN match — against a
+  // string written into the test. It cannot notice that the real docs
+  // stopped saying "N tools" (reworded to "N MCP endpoints", say). Then
+  // this sweep finds nothing, reports nothing, and passes forever.
+  //
+  // CBM states the rule for their equivalent contract: "a parse that
+  // silently returns nothing would make every check below vacuous."
+  // The guard has to sit on the REAL extraction, not on a rehearsal.
+  assert.ok(claimsChecked > 0,
+    'no tool-count claim found in any document — the pattern no longer '
+    + 'matches how the docs are written, so this test checks nothing. '
+    + 'A guard that stops reaching its target does not report itself.');
+
   assert.deepEqual(wrong, [], `\n${wrong.join('\n')}`);
 });
 

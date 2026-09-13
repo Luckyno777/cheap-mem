@@ -118,6 +118,65 @@ die elfte am 2026-09-07 dazu.
     Verwandt mit Regel 3 — die Positivkontrolle fragt, ob die Sonde
     ueberhaupt anschlaegt; diese fragt, ob sie das Richtige ansieht.
 
+
+12. **Ein sauber aussehender Arbeitsbaum ist nicht eingefroren.** Wer
+    pruefen will, ob ein roter Test von der eigenen Arbeit kommt,
+    braucht den Stand VOR der eigenen Arbeit — einen Arbeitsbaum auf
+    dem Commit davor (`git worktree add /tmp/vorher <commit>^`), nicht
+    `git stash`.
+
+    Gekostet am 2026-09-12, zweimal am selben Tag. Beide Male habe ich
+    einen roten Test als "vorbestehend" abgetan: stashen, laufen
+    lassen, gleiche Farbe, also nicht meine Schuld. Ein Stash nimmt nur
+    UNCOMMITTETE Arbeit weg; die eigenen Commits derselben Sitzung
+    bleiben stehen und werden mitgemessen. Der Arbeitsbaum auf dem
+    Commit davor zeigte dann: `test/retrieve.sh` stand vorher 15/0, die
+    fuenf roten Proben waren vollstaendig meine, und cheap-mems
+    Abruf-Hook war seit dem Vormittag tot — `CHEAP_MEM_ROOT` war durch
+    eine Umbenennung aus `bin/mem` verschwunden.
+
+    Zweite Schicht desselben Irrtums, Stunden spaeter: das Fixture
+    jenes Tests baut mit `git archive HEAD` und sieht den Arbeitsbaum
+    gar nicht. Die Reparatur wirkte dort NICHTS, bis sie committet war
+    — der Unterschied wurde erst nach dem Commit sichtbar.
+
+    Dieselbe Regel steht bei DeusData/codebase-memory-mcp als
+    Messvorschrift: "Do not run either condition in a merely
+    clean-looking working copy. A frozen experiment includes untracked
+    files." Sie legen getrennte detached worktrees an und wiederholen
+    die SHA- und Sauberkeits-Zusicherung vor UND nach jedem Schritt.
+
+    Was daran traegt: beide Male war die bequemere Messung die, die
+    mich entlastet hat. Genau deshalb habe ich sie nicht hinterfragt.
+
+13. **Die kleinere beweisbare Zahl schlaegt die groessere plausible.**
+    Eine Zahl, die nach aussen geht, nennt, woraus sie abgeleitet ist
+    und was sie nicht einschliesst. Wo beides auseinandergeht, gewinnt
+    die beweisbare.
+
+    Gefunden am 2026-09-13 bei DeusData/codebase-memory-mcp und dort
+    nachgemessen. Ihr Contract-Test definiert die Wahrheit als die Zahl
+    der eingebundenen Grammatik-Verzeichnisse — 162, nachgezaehlt.
+    README und `server.json` stimmen damit ueberein. Der
+    Evaluationsplan sagt an sechs Stellen 159, der Benchmark im
+    Methodik-Kopf 63 und widerspricht sich eine Klammer spaeter selbst
+    (27+8=35, und 35 steht auch in seiner eigenen Aggregat-Tabelle).
+
+    Bemerkenswert ist nicht der Fehler, sondern ihre Begruendung fuer
+    die Wahl der Wahrheit. Nicht die Sprachtabelle im Code, denn die
+    fuehrt Eintraege ohne Parser: "counting them would publish
+    languages we do not parse." Und dazu: "Known and accepted: this
+    UNDERCOUNTS languages that share one grammar. We publish the number
+    we can prove rather than the larger number we cannot."
+
+    Praktisch: ein Riegel zaehlt die Zahl aus der Quelle und vergleicht
+    sie mit JEDEM Dokument, nicht mit einer Liste von Dokumenten — ein
+    Vertrag deckt genau die Oberflaechen ab, die er aufzaehlt, und
+    genau daran sind dort 159 und 63 vorbeigerutscht. Was ausgenommen
+    ist, steht mit Grund im Riegel. Und er meldet sich selbst, wenn
+    sein Muster nichts mehr trifft: eine Pruefung, die ins Leere laeuft,
+    gibt sonst fuer immer gruen.
+
 ## Kosten zur Eichung (Sonnet 5, September 2026)
 
 | Messung | Umfang | Kosten |
