@@ -1163,6 +1163,31 @@ seven times, while `silent-failure`, `silent-loss`, `lying-check`,
 defect about 27 times. **The dominant defect type was invisible because
 every writer coined a fresh name for it.**
 
+**The same count, eight days later (2026-09-16).** That sibling still
+runs an open vocabulary, so it doubles as a control group nobody had to
+set up: 408 error entries, 238 distinct class names, 176 of them used
+exactly once.
+
+Read it in both directions, because it says two things and only one of
+them is comfortable:
+
+- The share improved — 43 % of entries now sit in a single-member class,
+  down from 55 %. Of the 26 class names coined in those eight days, 17
+  were reused at least once. Writers do converge on their own, slowly.
+- The coining did not stop. **26 new class names in eight days**, by
+  writers who had already read the finding above. Knowing that the
+  vocabulary sprawls turns out not to prevent sprawling; the names are
+  invented in the moment of writing, when the defect feels specific and
+  a fresh word feels more honest than a blunt one.
+
+That second half is the argument for a closed list rather than a
+convention. Twelve classes are too few to describe any defect exactly —
+that is the point. A writer forced to pick the nearest of twelve files
+a countable entry; a writer free to coin files a precise one that joins
+176 others nobody will ever count. The warning on an unknown class
+(`it will not be counted`) is deliberate for the same reason: refusing
+the entry would lose it, and counting it would reopen the list.
+
 Three properties, each with a reason:
 
 - **Every class carries a falsifying question**, not just a label.
