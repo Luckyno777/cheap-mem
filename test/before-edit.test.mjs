@@ -11,6 +11,8 @@
 // the PATH. The property it can be falsified by comes first: for a path
 // no entry mentions it MUST stay silent. A hook that always says
 // something says nothing.
+// Covers an assurance from shared/invariants.jsonl.
+// invariant: unterprozess-nennt-ursache
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
