@@ -16,6 +16,30 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **The desk** (`/pult`, `src/dashboard.mjs`). Five views over one
+  memory — desk, knowledge, projects, agents, net — beside the console
+  rather than in place of it, read-only, at `/pult` with its numbers at
+  `/dashboard.json`. The shape comes from a UI export; the data does
+  not. That export fetched `/console.json` and gated every board tile
+  behind `Array.isArray(x.board)`, which is false because
+  `console.collect` returns an object, so it rendered a hardcoded demo
+  constant under a status pill reading "Daten: /console.json" —
+  measured against a running server, not inferred. This page therefore
+  has no fallback at all: the data is embedded in it, there is no
+  fetch, so there is no failed request to fall back from, and a memory
+  that cannot be collected produces a 500 naming the reason. It derives
+  nothing twice (board from `console.collect`, entries and agents from
+  `viewer.collectMemory`, matrix from `net.build`, work counts from
+  `memory.openDuties` and `question.all`), keeps four states on every
+  count — a drawer nobody ever wrote to reads `not measured`, never
+  `0 open` — and refuses a state outside `calm / watch / alarm /
+  unknown` rather than rendering it as an uncoloured word. 14 probes,
+  each made red once and green again.
+- **`PATHS` is exported from `bin/mem-serve`.** The auth probe carried
+  a hand-typed copy of three paths; when two more were added it would
+  have gone on passing while saying nothing about them. It now reads
+  the server's own list.
+
 - **Cloud and local stores found by name** (`src/stores.mjs`).
   `mem raw archive --list-stores` finds Google Drive, iCloud, OneDrive
   and Dropbox on macOS, Windows and Linux, expanding the account

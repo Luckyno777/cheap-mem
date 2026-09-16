@@ -30,6 +30,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import * as viewer from '../src/viewer.mjs';
 import * as consolePage from '../src/console.mjs';
+import * as dashboard from '../src/dashboard.mjs';
 import * as webauth from '../src/webauth.mjs';
 
 export function readConfig(env = process.env) {
@@ -67,6 +68,22 @@ function tokenFrom(req, url) {
   return m ? decodeURIComponent(m[1]) : '';
 }
 
+/**
+ * Every path this server answers. A list, not a rule, so a new path is a
+ * decision that shows up in a diff.
+ *
+ * **Exported deliberately.** The auth probe in `test/console.test.mjs`
+ * used to carry its own hand-typed copy of three of these, and when
+ * `/pult` and `/dashboard.json` were added on 2026-09-16 the probe went
+ * on passing while saying nothing about them — a guarantee that covers
+ * a list nobody keeps in step is the defect this project keeps meeting.
+ * The probe now reads THIS list, so a sixth path is covered the moment
+ * it is added.
+ */
+export const PATHS = Object.freeze([
+  '/', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
+]);
+
 /** The headers every content response carries. Once, not three times. */
 const HEAD = Object.freeze({
   'cache-control': 'no-store',
@@ -102,8 +119,6 @@ export function buildHandler(root, cfg, env = process.env) {
       return;
     }
 
-    // A list, not a rule, so a new path is a decision.
-    const PATHS = ['/', '/viewer', '/setting', '/console.json'];
     if (!PATHS.includes(url.pathname)) {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
       return;
@@ -204,6 +219,33 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
         .end(consolePage.asHtml(data, { writable: !cfg.readonly }));
+      return;
+    }
+
+    // --- The desk -----------------------------------------------------
+    // No fallback on purpose. If the data cannot be collected the answer
+    // is a 500 that names the reason — never a page that renders
+    // something else and keeps the heading. That is the failure mode the
+    // arriving UI export shipped with, and the whole point of building
+    // this one the other way round.
+    if (url.pathname === '/pult' || url.pathname === '/dashboard.json') {
+      let built;
+      try {
+        built = url.pathname === '/dashboard.json'
+          ? { data: dashboard.collect(root, { env, cfg }) }
+          : dashboard.build(root, { title: cfg.title, env, cfg });
+      } catch (e) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+          .end(`desk could not be built: ${e?.message || e}`);
+        return;
+      }
+      if (url.pathname === '/dashboard.json') {
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify(built.data));
+        return;
+      }
+      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
+        .end(consolePage.insertNav(built.html, 'desk'));
       return;
     }
 

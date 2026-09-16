@@ -23,7 +23,7 @@ to verify each claim rather than believe it.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-16: **54 CLI commands, 28 MCP tools, 55 modules, 911
+As of 2026-09-16: **54 CLI commands, 28 MCP tools, 56 modules, 911
 tests**, at **94.89 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
 code and fails when this line drifts.
 
@@ -267,10 +267,13 @@ mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem hooks install|check        arm and prove the secret check
 mem doctor                     is this memory healthy?
 
-mem serve [--port N]           console + viewer at ONE fixed link. The only
-                               place anything can be SET without a shell.
-                               No token set means localhost only. Binding
-                               public without one is refused, not warned.
+mem serve [--port N]           console, desk and viewer at ONE fixed link.
+                               The console is the only place anything can
+                               be SET without a shell; the desk (/pult)
+                               shows the memory in five views and writes
+                               nothing. No token set means localhost only.
+                               Binding public without one is refused, not
+                               warned.
 mem board [--html --json]      the operating state on one screen: archive,
                                digest, error classes, agents, questions,
                                installation, bridge. A tile that could NOT

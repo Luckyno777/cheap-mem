@@ -119,10 +119,18 @@ test('/ is the console, /viewer is the viewer, both carry the nav', async () => 
 test('a wrong token gets a bare 404, on every path', async () => {
   // The invisible principle: a scanner must see "nothing here", not
   // "something guarded here".
+  //
+  // **The list comes from the server, not from here.** This probe used
+  // to name three paths of its own. When two more were added it went on
+  // passing and said nothing about them — a guarantee whose subject is
+  // a hand-copied list stops being one the first time the original
+  // changes.
   const r = memory();
   const s = await start(r);
   try {
-    for (const p of ['/', '/console.json', '/viewer']) {
+    const mod = await import(`${pathToFileURL(SERVE).href}?paths=${Math.random()}`);
+    assert.ok(mod.PATHS.length >= 4, 'the server exposes no path list to check');
+    for (const p of mod.PATHS) {
       const res = await fetch(`${s.base}${p}`, { headers: { authorization: 'Bearer wrong' } });
       assert.equal(res.status, 404, `${p} gives itself away`);
       const body = await res.text();
