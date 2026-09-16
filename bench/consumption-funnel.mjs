@@ -8,7 +8,7 @@
 // read on its own as a one-off:
 //
 //   83 open messages, not one of them worth waking anybody for
-//   20 waiting proposals, at least three of them long since built
+//   1 waiting proposal (the figure 20 stood here and was wrong — see below)
 //   a repair command written 29,939 times and never read
 //   a duty due at a fixed time that nobody pulled
 //   six unanchored mutants the verifier dutifully reports
@@ -18,6 +18,21 @@
 // channel gets built, the producing side is finished, the consuming
 // side is left for later — and because nobody sees both ends next to
 // each other, it only shows once a pile overflows.
+//
+// **The proposal figure was wrong, and that belongs here.** It read
+// "20 waiting proposals, at least three of them long since built".
+// Recounted by the bookkeeper itself: it is ONE.
+//
+// The measuring point was "last entry per id". In an append-only book
+// a request row keeps its state forever — it is decided by a LATER
+// row, and that row names its request through a "concerns" pointer,
+// not through `id`. Grouped by `id`, every decision row forms its own
+// group and hides nobody, so all 20 requests remain on "waiting" — the
+// UNFOLDED figure.
+//
+// Same lesson as `abschluss-zeiger-eine-stelle`, from the measuring
+// side: counting over an append-only book means naming the folding
+// rule before counting. Otherwise you count rows and mean records.
 //
 // This tool puts the two ends side by side. Per channel: how much was
 // produced, how much delivered, how much consumed.
