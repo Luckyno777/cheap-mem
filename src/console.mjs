@@ -336,8 +336,10 @@ const STEP_COLOUR = { ok: '#1e6b3a', open: '#8a6100', broken: '#b3261e' };
 export function nav(active = 'console') {
   const item = (href, name, id) =>
     `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${h(name)}</a>`;
-  return `<nav class="mem-nav">${item('/', 'Console', 'console')}${
-    item('/pult', 'Desk', 'desk')}${item('/viewer', 'Viewer', 'viewer')}</nav>`;
+  // The desk took `/` on 2026-09-16; the console moved to `/console`.
+  // `/pult` still answers, so a bookmark from before does not break.
+  return `<nav class="mem-nav">${item('/', 'Desk', 'desk')}${
+    item('/console', 'Console', 'console')}${item('/viewer', 'Viewer', 'viewer')}</nav>`;
 }
 
 export const NAV_CSS = `

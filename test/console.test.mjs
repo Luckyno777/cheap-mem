@@ -101,17 +101,30 @@ test('binding to a public address without a token is REFUSED', async () => {
   }
 });
 
-test('/ is the console, /viewer is the viewer, both carry the nav', async () => {
+test('/ is the desk, /console is the console, /viewer is the viewer', async () => {
+  // On 2026-09-16 `/` changed hands: the desk took it, the console
+  // moved one door along. All three are checked, because a move where
+  // one address quietly serves another's page is the kind nobody
+  // notices.
   const r = memory();
   const s = await start(r);
   try {
-    const c = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
+    const d = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
+    assert.match(d, /<title>cheap-mem — desk<\/title>/);
+    assert.match(d, /id="v-set"/, 'the desk has no Set tab — the forms were dropped');
+    assert.match(d, /class="mem-nav"/);
+
+    // The old bookmark still answers, and with the same page.
+    const alt = await (await fetch(`${s.base}/pult`, { headers: WITH_DOOR })).text();
+    assert.match(alt, /<title>cheap-mem — desk<\/title>/);
+
+    const c = await (await fetch(`${s.base}/console`, { headers: WITH_DOOR })).text();
     assert.match(c, /<title>cheap-mem — console<\/title>/);
     assert.match(c, /Settings/);
     assert.match(c, /class="mem-nav"/);
 
     const v = await (await fetch(`${s.base}/viewer`, { headers: WITH_DOOR })).text();
-    assert.match(v, /class="mem-nav"/, 'the viewer has no way back to the console');
+    assert.match(v, /class="mem-nav"/, 'the viewer has no way back to the desk');
     assert.ok(!/<title>cheap-mem — console<\/title>/.test(v), 'the viewer shows the console');
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
@@ -152,7 +165,10 @@ test('a POST from the same origin really changes something', async () => {
       body: new URLSearchParams({ id: 'raw-archive', value: target }).toString(),
     });
     assert.equal(res.status, 303, `no redirect: ${res.status}`);
-    assert.equal(res.headers.get('location'), '/');
+    // Back to the page the form lives on — which is the console, not
+    // the desk: a redirect to `/` after setting would show a page
+    // without the form the person just used.
+    assert.equal(res.headers.get('location'), '/console');
 
     // The EFFECT, not the answer.
     const store = archive.readConfig({}, r);
@@ -213,12 +229,46 @@ test('an unknown field name is refused, not ignored', async () => {
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
 
+test('setting sends you back to the page the form was on', async () => {
+  // The desk is the front door now, so a set from the desk must not
+  // land on the console. The target comes from a CLOSED list — the
+  // submitted value only chooses between two known pages, it never
+  // becomes one.
+  const r = memory();
+  const s = await start(r);
+  const target = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-back-'));
+  try {
+    const post = (from) => fetch(`${s.base}/setting`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { ...WITH_DOOR, origin: s.base,
+        'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ id: 'raw-archive', value: target, ...from }).toString(),
+    });
+    assert.equal((await post({ from: '/' })).headers.get('location'), '/');
+    assert.equal((await post({ from: '/console' })).headers.get('location'), '/console');
+    assert.equal((await post({})).headers.get('location'), '/console',
+      'a form without the field lands nowhere sensible');
+    assert.equal((await post({ from: 'https://elsewhere.example/' })).headers.get('location'),
+      '/console', 'the submitted value became the redirect target');
+  } finally {
+    await s.stop();
+    fs.rmSync(r, { recursive: true, force: true });
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+});
+
 test('READONLY=1 turns setting off, and the page says so', async () => {
   const r = memory();
   const s = await start(r, { CHEAP_MEM_SERVE_READONLY: '1' });
   try {
+    // Both pages have to say it, each in its own words — one that only
+    // disables the fields looks like one that is still loading.
+    const con = await (await fetch(`${s.base}/console`, { headers: WITH_DOOR })).text();
+    assert.match(con, /Writing is off/);
+    assert.match(con, /disabled/);
     const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    assert.match(page, /Writing is off/);
+    assert.match(page, /READ ONLY/);
     assert.match(page, /disabled/);
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',

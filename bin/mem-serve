@@ -81,7 +81,7 @@ function tokenFrom(req, url) {
  * it is added.
  */
 export const PATHS = Object.freeze([
-  '/', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
+  '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
 ]);
 
 /** The headers every content response carries. Once, not three times. */
@@ -151,7 +151,7 @@ export function buildHandler(root, cfg, env = process.env) {
       res.writeHead(302, {
         'set-cookie': `mem_k=${encodeURIComponent(url.searchParams.get('k'))}`
           + '; Path=/; Max-Age=34560000; HttpOnly; Secure; SameSite=Lax',
-        location: '/',
+        location: '/console',
       }).end();
       return;
     }
@@ -198,13 +198,23 @@ export function buildHandler(root, cfg, env = process.env) {
         }
         // Redirect after writing, rather than rendering: otherwise a
         // reload applies the same change again.
-        res.writeHead(303, { location: '/' }).end();
+        // Back to the page the form was on. A CLOSED list, not the
+        // submitted value: an open redirect target is how a form field
+        // becomes a way to send someone somewhere else.
+        const back = p.get('from') === '/' ? '/' : '/console';
+        res.writeHead(303, { location: back }).end();
       });
       return;
     }
 
     // --- The console --------------------------------------------------
-    if (url.pathname === '/' || url.pathname === '/console.json') {
+    //
+    // It used to live at `/`. The desk took that place on 2026-09-16;
+    // the console kept everything it could do and moved one door along.
+    // `/console.json` answers unchanged — probes and the setup check
+    // read it, and changing a shape while changing a look turns two
+    // separable mistakes into one indistinguishable one.
+    if (url.pathname === '/console' || url.pathname === '/console.json') {
       let data;
       try { data = consolePage.collect(root, { env, cfg }); }
       catch (e) {
@@ -228,12 +238,14 @@ export function buildHandler(root, cfg, env = process.env) {
     // something else and keeps the heading. That is the failure mode the
     // arriving UI export shipped with, and the whole point of building
     // this one the other way round.
-    if (url.pathname === '/pult' || url.pathname === '/dashboard.json') {
+    // `/pult` still answers beside `/` so a bookmark from before the
+    // move keeps working.
+    if (url.pathname === '/' || url.pathname === '/pult' || url.pathname === '/dashboard.json') {
       let built;
       try {
         built = url.pathname === '/dashboard.json'
           ? { data: dashboard.collect(root, { env, cfg }) }
-          : dashboard.build(root, { title: cfg.title, env, cfg });
+          : dashboard.build(root, { title: cfg.title, env, cfg, writable: !cfg.readonly });
       } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
           .end(`desk could not be built: ${e?.message || e}`);

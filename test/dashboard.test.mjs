@@ -69,7 +69,7 @@ function empty() {
 }
 
 /** A memory whose every visible value is one of MINE. */
-function filled() {
+function filled({ extra = 0 } = {}) {
   const r = empty();
   agents.createAgent(r, MINE.agent, { role: 'measures things', model: 'none' });
   const learning = memory.logEntry(r, 'learning',
@@ -90,6 +90,12 @@ function filled() {
     { from: decision.entry.id, to: learning.entry.id, kind: 'contradicts', why: 'disputes it' });
   memory.logEntry(r, 'link',
     { from: learning.entry.id, to: 'zzzzzzzzzzzz', kind: 'causes', why: 'points at nothing' });
+  // Filler, for probes that need to get PAST `LIST_MAX`. Without it
+  // every fixture sits under the limit, the cut cuts nothing, and a
+  // probe on the cut passes even when the cut is gone.
+  for (let i = 0; i < extra; i += 1) {
+    memory.logEntry(r, 'thought', { title: `filler thought ${i}`, text: 'filler' });
+  }
   return { root: r, learning: learning.entry.id, error: error.entry.id };
 }
 
@@ -253,6 +259,72 @@ test('the net shows declared links only, and counts the ones that point nowhere'
   } finally { away(root); }
 });
 
+// --- the tabs -----------------------------------------------------------
+
+test('every view has BOTH a tab and a panel, and the two lists agree', () => {
+  // Found by sabotage: dropping `set` from TABS left the panel behind,
+  // because the panels are built from their own object. The page then
+  // carried a section nobody could reach — and a probe that looked only
+  // for `id="v-set"` called that fine.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    for (const id of dashboard.VIEWS) {
+      assert.match(html, new RegExp(`id="tab-${id}"`), `no tab for ${id}`);
+      assert.match(html, new RegExp(`id="v-${id}"`), `no panel for ${id}`);
+    }
+    const tabs = [...html.matchAll(/id="tab-([a-z]+)"/g)].map((m) => m[1]);
+    const panels = [...html.matchAll(/id="v-([a-z]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(tabs, panels, 'a tab without a panel, or a panel without a tab');
+    assert.deepEqual(tabs, [...dashboard.VIEWS], 'the page and VIEWS disagree');
+    assert.ok(dashboard.VIEWS.includes('set'),
+      'the Set tab is gone — the forms went with it');
+  } finally { away(root); }
+});
+
+test('the payload carries exactly the rows that are drawn', () => {
+  // **This probe was empty at first and passed anyway.** The fixture
+  // had a handful of entries against a LIST_MAX of 400: nothing was
+  // cut, and removing the cut entirely changed nothing. So it builds
+  // past the limit and insists that something really falls away.
+  const { root } = filled({ extra: dashboard.LIST_MAX + 25 });
+  try {
+    const { data, html } = dashboard.build(root, { title: 'desk' });
+    assert.ok(data.entries.length > dashboard.LIST_MAX,
+      `only ${data.entries.length} entries — nothing is being cut`);
+    const m = /var ENTRIES = (\{.*?\});\nvar PAIRS/s.exec(html);
+    assert.ok(m, 'no payload in the page');
+    const payload = JSON.parse(m[1]);
+    const drawn = [...html.matchAll(/class="item[^"]*"\s+data-id="([^"]+)"/g)].map((x) => x[1]);
+    assert.deepEqual(Object.keys(payload).sort(), [...drawn].sort(),
+      'payload and list cut in different places');
+    assert.equal(Object.keys(payload).length, dashboard.LIST_MAX);
+    assert.ok(Object.keys(payload).length < data.entries.length,
+      'the payload carries everything — the cut is missing');
+    assert.match(html, /not listed/, 'the page hides that it is not showing everything');
+  } finally { away(root); }
+});
+
+test('read only means no enabled control, not just the word', () => {
+  // Sabotage found this one: the probe asked whether "disabled"
+  // appeared ANYWHERE on the page. It does — on the input — so an
+  // enabled Set button went unnoticed. A button that promises what the
+  // server refuses is the whole failure this page is meant to avoid.
+  const { root } = filled();
+  try {
+    const { data } = dashboard.build(root, { title: 'desk' });
+    const off = dashboard.renderHtml(data, { title: 'desk', writable: false });
+    const on = dashboard.renderHtml(data, { title: 'desk', writable: true });
+    assert.match(off, /READ ONLY/);
+    assert.doesNotMatch(off, /<button type="submit">Set<\/button>/,
+      'an enabled Set button on a read-only page');
+    assert.match(on, /<button type="submit">Set<\/button>/,
+      'the writable page has no working button either — the probe proves nothing');
+    const offene = [...off.matchAll(/<input id="f-[^>]*>/g)].filter((x) => !x[0].includes('disabled'));
+    assert.deepEqual(offene, [], 'an input stayed editable');
+  } finally { away(root); }
+});
+
 // --- the page itself ---------------------------------------------------
 
 test('the page reaches nothing: no CDN, no fetch, no second file', async () => {
@@ -264,7 +336,23 @@ test('the page reaches nothing: no CDN, no fetch, no second file', async () => {
     assert.doesNotMatch(html, /<script[^>]+src=/, 'the page loads a script from somewhere');
     assert.doesNotMatch(html, /<link[^>]+stylesheet/, 'the page loads a stylesheet');
     assert.doesNotMatch(html, /\bfetch\(|XMLHttpRequest/, 'the page calls out over the network');
-    assert.doesNotMatch(html, /https?:\/\//, 'the page carries an absolute URL');
+
+    // **This used to forbid every `http://` in the file, and that was
+    // one notch too blunt.** The Set tab PRINTS the console's own
+    // address so a person can read where the server answers — text in a
+    // <code> element, which the browser never requests. Banning the
+    // string made a correct page red, and a probe that cries at correct
+    // pages gets switched off. So the rule is what it always meant: no
+    // absolute URL in a place the BROWSER would go to.
+    const fetched = [...html.matchAll(/(?:src|href|action)\s*=\s*"([^"]*)"/g)].map((m) => m[1])
+      .concat([...html.matchAll(/url\(\s*['"]?([^'")]+)/g)].map((m) => m[1]));
+    for (const u of fetched) {
+      assert.doesNotMatch(u, /^(?:https?:)?\/\//, `the page loads from ${u}`);
+    }
+    // And the positive half: it really does print one, so the probe
+    // above is not passing because there is nothing to look at.
+    assert.match(html, /<code>http:\/\/127\.0\.0\.1/,
+      'the Set tab no longer shows where the server answers');
   } finally { away(root); }
 });
 

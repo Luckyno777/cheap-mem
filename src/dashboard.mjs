@@ -40,7 +40,7 @@ import * as basis from './basis.mjs';
 import * as authority from './authority.mjs';
 import * as capability from './capability.mjs';
 
-export const VIEWS = Object.freeze(['desk', 'knowledge', 'projects', 'agents', 'net']);
+export const VIEWS = Object.freeze(['desk', 'knowledge', 'projects', 'agents', 'net', 'set']);
 
 /**
  * The state vocabulary, in ONE place.
@@ -311,6 +311,16 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     agents: mem.agents,
     facts: mem.facts,
     net: { ...graph, layers: net.layers(graph) },
+    // What the console could set and this page could not. Carried
+    // through unchanged rather than re-derived: two places computing
+    // "is this writable" would eventually disagree, and the one that
+    // shows an enabled button while the server refuses the POST is the
+    // one people believe.
+    settings: con.settings,
+    setup: con.setup,
+    connections: con.connections,
+    stores: con.stores,
+    log: con.log,
     views: VIEWS,
   };
 }
@@ -360,6 +370,7 @@ const TABS = Object.freeze({
   projects: 'Projects',
   agents: 'Agents',
   net: 'Net',
+  set: 'Set',
 });
 
 const DARK = {
@@ -474,6 +485,23 @@ td.hit{background:var(--accent-soft);color:var(--accent);cursor:pointer;font-wei
 td.hit:hover{background:var(--sunk)}
 td.hit:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 td.nil{color:var(--faint)}
+form.set{background:var(--raised);border:1px solid var(--rule);border-radius:8px;
+  padding:12px 14px;margin:0 0 10px}
+form.set .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+form.set input{flex:1 1 180px;padding:7px 9px;border:1px solid var(--rule);
+  border-radius:6px;background:var(--paper);color:var(--ink);font:14px var(--code)}
+form.set input:focus{outline:2px solid var(--accent);outline-offset:1px}
+form.set button{padding:7px 14px;border:1px solid var(--accent);border-radius:6px;
+  background:var(--accent-soft);color:var(--accent);font:14px var(--ui);cursor:pointer}
+form.set button:hover:not(:disabled){background:var(--accent);color:var(--paper)}
+form.set button:disabled,form.set input:disabled{opacity:.5;cursor:not-allowed}
+form.set .src{font:11px var(--code);color:var(--faint);margin:8px 0 0}
+form.set .eff{color:var(--muted);font-size:13px;margin:4px 0 0}
+ol.steps{list-style:none;padding:0;margin:0}
+ol.steps li{background:var(--raised);border:1px solid var(--rule);
+  border-left:2px solid var(--c,var(--rule));border-radius:8px;padding:10px 12px;
+  margin:0 0 8px}
+ol.steps b{font-size:15px}
 @media (max-width:620px){
   main{padding:18px 16px 56px}
   .tab{padding:13px 12px}
@@ -657,6 +685,75 @@ function netView(d) {
     <p class="none" id="netdetail">Pick a filled cell.</p>`;
 }
 
+/**
+ * The sixth tab, and the reason there are six.
+ *
+ * The console could SET things; this page could only look. Shipping a
+ * desk that replaces the front door while quietly dropping the forms
+ * would be the capability-without-reach this project keeps building
+ * against: built, documented, and absent where someone is standing.
+ *
+ * The forms post to `/setting`, the same address as before, so the
+ * origin check and the write lock keep applying unchanged.
+ */
+function setView(d, { writable }) {
+  const forms = d.settings.map((s) => `
+    <form class="set" method="post" action="/setting">
+      <input type="hidden" name="id" value="${h(s.id)}">
+      <input type="hidden" name="from" value="/">
+      <label for="f-${h(s.id)}"><strong>${h(s.title)}</strong></label>
+      <p class="eff">${h(s.description)}</p>
+      <div class="row">
+        <input id="f-${h(s.id)}" name="value" value="${h(s.value ?? '')}"
+          ${s.kind === 'number' ? 'type="number" min="1"' : 'type="text" spellcheck="false"'}
+          ${writable && s.writable !== false ? '' : 'disabled'}>
+        <button type="submit"${writable && s.writable !== false ? '' : ' disabled'}>Set</button>
+      </div>
+      <p class="src">Source: <b>${h(s.source)}</b>${
+  s.writable === false ? ' · <b>not writable</b>' : ''}${s.note ? ` · ${h(s.note)}` : ''}</p>
+      <p class="eff">${h(s.effect)}</p>
+    </form>`).join('');
+
+  // Three states per step, and the colour comes from the same TONE map
+  // the tiles use — a second colour table would drift from the first.
+  const steps = d.setup.map((s) => `
+    <li style="--c:var(--${tone(s.state === 'done' ? 'calm'
+    : s.state === 'open' ? 'watch' : 'unknown')})">
+      <b>${h(s.title)}</b><br><span class="why">${h(s.detail)}</span>
+      ${s.fix ? `<br><span class="why">→ <code>${h(s.fix)}</code></span>` : ''}</li>`).join('');
+
+  const doors = d.connections.map((c) => `<article class="card"
+    style="--c:var(--${c.open ? 'warn' : 'fresh'})">
+    <div class="name">${h(c.title)}</div>
+    <div class="st">${h(c.door)}</div>
+    <p><code>${h(c.address)}</code></p>
+    <p class="why">${h(c.note)}</p>
+  </article>`).join('');
+
+  const stores = d.stores.length
+    ? `<p class="none">Found on this machine: ${d.stores.map((x) =>
+      `<code>${h(x.id)}</code>${x.found.length > 1
+        ? ` (${x.found.length} candidates — ambiguous)` : ''}`).join(', ')
+    } — usable as a value above.</p>`
+    : '<p class="none">No cloud store found on this machine. A folder path works, '
+      + 'and so does <code>local</code> with one.</p>';
+
+  return `<h1>Set</h1>
+    <p class="lead">${writable
+    ? 'What is set here takes effect at once and is written down as a line.'
+    : 'This server runs READ ONLY. The fields are disabled, and the page says so '
+      + 'rather than pretending.'}
+      Every setting names its source and its effect.</p>
+    <h2>Settings <em>${d.settings.length}</em></h2>
+    ${forms || '<p class="none">Nothing here can be set.</p>'}
+    ${stores}
+    <h2>Setup <em>${d.setup.filter((s) => s.state !== 'done').length} of ${
+  d.setup.length} still open</em></h2>
+    <ol class="steps">${steps}</ol>
+    <h2>Doors <em>of which only WHETHER a token is set is shown</em></h2>
+    <div class="grid">${doors}</div>`;
+}
+
 /** The browser half. A string constant, so nothing in it is interpolated. */
 const SCRIPT = String.raw`
 (function () {
@@ -766,7 +863,7 @@ const SCRIPT = String.raw`
  * The whole page, as one string. Pure function of the collected data —
  * no I/O, so a test can hand it a fixture and read the result.
  */
-export function renderHtml(d, { title = 'cheap-mem' } = {}) {
+export function renderHtml(d, { title = 'cheap-mem', writable = true } = {}) {
   const tabs = Object.entries(TABS).map(([id, label], i) =>
     `<button class="tab" role="tab" id="tab-${id}" data-view="${id}"
       aria-controls="v-${id}" aria-selected="${i === 0}">${h(label)}</button>`).join('');
@@ -776,14 +873,20 @@ export function renderHtml(d, { title = 'cheap-mem' } = {}) {
     projects: projectsView(d),
     agents: agentsView(d),
     net: netView(d),
+    set: setView(d, { writable }),
   };
   const sections = Object.entries(views).map(([id, html], i) =>
     `<section id="v-${id}" role="tabpanel" aria-labelledby="tab-${id}"${
       i === 0 ? '' : ' hidden'}>${html}</section>`).join('');
-  // Only what the detail pane needs. The list already carries the rest,
-  // and shipping the whole collection twice would double a page meant to
-  // be opened rather than downloaded.
-  const payload = Object.fromEntries(d.entries.map((e) => [e.id, {
+  // Only what the detail pane needs, and only for the rows that really
+  // made it onto the page.
+  //
+  // The list cuts at `LIST_MAX`; this used to carry every entry. On the
+  // sibling project's real memory that was 1.4 MB for 1426 entries
+  // where 400 are drawn — half the weight for rows no click reaches, on
+  // a phone that loads it over mobile data. Both sides cut at the same
+  // constant, and a probe holds them to it.
+  const payload = Object.fromEntries(d.entries.slice(0, LIST_MAX).map((e) => [e.id, {
     headline: e.headline, type: e.type, typeLabel: e.typeLabel, project: e.project,
     ts: e.ts, source: e.source, line: e.line, readable: e.readable, basis: e.basis,
     authority: e.authority, author: e.author, scope: e.scope, cited: e.cited,
@@ -817,8 +920,8 @@ ${SCRIPT}
 
 /** Collect and render in one call, the way `viewer.build` does. */
 export function build(root, {
-  title = 'cheap-mem', env = process.env, now = new Date(), cfg = {},
+  title = 'cheap-mem', env = process.env, now = new Date(), cfg = {}, writable = true,
 } = {}) {
   const data = collect(root, { env, now, cfg });
-  return { data, html: renderHtml(data, { title }) };
+  return { data, html: renderHtml(data, { title, writable }) };
 }
