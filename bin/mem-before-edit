@@ -165,11 +165,26 @@ MARKS="${MEM_BEFORE_EDIT_MARKS:-$ROOT/.mem/before-edit}"
 mkdir -p "$MARKS" 2>/dev/null || { spur "marken-ordner (MARKS=$MARKS)"; exit 0; }
 MARK="$MARKS/$SAFE.json"
 PTR="$HOOK_DIR/../src/pointer.mjs"
+# **Als file-URL, nicht als Pfad.** Ein ESM-Spezifizierer ist eine URL.
+# Auf Linux faellt das nicht auf, weil `/home/...` zufaellig auch ein
+# gueltiger absoluter Spezifizierer ist. Auf Windows ist `D:/a/...` es
+# nicht — Node liest `D:` als URL-SCHEMA und wirft
+# ERR_UNSUPPORTED_ESM_URL_SCHEME. Alle sechs Aufrufe unten fangen den
+# Fehler mit `.catch()` ab und schreiben einen leeren Stand, also blieb
+# der ganze Zeiger- und Marken-Mechanismus dort untaetig: der Hook hat
+# bei JEDEM Edit den vollen Block erneut eingeblendet, statt beim
+# zweiten Mal einen Zeiger zu setzen, und keine Marke je geschrieben.
+# Gemessen am 2026-09-16 am Windows-Laeufer (before-edit.test.mjs:131
+# und :174), Mechanismus lokal nachgestellt.
+case "$PTR" in
+  /*) PTR_URL="file://$PTR" ;;
+  *)  PTR_URL="file:///$PTR" ;;
+esac
 
 LEVEL="$(MEM_ROOT_ARG="$ROOT" node -e '
   import(process.argv[1]).then((p) => {
     process.stdout.write(String(p.watermark(process.env.MEM_ROOT_ARG).bytes));
-  }).catch(() => process.stdout.write("0"));' "$PTR" 2>/dev/null)"
+  }).catch(() => process.stdout.write("0"));' "$PTR_URL" 2>/dev/null)"
 [ -z "$LEVEL" ] && LEVEL=0
 
 AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
@@ -177,7 +192,7 @@ AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
     const m = p.readMark(process.env.MEM_MARK);
     const d = p.decide({ mark: m, levelNow: Number(process.env.MEM_LEVEL) });
     process.stdout.write(JSON.stringify({ ...d, count: m?.shown ?? 0 }));
-  }).catch(() => process.stdout.write("{}"));' "$PTR" 2>/dev/null)"
+  }).catch(() => process.stdout.write("{}"));' "$PTR_URL" 2>/dev/null)"
 
 if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
   printf '%s' "$AHEAD" | MEM_Q="$QUERY" node -e '
@@ -190,7 +205,7 @@ if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
             additionalContext: p.pointerLine({ pathName: process.env.MEM_Q, count: j.count ?? 0 }) },
         }));
       });
-    })' "$PTR" 2>/dev/null
+    })' "$PTR_URL" 2>/dev/null
   exit 0
 fi
 
@@ -251,14 +266,14 @@ VERDICT="$(printf '%s' "$PICK" | MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
       const v = p.decide({ mark: m, levelNow: Number(process.env.MEM_LEVEL), newFingerprint: f });
       process.stdout.write(JSON.stringify({ ...v, fingerprint: f, count: m?.shown ?? 0 }));
     }).catch(() => process.stdout.write("{}"));
-  })' "$PTR" 2>/dev/null)"
+  })' "$PTR_URL" 2>/dev/null)"
 
 FP="$(printf '%s' "$VERDICT" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(JSON.parse(d).fingerprint||"")}catch{}})' 2>/dev/null)"
 MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" MEM_FP="$FP" MEM_COUNT="$COUNT" node -e '
   import(process.argv[1]).then((p) => p.writeMark(process.env.MEM_MARK, {
     level: Number(process.env.MEM_LEVEL), fingerprint: process.env.MEM_FP,
     shown: Number(process.env.MEM_COUNT),
-  })).catch(() => {});' "$PTR" 2>/dev/null
+  })).catch(() => {});' "$PTR_URL" 2>/dev/null
 
 if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
   printf '%s' "$VERDICT" | MEM_Q="$QUERY" node -e '
@@ -271,7 +286,7 @@ if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
             additionalContext: p.pointerLine({ pathName: process.env.MEM_Q, count: j.count ?? 0 }) },
         }));
       });
-    })' "$PTR" 2>/dev/null
+    })' "$PTR_URL" 2>/dev/null
   exit 0
 fi
 

@@ -26,11 +26,16 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from 'node:child_process';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const MEMORY = path.join(HERE, '..', 'src', 'memory.mjs');
+// As a file URL, not as a path. An ESM specifier is a URL, and on
+// Windows `D:\\a\\cheap-mem\\src\\memory.mjs` is not one — the writer died
+// with a module error before it appended a single line. Measured on the
+// 2026-09-16 Windows runner, in the first run of this very test: the
+// property under test was never exercised there at all.
+const MEMORY = pathToFileURL(path.join(HERE, '..', 'src', 'memory.mjs')).href;
 
 const WRITERS = 4;
 const PER_WRITER = 120;
@@ -68,7 +73,12 @@ function raceThem(script, r, marks) {
     k.on('close', (code, signal) => (code === 0
       ? ok()
       : fail(new Error(`writer ${marks[i]} exited ${code}${signal ? ` (${signal})` : ''}`
-        + `${err ? `: ${err.trim().split('\n').slice(-3).join(' / ')}` : ''}`))));
+        // The FIRST lines of stderr, not the last. The first version took
+        // `.slice(-3)` and reported `}` / `` / `Node.js v20.20.2` — the
+        // three least useful lines of a Node crash dump, which puts the
+        // cause at the top. That cost a CI round. With the head, the same
+        // failure reads `ERR_MODULE_NOT_FOUND` and names itself.
+        + `${err ? `: ${err.trim().split('\n').slice(0, 4).join(' / ')}` : ''}`))));
   })));
 }
 

@@ -284,3 +284,55 @@ test('without a memory it ends quietly', () => {
   assert.equal(r.status, 0);
   assert.equal(String(r.stdout).trim(), '');
 });
+
+// --------------------------------------------------------------------
+// Ein Pfad ist kein ESM-Spezifizierer.
+//
+// Die Hooks laden `src/pointer.mjs` per `node -e 'import(process.argv[1])'`.
+// Auf Linux geht das gut, weil `/home/...` zufaellig auch ein gueltiger
+// absoluter Spezifizierer ist. Auf Windows liegt dort `D:/a/...`, und
+// Node liest `D:` als URL-SCHEMA:
+//
+//     D:/a/x/src/pointer.mjs  ->  ERR_UNSUPPORTED_ESM_URL_SCHEME
+//
+// Jeder der sechs Aufrufe faengt das mit `.catch()` ab und liefert einen
+// leeren Stand. Der Hook hat dort also bei JEDEM Edit den vollen Block
+// erneut eingeblendet statt beim zweiten Mal einen Zeiger zu setzen, und
+// nie eine Marke geschrieben — gemessen am 2026-09-16.
+//
+// invariant: fremder-pfad-wird-normalisiert
+// invariant: sieht-richtig-aus-tut-nichts
+test('kein Hook reicht einen nackten Pfad als ESM-Spezifizierer weiter', () => {
+  const hooks = fs.readdirSync(path.join(ROOT, 'bin'))
+    .filter((n) => n.startsWith('mem-'))
+    .map((n) => [n, fs.readFileSync(path.join(ROOT, 'bin', n), 'utf8')]);
+  assert.ok(hooks.length > 0, 'keine Hooks gefunden — die Probe misst nichts');
+
+  let geprueft = 0;
+  for (const [name, text] of hooks) {
+    if (!text.includes('import(process.argv')) continue;
+    geprueft += 1;
+    // Was am Ende des node -e uebergeben wird, muss eine URL-Variable sein.
+    const uebergaben = text.match(/'\s+"\$[A-Z_]+"\s+2>\/dev\/null/g) ?? [];
+    assert.ok(uebergaben.length > 0, `${name}: keine Uebergabe gefunden`);
+    for (const u of uebergaben) {
+      assert.match(u, /_URL"/,
+        `${name} reicht einen nackten Pfad weiter: ${u.trim()}`);
+    }
+  }
+  // Positivkontrolle: faende die Probe gar keinen Hook mit dynamischem
+  // Import, waere sie gruen und blind.
+  assert.ok(geprueft > 0,
+    'kein Hook benutzt import(process.argv) — die Probe hat nichts geprueft');
+});
+
+test('ein Pfad mit Laufwerksbuchstaben ist als Spezifizierer wirklich ungueltig', async () => {
+  // Die Begruendung des Riegels daneben, nachgemessen statt behauptet —
+  // und zwar auf JEDER Plattform, weil `D:` ueberall als Schema gelesen
+  // wird. Faellt dieser Test je aus, weil Node es doch akzeptiert, ist
+  // der Riegel oben ueberfluessig geworden und darf weg.
+  await assert.rejects(
+    () => import('D:/a/x/src/pointer.mjs'),
+    (e) => ['ERR_UNSUPPORTED_ESM_URL_SCHEME', 'ERR_MODULE_NOT_FOUND'].includes(e.code),
+    'ein Laufwerkspfad laedt auf einmal doch');
+});
