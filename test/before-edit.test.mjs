@@ -142,9 +142,15 @@ test('twice on the same file: a pointer the second time, NEVER silence', () => {
     const two = call(root, { file: f });
     assert.ok(two.raw, `the second call was silent — exactly the defect ${warum(two)}`);
     const t = two.json.hookSpecificOutput.additionalContext;
-    assert.match(t, /already injected/);
-    assert.match(t, /unchanged/);
-    assert.ok(!/went wrong here before/.test(t), 'the second call repeated the block');
+    // `warum(two)` on these three as well, not only on the silence above.
+    // On the 2026-09-16 Windows runner this assertion failed with nothing
+    // but the repeated block to look at — while the trace that names the
+    // branch was already being collected and simply not printed. A
+    // diagnosis that exists and is not shown is worth as much as none.
+    assert.match(t, /already injected/, `the block came back instead of a pointer ${warum(two)}`);
+    assert.match(t, /unchanged/, `no watermark in the pointer ${warum(two)}`);
+    assert.ok(!/went wrong here before/.test(t),
+      `the second call repeated the block ${warum(two)}`);
     assert.ok(two.raw.length < one.raw.length, 'the pointer is not shorter than the block');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
@@ -186,7 +192,7 @@ test('when the memory grows ELSEWHERE it stays a pointer', () => {
     assert.ok(a.json, `the hook does not see the entry ${warum(a)}`);
     const t = a.json.hookSpecificOutput.additionalContext;
     assert.match(t, /already injected/,
-      'a foreign entry triggered the whole block again');
+      `a foreign entry triggered the whole block again ${warum(a)}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
