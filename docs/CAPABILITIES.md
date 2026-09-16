@@ -57,6 +57,7 @@ directory. The section number in brackets is where it is explained.
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
+| `dashboard.mjs` | the desk: five views over one memory, no fallback (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
@@ -566,9 +567,15 @@ typing a long command is, in practice, not changeable.
 | Path | What |
 |---|---|
 | `/` | state (the seven board tiles), settings, installation steps, connections, memory |
+| `/pult` | the desk — five views over the same memory (7.5) |
 | `/viewer` | the viewer, with a way back |
 | `/console.json` | the same numbers, for tools |
+| `/dashboard.json` | the desk's numbers, for tools |
 | `/health` | no auth, reveals nothing — for a supervisor or tunnel |
+
+The list lives once, as `PATHS` in `bin/mem-serve`, and the auth probe
+reads it from there. A path list copied into a test is a list that goes
+on passing after a sixth path is added.
 
 **It is a daemon, and the trade is worth naming.** The viewer file was
 "nothing that keeps running". This keeps running. So it carries the two
@@ -612,6 +619,59 @@ the page says that it is in that mode, rather than looking broken.
 printed the link with the token in it, so you could conveniently copy
 it, would have put that token into every screenshot and every browser
 history.
+
+### 7.5 Desk — `/pult`, `src/dashboard.mjs`
+
+Five views over one memory: **Desk** (system state, attention, active
+work), **Knowledge** (every entry, master–detail), **Projects**,
+**Agents**, **Net**. The console answers "how are things and what can I
+change"; the desk answers "what is in here and how does it hang
+together". Read-only — the only writing path in this server remains the
+console's `/setting`.
+
+**It has no fallback, and that is the feature.** The page is rendered
+from collected data and the data is embedded in it: no fetch, no CDN,
+no second file. There is therefore no failed request to fall back from.
+A memory that cannot be collected produces a 500 naming the reason —
+never a page that renders something else under the same heading.
+
+That rule is not abstract. The UI export this view's shape came from
+fetched `/console.json` and gated the board behind
+`Array.isArray(x.board)`, which is false — `console.collect` returns an
+object. Every tile fell back to a hardcoded demo constant while the
+page's own status pill read "Daten: /console.json". Measured against a
+running server on 2026-09-16, not inferred.
+
+**Nothing is derived twice.** The board states come from
+`console.collect`, the entries and agents from `viewer.collectMemory`,
+the matrix from `net.build`, the work counts from `memory.openDuties`
+and `question.all`. `src/dashboard.mjs` assembles; it owns no truth of
+its own, so it cannot disagree with the CLI about an edge or a state.
+
+**Four states on every count.** A drawer nobody has ever written to
+reports `not measured`, never `0 open`; a drawer with entries and none
+open reports calm. `word()` and the colour lookup both REFUSE a state
+outside `calm / watch / alarm / unknown` rather than rendering it as a
+bare uncoloured word — the arriving export's five-word vocabulary had
+no entry for `calm` or `alarm`, the two that matter most.
+
+**Registered and observed are shown side by side**, on the Agents view
+and in the desk's agent tile: an agent with a folder and no entries has
+never worked, and one with entries and no folder writes without anyone
+knowing its instructions. The second is the more uncomfortable gap and
+the one nobody notices otherwise.
+
+**The net draws declared links only** — `derived_from`, `replaces`,
+`closes`, `causes`, `generalises`, `resolves`, `contradicts` — and
+counts the ones that point at an entry which is not here rather than
+dropping them. Nothing is inferred from similarity. Only drawers that
+carry an edge get a row, and how many were left out is stated.
+
+The page uses the same design tokens as the viewer
+(`docs/viewer-design-tokens.json`), dark-first: the complete palette on
+the bare `:root`, every token redefined under
+`@media (prefers-color-scheme: light)`. No shadow, no webfont, no pill
+radius — the three absences the token file names.
 
 ---
 

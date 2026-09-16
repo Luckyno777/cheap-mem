@@ -311,16 +311,19 @@ const STEP_MARK = { ok: '·', open: '!', broken: '!!' };
 const STEP_COLOUR = { ok: '#1e6b3a', open: '#8a6100', broken: '#b3261e' };
 
 /**
- * The navigation both pages carry.
+ * The navigation every page carries.
  *
  * A viewer with no way back to the console would be a dead end, and a
  * console with no way into the viewer would be exactly the separation
- * this page exists to remove.
+ * this page exists to remove. The desk joined them on 2026-09-16 and is
+ * listed here rather than in its own renderer, so there is one place
+ * that knows how many pages this server has.
  */
 export function nav(active = 'console') {
   const item = (href, name, id) =>
     `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${h(name)}</a>`;
-  return `<nav class="mem-nav">${item('/', 'Console', 'console')}${item('/viewer', 'Viewer', 'viewer')}</nav>`;
+  return `<nav class="mem-nav">${item('/', 'Console', 'console')}${
+    item('/pult', 'Desk', 'desk')}${item('/viewer', 'Viewer', 'viewer')}</nav>`;
 }
 
 export const NAV_CSS = `
