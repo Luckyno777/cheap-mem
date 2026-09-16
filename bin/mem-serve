@@ -31,6 +31,7 @@ import path from 'node:path';
 import * as viewer from '../src/viewer.mjs';
 import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
+import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
 
 export function readConfig(env = process.env) {
@@ -245,7 +246,7 @@ export function buildHandler(root, cfg, env = process.env) {
       try {
         built = url.pathname === '/dashboard.json'
           ? { data: dashboard.collect(root, { env, cfg }) }
-          : dashboard.build(root, { title: cfg.title, env, cfg, writable: !cfg.readonly });
+          : astra.build(root, { title: cfg.title, env, cfg, writable: !cfg.readonly });
       } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
           .end(`desk could not be built: ${e?.message || e}`);

@@ -474,5 +474,49 @@
       "$description": "the tool-like snap; the tab underline"
     },
     "$description": "Split by DIRECTION — coming in and going out are not the same movement."
+  },
+  "$workspace": {
+    "$description": "AB 2026-09-16: der Arbeitsplatz unter / (src/astra.mjs) folgt Luckys Studie und weicht bewusst von drei Regeln dieser Datei ab. Das ist eine ENTSCHEIDUNG, kein Versehen und kein stiller Umbau — Lucky hat sie an diesem Tag getroffen, nachdem die Alternative ('nah dran, aber nicht gleich') ausdruecklich zur Wahl stand. Eine Regel, die leise aufhoert zu gelten, ist schlimmer als eine, die sichtbar umgezogen ist.",
+    "gilt_ab": "2026-09-16",
+    "gilt_fuer": "src/astra.mjs — die Seite unter / und /pult",
+    "gilt_nicht_fuer": "src/viewer.mjs und src/console.mjs. Dort bleiben alle Regeln unten unveraendert in Kraft.",
+    "abweichungen": [
+      {
+        "regel": "keine Webschrift",
+        "jetzt": "DM Sans, von fonts.googleapis.com",
+        "preis": "Die Seite ist nicht mehr vollstaendig eine Datei: beim ersten Laden holt sie ein Stylesheet. Ohne Netz faellt sie auf die System-Schrift zurueck — lesbar, aber nicht die Studie. Die DATEN bleiben in der Seite; es gibt weiterhin keine Anfrage, von der ein Rueckfall auf erfundene Beispieldaten moeglich waere.",
+        "geprueft_durch": "test/dashboard.test.mjs — genau EIN Ziel ausserhalb der Seite ist erlaubt, und es muss die Schrift sein."
+      },
+      {
+        "regel": "beide Themen echt",
+        "jetzt": "nur dunkel, als Festlegung",
+        "preis": "Wer hell arbeitet, bekommt keine helle Entsprechung. Dafuer traegt die Seite einen eigenen Grund und ein erklaertes color-scheme, statt sich den Grund des Betrachters zu leihen — ein halb gebautes helles Thema waere schlechter als ein ehrlich dunkles.",
+        "geprueft_durch": "test/dashboard.test.mjs — color-scheme:dark und ein eigener body-Grund sind Pflicht, ein halber Licht-Zweig faellt auf."
+      },
+      {
+        "regel": "kein Pillen-Radius",
+        "jetzt": "999px auf den Stand-Marken oben rechts",
+        "preis": "Zwei kleine Marken. Sonst gelten die Radien 8 bis 16 der Studie."
+      }
+    ],
+    "unveraendert": [
+      "Kein Schatten. Den hat niemand angefasst, und eine Probe haelt ihn fest.",
+      "Keine erfundenen Daten und kein Rueckfall darauf.",
+      "Drei Zustaende, wo es drei gibt: nicht gemessen ist nie in Ordnung.",
+      "Eine Beschriftung behauptet nie mehr, als das Bild darunter zeigt."
+    ],
+    "palette_der_studie": {
+      "bg": "#0a0b0e",
+      "panel": "#101115",
+      "raised": "#15161c",
+      "line": "#24262e",
+      "muted": "#858894",
+      "text": "#e9eaf0",
+      "violet": "#b5a0fa",
+      "green": "#89c4b5",
+      "orange": "#d4aa85",
+      "blue": "#819ecd",
+      "font": "DM Sans"
+    }
   }
 }

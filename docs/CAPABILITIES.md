@@ -57,7 +57,8 @@ directory. The section number in brackets is where it is explained.
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
-| `dashboard.mjs` | the desk: five views over one memory, no fallback (7.5) |
+| `dashboard.mjs` | the workspace's DATA layer: one pass, seven views' worth of numbers (7.5) |
+| `astra.mjs` | the workspace's PAGE: sidebar, knowledge space, no second data source (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
@@ -620,7 +621,7 @@ printed the link with the token in it, so you could conveniently copy
 it, would have put that token into every screenshot and every browser
 history.
 
-### 7.5 Desk — `/pult`, `src/dashboard.mjs`
+### 7.5 Workspace — `/`, `src/dashboard.mjs` (data) + `src/astra.mjs` (page)
 
 Five views over one memory: **Desk** (system state, attention, active
 work), **Knowledge** (every entry, master–detail), **Projects**,

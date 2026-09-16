@@ -110,13 +110,13 @@ test('/ is the desk, /console is the console, /viewer is the viewer', async () =
   const s = await start(r);
   try {
     const d = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    assert.match(d, /<title>cheap-mem — desk<\/title>/);
+    assert.match(d, /<title>cheap-mem — workspace<\/title>/);
     assert.match(d, /id="v-set"/, 'the desk has no Set tab — the forms were dropped');
     assert.match(d, /class="mem-nav"/);
 
     // The old bookmark still answers, and with the same page.
     const alt = await (await fetch(`${s.base}/pult`, { headers: WITH_DOOR })).text();
-    assert.match(alt, /<title>cheap-mem — desk<\/title>/);
+    assert.match(alt, /<title>cheap-mem — workspace<\/title>/);
 
     const c = await (await fetch(`${s.base}/console`, { headers: WITH_DOOR })).text();
     assert.match(c, /<title>cheap-mem — console<\/title>/);
