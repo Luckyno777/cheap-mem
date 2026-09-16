@@ -13,6 +13,7 @@
 // Covers assurances from shared/invariants.jsonl.
 // invariant: drei-zustaende-nie-zwei
 // invariant: leer-ist-kein-bestehen
+// invariant: abschluss-zeiger-eine-stelle
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -136,5 +137,23 @@ test('broken lines are counted, not swallowed', () => {
     assert.equal(x.rows.length, 1);
     assert.equal(x.broken, 1);
     assert.equal(pick(run(r), 'duties').brokenLines, 1);
+  } finally { away(r); }
+});
+
+test('a closing row is not counted as a new duty', () => {
+  // The two lines that read the closing pointer look independent and
+  // are not. Getting them out of step makes produced rise while
+  // consumed stands still — which reads as a channel going bad.
+  const r = build();
+  try {
+    rows(r, 'duties.jsonl', [
+      { id: 'd1', ts: 't', titel: 'A' },
+      { id: 'd2', ts: 't', titel: 'B' },
+      { id: 'x1', ts: 't', stand: 'done', closes_id: 'd1' },
+    ]);
+    const c = pick(run(r), 'duties');
+    assert.equal(c.produced, 2, 'the closing row was counted as a duty');
+    assert.equal(c.consumed, 1);
+    assert.equal(c.orphanClosings, 0);
   } finally { away(r); }
 });

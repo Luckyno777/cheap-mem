@@ -83,8 +83,16 @@ function pointerChannel(name, data, { measuredAt = 'store' } = {}) {
     return { channel: name, measuredAt, produced: null, delivered: null, consumed: null,
       note: 'no store present' };
   }
-  const zu = new Set(data.rows.map((z) => z?.closes_id).filter(Boolean));
-  const originals = data.rows.filter((z) => !z?.closes_id);
+  // One place decides what a closing row is, and both lines below ask
+  // it. They look independent and are not: if a second pointer name is
+  // ever introduced, updating only the first makes the second count
+  // closing rows as NEW open duties — the produced figure rises while
+  // the consumed one stays put, which reads as a channel going bad.
+  // That has happened in the project this tool was extracted from,
+  // where two names for the same pointer exist.
+  const isClosing = (z) => Boolean(z?.closes_id);
+  const zu = new Set(data.rows.filter(isClosing).map((z) => z.closes_id));
+  const originals = data.rows.filter((z) => !isClosing(z));
   const orphans = [...zu].filter((id) => !originals.some((o) => o?.id === id));
   return {
     channel: name,
