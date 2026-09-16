@@ -17,6 +17,23 @@
 // lohnt, haengt am Bestand, nicht am Paradigma. Wer die Zahl fuer
 // SEINEN Bestand kennt, entscheidet; wer sie nicht kennt, glaubt.
 //
+// **Nachtrag 2026-09-16 — und er faellt gegen den Alias-Layer aus.**
+// Dieses Skript misst eine VORGEGEBENE Namensmenge: man sagt ihm, dass
+// drei Schreibweisen dasselbe Bauteil meinen, und es zaehlt, wie sich
+// die Nennungen verteilen. Das beantwortet "wie zerfaellt DIESES
+// Bauteil" und nicht "wie viel vom Zerfall im Bestand ist ueberhaupt
+// Schreibweise".
+//
+// Die zweite Frage misst `bench/name-dispersion.mjs`, ohne Vorgabe,
+// ueber alle Werte: von 845 Tag-Werten sind 20 bis 24 Schreibvarianten
+// — rund 2,5 %. Beim Feld `klasse`: 1 bzw. 0 von 185. Die Streuung
+// sitzt im Vokabular, nicht in der Schreibweise.
+//
+// Die 43 % oben bleiben richtig fuer das, was sie messen, und sind
+// trotzdem keine Begruendung fuer einen Alias-Layer: ein Bauteil, das
+// dreimal verschieden heisst, ist ein Einzelfall und keine Bauart.
+// Entschieden und begruendet in `docs/deliberately-not-built.md`.
+//
 // Aufruf:
 //   node bench/alias-fragmentation.mjs [--root <pfad>] [--set "a,b,c" ...]
 //

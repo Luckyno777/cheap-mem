@@ -19,6 +19,11 @@
 // day they were written, and neither was revisited when the
 // vocabulary grew. That is why the important test here is not "the
 // readers agree now" but the bolt against a fourth copy appearing.
+// Covers assurances from shared/invariants.jsonl. The id is the
+// shared language between the houses; the prose there names the
+// incident that forced it.
+// invariant: abschluss-vokabular-eine-stelle
+// invariant: namensregel-eine-stelle
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

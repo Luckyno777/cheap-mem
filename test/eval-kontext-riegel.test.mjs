@@ -31,6 +31,10 @@
 //   `--settings`    with empty hooks does NOT help — the user-level file
 //                   is merged in anyway
 //   `--restricted`  the positive control answered "KEIN-KONTEXT"
+// Covers assurances from shared/invariants.jsonl. The id is the
+// shared language between the houses; the prose there names the
+// incident that forced it.
+// invariant: messung-ohne-fremdkontext
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

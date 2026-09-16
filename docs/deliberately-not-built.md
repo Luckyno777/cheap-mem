@@ -157,3 +157,77 @@ up.
 
 **What would change our mind:** a real question that needs both axes at
 once, asked more than once.
+
+---
+
+## Entity resolution / an alias table
+
+**Proposed:** merge spelling variants of the same thing, so that a
+memory fragmented across several spellings retrieves as one. Justified
+by a real observation: of 845 distinct tag values, 56 % are used
+exactly once.
+
+**Why not.** The premise was measured before anything was built, and it
+does not hold. Under two independent normalisations — suffix stripping,
+and word-set regardless of order inside a compound — the share of
+values that are actually spelling variants is:
+
+| Field | distinct values | used once | spelling variants |
+|---|---|---|---|
+| tags | 845 | 56 % | 24 / 20 → 3 % / 2 % |
+| class | 185 | 74 % | 1 / 0 → 1 % / 0 % |
+
+The groups that do exist are `hook/hooks`, `test/tests`,
+`tool/tools`, `release/releases`. The single-use values are not typos
+but different words: *metrics, noise, statistics, optimisation,
+diversity, provenance, authority, ergonomics*.
+
+Nobody types the same word differently. Everyone picks a different
+word. The dispersion sits in the vocabulary, not in the spelling — an
+alias table would have collected about 2.5 % of it and created a table
+to maintain. On the class field it would have changed nothing at all.
+
+That also answers the question that always follows, "who maintains the
+aliases": nobody, because there are none.
+
+It is the same answer as the closed class vocabulary, from the other
+side: against a sprawling vocabulary a closed list helps and a synonym
+table does not.
+
+**What would change our mind:** the share of spelling variants rising
+above 15 %. `bench/name-dispersion.mjs` measures it, and a test fails
+once it does — so the decision gets retaken rather than quietly carried
+forward.
+
+---
+
+## Two measurement cuts for "a field nothing writes"
+
+**Proposed:** find guards that read a field no write path ever sets, by
+comparing what the code reads against what gets written.
+
+**Why not** — for these two cuts specifically. The defect is real and
+the instrument is built; these two ways of measuring it were tried
+first and thrown away, and saying so is part of the instrument.
+
+*"Read in code, never written in code"* gave 222 candidates, nearly all
+of them file extensions and standard-library properties.
+
+*"Read in code, absent from the corpus"* gave 714 of 727, for the same
+reason: most fields a program reads are not corpus fields at all.
+
+What makes the third cut work is not a better pattern but a narrower
+question — a field a **decision** depends on, intersected with fields
+the corpus actually knows. On a live corpus that is a few hundred down
+to eleven, and a person can read eleven.
+
+**What would change our mind:** nothing for these two. A field the
+corpus has never seen is reported separately and is explicitly not a
+finding.
+
+---
+
+Entries here that concern both this project and the one it was
+extracted from also live in `shared/invariants.jsonl` under
+`art: "discarded"`, so the other side does not rebuild them either.
+See `docs/invariants.md`.

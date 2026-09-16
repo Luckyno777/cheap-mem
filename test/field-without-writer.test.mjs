@@ -18,6 +18,11 @@
 //   B  a field that IS set is not reported
 //   C  finding nothing to analyse is not a pass
 //   D  a sabotaged instrument goes red
+// Covers assurances from shared/invariants.jsonl. The id is the
+// shared language between the houses; the prose there names the
+// incident that forced it.
+// invariant: feld-ohne-schreiber
+// invariant: leer-ist-kein-bestehen
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

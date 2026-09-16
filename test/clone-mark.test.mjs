@@ -15,6 +15,12 @@
 // Exclusive creation solves collisions WITHIN one clone. Between two
 // clones it can do nothing; there the only fix is that two clones do
 // not form the same name.
+// Covers assurances from shared/invariants.jsonl. The id is the
+// shared language between the houses; the prose there names the
+// incident that forced it.
+// invariant: klon-marke-im-namen
+// invariant: zaehler-bleibt-lesbar
+// invariant: laufzeitzustand-reist-nicht
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
