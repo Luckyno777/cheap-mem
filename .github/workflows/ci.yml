@@ -304,6 +304,22 @@ jobs:
       #   query-independence state(log) does not depend on the query
       #   merge-driver       the *.jsonl merge=union contract, with a
       #                      control case proving the driver does work
+      # `npm run lint` existed from the first week and no job ever ran it.
+      # On 2026-09-16 it was reporting three errors, one of them a call to
+      # an undefined `fail()` inside the guard that refuses
+      # `shrink --new-baseline` without a reason: the guard threw a
+      # ReferenceError instead of saying what was missing. Nobody saw it,
+      # because a check that reports into a channel nobody reads is the
+      # same as no check. Runs BEFORE verify — it is seconds, verify is
+      # twenty minutes, and there is no point mutating code that does not
+      # parse cleanly.
+      #
+      # eslint exits non-zero on errors and zero on warnings, so this gate
+      # is about defects, not about style debt. The seven warnings standing
+      # today are deliberately not a build break.
+      - name: lint
+        run: npm run lint
+
       - name: the guarantees, enforced
         run: npm run verify
 

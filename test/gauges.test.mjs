@@ -36,9 +36,26 @@ test('a renewed memory search is recognised — shell and MCP alike', () => {
   assert.ok(!isMemorySearch('Bash', { command: 'ls' }));
 });
 
-test('concurrent calls are not a verdict', () => {
+test('concurrent calls are not a verdict — and they are still counted', () => {
   const lines = [assistant([{ name: 'Grep' }])];
-  assert.equal(afterLook(lines, 0, { named: [] }).bucket, BUCKET.NO_VERDICT);
+  const v = afterLook(lines, 0, { named: [] });
+  assert.equal(v.bucket, BUCKET.NO_VERDICT);
+  // The second half of this test's own name. It was missing until
+  // 2026-09-16, and `concurrent` was dead the whole time: the assertion
+  // above passes whether the counter works or not.
+  assert.equal(v.concurrent, 1);
+});
+
+test('bookkeeping does not count as a concurrent call either', () => {
+  // Same rule as for verdicts: a TaskUpdate next to the injection is not
+  // the session reacting to anything.
+  const lines = [assistant([{ name: 'TaskUpdate' }, { name: 'Grep' }])];
+  assert.equal(afterLook(lines, 0, {}).concurrent, 1);
+});
+
+test('no calls beside the injection means zero — measured, not assumed', () => {
+  const lines = [assistant([])];
+  assert.equal(afterLook(lines, 0, {}).concurrent, 0);
 });
 
 test('bookkeeping is stepped over, the call behind it judges', () => {

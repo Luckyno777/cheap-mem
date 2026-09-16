@@ -2602,7 +2602,7 @@ const COMMANDS = {
     const shrink = await import('../src/shrink.mjs');
     if (args['new-baseline']) {
       if (typeof args.why !== 'string' || !args.why.trim()) {
-        fail('shrink --new-baseline needs --why "..." — a lowered baseline '
+        die('shrink --new-baseline needs --why "..." — a lowered baseline '
           + 'without a reason cannot be told from silent damage.');
       }
       const st = shrink.setBaseline(root, shrink.bookSizes(root), { why: args.why });

@@ -164,7 +164,19 @@ export function threadOf(o) {
  */
 export function afterLook(lines, from, { named = [], thread = 'main' } = {}) {
   const stems = named.map((g) => String(g).split(':')[0]).filter(Boolean);
-  let concurrent = 0;
+  // The calls in the SAME message as the injection. They went out before
+  // it existed, so they are never a verdict — but they are not nothing
+  // either, and the rule at the top of this file says to count them.
+  //
+  // Until 2026-09-16 this was `let concurrent = 0`, returned in six
+  // places and incremented in none: the loop starts at `from + 1` and
+  // never looks at `lines[from]` at all. Every caller got 0, always. The
+  // test named `concurrent calls are not a verdict` asserted only the
+  // bucket, so it passed on the half that worked and said nothing about
+  // the half that did not. Found by eslint (`never reassigned`) — which
+  // the CI did not run.
+  const concurrent = callsOf(lines[from])
+    .filter((a) => !BOOKKEEPING.has(a.name)).length;
   for (let i = from + 1; i < lines.length; i += 1) {
     const o = lines[i];
     if (threadOf(o) !== thread) continue;

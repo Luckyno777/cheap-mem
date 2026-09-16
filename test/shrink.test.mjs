@@ -123,3 +123,57 @@ test('a baseline without a books field counts as absent', () => {
     assert.equal(readBaseline(d), null, 'half a baseline was accepted');
   } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
+
+// --------------------------------------------------------------------
+// The guard on `--new-baseline`, which had none.
+//
+// Until 2026-09-16 the refusal path called `fail(...)`. There is no
+// `fail` in bin/mem — the house function is `die`, used 38 times. So the
+// guard threw a ReferenceError and the user read
+// `mem shrink: fail is not defined` instead of what was missing.
+//
+// The effect was right by accident (the throw happens before the write,
+// so no baseline was lowered), which is the reason it survived: nothing
+// visibly broke. eslint had been reporting it as `'fail' is not defined`
+// the whole time, and no CI job ran eslint.
+//
+// invariant: unterprozess-nennt-ursache
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath as toPath } from 'node:url';
+
+const MEM_BIN = path.join(path.dirname(toPath(import.meta.url)), '..', 'bin', 'mem');
+function cli(r, ...argv) {
+  return spawnSync(process.execPath, [MEM_BIN, ...argv, '--root', r],
+    { encoding: 'utf8', env: { ...process.env, CHEAP_MEM_ROOT: r } });
+}
+function freshRoot() {
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shrinkcli-'));
+  fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'g' }));
+  return r;
+}
+
+test('--new-baseline without --why is refused, and the refusal says why', () => {
+  const r = freshRoot();
+  try {
+    const res = cli(r, 'shrink', '--new-baseline');
+    const said = `${res.stdout ?? ''}${res.stderr ?? ''}`;
+    assert.notEqual(res.status, 0, 'a lowered baseline without a reason was accepted');
+    // The point of the test: not merely THAT it fails, but that it fails
+    // with the sentence a user can act on. A ReferenceError also has a
+    // non-zero exit.
+    assert.match(said, /--why/, `the refusal does not name --why: ${said.trim()}`);
+    assert.doesNotMatch(said, /is not defined|ReferenceError/,
+      `the guard crashed instead of guarding: ${said.trim()}`);
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('--new-baseline with --why goes through and records the reason', () => {
+  const r = freshRoot();
+  try {
+    const res = cli(r, 'shrink', '--new-baseline', '--why', 'books split by project');
+    const said = `${res.stdout ?? ''}${res.stderr ?? ''}`;
+    assert.equal(res.status, 0, `refused a legitimate baseline: ${said.trim()}`);
+    assert.match(said, /books split by project/, 'the reason was not recorded back');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});

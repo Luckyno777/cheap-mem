@@ -49,7 +49,7 @@ export const TREES_FILE = path.join('.pipeline', 'trees.json');
  * tree of ours.
  */
 export const PATH_PATTERN =
-  /(?<![A-Za-z0-9_./-])((?:src|bin|test|install|\.claude|ops|agents|compare|eval|scripts)\/[A-Za-z0-9_.\/-]+\.(?:mjs|js|ts|sh|md|json|yaml|yml|sql|html))\b/g;
+  /(?<![A-Za-z0-9_./-])((?:src|bin|test|install|\.claude|ops|agents|compare|eval|scripts)\/[A-Za-z0-9_./-]+\.(?:mjs|js|ts|sh|md|json|yaml|yml|sql|html))\b/g;
 
 /** Verdicts. Closed list. */
 export const VERDICT = Object.freeze({
