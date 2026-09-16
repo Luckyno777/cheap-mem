@@ -41,8 +41,32 @@ function call(root, { file, session = 's1' } = {}) {
     encoding: 'utf8', timeout: 30000,
     env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_HOOK_OFF: '' },
   });
-  const raw = String(r.stdout).trim();
-  return { raw, json: raw ? JSON.parse(raw) : null, status: r.status };
+  const raw = String(r.stdout ?? '').trim();
+  // **A silent hook must say why it was silent.**
+  //
+  // This used to return `json: null` and nothing else, so a failure
+  // read "the hook does not see the entry: (silent)" — which names
+  // neither the exit code nor the stack bash printed. Eight of this
+  // file's tests fail that way on every Windows CI run while Linux and
+  // macOS are green, and for days that message was the whole evidence.
+  //
+  // Silence is a legitimate ANSWER here (no matching entry), so this
+  // cannot throw. It carries the cause along instead, and `warum()`
+  // turns it into an assertion message.
+  return {
+    raw,
+    json: raw ? JSON.parse(raw) : null,
+    status: r.status,
+    signal: r.signal ?? null,
+    spawnError: r.error ? r.error.message : null,
+    stderr: String(r.stderr ?? '').trim(),
+  };
+}
+
+/** Why was it silent? For assertion messages, so a red test explains itself. */
+function warum(a) {
+  return `(silent)  exit=${a.status} signal=${a.signal ?? '-'} `
+    + `spawn=${a.spawnError ?? '-'}\n  stderr: ${a.stderr.slice(0, 1200) || '(empty)'}`;
 }
 
 const ENTRIES = {
@@ -82,8 +106,9 @@ test('THE FALSIFICATION: a path no entry names stays silent', () => {
 test('THE CASE: the entry about the touched file arrives', () => {
   const root = memory(ENTRIES);
   try {
-    const { json } = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh' });
-    assert.ok(json, 'nothing printed');
+    const a = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh' });
+    const { json } = a;
+    assert.ok(json, `nothing printed ${warum(a)}`);
     assert.match(json.hookSpecificOutput.additionalContext, /unquoted-path/);
     assert.equal(json.hookSpecificOutput.hookEventName, 'PreToolUse');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -105,11 +130,11 @@ test('twice on the same file: a pointer the second time, NEVER silence', () => {
   try {
     const f = '/home/x/cheap-mem/install/claude-code.sh';
     const one = call(root, { file: f });
-    assert.ok(one.raw, 'even the first call was silent');
+    assert.ok(one.raw, `even the first call was silent ${warum(one)}`);
     assert.match(one.json.hookSpecificOutput.additionalContext, /went wrong here before/);
 
     const two = call(root, { file: f });
-    assert.ok(two.raw, 'the second call was silent — exactly the defect');
+    assert.ok(two.raw, `the second call was silent — exactly the defect ${warum(two)}`);
     const t = two.json.hookSpecificOutput.additionalContext;
     assert.match(t, /already injected/);
     assert.match(t, /unchanged/);
@@ -131,7 +156,9 @@ test('an entry arriving DURING the session brings the full block back', () => {
       title: 'install/claude-code.sh also breaks on an empty HOME',
       text: 'Happened today.',
     }) + '\n');
-    const t = call(root, { file: f }).json.hookSpecificOutput.additionalContext;
+    const a = call(root, { file: f });
+    assert.ok(a.json, `the hook does not see the entry ${warum(a)}`);
+    const t = a.json.hookSpecificOutput.additionalContext;
     assert.match(t, /brand-new|empty HOME|went wrong here before/,
       'the new entry was withheld');
     assert.ok(!/already injected/.test(t), 'only a pointer despite a new entry');
@@ -149,7 +176,9 @@ test('when the memory grows ELSEWHERE it stays a pointer', () => {
       id: 'z9', ts: '2026-09-12T09:30:00Z', class: 'elsewhere',
       title: 'src/somewhere-else.mjs falls over', text: 'Nothing to do with the installer.',
     }) + '\n');
-    const t = call(root, { file: f }).json.hookSpecificOutput.additionalContext;
+    const a = call(root, { file: f });
+    assert.ok(a.json, `the hook does not see the entry ${warum(a)}`);
+    const t = a.json.hookSpecificOutput.additionalContext;
     assert.match(t, /already injected/,
       'a foreign entry triggered the whole block again');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
@@ -170,8 +199,9 @@ test('a Windows path is split too', () => {
   // one segment and the query would never match anything.
   const root = memory(ENTRIES);
   try {
-    const { json } = call(root, { file: 'C:\\Users\\x\\cheap-mem\\install\\claude-code.sh' });
-    assert.ok(json, 'a Windows path produced nothing');
+    const a = call(root, { file: 'C:\\Users\\x\\cheap-mem\\install\\claude-code.sh' });
+    const { json } = a;
+    assert.ok(json, `a Windows path produced nothing ${warum(a)}`);
     assert.match(json.hookSpecificOutput.additionalContext, /unquoted-path/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
