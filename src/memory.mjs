@@ -118,6 +118,36 @@ export function checkProjectName(name) {
   }
 }
 
+/**
+ * Where an entry was found, spelled the same on every platform.
+ *
+ * `_source` is not a local convenience. It travels: into the notes that
+ * `broadcast` drops in another agent's inbox, into what `mem` prints for
+ * a human, and into the `sources` an injection names — which
+ * `gauges.afterLook` then matches against the paths it sees in tool
+ * calls. `path.relative` answers in the host separator, so on Windows
+ * all three carried `global\\learnings.jsonl`: the note's evidence did
+ * not match, and the gauge could never report READ_NAMED at all. A
+ * measurement reading zero for a reason that has nothing to do with
+ * what it measures is worse than no measurement.
+ *
+ * The backslash is replaced unconditionally rather than via `path.sep`,
+ * because `path.sep` is right only for a path this host just produced
+ * and useless for one read back from a file another run wrote. It is
+ * safe here: a project name is `[a-z0-9-]` only (see
+ * {@link checkProjectName}) and the book names are fixed, so a
+ * backslash never belongs to a real one.
+ *
+ * The replacement lives in {@link canonicalSep}, separately, because on
+ * a POSIX host `path.relative` never produces a backslash — so a test
+ * that goes through `asSource` cannot tell a working normaliser from a
+ * missing one. Only the pure function can be handed the Windows shape.
+ */
+export const canonicalSep = (rel) => String(rel).replace(/\\/g, '/');
+
+/** {@link canonicalSep} applied to the path of a found entry. */
+export const asSource = (root, p) => canonicalSep(path.relative(root, p));
+
 export function logPath(root, type, project = null) {
   if (!Object.hasOwn(TYPES, type)) {
     throw new Error(`Unknown type '${type}'. Known: ${Object.keys(TYPES).join(', ')}`);
@@ -418,7 +448,7 @@ export function find(root, pattern, {
     if (info && !withRetired) continue;
     hits.push({
       ...entry,
-      _source: path.relative(root, p),
+      _source: asSource(root, p),
       _line: line,
       ...(info ? { _retired: info } : {}),
     });
@@ -827,7 +857,7 @@ export function recentEntries(root, type, n) {
       let e;
       try { e = JSON.parse(line); }
       catch { e = { __broken: true, raw: line, ts: '0' }; }
-      all.push({ ...e, _source: path.relative(root, p), _line: i + 1 });
+      all.push({ ...e, _source: asSource(root, p), _line: i + 1 });
     }
   }
 
@@ -968,7 +998,7 @@ export function openDuties(root, { project = undefined } = {}) {
       if (!e.id) continue;
       all.set(e.id, {
         ...e,
-        _source: path.relative(root, file),
+        _source: asSource(root, file),
         _line: i + 1,
         _project: p,
       });

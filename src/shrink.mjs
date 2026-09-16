@@ -57,6 +57,30 @@ export const TOLERANCE_BYTES = 0;
 const OUTSIDE = new Set(['.git', '.pipeline', 'raw', 'node_modules', '.github']);
 
 /** The size of every append-only book, keyed by path relative to root. */
+/**
+ * A book's name, spelled the same on every platform.
+ *
+ * `path.relative` answers in the separator of the host: on Windows
+ * `global\\errors.jsonl`, elsewhere `global/errors.jsonl`. These are the
+ * KEYS of the baseline, so without this the same book has two names and
+ * a Windows baseline cannot be read anywhere else — nor, after this
+ * change, by itself, which is why `readBaseline` normalises too.
+ *
+ * Found on 2026-09-16: the test `raw/ and .pipeline/ do not count` had
+ * been failing on the Windows runner for as long as it existed, and it
+ * was pointing at a real defect, not at itself.
+ *
+ * **Why the backslash is replaced unconditionally and not via
+ * `path.sep`.** The first version split on `path.sep`, which is right
+ * for a name this host just produced and useless for one READ from a
+ * baseline another run wrote: on POSIX `path.sep` is `/`, so a stored
+ * `global\\errors.jsonl` came back untouched. A backslash cannot belong
+ * to a legitimate book name — a project name is `[a-z0-9-]` only
+ * (`memory.checkProjectName`) and the file names are fixed — so
+ * replacing it is not a guess about intent.
+ */
+const canonical = (rel) => rel.replace(/\\/g, '/');
+
 export function bookSizes(root) {
   const out = {};
   const walk = (dir, depth) => {
@@ -68,7 +92,7 @@ export function bookSizes(root) {
       const w = path.join(dir, e.name);
       if (e.isDirectory()) { walk(w, depth + 1); continue; }
       if (!e.name.endsWith('.jsonl')) continue;
-      try { out[path.relative(root, w)] = fs.statSync(w).size; } catch { /* gone */ }
+      try { out[canonical(path.relative(root, w))] = fs.statSync(w).size; } catch { /* gone */ }
     }
   };
   walk(root, 0);
@@ -79,7 +103,13 @@ export function bookSizes(root) {
 export function readBaseline(root) {
   try {
     const o = JSON.parse(fs.readFileSync(path.join(root, BASELINE_FILE), 'utf8'));
-    return (o && typeof o === 'object' && o.books && typeof o.books === 'object') ? o : null;
+    if (!o || typeof o !== 'object' || !o.books || typeof o.books !== 'object') return null;
+    // A baseline written before the names were canonical carries
+    // backslash keys. Left alone they would never match again, every
+    // book would read as new, and one real shrink would pass unseen.
+    const books = {};
+    for (const [k, v] of Object.entries(o.books)) books[canonical(k)] = v;
+    return { ...o, books };
   } catch { return null; }
 }
 

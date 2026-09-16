@@ -46,6 +46,24 @@ function install({ homeName = 'claude home' } = {}) {
   return { tmp, claudeHome, cfg };
 }
 const wipe = (t) => fs.rmSync(t, { recursive: true, force: true });
+
+/**
+ * Two spellings of one directory.
+ *
+ * On Windows the installer writes the script path with FORWARD slashes,
+ * on purpose: `cygpath -m` (install/claude-code.sh), because bash reads
+ * them happily and they survive JSON without escaping. `path.join` in
+ * this test produces backslashes. `path.dirname` keeps whatever it was
+ * given. So `assert.equal` compared
+ *
+ *   D:/a/_temp/x/claudehome/hooks      (what the installer wrote)
+ *   D:\a\_temp\x\claudehome\hooks       (what the test built)
+ *
+ * and failed on a correct install — the third time this week that a
+ * hard-wired separator decided something about a real path. The
+ * installer is right here; the assertion was not.
+ */
+const sameDir = (a, b) => a.replace(/\\/g, '/') === b.replace(/\\/g, '/');
 const commands = (cfg) => EVENTS.map((e) => cfg.hooks[e].at(-1).hooks[0].command);
 
 test('THE CASE: no command is a bare script path', () => {
@@ -79,7 +97,9 @@ test('the command points at the file that is really there', () => {
       const script = (cmd.match(/(\S+cheap-mem-[a-z-]+\.sh)/) ?? [])[1];
       assert.ok(script, `no script path in the command: ${cmd}`);
       assert.ok(fs.existsSync(script), `command points nowhere: ${script}`);
-      assert.equal(path.dirname(script), path.join(claudeHome, 'hooks'));
+      const soll = path.join(claudeHome, 'hooks');
+      assert.ok(sameDir(path.dirname(script), soll),
+        `script sits in ${path.dirname(script)}, expected ${soll}`);
     }
   } finally { wipe(tmp); }
 });
@@ -171,4 +191,17 @@ test('what the installer ANNOUNCES, it also creates', () => {
   for (const h of announced) {
     assert.ok(created.has(h), `${h}.sh is announced but not created`);
   }
+});
+
+// A comparison that ignores separators is one step from a comparison that
+// ignores everything. This holds `sameDir` to being about SPELLING only:
+// it must still tell two different directories apart, whichever
+// separators they are written with.
+//
+// invariant: trenner-nicht-fest-verdrahten
+test('sameDir forgives the separator and nothing else', () => {
+  assert.ok(sameDir('D:/a/x/hooks', 'D:\\a\\x\\hooks'), 'same place, two spellings');
+  assert.ok(sameDir('/tmp/a/hooks', '/tmp/a/hooks'), 'posix unchanged');
+  assert.ok(!sameDir('D:/a/x/hooks', 'D:\\a\\y\\hooks'), 'different directory slipped through');
+  assert.ok(!sameDir('/tmp/a/hooks', '/tmp/a/hooks/deeper'), 'a subdirectory slipped through');
 });

@@ -177,3 +177,39 @@ test('--new-baseline with --why goes through and records the reason', () => {
     assert.match(said, /books split by project/, 'the reason was not recorded back');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
+
+// --------------------------------------------------------------------
+// Book names are the KEYS of the baseline, so their spelling decides
+// whether a shrink is seen at all.
+//
+// invariant: trenner-nicht-fest-verdrahten
+// invariant: fremder-pfad-wird-normalisiert
+
+test('a book name never carries a backslash, on any platform', () => {
+  const d = mem({ 'global/errors.jsonl': 'x'.repeat(10) });
+  try {
+    for (const name of Object.keys(bookSizes(d))) {
+      assert.doesNotMatch(name, /\\/, `native separator in a book name: ${name}`);
+      assert.match(name, /\//, `no separator at all in a nested book: ${name}`);
+    }
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
+
+test('a baseline written with backslash keys still lines up afterwards', () => {
+  // The Windows runner wrote exactly this shape until 2026-09-16. Read
+  // literally, every book would look new and a real shrink would pass
+  // unnoticed for one cycle — the failure mode this ratchet exists for.
+  const d = mem({ 'global/errors.jsonl': 'x'.repeat(10) });
+  try {
+    fs.mkdirSync(path.join(d, '.pipeline'), { recursive: true });
+    fs.writeFileSync(path.join(d, '.pipeline', 'shrink-baseline.json'),
+      JSON.stringify({ version: 1, books: { 'global\\errors.jsonl': 40 } }));
+    const alt = readBaseline(d);
+    assert.deepEqual(Object.keys(alt.books), ['global/errors.jsonl'],
+      'the old key was not brought over');
+    // And the ratchet must now see ONE book, not two.
+    const st = ratchet(alt, bookSizes(d));
+    assert.deepEqual(Object.keys(st.books), ['global/errors.jsonl']);
+    assert.equal(st.books['global/errors.jsonl'], 40, 'the old high-water mark was dropped');
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
+});
