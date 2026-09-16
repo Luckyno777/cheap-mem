@@ -220,7 +220,12 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
     // Only the lanes that WARN. A thought or an event about this file
     // does not change how it should be changed; an error, a decision
     // and a learning do.
-    const warning = /\/(errors|decisions|learnings)\.jsonl$/;
+    // Either separator. The pattern demanded a forward slash, so on
+    // Windows — where the source carries backslashes — it matched
+    // nothing, the selection came out empty and the hook exited in
+    // silence. Same family as everything else here: a separator
+    // written into a pattern that has to read a real path.
+    const warning = /[\\/](errors|decisions|learnings)\.jsonl$/;
     const out = [];
     for (const h of (j.hits || [])) {
       if (!warning.test(String(h.source || ""))) continue;

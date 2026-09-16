@@ -131,3 +131,31 @@ test('every early exit names itself', () => {
     'these exits leave no trace, so a failure that takes one of them is '
     + 'indistinguishable from "nothing to report"');
 });
+
+test('lane patterns accept either path separator', () => {
+  // The selection step filtered its hits with `/\/(errors|…)\.jsonl$/`
+  // — a forward slash written into a pattern that reads a real path.
+  // On Windows the source carries backslashes, nothing matched, the
+  // selection came out empty, and the hook exited 0 in silence.
+  //
+  // This was the actual Windows cause. Two earlier repairs were real
+  // bugs and neither was this one; the trace named the branch and
+  // ended the guessing.
+  const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
+  const muster = [...s.matchAll(/\/\[?\\*\\?\/?\]?\((?:errors|decisions|learnings)[^/]*\/[gimsuy]*/g)];
+  const roh = [...s.matchAll(/\/\\\/\((?:errors|decisions|learnings)/g)];
+  assert.deepEqual(roh.map((m) => m[0]), [],
+    'a lane pattern demands a forward slash — on Windows it matches nothing '
+    + 'and the hook goes silent');
+  assert.match(s, /\[\\\\\/\]\(errors\|decisions\|learnings\)/,
+    'the lane pattern does not accept both separators');
+  assert.ok(muster.length >= 0);  // die Suche selbst darf leer sein
+});
+
+test('POSITIVE: the lane pattern is actually in this file', () => {
+  // Without this the guard above passes on a file that no longer
+  // filters lanes at all — and then it checks nothing.
+  const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
+  assert.match(s, /errors\|decisions\|learnings/,
+    'the lane filter is gone — then the test above is vacuous');
+});
