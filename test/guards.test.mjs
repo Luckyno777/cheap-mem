@@ -117,11 +117,27 @@ test('a second message in the same second gets its own file', () => {
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('the first message keeps the plain name — only collisions get a suffix', () => {
+test('the first message carries the clone mark but no counter', () => {
+  // This used to read "keeps the plain name". The plain name IS the
+  // problem: it is exactly the name a second clone also forms, and two
+  // clones writing it in the same second produce an add/add conflict
+  // that can leave the whole drawer unparseable.
+  //
+  // The intent of the old test survives and is checked here: the
+  // collision counter is added ONLY on a real collision.
   const r = root();
   try {
     const t = new Date('2026-09-05T10:00:00Z');
-    const a = inbox.write(r, { user: 'the human', librarian: 'the curator' }, { from: 'user', to: 'librarian', subject: 's', text: 'x', now: t });
-    assert.equal(a.name, '2026-09-05T10-00-00Z--user-to-librarian.md');
+    const who = { user: 'the human', librarian: 'the curator' };
+    const a = inbox.write(r, who, { from: 'user', to: 'librarian', subject: 's', text: 'x', now: t });
+    assert.match(a.name, /^2026-09-05T10-00-00Z--user-to-librarian~[a-z0-9]{1,12}\.md$/);
+    assert.ok(!/-\d+\.md$/.test(a.name), `no collision, no counter: ${a.name}`);
+    assert.ok(inbox.fromFileName(who, a.name), 'a name we write must be one we can read');
+
+    const b = inbox.write(r, who, { from: 'user', to: 'librarian', subject: 's2', text: 'y', now: t });
+    assert.match(b.name, /~[a-z0-9]{1,12}-2\.md$/, `a collision needs the counter: ${b.name}`);
+    assert.ok(inbox.fromFileName(who, b.name),
+      'the second message of a second must be READABLE — it used to parse as null, '
+      + 'which files it as unreadable and it is never announced as new');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });

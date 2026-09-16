@@ -38,8 +38,17 @@ const rel = (from, to) => path.relative(from, to).split(path.sep).join('/');
 
 export const AGENTS_DIR = 'agents';
 
-/** Allowed agent names: the same strict pattern as project names. */
-const NAME_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+/**
+ * Allowed agent names: the same strict pattern as project names.
+ *
+ * NAME_PART is the rule as a fragment, so other modules can build
+ * larger patterns from it instead of retyping it. A message filename
+ * embeds an agent name twice; the copy in inbox.mjs had drifted to
+ * `[a-z]+` and quietly rejected every name with a hyphen or a digit.
+ * One rule, one place, composed everywhere else.
+ */
+export const NAME_PART = '[a-z0-9][a-z0-9._-]{0,63}';
+const NAME_PATTERN = new RegExp(`^${NAME_PART}$`);
 
 export function checkAgentName(name) {
   const n = String(name ?? '').trim();

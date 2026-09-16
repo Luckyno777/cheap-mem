@@ -45,7 +45,10 @@ test('once acked, the message no longer counts as open and the hint is gone', ()
   try {
     // Learn the file name from a read, then ack it.
     const listed = mem(root, ['inbox', 'all', '--as', 'librarian']);
-    const name = (listed.match(/\S+--session-to-librarian\.md/) || [])[0];
+    // `\S*` covers the clone mark the name now carries. Without it
+    // this test would only ever have found an unmarked name — and an
+    // unmarked name is exactly the one a second clone also forms.
+    const name = (listed.match(/\S+--session-to-librarian\S*\.md/) || [])[0];
     assert.ok(name, 'could not find the message name in the listing');
     mem(root, ['inbox', 'ack', name, 'processed']);
 

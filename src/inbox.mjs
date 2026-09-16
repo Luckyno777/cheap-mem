@@ -19,6 +19,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import * as agents from './agents.mjs';
 
 /** Where messages live under the memory root. */
 export const INBOX_DIR = path.join('inbox');
@@ -29,6 +30,31 @@ export const STATE = Object.freeze({
   PROCESSED: 'processed',
   CLOSED: 'closed',
 });
+
+/**
+ * Which states mean "no longer open"?
+ *
+ * **Why this is a function and not a comparison at each reader.** A
+ * message has four states. Every place that asks "is this one done?"
+ * answers it for itself, and the answers drift apart — because they
+ * are written at different times, each correct for the vocabulary of
+ * its day, and none of them is revisited when a state is added.
+ *
+ * Measured here on 2026-09-16: `doctor.mjs` filtered open messages
+ * with `state !== 'done' && state !== 'answered'`. Neither string is
+ * a state of this module. The filter therefore matched EVERY message,
+ * and the delivery check reported all four states as open — a check
+ * that has never excluded anything since it was written.
+ *
+ * Deliberately an ENUMERATION and not `!== OPEN`. If a fifth state
+ * arrives — 'withdrawn', 'expired' — `!==` would silently count it as
+ * done everywhere at once, a decision nobody made. Here it shows up
+ * in one place, and a test fails until someone decides.
+ */
+export const DONE = Object.freeze([STATE.REPLIED, STATE.PROCESSED, STATE.CLOSED]);
+
+/** Is this message through? The only place that decides. */
+export function isDone(state) { return DONE.includes(state); }
 
 const HEADER_FIELDS = ['From', 'To', 'Time', 'Subject', 'State'];
 
@@ -89,12 +115,81 @@ export function parse(content) {
   };
 }
 
-export function fileName(participants, { time, from, to }) {
+export function fileName(participants, { time, from, to, mark = null }) {
   checkParticipant(participants, from, 'From');
   checkParticipant(participants, to, 'To');
   const z = String(time).replace(/[:.]/g, '-');
   if (!/^[0-9TZ-]+$/.test(z)) throw new Error(`Time '${time}' is not ISO`);
-  return `${z}--${from}-to-${to}.md`;
+  if (mark === null || mark === undefined || mark === '') return `${z}--${from}-to-${to}.md`;
+  if (!MARK_PATTERN.test(String(mark))) {
+    throw new Error(`Clone mark '${mark}' does not match ${MARK_PATTERN}`);
+  }
+  return `${z}--${from}-to-${to}${MARK_SEPARATOR}${mark}.md`;
+}
+
+/**
+ * The mark hangs off a TILDE, not a hyphen.
+ *
+ * An agent name may contain hyphens (`vm-admin`), so an appended `-2`
+ * cannot be told apart from part of a name. That is exactly how the
+ * existing collision counter failed: `...-to-chatgpt-2.md` did not
+ * parse, and a name that does not parse is put on the "unreadable"
+ * pile and never announced as new. The repair against losing a
+ * message within one second had produced an undeliverable one.
+ *
+ * The tilde cannot occur in an agent name. The boundary is
+ * unambiguous with nothing left to guess.
+ */
+const MARK_SEPARATOR = '~';
+const MARK_PATTERN = /^[a-z0-9]{1,12}(?:-[0-9]{1,3})?$/;
+const MARK_FILE = path.join('.pipeline', 'clone-mark');
+let markThisRun = null;
+
+/**
+ * This clone's mark — four characters, rolled once, local.
+ *
+ * **What it is for.** Two clones of the same memory can write the
+ * same message in the same second: same sender, same recipient, same
+ * timestamp, therefore the same filename with different content.
+ * Both are allowed to — each creates the file exclusively and cannot
+ * see the other. In git that is an add/add conflict. A watcher that
+ * commits the conflict markers makes the drawer unparseable, delivery
+ * goes quiet, and every agent behind it looks dead.
+ *
+ * Exclusive creation solves collisions WITHIN one clone. Between two
+ * clones it can do nothing; there the only fix is that two clones do
+ * not form the same name in the first place.
+ *
+ * The mark lives in `.pipeline/` and is therefore gitignored: it
+ * describes this clone and never travels. It carries nothing about
+ * the machine — four rolled characters, no hostname, no path, no user
+ * name. A message name goes out into the world; what is in it must
+ * not give anything away.
+ *
+ * Never throws. If the mark cannot be stored, one rolled for this run
+ * applies — collision safety stays, stability does not. A drawer that
+ * cannot be written to is the very outage this guards against.
+ */
+export function cloneMark(root) {
+  const p = path.join(root, MARK_FILE);
+  try {
+    const have = fs.readFileSync(p, 'utf8').trim();
+    if (MARK_PATTERN.test(have)) return have;
+  } catch { /* none yet — roll one */ }
+  const fresh = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+  try {
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(p, `${fresh}\n`, { encoding: 'utf8', flag: 'wx' });
+    return fresh;
+  } catch {
+    // A race: another run was first. Its mark wins.
+    try {
+      const have = fs.readFileSync(p, 'utf8').trim();
+      if (MARK_PATTERN.test(have)) return have;
+    } catch { /* truly not storable */ }
+    markThisRun = markThisRun ?? fresh;
+    return markThisRun;
+  }
 }
 
 export function inboxDir(root) { return path.join(root, INBOX_DIR); }
@@ -132,7 +227,8 @@ export function readMessage(root, name) {
 export function write(root, participants, { from, to, subject, text, now = new Date() }) {
   const time = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const content = build(participants, { from, to, time, subject, text });
-  const base = fileName(participants, { time, from, to });
+  const mark = cloneMark(root);
+  const base = fileName(participants, { time, from, to, mark });
   const dir = inboxDir(root);
   fs.mkdirSync(dir, { recursive: true });
 
@@ -157,7 +253,12 @@ export function write(root, participants, { from, to, subject, text, now = new D
       return { path: p, name, time };
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
-      name = base.replace(/\.md$/, `-${n}.md`);
+      // The counter belongs BEHIND the mark, not behind the recipient
+      // name. It used to read `-2` right after the name, and
+      // fromFileName returned null for that: the second message of a
+      // second was unreadable and never announced as new. The repair
+      // against losing a message had produced an undeliverable one.
+      name = fileName(participants, { time, from, to, mark: `${mark}-${n}` });
       p = path.join(dir, name);
     }
   }
@@ -262,7 +363,13 @@ export function setWhoAmI(root, participants, name) {
  * Break a name back into parts. Returns null if it does not match.
  */
 export function fromFileName(participants, name) {
-  const m = /^([0-9TZ-]+)--([a-z]+)-to-([a-z]+)\.md$/.exec(name);
+  // `[a-z]+` stood here and rejected every agent whose name carries a
+  // hyphen, a digit or a dot — `vm-admin` did not parse, so mail for
+  // it was filed as unreadable and never announced. The name rule
+  // lives in agents.mjs; a second, stricter copy of it here was a
+  // silent allowlist nobody had decided on.
+  const m = new RegExp(`^([0-9TZ-]+)--(${agents.NAME_PART})-to-(${agents.NAME_PART})`
+    + `(?:${MARK_SEPARATOR}([a-z0-9]{1,12}(?:-[0-9]{1,3})?))?\\.md$`).exec(name);
   if (!m) return null;
   const [, time, from, to] = m;
   if (!Object.hasOwn(participants, from) || !Object.hasOwn(participants, to)) return null;

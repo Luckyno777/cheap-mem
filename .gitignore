@@ -175,3 +175,16 @@ store/objects/
 # Coverage-Berichte
 coverage/
 .nyc_output/
+
+# Runtime state of ONE clone. It describes this container and nothing
+# else, so it must never travel — a number from here carried to another
+# machine is invented. The clone mark lives here too: if it travelled,
+# two clones would produce an add/add conflict on the mark instead of
+# on the messages, which is the same outage under a new name.
+.pipeline/
+
+# The one deliberate exception. This baseline records the byte size of
+# files that are COMMITTED, so it is a fact about the repository, not
+# about a container — it is the reference point the shrink check
+# compares against, and it has to be the same for everyone.
+!.pipeline/shrink-baseline.json

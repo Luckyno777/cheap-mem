@@ -226,7 +226,11 @@ export function checkDelivery(root) {
 
   const registered = new Set(agents.listAgents(root).map((a) => a.name));
   const senders = new Set(messages.map((m) => m.from).filter(Boolean));
-  const open = messages.filter((m) => m.state !== 'done' && m.state !== 'answered');
+  // 'done' and 'answered' stood here and are not states of this
+  // module at all — the filter matched every message, so all four
+  // states were reported as open. It has never excluded anything
+  // since it was written.
+  const open = messages.filter((m) => !inbox.isDone(m.state));
 
   const unknown = new Map();
   for (const m of open) {
