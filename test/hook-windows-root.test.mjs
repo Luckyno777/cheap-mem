@@ -19,6 +19,7 @@
 // Covers an assurance from shared/invariants.jsonl.
 // invariant: unterprozess-nennt-ursache
 // invariant: fremder-pfad-wird-normalisiert
+// invariant: trenner-nicht-fest-verdrahten
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
