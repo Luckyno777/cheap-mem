@@ -255,7 +255,7 @@ const MUTANTS=[
 
  { name:'SEM tier PRECEDENCE instead of representation',
    file:'src/retrieval.mjs',
-   from:'    .sort((a, b) => b.score - a.score);',
+   from:'    .sort((a, b) => (b.score - a.score) || String(a.id ?? \'\').localeCompare(String(b.id ?? \'\')));',
    to:'    .sort((a, b) => authority.rank(a.authority) - authority.rank(b.authority));  // MUTANT',
    tests:['test/retrieval.test.mjs'] },
 
@@ -273,7 +273,7 @@ const MUTANTS=[
 
  { name:'SEM contested claims are dropped instead of flagged',
    file:'src/retrieval.mjs',
-   from:'    contested: potentialConflicts(fair),',
+   from:'    contested: potentialConflicts(seite),',
    to:'    contested: [],  // MUTANT: never flag',
    tests:['test/retrieval.test.mjs'] },
 
@@ -311,7 +311,7 @@ const MUTANTS=[
 
  { name:'ARCH conflict flagged from the RAW hits, before filtering',
    file:'src/retrieval.mjs',
-   from:'    contested: potentialConflicts(fair),',
+   from:'    contested: potentialConflicts(seite),',
    to:'    contested: potentialConflicts(raw.map((h) => ({ topic: h.entry?.topic, scope: "x", author: h.entry?.author, id: h.entry?.id }))),  // MUTANT',
    tests:['test/retrieval.test.mjs'] },
 
@@ -397,7 +397,7 @@ const MUTANTS=[
 
  { name:'ARCH the exact lane forgets its own bound',
    file:'src/entity.mjs',
-   from:'    if (!s || s.size === 0 || s.size > platz) continue;',
+   from:'    if (!s || s.size === 0 || s.size > slots) continue;',
    to:'    if (!s || s.size === 0) continue;  // MUTANT: auch Ausstattung zaehlt als Bezeichner',
    tests:['test/exact-lane.test.mjs'] },
 
@@ -415,8 +415,8 @@ const MUTANTS=[
 
  { name:'SEM identifier patterns swallow ordinary prose',
    file:'src/entity.mjs',
-   from:"  { name: 'nummer', re: /\\b\\d{4,8}\\b/g },",
-   to:"  { name: 'nummer', re: /\\b\\d{1,8}\\b/g },  // MUTANT: jede Alltagszahl wird Bezeichner",
+   from:"  { name: 'number', re: /\\b\\d{4,8}\\b/g },",
+   to:"  { name: 'number', re: /\\b\\d{1,8}\\b/g },  // MUTANT: every everyday number becomes an identifier",
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'SEM Frageworte are not indexed at all',
@@ -433,8 +433,8 @@ const MUTANTS=[
 
  { name:'SEM `--asked` is stored flat, as one string',
    file:'bin/mem',
-   from:"      if ((k === 'tags' || k === 'asked') && typeof v === 'string') {\n        // Hier in `mem log`",
-   to:"      if (k === 'tags' && typeof v === 'string') {  // MUTANT: asked bleibt Zeichenkette\n        // Hier in `mem log`",
+   from:"    if ((k === 'tags' || k === 'asked') && typeof v === 'string') {\n      // `asked` are QUESTION WORDS",
+   to:"    if (k === 'tags' && typeof v === 'string') {  // MUTANT: asked stays a string\n      // `asked` are QUESTION WORDS",
    tests:['test/asked.test.mjs'] },
 
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
