@@ -40,7 +40,7 @@ import * as basis from './basis.mjs';
 import * as authority from './authority.mjs';
 import * as capability from './capability.mjs';
 
-export const VIEWS = Object.freeze(['desk', 'knowledge', 'projects', 'agents', 'net', 'set']);
+export const VIEWS = Object.freeze(['desk', 'knowledge', 'space', 'projects', 'agents', 'net', 'set']);
 
 /**
  * The state vocabulary, in ONE place.
@@ -367,6 +367,7 @@ const CELL = (from, to) => `${from} >> ${to}`;
 const TABS = Object.freeze({
   desk: 'Desk',
   knowledge: 'Knowledge',
+  space: 'Space',
   projects: 'Projects',
   agents: 'Agents',
   net: 'Net',
@@ -502,7 +503,21 @@ ol.steps li{background:var(--raised);border:1px solid var(--rule);
   border-left:2px solid var(--c,var(--rule));border-radius:8px;padding:10px 12px;
   margin:0 0 8px}
 ol.steps b{font-size:15px}
+.space-bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 8px}
+.space-bar select{padding:6px 9px;border:1px solid var(--rule);border-radius:6px;
+  background:var(--raised);color:var(--ink);font:13px var(--ui)}
+.space-bar select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.space-bar .count{font:11px var(--code);letter-spacing:0.03em;color:var(--faint)}
+.space-wrap{position:relative;background:var(--raised);border:1px solid var(--rule);
+  border-radius:8px;overflow:hidden}
+#space{display:block;width:100%;height:min(62vh,520px);touch-action:none;cursor:grab}
+#space:active{cursor:grabbing}
+#space:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.space-note{position:absolute;left:12px;bottom:10px;right:12px;margin:0;
+  font:11px var(--code);letter-spacing:0.03em;color:var(--faint);pointer-events:none}
+.space-pick{margin-top:10px}
 @media (max-width:620px){
+  #space{height:52vh}
   main{padding:18px 16px 56px}
   .tab{padding:13px 12px}
   .split{grid-template-columns:1fr}
@@ -686,7 +701,66 @@ function netView(d) {
 }
 
 /**
- * The sixth tab, and the reason there are six.
+ * The knowledge space — the one thing the arriving design really added.
+ *
+ * **What was taken and what was left.** The export that arrived on
+ * 2026-09-16 was a whole second dashboard: overview tiles, an entry
+ * list, a focus pane. All of that the desk already does, in the house's
+ * own language, so importing it would have meant two answers to every
+ * question. What it had and the desk did not is this: the entries as a
+ * SPACE you can turn, instead of a table you read down.
+ *
+ * **Two kinds of line, and they never mix — that part arrived right.**
+ * `structure` says only where something SITS: the memory holds drawers,
+ * a drawer holds entries, a tag gathers entries. No claim about
+ * meaning. `declared` is a link somebody wrote down, drawn in the
+ * accent colour with an arrowhead, and those are the only lines that
+ * assert anything. The selector shows exactly ONE kind at a time — not
+ * both told apart by colour — because each mode's caption makes a claim
+ * about every line on screen, and a caption that is true of most of
+ * them is worse than none.
+ *
+ * **What was dropped.** A webfont (the token file names it as a
+ * deliberate absence, and the canvas hard-coded it a second time), and
+ * a frozen `data.js` holding a copy of a real memory. This view reads
+ * the same payload the knowledge list already ships — so it cannot
+ * disagree with the rest of the page, and there is nothing to go stale.
+ */
+function spaceView(d) {
+  const shown = Math.min(d.entries.length, LIST_MAX);
+  if (!shown) {
+    return `<h1>Space</h1><p class="none">This memory holds no entries yet,
+      so there is nothing to lay out. That is empty, not unmeasured.</p>`;
+  }
+  const declared = d.entries.slice(0, LIST_MAX)
+    .reduce((n, e) => n + e.links.filter((l) => l.known).length, 0);
+  return `<h1>Space</h1>
+    <p class="lead">The same entries as the knowledge list, laid out as a space
+      you can turn. Drag to rotate, scroll to zoom, pick a node to read it.</p>
+    <h2>Knowledge space <em>${shown} entr${shown === 1 ? 'y' : 'ies'}${
+  d.entries.length > shown ? ` of ${d.entries.length}` : ''} · ${declared} declared link${
+  declared === 1 ? '' : 's'} between them</em></h2>
+    <div class="space-bar">
+      <label class="m" for="space-mode">Lines</label>
+      <select id="space-mode">
+        <option value="structure">Where things sit — drawer and tag</option>
+        <option value="declared">Only what someone declared</option>
+      </select>
+      <span class="count" id="space-count"></span>
+    </div>
+    <div class="space-wrap">
+      <canvas id="space" tabindex="0" aria-label="knowledge space"></canvas>
+      <p class="space-note" id="space-note"></p>
+    </div>
+    <div class="pane space-pick" id="space-pick">
+      <p class="none">Pick a node. Nothing here is inferred from similarity —
+        a line either says where an entry sits, or it says that somebody wrote
+        the link down.</p>
+    </div>`;
+}
+
+/**
+ * The seventh tab, and the reason there are seven.
  *
  * The console could SET things; this page could only look. Shipping a
  * desk that replaces the front door while quietly dropping the forms
@@ -856,6 +930,284 @@ const SCRIPT = String.raw`
       if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); cell(td); }
     };
   });
+
+  // --- the knowledge space -------------------------------------------
+  //
+  // A hand-rolled projection onto a 2D canvas: no WebGL, no library, so
+  // the page keeps its one-file promise. Two kinds of edge that never
+  // mix (see spaceView for why), and a picker that reads out of the
+  // same ENTRIES map the list uses.
+  var canvas = document.getElementById('space');
+  if (canvas) (function () {
+    var ctx = canvas.getContext('2d');
+    var CORE = '\u0000core';
+    var nodes = [], edges = [], byId = {};
+    function put(n) { nodes.push(n); byId[n.id] = n; return n; }
+    function link(a, b, kind) { edges.push({ from: a, to: b, kind: kind }); }
+    // A stable pseudo-random from the id, so the same memory always
+    // lays out the same way. A layout that jumps on every reload cannot
+    // be talked about ("the one over on the left").
+    function h32(str) {
+      var x = 2166136261, i;
+      for (i = 0; i < str.length; i += 1) { x = Math.imul(x ^ str.charCodeAt(i), 16777619); }
+      return (x >>> 0) / 4294967295;
+    }
+
+    var ids = Object.keys(ENTRIES);
+    var types = [];
+    ids.forEach(function (id) {
+      if (types.indexOf(ENTRIES[id].type) < 0) types.push(ENTRIES[id].type);
+    });
+    types.sort();
+
+    put({ id: CORE, label: 'memory', x: 0, y: 0, z: 0, r: 7, kind: 'core' });
+    types.forEach(function (t, i) {
+      var a = i / types.length * Math.PI * 2 - 0.5;
+      put({ id: 'type:' + t, label: t, x: Math.cos(a) * 144, y: Math.sin(a) * 99,
+        z: Math.sin(a * 2) * 70, r: 5, kind: 'type' });
+      link(CORE, 'type:' + t, 'structure');
+    });
+    types.forEach(function (t) {
+      var mine = ids.filter(function (id) { return ENTRIES[id].type === t; });
+      var parent = byId['type:' + t];
+      mine.forEach(function (id, k) {
+        // The golden angle spreads siblings evenly instead of stacking
+        // them on one spoke.
+        var a = k * 2.399 + h32(id) * 0.8, rad = 36 + Math.sqrt(k) * 17;
+        put({ id: id, label: ENTRIES[id].headline, x: parent.x + Math.cos(a) * rad,
+          y: parent.y + Math.sin(a) * rad * 0.74,
+          z: parent.z + (h32(id + 'z') - 0.5) * 165, r: 3.4, kind: 'entry' });
+        link(parent.id, id, 'structure');
+      });
+    });
+    var tags = {};
+    ids.forEach(function (id) {
+      (ENTRIES[id].tags || []).forEach(function (t) {
+        if (!tags[t]) tags[t] = [];
+        tags[t].push(id);
+      });
+    });
+    Object.keys(tags).forEach(function (t) {
+      // A tag on a single entry draws a line that says nothing anyone
+      // could not already see.
+      if (tags[t].length < 2) return;
+      var a = h32(t) * Math.PI * 2, rad = 190 + h32(t + 'r') * 70;
+      put({ id: 'tag:' + t, label: '#' + t, x: Math.cos(a) * rad,
+        y: Math.sin(a) * rad * 0.68, z: (h32(t + 'z') - 0.5) * 250, r: 1.6, kind: 'tag' });
+      tags[t].forEach(function (id) { link('tag:' + t, id, 'structure'); });
+    });
+    // Declared links, and ONLY the ones whose other end is on this page.
+    // A line to a node that is not drawn is an arrow into nothing.
+    var declared = 0;
+    ids.forEach(function (id) {
+      (ENTRIES[id].links || []).forEach(function (l) {
+        if (!byId[l.id]) return;
+        link(id, l.id, 'declared');
+        declared += 1;
+      });
+    });
+
+    var W = 0, H = 0, dpr = 1, ry = 0.6, rx = 0.32, zoom = 1;
+    var picked = null, drag = null, raf = null;
+    var modeEl = document.getElementById('space-mode');
+    var noteEl = document.getElementById('space-note');
+    var countEl = document.getElementById('space-count');
+
+    function mode() { return modeEl.value; }
+    // **One place that knows which line a mode shows.** This rule stood
+    // in two places at first — the highlight pass and the drawing pass —
+    // and a sabotage that switched off one of them left the probe green,
+    // because the other copy still read right. Two copies of one rule
+    // are two chances to drift apart the day a third kind of edge
+    // arrives.
+    // Strictly one kind at a time, and the caption under the canvas is
+    // why. It says "where an entry sits — no claim about meaning", and
+    // that sentence is FALSE the moment a declared arrow is drawn beside
+    // those lines. The first version did exactly that: both kinds at
+    // once in structure mode, told apart only by colour. A rendered
+    // screenshot found it; no probe on the source could have, because
+    // the source was self-consistent — it was the caption that lied.
+    function shows(e, m) {
+      return m === 'declared' ? e.kind === 'declared' : e.kind === 'structure';
+    }
+    function sizeUp() {
+      var box = canvas.getBoundingClientRect();
+      if (!box.width) return;
+      W = box.width; H = box.height;
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paint();
+    }
+    function project(n) {
+      var cy = Math.cos(ry), sy = Math.sin(ry), cx = Math.cos(rx), sx = Math.sin(rx);
+      var x = n.x * cy + n.z * sy, z = -n.x * sy + n.z * cy;
+      var y = n.y * cx - z * sx, z2 = n.y * sx + z * cx;
+      var s = 720 / (720 + z2) * Math.min(W / 690, H / 410) * zoom;
+      return { x: W * 0.5 + x * s, y: H * 0.49 + y * s, z: z2, s: s };
+    }
+    function css(name) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    }
+    function paint() {
+      if (!W) return;
+      var m = mode();
+      var ink = css('--ink'), faint = css('--faint'), accent = css('--accent');
+      var rule = css('--rule');
+      ctx.clearRect(0, 0, W, H);
+      nodes.forEach(function (n) { n.p = project(n); });
+      var live = m === 'declared'
+        ? nodes.filter(function (n) { return n.kind === 'entry'; })
+        : nodes;
+      var near = {};
+      if (picked) {
+        near[picked] = true;
+        edges.forEach(function (e) {
+          if (!shows(e, m)) return;
+          if (e.from === picked || e.to === picked) { near[e.from] = true; near[e.to] = true; }
+        });
+      }
+      edges.forEach(function (e) {
+        if (!shows(e, m)) return;
+        var a = byId[e.from].p, b = byId[e.to].p;
+        var lit = picked && (e.from === picked || e.to === picked);
+        ctx.globalAlpha = lit ? 0.85 : picked ? 0.08 : (e.kind === 'declared' ? 0.55 : 0.2);
+        ctx.strokeStyle = e.kind === 'declared' ? accent : rule;
+        ctx.lineWidth = lit ? 1.4 : 0.8;
+        ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+        // Only a declared line gets an arrowhead: direction is a claim,
+        // and "sits inside" has none.
+        if (e.kind === 'declared') {
+          var ang = Math.atan2(b.y - a.y, b.x - a.x);
+          var px = b.x - Math.cos(ang) * 9, py = b.y - Math.sin(ang) * 9;
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(px - Math.cos(ang - 0.45) * 7, py - Math.sin(ang - 0.45) * 7);
+          ctx.lineTo(px - Math.cos(ang + 0.45) * 7, py - Math.sin(ang + 0.45) * 7);
+          ctx.closePath(); ctx.fillStyle = accent; ctx.fill();
+        }
+      });
+      live.slice().sort(function (a, b) { return b.p.z - a.p.z; }).forEach(function (n) {
+        ctx.globalAlpha = picked && !near[n.id] ? 0.22 : 1;
+        var r = Math.max(1, n.r * n.p.s);
+        ctx.fillStyle = n.kind === 'entry' ? ink : n.kind === 'tag' ? faint : accent;
+        ctx.beginPath(); ctx.arc(n.p.x, n.p.y, r, 0, Math.PI * 2); ctx.fill();
+        if (n.kind === 'type' && m === 'structure') {
+          ctx.font = '500 11px ' + css('--ui');
+          ctx.textAlign = 'center';
+          ctx.fillStyle = faint;
+          ctx.fillText(n.label, n.p.x, n.p.y + r + 18);
+        }
+      });
+      ctx.globalAlpha = 1;
+      if (m === 'declared' && declared === 0) {
+        ctx.font = '13px ' + css('--ui');
+        ctx.textAlign = 'center';
+        ctx.fillStyle = faint;
+        // Measured-empty, and it says which: nobody linked anything, as
+        // opposed to nobody having looked.
+        ctx.fillText('Not one declared link runs between these entries.', W / 2, H / 2);
+      }
+      countEl.textContent = m === 'declared'
+        ? (ids.length + ' entries \u00b7 ' + declared + ' declared')
+        : (nodes.length + ' nodes \u00b7 ' + ids.length + ' entries');
+      noteEl.textContent = m === 'declared'
+        ? 'Arrows: a link somebody wrote down. Nothing here is inferred.'
+        : 'Lines: where an entry sits \u2014 its drawer, its tags. No claim about meaning.';
+    }
+    function ask() { if (!raf) raf = requestAnimationFrame(function () { raf = null; paint(); }); }
+
+    function nearest(ev) {
+      var box = canvas.getBoundingClientRect();
+      var mx = ev.clientX - box.left, my = ev.clientY - box.top;
+      var best = null, bestD = 18 * 18, m = mode();
+      nodes.forEach(function (n) {
+        if (!n.p) return;
+        if (m === 'declared' && n.kind !== 'entry') return;
+        var dx = n.p.x - mx, dy = n.p.y - my, dd = dx * dx + dy * dy;
+        if (dd < bestD) { bestD = dd; best = n; }
+      });
+      return best;
+    }
+    function show(n) {
+      var box = document.getElementById('space-pick');
+      if (!n) { picked = null; ask(); return; }
+      picked = n.id;
+      if (n.kind !== 'entry') {
+        box.innerHTML = '<p class="none">' + esc(n.label) + ' \u2014 '
+          + (n.kind === 'tag' ? 'a tag. The lines say which entries carry it, nothing more.'
+            : n.kind === 'type' ? 'a drawer. The lines say which entries are in it.'
+              : 'this memory.') + '</p>';
+        ask(); return;
+      }
+      var e = ENTRIES[n.id];
+      var out = (e.links || []).filter(function (l) { return byId[l.id]; });
+      var into = (e.backlinks || []).filter(function (l) { return byId[l.id]; });
+      box.innerHTML = '<h3>' + esc(e.headline) + '</h3>'
+        + '<div class="m">' + esc(n.id) + ' &middot; ' + esc(e.typeLabel || e.type)
+        + ' &middot; ' + esc(e.project) + '</div>'
+        + '<dl><dt>declared out</dt><dd>' + ids2(out) + '</dd>'
+        + '<dt>declared in</dt><dd>' + ids2(into) + '</dd>'
+        + '<dt>tags</dt><dd>' + ((e.tags || []).length
+          ? e.tags.map(esc).join(', ') : '<span class="missing">none</span>') + '</dd></dl>';
+      ask();
+    }
+    function ids2(list) {
+      return list.length
+        ? list.map(function (l) { return esc(l.kind) + ' \u2192 ' + esc(l.id); }).join('<br>')
+        : '<span class="missing">none on this page</span>';
+    }
+
+    canvas.onpointerdown = function (ev) {
+      canvas.setPointerCapture(ev.pointerId);
+      drag = { x: ev.clientX, y: ev.clientY, moved: false };
+    };
+    canvas.onpointermove = function (ev) {
+      if (!drag) return;
+      var dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      ry += dx * 0.006;
+      rx = Math.max(-1.2, Math.min(1.2, rx + dy * 0.004));
+      drag.x = ev.clientX; drag.y = ev.clientY;
+      ask();
+    };
+    canvas.onpointerup = function (ev) {
+      var wasDrag = drag && drag.moved;
+      drag = null;
+      if (!wasDrag) show(nearest(ev));
+    };
+    canvas.onwheel = function (ev) {
+      ev.preventDefault();
+      zoom = Math.max(0.4, Math.min(3, zoom * (ev.deltaY < 0 ? 1.12 : 0.89)));
+      ask();
+    };
+    // Keyboard, because a view you can only reach with a mouse is a view
+    // some people cannot reach at all.
+    canvas.onkeydown = function (ev) {
+      var step = 0.12;
+      if (ev.key === 'ArrowLeft') ry -= step;
+      else if (ev.key === 'ArrowRight') ry += step;
+      else if (ev.key === 'ArrowUp') rx = Math.max(-1.2, rx - step);
+      else if (ev.key === 'ArrowDown') rx = Math.min(1.2, rx + step);
+      else if (ev.key === '+' || ev.key === '=') zoom = Math.min(3, zoom * 1.12);
+      else if (ev.key === '-') zoom = Math.max(0.4, zoom * 0.89);
+      else if (ev.key === 'Escape') { show(null); return; }
+      else return;
+      ev.preventDefault();
+      ask();
+    };
+    modeEl.onchange = function () { picked = null; ask(); };
+    if (window.ResizeObserver) new ResizeObserver(sizeUp).observe(canvas);
+    window.addEventListener('resize', sizeUp);
+    sizeUp();
+    // The tab starts hidden, so the first measurement can be zero-sized.
+    q('.tab').forEach(function (b) {
+      b.addEventListener('click', function () {
+        if (b.dataset.view === 'space') setTimeout(sizeUp, 0);
+      });
+    });
+  }());
 }());
 `;
 
@@ -870,6 +1222,7 @@ export function renderHtml(d, { title = 'cheap-mem', writable = true } = {}) {
   const views = {
     desk: deskView(d),
     knowledge: knowledgeView(d),
+    space: spaceView(d),
     projects: projectsView(d),
     agents: agentsView(d),
     net: netView(d),

@@ -325,6 +325,144 @@ test('read only means no enabled control, not just the word', () => {
   } finally { away(root); }
 });
 
+// --- the knowledge space ------------------------------------------------
+
+test('POSITIVE: a filled memory really draws a space', () => {
+  // Without this, every probe below could pass against the empty-state
+  // branch, which contains no canvas and no modes at all.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    assert.match(html, /<canvas id="space"/, 'no canvas');
+    assert.match(html, /id="space-mode"/, 'no line-mode selector');
+    assert.match(html, /value="structure"/);
+    assert.match(html, /value="declared"/);
+  } finally { away(root); }
+});
+
+test('an empty memory says empty, not unmeasured', () => {
+  // The two are different sentences and only one of them is a gap.
+  const root = empty();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    assert.doesNotMatch(html, /<canvas id="space"/, 'a space was drawn with nothing in it');
+    assert.match(html, /empty, not unmeasured/);
+  } finally { away(root); }
+});
+
+test('the two kinds of line never mix', () => {
+  // The whole reason this view is allowed to exist. `structure` says
+  // where an entry SITS — its drawer, its tags — and claims nothing.
+  // `declared` is a link somebody wrote down. A picture where "shares a
+  // tag" looks like "was derived from" is the inferred-edge graph this
+  // project refuses to draw.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+
+    // Drawing filters by kind, in both directions.
+    assert.match(script, /mode\(\) === 'declared'|m === 'declared'/,
+      'the drawing never asks which mode it is in');
+    // ONE place decides it, and both passes ask that place. The probe
+    // insists on exactly that: the rule appears once, and every use
+    // goes through it.
+    // Exactly one kind per mode. Anything looser and the caption under
+    // the canvas claims something about lines it does not describe.
+    assert.match(script,
+      /return m === 'declared' \? e\.kind === 'declared' : e\.kind === 'structure';/,
+      'the visibility rule is gone, or a mode shows more than one kind again');
+    const uses = (script.match(/if \(!shows\(e, m\)\) return;/g) || []).length;
+    assert.equal(uses, 2, `${uses} passes ask the rule — highlighting and drawing must both`);
+    assert.doesNotMatch(script, /e\.kind !== 'declared'\) return;/,
+      'a second, hand-written copy of the rule came back');
+
+    // Only a declared line gets an arrowhead — direction is a claim.
+    const arrowAt = script.indexOf('Math.atan2');
+    const guardAt = script.lastIndexOf("e.kind === 'declared'", arrowAt);
+    assert.ok(guardAt > 0 && arrowAt - guardAt < 400,
+      'the arrowhead is not behind a declared-only guard');
+
+    // Tag edges exist, and they are structure — never declared.
+    assert.match(script, /link\('tag:' \+ t, id, 'structure'\)/,
+      'a tag line is not declared as structure');
+    assert.doesNotMatch(script, /link\('tag:[^']*'[^)]*'declared'\)/,
+      'a tag line is drawn as a declared reference');
+  } finally { away(root); }
+});
+
+test('a declared line is drawn only when both ends are on the page', () => {
+  // The fixture deliberately contains a link to `zzzzzzzzzzzz`, which
+  // does not exist. An arrow into nothing is worse than no arrow: it
+  // says a relationship is there and points at a place you cannot look.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /if \(!byId\[l\.id\]\) return;/,
+      'a link whose other end is absent would still be drawn');
+    // And the count that the page prints must be the drawn ones.
+    assert.match(script, /declared \+= 1;/);
+  } finally { away(root); }
+});
+
+test('a tag on a single entry gets no node', () => {
+  // A line from a tag to its one and only entry draws a relationship
+  // nobody could not already see, and adds a node to the picture for it.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /if \(tags\[t\]\.length < 2\) return;/,
+      'single-entry tags become nodes');
+  } finally { away(root); }
+});
+
+test('the space reads the same payload as the list, not a second copy', () => {
+  // The arriving export shipped a frozen `data.js` beside the page. Two
+  // sources for one memory means they can disagree, and the one that is
+  // wrong is whichever nobody regenerated.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /Object\.keys\(ENTRIES\)/, 'the space builds from something else');
+    assert.equal((html.match(/var ENTRIES = /g) || []).length, 1, 'two payloads in one page');
+    assert.doesNotMatch(html, /MEMORY_DATA|data\.js/, 'a second data source came along');
+  } finally { away(root); }
+});
+
+test('the space takes its colours and its font from the theme', () => {
+  // The arriving page hard-coded a webfont in the canvas as well as in
+  // the stylesheet — so removing the <link> would have left the canvas
+  // asking for a face that is not there, silently falling back.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /getPropertyValue/, 'the canvas does not read the theme tokens');
+    assert.doesNotMatch(script, /DM Sans|Inter|Space Grotesk/, 'a webfont is named in the canvas');
+    assert.match(script, /css\('--ui'\)/, 'the canvas font is not the house stack');
+  } finally { away(root); }
+});
+
+test('the space can be turned without a mouse', () => {
+  // A view reachable only by dragging is a view some people cannot
+  // reach at all.
+  const { root } = filled();
+  try {
+    const { html } = dashboard.build(root, { title: 'desk' });
+    assert.match(html, /<canvas id="space" tabindex="0"/, 'the canvas cannot be focused');
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    // Not just the word: `onkeydown = null` contains it too, and the
+    // first version of this probe was happy with that.
+    assert.match(script, /canvas\.onkeydown = function/, 'no keyboard handler is installed');
+    for (const k of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape']) {
+      assert.ok(script.includes(k), `${k} does nothing`);
+    }
+  } finally { away(root); }
+});
+
 // --- the page itself ---------------------------------------------------
 
 test('the page reaches nothing: no CDN, no fetch, no second file', async () => {
