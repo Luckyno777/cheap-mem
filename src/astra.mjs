@@ -92,7 +92,20 @@ const CSS = `
   --orange:${INK.orange};--blue:${INK.blue};
   --font:'DM Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   --code:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --rail:248px}
+  --rail:248px;
+  /* Bewegung als EIGENE Token-Ebene, nicht als Flicken. Die Namen und
+     Werte stehen in docs/viewer-design.md, Abschnitt 2.8: benannt nach
+     der zurueckgelegten STRECKE, nicht nach Wichtigkeit. */
+  --instant:100ms;--quick:160ms;--normal:220ms;--slow:320ms;
+  --ease-standard:cubic-bezier(.2,0,0,1);
+  --ease-in:cubic-bezier(.05,.7,.1,1);
+  --ease-crisp:cubic-bezier(.19,1,.22,1)}
+/* Wer Ruhe verlangt hat, bekommt DIESELBE Seite mit Dauer 0 — nicht eine
+   zweite, halb gepflegte Fassung. Der Wissensraum liest dieselbe
+   Einstellung und laesst die Pulse dann von sich aus aus. */
+@media (prefers-reduced-motion:reduce){
+  :root{--instant:0ms;--quick:0ms;--normal:0ms;--slow:0ms}
+}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--font);
   -webkit-font-smoothing:antialiased}
@@ -118,6 +131,8 @@ a{color:inherit}
 .nav{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;
   background:transparent;color:var(--muted);font:15px var(--font);padding:9px 10px;
   border-radius:9px;cursor:pointer}
+.nav{transition:background var(--quick) var(--ease-standard),
+  color var(--instant) var(--ease-standard)}
 .nav:hover{background:var(--raised);color:var(--text)}
 .nav[aria-selected=true]{background:var(--raised);color:var(--text)}
 .nav[aria-selected=true] .nav-glyph{color:var(--violet)}
@@ -143,6 +158,16 @@ a{color:inherit}
 .header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
 .snapshot-badge{font:11px var(--code);color:var(--muted);border:1px solid var(--line);
   border-radius:999px;padding:4px 11px}
+/* Der Anhalte-Knopf. WCAG 2.2.2 verlangt fuer Bewegung ueber fuenf
+   Sekunden eine Moeglichkeit, sie zu STOPPEN — kein Verbot. Ohne diesen
+   Knopf duerfte der Wissensraum gar nicht pulsen; mit ihm darf er. */
+.icon-button{border:1px solid var(--line);border-radius:999px;background:var(--raised);
+  color:var(--muted);font:11px var(--code);padding:4px 12px;cursor:pointer;
+  transition:color var(--instant) var(--ease-standard),
+    border-color var(--instant) var(--ease-standard)}
+.icon-button:hover{color:var(--text);border-color:var(--muted)}
+.icon-button:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
+.icon-button[aria-pressed=true]{color:var(--violet);border-color:var(--violet)}
 main{padding:30px 32px 80px;width:100%;max-width:1600px;margin:0 auto}
 .eyebrow{font:500 10px/1 var(--code);letter-spacing:.16em;text-transform:uppercase;
   color:var(--violet);margin-bottom:10px}
@@ -166,7 +191,10 @@ h2 em{font-style:normal;letter-spacing:0;text-transform:none;font-family:var(--f
 .metric p{margin:8px 0 0;font-size:12px;color:var(--muted)}
 .cards{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(282px,1fr))}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-  padding:16px 18px;border-left:2px solid var(--c,var(--line))}
+  padding:16px 18px;border-left:2px solid var(--c,var(--line));
+  transition:border-color var(--quick) var(--ease-standard),
+    background var(--quick) var(--ease-standard)}
+.card:hover{border-color:var(--muted)}
 .card .name{font-weight:500;font-size:15px}
 .card .state{font:11px var(--code);letter-spacing:.04em;color:var(--c,var(--muted));
   margin-top:2px}
@@ -179,6 +207,9 @@ h2 em{font-style:normal;letter-spacing:0;text-transform:none;font-family:var(--f
 .kv>div{min-width:76px;font-size:14px}
 .chip{display:inline-block;font:11px var(--code);color:var(--muted);background:var(--raised);
   border:1px solid var(--line);border-radius:7px;padding:2px 7px;margin:3px 4px 0 0}
+.chip{transition:background var(--instant) var(--ease-standard),
+  color var(--instant) var(--ease-standard),
+  border-color var(--instant) var(--ease-standard)}
 .chip.on{background:rgba(181,160,250,.14);color:var(--violet);border-color:var(--violet)}
 .none{color:var(--muted);background:var(--panel);border:1px solid var(--line);
   border-radius:14px;padding:16px 18px;max-width:82ch}
@@ -196,6 +227,7 @@ button.chip:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .item{display:flex;align-items:center;gap:12px;width:100%;text-align:left;
   background:transparent;border:0;border-bottom:1px solid var(--line);padding:12px 8px;
   cursor:pointer;color:inherit}
+.item{transition:background var(--instant) var(--ease-standard)}
 .item:hover{background:var(--raised)}
 .item[aria-current=true]{background:rgba(181,160,250,.1)}
 .item:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
@@ -216,7 +248,8 @@ button.chip:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .stage-bar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 12px}
 .stage-bar select{padding:8px 11px;border:1px solid var(--line);border-radius:9px;
   background:var(--raised);color:var(--text);font:13px var(--font)}
-.stage-bar select:focus{outline:2px solid var(--violet);outline-offset:1px}
+.stage-bar select:focus-visible,select:focus-visible{outline:2px solid var(--violet);
+  outline-offset:1px}
 .stage-bar .count{font:11px var(--code);color:var(--muted)}
 .stage{position:relative;background:
   radial-gradient(120% 90% at 50% 0%,rgba(181,160,250,.07),transparent 62%),var(--panel);
@@ -248,6 +281,8 @@ form.set input{flex:1 1 220px;padding:10px 12px;border:1px solid var(--line);bor
 form.set input:focus{outline:2px solid var(--violet);outline-offset:1px}
 form.set button{padding:10px 18px;border:1px solid var(--violet);border-radius:9px;
   background:rgba(181,160,250,.14);color:var(--violet);font:14px var(--font);cursor:pointer}
+form.set button{transition:background var(--quick) var(--ease-crisp),
+  color var(--quick) var(--ease-crisp)}
 form.set button:hover:not(:disabled){background:var(--violet);color:#0a0b0e}
 form.set button:disabled,form.set input:disabled{opacity:.45;cursor:not-allowed}
 form.set .src{font:11px var(--code);color:var(--muted);margin:12px 0 0}
@@ -264,7 +299,8 @@ ol.steps b{font-size:15px;font-weight:500}
     padding:12px 16px}
   .sidebar-note,.workspace,.nav-caption,.profile{display:none}
   .rail-nav{flex-direction:row;overflow-x:auto;gap:4px}
-  .nav{padding:9px 12px}
+  .nav{padding:13px 14px}
+  .icon-button{padding:11px 14px}
   .shell{margin-left:0}
   .topbar{padding:12px 16px}
   main{padding:22px 16px 64px}
@@ -721,6 +757,47 @@ const SCRIPT = String.raw`
 
     var W = 0, H = 0, dpr = 1, ry = 0.6, rx = 0.32, zoom = 1;
     var picked = null, drag = null, raf = null;
+    // **Bewegung, und warum sie ueberhaupt erlaubt ist.**
+    //
+    // docs/viewer-design.md sagt fuer den Viewer: nichts bewegt sich
+    // endlos, kein Schimmern, kein pulsender Punkt — wegen WCAG 2.2.2.
+    // Die Regel dort ist kein Verbot, sie verlangt eine Moeglichkeit zu
+    // STOPPEN. Also gibt es hier beides: der Puls laeuft, und ein Knopf
+    // in der Kopfleiste haelt ihn an.
+    //
+    // Drei Riegel, damit das traegt:
+    //   1. Wer prefers-reduced-motion gesetzt hat, startet ANGEHALTEN.
+    //      Ruhe ist die Vorgabe fuer den, der sie verlangt hat.
+    //   2. Ist der Reiter im Hintergrund, laeuft nichts — eine Animation
+    //      fuer niemanden ist nur Strom.
+    //   3. Der Puls laeuft NUR auf erklaerten Kanten. Er zeigt die
+    //      Richtung eines Verweises, den jemand aufgeschrieben hat; auf
+    //      Zugehoerigkeits-Linien waere er Zierde und wuerde ihnen eine
+    //      Aussage andichten, die sie nicht haben.
+    var ruhe = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var paused = ruhe;
+    var phase = 0, letzte = 0, ticker = null;
+    var motionBtn = document.getElementById('motion');
+    function setMotion(an) {
+      paused = !an;
+      if (motionBtn) {
+        motionBtn.setAttribute('aria-pressed', String(!paused));
+        motionBtn.textContent = paused ? '\u25b6 motion' : '\u25ae\u25ae motion';
+      }
+      if (!paused) tick();
+    }
+    function tick(t) {
+      if (paused || document.hidden) { ticker = null; return; }
+      var jetzt = t || performance.now();
+      var dt = Math.min(64, jetzt - (letzte || jetzt));
+      letzte = jetzt;
+      phase = (phase + dt * 0.00022) % 1;
+      // Sehr langsame Eigendrehung, nur solange niemand zieht. Kleine
+      // Strecke, nie ein Karussell.
+      if (!drag) ry += dt * 0.000018;
+      paint();
+      ticker = requestAnimationFrame(tick);
+    }
     var modeEl = document.getElementById('space-mode');
     var noteEl = document.getElementById('space-note');
     var countEl = document.getElementById('space-count');
@@ -779,6 +856,19 @@ const SCRIPT = String.raw`
           ctx.lineTo(px - Math.cos(ang - 0.45) * 7, py - Math.sin(ang - 0.45) * 7);
           ctx.lineTo(px - Math.cos(ang + 0.45) * 7, py - Math.sin(ang + 0.45) * 7);
           ctx.closePath(); ctx.fillStyle = blue; ctx.fill();
+          // Der Schwall: ein Lichtpunkt laeuft von der Quelle zum Ziel.
+          // Er sagt dasselbe wie die Pfeilspitze, nur ueber die Zeit —
+          // und er sagt es NUR dort, wo jemand den Verweis erklaert hat.
+          if (!paused) {
+            var tt = (phase + h32(e.from + e.to)) % 1;
+            var gx = a.x + (b.x - a.x) * tt, gy = a.y + (b.y - a.y) * tt;
+            var gl = ctx.createRadialGradient(gx, gy, 0, gx, gy, 7);
+            gl.addColorStop(0, blue);
+            gl.addColorStop(1, blue + '00');
+            ctx.globalAlpha = lit ? 0.95 : 0.7;
+            ctx.fillStyle = gl;
+            ctx.beginPath(); ctx.arc(gx, gy, 7, 0, Math.PI * 2); ctx.fill();
+          }
         }
       });
       var live = m === 'declared'
@@ -898,9 +988,16 @@ const SCRIPT = String.raw`
       ask();
     };
     modeEl.onchange = function () { picked = null; ask(); };
+    if (motionBtn) motionBtn.onclick = function () { setMotion(paused); };
+    // Im Hintergrund laeuft nichts, und beim Zurueckkommen laeuft es
+    // wieder an — ohne dass jemand den Knopf noch einmal druecken muss.
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && !paused && !ticker) { letzte = 0; tick(); }
+    });
     if (window.ResizeObserver) new ResizeObserver(sizeUp).observe(canvas);
     window.addEventListener('resize', sizeUp);
     sizeUp();
+    setMotion(!ruhe);
   }());
 }());
 `;
@@ -983,6 +1080,8 @@ export function renderHtml(d, { title = 'cheap-mem', writable = true } = {}) {
     <div class="header-right">
       <span class="snapshot-badge">measured ${h(d.at)}</span>
       <span class="snapshot-badge">${d.inventory.total} entries</span>
+      <button id="motion" class="icon-button" aria-pressed="false"
+        title="Pause or resume the movement in the knowledge space">&#9646;&#9646; motion</button>
     </div>
   </header>
   <main>${sections}</main>
