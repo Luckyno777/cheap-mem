@@ -49,10 +49,32 @@ set -u
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 
 PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+
+# **Backslashes become slashes before anything is looked up.**
+#
+# On Windows the agent hands this hook a native path —
+# `C:\Users\x\AppData\Local\Temp\mem`. bash then tests
+# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
+# exits 0 in silence: no memory, no output, no error. From the outside
+# that is indistinguishable from "nothing to say about this file", so
+# the hook did nothing on Windows for as long as it has existed and
+# nobody could tell.
+#
+# Reproduced without Windows: the same memory, addressed with slashes,
+# answers with 440 characters; addressed with backslashes it answers
+# with nothing and exits 0.
+#
+# Git Bash resolves `C:/Users/...` perfectly well, so one substitution
+# is the whole repair. It is a no-op on Linux and macOS, where a
+# backslash in a path is a legal character but never a separator in any
+# path this hook is handed.
+entrutscht() { printf '%s' "${1//\\//}"; }
+
 ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
+  k="$(entrutscht "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && exit 0

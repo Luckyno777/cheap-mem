@@ -195,6 +195,34 @@ test('a different session starts over', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+test('a Windows ROOT is found too', () => {
+  // The path SPLIT was handled (the test below); the path to the
+  // memory ITSELF was not. On Windows the agent hands this hook a
+  // native root — `C:\\Users\\x\\...` — and `[ -f "$k/.mem/config.json" ]`
+  // finds nothing there. The hook then exits 0 without a word, which
+  // from the outside looks exactly like "nothing to say about this
+  // file". So on Windows it did nothing at all, silently, for as long
+  // as it has existed.
+  //
+  // Reproducible without Windows, which is why this test can exist
+  // here: the same memory answers with content when addressed with
+  // slashes and with nothing when addressed with backslashes.
+  const root = memory(ENTRIES);
+  try {
+    const gerade = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh', session: 'w1' });
+    assert.ok(gerade.raw, `precondition: the memory answers at all ${warum(gerade)}`);
+
+    const schief = call(root.replace(/\//g, '\\'),
+      { file: '/home/x/cheap-mem/install/claude-code.sh', session: 'w2' });
+    assert.ok(schief.raw,
+      'a memory addressed with backslashes was not found, and the hook said nothing '
+      + `about it — the exact Windows failure ${warum(schief)}`);
+    assert.equal(schief.json.hookSpecificOutput.additionalContext,
+      gerade.json.hookSpecificOutput.additionalContext,
+      'both spellings of the same root must give the same answer');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 test('a Windows path is split too', () => {
   // The friend's install runs on Windows; there the hook JSON carries
   // backslashes. Splitting on "/" alone would leave the whole path as

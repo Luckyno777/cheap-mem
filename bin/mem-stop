@@ -35,10 +35,20 @@ set -u
 # Resolve the memory root (has .mem/config.json). CHEAP_MEM_ROOT is what
 # the installer hardcodes; the probe keeps the hook usable by hand.
 PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+# Backslashes become slashes before anything is looked up. On Windows
+# the agent hands a native path (`C:\Users\x\mem`), bash tests
+# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
+# exits 0 in silence — indistinguishable from "nothing to report".
+# Reproduced without Windows in test/before-edit.test.mjs. Git Bash
+# resolves `C:/Users/...` fine, so one substitution is the repair; it is
+# a no-op on Linux and macOS.
+entrutscht() { printf '%s' "${1//\\//}"; }
+
 ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
+  k="$(entrutscht "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && exit 0
