@@ -17,6 +17,38 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+/**
+ * A handshake that fails must SAY why.
+ *
+ * These helpers used to return the parsed stdout lines and drop `status`
+ * and `stderr` on the floor. When the server does not start, the caller
+ * then reads `.result` of `undefined` and the failure message is
+ * "Cannot read properties of undefined" — which names neither the exit
+ * code nor the stack the server printed.
+ *
+ * That is not a theoretical concern: this suite is green on a developer
+ * machine and has been failing in CI on every platform for days, with
+ * exactly that message and nothing else to go on. A test that cannot
+ * explain its own failure costs more than the bug it found.
+ */
+function readReplies(r, what) {
+  const lines = String(r.stdout ?? '').split('\n').filter((z) => z.trim());
+  if (!lines.length) {
+    throw new Error(
+      `${what}: the MCP server produced no reply.\n`
+      + `  exit status : ${r.status}\n`
+      + `  signal      : ${r.signal ?? '(none)'}\n`
+      + `  spawn error : ${r.error ? r.error.message : '(none)'}\n`
+      + `  stderr      : ${String(r.stderr ?? '').trim().slice(0, 2000) || '(empty)'}`);
+  }
+  return lines.map((z, i) => {
+    try { return JSON.parse(z); } catch (e) {
+      throw new Error(`${what}: reply line ${i + 1} is not JSON: ${e.message}\n  line: ${z.slice(0, 300)}`);
+    }
+  });
+}
+
+
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MCP = path.join(REPO, 'bin', 'mem-mcp');
 
@@ -46,7 +78,7 @@ function bridge(root, calls = [], extraEnv = {}) {
     input: lines.join('\n') + '\n', encoding: 'utf8', timeout: 40000,
     env: { ...process.env, CHEAP_MEM_ROOT: root, ...extraEnv },
   });
-  return String(r.stdout).split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z));
+  return readReplies(r, 'bridge');
 }
 
 const REQUIRED = ['mem_links', 'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts', 'mem_explain'];
