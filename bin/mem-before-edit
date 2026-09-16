@@ -66,6 +66,10 @@ entrutscht() { printf '%s' "${1//\\//}"; }
 # would cost another round trip. A branch that says its own name costs
 # one line.
 spur() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: exit at %s\n' "$1" >&2; return 0; }
+# Dieselbe Spur, aber fuer einen Zwischenstand statt fuer einen Ausstieg.
+# `spur` schreibt "exit at ..." — an einer Stelle, die NICHT aussteigt,
+# waere das eine Falschaussage im eigenen Diagnosewerkzeug.
+notiz() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: %s\n' "$1" >&2; return 0; }
 [ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && { spur "off-schalter"; exit 0; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && { spur "hook-off"; exit 0; }
 
@@ -194,6 +198,19 @@ AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
     process.stdout.write(JSON.stringify({ ...d, count: m?.shown ?? 0 }));
   }).catch(() => process.stdout.write("{}"));' "$PTR_URL" 2>/dev/null)"
 
+# **Der Marken-Pfad konnte bis hierher nichts ueber sich sagen.**
+# readMark und writeMark fangen jeden Fehler ab ("Never fails outward"),
+# und die Spur deckte nur die fruehen AUSSTIEGE ab. Faellt die
+# Entscheidung falsch aus, lief der Hook also sauber durch, gab den
+# vollen Block aus, und stderr war leer — genau der Zustand am
+# 2026-09-16 auf dem Windows-Laeufer, wo `exit=0, stderr: (empty)` alles
+# war, was zwei fallende Zusicherungen hergaben.
+#
+# Ein Zweig, der eine Entscheidung trifft, muss sie hinter dem Schalter
+# nennen koennen. Sonst ist er von "es gibt nichts zu entscheiden" nicht
+# zu unterscheiden.
+notiz "marke: MARK=$MARK vorhanden=$([ -f "$MARK" ] && echo ja || echo nein) level=$LEVEL ahead=$AHEAD"
+
 if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
   printf '%s' "$AHEAD" | MEM_Q="$QUERY" node -e '
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
@@ -274,6 +291,7 @@ MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" MEM_FP="$FP" MEM_COUNT="$COUNT" node -e '
     level: Number(process.env.MEM_LEVEL), fingerprint: process.env.MEM_FP,
     shown: Number(process.env.MEM_COUNT),
   })).catch(() => {});' "$PTR_URL" 2>/dev/null
+notiz "marke geschrieben: vorhanden=$([ -f "$MARK" ] && echo ja || echo nein) fp=$FP count=$COUNT"
 
 if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
   printf '%s' "$VERDICT" | MEM_Q="$QUERY" node -e '
