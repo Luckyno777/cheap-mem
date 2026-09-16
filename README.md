@@ -23,10 +23,12 @@ to verify each claim rather than believe it.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-13: **54 CLI commands, 28 MCP tools, 55 modules, 904
-tests**, at **94.85 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
+As of 2026-09-16: **54 CLI commands, 28 MCP tools, 55 modules, 911
+tests**, at **94.89 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
 code and fails when this line drifts.
 
+<!-- zahl-historisch: 17 MCP tools (a true measurement of that day) -->
+<!-- zahl-historisch: 28 modules (likewise) -->
 It exists because this README is not enough for a skim, and that was
 measured, not guessed: three separate AI evaluations reported built
 capabilities as missing. Against the README alone, in **September 2026
@@ -516,9 +518,12 @@ determined the result is `unknown`, not `ok`.
   thing runs on Node's standard library. Embeddings and anything else
   optional load lazily and only if asked for.
 
+  <!-- zahl-historisch: 500 lines (the corrected claim, quoted here as
+       the error it was — not a statement about today. The "about N
+       lines" two sentences on IS current and stays guarded.) -->
   This bullet used to say "the tool is small on purpose, ~500 lines of
   JS". It was off by a factor of thirty-two — `bin/` and `src/` are
-  about 18,900 lines. A tool that argues for itself with honest
+  about 23,300 lines. A tool that argues for itself with honest
   self-description cannot afford that particular error, so the claim is
   now the one that is actually true: not small, but self-contained.
 - **No hardcoded names.** Participants, branch, remote — all in
