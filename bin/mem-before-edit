@@ -45,6 +45,16 @@
 #   MEM_RETRIEVE_ROOTS      space-separated fallback roots to probe
 
 set -u
+
+# Backslashes become slashes before a path is used as a path.
+#
+# On Windows every path handed to a hook is native: the memory root,
+# and `$0` itself. bash then finds nothing where something is, and the
+# hook exits 0 without a word — indistinguishable from "nothing to
+# report". Two places per hook needed this, and five hooks carried the
+# same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
+# substitution changes nothing.
+entrutscht() { printf '%s' "${1//\\//}"; }
 [ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && exit 0
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 
@@ -68,7 +78,6 @@ PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-me
 # is the whole repair. It is a no-op on Linux and macOS, where a
 # backslash in a path is a legal character but never a separator in any
 # path this hook is handed.
-entrutscht() { printf '%s' "${1//\\//}"; }
 
 ROOT=""
 # shellcheck disable=SC2086
@@ -81,7 +90,12 @@ done
 
 # Two shapes, same as the other hooks: the memory may carry the tool
 # itself, or the tool lives in a separate checkout next to this script.
-HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# `$0` is a path from outside too, and on Windows it carries
+# backslashes: `dirname "D:\a\repo\bin\mem-before-edit"` returns `.`,
+# so HOOK_DIR became the CURRENT directory instead of bin/. The tool
+# next to the hook was then not found and the hook exited 0 in
+# silence — the same failure as the root lookup, one line further on.
+HOOK_DIR="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
 if [ -f "$ROOT/bin/mem" ]; then
   RUN_MEM=(node "$ROOT/bin/mem")
 elif [ -f "$HOOK_DIR/mem" ]; then

@@ -28,6 +28,16 @@
 
 set -u
 
+# Backslashes become slashes before a path is used as a path.
+#
+# On Windows every path handed to a hook is native: the memory root,
+# and `$0` itself. bash then finds nothing where something is, and the
+# hook exits 0 without a word — indistinguishable from "nothing to
+# report". Two places per hook needed this, and five hooks carried the
+# same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
+# substitution changes nothing.
+entrutscht() { printf '%s' "${1//\\//}"; }
+
 if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
   echo "error: env CHEAP_MEM_ROOT missing" >&2
   exit 2
@@ -36,14 +46,6 @@ if [ ! -d "$CHEAP_MEM_ROOT/.git" ]; then
   echo "error: CHEAP_MEM_ROOT='$CHEAP_MEM_ROOT' is not a git clone" >&2
   exit 2
 fi
-# Backslashes become slashes before anything is looked up. On Windows
-# the agent hands a native path (`C:\Users\x\mem`), bash tests
-# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
-# exits 0 in silence — indistinguishable from "nothing to report".
-# Reproduced without Windows in test/before-edit.test.mjs. Git Bash
-# resolves `C:/Users/...` fine, so one substitution is the repair; it is
-# a no-op on Linux and macOS.
-entrutscht() { printf '%s' "${1//\\//}"; }
 
 CHEAP_MEM_ROOT="$(entrutscht "${CHEAP_MEM_ROOT:-}")"
 export CHEAP_MEM_ROOT
@@ -62,7 +64,10 @@ LOG="${MEM_WATCH_LOG:-$CHEAP_MEM_ROOT/.mem/watch.log}"
 HANDLER_TIMEOUT="${MEM_WATCH_HANDLER_TIMEOUT:-300}"
 
 # Locate mem CLI relative to this script.
-HERE="$(cd "$(dirname "$0")" && pwd)"
+# `$0` is a path from outside too: on Windows `dirname` of a
+# backslash path returns `.`, so this would become the CURRENT
+# directory instead of bin/.
+HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
 MEM_CLI="$HERE/mem"
 if [ ! -f "$MEM_CLI" ]; then
   MEM_CLI="mem"   # fall back to PATH

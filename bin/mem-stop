@@ -26,6 +26,16 @@
 # Always exits 0: a Stop hook must never break the session it is attached to.
 
 set -u
+
+# Backslashes become slashes before a path is used as a path.
+#
+# On Windows every path handed to a hook is native: the memory root,
+# and `$0` itself. bash then finds nothing where something is, and the
+# hook exits 0 without a word — indistinguishable from "nothing to
+# report". Two places per hook needed this, and five hooks carried the
+# same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
+# substitution changes nothing.
+entrutscht() { printf '%s' "${1//\\//}"; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 [ "${MEM_CAPTURE_OFF:-}" = "1" ] && exit 0
 # Never capture ourselves — the digest/worker sets this to avoid the
@@ -35,14 +45,6 @@ set -u
 # Resolve the memory root (has .mem/config.json). CHEAP_MEM_ROOT is what
 # the installer hardcodes; the probe keeps the hook usable by hand.
 PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
-# Backslashes become slashes before anything is looked up. On Windows
-# the agent hands a native path (`C:\Users\x\mem`), bash tests
-# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
-# exits 0 in silence — indistinguishable from "nothing to report".
-# Reproduced without Windows in test/before-edit.test.mjs. Git Bash
-# resolves `C:/Users/...` fine, so one substitution is the repair; it is
-# a no-op on Linux and macOS.
-entrutscht() { printf '%s' "${1//\\//}"; }
 
 ROOT=""
 # shellcheck disable=SC2086
@@ -53,7 +55,10 @@ for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
 done
 [ -z "$ROOT" ] && exit 0
 
-HERE="$(cd "$(dirname "$0")" && pwd)"
+# `$0` is a path from outside too: on Windows `dirname` of a
+# backslash path returns `.`, so this would become the CURRENT
+# directory instead of bin/.
+HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
 
 STDIN_JSON=""
 if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi

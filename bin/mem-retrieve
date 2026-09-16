@@ -24,6 +24,16 @@
 #   MEM_RETRIEVE_ROOTS    space-separated fallback roots to probe
 
 set -u
+
+# Backslashes become slashes before a path is used as a path.
+#
+# On Windows every path handed to a hook is native: the memory root,
+# and `$0` itself. bash then finds nothing where something is, and the
+# hook exits 0 without a word — indistinguishable from "nothing to
+# report". Two places per hook needed this, and five hooks carried the
+# same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
+# substitution changes nothing.
+entrutscht() { printf '%s' "${1//\\//}"; }
 [ "${MEM_RETRIEVE_OFF:-}" = "1" ] && exit 0
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 
@@ -32,14 +42,6 @@ set -u
 # test can reach is a hook that breaks unnoticed, so the list is
 # overridable via MEM_RETRIEVE_ROOTS.
 PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
-# Backslashes become slashes before anything is looked up. On Windows
-# the agent hands a native path (`C:\Users\x\mem`), bash tests
-# `[ -f "C:\Users\x\.mem/config.json" ]`, finds nothing, and the hook
-# exits 0 in silence — indistinguishable from "nothing to report".
-# Reproduced without Windows in test/before-edit.test.mjs. Git Bash
-# resolves `C:/Users/...` fine, so one substitution is the repair; it is
-# a no-op on Linux and macOS.
-entrutscht() { printf '%s' "${1//\\//}"; }
 
 ROOT=""
 # shellcheck disable=SC2086
@@ -56,7 +58,12 @@ done
 # next to this very script is the one to use, pointed at the memory with
 # --root. A hook that only knew the first shape would silently do
 # nothing in the second.
-HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+# `$0` is a path from outside too, and on Windows it carries
+# backslashes: `dirname "D:\a\repo\bin\mem-before-edit"` returns `.`,
+# so HOOK_DIR became the CURRENT directory instead of bin/. The tool
+# next to the hook was then not found and the hook exited 0 in
+# silence — the same failure as the root lookup, one line further on.
+HOOK_DIR="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
 if [ -f "$ROOT/bin/mem" ]; then
   RUN_MEM=(node "$ROOT/bin/mem")
 elif [ -f "$HOOK_DIR/mem" ]; then
