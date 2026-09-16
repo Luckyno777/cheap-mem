@@ -103,6 +103,22 @@ function frage(prompt) {
   const t0 = Date.now();
   try {
     const d = JSON.parse(execFileSync('claude', [
+      // **`--restricted`, und es ist keine Vorsichtsmassnahme.**
+      //
+      // Gemessen am 2026-09-16: ohne dieses Flag erbt der Messlauf den
+      // Startkontext der messenden Maschine. Die CLI fuehrt die user-level
+      // SessionStart-Hooks aus, und deren Ausgabe steht im Kontext jeder
+      // Frage. Im gepaarten Lauf vom selben Tag zitierten 9 von 192
+      // Antworten fremde Notizen, die im Testkorpus nicht vorkommen —
+      // gezaehlt als „erfundene Zahlen", obwohl das Modell sie gelesen und
+      // nicht erfunden hatte.
+      //
+      // Positivkontrolle, mit der das Flag geprueft wurde: eine Frage, die
+      // NUR aus dem Hook-Text beantwortbar ist. Ohne das Flag kam die
+      // Antwort, mit ihm „KEIN-KONTEXT". `--settings` mit leeren Hooks
+      // reicht NICHT, die user-level Datei wird dazugemischt; `--bare`
+      // schaltet die Hooks zwar ab, bricht aber die Anmeldung.
+      '--restricted',
       '-p', prompt, '--model', MODEL, '--output-format', 'json',
       '--system-prompt', arms.SYSTEM, '--exclude-dynamic-system-prompt-sections',
       '--disallowedTools', 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task',
