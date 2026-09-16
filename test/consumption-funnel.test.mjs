@@ -14,12 +14,14 @@
 // invariant: drei-zustaende-nie-zwei
 // invariant: leer-ist-kein-bestehen
 // invariant: abschluss-zeiger-eine-stelle
+// invariant: faltungsregel-vor-der-zaehlung
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { funnel, finding, readJsonl } from '../bench/consumption-funnel.mjs';
+import { funnel, finding, readJsonl, NO_FOLD, FOLD_POINTER,
+  FOLD_EDGE } from '../bench/consumption-funnel.mjs';
 import * as inbox from '../src/inbox.mjs';
 
 const run = (r) => funnel(r, { isDone: inbox.isDone });
@@ -156,4 +158,58 @@ test('a closing row is not counted as a new duty', () => {
     assert.equal(c.consumed, 1);
     assert.equal(c.orphanClosings, 0);
   } finally { away(r); }
+});
+
+// --------------------------------------------------------------------
+// Fold rule: every number says how rows become events.
+//
+// In the project this tool was extracted from, a session counted an
+// append-only book and reported twenty waiting requests. It was one.
+// The counting was right and the file was right — the book's reading
+// instruction was written nowhere, and grouping by `id` is the reading
+// a newcomer arrives at on their own.
+//
+// So `fold` is a REQUIRED field here and `NO_FOLD` a value of its own:
+// "nothing is folded here" is a statement, a missing field is not.
+
+test('every channel names its fold rule — the unmeasured ones too', () => {
+  const r = build();
+  try {
+    // Deliberately an EMPTY root: the early returns for a missing
+    // store are exactly where a required field gets forgotten.
+    for (const c of run(r)) {
+      assert.equal(typeof c.fold, 'string', `${c.channel} has no fold rule`);
+      assert.ok(c.fold.length > 0, `${c.channel}: fold rule is empty`);
+    }
+  } finally { away(r); }
+});
+
+test('the fold rule names the pointer actually folded on', () => {
+  const r = build();
+  try {
+    // Positive control against a rule that merely sits there. The
+    // duties channel folds on closes_id, and its sentence must say so.
+    // Were the printed rule ever to drift from the pointer the code
+    // reads — the defect family this instrument exists to find — the
+    // rule would still look right while the number went wrong.
+    rows(r, 'duties.jsonl', [
+      { id: 'a', duty: 'one' },
+      { id: 'b', duty: 'two' },
+      { id: 'c', closes_id: 'a' },
+    ]);
+    const c = pick(run(r), 'duties');
+    assert.equal(c.fold, FOLD_POINTER);
+    assert.ok(c.fold.includes('closes_id'), 'fold rule hides the pointer name');
+    assert.equal(c.produced, 2);
+    assert.equal(c.consumed, 1);
+  } finally { away(r); }
+});
+
+test('NO_FOLD is a value, not the empty string', () => {
+  // Three states, never two: folded / explicitly unfolded / not said.
+  // The third must never look like the second.
+  assert.notEqual(NO_FOLD, '');
+  assert.notEqual(NO_FOLD, null);
+  assert.notEqual(NO_FOLD, FOLD_POINTER);
+  assert.notEqual(NO_FOLD, FOLD_EDGE);
 });

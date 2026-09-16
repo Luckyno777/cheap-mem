@@ -93,9 +93,36 @@ function fromProjects(root, name) {
  * Counting `state` counts the closing ROWS, not the closed records —
  * two different numbers, and the interesting one is the second.
  */
+/**
+ * A channel's fold rule — the sentence by which rows become events.
+ *
+ * **Why this is printed next to the number and not only written here.**
+ * In an append-only book a request row keeps its own state field
+ * forever; it is decided by a LATER row that names it through a
+ * pointer. Group by `id` and every decision row forms its own group,
+ * hiding nobody — so every request stays on "waiting", and the reader
+ * gets the UNFOLDED count. Measured in the project this tool was
+ * extracted from: 39 rows, reported as twenty waiting requests, folded
+ * it was one. The count was right and the file was right; the reading
+ * instruction was nowhere, and grouping by `id` is the reading a
+ * newcomer arrives at on their own.
+ *
+ * `NO_FOLD` is therefore a value of its own and not an empty string.
+ * "nothing is folded here" is a statement; "nothing is written here"
+ * would not be.
+ */
+export const NO_FOLD = 'no fold: one row is one event';
+
+/** Append-only with a closing pointer: a later row names the earlier one. */
+export const FOLD_POINTER = 'closes_id -> id';
+
+/** Closed through an edge in the graph, not through a field on the row. */
+export const FOLD_EDGE = 'link art=resolves, nach -> question.id';
+
 function pointerChannel(name, data, { measuredAt = 'store' } = {}) {
   if (data.missing) {
-    return { channel: name, measuredAt, produced: null, delivered: null, consumed: null,
+    return { channel: name, measuredAt, fold: FOLD_POINTER,
+      produced: null, delivered: null, consumed: null,
       note: 'no store present' };
   }
   // One place decides what a closing row is, and both lines below ask
@@ -112,6 +139,7 @@ function pointerChannel(name, data, { measuredAt = 'store' } = {}) {
   return {
     channel: name,
     measuredAt,
+    fold: FOLD_POINTER,
     produced: originals.length,
     // For these channels delivery is not a step of its own: the row
     // lies there the moment it is written. Deliberately null rather
@@ -129,7 +157,7 @@ function messageChannel(root, isDone) {
   let names = [];
   try { names = fs.readdirSync(dir_).filter((n) => n.endsWith('.md')); }
   catch {
-    return { channel: 'inbox', measuredAt: 'store',
+    return { channel: 'inbox', measuredAt: 'store', fold: NO_FOLD,
       produced: null, delivered: null, consumed: null, note: 'inbox not readable' };
   }
   let consumed = 0;
@@ -149,6 +177,9 @@ function messageChannel(root, isDone) {
   return {
     channel: 'inbox',
     measuredAt: 'store',
+    // One file is one letter; the closing state sits in the header of
+    // THAT file, not in a follow-up row. Nothing is folded here.
+    fold: NO_FOLD,
     produced: names.length,
     // Whether a bell rang lives in the runtime state of ONE container,
     // not in the store. Not claimed here.
@@ -183,7 +214,8 @@ function messageChannel(root, isDone) {
 function questionChannel(root) {
   const questions = fromProjects(root, 'questions');
   if (questions.missing) {
-    return { channel: 'questions', measuredAt: 'store', produced: null, delivered: null,
+    return { channel: 'questions', measuredAt: 'store', fold: FOLD_EDGE,
+      produced: null, delivered: null,
       consumed: null, note: 'no questions store' };
   }
   const edges = fromProjects(root, 'links');
@@ -193,6 +225,7 @@ function questionChannel(root) {
   return {
     channel: 'questions',
     measuredAt: 'store',
+    fold: FOLD_EDGE,
     produced: originals.length,
     delivered: null,
     consumed: originals.filter((f) => resolved.has(f?.id)).length,
@@ -208,12 +241,15 @@ function questionChannel(root) {
 function retrievalChannel(root) {
   const r = readJsonl(path.join(root, '.pipeline', 'injections.jsonl'));
   if (r.missing) {
-    return { channel: 'retrieval', measuredAt: 'container', produced: null, delivered: null,
+    return { channel: 'retrieval', measuredAt: 'container', fold: NO_FOLD,
+      produced: null, delivered: null,
       consumed: null, note: 'no injections in this container' };
   }
   return {
     channel: 'retrieval',
     measuredAt: 'container',
+    // One row is one hook run. Nothing points at an earlier one.
+    fold: NO_FOLD,
     produced: r.rows.length,
     delivered: r.rows.filter((z) => (z?.hits ?? 0) > 0).length,
     // Whether an injection changed the answer is not observable from
@@ -282,6 +318,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
       + `${num(k.delivered).padStart(14)}${num(k.consumed).padStart(14)}${rate(k).padStart(8)}`);
     if (k.note) console.log(`${''.padEnd(12)}${k.note}`);
   }
+  console.log();
+  // **The fold rule belongs next to the number, not in the source.**
+  // Whoever reads this should not have to guess whether they are
+  // looking at rows or at events. It is exactly this missing line that
+  // once turned one open request into twenty.
+  console.log('Fold per channel — how rows become events:');
+  for (const k of channels) console.log(`  ${k.channel.padEnd(12)}${k.fold}`);
   console.log();
 
   if (!f.measured) {
