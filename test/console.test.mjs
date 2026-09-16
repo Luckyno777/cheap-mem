@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as consolePage from '../src/console.mjs';
@@ -41,7 +42,12 @@ function memory() {
 }
 
 async function start(root, env = {}) {
-  const mod = await import(`${SERVE}?t=${Math.random()}`);
+  // pathToFileURL, not the bare path: on Windows an absolute path
+  // starts with a drive letter, and the ESM loader reads `D:` as a URL
+  // scheme. It then refuses with "Only URLs with a scheme in: file,
+  // data, and node are supported" — 14 of this file's tests, on every
+  // Windows CI run, while Linux and macOS were green.
+  const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
   const { server, cfg } = await mod.serve(root, {
     CHEAP_MEM_SERVE_TOKEN: DOOR,
     CHEAP_MEM_SERVE_HOST: '127.0.0.1',

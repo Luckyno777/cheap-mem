@@ -11,3 +11,16 @@
 # Do NOT use this for structured files (JSON, YAML): union would glue
 # two halves of an object together and destroy the file.
 *.jsonl merge=union
+
+# LF in the working tree on every platform.
+#
+# Several tests parse this repository's own text: the README's command
+# block, the capability tables, the count claims. Their patterns are
+# written with \n, because that is what the files contain. On a Windows
+# checkout git used to convert them to CRLF, the patterns stopped
+# matching, and the tests reported "the README has no command block at
+# all" — about a file that was perfectly fine.
+#
+# The shell hooks need LF regardless; PowerShell and Node read LF
+# without complaint. So there is no platform that wants CRLF here.
+* text=auto eol=lf
