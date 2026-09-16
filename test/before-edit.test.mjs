@@ -41,7 +41,11 @@ function call(root, { file, session = 's1' } = {}) {
   const r = spawnSync('bash', [HOOK], {
     input: JSON.stringify({ session_id: session, tool_name: 'Edit', tool_input: { file_path: file } }),
     encoding: 'utf8', timeout: 30000,
-    env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_HOOK_OFF: '' },
+    // The trace names the branch the hook exits at, on stderr. It is
+    // off in normal use and never touches stdout; here it is on so a
+    // failing assertion can say WHICH exit was taken instead of only
+    // that nothing came back.
+    env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_HOOK_OFF: '', MEM_BEFORE_EDIT_TRACE: '1' },
   });
   const raw = String(r.stdout ?? '').trim();
   // **A silent hook must say why it was silent.**

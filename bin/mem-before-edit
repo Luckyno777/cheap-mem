@@ -55,8 +55,19 @@ set -u
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
 entrutscht() { printf '%s' "${1//\\//}"; }
-[ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && exit 0
-[ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
+
+# **Which exit did it take?** `MEM_BEFORE_EDIT_TRACE=1` makes every
+# early exit name itself on stderr. Nothing is printed without it, and
+# stdout is never touched — the hook's contract is unchanged.
+#
+# This exists because two plausible causes were repaired, both of them
+# real bugs verified on Linux, and neither was the reported failure:
+# the hook kept exiting 0 in silence on Windows. Guessing a third time
+# would cost another round trip. A branch that says its own name costs
+# one line.
+spur() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: exit at %s\n' "$1" >&2; return 0; }
+[ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && { spur "off-schalter"; exit 0; }
+[ "${MEM_HOOK_OFF:-}" = "1" ] && { spur "hook-off"; exit 0; }
 
 PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
 
@@ -86,7 +97,7 @@ for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   k="$(entrutscht "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
-[ -z "$ROOT" ] && exit 0
+[ -z "$ROOT" ] && { spur "keine-wurzel (CHEAP_MEM_ROOT=${CHEAP_MEM_ROOT:-} PROBE=$PROBE)"; exit 0; }
 
 # Two shapes, same as the other hooks: the memory may carry the tool
 # itself, or the tool lives in a separate checkout next to this script.
@@ -101,6 +112,7 @@ if [ -f "$ROOT/bin/mem" ]; then
 elif [ -f "$HOOK_DIR/mem" ]; then
   RUN_MEM=(node "$HOOK_DIR/mem" --root "$ROOT")
 else
+  spur "kein-werkzeug (ROOT=$ROOT HOOK_DIR=$HOOK_DIR)"
   exit 0
 fi
 
@@ -128,12 +140,12 @@ READING="$(printf '%s' "$IN" | node -e '
     if (query.length < 4) process.exit(0);
     process.stdout.write(JSON.stringify({ query, session: String(j.session_id ?? "none") }));
   })' 2>/dev/null)"
-[ -z "$READING" ] && exit 0
+[ -z "$READING" ] && { spur "kein-lesbarer-pfad"; exit 0; }
 
 field() { printf '%s' "$READING" | node -e "let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>process.stdout.write(String(JSON.parse(d).$1 ?? \"\")))" 2>/dev/null; }
 QUERY="$(field query)"
 SESSION="$(field session)"
-[ -z "$QUERY" ] && exit 0
+[ -z "$QUERY" ] && { spur "keine-anfrage"; exit 0; }
 
 # Once per file per session — but not SILENTLY.
 #
@@ -150,7 +162,7 @@ SESSION="$(field session)"
 # lookup at all.
 SAFE="$(printf '%s' "${SESSION}__${QUERY}" | tr -c 'A-Za-z0-9_.-' '_')"
 MARKS="${MEM_BEFORE_EDIT_MARKS:-$ROOT/.mem/before-edit}"
-mkdir -p "$MARKS" 2>/dev/null || exit 0
+mkdir -p "$MARKS" 2>/dev/null || { spur "marken-ordner (MARKS=$MARKS)"; exit 0; }
 MARK="$MARKS/$SAFE.json"
 PTR="$HOOK_DIR/../src/pointer.mjs"
 
@@ -199,8 +211,8 @@ fi
 # without a prefix or with the same one (src/component.mjs);
 # `projects/x/events.jsonl` answers no question about
 # `global/events.jsonl`.
-HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --json 2>/dev/null)" || exit 0
-[ -z "$HITS" ] && exit 0
+HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --json 2>/dev/null)" || { spur "suche-fehlgeschlagen"; exit 0; }
+[ -z "$HITS" ] && { spur "keine-treffer"; exit 0; }
 
 PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
@@ -220,7 +232,7 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
     process.stdout.write(out.join("\n"));
   })' 2>/dev/null)"
 
-[ -z "$PICK" ] && exit 0
+[ -z "$PICK" ] && { spur "keine-auswahl"; exit 0; }
 
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
