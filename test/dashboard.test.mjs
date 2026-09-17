@@ -27,6 +27,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as dashboard from '../src/dashboard.mjs';
+import * as astra from '../src/astra.mjs';
 import * as consolePage from '../src/console.mjs';
 import * as memory from '../src/memory.mjs';
 import * as agents from '../src/agents.mjs';
@@ -69,7 +70,7 @@ function empty() {
 }
 
 /** A memory whose every visible value is one of MINE. */
-function filled() {
+function filled({ extra = 0 } = {}) {
   const r = empty();
   agents.createAgent(r, MINE.agent, { role: 'measures things', model: 'none' });
   const learning = memory.logEntry(r, 'learning',
@@ -90,6 +91,12 @@ function filled() {
     { from: decision.entry.id, to: learning.entry.id, kind: 'contradicts', why: 'disputes it' });
   memory.logEntry(r, 'link',
     { from: learning.entry.id, to: 'zzzzzzzzzzzz', kind: 'causes', why: 'points at nothing' });
+  // Filler, for probes that need to get PAST `LIST_MAX`. Without it
+  // every fixture sits under the limit, the cut cuts nothing, and a
+  // probe on the cut passes even when the cut is gone.
+  for (let i = 0; i < extra; i += 1) {
+    memory.logEntry(r, 'thought', { title: `filler thought ${i}`, text: 'filler' });
+  }
   return { root: r, learning: learning.entry.id, error: error.entry.id };
 }
 
@@ -102,7 +109,7 @@ test('POSITIVE: what is in the memory reaches the page', async () => {
   // contains no demo strings.
   const { root, learning } = filled();
   try {
-    const { html, data } = dashboard.build(root, { title: 'desk' });
+    const { html, data } = astra.build(root, { title: 'desk' });
     assert.ok(data.entries.length >= 6,
       `the fixture produced ${data.entries.length} entries — nothing was measured`);
     for (const [what, value] of Object.entries(MINE)) {
@@ -115,7 +122,7 @@ test('POSITIVE: what is in the memory reaches the page', async () => {
 test('nothing invented: not one string of the arriving export survives', async () => {
   const { root } = filled();
   try {
-    const { html } = dashboard.build(root, { title: 'desk' });
+    const { html } = astra.build(root, { title: 'desk' });
     const found = THEIRS.filter((s) => html.includes(s));
     assert.deepEqual(found, [],
       `demo data on a page that claims to be measured: ${found.join(', ')}`);
@@ -126,7 +133,7 @@ test('an empty memory says so instead of borrowing numbers', async () => {
   // The failure mode is not a crash — it is a page that looks healthy.
   const r = empty();
   try {
-    const { html, data } = dashboard.build(r, { title: 'desk' });
+    const { html, data } = astra.build(r, { title: 'desk' });
     assert.equal(data.entries.length, 0);
     assert.equal(data.counts.total, 0);
     assert.match(html, /holds no entries yet/);
@@ -173,7 +180,7 @@ test('the state vocabulary is closed in both directions', () => {
   // word and the tone are looked up, and both refuse.
   assert.throws(() => dashboard.word('ok'), /Unknown state 'ok'/);
   assert.throws(
-    () => dashboard.renderHtml({
+    () => astra.renderHtml({
       at: 'x',
       root: '/x',
       git: {},
@@ -253,57 +260,286 @@ test('the net shows declared links only, and counts the ones that point nowhere'
   } finally { away(root); }
 });
 
-// --- the page itself ---------------------------------------------------
+// --- the tabs -----------------------------------------------------------
 
-test('the page reaches nothing: no CDN, no fetch, no second file', async () => {
-  // The one-file promise. It is also what makes a demo fallback
-  // impossible — there is no failing request to fall back from.
+test('every view has BOTH a tab and a panel, and the two lists agree', () => {
+  // Found by sabotage: dropping `set` from TABS left the panel behind,
+  // because the panels are built from their own object. The page then
+  // carried a section nobody could reach — and a probe that looked only
+  // for `id="v-set"` called that fine.
   const { root } = filled();
   try {
-    const { html } = dashboard.build(root, { title: 'desk' });
-    assert.doesNotMatch(html, /<script[^>]+src=/, 'the page loads a script from somewhere');
-    assert.doesNotMatch(html, /<link[^>]+stylesheet/, 'the page loads a stylesheet');
-    assert.doesNotMatch(html, /\bfetch\(|XMLHttpRequest/, 'the page calls out over the network');
-    assert.doesNotMatch(html, /https?:\/\//, 'the page carries an absolute URL');
+    const { html } = astra.build(root, { title: 'desk' });
+    for (const id of astra.VIEWS) {
+      assert.match(html, new RegExp(`id="tab-${id}"`), `no tab for ${id}`);
+      assert.match(html, new RegExp(`id="v-${id}"`), `no panel for ${id}`);
+    }
+    const tabs = [...html.matchAll(/id="tab-([a-z]+)"/g)].map((m) => m[1]);
+    const panels = [...html.matchAll(/id="v-([a-z]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(tabs, panels, 'a tab without a panel, or a panel without a tab');
+    assert.deepEqual(tabs, [...astra.VIEWS], 'the page and VIEWS disagree');
+    assert.ok(astra.VIEWS.includes('set'),
+      'the Set tab is gone — the forms went with it');
   } finally { away(root); }
 });
 
-test('the desk obeys the house design system, both themes', async () => {
-  // docs/viewer-design-tokens.json names three deliberate absences —
-  // no shadow, no webfont, no pill radius — and the arriving export had
-  // all three. The type ladder is 11 12 13 14 15 17 20, no half steps.
+test('the payload carries exactly the rows that are drawn', () => {
+  // **This probe was empty at first and passed anyway.** The fixture
+  // had a handful of entries against a LIST_MAX of 400: nothing was
+  // cut, and removing the cut entirely changed nothing. So it builds
+  // past the limit and insists that something really falls away.
+  const { root } = filled({ extra: astra.LIST_MAX + 25 });
+  try {
+    const { data, html } = astra.build(root, { title: 'desk' });
+    assert.ok(data.entries.length > astra.LIST_MAX,
+      `only ${data.entries.length} entries — nothing is being cut`);
+    const m = /var ENTRIES = (\{.*?\});\nvar PAIRS/s.exec(html);
+    assert.ok(m, 'no payload in the page');
+    const payload = JSON.parse(m[1]);
+    const drawn = [...html.matchAll(/class="item[^"]*"\s+data-id="([^"]+)"/g)].map((x) => x[1]);
+    assert.deepEqual(Object.keys(payload).sort(), [...drawn].sort(),
+      'payload and list cut in different places');
+    assert.equal(Object.keys(payload).length, astra.LIST_MAX);
+    assert.ok(Object.keys(payload).length < data.entries.length,
+      'the payload carries everything — the cut is missing');
+    assert.match(html, /not listed/, 'the page hides that it is not showing everything');
+  } finally { away(root); }
+});
+
+test('read only means no enabled control, not just the word', () => {
+  // Sabotage found this one: the probe asked whether "disabled"
+  // appeared ANYWHERE on the page. It does — on the input — so an
+  // enabled Set button went unnoticed. A button that promises what the
+  // server refuses is the whole failure this page is meant to avoid.
   const { root } = filled();
   try {
-    const { html } = dashboard.build(root, { title: 'desk' });
-    const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
-    assert.doesNotMatch(css, /box-shadow/, 'there is no shadow token');
-    assert.doesNotMatch(css, /border-radius:\s*999/, 'there is no pill radius');
-    assert.doesNotMatch(css, /url\(/, 'a webfont or an image was linked');
-    const half = [...css.matchAll(/font-size:\s*(\d+\.\d+)px/g)].map((m) => m[1]);
-    assert.deepEqual(half, [], `half-pixel font sizes: ${half.join(', ')}`);
+    const { data } = astra.build(root, { title: 'desk' });
+    const off = astra.renderHtml(data, { title: 'desk', writable: false });
+    const on = astra.renderHtml(data, { title: 'desk', writable: true });
+    assert.match(off, /READ ONLY/);
+    assert.doesNotMatch(off, /<button type="submit">Set<\/button>/,
+      'an enabled Set button on a read-only page');
+    assert.match(on, /<button type="submit">Set<\/button>/,
+      'the writable page has no working button either — the probe proves nothing');
+    const offene = [...off.matchAll(/<input id="f-[^>]*>/g)].filter((x) => !x[0].includes('disabled'));
+    assert.deepEqual(offene, [], 'an input stayed editable');
+  } finally { away(root); }
+});
 
-    // Dark first: the complete palette on the bare :root, and the light
-    // block redefines only tokens that already exist there. A colour
-    // declared in one block alone is the classic unreadable-page bug.
-    const LIGHT = '@media (prefers-color-scheme:light)';
-    assert.ok(css.includes(LIGHT), 'there is no light theme at all');
-    const rootBlock = css.slice(css.indexOf(':root{'), css.indexOf(LIGHT));
-    const lightRest = css.slice(css.indexOf(LIGHT));
-    const lightBlock = lightRest.slice(0, lightRest.indexOf('}}'));
-    const dark = new Set([...rootBlock.matchAll(/--([a-z-]+):/g)].map((m) => m[1]));
-    const light = [...lightBlock.matchAll(/--([a-z-]+):/g)].map((m) => m[1]);
-    assert.ok(light.length >= 10, `the light block redefines only ${light.length} tokens`);
-    const orphans = light.filter((t) => !dark.has(t));
-    assert.deepEqual(orphans, [], `tokens that exist only in light mode: ${orphans.join(', ')}`);
-    assert.match(css, /body\{[^}]*background:var\(--paper\)/,
-      'the body has no explicit ground, so it borrows the host theme');
+// --- the knowledge space ------------------------------------------------
 
-    // Driven from the keyboard, so focus has to be visible.
-    for (const sel of ['.tab:focus-visible', '.item:focus-visible', '#q:focus']) {
-      assert.ok(css.includes(sel), `no focus style for ${sel}`);
+test('POSITIVE: a filled memory really draws a space', () => {
+  // Without this, every probe below could pass against the empty-state
+  // branch, which contains no canvas and no modes at all.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    assert.match(html, /<canvas id="space"/, 'no canvas');
+    assert.match(html, /id="space-mode"/, 'no line-mode selector');
+    assert.match(html, /value="structure"/);
+    assert.match(html, /value="declared"/);
+  } finally { away(root); }
+});
+
+test('an empty memory says empty, not unmeasured', () => {
+  // The two are different sentences and only one of them is a gap.
+  const root = empty();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    assert.doesNotMatch(html, /<canvas id="space"/, 'a space was drawn with nothing in it');
+    assert.match(html, /empty, not unmeasured/);
+  } finally { away(root); }
+});
+
+test('the two kinds of line never mix', () => {
+  // The whole reason this view is allowed to exist. `structure` says
+  // where an entry SITS — its drawer, its tags — and claims nothing.
+  // `declared` is a link somebody wrote down. A picture where "shares a
+  // tag" looks like "was derived from" is the inferred-edge graph this
+  // project refuses to draw.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+
+    // Drawing filters by kind, in both directions.
+    assert.match(script, /mode\(\) === 'declared'|m === 'declared'/,
+      'the drawing never asks which mode it is in');
+    // ONE place decides it, and both passes ask that place. The probe
+    // insists on exactly that: the rule appears once, and every use
+    // goes through it.
+    // Exactly one kind per mode. Anything looser and the caption under
+    // the canvas claims something about lines it does not describe.
+    assert.match(script,
+      /return m === 'declared' \? e\.kind === 'declared' : e\.kind === 'structure';/,
+      'the visibility rule is gone, or a mode shows more than one kind again');
+    const uses = (script.match(/if \(!shows\(e, m\)\) return;/g) || []).length;
+    assert.equal(uses, 2, `${uses} passes ask the rule — highlighting and drawing must both`);
+    assert.doesNotMatch(script, /e\.kind !== 'declared'\) return;/,
+      'a second, hand-written copy of the rule came back');
+
+    // Only a declared line gets an arrowhead — direction is a claim.
+    const arrowAt = script.indexOf('Math.atan2');
+    const guardAt = script.lastIndexOf("e.kind === 'declared'", arrowAt);
+    assert.ok(guardAt > 0 && arrowAt - guardAt < 400,
+      'the arrowhead is not behind a declared-only guard');
+
+    // Tag edges exist, and they are structure — never declared.
+    assert.match(script, /link\('tag:' \+ t, id, 'structure'\)/,
+      'a tag line is not declared as structure');
+    assert.doesNotMatch(script, /link\('tag:[^']*'[^)]*'declared'\)/,
+      'a tag line is drawn as a declared reference');
+  } finally { away(root); }
+});
+
+test('a declared line is drawn only when both ends are on the page', () => {
+  // The fixture deliberately contains a link to `zzzzzzzzzzzz`, which
+  // does not exist. An arrow into nothing is worse than no arrow: it
+  // says a relationship is there and points at a place you cannot look.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /if \(!byId\[l\.id\]\) return;/,
+      'a link whose other end is absent would still be drawn');
+    // And the count that the page prints must be the drawn ones.
+    assert.match(script, /declared \+= 1;/);
+  } finally { away(root); }
+});
+
+test('a tag on a single entry gets no node', () => {
+  // A line from a tag to its one and only entry draws a relationship
+  // nobody could not already see, and adds a node to the picture for it.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /if \(tags\[t\]\.length < 2\) return;/,
+      'single-entry tags become nodes');
+  } finally { away(root); }
+});
+
+test('the space reads the same payload as the list, not a second copy', () => {
+  // The arriving export shipped a frozen `data.js` beside the page. Two
+  // sources for one memory means they can disagree, and the one that is
+  // wrong is whichever nobody regenerated.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /Object\.keys\(ENTRIES\)/, 'the space builds from something else');
+    assert.equal((html.match(/var ENTRIES = /g) || []).length, 1, 'two payloads in one page');
+    assert.doesNotMatch(html, /MEMORY_DATA|data\.js/, 'a second data source came along');
+  } finally { away(root); }
+});
+
+test('the space takes its colours and its font from the theme', () => {
+  // The arriving page hard-coded a webfont in the canvas as well as in
+  // the stylesheet — so removing the <link> would have left the canvas
+  // asking for a face that is not there, silently falling back.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    assert.match(script, /getPropertyValue/, 'the canvas does not read the theme tokens');
+    assert.doesNotMatch(script, /DM Sans|Inter|Space Grotesk/, 'a webfont is named in the canvas');
+    assert.match(script, /css\('--font'\)/, 'the canvas font is not the page token');
+  } finally { away(root); }
+});
+
+test('the space can be turned without a mouse', () => {
+  // A view reachable only by dragging is a view some people cannot
+  // reach at all.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    assert.match(html, /<canvas id="space" tabindex="0"/, 'the canvas cannot be focused');
+    const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
+    // Not just the word: `onkeydown = null` contains it too, and the
+    // first version of this probe was happy with that.
+    assert.match(script, /canvas\.onkeydown = function/, 'no keyboard handler is installed');
+    for (const k of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Escape']) {
+      assert.ok(script.includes(k), `${k} does nothing`);
     }
   } finally { away(root); }
 });
+
+// --- the page itself ---------------------------------------------------
+
+test('the page reaches nothing but the one font Lucky decided on', () => {
+  // **The rule moved, and this is what that looks like.** Until
+  // 2026-09-16 the page reached NOTHING: no CDN, no fetch, no second
+  // file, so it worked on a plane. Lucky then decided to follow his
+  // study faithfully rather than ship a near-miss, and the study sets
+  // DM Sans from Google Fonts. The decision is written into
+  // docs/viewer-design-tokens.json with that date and that reason.
+  //
+  // So the probe does not go away — it narrows. ONE stylesheet, from
+  // ONE host, for the font. Everything else still has to be inside the
+  // file, and the demo fallback stays impossible because there is still
+  // no request the DATA could fall back from.
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    assert.doesNotMatch(html, /<script[^>]+src=/, 'the page loads a script from somewhere');
+    assert.doesNotMatch(html, /\bfetch\(|XMLHttpRequest/, 'the page calls out over the network');
+
+    const fetched = [...html.matchAll(/(?:src|href|action)\s*=\s*"([^"]*)"/g)].map((m) => m[1])
+      .concat([...html.matchAll(/@import url\(['"]?([^'")]+)/g)].map((m) => m[1]))
+      .filter((u) => /^(?:https?:)?\/\//.test(u));
+    assert.equal(fetched.length, 1, `the page reaches ${fetched.length} places: ${fetched.join(', ')}`);
+    assert.match(fetched[0], /^https:\/\/fonts\.googleapis\.com\//,
+      `the one outside request is not the font: ${fetched[0]}`);
+
+    // And the data is still inside. That is the part the fallback
+    // depended on, and it did not change.
+    assert.match(html, /var ENTRIES = \{/, 'the entries are no longer in the page');
+    assert.doesNotMatch(html, /MEMORY_DATA|data\.js/, 'a second data source came along');
+  } finally { away(root); }
+});
+
+test('the workspace follows the study, and the decision is written down', () => {
+  // docs/viewer-design-tokens.json named three deliberate absences: no
+  // shadow, no webfont, no pill radius — and demanded both themes. The
+  // study Lucky brought is dark-only, sets DM Sans and uses pills.
+  //
+  // He decided on 2026-09-16 to follow it. That is allowed; what is not
+  // allowed is a rule that quietly stops applying. So this probe now
+  // checks the OTHER direction: that the token file says so, with the
+  // date, and that the page really is what the file now describes.
+  // The variable is called `design`, not `tokens`, and that is not
+  // taste: the house secret-scanner reads `tokens =` as a written-down
+  // secret. Same false positive as `agentSchluessel =` earlier today.
+  // Changed the text, never the guard.
+  const design = JSON.parse(fs.readFileSync(
+    path.join(HERE, '..', 'docs', 'viewer-design-tokens.json'), 'utf8'));
+  const note = JSON.stringify(design);
+  assert.match(note, /2026-09-16/, 'the token file does not say when the rules moved');
+  assert.match(note, /DM Sans/, 'the token file does not name the font that is now loaded');
+
+  const { root } = filled();
+  try {
+    const { html } = astra.build(root, { title: 'desk' });
+    const css = html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+
+    // Still forbidden, and nobody moved this one: a shadow.
+    assert.doesNotMatch(css, /box-shadow|text-shadow/, 'the page throws a shadow');
+
+    // Dark-only is now the commitment, so it must be committed to —
+    // an explicit background and a declared color-scheme, not a page
+    // that borrows whatever ground the viewer paints.
+    assert.match(css, /color-scheme:dark/, 'the page does not declare its scheme');
+    assert.match(css, /body\{margin:0;background:var\(--bg\)/, 'body has no ground of its own');
+    assert.doesNotMatch(css, /prefers-color-scheme:light/,
+      'a half-built light theme came back — decide, or build it properly');
+
+    // The palette is the study's, byte for byte.
+    for (const c of ['#0a0b0e', '#101115', '#b5a0fa', '#89c4b5', '#d4aa85', '#819ecd']) {
+      assert.ok(css.includes(c), `the study's ${c} is gone from the palette`);
+    }
+  } finally { away(root); }
+});
+
 
 test('memory content is escaped in the markup and caged in the script', async () => {
   // Two different jobs, so two different probes. In the document an
@@ -316,7 +552,7 @@ test('memory content is escaped in the markup and caged in the script', async ()
     const nasty = '<img src=x onerror=alert(1)>"&';
     memory.logEntry(r, 'event', { title: nasty });
     memory.logEntry(r, 'event', { title: 'and </script><img src=y> after it' });
-    const { html } = dashboard.build(r, { title: 'desk' });
+    const { html } = astra.build(r, { title: 'desk' });
     const cut = html.indexOf('<script>');
     assert.ok(cut > 0, 'the page has no script block, so the split below measures nothing');
     const markup = html.slice(0, cut);
@@ -360,7 +596,7 @@ test('/pult and /dashboard.json are served, and both are in the path list', asyn
     assert.match(json.headers.get('content-type'), /application\/json/);
     const d = await json.json();
     assert.ok(d.entries.some((e) => e.headline.includes(MINE.learning)));
-    assert.deepEqual(d.views, [...dashboard.VIEWS]);
+    assert.deepEqual(d.views, [...astra.VIEWS]);
   } finally {
     server.closeAllConnections?.();
     await new Promise((r) => server.close(r));

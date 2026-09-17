@@ -16,6 +16,35 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **Deleting a raw capture** — `mem raw review` and `mem raw delete`
+  (`bin/mem`, `src/raw.mjs`, `src/archive.mjs`). The bytes leave the
+  archive, outside git, and the append-only register keeps the capture's
+  row and gains a tombstone with who, when and why. `--reason` is
+  required; without `--yes` the command only prints what would happen
+  and how many bytes. `review` lists every capture in one of three
+  states — `present`, `deleted`, `unreachable` — because "the bytes are
+  missing and nobody said so" is a broken archive, not a decision, and
+  one word for both would hide a NAS that is not mounted behind a
+  deliberate cleanup. Its time filter is `archive.inRange`, the same
+  function `raw export` uses: there is one "in range" in this repo. The
+  review deliberately cannot filter by topic — a capture carries no
+  topic, only path, project, surface and session — and says so instead
+  of faking it. The workspace shows the same three states under
+  Settings, drawn from the same function, never recomputed.
+
+### Fixed
+
+- **An unreadable capture register no longer reads as an empty one.**
+  The archive tile (`src/board.mjs`) let the register read throw, which
+  took the whole desk page down with it; the workspace's own read caught
+  the error into an empty list, which on that page is indistinguishable
+  from "nothing has been captured yet". Both now report the fourth
+  answer — unknown, with the read error — and the review's counters go
+  to `null` rather than `0`, because a number nobody took must not
+  arrive looking like a measurement. Found by a probe that replaces the
+  register with a directory so `readFileSync` fails the way a genuinely
+  broken file would.
+
 - **The desk** (`/pult`, `src/dashboard.mjs`). Five views over one
   memory — desk, knowledge, projects, agents, net — beside the console
   rather than in place of it, read-only, at `/pult` with its numbers at
