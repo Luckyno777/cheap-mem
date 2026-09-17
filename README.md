@@ -262,11 +262,16 @@ mem log <type> --<field> ...   append an entry (ten types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
 mem find "<query>"             ranked search, no model    [--literal --fresh]
+                               --as-of <ISO>: what HELD then, not what is
+                               recorded now (same rule as `mem retrieve`)
 mem browse                     interactive search: re-ranks on every keystroke
 mem discard <id> / done <id>   retire a thought/task (recall hides it)
 mem duties                     what is still owed
 mem duties close <id>          append a closing line
 mem context                    compact dump for session start
+                               --budget <chars>: a hard ceiling. Sections give
+                               way bottom-up, never mid-entry, and the block
+                               says at the end what did not fit
 mem facts [--stale --conflicts]  current value of each changing fact (freshness)
 mem core [--max 40]            always-load block of settled facts + backed experience
 mem topics / mem topic <key>   where a subject stands now, and how it got there
