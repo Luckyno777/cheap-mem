@@ -30,6 +30,7 @@ import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as config from '../src/config.mjs';
 import * as dashboard from '../src/dashboard.mjs';
+import * as desk from '../src/astra.mjs';
 import * as viewer from '../src/viewer.mjs';
 import * as consolePage from '../src/console.mjs';
 
@@ -67,7 +68,7 @@ const seiten = () => {
   const root = welt();
   try {
     return {
-      desk: dashboard.build(root, { title: 'x' }).html,
+      desk: desk.build(root, { title: 'x' }).html,
       viewer: viewer.build([root], { title: 'x' }).html,
       nav: consolePage.insertNav('<body><main></main></body>', 'viewer'),
     };

@@ -53,15 +53,14 @@ const INK = {
   bg: '#0a0b0e', panel: '#101115', raised: '#15161c', line: '#24262e',
   muted: '#858894', text: '#e9eaf0',
   violet: '#b5a0fa', green: '#89c4b5', orange: '#d4aa85', blue: '#819ecd',
-  // **Der Befund, den ein Nachbau am sichersten verliert.** Die
-  // Studie signalisiert einen Zustand NICHT ueber Helligkeit, sondern
-  // ueber den Farbton: neutrales Chrome liegt bei 227-240 Grad, alles
-  // Aktive bei 250-272 — bei praktisch gleicher Helligkeit. `#24262e`
-  // (Farbton 228) und `#24202d` (258) sind dasselbe Grau in zwei
-  // Stimmungen. Ein Element wird also nicht HELLER, wenn es aktiv wird,
-  // es wird VIOLETTER. Die erste Fassung hier machte es heller — das
-  // sieht auf einem Bildschirm fast gleich aus und ist trotzdem eine
-  // andere Sprache.
+  // **The finding a rebuild loses most reliably.** The study signals
+  // state NOT through lightness but through hue: neutral chrome sits at
+  // 227-240 degrees, everything active at 250-272 — at practically the
+  // same lightness. `#24262e` (hue 228) and `#24202d` (258) are the same
+  // grey in two moods. An element does not get BRIGHTER when it becomes
+  // active, it gets MORE VIOLET. The first version here made it
+  // brighter — on a screen that looks almost identical and is still a
+  // different language.
   'raised-on': '#1b1725', 'line-on': '#24202d',
 };
 
@@ -104,16 +103,16 @@ const CSS = `
   --font:'DM Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   --code:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --rail:248px;
-  /* Bewegung als EIGENE Token-Ebene, nicht als Flicken. Die Namen und
-     Werte stehen in docs/viewer-design.md, Abschnitt 2.8: benannt nach
-     der zurueckgelegten STRECKE, nicht nach Wichtigkeit. */
+  /* Motion as its OWN token layer, not as patches. The names and values
+     live in docs/viewer-design.md, section 2.8: named after the DISTANCE
+     travelled, not after importance. */
   --instant:100ms;--quick:160ms;--normal:220ms;--slow:320ms;
   --ease-standard:cubic-bezier(.2,0,0,1);
   --ease-in:cubic-bezier(.05,.7,.1,1);
   --ease-crisp:cubic-bezier(.19,1,.22,1)}
-/* Wer Ruhe verlangt hat, bekommt DIESELBE Seite mit Dauer 0 — nicht eine
-   zweite, halb gepflegte Fassung. Der Wissensraum liest dieselbe
-   Einstellung und laesst die Pulse dann von sich aus aus. */
+/* Whoever asked for calm gets THE SAME page with duration 0 — not a
+   second, half-maintained version. The knowledge space reads the same
+   setting and then drops the pulses by itself. */
 @media (prefers-reduced-motion:reduce){
   :root{--instant:0ms;--quick:0ms;--normal:0ms;--slow:0ms}
 }
@@ -854,26 +853,25 @@ const SCRIPT = String.raw`
 
     var W = 0, H = 0, dpr = 1, ry = 0.6, rx = 0.32, zoom = 1;
     var picked = null, drag = null, raf = null;
-    // **Bewegung, und warum sie ueberhaupt erlaubt ist.**
+    // **Motion, and why it is allowed here at all.**
     //
-    // docs/viewer-design.md sagt fuer den Viewer: nichts bewegt sich
-    // endlos, kein Schimmern, kein pulsender Punkt — wegen WCAG 2.2.2.
-    // Die Regel dort ist kein Verbot, sie verlangt eine Moeglichkeit zu
-    // STOPPEN. Also gibt es hier beides: der Puls laeuft, und ein Knopf
-    // in der Kopfleiste haelt ihn an.
+    // docs/viewer-design.md says for the viewer: nothing moves forever,
+    // no shimmer, no pulsing dot — because of WCAG 2.2.2. That rule is
+    // not a ban; it demands a way to STOP. So this has both: the pulse
+    // runs, and a button in the header halts it.
     //
-    // Drei Riegel, damit das traegt:
-    //   1. Wer prefers-reduced-motion gesetzt hat, startet ANGEHALTEN.
-    //      Ruhe ist die Vorgabe fuer den, der sie verlangt hat.
-    //   2. Ist der Reiter im Hintergrund, laeuft nichts — eine Animation
-    //      fuer niemanden ist nur Strom.
-    //   3. Der Puls laeuft NUR auf erklaerten Kanten. Er zeigt die
-    //      Richtung eines Verweises, den jemand aufgeschrieben hat; auf
-    //      Zugehoerigkeits-Linien waere er Zierde und wuerde ihnen eine
-    //      Aussage andichten, die sie nicht haben.
-    var ruhe = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    var paused = ruhe;
-    var phase = 0, letzte = 0, gemalt = 0, ticker = null;
+    // Three latches make that hold:
+    //   1. Whoever set prefers-reduced-motion starts PAUSED. Calm is the
+    //      default for the person who asked for it.
+    //   2. With the tab in the background nothing runs — an animation
+    //      for nobody is only electricity.
+    //   3. The pulse runs ONLY on declared edges. It shows the direction
+    //      of a reference somebody wrote down; on membership lines it
+    //      would be ornament and would attribute a statement to them
+    //      that they do not make.
+    var calm = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var paused = calm;
+    var phase = 0, last = 0, painted = 0, ticker = null;
     var motionBtn = document.getElementById('motion');
     function setMotion(an) {
       paused = !an;
@@ -885,22 +883,22 @@ const SCRIPT = String.raw`
     }
     function tick(t) {
       if (paused || document.hidden) { ticker = null; return; }
-      var jetzt = t || performance.now();
-      var dt = Math.min(64, jetzt - (letzte || jetzt));
-      letzte = jetzt;
-      // **Die Geschwindigkeiten stammen aus der Studie, nicht aus dem
-      // Gefuehl.** Nachgerechnet: Puls-Phase 0.00016/ms sind 6,25 s fuer
-      // einen Kantendurchlauf, Drehung 0.000027/ms sind 233 s — knapp
-      // vier Minuten — fuer eine Umdrehung. Meine erste Fassung war bei
-      // 4,5 s und 97 s, also fast doppelt so schnell. Das ist der
-      // Unterschied zwischen "der Raum atmet" und "da bewegt sich was".
+      var now = t || performance.now();
+      var dt = Math.min(64, now - (last || now));
+      last = now;
+      // **The speeds come from the study, not from a feeling.**
+      // Recomputed: a pulse phase of 0.00016/ms is 6.25 s for one edge
+      // traversal, a rotation of 0.000027/ms is 233 s — just under four
+      // minutes — for one turn. The first version here ran at 4.5 s and
+      // 97 s, almost twice as fast. That is the difference between "the
+      // space breathes" and "something is moving over there".
       phase = (phase + dt * 0.00016) % 1;
       if (!drag) ry += dt * 0.000027;
-      // Framegate wie in der Studie: ~33 Bilder je Sekunde reichen fuer
-      // diese Strecken und kosten ein Drittel weniger, was auf zwei
-      // Kernen neben der CI spuerbar ist.
-      if (jetzt - gemalt < 30) { ticker = requestAnimationFrame(tick); return; }
-      gemalt = jetzt;
+      // Frame gate as in the study: ~33 frames per second are enough for
+      // these distances and cost a third less, which is noticeable on two
+      // cores next to the CI.
+      if (now - painted < 30) { ticker = requestAnimationFrame(tick); return; }
+      painted = now;
       paint();
       ticker = requestAnimationFrame(tick);
     }
@@ -926,11 +924,10 @@ const SCRIPT = String.raw`
       var x = n.x * cy + n.z * sy, z = -n.x * sy + n.z * cy;
       var y = n.y * cx - z * sx, z2 = n.y * sx + z * cx;
       var s = 760 / (760 + z2) * Math.min(W / 700, H / 430) * zoom;
-      // Optische statt geometrischer Mitte. In der Studie steht das
-      // dreimal unabhaengig in dieselbe Richtung: Canvas-Zentrum bei
-      // 0.49 der Hoehe, das Raum-Etikett bei 47 %, der Buehnen-Verlauf
-      // bei 51/45. Ein Feld mit Beschriftung darunter wirkt bei exakt
-      // 0.5 zu tief.
+      // Optical centre, not geometric. The study says this three times
+      // independently and in the same direction: canvas centre at 0.49 of
+      // the height, the space label at 47 %, the stage gradient at 51/45.
+      // A field with a caption under it reads as too low at exactly 0.5.
       return { x: W * 0.5 + x * s, y: H * 0.49 + y * s, z: z2, s: s };
     }
     function paint() {
@@ -948,15 +945,14 @@ const SCRIPT = String.raw`
           if (e.from === picked || e.to === picked) { near[e.from] = true; near[e.to] = true; }
         });
       }
-      edges.forEach(function (e, kante) {
+      edges.forEach(function (e, edgeIx) {
         if (!shows(e, m)) return;
         var a = byId[e.from].p, b = byId[e.to].p;
         var lit = picked && (e.from === picked || e.to === picked);
-        // Daempfen, nicht ausblenden: unbeteiligte Kanten gehen auf
-        // .055 und nicht auf 0, damit die Gesamtform des Netzes als
-        // Geisterbild stehen bleibt. Wer eine Auswahl trifft, soll sehen
-        // WO in der Struktur er gerade ist — eine leergeraeumte Flaeche
-        // nimmt ihm genau das.
+        // Damping, not hiding: uninvolved edges go to .055 and not to 0,
+        // so the overall shape stays as a ghost image. Whoever makes a
+        // selection should see WHERE in the structure they are — a
+        // cleared surface takes exactly that away.
         ctx.globalAlpha = lit ? 0.75 : picked ? 0.055 : (e.kind === 'declared' ? 0.6 : 0.16);
         ctx.lineWidth = lit ? 1.2 : 0.7;
         // Structure lines are violet-tinted, as in the study. The first
@@ -972,24 +968,24 @@ const SCRIPT = String.raw`
           ctx.lineTo(px - Math.cos(ang - 0.45) * 7, py - Math.sin(ang - 0.45) * 7);
           ctx.lineTo(px - Math.cos(ang + 0.45) * 7, py - Math.sin(ang + 0.45) * 7);
           ctx.closePath(); ctx.fillStyle = blue; ctx.fill();
-          // Der Schwall: ein Lichtpunkt laeuft von der Quelle zum Ziel.
-          // Er sagt dasselbe wie die Pfeilspitze, nur ueber die Zeit —
-          // und er sagt es NUR dort, wo jemand den Verweis erklaert hat.
-          // **Drei Regeln aus der Studie, und jede einzelne traegt.**
+          // The surge: a point of light travels from source to target.
+          // It says the same thing as the arrowhead, only over time — and
+          // it says it ONLY where somebody declared the reference.
+          // **Three rules from the study, and every one of them carries.**
           //
-          //   1. Ohne Auswahl traegt nur JEDE SIEBTE Kante einen Punkt.
-          //      Alle gleichzeitig ist Rauschen, kein Signal — das ist
-          //      der Unterschied zwischen einem lebenden Netz und einem
-          //      Lauflicht. Ist etwas ausgewaehlt, tragen alle
-          //      beteiligten Kanten einen.
-          //   2. Der Versatz 'i * 0.177' verhindert den Gleichschritt.
-          //      Ohne ihn laufen alle Punkte in Reih und Glied, und das
-          //      liest sich sofort als Animation statt als Fluss.
-          //   3. Ein beteiligter Punkt ist HELLER (#e3caff statt
-          //      #b499c9) — dieselbe Hervorhebung wie bei den Kanten,
-          //      nur am bewegten Ende.
-          if (!paused && (lit || kante % 7 === 0)) {
-            var tt = (phase + kante * 0.177) % 1;
+          //   1. With nothing selected only EVERY SEVENTH edge carries a
+          //      dot. All of them at once is noise, not signal — that is
+          //      the difference between a living network and a chase
+          //      light. With something selected, every involved edge
+          //      carries one.
+          //   2. The offset 'i * 0.177' prevents lockstep. Without it all
+          //      dots march in rank and file, and that reads immediately
+          //      as an animation instead of a flow.
+          //   3. An involved dot is BRIGHTER (#e3caff instead of
+          //      #b499c9) — the same emphasis as on the edges, only at
+          //      the moving end.
+          if (!paused && (lit || edgeIx % 7 === 0)) {
+            var tt = (phase + edgeIx * 0.177) % 1;
             var gx = a.x + (b.x - a.x) * tt, gy = a.y + (b.y - a.y) * tt;
             var farbe = lit ? '#e3caff' : '#b499c9';
             var gl = ctx.createRadialGradient(gx, gy, 0, gx, gy, 6);
@@ -1126,15 +1122,15 @@ const SCRIPT = String.raw`
     };
     modeEl.onchange = function () { picked = null; ask(); };
     if (motionBtn) motionBtn.onclick = function () { setMotion(paused); };
-    // Im Hintergrund laeuft nichts, und beim Zurueckkommen laeuft es
-    // wieder an — ohne dass jemand den Knopf noch einmal druecken muss.
+    // Nothing runs in the background, and on coming back it starts again
+    // — without anyone having to press the button a second time.
     document.addEventListener('visibilitychange', function () {
-      if (!document.hidden && !paused && !ticker) { letzte = 0; tick(); }
+      if (!document.hidden && !paused && !ticker) { last = 0; tick(); }
     });
     if (window.ResizeObserver) new ResizeObserver(sizeUp).observe(canvas);
     window.addEventListener('resize', sizeUp);
     sizeUp();
-    setMotion(!ruhe);
+    setMotion(!calm);
   }());
 }());
 `;
