@@ -44,6 +44,7 @@ import * as timeexpr from '../src/timeexpr.mjs';
 import * as timesearch from '../src/timesearch.mjs';
 import * as browse from '../src/browse.mjs';
 import * as guard from '../src/guard.mjs';
+import * as switches from '../src/switches.mjs';
 import * as heartbeat from '../src/heartbeat.mjs';
 import * as broadcast from '../src/broadcast.mjs';
 import * as procedure from '../src/procedure.mjs';
@@ -115,6 +116,17 @@ const TEXT_FIELDS = new Set(['title', 'text', 'topic', 'choice', 'why', 'fact',
   'summary', 'class', 'source', 'subject']);
 
 /**
+ * A switch that NARROWLY misses a reserved name is a typo, not a field.
+ *
+ * The rule itself lives in `src/switches.mjs` — one place, so that the
+ * probe measuring it cannot quietly measure its own copy.
+ */
+function refuseNearReserved(command, k) {
+  const r = switches.nearReserved(k);
+  if (r) die(switches.typoMessage(command, k, r));
+}
+
+/**
  * Turn `--switches` into the fields of a JSONL entry.
  *
  * **Why this is one function and not two loops.** `mem log` and
@@ -124,7 +136,7 @@ const TEXT_FIELDS = new Set(['title', 'text', 'topic', 'choice', 'why', 'fact',
  * expensive. The sibling project lucky-mem carried the same rule in six
  * places at one point; the second copy here was already one behind.
  *
- * Three things are enforced, all of them silent failures before:
+ * Four things are enforced, all of them silent failures before:
  *
  *   1. A list may be given comma-separated OR as a JSON array. Half a
  *      JSON array is refused instead of being cut at the commas —
@@ -139,16 +151,21 @@ const TEXT_FIELDS = new Set(['title', 'text', 'topic', 'choice', 'why', 'fact',
  *      destroyed content, no message. Both halves are safely
  *      recognisable: a field name cannot contain whitespace, and a text
  *      field cannot legitimately be `true`.
+ *   4. A switch that narrowly misses a RESERVED name is refused rather
+ *      than turned into a field — see `refuseNearReserved` above.
  *
  * `command` only appears in error messages, so someone running
  * `mem correction` is not told what `log` disliked.
  */
 function fieldsFrom(command, args, except = []) {
   const data = {};
-  const skip = new Set(['project', 'root', 'help', ...except]);
+  // `help` is the parser's, the rest are `src/switches.mjs`'s — the same
+  // list the typo guard below measures against, so the two cannot drift.
+  const skip = new Set([...switches.RESERVED_SWITCHES, 'help', ...except]);
 
   for (const [k, v] of Object.entries(args)) {
     if (skip.has(k)) continue;
+    refuseNearReserved(command, k);
 
     // **Roads not taken are split on a SEMICOLON, not a comma.**
     //

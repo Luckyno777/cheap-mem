@@ -453,6 +453,24 @@ const MUTANTS=[
    from:"  return state.get(id)?.state ?? 'active';",
    to:"  return 'active';  // MUTANT: state ignored entirely",
    tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
+
+ { name:'a switch that narrowly misses a reserved name becomes a field again',
+   file:'bin/mem',
+   from:'    refuseNearReserved(command, k);',
+   to:'    // MUTANT: the typo guard is gone, --projekt becomes a field',
+   tests:['test/reserved-typo.test.mjs'] },
+
+ { name:'the near-miss threshold stops depending on length',
+   file:'src/switches.mjs',
+   from:'export function nearMissThreshold(name) { return name.length >= 6 ? 2 : 1; }',
+   to:'export function nearMissThreshold(name) { return name ? 2 : 2; }  // MUTANT',
+   tests:['test/reserved-typo.test.mjs'] },
+
+ { name:'the search cache is written straight onto its own path again',
+   file:'src/search.mjs',
+   from:'      fs.renameSync(tmpPath, cachePath);',
+   to:'      fs.copyFileSync(tmpPath, cachePath);  // MUTANT: no longer atomic',
+   tests:['test/atomic-cache.test.mjs'] },
 ];
 
 // A mutant counts as caught when the tests fail. So on a suite that is

@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 56 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1101 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1165 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -98,6 +98,7 @@ directory. The section number in brackets is where it is explained.
 | `state.mjs` | the derived state, and nothing else derives it |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
+| `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections (10.25) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
@@ -684,7 +685,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 1101 tests
+npm test                                    # 1165 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
