@@ -82,13 +82,8 @@ TOP="${MEM_RETRIEVE_TOP:-3}"
 # use whichever exists, and when neither does, run the command directly.
 # The background pull can't block the prompt regardless (it is detached);
 # the cap only keeps a hung git from lingering.
-if command -v timeout >/dev/null 2>&1; then CAP=(timeout)
-elif command -v gtimeout >/dev/null 2>&1; then CAP=(gtimeout)
-else CAP=(); fi
-capped() {  # capped <seconds> <cmd...>
-  local secs="$1"; shift
-  if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$secs" "$@"; else "$@"; fi
-}
+# shellcheck source=bin/_portable.sh
+. "$HOOK_DIR/_portable.sh"
 
 # --- Keep the clone from going stale --------------------------------
 #

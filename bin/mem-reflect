@@ -56,6 +56,9 @@ if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
 fi
 
 THRESHOLD="${MEM_REFLECT_THRESHOLD_BYTES:-400000}"
+# shellcheck source=bin/_portable.sh
+. "$(cd "$(dirname "$(entrutscht "$0")")" && pwd)/_portable.sh"
+
 TIMEOUT="${MEM_REFLECT_TIMEOUT:-90}"
 CMD="${MEM_REFLECT_CMD:-claude -p}"
 
@@ -130,6 +133,10 @@ export MEM_HEADLESS=reflector
 # Run the reflector CLI. CMD may contain flags (e.g. `claude -p`), so
 # split it on whitespace. The prompt is the final argument.
 # shellcheck disable=SC2086
-timeout "$TIMEOUT" $CMD "$PROMPT" >/dev/null 2>&1 || true
+# `capped`, not `timeout`: the latter is not on macOS, and there the
+# reflector would have died with 127 before the model started — silently,
+# because of the `|| true`. Same line as bin/mem-digest carried until
+# 2026-09-17.
+capped "$TIMEOUT" $CMD "$PROMPT" >/dev/null 2>&1 || true
 
 exit 0

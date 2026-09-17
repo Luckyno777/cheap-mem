@@ -120,13 +120,8 @@ else
   exit 0
 fi
 
-if command -v timeout >/dev/null 2>&1; then CAP=(timeout)
-elif command -v gtimeout >/dev/null 2>&1; then CAP=(gtimeout)
-else CAP=(); fi
-capped() {
-  local secs="$1"; shift
-  if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$secs" "$@"; else "$@"; fi
-}
+# shellcheck source=bin/_portable.sh
+. "$HOOK_DIR/_portable.sh"
 
 IN="$(cat)"
 
