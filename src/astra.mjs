@@ -166,16 +166,16 @@ a{color:inherit}
 .breadcrumb{font-size:13px;color:var(--muted)}
 .breadcrumb strong{color:var(--text);font-weight:500}
 .header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
-/* Die Studie hat KEINEN Pillen-Radius — gemessen: Radien 2 bis 13px,
-   streng von innen nach aussen wachsend, kein 999px. Die erste Fassung
-   hier setzte eine Pille aus Gewohnheit und schrieb das dann als
-   Abweichung in die Token-Datei. Beides zurueckgenommen: originalgetreu
-   ist hier zugleich regelkonform. */
+/* The design study uses NO pill radius — measured: radii 2 to 13px,
+   strictly growing from inside out, never 999px. The first version here
+   used a pill out of habit and then wrote that in as a deviation in the
+   token file. Both reverted: faithful to the original is also compliant
+   with the design system here. */
 .snapshot-badge{font:11px var(--code);color:var(--muted);border:1px solid var(--line);
   border-radius:7px;padding:4px 11px}
-/* Der Anhalte-Knopf. WCAG 2.2.2 verlangt fuer Bewegung ueber fuenf
-   Sekunden eine Moeglichkeit, sie zu STOPPEN — kein Verbot. Ohne diesen
-   Knopf duerfte der Wissensraum gar nicht pulsen; mit ihm darf er. */
+/* The stop button. WCAG 2.2.2 requires a way to STOP movement that runs
+   past five seconds — not a ban. Without this button the knowledge
+   space would not be allowed to pulse at all; with it, it may. */
 .icon-button{border:1px solid var(--line);border-radius:7px;background:var(--raised);
   color:var(--muted);font:11px var(--code);padding:4px 12px;cursor:pointer;
   transition:color var(--instant) var(--ease-standard),

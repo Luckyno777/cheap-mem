@@ -31,11 +31,11 @@ export const DB_PATH = path.join('.mem', 'vectors.db');
  * completely: everyone waits on the same load and nobody sees a half
  * one.
  */
-let _laden = null;
+let _loading = null;
 
 async function loadSqliteVec() {
-  if (_laden) return _laden;
-  _laden = (async () => {
+  if (_loading) return _loading;
+  _loading = (async () => {
   try {
     const sqlite = (await import('better-sqlite3')).default;
     const vec = await import('sqlite-vec');
@@ -48,11 +48,11 @@ async function loadSqliteVec() {
       + `Original error: ${e.message}`);
   }
   })();
-  // Ein gescheiterter Ladeversuch darf nicht fuer immer gecacht bleiben:
-  // wer die optionalen Pakete NACHtraeglich installiert, soll nicht den
-  // Prozess neu starten muessen.
-  _laden.catch(() => { _laden = null; });
-  return _laden;
+  // A failed load attempt must not stay cached forever: someone who
+  // installs the optional packages LATER should not have to restart the
+  // process.
+  _loading.catch(() => { _loading = null; });
+  return _loading;
 }
 
 /**

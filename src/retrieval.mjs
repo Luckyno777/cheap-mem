@@ -121,11 +121,10 @@ function toClaim(hit, { bodyChars, state }) {
     scope: capabilityMod.scopeOf({ project: hit.project ?? e.project ?? null }),
     project: hit.project ?? e.project ?? null,
     topic: e.topic ?? null,
-    // Welche Bezeichner die Frage woertlich getroffen hat. Vorhanden
-    // heisst: dieser Anspruch steht nicht wegen einer Punktzahl hier,
-    // sondern weil die Frage seinen Namen genannt hat. Wer eine Schwelle
-    // anwendet, muss ihn davon ausnehmen — sonst schneidet die Schwelle
-    // fuer Aehnlichkeit die Gewissheiten weg.
+    // Which identifiers the query hit literally. Present means: this claim
+    // is here not because of a score, but because the query named it by
+    // its own identifier. Anyone applying a threshold must exempt it —
+    // otherwise the similarity threshold cuts away the certainties.
     ...(hit.exact ? { exact: hit.exact } : {}),
     ts: e.ts ?? null,
     valid_from: e.valid_from ?? null,
@@ -155,13 +154,13 @@ function toClaim(hit, { bodyChars, state }) {
  * reads differently; the typed statement fields sit beside `choice`,
  * because that is what they are.
  *
- * `NICHT_KOERPER` is the other half, and it is what keeps this list
+ * `NON_BODY_FIELDS` is the other half, and it is what keeps this list
  * honest: every field the indexer knows is in exactly one of the two,
  * and `test/audit-koerper.test.mjs` fails when a nineteenth appears in
  * neither. A field that is neither read nor deliberately excluded is
  * how this defect happened the first time.
  */
-export const KOERPER_FELDER = Object.freeze([
+export const BODY_FIELDS = Object.freeze([
   'choice', 'learning', 'duty', 'rule', 'question', 'skill',
   'why', 'title', 'text', 'fact', 'description', 'excerpt', 'rejected',
 ]);
@@ -174,7 +173,7 @@ export const KOERPER_FELDER = Object.freeze([
  * on words the reader did not ask for. `topic` is carried as its own
  * field on the claim already.
  */
-export const NICHT_KOERPER = Object.freeze(['topic', 'class', 'tags', 'asked', 'symbols']);
+export const NON_BODY_FIELDS = Object.freeze(['topic', 'class', 'tags', 'asked', 'symbols']);
 
 /**
  * The text of an entry, assembled from its own fields in a fixed order.
@@ -184,7 +183,7 @@ export const NICHT_KOERPER = Object.freeze(['topic', 'class', 'tags', 'asked', '
  * memory that can be made to say something.
  */
 function bodyOf(e) {
-  const parts = KOERPER_FELDER.map((f) => e?.[f]).filter(
+  const parts = BODY_FIELDS.map((f) => e?.[f]).filter(
     (x) => typeof x === 'string' && x.trim());
   return parts.join(' — ');
 }
@@ -222,43 +221,40 @@ export function retrieve(root, query, capability, {
   // generation, and a page that cannot prove which snapshot it belongs
   // to is not a page.
   cursor = null,
-  // Vorgabe wie in `mem find`. Ueberschreibbar, damit ein Aufrufer, der
-  // reine Relevanzreihenfolge will, sie bekommt — und damit ein Test beide
-  // Wege vergleichen kann.
+  // Default matches `mem find`. Overridable so a caller that wants pure
+  // relevance order gets it — and so a test can compare both paths.
   mmr = true,
   mmrLambda = 0.7,
-  // Echos verwerfen: ein Treffer, der im Wesentlichen die Frage selbst ist.
+  // Drop echoes: a hit that is essentially the question itself.
   //
-  // isEcho existiert seit dem 2026-09-05, ist getestet und mit einer
-  // Messung begruendet (13 von 18 eingespeisten Treffern waren Echos) —
-  // und wurde von NICHTS aufgerufen. In `mem find` steckt es hinter
-  // `--no-echo`, das niemand setzt; der Abruf-Hook, der die 13/18 gemessen
-  // hat, setzt es auch nicht. Die Abwehr gegen das gemessene Problem war
-  // toter Code.
+  // isEcho has existed since 2026-09-05, is tested and justified by a
+  // measurement (13 of 18 fed-in hits were echoes) — and was called by
+  // NOTHING. In `mem find` it sits behind `--no-echo`, which nobody sets;
+  // the retrieval hook that measured the 13/18 does not set it either.
+  // The defence against the measured problem was dead code.
   //
-  // Vorgabe an, weil der Gateway der automatische Pfad ist: dort kann
-  // niemand eingreifen, und ein Block, der einem die eigene Frage
-  // zurueckgibt, wird nach dem dritten Mal ueberlesen — und dann ist der
-  // ganze Abruf weg.
+  // Default on, because the gateway is the automatic path: nobody can
+  // intervene there, and a block that hands someone their own question
+  // back gets skimmed over after the third time — and then the whole
+  // retrieval is gone.
   dropEcho = true,
   rawReserve = true,
 } = {}) {
-  // **Zwei Gruende, ausgeschlossen zu werden — und sie sind nicht
-  // dasselbe.**
+  // **Two reasons to be excluded — and they are not the same.**
   //
-  // `eligibility`  Der Anspruch ist fuer diesen Anrufer nicht zu haben:
-  //                ausserhalb der Vollmacht, ueberholt, falscher Typ,
-  //                Echo der Frage, Dublette. Auch eine zweite Seite
-  //                brachte ihn nicht.
-  // `capacity`     Er waere zu haben, es war nur kein Platz: das
-  //                Kontextbudget war voll, oder die Quote eines Autors.
+  // `eligibility`  This claim is not available to this caller: outside
+  //                capability, superseded, wrong type, echo of the
+  //                question, duplicate. A second page would not bring it
+  //                either.
+  // `capacity`     It would be available, there was simply no room: the
+  //                context budget was full, or one author's quota was.
   //
-  // Warum das getrennt wird: `hasMore` kam vorher allein aus dem
-  // Abbruch der Auswahlschleife. Am eval-Korpus (861 Dokumente, echte
-  // Aufgabe, top=50) gemessen: `hasMore: false`, waehrend 119
-  // Anspruechen fehlten — **110 davon nur wegen des Budgets**. Ein
-  // Anrufer, der `hasMore` als „mehr gibt es nicht" liest, wurde
-  // falsch informiert, und genau so ist das Feld benannt.
+  // Why this is kept apart: `hasMore` used to come only from the
+  // selection loop breaking early. Measured on the eval corpus (861
+  // documents, real task, top=50): `hasMore: false` while 119 claims were
+  // missing — **110 of those for budget reasons alone**. A caller reading
+  // `hasMore` as "there is nothing more" was misinformed, and that is
+  // exactly what the field is named for.
   const excluded = [];
   const note = (id, why, kind = 'eligibility') => excluded.push({ id: id ?? null, why, kind });
 
@@ -289,12 +285,12 @@ export function retrieve(root, query, capability, {
   const idx = index ?? loadIndex(root);
   const want = Math.min(Math.max(1, Number(top) || 1), limits.maxResults);
 
-  // Die Generation dieses Laufs. Sie bindet den Cursor an einen
-  // Schnappschuss — siehe encodeCursor.
+  // This run's generation. It binds the cursor to a snapshot — see
+  // encodeCursor.
   const generation = corpusGeneration(root);
-  // Ein Cursor wird ANGENOMMEN und abgelehnt, statt ignoriert zu werden.
-  // Ein stilles Zurueckfallen auf Seite 1 waere eine Antwort auf eine
-  // Frage, die niemand gestellt hat — und sie saehe aus wie Erfolg.
+  // A cursor is ACKNOWLEDGED and rejected, rather than ignored. Silently
+  // falling back to page 1 would be an answer to a question nobody asked
+  // — and it would look like success.
   if (cursor != null && cursor !== '') {
     return {
       query: null, claims: [], excluded: [{ id: null, why: 'paging is not offered' }],
@@ -306,31 +302,30 @@ export function retrieve(root, query, capability, {
       }] }),
     };
   }
-  // **Die Auswahlgroesse ist `want`, und sie bleibt es.**
+  // **The selection size is `want`, and it stays `want`.**
   //
-  // Der Weg hierher ist der Punkt. Fuer seitenweises Blaettern hatte ich
-  // sie erst auf `offset + want + 1` gestellt — das lieferte einen
-  // Anspruch auf Seite 2 UND auf Seite 3, weil die Autoren-Quote und
-  // das Kontext-Budget auf der AUSWAHL arbeiten, nicht auf dem Korpus:
-  // andere Auswahlgroesse, andere Ueberlebende, verschobene Offsets.
+  // How this was arrived at is the point. For page-by-page browsing this
+  // was first set to `offset + want + 1` — that delivered one claim on
+  // page 2 AND on page 3, because the author quota and the context budget
+  // operate on the SELECTION, not the corpus: a different selection size
+  // means different survivors, means shifted offsets.
   //
-  // Dann auf `maxResults + 1` konstant — Seiten passten zusammen, und
-  // VIER vorhandene Proben fielen. Es waren Positiv-Kontrollen: „aendert
-  // MMR hier nichts, prueft der Vergleich nichts." Bei einer Auswahl von
-  // 51 kommt auf einer kleinen Vorrichtung ohnehin alles herein, also
-  // aenderte MMR die Auswahl nicht mehr. Und genau das ist MMRs Aufgabe
-  // hier: es entscheidet, WER angeschaut wird (gemessen 7/18 -> 9/18 am
-  // eval-Korpus). Dasselbe gilt fuer den Flutungs-Schutz, der am
-  // 2026-09-05 aus einem echten Angriff kam.
+  // Then set to a constant `maxResults + 1` — pages lined up, and FOUR
+  // existing probes failed. They were positive controls: "MMR changes
+  // nothing here, so the comparison proves nothing." At a selection of
+  // 51, everything comes in anyway on a small fixture, so MMR no longer
+  // changed the selection. And that is exactly MMR's job here: it
+  // decides WHO gets looked at (measured 7/18 -> 9/18 on the eval
+  // corpus). The same applies to the flood defence, which came out of a
+  // real attack on 2026-09-05.
   //
-  // Also: eine gemessene Abwehr gegen ein Komfort-Merkmal getauscht,
-  // still, und nur gefangen, weil die alten Proben Positiv-Kontrollen
-  // waren. Zurueckgenommen. Was bleibt, ist die ehrliche Auskunft
-  // `hasMore` — sie kostet nichts, weil sie aus dem Abbruch der
-  // Auswahlschleife folgt statt aus einer groesseren Auswahl. Wer mehr
-  // sehen will, fragt mit groesserem `top`; einen Cursor gibt es nicht,
-  // weil er in diesem Entwurf nur mit einer Auswahl zu haben waere, die
-  // von der Seite abhaengt.
+  // So: a measured defence was traded for a convenience feature, quietly,
+  // and only caught because the old probes were positive controls.
+  // Reverted. What remains is the honest disclosure `hasMore` — it costs
+  // nothing, because it follows from the selection loop breaking early
+  // rather than from a larger selection. Anyone who wants to see more
+  // asks with a larger `top`; there is no cursor, because in this design
+  // one could only be had with a selection that depends on the page.
   const selectWant = want;
 
   // Over-fetch, because scope, validity and quota all remove candidates
@@ -374,23 +369,23 @@ export function retrieve(root, query, capability, {
   const tiersAtCap = [];
   for (const tier of authority.TIERS) {
     const hits = [];
-    // MMR an, mit demselben Lambda wie `mem find`.
+    // MMR on, with the same lambda as `mem find`.
     //
-    // Bis 2026-09-06 stand hier nichts, und `search()` hat `mmr: false` als
-    // Vorgabe. `bin/mem find` schaltet es ein — der Gateway nicht. Damit war
-    // der AGENTENPFAD (mem retrieve, MCP mem_retrieve) schlechter als der
-    // Menschenpfad: reine BM25-Reihenfolge, und zwoelf Fast-Duplikate
-    // desselben Themas fuellen die Trefferliste, waehrend die Antwort auf
-    // die eigentliche Frage darunter liegt.
+    // Until 2026-09-06 nothing stood here, and `search()` defaults to
+    // `mmr: false`. `bin/mem find` turns it on — the gateway did not. That
+    // made the AGENT PATH (mem retrieve, MCP mem_retrieve) worse than the
+    // human path: pure BM25 order, with a dozen near-duplicates of the
+    // same topic filling the hit list while the answer to the actual
+    // question sat below them.
     //
-    // Gemessen am eval-Korpus: das gesuchte Claim war ohne MMR bei 7 von 18
-    // Aufgaben in den top-5, mit MMR bei 9 von 18.
+    // Measured on the eval corpus: the sought claim was in the top-5
+    // without MMR for 7 of 18 tasks, and with MMR for 9 of 18.
     //
-    // Die Neuordnung wirkt auf die AUSWAHL, nicht auf die Ausgabe: unten
-    // sortiert `.sort((a, b) => b.score - a.score)` wieder nach Relevanz.
-    // MMR entscheidet also, WER angeschaut wird, die Punktzahl in welcher
-    // Reihenfolge er erscheint — dieselbe Trennung wie beim Rundlauf ueber
-    // die Autoritaetsstufen.
+    // The reordering acts on the SELECTION, not the output: below,
+    // `.sort((a, b) => b.score - a.score)` sorts by relevance again. So
+    // MMR decides WHO gets looked at, the score decides in what order it
+    // appears — the same separation as the round-robin over authority
+    // tiers.
     for (const hit of search(idx, useQuery, {
       top: perTier, withRetired: true, authority: tier,
       mmr, mmrLambda,
@@ -420,65 +415,66 @@ export function retrieve(root, query, capability, {
   // Round-robin gives each tier a slot in turn — representation — while
   // the final sort keeps relevance in charge of the ORDER. Bounded: at
   // most one pass per tier per slot.
-  const gereiht = [];
+  const ranked = [];
   for (let i = 0; byTier.some((h) => i < h.length); i += 1) {
-    for (const hits of byTier) if (i < hits.length) gereiht.push(hits[i]);
+    for (const hits of byTier) if (i < hits.length) ranked.push(hits[i]);
   }
 
-  // Die Exakt-Bahn, ganz vorn.
+  // The exact-match lane, right up front.
   //
-  // Nennt die Frage `7318` und genau ein Eintrag enthaelt `7318`, ist das
-  // keine Aehnlichkeit, sondern eine Gewissheit — und Gewissheit gehoert
-  // nicht hinter eine Punktzahl gereiht. Gemessen an der Aufgabenklasse I
-  // (Pfade, Vorgangsnummern, Dienstnamen, Fassungen): das Ranking war
-  // schon richtig, fuenf von sechs auf Rang 1, aber JEDE Punktzahl lag
-  // unter der Abrufschwelle 5,0 (0,95 bis 2,44). Nicht die Reihenfolge
-  // blockierte diese Klasse, sondern die Schwelle.
+  // If the question names `7318` and exactly one entry contains `7318`,
+  // that is not similarity, it is certainty — and certainty does not
+  // belong behind a score. Measured on task class I (paths, ticket
+  // numbers, service names, versions): the ranking was already correct,
+  // five of six at rank 1, but EVERY score was below the retrieval
+  // threshold of 5.0 (0.95 to 2.44). It was not the order that blocked
+  // this class, it was the threshold.
   //
-  // Die Bahn ist selbstbegrenzend: ein Bezeichner zaehlt nur, wenn er in
-  // hoechstens `want` Dokumenten steht — also in so wenigen, dass sie
-  // ohnehin alle in die Antwort passen. Kein freier Parameter.
+  // This lane is self-limiting: an identifier only counts when it appears
+  // in at most `want` documents — few enough that they all fit in the
+  // answer anyway. No free parameter.
   //
-  // Doppelte fallen weiter unten heraus: die Auswahl kennt `seenIds`
-  // nicht, aber die Koerper-Entdopplung greift, und ein Eintrag, der
-  // ueber beide Bahnen kommt, ist derselbe Koerper.
-  // Dieselben Grenzen wie die gereihte Bahn zwei Dutzend Zeilen weiter
-  // oben: `withRetired: true`, weil hier die Fessel (capability) und die
-  // Zustandspruefung weiter unten entscheiden, nicht die Suche. Vorher
-  // nahm diese Bahn GAR KEINE Grenzen — was nicht auffiel, solange die
-  // gereihte Bahn zufaellig dieselbe Einstellung hatte. Jetzt steht es
-  // da, und ein Auseinanderlaufen ist im Diff zu sehen.
-  const exakte = exactHits(idx, useQuery, want, { withRetired: true });
-  const exaktIds = new Set(exakte.map((h) => h.entry?.id).filter(Boolean));
+  // Duplicates fall out further below: the selection loop does not know
+  // `seenIds`, but body dedup catches it, and an entry that comes through
+  // both lanes is the same body.
+  // Same bounds as the ranked lane two dozen lines up: `withRetired:
+  // true`, because here the capability check and the status check further
+  // down decide, not the search. This lane previously took NO bounds at
+  // all — which went unnoticed as long as the ranked lane happened to have
+  // the same setting. Now it is stated explicitly, and a divergence would
+  // show in the diff.
+  const exactMatches = exactHits(idx, useQuery, want, { withRetired: true });
+  const exactIds = new Set(exactMatches.map((h) => h.entry?.id).filter(Boolean));
   const raw = rawReserve
-    ? [...exakte,
-       ...gereiht.filter((h) => h.type !== 'raw' && !exaktIds.has(h.entry?.id)),
-       ...gereiht.filter((h) => h.type === 'raw' && !exaktIds.has(h.entry?.id))]
-    : [...exakte, ...gereiht.filter((h) => !exaktIds.has(h.entry?.id))];
+    ? [...exactMatches,
+       ...ranked.filter((h) => h.type !== 'raw' && !exactIds.has(h.entry?.id)),
+       ...ranked.filter((h) => h.type === 'raw' && !exactIds.has(h.entry?.id))]
+    : [...exactMatches, ...ranked.filter((h) => !exactIds.has(h.entry?.id))];
 
-  // Rohfang ist keine Autoritaetsstufe, sondern die Reserve-Bahn.
+  // Raw capture is not an authority tier, it is the reserve lane.
   //
-  // Er landet in der Stufe 'unknown' und bekam damit im Rundlauf denselben
-  // Platz pro Runde wie 'user'. Bei fuenf Plaetzen heisst das: ein einziger
-  // Fang verdraengt einen gepflegten Anspruch. Und der Fang gewinnt das
-  // Rennen fast immer — er ist lang, zusammengeklebt und enthaelt viele
-  // Frageworte. Gemessen an C3: ein Fang mit 30,31 draengt die Antwort mit
-  // 18,77 aus den top-5, obwohl er zu einer ANDEREN Frage gehoert und der
-  // Echo-Filter ihn deshalb zu Recht in Ruhe laesst.
+  // It lands in tier 'unknown' and thereby got the same per-round slot in
+  // the round-robin as 'user'. With five slots that means: a single
+  // capture displaces one curated claim. And the capture wins the race
+  // almost every time — it is long, run-together, and contains many
+  // question words. Measured on C3: a capture scoring 30.31 pushes the
+  // answer scoring 18.77 out of the top-5, even though it belongs to a
+  // DIFFERENT question and the echo filter therefore rightly leaves it
+  // alone.
   //
-  // Das kehrt den ganzen Entwurf um. Rohfang ist per Definition noch kein
-  // Anspruch: der Fasser ist noch nicht darueber gelaufen. Ein
-  // unverarbeitetes Gespraechsprotokoll VOR eine gepruefte Entscheidung zu
-  // stellen, macht Bahn 1 zur Hauptbahn und den Fasser ueberfluessig.
+  // This inverts the whole design. Raw capture is by definition not yet a
+  // claim: the digester has not run over it yet. Placing an unprocessed
+  // conversation transcript ahead of a reviewed decision turns lane 1 into
+  // the main lane and makes the digester redundant.
   //
-  // Also: erst alles Gepflegte, dann der Fang. Nicht "Fang raus" — auf
-  // einer frischen Memory, ueber die der Fasser noch nie gelaufen ist, ist
-  // er das einzige Material, und dann sind die Plaetze ohnehin frei.
+  // So: all curated content first, then the capture. Not "capture out
+  // entirely" — on a fresh memory the digester has never run over, capture
+  // is the only material there is, and then the slots are free anyway.
   //
-  // Der Preis, offen benannt und hier NICHT gemessen: steht eine Angabe
-  // nur im Fang und liefert das Gepflegte fuenf mittelmaessige Treffer,
-  // kommt der Fang nicht mehr durch. Der eval-Korpus kann das nicht
-  // zeigen, weil dort alles Gold gepflegt ist.
+  // The price, named openly and NOT measured here: if a fact lives only
+  // in a capture and the curated content already supplies five mediocre
+  // hits, the capture no longer gets through. The eval corpus cannot show
+  // this, because everything in it is already curated gold.
 
 
   // Derived ONCE per call, from the log, with no query parameter. A
@@ -488,9 +484,9 @@ export function retrieve(root, query, capability, {
 
   const claims = [];
   const seenBody = new Map();
-  // Hat die Auswahl aufgehoert, WEIL die Seite voll war — und lagen
-  // noch ungepruefte Kandidaten davor? Das ist die ehrliche Grundlage
-  // fuer `hasMore`, und sie kostet keine groessere Auswahl.
+  // Did selection stop BECAUSE the page was full — while unexamined
+  // candidates still remained? That is the honest basis for `hasMore`,
+  // and it costs no larger selection.
   let stoppedEarly = false;
   let budget = limits.contextChars;
 
@@ -502,20 +498,20 @@ export function retrieve(root, query, capability, {
     if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }
     if (c.status === 'superseded') { note(c.id, 'superseded'); continue; }
     if (!validAt(c, asOf)) { note(c.id, `not valid at ${asOf}`); continue; }
-    // In der Auswahl, nicht danach: nachtraeglich zu filtern kann nicht
-    // zurueckholen, was der Schnitt schon verworfen hat. Derselbe Fehler
-    // steckte in der ersten Fassung der Koerper-Entdopplung.
-    // NUR Rohfang. Ein getippter Eintrag ist per Konstruktion nicht die
-    // Frage des Nutzers — er ist durch den Fasser gegangen oder wurde
-    // absichtlich abgelegt. Echos sind ein Lane-1-Artefakt.
+    // During selection, not after: filtering afterwards cannot recover
+    // what the cutoff already discarded. The same bug lived in the first
+    // version of body dedup.
+    // Raw capture ONLY. A typed entry is by construction not the user's
+    // question — it has gone through the digester or was filed
+    // deliberately. Echoes are a lane-1 artifact.
     //
-    // Ohne diese Einschraenkung faellt ein echter Anspruch: die Frage
-    // "zahlung vorkasse entscheidung" gegen die Entscheidung "zahlung nur
-    // per vorkasse — meine entscheidung" ergibt drei von vier
-    // Inhaltswoertern, also 0,75 ueber der Schwelle 0,7 — und eine
-    // Benutzerentscheidung waere unterdrueckt worden. Ein Test hat das
-    // gefangen (state.test.mjs, "a tampered cache cannot suppress a
-    // genuine claim"), bevor es jemand im Betrieb gemerkt haette.
+    // Without this restriction a genuine claim gets dropped: the question
+    // "payment prepayment decision" against the decision "payment only by
+    // prepayment — my decision" scores three of four content words, i.e.
+    // 0.75, above the 0.7 threshold — and a user decision would have been
+    // suppressed. A test caught this (state.test.mjs, "a tampered cache
+    // cannot suppress a genuine claim") before anyone would have noticed
+    // it in production.
     if (dropEcho && isEchoHit(useQuery, hit)) {
       note(c.id, 'echo of the question — answers nothing');
       continue;
@@ -554,45 +550,41 @@ export function retrieve(root, query, capability, {
   // Relevance decides the ORDER of what was selected; the round-robin
   // above decided WHO got looked at.
   const fair = enforceAuthorShare(claims, limits, note)
-    // Nach Punktzahl, bei Gleichstand nach Id.
+    // By score, ties broken by id.
     //
-    // **Was der zweite Schluessel NICHT tut**, obwohl der erste
-    // Kommentar hier das behauptete: er rettet die Reihenfolge nicht vor
-    // Undefiniertheit. `Array.prototype.sort` ist seit ES2019 stabil,
-    // Gleichstaende behalten also ihre Einfuegereihenfolge — und die
-    // Sabotage hat das prompt gezeigt: den Schluessel zu entfernen liess
-    // keine einzige Probe fallen.
+    // **What the second key does NOT do**, though an earlier version of
+    // this comment claimed it: it does not rescue the order from being
+    // undefined. `Array.prototype.sort` has been stable since ES2019, so
+    // ties already keep their insertion order — and sabotage showed this
+    // immediately: removing the key did not fail a single probe.
     //
-    // Was er tut: er macht die Ordnung unabhaengig davon, ueber WELCHE
-    // Bahn ein Anspruch hereinkam. Die Einfuegereihenfolge stammt aus
-    // dem Rundlauf ueber die Autoritaetsstufen und der Exakt-Bahn davor;
-    // wer dort eine Bahn einfuegt oder umstellt, verschiebt sonst
-    // stillschweigend jede Seitengrenze. Gemessen: bei sechs
-    // Entscheidungen zum selben Thema haben alle sechs praktisch
-    // dieselbe Punktzahl — Gleichstaende sind hier der Normalfall, nicht
-    // die Ausnahme.
+    // What it does do: it makes the order independent of WHICH lane a
+    // claim came in through. Insertion order comes from the round-robin
+    // over authority tiers and the exact lane before it; inserting or
+    // reordering a lane there would otherwise silently shift every page
+    // boundary. Measured: for six decisions on the same topic, all six
+    // carry practically the same score — ties are the normal case here,
+    // not the exception.
     //
-    // Also: kein Riegel gegen Chaos, sondern die Zusicherung, dass die
-    // Ordnung eine FUNKTION von (Punktzahl, Id) ist. Die Probe unten
-    // prueft genau das.
+    // So: not a bulwark against chaos, but the guarantee that the order is
+    // a FUNCTION of (score, id). The probe below checks exactly that.
     .sort((a, b) => (b.score - a.score) || String(a.id ?? '').localeCompare(String(b.id ?? '')));
 
-  // Die Seite herausschneiden. `fair` traegt bis zu einem Anspruch mehr,
-  // als die Seite fasst — genau der ist der Beleg fuer `hasMore`.
-  // `hasMore` aus dem Abbruch der Auswahlschleife, nicht aus einer
-  // groesseren Auswahl: die Schleife hat bei `want` aufgehoert, und es
-  // lagen noch ungepruefte Kandidaten davor. Das kostet nichts und
-  // behauptet nichts ueber ihre Zahl.
-  const seite = fair;
-  // Zwei Wege zu „es gibt mehr", und beide sind noetig:
-  //   1. Die Auswahlschleife hat bei `want` aufgehoert und es lagen
-  //      noch ungeprueft Kandidaten davor.
-  //   2. Ansprueche fielen aus PLATZGRUENDEN heraus (Budget, Quote).
-  //      Die waren zu haben; nur nicht hier.
-  // Ohne (2) meldete der Abruf am eval-Korpus `false`, waehrend 110
-  // abrufbare Ansprueche fehlten.
-  const platzMangel = excluded.some((x) => x.kind === 'capacity');
-  const hasMore = (stoppedEarly && fair.length >= want) || platzMangel;
+  // Cut out the page. `fair` carries up to one claim more than the page
+  // holds — that extra one is the evidence for `hasMore`. `hasMore` comes
+  // from the selection loop breaking early, not from a larger selection:
+  // the loop stopped at `want`, and unexamined candidates still remained
+  // before it. That costs nothing and asserts nothing about their number.
+  const page = fair;
+  // Two paths to "there is more", and both are needed:
+  //   1. The selection loop stopped at `want` and unexamined candidates
+  //      still remained.
+  //   2. Claims fell out for reasons of SPACE (budget, quota). They were
+  //      available; just not here.
+  // Without (2), retrieval on the eval corpus reported `false` while 110
+  // retrievable claims were missing.
+  const outOfSpace = excluded.some((x) => x.kind === 'capacity');
+  const hasMore = (stoppedEarly && fair.length >= want) || outOfSpace;
 
   if (tiersAtCap.length) {
     coverageReasons.push({
@@ -610,48 +602,47 @@ export function retrieve(root, query, capability, {
     coverageReasons.push({ kind: 'partial', why: 'more claims match than fit on this page' });
   }
   if (fair.length > limits.maxResults) {
-    // Die harte Decke ist erreicht. Wie viele darueber hinaus passen
-    // wuerden, weiss dieser Lauf nicht — und darf es darum auch nicht
-    // andeuten.
+    // The hard ceiling has been reached. How many more would fit beyond
+    // it, this run does not know — and must therefore not imply either.
     coverageReasons.push({
       kind: 'partial',
       why: `the hard ceiling of ${limits.maxResults} results bounds this answer`,
     });
   }
   if (excluded.length) {
-    // Getrennt ausweisen. „119 ausgeschlossen" ist eine Zahl, aus der
-    // niemand ablesen kann, ob eine zweite Seite etwas braechte.
-    const platz = excluded.filter((x) => x.kind === 'capacity').length;
-    const nichtBerechtigt = excluded.length - platz;
-    if (nichtBerechtigt) {
+    // Report separately. "119 excluded" is a number nobody can read
+    // whether a second page would help from.
+    const outOfSpaceCount = excluded.filter((x) => x.kind === 'capacity').length;
+    const notEligibleCount = excluded.length - outOfSpaceCount;
+    if (notEligibleCount) {
       coverageReasons.push({
         kind: 'partial',
-        why: `${nichtBerechtigt} claim(s) not eligible for this caller`,
+        why: `${notEligibleCount} claim(s) not eligible for this caller`,
       });
     }
-    if (platz) {
+    if (outOfSpaceCount) {
       coverageReasons.push({
         kind: 'partial',
-        why: `${platz} claim(s) left out for space, not eligibility`,
+        why: `${outOfSpaceCount} claim(s) left out for space, not eligibility`,
       });
     }
   }
-  if (seite.some((c) => c.bodyTruncated)) {
+  if (page.some((c) => c.bodyTruncated)) {
     coverageReasons.push({ kind: 'partial', why: 'at least one body was cut to bodyChars' });
   }
 
   return {
-    contested: potentialConflicts(seite),
+    contested: potentialConflicts(page),
     query: useQuery,
     queryTruncated: qCapped,
     scopes: capability.scopes,
     subject: capability.subject,
-    claims: seite,
+    claims: page,
     excluded,
     truncated: fair.length < raw.length,
-    // Die Generation des Korpus. Sie sagt einem Aufrufer, ob zwei
-    // Antworten aus demselben Stand kommen — ohne dass daraus ein
-    // Seitenzeiger wird, den dieser Entwurf nicht tragen kann.
+    // The corpus's generation. It tells a caller whether two answers came
+    // from the same state — without that turning into a page cursor,
+    // which this design cannot carry.
     generation,
     hasMore,
     // Kept alongside `truncated`, not instead of it: `truncated` answers

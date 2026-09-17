@@ -61,9 +61,9 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // change. Bumping this forces a rebuild.
 // 3: the index carries the learned term co-occurrence graph. An older
 // cache has no termGraph, so it must be rebuilt rather than loaded.
-// 7: `symbols` ist ein gewichtetes Feld, und der Exakt-Index kennt
-//    punktgetrennte Namen. Ein alter Cache hat beides nicht — er wuerde
-//    weiter nichts finden, und zwar still.
+// 7: `symbols` is now a weighted field, and the exact index recognises
+//    dot-separated names. An old cache has neither — it would keep
+//    finding nothing, and silently at that.
 export const CACHE_VERSION = 7;
 
 /**
@@ -75,31 +75,31 @@ export const FIELD_WEIGHTS = Object.freeze({
   topic: 2.5,
   class: 2.0,
   tags: 2.0,
-  // Frageworte: womit jemand danach FRAGEN wuerde, geschrieben vom
-  // Fasser beim Verdichten. Sie kosten im Abruf nichts — die Arbeit
-  // passiert auf Bahn 2, wo ohnehin ein Modell laeuft.
+  // Asked-words: what someone would ASK to find this, written by the
+  // digester while condensing. They cost nothing at retrieval time — the
+  // work happens in lane 2, where a model runs anyway.
   //
-  // Gewicht wie `tags`, und aus demselben Grund: beides sind kurze,
-  // absichtlich gesetzte Zugriffswoerter, keine Prosa. Hoeher als der
-  // Titel waere falsch — dann uebersteuert ein geratenes Frageworte-
-  // Feld den tatsaechlichen Gegenstand des Eintrags.
+  // Weighted like `tags`, and for the same reason: both are short,
+  // deliberately set access words, not prose. Higher than the title
+  // would be wrong — then a guessed asked-words field would override
+  // the entry's actual subject.
   asked: 2.0,
   skill: 2.0,
-  // Code-Symbole, die ein Eintrag ausdruecklich benennt:
+  // Code symbols an entry explicitly names:
   // `AuthService.refreshToken`, `store.put`.
   //
-  // **Warum das Feld gefehlt hat, obwohl es schon gespeichert wurde.**
-  // Ein Eintrag durfte `symbols` immer tragen — freie Felder werden
-  // angenommen —, und `--literal` fand es auch. Die GERANKTE Suche
-  // nicht: ohne Gewicht sieht BM25 das Feld gar nicht, und die
-  // Exakt-Bahn erkannte punktgetrennte Namen nicht als Bezeichner.
-  // Abgelegt, auffindbar nur auf dem Umweg — die Klasse
-  // `built-but-out-of-reach`, gemessen am 2026-09-09.
+  // **Why this field was missing even though it was already stored.**
+  // An entry was always allowed to carry `symbols` — free fields are
+  // accepted —, and `--literal` found it too. The RANKED search did not:
+  // without a weight BM25 does not see the field at all, and the
+  // exact-match lane did not recognise dot-separated names as
+  // identifiers. Stored, findable only the long way round — the class
+  // `built-but-out-of-reach`, measured on 2026-09-09.
   //
-  // Gewicht wie `tags` und `asked`, aus demselben Grund: ein Symbol ist
-  // ein absichtlich gesetztes Zugriffswort, keine Prosa. Hoeher als der
-  // Titel waere falsch — dann uebersteuert eine Symbolliste den
-  // tatsaechlichen Gegenstand des Eintrags.
+  // Weighted like `tags` and `asked`, for the same reason: a symbol is
+  // a deliberately set access word, not prose. Higher than the title
+  // would be wrong — then a symbol list would override the entry's
+  // actual subject.
   symbols: 2.0,
   choice: 1.5,
   // Roads not taken — LIGHTER than `choice`, and that is the whole
@@ -386,8 +386,8 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   const docFreq = new Map();
   let lengthSum = 0;
 
-  // Zweite, gepflegte Statistik: dieselben Zahlen, aber OHNE Rohfang.
-  // Wozu, steht bei `statsN` im Rueckgabewert.
+  // Second, curated statistic: the same numbers, but WITHOUT raw capture.
+  // What it is for is explained at `statsN` in the return value.
   const curatedFreq = new Map();
   let curatedLengthSum = 0;
   let curatedN = 0;
@@ -462,8 +462,8 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     documents.filter((d) => d.type !== 'raw').map((d) => d.weights),
     { stopwords });
 
-  // Der Exakt-Index ueber maschinenfoermige Bezeichner. Er zaehlt nichts
-  // und gewichtet nichts — er merkt sich nur, wo eine Zeichenkette steht.
+  // The exact index over machine-shaped identifiers. It counts nothing
+  // and weighs nothing — it only remembers where a string occurs.
   const entityIndex = entity.buildIndex(documents, entityText);
 
   return {
@@ -476,24 +476,24 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     language: lang.name,
     N: documents.length,
     avgLength: documents.length ? lengthSum / documents.length : 1,
-    // Was BM25 als "selten" und "lang" ansieht, kommt aus dem gepflegten
-    // Teil der Memory — nicht aus dem Rohfang.
+    // What BM25 sees as "rare" and "long" comes from the curated part of
+    // the memory — not from raw capture.
     //
-    // Der Rohfang ist Mitschrift, keine Aussage. Er waechst mit jeder
-    // Sitzung, er enthaelt jede Frage im Wortlaut, und er ist genau das
-    // Material, das die Woerter der haeufigsten Fragen haeufig macht.
-    // Laesst man ihn die idf bestimmen, verliert der gepflegte Eintrag
-    // seinen Vorsprung gegenueber thematischen Nachbarn — und zwar bei
-    // genau den Fragen, die am oeftesten gestellt werden.
+    // Raw capture is a transcript, not a statement. It grows with every
+    // session, it contains every question verbatim, and it is exactly
+    // the material that makes the words of the most-asked questions
+    // common. Letting it determine the idf makes the curated entry lose
+    // its edge over thematic neighbours — and precisely for the
+    // questions asked most often.
     //
-    // Gemessen am eval-Korpus (39 Rohfaenge mit den Frageworten):
-    // Gold-im-Kontext 11/33 -> 8/33, ohne dass eine einzige Quittung
-    // ausgestellt wird; das Gold wird gar nicht erst Kandidat.
+    // Measured on the eval corpus (39 raw captures carrying the asked
+    // words): gold-in-context 11/33 -> 8/33, without a single receipt
+    // being issued; the gold entry never even becomes a candidate.
     //
-    // Dass der Rohfang die Statistik nicht formen soll, war hier schon
-    // entschieden — `termGraph` schliesst ihn aus. Nur docFreq, N und
-    // avgLength taten es nicht. Rohfaenge werden weiterhin GEFUNDEN;
-    // sie werden nur nicht mehr gefragt, was ein seltenes Wort ist.
+    // That raw capture should not shape the statistic was already
+    // decided here — `termGraph` excludes it. Only docFreq, N and
+    // avgLength did not. Raw captures are still FOUND; they are simply no
+    // longer consulted on what counts as a rare word.
     statsN: curatedN || documents.length,
     statsDocFreq: curatedN ? curatedFreq : docFreq,
     statsAvgLength: curatedN ? (curatedLengthSum / curatedN)
@@ -1019,9 +1019,9 @@ function appendToIndex(root, index, before, now, lang) {
   }
 
   let lengthSum = index.avgLength * index.N;
-  // Die gepflegte Statistik waechst nur mit gepflegten Zeilen mit. Genau
-  // hier waere der Unterschied sonst wieder verloren: der Anhaenge-Pfad
-  // ist der, den der Stop-Hook bei JEDER Sitzung ausloest.
+  // The curated statistic grows only with curated lines. This is exactly
+  // where the distinction would otherwise be lost again: the append path
+  // is the one the stop hook triggers on EVERY session.
   let statsLengthSum = (index.statsAvgLength ?? index.avgLength) * (index.statsN ?? index.N);
   let statsN = index.statsN ?? index.N;
   const push = (doc) => {
@@ -1030,8 +1030,8 @@ function appendToIndex(root, index, before, now, lang) {
     for (const g of doc.weights.values()) length += g;
     lengthSum += length;
     for (const t of doc.weights.keys()) index.docFreq.set(t, (index.docFreq.get(t) ?? 0) + 1);
-    // Der Exakt-Index waechst mit: sonst waere ein frisch geschriebener
-    // Pfad erst nach dem naechsten Vollbau auffindbar.
+    // The exact index grows along with it: otherwise a freshly written
+    // path would only become findable after the next full build.
     for (const b of entity.identifiers(entityText(doc))) {
       let set = index.entityIndex.get(b);
       if (!set) { set = new Set(); index.entityIndex.set(b, set); }
@@ -1282,11 +1282,11 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
   const df = idx.statsDocFreq ?? idx.docFreq;
   if (!idx || !df) return w.slice(0, RETRIEVE_WORDS_MAX).join(' ');
 
-  // Aus der GEPFLEGTEN Statistik, aus demselben Grund wie bei der idf —
-  // und hier wiegt er schwerer. BM25 verschiebt einen Rang; dieser Schnitt
-  // wirft ein Wort ganz weg. Der Rohfang enthaelt jede Frage im Wortlaut,
-  // also macht er genau die Woerter haeufig, die die Frage tragen, und
-  // genau die fallen dann aus den acht heraus.
+  // From the CURATED statistic, for the same reason as the idf — and it
+  // weighs heavier here. BM25 shifts a rank; this cut drops a word
+  // entirely. Raw capture contains every question verbatim, so it makes
+  // exactly the words that carry the question common, and those are
+  // exactly the ones that would then fall out of the eight kept.
   //
   // Through the SAME tokenisation as the index, or the lookup misses on
   // an ending and every word would look equally rare. A word the index

@@ -182,10 +182,10 @@ function zielDerZeilenzahl(text, index) {
  */
 function istMarkiert(text, index) {
   const davor = text.slice(Math.max(0, index - 400), index);
-  // Der Text NACH dem Schluesselwort ist ausdruecklich erlaubt: eine
-  // Ausnahme ohne Begruendung ist eine Ausnahme, die niemand
-  // nachpruefen kann. Das erste Muster verlangte `-->` direkt und
-  // erzog damit zu unbegruendeten Marken.
+  // The text AFTER the keyword is deliberately allowed: an exception
+  // with no reason is an exception nobody can check. The first pattern
+  // required `-->` immediately, which trained authors toward unreasoned
+  // markers.
   return /<!--\s*zahl-historisch[\s\S]*?-->/i.test(davor);
 }
 

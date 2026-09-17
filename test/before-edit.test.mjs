@@ -292,53 +292,53 @@ test('without a memory it ends quietly', () => {
 });
 
 // --------------------------------------------------------------------
-// Ein Pfad ist kein ESM-Spezifizierer.
+// A path is not an ESM specifier.
 //
-// Die Hooks laden `src/pointer.mjs` per `node -e 'import(process.argv[1])'`.
-// Auf Linux geht das gut, weil `/home/...` zufaellig auch ein gueltiger
-// absoluter Spezifizierer ist. Auf Windows liegt dort `D:/a/...`, und
-// Node liest `D:` als URL-SCHEMA:
+// The hooks load `src/pointer.mjs` via `node -e 'import(process.argv[1])'`.
+// On Linux this works fine, because `/home/...` happens to also be a
+// valid absolute specifier. On Windows that is `D:/a/...`, and Node
+// reads `D:` as a URL SCHEME:
 //
 //     D:/a/x/src/pointer.mjs  ->  ERR_UNSUPPORTED_ESM_URL_SCHEME
 //
-// Jeder der sechs Aufrufe faengt das mit `.catch()` ab und liefert einen
-// leeren Stand. Der Hook hat dort also bei JEDEM Edit den vollen Block
-// erneut eingeblendet statt beim zweiten Mal einen Zeiger zu setzen, und
-// nie eine Marke geschrieben — gemessen am 2026-09-16.
+// Each of the six calls catches this with `.catch()` and returns an
+// empty state. So the hook re-displayed the full block on EVERY edit
+// there instead of setting a pointer the second time, and never wrote a
+// mark — measured on 2026-09-16.
 //
 // invariant: fremder-pfad-wird-normalisiert
 // invariant: sieht-richtig-aus-tut-nichts
-test('kein Hook reicht einen nackten Pfad als ESM-Spezifizierer weiter', () => {
+test('no hook passes a bare path along as an ESM specifier', () => {
   const hooks = fs.readdirSync(path.join(ROOT, 'bin'))
     .filter((n) => n.startsWith('mem-'))
     .map((n) => [n, fs.readFileSync(path.join(ROOT, 'bin', n), 'utf8')]);
-  assert.ok(hooks.length > 0, 'keine Hooks gefunden — die Probe misst nichts');
+  assert.ok(hooks.length > 0, 'no hooks found — this probe measures nothing');
 
-  let geprueft = 0;
+  let checked = 0;
   for (const [name, text] of hooks) {
     if (!text.includes('import(process.argv')) continue;
-    geprueft += 1;
-    // Was am Ende des node -e uebergeben wird, muss eine URL-Variable sein.
-    const uebergaben = text.match(/'\s+"\$[A-Z_]+"\s+2>\/dev\/null/g) ?? [];
-    assert.ok(uebergaben.length > 0, `${name}: keine Uebergabe gefunden`);
-    for (const u of uebergaben) {
+    checked += 1;
+    // Whatever is passed at the end of node -e must be a URL variable.
+    const handoffs = text.match(/'\s+"\$[A-Z_]+"\s+2>\/dev\/null/g) ?? [];
+    assert.ok(handoffs.length > 0, `${name}: no handoff found`);
+    for (const u of handoffs) {
       assert.match(u, /_URL"/,
-        `${name} reicht einen nackten Pfad weiter: ${u.trim()}`);
+        `${name} passes a bare path along: ${u.trim()}`);
     }
   }
-  // Positivkontrolle: faende die Probe gar keinen Hook mit dynamischem
-  // Import, waere sie gruen und blind.
-  assert.ok(geprueft > 0,
-    'kein Hook benutzt import(process.argv) — die Probe hat nichts geprueft');
+  // Positive control: if the probe found no hook with a dynamic import
+  // at all, it would be green and blind.
+  assert.ok(checked > 0,
+    'no hook uses import(process.argv) — this probe checked nothing');
 });
 
-test('ein Pfad mit Laufwerksbuchstaben ist als Spezifizierer wirklich ungueltig', async () => {
-  // Die Begruendung des Riegels daneben, nachgemessen statt behauptet —
-  // und zwar auf JEDER Plattform, weil `D:` ueberall als Schema gelesen
-  // wird. Faellt dieser Test je aus, weil Node es doch akzeptiert, ist
-  // der Riegel oben ueberfluessig geworden und darf weg.
+test('a path with a drive letter really is invalid as a specifier', async () => {
+  // The reasoning behind the guard next to this, measured rather than
+  // assumed — and on EVERY platform, because `D:` is read as a scheme
+  // everywhere. If this test ever fails because Node accepts it after
+  // all, the guard above has become redundant and may go.
   await assert.rejects(
     () => import('D:/a/x/src/pointer.mjs'),
     (e) => ['ERR_UNSUPPORTED_ESM_URL_SCHEME', 'ERR_MODULE_NOT_FOUND'].includes(e.code),
-    'ein Laufwerkspfad laedt auf einmal doch');
+    'a drive path suddenly loads after all');
 });

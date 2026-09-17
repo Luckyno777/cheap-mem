@@ -338,14 +338,14 @@ const TOOLS = [
       required: ['query'],
     },
   },
-  // --- Die sechs, die es als CLI-Befehl laengst gab -----------------
+  // --- The six that had long existed as a CLI command -----------------
   //
-  // Gemessen am 2026-09-08: 35 CLI-Befehle, 11 MCP-Werkzeuge. links,
-  // experiences, topics, facts, show und explain waren gebaut, getestet
-  // und dokumentiert — und fuer jeden angeschlossenen Agenten schlicht
-  // nicht vorhanden. Dasselbe Muster wie beim Loggen, eine Ebene tiefer:
-  // nicht "die Faehigkeit fehlt", sondern "sie ist von dort, wo
-  // gearbeitet wird, nicht erreichbar".
+  // Measured on 2026-09-08: 35 CLI commands, 11 MCP tools. links,
+  // experiences, topics, facts, show and explain were built, tested and
+  // documented — and simply did not exist for any connected agent. The
+  // same pattern as with logging, one level deeper: not "the capability
+  // is missing", but "it exists where the work happens, and is
+  // unreachable from there".
   {
     name: 'mem_links',
     description:
@@ -873,12 +873,12 @@ async function handleCall(name, args) {
       const key = args.key ?? null;
       const xs = memory.topicEntries(root, key);
       if (!key) {
-        // Ohne Schluessel: welche Themen gibt es ueberhaupt. Ein Agent,
-        // der die Namen nicht kennt, kann nach keinem fragen.
-        const zaehl = new Map();
-        for (const e of xs) zaehl.set(e._topic, (zaehl.get(e._topic) ?? 0) + 1);
-        if (!zaehl.size) return textResult('No topics yet.');
-        return textResult([...zaehl.entries()].sort((a, b) => b[1] - a[1])
+        // No key: which topics even exist. An agent that does not know
+        // the names cannot ask for any of them.
+        const counts = new Map();
+        for (const e of xs) counts.set(e._topic, (counts.get(e._topic) ?? 0) + 1);
+        if (!counts.size) return textResult('No topics yet.');
+        return textResult([...counts.entries()].sort((a, b) => b[1] - a[1])
           .map(([t, n]) => `${String(n).padStart(4)}  ${t}`).join('\n'));
       }
       if (!xs.length) return textResult(`Nothing under topic '${key}'.`);

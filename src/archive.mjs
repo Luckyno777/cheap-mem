@@ -108,9 +108,9 @@ export const OLD_DIR = 'raw';
 export const KINDS = Object.freeze(['file']);
 
 /**
- * Wo liegt das Archiv?
+ * Where does the archive live?
  *
- * Formen: `/absolut/pfad`, `relativ/pfad`, `datei:///absolut/pfad`.
+ * Forms: `/absolute/path`, `relative/path`, `file:///absolute/path`.
  * Cloud targets (a NAS share, an object store, a synced drive) are
  * attached by the operating system and are therefore `file:` as well.
  * That saves an adapter nobody could have tested; a real network

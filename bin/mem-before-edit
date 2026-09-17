@@ -65,13 +65,13 @@ entrutscht() { printf '%s' "${1//\\//}"; }
 # the hook kept exiting 0 in silence on Windows. Guessing a third time
 # would cost another round trip. A branch that says its own name costs
 # one line.
-spur() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: exit at %s\n' "$1" >&2; return 0; }
-# Dieselbe Spur, aber fuer einen Zwischenstand statt fuer einen Ausstieg.
-# `spur` schreibt "exit at ..." — an einer Stelle, die NICHT aussteigt,
-# waere das eine Falschaussage im eigenen Diagnosewerkzeug.
-notiz() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: %s\n' "$1" >&2; return 0; }
-[ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && { spur "off-schalter"; exit 0; }
-[ "${MEM_HOOK_OFF:-}" = "1" ] && { spur "hook-off"; exit 0; }
+trace() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: exit at %s\n' "$1" >&2; return 0; }
+# The same trace, but for a midpoint state instead of an exit.
+# `trace` prints "exit at ..." — at a point that does NOT exit, that
+# would be a false statement in its own diagnostic tool.
+note() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: %s\n' "$1" >&2; return 0; }
+[ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && { trace "off-switch"; exit 0; }
+[ "${MEM_HOOK_OFF:-}" = "1" ] && { trace "hook-off"; exit 0; }
 
 PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
 
@@ -101,7 +101,7 @@ for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   k="$(entrutscht "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
-[ -z "$ROOT" ] && { spur "keine-wurzel (CHEAP_MEM_ROOT=${CHEAP_MEM_ROOT:-} PROBE=$PROBE)"; exit 0; }
+[ -z "$ROOT" ] && { trace "no-root (CHEAP_MEM_ROOT=${CHEAP_MEM_ROOT:-} PROBE=$PROBE)"; exit 0; }
 
 # Two shapes, same as the other hooks: the memory may carry the tool
 # itself, or the tool lives in a separate checkout next to this script.
@@ -116,7 +116,7 @@ if [ -f "$ROOT/bin/mem" ]; then
 elif [ -f "$HOOK_DIR/mem" ]; then
   RUN_MEM=(node "$HOOK_DIR/mem" --root "$ROOT")
 else
-  spur "kein-werkzeug (ROOT=$ROOT HOOK_DIR=$HOOK_DIR)"
+  trace "no-tool (ROOT=$ROOT HOOK_DIR=$HOOK_DIR)"
   exit 0
 fi
 
@@ -139,12 +139,12 @@ READING="$(printf '%s' "$IN" | node -e '
     if (query.length < 4) process.exit(0);
     process.stdout.write(JSON.stringify({ query, session: String(j.session_id ?? "none") }));
   })' 2>/dev/null)"
-[ -z "$READING" ] && { spur "kein-lesbarer-pfad"; exit 0; }
+[ -z "$READING" ] && { trace "no-readable-path"; exit 0; }
 
 field() { printf '%s' "$READING" | node -e "let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>process.stdout.write(String(JSON.parse(d).$1 ?? \"\")))" 2>/dev/null; }
 QUERY="$(field query)"
 SESSION="$(field session)"
-[ -z "$QUERY" ] && { spur "keine-anfrage"; exit 0; }
+[ -z "$QUERY" ] && { trace "no-query"; exit 0; }
 
 # Once per file per session — but not SILENTLY.
 #
@@ -161,36 +161,35 @@ SESSION="$(field session)"
 # lookup at all.
 SAFE="$(printf '%s' "${SESSION}__${QUERY}" | tr -c 'A-Za-z0-9_.-' '_')"
 MARKS="${MEM_BEFORE_EDIT_MARKS:-$ROOT/.mem/before-edit}"
-mkdir -p "$MARKS" 2>/dev/null || { spur "marken-ordner (MARKS=$MARKS)"; exit 0; }
+mkdir -p "$MARKS" 2>/dev/null || { trace "marks-dir (MARKS=$MARKS)"; exit 0; }
 MARK="$MARKS/$SAFE.json"
 PTR="$HOOK_DIR/../src/pointer.mjs"
-# **Als file-URL, nicht als Pfad.** Ein ESM-Spezifizierer ist eine URL.
-# Auf Linux faellt das nicht auf, weil `/home/...` zufaellig auch ein
-# gueltiger absoluter Spezifizierer ist. Auf Windows ist `D:/a/...` es
-# nicht — Node liest `D:` als URL-SCHEMA und wirft
-# ERR_UNSUPPORTED_ESM_URL_SCHEME. Alle sechs Aufrufe unten fangen den
-# Fehler mit `.catch()` ab und schreiben einen leeren Stand, also blieb
-# der ganze Zeiger- und Marken-Mechanismus dort untaetig: der Hook hat
-# bei JEDEM Edit den vollen Block erneut eingeblendet, statt beim
-# zweiten Mal einen Zeiger zu setzen, und keine Marke je geschrieben.
-# Gemessen am 2026-09-16 am Windows-Laeufer (before-edit.test.mjs:131
-# und :174), Mechanismus lokal nachgestellt.
+# **As a file URL, not as a path.** An ESM specifier is a URL. On Linux
+# this goes unnoticed, because `/home/...` happens to also be a valid
+# absolute specifier. On Windows `D:/a/...` is not — Node reads `D:` as
+# a URL SCHEME and throws ERR_UNSUPPORTED_ESM_URL_SCHEME. All six calls
+# below catch the error with `.catch()` and write an empty state, so the
+# whole pointer-and-mark mechanism sat idle there: the hook re-displayed
+# the full block on EVERY edit, instead of setting a pointer the second
+# time, and never wrote a mark at all. Measured on 2026-09-16 on the
+# Windows runner (before-edit.test.mjs:131 and :174), mechanism
+# reproduced locally.
 #
-# **Und der Pfad muss vorher in die Windows-Form.** Die file-URL allein
-# hat nicht gereicht, und der Lauf vom 2026-09-16 hat gesagt warum:
+# **And the path must be converted to Windows form first.** The file URL
+# alone was not enough, and the 2026-09-16 run said why:
 #
-#     marke: MARK=C:/Users/RUNNER~1/... vorhanden=nein level=0 ahead={}
+#     mark: MARK=C:/Users/RUNNER~1/... exists=no level=0 ahead={}
 #
-# `ahead={}` und `level=0` sind woertlich die catch-Rueckfaelle. MARK ist
-# eine Windows-Form (aus $ROOT), HOOK_DIR dagegen kommt aus `pwd`, und
-# das liefert unter Git Bash die MSYS-Form `/d/a/...`. Daraus wurde
-# `file:///d/a/...`, und ein Windows-node sucht dort auf dem aktuellen
-# Laufwerk nach `\d\a\...`. Findet nichts, faengt ab, schweigt.
+# `ahead={}` and `level=0` are literally the catch fallbacks. MARK is a
+# Windows form (from $ROOT), while HOOK_DIR comes from `pwd`, which
+# under Git Bash yields the MSYS form `/d/a/...`. That became
+# `file:///d/a/...`, and a Windows node then looks for `\d\a\...` on the
+# current drive. Finds nothing, catches it, stays silent.
 #
-# `cygpath` ist der Uebersetzer und zugleich das verlaesslichste
-# Anzeichen fuer Windows — dieselbe Stelle und dieselbe Begruendung wie
-# in install/claude-code.sh, wo `-m` genau deshalb gewaehlt wurde:
-# Schraegstriche, die bash liest und die eine URL ohne Escapes uebersteht.
+# `cygpath` is the translator and, at the same time, the most reliable
+# sign of Windows — the same spot and the same reasoning as in
+# install/claude-code.sh, where `-m` was chosen for exactly this reason:
+# forward slashes that bash reads and that survive as an unescaped URL.
 PTR_FS="$PTR"
 command -v cygpath >/dev/null 2>&1 && PTR_FS="$(cygpath -m "$PTR")"
 case "$PTR_FS" in
@@ -211,18 +210,18 @@ AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
     process.stdout.write(JSON.stringify({ ...d, count: m?.shown ?? 0 }));
   }).catch(() => process.stdout.write("{}"));' "$PTR_URL" 2>/dev/null)"
 
-# **Der Marken-Pfad konnte bis hierher nichts ueber sich sagen.**
-# readMark und writeMark fangen jeden Fehler ab ("Never fails outward"),
-# und die Spur deckte nur die fruehen AUSSTIEGE ab. Faellt die
-# Entscheidung falsch aus, lief der Hook also sauber durch, gab den
-# vollen Block aus, und stderr war leer — genau der Zustand am
-# 2026-09-16 auf dem Windows-Laeufer, wo `exit=0, stderr: (empty)` alles
-# war, was zwei fallende Zusicherungen hergaben.
+# **The mark path could say nothing about itself up to this point.**
+# readMark and writeMark catch every error ("Never fails outward"), and
+# the trace only covered the early EXITS. If the decision came out
+# wrong, the hook then ran through cleanly, printed the full block, and
+# stderr was empty — exactly the state on 2026-09-16 on the Windows
+# runner, where `exit=0, stderr: (empty)` was all that two failing
+# assertions had to go on.
 #
-# Ein Zweig, der eine Entscheidung trifft, muss sie hinter dem Schalter
-# nennen koennen. Sonst ist er von "es gibt nichts zu entscheiden" nicht
-# zu unterscheiden.
-notiz "marke: PTR_URL=$PTR_URL MARK=$MARK vorhanden=$([ -f "$MARK" ] && echo ja || echo nein) level=$LEVEL ahead=$AHEAD"
+# A branch that makes a decision must be able to name it behind the
+# flag. Otherwise it cannot be told apart from "there is nothing to
+# decide".
+note "mark: PTR_URL=$PTR_URL MARK=$MARK exists=$([ -f "$MARK" ] && echo yes || echo no) level=$LEVEL ahead=$AHEAD"
 
 if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
   printf '%s' "$AHEAD" | MEM_Q="$QUERY" node -e '
@@ -256,8 +255,8 @@ fi
 # without a prefix or with the same one (src/component.mjs);
 # `projects/x/events.jsonl` answers no question about
 # `global/events.jsonl`.
-HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --json 2>/dev/null)" || { spur "suche-fehlgeschlagen"; exit 0; }
-[ -z "$HITS" ] && { spur "keine-treffer"; exit 0; }
+HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --json 2>/dev/null)" || { trace "search-failed"; exit 0; }
+[ -z "$HITS" ] && { trace "no-hits"; exit 0; }
 
 PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
@@ -282,7 +281,7 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
     process.stdout.write(out.join("\n"));
   })' 2>/dev/null)"
 
-[ -z "$PICK" ] && { spur "keine-auswahl"; exit 0; }
+[ -z "$PICK" ] && { trace "no-pick"; exit 0; }
 
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
@@ -304,7 +303,7 @@ MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" MEM_FP="$FP" MEM_COUNT="$COUNT" node -e '
     level: Number(process.env.MEM_LEVEL), fingerprint: process.env.MEM_FP,
     shown: Number(process.env.MEM_COUNT),
   })).catch(() => {});' "$PTR_URL" 2>/dev/null
-notiz "marke geschrieben: vorhanden=$([ -f "$MARK" ] && echo ja || echo nein) fp=$FP count=$COUNT"
+note "mark written: exists=$([ -f "$MARK" ] && echo yes || echo no) fp=$FP count=$COUNT"
 
 if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
   printf '%s' "$VERDICT" | MEM_Q="$QUERY" node -e '

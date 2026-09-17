@@ -118,15 +118,16 @@ export const THESAURUS = Object.freeze([
   ['learning', 'lesson', 'insight', 'takeaway',
    'lehre', 'erkenntnis', 'einsicht'],
 
-  // Deutsche Gruppen ohne englisches Gegenstueck oben. Gemessen am
-  // 2026-09-06: vor dieser Erweiterung ergab die kuratierte Schicht fuer
-  // deutsche Anfragen NULL Synonyme — 0 aus 342 Termen ueber 39 Fragen,
-  // gegen 53 aus 44 auf Englisch. Der Mechanismus arbeitete, er griff nur
-  // nicht, und nichts sagte es einem.
+  // German-only groups with no English counterpart above. Measured on
+  // 2026-09-06: before this addition, the curated layer produced ZERO
+  // synonyms for German queries — 0 of 342 terms over 39 questions,
+  // against 53 of 44 for English. The mechanism worked, it simply never
+  // engaged, and nothing said so.
   //
-  // Deutsch steht MIT in den Gruppen oben, nicht daneben: damit findet eine
-  // deutsche Frage auch einen englischen Eintrag und umgekehrt. Gemischte
-  // Memories sind der Normalfall, sobald Werkzeuge englisch protokollieren.
+  // German words sit WITH the English groups above, not beside them: that
+  // way a German question also finds an English entry and vice versa.
+  // Mixed-language memories are the normal case as soon as tooling logs
+  // in English.
   ['zeitstempel', 'zeitangabe', 'uhrzeit', 'datum'],
   ['oberflaeche', 'maske', 'formular', 'ansicht', 'darstellung'],
   ['meldung', 'hinweis', 'benachrichtigung', 'mitteilung'],
@@ -480,38 +481,38 @@ export function expand(terms, tagGraph = null, lang = null, termGraph = null) {
 
 
 /**
- * Deckt die kuratierte Wortliste die Sprache dieser Memory ueberhaupt ab?
+ * Does the curated word list cover this memory's language at all?
  *
- * Gemessen am 2026-09-06: `THESAURUS` enthaelt 39 Gruppen und 188 Woerter,
- * alle englisch. Eine deutsche Memory bekommt aus dieser Schicht NULL
- * Synonyme — 0 Treffer aus 198 Anfrage-Termen ueber 21 Fragen, gegen 53
- * aus 44 Termen auf Englisch. Der Mechanismus arbeitet, er greift nur
- * nicht, und nichts sagt es einem.
+ * Measured on 2026-09-06: `THESAURUS` holds 39 groups and 188 words, all
+ * English. A German-language memory gets ZERO synonyms from this layer
+ * — 0 hits from 198 query terms over 21 questions, against 53 from 44
+ * terms in English. The mechanism works, it simply never engages, and
+ * nothing says so.
  *
- * Das ist die Sorte Luecke, gegen die dieses Projekt sonst antritt:
- * unsichtbar bei Anwesenheit, still bei Abwesenheit. Also wird sie
- * gemessen statt vorausgesetzt.
+ * This is the kind of gap this project otherwise campaigns against:
+ * invisible when present, silent when absent. So it is measured instead
+ * of assumed.
  *
- * Gezaehlt wird ueber die HAEUFIGSTEN Inhaltswoerter der Memory, nicht
- * ueber Anfragen: der Doktor hat keine Anfragen, und das Vokabular der
- * Eintraege sagt dasselbe.
+ * Counted over the memory's MOST FREQUENT content words, not over
+ * queries: the doctor has no queries, and the entries' own vocabulary
+ * says the same thing.
  *
- * @param {string[]} terms  Inhaltswoerter der Memory, haeufigste zuerst
- * @param {object} lang     Sprachpaket (normalize/stem)
+ * @param {string[]} terms  the memory's content words, most frequent first
+ * @param {object} lang     language pack (normalize/stem)
  */
 export function curatedCoverage(terms, lang = null) {
   const l = lang ?? { name: 'raw', normalize: (w) => w, stem: (w) => w };
   let covered = 0;
-  // Die Terme werden hier GESTAMMT, weil der Index nach Stamm schluesselt
-  // und der echte Suchpfad ebenfalls gestammte Terme uebergibt
+  // Terms are STEMMED here because the index keys by stem and the real
+  // search path also passes stemmed terms in
   // (search.mjs: tokenizeGroups -> expand).
   //
-  // Eine erste Fassung reichte rohe Woerter durch. Auf Englisch fiel das
-  // nicht auf — der Stemmer laesst kurze Woerter meist unveraendert, also
-  // traf der Schluessel zufaellig. Auf Deutsch traf er nie, und die
-  // Funktion meldete fuer JEDE deutsche Memory null Deckung, auch mit
-  // eigener Wortliste. Das sah nach einem Defekt in cheap-mem aus und war
-  // einer in dieser Funktion.
+  // An early version passed raw words through. On English this went
+  // unnoticed — the stemmer leaves most short words unchanged, so the
+  // lookup matched by coincidence. On German it never matched, and the
+  // function reported zero coverage for EVERY German-language memory,
+  // even with its own word list. This looked like a defect in cheap-mem
+  // and was one, in this function.
   for (const t of terms) if (thesaurusNeighbours(l.stem(l.normalize(t)), l).length) covered += 1;
   return { checked: terms.length, covered, fraction: terms.length ? covered / terms.length : null };
 }
