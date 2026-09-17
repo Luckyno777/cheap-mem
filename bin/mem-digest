@@ -16,6 +16,9 @@
 #   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
 #   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
 #   MEM_DIGEST_CEILING_H      dueness threshold: ceiling in hours
+#   MEM_DIGEST_STALE_MIN      age at which a lock left by a crashed run
+#                             counts as stale (default 120; only used
+#                             where there is no flock, e.g. macOS)
 #                         the rest stays pending for the next tick
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude -p)
@@ -94,13 +97,48 @@ esac
 note "due: $STATE"
 
 LOCK="$ROOT/.mem/digest.lock"
+LOCKDIR="$ROOT/.mem/digest.lock.d"
+
+# **`flock` does not exist on macOS (measured 2026-09-17).** This used
+# to be a bare `flock -n 9`, and a missing flock makes that `if` true —
+# so every tick on every Mac reported "already running, skipping" and
+# returned 0. The digest has NEVER run there, silently, and the exit
+# code said everything was fine.
+#
+# Class `drei-zustaende-nie-zwei`: "locked", "free" and "cannot tell"
+# were folded into two, and the third was read as the first.
+#
+# Found by the CI step that comes with this change, on its first run.
+# No test had ever started this script.
+#
+# The fallback is `mkdir`, atomic on POSIX — exactly one caller wins,
+# the same guarantee flock gives here. A directory left by a crashed
+# run is recognised by its age, otherwise one crash would block the
+# digest forever (the trap the PowerShell port already names for its
+# PID file).
+STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
+
+take_lock() {
+  if command -v flock > /dev/null 2>&1; then
+    exec 9> "$LOCK"
+    flock -n 9 && return 0
+    return 1
+  fi
+  if [ -d "$LOCKDIR" ] && [ -z "$(find "$LOCKDIR" -maxdepth 0 -mmin "+$STALE_MIN" 2>/dev/null)" ]; then
+    return 1
+  fi
+  rmdir "$LOCKDIR" 2> /dev/null || true
+  mkdir "$LOCKDIR" 2> /dev/null || return 1
+  # shellcheck disable=SC2064 -- $LOCKDIR is wanted at trap time, not later
+  trap "rmdir '$LOCKDIR' 2>/dev/null || true" EXIT
+  return 0
+}
 
 # Never two digests at once. The subshell isolates the file descriptor:
 # without the parentheses FD 9 stays open in the parent process and the
 # lock is never released.
 (
-  exec 9>"$LOCK"
-  if ! flock -n 9; then
+  if ! take_lock; then
     note "already running, skipping"
     exit 0
   fi

@@ -75,6 +75,40 @@ export const LINK_KINDS = Object.freeze({
 });
 
 /**
+ * Which entries this one says it was drawn from — ALL the shapes.
+ *
+ * **The finding (external audit, 2026-09-17).** Provenance is written in
+ * this repo in two shapes, both genuine: `origin.derived_from` (the
+ * digest, `standing()`, the desk, `mem why`) and
+ * `provenance.derived_from` / `provenance.inferred_from`
+ * (`src/teach.mjs`, `src/basis.mjs`). `src/net.mjs` read only the second,
+ * so a real lineage written in the first shape produced ZERO edges — the
+ * net drew a memory less connected than the one on disk.
+ *
+ * Not "read any structure as provenance": the shapes are a closed list,
+ * and a third one is added here, once, where every reader picks it up.
+ *
+ * Returns entry ids, unchecked — whether the target exists is the
+ * caller's question, and answering it here would hide a dangling edge,
+ * which is exactly what `build()` in net.mjs counts on purpose.
+ */
+export const HERKUNFT_FELDER = Object.freeze([
+  ['origin', 'derived_from'],
+  ['provenance', 'derived_from'],
+  ['provenance', 'inferred_from'],
+]);
+
+export function derivedFrom(e) {
+  const out = [];
+  for (const [aussen, innen] of HERKUNFT_FELDER) {
+    const q = e?.[aussen]?.[innen];
+    if (!Array.isArray(q)) continue;
+    for (const x of q) if (typeof x === 'string' && x && !out.includes(x)) out.push(x);
+  }
+  return out;
+}
+
+/**
  * Duty is the ONLY type with a lifecycle.
  *
  * Closing one does not overwrite the original line; it appends a new
@@ -480,15 +514,37 @@ export function listProjects(root) {
  * Reads only the `timeline` log — facts meant to change — and folds each
  * `key` down to its current value, dropping retired versions. Pure over
  * the files it reads; no model, no network.
+ *
+ * **A fact is identified by SCOPE plus key (external audit, 2026-09-17).**
+ * This function used to pour every project's timeline into one list and
+ * hand it to `resolveFacts`, which groups by key alone. Two projects that
+ * both record `db.engine` — the most ordinary thing a key can be — were
+ * therefore folded into one fact: alpha's Postgres came back as the
+ * HISTORY of beta's SQLite, so alpha appeared to have migrated. Nothing
+ * was written and nothing was wrong in the files; the reader invented it.
+ *
+ * `resolveFacts` stays scope-blind on purpose — its job is to fold the
+ * versions of ONE fact — and the scope is applied here, where projects
+ * are known, by resolving each project on its own. Every result carries
+ * its `project` (null = global) so a caller cannot lose the distinction
+ * again by accident.
  */
-export function currentFacts(root, { now = new Date(), staleDays = 120 } = {}) {
-  const all = [];
-  for (const project of [null, ...listProjects(root)]) {
-    for (const e of readLog(root, 'timeline', { project }).entries) {
-      if (!e.__broken) all.push(e);
-    }
+export function currentFacts(root, { now = new Date(), staleDays = 120, project } = {}) {
+  const bereiche = project === undefined
+    ? [null, ...listProjects(root)]
+    : [project === 'global' ? null : project];
+  const out = [];
+  for (const bereich of bereiche) {
+    const entries = readLog(root, 'timeline', { project: bereich }).entries
+      .filter((e) => !e.__broken);
+    if (!entries.length) continue;
+    for (const f of freshness.resolveFacts(entries, {
+      now, staleDays, retired: retiredMap(entries),
+    })) out.push({ ...f, project: bereich });
   }
-  return freshness.resolveFacts(all, { now, staleDays, retired: retiredMap(all) });
+  out.sort((a, b) => String(a.project ?? '').localeCompare(String(b.project ?? ''))
+    || a.key.localeCompare(b.key));
+  return out;
 }
 
 /**
@@ -531,16 +587,30 @@ export function entriesById(root) {
  * rather than silently skipped: an edge into nothing is a real defect,
  * and hiding it would make the graph look healthier than it is.
  */
-export function linksOf(root, id) {
-  const byId = entriesById(root);
+export function linksOf(root, id, { withRetired = false, byId: vorgebaut = null } = {}) {
+  // Der Aufrufer darf die Eintragsuebersicht mitbringen. `question.all`
+  // ruft diese Funktion einmal JE FRAGE, und jeder Aufruf las bisher das
+  // ganze Gedaechtnis neu ein — quadratisch in der Zahl der Fragen. Die
+  // Uebersicht haengt nur an der Wurzel, nicht an `id`, also kann sie
+  // draussen einmal gebaut werden. Vorgabe bleibt: selbst bauen, damit
+  // ein Aufrufer nichts richtig machen MUSS.
+  const byId = vorgebaut ?? entriesById(root);
   const out = [];
   const incoming = [];
   const dangling = [];
   for (const project of [null, ...listProjects(root)]) {
     let res;
     try { res = readLog(root, 'link', { project }); } catch { continue; }
+    // **A discarded edge is not an edge (external audit, 2026-09-17).**
+    // A `resolves` link retired as `discarded` went on closing its
+    // question: `question.all` walks these edges, and this loop skipped
+    // broken and closing lines but never asked whether the edge itself
+    // had been withdrawn. Retiring it looked like it worked — the entry
+    // WAS marked — and changed nothing anyone could see.
+    const zurueckgezogen = retiredMap(res.entries);
     for (const l of res.entries) {
       if (l.__broken || isClosingLine(l)) continue;
+      if (!withRetired && l.id && zurueckgezogen.has(l.id)) continue;
       const from = l.from ?? l.source ?? null;
       const to = l.to ?? l.target ?? null;
       if (!from || !to) continue;
@@ -583,14 +653,14 @@ export function standing(root) {
   };
 
   for (const [, e] of byId) {
-    const from = e.origin && e.origin.derived_from;
-    if (Array.isArray(from)) {
-      for (const src of from) {
-        if (typeof src !== 'string' || !byId.has(src)) continue;
-        const r = of(src);
-        r.cited += 1;
-        r.by.push(e.id);
-      }
+    // Beide Schreibweisen, ueber derivedFrom — vorher zaehlte `standing`
+    // nur `origin.derived_from`, und eine Herkunft in der anderen Form
+    // brachte dem zitierten Eintrag kein Gewicht ein.
+    for (const src of derivedFrom(e)) {
+      if (!byId.has(src)) continue;
+      const r = of(src);
+      r.cited += 1;
+      r.by.push(e.id);
     }
   }
 
@@ -741,7 +811,11 @@ export function topicState(root, key) {
  */
 export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } = {}) {
   const stable = currentFacts(root, { now, staleDays })
-    .filter((f) => !f.stale && !f.conflict);
+    // `current` may be null now: a key whose every version starts in the
+    // future, or has run out, holds nothing today. It is not a stable
+    // fact, and printing the future value here would be exactly the
+    // defect the audit found.
+    .filter((f) => f.current && !f.stale && !f.conflict);
   const when = (f) => Date.parse(f.current.valid_from ?? f.current.ts ?? 0) || 0;
   // Rank by recency so the budget keeps the freshest truths ...
   const byFresh = [...stable].sort((a, b) => when(b) - when(a));

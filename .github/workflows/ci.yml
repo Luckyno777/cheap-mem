@@ -250,7 +250,6 @@ jobs:
           Set-Content -Path $fake -Value "@echo x >> `"$tally`"`r`n@exit /b 0"
           $env:CHEAP_MEM_ROOT = $memdir
           $env:MEM_DIGEST_CMD = $fake
-          $env:MEM_DIGEST_ARGS = ' '
 
           # Establish the precondition, then MEASURE it. `mem digest due`
           # exits 0 = no, 1 = yes, 3 = cannot tell. Anything but 0 here
@@ -306,7 +305,6 @@ jobs:
           $fake = Join-Path $memdir 'fake-model.cmd'
           Set-Content -Path $fake -Value "@echo x >> `"$tally`"`r`n@exit /b 0"
           $env:MEM_DIGEST_CMD = $fake
-          $env:MEM_DIGEST_ARGS = ' '
           $env:MEM_DIGEST_VOLUME_NOW_KB = '1'
 
           node $mem --root $memdir digest due --volume-now 1
@@ -378,6 +376,65 @@ jobs:
             echo "::error::the tick started a model although nothing was due"; exit 1
           fi
           echo "nothing due, no model call"
+
+      # **The lock, and the macOS hole it had (found by the step above,
+      # on its first CI run).** `flock` does not exist on macOS, and the
+      # script used to call it bare: a missing flock made the `if` true,
+      # so every tick on every Mac said "already running, skipping" and
+      # returned 0. The digest had NEVER run there, silently, and the
+      # exit code said everything was fine.
+      #
+      # The repair is a `mkdir` fallback. A repair without a probe is a
+      # hope, so this step measures the thing the lock is FOR: two ticks
+      # at once, exactly one model call. It runs on both platforms, so
+      # the flock path and the mkdir path are each covered by whichever
+      # runner has them.
+      - name: two ticks at once make one model call, not two
+        run: |
+          set -euo pipefail
+          W="$(mktemp -d)"
+          node bin/mem --root "$W" init > /dev/null
+          L="$W/transcript.jsonl"; : > "$L"
+          i=0
+          while [ "$i" -lt 400 ]; do
+            printf '{"timestamp":"2026-01-01T00:00:00Z","message":{"content":"line %s about deployment and errors"}}\n' \
+              "$i" >> "$L"
+            i=$((i+1))
+          done
+          env CHEAP_MEM_ROOT="$W" CLAUDE_TRANSCRIPT_PATH="$L" \
+            bash bin/mem-capture < /dev/null > /dev/null 2>&1 || true
+
+          # Same rule as the two steps around it: establish dueness, then
+          # MEASURE it. Without this, a root where nothing is due would
+          # give two ticks, zero calls — and the count below would fail
+          # pointing at the lock, which had nothing to do with it.
+          DUE=0
+          node bin/mem --root "$W" digest due --volume-now 1 || DUE=$?
+          if [ "$DUE" -ne 1 ]; then
+            echo "::error::precondition does not hold — nothing is due (exit $DUE)"; exit 1
+          fi
+
+          # The fake model dawdles, so the two ticks really overlap.
+          TALLY="$W/calls"
+          printf '#!/bin/sh\nsleep 3\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
+          chmod +x "$W/fake-model"
+
+          for n in 1 2; do
+            env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
+              MEM_DIGEST_LOG="$W/log$n" MEM_DIGEST_VOLUME_NOW_KB=1 \
+              bash bin/mem-digest < /dev/null > /dev/null 2>&1 &
+          done
+          wait
+
+          CALLS=0
+          [ -e "$TALLY" ] && CALLS="$(wc -l < "$TALLY" | tr -d ' ')"
+          echo "model calls from two concurrent ticks: $CALLS"
+          test "$CALLS" -eq 1 || { echo "::error::$CALLS model calls — the lock does not hold"; exit 1; }
+          # And the loser must SAY it stood down. A tick that dies quietly
+          # counts as one call too, and would pass the line above.
+          grep -q "already running" "$W"/log1 "$W"/log2 || {
+            echo "::error::neither tick reported standing down — the lock may not be why"; exit 1; }
+          echo "one call, and the other tick stood down"
 
       # Dueness is ESTABLISHED through the threshold, not borrowed from
       # whatever this checkout happens to carry. The sibling memory had

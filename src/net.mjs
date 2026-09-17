@@ -31,22 +31,46 @@
  * below.
  */
 
-/** The link kinds that count as declared. Closed list. */
+/**
+ * Edges that come from a FIELD rather than from the links book.
+ * Structural: somebody wrote `replaces_id`, not a relation verb.
+ */
+import * as memory from './memory.mjs';
+
+export const FELD_KANTEN = Object.freeze(['derived_from', 'replaces', 'closes']);
+
+/**
+ * The link kinds that count as declared. Closed list — and the
+ * hand-drawn half is NOT retyped here.
+ *
+ * **The finding (external audit, 2026-09-17).** This list used to spell
+ * the relation `generalises`; `memory.LINK_KINDS`, the closed vocabulary
+ * every writer is validated against, spells it `generalizes`. So a valid
+ * `generalizes` edge — written through the public path, accepted by the
+ * writer, stored — produced ZERO edges in the net and vanished without a
+ * word. Two spellings of one word, in the two files that have to agree
+ * about it: the class `zwei-wahrheiten`, and the reason the vocabulary
+ * is now taken from its owner instead of being copied.
+ */
 export const LINK_KINDS = Object.freeze([
-  'derived_from', 'replaces', 'closes',
-  'causes', 'generalises', 'resolves', 'contradicts',
+  ...FELD_KANTEN, ...Object.keys(memory.LINK_KINDS),
 ]);
 
 /**
  * The declared links of an entry. Only fields someone wrote — nothing
  * is invented from similarity.
+ *
+ * Provenance is read through `memory.derivedFrom`, which knows both
+ * shapes this repo writes (`origin.derived_from` and
+ * `provenance.derived_from`/`inferred_from`). Reading only the second —
+ * what this function did until the audit — made a real lineage invisible
+ * and the net look sparser than the memory is.
  */
 export function linksOf(e) {
   const out = [];
   if (!e || !e.id) return out;
-  const q = e.provenance && (e.provenance.derived_from ?? e.provenance.inferred_from);
-  if (Array.isArray(q)) {
-    for (const x of q) if (typeof x === 'string') out.push({ kind: 'derived_from', from: e.id, to: x });
+  for (const x of memory.derivedFrom(e)) {
+    out.push({ kind: 'derived_from', from: e.id, to: x });
   }
   if (e.replaces_id) out.push({ kind: 'replaces', from: e.id, to: String(e.replaces_id) });
   if (e.closes_id) out.push({ kind: 'closes', from: e.id, to: String(e.closes_id) });

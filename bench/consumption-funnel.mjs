@@ -53,6 +53,8 @@
 //   node bench/consumption-funnel.mjs [--root <path>] [--json]
 import fs from 'node:fs';
 import path from 'node:path';
+import * as question from '../src/question.mjs';
+import * as memory from '../src/memory.mjs';
 
 const argv = process.argv.slice(2);
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -117,7 +119,7 @@ export const NO_FOLD = 'no fold: one row is one event';
 export const FOLD_POINTER = 'closes_id -> id';
 
 /** Closed through an edge in the graph, not through a field on the row. */
-export const FOLD_EDGE = 'link art=resolves, nach -> question.id';
+export const FOLD_EDGE = 'question.all(): resolves edge -> question.id';
 
 function pointerChannel(name, data, { measuredAt = 'store' } = {}) {
   if (data.missing) {
@@ -211,29 +213,61 @@ function messageChannel(root, isDone) {
  * instrument that raises a false alarm gets switched off the second
  * time it does.
  */
+/**
+ * **And this channel measured nothing at all, for months.**
+ *
+ * The external audit of 2026-09-17 wrote a question and a `resolves`
+ * edge through the ordinary public path, confirmed with `question.all`
+ * that the question was answered — and this function reported
+ * `produced 0, consumed 0`.
+ *
+ * The cause: it looked for `frage`, `art` and `nach`. Those are the
+ * field names of the project this tool was extracted from; here they are
+ * `question`, `kind` and `to`. The rows were read, matched nothing, and
+ * counted to zero — and the tests confirmed it, because they built their
+ * fixtures with the same foreign names. A gauge and its calibration
+ * sharing one wrong assumption is the quietest failure in this repo, and
+ * the very thing this file's own header warns about: "an instrument that
+ * raises a false alarm gets switched off the second time it does". This
+ * one raised no alarm at all, which is worse.
+ *
+ * So the fold is read through the canonical reader now. `question.all`
+ * owns what "answered" means — global AND project stores, the right
+ * field names, and since the same audit, withdrawn edges no longer
+ * counting. The store-level numbers this channel is FOR — broken lines,
+ * edges pointing at nothing — stay raw, because those are questions
+ * about the files, not about the fold.
+ */
 function questionChannel(root) {
   const questions = fromProjects(root, 'questions');
-  if (questions.missing) {
+  // Der Weg kommt von memory.logPath, nicht von hier. Die erste Fassung
+  // dieser Zeile riet `root/questions.jsonl`; global liegt in
+  // `root/global/`. Eine Messstelle, die den Weg selbst tippt, misst
+  // frueher oder spaeter eine Datei, die es nicht gibt — und meldet 0.
+  const global = readJsonl(memory.logPath(root, 'question'));
+  if (questions.missing && global.missing) {
     return { channel: 'questions', measuredAt: 'store', fold: FOLD_EDGE,
       produced: null, delivered: null,
       consumed: null, note: 'no questions store' };
   }
   const edges = fromProjects(root, 'links');
-  const resolved = new Set(edges.rows
-    .filter((k) => k?.art === 'resolves').map((k) => k?.nach).filter(Boolean));
-  const originals = questions.rows.filter((z) => z?.frage);
+  const globalEdges = readJsonl(memory.logPath(root, 'link'));
+  const alle = question.all(root);
+  const bekannt = new Set(alle.map((f) => f.id));
+  const kanten = [...edges.rows, ...globalEdges.rows];
   return {
     channel: 'questions',
     measuredAt: 'store',
     fold: FOLD_EDGE,
-    produced: originals.length,
+    produced: alle.length,
     delivered: null,
-    consumed: originals.filter((f) => resolved.has(f?.id)).length,
-    brokenLines: questions.broken + edges.broken,
+    consumed: alle.filter((f) => !f.open).length,
+    brokenLines: questions.broken + global.broken + edges.broken + globalEdges.broken,
     // An edge pointing at nothing looks exactly like an answer.
-    danglingEdges: [...resolved].filter((id) =>
-      !questions.rows.some((f) => f?.id === id)
-      && !edges.rows.some((k) => k?.id === id)).length,
+    danglingEdges: kanten
+      .filter((k) => k?.kind === 'resolves')
+      .map((k) => k?.to)
+      .filter((id) => id && !bekannt.has(id)).length,
   };
 }
 
