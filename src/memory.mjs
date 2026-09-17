@@ -1315,6 +1315,28 @@ export function retiredMap(entries) {
       if (verdict.ok) {
         map.set(e.replaces_id, {
           state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
+          // `supersededAt` — the moment the OLD claim stopped being true,
+          // DERIVED, never stored twice. This is the fix for a defect
+          // named in the 2026-09-17 review: `valid_until` and
+          // supersession both answer "when did this stop being true",
+          // and until this field existed they answered it independently
+          // — so `--as-of` a date BEFORE a correction was written still
+          // excluded the corrected claim outright (measured: a decision
+          // logged 2026-01-01 and corrected later came back empty for
+          // `--as-of 2026-03-01`, a moment at which only the correction
+          // existed in the future). `retrieval.validAt` is the one place
+          // that reads this field; nowhere else computes it from raw
+          // fields again.
+          //
+          // Preferring the successor's `valid_from` over its `ts` is the
+          // same choice `freshness.mjs` already makes for "when did this
+          // version start holding" — a human-stated moment beats the
+          // moment the correction happened to be typed. Falling back to
+          // `ts` covers the common case where nobody bothered to state
+          // one explicitly; the predecessor is then still considered
+          // true right up until the correction was recorded, which is
+          // the least surprising reading of "there was no stated date".
+          supersededAt: e.valid_from ?? e.ts ?? null,
         });
       } else if (e.id) {
         // Append-only: the attempt is NOT rejected and NOT removed. The

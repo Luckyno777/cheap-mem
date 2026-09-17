@@ -137,6 +137,154 @@ test('BOTH DOORS AGREE: find and retrieve exclude the same entry', () => {
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
+// --- valid_until AS ONE TRUTH WITH SUPERSESSION ----------------------------
+//
+// Everything above tests `valid_until` stated by hand on independent
+// entries. None of it ever superseded anything, so none of it could have
+// caught the actual trap: supersession (`replaces_id`) ALSO answers "when
+// did this stop being true", and until `retrieval.validAt` learned about
+// it, the two mechanisms disagreed whenever `--as-of` named a moment
+// BEFORE a correction was written (measured 2026-09-17: the pre-correction
+// claim came back empty for a moment at which it was the only truth there
+// was — see `validAt`'s docstring in src/retrieval.mjs for the full
+// account). These probes build that exact scenario — one entry superseded
+// at a known cutover — and check it on every lane this file already
+// covers, plus the time-window lane, which none of the probes above touch
+// at all.
+const CUTOVER = '2026-06-01';       // the successor's own valid_from
+const BEFORE_CUTOVER = '2026-03-01'; // between the original's start and the cutover
+const AFTER_CUTOVER = '2026-08-01';
+
+// Logged with real `ts` (now), so the time-window lane's "last N hours"
+// finds them by WRITE time, independent of the fictional `valid_from`
+// dates above, which the window lane does not look at at all.
+function buildSupersession() {
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-asof-super-'));
+  execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
+  mem(r, 'log', 'decision', '--topic', 'staffing', '--choice', 'use a contractor',
+    '--why', 'fastest to start', '--valid_from', '2026-01-01');
+  const found = JSON.parse(mem(r, 'find', 'staffing', '--json', '--top', '5').out);
+  const oldId = found.hits[0].entry.id;
+  mem(r, 'correction', 'decision', oldId, '--topic', 'staffing', '--choice', 'hire an employee',
+    '--why', 'cheaper long term', '--valid_from', CUTOVER);
+  return { r, oldId };
+}
+
+test('SUPERSESSION, RANKED LANE: the pre-correction claim still holds before the cutover it has not reached yet', () => {
+  const { r } = buildSupersession();
+  try {
+    const before = mem(r, 'find', 'staffing', '--as-of', BEFORE_CUTOVER, '--top', '10').out;
+    assert.ok(holds(before, 'use a contractor'),
+      `as of ${BEFORE_CUTOVER} the original decision should still hold — it existed and the `
+      + 'correction did not yet');
+    assert.ok(!holds(before, 'hire an employee'),
+      `as of ${BEFORE_CUTOVER} the correction had not started yet, but it came back`);
+
+    const at = mem(r, 'find', 'staffing', '--as-of', CUTOVER, '--top', '10').out;
+    assert.ok(holds(at, 'hire an employee'), 'at the cutover the correction should hold');
+    assert.ok(!holds(at, 'use a contractor'),
+      'a supersession-derived valid_until must be EXCLUSIVE, same as a stated one');
+
+    const after = mem(r, 'find', 'staffing', '--as-of', AFTER_CUTOVER, '--top', '10').out;
+    assert.ok(holds(after, 'hire an employee'));
+    assert.ok(!holds(after, 'use a contractor'),
+      'this direction already worked before this change (a time-blind status check gets it right by '
+      + 'accident); kept here so all three moments are asserted on the same fixture');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('SUPERSESSION, LITERAL LANE: --literal --as-of agrees with the ranked lane on the cutover', () => {
+  const { r } = buildSupersession();
+  try {
+    const before = mem(r, 'find', 'contractor', '--literal', '--as-of', BEFORE_CUTOVER).out;
+    assert.ok(holds(before, 'use a contractor'),
+      'the literal lane dropped a claim that had not been superseded yet at this moment');
+
+    const after = mem(r, 'find', 'contractor', '--literal', '--as-of', AFTER_CUTOVER).out;
+    assert.ok(!holds(after, 'use a contractor'),
+      'the literal lane kept a claim past the moment its successor took over');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('SUPERSESSION, BOTH DOORS: find and retrieve agree before AND after the cutover', () => {
+  const { r, oldId } = buildSupersession();
+  try {
+    const f = JSON.parse(mem(r, 'find', 'staffing', '--as-of', BEFORE_CUTOVER, '--top', '10', '--json').out);
+    const g = JSON.parse(mem(r, 'retrieve', 'staffing', '--as-of', BEFORE_CUTOVER, '--json').out);
+    const fIds = new Set(f.hits.map((h) => h.entry?.id).filter(Boolean));
+    const gIds = new Set(g.claims.map((c) => c.id));
+    assert.deepEqual([...fIds].sort(), [...gIds].sort(),
+      'find and retrieve disagree about a claim that was superseded only in the future relative to --as-of');
+    assert.ok(fIds.has(oldId), 'the pre-correction claim should be the one moment that holds');
+
+    // The direction that actually exposes a missing `supersededAt` bound
+    // on the gateway: without it, `retrieve()`'s own `!asOf` guard no
+    // longer excludes the old claim (asOf IS set here), and `validAt`
+    // would have nothing to bound it by, so it would wrongly survive
+    // past the cutover too.
+    const g2 = JSON.parse(mem(r, 'retrieve', 'staffing', '--as-of', AFTER_CUTOVER, '--json').out);
+    const gIds2 = new Set(g2.claims.map((c) => c.id));
+    assert.ok(!gIds2.has(oldId), 'retrieve() kept the old claim past the moment its successor took over');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('SUPERSESSION, TIME-WINDOW LANE: "--as-of" on the window router honours supersession too', () => {
+  // The window lane is reached by a query THAT IS ITSELF a time
+  // expression ("last 1 hours") — see timeexpr.windowFor. It fetches
+  // `withRetired: true` unconditionally (src/timesearch.mjs), so it never
+  // had the candidate-stage bug the other two lanes had; it goes through
+  // `retrieval.validAt` alone. This proves that fix travels here for
+  // free, precisely because there is only the one function to fix.
+  const { r } = buildSupersession();
+  try {
+    const before = mem(r, 'find', 'last 1 hours', '--as-of', BEFORE_CUTOVER, '--top', '10').out;
+    assert.ok(holds(before, 'use a contractor'),
+      `the time-window lane dropped a claim that had not been superseded yet as of ${BEFORE_CUTOVER}`);
+    assert.ok(!holds(before, 'hire an employee'));
+
+    const after = mem(r, 'find', 'last 1 hours', '--as-of', AFTER_CUTOVER, '--top', '10').out;
+    assert.ok(!holds(after, 'use a contractor'),
+      'the time-window lane kept a claim past the moment its successor took over');
+    assert.ok(holds(after, 'hire an employee'));
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('mem log refuses an unreadable --valid_until instead of silently accepting it', () => {
+  const r = build();
+  try {
+    const { out: msg, code } = mem(r, 'log', 'decision', '--topic', 'x', '--choice', 'y',
+      '--valid_until', 'not-a-real-date');
+    assert.notEqual(code, 0, 'a garbage --valid_until should refuse the write, not accept it');
+    assert.match(msg, /not a date I can read/,
+      'the refusal must say WHY, the same discipline --as-of already has');
+    assert.ok(!holds(mem(r, 'find', 'x', '--literal').out, 'not-a-real-date'),
+      'the bad value must not have been written at all');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('SUPERSESSION SCOPE: --as-of opens the gate for a superseded claim, not for a discarded one', () => {
+  // Requirement 5's other half: opening `withRetired` at the candidate
+  // stage so a superseded claim can reach `validAt` must not ALSO leak
+  // `done`/`discarded`/`obsolete`/`disputed` entries into an ordinary
+  // `--as-of` query — those answer a different question than "when did
+  // this stop being true", and `--as-of` was never asked to reach them.
+  const r = build();
+  try {
+    const found = JSON.parse(mem(r, 'find', 'invoice', '--json', '--top', '5').out);
+    const id = found.hits[0].entry.id;
+    mem(r, 'discard', id, '--why', 'no longer relevant, unrelated to any date');
+
+    const withAsOf = mem(r, 'find', 'invoice', '--as-of', NOW_ISH, '--top', '10').out;
+    assert.ok(!holds(withAsOf, 'invoice on request'),
+      '--as-of let a DISCARDED entry back into an ordinary query — it should stay governed by '
+      + '--with-retired alone, exactly as before this file learned about valid_until');
+
+    const withBoth = mem(r, 'find', 'invoice', '--as-of', NOW_ISH, '--with-retired', '--top', '10').out;
+    assert.ok(holds(withBoth, 'invoice on request'),
+      '--with-retired should still reveal it — that combination is unchanged by this file');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
 test('BEFORE THE CUT: a valid entry is not displaced by an invalid one', () => {
   // A filter applied AFTER `--top` cannot bring back what the cut already
   // threw away. With `--top 1` and the expired decision ranking first,
