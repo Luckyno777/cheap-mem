@@ -224,3 +224,57 @@ test('the study palette is the palette, and it is written down', () => {
     assert.ok(css.includes(value), `${name} (${value}) is not in the page`);
   }
 });
+
+// --- three findings that only a rendered page produced ----------------
+//
+// Ported back from the sibling project on 2026-09-17, where the same
+// design ran against a memory of 1487 entries. All three read fine in
+// the source and were only visible in a browser.
+
+test('the declared count in the bar is the count the stage makes', () => {
+  // The bar said "80 declared" and the canvas, ten characters further
+  // along, said "72": one counted every declared link of the shown
+  // entries, the other only those with BOTH ends laid out. Two truths
+  // about one word, side by side.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-space-'));
+  try {
+    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'space' }));
+    memory.logEntry(root, 'error', { id: 'err00001', title: 'it broke', ts: '2026-09-01T10:00:00Z' });
+    memory.logEntry(root, 'learning', {
+      id: 'les00001', learning: 'so do not', ts: '2026-09-01T10:00:00Z',
+      origin: { derived_from: ['err00001'] },
+    });
+    // A link to something that is NOT in the memory: known to the entry,
+    // never a node on the stage. This is the case the two counts
+    // disagreed about.
+    memory.logEntry(root, 'learning', {
+      id: 'les00002', learning: 'points outside', ts: '2026-09-01T10:00:00Z',
+      origin: { derived_from: ['nichtdaxx'] },
+    });
+    const { data, html } = astra.build(root, { title: 'space' });
+    const shown = data.entries.slice(0, astra.LIST_MAX);
+    const ids = new Set(shown.map((e) => e.id));
+    const likeTheStage = shown
+      .reduce((n, e) => n + e.links.filter((l) => ids.has(l.id)).length, 0);
+    const inTheBar = /of \d+ entries · (\d+) declared/.exec(html);
+    assert.ok(inTheBar, 'the bar names no number at all any more');
+    assert.equal(Number(inTheBar[1]), likeTheStage,
+      `bar says ${inTheBar[1]}, the stage counts ${likeTheStage}`);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the glow scales with density, or a real memory is a white cloud', () => {
+  const script = ohneKommentare(
+    page().slice(page().indexOf('<script>'), page().lastIndexOf('</script>')));
+  assert.match(script, /var glanz = Math\.min\(1, Math\.sqrt\(220 \/ Math\.max\(1, nodes\.length\)\)\)/,
+    'the glow budget is gone, or no longer depends on the node count');
+  assert.match(script, /r \* 6 \* glanz/, 'the glow radius does not take the budget');
+  assert.match(script, /col \+ glanzAlpha/, 'the glow alpha does not take the budget');
+});
+
+test('grid children may shrink, or the page runs off a phone screen', () => {
+  const css = styles(page());
+  assert.match(css, /\.split>\*\{min-width:0\}/, 'the panes cannot shrink');
+  assert.match(css, /overflow-wrap:anywhere/, 'long words break nowhere');
+});

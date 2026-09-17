@@ -242,6 +242,13 @@ h2 em{font-style:normal;letter-spacing:0;text-transform:none;font-family:var(--f
 .missing{color:var(--muted);font-style:italic}
 /* --- knowledge ---------------------------------------------------- */
 .split{display:grid;grid-template-columns:minmax(340px,44%) 1fr;gap:16px;align-items:start}
+/* **Grid children must be allowed to shrink.** A grid item defaults to
+   min-width:auto, i.e. at least the width of its longest unbreakable
+   word — and this list holds entry ids and file paths. At 390px that
+   pushed the page past the right edge. Measured in a browser
+   afterwards: scrollWidth 390 at viewport 390, on every view. */
+.split>*{min-width:0}
+.item .h,.item .m,.detail dd{overflow-wrap:anywhere}
 .pane{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
 #q{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:10px;
   background:var(--bg);color:var(--text);font:15px var(--font)}
@@ -439,8 +446,15 @@ function spaceView(d) {
       <p class="none">This memory holds no entries yet, so there is nothing to lay out.
         That is empty, not unmeasured.</p>`;
   }
+  // **The same count the stage makes, not a similar one.** Measured in
+  // the sibling project on a memory with 1487 entries: this line said
+  // "80 declared" and the canvas ten characters further along said
+  // "72". This one counted every declared link of the shown entries;
+  // the canvas draws only those whose BOTH ends are laid out. A link
+  // to an entry beyond LIST_MAX is not an edge of THIS stage.
+  const shownIds = new Set(d.entries.slice(0, LIST_MAX).map((e) => e.id));
   const declared = d.entries.slice(0, LIST_MAX)
-    .reduce((n, e) => n + e.links.filter((l) => l.known).length, 0);
+    .reduce((n, e) => n + e.links.filter((l) => shownIds.has(l.id)).length, 0);
   return `<div class="eyebrow">Explorer</div>
     <h1>Neural network.</h1>
     <p class="page-subtitle">The same entries as the knowledge list, laid out as a space you
@@ -833,6 +847,11 @@ const SCRIPT = String.raw`
       });
     });
 
+    // The glow budget, computed once: the node count does not change
+    // after the layout is built.
+    var glanz = Math.min(1, Math.sqrt(220 / Math.max(1, nodes.length)));
+    var glanzAlpha = ('0' + Math.round(0x44 * glanz).toString(16)).slice(-2);
+
     var W = 0, H = 0, dpr = 1, ry = 0.6, rx = 0.32, zoom = 1;
     var picked = null, drag = null, raf = null;
     // **Bewegung, und warum sie ueberhaupt erlaubt ist.**
@@ -989,10 +1008,17 @@ const SCRIPT = String.raw`
         var r = Math.max(1, n.r * n.p.s);
         var col = n.kind === 'entry' ? text : n.kind === 'tag' ? muted : violet;
         if (n.kind !== 'tag') {
-          var g = ctx.createRadialGradient(n.p.x, n.p.y, 0, n.p.x, n.p.y, r * 6);
-          g.addColorStop(0, col + '44'); g.addColorStop(1, col + '00');
+          // **The glow scales with density, and that is measured.** The
+          // study puts about a hundred nodes on the stage; there a glow
+          // of r*6 at alpha 0x44 carries the depth. A real memory in
+          // the sibling project laid out 605 — and at 605 the glows
+          // overlap into a white cloud with no structure left in it.
+          // Seen on a rendered screenshot; the source read fine. Not
+          // switched off (the stage would lose its depth), divided.
+          var g = ctx.createRadialGradient(n.p.x, n.p.y, 0, n.p.x, n.p.y, r * 6 * glanz);
+          g.addColorStop(0, col + glanzAlpha); g.addColorStop(1, col + '00');
           ctx.fillStyle = g;
-          ctx.beginPath(); ctx.arc(n.p.x, n.p.y, r * 6, 0, Math.PI * 2); ctx.fill();
+          ctx.beginPath(); ctx.arc(n.p.x, n.p.y, r * 6 * glanz, 0, Math.PI * 2); ctx.fill();
         }
         ctx.fillStyle = col;
         ctx.beginPath(); ctx.arc(n.p.x, n.p.y, r, 0, Math.PI * 2); ctx.fill();
