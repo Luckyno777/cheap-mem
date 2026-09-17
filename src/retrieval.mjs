@@ -136,6 +136,47 @@ function toClaim(hit, { bodyChars, state }) {
 }
 
 /**
+ * Fields that carry an entry's CONTENT, in the order they are read.
+ *
+ * **The finding (external audit, 2026-09-17).** Six entries, each with
+ * its content in the field its own type uses — `learning`, `duty`,
+ * `question`, `skill`, `excerpt`, `rule` — were all indexed and all
+ * findable. Structured retrieval returned ONE of them, with an empty
+ * body, and discarded the other five as duplicates of it: every body
+ * was the empty string, so every body was "identical".
+ *
+ * The cause was this list. It knew `choice`, `why`, `title`, `text` and
+ * `fact` and nothing else, while the indexer (`search.FIELD_WEIGHTS`)
+ * knew eighteen fields. A type whose content lives anywhere else was
+ * searchable and unreadable at the same time — the class
+ * `built-but-out-of-reach`, the same one `symbols` had on 2026-09-09.
+ *
+ * The order of the original five is unchanged, so nothing that worked
+ * reads differently; the typed statement fields sit beside `choice`,
+ * because that is what they are.
+ *
+ * `NICHT_KOERPER` is the other half, and it is what keeps this list
+ * honest: every field the indexer knows is in exactly one of the two,
+ * and `test/audit-koerper.test.mjs` fails when a nineteenth appears in
+ * neither. A field that is neither read nor deliberately excluded is
+ * how this defect happened the first time.
+ */
+export const KOERPER_FELDER = Object.freeze([
+  'choice', 'learning', 'duty', 'rule', 'question', 'skill',
+  'why', 'title', 'text', 'fact', 'description', 'excerpt', 'rejected',
+]);
+
+/**
+ * Indexed, on purpose not part of the body: access words, not prose.
+ *
+ * `tags`, `asked`, `symbols` and `class` are handles somebody attached
+ * so the entry can be FOUND; repeating them in the body spends context
+ * on words the reader did not ask for. `topic` is carried as its own
+ * field on the claim already.
+ */
+export const NICHT_KOERPER = Object.freeze(['topic', 'class', 'tags', 'asked', 'symbols']);
+
+/**
  * The text of an entry, assembled from its own fields in a fixed order.
  *
  * Note what this is NOT: it does not add framing, headings, or any word
@@ -143,7 +184,7 @@ function toClaim(hit, { bodyChars, state }) {
  * memory that can be made to say something.
  */
 function bodyOf(e) {
-  const parts = [e.choice, e.why, e.title, e.text, e.fact].filter(
+  const parts = KOERPER_FELDER.map((f) => e?.[f]).filter(
     (x) => typeof x === 'string' && x.trim());
   return parts.join(' — ');
 }
@@ -401,7 +442,13 @@ export function retrieve(root, query, capability, {
   // Doppelte fallen weiter unten heraus: die Auswahl kennt `seenIds`
   // nicht, aber die Koerper-Entdopplung greift, und ein Eintrag, der
   // ueber beide Bahnen kommt, ist derselbe Koerper.
-  const exakte = exactHits(idx, useQuery, want);
+  // Dieselben Grenzen wie die gereihte Bahn zwei Dutzend Zeilen weiter
+  // oben: `withRetired: true`, weil hier die Fessel (capability) und die
+  // Zustandspruefung weiter unten entscheiden, nicht die Suche. Vorher
+  // nahm diese Bahn GAR KEINE Grenzen — was nicht auffiel, solange die
+  // gereihte Bahn zufaellig dieselbe Einstellung hatte. Jetzt steht es
+  // da, und ein Auseinanderlaufen ist im Diff zu sehen.
+  const exakte = exactHits(idx, useQuery, want, { withRetired: true });
   const exaktIds = new Set(exakte.map((h) => h.entry?.id).filter(Boolean));
   const raw = rawReserve
     ? [...exakte,
@@ -482,6 +529,17 @@ export function retrieve(root, query, capability, {
     // and the answer was a single flood claim with every genuine entry
     // gone. Filtering after a cutoff cannot restore what the cutoff
     // already discarded.
+    // **An empty body is not a body.** When `bodyOf` did not know a
+    // type's content field, every such entry hashed to the same empty
+    // string and all but the first were dropped as duplicates — the
+    // exclusion even SAID "identical body", which was true and useless.
+    // Two entries are the same claim when they say the same thing, not
+    // when neither of them says anything. An entry with no readable
+    // content is a finding of its own and travels as one.
+    if (!c.body) {
+      note(c.id, 'no readable content in any known field — entry or projection is wrong');
+      continue;
+    }
     const h = bodyHash(c.body);
     const first = seenBody.get(h);
     if (first) { note(c.id, `identical body to ${first}`); continue; }

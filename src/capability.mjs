@@ -85,12 +85,46 @@ export class Capability {
   has(right) { return this.rights.includes(right); }
 
   /**
+   * May this capability take the given scope as one of its OWN roots?
+   *
+   * **Not the same question as `admits`, and that cost us the
+   * guarantee.** `admits(global)` is true for anything that may read at
+   * all, because global facts — the person, the timezone, the setup —
+   * are inherited by every scope; a project session that could not see
+   * them would be dumber than a global one for no security benefit.
+   *
+   * But `narrow` used `admits` to decide which scopes to KEEP, and
+   * `global` in a scope list together with `descendants` is the
+   * everything-capability. So (external audit, 2026-09-17):
+   *
+   *   grantAll() -> narrow(project:a) -> narrow(global)
+   *
+   * excluded `project:b` after the first step and admitted it again
+   * after the second. Narrowing widened — the one thing this class
+   * promises cannot happen.
+   *
+   * Two questions, two answers. Reading a global entry stays open to
+   * everyone who may read. Taking `global` as a ROOT requires actually
+   * holding it.
+   */
+  covers(scope) {
+    const id = parseScope(scope).id;
+    if (this.scopes.includes(id)) return true;
+    if (this.descendants && this.scopes.includes(GLOBAL)) return true;
+    return false;
+  }
+
+  /**
    * A strictly smaller capability. Narrowing always succeeds; widening is
    * impossible by construction — there is no method for it, and `grant`
    * below is the only way to mint a broader one, from an identity.
+   *
+   * Monotone over ANY number of steps, which is what the audit's
+   * counter-probe measures: after `narrow`, no scope is admitted that was
+   * not admitted before.
    */
   narrow({ scopes = null, rights = null } = {}) {
-    const keep = (scopes ?? this.scopes).filter((s) => this.admits(s));
+    const keep = (scopes ?? this.scopes).filter((s) => this.covers(s));
     const rs = (rights ?? this.rights).filter((r) => this.has(r));
     return new Capability({
       scopes: keep, rights: rs, subject: this.subject, descendants: this.descendants,

@@ -175,14 +175,31 @@ SESSION_ID="$(printf '%s' "$IN" | node -e '
 # same time, and check-then-set has a race inside it. `mkdir` is atomic
 # on POSIX — exactly one wins.
 #
-# The key is session + prompt, not session alone: the same text twice is
-# a new turn if the person really sends it twice.
+# **What the key is, and why it changed (external audit, 2026-09-17).**
+# It used to be session + PROMPT, and the claim was taken up here,
+# before the memory was even asked. Two things followed from that, and
+# both were reproduced:
+#
+#   - The same question asked again later was suppressed for an hour
+#     EVEN AFTER the memory had changed. Session + prompt is not a turn
+#     identity; it is a question identity.
+#   - A retrieval that found nothing still consumed the claim, so a
+#     later attempt in the same turn could never repair it.
+#
+# The key is now session + the BLOCK THAT WOULD BE INJECTED, and the
+# claim is taken at the bottom of this file, once that block exists.
+# That answers all three cases without a second mechanism: a second
+# registration of the same turn produces a byte-identical block and is
+# suppressed; a repeat after the memory changed produces a different
+# block and goes in; a retrieval that yields nothing claims nothing.
+#
+# The price is that a duplicate registration now runs the search before
+# it is dropped. That search is local BM25 over an in-memory index —
+# milliseconds, no model, no network.
+TURNS="${MEM_RETRIEVE_TURNS:-$ROOT/.mem/retrieve-turns}"
 if [ -n "${SESSION_ID:-}" ]; then
-  TURN_ID="$(printf '%s' "${SESSION_ID}__${PROMPT}" | cksum | tr -d ' ')"
-  TURNS="${MEM_RETRIEVE_TURNS:-$ROOT/.mem/retrieve-turns}"
   mkdir -p "$TURNS" 2>/dev/null || true
   find "$TURNS" -maxdepth 1 -mmin +60 -type d -exec rm -rf {} + 2>/dev/null || true
-  mkdir "$TURNS/$TURN_ID" 2>/dev/null || exit 0
 fi
 
 # Ask the memory. --json is the contract, not the human output: the
@@ -197,7 +214,7 @@ HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)
 # documented UserPromptSubmit envelope. Bare stdout is NOT the contract
 # for this event — that would be guessing, and guessing is the whole
 # class of bug this memory is built to avoid.
-printf '%s' "$HITS" | MIN="$MIN" node -e '
+BLOCK="$(printf '%s' "$HITS" | MIN="$MIN" node -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
     const min = Number(process.env.MIN);
@@ -228,11 +245,25 @@ printf '%s' "$HITS" | MIN="$MIN" node -e '
       // ueberholt war, loeste das Modell MIT der Notiz 1 von 4 Laeufen und
       // OHNE sie 3 von 4. Der Kontext machte es schlechter, weil er den
       // Beschluss zeigte und die Begruendung verschwieg.
-      if (e.why) {
-        const w = String(e.why);
-        label += " — weil " + (w.length > 70 ? w.slice(0, 67) + "..." : w);
+      //
+      // **Eigene Budgets, seit dem 2026-09-17.** Vorher wurde der Grund
+      // ANGEHAENGT und danach das Ganze auf 220 Zeichen beschnitten. Bei
+      // einem langen Beschluss fiel damit genau der Teil weg, den der
+      // Absatz darueber als den entscheidenden beschreibt: die externe
+      // Pruefung hat eine Entscheidung abgelegt, deren `why` mit
+      // "ONLY BECAUSE THE CUSTOMER CANNOT ACCEPT JSON" begann, und im
+      // eingeblendeten Kontext stand davon kein Wort.
+      //
+      // Der Grund bekommt deshalb seinen Platz ZUERST, und die Aussage
+      // wird auf den Rest beschnitten — nie unter 60 Zeichen, sonst
+      // waere das Gegenteil passiert.
+      const GESAMT = 220;
+      const kurz = (t, n) => (t.length > n ? t.slice(0, n - 3) + "..." : t);
+      const grund = e.why ? " — weil " + kurz(String(e.why), 78) : "";
+      if (label.length + grund.length > GESAMT) {
+        label = kurz(label, Math.max(60, GESAMT - grund.length));
       }
-      if (label.length > 220) label = label.slice(0, 217) + "...";
+      label += grund;
       lines.push(`  ${day}  ${label}`);
     }
     if (!lines.length) process.exit(0);
@@ -245,5 +276,18 @@ printf '%s' "$HITS" | MIN="$MIN" node -e '
         additionalContext: text,
       },
     }));
-  })'
+  })')"
+
+# Nichts gefunden, nichts beansprucht: ein spaeterer Versuch im selben
+# Zug darf es noch einmal probieren.
+[ -z "$BLOCK" ] && exit 0
+
+# Der Anspruch, jetzt ueber den fertigen Block. Siehe die lange
+# Begruendung weiter oben.
+if [ -n "${SESSION_ID:-}" ]; then
+  BLOCK_ID="$(printf '%s' "${SESSION_ID}__${BLOCK}" | cksum | tr -d ' ')"
+  mkdir "$TURNS/$BLOCK_ID" 2>/dev/null || exit 0
+fi
+
+printf '%s' "$BLOCK"
 exit 0
