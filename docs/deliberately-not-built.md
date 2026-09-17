@@ -231,3 +231,53 @@ Entries here that concern both this project and the one it was
 extracted from also live in `shared/invariants.jsonl` under
 `art: "discarded"`, so the other side does not rebuild them either.
 See `docs/invariants.md`.
+
+---
+
+## A guard comparing each command's help flags to the flags it accepts
+
+**Proposed:** after `test/help-covers-cli.test.mjs` tied the command
+list to the help, do the same one level down — every `--flag` a
+command's own `--help` prints must be one `checkFlags` accepts. A flag
+the help promises and the CLI rejects is a lie the reader hits on their
+first try.
+
+**Why not.** Measured on 2026-09-17, across all 60 commands. The naive
+reading reported nine commands with a mismatch:
+
+```
+facts: value, valid, source     find: valid        init: strict
+links: from, to, kind, why      procedures: title, rule, issued-by, …
+questions: with                 raw: set, list-stores, remove, into
+show: brief                     topics: topic, title
+```
+
+Then each one was driven against the real binary, and read in context.
+**All nine are cross-references to other commands**, not promises:
+
+| line in the help | the flag really belongs to |
+|---|---|
+| ``show``: "`find --brief` returns compact hits" | `find` |
+| ``topics``: "e.g. `mem log decision --topic … --title …`" | `log` |
+| ``questions``: "`mem answer <id> --with <entry-id>`" | `answer` |
+| ``links``: "`mem log link --from … --kind causes`" | `log` |
+| ``raw``: "`mem raw archive [--set <path>]`" | the `raw archive` subcommand |
+
+Zero real defects. A guard shipped on that reading starts life with nine
+false alarms, and a check that cries wolf on day one is switched off
+inside a week — this repository has that written down as
+`guard-checks-the-wrong-thing`, and building a fresh instance of it to
+catch nothing would be a poor trade.
+
+The help's prose does not mark which flags an example belongs to, and
+teaching it to would mean restructuring every command's help around a
+machine-readable shape. That is a bigger change than the defect it
+prevents, and the defect is currently zero.
+
+**What would change our mind.** A real occurrence: a command whose help
+advertises a flag *of its own* that `checkFlags` rejects. One such bug in
+the wild pays for the restructuring — the count is the argument, and
+right now the count is nought. The cheap first step then is not the
+guard but the shape: a per-command `FLAGS` list that both `checkFlags`
+and the help text are generated from, after which the comparison is
+trivial and cannot produce a false positive at all.
