@@ -53,6 +53,16 @@ const INK = {
   bg: '#0a0b0e', panel: '#101115', raised: '#15161c', line: '#24262e',
   muted: '#858894', text: '#e9eaf0',
   violet: '#b5a0fa', green: '#89c4b5', orange: '#d4aa85', blue: '#819ecd',
+  // **Der Befund, den ein Nachbau am sichersten verliert.** Die
+  // Studie signalisiert einen Zustand NICHT ueber Helligkeit, sondern
+  // ueber den Farbton: neutrales Chrome liegt bei 227-240 Grad, alles
+  // Aktive bei 250-272 — bei praktisch gleicher Helligkeit. `#24262e`
+  // (Farbton 228) und `#24202d` (258) sind dasselbe Grau in zwei
+  // Stimmungen. Ein Element wird also nicht HELLER, wenn es aktiv wird,
+  // es wird VIOLETTER. Die erste Fassung hier machte es heller — das
+  // sieht auf einem Bildschirm fast gleich aus und ist trotzdem eine
+  // andere Sprache.
+  'raised-on': '#1b1725', 'line-on': '#24202d',
 };
 
 /**
@@ -90,6 +100,7 @@ const CSS = `
   --bg:${INK.bg};--panel:${INK.panel};--raised:${INK.raised};--line:${INK.line};
   --muted:${INK.muted};--text:${INK.text};--violet:${INK.violet};--green:${INK.green};
   --orange:${INK.orange};--blue:${INK.blue};
+  --raised-on:${INK['raised-on']};--line-on:${INK['line-on']};
   --font:'DM Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;
   --code:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --rail:248px;
@@ -134,7 +145,7 @@ a{color:inherit}
 .nav{transition:background var(--quick) var(--ease-standard),
   color var(--instant) var(--ease-standard)}
 .nav:hover{background:var(--raised);color:var(--text)}
-.nav[aria-selected=true]{background:var(--raised);color:var(--text)}
+.nav[aria-selected=true]{background:var(--raised-on);color:var(--text)}
 .nav[aria-selected=true] .nav-glyph{color:var(--violet)}
 .nav:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
 .nav-glyph{width:18px;text-align:center;color:var(--muted);font-size:14px}
@@ -156,12 +167,17 @@ a{color:inherit}
 .breadcrumb{font-size:13px;color:var(--muted)}
 .breadcrumb strong{color:var(--text);font-weight:500}
 .header-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+/* Die Studie hat KEINEN Pillen-Radius — gemessen: Radien 2 bis 13px,
+   streng von innen nach aussen wachsend, kein 999px. Die erste Fassung
+   hier setzte eine Pille aus Gewohnheit und schrieb das dann als
+   Abweichung in die Token-Datei. Beides zurueckgenommen: originalgetreu
+   ist hier zugleich regelkonform. */
 .snapshot-badge{font:11px var(--code);color:var(--muted);border:1px solid var(--line);
-  border-radius:999px;padding:4px 11px}
+  border-radius:7px;padding:4px 11px}
 /* Der Anhalte-Knopf. WCAG 2.2.2 verlangt fuer Bewegung ueber fuenf
    Sekunden eine Moeglichkeit, sie zu STOPPEN — kein Verbot. Ohne diesen
    Knopf duerfte der Wissensraum gar nicht pulsen; mit ihm darf er. */
-.icon-button{border:1px solid var(--line);border-radius:999px;background:var(--raised);
+.icon-button{border:1px solid var(--line);border-radius:7px;background:var(--raised);
   color:var(--muted);font:11px var(--code);padding:4px 12px;cursor:pointer;
   transition:color var(--instant) var(--ease-standard),
     border-color var(--instant) var(--ease-standard)}
@@ -194,7 +210,7 @@ h2 em{font-style:normal;letter-spacing:0;text-transform:none;font-family:var(--f
   padding:16px 18px;border-left:2px solid var(--c,var(--line));
   transition:border-color var(--quick) var(--ease-standard),
     background var(--quick) var(--ease-standard)}
-.card:hover{border-color:var(--muted)}
+.card:hover{border-color:var(--line-on)}
 .card .name{font-weight:500;font-size:15px}
 .card .state{font:11px var(--code);letter-spacing:.04em;color:var(--c,var(--muted));
   margin-top:2px}
@@ -229,7 +245,7 @@ button.chip:focus-visible{outline:2px solid var(--violet);outline-offset:2px}
   cursor:pointer;color:inherit}
 .item{transition:background var(--instant) var(--ease-standard)}
 .item:hover{background:var(--raised)}
-.item[aria-current=true]{background:rgba(181,160,250,.1)}
+.item[aria-current=true]{background:var(--raised-on)}
 .item:focus-visible{outline:2px solid var(--violet);outline-offset:-2px}
 .item .glyph{width:26px;height:26px;flex:0 0 26px;border-radius:8px;display:grid;
   place-items:center;background:var(--raised);border:1px solid var(--line);
@@ -776,7 +792,7 @@ const SCRIPT = String.raw`
     //      Aussage andichten, die sie nicht haben.
     var ruhe = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var paused = ruhe;
-    var phase = 0, letzte = 0, ticker = null;
+    var phase = 0, letzte = 0, gemalt = 0, ticker = null;
     var motionBtn = document.getElementById('motion');
     function setMotion(an) {
       paused = !an;
@@ -791,10 +807,19 @@ const SCRIPT = String.raw`
       var jetzt = t || performance.now();
       var dt = Math.min(64, jetzt - (letzte || jetzt));
       letzte = jetzt;
-      phase = (phase + dt * 0.00022) % 1;
-      // Sehr langsame Eigendrehung, nur solange niemand zieht. Kleine
-      // Strecke, nie ein Karussell.
-      if (!drag) ry += dt * 0.000018;
+      // **Die Geschwindigkeiten stammen aus der Studie, nicht aus dem
+      // Gefuehl.** Nachgerechnet: Puls-Phase 0.00016/ms sind 6,25 s fuer
+      // einen Kantendurchlauf, Drehung 0.000027/ms sind 233 s — knapp
+      // vier Minuten — fuer eine Umdrehung. Meine erste Fassung war bei
+      // 4,5 s und 97 s, also fast doppelt so schnell. Das ist der
+      // Unterschied zwischen "der Raum atmet" und "da bewegt sich was".
+      phase = (phase + dt * 0.00016) % 1;
+      if (!drag) ry += dt * 0.000027;
+      // Framegate wie in der Studie: ~33 Bilder je Sekunde reichen fuer
+      // diese Strecken und kosten ein Drittel weniger, was auf zwei
+      // Kernen neben der CI spuerbar ist.
+      if (jetzt - gemalt < 30) { ticker = requestAnimationFrame(tick); return; }
+      gemalt = jetzt;
       paint();
       ticker = requestAnimationFrame(tick);
     }
@@ -820,7 +845,12 @@ const SCRIPT = String.raw`
       var x = n.x * cy + n.z * sy, z = -n.x * sy + n.z * cy;
       var y = n.y * cx - z * sx, z2 = n.y * sx + z * cx;
       var s = 760 / (760 + z2) * Math.min(W / 700, H / 430) * zoom;
-      return { x: W * 0.5 + x * s, y: H * 0.5 + y * s, z: z2, s: s };
+      // Optische statt geometrischer Mitte. In der Studie steht das
+      // dreimal unabhaengig in dieselbe Richtung: Canvas-Zentrum bei
+      // 0.49 der Hoehe, das Raum-Etikett bei 47 %, der Buehnen-Verlauf
+      // bei 51/45. Ein Feld mit Beschriftung darunter wirkt bei exakt
+      // 0.5 zu tief.
+      return { x: W * 0.5 + x * s, y: H * 0.49 + y * s, z: z2, s: s };
     }
     function paint() {
       if (!W) return;
@@ -837,16 +867,21 @@ const SCRIPT = String.raw`
           if (e.from === picked || e.to === picked) { near[e.from] = true; near[e.to] = true; }
         });
       }
-      edges.forEach(function (e) {
+      edges.forEach(function (e, kante) {
         if (!shows(e, m)) return;
         var a = byId[e.from].p, b = byId[e.to].p;
         var lit = picked && (e.from === picked || e.to === picked);
-        ctx.globalAlpha = lit ? 0.9 : picked ? 0.07 : (e.kind === 'declared' ? 0.6 : 0.16);
+        // Daempfen, nicht ausblenden: unbeteiligte Kanten gehen auf
+        // .055 und nicht auf 0, damit die Gesamtform des Netzes als
+        // Geisterbild stehen bleibt. Wer eine Auswahl trifft, soll sehen
+        // WO in der Struktur er gerade ist — eine leergeraeumte Flaeche
+        // nimmt ihm genau das.
+        ctx.globalAlpha = lit ? 0.75 : picked ? 0.055 : (e.kind === 'declared' ? 0.6 : 0.16);
+        ctx.lineWidth = lit ? 1.2 : 0.7;
         // Structure lines are violet-tinted, as in the study. The first
         // version took --line (#24262e) and they vanished on this ground
         // — a rendered screenshot showed it; the code read fine.
         ctx.strokeStyle = e.kind === 'declared' ? blue : violet;
-        ctx.lineWidth = lit ? 1.5 : 0.9;
         ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
         if (e.kind === 'declared') {
           var ang = Math.atan2(b.y - a.y, b.x - a.x);
@@ -859,22 +894,36 @@ const SCRIPT = String.raw`
           // Der Schwall: ein Lichtpunkt laeuft von der Quelle zum Ziel.
           // Er sagt dasselbe wie die Pfeilspitze, nur ueber die Zeit —
           // und er sagt es NUR dort, wo jemand den Verweis erklaert hat.
-          if (!paused) {
-            var tt = (phase + h32(e.from + e.to)) % 1;
+          // **Drei Regeln aus der Studie, und jede einzelne traegt.**
+          //
+          //   1. Ohne Auswahl traegt nur JEDE SIEBTE Kante einen Punkt.
+          //      Alle gleichzeitig ist Rauschen, kein Signal — das ist
+          //      der Unterschied zwischen einem lebenden Netz und einem
+          //      Lauflicht. Ist etwas ausgewaehlt, tragen alle
+          //      beteiligten Kanten einen.
+          //   2. Der Versatz 'i * 0.177' verhindert den Gleichschritt.
+          //      Ohne ihn laufen alle Punkte in Reih und Glied, und das
+          //      liest sich sofort als Animation statt als Fluss.
+          //   3. Ein beteiligter Punkt ist HELLER (#e3caff statt
+          //      #b499c9) — dieselbe Hervorhebung wie bei den Kanten,
+          //      nur am bewegten Ende.
+          if (!paused && (lit || kante % 7 === 0)) {
+            var tt = (phase + kante * 0.177) % 1;
             var gx = a.x + (b.x - a.x) * tt, gy = a.y + (b.y - a.y) * tt;
-            var gl = ctx.createRadialGradient(gx, gy, 0, gx, gy, 7);
-            gl.addColorStop(0, blue);
-            gl.addColorStop(1, blue + '00');
-            ctx.globalAlpha = lit ? 0.95 : 0.7;
+            var farbe = lit ? '#e3caff' : '#b499c9';
+            var gl = ctx.createRadialGradient(gx, gy, 0, gx, gy, 6);
+            gl.addColorStop(0, farbe);
+            gl.addColorStop(1, farbe + '00');
+            ctx.globalAlpha = 1;
             ctx.fillStyle = gl;
-            ctx.beginPath(); ctx.arc(gx, gy, 7, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(gx, gy, 6, 0, Math.PI * 2); ctx.fill();
           }
         }
       });
       var live = m === 'declared'
         ? nodes.filter(function (n) { return n.kind === 'entry'; }) : nodes;
       live.slice().sort(function (a, b) { return b.p.z - a.p.z; }).forEach(function (n) {
-        ctx.globalAlpha = picked && !near[n.id] ? 0.2 : 1;
+        ctx.globalAlpha = picked && !near[n.id] ? 0.23 : 1;
         var r = Math.max(1, n.r * n.p.s);
         var col = n.kind === 'entry' ? text : n.kind === 'tag' ? muted : violet;
         if (n.kind !== 'tag') {

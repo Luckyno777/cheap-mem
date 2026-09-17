@@ -492,11 +492,6 @@
         "jetzt": "nur dunkel, als Festlegung",
         "preis": "Wer hell arbeitet, bekommt keine helle Entsprechung. Dafuer traegt die Seite einen eigenen Grund und ein erklaertes color-scheme, statt sich den Grund des Betrachters zu leihen — ein halb gebautes helles Thema waere schlechter als ein ehrlich dunkles.",
         "geprueft_durch": "test/dashboard.test.mjs — color-scheme:dark und ein eigener body-Grund sind Pflicht, ein halber Licht-Zweig faellt auf."
-      },
-      {
-        "regel": "kein Pillen-Radius",
-        "jetzt": "999px auf den Stand-Marken oben rechts",
-        "preis": "Zwei kleine Marken. Sonst gelten die Radien 8 bis 16 der Studie."
       }
     ],
     "unveraendert": [
@@ -517,6 +512,18 @@
       "orange": "#d4aa85",
       "blue": "#819ecd",
       "font": "DM Sans"
+    },
+    "zurueckgenommen": {
+      "regel": "kein Pillen-Radius",
+      "warum": "Am 2026-09-17 mit dem anydesign-Skill gegen das Stylesheet der Studie gemessen: sie hat GAR KEINEN Pillen-Radius. Die Radien laufen 2 bis 13px, streng von innen nach aussen wachsend, plus 50% fuer Kreise. Die 999px standen aus Gewohnheit in meiner Nachbildung, nicht in der Vorlage — ich hatte also eine Abweichung dokumentiert, die es nie gab. Originalgetreu ist hier zugleich regelkonform."
+    },
+    "nachgemessen_2026_09_17": {
+      "zustand_ist_farbton_nicht_helligkeit": "Neutrales Chrome liegt bei Farbton 227-240 Grad, alles Aktive bei 250-272 — bei praktisch gleicher Helligkeit. #24262e (228) und #24202d (258) sind dasselbe Grau in zwei Stimmungen. Ein Element wird nicht HELLER wenn es aktiv wird, es wird VIOLETTER. Marken: --raised-on, --line-on.",
+      "bewegung": "Puls 6,25 s je Kantendurchlauf, Drehung 233 s je Umdrehung, Framegate 30 ms. Meine erste Fassung war fast doppelt so schnell.",
+      "schwall_regeln": "Ohne Auswahl traegt nur jede SIEBTE Kante einen Lichtpunkt, Versatz i*0.177 gegen Gleichschritt, beteiligte heller (#e3caff statt #b499c9).",
+      "daempfen_statt_ausblenden": "Unbeteiligte Kanten auf Alpha .055, Knoten auf .23 — die Gesamtform bleibt als Geisterbild stehen.",
+      "kontrast_NICHT_uebernommen": "Das gesamte Metatext-Band der Studie (7 Selektoren) liegt bei 12px mit Kontrast 3,4 bis 4,1 — unter AA, ohne Large-Text-Ausnahme, und kein Ausrutscher sondern Muster. Das wird BEWUSST NICHT uebernommen: eine Studie originalgetreu nachzubauen heisst nicht, ihre Zugaenglichkeits-Fehler mitzunehmen. Hier gilt weiter --muted #858894 auf --panel, und die Metatexte bleiben bei 11-13px mit dem Kontrast dieser Palette.",
+      "token_system_ist_eine_fassade": "Die Studie deklariert 10 Variablen und benutzt 134 einzigartige Hex-Literale — Variablen decken rund 7 % der Farbentscheidungen ab, --raised ist deklariert und nie benutzt. Wer nur :root uebernimmt, hat nichts. Diese Nachbildung faehrt bewusst andersherum: alles aus Marken."
     }
   }
 }

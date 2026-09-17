@@ -153,13 +153,46 @@ test('the pulse runs on declared links only', () => {
   // lend those lines a statement they do not make.
   const html = page();
   const script = html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>'));
-  const i = script.indexOf('if (!paused) {');
+  // Not the literal condition — that changed once already when the
+  // study's three pulse rules went in, and a probe pinned to a string
+  // is a probe that breaks on every correct edit. What must hold is
+  // WHERE it sits: inside the declared-only branch.
+  const i = script.search(/if \(!paused && /);
   assert.ok(i > 0, 'the pulse is gone');
   // The nearest enclosing condition above it must be the declared guard.
   const before = script.slice(0, i);
   const guard = before.lastIndexOf("if (e.kind === 'declared')");
-  assert.ok(guard > 0 && i - guard < 700,
+  assert.ok(guard > 0 && i - guard < 2000,
     'the pulse is not inside the declared-only branch');
+  // And the three rules the study measured into it. Each one is what
+  // separates a living net from a string of running lights.
+  assert.match(script, /kante % 7 === 0/, 'every edge pulses at once — that is noise');
+  assert.match(script, /kante \* 0\.177/, 'no offset, so the dots march in lockstep');
+  assert.match(script, /#e3caff/, 'a selected edge does not brighten its dot');
+});
+
+test('no backtick hides inside the browser script', () => {
+  // **Twice in one day this exact thing broke a file.** The browser
+  // half lives in a `String.raw` template. A backtick anywhere inside
+  // it closes the template early, and the rest of the module becomes
+  // syntax soup — the first time it was a heredoc in a shell installer,
+  // the second time a backtick inside MY OWN explanatory comment, put
+  // there to quote an identifier. The comment warning about the
+  // character contained it.
+  //
+  // A module that does not parse is caught by any probe. What this one
+  // buys is the NAME of the cause, at the moment it happens, instead of
+  // "Unexpected identifier" sixty lines further down.
+  const src = fs.readFileSync(path.join(HERE, '..', 'src', 'astra.mjs'), 'utf8');
+  const open = src.indexOf('const SCRIPT = String.raw');
+  assert.ok(open > 0, 'the browser script is gone or renamed');
+  const start = src.indexOf('`', open);
+  const end = src.indexOf('\n`;', start);
+  assert.ok(end > start, 'the template is not closed the way this probe expects');
+  const inside = src.slice(start + 1, end);
+  const ticks = (inside.match(/`/g) || []).length;
+  assert.equal(ticks, 0,
+    `${ticks} backtick(s) inside the String.raw template — each one closes it early`);
 });
 
 test('there is still no shadow', () => {
