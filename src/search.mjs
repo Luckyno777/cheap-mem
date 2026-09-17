@@ -585,6 +585,59 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
  */
 const TIERS_KNOWN = new Set(['user', 'system', 'agent', 'external', 'inferred', 'unknown']);
 
+/**
+ * May this document be returned AT ALL, whatever lane found it?
+ *
+ * **The finding (external audit, 2026-09-17).** There are three lanes
+ * into this function — the id lane above, the literal/exact lane in
+ * `bin/mem find`, and the ranked lane below — and each carried its own
+ * idea of which entries are allowed out. Reproduced:
+ *
+ *   search(index, '<id of a beta error>', {project:'alpha', type:'decision'})
+ *
+ * returned that beta error. The id lane checked `retired` and nothing
+ * else, so project and type were requested and silently ignored. The
+ * automatic recall hook goes through `mem find`, so the divergence
+ * reached the context an agent is handed without anyone asking for it.
+ *
+ * The rule is therefore written ONCE, here, and every lane calls it
+ * before it returns anything. What stays lane-specific is RANKING: an
+ * exact match may skip the relevance floor, because "this is literally
+ * the thing you named" is not a score. It may not skip the scope.
+ *
+ * Adding an option that narrows what may be returned means adding it
+ * here. A lane that filters on its own is the defect this replaces.
+ */
+export function admits(doc, {
+  type = null,
+  project = null,
+  authority = null,
+  since = null,
+  noRaw = false,
+  onlyRaw = false,
+  withRetired = false,
+} = {}) {
+  if (!doc) return false;
+  const isRaw = doc.type === 'raw';
+  if (doc.retired && !withRetired) return false;
+  if (noRaw && isRaw) return false;
+  if (onlyRaw && !isRaw) return false;
+  if (type && doc.type !== type) return false;
+  if (authority !== null) {
+    const t = String(doc.entry?.authority ?? 'unknown').toLowerCase();
+    if ((TIERS_KNOWN.has(t) ? t : 'unknown') !== authority) return false;
+  }
+  if (project !== null && project !== undefined) {
+    const target = project === 'global' ? null : project;
+    if (doc.project !== target) return false;
+  }
+  if (since) {
+    const sinceTs = since instanceof Date ? since.toISOString() : String(since);
+    if (!doc.entry?.ts || doc.entry.ts < sinceTs) return false;
+  }
+  return true;
+}
+
 export function search(index, query, {
   top = 10,
   type = null,
@@ -622,8 +675,12 @@ export function search(index, query, {
   if (/^[A-Za-z0-9]{6,20}$/.test(maybeId)) {
     for (const doc of index.documents) {
       if (doc?.entry?.id !== maybeId) continue;
-      // Retired ones only on request — the same rule as every other lane.
-      if (doc.retired && !withRetired) break;
+      // The SAME admission rules as every other lane — not a private
+      // copy of one of them. Before the audit this line read
+      // `if (doc.retired && !withRetired) break;` and nothing else, so
+      // an id lookup answered across projects and types that the caller
+      // had explicitly excluded.
+      if (!admits(doc, { type, project, authority, since, noRaw, onlyRaw, withRetired })) break;
       return [{
         score: 1000,
         type: doc.type,
@@ -654,32 +711,19 @@ export function search(index, query, {
     terms.set(stemmed, g);
   }
 
-  const sinceTs = since
-    ? (since instanceof Date ? since.toISOString() : String(since))
-    : null;
   const now = Date.now();
+  const grenzen = { type, project, authority, since, noRaw, onlyRaw, withRetired };
 
   const hits = [];
   for (const doc of index.documents) {
+    // The tier filter that used to stand here is part of `admits` now.
+    // It exists so a caller can generate candidates PER TIER instead of
+    // taking the global top-k: a lower tier with enough volume otherwise
+    // fills the candidate set before a higher tier is looked at, and no
+    // policy applied afterwards can recover a claim that was never a
+    // candidate. Measured 2026-09-05 (bench/byzantine.mjs).
+    if (!admits(doc, grenzen)) continue;
     const isRaw = doc.type === 'raw';
-    if (doc.retired && !withRetired) continue;
-    if (noRaw && isRaw) continue;
-    if (onlyRaw && !isRaw) continue;
-    if (type && doc.type !== type) continue;
-    // Tier filter. Exists so a caller can generate candidates PER TIER
-    // instead of taking the global top-k: a lower tier with enough volume
-    // otherwise fills the candidate set before a higher tier is looked at,
-    // and no policy applied afterwards can recover a claim that was never
-    // a candidate. Measured 2026-09-05 (bench/byzantine.mjs).
-    if (authority !== null) {
-      const t = String(doc.entry?.authority ?? 'unknown').toLowerCase();
-      if ((TIERS_KNOWN.has(t) ? t : 'unknown') !== authority) continue;
-    }
-    if (project !== null && project !== undefined) {
-      const target = project === 'global' ? null : project;
-      if (doc.project !== target) continue;
-    }
-    if (sinceTs && (!doc.entry.ts || doc.entry.ts < sinceTs)) continue;
 
     let score = 0;
     for (const [term, qWeight] of terms) {
@@ -1292,8 +1336,23 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * parameter each caller has to fill correctly is a third chance. The pass
  * is BM25 over an in-memory index; it costs what it costs and nobody has
  * to remember anything.
+ *
+ * **And it takes the scope, since 2026-09-17.** The external audit ran
+ *
+ *   mem find src/payments.mjs --project alpha --type decision --json
+ *
+ * and got back a beta ERROR alongside the alpha decision, plus — with the
+ * decision retired and no `--with-retired` — the retired one too. This
+ * lane had no filters at all, and `mem find` puts it in FRONT, so the
+ * filters the user typed were not merely weakened, they were overruled.
+ * The automatic recall hook goes through this path.
+ *
+ * What the lane may still skip is the RELEVANCE floor: "you named this
+ * literally" is not a score, which is the reason the lane exists. Scope
+ * is a different question and is answered by `admits`, once, for every
+ * lane.
  */
-export function exactHits(index, query, slots) {
+export function exactHits(index, query, slots, grenzen = {}) {
   const found = entity.hits(index.entityIndex, query, slots);
   if (!found.size && !found.length) return [];
   // minScore 0: a lane hit is often exactly the document BM25 rates near
@@ -1307,6 +1366,7 @@ export function exactHits(index, query, slots) {
   for (const [i, which] of found) {
     const doc = index.documents[i];
     if (!doc) continue;
+    if (!admits(doc, grenzen)) continue;
     out.push({
       score: scores.get(`${doc.source}:${doc.line}`) ?? 0,
       type: doc.type,

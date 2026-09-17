@@ -401,7 +401,13 @@ export function retrieve(root, query, capability, {
   // Doppelte fallen weiter unten heraus: die Auswahl kennt `seenIds`
   // nicht, aber die Koerper-Entdopplung greift, und ein Eintrag, der
   // ueber beide Bahnen kommt, ist derselbe Koerper.
-  const exakte = exactHits(idx, useQuery, want);
+  // Dieselben Grenzen wie die gereihte Bahn zwei Dutzend Zeilen weiter
+  // oben: `withRetired: true`, weil hier die Fessel (capability) und die
+  // Zustandspruefung weiter unten entscheiden, nicht die Suche. Vorher
+  // nahm diese Bahn GAR KEINE Grenzen — was nicht auffiel, solange die
+  // gereihte Bahn zufaellig dieselbe Einstellung hatte. Jetzt steht es
+  // da, und ein Auseinanderlaufen ist im Diff zu sehen.
+  const exakte = exactHits(idx, useQuery, want, { withRetired: true });
   const exaktIds = new Set(exakte.map((h) => h.entry?.id).filter(Boolean));
   const raw = rawReserve
     ? [...exakte,

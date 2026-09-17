@@ -1416,7 +1416,19 @@ const COMMANDS = {
     // Regel in `search.exactHits` und nicht hier: `mem find` und
     // `retrieve()` sind schon zweimal auseinandergelaufen (siehe
     // test/paths-agree.test.mjs).
-    const exakt = search.exactHits(index, query, wanted);
+    // Mit denselben Grenzen wie die gereihte Suche darueber. Bis zum
+    // 2026-09-17 nahm diese Bahn keine — und weil `mem find` sie VORN
+    // einsortiert, wurden --project, --type und --with-retired nicht
+    // bloss geschwaecht, sondern ueberstimmt. Der Abruf-Hook laeuft
+    // ueber genau diesen Pfad.
+    const exakt = search.exactHits(index, query, wanted, {
+      type: args.type ?? null,
+      project: args.project ?? null,
+      since,
+      noRaw: Boolean(args['no-raw']),
+      onlyRaw: Boolean(args['only-raw']),
+      withRetired: Boolean(args['with-retired']),
+    });
     const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));
     const hits = [...exakt, ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id))]
       .slice(0, wanted);
