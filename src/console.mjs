@@ -251,9 +251,23 @@ export function inventory(root) {
   const projects = memory.listProjects(root);
   let total = count(null);
   for (const p of projects) total += count(p);
-  let captures = 0;
-  try { captures = archive.records(root).length; } catch { /* none */ }
-  return { total, projects: projects.length, captures };
+  // Not `records(root).length`. Since 2026-09-16 a deletion appends a
+  // TOMBSTONE to the same append-only register, so counting rows would
+  // have made every delete look like a new capture — the number going
+  // UP as material is removed is the most convincing kind of wrong.
+  let captures = null;
+  let capturesDeleted = null;
+  try {
+    const gone = archive.deletions(root);
+    const kept = new Set();
+    for (const r of archive.records(root)) {
+      if (!r?.path || r.record === archive.DELETED_MARK) continue;
+      kept.add(r.path);
+    }
+    capturesDeleted = [...kept].filter((p) => gone.has(p)).length;
+    captures = kept.size - capturesDeleted;
+  } catch { /* stays null: not measured, which is not zero */ }
+  return { total, projects: projects.length, captures, capturesDeleted };
 }
 
 /**
@@ -322,8 +336,10 @@ const STEP_COLOUR = { ok: '#1e6b3a', open: '#8a6100', broken: '#b3261e' };
 export function nav(active = 'console') {
   const item = (href, name, id) =>
     `<a href="${href}"${id === active ? ' aria-current="page"' : ''}>${h(name)}</a>`;
-  return `<nav class="mem-nav">${item('/', 'Console', 'console')}${
-    item('/pult', 'Desk', 'desk')}${item('/viewer', 'Viewer', 'viewer')}</nav>`;
+  // The desk took `/` on 2026-09-16; the console moved to `/console`.
+  // `/pult` still answers, so a bookmark from before does not break.
+  return `<nav class="mem-nav">${item('/', 'Desk', 'desk')}${
+    item('/console', 'Console', 'console')}${item('/viewer', 'Viewer', 'viewer')}</nav>`;
 }
 
 export const NAV_CSS = `
@@ -474,7 +490,10 @@ ${storeList}
 <dl>
   <dt>Root</dt><dd><code>${h(d.root)}</code></dd>
   <dt>Entries</dt><dd>${d.inventory.total} across ${d.inventory.projects} project${
-  d.inventory.projects === 1 ? '' : 's'} · ${d.inventory.captures} captures</dd>
+  d.inventory.projects === 1 ? '' : 's'} · ${d.inventory.captures === null
+    ? 'captures not measurable'
+    : `${d.inventory.captures} capture${d.inventory.captures === 1 ? '' : 's'}`}${
+  d.inventory.capturesDeleted ? ` · ${d.inventory.capturesDeleted} deleted` : ''}</dd>
   <dt>Branch</dt><dd>${h(d.git.branch ?? 'unknown')} @ ${h(d.git.head ?? '?')}</dd>
   <dt>Remote</dt><dd><code>${h(d.git.remote ?? 'none')}</code></dd>
   <dt>Last commit</dt><dd>${h(d.git.at ?? 'unknown')}</dd>

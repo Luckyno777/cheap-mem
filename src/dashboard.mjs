@@ -39,8 +39,12 @@ import * as question from './question.mjs';
 import * as basis from './basis.mjs';
 import * as authority from './authority.mjs';
 import * as capability from './capability.mjs';
+// Named `rawCapture`, not `raw`: `collect()` below already has a local
+// `const raw` (the entry map) — two bindings of the same name in one
+// module is exactly the kind of silent confusion this codebase avoids.
+import * as rawCapture from './raw.mjs';
 
-export const VIEWS = Object.freeze(['desk', 'knowledge', 'projects', 'agents', 'net']);
+export const VIEWS = Object.freeze(['desk', 'knowledge', 'space', 'projects', 'agents', 'net', 'set']);
 
 /**
  * The state vocabulary, in ONE place.
@@ -294,6 +298,31 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     .map((t) => ({ ...t, word: word(t.state) }))
     .sort((a, b) => RANK[a.state] - RANK[b.state]);
 
+  // --- the raw-capture review -----------------------------------------
+  // `rawCapture.capturesWithState` already owns the three-state truth
+  // (present/deleted/unreachable) that `mem raw review` shows on the
+  // command line — this page displays it, it does not recompute it.
+  // Newest first, same order the CLI review uses.
+  // **Four states, not three.** The first version caught the read error
+  // and fell back to an empty list — and an empty list on this page is
+  // indistinguishable from "nothing has been captured yet". That is the
+  // house's oldest defect (`assumption instead of measurement`): a
+  // number that was never taken must not arrive looking like zero. So
+  // the failure travels as its own field, and the counts go to `null`,
+  // which this page renders as "not measured" rather than "0".
+  let rawCaptures = [];
+  let rawReadable = true;
+  let rawError = null;
+  try { rawCaptures = rawCapture.capturesWithState(root); }
+  catch (e) { rawReadable = false; rawError = String(e?.message ?? e); }
+  // Three counters, always present — never omitted when zero, because a
+  // missing key would read as "not measured" and zero really was
+  // measured. When the register could not be read, they ARE null.
+  const rawCounts = rawReadable
+    ? { present: 0, deleted: 0, unreachable: 0 }
+    : { present: null, deleted: null, unreachable: null };
+  if (rawReadable) for (const r of rawCaptures) rawCounts[r.state] = (rawCounts[r.state] ?? 0) + 1;
+
   return {
     at: con.at,
     root: con.root,
@@ -311,514 +340,32 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     agents: mem.agents,
     facts: mem.facts,
     net: { ...graph, layers: net.layers(graph) },
+    // What the console could set and this page could not. Carried
+    // through unchanged rather than re-derived: two places computing
+    // "is this writable" would eventually disagree, and the one that
+    // shows an enabled button while the server refuses the POST is the
+    // one people believe.
+    settings: con.settings,
+    setup: con.setup,
+    connections: con.connections,
+    stores: con.stores,
+    log: con.log,
     views: VIEWS,
+    raw: { captures: rawCaptures, counts: rawCounts, readable: rawReadable, error: rawError },
   };
 }
 
 // ---------------------------------------------------------------------
-// The page
+// The page lives in `astra.mjs`
 // ---------------------------------------------------------------------
 //
-// **Dark first, and both themes real.** The house tokens live in
-// `docs/viewer-design-tokens.json` and the viewer mirrors them; this
-// page uses the same values, only the other way round — the complete
-// palette sits on the bare `:root` in its dark spelling and the light
-// one redefines every token inside `@media (prefers-color-scheme:
-// light)`. Not one colour is declared in only one of the two blocks,
-// which is the classic bug that leaves one theme's text on the other
-// theme's ground.
+// Until 2026-09-16 the markup, the stylesheet and the browser script
+// stood right here. They moved to `src/astra.mjs` when the workspace
+// was rebuilt to Lucky's study — not for tidiness, but because two
+// renderers is two answers: a selector renamed in one and not the
+// other fails silently, and the copy nobody routes to is the copy
+// nobody notices is wrong.
 //
-// **No shadow, no webfont, no pill radius** — the token file names all
-// three as deliberate absences. The arriving export had all three.
-//
-// **No network.** Everything the page needs is inside it: no CDN, no
-// fetch, no `/console.json` round trip. That is what makes the page
-// usable on a plane, and it is also what makes a demo fallback
-// impossible — there is no failing request to fall back from.
-
-/** HTML special characters. Everything here is memory content or a path. */
-function h(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-/** JSON that cannot break out of the <script> element it sits in. */
-function safeJson(value) {
-  return JSON.stringify(value).replace(/<\//g, '<\\/').replace(/<!--/g, '<\\!--');
-}
-
-/** How many knowledge rows the list renders before it says so out loud. */
-export const LIST_MAX = 400;
-
-/** The key of one matrix cell. Not a separator a drawer name can contain. */
-const CELL = (from, to) => `${from} >> ${to}`;
-
-const TABS = Object.freeze({
-  desk: 'Desk',
-  knowledge: 'Knowledge',
-  projects: 'Projects',
-  agents: 'Agents',
-  net: 'Net',
-});
-
-const DARK = {
-  paper: '#141716', raised: '#1B1F1D', sunk: '#202523', ink: '#E7EAE6',
-  muted: '#B4BBB5', faint: '#8B9089', rule: '#2C332F', 'rule-soft': '#242A27',
-  accent: '#7FC3D4', 'accent-soft': '#172C32', warn: '#D9A758', 'warn-soft': '#2B2416',
-  gone: '#E08C85', 'gone-soft': '#2E1D1C', fresh: '#6FBF97',
-};
-const LIGHT = {
-  paper: '#FAF9F6', raised: '#FFFFFF', sunk: '#F1EFE9', ink: '#1A1C1B',
-  muted: '#4D5350', faint: '#696E6B', rule: '#E4E1D9', 'rule-soft': '#EFECE5',
-  accent: '#1F5E70', 'accent-soft': '#E1EDF0', warn: '#8A5A12', 'warn-soft': '#F6EEDE',
-  gone: '#8C3A34', 'gone-soft': '#F6E6E4', fresh: '#2C6B4F',
-};
-const vars = (t) => Object.entries(t).map(([k, v]) => `--${k}:${v}`).join(';');
-
-/** State to token. One map, so a fifth state cannot quietly pick a colour. */
-const TONE = Object.freeze({
-  calm: 'fresh', watch: 'warn', alarm: 'gone', unknown: 'faint',
-});
-function tone(state) {
-  const t = TONE[state];
-  if (!t) throw new Error(`No tone for state '${state}'. Known: ${Object.keys(TONE).join(', ')}`);
-  return t;
-}
-
-const CSS = `
-:root{color-scheme:dark light;${vars(DARK)};
-  --ui:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
-  --prose:Charter,'Bitstream Charter','Sitka Text',Cambria,Georgia,serif;
-  --code:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono',monospace}
-@media (prefers-color-scheme:light){:root{${vars(LIGHT)}}}
-*{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 var(--ui)}
-/* Not sticky, deliberately: the shared nav bar that console.insertNav
-   puts above this one is, at top:0. Two stuck bars fighting for the
-   same edge is a layout that works until someone scrolls. */
-.top{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:10px 20px;
-  background:var(--raised);border-bottom:1px solid var(--rule)}
-.brand{font-size:20px;font-weight:700;letter-spacing:-0.015em;margin-right:8px}
-.brand span{display:block;font:11px/1.3 var(--code);letter-spacing:0.03em;
-  color:var(--faint);font-weight:400}
-.tabs{display:flex;gap:2px;flex:1 1 auto;overflow-x:auto}
-.tab{border:0;background:transparent;color:var(--muted);font:14px var(--ui);
-  padding:9px 12px;border-radius:6px;cursor:pointer;
-  border-bottom:2px solid transparent;white-space:nowrap}
-.tab:hover{background:var(--sunk);color:var(--ink)}
-.tab[aria-selected=true]{color:var(--ink);border-bottom-color:var(--accent)}
-.tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.asof{font:12px var(--code);color:var(--faint)}
-main{max-width:1080px;margin:0 auto;padding:24px 20px 64px}
-h1{font-size:20px;font-weight:700;letter-spacing:-0.015em;margin:0 0 4px}
-h2{font-size:13px;font-weight:400;text-transform:uppercase;letter-spacing:0.08em;
-  color:var(--faint);margin:28px 0 10px;display:flex;gap:10px;flex-wrap:wrap;
-  align-items:baseline}
-h2 em{font-style:normal;text-transform:none;letter-spacing:0;font-size:12px}
-.lead{max-width:70ch;color:var(--muted);margin:0 0 4px}
-.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(250px,1fr))}
-.card{background:var(--raised);border:1px solid var(--rule);
-  border-left:2px solid var(--c,var(--rule));border-radius:8px;padding:12px 14px}
-.card .name{font-weight:600;font-size:15px}
-.card .st{font:11px var(--code);letter-spacing:0.03em;color:var(--c,var(--faint))}
-.card .big{font-size:17px;font-weight:600;margin:6px 0 2px}
-.card p{margin:4px 0 0;color:var(--muted);font-size:13px}
-.card .why{color:var(--faint);font:12px var(--code);word-break:break-word}
-.kv{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px}
-.kv b{font:11px var(--code);letter-spacing:0.03em;color:var(--faint);font-weight:400;
-  text-transform:uppercase;display:block}
-.kv>div{min-width:72px}
-.chip{display:inline-block;font:11px var(--code);letter-spacing:0.03em;
-  background:var(--sunk);color:var(--muted);border:1px solid var(--rule-soft);
-  border-radius:3px;padding:1px 5px;margin:2px 3px 0 0}
-.chip.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent)}
-.none{color:var(--faint);background:var(--sunk);border:1px solid var(--rule-soft);
-  border-radius:8px;padding:12px 14px;max-width:70ch}
-.missing{color:var(--faint);font-style:italic}
-.split{display:grid;grid-template-columns:minmax(300px,40%) 1fr;gap:12px;
-  align-items:start}
-.pane{background:var(--raised);border:1px solid var(--rule);border-radius:8px;padding:12px}
-#q{width:100%;padding:8px 10px;border:1px solid var(--rule);border-radius:6px;
-  background:var(--paper);color:var(--ink);font:15px var(--prose)}
-#q:focus{outline:2px solid var(--accent);outline-offset:1px}
-.filters{display:flex;flex-wrap:wrap;gap:4px;margin:8px 0}
-button.chip{cursor:pointer}
-button.chip:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.list{max-height:70vh;overflow:auto;border-top:1px solid var(--rule-soft);margin-top:8px}
-.item{display:block;width:100%;text-align:left;background:transparent;border:0;
-  border-bottom:1px solid var(--rule-soft);padding:10px 8px;cursor:pointer;color:inherit}
-.item:hover{background:var(--sunk)}
-.item[aria-current=true]{background:var(--accent-soft)}
-.item:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-.item .h{font:600 15px/1.35 var(--prose);letter-spacing:-0.005em;display:block}
-.item .m{font:11px var(--code);letter-spacing:0.03em;color:var(--faint);
-  margin-top:2px;display:block}
-.item.gone .h{color:var(--gone);text-decoration:line-through}
-.detail h3{font:600 17px/1.35 var(--prose);margin:0 0 2px}
-.detail .m{font:12px var(--code);color:var(--faint)}
-.detail dl{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:14px 0 0;
-  font-size:13px}
-.detail dt{font:11px var(--code);letter-spacing:0.03em;text-transform:uppercase;
-  color:var(--faint)}
-.detail dd{margin:0;word-break:break-word}
-.wrap{overflow-x:auto;background:var(--raised);border:1px solid var(--rule);
-  border-radius:8px}
-table{border-collapse:collapse;font:13px var(--ui);width:100%}
-th,td{padding:7px 10px;border-bottom:1px solid var(--rule-soft);
-  border-right:1px solid var(--rule-soft);text-align:center;white-space:nowrap}
-th{font:11px var(--code);letter-spacing:0.03em;color:var(--faint);font-weight:400;
-  background:var(--sunk)}
-td.row-h,th.row-h{text-align:left;font:11px var(--code);color:var(--muted)}
-td.hit{background:var(--accent-soft);color:var(--accent);cursor:pointer;font-weight:600}
-td.hit:hover{background:var(--sunk)}
-td.hit:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-td.nil{color:var(--faint)}
-@media (max-width:620px){
-  main{padding:18px 16px 56px}
-  .tab{padding:13px 12px}
-  .split{grid-template-columns:1fr}
-  .grid{grid-template-columns:1fr}
-}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-`;
-
-/** A tile: state spine, state word, the measured line, the detail. */
-function tileCard(t) {
-  return `<article class="card" style="--c:var(--${tone(t.state)})">
-    <div class="name">${h(t.title)}</div>
-    <div class="st">${h(t.word ?? word(t.state))}</div>
-    <p>${h(t.line)}</p>
-    ${t.detail ? `<p class="why">${h(t.detail)}</p>` : ''}
-  </article>`;
-}
-
-/** A work tile. `value === null` prints the reason, never a zero. */
-function workCard(w) {
-  return `<article class="card" style="--c:var(--${tone(w.state)})">
-    <div class="name">${h(w.title)}</div>
-    <div class="st">${h(word(w.state))}</div>
-    <div class="big">${w.value === null
-    ? '<span class="missing">not measured</span>' : h(w.value)}</div>
-    <p>${h(w.note)}</p>
-  </article>`;
-}
-
-function deskView(d) {
-  const attention = d.attention.length
-    ? `<div class="grid">${d.attention.map(tileCard).join('')}</div>`
-    // Three states here too: "nothing wants attention" is not the same
-    // sentence as "nothing was measured", and the second one is the one
-    // worth noticing.
-    : `<p class="none">Every one of the ${d.system.length} tiles reports
-       <b>${h(WORD.calm)}</b>. Nothing is unmeasured and nothing is broken.</p>`;
-  return `<h1>Desk</h1>
-    <p class="lead">What was measured, what wants someone, and what is still open.
-      Warnings and unmeasured states come first — a tile that could not be taken
-      never sorts below one that is in order.</p>
-    <h2>System state <em>${d.system.length} tiles · ${d.attention.length} not in order</em></h2>
-    <div class="grid">${d.system.map(tileCard).join('')}</div>
-    <h2>Attention <em>alarm first, then unmeasured</em></h2>
-    ${attention}
-    <h2>Active work <em>open against the total that was recorded</em></h2>
-    <div class="grid">${d.work.map(workCard).join('')}</div>`;
-}
-
-function knowledgeView(d) {
-  const types = [...new Set(d.entries.map((e) => e.type))].sort();
-  const shown = d.entries.slice(0, LIST_MAX);
-  const cut = d.entries.length - shown.length;
-  const rows = shown.map((e) => `<button class="item${e.retired ? ' gone' : ''}"
-      data-id="${h(e.id)}" data-type="${h(e.type)}"
-      data-find="${h(`${e.headline} ${e.type} ${e.project} ${e.author ?? ''} ${e.tags.join(' ')}`.toLowerCase())}">
-      <span class="h">${h(e.headline)}</span>
-      <span class="m">${h(e.type)} · ${h(e.project)} · ${h(e.author ?? 'no author recorded')}${
-  e.retired ? ` · ${h(e.retired.state)}` : ''}</span>
-    </button>`).join('');
-  return `<h1>Knowledge</h1>
-    <p class="lead">Every entry this memory holds, retracted ones included and marked.
-      Picking one shows what it was built on and what stands against it.</p>
-    <h2>Entries <em>${d.entries.length} total${
-  cut > 0 ? ` · showing the newest ${LIST_MAX}, ${cut} not listed` : ''}${
-  d.broken ? ` · ${d.broken} unreadable line${d.broken === 1 ? '' : 's'}` : ''}</em></h2>
-    <div class="split">
-      <div class="pane">
-        <label class="m" for="q">Search</label>
-        <input id="q" type="search" placeholder="headline, type, project, author, tag"
-          autocomplete="off">
-        <div class="filters">
-          <button class="chip on" data-type="">all</button>
-          ${types.map((t) => `<button class="chip" data-type="${h(t)}">${h(t)}</button>`).join('')}
-        </div>
-        <div class="list" id="list">${rows
-    || '<p class="none">This memory holds no entries yet.</p>'}</div>
-        <p class="m" id="hits"></p>
-      </div>
-      <div class="pane detail" id="detail">
-        <p class="none">Pick an entry. Basis, authority, scope, standing, what it
-          replaces and what contradicts it appear here.</p>
-      </div>
-    </div>`;
-}
-
-function projectsView(d) {
-  if (!d.projects.length) {
-    return '<h1>Projects</h1><p class="none">No project drawer has been written to yet.</p>';
-  }
-  const cards = d.projects.map((p) => `<article class="card">
-    <div class="name">${h(p.name)}</div>
-    <div class="st">last entry ${p.last
-    ? h(p.last.replace('T', ' ').replace('Z', '')) : 'never'}</div>
-    <div class="kv">
-      <div><b>entries</b>${p.entries}</div>
-      <div><b>retracted</b>${p.retired}</div>
-      <div><b>drawers</b>${p.drawers.length}</div>
-      <div><b>open questions</b>${p.openQuestions}</div>
-    </div>
-    <p>${p.drawers.map((x) => `<span class="chip">${h(x)}</span>`).join('')}</p>
-    <p class="why">${p.agents.length
-    ? `written by ${p.agents.map((a) => `${h(a.name)} (${a.entries})`).join(', ')}`
-    : 'no agent recorded on any entry here'}</p>
-  </article>`).join('');
-  return `<h1>Projects</h1>
-    <p class="lead">One card per drawer group, with what is actually in it. The counts
-      come from the same single read the net and the knowledge list come from.</p>
-    <h2>Workspaces <em>${d.projects.length}</em></h2>
-    <div class="grid">${cards}</div>`;
-}
-
-function agentsView(d) {
-  if (!d.agents.length) {
-    return '<h1>Agents</h1><p class="none">Nobody is registered and nobody appears in the log.</p>';
-  }
-  // Registered and seen are two different sets, and the page shows both
-  // sides rather than their intersection: an agent writing without a
-  // folder is the gap nobody notices otherwise.
-  const cards = d.agents.map((a) => {
-    const state = (a.registered && a.count > 0) ? 'calm' : 'watch';
-    const note = !a.registered ? 'writes without a folder under agents/'
-      : a.count === 0 ? 'registered, has never written anything'
-        : 'registered and writing';
-    return `<article class="card" style="--c:var(--${tone(state)})">
-      <div class="name">${h(a.name)}</div>
-      <div class="st">${h(note)}</div>
-      <div class="kv">
-        <div><b>entries</b>${a.count}</div>
-        <div><b>retracted</b>${a.retired ?? 0}</div>
-        <div><b>model</b>${a.model
-    ? h(a.model) : '<span class="missing">none recorded</span>'}</div>
-        <div><b>role</b>${a.role
-    ? h(a.role) : '<span class="missing">none recorded</span>'}</div>
-      </div>
-      <p class="why">last ${a.last
-    ? h(String(a.last).replace('T', ' ').replace('Z', '')) : 'never'}</p>
-      <p>${Object.keys(a.projects || {}).map((x) => `<span class="chip">${h(x)}</span>`).join('')
-      || '<span class="missing">no project</span>'}</p>
-    </article>`;
-  }).join('');
-  return `<h1>Agents</h1>
-    <p class="lead">Registered and actually observed in the memory, shown side by side.
-      No capability rating is invented — only what a folder or an entry says.</p>
-    <h2>Known <em>${d.agents.length}</em></h2>
-    <div class="grid">${cards}</div>`;
-}
-
-function netView(d) {
-  const { boxes, pairs, dangling } = d.net;
-  if (!pairs.length) {
-    return `<h1>Net</h1>
-      <p class="lead">Only declared links. Nothing is inferred from similarity.</p>
-      <p class="none">${boxes.length} drawer${boxes.length === 1 ? '' : 's'} hold entries and
-        <b>not one declared link</b> runs between them${dangling
-  ? `, though ${dangling} link${dangling === 1 ? '' : 's'} point${
-    dangling === 1 ? 's' : ''} at an entry that is not here`
-  : ''}. The matrix is empty because nothing was linked — not because nothing
-        was measured.</p>`;
-  }
-  // Only the drawers that actually carry an edge get a row: an N-by-N
-  // grid of mostly dots hides the few cells that say something. How many
-  // were left out is stated rather than silently dropped.
-  const live = [...new Set(pairs.flatMap((p) => [p.from, p.to]))].sort();
-  const map = new Map(pairs.map((p) => [CELL(p.from, p.to), p]));
-  const head = `<tr><th class="row-h">from \\ to</th>${
-    live.map((n) => `<th>${h(n)}</th>`).join('')}</tr>`;
-  const body = live.map((r) => `<tr><td class="row-h">${h(r)}</td>${live.map((c) => {
-    const p = map.get(CELL(r, c));
-    return p
-      ? `<td class="hit" tabindex="0" data-cell="${h(CELL(r, c))}">${p.count}</td>`
-      : '<td class="nil">·</td>';
-  }).join('')}</tr>`).join('');
-  return `<h1>Net</h1>
-    <p class="lead">Only declared links — <code>${h(net.LINK_KINDS.join(', '))}</code>.
-      Nothing is inferred from similarity.</p>
-    <h2>Drawer matrix <em>${live.length} of ${boxes.length} drawers carry an edge · ${
-  d.net.links} link${d.net.links === 1 ? '' : 's'} · ${dangling} dangling</em></h2>
-    <div class="wrap"><table>${head}${body}</table></div>
-    <p class="none" id="netdetail">Pick a filled cell.</p>`;
-}
-
-/** The browser half. A string constant, so nothing in it is interpolated. */
-const SCRIPT = String.raw`
-(function () {
-  function q(s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); }
-  q('.tab').forEach(function (b) {
-    b.onclick = function () {
-      q('.tab').forEach(function (x) { x.setAttribute('aria-selected', String(x === b)); });
-      q('main > section').forEach(function (s) { s.hidden = (s.id !== 'v-' + b.dataset.view); });
-    };
-  });
-
-  var box = document.getElementById('q'), hits = document.getElementById('hits'), type = '';
-  function filter() {
-    if (!box) return;
-    var t = (box.value || '').toLowerCase(), n = 0, items = q('#list .item');
-    items.forEach(function (el) {
-      var ok = (!type || el.dataset.type === type) && (!t || el.dataset.find.indexOf(t) >= 0);
-      el.hidden = !ok;
-      if (ok) n += 1;
-    });
-    // Zero hits is stated. An empty box with no line under it reads like
-    // a page that has not finished loading.
-    hits.textContent = items.length ? (n + ' of ' + items.length + ' shown') : '';
-  }
-  if (box) box.addEventListener('input', filter);
-  q('.filters .chip').forEach(function (c) {
-    c.onclick = function () {
-      type = c.dataset.type || '';
-      q('.filters .chip').forEach(function (x) { x.classList.toggle('on', x === c); });
-      filter();
-    };
-  });
-
-  function esc(s) {
-    return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (m) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
-    });
-  }
-  // Missing and empty print differently on purpose: "none declared" is a
-  // fact about the entry, "not readable" is a fact about this page.
-  function val(v, none) {
-    return (v === null || v === undefined || v === '')
-      ? '<span class="missing">' + esc(none) + '</span>' : esc(v);
-  }
-  function ids(list) {
-    return list.length
-      ? list.map(function (l) {
-        return esc(l.kind) + ' -> ' + esc(l.id) + (l.known ? '' : ' (dangling)');
-      }).join('<br>')
-      : '<span class="missing">none</span>';
-  }
-  q('.item').forEach(function (el) {
-    el.onclick = function () {
-      var e = ENTRIES[el.dataset.id];
-      if (!e) return;
-      q('.item').forEach(function (x) { x.setAttribute('aria-current', String(x === el)); });
-      document.getElementById('detail').innerHTML =
-        '<h3>' + esc(e.headline) + '</h3>'
-        + '<div class="m">' + esc(el.dataset.id) + ' &middot; ' + esc(e.ts) + '</div>'
-        + (e.readable ? '' : '<p class="none">This entry could not be read back, so every '
-          + 'field below is unknown rather than empty.</p>')
-        + '<dl>'
-        + '<dt>basis</dt><dd>' + val(e.basis, 'none declared') + '</dd>'
-        + '<dt>authority</dt><dd>' + val(e.authority, 'none declared') + '</dd>'
-        + '<dt>author</dt><dd>' + val(e.author, 'none recorded') + '</dd>'
-        + '<dt>scope</dt><dd>' + val(e.scope, 'not readable') + '</dd>'
-        + '<dt>type</dt><dd>' + esc(e.typeLabel || e.type) + '</dd>'
-        + '<dt>project</dt><dd>' + esc(e.project) + '</dd>'
-        + '<dt>standing</dt><dd>' + e.cited + ' citation' + (e.cited === 1 ? '' : 's')
-          + (e.contested ? ' &middot; <b>contested</b>' : '') + '</dd>'
-        + '<dt>validity</dt><dd>' + (e.retired
-          ? 'retracted (' + esc(e.retired.state)
-            + (e.retired.why ? ': ' + esc(e.retired.why) : '') + ')'
-          : 'not retracted') + '</dd>'
-        + '<dt>replaces</dt><dd>' + val(e.replaces, 'nothing') + '</dd>'
-        + '<dt>built on</dt><dd>' + (e.derivedFrom.length
-          ? e.derivedFrom.map(esc).join('<br>')
-          : '<span class="missing">nothing declared</span>') + '</dd>'
-        + '<dt>contradicted by</dt><dd>' + ids(e.contradictedBy) + '</dd>'
-        + '<dt>links out</dt><dd>' + ids(e.links) + '</dd>'
-        + '<dt>links in</dt><dd>' + ids(e.backlinks) + '</dd>'
-        + '<dt>source</dt><dd>' + esc(e.source) + ':' + e.line + '</dd>'
-        + '</dl>';
-    };
-  });
-
-  function cell(td) {
-    var p = PAIRS[td.dataset.cell];
-    if (!p) return;
-    var kinds = Object.keys(p.kinds).map(function (k) {
-      return esc(k) + ' x ' + p.kinds[k];
-    }).join(', ');
-    document.getElementById('netdetail').innerHTML =
-      '<b>' + esc(p.from) + ' -&gt; ' + esc(p.to) + '</b><br>' + p.count
-      + ' declared link' + (p.count === 1 ? '' : 's') + ': ' + kinds;
-  }
-  q('td.hit').forEach(function (td) {
-    td.onclick = function () { cell(td); };
-    td.onkeydown = function (ev) {
-      if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); cell(td); }
-    };
-  });
-}());
-`;
-
-/**
- * The whole page, as one string. Pure function of the collected data —
- * no I/O, so a test can hand it a fixture and read the result.
- */
-export function renderHtml(d, { title = 'cheap-mem' } = {}) {
-  const tabs = Object.entries(TABS).map(([id, label], i) =>
-    `<button class="tab" role="tab" id="tab-${id}" data-view="${id}"
-      aria-controls="v-${id}" aria-selected="${i === 0}">${h(label)}</button>`).join('');
-  const views = {
-    desk: deskView(d),
-    knowledge: knowledgeView(d),
-    projects: projectsView(d),
-    agents: agentsView(d),
-    net: netView(d),
-  };
-  const sections = Object.entries(views).map(([id, html], i) =>
-    `<section id="v-${id}" role="tabpanel" aria-labelledby="tab-${id}"${
-      i === 0 ? '' : ' hidden'}>${html}</section>`).join('');
-  // Only what the detail pane needs. The list already carries the rest,
-  // and shipping the whole collection twice would double a page meant to
-  // be opened rather than downloaded.
-  const payload = Object.fromEntries(d.entries.map((e) => [e.id, {
-    headline: e.headline, type: e.type, typeLabel: e.typeLabel, project: e.project,
-    ts: e.ts, source: e.source, line: e.line, readable: e.readable, basis: e.basis,
-    authority: e.authority, author: e.author, scope: e.scope, cited: e.cited,
-    contested: e.contested, retired: e.retired, replaces: e.replaces,
-    derivedFrom: e.derivedFrom, links: e.links, backlinks: e.backlinks,
-    contradictedBy: e.contradictedBy, tags: e.tags,
-  }]));
-  const pairs = Object.fromEntries(d.net.pairs.map((p) => [CELL(p.from, p.to), p]));
-
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${h(title)} — desk</title>
-<style>${CSS}</style>
-</head><body>
-<header class="top">
-  <div class="brand">${h(title)}<span>desk · measured ${h(d.at)}</span></div>
-  <div class="tabs" role="tablist" aria-label="views">${tabs}</div>
-  <div class="asof">${h(d.git.branch ?? 'no branch')} @ ${h(d.git.head ?? '?')} · ${
-  d.inventory.total} entries</div>
-</header>
-<main>${sections}</main>
-<script>
-var ENTRIES = ${safeJson(payload)};
-var PAIRS = ${safeJson(pairs)};
-${SCRIPT}
-</script>
-</body></html>
-`;
-}
-
-/** Collect and render in one call, the way `viewer.build` does. */
-export function build(root, {
-  title = 'cheap-mem', env = process.env, now = new Date(), cfg = {},
-} = {}) {
-  const data = collect(root, { env, now, cfg });
-  return { data, html: renderHtml(data, { title }) };
-}
+// So this file is the DATA layer, and it has no opinion about markup.
+// `astra.build(root)` collects through `collect()` here and renders
+// there. Anything that used `dashboard.build` calls `astra.build`.

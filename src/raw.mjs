@@ -489,7 +489,7 @@ export function textOf(l) {
   return parts.join(' ');
 }
 
-export function listCaptures(root) {
+export function listCaptures(root, { withDeleted = false } = {}) {
   // Two sources, in this order: the record in the repository (the truth
   // about what EXISTS) and the old directory (anything not migrated
   // yet). Merged, no duplicates.
@@ -499,11 +499,20 @@ export function listCaptures(root) {
   // be empty from then on — the search would report "nothing found" and
   // hide a broken wiring. That is the most expensive failure this
   // project knows.
+  // A deleted capture stays in the register as a tombstone, and every
+  // existing caller of this function — the index, `pending`, the
+  // digest — means "captures there are still bytes for". Handing them
+  // a deleted path makes each of them fail at the file read, and two
+  // of them fail SILENTLY. So deleted ones are out by default, and the
+  // review asks for them by name.
+  const gone = withDeleted ? new Map() : archive.deletions(root);
   const out = [];
   const seen = new Set();
   for (const rec of archive.records(root)) {
     if (!rec?.path || seen.has(rec.path)) continue;
+    if (rec.record === archive.DELETED_MARK) continue;
     seen.add(rec.path);
+    if (gone.has(rec.path)) continue;
     out.push(rec.path);
   }
 
@@ -520,11 +529,65 @@ export function listCaptures(root) {
         const p = path.join(RAW_DIR, year, month, file);
         if (seen.has(p)) continue;
         seen.add(p);
+        if (gone.has(p)) continue;
         out.push(p);
       }
     }
   }
   return out.sort();
+}
+
+/**
+ * Every capture with its state — the review, not the work list.
+ *
+ * Three states, and the third is the one worth building for:
+ *
+ *   present      the register knows it and the bytes are there
+ *   deleted      somebody removed it, and the tombstone says who and why
+ *   unreachable  the register knows it and the bytes are NOT there,
+ *                and nobody said so. That is a defect, not a decision,
+ *                and collapsing it into "deleted" would hide a broken
+ *                archive path behind a tidy word.
+ *
+ * `project` comes from the capture's own stamp and is `null` when the
+ * session never named one — which is most of them. `null` is not
+ * "global": it means nobody wrote it down.
+ */
+export function capturesWithState(root) {
+  const store = archive.readConfig(process.env, root);
+  const gone = archive.deletions(root);
+  const byPath = new Map();
+  for (const rec of archive.records(root)) {
+    if (!rec?.path || rec.record === archive.DELETED_MARK) continue;
+    if (!byPath.has(rec.path)) byPath.set(rec.path, rec);
+  }
+  // Anything on disk the register never heard of still belongs in the
+  // review: an orphan file is exactly what a review is for.
+  for (const p of listCaptures(root, { withDeleted: true })) {
+    if (!byPath.has(p)) byPath.set(p, { path: p });
+  }
+
+  const out = [];
+  for (const [p, rec] of byPath) {
+    const tomb = gone.get(p) ?? null;
+    const there = archive.reachable(store, root, p);
+    out.push({
+      path: p,
+      state: tomb ? 'deleted' : (there ? 'present' : 'unreachable'),
+      at: rec.captured_at ?? rec.ts_to ?? null,
+      project: rec.stamp?.project ?? null,
+      surface: rec.stamp?.surface ?? null,
+      session: rec.stamp?.session_id ?? null,
+      lines: typeof rec.lines === 'number' ? rec.lines : null,
+      bytes: typeof rec.stored_bytes === 'number' ? rec.stored_bytes
+        : (typeof rec.source_bytes === 'number' ? rec.source_bytes : null),
+      inRegister: Boolean(rec.captured_at || rec.stamp || rec.lines),
+      deleted: tomb,
+    });
+  }
+  out.sort((a, b) => String(b.at ?? '').localeCompare(String(a.at ?? ''))
+    || a.path.localeCompare(b.path));
+  return out;
 }
 
 /** Read one capture (decompressed). Returns `{header, lines}`. */

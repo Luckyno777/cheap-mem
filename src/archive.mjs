@@ -291,6 +291,92 @@ export function writeRecord(root, row) {
 }
 
 /**
+ * The mark that turns a register row into a tombstone.
+ *
+ * A capture row and a deletion row live in the same append-only file,
+ * so they must be told apart by a field somebody WROTE — never by
+ * guessing from which other fields happen to be present. Guessing is
+ * how a broken line becomes an invisible one.
+ */
+export const DELETED_MARK = 'deleted';
+
+/**
+ * Delete the BYTES of a capture and leave a tombstone.
+ *
+ * **Why not just remove the file.** This file's own opening says it:
+ * git deletes nothing. A capture taken out of the working tree is gone
+ * from the checkout and still in every clone's history — which is
+ * exactly why captures were moved OUT of the repository in the first
+ * place. So a deletion that means anything has to happen where the
+ * bytes really are: in the archive, outside git.
+ *
+ * **And why a tombstone rather than silence.** The register is
+ * append-only. Removing the capture row would be a rewrite, and it
+ * would also destroy the one thing worth keeping: that this capture
+ * existed, and that somebody decided it should not any more. The row
+ * stays, a second row says it was deleted, and the listing shows three
+ * states instead of two — present, deleted with a reason, or
+ * unreachable, which is a defect and not a decision.
+ *
+ * Refuses a path the register has never seen. Deleting something that
+ * was never recorded means a typo, and a delete that shrugs at a typo
+ * is one that eventually removes the wrong thing.
+ */
+export function remove(archive, root, relPath, {
+  reason = '', by = 'unknown', now = new Date(),
+} = {}) {
+  const known = records(root).some((r) => r?.path === relPath && r?.record !== DELETED_MARK);
+  if (!known) {
+    throw new Error(`No capture '${relPath}' in the register. Nothing was deleted.`);
+  }
+  const already = deletions(root).get(relPath);
+  if (already) {
+    // Not an error: deleting twice is a person clicking twice. But it
+    // must not append a second tombstone, or the register would say the
+    // bytes were freed twice.
+    return { path: relPath, state: 'already', freed: 0, at: already.at };
+  }
+
+  const file = filePath(archive, root, relPath);
+  let freed = 0;
+  if (file) {
+    try { freed = fs.statSync(file).size; } catch { freed = 0; }
+    fs.unlinkSync(file);
+  }
+  const at = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+  writeRecord(root, {
+    record: DELETED_MARK,
+    path: relPath,
+    deleted_at: at,
+    // The reason is not decoration. A tombstone without one answers
+    // "was this deliberate?" with a shrug.
+    reason: String(reason ?? ''),
+    by: String(by ?? 'unknown'),
+    freed_bytes: freed,
+    // Three states, again: the bytes were there and are now gone, or
+    // they were already missing before anyone asked.
+    bytes_were_there: Boolean(file),
+  });
+  return { path: relPath, state: file ? 'deleted' : 'tombstoned', freed, at };
+}
+
+/** Every tombstone, by path. The LAST one wins if there were several. */
+export function deletions(root) {
+  const out = new Map();
+  for (const r of records(root)) {
+    if (r?.record !== DELETED_MARK || !r?.path) continue;
+    out.set(r.path, {
+      at: r.deleted_at ?? null,
+      reason: r.reason ?? '',
+      by: r.by ?? 'unknown',
+      freed: Number(r.freed_bytes ?? 0),
+      bytesWereThere: r.bytes_were_there !== false,
+    });
+  }
+  return out;
+}
+
+/**
  * Captures within a time range.
  *
  * `from`/`to` are ISO instants (a bare date is enough). `hourFrom` and
