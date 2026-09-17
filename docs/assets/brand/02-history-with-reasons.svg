@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" role="img" aria-labelledby="title desc"><title id="title">History stays. Context changes.</title><desc id="desc">A correction is a new entry with an explicit reference to the earlier one.</desc>
+<rect x="0" y="0" width="1600" height="800" rx="0" fill="#101B1B" stroke="#101B1B"/>
+<text x="72" y="65" fill="#54D6A0" font-family="DejaVu Sans, sans-serif" font-size="24" font-weight="700">cheap-mem</text>
+<text x="1240" y="65" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="16" font-weight="400">02 / APPEND-ONLY</text>
+<text x="72" y="150" fill="#F6F4EC" font-family="DejaVu Sans, sans-serif" font-size="52" font-weight="700">History stays. Context changes.</text>
+<text x="72" y="199" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="400">A correction is a new entry with an explicit reference to the earlier one.</text>
+<path d="M190 283 L1408 283" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<circle cx="245" cy="283" r="10" fill="#54D6A0"/>
+<circle cx="1320" cy="283" r="10" fill="#54D6A0"/>
+<text x="300" y="267" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">A new record extends the history</text>
+<rect x="72" y="329" width="620" height="284" rx="20" fill="#182928" stroke="#344D46"/>
+<rect x="908" y="329" width="620" height="284" rx="20" fill="#182928" stroke="#344D46"/>
+<text x="104" y="375" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="16" font-weight="700">EARLIER ENTRY</text>
+<text x="940" y="375" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="16" font-weight="700">CORRECTION</text>
+<text x="104" y="424" fill="#F6F4EC" font-family="DejaVu Sans Mono, sans-serif" font-size="26" font-weight="700">decision / d01</text>
+<text x="940" y="424" fill="#F6F4EC" font-family="DejaVu Sans Mono, sans-serif" font-size="26" font-weight="700">decision / d02</text>
+<text x="104" y="470" fill="#F6F4EC" font-family="DejaVu Sans Mono, sans-serif" font-size="21" font-weight="400">choice: &quot;Use CSV exports&quot;</text>
+<text x="104" y="511" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="19" font-weight="400">why: &quot;The client needs spreadsheets&quot;</text>
+<text x="940" y="470" fill="#F6F4EC" font-family="DejaVu Sans Mono, sans-serif" font-size="21" font-weight="400">choice: &quot;Use JSON exports&quot;</text>
+<text x="940" y="511" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="19" font-weight="400">why: &quot;The client now has an API&quot;</text>
+<text x="940" y="563" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="20" font-weight="700">replaces_id: &quot;d01&quot;</text>
+<text x="104" y="563" fill="#E8C586" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Preserved in history</text>
+<path d="M890 465 L710 465" fill="none" stroke="#54D6A0" stroke-width="3" stroke-linecap="round"/><path d="M720 458 L710 465 L720 472" fill="none" stroke="#54D6A0" stroke-width="3"/>
+<text x="721" y="431" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="16" font-weight="400">replaces_id</text>
+<text x="72" y="674" fill="#F6F4EC" font-family="DejaVu Sans, sans-serif" font-size="26" font-weight="500">Keep the reason. Keep the source. Make the change explicit.</text>
+<path d="M72 724 L1528 724" fill="none" stroke="#344D46" stroke-width="3" stroke-linecap="round"/>
+<text x="72" y="762" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="18" font-weight="400">Cheap in tokens, rich in memory.</text>
+<text x="900" y="762" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="15" font-weight="400">ILLUSTRATIVE ENTRIES / NOT LIVE DATA</text>
+</svg>
