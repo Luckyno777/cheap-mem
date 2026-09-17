@@ -265,6 +265,37 @@ export function reachable(archive, root, relPath) {
     || fs.existsSync(path.join(root, relPath));
 }
 
+/**
+ * Does a record belong to THIS machine's store at all?
+ *
+ * `location` — written by `put()` as `file:///abs/path` — is the truth;
+ * `path` is only a shorthand for the case where the archive sits inside
+ * the repository. Across machines the shorthand is misleading: two
+ * checkouts of the same memory produce the same `path` and entirely
+ * different files.
+ *
+ * The distinction is not polish. Missing bytes for a capture that
+ * belongs here are a DEFECT; missing bytes for one recorded into
+ * another machine's store are the normal case. Painting them the same
+ * colour either hides the defect or turns the normal case into a
+ * standing alarm — and a standing alarm gets clicked away, taking the
+ * real defect with it.
+ *
+ * Returns `{target, here}`; `target` is the resolved absolute path.
+ */
+export function locationState(root, rec, archive = readConfig(process.env, root)) {
+  const strip = (u) => String(u).replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const fromLocation = rec?.location ? path.resolve(strip(rec.location)) : null;
+  const fromPath = rec?.path ? path.resolve(root, String(rec.path)) : null;
+  const target = fromLocation ?? fromPath;
+  if (!target) return { target: null, here: false };
+  const store = path.resolve(archive.location);
+  const legacy = path.resolve(root, OLD_DIR);
+  const here = target === store || target.startsWith(`${store}${path.sep}`)
+    || target === legacy || target.startsWith(`${legacy}${path.sep}`);
+  return { target, here };
+}
+
 /** Every record, oldest first. */
 export function records(root) {
   const p = recordPath(root);

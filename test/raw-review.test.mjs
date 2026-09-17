@@ -403,10 +403,15 @@ test('the desk collects the raw review as its own data, with real counts', () =>
     const d = dashboard.collect(root);
     assert.ok(d.raw, 'dashboard.collect() carries no raw field');
     assert.equal(d.raw.captures.length, 3);
-    // Three keys always, even at zero — never omitted. Omitting
+    // EVERY state gets a key, even at zero — never omitted. Omitting
     // `unreachable` here would silently read as "not measured", and it
     // really was measured, at zero.
-    assert.deepEqual(Object.keys(d.raw.counts).sort(), ['deleted', 'present', 'unreachable']);
+    //
+    // Read from `raw.CAPTURE_STATES` rather than typed out: on
+    // 2026-09-17 a fourth state (`elsewhere`) arrived, and a hand-typed
+    // list is exactly how it would have dropped off this tile without
+    // anybody noticing.
+    assert.deepEqual(Object.keys(d.raw.counts).sort(), [...raw.CAPTURE_STATES].sort());
     assert.equal(d.raw.counts.deleted, 1);
     assert.equal(d.raw.counts.present, 2);
     assert.equal(d.raw.counts.unreachable, 0);
@@ -468,7 +473,7 @@ test('a register that cannot be read is NOT "no captures"', () => {
     // Not measured, and therefore not zero. This is the assertion that
     // would have caught the original shape: with `catch { [] }` the
     // counts were 0/0/0 and this line reads 0, not null.
-    for (const k of ['present', 'deleted', 'unreachable']) {
+    for (const k of raw.CAPTURE_STATES) {
       assert.equal(d.raw.counts[k], null, `${k} reports a number nobody counted`);
     }
 
@@ -495,8 +500,75 @@ test('POSITIVE: with the register intact the same page does say "none yet"', () 
     fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'leer' }));
     const d = dashboard.collect(root);
     assert.equal(d.raw.readable, true, 'an empty memory counts as unreadable');
-    assert.deepEqual(d.raw.counts, { present: 0, deleted: 0, unreachable: 0 });
+    assert.deepEqual(d.raw.counts,
+      Object.fromEntries(raw.CAPTURE_STATES.map((k) => [k, 0])));
     assert.match(astra.build(root, { title: 'review' }).html,
       /No raw capture has been recorded yet/, 'the empty-state sentence is gone');
   } finally { away(root); }
+});
+
+// --- The fourth state -------------------------------------------------
+//
+// Added 2026-09-17, after the sibling house measured 15 of 1238 captures
+// recorded into ANOTHER machine's store. Their bytes are missing here
+// entirely correctly. Called `unreachable` they would have made the
+// review a standing alarm — and a standing alarm gets clicked away,
+// taking the real defect next to it.
+//
+// invariant: drei-zustaende-nie-zwei
+
+test('a record pointing into another machine store reads as elsewhere', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-elsewhere-'));
+  try {
+    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'x' }));
+    archive.writeRecord(root, {
+      path: 'raw/2026/09/far.jsonl.gz',
+      captured_at: '2026-09-01T10:00:00Z',
+      ts_to: '2026-09-01T10:00:00Z',
+      lines: 1,
+      // The location is the truth: this file lives in a store this
+      // machine has never mounted.
+      location: 'file:///mnt/other-machine/archive/raw/2026/09/far.jsonl.gz',
+    });
+    const seen = raw.capturesWithState(root);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].state, 'elsewhere',
+      'a capture from another machine was reported as a defect of this one');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a record that belongs HERE and lost its bytes is still unreachable', () => {
+  // The other half of the same claim. Without this, `elsewhere` could
+  // swallow every missing capture and the defect would vanish.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-broken-'));
+  try {
+    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'x' }));
+    const cfg = archive.readConfig({}, root);
+    archive.writeRecord(root, {
+      path: 'raw/2026/09/gone.jsonl.gz',
+      captured_at: '2026-09-01T10:00:00Z',
+      ts_to: '2026-09-01T10:00:00Z',
+      lines: 1,
+      location: `file://${path.join(cfg.location, 'raw', '2026', '09', 'gone.jsonl.gz')}`,
+    });
+    const seen = raw.capturesWithState(root);
+    assert.equal(seen[0].state, 'unreachable',
+      'a broken archive path was excused as "another machine"');
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the dashboard counts every state the review can produce', () => {
+  // The drift guard. A state the page cannot count disappears from the
+  // tile in silence — which is the whole reason the states exist.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-states-'));
+  try {
+    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'x' }));
+    const counts = dashboard.collect(root).raw.counts;
+    for (const st of raw.CAPTURE_STATES) {
+      assert.ok(st in counts, `the desk has no counter for '${st}'`);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

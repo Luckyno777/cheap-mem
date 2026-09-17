@@ -299,9 +299,12 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     .sort((a, b) => RANK[a.state] - RANK[b.state]);
 
   // --- the raw-capture review -----------------------------------------
-  // `rawCapture.capturesWithState` already owns the three-state truth
-  // (present/deleted/unreachable) that `mem raw review` shows on the
-  // command line — this page displays it, it does not recompute it.
+  // `rawCapture.capturesWithState` already owns the four-state truth
+  // (present/deleted/unreachable/elsewhere) that `mem raw review` shows
+  // on the command line — this page displays it, it does not recompute
+  // it. `elsewhere` means the record points into another machine's
+  // store: its bytes are missing here entirely correctly, and counting
+  // it as `unreachable` would make this tile a standing alarm.
   // Newest first, same order the CLI review uses.
   // **Four states, not three.** The first version caught the read error
   // and fell back to an empty list — and an empty list on this page is
@@ -315,12 +318,15 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   let rawError = null;
   try { rawCaptures = rawCapture.capturesWithState(root); }
   catch (e) { rawReadable = false; rawError = String(e?.message ?? e); }
-  // Three counters, always present — never omitted when zero, because a
-  // missing key would read as "not measured" and zero really was
+  // The counters are always present — never omitted when zero, because
+  // a missing key would read as "not measured" and zero really was
   // measured. When the register could not be read, they ARE null.
-  const rawCounts = rawReadable
-    ? { present: 0, deleted: 0, unreachable: 0 }
-    : { present: null, deleted: null, unreachable: null };
+  //
+  // The list comes from `raw.CAPTURE_STATES` rather than being typed out
+  // here: a state the page cannot count would vanish from it silently,
+  // which is precisely the defect the four states exist to prevent.
+  const rawCounts = {};
+  for (const st of rawCapture.CAPTURE_STATES) rawCounts[st] = rawReadable ? 0 : null;
   if (rawReadable) for (const r of rawCaptures) rawCounts[r.state] = (rawCounts[r.state] ?? 0) + 1;
 
   return {
