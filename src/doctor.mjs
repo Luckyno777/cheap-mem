@@ -467,7 +467,7 @@ function checkDigest(root) {
   // So an undigested capture is, for retrieval purposes, not in the
   // memory at all. That belongs in the advice, or the check reports a
   // hygiene problem while the real one is a gap in what can be recalled.
-  const unsichtbar = 'Until the digest runs, these captures are effectively invisible to '
+  const invisibleNote = 'Until the digest runs, these captures are effectively invisible to '
     + 'retrieval: the gateway fills the answer from curated entries first and only falls '
     + 'back to captures for the slots they leave — five matching entries are enough to '
     + 'leave none. `mem find --only-raw` still reads them directly.';
@@ -475,28 +475,28 @@ function checkDigest(root) {
     return finding('digest', LEVEL.WARN,
       `${st.open.length} pending (${kb} KB), due since ${d.reason}`,
       'The timer should pick this up within minutes. If it does not, '
-      + 'check that the digest job is installed and running. ' + unsichtbar);
+      + 'check that the digest job is installed and running. ' + invisibleNote);
   }
   return finding('digest', LEVEL.GOOD,
     `${st.open.length} pending (${kb} KB), not due yet (${d.reason})`,
-    unsichtbar);
+    invisibleNote);
 }
 
 
 /**
- * Greifen die kuratierten Synonyme in DIESER Memory?
+ * Do the curated synonyms engage for THIS memory?
  *
- * `THESAURUS` in thesaurus.mjs ist englisch — 39 Gruppen, 188 Woerter.
- * Gemessen am 2026-09-06: eine deutsche Memory bekommt daraus null
- * Synonyme (0 Treffer aus 198 Anfrage-Termen ueber 21 Fragen; englisch
- * 53 aus 44). Der Abruf laeuft trotzdem, nur eine seiner drei
- * Erweiterungsschichten ist stumm — und nichts sagt es einem.
+ * `THESAURUS` in thesaurus.mjs is English — 39 groups, 188 words.
+ * Measured on 2026-09-06: a German-language memory gets zero synonyms
+ * from it (0 hits from 198 query terms over 21 questions; English gets
+ * 53 of 44). Retrieval still runs, only one of its three expansion
+ * layers is mute — and nothing says so.
  *
- * Genau die Sorte Luecke, gegen die dieses Projekt sonst antritt:
- * unsichtbar bei Anwesenheit, still bei Abwesenheit. Also gemessen.
+ * Exactly the kind of gap this project otherwise campaigns against:
+ * invisible when present, silent when absent. So it is measured.
  *
- * Gezaehlt wird ueber das haeufigste Vokabular der Memory selbst, nicht
- * ueber Anfragen — der Doktor hat keine, und die Eintraege sagen dasselbe.
+ * Counted over the memory's own most frequent vocabulary, not over
+ * queries — the doctor has none, and the entries say the same thing.
  */
 function checkSynonyms(root) {
   let cfg; try { cfg = cfgmod.readConfig(root); } catch { cfg = { language: 'en' }; }

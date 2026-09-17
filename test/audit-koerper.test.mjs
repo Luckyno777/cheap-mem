@@ -35,24 +35,24 @@ const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
 /** The six typed fields from the audit, each in its own entry. */
-const TYPISCH = {
+const TYPED_FIELDS = {
   learning: 'learning', duty: 'duty', question: 'question',
   skill: 'skill', source: 'excerpt', procedure: 'rule',
 };
 
-function welt() {
+function world() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-koerper-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
   let i = 0;
-  for (const [typ, feld] of Object.entries(TYPISCH)) {
+  for (const [type, field] of Object.entries(TYPED_FIELDS)) {
     i += 1;
-    memory.logEntry(root, typ, {
-      id: `field${typ}`, [feld]: `quartz ${typ} essential payload`,
-      // Verschiedene Verfasser: die Verfasser-Quote ist eine ANDERE,
-      // richtige Abwehr (ein Autor darf die Antwort nicht fluten). Sie
-      // hier mitzumessen wuerde diese Probe von einer Zahl abhaengig
-      // machen, um die es nicht geht.
+    memory.logEntry(root, type, {
+      id: `field${type}`, [field]: `quartz ${type} essential payload`,
+      // Different authors: the author-share quota is a DIFFERENT, correct
+      // defence (one author must not flood the answer). Measuring that
+      // here too would make this probe depend on a number it is not
+      // about.
       agent: `auditor-${i}`, ts: '2026-09-01T10:00:00Z',
     });
   }
@@ -60,7 +60,7 @@ function welt() {
 }
 
 test('POSITIVE: all six entries are really in the index', () => {
-  const root = welt();
+  const root = world();
   try {
     assert.equal(search.buildIndex(root).documents.length, 6,
       'the fixture does not hold six documents');
@@ -68,16 +68,16 @@ test('POSITIVE: all six entries are really in the index', () => {
 });
 
 test('every typed content field reaches the claim', () => {
-  const root = welt();
+  const root = world();
   try {
     const r = retrieval.retrieve(root, 'quartz', caps.grantAll(), { top: 20 });
     const bodies = new Map(r.claims.map((c) => [c.id, c.body]));
-    for (const typ of Object.keys(TYPISCH)) {
-      const body = bodies.get(`field${typ}`);
-      assert.ok(body, `field${typ} did not come back at all `
+    for (const type of Object.keys(TYPED_FIELDS)) {
+      const body = bodies.get(`field${type}`);
+      assert.ok(body, `field${type} did not come back at all `
         + `(excluded: ${JSON.stringify(r.excluded)})`);
-      assert.match(body, new RegExp(`quartz ${typ} essential payload`),
-        `field${typ} came back with a body that is not its content: ${JSON.stringify(body)}`);
+      assert.match(body, new RegExp(`quartz ${type} essential payload`),
+        `field${type} came back with a body that is not its content: ${JSON.stringify(body)}`);
     }
   } finally { away(root); }
 });
@@ -96,15 +96,15 @@ test('an entry with nothing readable is a finding, not a duplicate', () => {
     // (`note` is not a type: the vocabulary is closed and REFUSES an
     // unknown one, which is how this fixture was written the first time
     // and why it did not quietly create something else.)
-    for (const id of ['leereins', 'leerzwei']) {
+    for (const id of ['emptyone', 'emptytwo']) {
       memory.logEntry(root, 'event', { id, tags: ['quartz'], ts: '2026-09-01T10:00:00Z' });
     }
     const r = retrieval.retrieve(root, 'quartz', caps.grantAll(), { top: 20 });
-    const gruende = r.excluded.map((e) => e.why).join(' | ');
-    assert.equal(/identical body/.test(gruende), false,
-      `empty bodies were called duplicates of each other: ${gruende}`);
-    assert.match(gruende, /no readable content/,
-      `the empty entries were not reported as a finding: ${gruende}`);
+    const reasons = r.excluded.map((e) => e.why).join(' | ');
+    assert.equal(/identical body/.test(reasons), false,
+      `empty bodies were called duplicates of each other: ${reasons}`);
+    assert.match(reasons, /no readable content/,
+      `the empty entries were not reported as a finding: ${reasons}`);
   } finally { away(root); }
 });
 
@@ -114,24 +114,24 @@ test('the two field lists together cover everything the indexer knows', () => {
   // the projection and the indexer never had to agree. A nineteenth
   // indexed field now has to be sorted into one of the two lists, and
   // the diff shows which.
-  const gelesen = new Set(retrieval.KOERPER_FELDER);
-  const bewusstNicht = new Set(retrieval.NICHT_KOERPER);
-  const fehlend = Object.keys(search.FIELD_WEIGHTS)
-    .filter((f) => !gelesen.has(f) && !bewusstNicht.has(f));
-  assert.deepEqual(fehlend, [],
-    `indexed but neither read nor deliberately excluded: ${fehlend.join(', ')}`);
+  const bodyFields = new Set(retrieval.BODY_FIELDS);
+  const deliberatelyExcluded = new Set(retrieval.NON_BODY_FIELDS);
+  const missing = Object.keys(search.FIELD_WEIGHTS)
+    .filter((f) => !bodyFields.has(f) && !deliberatelyExcluded.has(f));
+  assert.deepEqual(missing, [],
+    `indexed but neither read nor deliberately excluded: ${missing.join(', ')}`);
   // And the other direction: a body field that nothing indexes would be
   // read but never found, which is the same defect mirrored.
-  const unbekannt = retrieval.KOERPER_FELDER.filter((f) => !(f in search.FIELD_WEIGHTS));
-  assert.deepEqual(unbekannt, [], `read but not indexed: ${unbekannt.join(', ')}`);
+  const notIndexed = retrieval.BODY_FIELDS.filter((f) => !(f in search.FIELD_WEIGHTS));
+  assert.deepEqual(notIndexed, [], `read but not indexed: ${notIndexed.join(', ')}`);
   // No field in both lists — that would be a rule with two answers.
-  const beides = retrieval.KOERPER_FELDER.filter((f) => bewusstNicht.has(f));
-  assert.deepEqual(beides, [], `in both lists: ${beides.join(', ')}`);
+  const inBoth = retrieval.BODY_FIELDS.filter((f) => deliberatelyExcluded.has(f));
+  assert.deepEqual(inBoth, [], `in both lists: ${inBoth.join(', ')}`);
 });
 
 // --- the recall hook --------------------------------------------------
 
-function hookWelt() {
+function hookWorld() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-hook-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
@@ -156,7 +156,7 @@ test('a long decision does not crop its own reason away', () => {
   // 220. The comment in the hook says the reason is what decides
   // whether an old rule still binds — and the reason was the part that
   // went.
-  const root = hookWelt();
+  const root = hookWorld();
   try {
     memory.logEntry(root, 'decision', {
       id: 'hookentry1',
@@ -178,40 +178,40 @@ test('the same question after the memory changed is a new answer', () => {
   // and held for an hour. So the second ask was suppressed although the
   // memory now held something new — and a search that found nothing
   // still burned the claim.
-  const root = hookWelt();
+  const root = hookWorld();
   try {
     memory.logEntry(root, 'decision', {
       id: 'hookentry1', choice: 'The payment-router uses policy A',
       why: 'because A was agreed', ts: '2026-09-01T10:00:00Z',
     });
-    const frage = 'What is the policy for the payment-router?';
-    const eins = hook(root, frage, 'audit-b');
-    assert.ok(eins, 'the first ask injected nothing');
+    const question = 'What is the policy for the payment-router?';
+    const first = hook(root, question, 'audit-b');
+    assert.ok(first, 'the first ask injected nothing');
 
     // Identical registration of the SAME turn: one injection, not two.
-    assert.equal(hook(root, frage, 'audit-b'), null,
+    assert.equal(hook(root, question, 'audit-b'), null,
       'the same turn was injected twice — the claim does not hold');
 
     memory.logEntry(root, 'event', {
       id: 'hookentry2', title: 'payment-router changed today',
       ts: '2026-09-02T10:00:00Z',
     });
-    const zwei = hook(root, frage, 'audit-b');
-    assert.ok(zwei, 'the memory changed and the same question stayed suppressed');
-    assert.notEqual(zwei, eins, 'the second answer is byte-identical — then it should have been suppressed');
+    const second = hook(root, question, 'audit-b');
+    assert.ok(second, 'the memory changed and the same question stayed suppressed');
+    assert.notEqual(second, first, 'the second answer is byte-identical — then it should have been suppressed');
   } finally { away(root); }
 });
 
 test('a retrieval that finds nothing does not burn the turn', () => {
-  const root = hookWelt();
+  const root = hookWorld();
   try {
-    const frage = 'What is the policy for the payment-router?';
-    assert.equal(hook(root, frage, 'audit-c'), null, 'an empty memory injected something');
+    const question = 'What is the policy for the payment-router?';
+    assert.equal(hook(root, question, 'audit-c'), null, 'an empty memory injected something');
     memory.logEntry(root, 'decision', {
       id: 'hookentry1', choice: 'The payment-router uses policy A',
       why: 'because A was agreed', ts: '2026-09-01T10:00:00Z',
     });
-    assert.ok(hook(root, frage, 'audit-c'),
+    assert.ok(hook(root, question, 'audit-c'),
       'the failed attempt consumed the claim, so the repaired memory never arrived');
   } finally { away(root); }
 });

@@ -10,9 +10,9 @@
 // finding this rewrite is built on.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-// Ausdruecklich importiert statt global benutzt: global ist es in node seit
-// Jahren, in der eslint-Umgebung dieses Repos aber nicht deklariert — und ein
-// Lint-Fehler in der CI ist ein roter Lauf wie jeder andere.
+// Imported explicitly rather than used as a global: a global it has been in
+// node for years, but this repo's eslint environment does not declare it — and
+// a lint error in CI is a red run like any other.
 import { performance } from 'node:perf_hooks';
 import fs from 'node:fs';
 import os from 'node:os';

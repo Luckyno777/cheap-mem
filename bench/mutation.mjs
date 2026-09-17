@@ -23,7 +23,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT=path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
-const MUTANTS=[
+export const MUTANTS=[
  { name:'authority: maySupersede always allows',
    file:'src/authority.mjs',
    from:'export function maySupersede(claim, target) {',
@@ -273,7 +273,7 @@ const MUTANTS=[
 
  { name:'SEM contested claims are dropped instead of flagged',
    file:'src/retrieval.mjs',
-   from:'    contested: potentialConflicts(seite),',
+   from:'    contested: potentialConflicts(page),',
    to:'    contested: [],  // MUTANT: never flag',
    tests:['test/retrieval.test.mjs'] },
 
@@ -311,7 +311,7 @@ const MUTANTS=[
 
  { name:'ARCH conflict flagged from the RAW hits, before filtering',
    file:'src/retrieval.mjs',
-   from:'    contested: potentialConflicts(seite),',
+   from:'    contested: potentialConflicts(page),',
    to:'    contested: potentialConflicts(raw.map((h) => ({ topic: h.entry?.topic, scope: "x", author: h.entry?.author, id: h.entry?.id }))),  // MUTANT',
    tests:['test/retrieval.test.mjs'] },
 
@@ -343,8 +343,8 @@ const MUTANTS=[
 
  { name:'ARCH `mem find` stops dropping echoes by default',
    file:'bin/mem',
-   from:"    const gefiltert = args['with-echo']",
-   to:"    const gefiltert = true  // MUTANT: Vorgabe wieder auf durchlassen\n      || args['with-echo']",
+   from:"    const filtered = args['with-echo']",
+   to:"    const filtered = true  // MUTANT: default back to letting everything through\n      || args['with-echo']",
    tests:['test/paths-agree.test.mjs'] },
 
  { name:'ARCH echo filter forgets that it is only for raw captures',
@@ -385,8 +385,8 @@ const MUTANTS=[
 
  { name:'ARCH raw captures are dropped from the gateway entirely',
    file:'src/retrieval.mjs',
-   from:"       ...gereiht.filter((h) => h.type === 'raw' && !exaktIds.has(h.entry?.id))]",
-   to:"       ]  // MUTANT: Reserve heisst nie",
+   from:"       ...ranked.filter((h) => h.type === 'raw' && !exactIds.has(h.entry?.id))]",
+   to:"       ]  // MUTANT: the reserve never speaks",
    tests:['test/raw-reserve.test.mjs'] },
 
  { name:'ARCH the retrieval query asks the raw captures what is rare',
@@ -403,8 +403,8 @@ const MUTANTS=[
 
  { name:'ARCH the gateway drops the exact lane',
    file:'src/retrieval.mjs',
-   from:'  const exakte = exactHits(idx, useQuery, want, { withRetired: true });',
-   to:'  const exakte = [];  // MUTANT: exact hits fall back under the threshold',
+   from:'  const exactMatches = exactHits(idx, useQuery, want, { withRetired: true });',
+   to:'  const exactMatches = [];  // MUTANT: exact hits fall back under the threshold',
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'ARCH `mem find` drops the exact lane',
@@ -414,8 +414,8 @@ const MUTANTS=[
    // (2026-09-17), and a one-line anchor over it went quietly missing.
    // This line is the one that decides whether the lane reaches the
    // caller at all.
-   from:'    const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));',
-   to:'    const exaktIds = new Set(); exakt.length = 0;  // MUTANT: only the gateway knows the lane, the hook does not',
+   from:'    const exactIds = new Set(exactMatches.map((h) => h.entry?.id).filter(Boolean));',
+   to:'    const exactIds = new Set(); exactMatches.length = 0;  // MUTANT: only the gateway knows the lane, the hook does not',
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'SEM identifier patterns swallow ordinary prose',
@@ -488,6 +488,19 @@ process.on('uncaughtException', (e)=>{ restore(); throw e; });
 
 console.log('Mutant                                           | do tests fail?');
 console.log('-------------------------------------------------+----------------');
+// **The catalogue is importable; the sweep is not.**
+//
+// `test/mutation-anchors.test.mjs` checks on every `npm test` whether
+// the anchors still match — cheap, without applying a single mutant.
+// For that it must be able to import MUTANTS without setting the whole
+// sweep going (each mutant runs a full test suite).
+//
+// The occasion: a rename on 2026-09-17 left six anchors pointing at
+// nothing. The mutants did not fail — they stopped running, and six
+// guarantees quietly stopped being checked.
+const ALS_BEFEHL = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (ALS_BEFEHL) {
 for(const m of MUTANTS){
   const p=`${ROOT}/${m.file}`;
   const orig=fs.readFileSync(p,'utf8');
@@ -529,3 +542,5 @@ if(survived) console.log(`${survived} surviving mutant(s) = ${survived} guarante
 if(skipped||ambiguous) console.log(`${skipped+ambiguous} mutant(s) did not run. An untested guarantee is not a kept one — re-anchor them.`);
 if(misScoped) console.log(`${misScoped} mutant(s) name the wrong suite: the guarantee is kept, the bookkeeping is not.`);
 if(survived||skipped||ambiguous) process.exitCode = 1;
+
+}

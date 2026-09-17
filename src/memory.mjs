@@ -587,14 +587,14 @@ export function entriesById(root) {
  * rather than silently skipped: an edge into nothing is a real defect,
  * and hiding it would make the graph look healthier than it is.
  */
-export function linksOf(root, id, { withRetired = false, byId: vorgebaut = null } = {}) {
-  // Der Aufrufer darf die Eintragsuebersicht mitbringen. `question.all`
-  // ruft diese Funktion einmal JE FRAGE, und jeder Aufruf las bisher das
-  // ganze Gedaechtnis neu ein — quadratisch in der Zahl der Fragen. Die
-  // Uebersicht haengt nur an der Wurzel, nicht an `id`, also kann sie
-  // draussen einmal gebaut werden. Vorgabe bleibt: selbst bauen, damit
-  // ein Aufrufer nichts richtig machen MUSS.
-  const byId = vorgebaut ?? entriesById(root);
+export function linksOf(root, id, { withRetired = false, byId: prebuilt = null } = {}) {
+  // The caller may bring its own entry-overview. `question.all` calls
+  // this function once PER QUESTION, and every call used to re-read the
+  // whole memory — quadratic in the number of questions. The overview
+  // depends only on the root, not on `id`, so it can be built once
+  // outside. The default stays: build it yourself, so a caller does not
+  // HAVE to get anything right.
+  const byId = prebuilt ?? entriesById(root);
   const out = [];
   const incoming = [];
   const dangling = [];
@@ -607,10 +607,10 @@ export function linksOf(root, id, { withRetired = false, byId: vorgebaut = null 
     // broken and closing lines but never asked whether the edge itself
     // had been withdrawn. Retiring it looked like it worked — the entry
     // WAS marked — and changed nothing anyone could see.
-    const zurueckgezogen = retiredMap(res.entries);
+    const withdrawn = retiredMap(res.entries);
     for (const l of res.entries) {
       if (l.__broken || isClosingLine(l)) continue;
-      if (!withRetired && l.id && zurueckgezogen.has(l.id)) continue;
+      if (!withRetired && l.id && withdrawn.has(l.id)) continue;
       const from = l.from ?? l.source ?? null;
       const to = l.to ?? l.target ?? null;
       if (!from || !to) continue;
@@ -653,9 +653,9 @@ export function standing(root) {
   };
 
   for (const [, e] of byId) {
-    // Beide Schreibweisen, ueber derivedFrom — vorher zaehlte `standing`
-    // nur `origin.derived_from`, und eine Herkunft in der anderen Form
-    // brachte dem zitierten Eintrag kein Gewicht ein.
+    // Both spellings, via derivedFrom — previously `standing` only
+    // counted `origin.derived_from`, and an origin written in the other
+    // form gave the cited entry no weight at all.
     for (const src of derivedFrom(e)) {
       if (!byId.has(src)) continue;
       const r = of(src);

@@ -7,8 +7,8 @@
 // it with `test/ansicht-design.test.mjs`. When the workspace was
 // rebuilt to Lucky's study on 2026-09-16, it was first built BY EYE —
 // the design system sat there and was not opened. That is the recorded
-// failure `Eine installierte Faehigkeit wird nicht dadurch benutzt,
-// dass sie da ist`, and it happened again, so it gets a guard here.
+// failure "an installed capability is not used just because it exists",
+// and it happened again, so it gets a guard here.
 //
 // **The motion question, because it is the interesting one.** The
 // design document says of the viewer: nothing is `infinite`, no
@@ -42,13 +42,13 @@ function page() {
 const styles = (html) => html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
 
 /**
- * Zeilen- und Blockkommentare heraus.
+ * Strip line and block comments.
  *
- * Eine Zusicherung, die einen Namen FINDET, ist keine, die ein Verhalten
- * findet: `// if (x) x.onclick = ...` enthaelt denselben Text wie die
- * lebende Zeile. Gefunden durch Sabotage, dreimal am selben Tag.
+ * An assertion that FINDS a name is not one that finds a behaviour:
+ * `// if (x) x.onclick = ...` contains the same text as the live line.
+ * Found by sabotage, three times in one day.
  */
-function ohneKommentare(js) {
+function withoutComments(js) {
   return js.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
 }
 
@@ -128,12 +128,12 @@ test('the movement can be stopped, and calm is the default for whoever asked', (
   // one press.
   const html = page();
   assert.match(html, /<button id="motion"[^>]*aria-pressed=/, 'no motion control in the header');
-  // **Kommentare weg, BEVOR gesucht wird.** Sonst besteht die Probe
-  // auch, wenn die Verdrahtung auskommentiert ist — der Text steht ja
-  // noch da. Das ist heute die dritte Probe mit genau dieser Schwaeche
-  // (onkeydown, command -v shellcheck, und diese), also steht die
-  // Entschaerfung jetzt als Hilfsfunktion da statt als Vorsatz.
-  const script = ohneKommentare(
+  // **Comments stripped BEFORE searching.** Otherwise the probe passes
+  // even when the wiring is commented out — the text is still there
+  // after all. This is the third probe today with exactly this
+  // weakness (onkeydown, command -v shellcheck, and this one), so the
+  // fix now lives as a helper function instead of a good intention.
+  const script = withoutComments(
     html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>')));
   assert.match(script, /prefers-reduced-motion: reduce/,
     'the space never asks whether calm was requested');
@@ -265,7 +265,7 @@ test('the declared count in the bar is the count the stage makes', () => {
 });
 
 test('the glow scales with density, or a real memory is a white cloud', () => {
-  const script = ohneKommentare(
+  const script = withoutComments(
     page().slice(page().indexOf('<script>'), page().lastIndexOf('</script>')));
   assert.match(script, /var glanz = Math\.min\(1, Math\.sqrt\(220 \/ Math\.max\(1, nodes\.length\)\)\)/,
     'the glow budget is gone, or no longer depends on the node count');

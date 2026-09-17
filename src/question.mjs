@@ -63,7 +63,7 @@ export function check(fields = {}) {
 export function all(root, { project = undefined } = {}) {
   const projects = project === undefined ? [null, ...memory.listProjects(root)] : [project];
   const out = [];
-  // Einmal, nicht je Frage. Siehe die Begruendung an memory.linksOf.
+  // Once, not per question. See the reasoning at memory.linksOf.
   const byId = memory.entriesById(root);
   for (const p of projects) {
     let res;

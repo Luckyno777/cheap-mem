@@ -1501,7 +1501,7 @@ const COMMANDS = {
     // gate just opened for them too. See that function's docstring.
     const withRetiredForFetch = withRetiredFlag || Boolean(asOf);
     const hits0 = search.search(index, query, {
-      // Breiter holen, damit nach dem Filter genug uebrig bleibt.
+      // Fetch wider, so enough remains after filtering.
       top: args['with-echo'] ? wanted : wanted * 3,
       type: args.type ?? null,
       project: args.project ?? null,
@@ -1519,35 +1519,36 @@ const COMMANDS = {
     // hook files every message as a raw capture, so the best hit for a
     // similar question is the user's own sentence from before. Measured on
     // 2026-09-05: 13 of 18 injected hits.
-    // Die Entscheidung, WAS ein Echo ist, steht in search.isEchoHit —
-    // derselbe Aufruf wie im Gateway. Hier stand bis zum 2026-09-06 eine
-    // eigene Fassung, die `raw.excerpt` aufrief; die Funktion gab es nie,
-    // und jede Suche, die einen Rohfang traf, stuerzte ab. Gemerkt hat es
-    // niemand, weil sie nur hinter `--no-echo` lag und `--no-echo` niemand
-    // setzte. Genau die Klasse, gegen die test/paths-agree.test.mjs steht.
-    // Vorgabe: filtern. Bis 2026-09-06 steckte das hinter `--no-echo`, und
-    // NIEMAND setzte es — auch der Abruf-Hook nicht, der die 13 von 18
-    // gemessen hat. Eine Abwehr, die man einschalten muss und niemand
-    // einschaltet, ist keine. `--with-echo` gibt den alten Stand zurueck.
-    // Nur Rohfang: ein getippter Eintrag ist nicht die Frage des Nutzers.
-    // Ohne diese Einschraenkung faellt eine kurze Entscheidung, die in den
-    // Worten des Nutzers abgelegt wurde — gemessen an "zahlung nur per
-    // vorkasse" gegen die Frage "zahlung vorkasse entscheidung".
-    const gefiltert = args['with-echo']
+    // The decision of WHAT counts as an echo lives in search.isEchoHit —
+    // the same call as in the gateway. Until 2026-09-06 there was a
+    // separate version here that called `raw.excerpt`; that function
+    // never existed, and every search that hit a raw capture crashed.
+    // Nobody noticed, because it only sat behind `--no-echo` and nobody
+    // set `--no-echo`. Exactly the class test/paths-agree.test.mjs
+    // guards against.
+    // Default: filter. Until 2026-09-06 this sat behind `--no-echo`, and
+    // NOBODY set it — not even the retrieval hook, which is what
+    // measured the 13 of 18. A defence that has to be switched on and
+    // that nobody switches on is not a defence. `--with-echo` restores
+    // the old behaviour.
+    // Raw capture only: a typed entry is not the user's own question.
+    // Without this restriction a short decision filed in the user's own
+    // words gets dropped — measured on "payment only by prepayment"
+    // against the question "payment prepayment decision".
+    const filtered = args['with-echo']
       ? hits0
       : hits0.filter((h) => !search.isEchoHit(askedAs, h));
-    // Die Exakt-Bahn, wie im Gateway. Nennt die Frage einen Bezeichner,
-    // der in hoechstens `wanted` Eintraegen steht, gehoert der Eintrag
-    // nach vorn — unabhaengig von der Punktzahl. Genau deshalb steht die
-    // Regel in `search.exactHits` und nicht hier: `mem find` und
-    // `retrieve()` sind schon zweimal auseinandergelaufen (siehe
+    // The exact lane, as in the gateway. If the question names an
+    // identifier that appears in at most `wanted` entries, that entry
+    // goes to the front — independent of score. This is exactly why the
+    // rule lives in `search.exactHits` and not here: `mem find` and
+    // `retrieve()` have already diverged twice (see
     // test/paths-agree.test.mjs).
-    // Mit denselben Grenzen wie die gereihte Suche darueber. Bis zum
-    // 2026-09-17 nahm diese Bahn keine — und weil `mem find` sie VORN
-    // einsortiert, wurden --project, --type und --with-retired nicht
-    // bloss geschwaecht, sondern ueberstimmt. Der Abruf-Hook laeuft
-    // ueber genau diesen Pfad.
-    const exakt = search.exactHits(index, query, wanted, {
+    // With the same bounds as the ranked search above. Until 2026-09-17
+    // this lane took none — and because `mem find` merges it in FRONT,
+    // --project, --type and --with-retired were not merely weakened but
+    // overridden. The retrieval hook runs over exactly this path.
+    const exactMatches = search.exactHits(index, query, wanted, {
       type: args.type ?? null,
       project: args.project ?? null,
       since,
@@ -1555,7 +1556,7 @@ const COMMANDS = {
       onlyRaw: Boolean(args['only-raw']),
       withRetired: withRetiredForFetch,
     });
-    const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));
+    const exactIds = new Set(exactMatches.map((h) => h.entry?.id).filter(Boolean));
     // **BEFORE the cut, and on BOTH lanes.**
     //
     // Filtering after `.slice(0, wanted)` cannot bring back what the cut
@@ -1569,8 +1570,8 @@ const COMMANDS = {
     // it one line further down would be absurd.
     const heldThen = (h) => !retrieval.blocksRecall(h.retired, withRetiredFlag)
       && (!asOf || retrieval.validAt({ ...(h.entry ?? h), retired: h.retired ?? null }, asOf));
-    const hits = [...exakt.filter(heldThen),
-      ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id)).filter(heldThen)]
+    const hits = [...exactMatches.filter(heldThen),
+      ...filtered.filter((h) => !exactIds.has(h.entry?.id)).filter(heldThen)]
       .slice(0, wanted);
     const ms = Date.now() - t0;
 
@@ -4358,9 +4359,9 @@ function writeMergeDriver(root) {
     rule,
     '',
   ].join('\n');
-  // Gibt zurueck, ob etwas geschrieben wurde. Vorher gab die Funktion
-  // nichts zurueck, und ein Aufrufer konnte nicht sagen, ob die
-  // Garantie schon da war oder eben erst entstand.
+  // Returns whether anything was written. Previously the function
+  // returned nothing, and a caller could not tell whether the guarantee
+  // was already in place or had just been created.
   if (!fs.existsSync(p)) { fs.writeFileSync(p, note, 'utf8'); return { added: 1, path: p }; }
   const cur = fs.readFileSync(p, 'utf8');
   if (new RegExp(`^\\s*\\*\\.jsonl\\s+merge=union\\s*$`, 'm').test(cur)) {

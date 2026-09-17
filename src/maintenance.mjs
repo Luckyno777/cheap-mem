@@ -36,14 +36,14 @@ import { TYPE as SOURCE_TYPE } from './source.mjs';
 
 /**
  * An entry's text, in the same fixed field order the indexer and
- * retrieval already read content from (`retrieval.KOERPER_FELDER`).
+ * retrieval already read content from (`retrieval.BODY_FIELDS`).
  * Not re-implemented independently: a second field list here is exactly
- * the defect `KOERPER_FELDER`'s own comment describes — a field added
+ * the defect `BODY_FIELDS`'s own comment describes — a field added
  * to one list and not the other silently drops out of whichever list
  * missed it.
  */
 function bodyOf(e) {
-  const parts = retrieval.KOERPER_FELDER.map((f) => e?.[f]).filter(
+  const parts = retrieval.BODY_FIELDS.map((f) => e?.[f]).filter(
     (x) => typeof x === 'string' && x.trim());
   return parts.join(' — ');
 }

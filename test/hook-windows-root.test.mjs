@@ -109,7 +109,7 @@ test('the trace is silent unless it is switched on', () => {
   // The whole LINE, not `{[^}]*}`: the body contains `${VAR:-}`, whose
   // closing brace ends that match early and hides everything after it.
   // My first version of this test failed on its own regex.
-  const m = s.split('\n').filter((z) => /^spur\(\)/.test(z));
+  const m = s.split('\n').filter((z) => /^trace\(\)/.test(z));
   assert.equal(m.length, 1, 'the trace helper is gone, or defined twice');
   assert.match(m[0], /MEM_BEFORE_EDIT_TRACE/, 'the trace is not behind a switch');
   assert.match(m[0], />&2/, 'the trace writes somewhere other than stderr');
@@ -123,12 +123,12 @@ test('every early exit names itself', () => {
   // The point of the trace is that NO silent exit is left. One that
   // stays anonymous is exactly the one the next failure will take.
   const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
-  const stumm = s.split('\n')
+  const silent = s.split('\n')
     .map((z, i) => ({ z, i: i + 1 }))
-    .filter(({ z }) => /\bexit 0\b/.test(z) && !/spur /.test(z) && !/^\s*#/.test(z))
+    .filter(({ z }) => /\bexit 0\b/.test(z) && !/trace /.test(z) && !/^\s*#/.test(z))
     // The last line of the script is the success path and needs no name.
     .filter(({ z }) => !/^exit 0$/.test(z.trim()));
-  assert.deepEqual(stumm.map((x) => `${x.i}: ${x.z.trim()}`), [],
+  assert.deepEqual(silent.map((x) => `${x.i}: ${x.z.trim()}`), [],
     'these exits leave no trace, so a failure that takes one of them is '
     + 'indistinguishable from "nothing to report"');
 });

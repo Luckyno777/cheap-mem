@@ -152,17 +152,17 @@ export function grant({ subject = null, scopes = [], rights = ['read'], descenda
 
 /** The everything-capability. Named so it shows up in a search for it. */
 export function grantAll(subject = null) {
-  // **Das Argument ist ein SUBJEKT, keine Rechteliste.**
+  // **The argument is a SUBJECT, not a list of rights.**
   //
-  // Gefunden am 2026-09-11: zehn Teststellen schrieben
-  // `grantAll(['read'])` und lasen das als "gib Leserecht". Sie bekamen
-  // `subject: ['read']` und die vollen Rechte read+write. Keiner der
-  // zehn zog daraus einen falschen Schluss — aber die Zeile behauptet
-  // etwas anderes, als sie tut, und der naechste Test, der eine
-  // Schreibverweigerung damit prueft, waere still gruen.
+  // Found on 2026-09-11: ten test call sites wrote `grantAll(['read'])`
+  // and read that as "grant read access". What they got was `subject:
+  // ['read']` and the full read+write rights. None of the ten drew a
+  // wrong conclusion from it — but the line asserts something other than
+  // what it does, and the next test that uses it to check a write
+  // refusal would be silently green.
   //
-  // Darum laut statt bequem: ein Subjekt ist ein Name oder nichts. Wer
-  // Rechte einschraenken will, nimmt `grant({ rights: [...] })`.
+  // So: loud instead of convenient. A subject is a name or nothing.
+  // Anyone who wants to restrict rights uses `grant({ rights: [...] })`.
   if (subject !== null && typeof subject !== 'string') {
     throw new TypeError(
       'grantAll(subject) takes a subject name or null, not a rights list. '

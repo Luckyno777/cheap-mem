@@ -67,12 +67,12 @@ test('ONE ULP in the similarity does not move the MMR result', () => {
   // the other — one unit in the last place is all it takes.
   const einUlpDaneben = (a, b) => {
     if (a === b) return 1;
-    // **Ein volles Number.EPSILON, nicht die Haelfte — nachgemessen.**
-    // Mit `Number.EPSILON * 0.5` (einem ULP bei 0,5) kommt zwar eine
-    // andere Zahl heraus, aber `0.7 - 0.3 * diese` rundet auf denselben
-    // Wert zurueck: 0.5499999999999999 in beiden Faellen. Die Stoerung
-    // verschwand in der Rechnung, und die Probe war gruen, ohne etwas
-    // zu messen. Ein volles EPSILON ueberlebt.
+    // **A full Number.EPSILON, not half of it — measured, not assumed.**
+    // `Number.EPSILON * 0.5` (one ULP at 0.5) does produce a different
+    // double, but `0.7 - 0.3 * it` rounds back to the same value:
+    // 0.5499999999999999 either way. The perturbation vanished inside
+    // the arithmetic, and the probe was green without measuring
+    // anything. A full EPSILON survives.
     return a === zweiter ? 0.5 + Number.EPSILON : 0.5;
   };
 

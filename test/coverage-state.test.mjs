@@ -244,39 +244,38 @@ test('a narrow question reaches known_complete, including with zero hits', async
   try {
     for (let i = 0; i < 12; i += 1) {
       mem.logEntry(root, 'decision', {
-        id: `B-${i}`, topic: 'ablage', choice: `zur ablage gilt fassung ${i}`,
-        why: `entschieden bei vorgang ${500 + i}`, author: 'lucky', authority: 'user',
+        id: `B-${i}`, topic: 'filing', choice: `filing follows revision ${i}`,
+        why: `decided on ticket ${500 + i}`, author: 'lucky', authority: 'user',
       });
     }
     mem.logEntry(root, 'learning', {
-      id: 'ENG', topic: 'redaktion', title: 'der kanarienvogel laeuft vor jedem fang',
-      text: 'lieber eine luecke als ein geheimnis', author: 'lucky', authority: 'user',
+      id: 'ENG', topic: 'editing', title: 'the canary runs ahead of every catch',
+      text: 'better a gap than a secret', author: 'lucky', authority: 'user',
     });
 
-    const eins = retrieval.retrieve(root, 'kanarienvogel', capability.grantAll(), { top: 5 });
-    assert.equal(eins.coverage.state, 'known_complete',
-      `eine enge Frage muss vollstaendig sein, war ${eins.coverage.state}: `
-      + JSON.stringify(eins.coverage.reasons));
-    assert.equal(eins.claims.length, 1);
+    const first = retrieval.retrieve(root, 'canary', capability.grantAll(), { top: 5 });
+    assert.equal(first.coverage.state, 'known_complete',
+      `a narrow question must be complete, was ${first.coverage.state}: `
+      + JSON.stringify(first.coverage.reasons));
+    assert.equal(first.claims.length, 1);
 
-    // Der Fall, fuer den der Zustand gebaut wurde: gesucht, nichts da —
-    // und das ist etwas anderes als "nicht gesucht".
-    const keins = retrieval.retrieve(root, 'xyzzy quastenflosser', capability.grantAll(), { top: 5 });
-    assert.equal(keins.claims.length, 0);
-    assert.equal(keins.coverage.state, 'known_complete',
-      'ein leeres Ergebnis ohne Grenze ist BEWIESENE Abwesenheit, nicht Unwissen');
+    // The case this state was built for: searched, nothing there — and
+    // that is something other than "did not search".
+    const none = retrieval.retrieve(root, 'xyzzy coelacanth', capability.grantAll(), { top: 5 });
+    assert.equal(none.claims.length, 0);
+    assert.equal(none.coverage.state, 'known_complete',
+      'an empty result with no limit is PROVEN absence, not ignorance');
 
-    // Und die Gegenprobe: ohne LESERECHT ist dasselbe leere Ergebnis
-    // `unknown_coverage`. Waeren beide gleich, sagte der Zustand nichts.
+    // And the counter-check: without READ ACCESS the same empty result is
+    // `unknown_coverage`. If both were equal, the state would say nothing.
     //
-    // `grant({rights: []})`, nicht `grantAll([])`: grantAll nimmt ein
-    // SUBJEKT, keine Rechteliste — `grantAll()` heisst also
-    // "Subjekt ['read'], Rechte read+write". Die erste Fassung dieses
-    // Tests ist darauf hereingefallen und hat eine Vollmacht mit vollen
-    // Rechten fuer eine ohne gehalten.
-    const ohne = capability.grant({ subject: null, scopes: ['global'], rights: [], descendants: true });
-    const leer = retrieval.retrieve(root, 'xyzzy quastenflosser', ohne, { top: 5 });
-    assert.equal(leer.coverage.state, 'unknown_coverage',
-      'ohne Leserecht sieht ein leeres Ergebnis aus wie ein geprueftes');
+    // `grant({rights: []})`, not `grantAll([])`: grantAll takes a
+    // SUBJECT, not a list of rights — so `grantAll()` means "subject
+    // ['read'], rights read+write". The first version of this test fell
+    // for that and held a capability with full rights to be one without.
+    const without = capability.grant({ subject: null, scopes: ['global'], rights: [], descendants: true });
+    const empty = retrieval.retrieve(root, 'xyzzy coelacanth', without, { top: 5 });
+    assert.equal(empty.coverage.state, 'unknown_coverage',
+      'without read access, an empty result looks like a checked one');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
