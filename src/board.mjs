@@ -75,7 +75,18 @@ export function tileArchive(root, { env = process.env } = {}) {
       line: `location undeterminable: ${e.message}` };
   }
 
-  const rows = archive.records(root);
+  // The same guard the location gets, for the same reason. Without it
+  // an unreadable register threw here and took the WHOLE page with it —
+  // and if it had been caught into an empty list instead, the tile would
+  // have said "no captures recorded yet", which is a measured statement
+  // about a register nobody could read. Unknown is the honest third
+  // answer; it is already what a missing location returns.
+  let rows;
+  try { rows = archive.records(root); }
+  catch (e) {
+    return { id: 'archive', title: 'Raw archive', state: STATE.UNKNOWN,
+      line: `register unreadable: ${e.message}`, detail: store.location };
+  }
   let inArchive = 0; let inRepo = 0; let foreign = 0; let missing = 0; let bytes = 0;
   for (const r of rows) {
     const where = archive.filePath(store, root, r.path);

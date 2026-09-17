@@ -183,16 +183,25 @@ test('no backtick hides inside the browser script', () => {
   // A module that does not parse is caught by any probe. What this one
   // buys is the NAME of the cause, at the moment it happens, instead of
   // "Unexpected identifier" sixty lines further down.
+  //
+  // **Third time, 2026-09-17.** The first version of this probe guarded
+  // only the SCRIPT template — and the next backtick landed in a comment
+  // inside the CSS template, which this file did not look at. A probe
+  // aimed at ONE instance of a recurring shape is the same defect it is
+  // trying to catch, so it now walks both templates.
   const src = fs.readFileSync(path.join(HERE, '..', 'src', 'astra.mjs'), 'utf8');
-  const open = src.indexOf('const SCRIPT = String.raw');
-  assert.ok(open > 0, 'the browser script is gone or renamed');
-  const start = src.indexOf('`', open);
-  const end = src.indexOf('\n`;', start);
-  assert.ok(end > start, 'the template is not closed the way this probe expects');
-  const inside = src.slice(start + 1, end);
-  const ticks = (inside.match(/`/g) || []).length;
-  assert.equal(ticks, 0,
-    `${ticks} backtick(s) inside the String.raw template — each one closes it early`);
+  for (const decl of ['const CSS = ', 'const SCRIPT = String.raw']) {
+    const open = src.indexOf(decl);
+    assert.ok(open > 0, `the template "${decl}" is gone or renamed`);
+    const start = src.indexOf('`', open);
+    const end = src.indexOf('\n`;', start);
+    assert.ok(end > start, `${decl}: the template is not closed the way this probe expects`);
+    const inside = src.slice(start + 1, end);
+    assert.ok(inside.length > 500, `${decl}: only ${inside.length} characters — wrong slice?`);
+    const ticks = (inside.match(/`/g) || []).length;
+    assert.equal(ticks, 0,
+      `${ticks} backtick(s) inside ${decl} — each one closes the template early`);
+  }
 });
 
 test('there is still no shadow', () => {

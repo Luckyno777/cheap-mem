@@ -1111,6 +1111,45 @@ it says so rather than letting anyone believe otherwise.
 | `mem raw archive` | where it lives, how much, how much is reachable |
 | `mem raw migrate [--remove]` | pull captures still in the repo into the archive |
 | `mem raw export --from … --to … [--hour-from N] [--hour-to N] --into <dir>` | write a time range out, decompressed |
+| `mem raw review [--project X] [--from … --to …] [--json]` | every capture with its state |
+| `mem raw delete <path> --reason "…" [--by …] [--yes]` | remove the bytes, leave a tombstone |
+
+**Deleting a capture, and what "delete" has to mean here.** Because git
+deletes nothing, a delete that removes a row, or removes a file inside
+the repository, has done nothing except make the person believe it did —
+which is worse than refusing, because they stop looking. So the bytes go
+from the ARCHIVE, outside git, and the append-only register keeps the
+capture's row and gains a tombstone naming who removed it, when, and
+why. `--reason` is required: a tombstone without one answers "was this
+deliberate?" with a shrug. Without `--yes` the command only prints what
+would happen and how many bytes — nothing is touched.
+
+That leaves three states for any capture, and the third is the point:
+
+| state | means |
+|---|---|
+| `present` | recorded, and the bytes are reachable |
+| `deleted` | the bytes are gone **and someone said so**, with a reason |
+| `unreachable` | recorded, bytes not there, nobody said so — a broken archive, not a decision |
+
+One word for the last two would hide a broken NAS mount behind a
+deliberate cleanup. `mem raw review` and the workspace's Settings view
+read the same three states from the same function; the page draws them,
+it does not recompute them.
+
+And a fourth answer sits above those three: **a register that cannot be
+read is not "no captures".** Both the archive tile and the review report
+that as unknown, with the read error, and their counters go to `null`
+rather than `0` — a number nobody took must not arrive looking like a
+measurement. (Found by the probe that broke the register on purpose; the
+first version caught the error into an empty list, and an empty list on
+that page reads as "nothing has been captured yet".)
+
+What `review` deliberately cannot do is filter by TOPIC. A capture
+carries no topic in its metadata — only path, project, surface and
+session. Finding captures by what they are about means a content search
+over the decompressed material: a different, larger feature. It is not
+built, and not silently faked either.
 
 The location comes from three places, and `mem raw archive` always says
 which one won:

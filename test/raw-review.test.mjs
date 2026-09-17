@@ -22,11 +22,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import * as archive from '../src/archive.mjs';
 import * as raw from '../src/raw.mjs';
 import * as consolePage from '../src/console.mjs';
+import * as dashboard from '../src/dashboard.mjs';
+import * as astra from '../src/astra.mjs';
 
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
+const PKG_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 /**
  * A memory whose archive really holds bytes.
@@ -231,5 +236,267 @@ test('the time filter still works over the review rows', () => {
     const early = archive.inRange(rows, { to: '2026-09-02T00:00:00Z' });
     assert.ok(early.length >= 1 && early.length < rows.length,
       `the range filter kept ${early.length} of ${rows.length} — it filtered nothing`);
+  } finally { away(root); }
+});
+
+// --- the CLI: `mem raw review` / `mem raw delete` ---------------------
+//
+// `world()` above builds a bare `.mem/config.json` with no `participants`
+// map — enough for the library functions, not for the CLI, which calls
+// `requireConfig()` on every subcommand. So the CLI probes go through
+// `mem init` first, the same door any real user goes through, and then
+// seed the archive exactly like `world()` does: real gzip bytes via
+// `archive.put`, never a stub that only pretends to store something.
+function cliWorld({ captures = 2, project = null } = {}) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-review-cli-'));
+  execFileSync('node', [path.join(PKG_ROOT, 'bin', 'mem'), '--root', root, 'init'], { encoding: 'utf8' });
+  const store = path.join(root, 'archive-outside');
+  archive.setLocation(root, store);
+  const cfg = archive.readConfig({}, root);
+
+  const paths = [];
+  for (let i = 0; i < captures; i += 1) {
+    const rel = path.posix.join('raw', '2026', '09', `2026-09-0${i + 1}T00-00-00Z--s${i}.jsonl.gz`);
+    const body = zlib.gzipSync(Buffer.from(`{"line":${i}}\n`, 'utf8'));
+    archive.put(cfg, rel, body);
+    archive.writeRecord(root, {
+      path: rel,
+      captured_at: `2026-09-0${i + 1}T00:00:00Z`,
+      ts_to: `2026-09-0${i + 1}T00:00:00Z`,
+      lines: 1,
+      stored_bytes: body.length,
+      stamp: { session_id: `s${i}`, surface: 'test', project },
+    });
+    paths.push(rel);
+  }
+  return { root, cfg, paths };
+}
+
+/** Run `mem <args>` against a root. Never throws — the exit code and both
+ * streams matter to these probes, and `execFileSync` throwing on a
+ * non-zero exit would make every "this should fail" test clumsier than
+ * the thing it checks. */
+function mem(root, args) {
+  try {
+    const out = execFileSync('node', [path.join(PKG_ROOT, 'bin', 'mem'), '--root', root, ...args],
+      { encoding: 'utf8', stdio: 'pipe' });
+    return { status: 0, out, err: '' };
+  } catch (e) {
+    return { status: e.status ?? 1, out: e.stdout ?? '', err: e.stderr ?? '' };
+  }
+}
+
+test('CLI: raw review lists the three states and counts them', () => {
+  const { root, cfg, paths } = cliWorld({ captures: 3 });
+  try {
+    archive.remove(cfg, root, paths[0], { reason: 'weg', by: 'lucky' });
+    fs.unlinkSync(archive.filePath(cfg, root, paths[1]));
+
+    const r = mem(root, ['raw', 'review']);
+    assert.equal(r.status, 0, r.err);
+    assert.match(r.out, /3 captures — 1 present, 1 deleted, 1 unreachable/);
+    assert.match(r.out, new RegExp(paths[2].replace(/[.[\]]/g, '\\$&')));
+  } finally { away(root); }
+});
+
+test('CLI: raw review --project filters, and does not invent a topic filter', () => {
+  const { root } = cliWorld({ captures: 1, project: 'quarry' });
+  try {
+    const hit = mem(root, ['raw', 'review', '--project', 'quarry']);
+    assert.equal(hit.status, 0, hit.err);
+    assert.match(hit.out, /1 captures — 1 present/);
+
+    const miss = mem(root, ['raw', 'review', '--project', 'somewhere-else']);
+    assert.equal(miss.status, 0, miss.err);
+    assert.match(miss.out, /0 captures/);
+
+    // The documented gap: filtering by TOPIC is refused as an unknown
+    // flag, not silently accepted and ignored. Silently accepting it
+    // would look like a feature that does not exist.
+    const topic = mem(root, ['raw', 'review', '--topic', 'anything']);
+    assert.equal(topic.status, 1, 'an unknown --topic flag was accepted');
+    assert.match(topic.err, /unknown flag/);
+  } finally { away(root); }
+});
+
+test('CLI: raw review reuses archive.inRange, not a second time filter', () => {
+  const { root } = cliWorld({ captures: 3 });
+  try {
+    const all = mem(root, ['raw', 'review']);
+    assert.match(all.out, /^3 captures/);
+
+    const early = mem(root, ['raw', 'review', '--to', '2026-09-02T00:00:00Z']);
+    assert.equal(early.status, 0, early.err);
+    assert.match(early.out, /^2 captures/, 'the range filter kept the wrong count');
+  } finally { away(root); }
+});
+
+test('CLI: raw delete without --yes only shows the plan — nothing is touched', () => {
+  const { root, cfg, paths } = cliWorld({ captures: 2 });
+  try {
+    const file = archive.filePath(cfg, root, paths[0]);
+    const before = archive.records(root).length;
+
+    const r = mem(root, ['raw', 'delete', paths[0], '--reason', 'testing', '--by', 'lucky']);
+    assert.equal(r.status, 0, r.err);
+    assert.match(r.out, /Would delete/);
+    // The exact byte count, not just "some number" — a dry run that
+    // shows a made-up figure is worse than one that shows none.
+    assert.match(r.out, new RegExp(`bytes: ${fs.statSync(file).size}\\b`));
+    assert.match(r.out, /Nothing was deleted/);
+
+    assert.ok(fs.existsSync(file), 'the file was deleted by a dry run');
+    assert.equal(archive.records(root).length, before, 'a tombstone was written by a dry run');
+  } finally { away(root); }
+});
+
+test('CLI: raw delete requires --reason even with --yes', () => {
+  const { root, cfg, paths } = cliWorld({ captures: 1 });
+  try {
+    const file = archive.filePath(cfg, root, paths[0]);
+    const r = mem(root, ['raw', 'delete', paths[0], '--yes']);
+    assert.equal(r.status, 1, 'a delete without --reason went through');
+    assert.match(r.err, /--reason/);
+    assert.ok(fs.existsSync(file), 'the file was deleted without a reason');
+  } finally { away(root); }
+});
+
+test('CLI: raw delete --yes actually deletes, and the register gains a tombstone', () => {
+  const { root, cfg, paths } = cliWorld({ captures: 2 });
+  try {
+    const file = archive.filePath(cfg, root, paths[0]);
+    const size = fs.statSync(file).size;
+
+    const r = mem(root, ['raw', 'delete', paths[0], '--reason', 'testing', '--by', 'lucky', '--yes']);
+    assert.equal(r.status, 0, r.err);
+    assert.match(r.out, new RegExp(`freed: ${size} bytes`));
+    assert.ok(!fs.existsSync(file), 'the CLI reported success but left the file');
+
+    const tomb = archive.deletions(root).get(paths[0]);
+    assert.ok(tomb, 'no tombstone after --yes');
+    assert.equal(tomb.by, 'lucky');
+    assert.equal(tomb.reason, 'testing');
+
+    // The neighbour must be untouched — a delete that takes a neighbour
+    // with it would pass every check that only looks at its own target.
+    assert.ok(archive.reachable(cfg, root, paths[1]));
+  } finally { away(root); }
+});
+
+test('CLI: raw delete refuses a path the register never saw', () => {
+  const { root } = cliWorld({ captures: 1 });
+  try {
+    const r = mem(root, ['raw', 'delete', 'raw/2026/09/never-existed.jsonl.gz', '--reason', 'x', '--yes']);
+    assert.equal(r.status, 1);
+    assert.match(r.err, /no capture/);
+    assert.equal(archive.records(root).filter((row) => row.record === archive.DELETED_MARK).length, 0);
+  } finally { away(root); }
+});
+
+// --- the desk: the review is visible, not just usable from a shell ----
+
+test('the desk collects the raw review as its own data, with real counts', () => {
+  const { root, cfg, paths } = world({ captures: 3, project: 'quarry' });
+  try {
+    archive.remove(cfg, root, paths[0], { reason: 'weg', by: 'lucky' });
+
+    const d = dashboard.collect(root);
+    assert.ok(d.raw, 'dashboard.collect() carries no raw field');
+    assert.equal(d.raw.captures.length, 3);
+    // Three keys always, even at zero — never omitted. Omitting
+    // `unreachable` here would silently read as "not measured", and it
+    // really was measured, at zero.
+    assert.deepEqual(Object.keys(d.raw.counts).sort(), ['deleted', 'present', 'unreachable']);
+    assert.equal(d.raw.counts.deleted, 1);
+    assert.equal(d.raw.counts.present, 2);
+    assert.equal(d.raw.counts.unreachable, 0);
+  } finally { away(root); }
+});
+
+test('the desk page shows the raw review, deleted ones included', () => {
+  const { root, cfg, paths } = world({ captures: 2 });
+  try {
+    archive.remove(cfg, root, paths[0], { reason: 'aus Platzgruenden', by: 'lucky' });
+    const { html } = astra.build(root, { title: 'desk test' });
+    assert.match(html, /Raw captures/);
+    // The path really is on the page — not just the word "deleted"
+    // somewhere unrelated to it.
+    assert.ok(html.includes(paths[0]), 'the deleted capture is not shown at all');
+    assert.ok(html.includes(paths[1]), 'the present capture is not shown at all');
+    assert.match(html, /aus Platzgruenden/);
+  } finally { away(root); }
+});
+
+test('SABOTAGE CHECK: a wrong raw count would be caught', () => {
+  // Sanity for the two tests above: if `capturesWithState` were fed to a
+  // counter that (like the console's own history) counted register ROWS
+  // instead of live captures, a delete would make the total go UP, not
+  // down. Reproduced here directly against dashboard output.
+  const { root, cfg, paths } = world({ captures: 2 });
+  try {
+    const before = dashboard.collect(root).raw.captures.length;
+    archive.remove(cfg, root, paths[0], { reason: 'x' });
+    const after = dashboard.collect(root).raw.captures.length;
+    assert.equal(after, before, `the capture count changed on delete (${before} -> ${after}) `
+      + '— a tombstone must not add or remove a row from this list, only change its state');
+  } finally { away(root); }
+});
+
+// --- and the state that is not a state -------------------------------
+
+test('a register that cannot be read is NOT "no captures"', () => {
+  // **The fourth state.** The first version of the desk wrapped the
+  // read in `try { ... } catch { rawCaptures = []; }`. An empty list on
+  // that page reads as "nothing has been captured yet" — so a broken
+  // register arrived looking exactly like a quiet one. That is the
+  // house's oldest defect (`annahme-statt-messung`) and the reason this
+  // repo counts states rather than truthiness: zero was MEASURED,
+  // unreadable was not.
+  //
+  // The break is real, not stubbed: the register is replaced by a
+  // DIRECTORY, so `readFileSync` throws EISDIR the way a genuinely
+  // broken file would.
+  const w = world({ captures: 2 });
+  try {
+    const reg = path.join(w.root, archive.RECORD_FILE);
+    fs.rmSync(reg, { force: true });
+    fs.mkdirSync(reg, { recursive: true });
+
+    const d = dashboard.collect(w.root);
+    assert.equal(d.raw.readable, false, 'the desk claims it read a register it could not read');
+    assert.ok(d.raw.error, 'the failure travels without saying what failed');
+    // Not measured, and therefore not zero. This is the assertion that
+    // would have caught the original shape: with `catch { [] }` the
+    // counts were 0/0/0 and this line reads 0, not null.
+    for (const k of ['present', 'deleted', 'unreachable']) {
+      assert.equal(d.raw.counts[k], null, `${k} reports a number nobody counted`);
+    }
+
+    const html = astra.build(w.root, { title: 'review' }).html;
+    // The NOTE where the table would be, not just the heading. The first
+    // version of this line matched anywhere on the page — and the
+    // heading says the same thing, so rewriting the note to claim the
+    // register was "empty" left this probe green. Found by sabotage.
+    assert.match(html, /class="none unmeasured"[\s\S]{0,120}could not be read/,
+      'the note in place of the table does not say the register was unreadable');
+    assert.match(html, /not measured — the register could not be read/,
+      'the heading reports counts that were never taken');
+    assert.equal(/No raw capture has been recorded yet/.test(html), false,
+      'the page claims there are no captures — that is the bug this probe exists for');
+  } finally { away(w.root); }
+});
+
+test('POSITIVE: with the register intact the same page does say "none yet"', () => {
+  // Without this, the probe above would also pass if the page had simply
+  // lost its empty-state sentence altogether.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-review-leer-'));
+  try {
+    fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'leer' }));
+    const d = dashboard.collect(root);
+    assert.equal(d.raw.readable, true, 'an empty memory counts as unreadable');
+    assert.deepEqual(d.raw.counts, { present: 0, deleted: 0, unreachable: 0 });
+    assert.match(astra.build(root, { title: 'review' }).html,
+      /No raw capture has been recorded yet/, 'the empty-state sentence is gone');
   } finally { away(root); }
 });

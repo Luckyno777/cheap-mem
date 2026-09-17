@@ -39,6 +39,10 @@ import * as question from './question.mjs';
 import * as basis from './basis.mjs';
 import * as authority from './authority.mjs';
 import * as capability from './capability.mjs';
+// Named `rawCapture`, not `raw`: `collect()` below already has a local
+// `const raw` (the entry map) — two bindings of the same name in one
+// module is exactly the kind of silent confusion this codebase avoids.
+import * as rawCapture from './raw.mjs';
 
 export const VIEWS = Object.freeze(['desk', 'knowledge', 'space', 'projects', 'agents', 'net', 'set']);
 
@@ -294,6 +298,31 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     .map((t) => ({ ...t, word: word(t.state) }))
     .sort((a, b) => RANK[a.state] - RANK[b.state]);
 
+  // --- the raw-capture review -----------------------------------------
+  // `rawCapture.capturesWithState` already owns the three-state truth
+  // (present/deleted/unreachable) that `mem raw review` shows on the
+  // command line — this page displays it, it does not recompute it.
+  // Newest first, same order the CLI review uses.
+  // **Four states, not three.** The first version caught the read error
+  // and fell back to an empty list — and an empty list on this page is
+  // indistinguishable from "nothing has been captured yet". That is the
+  // house's oldest defect (`assumption instead of measurement`): a
+  // number that was never taken must not arrive looking like zero. So
+  // the failure travels as its own field, and the counts go to `null`,
+  // which this page renders as "not measured" rather than "0".
+  let rawCaptures = [];
+  let rawReadable = true;
+  let rawError = null;
+  try { rawCaptures = rawCapture.capturesWithState(root); }
+  catch (e) { rawReadable = false; rawError = String(e?.message ?? e); }
+  // Three counters, always present — never omitted when zero, because a
+  // missing key would read as "not measured" and zero really was
+  // measured. When the register could not be read, they ARE null.
+  const rawCounts = rawReadable
+    ? { present: 0, deleted: 0, unreachable: 0 }
+    : { present: null, deleted: null, unreachable: null };
+  if (rawReadable) for (const r of rawCaptures) rawCounts[r.state] = (rawCounts[r.state] ?? 0) + 1;
+
   return {
     at: con.at,
     root: con.root,
@@ -322,6 +351,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     stores: con.stores,
     log: con.log,
     views: VIEWS,
+    raw: { captures: rawCaptures, counts: rawCounts, readable: rawReadable, error: rawError },
   };
 }
 
