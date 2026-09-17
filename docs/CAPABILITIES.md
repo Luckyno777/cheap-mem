@@ -1135,7 +1135,8 @@ That leaves three states for any capture, and the third is the point:
 |---|---|
 | `present` | recorded, and the bytes are reachable |
 | `deleted` | the bytes are gone **and someone said so**, with a reason |
-| `unreachable` | recorded, bytes not there, nobody said so — a broken archive, not a decision |
+| `unreachable` | recorded, belongs to THIS machine's store, bytes not there, nobody said so — a broken archive, not a decision |
+| `elsewhere` | the record points into ANOTHER machine's store — not an error, just not readable from here. The sibling house measured 15 of 1238 captures in this position on 2026-09-17; calling them `unreachable` makes the review a standing alarm |
 
 One word for the last two would hide a broken NAS mount behind a
 deliberate cleanup. `mem raw review` and the workspace's Settings view

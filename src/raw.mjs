@@ -544,15 +544,27 @@ export function listCaptures(root, { withDeleted = false } = {}) {
  *
  *   present      the register knows it and the bytes are there
  *   deleted      somebody removed it, and the tombstone says who and why
- *   unreachable  the register knows it and the bytes are NOT there,
- *                and nobody said so. That is a defect, not a decision,
- *                and collapsing it into "deleted" would hide a broken
- *                archive path behind a tidy word.
+ *   unreachable  the register knows it, it belongs to THIS machine's
+ *                store, the bytes are NOT there, and nobody said so.
+ *                A defect, not a decision — collapsing it into
+ *                "deleted" would hide a broken archive path behind a
+ *                tidy word.
+ *   elsewhere    the record points into ANOTHER machine's store. Not an
+ *                error; just not readable from here.
  *
  * `project` comes from the capture's own stamp and is `null` when the
  * session never named one — which is most of them. `null` is not
  * "global": it means nobody wrote it down.
  */
+/**
+ * Every state a capture can be in — the list, in one place.
+ *
+ * Anything that counts or renders states reads it from here. Typing the
+ * list out a second time is how a newly added state disappears from a
+ * tile without anybody noticing.
+ */
+export const CAPTURE_STATES = Object.freeze(['present', 'deleted', 'unreachable', 'elsewhere']);
+
 export function capturesWithState(root) {
   const store = archive.readConfig(process.env, root);
   const gone = archive.deletions(root);
@@ -571,9 +583,15 @@ export function capturesWithState(root) {
   for (const [p, rec] of byPath) {
     const tomb = gone.get(p) ?? null;
     const there = archive.reachable(store, root, p);
+    // FOUR states, not three. A capture whose recorded location points
+    // into ANOTHER machine's store is not a defect — its bytes are
+    // missing here entirely correctly. The sibling house measured 15 of
+    // 1238 captures in exactly that position on 2026-09-17; calling
+    // them `unreachable` would have made the listing a standing alarm.
+    const here = archive.locationState(root, rec, store).here;
     out.push({
       path: p,
-      state: tomb ? 'deleted' : (there ? 'present' : 'unreachable'),
+      state: tomb ? 'deleted' : (there ? 'present' : (here ? 'unreachable' : 'elsewhere')),
       at: rec.captured_at ?? rec.ts_to ?? null,
       project: rec.stamp?.project ?? null,
       surface: rec.stamp?.surface ?? null,
