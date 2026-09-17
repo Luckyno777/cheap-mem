@@ -1,5 +1,9 @@
 # cheap-mem
 
+<!-- cheap-mem-brand:header:start -->
+![cheap-mem — Cheap in tokens, rich in memory. Local-first AI memory, backed by Git.](docs/assets/brand/github-header.png)
+<!-- cheap-mem-brand:header:end -->
+
 [![CI](https://github.com/Luckyno777/cheap-mem/actions/workflows/ci.yml/badge.svg)](https://github.com/Luckyno777/cheap-mem/actions/workflows/ci.yml)
 
 > Cheap in tokens, rich in memory.
@@ -59,6 +63,10 @@ LANE 3  SEARCH    every query      no model    ~3 ms    0 cost
 Storing is cheap, thinking is expensive. So store everything at once
 and stupidly, think about the whole pile every few hours, and read with
 pure code.
+
+<!-- cheap-mem-brand:workflow:start -->
+![Capture appends redacted session records without a model. Digest uses a model to structure accumulated records. Standard recall searches indexed fields without a model; local embeddings are optional.](docs/assets/brand/01-how-it-works.png)
+<!-- cheap-mem-brand:workflow:end -->
 
 **Private by default.** Everything is captured through a redaction pass
 first: tokens, API keys, passwords and credential-shaped strings are
@@ -159,6 +167,10 @@ your-memory/
 All logs are append-only. A correction is a **new line** carrying
 `replaces_id` — never an edit. A memory that rewrites its own history
 is worse than no memory.
+
+<!-- cheap-mem-brand:history:start -->
+![A new decision d02 replaces d01 through an explicit replaces_id reference. Both entries keep their reasons, and the earlier record remains in history. Illustrative example.](docs/assets/brand/02-history-with-reasons.png)
+<!-- cheap-mem-brand:history:end -->
 
 ## Quickstart
 
@@ -344,6 +356,10 @@ The watcher polls the git remote every 15 seconds via `git ls-tree`
 When new inbox mail lands, it pulls and runs the handler.
 
 ## Wire into your AI
+
+<!-- cheap-mem-brand:agents:start -->
+![Coding assistants, desktop assistants and project automation access shared cheap-mem knowledge through shell or MCP. Memory lives in local files with Git history; synchronization is explicit.](docs/assets/brand/03-shared-memory.png)
+<!-- cheap-mem-brand:agents:end -->
 
 ### Claude Code (hooks + MCP)
 

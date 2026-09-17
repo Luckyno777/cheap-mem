@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800" role="img" aria-labelledby="title desc"><title id="title">Store cheaply. Think in batches. Recall with code.</title><desc id="desc">The standard path keeps model work outside the interactive search loop.</desc>
+<rect x="0" y="0" width="1600" height="800" rx="0" fill="#101B1B" stroke="#101B1B"/>
+<text x="72" y="65" fill="#54D6A0" font-family="DejaVu Sans, sans-serif" font-size="24" font-weight="700">cheap-mem</text>
+<text x="1240" y="65" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="16" font-weight="400">01 / HOW IT WORKS</text>
+<text x="72" y="150" fill="#F6F4EC" font-family="DejaVu Sans, sans-serif" font-size="52" font-weight="700">Store cheaply. Think in batches. Recall with code.</text>
+<text x="72" y="199" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="400">The standard path keeps model work outside the interactive search loop.</text>
+<rect x="72" y="262" width="412" height="355" rx="20" fill="#182928" stroke="#344D46"/>
+<text x="100" y="309" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="20" font-weight="700">01</text>
+<text x="100" y="369" fill="#F6F4EC" font-family="DejaVu Sans, sans-serif" font-size="40" font-weight="700">Capture</text>
+<text x="100" y="424" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="17" font-weight="700">NO MODEL</text>
+<text x="100" y="483" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Redact sensitive strings.</text>
+<text x="100" y="517" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Append the session record.</text>
+<path d="M100 554 L338 554" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M100 567 L278 567" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M100 580 L310 580" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<rect x="594" y="262" width="412" height="355" rx="20" fill="#182928" stroke="#344D46"/>
+<text x="622" y="309" fill="#E8C586" font-family="DejaVu Sans Mono, sans-serif" font-size="20" font-weight="700">02</text>
+<text x="622" y="369" fill="#F6F4EC" font-family="DejaVu Sans, sans-serif" font-size="40" font-weight="700">Digest</text>
+<text x="622" y="424" fill="#E8C586" font-family="DejaVu Sans Mono, sans-serif" font-size="17" font-weight="700">MODEL STEP</text>
+<text x="622" y="483" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Process accumulated records.</text>
+<text x="622" y="517" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Extract structured knowledge.</text>
+<path d="M622 554 L860 554" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M622 567 L800 567" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M622 580 L832 580" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<rect x="1116" y="262" width="412" height="355" rx="20" fill="#182928" stroke="#344D46"/>
+<text x="1144" y="309" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="20" font-weight="700">03</text>
+<text x="1144" y="369" fill="#F6F4EC" font-family="DejaVu Sans, sans-serif" font-size="40" font-weight="700">Recall</text>
+<text x="1144" y="424" fill="#54D6A0" font-family="DejaVu Sans Mono, sans-serif" font-size="17" font-weight="700">NO MODEL</text>
+<text x="1144" y="483" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Search indexed fields.</text>
+<text x="1144" y="517" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Return relevant context.</text>
+<path d="M1144 554 L1382 554" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M1144 567 L1322 567" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M1144 580 L1354 580" fill="none" stroke="#344D46" stroke-width="4" stroke-linecap="round"/>
+<path d="M500 433 L578 433" fill="none" stroke="#54D6A0" stroke-width="3" stroke-linecap="round"/><path d="M568 426 L578 433 L568 440" fill="none" stroke="#54D6A0" stroke-width="3"/>
+<path d="M1022 433 L1100 433" fill="none" stroke="#54D6A0" stroke-width="3" stroke-linecap="round"/><path d="M1090 426 L1100 433 L1090 440" fill="none" stroke="#54D6A0" stroke-width="3"/>
+<text x="72" y="675" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="20" font-weight="400">Plain files in your Git repository. Local embeddings are an optional retrieval extension.</text>
+<path d="M72 724 L1528 724" fill="none" stroke="#344D46" stroke-width="3" stroke-linecap="round"/>
+<text x="72" y="762" fill="#AEC0B8" font-family="DejaVu Sans, sans-serif" font-size="18" font-weight="400">Cheap in tokens, rich in memory.</text>
+<text x="900" y="762" fill="#AEC0B8" font-family="DejaVu Sans Mono, sans-serif" font-size="15" font-weight="400">CAPTURE / DIGEST / RECALL</text>
+</svg>
