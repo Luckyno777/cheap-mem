@@ -1000,6 +1000,12 @@ const COMMANDS = {
         "  Reserved: --project, --root",
         "  Every other --flag becomes a field in the JSONL entry.",
         "  --tags takes a comma-separated list.",
+        "  --valid_from / --valid_until  when the content HOLDS (not when it was",
+        "             written — that is --ts). --valid_until is refused if it is",
+        "             not a readable date. State it only when you know a real end",
+        "             date; correcting an entry (`mem correction`) already ends",
+        "             its predecessor's validity at the correction's own",
+        "             --valid_from, with no --valid_until needed for that case.",
       ].join('\n'));
       return;
     }
@@ -1017,6 +1023,15 @@ const COMMANDS = {
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args));
+
+    // `valid_until` is refused, not silently accepted, if it cannot be
+    // read as a date — see `dateFieldOf`. `valid_from` had this exact
+    // gap already and keeps it here: that is a separate, pre-existing
+    // defect, named rather than fixed in passing, so it stays visible
+    // instead of disappearing into an unrelated change.
+    if (Object.hasOwn(data, 'valid_until')) {
+      data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'log');
+    }
 
     // **A class outside the vocabulary is warned about, never refused.**
     //
@@ -1287,7 +1302,10 @@ const COMMANDS = {
         '  --literal and --since bypass that.',
         '',
         '  --as-of    what HELD then, not what is recorded now. Drops entries',
-        '             whose valid_from/valid_until put them outside that moment.',
+        '             whose valid_from/valid_until put them outside that moment,',
+        '             AND entries a later correction had not superseded yet at',
+        '             that moment (supersession derives an effective valid_until',
+        '             — see `mem log --help` on --valid_until).',
         '             Same rule as `mem retrieve --as-of`; it had it, find did not.',
         '  --literal  plain substring search instead (the old behaviour)',
         '  --fresh    rebuild the index instead of using the cache',
@@ -1344,13 +1362,22 @@ const COMMANDS = {
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
       const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
+      const withRetiredFlag = Boolean(args['with-retired']);
+      // `--as-of` opens the retired gate at the CANDIDATE stage too — a
+      // superseded entry has to reach `validAt` before it can be judged
+      // by time, and `memory.find` drops it earlier than that when
+      // `withRetired` is false. `retrieval.blocksRecall` (below) still
+      // keeps `done`/`discarded`/`obsolete`/`disputed` out unless
+      // `--with-retired` was actually asked for — `--as-of` was never a
+      // request to see those.
       const allHits = memory.find(root, query, {
-        types, projects, since, withRetired: Boolean(args['with-retired']),
+        types, projects, since, withRetired: withRetiredFlag || Boolean(asOf),
       });
       // Here too, not only in the ranked lane. `--literal --as-of` must
       // mean the same as `--as-of` alone, or the answer to "what held
       // then" depends on which search lane you happened to land in.
-      const hits = asOf ? allHits.filter((h) => retrieval.validAt(h, asOf)) : allHits;
+      const hits = allHits.filter((h) => !retrieval.blocksRecall(h._retired, withRetiredFlag)
+        && (!asOf || retrieval.validAt(h, asOf)));
       // Same envelope as the ranked branch, so a tool can read both the
       // same way. `--literal --json` silently printed prose until
       // 2026-09-08: the flag was simply never looked at in this branch,
@@ -1399,6 +1426,12 @@ const COMMANDS = {
     const t0 = Date.now();
     const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
     const wanted = args.top ? Number(args.top) : 10;
+    const withRetiredFlag = Boolean(args['with-retired']);
+    // `--as-of` needs superseded candidates to survive to `heldThen`
+    // below — `retrieval.blocksRecall` is what keeps the OTHER retired
+    // states (done/discarded/obsolete/disputed) hidden even though the
+    // gate just opened for them too. See that function's docstring.
+    const withRetiredForFetch = withRetiredFlag || Boolean(asOf);
     const hits0 = search.search(index, query, {
       // Breiter holen, damit nach dem Filter genug uebrig bleibt.
       top: args['with-echo'] ? wanted : wanted * 3,
@@ -1407,7 +1440,7 @@ const COMMANDS = {
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
-      withRetired: Boolean(args['with-retired']),
+      withRetired: withRetiredForFetch,
       language: cfg.language,
       // MMR on by default: keep the top-k from filling with near-duplicates.
       // --no-mmr restores pure BM25 order.
@@ -1452,7 +1485,7 @@ const COMMANDS = {
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
-      withRetired: Boolean(args['with-retired']),
+      withRetired: withRetiredForFetch,
     });
     const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));
     // **BEFORE the cut, and on BOTH lanes.**
@@ -1466,7 +1499,8 @@ const COMMANDS = {
     // it would be overruled. That is exactly what happened here on
     // 2026-09-17 for --project/--type (see the comment above); repeating
     // it one line further down would be absurd.
-    const heldThen = (h) => !asOf || retrieval.validAt(h.entry ?? h, asOf);
+    const heldThen = (h) => !retrieval.blocksRecall(h.retired, withRetiredFlag)
+      && (!asOf || retrieval.validAt({ ...(h.entry ?? h), retired: h.retired ?? null }, asOf));
     const hits = [...exakt.filter(heldThen),
       ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id)).filter(heldThen)]
       .slice(0, wanted);
@@ -3676,6 +3710,9 @@ const COMMANDS = {
     // here and had already drifted: no JSON form, no guard against a
     // swallowed value.
     const data = fieldsFrom('correction', args);
+    if (Object.hasOwn(data, 'valid_until')) {
+      data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'correction');
+    }
     if (Object.keys(data).length === 0) die("correction: no fields");
     const { path: p, entry } = memory.correctionEntry(
       root, type, oldId, data, { project: args.project ?? null });
@@ -3715,6 +3752,37 @@ function asOfOf(value, where) {
       + '  Use an ISO timestamp: 2026-09-01 or 2026-09-01T14:30:00Z\n'
       + '  (A date I cannot read would silently filter nothing, and you would\n'
       + '   get today\'s answer to a question about then.)');
+  }
+  return new Date(t).toISOString();
+}
+
+/**
+ * Parse `--valid_until` (or `--valid_from`) at WRITE time, and REFUSE
+ * what cannot be parsed. Same discipline as `asOfOf` above, and the same
+ * reason: `retrieval.validAt` is deliberately LENIENT on an unparseable
+ * bound — it reads data it did not write, and treats a bad stamp as "no
+ * bound", i.e. as if the field had never been set at all.
+ *
+ * That leniency is correct for a reader and disastrous for a writer.
+ * `mem log decision ... --valid_until banana` would, without this check,
+ * write `"valid_until": "banana"` — valid JSON, exit 0, no complaint —
+ * and every later reader would silently treat the claim as OPEN-ENDED,
+ * the opposite of what was typed, with nothing to notice it by until
+ * someone runs `mem doctor` and finds a timestamp nobody can explain.
+ * Copied from `asOfOf` rather than reused because the message names a
+ * different flag and a different moment (a value being WRITTEN into the
+ * log, not a filter being applied to a read).
+ */
+function dateFieldOf(value, field, where) {
+  if (value === true) {
+    die(`${where}: --${field} was given without a value.`);
+  }
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) {
+    die(`${where}: --${field} '${value}' is not a date I can read.\n`
+      + '  Use an ISO timestamp: 2026-09-01 or 2026-09-01T14:30:00Z\n'
+      + `  (An unparseable ${field} would silently read back as "no bound" —\n`
+      + '   open-ended forever — which is the opposite of what you typed.)');
   }
   return new Date(t).toISOString();
 }

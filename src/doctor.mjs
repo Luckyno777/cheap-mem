@@ -750,8 +750,25 @@ export function checkIntegrity(root) {
   if (r.replacement.tooDeep) {
     problems.push(`a replacement chain is ${r.replacement.maxDepth} deep`);
   }
-  if (r.badTimestamp.length) {
-    parts.push(`${r.badTimestamp.length} questionable timestamp(s)`);
+  // `valid_until before valid_from` is pulled out of the generic
+  // "questionable timestamp(s)" bucket and named on its own.
+  //
+  // **Why it earns its own line (decided 2026-09-17, building
+  // `valid_until` as one truth with supersession — see
+  // `retrieval.validAt`).** A clock 5 minutes fast is noise; a
+  // `valid_until` that precedes its own `valid_from` is not — it makes
+  // `validAt` return `false` for EVERY possible `--as-of`, forever. The
+  // claim is unconditionally unrecoverable by time, and nothing else
+  // says so: the entry is not `broken` (it parses fine), not a
+  // `duplicateId`, not a bad `replacement` — every other check in this
+  // function is silent about it. Before this, it sat inside the same
+  // count as an unparseable `ts` or a five-minute clock skew, both of
+  // which are genuinely minor, so a real defect and a shrug shared one
+  // number and neither reader could tell which they had.
+  const nonsensical = r.badTimestamp.filter((b) => b.why === 'valid_until before valid_from');
+  const otherBadTs = r.badTimestamp.filter((b) => b.why !== 'valid_until before valid_from');
+  if (otherBadTs.length) {
+    parts.push(`${otherBadTs.length} questionable timestamp(s)`);
   }
   if (r.replacement.forks.length) {
     // Not a defect: merge=union produces a fork whenever two sessions
@@ -759,11 +776,28 @@ export function checkIntegrity(root) {
     parts.push(`${r.replacement.forks.length} fork(s) — two claims replacing one target`);
   }
 
-  if (!problems.length) return finding('integrity', LEVEL.GOOD, parts.join(', '));
-  return finding('integrity', LEVEL.ERROR, `${parts[0]}; ${problems.join('; ')}`,
-    'A broken line cannot be repaired in place — the log is append-only. '
-    + 'Recover the entry from git history and append it again, or accept the '
-    + 'loss knowingly. Duplicate ids and cycles need a correcting entry.');
+  const nonsensicalNote = nonsensical.length
+    ? `${nonsensical.length} entr${nonsensical.length === 1 ? 'y has' : 'ies have'} `
+      + `valid_until before valid_from (never valid at any --as-of): `
+      + nonsensical.slice(0, 5).map((b) => b.id ?? `${b.file}:${b.line}`).join(', ')
+      + (nonsensical.length > 5 ? ' ...' : '')
+    : null;
+  const nonsensicalAdvice = 'The log is append-only, so the bad line stays. Fix it forward with '
+    + '`mem correction <type> <id> --valid_until <a date after its valid_from>` — the new line wins '
+    + 'over the old one exactly the way any other correction does.';
+
+  if (problems.length) {
+    return finding('integrity', LEVEL.ERROR,
+      `${parts[0]}; ${problems.join('; ')}${nonsensicalNote ? `; ${nonsensicalNote}` : ''}`,
+      'A broken line cannot be repaired in place — the log is append-only. '
+      + 'Recover the entry from git history and append it again, or accept the '
+      + `loss knowingly. Duplicate ids and cycles need a correcting entry.${
+        nonsensicalNote ? ` ${nonsensicalAdvice}` : ''}`);
+  }
+  if (nonsensicalNote) {
+    return finding('integrity', LEVEL.WARN, `${parts.join(', ')}; ${nonsensicalNote}`, nonsensicalAdvice);
+  }
+  return finding('integrity', LEVEL.GOOD, parts.join(', '));
 }
 
 // --- guarantees that are not ours ------------------------------------------
