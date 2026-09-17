@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 54 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 911 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1048 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -57,7 +57,8 @@ directory. The section number in brackets is where it is explained.
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
-| `dashboard.mjs` | the desk: five views over one memory, no fallback (7.5) |
+| `dashboard.mjs` | the workspace's DATA layer: one pass, seven views' worth of numbers (7.5) |
+| `astra.mjs` | the workspace's PAGE: sidebar, knowledge space, no second data source (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
@@ -620,7 +621,7 @@ printed the link with the token in it, so you could conveniently copy
 it, would have put that token into every screenshot and every browser
 history.
 
-### 7.5 Desk — `/pult`, `src/dashboard.mjs`
+### 7.5 Workspace — `/`, `src/dashboard.mjs` (data) + `src/astra.mjs` (page)
 
 Five views over one memory: **Desk** (system state, attention, active
 work), **Knowledge** (every entry, master–detail), **Projects**,
@@ -681,7 +682,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # 911 tests
+npm test                                    # 1048 tests
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
@@ -1110,6 +1111,45 @@ it says so rather than letting anyone believe otherwise.
 | `mem raw archive` | where it lives, how much, how much is reachable |
 | `mem raw migrate [--remove]` | pull captures still in the repo into the archive |
 | `mem raw export --from … --to … [--hour-from N] [--hour-to N] --into <dir>` | write a time range out, decompressed |
+| `mem raw review [--project X] [--from … --to …] [--json]` | every capture with its state |
+| `mem raw delete <path> --reason "…" [--by …] [--yes]` | remove the bytes, leave a tombstone |
+
+**Deleting a capture, and what "delete" has to mean here.** Because git
+deletes nothing, a delete that removes a row, or removes a file inside
+the repository, has done nothing except make the person believe it did —
+which is worse than refusing, because they stop looking. So the bytes go
+from the ARCHIVE, outside git, and the append-only register keeps the
+capture's row and gains a tombstone naming who removed it, when, and
+why. `--reason` is required: a tombstone without one answers "was this
+deliberate?" with a shrug. Without `--yes` the command only prints what
+would happen and how many bytes — nothing is touched.
+
+That leaves three states for any capture, and the third is the point:
+
+| state | means |
+|---|---|
+| `present` | recorded, and the bytes are reachable |
+| `deleted` | the bytes are gone **and someone said so**, with a reason |
+| `unreachable` | recorded, bytes not there, nobody said so — a broken archive, not a decision |
+
+One word for the last two would hide a broken NAS mount behind a
+deliberate cleanup. `mem raw review` and the workspace's Settings view
+read the same three states from the same function; the page draws them,
+it does not recompute them.
+
+And a fourth answer sits above those three: **a register that cannot be
+read is not "no captures".** Both the archive tile and the review report
+that as unknown, with the read error, and their counters go to `null`
+rather than `0` — a number nobody took must not arrive looking like a
+measurement. (Found by the probe that broke the register on purpose; the
+first version caught the error into an empty list, and an empty list on
+that page reads as "nothing has been captured yet".)
+
+What `review` deliberately cannot do is filter by TOPIC. A capture
+carries no topic in its metadata — only path, project, surface and
+session. Finding captures by what they are about means a content search
+over the decompressed material: a different, larger feature. It is not
+built, and not silently faked either.
 
 The location comes from three places, and `mem raw archive` always says
 which one won:

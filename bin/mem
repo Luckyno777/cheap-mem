@@ -1780,6 +1780,20 @@ const COMMANDS = {
         'mem raw export --from <date> [--to <date>] [--hour-from N]',
         '               [--hour-to N] --into <dir>',
         '                                write out a time range, decompressed',
+        'mem raw review [--project X|global] [--from <date>] [--to <date>]',
+        '               [--hour-from N] [--hour-to N] [--json]',
+        '                                every capture with its state — present,',
+        '                                deleted (with reason/by) or unreachable',
+        '                                (bytes gone, nobody said so — a defect,',
+        '                                not a decision). Uses the same range',
+        '                                filter as raw export/archive.inRange —',
+        '                                there is only one "in range" in this repo.',
+        'mem raw delete <path> --reason "..." [--by <name>] [--yes]',
+        '                                irreversible: the BYTES leave the archive,',
+        '                                outside git, and a tombstone is appended',
+        '                                to the register. Without --yes this only',
+        '                                shows what would happen and how many bytes',
+        '                                — nothing is deleted.',
         '',
         '  A capture can hold thousands of lines. Read a big one in',
         '  windows: --head reports __lines, then --from/--count.',
@@ -1788,6 +1802,12 @@ const COMMANDS = {
         '  does (raw-record.jsonl). Point CHEAP_MEM_ARCHIVE at a folder,',
         '  a mounted NAS share or a synced drive; the default is the tracked raw/',
         '  inside the working tree.',
+        '',
+        '  What "review" cannot do: filter by TOPIC. A capture carries no topic',
+        '  in its metadata — only path, project, surface and session. Finding',
+        '  captures by what they are ABOUT would mean a content search over the',
+        '  decompressed material, which is a different and bigger feature than a',
+        '  review of what exists. Not built here; not silently faked either.',
       ].join('\n'));
       return;
     }
@@ -2019,7 +2039,109 @@ const COMMANDS = {
       out(`${n} captures marked digested.`);
       return;
     }
-    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check`);
+
+    if (sub === 'review') {
+      checkFlags(args, ['project', 'from', 'to', 'hour-from', 'hour-to', 'json'], 'raw review');
+      let rows = raw.capturesWithState(root);
+
+      if (args.project !== undefined) {
+        const proj = args.project === 'global' ? null : String(args.project);
+        rows = rows.filter((r) => r.project === proj);
+      }
+
+      // The time filter is `archive.inRange`, not a second copy of it.
+      // That function already decides how a day range and an hour
+      // window compose; a review-local reimplementation would eventually
+      // disagree with `raw export`'s, and disagreement between two
+      // things both called "in range" is worse than either alone.
+      if (args.from || args.to || args['hour-from'] != null || args['hour-to'] != null) {
+        const inRange = archive.inRange(
+          rows.map((r) => ({ path: r.path, ts_to: r.at })),
+          {
+            from: args.from,
+            to: args.to,
+            hourFrom: args['hour-from'] == null ? null : Number(args['hour-from']),
+            hourTo: args['hour-to'] == null ? null : Number(args['hour-to']),
+          },
+        );
+        const kept = new Set(inRange.map((r) => r.path));
+        rows = rows.filter((r) => kept.has(r.path));
+      }
+
+      if (args.json) { out(JSON.stringify(rows)); return; }
+
+      const counts = { present: 0, deleted: 0, unreachable: 0 };
+      for (const r of rows) counts[r.state] = (counts[r.state] ?? 0) + 1;
+      out(`${rows.length} captures — ${counts.present} present, `
+        + `${counts.deleted} deleted, ${counts.unreachable} unreachable`);
+      if (!rows.length) { out('(nothing matches the filter)'); return; }
+      out('');
+      const MARK = { present: ' ', deleted: 'D', unreachable: '!' };
+      for (const r of rows) {
+        out(`  [${MARK[r.state]}] ${r.path}`);
+        out(`        ${r.at ?? 'no timestamp recorded'}  `
+          + `project=${r.project ?? '(none)'}  bytes=${r.bytes ?? 'unknown'}`);
+        if (r.state === 'deleted') {
+          out(`        deleted ${r.deleted.at} by ${r.deleted.by}: ${r.deleted.reason || '(no reason given)'}`);
+        }
+        if (r.state === 'unreachable') {
+          out('        recorded, but the bytes are not there — and nobody said so');
+        }
+      }
+      return;
+    }
+
+    if (sub === 'delete') {
+      checkFlags(args, ['reason', 'by', 'yes', 'json'], 'raw delete');
+      const rel = rest[1];
+      if (!rel) die('raw delete: which capture? (mem raw review lists them)');
+      if (!args.reason || args.reason === true) {
+        die('raw delete: --reason "..." is required. '
+          + 'A tombstone without one answers "was this deliberate?" with a shrug.');
+      }
+      const reason = String(args.reason);
+      const by = args.by && args.by !== true ? String(args.by) : memory.agentDefault();
+
+      // Same lookup `raw review` uses — one truth about a path's state,
+      // not a second one built for this command.
+      const row = raw.capturesWithState(root).find((r) => r.path === rel);
+      if (!row) die(`raw delete: no capture '${rel}' in the register. mem raw review lists what exists.`);
+
+      if (row.state === 'deleted') {
+        out(`Already deleted: ${rel}`);
+        out(`  at: ${row.deleted.at}   by: ${row.deleted.by}   reason: ${row.deleted.reason}`);
+        return;
+      }
+
+      const store = archive.readConfig(process.env, root);
+      const file = archive.filePath(store, root, rel);
+      let bytes = 0;
+      if (file) { try { bytes = fs.statSync(file).size; } catch { bytes = 0; } }
+
+      // Irreversible, so without --yes this ONLY shows what would
+      // happen. A command that vaporises real bytes on a bare invocation
+      // is exactly the shape this file's own header warns against.
+      if (!args.yes) {
+        out(`Would delete: ${rel}   (currently: ${row.state})`);
+        out(`  bytes: ${bytes}`);
+        out(`  reason: ${reason}`);
+        out(`  by: ${by}`);
+        out('');
+        out('This removes the BYTES from the archive, outside git — it cannot be undone.');
+        out('Nothing was deleted. Pass --yes to go through with it.');
+        return;
+      }
+
+      let r;
+      try { r = archive.remove(store, root, rel, { reason, by, now: new Date() }); }
+      catch (e) { die(`raw delete: ${e.message}`); }
+      if (args.json) { out(JSON.stringify(r)); return; }
+      out(`Deleted: ${rel}`);
+      out(`  freed: ${r.freed} bytes`);
+      out(`  at: ${r.at}`);
+      return;
+    }
+    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check, review, delete`);
   },
 
   digest: async ({ rest, args }) => {
@@ -3662,6 +3784,8 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("");
   out("Capture, digest, upkeep:");
   out("  raw pending|show <path>|digested <path>...   the captured material");
+  out("  raw review [--project X] [--from D] [--to D]  three states: present/deleted/unreachable");
+  out("  raw delete <path> --reason .. [--yes]         irreversible; shows first, deletes with --yes");
   out("  digest due|bell                              is the pile ripe? (exit 0/1/3)");
   out("  thesaurus [--graph]                          word groups; --graph = what it learned");
   out("  hooks install|check                          arm and prove the secret check");
