@@ -34,6 +34,29 @@ are the day the work landed on `main`.
 
 ### Fixed
 
+- **A mistyped reserved switch is refused instead of becoming a field**
+  (`src/switches.mjs`, `bin/mem`). `mem log decision --projekt alpha`
+  used to say nothing: `projekt` is not a reserved switch, so the open
+  field vocabulary took it as a field, and with no project named the
+  entry was filed globally rather than in the project. One keystroke,
+  two wrong outcomes, exit 0. The open vocabulary stays — only the
+  NARROW MISS of a reserved name is refused, and how narrow is measured
+  rather than picked: over the 235 distinct `--switch` names this repo
+  uses, `project` tolerates distance 2 at no cost, while `root` at
+  distance 2 would eat `--font`, `--host`, `--out`, `--port`, `--role`
+  and `--tool`, so a short name tolerates only 1.
+- **The search cache is renamed into place, not written over itself**
+  (`src/search.mjs`). `writeFileSync` straight onto the cache path left
+  a window in which a parallel reader — the retrieval hook reads exactly
+  that path on every prompt — saw half a file, `JSON.parse` threw, and
+  the caller fell back to a full rebuild: inside a hook that means the
+  time limit and silence. With a writer thread rewriting three megabytes
+  in a loop, a reader caught torn JSON in 2000, 2000 and 1996 of 2000
+  reads across three runs; after the rename, 0 of 2000. The scratch file
+  carries the process id and a random suffix, so two rebuilds at once
+  cannot rename each other's half.
+
+
 - **An unreadable capture register no longer reads as an empty one.**
   The archive tile (`src/board.mjs`) let the register read throw, which
   took the whole desk page down with it; the workspace's own read caught

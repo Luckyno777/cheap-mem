@@ -1162,14 +1162,76 @@ function parseLogTail(root, rel, info, from) {
   return out;
 }
 
+/**
+ * Rename, and on Windows: try again.
+ *
+ * **Measured on the Windows runner, 2026-09-17.** The atomic write went
+ * in, and Windows answered `EPERM: operation not permitted, rename` —
+ * reproducibly, on node 20 and 22, while a reader had the target open.
+ * POSIX replaces a file somebody is reading; Windows refuses to.
+ *
+ * That is worse than the tear it was meant to fix: the write throws,
+ * the caller swallows it (an unwritable cache is not an error), and on
+ * a Windows machine with an active retrieval hook the index would be
+ * rebuilt from scratch every single time — silently, forever.
+ *
+ * A reader holds the handle for the length of one `readFileSync`, so
+ * the refusal is transient. Six attempts with a short wait between them
+ * is what closes it. The wait is a backoff, not a measurement: nothing
+ * here decides anything by the clock, it only spaces out retries.
+ *
+ * Whatever is left after the last attempt is thrown on, so the caller's
+ * existing "cache is optional" catch still decides what it costs.
+ */
+const TRANSIENT_RENAME = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+export function renameWithRetry(from, to, {
+  attempts = 6,
+  // Both injectable, and only so the probe can DRIVE this rather than
+  // read it. A source-level check here is worthless: the first cut of
+  // the probe asserted that the word `attempts` appears, and stayed
+  // green when the retry was removed entirely.
+  rename = fs.renameSync,
+  pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+} = {}) {
+  for (let i = 1; ; i += 1) {
+    try { rename(from, to); return i; } catch (err) {
+      if (i >= attempts || !TRANSIENT_RENAME.has(err.code)) throw err;
+      pause(i * 5);
+    }
+  }
+}
+
 export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   const cachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);
 
   const writeCache = (index, files, fullAt) => {
+    // Declared out here so the cleanup below can actually name it — a
+    // catch block cannot see a const from inside the try, and a cleanup
+    // that removes a path nobody wrote is the quietest no-op there is.
+    let tmpPath = null;
     try {
       fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-      fs.writeFileSync(cachePath, JSON.stringify({
+      // **Write beside it, then rename.**
+      //
+      // `rename` is atomic on POSIX; `writeFileSync` straight onto the
+      // target path is not. A reader that comes in mid-write — and the
+      // retrieval hook reads this very path in parallel — sees half a
+      // file, `JSON.parse` throws, and the caller falls back to a full
+      // rebuild: expensive, and inside a hook that means hitting the
+      // time limit and going silent.
+      //
+      // Not a theory: measured on the sibling memory with the same
+      // shape, a reader in a tight loop saw broken JSON in 2 to 6 of
+      // roughly 600 reads, reproducibly, across three runs.
+      //
+      // The temporary name carries the process and a roll of the dice,
+      // because a fixed `.tmp` only moves the tear: two processes
+      // rebuilding at once would write the SAME scratch file, and one
+      // would rename the other's half.
+      tmpPath = `${cachePath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify({
         version: CACHE_VERSION,
         language: index.language,
         files,
@@ -1185,7 +1247,12 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           termGraph: thesaurus.packTagGraph(index.termGraph),
         },
       }));
-    } catch { /* an unwritable cache costs speed, not correctness */ }
+      renameWithRetry(tmpPath, cachePath);
+    } catch {
+      // An unwritable cache costs speed, not correctness — but a
+      // scratch file left lying around costs both, so it goes.
+      if (tmpPath) { try { fs.rmSync(tmpPath, { force: true }); } catch { /* nothing to clean */ } }
+    }
   };
 
   // The state of every file the index covers, right now.
