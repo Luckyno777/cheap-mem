@@ -25,10 +25,17 @@
 //      see the thing at all, and near-saturation is what makes it do
 //      that on a slow machine as well as a fast one.
 //   A  the rename-based write does not tear, over many more reads than
-//      the control needed to find its first one.
+//      the control needed to find its first one — AND writes actually
+//      land. Windows refuses to rename over a file a reader has open
+//      (EPERM, measured on the runner), so the shipped strategy retries;
+//      a refused rename is counted as its own state, because "no torn
+//      reads" is free if nothing is ever written.
 //   B  the shipped writer has that shape: it renames, and never writes
 //      onto the cache path itself. P and A measure a copy of the
 //      pattern; B is what notices if the real one loses it.
+//   C  the rename it calls survives what Windows actually answers —
+//      driven through the real helper, because a source-level check
+//      here was measured to be worthless (see the comment there).
 //
 // invariant: leer-ist-kein-bestehen
 import test from 'node:test';
@@ -38,6 +45,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
+import { renameWithRetry } from '../src/search.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -69,17 +77,29 @@ const { target, mode, size, stop } = workerData;
 const flag = new Int32Array(stop);
 const A = JSON.stringify({ tag: 'A', pad: 'a'.repeat(size) });
 const B = JSON.stringify({ tag: 'B', pad: 'b'.repeat(size) });
+const TRANSIENT = new Set(['EPERM', 'EACCES', 'EBUSY']);
 let n = 0;
+let refused = 0;
 while (Atomics.load(flag, 0) === 0) {
   const text = (n += 1) % 2 ? B : A;
   if (mode === 'naive') fs.writeFileSync(target, text);
   else {
     const tmp = target + '.' + process.pid + '.' + n + '.tmp';
     fs.writeFileSync(tmp, text);
-    fs.renameSync(tmp, target);
+    // The same strategy src/search.mjs ships, including the retry:
+    // Windows refuses to rename over a file a reader has open.
+    let done = false;
+    for (let i = 1; i <= 6 && !done; i += 1) {
+      try { fs.renameSync(tmp, target); done = true; } catch (err) {
+        if (!TRANSIENT.has(err.code)) throw err;
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, i * 5);
+      }
+    }
+    if (!done) { refused += 1; try { fs.rmSync(tmp, { force: true }); } catch { /* gone */ } }
   }
 }
 Atomics.store(flag, 1, n);
+Atomics.store(flag, 2, refused);
 `;
 
 /**
@@ -93,7 +113,7 @@ Atomics.store(flag, 1, n);
  * handed a number that looks like a result.
  */
 async function hammer(target, mode, { reads }) {
-  const stop = new SharedArrayBuffer(8);
+  const stop = new SharedArrayBuffer(12);
   const flag = new Int32Array(stop);
   const worker = new Worker(WRITER, {
     eval: true,
@@ -134,7 +154,12 @@ async function hammer(target, mode, { reads }) {
     Atomics.store(flag, 0, 1);
   }
   await done;
-  return { ...seen, writes: Atomics.load(flag, 1), timedOut: Date.now() >= DEADLINE };
+  return {
+    ...seen,
+    writes: Atomics.load(flag, 1),
+    refused: Atomics.load(flag, 2),
+    timedOut: Date.now() >= DEADLINE,
+  };
 }
 
 function scratch(name) {
@@ -166,6 +191,18 @@ test('A the rename-based write never tears', async () => {
     'target, so a reader must never see a gap either');
   assert.equal(r.other, 0, `${r.other} reads parsed but held neither payload`);
   assert.ok(r.ok >= 2000, `only ${r.ok} clean reads, expected the full budget`);
+
+  // **Three states, not two.** A rename Windows refused is neither a
+  // torn read nor a clean write — it is a write that did not happen,
+  // and it has to be counted as itself. Zero torn reads with zero
+  // writes landing would be a perfect score for a cache nobody ever
+  // updates, which is exactly the failure this retry exists to stop:
+  // measured on the Windows runner, the first cut threw EPERM on the
+  // very first rename under an active reader.
+  assert.ok(r.writes - r.refused > 0,
+    `every one of ${r.writes} writes was refused (${r.refused}) — no torn `
+    + 'reads because nothing was ever written. On Windows that is a cache '
+    + 'that silently never updates, and a full rebuild on every call.');
 });
 
 test('B the shipped writer renames, and never writes onto the cache path', () => {
@@ -176,11 +213,55 @@ test('B the shipped writer renames, and never writes onto the cache path', () =>
   assert.ok(end > start, 'could not find the end of writeCache');
   const body = src.slice(start, end);
 
-  assert.match(body, /fs\.renameSync\(\s*tmpPath\s*,\s*cachePath\s*\)/,
+  assert.match(body, /renameWithRetry\(\s*tmpPath\s*,\s*cachePath\s*\)/,
     'writeCache no longer renames its scratch file into place');
   assert.match(body, /fs\.writeFileSync\(\s*tmpPath\s*,/,
     'writeCache no longer writes to a scratch file');
   assert.doesNotMatch(body, /fs\.writeFileSync\(\s*cachePath\s*,/,
     'writeCache writes straight onto the cache path again — that is the ' +
     'tear assertion P reproduces');
+
+  // And the rename it calls survives what Windows actually answers.
+  // Without this, dropping the retry would only show up on a Windows
+  // runner — which is precisely where it was found, and precisely the
+  // place a green POSIX suite cannot speak for.
+  assert.match(body, /renameWithRetry/,
+    'writeCache no longer goes through the retrying rename');
+});
+
+test('C the rename it calls survives what Windows actually answers', () => {
+  // Driven, not read. A source-level check here was worthless: the
+  // first cut asserted that the word `attempts` appears in the helper,
+  // and stayed green when the retry itself was deleted.
+  const refuse = (code, times) => {
+    let n = 0;
+    return () => { n += 1; if (n <= times) throw Object.assign(new Error(code), { code }); };
+  };
+  const nopause = () => {};
+
+  for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+    const tries = renameWithRetry('a', 'b', { rename: refuse(code, 2), pause: nopause });
+    assert.equal(tries, 3, `${code} is no longer treated as a transient refusal`);
+  }
+
+  // A refusal that never lets up is still an error — the caller's
+  // "a cache is optional" catch has to get something to catch.
+  assert.throws(
+    () => renameWithRetry('a', 'b',
+      { attempts: 4, rename: refuse('EPERM', 99), pause: nopause }),
+    /EPERM/, 'an endless refusal is swallowed instead of thrown on');
+
+  // And anything else fails at once: retrying a missing file six times
+  // only makes the wait longer.
+  assert.throws(
+    () => renameWithRetry('a', 'b', { rename: refuse('ENOENT', 99), pause: nopause }),
+    /ENOENT/);
+  let versuche = 0;
+  try {
+    renameWithRetry('a', 'b', {
+      rename: () => { versuche += 1; throw Object.assign(new Error('x'), { code: 'ENOENT' }); },
+      pause: nopause,
+    });
+  } catch { /* expected */ }
+  assert.equal(versuche, 1, 'a permanent error is retried anyway');
 });

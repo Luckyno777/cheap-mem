@@ -1164,6 +1164,46 @@ function parseLogTail(root, rel, info, from) {
   return out;
 }
 
+/**
+ * Rename, and on Windows: try again.
+ *
+ * **Measured on the Windows runner, 2026-09-17.** The atomic write went
+ * in, and Windows answered `EPERM: operation not permitted, rename` —
+ * reproducibly, on node 20 and 22, while a reader had the target open.
+ * POSIX replaces a file somebody is reading; Windows refuses to.
+ *
+ * That is worse than the tear it was meant to fix: the write throws,
+ * the caller swallows it (an unwritable cache is not an error), and on
+ * a Windows machine with an active retrieval hook the index would be
+ * rebuilt from scratch every single time — silently, forever.
+ *
+ * A reader holds the handle for the length of one `readFileSync`, so
+ * the refusal is transient. Six attempts with a short wait between them
+ * is what closes it. The wait is a backoff, not a measurement: nothing
+ * here decides anything by the clock, it only spaces out retries.
+ *
+ * Whatever is left after the last attempt is thrown on, so the caller's
+ * existing "cache is optional" catch still decides what it costs.
+ */
+const TRANSIENT_RENAME = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+export function renameWithRetry(from, to, {
+  attempts = 6,
+  // Both injectable, and only so the probe can DRIVE this rather than
+  // read it. A source-level check here is worthless: the first cut of
+  // the probe asserted that the word `attempts` appears, and stayed
+  // green when the retry was removed entirely.
+  rename = fs.renameSync,
+  pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+} = {}) {
+  for (let i = 1; ; i += 1) {
+    try { rename(from, to); return i; } catch (err) {
+      if (i >= attempts || !TRANSIENT_RENAME.has(err.code)) throw err;
+      pause(i * 5);
+    }
+  }
+}
+
 export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   const cachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);
@@ -1209,7 +1249,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           termGraph: thesaurus.packTagGraph(index.termGraph),
         },
       }));
-      fs.renameSync(tmpPath, cachePath);
+      renameWithRetry(tmpPath, cachePath);
     } catch {
       // An unwritable cache costs speed, not correctness — but a
       // scratch file left lying around costs both, so it goes.

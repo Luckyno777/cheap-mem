@@ -468,8 +468,14 @@ const MUTANTS=[
 
  { name:'the search cache is written straight onto its own path again',
    file:'src/search.mjs',
-   from:'      fs.renameSync(tmpPath, cachePath);',
+   from:'      renameWithRetry(tmpPath, cachePath);',
    to:'      fs.copyFileSync(tmpPath, cachePath);  // MUTANT: no longer atomic',
+   tests:['test/atomic-cache.test.mjs'] },
+
+ { name:'a rename Windows refuses is no longer retried',
+   file:'src/search.mjs',
+   from:'      if (i >= attempts || !TRANSIENT_RENAME.has(err.code)) throw err;',
+   to:'      throw err;  // MUTANT: first refusal is final',
    tests:['test/atomic-cache.test.mjs'] },
 ];
 
