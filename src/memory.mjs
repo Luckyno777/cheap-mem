@@ -864,59 +864,204 @@ export function core(root, {
   return out.join('\n');
 }
 
-export function context(root, { n = 20 } = {}) {
-  const half = Math.max(1, Math.floor(n / 2));
-  const out = [];
+/**
+ * How a character budget is turned into a token number, and why it is
+ * only ever an ESTIMATE here.
+ *
+ * Counting tokens needs the tokenizer of the model that will read the
+ * block, and cheap-mem does not carry one — no heavy dependency, no
+ * network, deterministic on every clone. Four characters per token is
+ * the usual rule of thumb for English prose and it is WRONG for ids,
+ * paths and timestamps, which is most of what a context block is made
+ * of.
+ *
+ * So the budget is measured in CHARACTERS, which is exact, and the
+ * token figure is printed next to it, labelled as an estimate. A budget
+ * that calls itself tokens while secretly counting characters would be
+ * the same lie in nicer clothes.
+ */
+export const CHARS_PER_TOKEN = 4;
 
-  out.push('=== cheap-mem context ===');
-  out.push('');
-  out.push('Facts snapshot: see FACTS.md and global/facts.yaml');
-  out.push('People:         see global/people.yaml');
-  out.push('');
+/**
+ * The smallest budget that can still keep its own promise.
+ *
+ * **Derived, not guessed.** The first version of this floor was the
+ * round number 200, and it was wrong: at `--budget 250` the header and
+ * the footer alone came to 265 characters, and the guarantee check at
+ * the end of `context()` threw — correctly, but a caller should never
+ * get that far. A limit written by hand ages badly; the moment someone
+ * adds a line to the header it is a lie again.
+ *
+ * So it is computed from the two pieces that are always present, with
+ * the footer taken at its longest (the "cut to fit" wording, longer than
+ * "everything fitted"), plus a little air.
+ */
+export const MIN_CONTEXT_CHARS = (() => {
+  const kopf = '=== cheap-mem context ===\n\nFacts snapshot: see FACTS.md and '
+    + 'global/facts.yaml\nPeople:         see global/people.yaml\n\n';
+  const fuss = '--- budget 999999 chars (~249999 tokens, estimated at 4 chars/token) ---\n'
+    + '  cut to fit: 99 errors, 99 decisions, 99 events, 99 facts, 99 projects not shown. '
+    + 'Raise --budget or narrow with --n.';
+  return kopf.length + fuss.length;
+})();
+
+/** The order sections give way in when the budget runs out. */
+const CONTEXT_SECTIONS = Object.freeze(['errors', 'decisions', 'events', 'facts', 'projects']);
+
+/**
+ * A compact digest of this memory, for pasting at the start of a session.
+ *
+ * **`maxChars` is the point of this function, not a decoration.** Until
+ * 2026-09-17 the only dial was `--n`, a COUNT of entries — and a context
+ * block is not paid for by the entry, it is paid for by the character.
+ * Twenty short events and twenty pasted stack traces are the same `n`
+ * and differ by an order of magnitude in what they cost the model that
+ * reads them. So the caller with a real limit could not express it, and
+ * had to guess an `n` and hope.
+ *
+ * When the budget bites, three things must hold, and each one is a
+ * probe:
+ *
+ *  1. The result never exceeds `maxChars`. A budget that is "mostly"
+ *     kept is not a budget.
+ *  2. Nothing is cut mid-entry. A half-written error line reads as a
+ *     fact about the error, not as a truncation.
+ *  3. The block SAYS what did not fit, per section. A silently shortened
+ *     digest is indistinguishable from a quiet memory, and that is the
+ *     one reading it must never make.
+ *
+ * Sections give way in the order of `CONTEXT_SECTIONS`, last first:
+ * projects and facts are cheap to look up elsewhere, the recent errors
+ * are why anyone pastes this block at all.
+ */
+export function context(root, { n = 20, maxChars = null } = {}) {
+  const half = Math.max(1, Math.floor(n / 2));
+
+  const kopf = [
+    '=== cheap-mem context ===',
+    '',
+    'Facts snapshot: see FACTS.md and global/facts.yaml',
+    'People:         see global/people.yaml',
+    '',
+  ];
+
+  // Every section built as a list of ITEMS, each item a block of lines
+  // that belongs together. The budget is then spent on whole items —
+  // that is what keeps rule 2 above true by construction rather than by
+  // a length check somewhere downstream.
+  const eintragsZeilen = (e) => {
+    const zeilen = [`  [${e.ts}] ${e._source}:${e._line}`];
+    const short = shortText(e);
+    if (short) zeilen.push(`    ${short}`);
+    return zeilen;
+  };
 
   const errors = recentEntries(root, 'error', n);
-  out.push(`--- last ${errors.length} errors ---`);
-  if (errors.length === 0) out.push('  (none)');
-  for (const e of errors) {
-    out.push(`  [${e.ts}] ${e._source}:${e._line}`);
-    const short = shortText(e);
-    if (short) out.push(`    ${short}`);
-  }
-  out.push('');
-
   const decisions = recentEntries(root, 'decision', half);
-  out.push(`--- last ${decisions.length} decisions ---`);
-  if (decisions.length === 0) out.push('  (none)');
-  for (const e of decisions) {
-    out.push(`  [${e.ts}] ${e._source}:${e._line}`);
-    const short = shortText(e);
-    if (short) out.push(`    ${short}`);
-  }
-  out.push('');
-
   const events = recentEntries(root, 'event', half);
-  out.push(`--- last ${events.length} events ---`);
-  if (events.length === 0) out.push('  (none)');
-  for (const e of events) {
-    out.push(`  [${e.ts}] ${e._source}:${e._line}`);
-    const short = shortText(e);
-    if (short) out.push(`    ${short}`);
-  }
-  out.push('');
-
   const facts = currentFacts(root);
-  if (facts.length) {
-    out.push(`--- current facts (${facts.length}) ---`);
-    for (const f of facts.slice(0, n)) out.push('  ' + freshness.formatFact(f));
+  const projects = listProjects(root);
+
+  const abschnitte = {
+    errors: { titel: (k) => `--- last ${k} errors ---`, leer: '  (none)',
+      posten: errors.map(eintragsZeilen) },
+    decisions: { titel: (k) => `--- last ${k} decisions ---`, leer: '  (none)',
+      posten: decisions.map(eintragsZeilen) },
+    events: { titel: (k) => `--- last ${k} events ---`, leer: '  (none)',
+      posten: events.map(eintragsZeilen) },
+    facts: { titel: (k) => `--- current facts (${k}) ---`, leer: null,
+      posten: facts.slice(0, n).map((f) => ['  ' + freshness.formatFact(f)]) },
+    projects: { titel: (k) => `--- projects (${k}) ---`, leer: '  (none)',
+      posten: projects.map((p) => [`  ${p}`]) },
+  };
+
+  // No budget: the shape this function has always had, unchanged.
+  if (!Number.isFinite(maxChars)) {
+    const out = [...kopf];
+    for (const name of CONTEXT_SECTIONS) {
+      const a = abschnitte[name];
+      if (name === 'facts' && !a.posten.length) continue;
+      out.push(a.titel(a.posten.length));
+      if (!a.posten.length && a.leer) out.push(a.leer);
+      for (const posten of a.posten) out.push(...posten);
+      if (name !== 'projects') out.push('');
+    }
+    return out.join('\n');
+  }
+
+  // With a budget. Reserve room for the header and for the footer that
+  // reports the cut — a footer that itself does not fit would make the
+  // block silently over budget, which is the failure this whole branch
+  // exists to prevent.
+  const laenge = (zeilen) => zeilen.reduce((sum, z) => sum + z.length + 1, 0);
+  const FUSS_RESERVE = 160;
+  let rest = maxChars - laenge(kopf) - FUSS_RESERVE;
+
+  const genommen = {};
+  const weggelassen = {};
+  const leerGemeldet = {};
+  for (const name of CONTEXT_SECTIONS) {
+    const a = abschnitte[name];
+    genommen[name] = [];
+    weggelassen[name] = 0;
+    // **An EMPTY section still gets its "(none)".** Three states again:
+    // "measured, nothing there" is not the same as "cut for space", and
+    // without the line the reader cannot tell them apart — the footer
+    // only names what WAS cut, so a missing heading would be ambiguous.
+    // It costs two lines and it is the whole point of the footer.
+    if (!a.posten.length) {
+      if (!a.leer) continue;
+      const kosten = a.titel(0).length + 1 + a.leer.length + 2;
+      if (kosten <= rest) { rest -= kosten; leerGemeldet[name] = true; }
+      continue;
+    }
+    // The heading is part of the cost. A section that can only afford
+    // its own title contributes nothing and is dropped whole.
+    const titelKosten = a.titel(a.posten.length).length + 2;
+    if (rest - titelKosten <= 0) { weggelassen[name] = a.posten.length; continue; }
+    rest -= titelKosten;
+    for (const posten of a.posten) {
+      const kosten = laenge(posten);
+      if (kosten > rest) { weggelassen[name] += 1; continue; }
+      rest -= kosten;
+      genommen[name].push(posten);
+    }
+    if (!genommen[name].length) { rest += titelKosten; weggelassen[name] = a.posten.length; }
+  }
+
+  const out = [...kopf];
+  for (const name of CONTEXT_SECTIONS) {
+    const a = abschnitte[name];
+    if (leerGemeldet[name]) { out.push(a.titel(0), a.leer, ''); continue; }
+    if (!genommen[name].length) continue;
+    out.push(a.titel(genommen[name].length));
+    for (const posten of genommen[name]) out.push(...posten);
     out.push('');
   }
 
-  const projects = listProjects(root);
-  out.push(`--- projects (${projects.length}) ---`);
-  if (projects.length === 0) out.push('  (none)');
-  for (const p of projects) out.push(`  ${p}`);
+  // The footer. It is not decoration: without it a shortened block and a
+  // quiet memory look the same, and the reader cannot tell which one it
+  // is holding.
+  const fehlt = CONTEXT_SECTIONS
+    .filter((name) => weggelassen[name] > 0)
+    .map((name) => `${weggelassen[name]} ${name}`);
+  const gebraucht = laenge(out);
+  out.push(`--- budget ${maxChars} chars (~${Math.floor(maxChars / CHARS_PER_TOKEN)} tokens, `
+    + `estimated at ${CHARS_PER_TOKEN} chars/token) ---`);
+  out.push(fehlt.length
+    ? `  cut to fit: ${fehlt.join(', ')} not shown. Raise --budget or narrow with --n.`
+    : '  everything fitted.');
+  const text = out.join('\n');
 
-  return out.join('\n');
+  // The guarantee, checked where it is made. If this ever throws, the
+  // accounting above is wrong — and a wrong budget must fail loudly
+  // rather than hand back an oversized block that nobody measures.
+  if (text.length > maxChars) {
+    throw new Error(`context: budget accounting is wrong — ${text.length} chars for a `
+      + `budget of ${maxChars} (used ${gebraucht} before the footer). This is a bug in `
+      + 'context(), not something the caller did.');
+  }
+  return text;
 }
 
 export function recentEntries(root, type, n) {

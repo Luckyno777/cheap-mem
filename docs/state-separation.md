@@ -231,7 +231,7 @@ proving it.
 | Scope isolation | the gateway admits only what a capability names | callers use `retrieve`, not `search` |
 | Authority | supersession requires same author or higher tier | fields are honest |
 | Conflict | flags overlapping same-tier claims; resolves only what is mechanical | — |
-| Temporal validity | `valid_from` inclusive, `valid_until` exclusive, as-of queries | timestamps are honest |
+| Temporal validity | `valid_from` inclusive, `valid_until` exclusive, as-of queries on **both** `find` and `retrieve` | timestamps are honest |
 | Retrieval | every tier that matches is represented; relevance orders | — |
 | Provenance | declared and carried with every claim | **declared only, never verified** |
 | Identity | **nothing** | repo write access ≠ trusted identity |

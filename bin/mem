@@ -1275,8 +1275,8 @@ const COMMANDS = {
     if (isHelp(args)) {
       out([
         'mem find "<query>" [--type <t>] [--project <name>|global]',
-        '          [--since 7d|24h|ISO] [--top N] [--literal] [--fresh]',
-        '          [--no-raw] [--only-raw]',
+        '          [--since 7d|24h|ISO] [--as-of <ISO>] [--top N] [--literal]',
+        '          [--fresh] [--no-raw] [--only-raw]',
         '',
         '  Ranked search, no model, no network. BM25 over weighted',
         '  fields, widened by a curated thesaurus and by a tag graph',
@@ -1286,6 +1286,9 @@ const COMMANDS = {
         '  3-8pm", "last 12 hours") becomes time-range recall (see `mem when`).',
         '  --literal and --since bypass that.',
         '',
+        '  --as-of    what HELD then, not what is recorded now. Drops entries',
+        '             whose valid_from/valid_until put them outside that moment.',
+        '             Same rule as `mem retrieve --as-of`; it had it, find did not.',
         '  --literal  plain substring search instead (the old behaviour)',
         '  --fresh    rebuild the index instead of using the cache',
         '  --no-raw   digested entries only, skip raw captures',
@@ -1298,7 +1301,7 @@ const COMMANDS = {
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['type', 'project', 'since', 'top', 'literal', 'fresh',
+    checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
       'content-words', 'with-echo'], 'find');
     const root = findRoot(args);
@@ -1318,6 +1321,14 @@ const COMMANDS = {
       if (shortened && shortened !== query) query = shortened;
     }
     const since = args.since ? sinceOf(args.since) : null;
+    // **`--as-of` gab es bis 2026-09-17 nur auf `mem retrieve`.** Dieselbe
+    // Frage — „was galt DAMALS" — hing also davon ab, welchen Befehl man
+    // tippt: `retrieve` filterte nach valid_from/valid_until, `find`
+    // antwortete mit dem heutigen Stand. Zwei Wahrheiten, je nach Tuer.
+    //
+    // Die Regel liegt weiterhin an EINER Stelle (`retrieval.validAt`);
+    // hier wird sie nur angewandt, nicht nachgebaut.
+    const asOf = args['as-of'] ? asOfOf(args['as-of'], 'find') : null;
 
     // Time router: if the query names a window ("yesterday afternoon", "last
     // friday between 3 and 8pm", "last 12 hours"), it becomes time-range
@@ -1327,15 +1338,19 @@ const COMMANDS = {
     if (!args.literal && !args.since) {
       const zone = process.env.MEM_TZ || cfg.timezone || undefined;
       const window = timeexpr.windowFor(query, { zone });
-      if (window) { showWindow(root, query, window, args); return; }
+      if (window) { showWindow(root, query, window, args, { asOf }); return; }
     }
 
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
       const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
-      const hits = memory.find(root, query, {
+      const alle = memory.find(root, query, {
         types, projects, since, withRetired: Boolean(args['with-retired']),
       });
+      // Auch hier, nicht nur im gerankten Weg. `--literal --as-of` muss
+      // dasselbe bedeuten wie `--as-of` allein, sonst haengt die Antwort
+      // auf „was galt damals" daran, welchen Suchweg man erwischt hat.
+      const hits = asOf ? alle.filter((h) => retrieval.validAt(h, asOf)) : alle;
       // Same envelope as the ranked branch, so a tool can read both the
       // same way. `--literal --json` silently printed prose until
       // 2026-09-08: the flag was simply never looked at in this branch,
@@ -1349,6 +1364,7 @@ const COMMANDS = {
         out(JSON.stringify({
           query,
           literal: true,
+          asOf,
           hits: hits.map((h) => ({
             id: h.id ?? null,
             score: null,
@@ -1361,8 +1377,17 @@ const COMMANDS = {
         }, null, 2));
         return;
       }
-      if (hits.length === 0) { out(`Nothing for '${query}'.`); return; }
-      out(`${hits.length} literal hits for '${query}':`);
+      // Drei Zustaende, nicht zwei: „nichts gefunden" und „gefunden, aber
+      // galt damals nicht" sind verschiedene Auskuenfte.
+      if (hits.length === 0) {
+        out(asOf && alle.length
+          ? `Nothing for '${query}' as of ${asOf} (${alle.length} hit${
+            alle.length === 1 ? '' : 's'} exist, none valid then).`
+          : `Nothing for '${query}'.`);
+        return;
+      }
+      out(`${hits.length} literal hits for '${query}'${
+        asOf ? ` as of ${asOf} (${alle.length - hits.length} not valid then)` : ''}:`);
       for (const h of hits) {
         const mark = h._retired ? `  [${h._retired.state}]` : '';
         out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}${mark}`);
@@ -1430,7 +1455,21 @@ const COMMANDS = {
       withRetired: Boolean(args['with-retired']),
     });
     const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));
-    const hits = [...exakt, ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id))]
+    // **VOR dem Schnitt, und auf BEIDEN Bahnen.**
+    //
+    // Nach `.slice(0, wanted)` zu filtern kann nicht zurueckholen, was
+    // der Schnitt schon verworfen hat — derselbe Fehler steckte in der
+    // ersten Fassung der Koerper-Entdopplung in retrieval.mjs.
+    //
+    // Und die Exakt-Bahn braucht es genauso: sie wird VORN einsortiert,
+    // ein Filter nur auf der gereihten Bahn wuerde also nicht bloss
+    // geschwaecht, sondern ueberstimmt. Genau das ist hier am 2026-09-17
+    // fuer --project/--type passiert (siehe den Kommentar darueber); es
+    // waere albern, denselben Fehler eine Zeile weiter noch einmal zu
+    // machen.
+    const galtDamals = (h) => !asOf || retrieval.validAt(h.entry ?? h, asOf);
+    const hits = [...exakt.filter(galtDamals),
+      ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id)).filter(galtDamals)]
       .slice(0, wanted);
     const ms = Date.now() - t0;
 
@@ -1449,20 +1488,26 @@ const COMMANDS = {
           label: compactLine(h.entry),
           ...(h.retired ? { state: h.retired.state } : {}),
         }));
-        out(JSON.stringify({ query, ms, hits: brief }, null, 2));
+        out(JSON.stringify({ query, ms, asOf, hits: brief }, null, 2));
         return;
       }
+      // `asOf` steht IM Umschlag, auch wenn es null ist. Ein Verbraucher
+      // muss sehen koennen, ob gefiltert wurde — ein fehlendes Feld liest
+      // sich wie „nicht gefiltert" und wie „alte Fassung des Werkzeugs"
+      // zugleich.
       out(JSON.stringify({
-        query, ms, hits: hits.map((h) => ({ ...h, entry: markedEntry(h.entry) })),
+        query, ms, asOf, hits: hits.map((h) => ({ ...h, entry: markedEntry(h.entry) })),
       }, null, 2));
       return;
     }
     if (hits.length === 0) {
-      out(`Nothing for '${query}' (${index.N} entries, ${ms}ms).`);
+      out(asOf
+        ? `Nothing for '${query}' as of ${asOf} (${index.N} entries, ${ms}ms).`
+        : `Nothing for '${query}' (${index.N} entries, ${ms}ms).`);
       out('  Try --literal for a plain substring search.');
       return;
     }
-    out(`${hits.length} hits for '${query}' (${index.N} entries, ${ms}ms):`);
+    out(`${hits.length} hits for '${query}'${asOf ? ` as of ${asOf}` : ''} (${index.N} entries, ${ms}ms):`);
     for (const h of hits) {
       const mark = (h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '')
         + (h.retired ? `  [${h.retired.state}]` : '');
@@ -2547,7 +2592,7 @@ const COMMANDS = {
       : capability.grantAll('cli');
     const r = retrieval.retrieve(root, rest.join(' '), cap, {
       top: args.top ? Number(args.top) : 10,
-      asOf: args['as-of'] ? String(args['as-of']) : null,
+      asOf: args['as-of'] ? asOfOf(args['as-of'], 'retrieve') : null,
       type: args.type ? String(args.type) : null,
       withDisputed: Boolean(args['with-disputed']),
     });
@@ -2904,18 +2949,43 @@ const COMMANDS = {
   context: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        "mem context [--n <count>]",
-        "",
-        "  --n: number of recent error entries (default 20)",
-        "         decisions and events show half of that.",
+        'mem context [--n <count>] [--budget <chars>]',
+        '',
+        '  --n: number of recent error entries (default 20)',
+        '         decisions and events show half of that.',
+        '  --budget: a hard ceiling in CHARACTERS for the whole block.',
+        '         Sections give way from the bottom up (projects, facts,',
+        '         events, decisions, errors), never mid-entry, and the',
+        '         block says at the end what did not fit.',
+        '',
+        `         Smallest usable budget: ${memory.MIN_CONTEXT_CHARS} characters.`,
+        '         Characters, not tokens, because characters are exact:',
+        '         counting tokens needs the reading model\'s tokenizer,',
+        `         which this tool does not carry. ~${memory.CHARS_PER_TOKEN} chars`,
+        '         per token is printed as an ESTIMATE next to the number.',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['n'], 'context');
+    checkFlags(args, ['n', 'budget'], 'context');
     const root = findRoot(args);
     requireConfig(root);
     const n = Number(args.n ?? 20);
-    process.stdout.write(memory.context(root, { n }));
+    // Refuse a budget that cannot be met instead of quietly ignoring it.
+    // The header alone is about 120 characters; a "budget" below that
+    // would produce a block that breaks its own promise on the first
+    // line.
+    let maxChars = null;
+    if (args.budget !== undefined) {
+      maxChars = Number(args.budget);
+      if (!Number.isFinite(maxChars) || maxChars < memory.MIN_CONTEXT_CHARS) {
+        die(`context: --budget '${args.budget}' is not a usable size.\n`
+          + `  The smallest budget that can keep its own promise is ${memory.MIN_CONTEXT_CHARS}\n`
+          + '  characters — below that the header and the footer that reports\n'
+          + '  the cut do not both fit, and a block that breaks its own budget\n'
+          + '  is worse than none.');
+      }
+    }
+    process.stdout.write(memory.context(root, { n, maxChars }));
     process.stdout.write('\n');
   },
 
@@ -3621,6 +3691,35 @@ const COMMANDS = {
   },
 };
 
+/**
+ * Parse `--as-of`, and REFUSE what cannot be parsed.
+ *
+ * **Why this is strict where `validAt` is lenient.** `retrieval.validAt`
+ * treats an unparseable timestamp as "no bound" and returns true — right
+ * for a library reading data it did not write, wrong for a flag a person
+ * just typed. Measured on 2026-09-17, before this function existed:
+ *
+ *     mem retrieve "test" --as-of gestern    ->   exit 0, every claim
+ *
+ * No warning, no empty result — just the full present-day answer to a
+ * question about the past. That is the worst shape a bug can take: it
+ * looks like an answer. A tool that silently ignores the one flag that
+ * changes the meaning of the question is lying about what it did.
+ *
+ * Returns the ISO string (never a Date), because that is what `validAt`
+ * and the JSON envelope both want.
+ */
+function asOfOf(value, where) {
+  const t = Date.parse(value);
+  if (!Number.isFinite(t)) {
+    die(`${where}: --as-of '${value}' is not a date I can read.\n`
+      + '  Use an ISO timestamp: 2026-09-01 or 2026-09-01T14:30:00Z\n'
+      + '  (A date I cannot read would silently filter nothing, and you would\n'
+      + '   get today\'s answer to a question about then.)');
+  }
+  return new Date(t).toISOString();
+}
+
 function sinceOf(s) {
   const m = /^(\d+)([dhm])$/.exec(s);
   if (m) {
@@ -3633,13 +3732,22 @@ function sinceOf(s) {
 
 // Shared output for the time router (find) and `when`. `query` supplies the
 // subject words to narrow by; empty = the whole window.
-function showWindow(root, query, window, args) {
+function showWindow(root, query, window, args, { asOf = null } = {}) {
   const t0 = Date.now();
   const words = timesearch.keywordsOf(query);
   const project = args.project && args.project !== 'global' ? args.project : null;
-  const entries = timesearch.entriesInWindow(root, {
+  const all = timesearch.entriesInWindow(root, {
     from: window.from, to: window.to, project, words,
   });
+  // **Der Zeitfenster-Weg filtert MIT.** Zwei verschiedene Zeiten, und
+  // sie beissen sich nicht: das Fenster sagt, WANN etwas aufgeschrieben
+  // wurde, `--as-of` sagt, was zu einem Zeitpunkt GALT. Wer beides
+  // angibt, will beides.
+  //
+  // Wichtiger als die Feinheit ist die Regel dahinter: ein Schalter, der
+  // auf einem von drei Wegen wirkt und auf den anderen stumm bleibt, ist
+  // schlimmer als keiner — man kann ihm nicht ansehen, wann er galt.
+  const entries = asOf ? all.filter((e) => retrieval.validAt(e, asOf)) : all;
   const ms = Date.now() - t0;
   const wj = { from: window.from.toISOString(), to: window.to.toISOString(), label: window.label };
 
@@ -3650,12 +3758,15 @@ function showWindow(root, query, window, args) {
     const hits = newest.map((e, i) => ({
       score: 1000 - i, source: e._source, line: e._line, entry: e,
     }));
-    out(JSON.stringify({ query, ms, window: wj, hits }, null, 2));
+    out(JSON.stringify({ query, ms, window: wj, asOf, hits }, null, 2));
     return;
   }
 
   const narrow = words.length ? `, narrowed to ${words.join('/')}` : '';
-  out(`${entries.length} entries in window '${window.label}' (${wj.from} .. ${wj.to}${narrow}, ${ms}ms):`);
+  // Sagen, dass gefiltert wurde, und wie viel weg ist. Eine kuerzere
+  // Liste ohne Erklaerung liest sich wie ein leeres Gedaechtnis.
+  const alsOb = asOf ? `, as of ${asOf} — ${all.length - entries.length} not valid then` : '';
+  out(`${entries.length} entries in window '${window.label}' (${wj.from} .. ${wj.to}${narrow}${alsOb}, ${ms}ms):`);
   for (const e of entries) {
     out(`  [${e.ts}] ${e._source}:${e._line}`);
     out(`         ${compactLine(e)}`);
