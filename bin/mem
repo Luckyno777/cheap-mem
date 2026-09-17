@@ -1321,13 +1321,13 @@ const COMMANDS = {
       if (shortened && shortened !== query) query = shortened;
     }
     const since = args.since ? sinceOf(args.since) : null;
-    // **`--as-of` gab es bis 2026-09-17 nur auf `mem retrieve`.** Dieselbe
-    // Frage — „was galt DAMALS" — hing also davon ab, welchen Befehl man
-    // tippt: `retrieve` filterte nach valid_from/valid_until, `find`
-    // antwortete mit dem heutigen Stand. Zwei Wahrheiten, je nach Tuer.
+    // **Until 2026-09-17 `--as-of` existed only on `mem retrieve`.** The
+    // same question — "what held THEN" — therefore depended on which
+    // command you typed: `retrieve` filtered by valid_from/valid_until,
+    // `find` answered with today's state. Two truths, one per door.
     //
-    // Die Regel liegt weiterhin an EINER Stelle (`retrieval.validAt`);
-    // hier wird sie nur angewandt, nicht nachgebaut.
+    // The rule still lives in ONE place (`retrieval.validAt`); this only
+    // applies it, it does not reimplement it.
     const asOf = args['as-of'] ? asOfOf(args['as-of'], 'find') : null;
 
     // Time router: if the query names a window ("yesterday afternoon", "last
@@ -1344,13 +1344,13 @@ const COMMANDS = {
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
       const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
-      const alle = memory.find(root, query, {
+      const allHits = memory.find(root, query, {
         types, projects, since, withRetired: Boolean(args['with-retired']),
       });
-      // Auch hier, nicht nur im gerankten Weg. `--literal --as-of` muss
-      // dasselbe bedeuten wie `--as-of` allein, sonst haengt die Antwort
-      // auf „was galt damals" daran, welchen Suchweg man erwischt hat.
-      const hits = asOf ? alle.filter((h) => retrieval.validAt(h, asOf)) : alle;
+      // Here too, not only in the ranked lane. `--literal --as-of` must
+      // mean the same as `--as-of` alone, or the answer to "what held
+      // then" depends on which search lane you happened to land in.
+      const hits = asOf ? allHits.filter((h) => retrieval.validAt(h, asOf)) : allHits;
       // Same envelope as the ranked branch, so a tool can read both the
       // same way. `--literal --json` silently printed prose until
       // 2026-09-08: the flag was simply never looked at in this branch,
@@ -1377,17 +1377,17 @@ const COMMANDS = {
         }, null, 2));
         return;
       }
-      // Drei Zustaende, nicht zwei: „nichts gefunden" und „gefunden, aber
-      // galt damals nicht" sind verschiedene Auskuenfte.
+      // Three states, not two: "found nothing" and "found something that
+      // did not hold then" are different answers.
       if (hits.length === 0) {
-        out(asOf && alle.length
-          ? `Nothing for '${query}' as of ${asOf} (${alle.length} hit${
-            alle.length === 1 ? '' : 's'} exist, none valid then).`
+        out(asOf && allHits.length
+          ? `Nothing for '${query}' as of ${asOf} (${allHits.length} hit${
+            allHits.length === 1 ? '' : 's'} exist, none valid then).`
           : `Nothing for '${query}'.`);
         return;
       }
       out(`${hits.length} literal hits for '${query}'${
-        asOf ? ` as of ${asOf} (${alle.length - hits.length} not valid then)` : ''}:`);
+        asOf ? ` as of ${asOf} (${allHits.length - hits.length} not valid then)` : ''}:`);
       for (const h of hits) {
         const mark = h._retired ? `  [${h._retired.state}]` : '';
         out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}${mark}`);
@@ -1455,21 +1455,20 @@ const COMMANDS = {
       withRetired: Boolean(args['with-retired']),
     });
     const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));
-    // **VOR dem Schnitt, und auf BEIDEN Bahnen.**
+    // **BEFORE the cut, and on BOTH lanes.**
     //
-    // Nach `.slice(0, wanted)` zu filtern kann nicht zurueckholen, was
-    // der Schnitt schon verworfen hat — derselbe Fehler steckte in der
-    // ersten Fassung der Koerper-Entdopplung in retrieval.mjs.
+    // Filtering after `.slice(0, wanted)` cannot bring back what the cut
+    // already threw away — the same mistake was in the first version of
+    // the body de-duplication in retrieval.mjs.
     //
-    // Und die Exakt-Bahn braucht es genauso: sie wird VORN einsortiert,
-    // ein Filter nur auf der gereihten Bahn wuerde also nicht bloss
-    // geschwaecht, sondern ueberstimmt. Genau das ist hier am 2026-09-17
-    // fuer --project/--type passiert (siehe den Kommentar darueber); es
-    // waere albern, denselben Fehler eine Zeile weiter noch einmal zu
-    // machen.
-    const galtDamals = (h) => !asOf || retrieval.validAt(h.entry ?? h, asOf);
-    const hits = [...exakt.filter(galtDamals),
-      ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id)).filter(galtDamals)]
+    // And the exact lane needs it just as much: it is merged in FRONT,
+    // so a filter on the ranked lane alone would not merely be weakened,
+    // it would be overruled. That is exactly what happened here on
+    // 2026-09-17 for --project/--type (see the comment above); repeating
+    // it one line further down would be absurd.
+    const heldThen = (h) => !asOf || retrieval.validAt(h.entry ?? h, asOf);
+    const hits = [...exakt.filter(heldThen),
+      ...gefiltert.filter((h) => !exaktIds.has(h.entry?.id)).filter(heldThen)]
       .slice(0, wanted);
     const ms = Date.now() - t0;
 
@@ -1491,10 +1490,10 @@ const COMMANDS = {
         out(JSON.stringify({ query, ms, asOf, hits: brief }, null, 2));
         return;
       }
-      // `asOf` steht IM Umschlag, auch wenn es null ist. Ein Verbraucher
-      // muss sehen koennen, ob gefiltert wurde — ein fehlendes Feld liest
-      // sich wie „nicht gefiltert" und wie „alte Fassung des Werkzeugs"
-      // zugleich.
+      // `asOf` is IN the envelope even when null. A consumer has to be
+      // able to see whether filtering happened — a missing field reads as
+      // "not filtered" and as "older version of the tool" at the same
+      // time.
       out(JSON.stringify({
         query, ms, asOf, hits: hits.map((h) => ({ ...h, entry: markedEntry(h.entry) })),
       }, null, 2));
@@ -3739,14 +3738,13 @@ function showWindow(root, query, window, args, { asOf = null } = {}) {
   const all = timesearch.entriesInWindow(root, {
     from: window.from, to: window.to, project, words,
   });
-  // **Der Zeitfenster-Weg filtert MIT.** Zwei verschiedene Zeiten, und
-  // sie beissen sich nicht: das Fenster sagt, WANN etwas aufgeschrieben
-  // wurde, `--as-of` sagt, was zu einem Zeitpunkt GALT. Wer beides
-  // angibt, will beides.
+  // **The time-window lane filters too.** Two different times, and they
+  // do not clash: the window says WHEN something was written down,
+  // `--as-of` says what HELD at a moment. Give both and you want both.
   //
-  // Wichtiger als die Feinheit ist die Regel dahinter: ein Schalter, der
-  // auf einem von drei Wegen wirkt und auf den anderen stumm bleibt, ist
-  // schlimmer als keiner — man kann ihm nicht ansehen, wann er galt.
+  // More important than the nicety is the rule behind it: a flag that
+  // works on one of three lanes and stays silent on the others is worse
+  // than none — you cannot tell by looking when it applied.
   const entries = asOf ? all.filter((e) => retrieval.validAt(e, asOf)) : all;
   const ms = Date.now() - t0;
   const wj = { from: window.from.toISOString(), to: window.to.toISOString(), label: window.label };
@@ -3763,10 +3761,10 @@ function showWindow(root, query, window, args, { asOf = null } = {}) {
   }
 
   const narrow = words.length ? `, narrowed to ${words.join('/')}` : '';
-  // Sagen, dass gefiltert wurde, und wie viel weg ist. Eine kuerzere
-  // Liste ohne Erklaerung liest sich wie ein leeres Gedaechtnis.
-  const alsOb = asOf ? `, as of ${asOf} — ${all.length - entries.length} not valid then` : '';
-  out(`${entries.length} entries in window '${window.label}' (${wj.from} .. ${wj.to}${narrow}${alsOb}, ${ms}ms):`);
+  // Say that filtering happened, and how much fell away. A shorter list
+  // with no explanation reads as an empty memory.
+  const asOfNote = asOf ? `, as of ${asOf} — ${all.length - entries.length} not valid then` : '';
+  out(`${entries.length} entries in window '${window.label}' (${wj.from} .. ${wj.to}${narrow}${asOfNote}, ${ms}ms):`);
   for (const e of entries) {
     out(`  [${e.ts}] ${e._source}:${e._line}`);
     out(`         ${compactLine(e)}`);
