@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 54 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 55 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1101 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -75,10 +75,12 @@ directory. The section number in brackets is where it is explained.
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not (10.19) |
 | `integrity.mjs` | what is wrong with the log itself (4) |
 | `language.mjs` | stemming and stop words, per language |
+| `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active (10.27) |
 | `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing (10.26) |
 | `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
 | `net.mjs` | what points at what — from declared links, not from similarity (10.20) |
+| `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking (10.28) |
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree (10.21) |
 | `pointer.mjs` | a pointer instead of silence when something was already shown (10.22) |
@@ -463,7 +465,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 54 commands
+### 7.1 CLI — 55 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -471,7 +473,7 @@ thesaurus embed hooks retrieve explain epoch doctor context facts
 browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
-bridge serve gauges shrink paths net teach
+bridge serve gauges shrink paths net teach maintenance
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
