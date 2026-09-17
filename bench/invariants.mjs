@@ -104,8 +104,22 @@ export function covered(root, { dirs = ['test'] } = {}) {
   return out;
 }
 
-const isInvariant = (e) => e?.art === 'invariant' || e?.art === 'invariante';
-const isDiscarded = (e) => e?.art === 'discarded' || e?.art === 'verworfen';
+/**
+ * The two kinds, in both languages.
+ *
+ * Deliberate, not sloppy: the ids are the shared language, the prose is
+ * each house's own — and with it the word for the kind. Both spellings
+ * count so that the same catalogue can be read in either house.
+ */
+export const KINDS = Object.freeze({
+  invariant: ['invariant', 'invariante'],
+  discarded: ['discarded', 'verworfen'],
+});
+
+const ALL_KINDS = Object.freeze(Object.values(KINDS).flat());
+
+const isInvariant = (e) => KINDS.invariant.includes(e?.art);
+const isDiscarded = (e) => KINDS.discarded.includes(e?.art);
 
 /**
  * The finding for ONE house.
@@ -124,6 +138,20 @@ export function finding(catalogue, coverage) {
     uncovered: invariants.filter((e) => !coverage.has(e.id)).map((e) => e.id),
     unknownMarkers: [...coverage.keys()].filter((k) => !ids.has(k)),
     malformedMarkers: coverage.malformed ?? [],
+
+    // **An entry whose kind is neither falls out of BOTH filters.**
+    //
+    // Found 2026-09-17 while comparing the two houses. Both spellings
+    // of each kind are legal on purpose. But a typo in the kind
+    // ('invarinate', or the field missing altogether) leaves the entry
+    // sitting in the catalogue with no test ever demanded for it — and
+    // "16 of 16 covered" stays true, over 15 entries.
+    //
+    // The same worry as NEARLY_MARKER one level up: what looks recorded
+    // and is not gets reported.
+    foreignKinds: catalogue.entries
+      .filter((e) => e && !ALL_KINDS.includes(e.art))
+      .map((e) => ({ id: e.id ?? '(no id)', art: e.art ?? '(no art)' })),
   };
 }
 
@@ -174,6 +202,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const line of here.finding.malformedMarkers) {
     console.log(`  MALFORMED MARKER      ${line}`);
   }
+  for (const e of here.finding.foreignKinds) {
+    console.log(`  UNKNOWN KIND          ${e.id}  art='${e.art}'  `
+      + `(falls out of BOTH counts — allowed: ${ALL_KINDS.join(', ')})`);
+  }
 
   const AGAINST = flag('against');
   if (AGAINST) {
@@ -205,5 +237,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(2);
   }
   process.exit(here.finding.uncovered.length + here.finding.unknownMarkers.length
-    + here.finding.malformedMarkers.length ? 1 : 0);
+    + here.finding.malformedMarkers.length + here.finding.foreignKinds.length ? 1 : 0);
 }
