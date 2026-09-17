@@ -424,26 +424,53 @@ jobs:
 
           # The fake model dawdles, so the two ticks really overlap.
           TALLY="$W/calls"
-          printf '#!/bin/sh\nsleep 3\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
+          printf '#!/bin/sh\nsleep 2\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
           chmod +x "$W/fake-model"
 
-          for n in 1 2; do
-            env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
-              MEM_DIGEST_LOG="$W/log$n" MEM_DIGEST_VOLUME_NOW_KB=1 \
-              bash bin/mem-digest < /dev/null > /dev/null 2>&1 &
+          # **Ten rounds, not one.** A lock bug is a RACE, and a race
+          # loses only sometimes. The first version of the directory
+          # fallback cleared the lock unconditionally before creating it,
+          # so between the loser's check and its rmdir the winner could
+          # slip in — the loser then deleted the winner's lock and both
+          # ran. Measured 2026-09-17: a single round caught that in 2 of
+          # 12 tries. One round would have been called a flake and
+          # re-run away.
+          #
+          # The round count is measured too, not guessed. Against the
+          # known-bad version, catches per attempt:
+          #
+          #     1 round    2 of 12
+          #     5 rounds   5 of  8
+          #    10 rounds   6 of  8
+          #
+          # This job runs on ubuntu and macos, so a bug has to slip past
+          # both: roughly 94 % per pull request at ten rounds. Not
+          # certainty — and said plainly rather than rounded up. The
+          # honest reading is "a race here will be noticed within a PR or
+          # two", not "cannot get through".
+          for runde in 1 2 3 4 5 6 7 8 9 10; do
+            for n in 1 2; do
+              env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
+                MEM_DIGEST_LOG="$W/log$n" MEM_DIGEST_VOLUME_NOW_KB=1 \
+                bash bin/mem-digest < /dev/null > /dev/null 2>&1 &
+            done
+            wait
+            # Undo the effect so the next round starts from the same
+            # state: the digested marks, not the captures.
+            rm -rf "$W/.mem/digest.lock.d"
+            node bin/mem --root "$W" raw pending --json > /dev/null 2>&1 || true
           done
-          wait
 
           CALLS=0
           [ -e "$TALLY" ] && CALLS="$(wc -l < "$TALLY" | tr -d ' ')"
-          echo "model calls from two concurrent ticks: $CALLS"
+          echo "model calls from 10 rounds of two concurrent ticks: $CALLS (expected 10)"
           # A count alone does not say WHY. The first version of this
           # step printed "0 model calls" on macOS and nothing else, and
           # the reason (a missing `timeout`) was only in the tick's own
           # log. An error message that cannot be acted on costs a whole
           # CI round.
-          if [ "$CALLS" -ne 1 ]; then
-            echo "::error::$CALLS model calls — the lock does not hold"
+          if [ "$CALLS" -ne 10 ]; then
+            echo "::error::$CALLS model calls in 10 rounds — the lock does not hold"
             for f in "$W"/log1 "$W"/log2; do
               echo "--- $f ---"; cat "$f" 2>/dev/null || echo "(empty)"
             done
@@ -453,7 +480,7 @@ jobs:
           # counts as one call too, and would pass the line above.
           grep -q "already running" "$W"/log1 "$W"/log2 || {
             echo "::error::neither tick reported standing down — the lock may not be why"; exit 1; }
-          echo "one call, and the other tick stood down"
+          echo "one call per round, and the other tick stood down each time"
 
       # Dueness is ESTABLISHED through the threshold, not borrowed from
       # whatever this checkout happens to carry. The sibling memory had

@@ -68,6 +68,8 @@ HANDLER_TIMEOUT="${MEM_WATCH_HANDLER_TIMEOUT:-300}"
 # backslash path returns `.`, so this would become the CURRENT
 # directory instead of bin/.
 HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+# shellcheck source=bin/_portable.sh
+. "$HERE/_portable.sh"
 MEM_CLI="$HERE/mem"
 if [ ! -f "$MEM_CLI" ]; then
   MEM_CLI="mem"   # fall back to PATH
@@ -85,14 +87,19 @@ note() {
 }
 
 LOCK="$CHEAP_MEM_ROOT/.mem/watch.lock"
+LOCKDIR="$CHEAP_MEM_ROOT/.mem/watch.lock.d"
 
 do_work() {
   # FD isolation via subshell — without the (), FD 9 leaks into the
   # parent shell, the lock never releases, and every subsequent call
   # says "handler already running" even though nothing runs.
   (
-    exec 9>"$LOCK"
-    if ! flock -n 9; then
+    # flock where it exists, a directory where it does not: `flock` is
+    # not on macOS, and a missing one makes `if ! flock -n 9` TRUE — the
+    # watcher would then stand down on EVERY tick and never run the
+    # handler, reporting exit 0 while doing nothing. Measured in
+    # bin/mem-digest on 2026-09-17; this is the same line.
+    if ! mem_take_lock "$LOCK" "$LOCKDIR" "${MEM_WATCH_STALE_MIN:-120}"; then
       note "handler: already running, skipping"
       exit 0
     fi
@@ -114,7 +121,7 @@ do_work() {
     if ( export CHEAP_MEM_ROOT MEM_WATCH_WHO; \
          export MEM_HEADLESS=watcher; \
          cd "$CHEAP_MEM_ROOT" && \
-         timeout "$HANDLER_TIMEOUT" bash "$HANDLER" ) >>"$LOG" 2>&1; then
+         capped "$HANDLER_TIMEOUT" bash "$HANDLER" ) >>"$LOG" 2>&1; then
       note "handler: done"
       exit 0
     else
