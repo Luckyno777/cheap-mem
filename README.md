@@ -23,7 +23,7 @@ to verify each claim rather than believe it.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-17: **54 CLI commands, 28 MCP tools, 57 modules, 1090
+As of 2026-09-17: **54 CLI commands, 28 MCP tools, 57 modules, 1096
 tests**, at **94.89 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
 code and fails when this line drifts.
 

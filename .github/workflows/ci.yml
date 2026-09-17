@@ -225,20 +225,282 @@ jobs:
             exit 1
           }
 
-      - name: mem-digest.ps1 exits cleanly when nothing is due
+      # **What this step used to prove, and why that was nothing.**
+      #
+      # It created an empty root, ran the tick, and checked
+      # `$LASTEXITCODE -ne 0`. But `exit 0` is what mem-digest.ps1
+      # returns for "not due" AND for a digest that ran to completion.
+      # One code, two outcomes — the check cannot separate them. No fake
+      # model was planted and no call was counted, so a tick that fired
+      # a model on an empty pile passed this step. That is the one
+      # promise the step claims to keep.
+      #
+      # Fixed here by measuring the two things that actually differ: the
+      # dueness answer BEFORE the run, and whether a model was started.
+      - name: mem-digest.ps1 starts no model when nothing is due
         shell: pwsh
         run: |
           $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-d-" + [guid]::NewGuid())
           New-Item -ItemType Directory -Path $memdir | Out-Null
           node (Join-Path $PWD 'bin/mem') --root $memdir init | Out-Null
+          $tally = Join-Path $memdir 'calls.txt'
+          # A fake model that leaves a mark. Start-Process needs something
+          # Windows can start, so a .cmd, not a shell script.
+          $fake = Join-Path $memdir 'fake-model.cmd'
+          Set-Content -Path $fake -Value "@echo x >> `"$tally`"`r`n@exit /b 0"
           $env:CHEAP_MEM_ROOT = $memdir
-          # No captures, so nothing is due: the tick must be back out
-          # immediately with 0, starting no model.
+          $env:MEM_DIGEST_CMD = $fake
+
+          # Establish the precondition, then MEASURE it. `mem digest due`
+          # exits 0 = no, 1 = yes, 3 = cannot tell. Anything but 0 here
+          # means this step is not measuring what its name says.
+          node (Join-Path $PWD 'bin/mem') --root $memdir digest due
+          $due = $LASTEXITCODE
+          if ($due -ne 0) {
+            Write-Host "::error::precondition does not hold — something is due (exit $due)"
+            exit 1
+          }
+
           '{}' | & pwsh -NoProfile -File bin/mem-digest.ps1
           if ($LASTEXITCODE -ne 0) {
             Write-Host "::error::digest tick exited $LASTEXITCODE with nothing to do"
             exit 1
           }
+          if (Test-Path $tally) {
+            Write-Host "::error::the tick started a model although nothing was due"
+            exit 1
+          }
+          Write-Host "nothing due, no model call"
+          # The pwsh shell ends a step with $LASTEXITCODE, which is still
+          # the tick's. Say 0 explicitly, or a tick that correctly
+          # returns 1 fails the step that just proved it was right.
+          exit 0
+
+      # The other half, and the one that was missing entirely: with work
+      # due, EXACTLY ONE call. Without it, a tick that never starts a
+      # model passes the step above and nothing notices.
+      #
+      # Dueness is ESTABLISHED, not borrowed: the threshold comes from
+      # MEM_DIGEST_VOLUME_NOW_KB, so the step does not depend on how much
+      # raw material this checkout happens to carry. The sibling memory
+      # had exactly that bug — the same unchanged step was red at 441 KB
+      # and green at 780 KB, 45 minutes apart, with no code change.
+      - name: mem-digest.ps1 makes exactly one model call when work is due
+        shell: pwsh
+        run: |
+          $mem = Join-Path $PWD 'bin/mem'
+          $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-e-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $memdir | Out-Null
+          node $mem --root $memdir init | Out-Null
+
+          # Real material, the same way the capture step above makes it.
+          $lines = 1..400 | ForEach-Object {
+            @{ timestamp = '2026-01-01T00:00:00Z'
+               message = @{ content = "line $_ about deployment and errors" } } | ConvertTo-Json -Compress
+          }
+          $transcript = Join-Path $memdir 'transcript.jsonl'
+          Set-Content -Path $transcript -Value $lines
+          $env:CHEAP_MEM_ROOT = $memdir
+          $env:CLAUDE_TRANSCRIPT_PATH = $transcript
+          '{}' | & pwsh -NoProfile -File bin/mem-capture.ps1
+          Remove-Item Env:\CLAUDE_TRANSCRIPT_PATH
+
+          $tally = Join-Path $memdir 'calls.txt'
+          $fake = Join-Path $memdir 'fake-model.cmd'
+          Set-Content -Path $fake -Value "@echo x >> `"$tally`"`r`n@exit /b 0"
+          $env:MEM_DIGEST_CMD = $fake
+          $env:MEM_DIGEST_VOLUME_NOW_KB = '1'
+
+          node $mem --root $memdir digest due --volume-now 1
+          $due = $LASTEXITCODE
+          if ($due -ne 1) {
+            Write-Host "::error::precondition does not hold — nothing is due (exit $due)"
+            exit 1
+          }
+
+          '{}' | & pwsh -NoProfile -File bin/mem-digest.ps1
+          $code = $LASTEXITCODE
+          $calls = 0
+          if (Test-Path $tally) { $calls = (Get-Content $tally | Measure-Object -Line).Lines }
+          Write-Host "model calls: $calls, exit $code"
+          if ($calls -ne 1) {
+            Write-Host "::error::$calls model calls instead of exactly one"
+            exit 1
+          }
+          # The fake model returns 0 without digesting anything. The tick
+          # must notice that and say so — an exit code is not an effect.
+          if ($code -ne 1) {
+            Write-Host "::error::an ineffective run ended with $code instead of 1"
+            exit 1
+          }
+          Write-Host "one call, and the ineffective run was caught"
+          # See above: the tick exits 1 here BY DESIGN (an ineffective
+          # run). Without this line the step inherits that 1 and goes red
+          # on the very outcome it demands.
+          exit 0
+
+  digest:
+    name: digest · posix
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 22 }
+
+      # **The POSIX digest had no CI at all until now.** Only
+      # mem-digest.ps1 was exercised, and only in a way that could not
+      # tell "did nothing" from "did everything" (see the powershell job).
+      # bin/mem-digest is the script that actually runs on the machines
+      # most people use, and nothing here had ever started it.
+      #
+      # Two halves, and each one ESTABLISHES its precondition and then
+      # MEASURES it. `mem digest due` exits 0 = no, 1 = yes, 3 = cannot
+      # tell. Note the `|| DUE=$?`: under `set -e` the SUCCESS case of
+      # the second half (exit 1 = due) would otherwise kill the step.
+      - name: bin/mem-digest starts no model when nothing is due
+        run: |
+          set -euo pipefail
+          W="$(mktemp -d)"
+          node bin/mem --root "$W" init > /dev/null
+          TALLY="$W/calls"
+          printf '#!/bin/sh\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
+          chmod +x "$W/fake-model"
+
+          DUE=0
+          node bin/mem --root "$W" digest due || DUE=$?
+          if [ "$DUE" -ne 0 ]; then
+            echo "::error::precondition does not hold — something is due (exit $DUE)"; exit 1
+          fi
+
+          CODE=0
+          env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
+            MEM_DIGEST_LOG="$W/digest.log" bash bin/mem-digest < /dev/null || CODE=$?
+          test "$CODE" -eq 0 || { echo "::error::the tick exited $CODE with nothing to do"; exit 1; }
+          if [ -e "$TALLY" ]; then
+            echo "::error::the tick started a model although nothing was due"; exit 1
+          fi
+          echo "nothing due, no model call"
+
+      # **The lock, and the macOS hole it had (found by the step above,
+      # on its first CI run).** `flock` does not exist on macOS, and the
+      # script used to call it bare: a missing flock made the `if` true,
+      # so every tick on every Mac said "already running, skipping" and
+      # returned 0. The digest had NEVER run there, silently, and the
+      # exit code said everything was fine.
+      #
+      # The repair is a `mkdir` fallback. A repair without a probe is a
+      # hope, so this step measures the thing the lock is FOR: two ticks
+      # at once, exactly one model call. It runs on both platforms, so
+      # the flock path and the mkdir path are each covered by whichever
+      # runner has them.
+      - name: two ticks at once make one model call, not two
+        run: |
+          set -euo pipefail
+          W="$(mktemp -d)"
+          node bin/mem --root "$W" init > /dev/null
+          L="$W/transcript.jsonl"; : > "$L"
+          i=0
+          while [ "$i" -lt 400 ]; do
+            printf '{"timestamp":"2026-01-01T00:00:00Z","message":{"content":"line %s about deployment and errors"}}\n' \
+              "$i" >> "$L"
+            i=$((i+1))
+          done
+          env CHEAP_MEM_ROOT="$W" CLAUDE_TRANSCRIPT_PATH="$L" \
+            bash bin/mem-capture < /dev/null > /dev/null 2>&1 || true
+
+          # Same rule as the two steps around it: establish dueness, then
+          # MEASURE it. Without this, a root where nothing is due would
+          # give two ticks, zero calls — and the count below would fail
+          # pointing at the lock, which had nothing to do with it.
+          DUE=0
+          node bin/mem --root "$W" digest due --volume-now 1 || DUE=$?
+          if [ "$DUE" -ne 1 ]; then
+            echo "::error::precondition does not hold — nothing is due (exit $DUE)"; exit 1
+          fi
+
+          # The fake model dawdles, so the two ticks really overlap.
+          TALLY="$W/calls"
+          printf '#!/bin/sh\nsleep 3\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
+          chmod +x "$W/fake-model"
+
+          for n in 1 2; do
+            env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
+              MEM_DIGEST_LOG="$W/log$n" MEM_DIGEST_VOLUME_NOW_KB=1 \
+              bash bin/mem-digest < /dev/null > /dev/null 2>&1 &
+          done
+          wait
+
+          CALLS=0
+          [ -e "$TALLY" ] && CALLS="$(wc -l < "$TALLY" | tr -d ' ')"
+          echo "model calls from two concurrent ticks: $CALLS"
+          # A count alone does not say WHY. The first version of this
+          # step printed "0 model calls" on macOS and nothing else, and
+          # the reason (a missing `timeout`) was only in the tick's own
+          # log. An error message that cannot be acted on costs a whole
+          # CI round.
+          if [ "$CALLS" -ne 1 ]; then
+            echo "::error::$CALLS model calls — the lock does not hold"
+            for f in "$W"/log1 "$W"/log2; do
+              echo "--- $f ---"; cat "$f" 2>/dev/null || echo "(empty)"
+            done
+            exit 1
+          fi
+          # And the loser must SAY it stood down. A tick that dies quietly
+          # counts as one call too, and would pass the line above.
+          grep -q "already running" "$W"/log1 "$W"/log2 || {
+            echo "::error::neither tick reported standing down — the lock may not be why"; exit 1; }
+          echo "one call, and the other tick stood down"
+
+      # Dueness is ESTABLISHED through the threshold, not borrowed from
+      # whatever this checkout happens to carry. The sibling memory had
+      # exactly that bug: the same unchanged step was red at 441 KB and
+      # green at 780 KB, 45 minutes apart, with no code change. A red
+      # that goes away by itself teaches people to stop reading red.
+      - name: bin/mem-digest makes exactly one model call when work is due
+        run: |
+          set -euo pipefail
+          W="$(mktemp -d)"
+          node bin/mem --root "$W" init > /dev/null
+
+          # Real material, made the way the capture hook makes it.
+          L="$W/transcript.jsonl"; : > "$L"
+          i=0
+          while [ "$i" -lt 400 ]; do
+            printf '{"timestamp":"2026-01-01T00:00:00Z","message":{"content":"line %s about deployment and errors"}}\n' \
+              "$i" >> "$L"
+            i=$((i+1))
+          done
+          env CHEAP_MEM_ROOT="$W" CLAUDE_TRANSCRIPT_PATH="$L" \
+            bash bin/mem-capture < /dev/null > /dev/null 2>&1 || true
+          FAENGE="$(find "$W/raw" -name '*.jsonl.gz' 2>/dev/null | wc -l | tr -d ' ')"
+          test "$FAENGE" -ge 1 || { echo "::error::no capture was produced — nothing to digest"; exit 1; }
+
+          TALLY="$W/calls"
+          printf '#!/bin/sh\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
+          chmod +x "$W/fake-model"
+
+          DUE=0
+          node bin/mem --root "$W" digest due --volume-now 1 || DUE=$?
+          if [ "$DUE" -ne 1 ]; then
+            echo "::error::precondition does not hold — nothing is due (exit $DUE)"; exit 1
+          fi
+
+          CODE=0
+          env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
+            MEM_DIGEST_LOG="$W/digest.log" MEM_DIGEST_VOLUME_NOW_KB=1 \
+            bash bin/mem-digest < /dev/null || CODE=$?
+          CALLS=0
+          [ -e "$TALLY" ] && CALLS="$(wc -l < "$TALLY" | tr -d ' ')"
+          echo "model calls: $CALLS, exit $CODE"
+          test "$CALLS" -eq 1 || { echo "::error::$CALLS model calls instead of exactly one"; exit 1; }
+          # The fake model returns 0 without digesting anything. The tick
+          # must notice that — an exit code is not an effect.
+          test "$CODE" -eq 1 || { echo "::error::an ineffective run ended with $CODE instead of 1"; exit 1; }
+          echo "one call, and the ineffective run was caught"
 
   bench:
     name: benchmark

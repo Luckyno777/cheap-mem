@@ -12,6 +12,13 @@
 #
 # Optional:
 #   MEM_DIGEST_MAX_BYTES  most raw material per run (default 2000000)
+#   MEM_DIGEST_VOLUME_NOW_KB  dueness threshold: volume that is due at once
+#   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
+#   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
+#   MEM_DIGEST_CEILING_H      dueness threshold: ceiling in hours
+#   MEM_DIGEST_STALE_MIN      age at which a lock left by a crashed run
+#                             counts as stale (default 120; only used
+#                             where there is no flock, e.g. macOS)
 #                         the rest stays pending for the next tick
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude -p)
@@ -63,7 +70,23 @@ note() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 # Only a ripe pile goes further.
 #
 # Exit codes of `mem digest due`: 0 no, 1 yes, 3 cannot tell.
-STATE="$(node "$MEM" --root "$ROOT" digest due 2>>"$LOG")"
+#
+# The thresholds are settable so that a TEST can establish dueness
+# instead of borrowing it. Without this, a probe that wants to measure
+# "with work due, exactly one model call" depends on how much raw
+# material the working copy happens to carry that hour — red below the
+# volume threshold, green above it, with no code change in between.
+# That is a flickering probe, and a red that goes away by itself teaches
+# people to stop reading red. (Measured in the sibling memory on
+# 2026-09-17: the same unchanged CI step was red at 441 KB and green at
+# 780 KB, 45 minutes apart.)
+DUE_ARGS=""
+[ -n "${MEM_DIGEST_VOLUME_NOW_KB:-}" ] && DUE_ARGS="$DUE_ARGS --volume-now $MEM_DIGEST_VOLUME_NOW_KB"
+[ -n "${MEM_DIGEST_VOLUME_MIN_KB:-}" ] && DUE_ARGS="$DUE_ARGS --volume-min $MEM_DIGEST_VOLUME_MIN_KB"
+[ -n "${MEM_DIGEST_QUIET_MIN:-}" ]     && DUE_ARGS="$DUE_ARGS --quiet $MEM_DIGEST_QUIET_MIN"
+[ -n "${MEM_DIGEST_CEILING_H:-}" ]     && DUE_ARGS="$DUE_ARGS --ceiling $MEM_DIGEST_CEILING_H"
+# shellcheck disable=SC2086 -- DUE_ARGS is built here, word splitting is wanted
+STATE="$(node "$MEM" --root "$ROOT" digest due $DUE_ARGS 2>>"$LOG")"
 case $? in
   0) exit 0 ;;
   1) : ;;
@@ -74,13 +97,59 @@ esac
 note "due: $STATE"
 
 LOCK="$ROOT/.mem/digest.lock"
+LOCKDIR="$ROOT/.mem/digest.lock.d"
+
+# **`flock` does not exist on macOS (measured 2026-09-17).** This used
+# to be a bare `flock -n 9`, and a missing flock makes that `if` true —
+# so every tick on every Mac reported "already running, skipping" and
+# returned 0. The digest has NEVER run there, silently, and the exit
+# code said everything was fine.
+#
+# Class `drei-zustaende-nie-zwei`: "locked", "free" and "cannot tell"
+# were folded into two, and the third was read as the first.
+#
+# Found by the CI step that comes with this change, on its first run.
+# No test had ever started this script.
+#
+# The fallback is `mkdir`, atomic on POSIX — exactly one caller wins,
+# the same guarantee flock gives here. A directory left by a crashed
+# run is recognised by its age, otherwise one crash would block the
+# digest forever (the trap the PowerShell port already names for its
+# PID file).
+STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
+
+# A cap on how long the model call may run, portably. Same three-way
+# choice bin/mem-retrieve makes: GNU `timeout`, then `gtimeout` from
+# coreutils, then nothing.
+if command -v timeout > /dev/null 2>&1; then CAP=(timeout)
+elif command -v gtimeout > /dev/null 2>&1; then CAP=(gtimeout)
+else CAP=(); fi
+capped() {  # capped <seconds> <cmd...>
+  local secs="$1"; shift
+  if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$secs" "$@"; else "$@"; fi
+}
+
+take_lock() {
+  if command -v flock > /dev/null 2>&1; then
+    exec 9> "$LOCK"
+    flock -n 9 && return 0
+    return 1
+  fi
+  if [ -d "$LOCKDIR" ] && [ -z "$(find "$LOCKDIR" -maxdepth 0 -mmin "+$STALE_MIN" 2>/dev/null)" ]; then
+    return 1
+  fi
+  rmdir "$LOCKDIR" 2> /dev/null || true
+  mkdir "$LOCKDIR" 2> /dev/null || return 1
+  # shellcheck disable=SC2064 -- $LOCKDIR is wanted at trap time, not later
+  trap "rmdir '$LOCKDIR' 2>/dev/null || true" EXIT
+  return 0
+}
 
 # Never two digests at once. The subshell isolates the file descriptor:
 # without the parentheses FD 9 stays open in the parent process and the
 # lock is never released.
 (
-  exec 9>"$LOCK"
-  if ! flock -n 9; then
+  if ! take_lock; then
     note "already running, skipping"
     exit 0
   fi
@@ -199,7 +268,24 @@ condensing enough. Stop after the push."
 
   # MEM_HEADLESS stops this call from triggering the Stop hook — the
   # digest would otherwise capture itself.
-  ( cd "$ROOT" && MEM_HEADLESS=digest timeout "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
+  #
+  # **`timeout` is not on macOS either (measured 2026-09-17).** This line
+  # used to call it unconditionally, so on a Mac the model call died with
+  # 127 before it started and the tick reported "model call exited 127
+  # (timeout or error)". Together with the missing `flock` above that
+  # means the digest could not work on macOS by two independent routes.
+  #
+  # bin/mem-retrieve learned this months ago and says so in its own
+  # comment: "A hard dependency on it made the whole hook silently
+  # produce nothing on macOS." The lesson was written down once and
+  # never carried over here, because nothing ever ran this script. Same
+  # shape as the flock hole, one layer down.
+  #
+  # So: whichever exists, and when neither does, run the command
+  # directly. Losing the cap is worse than nothing only if a hung model
+  # can block something — the tick is a timer job, and the next tick
+  # stands down on the lock.
+  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
   MODEL_EXIT=$?
 
   if [ "$MODEL_EXIT" -ne 0 ]; then

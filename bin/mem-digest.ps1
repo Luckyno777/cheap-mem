@@ -13,6 +13,10 @@
 #   MEM_DIGEST_CMD        model CLI (default: claude)
 #   MEM_DIGEST_ARGS       arguments before the prompt (default: -p)
 #   MEM_DIGEST_LOG        log file (default: $ROOT\.mem\digest.log)
+#   MEM_DIGEST_VOLUME_NOW_KB  dueness threshold: volume that is due at once
+#   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
+#   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
+#   MEM_DIGEST_CEILING_H      dueness threshold: ceiling in hours
 #
 # Exit codes:
 #   0  ran, or nothing to do
@@ -48,7 +52,19 @@ function Note($msg) {
 # milliseconds and with no side effect. Only a ripe pile goes further.
 #
 # Exit codes of `mem digest due`: 0 no, 1 yes, 3 cannot tell.
-$State = & node $Mem --root $Root digest due 2>&1
+#
+# The thresholds are settable so that a TEST can establish dueness
+# instead of borrowing it from however much raw material the checkout
+# happens to carry. Without this a probe for "with work due, exactly one
+# model call" is red below the volume threshold and green above it, with
+# no code change in between — a colour that depends on the calendar
+# rather than the code. The POSIX tick carries the same four knobs.
+$DueArgs = @()
+if ($env:MEM_DIGEST_VOLUME_NOW_KB) { $DueArgs += @('--volume-now', $env:MEM_DIGEST_VOLUME_NOW_KB) }
+if ($env:MEM_DIGEST_VOLUME_MIN_KB) { $DueArgs += @('--volume-min', $env:MEM_DIGEST_VOLUME_MIN_KB) }
+if ($env:MEM_DIGEST_QUIET_MIN)     { $DueArgs += @('--quiet',      $env:MEM_DIGEST_QUIET_MIN) }
+if ($env:MEM_DIGEST_CEILING_H)     { $DueArgs += @('--ceiling',    $env:MEM_DIGEST_CEILING_H) }
+$State = & node $Mem --root $Root digest due @DueArgs 2>&1
 $DueCode = $LASTEXITCODE
 switch ($DueCode) {
   0 { exit 0 }

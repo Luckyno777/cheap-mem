@@ -1,0 +1,128 @@
+// A CI step that carries a precondition in its name must establish it
+// and then measure it.
+//
+// **What this is here for (measured 2026-09-17).** The step
+// `mem-digest.ps1 exits cleanly when nothing is due` created an empty
+// root — the precondition was correctly established — and then checked
+// `$LASTEXITCODE -ne 0`. But `exit 0` is what the tick returns for
+// "not due" AND for a digest that ran to completion. One code, two
+// outcomes. No fake model was planted and no call was counted, so a
+// tick that fired a model on an empty pile passed the step that exists
+// to forbid exactly that.
+//
+// The sibling memory had the mirror image of the same defect, twice in
+// the same file, and fixing one half left the other standing. That is
+// why this probe states the RULE and finds the steps itself, instead of
+// naming the ones that exist today. A third digest step added next
+// month falls out on its first day.
+//
+// The rule: whoever starts a digest script in CI must first ask
+// `mem digest due` and act on the answer. Both halves must exist — one
+// that demands "not due", one that demands "due" — because either on
+// its own is passable by a tick that does nothing at all.
+
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const CI = path.join(REPO, '.github', 'workflows', 'ci.yml');
+
+/**
+ * The file's steps as `{name, body}`.
+ *
+ * No YAML parser — the repo does not carry one as a dependency. A step
+ * starts at `- name:`; its body is the following, more deeply indented
+ * lines.
+ */
+function steps() {
+  const lines = fs.readFileSync(CI, 'utf8').split('\n');
+  const out = [];
+  let cur = null;
+  for (const l of lines) {
+    const head = l.match(/^(\s*)-\s*name:\s*(.+?)\s*$/);
+    if (head) {
+      if (cur) out.push(cur);
+      cur = { name: head[2], indent: head[1].length, body: [] };
+      continue;
+    }
+    if (!cur) continue;
+    if (l.trim() !== '' && (l.length - l.trimStart().length) <= cur.indent) {
+      out.push(cur); cur = null; continue;
+    }
+    cur.body.push(l);
+  }
+  if (cur) out.push(cur);
+  return out.map((s) => ({ name: s.name, body: s.body.join('\n') }));
+}
+
+/** Steps that actually start a digest tick. */
+const digestSteps = () => steps().filter((s) => /bin\/mem-digest(\.ps1)?\b/.test(s.body));
+
+test('POSITIVE: the reader finds named steps at all', () => {
+  // Without this, every rule below would hold against an empty list.
+  const all = steps();
+  assert.ok(all.length >= 10, `only ${all.length} steps read — the reader no longer fits the file`);
+  assert.ok(digestSteps().length >= 2,
+    `only ${digestSteps().length} digest step(s) — both halves must exist`);
+});
+
+test('every digest step asks whether anything is due, before it starts one', () => {
+  for (const s of digestSteps()) {
+    const before = s.body.split(/bash bin\/mem-digest|-File bin\/mem-digest\.ps1/)[0];
+    assert.match(before, /digest due/,
+      `the step "${s.name}" starts a digest tick without asking `
+      + '`mem digest due` first — its precondition is assumed, not measured');
+    assert.match(before, /-ne\s+\d/,
+      `the step "${s.name}" asks about dueness but never checks the answer `
+      + '— a measurement that separates nothing');
+  }
+});
+
+test('the two halves demand OPPOSITE preconditions', () => {
+  // The point. If both halves set up the same state, one of them is mute
+  // and the pair proves half of what it claims.
+  const wanted = digestSteps().map((s) => {
+    const m = s.body.match(/-ne\s+(\d)/);
+    return m ? Number(m[1]) : null;
+  });
+  assert.ok(!wanted.includes(null),
+    'a digest step has no `-ne N` check — then which state it establishes is unreadable');
+  const found = new Set(wanted);
+  assert.ok(found.has(0) && found.has(1),
+    `the digest steps only demand ${[...found].join(', ')} — `
+    + 'one of the two halves (due / not due) measures nothing of its own');
+});
+
+test('every digest step counts model calls instead of trusting the exit code', () => {
+  // The original defect: `exit 0` means both "nothing to do" and "all
+  // done". Only a planted model that leaves a mark tells them apart.
+  for (const s of digestSteps()) {
+    assert.match(s.body, /MEM_DIGEST_CMD/,
+      `the step "${s.name}" starts a tick without planting a fake model — `
+      + 'then it cannot tell "started nothing" from "started something"');
+    assert.match(s.body, /tally|TALLY/,
+      `the step "${s.name}" plants a model but never counts its calls`);
+  }
+});
+
+test('dueness is established by a threshold, not borrowed from the checkout', () => {
+  // The sibling memory's flicker: the same unchanged step was red at
+  // 441 KB of raw material and green at 780 KB, 45 minutes apart.
+  const due = digestSteps().find((s) => /-ne\s+1/.test(s.body));
+  assert.ok(due, 'no step demands that something IS due');
+  assert.match(due.body, /MEM_DIGEST_VOLUME_NOW_KB|--volume-now/,
+    `the step "${due.name}" relies on the default volume threshold — `
+    + 'its colour then depends on how much raw material the checkout happens to carry');
+});
+
+test('both the POSIX tick and the PowerShell tick are covered', () => {
+  // bin/mem-digest had no CI at all until 2026-09-17 — only the .ps1
+  // was exercised, and only in the vacuous way above. The script most
+  // people actually run was the untested one.
+  const bodies = digestSteps().map((s) => s.body).join('\n');
+  assert.match(bodies, /bash bin\/mem-digest\b/, 'the POSIX tick is never started in CI');
+  assert.match(bodies, /bin\/mem-digest\.ps1/, 'the PowerShell tick is never started in CI');
+});
