@@ -480,15 +480,37 @@ export function listProjects(root) {
  * Reads only the `timeline` log — facts meant to change — and folds each
  * `key` down to its current value, dropping retired versions. Pure over
  * the files it reads; no model, no network.
+ *
+ * **A fact is identified by SCOPE plus key (external audit, 2026-09-17).**
+ * This function used to pour every project's timeline into one list and
+ * hand it to `resolveFacts`, which groups by key alone. Two projects that
+ * both record `db.engine` — the most ordinary thing a key can be — were
+ * therefore folded into one fact: alpha's Postgres came back as the
+ * HISTORY of beta's SQLite, so alpha appeared to have migrated. Nothing
+ * was written and nothing was wrong in the files; the reader invented it.
+ *
+ * `resolveFacts` stays scope-blind on purpose — its job is to fold the
+ * versions of ONE fact — and the scope is applied here, where projects
+ * are known, by resolving each project on its own. Every result carries
+ * its `project` (null = global) so a caller cannot lose the distinction
+ * again by accident.
  */
-export function currentFacts(root, { now = new Date(), staleDays = 120 } = {}) {
-  const all = [];
-  for (const project of [null, ...listProjects(root)]) {
-    for (const e of readLog(root, 'timeline', { project }).entries) {
-      if (!e.__broken) all.push(e);
-    }
+export function currentFacts(root, { now = new Date(), staleDays = 120, project } = {}) {
+  const bereiche = project === undefined
+    ? [null, ...listProjects(root)]
+    : [project === 'global' ? null : project];
+  const out = [];
+  for (const bereich of bereiche) {
+    const entries = readLog(root, 'timeline', { project: bereich }).entries
+      .filter((e) => !e.__broken);
+    if (!entries.length) continue;
+    for (const f of freshness.resolveFacts(entries, {
+      now, staleDays, retired: retiredMap(entries),
+    })) out.push({ ...f, project: bereich });
   }
-  return freshness.resolveFacts(all, { now, staleDays, retired: retiredMap(all) });
+  out.sort((a, b) => String(a.project ?? '').localeCompare(String(b.project ?? ''))
+    || a.key.localeCompare(b.key));
+  return out;
 }
 
 /**
@@ -741,7 +763,11 @@ export function topicState(root, key) {
  */
 export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } = {}) {
   const stable = currentFacts(root, { now, staleDays })
-    .filter((f) => !f.stale && !f.conflict);
+    // `current` may be null now: a key whose every version starts in the
+    // future, or has run out, holds nothing today. It is not a stable
+    // fact, and printing the future value here would be exactly the
+    // defect the audit found.
+    .filter((f) => f.current && !f.stale && !f.conflict);
   const when = (f) => Date.parse(f.current.valid_from ?? f.current.ts ?? 0) || 0;
   // Rank by recency so the budget keeps the freshest truths ...
   const byFresh = [...stable].sort((a, b) => when(b) - when(a));
