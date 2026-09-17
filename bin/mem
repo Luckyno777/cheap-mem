@@ -52,6 +52,8 @@ import * as neighbours from '../src/neighbours.mjs';
 import * as onboarding from '../src/onboarding.mjs';
 import * as source from '../src/source.mjs';
 import * as component from '../src/component.mjs';
+import * as maintenance from '../src/maintenance.mjs';
+import * as observations from '../src/observations.mjs';
 import * as errorclass from '../src/errorclass.mjs';
 import * as board from '../src/board.mjs';
 
@@ -340,12 +342,13 @@ const COMMANDS = {
   },
 
   sources: async ({ rest, args }) => {
-    const subs = ['add', 'list'];
+    const subs = ['add', 'bridge', 'list'];
     if (isHelp(args) || !rest[0]) {
       out([
         'mem sources add <url|path> [--title "..."] [--tags a,b] [--project x]',
         '                          [--note "..."] [--max 4000]',
-        'mem sources list [--kind file|address] [--project x]',
+        'mem sources bridge <source_uri> --tool <name> [--title "..."] [--project x]',
+        'mem sources list [--kind file|address|bridge] [--project x]',
         '',
         '  Takes in knowledge that already exists: a pointer, and enough',
         '  text that search can find the document by its own words.',
@@ -359,6 +362,11 @@ const COMMANDS = {
         '  dereferences addresses is a crawler, and what it collects on',
         '  the way nobody has read. Pass text yourself with --note.',
         '',
+        '  A BRIDGE pointer names, in DATA, the tool that could look it up',
+        '  — e.g. --tool cbm_inspect_symbol. This program never calls that',
+        '  tool; the field is a note for whichever AGENT reads the memory',
+        '  next, to make the call itself, with its own permissions.',
+        '',
         '  The excerpt goes through redaction before anything is written —',
         '  a foreign document is exactly where a credential rides along.',
       ].join('\n'));
@@ -368,6 +376,33 @@ const COMMANDS = {
     if (!subs.includes(sub)) die(`sources: '${sub}' unknown. Known: ${subs.join(', ')}`);
     const root = findRoot(args);
     requireConfig(root);
+
+    if (sub === 'bridge') {
+      checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'tool', 'root'], 'sources bridge');
+      const uri = rest.slice(1).join(' ').trim();
+      if (!uri) die('sources bridge: source_uri missing.');
+      if (!args.tool || args.tool === true) die('sources bridge: --tool <name> missing.');
+      const tags = args.tags && args.tags !== true
+        ? String(args.tags).split(',').map((x) => x.trim()).filter(Boolean) : null;
+      let r;
+      try {
+        r = source.declareBridge(root, uri, String(args.tool), {
+          title: args.title && args.title !== true ? String(args.title) : null,
+          tags,
+          project: args.project ?? null,
+          note: args.note && args.note !== true ? String(args.note) : null,
+          agent: memory.agentDefault(),
+          max: args.max ? Number(args.max) : undefined,
+        });
+      } catch (e) { die(`sources bridge: ${e.message}`); }
+      out(`Appended: ${path.relative(root, r.path)}:${countLines(r.path)}`);
+      out(`  id: ${r.entry.id}   kind: bridge   tool: ${r.entry[source.BRIDGE_TOOL_FIELD]}`);
+      if (r.findings.length) {
+        warn(`redacted: ${r.findings.map((f) => `${f.type}x${f.count}`).join(', ')} `
+          + '— the excerpt differs from the original at those points.');
+      }
+      return;
+    }
 
     if (sub === 'add') {
       checkFlags(args, ['title', 'tags', 'project', 'note', 'max', 'root'], 'sources add');
@@ -625,11 +660,19 @@ const COMMANDS = {
     if (isHelp(args)) {
       out([
         'mem procedures [--project <name>]',
+        'mem procedures --match "<text>" [--project <name>]',
         '',
         '  The procedures in force — "this is how we do it here".',
         '',
         '  Create one (CLI only, human author only):',
         '    mem log procedure --title "..." --rule "..." --issued-by owner',
+        '                       [--on-class <name>] [--triggers "word,phrase"]',
+        '',
+        '  Two independent lanes arm a procedure: --on-class (fixed error',
+        '  vocabulary, offered from `mem log error`) and --triggers (literal',
+        '  keywords, offered here with --match). Neither uses a use-count —',
+        '  matches are ordered by authority then recency only, so the same',
+        '  files always offer the same order.',
         '',
         '  A procedure is NOT a skill. A capability is acquired, a rule',
         '  is issued — and because its text is instruction-shaped, every',
@@ -643,7 +686,32 @@ const COMMANDS = {
     }
     const root = findRoot(args);
     requireConfig(root);
-    checkFlags(args, ['project', 'root'], 'procedures');
+    checkFlags(args, ['project', 'match', 'root'], 'procedures');
+
+    if (args.match && args.match !== true) {
+      // The keyword lane. Deliberately a SEPARATE branch from the class
+      // lane below rather than a merge of the two lists: mixing "offered
+      // because of this class" with "offered because of this keyword"
+      // in one ranking would need a rule for comparing the two, and no
+      // such rule exists — see procedure.mjs on why a use-count is not
+      // that rule.
+      const project = args.project && args.project !== 'global' ? args.project : null;
+      const hits = procedure.forKeywords(root, String(args.match), { project });
+      if (!hits.length) {
+        out(`No procedure triggers on '${args.match}'.`);
+        return;
+      }
+      for (const e of hits) {
+        out('');
+        out(`  ${e.id}  ${procedure.mark(e)}`);
+        if (e.title) out(`    ${e.title}`);
+        out(`    (triggers: ${procedure.keywordTriggersOf(e).join(', ')})`);
+      }
+      out('');
+      out(`${hits.length} procedure(s) triggered, ordered by authority then recency.`);
+      return;
+    }
+
     const project = args.project && args.project !== 'global' ? args.project : null;
     const { entries } = memory.readLog(root, procedure.TYPE, { project });
     const retired = memory.retiredMap(entries);
@@ -2629,6 +2697,14 @@ const COMMANDS = {
       type: args.type ? String(args.type) : null,
       withDisputed: Boolean(args['with-disputed']),
     });
+    // An OBSERVATION only — what was shown, when, through which lane.
+    // Written strictly AFTER retrieval.retrieve() has already decided
+    // the claims and their order, so nothing computed above this line
+    // can see it. Best-effort: a full disk or a read-only mount must
+    // never turn an audit trail into an outage of the thing it audits.
+    try {
+      observations.record(root, { lane: 'retrieve', ids: r.claims.map((c) => c.id), query: r.query });
+    } catch { /* observation lost, retrieval unaffected — see src/observations.mjs */ }
     if (args.json) { out(JSON.stringify(r, null, 2)); return; }
     if (!r.claims.length) {
       out(`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`);
@@ -2826,6 +2902,99 @@ const COMMANDS = {
     if (args.json) out(JSON.stringify(f, null, 2));
     else out(shrink.asText(f));
     if (f.state === shrink.STATE.ALARM) process.exitCode = 2;
+  },
+
+  observations: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem observations [--last <n>] [--json]',
+        '',
+        '  What this memory has injected, and when. Per machine, never',
+        '  committed, and read by nothing but this command -- ranking must',
+        '  not see it, or the same data would stop giving the same answer.',
+        '',
+        '  --last   how many of the most recent lines to show (default 20)',
+        '  --json   the raw lines',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['last', 'json', 'root'], 'observations');
+    const root = findRoot(args);
+    requireConfig(root);
+    const led = observations.readAll(root);
+
+    // Three states, never two: no ledger at all is not an empty ledger.
+    if (led.missing) {
+      out(`no ledger yet: ${led.path}`);
+      out('Nothing has been injected on this machine, or it was cleared.');
+      return;
+    }
+    if (args.json) { out(JSON.stringify(led.entries, null, 2)); return; }
+    if (!led.entries.length) { out(`ledger is empty: ${led.path}`); return; }
+
+    const broken = led.entries.filter((e) => e.__broken).length;
+    const good = led.entries.filter((e) => !e.__broken);
+    const n = args.last && args.last !== true ? Math.max(1, Number(args.last)) : 20;
+    out(`${good.length} observation(s)${broken ? `, ${broken} unreadable` : ''} in ${led.path}`);
+    if (broken) out('Unreadable lines are kept, not dropped -- silence here would hide the corruption this log exists to catch.');
+    out('');
+    for (const e of good.slice(-n)) {
+      const q = e.query ? ` "${String(e.query).slice(0, 48)}"` : '';
+      out(`  ${e.ts ?? '?'}  ${String(e.lane ?? '?').padEnd(10)} ${(e.ids ?? []).length} hit(s)${q}`);
+    }
+  },
+
+  maintenance: async ({ rest, args }) => {
+    const subs = ['dedupe'];
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem maintenance dedupe [--project <name>] [--type <type>] [--dry-run]',
+        '',
+        '  Entries whose CONTENT is identical are merged: the one with the',
+        '  highest authority stays active, the rest are retired with a',
+        '  tombstone line naming the survivor. Append-only — nothing is',
+        '  edited or deleted, only a new line is appended next to each loser.',
+        '',
+        '  "Identical" means the same content hash. A file source reuses',
+        '  the hash already computed when it was taken in (store.put); every',
+        '  other entry uses the exact-match rule retrieval already applies',
+        '  when it collapses flooded duplicates at read time. Near-duplicates',
+        '  — same meaning, different words — are left alone on purpose: that',
+        '  needs a judgement call this command does not make.',
+        '',
+        '  --dry-run   show what would merge, write nothing',
+        '  --type      restrict to one entry type (default: all)',
+        '  --project   one project only (default: every project + global)',
+        '',
+        '  Running it twice changes nothing the second time.',
+      ].join('\n'));
+      return;
+    }
+    const sub = rest[0];
+    if (!subs.includes(sub)) die(`maintenance: '${sub}' unknown. Known: ${subs.join(', ')}`);
+    checkFlags(args, ['project', 'type', 'dry-run', 'root'], 'maintenance dedupe');
+    const root = findRoot(args);
+    requireConfig(root);
+    const type = args.type && args.type !== true ? String(args.type) : null;
+    if (type && !Object.hasOwn(memory.TYPES, type)) {
+      die(`maintenance dedupe: unknown type '${type}'. Known: ${Object.keys(memory.TYPES).join(', ')}`);
+    }
+    const project = args.project
+      ? (args.project === 'global' ? null : String(args.project))
+      : undefined;
+    const dryRun = Boolean(args['dry-run']);
+    const report = maintenance.dedupe(root, { project, type, dryRun });
+    if (!report.length) {
+      out('No exact duplicates found. Nothing to merge.');
+      return;
+    }
+    for (const r of report) {
+      out(`  ${dryRun ? 'would merge' : 'merged'}  ${r.type}${r.project ? `/${r.project}` : ''}  `
+        + `${r.retired} -> kept ${r.survivor}  (hash ${r.hash.slice(0, 12)})`);
+    }
+    out('');
+    out(`${report.length} ${report.length === 1 ? 'entry' : 'entries'} `
+      + `${dryRun ? 'would be' : ''} superseded by content-hash merge.`);
   },
 
   paths: async ({ args }) => {
@@ -4213,6 +4382,8 @@ function writeMemoryGitignore(root) {
     ['.mem/digest.lock', 'transient'],
     ['.mem/digest.log', 'local log'],
     ['.mem/hooks/', 'generated by `mem hooks install`, machine-specific'],
+    [observations.LEDGER_FILE.split(path.sep).join('/'),
+      'per-machine observation ledger — retrieval/ranking never reads it'],
   ];
   const existing = fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '';
 
