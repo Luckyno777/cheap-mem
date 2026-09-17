@@ -10,6 +10,10 @@
 // finding this rewrite is built on.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+// Ausdruecklich importiert statt global benutzt: global ist es in node seit
+// Jahren, in der eslint-Umgebung dieses Repos aber nicht deklariert — und ein
+// Lint-Fehler in der CI ist ein roter Lauf wie jeder andere.
+import { performance } from 'node:perf_hooks';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -123,7 +127,6 @@ test('MEASURED: forKeywords over 500 procedures', () => {
     const ms = performance.now() - t0;
     assert.equal(hits.length, 500, 'the shared keyword must hit every procedure');
     // Not a hard pass/fail gate — a real number, printed, is the point.
-    // eslint-disable-next-line no-console
     console.log(`    forKeywords over 500 procedures: ${ms.toFixed(2)} ms`);
     assert.ok(ms < 2000, `500 procedures took ${ms.toFixed(2)} ms — investigate before it grows`);
   } finally { away(r); }
