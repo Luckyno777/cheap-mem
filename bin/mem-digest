@@ -12,6 +12,10 @@
 #
 # Optional:
 #   MEM_DIGEST_MAX_BYTES  most raw material per run (default 2000000)
+#   MEM_DIGEST_VOLUME_NOW_KB  dueness threshold: volume that is due at once
+#   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
+#   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
+#   MEM_DIGEST_CEILING_H      dueness threshold: ceiling in hours
 #                         the rest stays pending for the next tick
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude -p)
@@ -63,7 +67,23 @@ note() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
 # Only a ripe pile goes further.
 #
 # Exit codes of `mem digest due`: 0 no, 1 yes, 3 cannot tell.
-STATE="$(node "$MEM" --root "$ROOT" digest due 2>>"$LOG")"
+#
+# The thresholds are settable so that a TEST can establish dueness
+# instead of borrowing it. Without this, a probe that wants to measure
+# "with work due, exactly one model call" depends on how much raw
+# material the working copy happens to carry that hour — red below the
+# volume threshold, green above it, with no code change in between.
+# That is a flickering probe, and a red that goes away by itself teaches
+# people to stop reading red. (Measured in the sibling memory on
+# 2026-09-17: the same unchanged CI step was red at 441 KB and green at
+# 780 KB, 45 minutes apart.)
+DUE_ARGS=""
+[ -n "${MEM_DIGEST_VOLUME_NOW_KB:-}" ] && DUE_ARGS="$DUE_ARGS --volume-now $MEM_DIGEST_VOLUME_NOW_KB"
+[ -n "${MEM_DIGEST_VOLUME_MIN_KB:-}" ] && DUE_ARGS="$DUE_ARGS --volume-min $MEM_DIGEST_VOLUME_MIN_KB"
+[ -n "${MEM_DIGEST_QUIET_MIN:-}" ]     && DUE_ARGS="$DUE_ARGS --quiet $MEM_DIGEST_QUIET_MIN"
+[ -n "${MEM_DIGEST_CEILING_H:-}" ]     && DUE_ARGS="$DUE_ARGS --ceiling $MEM_DIGEST_CEILING_H"
+# shellcheck disable=SC2086 -- DUE_ARGS is built here, word splitting is wanted
+STATE="$(node "$MEM" --root "$ROOT" digest due $DUE_ARGS 2>>"$LOG")"
 case $? in
   0) exit 0 ;;
   1) : ;;
