@@ -712,7 +712,7 @@ export function search(index, query, {
   }
 
   const now = Date.now();
-  const grenzen = { type, project, authority, since, noRaw, onlyRaw, withRetired };
+  const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired };
 
   const hits = [];
   for (const doc of index.documents) {
@@ -722,7 +722,7 @@ export function search(index, query, {
     // fills the candidate set before a higher tier is looked at, and no
     // policy applied afterwards can recover a claim that was never a
     // candidate. Measured 2026-09-05 (bench/byzantine.mjs).
-    if (!admits(doc, grenzen)) continue;
+    if (!admits(doc, limits)) continue;
     const isRaw = doc.type === 'raw';
 
     let score = 0;
@@ -1352,7 +1352,7 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * is a different question and is answered by `admits`, once, for every
  * lane.
  */
-export function exactHits(index, query, slots, grenzen = {}) {
+export function exactHits(index, query, slots, limits = {}) {
   const found = entity.hits(index.entityIndex, query, slots);
   if (!found.size && !found.length) return [];
   // minScore 0: a lane hit is often exactly the document BM25 rates near
@@ -1366,7 +1366,7 @@ export function exactHits(index, query, slots, grenzen = {}) {
   for (const [i, which] of found) {
     const doc = index.documents[i];
     if (!doc) continue;
-    if (!admits(doc, grenzen)) continue;
+    if (!admits(doc, limits)) continue;
     out.push({
       score: scores.get(`${doc.source}:${doc.line}`) ?? 0,
       type: doc.type,

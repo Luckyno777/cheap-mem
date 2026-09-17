@@ -32,7 +32,7 @@ const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
 /** Two entries with the SAME literal in them, in different projects. */
 function welt() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-grenzen-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-limits-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
   memory.logEntry(root, 'decision', {

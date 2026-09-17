@@ -107,7 +107,7 @@ export class Capability {
    * everyone who may read. Taking `global` as a ROOT requires actually
    * holding it.
    */
-  umfasst(scope) {
+  covers(scope) {
     const id = parseScope(scope).id;
     if (this.scopes.includes(id)) return true;
     if (this.descendants && this.scopes.includes(GLOBAL)) return true;
@@ -124,7 +124,7 @@ export class Capability {
    * not admitted before.
    */
   narrow({ scopes = null, rights = null } = {}) {
-    const keep = (scopes ?? this.scopes).filter((s) => this.umfasst(s));
+    const keep = (scopes ?? this.scopes).filter((s) => this.covers(s));
     const rs = (rights ?? this.rights).filter((r) => this.has(r));
     return new Capability({
       scopes: keep, rights: rs, subject: this.subject, descendants: this.descendants,
