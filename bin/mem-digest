@@ -118,6 +118,17 @@ LOCKDIR="$ROOT/.mem/digest.lock.d"
 # PID file).
 STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
 
+# A cap on how long the model call may run, portably. Same three-way
+# choice bin/mem-retrieve makes: GNU `timeout`, then `gtimeout` from
+# coreutils, then nothing.
+if command -v timeout > /dev/null 2>&1; then CAP=(timeout)
+elif command -v gtimeout > /dev/null 2>&1; then CAP=(gtimeout)
+else CAP=(); fi
+capped() {  # capped <seconds> <cmd...>
+  local secs="$1"; shift
+  if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$secs" "$@"; else "$@"; fi
+}
+
 take_lock() {
   if command -v flock > /dev/null 2>&1; then
     exec 9> "$LOCK"
@@ -257,7 +268,24 @@ condensing enough. Stop after the push."
 
   # MEM_HEADLESS stops this call from triggering the Stop hook — the
   # digest would otherwise capture itself.
-  ( cd "$ROOT" && MEM_HEADLESS=digest timeout "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
+  #
+  # **`timeout` is not on macOS either (measured 2026-09-17).** This line
+  # used to call it unconditionally, so on a Mac the model call died with
+  # 127 before it started and the tick reported "model call exited 127
+  # (timeout or error)". Together with the missing `flock` above that
+  # means the digest could not work on macOS by two independent routes.
+  #
+  # bin/mem-retrieve learned this months ago and says so in its own
+  # comment: "A hard dependency on it made the whole hook silently
+  # produce nothing on macOS." The lesson was written down once and
+  # never carried over here, because nothing ever ran this script. Same
+  # shape as the flock hole, one layer down.
+  #
+  # So: whichever exists, and when neither does, run the command
+  # directly. Losing the cap is worse than nothing only if a hung model
+  # can block something — the tick is a timer job, and the next tick
+  # stands down on the lock.
+  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
   MODEL_EXIT=$?
 
   if [ "$MODEL_EXIT" -ne 0 ]; then

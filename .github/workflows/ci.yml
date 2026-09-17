@@ -271,6 +271,10 @@ jobs:
             exit 1
           }
           Write-Host "nothing due, no model call"
+          # The pwsh shell ends a step with $LASTEXITCODE, which is still
+          # the tick's. Say 0 explicitly, or a tick that correctly
+          # returns 1 fails the step that just proved it was right.
+          exit 0
 
       # The other half, and the one that was missing entirely: with work
       # due, EXACTLY ONE call. Without it, a tick that never starts a
@@ -330,6 +334,10 @@ jobs:
             exit 1
           }
           Write-Host "one call, and the ineffective run was caught"
+          # See above: the tick exits 1 here BY DESIGN (an ineffective
+          # run). Without this line the step inherits that 1 and goes red
+          # on the very outcome it demands.
+          exit 0
 
   digest:
     name: digest · posix
@@ -429,7 +437,18 @@ jobs:
           CALLS=0
           [ -e "$TALLY" ] && CALLS="$(wc -l < "$TALLY" | tr -d ' ')"
           echo "model calls from two concurrent ticks: $CALLS"
-          test "$CALLS" -eq 1 || { echo "::error::$CALLS model calls — the lock does not hold"; exit 1; }
+          # A count alone does not say WHY. The first version of this
+          # step printed "0 model calls" on macOS and nothing else, and
+          # the reason (a missing `timeout`) was only in the tick's own
+          # log. An error message that cannot be acted on costs a whole
+          # CI round.
+          if [ "$CALLS" -ne 1 ]; then
+            echo "::error::$CALLS model calls — the lock does not hold"
+            for f in "$W"/log1 "$W"/log2; do
+              echo "--- $f ---"; cat "$f" 2>/dev/null || echo "(empty)"
+            done
+            exit 1
+          fi
           # And the loser must SAY it stood down. A tick that dies quietly
           # counts as one call too, and would pass the line above.
           grep -q "already running" "$W"/log1 "$W"/log2 || {
