@@ -63,6 +63,8 @@ export function check(fields = {}) {
 export function all(root, { project = undefined } = {}) {
   const projects = project === undefined ? [null, ...memory.listProjects(root)] : [project];
   const out = [];
+  // Einmal, nicht je Frage. Siehe die Begruendung an memory.linksOf.
+  const byId = memory.entriesById(root);
   for (const p of projects) {
     let res;
     try { res = memory.readLog(root, TYPE, { project: p }); } catch { continue; }
@@ -70,7 +72,7 @@ export function all(root, { project = undefined } = {}) {
     for (const e of res.entries) {
       if (e.__broken || !e.question || !e.id) continue;
       if (!memory.holds(e, retired)) continue;
-      const g = memory.linksOf(root, e.id);
+      const g = memory.linksOf(root, e.id, { byId });
       const answers = g.incoming.filter((r) => r.kind === RESOLVES);
       out.push({
         ...e,
