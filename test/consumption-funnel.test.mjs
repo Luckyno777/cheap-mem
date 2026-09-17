@@ -23,6 +23,8 @@ import path from 'node:path';
 import { funnel, finding, readJsonl, NO_FOLD, FOLD_POINTER,
   FOLD_EDGE } from '../bench/consumption-funnel.mjs';
 import * as inbox from '../src/inbox.mjs';
+import * as memory from '../src/memory.mjs';
+import * as config from '../src/config.mjs';
 
 const run = (r) => funnel(r, { isDone: inbox.isDone });
 const pick = (cs, name) => cs.find((c) => c.channel === name);
@@ -31,6 +33,8 @@ function build() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-funnel-'));
   fs.mkdirSync(path.join(r, 'inbox'), { recursive: true });
   fs.mkdirSync(path.join(r, 'projects/p'), { recursive: true });
+  fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
+  config.writeConfig(r, config.DEFAULT_CONFIG);
   return r;
 }
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
@@ -41,16 +45,29 @@ const msg = (r, name, state) => fs.writeFileSync(path.join(r, 'inbox', name),
 
 test('a question closed by a resolves edge counts as consumed', () => {
   // The first draft's mistake, kept as a test.
+  //
+  // **And this test was itself the second half of the defect (external
+  // audit, 2026-09-17).** It used to write its rows BY HAND, with the
+  // fields `frage`, `art`, `von` and `nach` — the names of the project
+  // this tool was extracted from. The channel read those same names.
+  // So gauge and calibration shared one wrong assumption, agreed with
+  // each other, and a memory written through the real writer measured
+  // `produced 0, consumed 0` while `question.all` said the question was
+  // answered. The test passed the whole time.
+  //
+  // The fixture therefore goes through the PUBLIC writer now. That is
+  // the only version of this test that can fail when the channel stops
+  // reading what the repo actually writes.
   const r = build();
   try {
-    rows(r, 'questions.jsonl', [
-      { id: 'q1', ts: '2026-09-16T10:00:00Z', frage: 'A?' },
-      { id: 'q2', ts: '2026-09-16T11:00:00Z', frage: 'B?' },
-    ]);
-    rows(r, 'links.jsonl', [
-      { id: 'l1', art: 'resolves', von: 'e9', nach: 'q1' },
-      { id: 'l2', art: 'causes', von: 'e8', nach: 'q2' },
-    ]);
+    const ts = '2026-09-16T10:00:00Z';
+    memory.logEntry(r, 'question', { id: 'q1', question: 'A?', ts }, { project: 'p' });
+    memory.logEntry(r, 'question', { id: 'q2', question: 'B?', ts }, { project: 'p' });
+    memory.logEntry(r, 'learning', { id: 'e9', text: 'because', ts }, { project: 'p' });
+    memory.logEntry(r, 'learning', { id: 'e8', text: 'unrelated', ts }, { project: 'p' });
+    memory.logEntry(r, 'link', { id: 'l1', kind: 'resolves', from: 'e9', to: 'q1', ts }, { project: 'p' });
+    memory.logEntry(r, 'link', { id: 'l2', kind: 'causes', from: 'e8', to: 'q2', ts }, { project: 'p' });
+
     const q = pick(run(r), 'questions');
     assert.equal(q.produced, 2);
     assert.equal(q.consumed, 1, 'the resolves edge was not read as a closing');

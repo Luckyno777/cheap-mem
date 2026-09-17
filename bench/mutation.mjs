@@ -171,7 +171,7 @@ const MUTANTS=[
 
  { name:'SEM narrow() may widen',
    file:'src/capability.mjs',
-   from:'    const keep = (scopes ?? this.scopes).filter((s) => this.admits(s));',
+   from:'    const keep = (scopes ?? this.scopes).filter((s) => this.covers(s));',
    to:'    const keep = (scopes ?? this.scopes);  // MUTANT: no filter',
    tests:['test/retrieval.test.mjs'] },
 
@@ -403,14 +403,19 @@ const MUTANTS=[
 
  { name:'ARCH the gateway drops the exact lane',
    file:'src/retrieval.mjs',
-   from:'  const exakte = exactHits(idx, useQuery, want);',
-   to:'  const exakte = [];  // MUTANT: Exakt-Treffer fallen wieder unter die Schwelle',
+   from:'  const exakte = exactHits(idx, useQuery, want, { withRetired: true });',
+   to:'  const exakte = [];  // MUTANT: exact hits fall back under the threshold',
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'ARCH `mem find` drops the exact lane',
    file:'bin/mem',
-   from:'    const exakt = search.exactHits(index, query, wanted);',
-   to:'    const exakt = [];  // MUTANT: nur der Gateway kennt die Bahn, der Hook nicht',
+   // Anchored on the line that FOLDS the lane in, not on the call: the
+   // call became multi-line when the admission limits went in
+   // (2026-09-17), and a one-line anchor over it went quietly missing.
+   // This line is the one that decides whether the lane reaches the
+   // caller at all.
+   from:'    const exaktIds = new Set(exakt.map((h) => h.entry?.id).filter(Boolean));',
+   to:'    const exaktIds = new Set(); exakt.length = 0;  // MUTANT: only the gateway knows the lane, the hook does not',
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'SEM identifier patterns swallow ordinary prose',

@@ -213,17 +213,39 @@ TWO="$(printf '%s' "$TURN" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
 if [ -n "$ONE" ] && [ -z "$TWO" ]; then ok "second run of the same turn stays silent"
 else bad "same turn injected twice (first ${#ONE} chars, second ${#TWO} chars)"; fi
 
-echo "8c) a DIFFERENT turn in the same session is injected again"
+echo "8c) a later turn with DIFFERENT material is injected again"
 # The claim is per turn, not per session — otherwise nobody would get
 # anything from their second message onwards.
 # The phrasing matters: the first attempt at this probe used a
 # question that scored 0.53 against a threshold of 1.0 and was cut
 # correctly — the probe blamed the claim for the threshold's work.
-OTHER='{"session_id":"lane-1","prompt":"what about the flaky payment integration test timeout again"}'
+OTHER='{"session_id":"lane-1","prompt":"tell me about the routine note on deploys and builds"}'
 THREE="$(printf '%s' "$OTHER" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
   CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
-if [ -n "$THREE" ]; then ok "a new question is served"
+if [ -n "$THREE" ]; then ok "a new question with new material is served"
 else bad "a new question in the same session got nothing"; fi
+
+echo "8d) a later turn that would inject the SAME block stays silent"
+# **This probe used to demand the opposite, and it was right to change
+# (external audit, 2026-09-17).** The claim key used to be
+# session + PROMPT; it is now session + the BLOCK THAT WOULD BE
+# INJECTED. Both keys make "the same turn twice" silent, but they part
+# ways here: a second, differently worded question whose answer is the
+# very same memory line.
+#
+# Under the old key that line went into the context a second time,
+# word for word. The block is identical — the model already has it,
+# from this same session, unchanged. A second copy buys nothing and
+# costs the occupancy.
+#
+# So the guarantee is NOT "one injection per turn" but the sharper
+# "no byte-identical block twice per session". 8c above is the half
+# that keeps it honest: as soon as the material differs, it goes in.
+SAME='{"session_id":"lane-1","prompt":"what about the flaky payment integration test timeout again"}'
+FOUR="$(printf '%s' "$SAME" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+  CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+if [ -z "$FOUR" ]; then ok "the same block is not injected a second time"
+else bad "an identical block went into the context twice (${#FOUR} chars)"; fi
 
 echo "9) below-threshold match stays hidden"
 build_memory
