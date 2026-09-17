@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 56 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 60 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1166 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -54,6 +54,7 @@ directory. The section number in brackets is where it is explained.
 | `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
+| `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
@@ -466,7 +467,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 56 commands
+### 7.1 CLI — 60 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -475,6 +476,7 @@ browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
+find-embed find-hybrid raw-capture topic-merge
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,

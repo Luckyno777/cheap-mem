@@ -22,12 +22,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as clihelp from '../src/clihelp.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
 const DOC = read('docs/CAPABILITIES.md');
 
-const cliCommands = () => [...read('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]);
+// ONE reading of the dispatch table for the whole house. The regex
+// that used to stand here allowed no quotes, so it never saw
+// 'find-embed', 'find-hybrid', 'raw-capture' and 'topic-merge' —
+// and all four were missing from this very reference while the
+// guard reported it complete. Measured 2026-09-17.
+const cliCommands = () => clihelp.tableCommands(read('bin/mem'));
 const mcpTools = () => [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1]);
 const types = () => [...read('src/memory.mjs').matchAll(/^ {2}([a-z]+): '[a-z]+\.jsonl'/gm)].map((m) => m[1]);
 const edges = () => [...read('src/memory.mjs').matchAll(/^ {2}([a-z]+): 'the source/gm)].map((m) => m[1]);

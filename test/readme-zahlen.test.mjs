@@ -26,6 +26,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as clihelp from '../src/clihelp.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
@@ -43,7 +44,7 @@ function lineCount(dir, filter = () => true) {
 }
 
 const counted = {
-  cli: [...read('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].length,
+  cli: clihelp.tableCommands(read('bin/mem')).length,
   mcp: [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].length,
   modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
 };
@@ -136,7 +137,7 @@ test('every command the README names actually exists', () => {
   // that omits a command: the reader runs it and gets an error that
   // reads like their mistake.
   const named = new Set([...CMD_BLOCK().matchAll(/^mem ([a-z-]+)/gm)].map((m) => m[1]));
-  const real = new Set([...read('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]));
+  const real = new Set(clihelp.tableCommands(read('bin/mem')));
   // These three are documented spellings of `mem embed` / `mem find`
   // subcommands rather than top-level commands of their own.
   for (const alias of ['find-embed', 'find-hybrid']) named.delete(alias);

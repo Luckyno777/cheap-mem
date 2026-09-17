@@ -43,6 +43,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as clihelp from '../src/clihelp.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
@@ -64,7 +65,7 @@ const IST = {
   /** Countable things. No tolerance — these are facts, not estimates. */
   genau: {
     'MCP tools': new Set([...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1])).size,
-    'CLI commands': [...read('bin/mem').matchAll(/^ {2}([a-z-]+): async/gm)].length,
+    'CLI commands': clihelp.tableCommands(read('bin/mem')).length,
     modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
   },
   /**

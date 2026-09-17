@@ -20,6 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as setup from '../src/setup.mjs';
+import * as clihelp from '../src/clihelp.mjs';
 
 const MEM = path.join(import.meta.dirname, '..', 'bin', 'mem');
 
@@ -35,7 +36,7 @@ test('no command is defined twice', () => {
   // loaded object a duplicate is invisible, because the second key has
   // replaced the first. Only the file itself shows both.
   const source = fs.readFileSync(MEM, 'utf8');
-  const names = [...source.matchAll(/^ {2}([a-z-]+): async/gm)].map((m) => m[1]);
+  const names = clihelp.tableCommands(source);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
   assert.deepEqual(twice, [], `defined twice: ${twice.join(', ')}`);
   assert.ok(names.length > 30, `only ${names.length} commands found — the probe is broken`);
