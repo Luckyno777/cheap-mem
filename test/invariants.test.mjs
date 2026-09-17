@@ -153,3 +153,63 @@ test('a correct marker is NOT reported as malformed', () => {
     assert.deepEqual(f.covered, ['alpha-eins']);
   } finally { away(r); }
 });
+
+test('an entry whose KIND is a typo is reported, not silently dropped', () => {
+  // Found 2026-09-17 while comparing the two houses. Both spellings of
+  // each kind are legal on purpose — the ids are the shared language,
+  // the prose (and with it the word for the kind) is each house's own.
+  // But an entry whose kind is NEITHER falls out of both filters: it
+  // sits in the catalogue, no test is ever demanded for it, and
+  // "16 of 16 covered" stays true — over 15 entries.
+  //
+  // The same worry as NEARLY_MARKER one level up: what looks recorded
+  // and is not gets reported.
+  const r = house({
+    entries: [
+      INV('alpha-eins'),
+      { id: 'beta-zwei', art: 'invarinate', titel: 'x', warum: 'x', pruefung: 'y' },
+      { id: 'gamma-drei', titel: 'no art at all', warum: 'x', pruefung: 'y' },
+    ],
+    markers: { 'one.test.mjs': ['alpha-eins'] },
+  });
+  try {
+    const f = finding(readCatalogue(r), covered(r));
+    assert.equal(f.invariants, 1);
+    assert.deepEqual(f.uncovered, []);
+    assert.deepEqual(f.foreignKinds, [
+      { id: 'beta-zwei', art: 'invarinate' },
+      { id: 'gamma-drei', art: '(no art)' },
+    ]);
+  } finally { away(r); }
+});
+
+test('both spellings of both kinds stay legal — that is the point', () => {
+  // The counter-check. A guard that reports every spelling it does not
+  // personally prefer would break the shared catalogue, which is the
+  // whole reason the second spelling exists.
+  const r = house({
+    entries: [
+      { id: 'a-english', art: 'invariant', titel: 'x', warum: 'x', pruefung: 'y' },
+      { id: 'b-german', art: 'invariante', titel: 'x', warum: 'x', pruefung: 'y' },
+      { id: 'c-english', art: 'discarded', titel: 'x', warum: 'x' },
+      { id: 'd-german', art: 'verworfen', titel: 'x', warum: 'x' },
+    ],
+    markers: { 'one.test.mjs': ['a-english', 'b-german'] },
+  });
+  try {
+    const f = finding(readCatalogue(r), covered(r));
+    assert.equal(f.invariants, 2, 'a spelling of the kind was not counted');
+    assert.equal(f.discarded, 2, 'a spelling of the discarded kind was not counted');
+    assert.deepEqual(f.foreignKinds, [], 'a legal spelling was reported as foreign');
+  } finally { away(r); }
+});
+
+test('POSITIVE: this house has no entry with a foreign kind', () => {
+  // The live check. If this ever turns red, an entry is in the book and
+  // guarded by nobody.
+  const h = readHouse(REPO);
+  assert.ok(h.finding.invariants >= 10,
+    `only ${h.finding.invariants} invariants found — the probe is measuring nothing`);
+  assert.deepEqual(h.finding.foreignKinds, [],
+    'this entry is in the catalogue and falls out of both counts');
+});
