@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
-import { checkFactConflicts, checkOrphans, LEVEL } from '../src/doctor.mjs';
+import { checkFactConflicts, checkOrphans, checkIntegrity, LEVEL } from '../src/doctor.mjs';
 
 function tmpRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-doctor-'));
@@ -63,4 +63,33 @@ test('orphans: a link edge into nothing is caught like any dead pointer', () => 
   const f = checkOrphans(root);
   assert.equal(f.level, LEVEL.WARN);
   assert.match(f.text, /ghost-edge-1/);
+});
+
+// --- integrity: valid_until before valid_from ------------------------
+
+test('integrity: an entry with valid_until before valid_from is named, not folded into a generic count', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'decision', {
+    topic: 'x', choice: 'y', why: 'z',
+    valid_from: '2026-06-01T00:00:00Z', valid_until: '2026-01-01T00:00:00Z',
+  });
+  const f = checkIntegrity(root);
+  assert.equal(f.level, LEVEL.WARN,
+    'a claim that can never be valid at any --as-of is worth more than a GOOD note');
+  assert.match(f.text, /valid_until before valid_from/);
+  assert.ok(f.advice, 'a non-good finding must carry a next step');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('integrity: an ordinary clock skew stays GOOD, unaffected by the new check', () => {
+  const root = tmpRoot();
+  // A timestamp 20 minutes in the future — past the 5-minute slack, so
+  // it lands in the generic "questionable timestamp(s)" bucket, which
+  // this new check must not have touched.
+  memory.logEntry(root, 'decision', { topic: 'x', choice: 'y', why: 'z',
+    ts: new Date(Date.now() + 20 * 60000).toISOString() });
+  const f = checkIntegrity(root);
+  assert.equal(f.level, LEVEL.GOOD);
+  assert.match(f.text, /questionable timestamp/);
+  fs.rmSync(root, { recursive: true, force: true });
 });

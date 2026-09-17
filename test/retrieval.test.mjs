@@ -136,6 +136,54 @@ test('an as-of query excludes claims that had stopped holding', () => {
   rm(root);
 });
 
+// --- PROBE 2: validAt and supersession must never disagree ----------------
+//
+// The trap this whole file's design decision is aimed at: `valid_until`
+// (dates on a claim) and supersession (`replaces_id`) both answer "when
+// did this stop being true", and until `validAt` learned about
+// `supersededAt` they answered it independently. Constructed here exactly
+// as the task demanded: one entry superseded at a known moment X, checked
+// at a moment BEFORE X, AT X, and AFTER X — and `validAt` (the temporal
+// mechanism) must agree with `status` (the supersession mechanism) at
+// every one of the three.
+test('PROBE 2: validAt and supersession-derived status never disagree — before, at, and after the cutover', () => {
+  const X = '2026-06-01T00:00:00Z'; // the moment the successor takes over
+  const root = memoryWith({ a: [
+    claim('old', { valid_from: '2026-01-01T00:00:00Z' }), // no stated valid_until at all
+    claim('new', { replaces_id: 'old', valid_from: X, ts: X,
+      choice: 'a different kolibri routing decision, worded so it is not an echo' }),
+  ] });
+  const before = retrieve(root, 'kolibri', grantProject('a'), { asOf: '2026-03-01T00:00:00Z' });
+  assert.deepEqual(before.claims.map((c) => c.id), ['old'],
+    'BEFORE the cutover the old claim is the only truth there was — validAt must say so, '
+    + 'even though the log now (in the present) marks it superseded');
+
+  const atCutover = retrieve(root, 'kolibri', grantProject('a'), { asOf: X });
+  assert.deepEqual(atCutover.claims.map((c) => c.id), ['new'],
+    'AT the cutover instant the derived valid_until is exclusive, same as a stated one');
+
+  const after = retrieve(root, 'kolibri', grantProject('a'), { asOf: '2026-08-01T00:00:00Z' });
+  assert.deepEqual(after.claims.map((c) => c.id), ['new'],
+    'AFTER the cutover only the new claim holds — this direction already worked before this change, '
+    + 'because it happens to match the time-blind status check too; kept here so all three moments '
+    + 'are asserted together');
+
+  // And the two mechanisms literally cannot disagree on the SAME object:
+  // validAt reads `supersededAt`, which came from `state.get(id)` — the
+  // very same map `c.status` was read from two lines above it in
+  // `toClaim`. There is no second computation to drift from the first.
+  rm(root);
+});
+
+test('an entry with no end date and never superseded is unaffected by supersededAt existing at all', () => {
+  // Requirement 5: the common case — nothing stated, nothing corrected —
+  // must behave exactly as before this file learned about supersededAt.
+  const c = { valid_from: '2026-01-01T00:00:00Z' };
+  for (const asOf of [null, '2026-01-01T00:00:00Z', '2099-01-01T00:00:00Z']) {
+    assert.equal(validAt(c, asOf), true, `an unbounded, unsuperseded claim must hold at ${asOf}`);
+  }
+});
+
 // --- disputed and superseded ----------------------------------------------
 
 test('a disputed claim is excluded with its reason, and reachable on request', () => {

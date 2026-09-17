@@ -110,6 +110,56 @@ test('an authorised supersession still works — the rule must not break correct
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+// --- valid_until as ONE truth with supersession -----------------------
+
+test('an authorised supersession derives supersededAt from the successor\'s valid_from', () => {
+  const fix = {
+    id: 'a2', ts: '2026-02-01T00:00:00Z', author: 'alice', authority: 'agent',
+    topic: 'payments', choice: 'payment up front, SEPA only', why: 'narrowed',
+    replaces_id: 'a1', valid_from: '2026-03-01T00:00:00Z',
+  };
+  const root = memoryWith([alice, fix]);
+  const map = memory.retiredMap(memory.readLog(root, 'decision', { project: 'p' }).entries);
+  assert.equal(map.get('a1')?.supersededAt, '2026-03-01T00:00:00Z',
+    'a stated valid_from on the successor should win over its ts');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('with no stated valid_from on the successor, supersededAt falls back to its ts', () => {
+  const fix = { ...alice, id: 'a2', ts: '2026-02-01T00:00:00Z', replaces_id: 'a1', choice: 'narrowed' };
+  const root = memoryWith([alice, fix]);
+  const map = memory.retiredMap(memory.readLog(root, 'decision', { project: 'p' }).entries);
+  assert.equal(map.get('a1')?.supersededAt, '2026-02-01T00:00:00Z');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('an UNAUTHORISED supersession attempt sets no supersededAt at all', () => {
+  // The disputed attempt must not shorten the original's validity —
+  // it never took effect, so the original's effective valid_until stays
+  // exactly what it was before the attempt existed.
+  const mallory = { ...alice, id: 'm1', author: 'mallory', replaces_id: 'a1', choice: 'poison',
+    valid_from: '2026-01-15T00:00:00Z' };
+  const root = memoryWith([alice, mallory]);
+  const map = memory.retiredMap(memory.readLog(root, 'decision', { project: 'p' }).entries);
+  assert.equal(map.get('a1'), undefined, 'an unauthorised attempt must not retire the target at all');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('setting supersededAt via a correction never rewrites the original line — append-only', () => {
+  const root = memoryWith([alice]);
+  const p = path.join(root, 'projects', 'p', 'decisions.jsonl');
+  const before = fs.readFileSync(p, 'utf8');
+  const fix = { ...alice, id: 'a2', ts: '2026-02-01T00:00:00Z', replaces_id: 'a1',
+    choice: 'narrowed', valid_from: '2026-02-01T00:00:00Z' };
+  fs.appendFileSync(p, `${JSON.stringify(fix)}\n`);
+  const after = fs.readFileSync(p, 'utf8');
+  assert.equal(after.startsWith(before), true,
+    'the original alice line changed shape — append-only was violated by deriving supersededAt');
+  assert.equal(after.split('\n').filter(Boolean).length, before.split('\n').filter(Boolean).length + 1,
+    'exactly one new line should have been added');
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
 test('a user-tier correction of an agent claim is authorised', () => {
   const owner = {
     id: 'u1', ts: '2026-02-01T00:00:00Z', author: 'lucky', authority: 'user',

@@ -130,6 +130,11 @@ function toClaim(hit, { bodyChars, state }) {
     ts: e.ts ?? null,
     valid_from: e.valid_from ?? null,
     valid_until: e.valid_until ?? null,
+    // The derived end-of-validity a supersession implies (see
+    // `memory.retiredMap`), carried alongside the STATED `valid_until`
+    // rather than merged into it — `validAt` is the one place that
+    // combines them, and it needs both to explain which one bit.
+    supersededAt: state.get(e.id)?.supersededAt ?? null,
     status: claimState,
     score: hit.score,
   };
@@ -189,19 +194,117 @@ function bodyOf(e) {
   return parts.join(' — ');
 }
 
-/** Is a claim valid at `asOf`? Absent bounds mean open-ended. */
+/**
+ * `valid_until` and supersession, made into ONE truth instead of two.
+ *
+ * **What was read before deciding anything (2026-09-17).** `valid_until`
+ * lives in `valid_from`/`valid_until` and is checked here, by date. A
+ * DIFFERENT mechanism, `replaces_id` (`memory.retiredMap`,
+ * `authority.maySupersede`, `state.deriveState`), already answers the
+ * same real-world question — "when did this claim stop being true" —
+ * by marking the superseded claim `status: 'superseded'` the instant a
+ * correction exists, with no date attached at all.
+ *
+ * **The measured disagreement.** Log a decision with `valid_from` and no
+ * `valid_until`, correct it later with `mem correction` (which sets
+ * `replaces_id`), then ask `--as-of` a date BEFORE the correction was
+ * written. Before this change: `mem find`/`mem retrieve` returned
+ * NOTHING — the gateway excluded the old claim outright for
+ * `status === 'superseded'`, unconditionally, before `validAt` ever ran.
+ * But at that moment in the past the correction did not exist yet; the
+ * old claim was the only truth there was, and the honest answer to "what
+ * held then" is the old claim, not silence. That is two mechanisms
+ * disagreeing — the exact defect this file exists to prevent (see the
+ * banner at the top of `retrieval.mjs`).
+ *
+ * **The fix chosen, and what was rejected.** A THIRD field, stored
+ * independently on the superseded claim ("copy the correction's date
+ * onto the old line") was rejected outright: it would violate
+ * append-only (the old line would need editing whenever a correction
+ * lands) and it would be exactly the two-truths bug again, just moved —
+ * now `valid_until` and `replaces_id` could each be edited without the
+ * other, and drift apart a second time.
+ *
+ * Chosen instead: supersession SETS the predecessor's EFFECTIVE
+ * `valid_until` to the successor's start (`memory.retiredMap`'s
+ * `supersededAt`, computed once, there, from data already on the log —
+ * never stored on the old line). `validAt` is the one function that
+ * reads it, folded in as just another candidate end date, alongside
+ * whatever `valid_until` a human actually typed. Two ways a claim's
+ * validity can end, one function that decides which (the earlier one)
+ * wins, and it is asked exactly once per claim, everywhere.
+ *
+ * **What stays deliberately separate.** `status: 'disputed'` (a REJECTED
+ * supersession attempt, authority.mjs) is not a question about time at
+ * all — the attempt never took effect, so nothing here changes. `done` /
+ * `discarded` / `obsolete` (a duty's lifecycle, not a fact's) are a third
+ * axis again and untouched; see `blocksRecall` below for where that line
+ * is actually drawn for the CLI's search lanes.
+ *
+ * **The `if (!asOf) return true` branch is unchanged on purpose.** It is
+ * locked in by `test/retrieval.test.mjs` ("valid_until is exclusive,
+ * valid_from inclusive, absent bounds open-ended"): asking no question
+ * about time must not silently become "as of right now" — a claim whose
+ * `valid_until` has already passed is still `validAt(claim, null)`,
+ * because nobody asked. Callers that want "is this current" ask their
+ * own status check for that (the gateway does, gated by `!asOf` for the
+ * same reason); `validAt` only ever answers a question that was put to
+ * it by an actual `asOf`.
+ */
 export function validAt(claim, asOf) {
   if (!asOf) return true;
   const t = Date.parse(asOf);
   if (!Number.isFinite(t)) return true;
   const from = claim.valid_from ? Date.parse(claim.valid_from) : null;
-  const until = claim.valid_until ? Date.parse(claim.valid_until) : null;
+  const explicitUntil = claim.valid_until ? Date.parse(claim.valid_until) : null;
+  // Read from wherever the caller's shape happens to carry it: the
+  // gateway's claim (`toClaim`, top-level `supersededAt`), a raw
+  // `memory.find` hit (`_retired.supersededAt`), or a `search()` hit
+  // spread onto its `entry` (`retired.supersededAt`) — three shapes for
+  // one fact, all going through this one lookup instead of three
+  // separate re-implementations at the call sites.
+  const supersededAt = claim?.supersededAt ?? claim?._retired?.supersededAt
+    ?? claim?.retired?.supersededAt ?? null;
+  const supersededMs = supersededAt ? Date.parse(supersededAt) : null;
+  const untilCandidates = [explicitUntil, supersededMs].filter(Number.isFinite);
+  // The EARLIER of "a human said it ends here" and "a correction says it
+  // ends here" wins — either one is a real reason the claim stopped
+  // holding, so the claim cannot outlive whichever came first.
+  const until = untilCandidates.length ? Math.min(...untilCandidates) : null;
   if (Number.isFinite(from) && t < from) return false;
   // `valid_until` is EXCLUSIVE: a claim valid until the 1st does not hold
   // on the 1st. Stated because half of all interval bugs are this choice
-  // left unstated.
+  // left unstated. The same exclusivity applies to a supersession-derived
+  // bound — the moment the successor starts is the moment the
+  // predecessor stops, not a moment both hold.
   if (Number.isFinite(until) && t >= until) return false;
   return true;
+}
+
+/**
+ * Should a retired entry's fate be decided by `--as-of` at all, in the
+ * CLI's search lanes (`mem find`'s ranked/exact/literal routes)?
+ *
+ * Those lanes gate retired entries with one boolean, `--with-retired`,
+ * applied at the CANDIDATE stage before `validAt` ever runs — unlike the
+ * gateway, which always fetches with retired entries included and lets
+ * `status`/`validAt` decide. Opening that boolean whenever `--as-of` is
+ * given (so a superseded candidate can even reach `validAt`) would also
+ * let `done` / `discarded` / `obsolete` (duty lifecycle) and `disputed`
+ * (a rejected authority claim) through — none of which `--as-of` was
+ * ever asked to reach, and `validAt` would wave all three through
+ * anyway, since they carry no `valid_from`/`valid_until`/`supersededAt`
+ * of their own. That would be a silent widening of what an ordinary
+ * `mem find --as-of ...` shows, for a corpus that already exists.
+ *
+ * So: `superseded` — the ONE state `validAt` now understands — is let
+ * through to the time check. Every other retired state keeps exactly the
+ * behaviour it had before this file learned about `valid_until`: hidden
+ * unless `--with-retired` was actually passed, `--as-of` or not.
+ */
+export function blocksRecall(retiredInfo, withRetired) {
+  if (!retiredInfo || withRetired) return false;
+  return retiredInfo.state !== 'superseded';
 }
 
 /**
@@ -500,7 +603,19 @@ export function retrieve(root, query, capability, {
     if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); continue; }
     if (type && c.type && c.type !== type) { note(c.id, `wrong type (${c.type})`); continue; }
     if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }
-    if (c.status === 'superseded') { note(c.id, 'superseded'); continue; }
+    // `superseded` used to be excluded HERE, unconditionally — before
+    // `validAt` ever got a say, and regardless of `asOf`. That is the
+    // exact two-truths bug `validAt`'s docstring measures: at an `asOf`
+    // BEFORE the correction existed, the honest answer is that the old
+    // claim still held, and this line said "gone" anyway. Only the
+    // NO-`asOf` case (plain "what does this memory hold right now") keeps
+    // the old, cheap, unconditional exclusion — asking no question about
+    // time is answered "no", same as before; asking one is now answered
+    // by `validAt`, which knows about `supersededAt` too.
+    if (!asOf && c.status === 'superseded') { note(c.id, 'superseded'); continue; }
+    // Unreachable when `asOf` is falsy — `validAt` returns `true`
+    // unconditionally in that case (see its docstring) — so this message
+    // only ever names an ACTUAL `asOf` that an actual claim failed.
     if (!validAt(c, asOf)) { note(c.id, `not valid at ${asOf}`); continue; }
     // In der Auswahl, nicht danach: nachtraeglich zu filtern kann nicht
     // zurueckholen, was der Schnitt schon verworfen hat. Derselbe Fehler
