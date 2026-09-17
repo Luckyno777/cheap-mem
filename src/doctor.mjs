@@ -611,6 +611,46 @@ function checkGitState(root) {
 }
 
 /** Findings as text. `problemsOnly` hides what is fine. */
+/**
+ * Only what is down RIGHT NOW — for a start banner, not for an
+ * examination. Returns an array of lines; empty means nothing is red.
+ *
+ * **The finding (2026-09-17, on the sibling house's machine.)** A VM
+ * reboot wiped three systemd units together with a door secret, because
+ * `/etc` on that OS is an overlay backed by `/tmp`. The dashboard, the
+ * mail poller and a public server were down for 52 minutes. The doctor
+ * HAD the answer the whole time: two findings at level ERROR, both
+ * correct. Nobody heard them, because the doctor only runs when someone
+ * types it. The gap was never detection.
+ *
+ * Three decisions, each against being skimmed past:
+ *
+ * 1. **Level ERROR only.** `--quiet` printed 27 lines that evening,
+ *    seven of them WARN. A warning is backlog — it will still be there
+ *    tomorrow. An error means something that should be running is not.
+ *    Nine lines in a start banner get skimmed; two get read.
+ * 2. **No advice lines.** Advice belongs in the examination. Whoever
+ *    needs it types `mem doctor` — the alarm only says THAT.
+ * 3. **Nothing red means no output at all.** A banner that shows up on
+ *    every start becomes background within three days.
+ *
+ * `limit` caps the lines: if half the machine is down, a list of twenty
+ * findings helps nobody — then all that counts is that something broke
+ * and where to look.
+ */
+export function alarm({ findings }, { limit = 6, width = 120 } = {}) {
+  const red = (findings ?? []).filter((f) => f?.level === LEVEL.ERROR);
+  const short = (t) => {
+    const first = String(t ?? '').split('\n')[0];
+    return first.length > width ? `${first.slice(0, width - 1)}…` : first;
+  };
+  const lines = red.slice(0, limit).map((f) => `FAIL  ${f.name}  ${short(f.text)}`);
+  if (red.length > limit) {
+    lines.push(`…and ${red.length - limit} more — details with: node bin/mem doctor --quiet`);
+  }
+  return lines;
+}
+
 export function report({ findings, worst, summary }, { problemsOnly = false } = {}) {
   const mark = { good: 'ok  ', warn: 'WARN', error: 'FAIL', unknown: '?   ' };
   const lines = [];

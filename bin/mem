@@ -3140,9 +3140,11 @@ const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem doctor [--quiet] [--strict]',
+        'mem doctor [--quiet] [--strict] [--alarm]',
         '',
         '  --quiet   hide what is fine',
+        '  --alarm   ONLY level ERROR, one line each, nothing when quiet.',
+        '            For a start banner. exit 1 if anything is red.',
         '  --strict  an UNVERIFIABLE guarantee counts as a failure.',
         '            For CI, where the environment is fixed and known:',
         '            there, refusing to determine a property IS the defect.',
@@ -3152,10 +3154,18 @@ const COMMANDS = {
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['quiet', 'strict'], 'doctor');
+    checkFlags(args, ['quiet', 'strict', 'alarm'], 'doctor');
     const root = findRoot(args);
     requireConfig(root);
     const result = doctor.checkAll(root);
+    // --alarm is the shape for a start banner: only what is down now,
+    // and no output at all when nothing is. Reasoning in the docblock
+    // of doctor.alarm().
+    if (args.alarm) {
+      const lines = doctor.alarm(result);
+      if (lines.length) out(lines.join('\n'));
+      process.exit(lines.length ? 1 : 0);
+    }
     out(doctor.report(result, { problemsOnly: Boolean(args.quiet) }));
 
     if (args.strict && result.summary.unknown > 0) {
