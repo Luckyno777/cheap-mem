@@ -2904,6 +2904,46 @@ const COMMANDS = {
     if (f.state === shrink.STATE.ALARM) process.exitCode = 2;
   },
 
+  observations: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem observations [--last <n>] [--json]',
+        '',
+        '  What this memory has injected, and when. Per machine, never',
+        '  committed, and read by nothing but this command -- ranking must',
+        '  not see it, or the same data would stop giving the same answer.',
+        '',
+        '  --last   how many of the most recent lines to show (default 20)',
+        '  --json   the raw lines',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['last', 'json', 'root'], 'observations');
+    const root = findRoot(args);
+    requireConfig(root);
+    const led = observations.readAll(root);
+
+    // Three states, never two: no ledger at all is not an empty ledger.
+    if (led.missing) {
+      out(`no ledger yet: ${led.path}`);
+      out('Nothing has been injected on this machine, or it was cleared.');
+      return;
+    }
+    if (args.json) { out(JSON.stringify(led.entries, null, 2)); return; }
+    if (!led.entries.length) { out(`ledger is empty: ${led.path}`); return; }
+
+    const broken = led.entries.filter((e) => e.__broken).length;
+    const good = led.entries.filter((e) => !e.__broken);
+    const n = args.last && args.last !== true ? Math.max(1, Number(args.last)) : 20;
+    out(`${good.length} observation(s)${broken ? `, ${broken} unreadable` : ''} in ${led.path}`);
+    if (broken) out('Unreadable lines are kept, not dropped -- silence here would hide the corruption this log exists to catch.');
+    out('');
+    for (const e of good.slice(-n)) {
+      const q = e.query ? ` "${String(e.query).slice(0, 48)}"` : '';
+      out(`  ${e.ts ?? '?'}  ${String(e.lane ?? '?').padEnd(10)} ${(e.ids ?? []).length} hit(s)${q}`);
+    }
+  },
+
   maintenance: async ({ rest, args }) => {
     const subs = ['dedupe'];
     if (isHelp(args) || !rest[0]) {
