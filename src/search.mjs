@@ -555,14 +555,67 @@ export function docSimilarity(aW, bW) {
  * or embeddings. Deterministic — on a tie the earlier (higher-scored)
  * candidate wins. `simOf(a, b)` must return similarity in [0,1].
  */
+/**
+ * A hit's identity, for breaking ties in a way that is the same on
+ * every machine.
+ *
+ * **The finding, 2026-09-17.** `test/raw-stats.test.mjs` failed on the
+ * macOS runners and nowhere else — twice, on two different node
+ * versions, and each time the BASELINE list differed from the previous
+ * run as well. Measured cause: six fixture entries score exactly the
+ * same, to the last bit (1.6907827160660296). Their order was decided
+ * by nothing but sort stability and, inside MMR, by which of two
+ * floating-point values happened to be larger.
+ *
+ * `Math.log` and friends are allowed to differ by one unit in the last
+ * place between platforms, and one ULP is enough to flip a comparison
+ * between two otherwise identical candidates. For a memory whose whole
+ * claim is "the same data gives the same answer", an order that depends
+ * on the C library is a defect, not a detail.
+ *
+ * Source and line are used, not the entry id: every document has them,
+ * including raw captures, and together they are unique by construction.
+ */
+function stableKey(hit) {
+  return `${hit.source ?? ''}:${String(hit.line ?? 0).padStart(9, '0')}`;
+}
+
+/** Descending by score, ties broken by identity. Total order, always. */
+export function byScoreThenIdentity(a, b) {
+  if (b.score !== a.score) return b.score - a.score;
+  const ka = stableKey(a); const kb = stableKey(b);
+  return ka < kb ? -1 : ka > kb ? 1 : 0;
+}
+
+/**
+ * How close two MMR values have to be to count as the same.
+ *
+ * Relative, not absolute: the values scale with the score. Two
+ * candidates whose values differ only in the last few bits are the
+ * same candidate as far as any human reading the result is concerned —
+ * and treating them as equal is what lets the deterministic tie-break
+ * below decide instead of the platform's maths library.
+ */
+const MMR_GLEICH = 1e-12;
+
 export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
   if (candidates.length <= 1) return candidates.slice(0, top);
   const maxScore = candidates.reduce((m, c) => (c.score > m ? c.score : m), 0);
   const remaining = candidates.map((c) => c);
   const selected = [];
   while (selected.length < top && remaining.length) {
-    let bestPos = 0;
-    let bestVal = -Infinity;
+    // **`bestPos = -1`, not `0`, and `bestVal` left unset.**
+    //
+    // The first version of this change started at `-Infinity` as before
+    // — and was broken by it: `Math.abs(-Infinity) * eps` is `Infinity`,
+    // `-Infinity + Infinity` is `NaN`, so the greater-than test was
+    // false for the FIRST candidate and `bestVal` stayed `-Infinity`.
+    // From there on only identity decided, and MMR never ran its own
+    // relevance comparison at all. The probe "a REAL difference still
+    // decides" caught it; without that probe a fix would have landed
+    // that is worse than the bug.
+    let bestPos = -1;
+    let bestVal = 0;
     for (let p = 0; p < remaining.length; p += 1) {
       const cand = remaining[p];
       const rel = maxScore > 0 ? cand.score / maxScore : 0;
@@ -572,8 +625,21 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
         if (sim > maxSim) maxSim = sim;
       }
       const val = lambda * rel - (1 - lambda) * maxSim;
-      // Strictly greater keeps the earlier (higher-ranked) one on ties.
-      if (val > bestVal) { bestVal = val; bestPos = p; }
+      // **Equal here means: equal down to the last bits.**
+      //
+      // This used to read `val > bestVal`, with a comment saying the
+      // earlier-ranked one wins on ties. That held only while the
+      // values were BIT-identical. One unit in the last place — exactly
+      // what a different maths library produces — turned a tie into a
+      // win, one way on one machine and the other way on another.
+      if (bestPos === -1) { bestVal = val; bestPos = p; continue; }
+      const spanne = Math.max(Math.abs(val), Math.abs(bestVal), 1) * MMR_GLEICH;
+      if (val > bestVal + spanne) { bestVal = val; bestPos = p; continue; }
+      // A tie down to the last bits: chance does not decide, identity
+      // does — and the same way on every machine.
+      if (val >= bestVal - spanne && stableKey(cand) < stableKey(remaining[bestPos])) {
+        bestVal = val; bestPos = p;
+      }
     }
     selected.push(remaining.splice(bestPos, 1)[0]);
   }
@@ -777,7 +843,7 @@ export function search(index, query, {
     });
   }
 
-  hits.sort((a, b) => b.score - a.score);
+  hits.sort(byScoreThenIdentity);
   const maxScore = hits.length ? hits[0].score : 0;
   const kept = hits.filter((t) => maxScore === 0 || t.score / maxScore >= minScore);
   const out = (mmr && kept.length > 1)
@@ -1381,7 +1447,7 @@ export function exactHits(index, query, slots, limits = {}) {
       __w: doc.weights,
     });
   }
-  out.sort((a, b) => b.score - a.score);
+  out.sort(byScoreThenIdentity);
   return out;
 }
 

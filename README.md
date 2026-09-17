@@ -27,7 +27,7 @@ to verify each claim rather than believe it.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-17: **54 CLI commands, 28 MCP tools, 57 modules, 1101
+As of 2026-09-17: **56 CLI commands, 28 MCP tools, 59 modules, 1101
 tests**, at **94.89 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
 code and fails when this line drifts.
 
@@ -547,7 +547,7 @@ determined the result is `unknown`, not `ok`.
        lines" two sentences on IS current and stays guarded.) -->
   This bullet used to say "the tool is small on purpose, ~500 lines of
   JS". It was off by a factor of thirty-two — `bin/` and `src/` are
-  about 23,300 lines. A tool that argues for itself with honest
+  about 27,000 lines. A tool that argues for itself with honest
   self-description cannot afford that particular error, so the claim is
   now the one that is actually true: not small, but self-contained.
 - **No hardcoded names.** Participants, branch, remote — all in

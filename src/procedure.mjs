@@ -38,6 +38,7 @@
 
 import * as memory from './memory.mjs';
 import * as errorclass from './errorclass.mjs';
+import * as authority from './authority.mjs';
 
 /** The type name, written in exactly one place. */
 export const TYPE = 'procedure';
@@ -163,4 +164,95 @@ export function forClass(root, className, { project = null } = {}) {
     }
   }
   return out;
+}
+
+/**
+ * A SECOND, keyword lane — beside the class lane above, not instead of
+ * it.
+ *
+ * **Why this needs a lane of its own.** The class lane matches a closed
+ * vocabulary of twelve names (`errorclass.mjs`) — cheap because it is a
+ * lookup, not a guess. Most procedures are not written against an error
+ * class at all ("this is how we name a release", "always ask before
+ * touching prod") and never had a way to arm themselves on anything
+ * typed at the keyboard. `triggers` closes that gap for the price the
+ * outside proposal actually asked for: literal keyword membership, no
+ * scoring, no model call.
+ *
+ * **Why literal substring and not a scorer.** A score needs a
+ * threshold nobody can calibrate, and — the whole reason this rewrite
+ * exists — the proposal reached for a per-machine USE COUNT to break
+ * ties between near-equal scores. That is the exact defect this build
+ * removes: identical data plus identical input must offer the same
+ * procedures in the same order, on any machine, on any run. Literal
+ * substring membership has no such tie: either the keyword is there or
+ * it is not.
+ *
+ * Stored as `triggers`, a JSON array or comma-separated string of
+ * literal words/phrases — not run through `errorclass.normalise`,
+ * because there is no closed vocabulary to normalise against here.
+ */
+export function keywordTriggersOf(entry = {}) {
+  const raw = entry.triggers ?? entry.trigger_words ?? '';
+  const parts = (Array.isArray(raw) ? raw : String(raw).split(','))
+    .map((x) => String(x).trim().toLowerCase()).filter(Boolean);
+  const out = [];
+  for (const p of parts) if (!out.includes(p)) out.push(p);
+  return out;
+}
+
+/** Does any of this procedure's keywords occur, literally, in `input`? */
+export function matchesKeywords(entry, input) {
+  const hay = String(input ?? '').toLowerCase();
+  if (!hay) return false;
+  return keywordTriggersOf(entry).some((kw) => hay.includes(kw));
+}
+
+/**
+ * Deterministic order for a set of matched procedures: highest
+ * authority first, then most recent (`ts` descending), then `id`
+ * (ascending) as the final, arbitrary but STABLE break.
+ *
+ * Never by use count — that is the telemetry this rewrite removes. Two
+ * runs against the same files, in either order the entries happen to be
+ * read, must produce the identical sequence: that is the determinism
+ * the outside proposal claimed and did not keep, because a per-machine
+ * counter is by definition not the same on two machines.
+ */
+export function orderByAuthorityThenRecency(entries) {
+  return [...entries].sort((a, b) => {
+    const ra = authority.rank(authority.tierOf(a));
+    const rb = authority.rank(authority.tierOf(b));
+    if (ra !== rb) return ra - rb;
+    const ta = a.ts ?? '';
+    const tb = b.ts ?? '';
+    if (ta !== tb) return ta > tb ? -1 : 1; // newer first
+    const ia = String(a.id ?? '');
+    const ib = String(b.id ?? '');
+    return ia < ib ? -1 : ia > ib ? 1 : 0;
+  });
+}
+
+/**
+ * The procedures in force whose `triggers` match something in `input`,
+ * ordered by authority then recency (see `orderByAuthorityThenRecency`).
+ *
+ * Scope mirrors `forClass`: global plus either the one named project or
+ * every project — one reading of "in force" between the two lanes.
+ */
+export function forKeywords(root, input, { project = null } = {}) {
+  const hay = String(input ?? '');
+  if (!hay.trim()) return [];
+  const out = [];
+  for (const p of [null, ...(project ? [project] : memory.listProjects(root))]) {
+    let entries;
+    try { ({ entries } = memory.readLog(root, TYPE, { project: p })); }
+    catch { continue; }
+    const retired = memory.retiredMap(entries);
+    for (const e of entries) {
+      if (!e.rule || !e.id || !memory.holds(e, retired)) continue;
+      if (matchesKeywords(e, hay)) out.push({ ...e, _project: p });
+    }
+  }
+  return orderByAuthorityThenRecency(out);
 }
