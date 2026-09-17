@@ -137,7 +137,7 @@ test('the movement can be stopped, and calm is the default for whoever asked', (
     html.slice(html.indexOf('<script>'), html.lastIndexOf('</script>')));
   assert.match(script, /prefers-reduced-motion: reduce/,
     'the space never asks whether calm was requested');
-  assert.match(script, /var paused = ruhe;/,
+  assert.match(script, /var paused = calm;/,
     'movement does not start paused for someone who asked for calm');
   assert.match(script, /document\.hidden/, 'it keeps animating for a tab nobody is looking at');
   // Not the mere mention: `if (false) motionBtn.onclick` contains it
@@ -166,8 +166,8 @@ test('the pulse runs on declared links only', () => {
     'the pulse is not inside the declared-only branch');
   // And the three rules the study measured into it. Each one is what
   // separates a living net from a string of running lights.
-  assert.match(script, /kante % 7 === 0/, 'every edge pulses at once — that is noise');
-  assert.match(script, /kante \* 0\.177/, 'no offset, so the dots march in lockstep');
+  assert.match(script, /edgeIx % 7 === 0/, 'every edge pulses at once — that is noise');
+  assert.match(script, /edgeIx \* 0\.177/, 'no offset, so the dots march in lockstep');
   assert.match(script, /#e3caff/, 'a selected edge does not brighten its dot');
 });
 
