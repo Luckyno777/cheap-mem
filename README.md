@@ -283,6 +283,8 @@ mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem hooks install|check        arm and prove the secret check
 mem doctor                     is this memory healthy?
+mem doctor --alarm             ONLY what is down right now; silent when
+                               nothing is. The session-start hook prints it.
 
 mem serve [--port N]           console, desk and viewer at ONE fixed link.
                                The console is the only place anything can
@@ -508,8 +510,17 @@ noticing.
 ```bash
 mem doctor            # says which layer owns each guarantee
 mem doctor --strict   # for CI: an UNVERIFIABLE guarantee is a failure
+mem doctor --alarm    # only level ERROR, one line each — nothing when nothing is red
 mem epoch show        # has the memory gone BACKWARDS since this machine looked?
 ```
+
+`--alarm` exists because of a measured failure on 2026-09-17: a machine
+rebooted, three services vanished with it, and the doctor reported both
+of them at level ERROR — correctly, for 52 minutes, to nobody. A check
+that only runs when someone types it is not a check. The session-start
+hook runs `--alarm` on every session, caps it, and reports the cap
+expiring; nothing red prints nothing at all, because a banner that shows
+up every time is background within three days.
 
 `mem epoch` catches the case where an old checkout or a stale backup makes
 a superseded claim current again — from inside that state everything looks

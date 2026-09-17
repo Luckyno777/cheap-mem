@@ -75,6 +75,42 @@ if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
   echo ""
 fi
 
+# --- What is down right now ------------------------------------------
+#
+# **Why (2026-09-17).** On the sibling house's machine a VM reboot wiped
+# three systemd units together with a door secret — that OS keeps /etc
+# on an overlay backed by /tmp. Dashboard, mail poller and a public
+# server were down for 52 minutes. `mem doctor` had the answer the whole
+# time: two findings at level ERROR, both correct. Nobody heard them,
+# because the doctor only runs when someone types it.
+#
+# `--alarm` prints level ERROR only, and prints NOTHING when nothing is
+# red — which is why there is no `echo` outside the `if`. A banner that
+# appears on every start is background within three days.
+#
+# The cap reports its own expiry. `timeout` returns 124; without that
+# branch "timed out" looks exactly like "all fine", and that confusion
+# is what carried the outage above for so long. Where `timeout` does not
+# exist the check runs uncapped rather than silently not at all.
+if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+  if command -v timeout >/dev/null 2>&1; then
+    MEM_ALARM="$(timeout "${MEM_ALARM_SECONDS:-8}" node "$CHEAP_MEM_ROOT/bin/mem" doctor --alarm 2>/dev/null)"
+  else
+    MEM_ALARM="$(node "$CHEAP_MEM_ROOT/bin/mem" doctor --alarm 2>/dev/null)"
+  fi
+  MEM_ALARM_RC=$?
+  if [ -n "$MEM_ALARM" ]; then
+    echo "=== DOWN RIGHT NOW (mem doctor --alarm) ==="
+    echo "$MEM_ALARM"
+    echo ""
+  elif [ "$MEM_ALARM_RC" -eq 124 ]; then
+    echo "=== DOWN RIGHT NOW ==="
+    echo "The alarm hit its time cap (${MEM_ALARM_SECONDS:-8}s) — NOT checked."
+    echo "By hand: node $CHEAP_MEM_ROOT/bin/mem doctor --quiet"
+    echo ""
+  fi
+fi
+
 cat <<HINTS
 === how to use this memory this session ===
 
