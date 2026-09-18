@@ -222,28 +222,42 @@ vorher rechnet.
     dieselbe Frage.
 
 16. **Ein Name aus einem fremden System wird gegen dessen Liste
-    geprueft, nicht nach Klang angenommen.** Wer sich an ein fremdes
-    System haengt, uebernimmt dessen Vokabular — und ein plausibler Name
-    ist dort kein Name.
+    geprueft — auch dann, wenn du ihn fuer erfunden haeltst.** Die Regel
+    hat eine Richtung, die leicht uebersehen wird: sie verbietet nicht
+    nur, einen Namen anzunehmen, sondern auch, einen abzulehnen.
 
-    Am 2026-09-18 fielen in lucky-mem zwei ganze Haken-Bahnen auf, die
-    an `PostToolUseFailure` und `SubagentStart` hingen. Claude Code kennt
-    beide nicht; es gibt PreToolUse, PostToolUse, Notification,
-    UserPromptSubmit, Stop, SubagentStop, PreCompact, SessionStart und
-    SessionEnd. Beide erfundenen Namen klingen richtig, sind aus
-    vorhandenen zusammengesetzt und stehen in der settings.json
-    zwischen den funktionierenden. Ein Haken an so einem Namen wird nie
-    aufgerufen — und meldet das nicht.
+    Am 2026-09-18 fielen in lucky-mem zwei Haken-Bahnen auf, die an
+    `PostToolUseFailure` und `SubagentStart` hingen. Aus dem Gedaechtnis
+    heraus schien festzustehen, dass Claude Code genau neun Ereignisse
+    kennt und diese beiden nicht darunter sind. Beide Bahnen wurden als
+    "still wirkungslos" in den Fehlerspeicher geschrieben, umgebaut,
+    geprueft, sabotagegeprueft, dokumentiert und gepusht.
 
-    Fuer cheap-mem ist das keine fremde Geschichte: `bin/mem-retrieve`
-    haengt an UserPromptSubmit, `bin/mem-before-edit` an PreToolUse.
-    Beide Namen sind echt (nachgesehen am 2026-09-18), und genau deshalb
-    steht die Regel hier — nicht weil etwas kaputt ist, sondern weil
-    dieselbe Anbindung dieselbe Falle hat.
+    Beide Namen stehen in der offiziellen Referenz. Die echte Liste ist
+    rund doppelt so lang wie die erinnerte. `PostToolUseFailure` feuert
+    genau bei einem gescheiterten Werkzeugaufruf; `PostToolUse`, wohin
+    der "Riegel" umhaengte, feuert laut derselben Seite NUR nach Erfolg.
+    Der Umbau haette einen laufenden Haken blind gemacht.
+    `SubagentStart` liefert seinen Kontext ausdruecklich IN den
+    Unteragenten — die Zusage, die beim Umbau als unerfuellbar
+    aufgegeben wurde.
 
-    Der Riegel dagegen ist nicht der richtige Name, sondern eine
-    WIRKUNG, die sich zaehlen laesst. Eine Einstellung ist kein
-    Nachweis; was zaehlt, ist, dass etwas passiert.
+    Aufgefallen ist es, weil ein zweites Modell widersprach und die
+    Referenz nannte. Nicht die eigene Probe, nicht die Sabotage, nicht
+    der Riegel: alle waren gruen, weil sie dieselbe falsche Liste
+    benutzten wie der Code. **Eine Probe erbt die Annahme, gegen die sie
+    pruefen soll.** Sabotagefestigkeit sagt nichts ueber die Praemisse.
+
+    Was blieb, ist die Frage, die dabei niemand beantworten konnte: ob
+    diese Haken je gefeuert haben. Sie waren auf der Maschine nicht
+    einmal registriert. Genau diese Unmessbarkeit war der Naehrboden —
+    wo nichts zu sehen ist, sieht eine Vermutung aus wie ein Befund.
+    Deshalb zaehlen die Haken jetzt ihre Laeufe, und `mem doktor` liest
+    den Zaehler. Das ist der einzige Teil des Umbaus, der stehen bleibt.
+
+    Zur Pruefung gehoert auch die Frage, WIE ALT die eigene Liste ist.
+    Ein Modell kennt den Stand seines Trainings, nicht den der
+    installierten Fassung.
 
 ## Der Filter fuer jede Aenderung
 
