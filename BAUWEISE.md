@@ -221,6 +221,30 @@ vorher rechnet.
     unter einem Wort sind dieselbe Drift wie zwei Rechnungen ueber
     dieselbe Frage.
 
+16. **Ein Name aus einem fremden System wird gegen dessen Liste
+    geprueft, nicht nach Klang angenommen.** Wer sich an ein fremdes
+    System haengt, uebernimmt dessen Vokabular — und ein plausibler Name
+    ist dort kein Name.
+
+    Am 2026-09-18 fielen in lucky-mem zwei ganze Haken-Bahnen auf, die
+    an `PostToolUseFailure` und `SubagentStart` hingen. Claude Code kennt
+    beide nicht; es gibt PreToolUse, PostToolUse, Notification,
+    UserPromptSubmit, Stop, SubagentStop, PreCompact, SessionStart und
+    SessionEnd. Beide erfundenen Namen klingen richtig, sind aus
+    vorhandenen zusammengesetzt und stehen in der settings.json
+    zwischen den funktionierenden. Ein Haken an so einem Namen wird nie
+    aufgerufen — und meldet das nicht.
+
+    Fuer cheap-mem ist das keine fremde Geschichte: `bin/mem-retrieve`
+    haengt an UserPromptSubmit, `bin/mem-before-edit` an PreToolUse.
+    Beide Namen sind echt (nachgesehen am 2026-09-18), und genau deshalb
+    steht die Regel hier — nicht weil etwas kaputt ist, sondern weil
+    dieselbe Anbindung dieselbe Falle hat.
+
+    Der Riegel dagegen ist nicht der richtige Name, sondern eine
+    WIRKUNG, die sich zaehlen laesst. Eine Einstellung ist kein
+    Nachweis; was zaehlt, ist, dass etwas passiert.
+
 ## Der Filter fuer jede Aenderung
 
 Bleibt der Abruf modellfrei und im Millisekundenbereich? Braucht die
