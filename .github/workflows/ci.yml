@@ -143,44 +143,6 @@ jobs:
         shell: bash
         run: bash test/start-command.sh
 
-      # **This repo had no shellcheck at all until 2026-09-18.** That is
-      # how two `# shellcheck disable=SCxxxx -- reason` lines survived in
-      # bin/: written that way the checker cannot parse them (SC1072 and
-      # SC1073, both errors), so the suppression does not suppress — it
-      # aborts the checker. The sister house learned that on the very
-      # same line and wrote it down; the lesson never travelled, because
-      # nothing here ever ran the tool.
-      - name: shellcheck is present
-        shell: bash
-        run: |
-          command -v shellcheck > /dev/null || {
-            echo "::error::shellcheck missing on this runner"; exit 1; }
-          shellcheck --version | head -2
-      - name: shellcheck (error level)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The list is DERIVED, not typed. Most shell scripts here carry
-          # no .sh extension (bin/mem-watch, bin/mem-digest, ...), so a
-          # `*.sh` glob would quietly check three files and skip all of
-          # bin/ — a green run that measured nearly nothing.
-          FILES=""
-          while IFS= read -r f; do
-            head -1 "$f" | grep -qE '^#!.*/(env +)?(ba|da|k)?sh( |$)' || continue
-            FILES="${FILES}${f}"$'\n'
-          done < <(git ls-files)
-          # _portable.sh is SOURCED, so it has no shebang — it carries a
-          # `shell=bash` directive instead and must be checked too.
-          FILES="${FILES}bin/_portable.sh"$'\n'
-          FILES="$(printf '%s' "$FILES" | sed '/^$/d' | sort -u)"
-          # Positive controls: an empty list is not a pass, and neither
-          # is a list that misses the biggest shell script in the repo.
-          test -n "$FILES" || { echo "::error::no shell script found"; exit 1; }
-          echo "$FILES" | grep -qx 'bin/mem-digest' \
-            || { echo "::error::bin/mem-digest not in the list — the filter is wrong"; exit 1; }
-          echo "$FILES" | wc -l | xargs echo "shell scripts:"
-          echo "$FILES" | xargs shellcheck -S error
-
   powershell:
     name: powershell · windows
     runs-on: windows-latest
@@ -618,6 +580,51 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --omit=optional
+
+      # **This repo had no shellcheck at all until 2026-09-18.** That is
+      # how two `# shellcheck disable=SCxxxx -- reason` lines survived in
+      # bin/: written that way the checker cannot parse them (SC1072 and
+      # SC1073, both errors), so the suppression does not suppress — it
+      # aborts the checker. The sister house learned that on the very
+      # same line and wrote it down; the lesson never travelled, because
+      # nothing here ever ran the tool.
+      #
+      # **It lives in THIS job, which runs on ubuntu alone.** The first
+      # placement put it in the `recall` matrix, and macOS went red:
+      # GitHub ships shellcheck on its Linux images and not on its macOS
+      # ones. Running a static checker over the same bytes three times
+      # buys nothing anyway — the platform-sensitive things are the
+      # tests, not the linting.
+      - name: shellcheck is present
+        shell: bash
+        run: |
+          command -v shellcheck > /dev/null || {
+            echo "::error::shellcheck missing on this runner"; exit 1; }
+          shellcheck --version | head -2
+      - name: shellcheck (error level)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The list is DERIVED, not typed. Most shell scripts here carry
+          # no .sh extension (bin/mem-watch, bin/mem-digest, ...), so a
+          # `*.sh` glob would quietly check three files and skip all of
+          # bin/ — a green run that measured nearly nothing.
+          FILES=""
+          while IFS= read -r f; do
+            head -1 "$f" | grep -qE '^#!.*/(env +)?(ba|da|k)?sh( |$)' || continue
+            FILES="${FILES}${f}"$'\n'
+          done < <(git ls-files)
+          # _portable.sh is SOURCED, so it has no shebang — it carries a
+          # `shell=bash` directive instead and must be checked too.
+          FILES="${FILES}bin/_portable.sh"$'\n'
+          FILES="$(printf '%s' "$FILES" | sed '/^$/d' | sort -u)"
+          # Positive controls: an empty list is not a pass, and neither
+          # is a list that misses the biggest shell script in the repo.
+          test -n "$FILES" || { echo "::error::no shell script found"; exit 1; }
+          echo "$FILES" | grep -qx 'bin/mem-digest' \
+            || { echo "::error::bin/mem-digest not in the list — the filter is wrong"; exit 1; }
+          echo "$FILES" | wc -l | xargs echo "shell scripts:"
+          echo "$FILES" | xargs shellcheck -S error
 
       # Everything under `npm test` answers "do the tests pass". This job
       # answers the question that actually matters: are the guarantees
