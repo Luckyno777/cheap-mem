@@ -437,7 +437,12 @@ export const MUTANTS=[
    tests:['test/asked.test.mjs'] },
 
  { name:'SEM `--asked` is stored flat, as one string',
-   file:'bin/mem',
+   // Moved out of bin/mem into src/cli/shell.mjs on 2026-09-18, when the
+   // 4503-line CLI was split. mutation-anchors.test.mjs caught both of
+   // these the moment the file changed — a mutant that can no longer be
+   // applied does not fail, it stops running, and the guarantee behind
+   // it quietly stops being checked.
+   file:'src/cli/shell.mjs',
    from:"    if ((k === 'tags' || k === 'asked') && typeof v === 'string') {\n      // `asked` are QUESTION WORDS",
    to:"    if (k === 'tags' && typeof v === 'string') {  // MUTANT: asked stays a string\n      // `asked` are QUESTION WORDS",
    tests:['test/asked.test.mjs'] },
@@ -455,7 +460,7 @@ export const MUTANTS=[
    tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
 
  { name:'a switch that narrowly misses a reserved name becomes a field again',
-   file:'bin/mem',
+   file:'src/cli/shell.mjs',   // s. o., 2026-09-18
    from:'    refuseNearReserved(command, k);',
    to:'    // MUTANT: the typo guard is gone, --projekt becomes a field',
    tests:['test/reserved-typo.test.mjs'] },
