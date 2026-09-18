@@ -13,7 +13,7 @@
 // alpha's Postgres came back as the HISTORY of beta's SQLite.
 //
 // invariant: drei-zustaende-nie-zwei
-// invariant: annahme-statt-messung
+// error-class: assumed-not-measured
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

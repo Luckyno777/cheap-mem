@@ -307,7 +307,7 @@ test('without a memory it ends quietly', () => {
 // mark — measured on 2026-09-16.
 //
 // invariant: fremder-pfad-wird-normalisiert
-// invariant: sieht-richtig-aus-tut-nichts
+// error-class: looks-right-does-nothing
 test('no hook passes a bare path along as an ESM specifier', () => {
   const hooks = fs.readdirSync(path.join(ROOT, 'bin'))
     .filter((n) => n.startsWith('mem-'))

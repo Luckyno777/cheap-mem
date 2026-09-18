@@ -19,7 +19,7 @@
 // spelling, one shape and one state were.
 //
 // invariant: eine-regel-eine-stelle
-// invariant: zwei-wahrheiten
+// error-class: two-truths
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

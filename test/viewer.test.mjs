@@ -126,3 +126,52 @@ test('a broken (non-JSON) log line does not crash the viewer', () => {
   const { html } = viewer.build(root, {});
   assert.match(html, /^<!doctype html>/i); // still renders
 });
+
+// --- No fallback to invented data ------------------------------------
+//
+// The assurance travelled from the sibling house on 2026-09-18, where it
+// sat as a marker with no catalogue entry for days — so this house never
+// learned it, and this house has a viewer too.
+//
+// A page whose read failed and which then draws plausible sample rows is
+// worse than one that draws nothing: it is convincing, and the header
+// still says the data is real. Nobody re-checks a page that looks right.
+//
+// Checked as EFFECT and as STRUCTURE, because either alone is weak. The
+// effect probe proves an empty memory stays empty on the page; the
+// structural probe proves no sample collection is shipped that a future
+// catch-block could reach for.
+//
+// invariant: kein-rueckfall-auf-erfundene-daten
+test('an empty memory renders an empty page, not a sample one', () => {
+  const root = tmpRoot();
+  const leer = viewer.build([root], { title: 'probe' });
+
+  // POSITIVE CONTROL first: with entries, the page really does carry
+  // them. Without this the assertion below passes on a broken builder
+  // that renders nothing at all, ever.
+  const full = tmpRoot();
+  seed(full);
+  const voll = viewer.build([full], { title: 'probe' });
+  assert.ok(voll.count > 0 && voll.html.includes('sqlite'),
+    'positive control failed: a seeded memory does not reach the page');
+
+  assert.equal(leer.count, 0, 'an empty memory must count zero entries');
+  assert.ok(!leer.html.includes('sqlite'),
+    'an empty memory must not show another memory\'s content');
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(full, { recursive: true, force: true });
+});
+
+test('the viewer ships no sample collection a failed read could fall back on', () => {
+  const src = fs.readFileSync(
+    new URL('../src/viewer.mjs', import.meta.url), 'utf8');
+  // Deliberately narrow: these are the names such a fallback carries in
+  // practice. A wide net here would fire on ordinary words and get
+  // switched off, which is how this kind of check dies.
+  for (const forbidden of ['SAMPLE_ENTRIES', 'DEMO_DATA', 'PLACEHOLDER_ROWS',
+    'exampleEntries', 'fallbackEntries']) {
+    assert.ok(!src.includes(forbidden),
+      `viewer.mjs carries '${forbidden}' — a failed read could reach for it`);
+  }
+});

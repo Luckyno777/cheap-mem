@@ -663,6 +663,17 @@ jobs:
       - name: lint
         run: npm run lint
 
+      # Shared assurances: does this house cover every lesson in the
+      # catalogue, and does every marker name a lesson that exists?
+      #
+      # It ran in NO pipeline until 2026-09-18. It had been reporting five
+      # orphaned markers correctly, with exit 1, and nobody was listening —
+      # so a test that believed it guarded a shared assurance guarded
+      # nothing, under a headline reading "Covered: 16 of 16". A checker
+      # nothing calls is exactly the failure class it exists to find.
+      - name: every shared assurance is covered, and no marker points at nothing
+        run: node bench/invariants.mjs
+
       - name: the guarantees, enforced
         run: npm run verify
 
