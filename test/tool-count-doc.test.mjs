@@ -96,10 +96,49 @@ test('every documented tool count matches the server', () => {
   assert.deepEqual(wrong, [], `\n${wrong.join('\n')}`);
 });
 
+/**
+ * Shell functions in `bin/_portable.sh` that share the `mem_` prefix.
+ *
+ * The prefix is not the MCP server's alone: the sourced helper uses it
+ * so its names cannot collide with the host shell's (`mem_take_lock`,
+ * `mem_start_command`). Read from the file, never typed out here — a
+ * hand-kept second list is the thing this whole file exists to prevent.
+ */
+function shellHelpers() {
+  const src = fs.readFileSync(path.join(ROOT, 'bin', '_portable.sh'), 'utf8');
+  return [...src.matchAll(/^(mem_[a-z_]+)\(\)\s*\{/gm)].map((m) => m[1]);
+}
+
+test('POSITIVE: the shell helpers are actually found', () => {
+  // Without this the exemption below could quietly become "exempt
+  // nothing" — or, worse, the reader could break and exempt every name
+  // it failed to read. Both directions matter, so: a known name is in,
+  // and an invented one is not.
+  const helpers = shellHelpers();
+  assert.ok(helpers.length >= 2,
+    `only ${helpers.length} shell helper(s) read from bin/_portable.sh — the reader broke`);
+  assert.ok(helpers.includes('mem_take_lock'), 'mem_take_lock not read');
+  assert.ok(!helpers.includes('mem_not_a_function'), 'the reader invents names');
+  // Each name exactly once. A reader loosened to "any mention of
+  // `mem_x` in the file" still passes both checks above — the names it
+  // returns are real — but it also sweeps in comments and call sites,
+  // and would exempt any `mem_`-prefixed word someone writes into a
+  // comment. Duplicates are what that loosening looks like from here,
+  // measured: the helper is named in its own doc block before it is
+  // defined.
+  assert.equal(helpers.length, new Set(helpers).size,
+    `the reader returns duplicates (${helpers.join(', ')}) — it is matching `
+    + 'mentions, not definitions, and the exemption is wider than it reads');
+});
+
 test('the tool names in the docs all exist', () => {
   // A count can be right while a name is stale — the harder half to
   // notice, because a wrong name reads perfectly well.
-  const names = new Set(toolNames());
+  //
+  // The `mem_` prefix is shared with the sourced shell helper, so those
+  // names are exempt — read from bin/_portable.sh, not listed here.
+  // Anything else under the prefix is still a claim about a tool.
+  const names = new Set([...toolNames(), ...shellHelpers()]);
   const wrong = [];
   for (const f of docFiles()) {
     const text = fs.readFileSync(f, 'utf8');
@@ -108,4 +147,11 @@ test('the tool names in the docs all exist', () => {
     }
   }
   assert.deepEqual(wrong, [], `\ntools named in docs that do not exist:\n${wrong.join('\n')}`);
+
+  // The sweep above says nothing when the docs name no tools at all.
+  // It must have had something to look at.
+  const seen = docFiles().reduce((n, f) =>
+    n + [...fs.readFileSync(f, 'utf8').matchAll(/`(mem_[a-z_]+)`/g)].length, 0);
+  assert.ok(seen > 0,
+    'no `mem_*` name found in any document — this test checked nothing');
 });

@@ -87,7 +87,13 @@ DUE_ARGS=""
 [ -n "${MEM_DIGEST_VOLUME_MIN_KB:-}" ] && DUE_ARGS="$DUE_ARGS --volume-min $MEM_DIGEST_VOLUME_MIN_KB"
 [ -n "${MEM_DIGEST_QUIET_MIN:-}" ]     && DUE_ARGS="$DUE_ARGS --quiet $MEM_DIGEST_QUIET_MIN"
 [ -n "${MEM_DIGEST_CEILING_H:-}" ]     && DUE_ARGS="$DUE_ARGS --ceiling $MEM_DIGEST_CEILING_H"
-# shellcheck disable=SC2086 -- DUE_ARGS is built here, word splitting is wanted
+# DUE_ARGS is built here and word splitting is wanted.
+#
+# The reason goes on its OWN line, not behind the directive: written as
+# `disable=SC2086 -- reason`, shellcheck cannot parse the line at all
+# (SC1072/SC1073, both at error level) and a suppression that trips the
+# checker does not suppress — it aborts it.
+# shellcheck disable=SC2086
 STATE="$(node "$MEM" --root "$ROOT" digest due $DUE_ARGS 2>>"$LOG")"
 case $? in
   0) exit 0 ;;
@@ -263,11 +269,61 @@ condensing enough. Stop after the push."
   # directly. Losing the cap is worse than nothing only if a hung model
   # can block something — the tick is a timer job, and the next tick
   # stands down on the lock.
+  # shellcheck disable=SC2086
+  BEFORE_BYTES="$(wc -c < "$LOG" 2> /dev/null || echo 0)"
   ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
   MODEL_EXIT=$?
 
+  # The CLI may sit on a mount flagged `noexec`, where execve() refuses
+  # it whatever its permission bits say. Then the call comes back 126
+  # having written nothing — the process never started. Only in that
+  # case is a second attempt free of doubt, and only then is it made:
+  # once, reading the file with node instead of executing it. See
+  # mem_never_started and mem_detour_cmd in bin/_portable.sh.
+  #
+  # No probe beforehand. A probe that starts the configured command is a
+  # model call nobody asked for; the CI step that counts model calls
+  # caught exactly that on 2026-09-18 and was right to.
+  if mem_never_started "$MODEL_EXIT" "$BEFORE_BYTES" "$LOG"; then
+    if mem_detour_cmd "$CMD"; then
+      note "exit 126 and not one byte written — the CLI never started."
+      note "  Retrying once: $MEM_DETOUR_REASON"
+      ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" "${MEM_START[@]}" "$PROMPT" ) >>"$LOG" 2>&1
+      MODEL_EXIT=$?
+      note "  the detour ended with $MODEL_EXIT"
+    else
+      note "exit 126 and nothing written, but no detour available: $MEM_DETOUR_REASON"
+    fi
+  fi
+
+  # **124, 126 and 127 are three specific sentences, not one.** Folding
+  # them into "timeout or error" cost the sister house a whole night on
+  # 2026-09-18: the log said `Permission denied` on one line and
+  # `exit=126 (timeout or error)` on the next, and whoever read only
+  # the second went looking for a time cap that did not exist.
   if [ "$MODEL_EXIT" -ne 0 ]; then
-    note "model call exited $MODEL_EXIT (timeout or error)"
+    case "$MODEL_EXIT" in
+      124)
+        note "model call exited 124 — TIME CAP expired, and only that"
+        note "  Raise MEM_DIGEST_TIMEOUT (currently ${TIMEOUT}s) or look at why the run is slow."
+        ;;
+      126)
+        note "model call exited 126 — FOUND, BUT NOT EXECUTABLE"
+        note "  Not a timeout. The file is there but may not start: either the"
+        note "  x-bit is missing, or it sits on a mount flagged noexec."
+        note "  Look: command -v ${CMD%% *}; ls -l \"\$(command -v ${CMD%% *})\""
+        note "  If nothing was written either, the interpreter detour was tried"
+        note "  once and did not help — the line above says how it went."
+        ;;
+      127)
+        note "model call exited 127 — NOT FOUND"
+        note "  Not a time cap but a PATH: '${CMD%% *}' is not on it."
+        note "  Look: echo \"\$PATH\"; command -v ${CMD%% *}"
+        ;;
+      *)
+        note "model call exited $MODEL_EXIT (error)"
+        ;;
+    esac
     exit 1
   fi
 

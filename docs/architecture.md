@@ -105,6 +105,84 @@ the session had failed on permissions, explained that honestly, and
 exited cleanly. So the wrapper counts pending captures before and
 after. No change means failure, whatever the model claims.
 
+### And why a non-zero code is read word for word
+
+The mirror image of the same mistake. Until 2026-09-18 every failure
+was logged as `model call exited N (timeout or error)` — one phrase for
+four different situations. In the sister memory that phrasing cost a
+whole night: the log said
+
+```
+timeout: failed to run command 'claude': Permission denied
+[..] exited 126 (timeout or error)
+```
+
+and whoever read only the second line went looking for a time cap that
+did not exist. The CLI sat on a mount flagged `noexec`, where `execve()`
+refuses every file whatever its permission bits say — root included.
+
+Three of those codes are specific sentences, so they are logged as such:
+
+| code | means | first move |
+|---|---|---|
+| **124** | the time cap expired — and **only** that | raise `MEM_DIGEST_TIMEOUT`, or find out why the run is slow |
+| **126** | found, but **not executable** | `ls -l "$(command -v claude)"` — missing x-bit, or a `noexec` mount |
+| **127** | not found at all | `echo "$PATH"; command -v claude` |
+
+For 126 there is also a way through, and it is the same one the git
+hooks use: **a file that may not be executed may still be read.** For a
+shell that is `bash <path>`; for a Node CLI, `node <path>`.
+
+**It is not probed beforehand, and the first version of it was.** That
+version ran `<path> --version` once at startup to find out whether a
+detour was needed. CI killed it the same day, correctly: the digest step
+plants a fake model that tallies every invocation and then demands
+**exactly one model call**, and the probe was a second one. A probe that
+starts the configured command is a model call nobody asked for — and for
+a command that is not idempotent it is worse than a lost time cap.
+
+So the detour is taken **after** a real call came back 126, and only
+when that call never started. Two functions in `bin/_portable.sh`:
+
+- `mem_never_started <code> <bytes-before> <output-file>` — true when
+  the code is 126 **and** everything written since the offset is an exec
+  failure rather than the command speaking for itself.
+- `mem_detour_cmd <command-line>` — resolves the first word, keeps the
+  flags, and offers `node <path> …`; it returns failure, with a reason,
+  when there is nothing on `PATH` or no `node` to read the file with.
+  Nothing is rewritten then, so the original failure keeps speaking.
+
+**"Wrote nothing" was the first rule for `mem_never_started` and it was
+wrong.** The time cap writes its own complaint to the same stream the
+command does:
+
+```
+timeout: failed to run command 'claude': Permission denied
+```
+
+so the log grows by some seventy bytes precisely when nothing ran, and a
+byte comparison would have said "it spoke" every time — the detour would
+never have fired where it is needed. The probe caught that on its first
+run. The new output is therefore **read**, not weighed, which is the
+same lesson the whole detour comes from: a code and a message say
+different things, and the message is the one that names the cause.
+
+The other half of that rule matters too. A program may exit 126 of its
+own accord after doing its work; re-running that one costs a second
+model call for nothing. So a 126 that came with real output is not
+retried.
+
+The retry happens at most once, and both the decision and its outcome go
+into the log. A detour that stays silent is exactly the line missing
+next time someone goes looking.
+
+`test/start-command.sh` holds all of this to it — including a count of
+actual invocations, so a rearranged array cannot pass for a working
+detour — and produces the 126 with a file whose shebang points at a
+directory: `execve()` returns `EACCES` there, for root too. The obvious
+route (mode `0111`, unreadable) does not work, because root may read any
+file, so that run was green and checked nothing.
+
 ---
 
 ## Lane 3 — Search (`src/search.mjs`, `src/thesaurus.mjs`)

@@ -1,4 +1,16 @@
-# _portable.sh — the two POSIX tools that are not everywhere, in one place.
+# shellcheck shell=bash
+#
+# A `shell` directive, not a shebang: this file is SOURCED, never
+# executed. A shebang would be a claim about a start that does not
+# happen. shellcheck needs the declaration anyway — without it, it does
+# not know which shell to check against and reports SC2148 at error
+# level.
+#
+# And `bash`, not `sh`: this file uses arrays (`MEM_CAP=(timeout)`) and
+# `local`, neither of which is POSIX. With `shell=sh` shellcheck would
+# check bash code against the wrong rules.
+#
+# _portable.sh — the POSIX tools that are not everywhere, in one place.
 #
 # Sourced, never executed. `bin/` ships and installs as a whole (the
 # launchd and systemd units point at ${HERE}/bin/..., they do not copy
@@ -80,7 +92,126 @@ mem_take_lock() {
     rmdir "$lockdir" 2> /dev/null || return 1
   fi
   mkdir "$lockdir" 2> /dev/null || return 1
-  # shellcheck disable=SC2064 -- $lockdir is wanted at trap time, not later
+  # Double quotes are DELIBERATE: `$lockdir` must be substituted NOW,
+  # not when the trap fires. By then the variable may hold something
+  # else, or be gone.
+  #
+  # The reason goes on its OWN line, not behind the directive. Written
+  # with a trailing `-- reason`, shellcheck cannot parse the line at
+  # all: SC1072/SC1073, both at error level. A suppression that trips
+  # the checker does not suppress — it aborts it. The sister house
+  # learned this on this very line on 2026-09-17 and wrote it down; it
+  # never travelled here, because nothing ever ran shellcheck on this
+  # repo.
+  # shellcheck disable=SC2064
   trap "rmdir '$lockdir' 2>/dev/null || true" EXIT
   return 0
+}
+
+# --- A command that may not be allowed to EXECUTE -------------------
+#
+# Measured 2026-09-18 in the sister house (lucky-mem). The AI CLI lived
+# on a mount flagged `noexec`:
+#
+#   /dev/sda1 on /work type ext4 (rw,nosuid,nodev,noexec,relatime,...)
+#
+# `execve()` refuses every file there, whatever its permission bits say
+# — root included. The watcher ticked all night, each tick ending with
+#
+#   timeout: failed to run command 'claude': Permission denied
+#
+# and exit 126. Not one session started. The service reported `active`
+# throughout.
+#
+# The way around it is the same one the hooks have used for a while:
+# a file that may not be EXECUTED may still be READ. For a shell that
+# is `bash <path>`; for a Node CLI, `node <path>`.
+#
+# **This does NOT probe the command first, and the first version did
+# (found by CI, 2026-09-18).** That version ran `<path> --version` once
+# at startup to see whether a detour was needed. The digest CI step
+# plants a fake model that tallies every invocation and then demands
+# EXACTLY ONE model call — and it went red, correctly: a probe that
+# starts the configured command is a model call nobody asked for, and
+# for a command that is not idempotent it is worse than a lost cap.
+#
+# So the detour is taken only AFTER a real call came back 126, and only
+# when that call produced nothing. Both conditions together mean the
+# process never started, which makes a second attempt free of doubt:
+#
+#   - 126 alone is not enough. A program may exit 126 of its own accord,
+#     after doing its work. Re-running that one costs a second model
+#     call for nothing.
+#   - No output alone is not enough either — a session can fail early
+#     and say nothing.
+#
+# mem_detour_cmd <command-line>
+#   On success sets MEM_START (array) to the interpreter form and
+#   MEM_DETOUR_REASON, and returns 0. Returns 1 when no detour exists,
+#   with the reason in MEM_DETOUR_REASON — nothing is rewritten then,
+#   so the original failure keeps speaking for itself.
+MEM_START=()
+MEM_DETOUR_REASON="not determined"
+mem_detour_cmd() {
+  local raw="$1" name path
+  local parts=() rest=()
+  # Word-split the configured command line: it may carry flags
+  # (`claude -p`), and only the FIRST word is a file to resolve. The
+  # flags must survive the rewrite — a detour that drops `-p` starts the
+  # model interactively, and a session waiting forever looks, from
+  # outside, exactly like a slow one.
+  read -r -a parts <<< "$raw"
+  if [ "${#parts[@]}" -eq 0 ]; then
+    MEM_START=()
+    MEM_DETOUR_REASON="the configured command line is empty"
+    return 1
+  fi
+  name="${parts[0]}"
+  rest=("${parts[@]:1}")
+  path="$(command -v "$name" 2> /dev/null)" || path=""
+  if [ -z "$path" ]; then
+    MEM_START=()
+    MEM_DETOUR_REASON="'$name' is not on PATH — that is a 127, not a noexec case"
+    return 1
+  fi
+  if ! command -v node > /dev/null 2>&1; then
+    MEM_START=()
+    MEM_DETOUR_REASON="no node on PATH to read '$path' with"
+    return 1
+  fi
+  # `${rest[@]+...}` because bash 3.2 (macOS) treats an empty array as
+  # unset under `set -u` and aborts. This house targets that bash.
+  MEM_START=(node "$path" ${rest[@]+"${rest[@]}"})
+  MEM_DETOUR_REASON="reading '$path' with node instead of executing it"
+  return 0
+}
+
+# mem_never_started <exit-code> <bytes-before> <output-file>
+#   True when the command cannot have run: exit 126, and everything
+#   written since <bytes-before> is an exec failure rather than the
+#   command speaking for itself.
+#
+# **"Wrote nothing" was the first rule and it was wrong (measured
+# 2026-09-18).** The time cap writes its own complaint to the same
+# stream the command does:
+#
+#   timeout: failed to run command 'claude': Permission denied
+#
+# so the log grows by some seventy bytes precisely when nothing ran,
+# and a byte comparison would have said "it spoke" every single time —
+# the detour would never have fired where it is needed. Found by the
+# probe on the first run, not in production.
+#
+# So the new output is READ, not weighed. That is the same lesson this
+# whole detour comes from: an exit code and a message say different
+# things, and the message is the one that names the cause.
+mem_never_started() {
+  local rc="$1" before="$2" file="$3" fresh
+  [ "$rc" -eq 126 ] || return 1
+  fresh="$(tail -c "+$((before + 1))" "$file" 2> /dev/null || true)"
+  # Nothing at all: the caller sent the wrapper's complaint elsewhere,
+  # or there is no wrapper. Still an exec failure.
+  [ -z "$fresh" ] && return 0
+  printf '%s' "$fresh" | grep -qiE \
+    'failed to run command|permission denied|cannot execute|not executable|bad interpreter'
 }

@@ -26,6 +26,10 @@ if [ -z "${MEM_WATCH_WHO:-}" ]; then
   exit 2
 fi
 
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/_portable.sh
+. "$HERE/_portable.sh"
+
 CMD="${MEM_HANDLER_CMD:-claude -p}"
 
 DEFAULT_PROMPT="You are the '$MEM_WATCH_WHO' role in this cheap-mem installation. Read \$CHEAP_MEM_ROOT/.mem/config.json for context. Then process new inbox mail addressed to you:
@@ -44,5 +48,33 @@ Exit after the last message. Do not start new work of your own."
 
 PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
 
+# The AI CLI may live on a mount flagged `noexec` — then `execve()`
+# refuses it whatever its permission bits say, and the run ends with
+# exit 126 before the model is ever asked anything.
+#
+# The output goes through `tee` so it still streams AND can be weighed
+# afterwards: only a 126 with not one byte written means the process
+# never started, and only then is a second attempt free of doubt.
+# `${PIPESTATUS[0]}` keeps the command's own code rather than tee's.
+#
+# No probe beforehand — a probe that starts the configured command is a
+# model call nobody asked for.
+SEEN="$(mktemp)"
+trap 'rm -f "$SEEN"' EXIT
+
 # shellcheck disable=SC2086
-$CMD "$PROMPT"
+$CMD "$PROMPT" 2>&1 | tee "$SEEN"
+CODE="${PIPESTATUS[0]}"
+
+if mem_never_started "$CODE" 0 "$SEEN"; then
+  if mem_detour_cmd "$CMD"; then
+    echo "mem-handle-post: exit 126, nothing written — the CLI never started." >&2
+    echo "mem-handle-post: retrying once, $MEM_DETOUR_REASON" >&2
+    "${MEM_START[@]}" "$PROMPT" 2>&1 | tee "$SEEN"
+    CODE="${PIPESTATUS[0]}"
+  else
+    echo "mem-handle-post: exit 126, nothing written, no detour: $MEM_DETOUR_REASON" >&2
+  fi
+fi
+
+exit "$CODE"
