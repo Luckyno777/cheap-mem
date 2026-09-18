@@ -44,7 +44,7 @@ function lineCount(dir, filter = () => true) {
 }
 
 const counted = {
-  cli: clihelp.tableCommands(read('bin/mem')).length,
+  cli: clihelp.allTableCommands(read).length,
   mcp: [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].length,
   modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
 };
@@ -137,7 +137,7 @@ test('every command the README names actually exists', () => {
   // that omits a command: the reader runs it and gets an error that
   // reads like their mistake.
   const named = new Set([...CMD_BLOCK().matchAll(/^mem ([a-z-]+)/gm)].map((m) => m[1]));
-  const real = new Set(clihelp.tableCommands(read('bin/mem')));
+  const real = new Set(clihelp.allTableCommands(read));
   // These three are documented spellings of `mem embed` / `mem find`
   // subcommands rather than top-level commands of their own.
   for (const alias of ['find-embed', 'find-hybrid']) named.delete(alias);

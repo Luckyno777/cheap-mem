@@ -65,7 +65,7 @@ const IST = {
   /** Countable things. No tolerance — these are facts, not estimates. */
   genau: {
     'MCP tools': new Set([...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1])).size,
-    'CLI commands': clihelp.tableCommands(read('bin/mem')).length,
+    'CLI commands': clihelp.allTableCommands(read).length,
     modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
   },
   /**
@@ -226,7 +226,11 @@ test('POSITIVE: the counters see a real codebase', () => {
   assert.ok(IST.genau.modules >= 25, `${IST.genau.modules} modules found — the counter broke`);
   assert.ok(IST.ungefaehr.tests >= 300, `${IST.ungefaehr.tests} tests found — the counter broke`);
   assert.ok(IST.ungefaehr['lines:all'] >= 5000, `${IST.ungefaehr['lines:all']} lines found — the counter broke`);
-  assert.ok(IST.ungefaehr['lines:cli'] >= 1000, `${IST.ungefaehr['lines:cli']} lines in bin/mem — the counter broke`);
+  // The floor was 1000 while `bin/mem` held the whole command table. It
+  // holds the dispatch now and is ~180 lines; a floor from the old shape
+  // reports the counter as broken every run, which is how a vacuity
+  // check turns into noise and gets deleted.
+  assert.ok(IST.ungefaehr['lines:cli'] >= 80, `${IST.ungefaehr['lines:cli']} lines in bin/mem — the counter broke`);
 });
 
 test('POSITIVE: the pattern finds a claim in ordinary prose', () => {

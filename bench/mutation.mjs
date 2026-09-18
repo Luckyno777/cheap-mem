@@ -342,7 +342,7 @@ export const MUTANTS=[
    tests:['test/paths-agree.test.mjs'] },
 
  { name:'ARCH `mem find` stops dropping echoes by default',
-   file:'bin/mem',
+   file:'src/cli/commands/search.mjs',
    from:"    const filtered = args['with-echo']",
    to:"    const filtered = true  // MUTANT: default back to letting everything through\n      || args['with-echo']",
    tests:['test/paths-agree.test.mjs'] },
@@ -408,7 +408,7 @@ export const MUTANTS=[
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'ARCH `mem find` drops the exact lane',
-   file:'bin/mem',
+   file:'src/cli/commands/search.mjs',
    // Anchored on the line that FOLDS the lane in, not on the call: the
    // call became multi-line when the admission limits went in
    // (2026-09-17), and a one-line anchor over it went quietly missing.
@@ -460,7 +460,7 @@ export const MUTANTS=[
    tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
 
  { name:'a switch that narrowly misses a reserved name becomes a field again',
-   file:'src/cli/shell.mjs',   // s. o., 2026-09-18
+   file:'src/cli/shell.mjs',   // see above, 2026-09-18
    from:'    refuseNearReserved(command, k);',
    to:'    // MUTANT: the typo guard is gone, --projekt becomes a field',
    tests:['test/reserved-typo.test.mjs'] },

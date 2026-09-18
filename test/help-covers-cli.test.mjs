@@ -27,8 +27,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
 const BIN = path.join(ROOT, 'bin', 'mem');
 
-const source = fs.readFileSync(BIN, 'utf8');
-const table = clihelp.tableCommands(source);
+// Since 2026-09-18 the table no longer sits in `bin/mem` but in six
+// modules under src/cli/commands/. WHERE it sits is clihelp's to know —
+// otherwise this line would be the seventh copy of that path, and the
+// seventh chance to forget one at the next move.
+const table = clihelp.allTableCommands((f) => fs.readFileSync(path.join(ROOT, f), 'utf8'));
 const helpText = spawnSync('node', [BIN], { encoding: 'utf8' }).stdout;
 const help = clihelp.helpCommands(helpText);
 

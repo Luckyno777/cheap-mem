@@ -94,9 +94,29 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   // What it does NOT do: demand that every module be reachable. Only
   // the ones that APPEND -- those grow on disk, and something that
   // grows unread is a file, not evidence.
+  //
+  // **Where "reachable" is looked for moved on 2026-09-18.** The sixty
+  // command handlers left `bin/mem` for six modules under
+  // `src/cli/commands/`, and this probe went blind in the useful
+  // direction: it still found the appending modules, but no longer
+  // found anything calling them, so it reported the whole house as
+  // unreachable. The rule did not change — the CLI is still what has
+  // to be able to show a log — only where the CLI's code sits.
   const src = fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.mjs'));
-  const binFiles = fs.readdirSync(path.join(ROOT, 'bin'))
-    .map((f) => fs.readFileSync(path.join(ROOT, 'bin', f), 'utf8')).join('\n');
+  const cliDateien = [
+    ...fs.readdirSync(path.join(ROOT, 'bin')).map((f) => path.join(ROOT, 'bin', f)),
+    ...fs.readdirSync(path.join(ROOT, 'src', 'cli'))
+      .filter((f) => f.endsWith('.mjs')).map((f) => path.join(ROOT, 'src', 'cli', f)),
+    ...fs.readdirSync(path.join(ROOT, 'src', 'cli', 'commands'))
+      .map((f) => path.join(ROOT, 'src', 'cli', 'commands', f)),
+  ];
+  const binFiles = cliDateien
+    .filter((f) => fs.statSync(f).isFile())
+    .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
+  // A probe that reads an empty string reports every module unreachable
+  // and looks like a catastrophe. This is the vacuity check for it.
+  assert.ok(binFiles.length > 50_000,
+    `only ${binFiles.length} characters of CLI source read — the probe is looking in the wrong place`);
 
   const anhaengend = [];
   for (const f of src) {

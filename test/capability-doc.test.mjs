@@ -33,7 +33,7 @@ const DOC = read('docs/CAPABILITIES.md');
 // 'find-embed', 'find-hybrid', 'raw-capture' and 'topic-merge' —
 // and all four were missing from this very reference while the
 // guard reported it complete. Measured 2026-09-17.
-const cliCommands = () => clihelp.tableCommands(read('bin/mem'));
+const cliCommands = () => clihelp.allTableCommands(read);
 const mcpTools = () => [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1]);
 const types = () => [...read('src/memory.mjs').matchAll(/^ {2}([a-z]+): '[a-z]+\.jsonl'/gm)].map((m) => m[1]);
 const edges = () => [...read('src/memory.mjs').matchAll(/^ {2}([a-z]+): 'the source/gm)].map((m) => m[1]);

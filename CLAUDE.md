@@ -5,7 +5,20 @@ installation — it is the tool that creates memories.
 
 ## What lives where
 
-- `bin/mem`            — the CLI (Node, ESM; ~3,950 lines, no dependencies)
+- `bin/mem`            — the CLI's entry point (Node, ESM, no dependencies):
+                         argument pre-scan, the merge of the six command
+                         groups, dispatch. About 180 lines, and it stays
+                         that way — a handler that lands back in here
+                         belongs in its group. It was 4503 before the
+                         split on 2026-09-18, the largest file here.
+- the CLI's own modules, under `src/cli/`:
+  - `commands/`        — the sixty handlers, in six groups cut by the
+                         QUESTION a command answers: write, search,
+                         capture, agents, setup, admin
+  - `shell.mjs`        — what holds across commands: arguments, output,
+                         refusal, finding the root, knowing who writes
+  - `display.mjs`      — how handlers print, and how `--as-of` is read
+  - `githook.mjs`      — installing the pre-commit hook, proving it fires
 - `bin/mem-mcp`        — MCP server (uses `@modelcontextprotocol/sdk`)
 - `bin/mem-watch`      — Bash poller (systemd/launchd wrap this)
 - `bin/mem-reflect`    — Stop-hook style transcript reflector

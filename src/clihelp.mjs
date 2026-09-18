@@ -34,6 +34,67 @@
  * it. A parser that silently found nothing would otherwise report a
  * perfectly documented CLI.
  */
+/**
+ * Where the command table lives.
+ *
+ * **One place knows this, and it is here.** Until 2026-09-18 the table
+ * was a single block in `bin/mem`, and seven probes across five test
+ * files each read that path themselves. When the sixty handlers moved
+ * into six group modules, all seven went blind at once: `tableCommands`
+ * found no `const COMMANDS = {` in `bin/mem` and returned the empty
+ * list, so every probe reported a CLI with zero commands and every
+ * cross-check agreed with it. Eighteen tests failed, which is the good
+ * outcome \u2014 the bad one would have been probes that pass on an empty
+ * reading.
+ *
+ * A path repeated in seven places is seven chances to miss one.
+ */
+/**
+ * The same reading, but WITHOUT collapsing duplicates.
+ *
+ * **Why both exist.** `tableCommands` returns a Set, so a name defined
+ * twice comes back once. Every caller that wants "which commands are
+ * there" wants exactly that. The one caller that wants "is any name
+ * defined twice" gets the opposite of what it needs \u2014 and on
+ * 2026-09-18 that was found to be true of
+ * `test/setup-status.test.mjs`: it filtered the result for repeats,
+ * against a list that could not contain any. The check had been green
+ * since the day it was written and could never have failed.
+ *
+ * Since the split it matters for real: two group modules can each
+ * define `mem log`, and the object merge in `bin/mem` would resolve it
+ * by import order.
+ */
+export function tableCommandsRaw(source) {
+  const start = source.indexOf('const COMMANDS = {');
+  if (start < 0) return [];
+  return [...source.slice(start).matchAll(/^ {2}'?([a-z][a-z0-9-]*)'?: async/gm)].map((m) => m[1]);
+}
+
+/** Every name in every group file, repeats included. */
+export function allTableCommandsRaw(lies) {
+  return COMMAND_FILES.flatMap((datei) => tableCommandsRaw(lies(datei)));
+}
+
+export const COMMAND_FILES = Object.freeze([
+  'write', 'search', 'capture', 'agents', 'setup', 'admin',
+].map((g) => `src/cli/commands/${g}.mjs`));
+
+/**
+ * Every command the CLI dispatches, across all group modules.
+ *
+ * `lies` is passed in rather than importing `fs` here: this module is
+ * also loaded by probes that read from a fixture or from git, and a
+ * helper that can only read the working tree cannot serve them.
+ */
+export function allTableCommands(lies) {
+  const namen = new Set();
+  for (const datei of COMMAND_FILES) {
+    for (const n of tableCommands(lies(datei))) namen.add(n);
+  }
+  return [...namen].sort();
+}
+
 export function tableCommands(source) {
   const start = source.indexOf('const COMMANDS = {');
   if (start < 0) return [];

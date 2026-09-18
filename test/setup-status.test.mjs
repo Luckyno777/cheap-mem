@@ -23,6 +23,7 @@ import * as setup from '../src/setup.mjs';
 import * as clihelp from '../src/clihelp.mjs';
 
 const MEM = path.join(import.meta.dirname, '..', 'bin', 'mem');
+const REPO = path.join(import.meta.dirname, '..');
 
 function fresh() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
@@ -35,8 +36,13 @@ test('no command is defined twice', () => {
   // **Read as TEXT, not as an object.** That is the whole point: in the
   // loaded object a duplicate is invisible, because the second key has
   // replaced the first. Only the file itself shows both.
-  const source = fs.readFileSync(MEM, 'utf8');
-  const names = clihelp.tableCommands(source);
+  // **And read WITHOUT deduplicating.** Until 2026-09-18 this called
+  // `tableCommands`, which returns a Set — so the filter below ran
+  // against a list that could not contain a repeat. Green since the day
+  // it was written, and unable to fail. Since the split the question is
+  // real: two group modules can each define the same name.
+  const lies = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
+  const names = clihelp.allTableCommandsRaw(lies);
   const twice = names.filter((n, i) => names.indexOf(n) !== i);
   assert.deepEqual(twice, [], `defined twice: ${twice.join(', ')}`);
   assert.ok(names.length > 30, `only ${names.length} commands found — the probe is broken`);
