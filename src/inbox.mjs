@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as agents from './agents.mjs';
+import { bodyHash } from './retrieval.mjs';
 
 /** Where messages live under the memory root. */
 export const INBOX_DIR = path.join('inbox');
@@ -58,6 +59,26 @@ export function isDone(state) { return DONE.includes(state); }
 
 const HEADER_FIELDS = ['From', 'To', 'Time', 'Subject', 'State'];
 
+/**
+ * `Client-Request-Id` — an OPTIONAL header, deliberately absent from
+ * HEADER_FIELDS above.
+ *
+ * Ported from lucky-mem/src/umschlag.mjs (`Doppel-Marke`, "Doppel-Marke"
+ * = duplicate mark), keeping the reasoning and not the German name: a
+ * required field would make every message written before this one
+ * unreadable, and there are messages on disk that predate it. Same
+ * schema-evolution rule this module already applies to Faden/Auftrag
+ * over there — a reader has to keep understanding old mail.
+ *
+ * The name changed on purpose: `Doppel-Marke` names what the field
+ * PREVENTS (a duplicate). `Client-Request-Id` names what it holds (the
+ * id a caller assigns before sending) — the caller does not know in
+ * advance whether the send will turn out to be a duplicate, a conflict,
+ * or genuinely new, so a field named after the outcome does not fit a
+ * header written before the outcome is known.
+ */
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]{1,128}$/;
+
 const CONTROL_CHARS = new RegExp(`[${
   [...Array(32).keys()].filter((c) => c !== 9 && c !== 10 && c !== 13)
     .concat(127).map((c) => `\\u${c.toString(16).padStart(4, '0')}`).join('')
@@ -70,7 +91,9 @@ function checkParticipant(participants, role, field) {
   }
 }
 
-export function build(participants, { from, to, time, subject, state = STATE.OPEN, text }) {
+export function build(participants, {
+  from, to, time, subject, state = STATE.OPEN, text, requestId = null,
+}) {
   checkParticipant(participants, from, 'From');
   checkParticipant(participants, to, 'To');
   if (typeof subject !== 'string' || !subject.trim()) {
@@ -86,9 +109,13 @@ export function build(participants, { from, to, time, subject, state = STATE.OPE
   if (!Object.values(STATE).includes(state)) {
     throw new Error(`Unknown state '${state}'. Known: ${Object.values(STATE).join(', ')}`);
   }
+  if (requestId !== null && !REQUEST_ID_PATTERN.test(String(requestId))) {
+    throw new Error(`Client-Request-Id is [A-Za-z0-9._:-], not: ${JSON.stringify(requestId)}`);
+  }
   const header = [
     `From: ${from}`, `To: ${to}`, `Time: ${time}`,
     `Subject: ${subject}`, `State: ${state}`,
+    ...(requestId !== null ? [`Client-Request-Id: ${requestId}`] : []),
   ].join('\n');
   return `${header}\n\n${text.replace(/\s+$/, '')}\n`;
 }
@@ -112,6 +139,12 @@ export function parse(content) {
   return {
     from: header.From, to: header.To, time: header.Time,
     subject: header.Subject, state: header.State, text,
+    // Absent on every message written before this field existed, and
+    // that is a valid answer, not a parse error — same rule umschlag.mjs
+    // (lucky-mem) applies to its own optional headers: a missing field
+    // reads as `null`, never as a thrown error that would make old mail
+    // unreadable.
+    requestId: Object.hasOwn(header, 'Client-Request-Id') ? header['Client-Request-Id'] : null,
   };
 }
 
@@ -224,9 +257,11 @@ export function readMessage(root, name) {
   return fs.readFileSync(p, 'utf8');
 }
 
-export function write(root, participants, { from, to, subject, text, now = new Date() }) {
+export function write(root, participants, {
+  from, to, subject, text, now = new Date(), requestId = null,
+}) {
   const time = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const content = build(participants, { from, to, time, subject, text });
+  const content = build(participants, { from, to, time, subject, text, requestId });
   const mark = cloneMark(root);
   const base = fileName(participants, { time, from, to, mark });
   const dir = inboxDir(root);
@@ -282,6 +317,50 @@ export function read(root, participants, { to = null, state = null } = {}) {
     messages.push(m);
   }
   return { dir, messages };
+}
+
+/** Three states, never two: what a new send with the same id means. */
+export const REQUEST = Object.freeze({
+  NEW: 'new',
+  REPLAY: 'replay',
+  CONFLICT: 'conflict',
+});
+
+/**
+ * Classify a message about to be sent, against what `from` has already
+ * sent `to` under the same Client-Request-Id.
+ *
+ *   NEW      no earlier message carries this id — send normally.
+ *   REPLAY   an earlier message carries the same id AND the same body —
+ *            the same request arrived twice (a retried push, a doubled
+ *            CLI call). It is the SAME operation, not a second one.
+ *   CONFLICT an earlier message carries the same id with a DIFFERENT
+ *            body — the id was reused for something else. That is a
+ *            caller bug to surface, never to paper over.
+ *
+ * Deliberately keyed on the id, never on text equality: two intended
+ * requests can share the same wording ("ping"), so deduplicating by
+ * TEXT would silently drop one of them. That is the exact failure this
+ * mirrors lucky-mem/src/umschlag.mjs (KOPF_MARKE) in guarding against —
+ * ported for the reasoning, not the field name (see REQUEST_ID_PATTERN
+ * above for why the name differs).
+ *
+ * Body equality reuses retrieval.mjs's `bodyHash` rather than `===`, so
+ * a request re-sent with only trailing whitespace or CRLF/LF changed
+ * still reads as the same body — the same normalisation this codebase
+ * already applies when hashing memory entries, not a second rule for
+ * messages that happens to disagree at the edges.
+ *
+ * A message with no requestId at all is always NEW: there is nothing to
+ * compare it against, and old mail (written before this field existed)
+ * must keep behaving exactly as it always did.
+ */
+export function classifyRequest(root, participants, { from, to, requestId, text }) {
+  if (requestId === null || requestId === undefined) return REQUEST.NEW;
+  const { messages } = read(root, participants, { to });
+  const prior = messages.find((m) => m.from === from && m.requestId === requestId);
+  if (!prior) return REQUEST.NEW;
+  return bodyHash(prior.text) === bodyHash(text) ? REQUEST.REPLAY : REQUEST.CONFLICT;
 }
 
 export function setState(root, participants, name, newState) {
