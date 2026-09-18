@@ -24,6 +24,7 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
+import * as mirror from './findingmirror.mjs';
 import * as environment from './environment.mjs';
 import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
@@ -61,6 +62,88 @@ function quietRun(cmd, args) {
   } catch { return null; }
 }
 
+/**
+ * Where does the sibling house's clone live — if it sits beside us at all?
+ *
+ * Returns the root path or `null`. `null` means "not here", not "does
+ * not exist": the cross-house check then stays quiet instead of raising
+ * a warning that would fire without cause on every CI machine. A
+ * warning that keeps coming for no reason teaches people to skip the
+ * output.
+ *
+ * No configuration: a path you have to enter is a path nobody enters.
+ */
+export function siblingClone(root, given = null) {
+  const places = given ? [given] : [
+    path.join(path.dirname(root), 'lucky-mem'),
+    '/home/user/lucky-mem',
+    '/work/lucky-mem',
+  ];
+  return places.find((p) => { try { return fs.existsSync(p); } catch { return false; } }) ?? null;
+}
+
+/**
+ * Do both houses know the same doctor findings — and where they do not,
+ * does anybody know about it?
+ *
+ * **Why this is a finding and not a test.** A test runs in ONE repo, and
+ * in CI the other one is not sitting next to it. The doctor runs where
+ * both clones are and stays quiet everywhere else.
+ *
+ * **Why this finding exists at all.** Because a tool nobody calls IS the
+ * error class it is meant to find. On 2026-09-18 it turned out that
+ * `bench/invariants.mjs` ran in NO pipeline: it reported an orphaned
+ * marker perfectly correctly with exit code 1, and nobody was listening
+ * — under the headline "Covered 16 of 16". `bench/finding-mirror.mjs`
+ * would have been born with the same fate on the same day.
+ *
+ * Only the UNJUDGED remainder is reported: a finding one of the houses
+ * has gained or lost that nobody has looked at. What is in
+ * `shared/finding-map.jsonl` — mapped or explained as one-sided — is
+ * settled and stays quiet.
+ */
+export function checkFindingParity(root, { sibling = null } = {}) {
+  const here = mirror.readHouse(root);
+  if (here.missing || here.empty) {
+    return finding('finding-parity', LEVEL.UNKNOWN,
+      'our own doctor source yields no finding names — did the call name change?',
+      "bench/finding-mirror.mjs, SOURCES: the call name 'finding(' must match the source.");
+  }
+  const clone = sibling ?? siblingClone(root);
+  if (!clone) {
+    return finding('finding-parity', LEVEL.UNKNOWN,
+      `${here.names.size} findings here; no sibling clone beside us, nothing to compare`);
+  }
+  const there = mirror.readHouse(clone);
+  if (there.missing || there.empty) {
+    return finding('finding-parity', LEVEL.UNKNOWN,
+      `${clone} yields no finding names — no comparison possible`);
+  }
+  const map = mirror.readMap(root);
+  const g = mirror.compare(here, there, map);
+  const gaps = [...g.explainedHere, ...g.explainedThere].filter((e) => e.gap).length;
+  const core = `${g.both.length} findings in both houses`
+    + `${gaps ? `, ${gaps} known gap(s)` : ''}`;
+
+  const agree = mirror.mapsAgree(root, clone);
+  const open = [
+    ...g.onlyHere.map((n) => `only here: ${n}`),
+    ...g.onlyThere.map((n) => `only there: ${n}`),
+    ...g.stale.map((x) => `mapping '${x.id}' points into the void (${x.field}: ${x.name})`),
+    ...g.incomplete.map((x) => `mapping '${x.id}' incomplete`),
+    ...g.ambiguous.map((x) => `mapping ambiguous: ${x.field} '${x.name}'`),
+    ...(agree.same === true ? [] : [`the two mapping copies: ${agree.why}`]),
+  ];
+  if (!open.length) return finding('finding-parity', LEVEL.GOOD, `${core}, all judged`);
+  return finding('finding-parity', LEVEL.WARN,
+    `${core}; ${open.length} unjudged: ${open.slice(0, 6).join('; ')}`
+    + `${open.length > 6 ? ` ... and ${open.length - 6} more` : ''}`,
+    'Add to shared/finding-map.jsonl: either as a pair '
+    + '{"befund":..., "finding":...} or as reasoned one-sided '
+    + '{"nur":"befund"|"finding", "warum":...}. What is missing is allowed '
+    + 'to be missing — but somebody has to have looked at it once.');
+}
+
 export function checkAll(root) {
   const f = [];
   f.push(checkRoot(root));
@@ -86,6 +169,7 @@ export function checkAll(root) {
   f.push(checkGitignoreEffective(root));
   f.push(checkRollback(root));
   f.push(...checkEnvironmentContract(root));
+  f.push(checkFindingParity(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
@@ -362,34 +446,52 @@ function checkGitHook(root) {
   return finding('git-hook', LEVEL.GOOD, `core.hooksPath=${p}, hook starts (exit ${attempt.status})`);
 }
 
+/**
+ * How many logs are there, and does every line parse?
+ *
+ * **Both numbers come from `src/integrity.mjs`, not from here.** Until
+ * 2026-09-18 this function walked the drawers itself and counted its
+ * own unparsable lines — four hundred lines below `checkIntegrity`,
+ * which calls `scanIntegrity` for the very same walk. Two calculations
+ * of one question, in one file.
+ *
+ * Neither was wrong. That is what makes the shape dangerous: they only
+ * drift apart later, and then you believe the wrong one. The sister
+ * house hit this three times in a single day and built a catalogue
+ * against it; `shared/calculations.jsonl` is this house's copy, and
+ * `bench/calculations.mjs` is the latch.
+ *
+ * The rebuilt version is also strictly better advice: `scanIntegrity`
+ * knows the FILE and LINE of every broken entry, so this finding can
+ * name the first one instead of handing out a grep recipe.
+ */
 function* checkDrawers(root) {
-  let found = 0;
-  let lines = 0;
-  let broken = 0;
-  for (const project of [null, ...memory.listProjects(root)]) {
-    for (const type of Object.keys(memory.TYPES)) {
-      const p = memory.logPath(root, type, project);
-      if (!fs.existsSync(p)) continue;
-      found += 1;
-      for (const l of fs.readFileSync(p, 'utf8').split('\n')) {
-        if (!l.trim()) continue;
-        lines += 1;
-        try { JSON.parse(l); } catch { broken += 1; }
-      }
-    }
+  let files;
+  let scan;
+  try {
+    files = integrity.logFiles(root);
+    scan = integrity.scanIntegrity(root);
+  } catch (e) {
+    // Not measurable is not zero drawers, and not health.
+    yield finding('drawers', LEVEL.UNKNOWN, `logs unreadable: ${e.message}`);
+    return;
   }
-  if (found === 0) {
+
+  if (files.length === 0) {
     yield finding('drawers', LEVEL.WARN, 'no log files yet',
       'Fine for a fresh memory. Otherwise check that `mem log` writes where you expect.');
     return;
   }
-  if (broken > 0) {
-    yield finding('drawers', LEVEL.ERROR, `${broken} unparsable lines in ${found} files`,
+  if (scan.broken.length > 0) {
+    const first = scan.broken[0];
+    const where = first.line ? `${first.file}:${first.line}` : first.file;
+    yield finding('drawers', LEVEL.ERROR,
+      `${scan.broken.length} unparsable lines in ${files.length} files, first at ${where} (${first.why})`,
       'A JSONL line that is not JSON was hand-edited or half-written. '
-      + 'Find it with: grep -n . <file> | while read -r l; do ... ; done');
+      + 'The answer to a broken line in an append-only log is a new line, never a repair.');
     return;
   }
-  yield finding('drawers', LEVEL.GOOD, `${found} files, ${lines} lines`);
+  yield finding('drawers', LEVEL.GOOD, `${files.length} files, ${scan.lines} lines`);
 }
 
 function checkCaptures(root) {

@@ -674,6 +674,15 @@ jobs:
       - name: every shared assurance is covered, and no marker points at nothing
         run: node bench/invariants.mjs
 
+      # Does this house work the same thing out twice? On the day this
+      # latch was added it found one: checkDrawers walked every drawer
+      # and counted its own unparsable lines, four hundred lines below
+      # checkIntegrity, which calls scanIntegrity for the very same walk.
+      # Neither was wrong. That is what makes the shape dangerous — they
+      # only drift apart later, and then you believe the wrong one.
+      - name: every calculation lives in exactly one place
+        run: node bench/calculations.mjs
+
       - name: the guarantees, enforced
         run: npm run verify
 

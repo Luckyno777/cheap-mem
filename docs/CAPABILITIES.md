@@ -66,6 +66,7 @@ directory. The section number in brackets is where it is explained.
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
 | `epoch.mjs` | noticing that the memory went backwards (4) |
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
+| `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |

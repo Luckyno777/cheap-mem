@@ -79,3 +79,56 @@ Append-only like everything else. One JSONL line, the same id in the
 other house with its own prose. Then, in both houses, either build a
 guard or — if it does not apply there — a test that fails as soon as it
 begins to.
+
+## Two neighbours, same shape
+
+Two more latches were built on 2026-09-18, in the same spirit: a narrow,
+human-kept catalogue, a positive control on every run, and a third state
+so the tool never has to be switched off.
+
+### Calculations — `shared/calculations.jsonl`, `bench/calculations.mjs`
+
+Does this house work the same thing out twice? The catalogue records,
+per question that is answered by computing, which file owns it and what
+a second version would look like. What is not in the catalogue is not
+searched for.
+
+The first run found one: `checkDrawers` in `src/doctor.mjs` walked every
+drawer and counted its own unparsable lines — four hundred lines below
+`checkIntegrity`, which calls `scanIntegrity` for the very same walk.
+Neither was wrong. That is what makes the shape dangerous: they only
+drift apart later, and then you believe the wrong one.
+
+Every entry carries a marker (`// calculation: <id>`-style in the sister
+house) inside its owner, and the tool checks that the pattern still fires
+there. A pattern that matches nothing finds nothing and reports quiet —
+the same silent no-op the invariant tool once had about itself.
+
+One entry is `discarded` with its measurement: the drawer enumeration
+(`Object.keys(memory.TYPES)`) occurs in 35 places, almost all of them
+asking something else entirely. A latch that reports 34 innocents gets
+switched off, and then it stops catching the guilty too.
+
+### Doctor findings — `shared/finding-map.jsonl`, `bench/finding-mirror.mjs`
+
+Do both houses know the same doctor findings? Measured: 23 here, 37 in
+the sister house, 18 of them the same question in two languages.
+
+An entry is either a pair, or reasoned one-sided (`nur: "finding"` /
+`nur: "befund"`, naming the house by its call shape rather than by point
+of view — the first version said "here", and the same file read from the
+other house inverted every entry). `luecke: true` separates "rightly
+absent over there" from "genuinely missing over there": as a count those
+look identical and they are opposites. Nine gaps are named today, six of
+them in the sister house — `environment`, `gitignore`, `integrity`,
+`rollback`, `synonyms`, and the counterpart to `config`.
+
+Only the unjudged remainder is red. Without that, the tool would have
+been permanently red on its first run — 19 findings only in the sister
+house, almost all of them a subsystem this house does not have — and a
+check that points at unfixable red gets switched off.
+
+Both copies of the map must stay identical; each tool reports it when
+they drift. That file describes a fact *between* the houses, so the same
+sentence holds for both — unlike `invariants.jsonl`, where each house
+writes its own prose under a shared id.
