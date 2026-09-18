@@ -14,6 +14,8 @@
 #   MEM_HANDLER_CMD     AI CLI to spawn. Default: `claude -p`
 #                        Override to `chatgpt`, `gemini`, `mistral -p`, etc.
 #   MEM_HANDLER_PROMPT  override prompt.
+#   MEM_HANDLER_PROBE   seconds for the start probe (default 30) — see
+#                       mem_start_command in bin/_portable.sh
 
 set -u
 
@@ -25,6 +27,10 @@ if [ -z "${MEM_WATCH_WHO:-}" ]; then
   echo "mem-handle-post: MEM_WATCH_WHO not set" >&2
   exit 2
 fi
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=bin/_portable.sh
+. "$HERE/_portable.sh"
 
 CMD="${MEM_HANDLER_CMD:-claude -p}"
 
@@ -44,5 +50,14 @@ Exit after the last message. Do not start new work of your own."
 
 PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
 
-# shellcheck disable=SC2086
-$CMD "$PROMPT"
+# The AI CLI may live on a mount flagged `noexec` — then `execve()`
+# refuses it whatever its permission bits say, and every run ends with
+# exit 126 before the model is ever asked anything. mem_start_command
+# probes that once and takes the interpreter detour only when it
+# actually helps; see bin/_portable.sh.
+#
+# The reason goes to stderr, not stdout: this handler's stdout is the
+# model session's, and mem-watch appends it to the log verbatim.
+mem_start_command "$CMD" "${MEM_HANDLER_PROBE:-30}"
+echo "mem-handle-post: start command: $MEM_START_REASON" >&2
+"${MEM_START[@]}" "$PROMPT"

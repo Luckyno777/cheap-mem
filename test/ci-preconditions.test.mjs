@@ -58,8 +58,33 @@ function steps() {
   return out.map((s) => ({ name: s.name, body: s.body.join('\n') }));
 }
 
+/**
+ * Does this step body actually START a digest tick?
+ *
+ * **It used to answer "does it MENTION one" (found 2026-09-18).** The
+ * test read `/bin\/mem-digest(\.ps1)?\b/` against the whole body,
+ * comments included — so an unrelated step whose comment named the file
+ * as an example was pulled in and failed all three rules. The step did
+ * nothing wrong; the reader did. A guard that matches a mention instead
+ * of a call measures the wrong thing, and the damage runs the other way
+ * too: it would just as happily count a step that only talks about the
+ * digest as one of the two halves it demands.
+ *
+ * So: comment lines are stripped first, and what remains must contain
+ * the SAME invocation tokens the rules below split on. One spelling in
+ * one place — the reader and the rules cannot drift apart.
+ */
+const RUFT_DIGEST = /bash bin\/mem-digest|-File bin\/mem-digest\.ps1/;
+export function startsDigest(body) {
+  const ohneKommentare = String(body ?? '')
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+  return RUFT_DIGEST.test(ohneKommentare);
+}
+
 /** Steps that actually start a digest tick. */
-const digestSteps = () => steps().filter((s) => /bin\/mem-digest(\.ps1)?\b/.test(s.body));
+const digestSteps = () => steps().filter((s) => startsDigest(s.body));
 
 test('POSITIVE: the reader finds named steps at all', () => {
   // Without this, every rule below would hold against an empty list.
@@ -67,6 +92,19 @@ test('POSITIVE: the reader finds named steps at all', () => {
   assert.ok(all.length >= 10, `only ${all.length} steps read — the reader no longer fits the file`);
   assert.ok(digestSteps().length >= 2,
     `only ${digestSteps().length} digest step(s) — both halves must exist`);
+});
+
+test('the reader separates a CALL from a MENTION', () => {
+  // Both directions, or the rule above is passable by a reader that
+  // always says yes (or always no).
+  assert.equal(startsDigest('          run: bash bin/mem-digest'), true,
+    'a real invocation is no longer recognised — every rule below goes mute');
+  assert.equal(startsDigest('          run: pwsh -File bin/mem-digest.ps1'), true,
+    'the PowerShell invocation is no longer recognised');
+  assert.equal(startsDigest('          # a glob would skip bin/mem-digest entirely'), false,
+    'a comment naming the path counts as a digest step');
+  assert.equal(startsDigest('          # run: bash bin/mem-digest'), false,
+    'a commented-out invocation counts as a digest step');
 });
 
 test('every digest step asks whether anything is due, before it starts one', () => {

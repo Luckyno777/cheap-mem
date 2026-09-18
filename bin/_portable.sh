@@ -1,4 +1,16 @@
-# _portable.sh — the two POSIX tools that are not everywhere, in one place.
+# shellcheck shell=bash
+#
+# A `shell` directive, not a shebang: this file is SOURCED, never
+# executed. A shebang would be a claim about a start that does not
+# happen. shellcheck needs the declaration anyway — without it, it does
+# not know which shell to check against and reports SC2148 at error
+# level.
+#
+# And `bash`, not `sh`: this file uses arrays (`MEM_CAP=(timeout)`) and
+# `local`, neither of which is POSIX. With `shell=sh` shellcheck would
+# check bash code against the wrong rules.
+#
+# _portable.sh — the POSIX tools that are not everywhere, in one place.
 #
 # Sourced, never executed. `bin/` ships and installs as a whole (the
 # launchd and systemd units point at ${HERE}/bin/..., they do not copy
@@ -80,7 +92,110 @@ mem_take_lock() {
     rmdir "$lockdir" 2> /dev/null || return 1
   fi
   mkdir "$lockdir" 2> /dev/null || return 1
-  # shellcheck disable=SC2064 -- $lockdir is wanted at trap time, not later
+  # Double quotes are DELIBERATE: `$lockdir` must be substituted NOW,
+  # not when the trap fires. By then the variable may hold something
+  # else, or be gone.
+  #
+  # The reason goes on its OWN line, not behind the directive. Written
+  # with a trailing `-- reason`, shellcheck cannot parse the line at
+  # all: SC1072/SC1073, both at error level. A suppression that trips
+  # the checker does not suppress — it aborts it. The sister house
+  # learned this on this very line on 2026-09-17 and wrote it down; it
+  # never travelled here, because nothing ever ran shellcheck on this
+  # repo.
+  # shellcheck disable=SC2064
   trap "rmdir '$lockdir' 2>/dev/null || true" EXIT
+  return 0
+}
+
+# --- A command that may not be allowed to EXECUTE -------------------
+#
+# Measured 2026-09-18 in the sister house (lucky-mem). The AI CLI lived
+# on a mount flagged `noexec`:
+#
+#   /dev/sda1 on /work type ext4 (rw,nosuid,nodev,noexec,relatime,...)
+#
+# `execve()` refuses every file there, whatever its permission bits say
+# — root included. The watcher ticked all night, each tick ending with
+#
+#   timeout: failed to run command 'claude': Permission denied
+#
+# and exit 126. Not one session started. The service reported `active`
+# throughout.
+#
+# The way around it is the same one the hooks have used for a while:
+# a file that may not be EXECUTED may still be READ. For a shell that
+# is `bash <path>`; for a Node CLI, `node <path>`.
+#
+# Two things are deliberate here:
+#
+#   - The detour is PROBED, not assumed. `node <path>` makes things
+#     worse for a native binary, so it only wins if it actually runs.
+#   - Only 126 triggers it. Any other failure — an expired login, a
+#     missing file, whatever — passes through untouched. Otherwise the
+#     caller would report something other than what is wrong.
+#
+# Four outcomes, never two, and each one names itself in
+# MEM_START_REASON so a log line says which happened:
+#
+#   not-found    `command -v` finds nothing. Nothing is rewritten; the
+#                failure then says 127, which is the truth.
+#   direct       the probe runs. The normal case.
+#   detour       probe says 126 and `node <path>` runs. Detour taken.
+#   both-dead    probe says 126 and `node <path>` fails too. Direct is
+#                kept so the 126 still shows up in the log.
+#
+# Determined ONCE by the caller, not per tick: the probe costs a
+# process start. If the mount changes, restart the service — there is
+# no self-healing here, on purpose.
+#
+# mem_start_command <command-line> [probe-seconds]
+#   sets MEM_START (array) and MEM_START_REASON (string)
+MEM_START=()
+MEM_START_REASON="not determined"
+mem_start_command() {
+  local raw="$1" probe="${2:-30}" name path rc
+  local parts=() rest=()
+  # Word-split the configured command line: it may carry flags
+  # (`claude -p`), and only the FIRST word is a file to resolve.
+  read -r -a parts <<< "$raw"
+  if [ "${#parts[@]}" -eq 0 ]; then
+    MEM_START=()
+    MEM_START_REASON="not-found — empty command line"
+    return 0
+  fi
+  name="${parts[0]}"
+  rest=("${parts[@]:1}")
+  # `${rest[@]+...}` because bash 3.2 (macOS) treats an empty array as
+  # unset under `set -u` and aborts. The house targets that bash.
+  path="$(command -v "$name" 2> /dev/null)" || path=""
+  if [ -z "$path" ]; then
+    MEM_START=("$name" ${rest[@]+"${rest[@]}"})
+    MEM_START_REASON="not-found — '$name' is not on PATH; start stays direct so the failure says 127"
+    return 0
+  fi
+  # Run it, THEN read the status. Writing `if cmd; then ... fi` and
+  # reading `$?` afterwards reads the status of the `if` construct,
+  # which is 0 when no branch ran — the 126 case would never fire and
+  # the detour would be dead wood that looks green.
+  capped "$probe" "$path" --version > /dev/null 2>&1
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    MEM_START=("$name" ${rest[@]+"${rest[@]}"})
+    MEM_START_REASON="direct — $path runs"
+    return 0
+  fi
+  if [ "$rc" -ne 126 ]; then
+    MEM_START=("$name" ${rest[@]+"${rest[@]}"})
+    MEM_START_REASON="direct — probe exited $rc, which is not the noexec case ($path)"
+    return 0
+  fi
+  if capped "$probe" node "$path" --version > /dev/null 2>&1; then
+    MEM_START=(node "$path" ${rest[@]+"${rest[@]}"})
+    MEM_START_REASON="detour — direct start gives 126 (noexec or missing x-bit), but 'node $path' runs"
+    return 0
+  fi
+  MEM_START=("$name" ${rest[@]+"${rest[@]}"})
+  MEM_START_REASON="both-dead — direct start gives 126 AND 'node $path' fails too; start stays direct so the 126 shows in the log"
   return 0
 }

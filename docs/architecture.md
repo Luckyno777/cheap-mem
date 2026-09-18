@@ -105,6 +105,59 @@ the session had failed on permissions, explained that honestly, and
 exited cleanly. So the wrapper counts pending captures before and
 after. No change means failure, whatever the model claims.
 
+### And why a non-zero code is read word for word
+
+The mirror image of the same mistake. Until 2026-09-18 every failure
+was logged as `model call exited N (timeout or error)` — one phrase for
+four different situations. In the sister memory that phrasing cost a
+whole night: the log said
+
+```
+timeout: failed to run command 'claude': Permission denied
+[..] exited 126 (timeout or error)
+```
+
+and whoever read only the second line went looking for a time cap that
+did not exist. The CLI sat on a mount flagged `noexec`, where `execve()`
+refuses every file whatever its permission bits say — root included.
+
+Three of those codes are specific sentences, so they are logged as such:
+
+| code | means | first move |
+|---|---|---|
+| **124** | the time cap expired — and **only** that | raise `MEM_DIGEST_TIMEOUT`, or find out why the run is slow |
+| **126** | found, but **not executable** | `ls -l "$(command -v claude)"` — missing x-bit, or a `noexec` mount |
+| **127** | not found at all | `echo "$PATH"; command -v claude` |
+
+For 126 there is also a way through, and it is the same one the git
+hooks use: **a file that may not be executed may still be read.** For a
+shell that is `bash <path>`; for a Node CLI, `node <path>`.
+`mem_start_command` in `bin/_portable.sh` decides this once, before the
+first call, with four outcomes rather than two:
+
+| outcome | when | what happens |
+|---|---|---|
+| `not-found` | `command -v` finds nothing | nothing is rewritten — the failure then says 127, which is the truth |
+| `direct` | the probe runs | the normal case |
+| `detour` | probe says 126 **and** `node <path>` runs | start becomes `node <path>` |
+| `both-dead` | probe says 126 **and** `node <path>` fails too | start stays direct, so the 126 still shows in the log |
+
+Two things are deliberate. The detour is **probed, not assumed** — for a
+native binary `node <path>` makes things worse. And **only 126 triggers
+it**: any other failure passes through untouched, or the log would name
+a different problem than the one that exists.
+
+The chosen start is logged with its reason on every run, including the
+normal one. A detour that stays silent is exactly the line missing next
+time someone goes looking. There is no self-healing: the decision is
+made once per run, so a changed mount needs a restart.
+
+`test/start-command.sh` holds this to it, and produces the 126 with a
+file whose shebang points at a directory — `execve()` returns `EACCES`
+there, for root too. The obvious route (mode `0111`, unreadable) does
+not work: root may read any file, so that run was green and checked
+nothing.
+
 ---
 
 ## Lane 3 — Search (`src/search.mjs`, `src/thesaurus.mjs`)
