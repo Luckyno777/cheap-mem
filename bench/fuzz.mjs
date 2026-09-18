@@ -11,7 +11,7 @@
 import { redact } from '../src/redaction.mjs';
 import { parseScope, Capability, grant, grantProject } from '../src/capability.mjs';
 import { validAt, canonicalBody, bodyHash, retrieve, LIMITS } from '../src/retrieval.mjs';
-import { replacementGraph, MAX_CHAIN } from '../src/integrity.mjs';
+import { replacementGraph } from '../src/integrity.mjs';
 import { maySupersede, tierOf, rank } from '../src/authority.mjs';
 import { comparable } from '../src/semantics.mjs';
 

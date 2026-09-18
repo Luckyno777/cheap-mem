@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { retrieve } from '../src/retrieval.mjs';
-import { grantProject, grantAll } from '../src/capability.mjs';
+import { grantProject } from '../src/capability.mjs';
 import { deriveState, statusOf } from '../src/state.mjs';
 import { loadIndex, CACHE_FILE } from '../src/search.mjs';
 import { checkEpoch, recordEpoch } from '../src/epoch.mjs';

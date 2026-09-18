@@ -101,7 +101,29 @@ IST.ungefaehr.tests = fs.readdirSync(path.join(REPO, 'test'))
   .filter((n) => n.endsWith('.mjs'))
   .reduce((a, n) => a + [...read(path.join('test', n)).matchAll(/^test\(/gm)].length, 0);
 
-const TOLERANZ = 1.15;
+/**
+ * One band per kind, because the kinds are not equally countable.
+ *
+ * **What 1.15 for everything cost.** On 2026-09-18 the README said
+ * "1166 tests" against a real 1231 counted here (1236 reported by the
+ * runner). Factor 1.056 — comfortably inside 1.15, so every run was
+ * green while the number was two weeks stale. Nobody was misled in any
+ * way that mattered, and that is the point: a band chosen so it never
+ * annoys anyone is a band that never says anything either.
+ *
+ * Tests are cheap to count exactly. The only reason this is not `1.0`
+ * is the 0.41 % gap between the static count and the runner's number —
+ * tests generated inside a loop or nested in a `describe` body are not
+ * visible to a regex. 2 % covers that gap with room and still catches
+ * the drift above; the positive control below proves it does.
+ *
+ * Line counts keep 1.15: they move with every commit for reasons that
+ * are not drift, and the failure they exist to catch (500 against
+ * ~23,000) is an order of magnitude away, not five percent.
+ */
+const TOLERANZ = { tests: 1.02, 'lines:all': 1.15, 'lines:cli': 1.15 };
+const TOLERANZ_VORGABE = 1.15;
+const bandFuer = (was) => TOLERANZ[was] ?? TOLERANZ_VORGABE;
 
 // --- Which documents are living, and which are records ---------------
 
@@ -167,27 +189,6 @@ function zielDerZeilenzahl(text, index) {
   if (/\bbin\/mem\b(?!-)/.test(umfeld) && !/\bsrc\//.test(umfeld)) return 'lines:cli';
   if (/\bbin\/|\bsrc\/|codebase|of JS\b/.test(umfeld)) return 'lines:all';
   return null;   // a rate, a budget, something else — not our business
-}
-
-/**
- * A number the prose is QUOTING, not claiming.
- *
- * "This bullet used to say ~500 lines. It was off by a factor of
- * thirty-two" is a sentence about a corrected error. Rewriting it would
- * destroy the correction it documents.
- *
- * The mark is explicit and sits in the document, not in a heuristic
- * here. A guard that infers intent from wording will one day infer it
- * wrong, and the author has no way to argue back. A marker is an
- * author saying "I meant this", visible to the next reader.
- */
-function istMarkiert(text, index) {
-  const davor = text.slice(Math.max(0, index - 400), index);
-  // The text AFTER the keyword is deliberately allowed: an exception
-  // with no reason is an exception nobody can check. The first pattern
-  // required `-->` immediately, which trained authors toward unreasoned
-  // markers.
-  return /<!--\s*zahl-historisch[\s\S]*?-->/i.test(davor);
 }
 
 function sammleBehauptungen() {
@@ -272,7 +273,7 @@ test('every countable claim in every living document is right', () => {
     } else if (was in IST.ungefaehr) {
       const real = IST.ungefaehr[was];
       const faktor = Math.max(real, c.zahl) / Math.min(real, c.zahl);
-      if (faktor > TOLERANZ) {
+      if (faktor > bandFuer(was)) {
         falsch.push(`${c.rel}:${c.zeile} says ${c.zahl} ${c.was} — really ${real} (factor ${faktor.toFixed(2)})`);
       }
     }
@@ -286,8 +287,36 @@ test('the drift that got past the 2026-09-08 guard would fail this one', () => {
   // slipped through a tolerance of 1.5. If it would slip through here
   // too, this file is decoration.
   const faktor = IST.ungefaehr['lines:all'] / 18900;
-  assert.ok(faktor > TOLERANZ,
-    `the 18,900 claim would pass at a tolerance of ${TOLERANZ} — this guard adds nothing`);
+  assert.ok(faktor > bandFuer('lines:all'),
+    `the 18,900 claim would pass at a band of ${bandFuer('lines:all')} — this guard adds nothing`);
+});
+
+test('the test-count drift that the 1.15 band swallowed would fail this one', () => {
+  // 2026-09-18: the README said 1166 against 1231 counted here. Factor
+  // 1.056 — green under the old single band, and that is why this test
+  // exists. If the narrower band would ALSO pass it, the change was
+  // cosmetic.
+  const real = IST.ungefaehr.tests;
+  const faktor = real / 1166;
+  assert.ok(faktor > bandFuer('tests'),
+    `1166 tests against ${real} would pass at a band of ${bandFuer('tests')} — the narrowing bought nothing`);
+  assert.ok(faktor < TOLERANZ_VORGABE,
+    `1166 against ${real} is a factor of ${faktor.toFixed(3)} — if it exceeded the OLD band of `
+    + `${TOLERANZ_VORGABE} the premise is wrong: it was never swallowed, and this test proves nothing`);
+});
+
+test('POSITIVE: the narrow band still passes the number that is actually there', () => {
+  // A band tight enough to fail the truth is worse than one that is too
+  // wide: the first thing anyone does with it is switch it off. The
+  // runner reports a few more tests than a regex can see — that gap
+  // must fit, or the next honest commit goes red.
+  const real = IST.ungefaehr.tests;
+  for (const behauptet of [real, 1236]) {
+    const faktor = Math.max(real, behauptet) / Math.min(real, behauptet);
+    assert.ok(faktor <= bandFuer('tests'),
+      `a claim of ${behauptet} against ${real} counted would FAIL at ${bandFuer('tests')} `
+      + '— the band is too tight for the static-vs-runner gap');
+  }
 });
 
 test('a claim in a dated record is left alone', () => {

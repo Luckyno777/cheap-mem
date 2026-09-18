@@ -20,7 +20,7 @@ function lauf(mitAttrs, gleicherEintrag){
                                        : z({id:'b1',ts:'2026-02-01T00:00:00Z',choice:'von B'}));
   git(d,'add','-A'); git(d,'commit','-qm','B');
   let st='sauber';
-  try{ git(d,'merge','A','-m','merge'); }catch(e){ st='KONFLIKT'; }
+  try{ git(d,'merge','A','-m','merge'); }catch{ st='KONFLIKT'; }
   const inhalt=fs.readFileSync(p,'utf8'); const zeilen=inhalt.split('\n').filter(Boolean);
   let ok=0,kaputt=0; const ids=[];
   for(const l of zeilen){ try{ ids.push(JSON.parse(l).id); ok++; }catch{ kaputt++; } }

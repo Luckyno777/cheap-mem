@@ -6,7 +6,7 @@
 
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { retrieve, enforceAuthorShare, LIMITS } from '../src/retrieval.mjs';
-import { grantProject, grantAll } from '../src/capability.mjs';
+import { grantProject } from '../src/capability.mjs';
 import * as memory from '../src/memory.mjs';
 const R=(n,t,b)=>console.log(`\n[${n}] ${t}\n     ${b}`);
 function mem(byScope){

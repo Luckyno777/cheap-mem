@@ -27,9 +27,21 @@ to verify each claim rather than believe it.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-17: **60 CLI commands, 28 MCP tools, 62 modules, 1166
-tests**, at **94.89 % statement coverage** (`npm run coverage`). Counted, not remembered — a test re-derives these from the
-code and fails when this line drifts.
+As of 2026-09-18: **60 CLI commands, 28 MCP tools, 62 modules, 1238
+tests**, at **94.7 % statement coverage** (`npm run coverage`).
+
+Counted, not remembered — and the guard is tighter for the things that
+can be counted without running anything. Commands, tools and modules are
+re-derived from the code on every test run and must match exactly. The
+test count is counted from `test/` and allowed 2 %, which is the gap
+between a static count and what the runner reports. It used to be
+allowed 15 %, and that is how this line sat at 1166 while the suite had
+grown past 1230, with every run green: a band wide enough never to be
+annoying is also wide enough to hide a correction. Narrowing it caught
+two further copies of the stale number in `docs/CAPABILITIES.md` on the
+first run. Coverage is the one figure here that cannot be had without
+running the whole suite, so it carries the date it was run — and it is
+the one number on this line that no test re-derives.
 
 <!-- zahl-historisch: 17 MCP tools (a true measurement of that day) -->
 <!-- zahl-historisch: 28 modules (likewise) -->

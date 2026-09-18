@@ -59,7 +59,7 @@ test('ONE ULP in the similarity does not move the MMR result', () => {
   // then, does the run show which mechanism decided.
   const c = tied(3);
   const key = (h) => h.entry.id;
-  const [erst, zweiter] = c.slice().sort(search.byScoreThenIdentity);
+  const [, zweiter] = c.slice().sort(search.byScoreThenIdentity);
 
   const genau = (a, b) => (a === b ? 1 : 0.5);
   // `zweiter` is the one the key picks next. Give exactly IT the higher
@@ -93,7 +93,7 @@ test('a REAL difference in similarity still decides — the threshold is no blan
   // leaving it looking switched on.
   const c = tied(3);
   const key = (h) => h.entry.id;
-  const [erst, zweiter, dritter] = c.slice().sort(search.byScoreThenIdentity);
+  const [, zweiter, dritter] = c.slice().sort(search.byScoreThenIdentity);
 
   // `dritter` is the one the key would take LAST — and the one that is
   // clearly least similar to the first pick. MMR must take it second.

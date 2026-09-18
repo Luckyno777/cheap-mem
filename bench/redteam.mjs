@@ -5,7 +5,7 @@
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { buildIndex, search, loadIndex } from '../src/search.mjs';
 const R='../src/';
-const mem=await import(R+'memory.mjs'); const red=await import(R+'redaction.mjs');
+const red=await import(R+'redaction.mjs');
 function neu(){ const d=fs.mkdtempSync(path.join(os.tmpdir(),'ang-'));
   for(const p of ['a','b']) fs.mkdirSync(path.join(d,'projects',p),{recursive:true});
   fs.mkdirSync(path.join(d,'global'),{recursive:true}); return d; }

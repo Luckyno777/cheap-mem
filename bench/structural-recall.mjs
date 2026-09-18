@@ -272,7 +272,10 @@ console.log('');
 // anybody. Only the subject overlap speaks to relevance.
 const meanStructural = rows.reduce((s2, r) => s2 + r.simStructural, 0) / (rows.length || 1);
 const meanControl = rows.reduce((s2, r) => s2 + r.simControl, 0) / (rows.length || 1);
-const lift = meanStructural - meanControl;
+// Kein `lift` mehr: die Differenz der Mittelwerte stand hier, wurde nie
+// gedruckt, und der Kommentar unten erklaert warum sie das auch nicht
+// verdient — vier von 25 Dateien tragen den Effekt. Ein Messwert, den
+// niemand liest, ist keiner.
 
 console.log(`subject overlap with own history:`);
 console.log(`  structural neighbours  ${meanStructural.toFixed(3)}`);
