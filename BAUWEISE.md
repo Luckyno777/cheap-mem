@@ -189,6 +189,38 @@ die elfte am 2026-09-07 dazu.
 Grob: **5 Cent je Aufgabe und Arm.** Das ist die Zahl, mit der man
 vorher rechnet.
 
+14. **Ein Messgeraet ist fertig, wenn jemand es aufruft — nicht, wenn
+    es laeuft.** Jedes neue Werkzeug bekommt gleich beim Bau seinen
+    Aufrufer: die CI, wenn die Frage in EINEM Repo beantwortbar ist —
+    ein Doktor-Befund, wenn sie beide Haeuser oder die laufende Maschine
+    braucht.
+
+    Am 2026-09-18 stellte sich heraus, dass `bench/invariants.mjs` in
+    KEINER Pipeline lief. Es meldete fuenf verwaiste Marken voellig
+    korrekt mit Rueckgabewert 1, und niemand hoerte zu — unter der
+    Ueberschrift „Covered: 16 of 16". Am selben Tag entstanden
+    `bench/calculations.mjs` und `bench/finding-mirror.mjs`, und beide
+    waeren mit demselben Los geboren worden.
+
+    Der Spiegel haengt darum als Befund `finding-parity` im Doktor und
+    hat sich beim allerersten Lauf selbst als unbeurteilt gemeldet.
+
+15. **In geteilten Daten steht kein Wort, dessen Bedeutung vom Leseort
+    abhaengt.** Was zwei Haeuser lesen, muss in beiden dasselbe
+    bedeuten. Blickrichtungen — „hier", „drueben" — sind keine Angaben,
+    sondern Standpunkte.
+
+    `shared/finding-map.jsonl` schrieb am 2026-09-18 `nur: "hier"`. Aus
+    diesem Haus gelesen drehte dieselbe Datei JEDEN der 43 Eintraege um.
+    Aufgefallen ist es erst, als das portierte Werkzeug zum ersten Mal
+    von dieser Seite lief. Die Seite wird jetzt ueber die BAUFORM
+    benannt (`nur: "befund"` / `nur: "finding"`), und die Begruendungen
+    nennen `lucky-mem` und `cheap-mem` beim Namen.
+
+    Gilt auch innerhalb eines Hauses fuer Vokabular: zwei Bedeutungen
+    unter einem Wort sind dieselbe Drift wie zwei Rechnungen ueber
+    dieselbe Frage.
+
 ## Der Filter fuer jede Aenderung
 
 Bleibt der Abruf modellfrei und im Millisekundenbereich? Braucht die
