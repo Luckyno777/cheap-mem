@@ -22,8 +22,6 @@
 #                         the rest stays pending for the next tick
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude -p)
-#   MEM_DIGEST_PROBE      seconds for the start probe (default 30) — see
-#                         mem_start_command in bin/_portable.sh
 #   MEM_DIGEST_LOG        log file (default: $ROOT/.mem/digest.log)
 #
 # Exit codes:
@@ -271,16 +269,32 @@ condensing enough. Stop after the push."
   # directly. Losing the cap is worse than nothing only if a hung model
   # can block something — the tick is a timer job, and the next tick
   # stands down on the lock.
-  # How the CLI is started is decided ONCE, here, not per tick — see
-  # mem_start_command in bin/_portable.sh for why the detour exists and
-  # why only 126 triggers it. The reason is logged either way: a detour
-  # that stays silent is exactly the line missing next time someone
-  # goes looking.
-  mem_start_command "$CMD" "${MEM_DIGEST_PROBE:-30}"
-  note "start command: $MEM_START_REASON"
-
-  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" "${MEM_START[@]}" "$PROMPT" ) >>"$LOG" 2>&1
+  # shellcheck disable=SC2086
+  BEFORE_BYTES="$(wc -c < "$LOG" 2> /dev/null || echo 0)"
+  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
   MODEL_EXIT=$?
+
+  # The CLI may sit on a mount flagged `noexec`, where execve() refuses
+  # it whatever its permission bits say. Then the call comes back 126
+  # having written nothing — the process never started. Only in that
+  # case is a second attempt free of doubt, and only then is it made:
+  # once, reading the file with node instead of executing it. See
+  # mem_never_started and mem_detour_cmd in bin/_portable.sh.
+  #
+  # No probe beforehand. A probe that starts the configured command is a
+  # model call nobody asked for; the CI step that counts model calls
+  # caught exactly that on 2026-09-18 and was right to.
+  if mem_never_started "$MODEL_EXIT" "$BEFORE_BYTES" "$LOG"; then
+    if mem_detour_cmd "$CMD"; then
+      note "exit 126 and not one byte written — the CLI never started."
+      note "  Retrying once: $MEM_DETOUR_REASON"
+      ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" "${MEM_START[@]}" "$PROMPT" ) >>"$LOG" 2>&1
+      MODEL_EXIT=$?
+      note "  the detour ended with $MODEL_EXIT"
+    else
+      note "exit 126 and nothing written, but no detour available: $MEM_DETOUR_REASON"
+    fi
+  fi
 
   # **124, 126 and 127 are three specific sentences, not one.** Folding
   # them into "timeout or error" cost the sister house a whole night on
@@ -298,8 +312,8 @@ condensing enough. Stop after the push."
         note "  Not a timeout. The file is there but may not start: either the"
         note "  x-bit is missing, or it sits on a mount flagged noexec."
         note "  Look: command -v ${CMD%% *}; ls -l \"\$(command -v ${CMD%% *})\""
-        note "  The interpreter detour was probed at start and did not help:"
-        note "  $MEM_START_REASON"
+        note "  If nothing was written either, the interpreter detour was tried"
+        note "  once and did not help — the line above says how it went."
         ;;
       127)
         note "model call exited 127 — NOT FOUND"

@@ -14,8 +14,6 @@
 #   MEM_HANDLER_CMD     AI CLI to spawn. Default: `claude -p`
 #                        Override to `chatgpt`, `gemini`, `mistral -p`, etc.
 #   MEM_HANDLER_PROMPT  override prompt.
-#   MEM_HANDLER_PROBE   seconds for the start probe (default 30) — see
-#                       mem_start_command in bin/_portable.sh
 
 set -u
 
@@ -51,13 +49,32 @@ Exit after the last message. Do not start new work of your own."
 PROMPT="${MEM_HANDLER_PROMPT:-$DEFAULT_PROMPT}"
 
 # The AI CLI may live on a mount flagged `noexec` — then `execve()`
-# refuses it whatever its permission bits say, and every run ends with
-# exit 126 before the model is ever asked anything. mem_start_command
-# probes that once and takes the interpreter detour only when it
-# actually helps; see bin/_portable.sh.
+# refuses it whatever its permission bits say, and the run ends with
+# exit 126 before the model is ever asked anything.
 #
-# The reason goes to stderr, not stdout: this handler's stdout is the
-# model session's, and mem-watch appends it to the log verbatim.
-mem_start_command "$CMD" "${MEM_HANDLER_PROBE:-30}"
-echo "mem-handle-post: start command: $MEM_START_REASON" >&2
-"${MEM_START[@]}" "$PROMPT"
+# The output goes through `tee` so it still streams AND can be weighed
+# afterwards: only a 126 with not one byte written means the process
+# never started, and only then is a second attempt free of doubt.
+# `${PIPESTATUS[0]}` keeps the command's own code rather than tee's.
+#
+# No probe beforehand — a probe that starts the configured command is a
+# model call nobody asked for.
+SEEN="$(mktemp)"
+trap 'rm -f "$SEEN"' EXIT
+
+# shellcheck disable=SC2086
+$CMD "$PROMPT" 2>&1 | tee "$SEEN"
+CODE="${PIPESTATUS[0]}"
+
+if mem_never_started "$CODE" 0 "$SEEN"; then
+  if mem_detour_cmd "$CMD"; then
+    echo "mem-handle-post: exit 126, nothing written — the CLI never started." >&2
+    echo "mem-handle-post: retrying once, $MEM_DETOUR_REASON" >&2
+    "${MEM_START[@]}" "$PROMPT" 2>&1 | tee "$SEEN"
+    CODE="${PIPESTATUS[0]}"
+  else
+    echo "mem-handle-post: exit 126, nothing written, no detour: $MEM_DETOUR_REASON" >&2
+  fi
+fi
+
+exit "$CODE"

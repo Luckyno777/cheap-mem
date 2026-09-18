@@ -132,31 +132,56 @@ Three of those codes are specific sentences, so they are logged as such:
 For 126 there is also a way through, and it is the same one the git
 hooks use: **a file that may not be executed may still be read.** For a
 shell that is `bash <path>`; for a Node CLI, `node <path>`.
-`mem_start_command` in `bin/_portable.sh` decides this once, before the
-first call, with four outcomes rather than two:
 
-| outcome | when | what happens |
-|---|---|---|
-| `not-found` | `command -v` finds nothing | nothing is rewritten — the failure then says 127, which is the truth |
-| `direct` | the probe runs | the normal case |
-| `detour` | probe says 126 **and** `node <path>` runs | start becomes `node <path>` |
-| `both-dead` | probe says 126 **and** `node <path>` fails too | start stays direct, so the 126 still shows in the log |
+**It is not probed beforehand, and the first version of it was.** That
+version ran `<path> --version` once at startup to find out whether a
+detour was needed. CI killed it the same day, correctly: the digest step
+plants a fake model that tallies every invocation and then demands
+**exactly one model call**, and the probe was a second one. A probe that
+starts the configured command is a model call nobody asked for — and for
+a command that is not idempotent it is worse than a lost time cap.
 
-Two things are deliberate. The detour is **probed, not assumed** — for a
-native binary `node <path>` makes things worse. And **only 126 triggers
-it**: any other failure passes through untouched, or the log would name
-a different problem than the one that exists.
+So the detour is taken **after** a real call came back 126, and only
+when that call never started. Two functions in `bin/_portable.sh`:
 
-The chosen start is logged with its reason on every run, including the
-normal one. A detour that stays silent is exactly the line missing next
-time someone goes looking. There is no self-healing: the decision is
-made once per run, so a changed mount needs a restart.
+- `mem_never_started <code> <bytes-before> <output-file>` — true when
+  the code is 126 **and** everything written since the offset is an exec
+  failure rather than the command speaking for itself.
+- `mem_detour_cmd <command-line>` — resolves the first word, keeps the
+  flags, and offers `node <path> …`; it returns failure, with a reason,
+  when there is nothing on `PATH` or no `node` to read the file with.
+  Nothing is rewritten then, so the original failure keeps speaking.
 
-`test/start-command.sh` holds this to it, and produces the 126 with a
-file whose shebang points at a directory — `execve()` returns `EACCES`
-there, for root too. The obvious route (mode `0111`, unreadable) does
-not work: root may read any file, so that run was green and checked
-nothing.
+**"Wrote nothing" was the first rule for `mem_never_started` and it was
+wrong.** The time cap writes its own complaint to the same stream the
+command does:
+
+```
+timeout: failed to run command 'claude': Permission denied
+```
+
+so the log grows by some seventy bytes precisely when nothing ran, and a
+byte comparison would have said "it spoke" every time — the detour would
+never have fired where it is needed. The probe caught that on its first
+run. The new output is therefore **read**, not weighed, which is the
+same lesson the whole detour comes from: a code and a message say
+different things, and the message is the one that names the cause.
+
+The other half of that rule matters too. A program may exit 126 of its
+own accord after doing its work; re-running that one costs a second
+model call for nothing. So a 126 that came with real output is not
+retried.
+
+The retry happens at most once, and both the decision and its outcome go
+into the log. A detour that stays silent is exactly the line missing
+next time someone goes looking.
+
+`test/start-command.sh` holds all of this to it — including a count of
+actual invocations, so a rearranged array cannot pass for a working
+detour — and produces the 126 with a file whose shebang points at a
+directory: `execve()` returns `EACCES` there, for root too. The obvious
+route (mode `0111`, unreadable) does not work, because root may read any
+file, so that run was green and checked nothing.
 
 ---
 

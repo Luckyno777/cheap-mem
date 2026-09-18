@@ -127,75 +127,91 @@ mem_take_lock() {
 # a file that may not be EXECUTED may still be READ. For a shell that
 # is `bash <path>`; for a Node CLI, `node <path>`.
 #
-# Two things are deliberate here:
+# **This does NOT probe the command first, and the first version did
+# (found by CI, 2026-09-18).** That version ran `<path> --version` once
+# at startup to see whether a detour was needed. The digest CI step
+# plants a fake model that tallies every invocation and then demands
+# EXACTLY ONE model call — and it went red, correctly: a probe that
+# starts the configured command is a model call nobody asked for, and
+# for a command that is not idempotent it is worse than a lost cap.
 #
-#   - The detour is PROBED, not assumed. `node <path>` makes things
-#     worse for a native binary, so it only wins if it actually runs.
-#   - Only 126 triggers it. Any other failure — an expired login, a
-#     missing file, whatever — passes through untouched. Otherwise the
-#     caller would report something other than what is wrong.
+# So the detour is taken only AFTER a real call came back 126, and only
+# when that call produced nothing. Both conditions together mean the
+# process never started, which makes a second attempt free of doubt:
 #
-# Four outcomes, never two, and each one names itself in
-# MEM_START_REASON so a log line says which happened:
+#   - 126 alone is not enough. A program may exit 126 of its own accord,
+#     after doing its work. Re-running that one costs a second model
+#     call for nothing.
+#   - No output alone is not enough either — a session can fail early
+#     and say nothing.
 #
-#   not-found    `command -v` finds nothing. Nothing is rewritten; the
-#                failure then says 127, which is the truth.
-#   direct       the probe runs. The normal case.
-#   detour       probe says 126 and `node <path>` runs. Detour taken.
-#   both-dead    probe says 126 and `node <path>` fails too. Direct is
-#                kept so the 126 still shows up in the log.
-#
-# Determined ONCE by the caller, not per tick: the probe costs a
-# process start. If the mount changes, restart the service — there is
-# no self-healing here, on purpose.
-#
-# mem_start_command <command-line> [probe-seconds]
-#   sets MEM_START (array) and MEM_START_REASON (string)
+# mem_detour_cmd <command-line>
+#   On success sets MEM_START (array) to the interpreter form and
+#   MEM_DETOUR_REASON, and returns 0. Returns 1 when no detour exists,
+#   with the reason in MEM_DETOUR_REASON — nothing is rewritten then,
+#   so the original failure keeps speaking for itself.
 MEM_START=()
-MEM_START_REASON="not determined"
-mem_start_command() {
-  local raw="$1" probe="${2:-30}" name path rc
+MEM_DETOUR_REASON="not determined"
+mem_detour_cmd() {
+  local raw="$1" name path
   local parts=() rest=()
   # Word-split the configured command line: it may carry flags
-  # (`claude -p`), and only the FIRST word is a file to resolve.
+  # (`claude -p`), and only the FIRST word is a file to resolve. The
+  # flags must survive the rewrite — a detour that drops `-p` starts the
+  # model interactively, and a session waiting forever looks, from
+  # outside, exactly like a slow one.
   read -r -a parts <<< "$raw"
   if [ "${#parts[@]}" -eq 0 ]; then
     MEM_START=()
-    MEM_START_REASON="not-found — empty command line"
-    return 0
+    MEM_DETOUR_REASON="the configured command line is empty"
+    return 1
   fi
   name="${parts[0]}"
   rest=("${parts[@]:1}")
-  # `${rest[@]+...}` because bash 3.2 (macOS) treats an empty array as
-  # unset under `set -u` and aborts. The house targets that bash.
   path="$(command -v "$name" 2> /dev/null)" || path=""
   if [ -z "$path" ]; then
-    MEM_START=("$name" ${rest[@]+"${rest[@]}"})
-    MEM_START_REASON="not-found — '$name' is not on PATH; start stays direct so the failure says 127"
-    return 0
+    MEM_START=()
+    MEM_DETOUR_REASON="'$name' is not on PATH — that is a 127, not a noexec case"
+    return 1
   fi
-  # Run it, THEN read the status. Writing `if cmd; then ... fi` and
-  # reading `$?` afterwards reads the status of the `if` construct,
-  # which is 0 when no branch ran — the 126 case would never fire and
-  # the detour would be dead wood that looks green.
-  capped "$probe" "$path" --version > /dev/null 2>&1
-  rc=$?
-  if [ "$rc" -eq 0 ]; then
-    MEM_START=("$name" ${rest[@]+"${rest[@]}"})
-    MEM_START_REASON="direct — $path runs"
-    return 0
+  if ! command -v node > /dev/null 2>&1; then
+    MEM_START=()
+    MEM_DETOUR_REASON="no node on PATH to read '$path' with"
+    return 1
   fi
-  if [ "$rc" -ne 126 ]; then
-    MEM_START=("$name" ${rest[@]+"${rest[@]}"})
-    MEM_START_REASON="direct — probe exited $rc, which is not the noexec case ($path)"
-    return 0
-  fi
-  if capped "$probe" node "$path" --version > /dev/null 2>&1; then
-    MEM_START=(node "$path" ${rest[@]+"${rest[@]}"})
-    MEM_START_REASON="detour — direct start gives 126 (noexec or missing x-bit), but 'node $path' runs"
-    return 0
-  fi
-  MEM_START=("$name" ${rest[@]+"${rest[@]}"})
-  MEM_START_REASON="both-dead — direct start gives 126 AND 'node $path' fails too; start stays direct so the 126 shows in the log"
+  # `${rest[@]+...}` because bash 3.2 (macOS) treats an empty array as
+  # unset under `set -u` and aborts. This house targets that bash.
+  MEM_START=(node "$path" ${rest[@]+"${rest[@]}"})
+  MEM_DETOUR_REASON="reading '$path' with node instead of executing it"
   return 0
+}
+
+# mem_never_started <exit-code> <bytes-before> <output-file>
+#   True when the command cannot have run: exit 126, and everything
+#   written since <bytes-before> is an exec failure rather than the
+#   command speaking for itself.
+#
+# **"Wrote nothing" was the first rule and it was wrong (measured
+# 2026-09-18).** The time cap writes its own complaint to the same
+# stream the command does:
+#
+#   timeout: failed to run command 'claude': Permission denied
+#
+# so the log grows by some seventy bytes precisely when nothing ran,
+# and a byte comparison would have said "it spoke" every single time —
+# the detour would never have fired where it is needed. Found by the
+# probe on the first run, not in production.
+#
+# So the new output is READ, not weighed. That is the same lesson this
+# whole detour comes from: an exit code and a message say different
+# things, and the message is the one that names the cause.
+mem_never_started() {
+  local rc="$1" before="$2" file="$3" fresh
+  [ "$rc" -eq 126 ] || return 1
+  fresh="$(tail -c "+$((before + 1))" "$file" 2> /dev/null || true)"
+  # Nothing at all: the caller sent the wrapper's complaint elsewhere,
+  # or there is no wrapper. Still an exec failure.
+  [ -z "$fresh" ] && return 0
+  printf '%s' "$fresh" | grep -qiE \
+    'failed to run command|permission denied|cannot execute|not executable|bad interpreter'
 }
