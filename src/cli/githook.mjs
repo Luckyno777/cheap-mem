@@ -73,7 +73,15 @@ export function installHook(root, dirOverride) {
     // ignored because it's not set as executable" — and commits
     // anyway. chmod cannot fix it; the hook has to live elsewhere.
     lines.push('Memory mount forbids execve (noexec?) — installing outside the memory.');
-    target = path.join(process.env.HOME ?? '/tmp', '.cheap-mem-hooks');
+    // `process.env.HOME ?? '/tmp'` stood here until 2026-09-19. On
+    // Windows HOME is normally unset — the home directory is USERPROFILE
+    // — so the fallback fired and the hook was written to `C:\tmp\`,
+    // a directory that usually does not exist and belongs to nobody.
+    // Found while triaging a Windows bug report the same day.
+    // `os.homedir()` is the one answer that is right on all three
+    // platforms: it reads $HOME on POSIX (so an overridden HOME in a
+    // test still works) and USERPROFILE on Windows.
+    target = path.join(os.homedir(), '.cheap-mem-hooks');
     fs.mkdirSync(target, { recursive: true });
   }
 

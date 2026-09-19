@@ -20,6 +20,7 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from './memory.mjs';
@@ -30,6 +31,7 @@ import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
 import * as raw from './raw.mjs';
+import * as archive from './archive.mjs';
 import * as search from './search.mjs';
 import * as redaction from './redaction.mjs';
 import * as cfgmod from './config.mjs';
@@ -152,6 +154,7 @@ export function checkAll(root) {
   f.push(checkGitHook(root));
   f.push(...checkDrawers(root));
   f.push(checkCaptures(root));
+  f.push(checkArchiveBacklog(root));
   f.push(checkDigest(root));
   f.push(checkDigestYield(root));
   f.push(checkFactConflicts(root));
@@ -304,8 +307,46 @@ export function checkTopicQuality(root) {
 // Deterministic.
 export function checkDelivery(root) {
   let messages = [];
-  try { messages = inbox.read(root, {}).messages ?? []; }
-  catch { return finding('delivery', LEVEL.UNKNOWN, 'drawer unreadable'); }
+  let broken = [];
+  try {
+    const drawer = inbox.read(root, {});
+    messages = drawer.messages ?? [];
+    broken = drawer.broken ?? [];
+  } catch (e) {
+    // Still reachable: the DIRECTORY itself can be unreadable
+    // (permissions, a dangling symlink). That is genuinely "we cannot
+    // tell", so it stays UNKNOWN — but it now says why instead of
+    // shrugging.
+    return finding('delivery', LEVEL.UNKNOWN, `drawer unreadable: ${e.message}`);
+  }
+
+  // **An unreadable message is the most expensive kind of undelivered
+  // mail (2026-09-19).** It is not merely sitting there, it cannot be
+  // read at all — and until today nobody counted it. `inbox.read` threw
+  // for the whole drawer, this catch turned that into one blanket
+  // UNKNOWN, and a Windows user's two intact messages were reported as
+  // 'drawer unreadable' while the channel to ChatGPT went quiet.
+  //
+  // ERROR, not UNKNOWN: UNKNOWN says "not measured". This IS measured —
+  // we know exactly which files and why. A silent drawer must not look
+  // like an empty one.
+  //
+  // It stays inside `delivery` and does not become its own finding: it
+  // is the same question ("does mail get through?"), only the worse
+  // answer, and both houses have to keep the same finding set (lucky-mem
+  // put its half inside the existing `post-liegt` for the same reason).
+  // It comes BEFORE every other branch, because a report about
+  // unread recipients is worthless while the drawer swallows messages.
+  if (broken.length) {
+    return finding('delivery', LEVEL.ERROR,
+      `${broken.length} message${broken.length === 1 ? '' : 's'} in the drawer `
+      + `${broken.length === 1 ? 'is' : 'are'} unreadable: `
+      + broken.map((b) => `${b.name} (${b.reason})`).join('; '),
+      'They count in no other number here — whoever does not look at them takes '
+      + 'a silent drawer for an empty one. Open them by hand; the commonest cause '
+      + 'is a header with no blank line after it.');
+  }
+
   if (!messages.length) return finding('delivery', LEVEL.GOOD, 'drawer empty');
 
   const registered = new Set(agents.listAgents(root).map((a) => a.name));
@@ -658,9 +699,16 @@ function checkIndex(root) {
   }
 }
 
-function checkStopHook(root) {
+export function checkStopHook(root) {
   const candidates = [
-    path.join(process.env.HOME ?? '', '.claude', 'settings.json'),
+    // `process.env.HOME ?? ''` stood here until 2026-09-19. On Windows
+    // HOME is normally unset, so path.join('', '.claude', 'settings.json')
+    // produced the RELATIVE path `.claude\settings.json` — resolved
+    // against whatever directory the doctor happened to run in. The
+    // check then looked at the wrong file, or at none, and reported
+    // "no Stop hook found" for a machine where one was wired up.
+    // `os.homedir()` reads $HOME on POSIX and USERPROFILE on Windows.
+    path.join(os.homedir(), '.claude', 'settings.json'),
     path.join(root, '.claude', 'settings.json'),
   ];
   for (const p of candidates) {
@@ -1164,4 +1212,124 @@ export function checkEntryForm(root) {
     + 'appear. To put the existing ones on the record: '
     + '`mem log error --class entry-form --title "..." --text "..."` — that caps '
     + 'everything written before it.');
+}
+
+/**
+ * How much raw material sits in the TRACKED capture folder and never drains?
+ *
+ * **The finding that was missing on 2026-09-19.** In the sibling house
+ * the drain command — the one that pulls captures out of the clone into
+ * the machine archive, verifies them by checksum and only then removes
+ * the originals — was built on 2026-09-18. Built, tested, documented.
+ * And then nobody ever called it: no unit, no timer, no hook. Measured
+ * on 2026-09-19: 1382 captures, 85.5 MB in the tracked folder, the
+ * oldest from 2026-08-30 — twenty days. The git pack was 86.6 MiB, so
+ * the memory consisted almost entirely of its own raw material.
+ *
+ * Without this finding a drain that has not run for weeks is
+ * indistinguishable from one that ran a minute ago: both look the same
+ * from outside. cheap-mem has the identical shape — `archive.DEFAULT_LOCATION`
+ * is a folder inside the repository — and it matters more here, because
+ * this is the copy strangers install.
+ *
+ * **Why the AGE counts and not the amount.** On an ephemeral machine
+ * fresh material in the tracked folder is exactly right: it is the only
+ * storage that outlives the container, so there the repository is
+ * TRANSPORT, not a warehouse. An amount threshold cannot tell those
+ * apart and would report innocents — and a bolt that reports innocents
+ * gets switched off. A capture that has been lying around for days is
+ * the same finding on every machine: nobody is collecting it.
+ *
+ * Three states:
+ *
+ *   GOOD     nothing here, or only fresh material (< BACKLOG_LATE_DAYS)
+ *   WARN     the oldest has been lying longer than BACKLOG_LATE_DAYS
+ *   ERROR    the oldest has been lying longer than BACKLOG_DEAD_DAYS —
+ *            the drain is not happening, not merely late
+ */
+export const BACKLOG_LATE_DAYS = 2;
+export const BACKLOG_DEAD_DAYS = 7;
+
+/**
+ * The timestamp out of a capture name: `2026-09-19T10-49-48Z--120l0a8.jsonl.gz`.
+ * Returns ms, or null when the name does not match — null means "not
+ * measurable", never "now".
+ */
+function timeFromCaptureName(name) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})Z/.exec(name);
+  if (!m) return null;
+  const ms = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+export function checkArchiveBacklog(root, { env = process.env, now = Date.now() } = {}) {
+  const dir = path.join(root, archive.DEFAULT_LOCATION);
+  if (!fs.existsSync(dir)) {
+    return finding('archive-backlog', LEVEL.GOOD,
+      `no ${archive.DEFAULT_LOCATION}/ in the clone — nothing is lying here`);
+  }
+
+  // Only what REALLY lies here. The record travels with the repository
+  // and knows captures of other machines too; those are not this
+  // clone's ballast.
+  let count = 0; let bytes = 0; let oldestMs = null;
+  const stack = [dir];
+  while (stack.length) {
+    let entries;
+    try { entries = fs.readdirSync(stack.pop(), { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      const full = path.join(e.parentPath ?? e.path, e.name);
+      if (e.isDirectory()) { stack.push(full); continue; }
+      // Only `.jsonl.gz` is a capture; the folder carries other files too.
+      if (!e.isFile() || !e.name.endsWith('.jsonl.gz')) continue;
+      let st;
+      try { st = fs.statSync(full); } catch { continue; }
+      count += 1; bytes += st.size;
+      // The timestamp comes from the FILENAME, not from the mtime: a
+      // fresh clone sets every mtime to the clone time, so an
+      // mtime-based finding would report "all fresh" in every container
+      // — exactly the situation in which it gets read.
+      const ms = timeFromCaptureName(e.name);
+      if (ms != null && (oldestMs == null || ms < oldestMs)) oldestMs = ms;
+    }
+  }
+
+  if (count === 0) {
+    return finding('archive-backlog', LEVEL.GOOD,
+      `${archive.DEFAULT_LOCATION}/ is empty — the drain has taken everything`);
+  }
+
+  const mb = (bytes / 1048576).toFixed(1);
+  const store = (() => { try { return archive.readConfig(env, root); } catch { return null; } })();
+  const target = store ? store.location : '(archive location not readable)';
+  const drain = 'mem raw migrate --remove, then commit and push';
+
+  if (oldestMs == null) {
+    // Files without a readable timestamp in the name. Not measurable is
+    // not zero: that is UNKNOWN, not "fresh".
+    return finding('archive-backlog', LEVEL.UNKNOWN,
+      `${count} captures (${mb} MB) in ${archive.DEFAULT_LOCATION}/, but not one with a readable `
+      + 'timestamp in its name — how long they have been lying was not determinable',
+      `Look by hand: ls ${archive.DEFAULT_LOCATION}/*/*/ | head`);
+  }
+
+  const days = (now - oldestMs) / 86400000;
+  const since = new Date(oldestMs).toISOString().slice(0, 10);
+  const state = `${count} captures (${mb} MB) lie in the tracked ${archive.DEFAULT_LOCATION}/, `
+    + `the oldest since ${since} (${days.toFixed(1)} days). Archive of this machine: ${target}`;
+
+  if (days >= BACKLOG_DEAD_DAYS) {
+    return finding('archive-backlog', LEVEL.ERROR,
+      `${state} — the drain is not happening.`,
+      `After ${BACKLOG_DEAD_DAYS} days this is no longer lateness. On the machine that holds `
+      + `the archive: ${drain}. If nothing calls it on a schedule, nobody collects it, ever.`);
+  }
+  if (days >= BACKLOG_LATE_DAYS) {
+    return finding('archive-backlog', LEVEL.WARN,
+      `${state} — the drain is behind.`,
+      `On the machine that holds the archive: ${drain}`);
+  }
+  return finding('archive-backlog', LEVEL.GOOD,
+    `${count} captures (${mb} MB) in transit in the tracked ${archive.DEFAULT_LOCATION}/, `
+    + `oldest ${days.toFixed(1)} days — the drain is running`);
 }

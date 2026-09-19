@@ -338,7 +338,7 @@ test('a path with a drive letter really is invalid as a specifier', async () => 
   // everywhere. If this test ever fails because Node accepts it after
   // all, the guard above has become redundant and may go.
   await assert.rejects(
-    () => import('D:/a/x/src/pointer.mjs'),
+    () => import('D:/a/x/src/pointer.mjs'),  // windows-path-ok: this IS the negative case
     (e) => ['ERR_UNSUPPORTED_ESM_URL_SCHEME', 'ERR_MODULE_NOT_FOUND'].includes(e.code),
     'a drive path suddenly loads after all');
 });

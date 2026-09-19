@@ -23,7 +23,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,7 +32,19 @@ const GROUPS = ['write', 'search', 'capture', 'agents', 'setup', 'admin'];
 async function tables() {
   const out = {};
   for (const g of GROUPS) {
-    const m = await import(path.join(REPO, 'src/cli/commands', `${g}.mjs`));
+    // As a file URL, not as a path. An ESM specifier is a URL, and on
+    // Windows `D:\a\cheap-mem\src\cli\commands\write.mjs` is not one:
+    // Node reads the drive letter as a scheme and refuses with
+    // ERR_UNSUPPORTED_ESM_URL_SCHEME ("Received protocol 'd:'").
+    // Measured on the windows-latest runner on 2026-09-19 (run 230):
+    // all three tests in this file were red there, and only there.
+    //
+    // test/concurrent-append.test.mjs hit the identical thing on the
+    // 2026-09-16 Windows runner and wrote it into its own comment. The
+    // lesson stayed in that one file; test/windows-paths.test.mjs now
+    // holds it for the whole tree.
+    const m = await import(pathToFileURL(
+      path.join(REPO, 'src/cli/commands', `${g}.mjs`)).href);
     out[g] = Object.keys(m.COMMANDS);
   }
   return out;

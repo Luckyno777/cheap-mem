@@ -28,6 +28,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as c from '../bench/calculations.mjs';
 
 const huts = [];
@@ -159,7 +160,17 @@ test('test/ is not searched — a probe may rebuild a calculation', () => {
 test('the real house holds: every calculation lives in exactly one place', () => {
   // The actual latch. If this goes red, a second calculation has
   // appeared — or an anchor is pointing into empty space.
-  const root = path.resolve(new URL('..', import.meta.url).pathname);
+  // fileURLToPath, not URL.pathname. Measured on the windows-latest
+  // runner on 2026-09-19 (run 230, 4 red): the pathname is
+  // "/D:/a/cheap-mem/cheap-mem/" with a leading slash, and path.resolve
+  // then glues the current drive in front of it, so this test looked for
+  //   D:\D:\a\cheap-mem\cheap-mem\shared\calculations.jsonl
+  // and reported the catalogue missing — about a file that was there.
+  //
+  // test/init.test.mjs learned exactly this on an earlier Windows run
+  // and wrote it into its own comment. The lesson stayed in that one
+  // file; test/windows-paths.test.mjs now holds it for the whole tree.
+  const root = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
   const r = c.check(root);
   assert.equal(r.measurable, true, r.why);
   assert.equal(r.broken, 0);

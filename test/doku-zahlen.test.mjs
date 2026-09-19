@@ -314,8 +314,15 @@ test('POSITIVE: the narrow band still passes the number that is actually there',
   // wide: the first thing anyone does with it is switch it off. The
   // runner reports a few more tests than a regex can see — that gap
   // must fit, or the next honest commit goes red.
+  //
+  // The stand-in claim is a FIXED DISTANCE below the count, not a frozen
+  // number. It used to be the literal 1236, and on 2026-09-19 adding one
+  // test file (9 probes, test/archive-backlog.test.mjs) pushed the count
+  // to 1266 and turned this red — a probe whose premise is a constant
+  // gets tighter with every honest commit until it fails, which is the
+  // one thing the comment above says it must not do.
   const real = IST.ungefaehr.tests;
-  for (const behauptet of [real, 1236]) {
+  for (const behauptet of [real, real - 21]) {
     const faktor = Math.max(real, behauptet) / Math.min(real, behauptet);
     assert.ok(faktor <= bandFuer('tests'),
       `a claim of ${behauptet} against ${real} counted would FAIL at ${bandFuer('tests')} `

@@ -53,6 +53,7 @@
 //   node bench/consumption-funnel.mjs [--root <path>] [--json]
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as question from '../src/question.mjs';
 import * as memory from '../src/memory.mjs';
 
@@ -334,7 +335,12 @@ const num = (v) => (v === null || v === undefined ? 'not measured' : String(v));
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const ROOT = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
-  const inbox = await import(path.join(ROOT, 'src', 'inbox.mjs'));
+  // As a file URL, not as a path: an ESM specifier is a URL, and on
+  // Windows Node reads the drive letter of `D:\\…` as a scheme
+  // (ERR_UNSUPPORTED_ESM_URL_SCHEME). Found on 2026-09-19 by
+  // test/windows-paths.test.mjs, not by CI — `npm run bench` runs on
+  // ubuntu only, so nothing here has ever been started on Windows.
+  const inbox = await import(pathToFileURL(path.join(ROOT, 'src', 'inbox.mjs')).href);
   const channels = funnel(ROOT, { isDone: inbox.isDone });
   const f = finding(channels);
 

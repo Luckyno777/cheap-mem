@@ -122,10 +122,35 @@ export function build(participants, {
 
 export function parse(content) {
   if (typeof content !== 'string') throw new Error('parse expects a string');
-  const boundary = content.indexOf('\n\n');
+
+  // **CRLF goes first, and only here.**
+  //
+  // Until 2026-09-19 the boundary search below ran on the RAW text. A
+  // message written on Windows separates header from body with
+  // `\r\n\r\n`, so `indexOf('\n\n')` found nothing and the parser threw
+  // 'No blank line'. Reported that day by a cheap-mem user who pulled
+  // the latest onto a Windows machine: two entirely intact messages sat
+  // in his drawer, the doctor reported `delivery: drawer unreadable`,
+  // and the channel to ChatGPT was silent without anyone noticing.
+  //
+  // lucky-mem carried the identical assumption in the identical place
+  // (src/sitzungspost.mjs, `zerlege`) and was repaired the same day —
+  // both houses were written from the same template.
+  //
+  // The normalisation sits in the PARSER, not in each caller: `read`,
+  // `setState`, `classifyRequest` and the MCP server all come through
+  // here. A second place would be a second truth about what a blank
+  // line is.
+  //
+  // A lone `\r` (classic Mac OS, pre-2001) is deliberately left alone.
+  // There is no measured case for it, and a guard against an invented
+  // problem is a line that promises something nobody checked.
+  const normalised = content.includes('\r\n') ? content.split('\r\n').join('\n') : content;
+
+  const boundary = normalised.indexOf('\n\n');
   if (boundary < 0) throw new Error('No blank line — that is a header, not a message');
-  const headerPart = content.slice(0, boundary);
-  const text = content.slice(boundary + 2).replace(/\s+$/, '');
+  const headerPart = normalised.slice(0, boundary);
+  const text = normalised.slice(boundary + 2).replace(/\s+$/, '');
 
   const header = {};
   for (const line of headerPart.split('\n')) {
@@ -302,21 +327,48 @@ export function write(root, participants, {
 
 /**
  * Three states, never two: no dir, empty dir, has messages.
+ *
+ * And per message, also three states, never two: read, broken, filtered
+ * out. `broken` is therefore always an array — on the absent drawer and
+ * on the empty one too. An absent key would trip every caller that
+ * reads it, and it would trip them exactly when there is no drawer,
+ * which is the one case nobody tests by hand.
  */
 export function read(root, participants, { to = null, state = null } = {}) {
   if (to !== null) checkParticipant(participants, to, 'To');
   const dir = inboxDir(root);
-  if (!fs.existsSync(dir)) return { dir: null, messages: [] };
+  if (!fs.existsSync(dir)) return { dir: null, messages: [], broken: [] };
 
   const messages = [];
+  // **One unreadable message must not take the drawer down (2026-09-19).**
+  //
+  // Until today there was no try here. The throw came out of the LOOP,
+  // every caller above caught it for the WHOLE drawer, and `doctor`
+  // reported `delivery: drawer unreadable` — for a drawer whose other
+  // messages were entirely intact. That is what the Windows user hit:
+  // one CRLF message (see `parse`), two healthy ones, and a finding
+  // that blamed all three.
+  //
+  // Silently skipping would be the other wrong answer: a message then
+  // falls out of the drawer and nobody learns of it. So it goes into
+  // its own list, with the reason. Same decision as house rule I19 for
+  // malformed JSONL lines — count broken lines instead of silently
+  // skipping them.
+  const broken = [];
   for (const name of fs.readdirSync(dir).sort()) {
     if (!name.endsWith('.md')) continue;
-    const m = { name, ...parse(fs.readFileSync(path.join(dir, name), 'utf8')) };
+    let m;
+    try {
+      m = { name, ...parse(fs.readFileSync(path.join(dir, name), 'utf8')) };
+    } catch (e) {
+      broken.push({ name, reason: e.message });
+      continue;
+    }
     if (to !== null && m.to !== to) continue;
     if (state !== null && m.state !== state) continue;
     messages.push(m);
   }
-  return { dir, messages };
+  return { dir, messages, broken };
 }
 
 /** Three states, never two: what a new send with the same id means. */
