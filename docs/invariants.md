@@ -111,20 +111,25 @@ switched off, and then it stops catching the guilty too.
 
 ### Doctor findings — `shared/finding-map.jsonl`, `bench/finding-mirror.mjs`
 
-Do both houses know the same doctor findings? Measured: 23 here, 37 in
-the sister house, 18 of them the same question in two languages.
+Do both houses know the same doctor findings? Measured on 2026-09-19:
+27 here, 53 in the sister house, 21 of them the same question in two
+languages.
 
 An entry is either a pair, or reasoned one-sided (`nur: "finding"` /
 `nur: "befund"`, naming the house by its call shape rather than by point
 of view — the first version said "here", and the same file read from the
 other house inverted every entry). `luecke: true` separates "rightly
 absent over there" from "genuinely missing over there": as a count those
-look identical and they are opposites. Nine gaps are named today, six of
+look identical and they are opposites. Ten gaps are named today, five of
 them in the sister house — `environment`, `gitignore`, `integrity`,
-`rollback`, `synonyms`, and the counterpart to `config`.
+`rollback`, `synonyms` — and five here: `abrufquote`, `dubletten`,
+`offene-funde`, `plattenplatz`, `tagform`. `config` is no longer among
+them: it is reasoned one-sided, because in this house the memory is any
+folder with a config file that can be missing or broken, and over there
+the repository *is* the memory.
 
 Only the unjudged remainder is red. Without that, the tool would have
-been permanently red on its first run — 19 findings only in the sister
+been permanently red on its first run — 27 findings only in the sister
 house, almost all of them a subsystem this house does not have — and a
 check that points at unfixable red gets switched off.
 

@@ -219,3 +219,74 @@ test('a memory made only of raw captures falls back to the full counts', () => {
     assert.ok(Number.isFinite(hits[0].score), `score is not finite: ${hits[0].score}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
+
+// --- Why the first test above used to go red by itself ---------------
+//
+// **The finding, 2026-09-19.** The first test in this file failed about
+// once in sixty runs, and the two lists it compares differed only in the
+// order of the six NACHBAR entries — the same six that the tie-break
+// finding of 2026-09-17 is about. That earlier finding took the decision
+// away from `Math.log` and gave it to `stableKey`. It did not arrive,
+// because a much larger noise was still reaching the comparison first.
+//
+// Measured: `logEntry` stamps `ts` at second resolution, the fixture
+// writes its 31 entries within a third of a second, and whenever a
+// second boundary happens to fall between two of those writes the
+// entries after it carry a ts one second newer. The recency bonus turned
+// that second into a relative score difference of about 1.9e-8 — far
+// above the MMR tie window, so it decided the order. Since `without` and
+// `with_` are built moments apart, the boundary lands at a different
+// index in each, and the test then blamed the raw captures for a
+// difference its own clock had made. A gate that reports the innocent
+// gets switched off.
+//
+// Reproduced deterministically by walking the boundary through the
+// fixture: every position inside the NACHBAR block rotated the six.
+//
+// The fix is in `search()`: the age is counted in whole UTC days on both
+// sides. The two probes below hold it in place.
+
+test('two entries written the same day score exactly equal', () => {
+  // The probe. Same text, timestamps one second apart, same UTC day.
+  // The scores have to be equal to the last bit, so that nothing but
+  // `stableKey` can decide the order — which is what makes the answer
+  // independent of the second a write happened to land in.
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-stat-tag-'));
+  try {
+    execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
+    const log = (id, ts) => memory.logEntry(r, 'decision',
+      { id, ts, topic: 'ablage', choice: 'ablage und repository',
+        why: 'historie', author: 'lucky', authority: 'user' });
+    log('SPAETER', '2026-09-18T23:59:59Z');
+    log('FRUEHER', '2026-09-18T00:00:00Z');
+    const hits = search.search(search.buildIndex(r, { language: 'de' }),
+      'ablage repository', { top: 10 });
+    assert.equal(hits.length, 2, `not both entries came back: ${hits.length}`);
+    assert.equal(hits[0].score, hits[1].score,
+      'almost 24 hours inside one day still moved the score: '
+      + `${hits[0].score} against ${hits[1].score} — the second of a write `
+      + 'decides the order again');
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});
+
+test('a real difference in days still decides', () => {
+  // The sabotage counter-probe. Quantising to days would be cheap green
+  // if it had simply turned the recency bonus off. Same two entries, now
+  // a hundred days apart: the newer one has to win, and by a margin that
+  // is visible rather than in the last bits.
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-stat-alt-'));
+  try {
+    execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
+    const log = (id, ts) => memory.logEntry(r, 'decision',
+      { id, ts, topic: 'ablage', choice: 'ablage und repository',
+        why: 'historie', author: 'lucky', authority: 'user' });
+    log('ALT', '2026-06-01T10:00:00Z');
+    log('NEU', '2026-09-18T10:00:00Z');
+    const hits = search.search(search.buildIndex(r, { language: 'de' }),
+      'ablage repository', { top: 10 });
+    assert.equal(hits[0].entry?.id, 'NEU',
+      `the newer entry no longer wins: ${hits.map((h) => h.entry?.id).join(' ')}`);
+    assert.ok(hits[0].score / hits[1].score > 1.001,
+      `the recency bonus has gone flat: ${hits[0].score} against ${hits[1].score}`);
+  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+});

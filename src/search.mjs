@@ -822,8 +822,47 @@ export function search(index, query, {
     }
 
     // Mild recency bonus: max +15%, halved after 90 days.
+    //
+    // **The age is counted in WHOLE UTC DAYS, on both sides (2026-09-19).**
+    //
+    // This continues the tie-break finding of 2026-09-17 one layer up.
+    // Down there one unit in the last place of `Math.log` decided the
+    // order of six entries that score the same, and `stableKey` put
+    // identity in charge instead. This layer kept feeding a far bigger
+    // noise into the same comparison, so identity never got to speak.
+    //
+    // Measured: `logEntry` stamps `ts` at SECOND resolution. A fixture
+    // that writes its entries within a third of a second still ends up
+    // with one second of spread whenever a second boundary happens to
+    // fall between two writes. Through `exp(-ageDays / 90)` that one
+    // second becomes a relative score difference of about
+    // 0.15 / 90 / 86400 = 1.9e-8 — five orders of magnitude above the
+    // MMR tie window, so it decides the order, and which entry it
+    // favours depends on nothing but when the scheduler let the write
+    // through. Reproduced deterministically by walking the second
+    // boundary through the fixture of `test/raw-stats.test.mjs`: every
+    // position inside its last block rotates the six tied entries
+    // (about 1 failure in 60 runs when left to chance).
+    //
+    // A second is not a signal this bonus can carry: it is documented in
+    // days, `ts` cannot hold anything finer than a second anyway, and
+    // which second a write landed in says nothing about the entry. So
+    // the age is taken in whole days, and `now` is bucketed exactly like
+    // `ts`. Two entries written on the same UTC day then get precisely
+    // the same factor — not just while they share a rolling window, but
+    // for good — and score equal to the last bit, which is what hands
+    // the decision to `stableKey`. Because both sides step together at
+    // midnight, the difference between two documents' ages never moves
+    // with the passage of time either: their relative order follows from
+    // the data alone.
+    //
+    // The guard against timestamps from the future stays. It now lets
+    // through a ts that is ahead by hours but still on today's date,
+    // which buys an attacker nothing — writing `now` would have earned
+    // the same factor.
     if (doc.entry.ts) {
-      const ageDays = (now - Date.parse(doc.entry.ts)) / 86400000;
+      const stamped = Date.parse(doc.entry.ts);
+      const ageDays = Math.floor(now / 86400000) - Math.floor(stamped / 86400000);
       if (Number.isFinite(ageDays) && ageDays >= 0) {
         score *= 1 + 0.15 * Math.exp(-ageDays / 90);
       }

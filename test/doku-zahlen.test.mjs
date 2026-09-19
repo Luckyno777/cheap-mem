@@ -300,13 +300,34 @@ test('the test-count drift that the 1.15 band swallowed would fail this one', ()
   // 1.056 — green under the old single band, and that is why this test
   // exists. If the narrower band would ALSO pass it, the change was
   // cosmetic.
-  const real = IST.ungefaehr.tests;
-  const faktor = real / 1166;
+  //
+  // **Both numbers of that pair are history, and both belong in the
+  // constant (2026-09-19).** This read `IST.ungefaehr.tests / 1166` —
+  // today's count against a claim from a day in September. That is not
+  // the drift of 2026-09-18, it is that drift plus every test written
+  // since, and it grows with each honest commit. It crossed the old
+  // band of 1.15 the moment the suite reached 1341 probes, and the
+  // failure said the premise was wrong when the premise was fine and
+  // the arithmetic was measuring the wrong thing. The neighbouring
+  // probe below already carries this lesson in its comment, for exactly
+  // the same reason; it simply was not applied here.
+  //
+  // So the pair stays fixed, and what is measured against it are the
+  // two BANDS, which are live values from the code above. The probe
+  // still says what it always claimed to say — the narrowing bought
+  // something, and the old band really did swallow it — and it goes red
+  // if someone widens `TOLERANZ.tests` back past 1.056, which is the
+  // only change it exists to catch.
+  const DAMALS_BEHAUPTET = 1166;
+  const DAMALS_GEZAEHLT = 1231;
+  const faktor = DAMALS_GEZAEHLT / DAMALS_BEHAUPTET;
   assert.ok(faktor > bandFuer('tests'),
-    `1166 tests against ${real} would pass at a band of ${bandFuer('tests')} — the narrowing bought nothing`);
+    `${DAMALS_BEHAUPTET} tests against ${DAMALS_GEZAEHLT} would pass at a band of `
+    + `${bandFuer('tests')} — the narrowing bought nothing`);
   assert.ok(faktor < TOLERANZ_VORGABE,
-    `1166 against ${real} is a factor of ${faktor.toFixed(3)} — if it exceeded the OLD band of `
-    + `${TOLERANZ_VORGABE} the premise is wrong: it was never swallowed, and this test proves nothing`);
+    `${DAMALS_BEHAUPTET} against ${DAMALS_GEZAEHLT} is a factor of ${faktor.toFixed(3)} — if it `
+    + `exceeded the OLD band of ${TOLERANZ_VORGABE} the premise is wrong: it was never `
+    + 'swallowed, and this test proves nothing');
 });
 
 test('POSITIVE: the narrow band still passes the number that is actually there', () => {
