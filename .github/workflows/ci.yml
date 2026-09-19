@@ -1,17 +1,41 @@
 name: CI
 
-# Runs on every push and pull request. The point is not ceremony: the
-# tests only ever ran when a human remembered, and that human was always
-# the same person. This is the check that survives them.
+# Runs on every push, on every branch, and on every pull request. The
+# point is not ceremony: the tests only ever ran when a human remembered,
+# and that human was always the same person. This is the check that
+# survives them.
+#
+# `branches: [main]` used to sit here instead of `['**']`, and it meant
+# exactly what it says: a push to a feature branch got no CI at all,
+# only a push to main or an already-open pull request did. Measured
+# 2026-09-19 on this very branch (claude/geteilte-zusicherungen-in-ci):
+# zero workflow runs across 21 commits, none of them behind a PR. The
+# comment above this block already claimed "every push" while the
+# trigger below said otherwise — asserted, not measured, the same
+# mistake this repo's other guards exist to catch elsewhere. `['**']`
+# matches multi-segment branch names too (GitHub's glob, unlike a bare
+# `*`, lets `**` cross the `/` in a name like this branch's own), so it
+# is not a narrower "most branches" fix.
+#
+# No paths filter here on purpose — checked, none exists today, and
+# none is added: this workflow's jobs run shell scripts, PowerShell and
+# the CLI end-to-end, not just src/, so there is no subset of the tree
+# a change to could safely skip CI for.
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
-# One run per ref. Without this, a quick succession of pushes leaves older
-# runs burning minutes on commits nobody will look at again, and the run
-# that matters queues behind them.
+# One run per ref, still correct with the wider trigger above. A push
+# to refs/heads/<branch> groups with earlier pushes to that SAME branch
+# and cancels them, exactly as it did when only main could push here —
+# main and every feature branch each get their own group and their own
+# queue, so a burst of pushes to one feature branch no longer piles up
+# behind itself, and it still never cancels a run on a different branch
+# or the pull_request run for the same commits (pull_request events get
+# `refs/pull/<n>/merge`, a distinct group from either branch's push
+# group — unchanged by this edit, and already true before it).
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true

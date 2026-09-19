@@ -164,3 +164,31 @@ test('both the POSIX tick and the PowerShell tick are covered', () => {
   assert.match(bodies, /bash bin\/mem-digest\b/, 'the POSIX tick is never started in CI');
   assert.match(bodies, /bin\/mem-digest\.ps1/, 'the PowerShell tick is never started in CI');
 });
+
+// --- Does CI actually run on the branch this commit lands on? ---------
+//
+// Measured 2026-09-19: `on: push: branches: [main]` meant zero workflow
+// runs across 21 commits on claude/geteilte-zusicherungen-in-ci, a
+// feature branch with no open pull request. The comment above the `on:`
+// block claimed "runs on every push and pull request" the entire time —
+// true for main, false for everywhere else CI's own contributor
+// actually works. A guard here is cheap and the failure mode is
+// specifically silent: a workflow that never runs produces no red
+// build to notice, only an absence.
+function pushBranchesFilter() {
+  const text = fs.readFileSync(CI, 'utf8');
+  const m = text.match(/\bpush:\s*\n\s*branches:\s*\[([^\]]*)\]/);
+  if (!m) return null; // no filter under push: -> every branch triggers it
+  return m[1].split(',').map((s) => s.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+}
+
+test('the push trigger is not narrowed to main alone', () => {
+  const branches = pushBranchesFilter();
+  // No filter at all also runs on every branch, and passes this rule —
+  // it is exactly as capable of feature-branch CI as `['**']` is.
+  if (branches === null) return;
+  assert.ok(branches.includes('**'),
+    `on.push.branches is ${JSON.stringify(branches)} — a feature branch with `
+    + 'no open pull request gets no CI at all, the exact defect measured '
+    + '2026-09-19 on this branch');
+});
