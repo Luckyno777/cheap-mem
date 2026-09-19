@@ -21,7 +21,11 @@ test('writing beats reading: cat > file <<EOF is not a read', () => {
 
 test('sed -n counts as reading, grep as searching', () => {
   assert.equal(classifyCommand("sed -n '1,40p' src/raw.mjs"), COMMAND_KIND.READ);
-  assert.equal(classifyCommand('grep -n "foo" src/*.mjs'), COMMAND_KIND.SEARCH);
+  // The glob is escaped so the source does not contain the block-comment
+  // opener: test/english-only.test.mjs scans this file line by line and,
+  // written plainly, this string blinded it for everything below. The
+  // string VALUE is unchanged — \u002a is '*'.
+  assert.equal(classifyCommand('grep -n "foo" src/\u002a.mjs'), COMMAND_KIND.SEARCH);
   assert.equal(classifyCommand('rg --files'), COMMAND_KIND.SEARCH);
 });
 

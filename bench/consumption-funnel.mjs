@@ -240,10 +240,10 @@ function messageChannel(root, isDone) {
  */
 function questionChannel(root) {
   const questions = fromProjects(root, 'questions');
-  // Der Weg kommt von memory.logPath, nicht von hier. Die erste Fassung
-  // dieser Zeile riet `root/questions.jsonl`; global liegt in
-  // `root/global/`. Eine Messstelle, die den Weg selbst tippt, misst
-  // frueher oder spaeter eine Datei, die es nicht gibt — und meldet 0.
+  // The path comes from memory.logPath, not from here. The first version
+  // of this line guessed `root/questions.jsonl`; global lives in
+  // `root/global/`. An instrument that types the path itself measures,
+  // sooner or later, a file that does not exist — and reports 0.
   const global = readJsonl(memory.logPath(root, 'question'));
   if (questions.missing && global.missing) {
     return { channel: 'questions', measuredAt: 'store', fold: FOLD_EDGE,

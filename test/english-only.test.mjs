@@ -42,8 +42,17 @@
 //     was found;
 //   - a comment inside a file this probe cannot decide is text (a
 //     binary asset, should one ever land in these three directories);
-//   - anything outside src/, bin/ and test/ — docs/, bench/ and
+//   - anything outside src/, bin/, test/ and bench/ — docs/ and
 //     shared/invariants.jsonl are not in this product's traced scope.
+//
+// **bench/ was added on 2026-09-19, and the reason is a scope change,
+// not a change of mind.** On 2026-09-17 leaving it out was right: the
+// benchmarks were an internal instrument. Then the README was rebuilt
+// as a shop window for strangers and companies, and it invites the
+// reader, by name, to run `npm run verify` and `node bench/mutation.mjs`
+// — so eight benchmark files started printing German at people the
+// README was written to convince. A scope that was correct became
+// wrong because what it excluded became public.
 //
 // **Comment extraction is line-based and does not parse the language.**
 // `//` and `#` start a comment to the end of the line; `/* ... */`
@@ -64,7 +73,7 @@ import { fileURLToPath } from 'node:url';
 import { NEARLY_MARKER } from '../bench/invariants.mjs';
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const SCAN_DIRS = ['src', 'bin', 'test'];
+const SCAN_DIRS = ['src', 'bin', 'test', 'bench'];
 
 // The one verbatim quotation this probe must not flag. Named by its
 // exact text rather than matched by a pattern — see the file header for
@@ -105,6 +114,51 @@ const GERMAN_WORDS = Object.freeze([
 ]);
 const GERMAN_WORD_SET = new Set(GERMAN_WORDS);
 
+// **Built from parts, and that is the whole point.** This extractor is
+// line-based and does not parse the language, so a marker inside a
+// STRING literal reads to it as a real comment opener. Written plainly,
+// the two lines below that mention the block markers would open a
+// comment this file never closes — and every line after them, to the end
+// of the file, would be scanned as comment text. That is not theory: on
+// 2026-09-19 it flagged this file's own positive control, a deliberately
+// German string sitting 120 lines further down, and the header above
+// still said "none turned up in this repository's own text".
+//
+// bench/redteam.mjs assembles a secret from parts so the pre-commit hook
+// does not catch the file that tests the pre-commit hook. Same idiom,
+// same reason: an instrument must not trip over its own description.
+/**
+ * Does this file's language have block comments at all?
+ *
+ * Shell and PowerShell do not. The extension answers for most files; for
+ * the extensionless scripts under bin/ the SHEBANG answers, because they
+ * are a mix — `bin/mem`, `bin/mem-mcp` and `bin/mem-serve` are node,
+ * while `bin/mem-capture` and its siblings are bash. A first draft of
+ * this function guessed "no dot means shell" and would have switched
+ * block comments off for the three largest JavaScript files in bin/,
+ * quietly, for a reason having nothing to do with their language. The
+ * file states what it is on its first line; that is not a guess.
+ */
+function hasBlocks(file, text) {
+  const name = path.basename(file);
+  // `.ps1` is why this line is not redundant: PowerShell scripts in this
+  // repo carry no shebang, so the check below cannot speak for them.
+  // Measured 2026-09-19: deleting this line leaves every probe green
+  // (the shebang catches the bash scripts), deleting the shebang branch
+  // turns one red. So the `.sh` half is belt to the shebang's braces,
+  // and the `.ps1` half is the only thing standing — untested today,
+  // because no PowerShell file here happens to contain the sequence.
+  if (/\.(sh|ps1)$/.test(name)) return false;
+  if (/\.(mjs|js)$/.test(name)) return true;
+  const shebang = text.slice(0, text.indexOf('\n') + 1 || 200);
+  if (/^#!.*\b(bash|sh|zsh)\b/.test(shebang)) return false;
+  if (/^#!.*\bnode\b/.test(shebang)) return true;
+  return true;   // unknown: assume blocks, so nothing is silently skipped
+}
+
+const BLOCK_OPEN = '/' + '*';
+const BLOCK_CLOSE = '*' + '/';
+
 function listFiles(dir, out) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
@@ -124,15 +178,22 @@ function listFiles(dir, out) {
  *
  * Line-based and language-blind — see the file header for the tradeoffs
  * this accepts.
+ *
+ * `blocks` is false for shell and PowerShell, where the block markers do
+ * not exist and the sequence means something else entirely. Found on
+ * 2026-09-19 in `bin/mem-before-edit`, whose `case` statement carries a
+ * `/` glob branch: read as a comment opener, it blinded the scan for the
+ * whole rest of that file. The extractor does not parse the language,
+ * but it can at least know which language it is not looking at.
  */
-function commentLines(text) {
+function commentLines(text, blocks = true) {
   const out = [];
   let inBlock = false;
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; i += 1) {
     const raw = lines[i];
     if (inBlock) {
-      const close = raw.indexOf('*/');
+      const close = raw.indexOf(BLOCK_CLOSE);
       if (close === -1) { out.push({ number: i + 1, raw, text: raw }); continue; }
       out.push({ number: i + 1, raw, text: raw.slice(0, close) });
       inBlock = false;
@@ -140,14 +201,14 @@ function commentLines(text) {
     }
     const lineComment = raw.indexOf('//');
     const hashComment = raw.indexOf('#');
-    const blockStart = raw.indexOf('/*');
+    const blockStart = blocks ? raw.indexOf(BLOCK_OPEN) : -1;
     // Earliest marker wins; -1 (not found) must lose that race, not win it.
     const candidates = [lineComment, hashComment, blockStart]
       .map((n) => (n === -1 ? Infinity : n));
     const earliest = Math.min(...candidates);
     if (!Number.isFinite(earliest)) continue;
     if (earliest === blockStart) {
-      const close = raw.indexOf('*/', blockStart + 2);
+      const close = raw.indexOf(BLOCK_CLOSE, blockStart + 2);
       if (close === -1) { out.push({ number: i + 1, raw, text: raw.slice(blockStart + 2) }); inBlock = true; }
       else out.push({ number: i + 1, raw, text: raw.slice(blockStart + 2, close) });
     } else if (earliest === lineComment) {
@@ -156,6 +217,7 @@ function commentLines(text) {
       out.push({ number: i + 1, raw, text: raw.slice(hashComment + 1) });
     }
   }
+  out.unterminated = inBlock;
   return out;
 }
 
@@ -174,7 +236,7 @@ function scanRepo() {
   for (const file of files) {
     const rel = path.relative(REPO, file);
     const text = fs.readFileSync(file, 'utf8');
-    for (const { number, raw, text: lineText } of commentLines(text)) {
+    for (const { number, raw, text: lineText } of commentLines(text, hasBlocks(file, text))) {
       const trimmed = lineText.trim();
       if (!trimmed) continue;
       if (NEARLY_MARKER.test(raw)) continue;
@@ -195,15 +257,110 @@ test('POSITIVE: the scan really walks a meaningful number of files', () => {
   // move with it.
   const { files } = scanRepo();
   assert.ok(files.length >= 40,
-    `only ${files.length} files were scanned in src/, bin/, test/ — `
+    `only ${files.length} files were scanned in src/, bin/, test/, bench/ — `
     + 'this is an empty-scan false pass, not a clean codebase');
 });
 
-test('no comment line in src/, bin/ or test/ carries two or more German words', () => {
+test('no comment line in src/, bin/, test/ or bench/ carries two or more German words', () => {
   const { offenders } = scanRepo();
   const report = offenders
     .map((o) => `  ${o.file}:${o.number}  [${o.hits.join(', ')}]  ${o.text}`)
     .join('\n');
   assert.deepEqual(offenders.map((o) => `${o.file}:${o.number}`), [],
     `${offenders.length} comment line(s) still read as German:\n${report}`);
+});
+
+// --- What the stranger actually reads ---------------------------------
+//
+// The probe above never reads code — deliberately, because
+// `src/thesaurus.mjs` holds German words as DATA on purpose. That
+// carve-out has a cost, and on 2026-09-19 the bill came: every German
+// comment in bench/ was gone and `npm run verify` still printed
+// "erwartet / gehalten / kaputt", because those live in string
+// literals. A guard that reads only the parts nobody runs cannot see
+// the part everybody runs.
+//
+// So this second probe reads the NON-comment lines of bench/, where the
+// console output lives. Same dictionary, same two-word threshold —
+// calibrated on 2026-09-19 against every bench file, where it produced
+// exactly two hits, both of them the deliberate bilingual stop list
+// below, and no false positive on an English code line.
+//
+// Why bench/ and not src/: the product's own output is English already
+// and is covered by its own tests; the German that is left in this repo
+// is data (thesaurus word groups, bilingual stop lists, both-houses
+// directory names), and telling data from prose inside src/ would need
+// the guessing-at-intent heuristic `docs/deliberately-not-built.md`
+// warns against. bench/ has exactly one such piece of data, and it is
+// named here rather than pattern-matched, for that same reason.
+const KNOWN_GERMAN_DATA = Object.freeze([
+  // bench/duplicate-rate.mjs: a stop list that is bilingual on purpose,
+  // so a German memory can be measured for near-duplicates too. Same
+  // rationale as the thesaurus word groups.
+  "const STOP = new Set(('der die das und oder ein eine einen dem den des ist sind war waren ",
+  "+ 'nicht auch noch nur schon dass wie wenn aber im in an auf fuer von zu mit bei aus ",
+]);
+
+function scanBenchOutput() {
+  const dir = path.join(REPO, 'bench');
+  const offenders = [];
+  const files = fs.readdirSync(dir).filter((n) => n.endsWith('.mjs'));
+  for (const name of files) {
+    const text = fs.readFileSync(path.join(dir, name), 'utf8');
+    text.split('\n').forEach((raw, i) => {
+      const trimmed = raw.trim();
+      // Comment lines belong to the probe above; here only what runs.
+      if (!trimmed || trimmed.startsWith('//') || trimmed.startsWith('*')
+        || trimmed.startsWith(BLOCK_OPEN)) return;
+      if (KNOWN_GERMAN_DATA.some((q) => raw.includes(q))) return;
+      const hits = germanHits(raw);
+      if (hits.length >= 2) {
+        offenders.push({ file: `bench/${name}`, number: i + 1, hits, text: trimmed });
+      }
+    });
+  }
+  return { files, offenders };
+}
+
+test('POSITIVE: the bench scan walks files and the dictionary still bites', () => {
+  // Two ways this probe could pass while measuring nothing: an empty
+  // file list, or a dictionary that no longer matches German. Both are
+  // checked, the second by feeding it a German line that is not in the
+  // repo at all.
+  const { files } = scanBenchOutput();
+  assert.ok(files.length >= 15, `only ${files.length} bench files scanned — empty-scan false pass`);
+  const probe = germanHits("console.log('erwartet: der Eintrag ist nicht gemessen');");
+  assert.ok(probe.length >= 2,
+    `the dictionary finds only ${probe.length} German word(s) in an obviously German line`);
+});
+
+test('no bench output line carries two or more German words', () => {
+  // The line a company sees when it runs the command the README names.
+  const { offenders } = scanBenchOutput();
+  const report = offenders
+    .map((o) => `  ${o.file}:${o.number}  [${o.hits.join(', ')}]  ${o.text}`)
+    .join('\n');
+  assert.deepEqual(offenders.map((o) => `${o.file}:${o.number}`), [],
+    `${offenders.length} bench line(s) print German at the reader:\n${report}`);
+});
+
+test('no scanned file ends inside an unterminated block comment', () => {
+  // The failure mode that hid above, made loud. If the extractor reaches
+  // the end of a file still believing it is inside a block comment, it
+  // has mistaken something — almost always a marker inside a string —
+  // for a comment opener, and it has been reading CODE as prose ever
+  // since. Silently, that only shows up as a mystifying German hit on a
+  // line that is plainly not a comment. Named, it shows up as this.
+  const files = [];
+  for (const d of SCAN_DIRS) listFiles(path.join(REPO, d), files);
+  const bad = [];
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    const lines = commentLines(text, hasBlocks(file, text));
+    if (lines.unterminated) bad.push(path.relative(REPO, file));
+  }
+  assert.deepEqual(bad, [],
+    `the comment extractor never leaves a block comment in: ${bad.join(', ')}. `
+    + `It is reading code as comment text from that point to the end of the file. `
+    + `Usually a ${BLOCK_OPEN} inside a string literal — build it from parts.`);
 });

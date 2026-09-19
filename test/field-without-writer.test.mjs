@@ -23,13 +23,18 @@
 // incident that forced it.
 // invariant: feld-ohne-schreiber
 // invariant: leer-ist-kein-bestehen
+// ^ NOT a translation oversight. These two ids are the contract with
+//   shared/invariants.jsonl and the sibling house; docs/invariants.md:
+//   "the id is the contract between the houses; the word in front of it
+//   is not". A blanket rename broke both on 2026-09-19 and
+//   bench/invariants.mjs reported them as MARKER WITHOUT ENTRY.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { entscheidungsFelder, imBestand, befund, ENTSCHEIDUNGS_MUSTER }
+import { decisionFields, inCorpus, finding, DECISION_PATTERNS }
   from '../bench/field-without-writer.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,9 +73,9 @@ function bau({ antwortAufWert = '', extraLog = {} } = {}) {
 }
 const weg = (w) => fs.rmSync(w, { recursive: true, force: true });
 
-const fahre = (w) => befund({
-  code: entscheidungsFelder([path.join(w, 'src')]),
-  bestand: imBestand(w),
+const run = (w) => finding({
+  code: decisionFields([path.join(w, 'src')]),
+  corpus: inCorpus(w),
 });
 
 // --- A ----------------------------------------------------------------
@@ -78,9 +83,9 @@ const fahre = (w) => befund({
 test('A: a field a decision depends on, never carrying a value, is found', () => {
   const w = bau({ antwortAufWert: '' });
   try {
-    const r = fahre(w);
-    const t = r.treffer.find((x) => x.feld === 'Antwort-Auf');
-    assert.ok(t, `not found. Checked ${r.geprueft} fields, found ${r.treffer.length}`);
+    const r = run(w);
+    const t = r.hits.find((x) => x.field === 'Antwort-Auf');
+    assert.ok(t, `not found. Checked ${r.checked} fields, found ${r.hits.length}`);
     assert.equal(t.gesehen, 2, 'it should count both messages carrying the empty header');
     assert.deepEqual(t.form, ['kopf'], 'the header form has to be recognised as its own shape');
   } finally { weg(w); }
@@ -91,10 +96,10 @@ test('A2: the header shape is read at all — three of four real cases lived the
   // alone and still be blind to exactly the cases that motivated it.
   const w = bau();
   try {
-    const b = imBestand(w);
-    assert.ok(b.felder.has('Betreff'), 'message headers are not being read');
-    assert.ok([...b.felder.get('Betreff').form].includes('kopf'));
-    assert.ok(b.felder.has('klasse'), 'log entries are not being read');
+    const b = inCorpus(w);
+    assert.ok(b.fields.has('Betreff'), 'message headers are not being read');
+    assert.ok([...b.fields.get('Betreff').form].includes('kopf'));
+    assert.ok(b.fields.has('klasse'), 'log entries are not being read');
   } finally { weg(w); }
 });
 
@@ -103,10 +108,10 @@ test('A2: the header shape is read at all — three of four real cases lived the
 test('B: a field that IS set somewhere is not reported', () => {
   const w = bau({ antwortAufWert: '2026-09-15T20-13-14Z--sitzung-an-chatgpt.md' });
   try {
-    const r = fahre(w);
-    assert.equal(r.treffer.find((x) => x.feld === 'Antwort-Auf'), undefined,
+    const r = run(w);
+    assert.equal(r.hits.find((x) => x.field === 'Antwort-Auf'), undefined,
       'a filled field was reported — the instrument would cry wolf');
-    assert.deepEqual(r.treffer, [], `unexpected findings: ${r.treffer.map((t) => t.feld).join(', ')}`);
+    assert.deepEqual(r.hits, [], `unexpected findings: ${r.hits.map((t) => t.field).join(', ')}`);
   } finally { weg(w); }
 });
 
@@ -118,8 +123,8 @@ test('B2: ONE filled occurrence is enough to clear a field', () => {
   try {
     fs.writeFileSync(path.join(w, 'post', 'c.md'),
       'Von: a\nAn: b\nBetreff: c\nAntwort-Auf: a.md\n\nRumpf.\n');
-    const r = fahre(w);
-    assert.equal(r.treffer.find((x) => x.feld === 'Antwort-Auf'), undefined,
+    const r = run(w);
+    assert.equal(r.hits.find((x) => x.field === 'Antwort-Auf'), undefined,
       'two empty and one filled still counts as written');
   } finally { weg(w); }
 });
@@ -130,10 +135,10 @@ test('B3: a field the corpus never saw is NOT a finding', () => {
   const w = bau();
   try {
     fs.appendFileSync(path.join(w, 'src', 'riegel.mjs'),
-      'export const f = (o) => (o.irgendeinLokalesDing ? 1 : 2);\n');
-    const r = fahre(w);
-    assert.equal(r.treffer.find((x) => x.feld === 'irgendeinLokalesDing'), undefined);
-    assert.ok(r.unbekannt > 0, 'unknown fields are not being counted separately');
+      'export const f = (o) => (o.someLocalThing ? 1 : 2);\n');
+    const r = run(w);
+    assert.equal(r.hits.find((x) => x.field === 'someLocalThing'), undefined);
+    assert.ok(r.unknown > 0, 'unknown fields are not being counted separately');
   } finally { weg(w); }
 });
 
@@ -142,27 +147,27 @@ test('B3: a field the corpus never saw is NOT a finding', () => {
 test('C: analysing nothing is NOT a pass', () => {
   // The whole family of defects this instrument chases is "a check that
   // silently does nothing". It must not become one.
-  const leer = fs.mkdtempSync(path.join(os.tmpdir(), 'fow-leer-'));
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'fow-empty-'));
   try {
-    const r = befund({ code: entscheidungsFelder([leer]), bestand: imBestand(leer) });
-    assert.equal(r.geprueft, 0);
-    assert.deepEqual(r.treffer, []);
+    const r = finding({ code: decisionFields([empty]), corpus: inCorpus(empty) });
+    assert.equal(r.checked, 0);
+    assert.deepEqual(r.hits, []);
     // The command turns this into exit 2, not exit 0 — the assertion
     // here is that the report says so rather than looking clean.
-    assert.equal(r.bestandsdateien, 0,
+    assert.equal(r.corpusFiles, 0,
       'an empty corpus must be visible as empty, not as healthy');
-  } finally { weg(leer); }
+  } finally { weg(empty); }
 });
 
 test('C2: the patterns still match how this code is written', () => {
   // A positive control against THIS repository. If the codebase is
   // refactored into a shape the patterns miss, every run afterwards
   // reports a clean bill of health without checking anything.
-  const code = entscheidungsFelder([path.join(REPO, 'src'), path.join(REPO, 'bin')]);
+  const code = decisionFields([path.join(REPO, 'src'), path.join(REPO, 'bin')]);
   assert.ok(code.size > 100,
     `only ${code.size} decision fields found in src+bin — the patterns no longer `
     + 'match this codebase, and every finding below is vacuous');
-  assert.ok(ENTSCHEIDUNGS_MUSTER.length >= 4, 'a pattern was dropped');
+  assert.ok(DECISION_PATTERNS.length >= 4, 'a pattern was dropped');
 });
 
 // --- D ----------------------------------------------------------------
@@ -173,13 +178,13 @@ test('D: an instrument that only reads the log would miss the real cases', () =>
   // persistence form and calling the rest clean.
   const w = bau({ antwortAufWert: '' });
   try {
-    const nurJsonl = { felder: new Map(), dateien: 0 };
-    for (const [k, v] of imBestand(w).felder) {
-      if ([...v.form].includes('jsonl')) nurJsonl.felder.set(k, v);
+    const onlyJsonl = { fields: new Map(), files: 0 };
+    for (const [k, v] of inCorpus(w).fields) {
+      if ([...v.form].includes('jsonl')) onlyJsonl.fields.set(k, v);
     }
-    nurJsonl.dateien = 1;
-    const r = befund({ code: entscheidungsFelder([path.join(w, 'src')]), bestand: nurJsonl });
-    assert.equal(r.treffer.find((x) => x.feld === 'Antwort-Auf'), undefined,
+    onlyJsonl.files = 1;
+    const r = finding({ code: decisionFields([path.join(w, 'src')]), corpus: onlyJsonl });
+    assert.equal(r.hits.find((x) => x.field === 'Antwort-Auf'), undefined,
       'this sabotage is supposed to HIDE the finding — if it still shows, '
       + 'the test is not testing what it claims');
   } finally { weg(w); }

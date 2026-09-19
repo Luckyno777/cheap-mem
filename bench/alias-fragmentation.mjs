@@ -1,45 +1,44 @@
-// bench/alias-fragmentation.mjs — braucht DIESER Bestand einen Entitaets-Layer?
+// bench/alias-fragmentation.mjs — does THIS corpus need an entity layer?
 //
-// Ein Messinstrument, kein Feature. Es aendert nichts und schreibt nichts.
+// An instrument, not a feature. It changes nothing and writes nothing.
 //
-// **Warum es das gibt.** Am 2026-09-08 lautete der Vorschlag von aussen,
-// cheap-mem fehle Entity Resolution, mit dem Lehrbuchbeispiel
-// `Lukas = Lucky = die Mailadresse`. An einem echten Bestand von 1070
-// Eintraegen gemessen war das Beispiel ein Nichtproblem: `lukas` kam
-// GENAU EINMAL vor, 94 % aller Nennungen benutzten dieselbe
-// Schreibweise. Personen und Projekte tragen in einem gewachsenen
-// Bestand von selbst einen kanonischen Namen.
+// **Why it exists.** On 2026-09-08 an outside suggestion was that
+// cheap-mem lacks entity resolution, with the textbook example
+// `Lukas = Lucky = the mail address`. Measured against a real corpus of
+// 1070 entries, that example was a non-problem: `lukas` appeared EXACTLY
+// ONCE, and 94 % of all mentions used the same spelling. In a corpus
+// that has grown for a while, people and projects carry a canonical name
+// by themselves.
 //
-// Wo der Zerfall real war: BAUTEILE. Eine Komponente hiess dreimal
-// verschieden, keine Schreibweise hatte die Mehrheit (43 %).
+// Where the fragmentation was real: COMPONENTS. One component went by
+// three different names, and no spelling held a majority (43 %).
 //
-// Deshalb dieses Skript statt einer Empfehlung: ob ein Alias-Layer
-// lohnt, haengt am Bestand, nicht am Paradigma. Wer die Zahl fuer
-// SEINEN Bestand kennt, entscheidet; wer sie nicht kennt, glaubt.
+// Hence this script instead of a recommendation: whether an alias layer
+// pays off depends on the corpus, not on the paradigm. Whoever knows the
+// number for THEIR corpus decides; whoever does not, believes.
 //
-// **Nachtrag 2026-09-16 — und er faellt gegen den Alias-Layer aus.**
-// Dieses Skript misst eine VORGEGEBENE Namensmenge: man sagt ihm, dass
-// drei Schreibweisen dasselbe Bauteil meinen, und es zaehlt, wie sich
-// die Nennungen verteilen. Das beantwortet "wie zerfaellt DIESES
-// Bauteil" und nicht "wie viel vom Zerfall im Bestand ist ueberhaupt
-// Schreibweise".
+// **Addendum 2026-09-16 — and it comes out against the alias layer.**
+// This script measures a GIVEN set of names: you tell it that three
+// spellings mean the same component, and it counts how the mentions
+// distribute. That answers "how fragmented is THIS component" and not
+// "how much of the fragmentation in the corpus is spelling at all".
 //
-// Die zweite Frage misst `bench/name-dispersion.mjs`, ohne Vorgabe,
-// ueber alle Werte: von 845 Tag-Werten sind 20 bis 24 Schreibvarianten
-// — rund 2,5 %. Beim Feld `klasse`: 1 bzw. 0 von 185. Die Streuung
-// sitzt im Vokabular, nicht in der Schreibweise.
+// The second question is measured by `bench/name-dispersion.mjs`, with
+// nothing given, across all values: of 845 tag values, 20 to 24 are
+// spelling variants — about 2.5 %. For the `class` field: 1 and 0 out of
+// 185. The spread sits in the vocabulary, not in the spelling.
 //
-// Die 43 % oben bleiben richtig fuer das, was sie messen, und sind
-// trotzdem keine Begruendung fuer einen Alias-Layer: ein Bauteil, das
-// dreimal verschieden heisst, ist ein Einzelfall und keine Bauart.
-// Entschieden und begruendet in `docs/deliberately-not-built.md`.
+// The 43 % above stays correct for what it measures, and is still no
+// justification for an alias layer: a component that goes by three names
+// is one case, not a pattern. Decided and argued in
+// `docs/deliberately-not-built.md`.
 //
-// Aufruf:
-//   node bench/alias-fragmentation.mjs [--root <pfad>] [--set "a,b,c" ...]
+// Usage:
+//   node bench/alias-fragmentation.mjs [--root <path>] [--set "a,b,c" ...]
 //
-// Ohne --set werden die Namen aus dem Bestand geraten: haeufige
-// Bezeichner, die einander als Teilzeichenkette enthalten. Das ist
-// grob und soll es sein — es ist der Einstieg, nicht das Urteil.
+// Without --set the names are guessed from the corpus: frequent
+// identifiers that contain one another as a substring. That is crude and
+// meant to be — it is the way in, not the verdict.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -83,7 +82,8 @@ if (!sets.length) {
   console.log('No --set given, so nothing is measured — the point of this tool is that');
   console.log('YOU name the things you suspect are split. Example:\n');
   console.log('  node bench/alias-fragmentation.mjs --root ~/mem \\');
-  console.log('    --set "lucky,lukas,hauenstein" --set "mcp-bridge,mcp-server,mem-mcp"\n');
+  console.log('    --set "checkout,check-out,checkout-service" \\');
+  console.log('    --set "mcp-bridge,mcp-server,mem-mcp"\n');
   process.exit(0);
 }
 

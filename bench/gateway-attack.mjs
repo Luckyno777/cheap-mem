@@ -69,11 +69,11 @@ const c=(id,x={})=>({id,ts:'2026-01-01T00:00:00Z',topic:'t',choice:'kolibri rout
   fs.rmSync(root,{recursive:true,force:true}); }
 
 // A5: ranking eviction, now against the gateway
-{ const echt=Array.from({length:50},(_,i)=>c('e'+i,{author:'alice',authority:'agent',
+{ const genuine=Array.from({length:50},(_,i)=>c('e'+i,{author:'alice',authority:'agent',
     choice:`deploy to production uses blue green ${i}`,why:'the deploy pipeline switches traffic after health checks'}));
-  const gift=c('KURZ',{author:'mallory',authority:'agent',choice:'deploy to production',why:'deploy production'});
-  const root=mem({a:[...echt,gift]});
+  const poison=c('SHORT',{author:'mallory',authority:'agent',choice:'deploy to production',why:'deploy production'});
+  const root=mem({a:[...genuine,poison]});
   const r=retrieve(root,'how do we deploy to production',grantProject('a'),{top:3});
   R('A5','a short claim carrying the query words, against the gateway',
-    `top-3: [${r.claims.map(x=>x.id)}] — ${r.claims[0]?.id==='KURZ'?'STILL WORKS, and is documented as unsolved: authority only decides where claims CONFLICT, and detecting that deterministically is open':'no longer'}`);
+    `top-3: [${r.claims.map(x=>x.id)}] — ${r.claims[0]?.id==='SHORT'?'STILL WORKS, and is documented as unsolved: authority only decides where claims CONFLICT, and detecting that deterministically is open':'no longer'}`);
   fs.rmSync(root,{recursive:true,force:true}); }

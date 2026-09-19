@@ -45,7 +45,7 @@ const argv = process.argv.slice(2);
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 
 /** Fields a decision depends on — `if (x.f)`, `x.f === y`, `x.f ?? y`, `x.f ? a : b`. */
-export const ENTSCHEIDUNGS_MUSTER = Object.freeze([
+export const DECISION_PATTERNS = Object.freeze([
   /if\s*\([^)]*?\.([a-z_][a-zA-Z0-9_]{2,})\b/g,
   /\.([a-z_][a-zA-Z0-9_]{2,})\s*(?:===|!==|\?\?|&&|\|\|)/g,
   /\.([a-z_][a-zA-Z0-9_]{2,})\s*\?[^?]/g,
@@ -54,24 +54,24 @@ export const ENTSCHEIDUNGS_MUSTER = Object.freeze([
 ]);
 
 /** Every field the code branches on, with the files that branch on it. */
-export function entscheidungsFelder(dirs, lesen = (p) => fs.readFileSync(p, 'utf8')) {
-  const raus = new Map();
+export function decisionFields(dirs, readFile = (p) => fs.readFileSync(p, 'utf8')) {
+  const out = new Map();
   for (const d of dirs) {
-    let namen = [];
-    try { namen = fs.readdirSync(d); } catch { continue; }
-    for (const n of namen) {
+    let names = [];
+    try { names = fs.readdirSync(d); } catch { continue; }
+    for (const n of names) {
       const p = path.join(d, n);
       let text;
-      try { if (!fs.statSync(p).isFile()) continue; text = lesen(p); } catch { continue; }
-      for (const re of ENTSCHEIDUNGS_MUSTER) {
+      try { if (!fs.statSync(p).isFile()) continue; text = readFile(p); } catch { continue; }
+      for (const re of DECISION_PATTERNS) {
         for (const m of text.matchAll(re)) {
-          if (!raus.has(m[1])) raus.set(m[1], new Set());
-          raus.get(m[1]).add(p);
+          if (!out.has(m[1])) out.set(m[1], new Set());
+          out.get(m[1]).add(p);
         }
       }
     }
   }
-  return raus;
+  return out;
 }
 
 /**
@@ -85,11 +85,11 @@ export function entscheidungsFelder(dirs, lesen = (p) => fs.readFileSync(p, 'utf
  * found one in four and reported the other three as clean — the exact
  * failure mode it exists to catch.
  */
-export function imBestand(wurzel, { tiefe = 0 } = {}) {
-  const felder = new Map();
+export function inCorpus(wurzel, { tiefe = 0 } = {}) {
+  const fields = new Map();
   const zaehle = (k, v) => {
-    if (!felder.has(k)) felder.set(k, { gesehen: 0, mitWert: 0, form: new Set() });
-    const e = felder.get(k);
+    if (!fields.has(k)) fields.set(k, { gesehen: 0, mitWert: 0, form: new Set() });
+    const e = fields.get(k);
     e.gesehen += 1;
     if (v !== null && v !== undefined && v !== '' && v !== 'null') e.mitWert += 1;
     return e;
@@ -101,7 +101,7 @@ export function imBestand(wurzel, { tiefe = 0 } = {}) {
     }
   };
 
-  let dateien = 0;
+  let files = 0;
   (function lauf(d, ebene) {
     if (ebene > 12) return;
     let eintraege = [];
@@ -112,7 +112,7 @@ export function imBestand(wurzel, { tiefe = 0 } = {}) {
       if (e.isDirectory()) { lauf(p, ebene + 1); continue; }
 
       if (e.name.endsWith('.jsonl')) {
-        dateien += 1;
+        files += 1;
         let text = '';
         try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
         for (const z of text.split('\n')) {
@@ -125,7 +125,7 @@ export function imBestand(wurzel, { tiefe = 0 } = {}) {
         try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
         const kopf = text.split(/\n\s*\n/)[0] ?? '';
         if (!/^[A-Za-z][A-Za-z0-9_-]*:/.test(kopf)) continue;
-        dateien += 1;
+        files += 1;
         for (const zeile of kopf.split('\n')) {
           const m = zeile.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
           if (m) zaehle(m[1], m[2].trim()).form.add('kopf');
@@ -134,37 +134,37 @@ export function imBestand(wurzel, { tiefe = 0 } = {}) {
     }
   }(wurzel, tiefe));
 
-  return { felder, dateien };
+  return { fields, files };
 }
 
 /**
  * The finding: a decision depends on it, the corpus never carries a value.
  *
- * `unbekannt` is returned separately and deliberately NOT as a finding.
+ * `unknown` is returned separately and deliberately NOT as a finding.
  * A field the corpus has never seen is usually a local variable, and
  * mixing the two would drown eleven answers in seven hundred.
  */
-export function befund({ code, bestand }) {
-  const treffer = [];
-  const unbekannt = [];
-  for (const [feld, dateien] of code) {
-    const b = bestand.felder.get(feld);
-    if (!b) { unbekannt.push(feld); continue; }
+export function finding({ code, corpus }) {
+  const hits = [];
+  const unknown = [];
+  for (const [field, files] of code) {
+    const b = corpus.fields.get(field);
+    if (!b) { unknown.push(field); continue; }
     if (b.mitWert === 0) {
-      treffer.push({
-        feld,
+      hits.push({
+        field,
         gesehen: b.gesehen,
         form: [...b.form].sort(),
-        gelesenIn: [...dateien].sort(),
+        gelesenIn: [...files].sort(),
       });
     }
   }
   return {
-    treffer: treffer.sort((a, b) => b.gesehen - a.gesehen),
-    geprueft: code.size - unbekannt.length,
-    unbekannt: unbekannt.length,
-    bestandsfelder: bestand.felder.size,
-    bestandsdateien: bestand.dateien,
+    hits: hits.sort((a, b) => b.gesehen - a.gesehen),
+    checked: code.size - unknown.length,
+    unknown: unknown.length,
+    bestandsfelder: corpus.fields.size,
+    corpusFiles: corpus.files,
   };
 }
 
@@ -173,28 +173,28 @@ export function befund({ code, bestand }) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const WURZEL = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
   const CODE = (flag('code') ?? 'src,bin').split(',').map((d) => path.resolve(d));
-  const code = entscheidungsFelder(CODE);
-  const bestand = imBestand(WURZEL);
-  const r = befund({ code, bestand });
+  const code = decisionFields(CODE);
+  const corpus = inCorpus(WURZEL);
+  const r = finding({ code, corpus });
 
-  console.log(`Corpus: ${WURZEL}  (${r.bestandsdateien} files, ${r.bestandsfelder} distinct fields)`);
+  console.log(`Corpus: ${WURZEL}  (${r.corpusFiles} files, ${r.bestandsfelder} distinct fields)`);
   console.log(`Fields a decision depends on: ${code.size}`);
-  console.log(`  of those the corpus knows:  ${r.geprueft}`);
-  console.log(`  unknown to the corpus:      ${r.unbekannt}  (not a finding — mostly local variables)`);
+  console.log(`  of those the corpus knows:  ${r.checked}`);
+  console.log(`  unknown to the corpus:      ${r.unknown}  (not a finding — mostly local variables)`);
   console.log();
 
-  if (!r.geprueft) {
+  if (!r.checked) {
     console.log('NOTHING CHECKED. Either the corpus is empty or the patterns no longer');
     console.log('match how this code is written. This is not a pass.');
     process.exit(2);
   }
-  if (!r.treffer.length) {
-    console.log(`No finding: all ${r.geprueft} fields carry a value somewhere.`);
+  if (!r.hits.length) {
+    console.log(`No finding: all ${r.checked} fields carry a value somewhere.`);
     process.exit(0);
   }
-  console.log(`${r.treffer.length} field(s) read by a decision, never carrying a value:`);
-  for (const t of r.treffer) {
-    console.log(`  ${t.feld}  — ${t.gesehen}x in the corpus, 0x with a value  [${t.form.join('+')}]`);
+  console.log(`${r.hits.length} field(s) read by a decision, never carrying a value:`);
+  for (const t of r.hits) {
+    console.log(`  ${t.field}  — ${t.gesehen}x in the corpus, 0x with a value  [${t.form.join('+')}]`);
     console.log(`      decided on in: ${t.gelesenIn.join(', ')}`);
   }
   process.exit(1);

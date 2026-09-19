@@ -338,7 +338,7 @@ export const MUTANTS=[
  { name:'ARCH gateway stops dropping echoes of the question',
    file:'src/retrieval.mjs',
    from:'  dropEcho = true,',
-   to:'  dropEcho = false,  // MUTANT: die eigene Frage kommt wieder zurueck',
+   to:'  dropEcho = false,  // MUTANT: the query itself comes back again',
    tests:['test/paths-agree.test.mjs'] },
 
  { name:'ARCH `mem find` stops dropping echoes by default',
@@ -350,7 +350,7 @@ export const MUTANTS=[
  { name:'ARCH echo filter forgets that it is only for raw captures',
    file:'src/search.mjs',
    from:"  if (!hit || !(hit.type === 'raw' || hit.raw === true)) return false;",
-   to:"  if (!hit) return false;  // MUTANT: getippte Eintraege fallen mit",
+   to:"  if (!hit) return false;  // MUTANT: typed entries fall through too",
    tests:['test/paths-agree.test.mjs'] },
 
  { name:'ARCH echo check counts the synthetic raw title again',
@@ -362,7 +362,7 @@ export const MUTANTS=[
  { name:'ARCH raw captures shape the idf again',
    file:'src/search.mjs',
    from:"    statsDocFreq: curatedN ? curatedFreq : docFreq,",
-   to:"    statsDocFreq: docFreq,  // MUTANT: der Rohfang bestimmt wieder, was selten ist",
+   to:"    statsDocFreq: docFreq,  // MUTANT: raw capture decides what is rare again",
    tests:['test/raw-stats.test.mjs'] },
 
  { name:'ARCH raw captures shape the length normalisation again',
@@ -374,13 +374,13 @@ export const MUTANTS=[
  { name:'ARCH the append path lets fresh captures back into the stats',
    file:'src/search.mjs',
    from:"    if (doc.type !== 'raw') {\n      statsN += 1;",
-   to:"    if (true) {  // MUTANT: jeder frische Fang zaehlt wieder mit\n      statsN += 1;",
+   to:"    if (true) {  // MUTANT: every fresh capture counts again\n      statsN += 1;",
    tests:['test/raw-stats.test.mjs','test/search.test.mjs'] },
 
  { name:'ARCH raw captures compete with curated claims again',
    file:'src/retrieval.mjs',
    from:'  rawReserve = true,',
-   to:'  rawReserve = false,  // MUTANT: der Fang draengt sich wieder vor',
+   to:'  rawReserve = false,  // MUTANT: the capture pushes to the front again',
    tests:['test/raw-reserve.test.mjs'] },
 
  { name:'ARCH raw captures are dropped from the gateway entirely',
@@ -392,13 +392,13 @@ export const MUTANTS=[
  { name:'ARCH the retrieval query asks the raw captures what is rare',
    file:'src/search.mjs',
    from:"  const df = idx.statsDocFreq ?? idx.docFreq;",
-   to:"  const df = idx.docFreq;  // MUTANT: der Fang bestimmt die acht Woerter",
+   to:"  const df = idx.docFreq;  // MUTANT: the capture decides the eight words",
    tests:['test/raw-stats.test.mjs','test/search.test.mjs','test/retrieval.test.mjs'] },
 
  { name:'ARCH the exact lane forgets its own bound',
    file:'src/entity.mjs',
    from:'    if (!s || s.size === 0 || s.size > slots) continue;',
-   to:'    if (!s || s.size === 0) continue;  // MUTANT: auch Ausstattung zaehlt als Bezeichner',
+   to:'    if (!s || s.size === 0) continue;  // MUTANT: equipment counts as an identifier tooer',
    tests:['test/exact-lane.test.mjs'] },
 
  { name:'ARCH the gateway drops the exact lane',
@@ -427,7 +427,7 @@ export const MUTANTS=[
  { name:'SEM Frageworte are not indexed at all',
    file:'src/search.mjs',
    from:'  asked: 2.0,',
-   to:'  // MUTANT: das Feld faellt aus der Indizierung',
+   to:'  // MUTANT: the field drops out of indexing',
    tests:['test/asked.test.mjs'] },
 
  { name:'SEM Frageworte outweigh the title',
@@ -450,7 +450,7 @@ export const MUTANTS=[
  { name:'ARCH gateway falls back to pure BM25 order (no diversity)',
    file:'src/retrieval.mjs',
    from:'  mmr = true,',
-   to:'  mmr = false,  // MUTANT: der Agentenpfad wieder schlechter als `mem find`',
+   to:'  mmr = false,  // MUTANT: the agent path worse than `mem find` again',
    tests:['test/gateway-diversity.test.mjs'] },
 
  { name:'ARCH statusOf defaults to active for anything it does not know',
