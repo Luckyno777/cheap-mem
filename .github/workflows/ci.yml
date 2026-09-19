@@ -641,6 +641,144 @@ jobs:
             exit 1
           fi
 
+  # The README calls its benchmark numbers (96.6 % tokens saved, 0.027 ms
+  # median search, R@1 100 / 50 / 67 %) "a weaker promise" than the counts
+  # `coverage` and test/readme-zahlen.test.mjs re-derive, and says so —
+  # then guards none of them. This job is the same idea as `coverage`
+  # above, aimed at the benchmark numbers instead of the coverage figure:
+  # measure, compare to the README's claim, fail past a band.
+  #
+  # **A band, not equality, and why each one is the width it is.**
+  # Benchmark numbers move with the corpus and the machine; demanding an
+  # exact match would make this job flaky by design and, per this repo's
+  # own house rule, a check nobody trusts gets ignored, which is worse
+  # than no check. But too wide is exactly as bad — measured 2026-09-19
+  # elsewhere in this project's history: a 15 % relative band left a test
+  # count sitting at 1166 while the real count had grown past 1230, and
+  # nobody noticed for weeks. Each band below is sized against a REAL
+  # measurement made while writing this job, not a round number:
+  #
+  #   tokens saved   ±2.0 percentage points. This ratio is pure character
+  #     counting on a fixed synthetic corpus — no wall-clock timing is
+  #     involved — so it barely moves at all: measured 96.7 % here on
+  #     2026-09-19 against the README's 96.6 %, a 0.1 pp gap across
+  #     several repeated runs. ±2 pp leaves room for a future edit to the
+  #     benchmark's corpus while still catching a real regression (e.g.
+  #     the on-demand path rendering whole entries instead of top-K hits
+  #     would cost several times the tokens, moving this by 10+ pp).
+  #
+  #   search median   a factor-of-5 band (measured/claimed must land
+  #     between claimed÷5 and claimed×5), not a percentage-point band —
+  #     sub-millisecond timings are the one number here that is genuinely
+  #     MACHINE-dependent, not just corpus-dependent, and the gap can be
+  #     large: measured 2026-09-19 in the container this job was written
+  #     in, 0.05-0.055 ms against the README's own 0.027 ms — roughly 2x,
+  #     on ordinary hardware, with no code at fault. 5x gives real
+  #     headroom beyond that observed gap so a slower or faster CI runner
+  #     does not cry wolf, while still catching the kind of regression
+  #     that actually matters here — the index silently falling back to a
+  #     linear scan, which would not cost 2x, it would cost one or two
+  #     orders of magnitude.
+  #
+  #   R@1 per query kind   derived from the sample size `n` printed next
+  #     to each row, not a fixed number, because "lexical" (n=20),
+  #     "paraphrase" (n=16) and "concept" (n=6) are not equally noisy: on
+  #     a 6-query set, ONE query flipping is a 16.7 percentage-point
+  #     swing that means nothing, and a fixed band tight enough to catch
+  #     a real regression on lexical would fire constantly on concept for
+  #     no reason — the exact "reports the innocent" failure this repo's
+  #     house rules single out. The band is ceil(1.5 × 100 / n): a bit
+  #     over one query's worth of drift is tolerated as noise, two
+  #     queries' worth is not. That comes out to lexical ±8 pp,
+  #     paraphrase ±10 pp, concept ±25 pp today; it moves with `n` if the
+  #     benchmark's query set ever changes size.
+  #
+  # **What is not guarded here.** `answer retrieved: N/15` already has its
+  # own floor in the `bench` job above (GOT < 12 fails); repeating it here
+  # would be a second source of truth for the same number. Every figure
+  # that IS parsed below was checked against real output while writing
+  # this job — none is guarded on faith that the regex will always match.
+  bench-readme:
+    name: benchmark numbers · README claims
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+      - name: measure, and hold the README's benchmark claims to a band
+        run: |
+          set -o pipefail
+          npm run bench 2>&1 | tee /tmp/bench.txt
+          node - <<'EOF'
+          const fs = require('node:fs');
+          const bench = fs.readFileSync('/tmp/bench.txt', 'utf8');
+          const readme = fs.readFileSync('README.md', 'utf8');
+
+          let bad = false;
+          const fail = (msg) => { console.error(`::error::${msg}`); bad = true; };
+
+          // 1. tokens saved (bench/tokens.mjs: "saved:  NN.N%")
+          {
+            const m = bench.match(/^saved:\s*([\d.]+)%/m);
+            const r = readme.match(/\| tokens per session \| \*\*([\d.]+) % fewer\*\*/);
+            if (!m) fail('token benchmark: no "saved: NN.N%" line in its output — cannot verify, not silently passed');
+            else if (!r) fail('README: no "tokens per session ... % fewer" row found — cannot verify');
+            else {
+              const measured = Number(m[1]); const claimed = Number(r[1]); const BAND = 2.0;
+              console.log(`tokens saved: measured ${measured}% · README claims ${claimed}% · band +/-${BAND}pp`);
+              if (Math.abs(measured - claimed) > BAND) {
+                fail(`token savings drifted: measured ${measured}% vs README's ${claimed}% (band +/-${BAND}pp)`);
+              }
+            }
+          }
+
+          // 2. search median latency (bench/retrieval.mjs)
+          {
+            const m = bench.match(/search median\s*([\d.]+)\s*ms/);
+            const r = readme.match(/\| search, median \| \*\*([\d.]+) ms\*\*/);
+            if (!m) fail('retrieval benchmark: no "search median N ms" — cannot verify, not silently passed');
+            else if (!r) fail('README: no "search, median ... ms" row found — cannot verify');
+            else {
+              const measured = Number(m[1]); const claimed = Number(r[1]); const FACTOR = 5;
+              console.log(`search median: measured ${measured} ms · README claims ${claimed} ms · `
+                + `band ${(claimed / FACTOR).toFixed(4)}-${(claimed * FACTOR).toFixed(4)} ms`);
+              if (measured > claimed * FACTOR || measured < claimed / FACTOR) {
+                fail(`search median out of band: measured ${measured} ms vs README's ${claimed} ms `
+                  + `(allowed ${(claimed / FACTOR).toFixed(4)}-${(claimed * FACTOR).toFixed(4)} ms)`);
+              }
+            }
+          }
+
+          // 3. R@1 per query kind (bench/retrieval.mjs table)
+          {
+            const rows = [
+              { kind: 'lexical', benchRe: /^lexical\s+(\d+)\s+(\d+)%/m,
+                readmeRe: /\| lexical \(shares a word with the entry\) \| (\d+) %/ },
+              { kind: 'paraphrase', benchRe: /^paraphrase\s+(\d+)\s+(\d+)%/m,
+                readmeRe: /\*\*paraphrase \(shares none\)\*\* \| \*\*(\d+) %\*\*/ },
+              { kind: 'concept', benchRe: /^concept\s+(\d+)\s+(\d+)%/m,
+                readmeRe: /\| concept \(broad, indirect\) \| (\d+) %/ },
+            ];
+            for (const { kind, benchRe, readmeRe } of rows) {
+              const m = bench.match(benchRe);
+              const r = readme.match(readmeRe);
+              if (!m) { fail(`retrieval benchmark: no R@1 row for "${kind}" — cannot verify, not silently passed`); continue; }
+              if (!r) { fail(`README: no R@1 entry for "${kind}" — cannot verify`); continue; }
+              const n = Number(m[1]); const measured = Number(m[2]); const claimed = Number(r[1]);
+              const band = Math.ceil((1.5 * 100) / n);
+              console.log(`R@1 ${kind}: measured ${measured}% (n=${n}) · README claims ${claimed}% · band +/-${band}pp`);
+              if (Math.abs(measured - claimed) > band) {
+                fail(`R@1 ${kind} drifted: measured ${measured}% vs README's ${claimed}% (n=${n}, band +/-${band}pp)`);
+              }
+            }
+          }
+
+          process.exit(bad ? 1 : 0);
+          EOF
+
   verify:
     name: guarantees
     runs-on: ubuntu-latest
