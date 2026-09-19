@@ -1,4 +1,4 @@
-# mem-watch.ps1 — native Windows PowerShell port of bin/mem-watch.
+# mem-watch.ps1 - native Windows PowerShell port of bin/mem-watch.
 #
 # Endless loop: every N seconds, look at the remote via `mem inbox watch`.
 # Exit 1 means "post ready". Then: git pull, run the handler, keep watching.
@@ -30,7 +30,7 @@ if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.git'))) {
   exit 2
 }
 if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.mem/config.json'))) {
-  Write-Error "no .mem/config.json under CHEAP_MEM_ROOT — run 'mem init' first"
+  Write-Error "no .mem/config.json under CHEAP_MEM_ROOT - run 'mem init' first"
   exit 2
 }
 if (-not $env:MEM_WATCH_WHO) {
@@ -67,7 +67,7 @@ function Write-Note {
 
 function Invoke-Handler {
   # Windows has no flock. Use a stale-lock check: PID in the lock file.
-  # If that PID still runs → another handler is active. Else stale → take.
+  # If that PID still runs -> another handler is active. Else stale -> take.
   if (Test-Path $LockPath) {
     $lockPid = Get-Content -LiteralPath $LockPath -ErrorAction SilentlyContinue
     if ($lockPid -and (Get-Process -Id $lockPid -ErrorAction SilentlyContinue)) {
@@ -83,12 +83,12 @@ function Invoke-Handler {
     $pull = & git -C $env:CHEAP_MEM_ROOT pull --ff-only 2>&1
     Add-Content -LiteralPath $LogPath -Value ($pull -join "`n")
     if ($LASTEXITCODE -ne 0) {
-      Write-Note "handler: git pull failed — not running handler"
+      Write-Note "handler: git pull failed - not running handler"
       return $false
     }
 
     if (-not (Test-Path $Handler)) {
-      Write-Note "handler: no handler script at $Handler — post remains for a human to process"
+      Write-Note "handler: no handler script at $Handler - post remains for a human to process"
       return $false
     }
 
@@ -104,7 +104,7 @@ function Invoke-Handler {
 
     $done = Wait-Job -Job $job -Timeout $HandlerTimeout
     if (-not $done) {
-      Write-Note "handler: timeout after ${HandlerTimeout}s — stopping"
+      Write-Note "handler: timeout after ${HandlerTimeout}s - stopping"
       Stop-Job -Job $job
       Remove-Job -Job $job -Force
       return $false
@@ -146,13 +146,13 @@ while ($true) {
   switch ($code) {
     0 { Start-Sleep -Seconds $Interval }
     1 {
-      Write-Note "watch: exit=1 — post for '$($env:MEM_WATCH_WHO)' on the remote"
+      Write-Note "watch: exit=1 - post for '$($env:MEM_WATCH_WHO)' on the remote"
       if (Invoke-Handler) {
         $Fail = 0
       } else {
         $Fail++
         if ($Fail -ge $FailMax) {
-          Write-Note "handler: $Fail failures in a row — long pause ${FailWait}s (loop-guard)"
+          Write-Note "handler: $Fail failures in a row - long pause ${FailWait}s (loop-guard)"
           Start-Sleep -Seconds $FailWait
           $Fail = 0
           continue
@@ -161,7 +161,7 @@ while ($true) {
       Start-Sleep -Seconds $Interval
     }
     3 {
-      Write-Note "watch: exit=3 — remote unreachable, waiting ${BrokenWait}s"
+      Write-Note "watch: exit=3 - remote unreachable, waiting ${BrokenWait}s"
       Start-Sleep -Seconds $BrokenWait
     }
     default {

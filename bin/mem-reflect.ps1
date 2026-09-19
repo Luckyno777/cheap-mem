@@ -1,11 +1,11 @@
-# mem-reflect.ps1 — native Windows PowerShell port of bin/mem-reflect.
+# mem-reflect.ps1 - native Windows PowerShell port of bin/mem-reflect.
 #
 # Stop-Hook style reflector: reads the session transcript and, throttled
 # by byte-delta, spawns an AI headless session that decides whether
 # anything substantial happened and writes a log entry + inbox message +
 # git push.
 #
-# Wired in Claude Code (Windows) as a Stop hook — see install/windows.ps1.
+# Wired in Claude Code (Windows) as a Stop hook - see install/windows.ps1.
 # Stdin (JSON with transcript_path) is read directly.
 #
 # Required env:
@@ -69,11 +69,11 @@ if (Test-Path $marker) {
 
 $delta = $curSize - $lastSize
 if ($delta -lt $Threshold) {
-  # Under threshold — silent success. Do not update marker.
+  # Under threshold - silent success. Do not update marker.
   exit 0
 }
 
-# Above threshold — record now, then run reflector.
+# Above threshold - record now, then run reflector.
 $curSize | Set-Content -LiteralPath $marker
 
 $defaultPrompt = @"

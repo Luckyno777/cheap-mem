@@ -1,4 +1,4 @@
-# install/windows.ps1 — install cheap-mem on native Windows.
+# install/windows.ps1 - install cheap-mem on native Windows.
 #
 # Sets up:
 #   1. A Task Scheduler task that runs mem-watch.ps1 at logon and
@@ -29,7 +29,7 @@ if (-not $env:CHEAP_MEM_ROOT) {
   exit 2
 }
 if (-not (Test-Path (Join-Path $env:CHEAP_MEM_ROOT '.mem\config.json'))) {
-  Write-Error "$env:CHEAP_MEM_ROOT\.mem\config.json not found — run 'node bin\mem init' first"
+  Write-Error "$env:CHEAP_MEM_ROOT\.mem\config.json not found - run 'node bin\mem init' first"
   exit 2
 }
 
@@ -49,7 +49,7 @@ if (-not $SkipTask) {
 
   $TaskName = 'cheap-mem-watch'
 
-  # Remove any prior task before re-registering — idempotent.
+  # Remove any prior task before re-registering - idempotent.
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
 
   $action = New-ScheduledTaskAction `
@@ -98,12 +98,12 @@ if (-not $SkipTask) {
   # lock, without git and without a model. The decision sits in the
   # dueness check (volume / quiet / ceiling), not in the schedule.
   #
-  # Skip with MEM_SKIP_DIGEST=1 — useful when the digest should run on
+  # Skip with MEM_SKIP_DIGEST=1 - useful when the digest should run on
   # a server rather than on this laptop.
   if ($env:MEM_SKIP_DIGEST -ne '1') {
     $DigestScript = Join-Path $RepoRoot 'bin\mem-digest.ps1'
     if (-not (Test-Path $DigestScript)) {
-      Write-Warning "mem-digest.ps1 not found at $DigestScript — skipping the digest task"
+      Write-Warning "mem-digest.ps1 not found at $DigestScript - skipping the digest task"
     } else {
       $DigestTask = 'cheap-mem-digest'
       Unregister-ScheduledTask -TaskName $DigestTask -Confirm:$false -ErrorAction SilentlyContinue
@@ -155,7 +155,7 @@ if (-not $SkipClaudeDesktop) {
     try {
       $cfg = Get-Content -LiteralPath $CdConfig -Raw | ConvertFrom-Json -AsHashtable
     } catch {
-      Write-Warning "existing $CdConfig is not JSON — leaving it alone (skipping Claude Desktop wiring)"
+      Write-Warning "existing $CdConfig is not JSON - leaving it alone (skipping Claude Desktop wiring)"
       $cfg = $null
     }
   }
@@ -199,7 +199,7 @@ if (-not $SkipClaudeCode) {
 #
 # The path below is where the memory was at install time. It is a HINT,
 # not the answer: on a second machine that directory does not exist. The
-# hook used to exit 0 there — no memory, no error, no clue. Now it looks
+# hook used to exit 0 there - no memory, no error, no clue. Now it looks
 # the memory up and SAYS SO when it cannot find one.
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
@@ -255,7 +255,7 @@ if (Test-Path `$mem) {
 # the model summary only behind MEM_REFLECT=1. In a sandbox without a
 # model the reflect path ran nothing at all, so the session captured
 # nothing -- and told no one.
-# Same lookup as the start hook — see the note there. This one stays
+# Same lookup as the start hook - see the note there. This one stays
 # quiet on a miss: the start hook has already said it once per session,
 # and repeating it after every turn would train people to ignore it.
 `$hint = '$($env:CHEAP_MEM_ROOT)'
@@ -284,7 +284,7 @@ if (-not (Test-Path `$stop)) { exit 0 }
   # matcher Edit|Write|NotebookEdit). This installer registered TWO.
   # There was no UserPromptSubmit and no PreToolUse registration at all.
   #
-  # So on Windows the recall lane and the before-edit lane never ran —
+  # So on Windows the recall lane and the before-edit lane never ran -
   # not because they were broken, but because nothing ever called them.
   # The same week the PowerShell ports of those lanes were written and
   # guarded, which fixed the level below this one: the hooks existed,
@@ -292,7 +292,7 @@ if (-not (Test-Path `$stop)) { exit 0 }
   # still nobody asked for them. This repo has a name for that class:
   # `built-but-out-of-reach`.
   #
-  # Both wrappers repeat the lookup of the start hook — the path baked
+  # Both wrappers repeat the lookup of the start hook - the path baked
   # in here is a HINT, not the answer. They stay silent on a miss: the
   # start hook already said it once per session, and a hook that
   # complains before every message and every edit trains people to stop
@@ -350,7 +350,7 @@ if (-not (Test-Path `$before)) { exit 0 }
     try {
       $cfg = Get-Content -LiteralPath $Settings -Raw | ConvertFrom-Json -AsHashtable
     } catch {
-      Write-Warning "$Settings is not JSON — leaving it alone (skipping hook registration)"
+      Write-Warning "$Settings is not JSON - leaving it alone (skipping hook registration)"
       $cfg = $null
     }
   }
@@ -358,14 +358,14 @@ if (-not (Test-Path `$before)) { exit 0 }
   if ($null -ne $cfg) {
     if (-not $cfg.ContainsKey('hooks')) { $cfg['hooks'] = @{} }
 
-    # An old install is recognised by the SCRIPT NAME, not by the path —
+    # An old install is recognised by the SCRIPT NAME, not by the path -
     # the same rule the POSIX installer states above its upsertHook.
     #
     # **This filter was keyed on the literal 'cheap-mem-session'**, which
     # matched exactly the two scripts that existed on 2026-09-19 and
     # nothing else. The moment a third one arrived (cheap-mem-user-prompt,
     # cheap-mem-pre-edit) a re-install would have left the old entry in
-    # place and added a second one beside it — and two hooks on
+    # place and added a second one beside it - and two hooks on
     # UserPromptSubmit means every message pays twice. Found while adding
     # exactly those two, not in the field.
     #
@@ -391,7 +391,7 @@ if (-not (Test-Path `$before)) { exit 0 }
     Upsert-Hook $cfg['hooks'] 'SessionStart' 'cheap-mem-session-start.ps1' "$ps `"$startHookDst`""
     Upsert-Hook $cfg['hooks'] 'Stop'         'cheap-mem-session-stop.ps1'  "$ps `"$stopHookDst`""
     Upsert-Hook $cfg['hooks'] 'UserPromptSubmit' 'cheap-mem-user-prompt.ps1' "$ps `"$promptHookDst`""
-    # With a matcher — otherwise it would also run on Read and Bash, and
+    # With a matcher - otherwise it would also run on Read and Bash, and
     # the path of a file being READ is not an intention to change it.
     # Same matcher as the POSIX side; it is the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'

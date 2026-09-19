@@ -1,4 +1,4 @@
-# mem-handle-post.ps1 — Windows PowerShell port of bin/mem-handle-post.
+# mem-handle-post.ps1 - Windows PowerShell port of bin/mem-handle-post.
 #
 # Default handler run by mem-watch.ps1 when new inbox mail arrives.
 # Spawns an AI CLI in headless mode to process it.

@@ -33,6 +33,13 @@ import * as doctor from '../src/doctor.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// Forward slashes, on every platform. See the note on relOf in
+// test/windows-paths.test.mjs: path.relative answers "src\\doctor.mjs"
+// on Windows, and the positive control below compares against
+// "src/doctor.mjs". Measured red on the windows-latest runner
+// (run 232, 2026-09-19).
+const relOf = (p) => path.relative(REPO, p).split(path.sep).join('/');
+
 /** Every JavaScript module that ships — src/ and bin/, recursively. */
 function shippedSources() {
   const out = [];
@@ -41,7 +48,7 @@ function shippedSources() {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) { walk(p); continue; }
       if (!/\.mjs$/.test(e.name)) continue;
-      out.push({ rel: path.relative(REPO, p), text: fs.readFileSync(p, 'utf8') });
+      out.push({ rel: relOf(p), text: fs.readFileSync(p, 'utf8') });
     }
   };
   walk(path.join(REPO, 'src'));
@@ -52,7 +59,7 @@ function shippedSources() {
     // The shell and PowerShell hooks have their own portability rules
     // (test/portability.test.mjs, test/hook-windows-root.test.mjs).
     if (!/^#!.*\bnode\b/.test(text) && !n.endsWith('.mjs')) continue;
-    out.push({ rel: path.relative(REPO, p), text });
+    out.push({ rel: relOf(p), text });
   }
   return out;
 }
@@ -100,25 +107,40 @@ test('POSITIVE CONTROL: the probe really reads these files', () => {
 });
 
 test('the stop-hook check follows the home directory, not the current one', () => {
-  // The behavioural half. `os.homedir()` reads $HOME on POSIX, so this
-  // is measurable here even though the failure only happens on Windows:
-  // point HOME at a directory that holds a wired-up settings.json and
-  // the finding has to come back GOOD, whatever the current directory
-  // contains.
+  // The behavioural half: point the home directory at a tree that holds
+  // a wired-up settings.json, and the finding has to come back GOOD
+  // whatever the current directory contains.
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-hroot-'));
-  const before = process.env.HOME;
+  // BOTH variables, because os.homedir() reads USERPROFILE on Windows
+  // and $HOME on POSIX. Setting only HOME made this test red on the
+  // windows-latest runner (run 232, 2026-09-19) against a doctor that
+  // was correct: it went on reading the runner's real profile, found no
+  // Stop hook there and answered UNKNOWN. The comment above this test
+  // used to claim the single spelling was enough on both. It was not.
+  const before = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const restore = () => {
+    for (const [k, v] of Object.entries(before)) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+  };
   try {
     fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
     fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({
       hooks: { Stop: [{ hooks: [{ type: 'command', command: 'bin/mem-capture' }] }] },
     }));
     process.env.HOME = home;
+    process.env.USERPROFILE = home;
+    // The probe is only worth anything if the planted home is the one
+    // os.homedir() answers with. On a platform where neither variable
+    // steers it, this says so instead of measuring the wrong directory.
+    assert.equal(os.homedir(), home,
+      'os.homedir() does not follow HOME/USERPROFILE on this platform');
     const f = doctor.checkStopHook(root);
     assert.equal(f.level, doctor.LEVEL.GOOD, JSON.stringify(f));
     assert.match(f.text, /mem-capture/);
   } finally {
-    if (before === undefined) delete process.env.HOME; else process.env.HOME = before;
+    restore();
     fs.rmSync(home, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }

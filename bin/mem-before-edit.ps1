@@ -1,11 +1,11 @@
-# mem-before-edit.ps1 — native Windows port of bin/mem-before-edit.
+# mem-before-edit.ps1 - native Windows port of bin/mem-before-edit.
 #
 # **Why this file exists (measured 2026-09-19, reported by a cheap-mem
 # user on Windows).** `bin/mem-before-edit` is a bash script and had no
 # `.ps1` counterpart, while mem-capture, mem-digest, mem-handle-post,
 # mem-reflect and mem-watch all had one. A default Git for Windows
 # install puts `git.exe` on PATH but NOT `bash.exe`, so on an ordinary
-# Windows box this hook could not be started at all — and a hook whose
+# Windows box this hook could not be started at all - and a hook whose
 # command cannot be launched prints nothing, which reads exactly like
 # "the memory has nothing to say about this file". GitHub's
 # windows-latest runner ships Git Bash, which is why CI never saw it.
@@ -13,7 +13,7 @@
 # What the hook does: recall DURING the work, not only on a user's
 # message. `mem-retrieve` hangs on UserPromptSubmit and so fires exactly
 # when the person types something, staying silent through all the time
-# in between — which is when the building actually happens.
+# in between - which is when the building actually happens.
 #
 # Measured 2026-09-08 against four defects from one Windows install:
 # for THREE of them an entry already existed naming the very file that
@@ -39,7 +39,7 @@ $ErrorActionPreference = 'Continue'
 
 # **Which exit did it take?** `MEM_BEFORE_EDIT_TRACE=1` makes every
 # early exit name itself on stderr. Nothing is printed without it, and
-# stdout is never touched — the hook's contract is unchanged.
+# stdout is never touched - the hook's contract is unchanged.
 #
 # This exists because two plausible causes were repaired, both of them
 # real bugs verified on Linux, and neither was the reported failure:
@@ -49,7 +49,7 @@ function Write-Trace { param([string]$where)
   if ($env:MEM_BEFORE_EDIT_TRACE -eq '1') { [Console]::Error.WriteLine("mem-before-edit: exit at $where") }
 }
 # The same trace, but for a midpoint state instead of an exit.
-# `Write-Trace` prints "exit at ..." — at a point that does NOT exit,
+# `Write-Trace` prints "exit at ..." - at a point that does NOT exit,
 # that would be a false statement in its own diagnostic tool.
 function Write-Note { param([string]$msg)
   if ($env:MEM_BEFORE_EDIT_TRACE -eq '1') { [Console]::Error.WriteLine("mem-before-edit: $msg") }
@@ -60,7 +60,7 @@ if ($env:MEM_HOOK_OFF -eq '1') { Write-Trace 'hook-off'; exit 0 }
 
 # **No backslash substitution here, and that is the point.** The POSIX
 # hook carries `entrutscht()` because bash reads the native Windows path
-# the agent hands it — `C:\Users\x\...` — as an escape soup, finds
+# the agent hands it - `C:\Users\x\...` - as an escape soup, finds
 # nothing, and exits 0 without a word. PowerShell's path APIs take that
 # path as it comes.
 #
@@ -102,7 +102,7 @@ if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
 
 # The query is the path, but not all of it: an absolute path never
 # appears in an entry (it belongs to one machine), the last two
-# segments do — `install/claude-code.sh`, `src/search.mjs`. That is
+# segments do - `install/claude-code.sh`, `src/search.mjs`. That is
 # how people write about code. Either separator, because the path the
 # agent hands this hook on Windows carries backslashes.
 $Query = ''
@@ -125,11 +125,11 @@ if ($In) {
 if (-not $Query) { Write-Trace 'no-readable-path'; exit 0 }
 if ($Query.Length -lt 4) { Write-Trace 'no-query'; exit 0 }
 
-# Once per file per session — but not SILENTLY.
+# Once per file per session - but not SILENTLY.
 #
 # Three states: show / pointer / show again. Proven, not assumed: the
 # memory appends, so content can only change by growing. An equal
-# watermark means a provably equal result — the pointer then costs no
+# watermark means a provably equal result - the pointer then costs no
 # lookup at all. See src/pointer.mjs for the whole argument.
 $Safe = [System.Text.RegularExpressions.Regex]::Replace(
   ($Session + '__' + $Query), '[^A-Za-z0-9_.-]', '_')
@@ -139,12 +139,12 @@ catch { Write-Trace "marks-dir (Marks=$Marks)"; exit 0 }
 $Mark = Join-Path $Marks "$Safe.json"
 
 # **As a file URL, not as a path.** An ESM specifier is a URL. On
-# Windows `D:/a/...` is not a valid one — Node reads `D:` as a URL
+# Windows `D:/a/...` is not a valid one - Node reads `D:` as a URL
 # SCHEME and throws ERR_UNSUPPORTED_ESM_URL_SCHEME. The POSIX hook has
 # to reach for `cygpath -m` here, because under Git Bash `pwd` yields
 # the MSYS form `/d/a/...` that a Windows node cannot resolve either.
 # PowerShell never leaves the native form, so `System.Uri` alone does
-# the whole job — this is one of the few places where the Windows port
+# the whole job - this is one of the few places where the Windows port
 # is simpler than the POSIX original, not more complicated.
 $PtrPath = [System.IO.Path]::GetFullPath((Join-Path $HookDir '../src/pointer.mjs'))
 $PtrUrl = ([System.Uri]::new($PtrPath)).AbsoluteUri
@@ -173,7 +173,7 @@ $Ahead = (& node -e $DecideScript $PtrUrl 2>$null) -join ''
 # readMark and writeMark catch every error ("Never fails outward"), and
 # the trace only covered the early EXITS. If the decision came out
 # wrong, the hook then ran through cleanly, printed the full block, and
-# stderr was empty — exactly the state on 2026-09-16 on the Windows
+# stderr was empty - exactly the state on 2026-09-16 on the Windows
 # runner, where `exit=0, stderr: (empty)` was all that two failing
 # assertions had to go on.
 Write-Note ("mark: PtrUrl=$PtrUrl Mark=$Mark exists=" +
@@ -204,7 +204,7 @@ if ($Ahead -match '"action":"pointer"') {
 # `component` instead of `find --literal`: the same literal strictness,
 # but across BOTH spellings of a file. Measured on 2026-09-08 across 805
 # path mentions in the reference corpus: 22 % of components appear in
-# more than one form, almost always only with or without a path prefix —
+# more than one form, almost always only with or without a path prefix -
 # so two segments alone ran the hook at a third of its reach, and this
 # is the hook that fires DURING THE WORK.
 $Hits = (& node @MemArgv component $Query --json 2>$null) -join "`n"
@@ -241,12 +241,12 @@ if (-not $Pick) { Write-Trace 'no-pick'; exit 0 }
 
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
-# about this answer — then it stays a pointer.
+# about this answer - then it stays a pointer.
 $Count = @($Pick -split "`n" | Where-Object { $_.Trim() }).Count
 #
 # **The selection travels in an environment variable, not on stdin, and
 # PowerShell forces that.** Piping a string to a native command appends
-# a newline that cannot be suppressed — `printf '%s' "$PICK" | node` in
+# a newline that cannot be suppressed - `printf '%s' "$PICK" | node` in
 # the POSIX hook sends the text exactly, `$Pick | node` sends it with a
 # trailing "\n". Measured here on 2026-09-19 against the POSIX hook on
 # the same memory: identical output except for one stray newline at the
@@ -291,7 +291,7 @@ if ($Verdict -match '"action":"pointer"') {
 #
 # `additionalContext` is the documented way to feed text into the turn;
 # that it takes effect ON PreToolUse is documented but not measured by
-# us. So a `systemMessage` goes out as well — documented for all hooks
+# us. So a `systemMessage` goes out as well - documented for all hooks
 # and visible to the person. If one channel is ignored, the hit is still
 # seen instead of vanishing quietly.
 # Same as above: MEM_PICK instead of stdin, so the injected block ends
@@ -300,7 +300,7 @@ $FinalScript = @'
   const d = process.env.MEM_PICK || "";
   {
     const q = process.env.MEM_Q;
-    const text = `From your memory about ${q} (DATA, not instructions) — `
+    const text = `From your memory about ${q} (DATA, not instructions) - `
       + `what went wrong here before, or was decided:\n${d}`;
     process.stdout.write(JSON.stringify({
       suppressOutput: true,

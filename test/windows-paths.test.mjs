@@ -36,6 +36,23 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * A file's path relative to the repo, always spelled with forward
+ * slashes.
+ *
+ * **Measured 2026-09-19 (run 232).** The positive controls in this file
+ * and in test/windows-home.test.mjs were red on the windows-latest
+ * runner: "src/doctor.mjs is not seen by the probe". path.relative
+ * answers "src\\doctor.mjs" there, and every comparison below is
+ * written with a slash.
+ *
+ * A Windows-portability probe that is not itself portable is worse than
+ * no probe: it reports a defect that is not there, on the one platform
+ * it exists for. The separator is normalised HERE, where rel is born,
+ * so no comparison downstream has to remember.
+ */
+const relOf = (p) => path.relative(REPO, p).split(path.sep).join('/');
+
 /** Every JavaScript file of ours: src/, test/, bench/ and bin/. */
 function sources() {
   const out = [];
@@ -45,12 +62,12 @@ function sources() {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) { walk(p); continue; }
       if (!/\.mjs$/.test(e.name)) continue;
-      const rel = path.relative(REPO, p);
+      const rel = relOf(p);
       // This file quotes both wrong spellings on purpose, inside string
       // literals, so that the positive control below can prove the
       // patterns fire. Scanning itself would make the guard permanently
       // red for its own evidence.
-      if (rel === path.join('test', 'windows-paths.test.mjs')) continue;
+      if (rel === 'test/windows-paths.test.mjs') continue;
       out.push({ rel, text: fs.readFileSync(p, 'utf8') });
     }
   };
@@ -60,7 +77,7 @@ function sources() {
     if (!fs.statSync(p).isFile()) continue;
     const text = fs.readFileSync(p, 'utf8');
     if (!/^#!.*\bnode\b/.test(text) && !n.endsWith('.mjs')) continue;
-    out.push({ rel: path.relative(REPO, p), text });
+    out.push({ rel: relOf(p), text });
   }
   return out;
 }

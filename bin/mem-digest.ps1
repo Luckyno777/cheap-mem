@@ -1,4 +1,4 @@
-# mem-digest.ps1 — native Windows port of bin/mem-digest.
+# mem-digest.ps1 - native Windows port of bin/mem-digest.
 #
 # Lane 2: the one model call. Runs on a Scheduled Task, checks whether
 # the pile is ripe, and if so makes EXACTLY ONE model call that sorts
@@ -28,7 +28,7 @@ $ErrorActionPreference = 'Continue'
 if (-not $env:CHEAP_MEM_ROOT) { Write-Error 'env CHEAP_MEM_ROOT missing'; exit 2 }
 $Root = $env:CHEAP_MEM_ROOT
 if (-not (Test-Path (Join-Path $Root '.mem'))) {
-  Write-Error "'$Root' has no .mem — run 'mem init' first"; exit 2
+  Write-Error "'$Root' has no .mem - run 'mem init' first"; exit 2
 }
 
 $Here    = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -57,7 +57,7 @@ function Note($msg) {
 # instead of borrowing it from however much raw material the checkout
 # happens to carry. Without this a probe for "with work due, exactly one
 # model call" is red below the volume threshold and green above it, with
-# no code change in between — a colour that depends on the calendar
+# no code change in between - a colour that depends on the calendar
 # rather than the code. The POSIX tick carries the same four knobs.
 $DueArgs = @()
 if ($env:MEM_DIGEST_VOLUME_NOW_KB) { $DueArgs += @('--volume-now', $env:MEM_DIGEST_VOLUME_NOW_KB) }
@@ -77,7 +77,7 @@ Note "due: $State"
 # --- Never two digests at once --------------------------------------
 #
 # Windows has no flock. A lock file holding the PID works, as long as
-# a stale one from a crashed run is recognised — otherwise one crash
+# a stale one from a crashed run is recognised - otherwise one crash
 # blocks the digest forever.
 $LockPath = Join-Path $Root '.mem\digest.lock'
 if (Test-Path $LockPath) {
@@ -87,7 +87,7 @@ if (Test-Path $LockPath) {
     $Alive = $null -ne (Get-Process -Id ([int]$OldPid) -ErrorAction SilentlyContinue)
   }
   if ($Alive) { Note "already running (pid $OldPid), skipping"; exit 0 }
-  Note "stale lock from pid $OldPid — taking over"
+  Note "stale lock from pid $OldPid - taking over"
   Remove-Item $LockPath -Force -ErrorAction SilentlyContinue
 }
 Set-Content -Path $LockPath -Value $PID
@@ -125,7 +125,7 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
   $env:MAX = $MaxBytes
   $env:ROOT = $Root
   $Chosen = ($PendingJson | & node -e $SelectScript) -split "`n" | Where-Object { $_ }
-  if (-not $Chosen) { Note 'nothing selected — nothing to do'; exit 0 }
+  if (-not $Chosen) { Note 'nothing selected - nothing to do'; exit 0 }
 
   $Listing = ($Chosen | ForEach-Object { "  $_" }) -join "`n"
   $Prompt = @"
@@ -155,14 +155,14 @@ condensing enough. Stop after the push.
 "@
 
   # Remember how much was pending. The model call's exit code alone
-  # says NOTHING about whether work happened — a session that fails on
+  # says NOTHING about whether work happened - a session that fails on
   # permissions explains itself at length and exits 0.
   $CountScript = 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(String((JSON.parse(d).open||[]).length))}catch{process.stdout.write("-1")}})'
   $Before = (& node $Mem --root $Root raw pending --json 2>$null | & node -e $CountScript)
 
   # MEM_HEADLESS stops this call from triggering the Stop hook.
   # Start-Process cannot append, it truncates. Writing the model output
-  # straight to $LogPath would erase every Note line above it — the log
+  # straight to $LogPath would erase every Note line above it - the log
   # would only ever show the last run's model chatter and none of the
   # decisions that led to it. So: temp files, appended afterwards.
   $OutTmp = Join-Path ([System.IO.Path]::GetTempPath()) "cheap-mem-digest-$PID.out"
@@ -175,7 +175,7 @@ condensing enough. Stop after the push.
       -RedirectStandardOutput $OutTmp -RedirectStandardError $ErrTmp
     $Finished = $proc.WaitForExit($Timeout * 1000)
   } finally {
-    # Also cleared on the timeout path — otherwise this process would
+    # Also cleared on the timeout path - otherwise this process would
     # keep MEM_HEADLESS set and silently stop capturing.
     Remove-Item Env:\MEM_HEADLESS -ErrorAction SilentlyContinue
   }
@@ -200,7 +200,7 @@ condensing enough. Stop after the push.
   $After = (& node $Mem --root $Root raw pending --json 2>$null | & node -e $CountScript)
 
   if ($Before -eq '-1' -or $After -eq '-1') {
-    Note 'effect not measurable (raw pending unreadable) — treating as failure'
+    Note 'effect not measurable (raw pending unreadable) - treating as failure'
     exit 1
   }
   if ([int]$After -ge [int]$Before) {
@@ -209,7 +209,7 @@ condensing enough. Stop after the push.
     Note "  The end of $LogPath shows what the session reported."
     exit 1
   }
-  Note ("done — {0} captures digested" -f ([int]$Before - [int]$After))
+  Note ("done - {0} captures digested" -f ([int]$Before - [int]$After))
   exit 0
 }
 finally {

@@ -1,10 +1,10 @@
-# mem-retrieve.ps1 — native Windows port of bin/mem-retrieve (lane 3).
+# mem-retrieve.ps1 - native Windows port of bin/mem-retrieve (lane 3).
 #
 # **Why this file exists (measured 2026-09-19, reported by a cheap-mem
 # user on Windows).** `bin/mem-retrieve` is a bash script and had no
 # `.ps1` counterpart, while mem-capture, mem-digest, mem-handle-post,
 # mem-reflect and mem-watch all had one. A default Git for Windows
-# install puts `git.exe` on PATH but NOT `bash.exe` — Git Bash lives
+# install puts `git.exe` on PATH but NOT `bash.exe` - Git Bash lives
 # under `C:\Program Files\Git\bin` and is not added to PATH unless the
 # installer's "Use Git and optional Unix tools" option is chosen. So on
 # an ordinary Windows box the recall lane could not start at all, and
@@ -15,7 +15,7 @@
 # CI never saw this. The job that exercises this file runs it with
 # PowerShell on purpose.
 #
-# Recall used to depend on the session remembering to type `mem find` —
+# Recall used to depend on the session remembering to type `mem find` -
 # and discipline loses against everything else competing for the
 # context. So this hook does what the other two lanes do: no model,
 # a few milliseconds, on every turn, invisible. It is the difference
@@ -23,7 +23,7 @@
 #
 # It reads the Claude Code UserPromptSubmit hook JSON on stdin and, when
 # something in the memory scores above the bar, prints it back as
-# additionalContext — the documented way to feed a turn.
+# additionalContext - the documented way to feed a turn.
 #
 # Wire it up in your assistant's settings as a UserPromptSubmit hook:
 #   "UserPromptSubmit": [{"hooks": [{"type": "command",
@@ -50,7 +50,7 @@ if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
 
 # --- Where is the memory? -------------------------------------------
 #
-# CHEAP_MEM_ROOT first — the name the installer injects. The fallback
+# CHEAP_MEM_ROOT first - the name the installer injects. The fallback
 # list keeps the hook usable when it is run by hand, overridable via
 # MEM_RETRIEVE_ROOTS so a test can reach it.
 #
@@ -63,8 +63,8 @@ if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
 # **The list separator differs, and Windows forces that.** The POSIX
 # hook splits MEM_RETRIEVE_ROOTS on whitespace. Windows paths routinely
 # contain spaces (`C:\Program Files\...`), so a whitespace split would
-# tear a legitimate root in half. `;` is Windows' own list separator —
-# the one PATH uses — so it wins when present, and whitespace is kept
+# tear a legitimate root in half. `;` is Windows' own list separator -
+# the one PATH uses - so it wins when present, and whitespace is kept
 # as the fallback so a single-path value written for either platform
 # still works.
 function Get-ProbeRoots {
@@ -89,7 +89,7 @@ if (-not $Root) { exit 0 }
 
 # Locate the mem binary. Two shapes are supported, same as the other
 # hooks: the memory may carry the tool itself ($Root\bin\mem, the common
-# case), or the tool lives in a separate code checkout — then the copy
+# case), or the tool lives in a separate code checkout - then the copy
 # next to this very script is the one to use, pointed at the memory with
 # --root. A hook that only knew the first shape would silently do
 # nothing in the second.
@@ -109,18 +109,18 @@ $Top = if ($env:MEM_RETRIEVE_TOP) { $env:MEM_RETRIEVE_TOP } else { '3' }
 # --- Keep the clone from going stale --------------------------------
 #
 # Recall only READS. Without this, the clone is pulled once at session
-# start and never again — a session that runs for hours recalls a frozen
+# start and never again - a session that runs for hours recalls a frozen
 # memory and never sees what a teammate (or the digest) wrote since.
 #
 # Three constraints, or the cure is worse than the disease:
 #
 #  - The prompt must NEVER wait. The pull is started detached and is
-#    not waited on. It helps the NEXT turn, not this one — the price of
+#    not waited on. It helps the NEXT turn, not this one - the price of
 #    staying at a few ms.
 #  - Nothing may pile up. The marker is touched BEFORE the pull starts,
 #    so the throttle also covers a pull that hangs or fails.
 #  - Don't step on another session. No pull in a headless worker
-#    (MEM_HEADLESS); no pull into a dirty tree — only tracked changes
+#    (MEM_HEADLESS); no pull into a dirty tree - only tracked changes
 #    count, untracked files never block a fast-forward.
 #
 # **The 30-second cap of the POSIX hook is NOT reproduced, and that is
@@ -129,7 +129,7 @@ $Top = if ($env:MEM_RETRIEVE_TOP) { $env:MEM_RETRIEVE_TOP } else { '3' }
 # Windows has no equivalent, and a parent that has already exited
 # cannot kill a child it detached. What the cap bought there was
 # "a hung git does not linger"; what remains here is the guarantee that
-# actually matters — the marker is written before the pull, so a hung
+# actually matters - the marker is written before the pull, so a hung
 # pull blocks the next attempt for the throttle window instead of
 # spawning a second one on every turn.
 function Update-Clone {
@@ -181,15 +181,15 @@ if ($In) {
   } catch { }
 }
 
-# Too short means no signal — "yes", "go on", "do it" are not questions
+# Too short means no signal - "yes", "go on", "do it" are not questions
 # for the memory, and showing hits for them is noise, and noise is what
 # people learn to skim past.
 if ($Prompt.Length -lt 12) { exit 0 }
 
 # --- Once per turn, however often it is registered --------------------
 #
-# Two registrations on UserPromptSubmit — one written by the installer
-# into the user profile, one by the project — both run this code, and
+# Two registrations on UserPromptSubmit - one written by the installer
+# into the user profile, one by the project - both run this code, and
 # the memory lands in the context twice. The hook makes ITSELF
 # idempotent, so it does not matter how many times it hangs. The key is
 # session + the BLOCK THAT WOULD BE INJECTED, and the claim is taken at
@@ -210,13 +210,13 @@ if ($SessionId) {
 # Ask the memory. --json is the contract, not the human output: the
 # human format is for people and may change; the JSON carries score and
 # a stable shape. The prompt goes in as an argv value, never through a
-# shell — node does not evaluate argv, so an odd character in the
+# shell - node does not evaluate argv, so an odd character in the
 # prompt cannot turn into a command.
 #
 # **No 5-second cap on this call.** The POSIX hook has one through
 # bin/_portable.sh. Reproducing it here would mean building the process
-# by hand with ProcessStartInfo, and `ArgumentList` — the only member
-# that quotes argv safely — does not exist on Windows PowerShell 5.1,
+# by hand with ProcessStartInfo, and `ArgumentList` - the only member
+# that quotes argv safely - does not exist on Windows PowerShell 5.1,
 # which install/windows.ps1 still starts hooks with. Hand-quoting a
 # user's prompt into a single command line to win a cap is the trade
 # this hook must not make: the search is local BM25 over an in-memory
@@ -227,7 +227,7 @@ if (-not $Hits) { exit 0 }
 
 # Keep only what clears the bar, render one line each, and wrap it in the
 # documented UserPromptSubmit envelope. Bare stdout is NOT the contract
-# for this event — that would be guessing, and guessing is the whole
+# for this event - that would be guessing, and guessing is the whole
 # class of bug this memory is built to avoid.
 #
 # **The renderer is the POSIX hook's program, verbatim.** Rewriting the
@@ -253,12 +253,12 @@ $BlockScript = @'
       const day = String(e.ts || "").slice(0, 10);
       const bits = [e.class, e.title, e.topic, e.choice, e.text, e.summary]
         .filter(Boolean).map(String);
-      let label = bits.length ? bits.join(" — ") : JSON.stringify(e);
+      let label = bits.length ? bits.join(" - ") : JSON.stringify(e);
       // The REASON belongs with it, not just the decision, and it gets
-      // its place FIRST — see bin/mem-retrieve for the measurement.
+      // its place FIRST - see bin/mem-retrieve for the measurement.
       const TOTAL = 220;
       const short = (t, n) => (t.length > n ? t.slice(0, n - 3) + "..." : t);
-      const reason = e.why ? " — because " + short(String(e.why), 78) : "";
+      const reason = e.why ? " - because " + short(String(e.why), 78) : "";
       if (label.length + reason.length > TOTAL) {
         label = short(label, Math.max(60, TOTAL - reason.length));
       }
@@ -289,8 +289,8 @@ if (-not $Block) { exit 0 }
 #
 # **A file, not a directory, and a hash, not `cksum`.** The POSIX hook
 # claims with `mkdir`, which is atomic on POSIX. .NET's
-# `Directory.CreateDirectory` is idempotent — it succeeds on a directory
-# that already exists — so it cannot decide a race, and `New-Item`
+# `Directory.CreateDirectory` is idempotent - it succeeds on a directory
+# that already exists - so it cannot decide a race, and `New-Item`
 # checks before it creates, which is the check-then-set the POSIX hook
 # explicitly avoids. `FileMode.CreateNew` is the primitive that fails
 # when the name is taken, so the claim is a file. `cksum` is a POSIX
@@ -312,7 +312,7 @@ if ($SessionId) {
   }
 }
 
-# No trailing newline — the POSIX hook writes with `printf '%s'`, and
+# No trailing newline - the POSIX hook writes with `printf '%s'`, and
 # stdout is the hook's contract with the agent.
 [Console]::Out.Write($Block)
 exit 0

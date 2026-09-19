@@ -259,6 +259,49 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # The same parse, by the shell the docs tell people to use.
+      #
+      # `shell: pwsh` above is PowerShell 7, which reads a script as
+      # UTF-8. README.md:613 and docs/install-windows.md:68 say
+      # `powershell -File ...`, and on a default Windows box that is
+      # Windows PowerShell 5.1, which reads a BOM-less script with the
+      # machine's ANSI codepage instead.
+      #
+      # Measured 2026-09-19 (run 232): the step above was green on all
+      # nine scripts while install/windows.ps1 could not be parsed by
+      # 5.1 at all - an em dash inside a double-quoted string arrived as
+      # a closing quote and swallowed the rest of the file. The port had
+      # never once been run by the shell it ships for.
+      #
+      # test/powershell-ascii.test.mjs holds the rule that prevents it.
+      # This step is the instrument that proves the rule is the right
+      # one, on the real interpreter.
+      #
+      # Kept ASCII-only on purpose: a step that runs under 5.1 must not
+      # carry the very characters it is here to catch.
+      - name: parse the scripts with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $failed = $false
+          $files = Get-ChildItem -Recurse -Filter *.ps1 |
+            Where-Object { $_.FullName -notmatch 'node_modules' }
+          if ($files.Count -lt 9) {
+            Write-Host "::error::expected at least 9 .ps1 files, found $($files.Count)"
+            exit 1
+          }
+          Write-Host "interpreter: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+          foreach ($f in $files) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              Write-Host "::error file=$($f.Name)::$($errors.Count) parse error(s) under Windows PowerShell"
+              $errors | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
+              $failed = $true
+            } else { Write-Host "ok  $($f.Name)" }
+          }
+          if ($failed) { exit 1 }
+
       # Parsing proves it is valid PowerShell. This proves it works:
       # a real transcript in, a real capture out.
       - name: mem-capture.ps1 actually captures
@@ -674,7 +717,15 @@ jobs:
           New-Item -ItemType Directory -Force -Path $scratch | Out-Null
           $memdir = Join-Path $env:RUNNER_TEMP 'memory-install'
           New-Item -ItemType Directory -Force -Path $memdir | Out-Null
-          & node bin/mem init --root $memdir --name probe | Out-Null
+          # Measured 2026-09-19 (run 232): this read `--name probe`, and
+          # init answered "unknown flag '--name'". Nothing checked the
+          # exit code, so the step walked on with no memory at all and
+          # failed 30 lines later for a different-looking reason.
+          & node bin/mem init --root $memdir | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::mem init failed with $LASTEXITCODE - nothing below would mean anything"
+            exit 1
+          }
 
           $alt = $env:USERPROFILE
           $env:USERPROFILE = $scratch

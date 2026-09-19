@@ -1,4 +1,4 @@
-# mem-capture.ps1 — native Windows port of bin/mem-capture.
+# mem-capture.ps1 - native Windows port of bin/mem-capture.
 #
 # Lane 1: the Stop hook. Copies the new part of the session transcript
 # into the memory, redacted and gzipped. **Starts no model.**

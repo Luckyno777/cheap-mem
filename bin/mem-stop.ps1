@@ -1,4 +1,4 @@
-# mem-stop.ps1 — native Windows port of bin/mem-stop, the ONE
+# mem-stop.ps1 - native Windows port of bin/mem-stop, the ONE
 # environment-independent Stop hook.
 #
 # **Why this file exists (measured 2026-09-19, reported by a cheap-mem
@@ -6,7 +6,7 @@
 # counterpart, while mem-capture, mem-digest, mem-handle-post,
 # mem-reflect and mem-watch all had one. A default Git for Windows
 # install puts `git.exe` on PATH but NOT `bash.exe`, so on an ordinary
-# Windows box this hook could not be started at all — and a Stop hook
+# Windows box this hook could not be started at all - and a Stop hook
 # that cannot start ends the session without capturing and without
 # saying so. GitHub's windows-latest runner ships Git Bash, which is
 # why CI never saw it.
@@ -15,13 +15,13 @@
 # installed Stop hook delegated to mem-reflect (a MODEL call), and the
 # model-free mem-capture was not the registered hook. In a cloud sandbox
 # the model call does not run, so the session captured NOTHING. And even
-# where capture ran, nothing pushed it — the watcher only pulls inbound
+# where capture ran, nothing pushed it - the watcher only pulls inbound
 # mail, it never pushes captures out.
 #
 # This hook makes capture model-free AND persistent, everywhere:
 #
 #   1. Capture   model-free (~50ms), ALWAYS, every environment / repo.
-#   2. Persist   commit raw/ + push — SYNCHRONOUS, best-effort. Nothing
+#   2. Persist   commit raw/ + push - SYNCHRONOUS, best-effort. Nothing
 #                else pushes captures, so this hook does. Synchronous
 #                because an ephemeral environment is reclaimed right
 #                after; a detached push would not arrive. Best-effort
@@ -29,7 +29,7 @@
 #                locally and the next run pushes it. Opt out with
 #                MEM_STOP_NO_PUSH=1.
 #   3. Reflect   the MODEL summary (mem-reflect.ps1) runs only when
-#                opted in (MEM_REFLECT=1) — off by default so the Stop
+#                opted in (MEM_REFLECT=1) - off by default so the Stop
 #                path stays model-free, matching cheap-mem's design.
 #
 # Wire it up in your assistant's settings as a Stop hook:
@@ -52,7 +52,7 @@ $ErrorActionPreference = 'Continue'
 
 if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
 if ($env:MEM_CAPTURE_OFF -eq '1') { exit 0 }
-# Never capture ourselves — the digest/worker sets this to avoid the
+# Never capture ourselves - the digest/worker sets this to avoid the
 # snake eating its tail.
 if ($env:MEM_HEADLESS) { exit 0 }
 
@@ -90,7 +90,7 @@ if ([Console]::IsInputRedirected) { $StdinJson = [Console]::In.ReadToEnd() }
 # started with the SAME host: install/windows.ps1 wires hooks up with
 # `powershell -NoProfile -File`, while a developer or CI may run them
 # under `pwsh`. Hardcoding either name would work on one machine and
-# fail silently on the other — the exact failure class this file exists
+# fail silently on the other - the exact failure class this file exists
 # to close.
 $HostExe = 'powershell'
 try {
@@ -104,7 +104,7 @@ try {
 # has no such tool, so the cap is built from the process object itself:
 # start it, wait a bounded time, kill it if it overruns. Output goes to
 # temp files because Start-Process cannot redirect to a variable, and
-# because stdout belongs to the hook's contract with the agent — a
+# because stdout belongs to the hook's contract with the agent - a
 # stray git line there would be read as a reply.
 $GitOut = Join-Path ([System.IO.Path]::GetTempPath()) "cheap-mem-stop-$PID.out"
 $GitErr = "$GitOut.err"
@@ -143,7 +143,7 @@ if ($Capture) {
 #
 # The capture and its RECORD belong together. The record lives at the
 # root (src/archive.mjs RECORD_FILE), not under raw/, so staging only
-# raw/ leaves it behind — in the sibling memory that happened in 626 of
+# raw/ leaves it behind - in the sibling memory that happened in 626 of
 # 627 capture commits, and the one exception was made by hand.
 #
 # Three quiet consequences, all measured there:
@@ -157,7 +157,7 @@ if ($Capture) {
 #      ever have reached git stays behind.
 #
 # As a PATHSPEC only if the file exists: git aborts on a pathspec that
-# matches nothing and then stages NOTHING AT ALL — not even the
+# matches nothing and then stages NOTHING AT ALL - not even the
 # captures. A memory that has never captured has no record, and that is
 # not an edge case, it is every memory's first day.
 $RecordPaths = @()
@@ -170,13 +170,13 @@ if ($env:MEM_STOP_NO_PUSH -ne '1' -and (Test-Path -LiteralPath (Join-Path $Root 
   $status = Invoke-Git ('-C "{0}" status --porcelain {1}' -f $Root, $Pathspec) 5
   if ($status.Out -and $status.Out.Trim()) {
     # Bring the remote in first (untracked captures never block a
-    # fast-forward), then stage ONLY raw/ and the record — never
+    # fast-forward), then stage ONLY raw/ and the record - never
     # `git add -A`, which would drag local pipeline state in.
     Invoke-Git ('-C "{0}" pull --ff-only -q' -f $Root) 30 | Out-Null
     # Two sessions ending at once fight over .git/index.lock, and git
     # simply fails. Measured: of eight concurrent capture-commits, one
     # got through. Every loser swallowed its error and the hook still
-    # reported success — so in a container that gets reclaimed, that
+    # reported success - so in a container that gets reclaimed, that
     # capture was gone. Waiting a moment turns the collision into a
     # queue.
     for ($attempt = 1; $attempt -le 5; $attempt++) {
@@ -189,7 +189,7 @@ if ($env:MEM_STOP_NO_PUSH -ne '1' -and (Test-Path -LiteralPath (Join-Path $Root 
     if ($committed.Ok) {
       $pushed = Invoke-Git ('-C "{0}" push -q origin HEAD:main' -f $Root) 30
       if (-not $pushed.Ok) {
-        # Remote moved ahead — rebase once and retry.
+        # Remote moved ahead - rebase once and retry.
         Invoke-Git ('-C "{0}" pull --rebase -q' -f $Root) 30 | Out-Null
         Invoke-Git ('-C "{0}" push -q origin HEAD:main' -f $Root) 30 | Out-Null
       }
