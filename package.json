@@ -40,6 +40,8 @@
     "HOUSE-RULES.md",
     "hooks/",
     "docs/",
+    "!docs/assets/brand/*.png",
+    "!docs/assets/brand/*.jpg",
     "DIGEST.md",
     "README.md",
     "LICENSE"

@@ -47,6 +47,15 @@ const counted = {
   cli: clihelp.allTableCommands(read).length,
   mcp: [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].length,
   modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
+  // The test count cannot be had exactly without running the suite, and a
+  // test that starts the suite is a test that contains itself. So: the
+  // `test(` call sites, which on 2026-09-19 were 1247 against 1251 really
+  // run — 0.3 % apart, because a few probes loop. Near enough for a band,
+  // far enough from an invented number.
+  tests: fs.readdirSync(path.join(REPO, 'test'))
+    .filter((n) => n.endsWith('.test.mjs'))
+    .reduce((n, f) => n + (fs.readFileSync(path.join(REPO, 'test', f), 'utf8')
+      .match(/^\s*test\(/gm) || []).length, 0),
 };
 
 /** The one line in the README that carries the counts. */
@@ -61,6 +70,7 @@ test('POSITIVE: the probes actually count something', () => {
   assert.ok(counted.cli >= 30, `only ${counted.cli} CLI commands found — the probe is broken`);
   assert.ok(counted.mcp >= 15, `only ${counted.mcp} MCP tools found — the probe is broken`);
   assert.ok(counted.modules >= 25, `only ${counted.modules} modules found — the probe is broken`);
+  assert.ok(counted.tests >= 500, `only ${counted.tests} test( calls found — the probe is broken`);
 });
 
 test('the README states the CLI, MCP and module counts, and they are right', () => {
@@ -74,6 +84,27 @@ test('the README states the CLI, MCP and module counts, and they are right', () 
     assert.match(claim, new RegExp(`\\b${zahl} ${was}\\b`),
       `README says "${claim}" — but the code has ${zahl} ${was}`);
   }
+});
+
+test('the README states the test count, and it is close to the real one', () => {
+  // **This guard did not exist until 2026-09-19, and the README said it
+  // did.** The old text read: "The test count is counted from `test/` and
+  // allowed 2 %. It used to be allowed 15 %, and that is how this line sat
+  // at 1166 while the suite had grown past 1230." Every word of that was
+  // about a check that was nowhere in this repo — grep found no counter of
+  // test files at all. A sentence describing a guarantee is not the
+  // guarantee; that is the exact class this project built mutation testing
+  // to catch, and it walked into the README anyway.
+  //
+  // The 2 % the old prose promised is now actually enforced.
+  const claim = claimLine();
+  const m = claim.match(/([\d,]+) tests/);
+  assert.ok(m, `the numbers line no longer states a test count: "${claim}"`);
+  const behauptet = Number(m[1].replace(/,/g, ''));
+  const ab = Math.abs(behauptet - counted.tests) / counted.tests;
+  assert.ok(ab <= 0.02,
+    `README says ${behauptet} tests, ${counted.tests} test( calls are in test/ `
+    + `(${(ab * 100).toFixed(1)} % apart). Run \`npm test\` and put the real number in.`);
 });
 
 test('the line-count claim is within a factor that a rewrite cannot hide in', () => {

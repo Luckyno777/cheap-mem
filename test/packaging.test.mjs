@@ -40,6 +40,7 @@ test('the published files are the ones that run, and every one exists', () => {
   assert.ok(Array.isArray(pkg.files) && pkg.files.length,
     'without a files field npm publishes the whole working tree');
   for (const f of pkg.files) {
+    if (f.startsWith('!')) continue;   // an exclusion is not a path — see package-contents
     assert.ok(fs.existsSync(path.join(PKG_ROOT, f.replace(/\/$/, ''))),
       `files lists ${f}, which is not in the repo`);
   }

@@ -47,6 +47,57 @@ jobs:
       # with the code.
       - run: npm test
 
+  # The one number in the README that no unit test can re-derive, because
+  # having it means running the whole suite. It was written once on
+  # 2026-09-18 as "94.7 % statement coverage" and was 87.7 % by
+  # 2026-09-19 — not because anybody lied, but because code landed and
+  # nothing re-measured. A figure with no check is a figure with a date
+  # on it and nothing behind the date.
+  #
+  # Two things are checked, and the asymmetry is deliberate. A FLOOR,
+  # because coverage falling is a real regression. And that the README
+  # does not claim MORE than was measured, because for a tool that
+  # argues from honest self-description, overstating is the expensive
+  # direction — understating costs only modesty.
+  coverage:
+    name: coverage · floor and README claim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --omit=optional
+      - name: measure, enforce the floor, and hold the README to it
+        run: |
+          set -o pipefail
+          npx c8 --reporter=text-summary node --test 2>&1 | tee /tmp/cov.txt
+          node - <<'EOF'
+          const fs = require('node:fs');
+          const out = fs.readFileSync('/tmp/cov.txt', 'utf8');
+          const m = out.match(/Statements\s*:\s*([\d.]+)%/);
+          if (!m) { console.error('no coverage summary in the output — the probe is broken'); process.exit(1); }
+          const echt = Number(m[1]);
+          const BODEN = 85;
+          const readme = fs.readFileSync('README.md', 'utf8');
+          const r = readme.match(/\*\*([\d.]+) % statement\s*\n?\s*coverage\*\*/);
+          if (!r) { console.error('the README no longer states a statement-coverage figure'); process.exit(1); }
+          const behauptet = Number(r[1]);
+          console.log(`measured ${echt} % · README claims ${behauptet} % · floor ${BODEN} %`);
+          let schlecht = false;
+          if (echt < BODEN) {
+            console.error(`coverage ${echt} % is below the ${BODEN} % floor`);
+            schlecht = true;
+          }
+          if (behauptet > echt + 0.5) {
+            console.error(`the README claims ${behauptet} % but ${echt} % was measured — `
+              + 'update the README; a shop window may understate, never overstate');
+            schlecht = true;
+          }
+          process.exit(schlecht ? 1 : 0);
+          EOF
+
   smoke:
     name: smoke · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

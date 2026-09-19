@@ -90,8 +90,30 @@ test('every module the CLI imports exists on disk', () => {
 test('every path in "files" exists', () => {
   // A stale entry is harmless to npm and misleading to a reader: it
   // reads as a promise that something is shipped.
-  const gone = (PKG.files ?? []).filter((p) => !fs.existsSync(path.join(REPO, p)));
+  //
+  // A `!`-prefixed entry is an EXCLUSION, not a path, so "does it
+  // exist" is the wrong question for it — asked anyway, this probe
+  // reported two innocents on 2026-09-19. Exclusions get the question
+  // that fits them, one test down.
+  const gone = (PKG.files ?? []).filter((p) => !p.startsWith('!'))
+    .filter((p) => !fs.existsSync(path.join(REPO, p)));
   assert.deepEqual(gone, [], `"files" names paths that do not exist: ${gone.join(', ')}`);
+});
+
+test('every "!" exclusion in "files" actually excludes something', () => {
+  // The other half. An exclusion whose pattern matches nothing is not
+  // harmless the way a stale path is: it reads as a size guarantee that
+  // nothing enforces. If the brand images move, this fails instead of
+  // silently letting 4.3 MB back into the tarball.
+  for (const muster of (PKG.files ?? []).filter((p) => p.startsWith('!'))) {
+    const roh = muster.slice(1);
+    const dir = path.join(REPO, path.dirname(roh));
+    const re = new RegExp('^' + path.basename(roh).replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*') + '$');
+    const treffer = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => re.test(f)) : [];
+    assert.ok(treffer.length > 0,
+      `"files" excludes ${muster}, which matches nothing — the exclusion is decoration`);
+  }
 });
 
 test('every declared bin exists and is executable JavaScript', () => {

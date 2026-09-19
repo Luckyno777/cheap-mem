@@ -5,66 +5,35 @@
 <!-- cheap-mem-brand:header:end -->
 
 [![CI](https://github.com/Luckyno777/cheap-mem/actions/workflows/ci.yml/badge.svg)](https://github.com/Luckyno777/cheap-mem/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Zero runtime dependencies](https://img.shields.io/badge/runtime%20deps-0-brightgreen.svg)](#what-is-not-installed)
 
-> Cheap in tokens, rich in memory.
+> **Cheap in tokens, rich in memory.**
 
-A local-first, git-backed persistent memory layer for AI coding assistants.
-Works with **Claude Code**, **Claude Desktop**, **Cursor**, **ChatGPT**, **Gemini**,
-**Mistral**, and any other model that speaks a shell or MCP.
+Your AI assistant forgets everything between sessions. The usual fix is to
+paste more context, or to buy a memory service that calls a model on every
+lookup — one costs tokens, the other costs tokens *and* sends your work to
+somebody else's server.
 
-Your memory is a directory of small text files in a git repo you own.
-Cross-device sync is `git pull`. Cross-session messaging is `git push`.
+cheap-mem is the third option. Your memory is a directory of small text
+files in a git repo **you** own. Reading it costs **no model call, no
+network, and about three milliseconds**. Writing it is an append to a
+file. Sync is `git pull`.
 
----
+Works with **Claude Code**, **Claude Desktop**, **Cursor**, **ChatGPT**,
+**Gemini**, **Mistral**, and anything else that speaks a shell or MCP.
 
-### Evaluating cheap-mem, or reading it with a model?
-
-**Read [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) — one file, the
-complete surface.** Every entry type, every retrieval lane, every
-temporal and authority mechanism, every CLI command, every MCP tool,
-every module, the things that are deliberately absent, and the commands
-to verify each claim rather than believe it.
-
-<!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
-     hand without having counted the code. -->
-As of 2026-09-18: **60 CLI commands, 28 MCP tools, 62 modules, 1238
-tests**, at **94.7 % statement coverage** (`npm run coverage`).
-
-Counted, not remembered — and the guard is tighter for the things that
-can be counted without running anything. Commands, tools and modules are
-re-derived from the code on every test run and must match exactly. The
-test count is counted from `test/` and allowed 2 %, which is the gap
-between a static count and what the runner reports. It used to be
-allowed 15 %, and that is how this line sat at 1166 while the suite had
-grown past 1230, with every run green: a band wide enough never to be
-annoying is also wide enough to hide a correction. Narrowing it caught
-two further copies of the stale number in `docs/CAPABILITIES.md` on the
-first run. Coverage is the one figure here that cannot be had without
-running the whole suite, so it carries the date it was run — and it is
-the one number on this line that no test re-derives.
-
-<!-- zahl-historisch: 17 MCP tools (a true measurement of that day) -->
-<!-- zahl-historisch: 28 modules (likewise) -->
-It exists because this README is not enough for a skim, and that was
-measured, not guessed: three separate AI evaluations reported built
-capabilities as missing. Against the README alone, in **September 2026
-when there were 17 MCP tools, 4 link kinds and 28 modules**, they were
-reading 0 of the tools, 2 of the link kinds and 19 of the modules.
-(Those are the counts of that day, kept as the measurement they were.
-The current ones are two paragraphs up.)
-"No relationship system" was a correct observation about the entry text
-and a wrong one about the system.
-
-If you are about to conclude that cheap-mem lacks something, that file
-has a section for exactly that.
+*Evaluating it, or reading it with a model? Skip ahead to
+[`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) — the complete surface in
+one file, with the command to verify each claim rather than believe it.*
 
 ---
 
-## Why "cheap"?
+## The idea in four lines
 
-Most memory tools put a model in the read path: every recall costs a
-call, adds latency, and stops working on a plane. cheap-mem puts the
-model in exactly one place — a timer, far from anything you wait for.
+Most memory tools put a model in the read path: every recall costs a call,
+adds latency, and stops working on a plane. cheap-mem puts the model in
+exactly one place — a timer, far from anything you wait for.
 
 ```
 LANE 1  CAPTURE   every session    no model    ~50 ms   0 cost
@@ -72,56 +41,290 @@ LANE 2  DIGEST    when ripe        ONE call    ~30 s
 LANE 3  SEARCH    every query      no model    ~3 ms    0 cost
 ```
 
-Storing is cheap, thinking is expensive. So store everything at once
-and stupidly, think about the whole pile every few hours, and read with
-pure code.
+Storing is cheap, thinking is expensive. So store everything at once and
+stupidly, think about the whole pile every few hours, and read with pure
+code.
+
+| | measured | how you check it |
+|---|---|---|
+| tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
+| cost of a recall | **0** — no model, no network | `time mem find "..."` |
+| search, median | **0.027 ms** over the index | `node bench/retrieval.mjs` |
+| what you download | **581 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+
+The right-hand column is the point. Every figure here is either
+**re-derived from the code on every test run** — the counts and the
+download size, by `test/readme-zahlen.test.mjs` and
+`test/package-size.test.mjs`, with CI failing when a claim stops matching
+— or it is a **benchmark you can run yourself**, which is a weaker
+promise and named as one: a benchmark result is true of the day it was
+measured, and only the command next to it makes that checkable.
+
+That distinction is not pedantry. This README has been wrong six times,
+and the section
+[Why you should not take our word for it](#why-you-should-not-take-our-word-for-it)
+lists each one with the guard that now stands where the error was.
+
+## What it looks like
+
+`mem board` — the operating state of a memory on one screen:
+
+![The cheap-mem board: seven tiles. Installation shows WATCH in amber with four of five steps done. Agents and MCP bridge show UNMEASURED in grey, one reading "no state reported — not measurable from here". Raw archive, Digest, Error classes and Open questions show CALM in green. The header reads "1 watch, 2 unmeasured".](docs/assets/brand/04-board.png)
+
+Look at the two grey tiles. A tile that could **not be measured** says so;
+it does not show a reassuring zero. That is the rule the whole tool is
+built on — *three states, never two* — and it is the difference between a
+dashboard that is calm and a dashboard that is merely quiet.
+
+`mem viewer` writes the whole memory into one self-contained HTML file —
+no server, no network, no model:
+
+![The cheap-mem viewer: a single page with a search box that filters as you type, tabs for Timeline, Topics, Links, Experience, Agents, Store and Facts, and a list of entries. Each entry shows its drawer, date, tags, id and source file and line. The footer reads "one file, no network, no model".](docs/assets/brand/05-viewer.png)
+
+Every entry carries the file and line it lives on, because the files are
+the product — the page is only a way to look at them.
+
+## Try it in two minutes
+
+Nothing to install, nothing to build, no npm dependencies to resolve:
+
+```bash
+git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
+mkdir ~/my-memory && cd ~/my-memory
+node ~/cheap-mem/bin/mem init
+node ~/cheap-mem/bin/mem whoami you
+
+# Remember something, then find it by words it does not contain
+node ~/cheap-mem/bin/mem log decision \
+  --title "Postgres over DynamoDB for billing" \
+  --choice "Postgres 16 on RDS" \
+  --why "Billing needs multi-row transactions; we already run Postgres." \
+  --asked "which database, why not dynamo"
+
+node ~/cheap-mem/bin/mem find "what did we pick for the billing store"
+node ~/cheap-mem/bin/mem board
+```
+
+Then put it under git and push it somewhere private — that is the whole
+sync story:
+
+```bash
+git init && git add -A && git commit -m "init"
+git remote add origin git@github.com:you/your-memory.git
+git push -u origin main
+
+mem hooks install     # arms the secret check — it proves itself with a decoy token
+```
+
+> **On npm:** not yet. The package builds and `npm pack` produces a
+> 581 kB tarball with zero runtime dependencies, and the release workflow
+> installs that tarball outside a checkout and runs it before it would
+> publish — but it has not been published, so `npm install -g cheap-mem`
+> will not work today. Install from source as above. When it lands, the
+> commands are `npm install -g cheap-mem` and `npx cheap-mem init`.
+
+## Where your data goes
+
+Nowhere. That is not a policy, it is the architecture:
+
+- **No service, no account, no vector database.** Memory is plain files
+  on your disk. The only network call cheap-mem ever makes is the `git
+  push` you configure yourself, to a remote you choose.
+- **Redacted before it touches the disk.** Everything captured goes
+  through a redaction pass first: tokens, API keys, passwords and
+  credential-shaped strings are masked before a single line is written.
+  `mem hooks install` arms a pre-commit check that proves itself against
+  a decoy token rather than asserting it works.
+- **Zero runtime dependencies.** `npm install` pulls nothing. The core —
+  capture, search, digest — runs on Node's standard library. There is no
+  supply chain to audit because there is no supply.
+- **The one model call is yours to place.** The digest is a timer you
+  run, against the provider you already pay. Turn it off and everything
+  except summarisation still works.
+- **Semantic search, if you want it, stays local.** `mem find-hybrid`
+  reranks with embeddings from **ollama** on your own machine — no key,
+  no vendor, still 0 API cost.
 
 <!-- cheap-mem-brand:workflow:start -->
 ![Capture appends redacted session records without a model. Digest uses a model to structure accumulated records. Standard recall searches indexed fields without a model; local embeddings are optional.](docs/assets/brand/01-how-it-works.png)
 <!-- cheap-mem-brand:workflow:end -->
 
-**Private by default.** Everything is captured through a redaction pass
-first: tokens, API keys, passwords and credential-shaped strings are
-masked before a single line touches the disk. Your memory is a directory
-of plain files you own — nothing leaves the machine except what you
-`git push` yourself. No vault plugin, no external vector database in the
-path.
+### What is NOT installed
 
-**Search is BM25** over weighted fields, widened by a curated thesaurus
-and by two graphs the tool learns from your own entries — a tag graph and
-a term co-occurrence graph — no model, no network. Measured
-(`node bench/retrieval.mjs`, 67 entries, 42 queries):
+Nothing, by design. The core — capture, search, digest — is plain Node
+with zero dependencies. Two features are optional peers, because measured
+on 2026-09-05 they cost far more than the tool itself:
+
+| you want | install | cost |
+|---|---|---|
+| the MCP server (`mem-mcp`) | `npm i -g @modelcontextprotocol/sdk` | 28 MB, 91 packages |
+| semantic search (`mem embed`) | `npm i -g better-sqlite3 sqlite-vec` | 14 MB, 40 packages |
+
+Together those are 43 MB around a 581 kB download. They used to be installed
+for everyone — the SDK as a hard dependency, the sqlite pair as
+`optionalDependencies`, which npm installs unless the *build* fails and
+is therefore not opt-in at all. Now neither is fetched until you ask, and
+the two commands that need them say exactly what to run.
+
+## Does it actually find things?
+
+The honest answer, with the hard case on its own line rather than hidden
+inside an average (`node bench/retrieval.mjs`, 67 entries, 42 queries):
 
 | query kind | R@1 | R@5 | MRR |
 |---|---:|---:|---:|
-| lexical (shares a word) | 100% | 100% | 1.00 |
-| paraphrase (shares none) | 50% | 88% | 0.64 |
-| concept (broad, indirect) | 67% | 83% | 0.77 |
+| lexical (shares a word with the entry) | 100 % | 100 % | 1.00 |
+| **paraphrase (shares none)** | **50 %** | 88 % | 0.64 |
+| concept (broad, indirect) | 67 % | 83 % | 0.77 |
 
-**Search median 0.027 ms.** Paraphrase is the honest hard case and the
-number stands on its own line rather than inside an average; for that,
-`mem find-hybrid` fuses BM25 with an optional **local** embedding rerank
-(ollama, still 0 API cost). The benchmark also records what was tried and
-rejected — the term graph's real gain, and why pseudo-relevance feedback
-was measured and thrown away. Details:
-[docs/architecture.md](docs/architecture.md).
+Search is BM25 over weighted fields, widened by a curated thesaurus and by
+two graphs the tool learns from your own entries — a tag graph and a term
+co-occurrence graph. No model, no network, median **0.027 ms**.
 
-**Tokens, measured** (`npm run bench`, 228 entries, 15 questions):
+Paraphrase is where pure lexical search honestly struggles, and there are
+two answers. The cheap one is `--asked`: when you log an entry you can
+name the words somebody will search for that the entry itself does not
+contain. The other is `mem find-hybrid`, which fuses BM25 with a **local**
+embedding rerank so an entry surfaced by either survives.
+
+The benchmark also records what was tried and **rejected** — the term
+graph's real gain, and why pseudo-relevance feedback was measured and
+thrown away. Details: [docs/architecture.md](docs/architecture.md).
+
+**And what it costs** (`npm run bench`, 228 entries, 15 questions):
 
 | pattern | tokens | notes |
 |---|---:|---|
 | whole memory in every prompt | ~170,000 | always has the answer, pays for everything |
-| `mem context` once + `mem find` per question | ~5,800 | **96.6% less** |
+| `mem context` once + `mem find` per question | ~5,800 | **96.6 % less** |
 
-The benchmark also reports how often the cheap path actually retrieved
-the entry holding the answer — **12 of 15**. A saving with a miss rate
-is not a saving, so the number is printed next to the percentage and
-the miss is named. Tokens are estimated as characters/4, applied
-identically to both sides: trust the ratio, not the absolutes.
+The benchmark also reports how often the cheap path actually retrieved the
+entry holding the answer — **12 of 15**. A saving with a miss rate is not
+a saving, so the number is printed next to the percentage and the miss is
+named. Tokens are estimated as characters/4, applied identically to both
+sides: trust the ratio, not the absolutes.
 
 Run it against your own memory and send the numbers if they differ.
 
-## Are the guarantees enforced, or only documented?
+## For teams and companies
+
+A memory that only one person can read is a notebook. What makes this one
+work for a team is that **git already solved the hard part** — several
+people, several machines, several agents, one history, and a merge
+strategy for conflicts.
+
+- **Shared by `git push`, not by a server.** Every teammate and every
+  agent clones the same memory repo. `*.jsonl merge=union` is one line in
+  `.gitattributes`, so two people appending at once merge instead of
+  conflicting — and `bench/merge-driver.mjs` fails the build if that
+  contract ever stops holding.
+- **Nobody can overrule anybody.** Every claim carries who asserted it and
+  at what authority (`user > system > agent > external > inferred >
+  unknown`). A correction is honoured only when the same author corrects
+  themselves, or when a strictly higher tier overrules a lower one. An
+  unauthorised attempt is not deleted — nothing ever is — the target
+  simply stays active and the attempt reads as **disputed**, out of
+  retrieval and visible in `mem doctor`.
+- **Scope is a boundary, not an argument.** `mem retrieve` takes a
+  capability the caller must hold, not a `scope` string it can type.
+  Narrowing works; widening has no method. An agent scoped to one project
+  cannot read another by asking nicely.
+- **Append-only, so the audit trail is the storage format.** Nothing is
+  ever edited. A correction is a new line carrying `replaces_id`, and
+  both lines keep their reasons. "Why did we decide that, and who changed
+  it?" is answerable months later, by `git log` if nothing else.
+- **A flood of liars does not win.** `bench/byzantine.mjs` fails the build
+  if rule-abiding false claims can bury a genuine one, or if a conflict
+  goes unreported rather than surfaced.
+
+<!-- cheap-mem-brand:history:start -->
+![A new decision d02 replaces d01 through an explicit replaces_id reference. Both entries keep their reasons, and the earlier record remains in history. Illustrative example.](docs/assets/brand/02-history-with-reasons.png)
+<!-- cheap-mem-brand:history:end -->
+
+**How big can one memory get.** Keep one under about **50,000 entries**,
+then split per team or product. Measured, not estimated: at 50k a search
+costs 61 ms and loading the index 430 ms; at 200k that is 247 ms and
+1.7 s, and the recall hook stops being invisible. At 500–1000 entries a
+day that point arrives in a few months, so decide the boundary early —
+[docs/scale.md](docs/scale.md) has the numbers and the reasoning.
+
+**Errors get a shared vocabulary.** `mem log error --class ...` refuses a
+category you invented and prints the twelve it knows, each with the
+question it answers — *"Does the check go red when I break the
+property?"*, *"Who else states this, and do they still state the same
+thing?"*. `mem classes` then shows how much of your memory each class
+actually covers. A team that names failures the same way can count them;
+one that does not, cannot.
+
+## Why you should not take our word for it
+
+For a tool whose whole argument is *measured, not guessed*, a wrong
+self-report is the most expensive error it can make — it refutes the
+argument the moment somebody counts. This README has made six, and they
+are listed here because what stands where each one was is the reason the
+numbers above are worth reading.
+
+| the claim | the truth | found by | what stands there now |
+|---|---|---|---|
+| "~500 lines of JS" | ~18,900 — **factor 32** | outside review, 2026-09-08 | the line count is re-derived, with a factor ceiling |
+| "all 17 MCP tools" | 26 | the same review | **no** tolerance for countable things |
+| "588 kB, one package" | **4.8 MB** — a branding kit had walked into the tarball | writing this section, 2026-09-19 | `test/package-size.test.mjs` asks `npm pack` itself |
+| "a 194 kB tool" | 581 kB — the same drift, a second time in the same file | the size guard, once it was anchored | one marked figure, and a probe that refuses two |
+| "94.7 % statement coverage" | **87.7 %** — code landed, nothing re-measured | re-running it, 2026-09-19 | a floor in CI, plus a check that the README never claims more than was measured |
+| "the test count is allowed 2 %" | **there was no such check anywhere** | grepping for it, 2026-09-19 | the 2 % is now actually enforced |
+
+None was a lie anybody told on purpose. Each was true once, and nobody
+re-counted — which is precisely why a number without a probe is a number
+with a date on it and nothing behind the date.
+
+The last row is the worst of the six and the most instructive. A sentence
+describing a guarantee had been sitting in this README for days, reading
+exactly like the guarantee itself. That failure has a name in this
+project's own vocabulary — `check-tests-the-wrong-thing`, whose question
+is *"Does the check go red when I break the property?"* — and the answer
+here was no, because there was no check.
+
+So: counts of countable things (commands, tools, modules) have **no**
+tolerance. The test count gets 2 %, the gap between a static count of
+`test(` call sites and what the runner reports. The line count gets a
+factor ceiling wide enough for ordinary work and far too narrow for a
+factor of 32. And every one of these probes is itself sabotaged — a
+falsified README is fed to it and it must go red — because a guard that
+can only pass is decoration.
+
+<!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
+     hand without having counted the code. -->
+As of 2026-09-19: **60 CLI commands, 28 MCP tools, 62 modules, 1252
+tests**, about 24,000 lines in `bin/` and `src/`, at **87.7 % statement
+coverage** (`npm run coverage`, enforced with a floor in CI).
+
+### Reading it with a model, or evaluating it properly
+
+**Read [`docs/CAPABILITIES.md`](docs/CAPABILITIES.md) — one file, the
+complete surface.** Every entry type, every retrieval lane, every temporal
+and authority mechanism, every CLI command, every MCP tool, every module,
+the things that are deliberately absent, and the commands to verify each
+claim rather than believe it.
+
+<!-- zahl-historisch: 17 MCP tools (a true measurement of that day) -->
+<!-- zahl-historisch: 28 modules (likewise) -->
+That file exists because this README is not enough for a skim, and that
+was measured, not guessed: three separate AI evaluations reported built
+capabilities as missing. Against the README alone, in **September 2026
+when there were 17 MCP tools, 4 link kinds and 28 modules**, they were
+reading 0 of the tools, 2 of the link kinds and 19 of the modules. (Those
+are the counts of that day, kept as the measurement they were. The current
+ones are just above.) "No relationship system" was a correct observation
+about the entry text and a wrong one about the system.
+
+If you are about to conclude that cheap-mem lacks something, that file has
+a section for exactly that. And some things **are** missing on purpose —
+usage counters, a `confidence` field, decay-as-deletion, a graph store, an
+LLM per fact. Each was weighed and turned down for a reason, and each says
+what would change our mind:
+[`docs/deliberately-not-built.md`](docs/deliberately-not-built.md).
+
+## Guarantees, broken on purpose
 
 `npm test` answers "do the tests pass". `npm run verify` answers the other
 question — and CI runs both on every push, so a guarantee that stops being
@@ -144,14 +347,9 @@ reports anything. That is not decoration — wiring this into CI found three
 defects in the measuring instruments themselves, described in
 [docs/state-separation.md](docs/state-separation.md).
 
-## How big can one memory get
-
-Keep one memory under about **50,000 entries**; split into one memory per
-team or product past that. Measured, not estimated: at 50k a search costs
-61 ms and loading the index 430 ms; at 200k that is 247 ms and 1.7 s, and
-the recall hook stops being invisible. At 500–1000 entries a day that
-point arrives in a few months, so decide the boundary early —
-[docs/scale.md](docs/scale.md) has the numbers and the reasoning.
+A test suite that passes proves the tests pass. It does not prove the
+mechanism exists. Mutation testing found one guarantee here that lived
+only in documentation.
 
 ## What lives where
 
@@ -177,94 +375,8 @@ your-memory/
 ```
 
 All logs are append-only. A correction is a **new line** carrying
-`replaces_id` — never an edit. A memory that rewrites its own history
-is worse than no memory.
-
-<!-- cheap-mem-brand:history:start -->
-![A new decision d02 replaces d01 through an explicit replaces_id reference. Both entries keep their reasons, and the earlier record remains in history. Illustrative example.](docs/assets/brand/02-history-with-reasons.png)
-<!-- cheap-mem-brand:history:end -->
-
-## Quickstart
-
-```bash
-npm install -g cheap-mem        # 588 kB, one package, no dependencies
-
-# Create your memory
-mkdir ~/my-memory && cd ~/my-memory
-mem init
-mem whoami user
-
-# Put it under git and push somewhere private
-git init && git add -A && git commit -m "init"
-git remote add origin git@github.com:you/your-memory.git
-git push -u origin main
-
-# Arm the secret check — it proves itself with a decoy token
-mem hooks install
-
-# Log something
-mem log event --title "started using cheap-mem" --tags setup
-mem find "cheap-mem"
-mem doctor
-```
-
-Or without installing anything: `npx cheap-mem init`, `npx cheap-mem find "..."`.
-
-From source instead, if you would rather read it first:
-
-```bash
-git clone https://github.com/Luckyno777/cheap-mem ~/cheap-mem
-node ~/cheap-mem/bin/mem init     # no npm install needed — there is nothing to install
-```
-
-### What is NOT installed
-
-Nothing, by design. The core — capture, search, digest — is plain Node
-with zero dependencies. Two features are optional peers, because measured
-on 2026-09-05 they cost far more than the tool itself:
-
-| you want | install | cost |
-|---|---|---|
-| the MCP server (`mem-mcp`) | `npm i -g @modelcontextprotocol/sdk` | 28 MB, 91 packages |
-| semantic search (`mem embed`) | `npm i -g better-sqlite3 sqlite-vec` | 14 MB, 40 packages |
-
-Together those are 43 MB around a 194 kB tool. They used to be installed
-for everyone — the SDK as a hard dependency, the sqlite pair as
-`optionalDependencies`, which npm installs unless the *build* fails and
-is therefore not opt-in at all. Now neither is fetched until you ask, and
-the two commands that need them say exactly what to run.
-
-## Turn on capture and digest
-
-Capture is a Stop hook — it copies each session's transcript into the
-memory, redacted and gzipped, **without starting a model**, and then
-**persists it** (commit + push), so an ephemeral environment (a cloud
-sandbox) does not lose it. Add to your assistant's settings:
-
-```json
-"hooks": {
-  "Stop": [{ "hooks": [{ "type": "command",
-    "command": "bash ~/cheap-mem/bin/mem-stop" }] }]
-}
-```
-
-`mem-stop` runs `mem-capture` (model-free) and then pushes the capture —
-nothing else pushes captures, the watcher only pulls. It pushes only
-what it captured (`raw/`), synchronously and best-effort (an offline
-machine keeps it committed locally for the next run). Set
-`MEM_STOP_NO_PUSH=1` to capture without pushing, or `MEM_REFLECT=1` to
-also run the optional model summary at session end.
-
-The digest is a timer. It checks in milliseconds whether the pile is
-ripe and only then makes its one model call:
-
-```bash
-# every 10 minutes, e.g. via cron or a systemd timer
-CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/bin/mem-digest
-```
-
-Nothing captured means no bell, and no bell means no call — a week away
-costs exactly zero. See [docs/architecture.md](docs/architecture.md).
+`replaces_id` — never an edit. A memory that rewrites its own history is
+worse than no memory.
 
 ## Commands
 
@@ -347,32 +459,6 @@ BM25 honestly cannot do — a true paraphrase with no word in common:
 Both need `mem embed setup` + a backfill first. Use `ollama` as the
 provider — local, free, no key — if the memory holds anything you would
 not send to a vendor.
-
-## Autostart on macOS / Linux / Windows
-
-Have the librarian watcher run at login and restart on failure:
-
-**macOS (launchd)**
-```bash
-CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
-  bash ~/cheap-mem/install/macos.sh
-```
-
-**Linux (systemd user)**
-```bash
-CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
-  bash ~/cheap-mem/install/linux.sh
-```
-
-**Windows (Task Scheduler)** — [install-windows.md](docs/install-windows.md)
-```powershell
-$env:CHEAP_MEM_ROOT="$HOME\my-memory"; $env:MEM_WATCH_WHO="librarian"
-powershell -File $HOME\cheap-mem\install\windows.ps1
-```
-
-The watcher polls the git remote every 15 seconds via `git ls-tree`
-(never `git pull` — never fights a builder for the working tree).
-When new inbox mail lands, it pulls and runs the handler.
 
 ## Wire into your AI
 
@@ -473,6 +559,64 @@ See [docs/mcp-setup.md](docs/mcp-setup.md) for per-client instructions.
 Point the model at `~/cheap-mem/bin/mem` and tell it the commands.
 No MCP needed — a shell tool is enough. See [docs/cli-integration.md](docs/cli-integration.md).
 
+## Turn on capture and digest
+
+Capture is a Stop hook — it copies each session's transcript into the
+memory, redacted and gzipped, **without starting a model**, and then
+**persists it** (commit + push), so an ephemeral environment (a cloud
+sandbox) does not lose it. Add to your assistant's settings:
+
+```json
+"hooks": {
+  "Stop": [{ "hooks": [{ "type": "command",
+    "command": "bash ~/cheap-mem/bin/mem-stop" }] }]
+}
+```
+
+`mem-stop` runs `mem-capture` (model-free) and then pushes the capture —
+nothing else pushes captures, the watcher only pulls. It pushes only
+what it captured (`raw/`), synchronously and best-effort (an offline
+machine keeps it committed locally for the next run). Set
+`MEM_STOP_NO_PUSH=1` to capture without pushing, or `MEM_REFLECT=1` to
+also run the optional model summary at session end.
+
+The digest is a timer. It checks in milliseconds whether the pile is
+ripe and only then makes its one model call:
+
+```bash
+# every 10 minutes, e.g. via cron or a systemd timer
+CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/bin/mem-digest
+```
+
+Nothing captured means no bell, and no bell means no call — a week away
+costs exactly zero. See [docs/architecture.md](docs/architecture.md).
+
+## Autostart on macOS / Linux / Windows
+
+Have the librarian watcher run at login and restart on failure:
+
+**macOS (launchd)**
+```bash
+CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
+  bash ~/cheap-mem/install/macos.sh
+```
+
+**Linux (systemd user)**
+```bash
+CHEAP_MEM_ROOT=~/my-memory MEM_WATCH_WHO=librarian \
+  bash ~/cheap-mem/install/linux.sh
+```
+
+**Windows (Task Scheduler)** — [install-windows.md](docs/install-windows.md)
+```powershell
+$env:CHEAP_MEM_ROOT="$HOME\my-memory"; $env:MEM_WATCH_WHO="librarian"
+powershell -File $HOME\cheap-mem\install\windows.ps1
+```
+
+The watcher polls the git remote every 15 seconds via `git ls-tree`
+(never `git pull` — never fights a builder for the working tree).
+When new inbox mail lands, it pulls and runs the handler.
+
 ## Retrieval that carries its provenance
 
 `mem retrieve` returns **structured claims**, not a paragraph. Each one
@@ -556,32 +700,39 @@ determined the result is `unknown`, not `ok`.
 
 ## Design principles
 
-- **Append-only.** A log entry is never modified. Corrections write a
-  new line with `replaces_id`. Deleting the past is worse than being wrong.
+- **Append-only.** A log entry is never modified. Corrections write a new
+  line with `replaces_id`. Deleting the past is worse than being wrong.
 - **Three states, never two.** No config vs. valid config vs. broken.
-  Empty inbox vs. no inbox vs. remote unreachable. A "no" that looks
-  like "nothing" is worse than any real error.
+  Empty inbox vs. no inbox vs. remote unreachable. Measured-as-fine vs.
+  not-measurable. A "no" that looks like "nothing" is worse than any real
+  error — which is why two tiles on the board above say UNMEASURED instead
+  of showing a comfortable zero.
 - **Zero runtime dependencies.** `npm install` pulls nothing; the whole
   thing runs on Node's standard library. Embeddings and anything else
   optional load lazily and only if asked for.
 
   <!-- zahl-historisch: 500 lines (the corrected claim, quoted here as
        the error it was — not a statement about today. The "about N
-       lines" two sentences on IS current and stays guarded.) -->
+       lines" figure in the numbers line IS current and stays guarded.) -->
   This bullet used to say "the tool is small on purpose, ~500 lines of
-  JS". It was off by a factor of thirty-two — `bin/` and `src/` are
-  about 27,000 lines. A tool that argues for itself with honest
-  self-description cannot afford that particular error, so the claim is
-  now the one that is actually true: not small, but self-contained.
+  JS". It was off by a factor of thirty-two. A tool that argues for itself
+  with honest self-description cannot afford that particular error, so the
+  claim is now the one that is actually true: not small, but
+  self-contained.
 - **No hardcoded names.** Participants, branch, remote — all in
   `.mem/config.json`. cheap-mem does not assume anyone is called anything.
+- **Every guarantee has a probe, and every probe a counter-probe.** A
+  check that can only go green is sabotaged until it goes red, or it does
+  not count.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Use it commercially, fork it, rename it.
 
 ## Origin
 
 Ported from the private `lucky-mem` design that has been running under
-continuous use since summer 2026. The port is generic, English, and
-adds `mem init`, launchd/systemd install scripts, and the MCP server.
+continuous use since summer 2026 — same architecture, same benchmarks,
+one real user putting real work through it every day. The port is
+generic, English, and adds `mem init`, launchd/systemd install scripts,
+and the MCP server.
