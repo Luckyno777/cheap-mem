@@ -332,7 +332,7 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 48 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 71 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |

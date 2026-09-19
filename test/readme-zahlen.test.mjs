@@ -27,6 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as clihelp from '../src/clihelp.mjs';
+import { MUTANTS } from '../bench/mutation.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
@@ -44,6 +45,18 @@ function lineCount(dir, filter = () => true) {
 }
 
 const counted = {
+  // **The number a stray proposal document found (2026-09-19).** A
+  // proposal written in another session quoted 71 mutants; the README
+  // said 48. Checked rather than assumed, because the two could have
+  // been different units: bench/mutation.mjs states in its own header
+  // that "Each mutant below disables one guarantee" — one to one, so 48
+  // was simply 23 short. The bench can be imported without running
+  // (that is why MUTANTS is exported), so this counts instead of
+  // guessing.
+  //
+  // Worth noting where it came from: the stale number had survived
+  // every probe in this file, because no probe asked about it.
+  mutanten: () => MUTANTS.length,
   cli: clihelp.allTableCommands(read).length,
   mcp: [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].length,
   modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
@@ -187,4 +200,19 @@ test('the commands worth finding are in the list', () => {
     'mem status', 'mem classes', 'mem context', 'mem viewer']) {
     assert.ok(block.includes(c), `${c} is not in the README's command list`);
   }
+});
+
+test('POSITIVE: the mutation bench really defines mutants', () => {
+  // A probe against an empty array passes forever.
+  assert.ok(MUTANTS.length >= 30, `only ${MUTANTS.length} mutants — the probe is broken`);
+});
+
+test('the README states the number of guarantees, and it matches the bench', () => {
+  // No tolerance: this is a countable thing. It sat at 48 while the bench
+  // had grown to 71 — the same drift as the command and tool counts, in
+  // the one table that tells a reader what the adversarial suite proves.
+  const m = README.match(/one of (\d+) guarantees was broken on purpose/);
+  assert.ok(m, 'the README no longer names the number of guarantees');
+  assert.equal(Number(m[1]), MUTANTS.length,
+    `README says ${m[1]} guarantees, bench/mutation.mjs defines ${MUTANTS.length}`);
 });
