@@ -189,6 +189,10 @@ if (-not $SkipClaudeCode) {
   # On native Windows, Claude Code hooks are PowerShell too.
   $startHookDst = Join-Path $HooksDir 'cheap-mem-session-start.ps1'
   $stopHookDst  = Join-Path $HooksDir 'cheap-mem-session-stop.ps1'
+  # Measured 2026-09-19: these two did not exist, and neither did the
+  # events that would have called them. See the note above Upsert-Hook.
+  $promptHookDst = Join-Path $HooksDir 'cheap-mem-user-prompt.ps1'
+  $editHookDst   = Join-Path $HooksDir 'cheap-mem-pre-edit.ps1'
 
   @"
 # cheap-mem SessionStart hook (Windows).
@@ -243,7 +247,14 @@ if (Test-Path `$mem) {
 "@ | Set-Content -LiteralPath $startHookDst -Encoding UTF8
 
   @"
-# cheap-mem Stop hook (Windows). Delegates to mem-reflect.ps1.
+# cheap-mem Stop hook (Windows). Delegates to mem-stop.ps1.
+#
+# NOT to mem-reflect.ps1, which is what stood here until 2026-09-19.
+# That is a MODEL call, and bin/mem-stop exists precisely to replace it
+# on this event: capture model-free and always, commit, push, and run
+# the model summary only behind MEM_REFLECT=1. In a sandbox without a
+# model the reflect path ran nothing at all, so the session captured
+# nothing -- and told no one.
 # Same lookup as the start hook — see the note there. This one stays
 # quiet on a miss: the start hook has already said it once per session,
 # and repeating it after every turn would train people to ignore it.
@@ -261,10 +272,77 @@ foreach (`$kandidat in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$reflect = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-reflect.ps1'
-if (-not (Test-Path `$reflect)) { exit 0 }
-& powershell -NoProfile -ExecutionPolicy Bypass -File `$reflect
+`$stop = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-stop.ps1'
+if (-not (Test-Path `$stop)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$stop
 "@ | Set-Content -LiteralPath $stopHookDst -Encoding UTF8
+
+  # --- The two lanes that were missing entirely ------------------------
+  #
+  # **Measured 2026-09-19.** `install/claude-code.sh` registers FOUR
+  # events (SessionStart, Stop, UserPromptSubmit, PreToolUse with the
+  # matcher Edit|Write|NotebookEdit). This installer registered TWO.
+  # There was no UserPromptSubmit and no PreToolUse registration at all.
+  #
+  # So on Windows the recall lane and the before-edit lane never ran —
+  # not because they were broken, but because nothing ever called them.
+  # The same week the PowerShell ports of those lanes were written and
+  # guarded, which fixed the level below this one: the hooks existed,
+  # were tested, executed on a Windows runner, and on a real install
+  # still nobody asked for them. This repo has a name for that class:
+  # `built-but-out-of-reach`.
+  #
+  # Both wrappers repeat the lookup of the start hook — the path baked
+  # in here is a HINT, not the answer. They stay silent on a miss: the
+  # start hook already said it once per session, and a hook that
+  # complains before every message and every edit trains people to stop
+  # reading it.
+
+  @"
+# cheap-mem UserPromptSubmit hook (Windows). Delegates to mem-retrieve.ps1.
+# The recall lane: it runs before every message of yours and blends in
+# what the memory already knows. Model-free.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
+if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
+`$retrieve = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-retrieve.ps1'
+if (-not (Test-Path `$retrieve)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$retrieve
+"@ | Set-Content -LiteralPath $promptHookDst -Encoding UTF8
+
+  @"
+# cheap-mem PreToolUse hook (Windows). Delegates to mem-before-edit.ps1.
+# The before-edit lane: it runs before an Edit/Write/NotebookEdit and
+# shows what the memory holds about THAT file. Model-free.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
+if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
+`$before = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-before-edit.ps1'
+if (-not (Test-Path `$before)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$before
+"@ | Set-Content -LiteralPath $editHookDst -Encoding UTF8
 
   # Merge settings.json.
   $cfg = @{}
@@ -280,23 +358,43 @@ if (-not (Test-Path `$reflect)) { exit 0 }
   if ($null -ne $cfg) {
     if (-not $cfg.ContainsKey('hooks')) { $cfg['hooks'] = @{} }
 
+    # An old install is recognised by the SCRIPT NAME, not by the path —
+    # the same rule the POSIX installer states above its upsertHook.
+    #
+    # **This filter was keyed on the literal 'cheap-mem-session'**, which
+    # matched exactly the two scripts that existed on 2026-09-19 and
+    # nothing else. The moment a third one arrived (cheap-mem-user-prompt,
+    # cheap-mem-pre-edit) a re-install would have left the old entry in
+    # place and added a second one beside it — and two hooks on
+    # UserPromptSubmit means every message pays twice. Found while adding
+    # exactly those two, not in the field.
+    #
+    # Now the caller names its own file, so the rule cannot fall behind
+    # the set of files again.
     function Upsert-Hook {
-      param($h, $event, $cmd)
+      param($h, $event, $file, $cmd, $matcher)
       if (-not $h.ContainsKey($event)) { $h[$event] = @() }
-      # Remove any prior entry that references our hooks dir.
       $h[$event] = @($h[$event] | Where-Object {
         $keep = $true
         if ($_.ContainsKey('hooks')) {
           foreach ($hk in $_.hooks) {
-            if ($hk.command -and $hk.command -match 'cheap-mem-session') { $keep = $false }
+            if ($hk.command -and $hk.command -match [regex]::Escape($file)) { $keep = $false }
           }
         }
         $keep
       })
-      $h[$event] += @{ hooks = @(@{ type = 'command'; command = $cmd }) }
+      $eintrag = @{ hooks = @(@{ type = 'command'; command = $cmd }) }
+      if ($matcher) { $eintrag['matcher'] = $matcher }
+      $h[$event] += $eintrag
     }
-    Upsert-Hook $cfg['hooks'] 'SessionStart' "powershell -NoProfile -ExecutionPolicy Bypass -File `"$startHookDst`""
-    Upsert-Hook $cfg['hooks'] 'Stop'         "powershell -NoProfile -ExecutionPolicy Bypass -File `"$stopHookDst`""
+    $ps = 'powershell -NoProfile -ExecutionPolicy Bypass -File'
+    Upsert-Hook $cfg['hooks'] 'SessionStart' 'cheap-mem-session-start.ps1' "$ps `"$startHookDst`""
+    Upsert-Hook $cfg['hooks'] 'Stop'         'cheap-mem-session-stop.ps1'  "$ps `"$stopHookDst`""
+    Upsert-Hook $cfg['hooks'] 'UserPromptSubmit' 'cheap-mem-user-prompt.ps1' "$ps `"$promptHookDst`""
+    # With a matcher — otherwise it would also run on Read and Bash, and
+    # the path of a file being READ is not an intention to change it.
+    # Same matcher as the POSIX side; it is the rule, not a preference.
+    Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
 
     if (-not $cfg.ContainsKey('permissions')) { $cfg['permissions'] = @{} }
     $allowNeeded = @(
@@ -317,7 +415,7 @@ if (-not (Test-Path `$reflect)) { exit 0 }
     $cfg['permissions']['deny']  = @($cfg['permissions']['deny']  + $denyNeeded  | Select-Object -Unique)
 
     ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $Settings -Encoding UTF8
-    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-session-{start,stop}.ps1"
+    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit}.ps1"
     Write-Host "  Claude Code settings: $Settings"
   }
   Write-Host ""

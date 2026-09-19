@@ -239,8 +239,12 @@ jobs:
           $failed = $false
           $files = Get-ChildItem -Recurse -Filter *.ps1 |
             Where-Object { $_.FullName -notmatch 'node_modules' }
-          if ($files.Count -lt 6) {
-            Write-Host "::error::expected at least 6 .ps1 files, found $($files.Count)"
+          # 9 since 2026-09-19: bin/ gained mem-retrieve.ps1,
+          # mem-before-edit.ps1 and mem-stop.ps1, the three hooks that
+          # had been bash-only. The floor is the point of this check —
+          # a port that gets deleted must make the parse step notice.
+          if ($files.Count -lt 9) {
+            Write-Host "::error::expected at least 9 .ps1 files, found $($files.Count)"
             exit 1
           }
           foreach ($f in $files) {
@@ -421,6 +425,327 @@ jobs:
           # See above: the tick exits 1 here BY DESIGN (an ineffective
           # run). Without this line the step inherits that 1 and goes red
           # on the very outcome it demands.
+          exit 0
+
+      # --- The three hooks that had no Windows half at all -----------
+      #
+      # Measured 2026-09-19, reported by a cheap-mem user on Windows:
+      # bin/mem-retrieve, bin/mem-before-edit and bin/mem-stop were bash
+      # scripts with no .ps1 counterpart. A default Git for Windows
+      # install puts git.exe on PATH but NOT bash.exe, so on that machine
+      # the recall lane and the before-edit lane could not start at all —
+      # and a hook that cannot start prints nothing, which reads exactly
+      # like "the memory had nothing to say".
+      #
+      # THIS RUNNER HAS GIT BASH, which is precisely why CI never saw it:
+      # every `shell: bash` step in this file ran the POSIX hooks on
+      # Windows and proved nothing about a machine without them. So these
+      # steps start the PowerShell ports WITH POWERSHELL and measure what
+      # came out. test/hook-parity.test.mjs guards that the ports keep
+      # existing; these three guard that they keep working. Neither is
+      # the other's duplicate: a file can exist and do nothing, which is
+      # the failure class this whole repository is built around.
+      - name: mem-retrieve.ps1 actually recalls
+        shell: pwsh
+        run: |
+          $mem = Join-Path $PWD 'bin/mem'
+          $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-rt-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $memdir | Out-Null
+          node $mem --root $memdir init | Out-Null
+          node $mem --root $memdir log error --class wrong-cause `
+            --title 'the payment webhook retried forever' `
+            --text 'retry loop in the payment webhook never terminated because the ack was swallowed' | Out-Null
+
+          $env:CHEAP_MEM_ROOT = $memdir
+          # The bar is ESTABLISHED, not borrowed. A step whose colour
+          # depends on where a BM25 score happens to land is a step that
+          # flickers with the corpus — the sibling memory's digest steps
+          # had exactly that bug.
+          $env:MEM_RETRIEVE_MIN = '1'
+          # No network in a probe: the background pull would only help a
+          # later turn anyway.
+          $env:MEM_RETRIEVE_NO_PULL = '1'
+
+          $ask = '{"prompt":"what happened with the payment webhook retry loop?","session_id":"ci-recall"}'
+          # Pipe a payload in rather than inheriting the runner's stdin:
+          # the hook reads stdin to the end when it is redirected, and an
+          # inherited handle that never closes hangs the job.
+          $out = ($ask | & pwsh -NoProfile -File bin/mem-retrieve.ps1) -join ''
+          Write-Host "recall: $out"
+          if ($out -notmatch 'UserPromptSubmit') {
+            Write-Host "::error::mem-retrieve.ps1 produced no UserPromptSubmit envelope"
+            exit 1
+          }
+          if ($out -notmatch 'payment webhook retried forever') {
+            Write-Host "::error::the envelope carries no hit from the memory"
+            exit 1
+          }
+
+          # Twice registered, once injected: the SAME turn must be
+          # suppressed the second time, or the memory lands in the
+          # context twice and occupies double what it needs.
+          $again = ($ask | & pwsh -NoProfile -File bin/mem-retrieve.ps1) -join ''
+          if ($again) {
+            Write-Host "::error::the same turn was answered twice: $again"
+            exit 1
+          }
+
+          # And the three ways it must stay SILENT. Without these the
+          # step above is passed by a hook that answers everything.
+          $short = '{"prompt":"go on","session_id":"ci-short"}'
+          if (($short | & pwsh -NoProfile -File bin/mem-retrieve.ps1) -join '') {
+            Write-Host "::error::a 5-character prompt was answered — that is noise, and noise gets skimmed past"
+            exit 1
+          }
+          $env:MEM_RETRIEVE_MIN = '99'
+          $high = '{"prompt":"what happened with the payment webhook retry loop?","session_id":"ci-bar"}'
+          if (($high | & pwsh -NoProfile -File bin/mem-retrieve.ps1) -join '') {
+            Write-Host "::error::the score bar does not cut anything off"
+            exit 1
+          }
+          $env:MEM_RETRIEVE_MIN = '1'
+          $env:MEM_RETRIEVE_OFF = '1'
+          if (($ask | & pwsh -NoProfile -File bin/mem-retrieve.ps1) -join '') {
+            Write-Host "::error::MEM_RETRIEVE_OFF=1 does not turn the hook off"
+            exit 1
+          }
+          Remove-Item Env:\MEM_RETRIEVE_OFF
+          Write-Host 'recall answers, repeats are suppressed, and all three silences hold'
+          exit 0
+
+      - name: mem-before-edit.ps1 warns about the file being edited
+        shell: pwsh
+        run: |
+          $mem = Join-Path $PWD 'bin/mem'
+          $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-be-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $memdir | Out-Null
+          node $mem --root $memdir init | Out-Null
+          node $mem --root $memdir log error --class wrong-cause `
+            --title 'src/payments.mjs double-charged on retry' `
+            --text 'src/payments.mjs charged twice because the idempotency key was rebuilt per attempt' | Out-Null
+
+          $env:CHEAP_MEM_ROOT = $memdir
+
+          # A NATIVE Windows path, with backslashes, exactly as the agent
+          # hands one to a hook. That spelling is what made the POSIX
+          # hooks inert here for as long as they existed.
+          $edit = '{"session_id":"ci-edit","tool_input":{"file_path":"C:\\Users\\x\\proj\\src\\payments.mjs"}}'
+          $first = ($edit | & pwsh -NoProfile -File bin/mem-before-edit.ps1) -join ''
+          Write-Host "first: $first"
+          if ($first -notmatch 'PreToolUse') {
+            Write-Host "::error::mem-before-edit.ps1 produced no PreToolUse envelope"
+            exit 1
+          }
+          if ($first -notmatch 'double-charged on retry') {
+            Write-Host "::error::the envelope carries nothing the memory knows about this file"
+            exit 1
+          }
+          if ($first -notmatch 'memory knows src/payments.mjs') {
+            Write-Host "::error::the systemMessage channel is missing — if additionalContext is ignored, the hit vanishes"
+            exit 1
+          }
+
+          # Three states, never two. The second edit of the same file in
+          # the same session must POINT BACK, not go silent: silence
+          # reads as "there is nothing about this file", and that is a
+          # false statement when there is.
+          $second = ($edit | & pwsh -NoProfile -File bin/mem-before-edit.ps1) -join ''
+          Write-Host "second: $second"
+          if (-not $second) {
+            Write-Host "::error::the second edit said nothing at all — the pointer state is missing"
+            exit 1
+          }
+          if ($second -match 'double-charged on retry') {
+            Write-Host "::error::the second edit repeated the whole block instead of pointing at it"
+            exit 1
+          }
+          if ($second -notmatch 'already injected') {
+            Write-Host "::error::the second edit is neither the block nor the pointer: $second"
+            exit 1
+          }
+
+          # And the falsifiable half: for a file no entry ever named, it
+          # MUST stay quiet. A hook that speaks on every edit is skipped
+          # after the third time.
+          $unknown = '{"session_id":"ci-edit","tool_input":{"file_path":"C:\\Users\\x\\proj\\src\\nothing-knows-this.mjs"}}'
+          $quiet = ($unknown | & pwsh -NoProfile -File bin/mem-before-edit.ps1) -join ''
+          if ($quiet) {
+            Write-Host "::error::an invented path was answered: $quiet"
+            exit 1
+          }
+          Write-Host 'show, pointer, silence — all three states reached on a native Windows path'
+          exit 0
+
+      - name: mem-stop.ps1 captures and commits, and starts no model
+        shell: pwsh
+        run: |
+          $mem = Join-Path $PWD 'bin/mem'
+          $memdir = Join-Path ([System.IO.Path]::GetTempPath()) ("cm-st-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $memdir | Out-Null
+          node $mem --root $memdir init | Out-Null
+          git -C $memdir init -q -b main
+          git -C $memdir config user.email 'ci@example.invalid'
+          git -C $memdir config user.name 'ci'
+          git -C $memdir add -A
+          git -C $memdir commit -q -m 'init'
+
+          $lines = 1..400 | ForEach-Object {
+            @{ timestamp = '2026-01-01T00:00:00Z'
+               message = @{ content = "line $_ about deployment and errors" } } | ConvertTo-Json -Compress
+          }
+          $transcript = Join-Path $memdir 'transcript.jsonl'
+          Set-Content -Path $transcript -Value $lines
+
+          # A fake model that leaves a mark. The Stop path is supposed to
+          # be model-free by default (MEM_REFLECT unset), and an exit
+          # code cannot tell "started nothing" from "started something" —
+          # only a planted model that writes a tally can.
+          $tally = Join-Path $memdir 'calls.txt'
+          $fake = Join-Path $memdir 'fake-model.cmd'
+          Set-Content -Path $fake -Value "@echo x >> `"$tally`"`r`n@exit /b 0"
+          $env:MEM_REFLECT_CMD = $fake
+
+          $env:CHEAP_MEM_ROOT = $memdir
+          $env:CLAUDE_TRANSCRIPT_PATH = $transcript
+          '{}' | & pwsh -NoProfile -File bin/mem-stop.ps1
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::the Stop hook exited $LASTEXITCODE — it must never break the session"
+            exit 1
+          }
+
+          $captured = Get-ChildItem -Path (Join-Path $memdir 'raw') -Recurse -Filter *.jsonl.gz -ErrorAction SilentlyContinue
+          if (-not $captured) {
+            Write-Host "::error::mem-stop.ps1 produced no capture"
+            exit 1
+          }
+          if (Test-Path $tally) {
+            Write-Host "::error::the Stop path started a model although MEM_REFLECT is not set"
+            exit 1
+          }
+
+          # The capture and its RECORD belong together: the record lives
+          # at the root, not under raw/, and staging only raw/ leaves it
+          # behind — 626 of 627 capture commits in the sibling memory did
+          # exactly that, and the leftover then blocked the next
+          # `pull --ff-only`.
+          $subject = (git -C $memdir log -1 --pretty=%s)
+          if ($subject -notmatch '^capture: ') {
+            Write-Host "::error::nothing was committed — the last subject is '$subject'"
+            exit 1
+          }
+          $files = (git -C $memdir show --name-only --pretty=format: HEAD) | Where-Object { $_ }
+          Write-Host ("committed: " + ($files -join ', '))
+          if (-not ($files | Where-Object { $_ -match 'raw-record\.jsonl$' })) {
+            Write-Host "::error::the capture was committed without its record"
+            exit 1
+          }
+          if (-not ($files | Where-Object { $_ -match '\.jsonl\.gz$' })) {
+            Write-Host "::error::the commit carries no capture"
+            exit 1
+          }
+          $leftover = (git -C $memdir status --porcelain raw/ raw-record.jsonl) | Where-Object { $_ }
+          if ($leftover) {
+            Write-Host "::error::the hook left memory content uncommitted: $leftover"
+            exit 1
+          }
+          Write-Host 'captured, committed with its record, and no model was started'
+          exit 0
+
+      # The level above the three steps before it. Those prove the ports
+      # RUN. This one proves something calls them.
+      #
+      # Measured 2026-09-19: install/claude-code.sh registered four
+      # Claude Code events, install/windows.ps1 registered two. There was
+      # no UserPromptSubmit and no PreToolUse registration at all, and
+      # the Stop hook it generated delegated to mem-reflect.ps1 — a MODEL
+      # call, the exact thing bin/mem-stop exists to replace. So the
+      # ports shipped, were guarded, ran green on this runner, and on a
+      # real Windows install nothing would have called two of them.
+      #
+      # test/installer-parity.test.mjs compares the two installers by
+      # shape and runs everywhere. It reads SOURCE. This step runs the
+      # installer for real against a scratch USERPROFILE and reads the
+      # settings.json that comes out — the only place where "the
+      # registration actually lands" can be measured instead of argued.
+      - name: the Windows installer registers all four lanes
+        shell: pwsh
+        run: |
+          $scratch = Join-Path $env:RUNNER_TEMP 'profil'
+          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
+          $memdir = Join-Path $env:RUNNER_TEMP 'memory-install'
+          New-Item -ItemType Directory -Force -Path $memdir | Out-Null
+          & node bin/mem init --root $memdir --name probe | Out-Null
+
+          $alt = $env:USERPROFILE
+          $env:USERPROFILE = $scratch
+          $env:CHEAP_MEM_ROOT = $memdir
+          try {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -RepoRoot (Get-Location).Path
+          } finally { $env:USERPROFILE = $alt }
+
+          $settings = Join-Path $scratch '.claude\settings.json'
+          if (-not (Test-Path $settings)) {
+            Write-Host "::error::the installer wrote no settings.json at $settings"
+            exit 1
+          }
+          $cfg = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+
+          # The event list is NOT typed here. It is read out of the POSIX
+          # installer, the same source test/installer-parity.test.mjs
+          # uses — otherwise this step would be a second place that has
+          # to be remembered when a fifth lane arrives.
+          $posix = Get-Content -LiteralPath 'install/claude-code.sh' -Raw
+          $erwartet = [regex]::Matches($posix, "upsertHook\(\s*'([A-Za-z]+)'") |
+            ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+          if ($erwartet.Count -lt 4) {
+            Write-Host "::error::read only $($erwartet.Count) events out of the POSIX installer"
+            exit 1
+          }
+
+          $fehlt = @()
+          foreach ($e in $erwartet) {
+            $eintraege = $cfg.hooks.$e
+            if (-not $eintraege) { $fehlt += $e; continue }
+            $unser = $eintraege | Where-Object {
+              $_.hooks | Where-Object { $_.command -match 'cheap-mem-' }
+            }
+            if (-not $unser) { $fehlt += $e; continue }
+            # And the file it points at must exist. A registration that
+            # names a script nobody shipped is the same silence one step
+            # further along.
+            foreach ($u in $unser) {
+              foreach ($h in $u.hooks) {
+                if ($h.command -match '-File\s+"?([^"]+\.ps1)"?') {
+                  if (-not (Test-Path $Matches[1])) {
+                    Write-Host "::error::$e points at $($Matches[1]), which does not exist"
+                    exit 1
+                  }
+                }
+              }
+            }
+          }
+          if ($fehlt.Count -gt 0) {
+            Write-Host "::error::not registered: $($fehlt -join ', ')"
+            exit 1
+          }
+
+          # Installing twice must not leave two hooks on one event —
+          # two on UserPromptSubmit means every message pays twice.
+          $env:USERPROFILE = $scratch
+          try {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -RepoRoot (Get-Location).Path
+          } finally { $env:USERPROFILE = $alt }
+          $cfg2 = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
+          foreach ($e in $erwartet) {
+            $n = @($cfg2.hooks.$e | Where-Object {
+              $_.hooks | Where-Object { $_.command -match 'cheap-mem-' }
+            }).Count
+            if ($n -ne 1) {
+              Write-Host "::error::$e carries $n cheap-mem hooks after a second install"
+              exit 1
+            }
+          }
+          Write-Host "all $($erwartet.Count) lanes registered, each exactly once, each pointing at a file that exists"
           exit 0
 
   digest:

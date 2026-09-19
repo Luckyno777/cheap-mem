@@ -12,6 +12,12 @@
 #
 # _portable.sh — the POSIX tools that are not everywhere, in one place.
 #
+# windows-parity-ok: sourced by bash hooks only; it exists to paper over
+# missing GNU tools on POSIX, and the .ps1 hooks use native PowerShell
+# for the same jobs, so there is nothing here to port. (Marker read by
+# test/hook-parity.test.mjs, added 2026-09-19 when three bash-only hooks
+# turned out to be unstartable on a Windows box without Git Bash.)
+#
 # Sourced, never executed. `bin/` ships and installs as a whole (the
 # launchd and systemd units point at ${HERE}/bin/..., they do not copy
 # single files), so a sibling to source is safe.

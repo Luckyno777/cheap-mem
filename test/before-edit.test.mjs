@@ -319,10 +319,22 @@ test('no hook passes a bare path along as an ESM specifier', () => {
     if (!text.includes('import(process.argv')) continue;
     checked += 1;
     // Whatever is passed at the end of node -e must be a URL variable.
-    const handoffs = text.match(/'\s+"\$[A-Z_]+"\s+2>\/dev\/null/g) ?? [];
+    //
+    // **Two spellings since 2026-09-19.** bin/ carries both shells now:
+    // the bash hooks hand the specifier over as `' "$PTR_URL" 2>/dev/null`,
+    // the PowerShell ports as `node -e $SomeScript $PtrUrl 2>$null`. A
+    // probe that knew only the bash shape reported the new .ps1 files as
+    // "no handoff found" — a true statement about the pattern and a
+    // false one about the file, and the kind of false alarm that gets a
+    // guard switched off. The RULE is unchanged: the last argument must
+    // name a URL, not a path.
+    const handoffs = [
+      ...(text.match(/'\s+"\$[A-Z_]+"\s+2>\/dev\/null/g) ?? []),
+      ...(text.match(/node -e \$[A-Za-z]+\s+\$[A-Za-z]+\s+2>\$null/g) ?? []),
+    ];
     assert.ok(handoffs.length > 0, `${name}: no handoff found`);
     for (const u of handoffs) {
-      assert.match(u, /_URL"/,
+      assert.match(u, /_URL"|Url\b/,
         `${name} passes a bare path along: ${u.trim()}`);
     }
   }
