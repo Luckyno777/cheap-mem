@@ -26,11 +26,43 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Run npm, on every platform this suite runs on.
+ *
+ * **Windows.** `npm` there is `npm.cmd`, and since the fix for
+ * CVE-2024-27980 Node refuses to spawn a `.cmd` without a shell. A plain
+ * `execFileSync('npm', …)` throws on windows-latest — which is in this
+ * repo's test matrix, and which nothing would have reported, because CI
+ * does not run on feature branches (measured 2026-09-19: zero runs on
+ * the branch this test was written on).
+ *
+ * The route taken instead needs no shell and no guessing: when the suite
+ * runs under `npm test`, npm hands down `npm_execpath`, the path to its
+ * own JavaScript entry point, and node can run that directly. Only when
+ * that is absent — `node --test` invoked by hand — does this fall back
+ * to a shell, and then only on Windows, where it is the one thing that
+ * works.
+ *
+ * This is the only test in the repo that calls npm at all; every other
+ * external call goes to node, git or bash, which are real executables
+ * everywhere. That lack of precedent is why the trap was there to step
+ * into.
+ */
+function runNpm(args) {
+  const opts = { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] };
+  const viaNpm = process.env.npm_execpath;
+  if (viaNpm && /\.(c?js|mjs)$/.test(viaNpm)) {
+    return execFileSync(process.execPath, [viaNpm, ...args], opts);
+  }
+  if (process.platform === 'win32') {
+    return execFileSync('npm', args, { ...opts, shell: true });
+  }
+  return execFileSync('npm', args, opts);
+}
+
 /** What npm would actually ship — npm's own answer, not a re-implementation. */
 function packed() {
-  const roh = execFileSync('npm', ['pack', '--dry-run', '--json'],
-    { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  const j = JSON.parse(roh)[0];
+  const j = JSON.parse(runNpm(['pack', '--dry-run', '--json']))[0];
   return { size: j.size, unpacked: j.unpackedSize, files: j.entryCount };
 }
 
@@ -57,10 +89,7 @@ test('the GitHub branding images are not in the tarball', () => {
   // Named, because this is the thing that happened. A generic size
   // ceiling would go green again the moment someone shrinks the PNGs
   // instead of removing them — and they still would not belong there.
-  const roh = execFileSync('npm', ['pack', '--dry-run'],
-    { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
-    + execFileSync('npm', ['pack', '--dry-run', '--json'],
-      { cwd: REPO, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const roh = runNpm(['pack', '--dry-run']) + runNpm(['pack', '--dry-run', '--json']);
   for (const bild of ['github-header.png', 'social-preview.png', 'social-preview.jpg']) {
     assert.ok(!roh.includes(bild),
       `${bild} is in the tarball — that image belongs on the GitHub page, not in an install`);

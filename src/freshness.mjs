@@ -32,24 +32,24 @@ const valueOf = (e) => e.value ?? e.fact ?? e.text ?? '';
  * a version valid until the 1st does not hold on the 1st. Said out loud
  * because half of all interval bugs are this decision left unstated.
  */
-const bisMs = (e) => {
+const untilMs = (e) => {
   const t = e.valid_until ? Date.parse(e.valid_until) : NaN;
   return Number.isFinite(t) ? t : null;
 };
 
 /** Does this version hold AT `nowMs`? */
-const giltJetzt = (e, nowMs) => {
+const holdsNow = (e, nowMs) => {
   if (whenMs(e) > nowMs) return false;
-  const bis = bisMs(e);
-  return bis === null || nowMs < bis;
+  const until = untilMs(e);
+  return until === null || nowMs < until;
 };
 
 /** How a key's newest version relates to the question's point in time. */
-export const LAGE = Object.freeze({
-  AKTUELL: 'current',     // a version holds right now
-  NOCH_NICHT: 'not_yet',  // every version starts in the future
-  ABGELAUFEN: 'expired',  // every version has run out
-  KEINE: 'none',          // nothing usable at all
+export const STATE = Object.freeze({
+  CURRENT: 'current',     // a version holds right now
+  NOT_YET: 'not_yet',  // every version starts in the future
+  EXPIRED: 'expired',  // every version has run out
+  NONE: 'none',          // nothing usable at all
 });
 
 /**
@@ -101,11 +101,11 @@ export function resolveFacts(entries, { now = new Date(), staleDays = 120, retir
     versions.sort((a, b) => whenMs(b) - whenMs(a)); // newest first
     const future = versions.filter((e) => whenMs(e) > nowMs);
     const expired = versions.filter((e) => {
-      const bis = bisMs(e);
-      return whenMs(e) <= nowMs && bis !== null && nowMs >= bis;
+      const until = untilMs(e);
+      return whenMs(e) <= nowMs && until !== null && nowMs >= until;
     });
-    const gueltig = versions.filter((e) => giltJetzt(e, nowMs));
-    const current = gueltig[0] ?? null;
+    const valid = versions.filter((e) => holdsNow(e, nowMs));
+    const current = valid[0] ?? null;
     const history = current ? versions.filter((e) => e !== current) : versions;
     const ageDays = current ? Math.round((nowMs - whenMs(current)) / 86400000) : null;
     const stale = ageDays !== null && Number.isFinite(ageDays) && ageDays > staleDays;
@@ -113,14 +113,14 @@ export function resolveFacts(entries, { now = new Date(), staleDays = 120, retir
     // one that happened to sort second.
     let conflict = false;
     if (current) {
-      const gleichAlt = gueltig.filter((e) => whenMs(e) === whenMs(current));
+      const gleichAlt = valid.filter((e) => whenMs(e) === whenMs(current));
       conflict = new Set(gleichAlt.map((e) => JSON.stringify(valueOf(e)))).size > 1;
     }
-    let state = LAGE.AKTUELL;
+    let state = STATE.CURRENT;
     if (!current) {
-      if (future.length) state = LAGE.NOCH_NICHT;
-      else if (expired.length) state = LAGE.ABGELAUFEN;
-      else state = LAGE.KEINE;
+      if (future.length) state = STATE.NOT_YET;
+      else if (expired.length) state = STATE.EXPIRED;
+      else state = STATE.NONE;
     }
     out.push({ key, current, history, future, expired, state, stale, ageDays, conflict });
   }

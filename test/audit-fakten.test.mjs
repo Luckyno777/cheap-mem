@@ -33,7 +33,7 @@ test('POSITIVE: a version already in force IS the current one', () => {
     { id: 'present', key: 'service.port', value: 8000, valid_from: '2026-09-01' },
   ], { now: HEUTE });
   assert.equal(f[0].current.id, 'present');
-  assert.equal(f[0].state, fresh.LAGE.AKTUELL);
+  assert.equal(f[0].state, fresh.STATE.CURRENT);
   assert.equal(f[0].ageDays, 15);
 });
 
@@ -58,7 +58,7 @@ test('when everything is still in the future there is no current value, and it s
   ], { now: HEUTE });
   assert.equal(f[0].current, null);
   assert.equal(f[0].ageDays, null, 'an unmeasured age came back as a number');
-  assert.equal(f[0].state, fresh.LAGE.NOCH_NICHT);
+  assert.equal(f[0].state, fresh.STATE.NOT_YET);
   assert.match(fresh.formatFact(f[0]), /not yet/, fresh.formatFact(f[0]));
   assert.equal(/as of/.test(fresh.formatFact(f[0])), false,
     'the line reads like a settled fact');
@@ -69,7 +69,7 @@ test('valid_until is respected, and it is exclusive', () => {
     { id: 'alt', key: 'k', value: 1, valid_from: '2026-01-01', valid_until: '2026-06-01' },
   ], { now: HEUTE });
   assert.equal(abgelaufen[0].current, null, 'an expired version is still being served');
-  assert.equal(abgelaufen[0].state, fresh.LAGE.ABGELAUFEN);
+  assert.equal(abgelaufen[0].state, fresh.STATE.EXPIRED);
   // Exclusive: on the last day itself it no longer holds.
   const amTag = fresh.resolveFacts([
     { id: 'alt', key: 'k', value: 1, valid_from: '2026-01-01', valid_until: '2026-06-01' },
