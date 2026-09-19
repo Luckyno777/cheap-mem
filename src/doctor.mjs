@@ -172,6 +172,8 @@ export function checkAll(root) {
   f.push(checkGitignoreEffective(root));
   f.push(checkRollback(root));
   f.push(...checkEnvironmentContract(root));
+  f.push(checkCorpusSize(root));
+  f.push(checkAppendOnlyGit(root));
   f.push(checkFindingParity(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
@@ -1332,4 +1334,215 @@ export function checkArchiveBacklog(root, { env = process.env, now = Date.now() 
   return finding('archive-backlog', LEVEL.GOOD,
     `${count} captures (${mb} MB) in transit in the tracked ${archive.DEFAULT_LOCATION}/, `
     + `oldest ${days.toFixed(1)} days — the drain is running`);
+}
+
+// --- corpus size against the sharding line ---------------------------
+
+/**
+ * Past this many entries, `docs/scale.md` says split rather than tune.
+ * Configurable via `.mem/config.json`'s `corpusWarnThreshold` — the
+ * same ad-hoc-optional-key shape as `maxEntryBytes` in memory.mjs, not
+ * a new pattern.
+ */
+export const CORPUS_WARN_THRESHOLD = 50000;
+
+/**
+ * Total entries against the sharding line — with the MEASURED cost of
+ * ignoring it, not a guess.
+ *
+ * **Why cheap-mem gets a real threshold and the sibling house does
+ * not.** lucky-mem holds one person's memory (2094 entries measured
+ * 2026-09-07 — see `shared/finding-map.jsonl`'s `nur-startlast` entry
+ * for the shape difference between the houses); it is 24x away from the
+ * line below and would never trip it in practice. cheap-mem is the copy
+ * strangers install (see `checkArchiveBacklog`'s docstring, the same
+ * reasoning) — foreign users bring their own corpora, and some of those
+ * are already large. A threshold that fires for nobody teaches nobody
+ * to look; this one exists because it is expected to actually fire for
+ * someone.
+ *
+ * **The number in the warning is the audit's own measurement, not this
+ * file's estimate.** External audit, 2026-09-19: 400,000 entries, 1237
+ * MB heap, 746 ms search latency. `docs/scale.md`'s own table stops at
+ * 200,000 (247 ms search, per its own numbers) precisely because nobody
+ * had pushed a real corpus further than that before. Quoting the 400k
+ * point rather than extrapolating the existing curve keeps the warning
+ * honest about what was actually measured versus what is inferred.
+ *
+ * **WARN, never ERROR.** A large corpus is not broken — search still
+ * returns correct answers, only slower, and heap is a resource cost,
+ * not a correctness one. Sharding is a real migration a team schedules
+ * on its own time; `mem doctor` should not be able to fail a build over
+ * it. See `docs/scale.md` ("Sharding is the answer, not a bigger
+ * index") for the actual fix.
+ *
+ * **The count is named even when it is nowhere near the line.** A
+ * number that appears only once it is a problem cannot be watched
+ * growing towards one.
+ */
+export function checkCorpusSize(root) {
+  let entries;
+  try { ({ entries } = integrity.scanIntegrity(root)); }
+  catch { return finding('corpus-size', LEVEL.UNKNOWN, 'logs unreadable'); }
+
+  let threshold = CORPUS_WARN_THRESHOLD;
+  try {
+    const cfg = cfgmod.readConfig(root);
+    const v = Number(cfg.corpusWarnThreshold);
+    if (Number.isFinite(v) && v > 0) threshold = v;
+  } catch { /* no config yet (bare tmp dir, mid `mem init`) — use the floor */ }
+
+  if (entries <= threshold) {
+    return finding('corpus-size', LEVEL.GOOD,
+      `${entries} entries, under the ${threshold}-entry sharding line`);
+  }
+  return finding('corpus-size', LEVEL.WARN,
+    `${entries} entries, over the ${threshold}-entry sharding line. Measured at `
+    + '400,000 entries (external audit, 2026-09-19): 1237 MB heap, 746 ms search '
+    + 'latency — not an estimate.',
+    'Split this memory: one per team, product or client, not a bigger index — '
+    + 'see docs/scale.md ("Sharding is the answer, not a bigger index"). '
+    + 'Raise or lower the line for this memory via .mem/config.json '
+    + '"corpusWarnThreshold" if it genuinely needs to run larger.');
+}
+
+// --- append-only, checked against git, not against a hash chain ------
+
+/**
+ * Above this many bytes a file is skipped rather than fully diffed
+ * against its git blob — `git show` buffers the whole blob into memory
+ * as a string, and so does the working-tree read this compares it
+ * against, so an unbounded file here is two full in-memory copies of
+ * whatever a corpus grows into. Generous relative to anything this
+ * repo's own logs have ever reached (the largest tracked .jsonl in this
+ * repo is under 200 KB, measured 2026-09-19) — this is a safety valve
+ * for a pathological corpus, not a normal-case limiter.
+ */
+export const APPEND_ONLY_GIT_CAP_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Is every append-only log still a pure extension of what git already
+ * has committed for it — checked against GIT, not against a hash chain.
+ *
+ * **Why git and not a hash chain (the audit's own proposal).** A hash
+ * chain answers "has any line changed since the file was written",
+ * which is exactly what a recomputable checksum answers too — and
+ * against the realistic adversary here, it adds nothing a chain would
+ * not also fail to catch: someone with filesystem access can rewrite a
+ * line AND recompute every hash after it in the same edit, and a chain
+ * gives no way to tell that apart from an untouched file. What a chain
+ * is actually good against — an adversary who can edit the file but NOT
+ * recompute checksums — is not this project's threat model; the
+ * realistic failure here is carelessness, not a targeted attacker with
+ * disk access. And carelessness is exactly what a tool we already run
+ * on every write already has a complete, append-only, cryptographically
+ * chained log of: git itself. Building a second, weaker version of the
+ * same guarantee is a maintenance cost for no new coverage, plus a
+ * migration for every existing entry the moment the chain is
+ * introduced.
+ *
+ * **What this actually checks.** For every append-only log
+ * (`integrity.logFiles`, the same enumeration `checkIntegrity` uses):
+ * the current WORKING TREE content against `git show HEAD:<path>`. The
+ * old (committed) content must be a byte-for-byte PREFIX of the new
+ * (working-tree) content — that is what "only appended since the last
+ * commit" means. When it is not a prefix, the first line where they
+ * diverge is reported (1-indexed, matching an editor's line numbers).
+ *
+ * Three states, not two:
+ *   - not a git clone, or a file not yet tracked in HEAD (new, never
+ *     committed) -> UNKNOWN for that file. A brand-new file has no
+ *     history to check against, and reporting it GOOD would credit git
+ *     with a guarantee it is not yet holding.
+ *   - tracked, and the old content is a prefix of the new -> GOOD.
+ *   - tracked, and it is not a prefix -> ERROR, naming the file and the
+ *     first differing line.
+ *
+ * **The honest limit of this, stated plainly.** This compares the
+ * working tree to the CURRENT HEAD. It catches an edit to a historical
+ * line made in the working tree before it is committed — which is where
+ * carelessness actually happens: `sed -i` on the wrong file, a manual
+ * "fix" of an old entry, a bad merge resolved by hand. It does NOT
+ * catch a rewrite that has already been committed (HEAD then IS the
+ * rewritten content, and comparing HEAD to HEAD is trivially clean), and
+ * it does not catch a force-pushed history this clone has since pulled.
+ * Whoever can commit — or rewrite and push — gets through. That is not
+ * a defect in the check; it is the actual shape of "checked against
+ * git": git's own history is the append-only log here, and this reads
+ * it, it does not re-implement it.
+ *
+ * `root` is assumed to be inside a git worktree but not necessarily its
+ * TOPLEVEL (a memory can be nested in a larger repo) — the git pathspec
+ * for `show` is resolved against the toplevel, not against `root`,
+ * because `git show HEAD:<path>` reads `<path>` relative to the
+ * repository root unless prefixed with `./`. Measured directly
+ * (2026-09-19): `git -C <subdir> show HEAD:file.txt` for a file that
+ * exists at `<subdir>/file.txt` answers "path 'sub/file.txt' exists,
+ * but not 'file.txt'" — using `path.relative(root, ...)` here without
+ * this correction would make every file in a nested memory read as
+ * untracked.
+ */
+export function checkAppendOnlyGit(root) {
+  const top = quietRun('git', ['-C', root, 'rev-parse', '--show-toplevel']);
+  if (top === null || !top.trim()) {
+    return finding('append-only-git', LEVEL.UNKNOWN,
+      'not a git clone (or git missing) — append-only cannot be checked against history');
+  }
+  const toplevel = top.trim();
+
+  const files = integrity.logFiles(root);
+  if (!files.length) return finding('append-only-git', LEVEL.GOOD, 'no append-only logs yet');
+
+  const errors = [];      // { rel, line }
+  const untracked = [];   // rel
+  const capped = [];      // rel
+  let checked = 0;
+
+  for (const f of files) {
+    let stat;
+    try { stat = fs.statSync(f.abs); } catch { untracked.push(f.rel); continue; }
+    if (stat.size > APPEND_ONLY_GIT_CAP_BYTES) { capped.push(f.rel); continue; }
+
+    const gitRel = path.relative(toplevel, f.abs).split(path.sep).join('/');
+    const committed = quietRun('git', ['-C', root, 'show', `HEAD:${gitRel}`]);
+    if (committed === null) { untracked.push(f.rel); continue; }
+
+    let current;
+    try { current = fs.readFileSync(f.abs, 'utf8'); } catch { untracked.push(f.rel); continue; }
+
+    checked += 1;
+    if (current.startsWith(committed)) continue;   // only appended — good
+
+    const oldLines = committed.split('\n');
+    const newLines = current.split('\n');
+    let bad = 1;
+    while (bad <= oldLines.length && newLines[bad - 1] === oldLines[bad - 1]) bad += 1;
+    errors.push({ rel: f.rel, line: bad });
+  }
+
+  const cappedNote = capped.length ? `, ${capped.length} file(s) skipped (over ${
+    (APPEND_ONLY_GIT_CAP_BYTES / 1048576).toFixed(0)} MB, not checked)` : '';
+  const untrackedNote = untracked.length
+    ? `, ${untracked.length} not tracked in HEAD (new, unjudged)` : '';
+
+  if (errors.length) {
+    return finding('append-only-git', LEVEL.ERROR,
+      `${errors.length} file(s) changed a line git already has committed: `
+      + errors.slice(0, 5).map((e) => `${e.rel}:${e.line}`).join(', ')
+      + (errors.length > 5 ? ' ...' : '') + cappedNote + untrackedNote,
+      'A committed line was edited in the working tree instead of appended to. '
+      + 'If this was a deliberate correction, append a new line instead and leave '
+      + 'the old one — append-only means the fix is a new line, not an edit. If it '
+      + 'was accidental (a bad merge, a stray `sed`), restore the file from HEAD and '
+      + 're-apply only the intended new lines: '
+      + `git -C ${root} diff HEAD -- <file> first, to see exactly what moved.`);
+  }
+  if (checked === 0) {
+    return finding('append-only-git', LEVEL.UNKNOWN,
+      `${files.length} append-only log(s), none of them checkable against history yet`
+      + `${untrackedNote}${cappedNote}`);
+  }
+  return finding('append-only-git', LEVEL.GOOD,
+    `${checked} append-only log(s) hold everything git already has, only appended`
+    + `${untrackedNote}${cappedNote}`);
 }

@@ -158,6 +158,26 @@ timestamps (`ageDays >= 0`), so a 2099 entry buys nothing — measured.
 | body chars | 4000 | per claim, in the returned record only |
 | context chars | 24000 | total across returned bodies |
 | per-author share | 0.5 | no sub-user author takes half the CANDIDATES |
+| entry bytes (write) | 1 MB | see below — a WRITE bound, not a retrieval one |
+
+**A separate bound on the write path, not this table's `LIMITS`.**
+`memory.MAX_ENTRY_BYTES` (`src/memory.mjs`) is checked in `logEntry`,
+against `Buffer.byteLength` of the FINISHED JSON line — not any one
+field, which a cap on a single field is trivially evaded by splitting
+across several. It exists because `search.RAW_CAP` (20 KB) only trims
+what the search index *weighs*; nothing bounded what `logEntry` was
+*willing to write*, and a 7.6 MB field value went through without a
+word (external audit, 2026-09-19). Over the cap: refused with the
+actual and the allowed size in the error, never a silent truncation — a
+truncated entry looks complete and is not, which is worse than none.
+Configurable via `.mem/config.json`'s `maxEntryBytes`. Does **not**
+apply to `raw/` captures (gzipped transcripts, written directly by
+`src/raw.mjs`, which never calls `logEntry` at all and has no
+per-field size bound of its own) — a capture is a copy of what a
+session actually said, and a cap shaped for one typed entry is not the
+right instrument for that. `search.RAW_CAP` still limits how much of a
+capture the search INDEX weighs; nothing here limits what is written to
+the capture archive itself.
 
 The author limit is a **share**, not a flat count: a digest agent
 legitimately writes most of a memory, and a flat cap would suppress the
@@ -242,7 +262,8 @@ every fresh memory started without the guarantee its own design depends on.
 | **T3** | secret in a body | redacted before disk | canary, hook | 7 separator + 7 space look-alikes | an unknown shape |
 | **T5 malicious merge** | conflict destroys lines | prevented | `env/merge-driver` | `merge=union` | driver must be present |
 | **T7 corruption** | truncated line | skipped **and counted** | `doctor` integrity | — | the entry is gone |
-| **T6 stale backup** | restore resurrects retired state | detected, ids named | `doctor` rollback | local watermark | fresh clone cannot detect; file is deletable |
+| **T7** | a historical line edited in the working tree, not merely appended to | flagged, first differing line named | `doctor` append-only-git (`checkAppendOnlyGit`) | working tree checked against `git show HEAD:<path>` — old must be a prefix of new | **whoever edits AND commits, or force-pushes rewritten history this clone then pulls, is invisible** — checked against git, deliberately not a second, weaker hash chain (see the long comment on `checkAppendOnlyGit` in `src/doctor.mjs`) |
+| **T3** | Trojan-Source bidi-override characters ([CVE-2021-42574](https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2021-42574)) reorder how a body reads in a terminal or an agent's context | neutralised at DISPLAY time | `src/bidi.mjs` — a closed nine-codepoint list (U+202A-U+202E, U+2066-U+2069) | `bidi.visible()` in every render path: `display.compactLine` (`mem find`, `mem component`/pre-edit hook, `mem when`, board), `memory.context()` (SessionStart hook), `browse.fit()` (`mem browse`), and directly in `bin/mem-retrieve`'s per-turn hook (which reads the raw entry, not `compactLine`'s output) | the character is still ON DISK, unmarked, in any consumer that reads the JSONL directly instead of through one of these render paths — e.g. `git show`, a raw `cat`, or a future display path that forgets to call `bidi.visible()` |
 | **T9 model output** | digest emits `authority: user` | demoted to `inferred` | `authority_clamped_from` | write-path ceiling | a writer without the ceiling set is unconstrained |
 
 ### Closed in the final verification round
@@ -308,7 +329,7 @@ an entry of genuinely unknown provenance.
 
 | | invariant | verified by |
 |---|---|---|
-| I1 | append-only; nothing is overwritten | `test/authority.test.mjs` |
+| I1 | append-only; nothing is overwritten | `test/authority.test.mjs`, and against real git history: `test/append-only-git.test.mjs`, `doctor` append-only-git |
 | I2/I8 | replaying a log yields identical state | `test/properties.test.mjs` |
 | I3 | no unauthorised supersession | `test/authority.test.mjs`, `bench/redteam.mjs` |
 | I4/I5 | scope is a boundary, not a parameter | `test/retrieval.test.mjs` |

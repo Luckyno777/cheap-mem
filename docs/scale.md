@@ -10,6 +10,18 @@ Node 22, one container. Your machine will differ; the shape will not.
 stops being invisible, which is the whole premise. Split before you get
 there — see [Sharding](#sharding-is-the-answer-not-a-bigger-index) below.
 
+`mem doctor` now watches this itself (external audit, 2026-09-19):
+`checkCorpusSize` counts the corpus on every run and warns once it
+crosses the 50,000-entry line above, naming the actual measured cost —
+1237 MB heap and 746 ms search latency at 400,000 entries, not an
+estimate — rather than leaving the number to be remembered by whoever
+read this file once. Below the line it still states the count, so it
+can be watched growing towards one. A WARNING, never an error: a large
+corpus is not broken, only slower, and sharding is a migration a team
+schedules, not something a build should be able to fail over.
+Configurable per memory via `.mem/config.json`'s `corpusWarnThreshold`
+for a memory that has deliberately decided to run larger.
+
 ## What actually costs time
 
 Not the search. The index.

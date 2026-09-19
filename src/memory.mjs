@@ -18,6 +18,8 @@ import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
+import * as cfgmod from './config.mjs';
+import * as bidi from './bidi.mjs';
 
 /**
  * Known log types. Each has its own JSONL per project + global.
@@ -208,6 +210,55 @@ export function logPath(root, type, project = null) {
  * Append a line to a JSONL log. Never modifies an existing line.
  * If an entry needs correction, a new line with `replaces_id` is written.
  */
+
+/**
+ * Hard ceiling on one FINISHED JSON line, in bytes — the audit finding
+ * this exists for (2026-09-19): a 7.6 MB field value wrote through
+ * without a word, because `search.RAW_CAP` (20 KB) only trims what the
+ * *index* weighs, never what `logEntry` is willing to *write*.
+ *
+ * **Chosen from measurement, not from the gut.** Two numbers, both
+ * measured 2026-09-19:
+ *
+ *   - The largest line this repo actually holds, across every .jsonl
+ *     under version control (global/, shared/, eval/runs/ — the raw/
+ *     capture archive is a different, exempt path, see below): 1792
+ *     bytes, `eval/runs/zustandslos-sonnet5.jsonl:69`.
+ *   - The largest field ALLOWED to be legitimately large by design:
+ *     `source.MAX_EXCERPT` caps a source excerpt at 4000 characters,
+ *     which is at most ~16 KB once encoded as worst-case 4-byte UTF-8
+ *     and given a title, tags and the rest of the entry on top.
+ *
+ * 1 MB is ~65x that DESIGNED ceiling and ~585x anything ever actually
+ * written — the same shape of headroom the sibling house used for its
+ * own cap (64 KB over a measured 3519-byte max, 18x), scaled to the one
+ * field in this house's schema that is allowed to be large on purpose.
+ * It stays orders of magnitude below the 7.6 MB that motivated this in
+ * the first place, so a real accident still trips it immediately.
+ *
+ * Configurable via `.mem/config.json`'s `maxEntryBytes` (the same
+ * ad-hoc-optional-key pattern as `cfg.hooks.Stop` — not every knob lives
+ * in `config.DEFAULT_CONFIG`, only the ones every fresh `mem init`
+ * should see spelled out). This constant is the floor nobody has to
+ * configure to get.
+ */
+export const MAX_ENTRY_BYTES = 1024 * 1024; // 1 MB
+
+/**
+ * The configured cap, or the floor above when there is no config yet
+ * (a bare tmp dir in a test, a root mid-`mem init`) or it says nothing.
+ * Never throws: a write path that could fail on reading its OWN limit
+ * would be worse than one with no limit at all.
+ */
+function maxEntryBytesFor(root) {
+  try {
+    const cfg = cfgmod.readConfig(root);
+    const v = Number(cfg.maxEntryBytes);
+    if (Number.isFinite(v) && v > 0) return v;
+  } catch { /* no config yet, or unreadable — fall back to the floor */ }
+  return MAX_ENTRY_BYTES;
+}
+
 /**
  * Who is writing, when nobody said.
  *
@@ -330,6 +381,20 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   const line = JSON.stringify(entry);
   if (line.includes('\n')) {
     throw new Error('Newline in log entry — would break JSONL format');
+  }
+  // Measured on the FINISHED line, not on any one field — a cap on a
+  // single field is evaded by adding more fields or a second large one;
+  // the line is what actually lands on disk and what every reader has
+  // to load back into memory. Refuses outright: cheap-mem never silently
+  // truncates a write, because a truncated entry LOOKS complete and is
+  // not, which is worse than no entry at all.
+  const bytes = Buffer.byteLength(line, 'utf8');
+  const cap = maxEntryBytesFor(root);
+  if (bytes > cap) {
+    throw new Error(
+      `Entry too large: ${bytes} bytes, cap is ${cap} bytes `
+      + '(.mem/config.json "maxEntryBytes" to raise or lower it). '
+      + 'Refusing to write rather than truncate a field silently.');
   }
   fs.appendFileSync(p, `${line}\n`, 'utf8');
   return { path: p, entry };
@@ -1096,6 +1161,15 @@ export function recentEntries(root, type, n) {
   return live.slice(0, n);
 }
 
+/**
+ * The one line `context()` shows per entry — and therefore what a
+ * SessionStart hook (`mem context`, see install/hooks/session-start.sh)
+ * hands straight into a fresh agent's context. Passed through
+ * `bidi.visible()` for exactly that reason: this is text an agent reads
+ * automatically, before it has decided to trust anything in this
+ * memory, so a Trojan-Source reorder landing here is the worst place it
+ * could land.
+ */
 function shortText(e) {
   const parts = [];
   if (e.title) parts.push(e.title);
@@ -1105,7 +1179,7 @@ function shortText(e) {
   if (e.choice) parts.push(`→ ${e.choice}`);
   if (e.why) parts.push(`because ${e.why.slice(0, 80)}`);
   if (e.tags && Array.isArray(e.tags) && e.tags.length) parts.push(`#${e.tags.join(' #')}`);
-  return parts.join(' — ');
+  return bidi.visible(parts.join(' — '));
 }
 
 /**

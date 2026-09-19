@@ -17,6 +17,7 @@ import * as memory from '../memory.mjs';
 import * as retrieval from '../retrieval.mjs';
 import * as timesearch from '../timesearch.mjs';
 import * as procedure from '../procedure.mjs';
+import * as bidi from '../bidi.mjs';
 import { out, die, checkFlags, isHelp, findRoot, requireConfig } from './shell.mjs';
 
 /**
@@ -161,7 +162,13 @@ export function compactLine(e) {
   if (e.why) parts.push(`because ${String(e.why).slice(0, 60)}`);
   if (e.rule) parts.push(String(e.rule).slice(0, 120).replace(/\s+/g, ' '));
   if (e.question) parts.push(String(e.question).slice(0, 120).replace(/\s+/g, ' '));
-  return parts.join(' — ') || '(no compact text)';
+  // Same reasoning as the procedure mark just above, same latch site:
+  // this is THE shared renderer behind `mem find`, `mem component`
+  // (which is what the PreToolUse hook reads as `h.label`), `mem when`
+  // and the board — one call here closes all of them at once, where
+  // fixing each caller separately would only be as strong as the one
+  // someone forgot.
+  return bidi.visible(parts.join(' — ')) || '(no compact text)';
 }
 
 /**

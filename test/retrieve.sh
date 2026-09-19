@@ -34,6 +34,15 @@ build_memory() {
   git init -q --bare -b main "$WORK/remote"
   mkdir -p "$WORK/mem"
   git -C "$ROOT_REPO" archive HEAD | tar -x -C "$WORK/mem"
+  # `git archive HEAD` is the last COMMIT, not the working tree — right
+  # for a clean, pushable fixture, wrong the moment a session is testing
+  # its own uncommitted change to a file the hook loads by PATH rather
+  # than through `mem find`'s own (archived) code. `$TOOL_ROOT/src/bidi.mjs`
+  # in bin/mem-retrieve is exactly that: loaded straight off disk, not
+  # through the archived `mem` binary. Overlaying the live file keeps
+  # check 10 meaningful today; once committed this copy is a no-op over
+  # identical content.
+  cp "$ROOT_REPO/src/bidi.mjs" "$WORK/mem/src/bidi.mjs" 2>/dev/null || true
   git -C "$WORK/mem" init -q -b main
   git -C "$WORK/mem" config user.email t@t
   git -C "$WORK/mem" config user.name T
@@ -252,6 +261,65 @@ build_memory
 OUT="$(printf '%s' '{"prompt":"a totally unrelated question about weather"}' \
   | env MEM_RETRIEVE_NO_PULL=1 CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
 [ -z "$OUT" ] && ok "nothing shown for an unrelated prompt" || bad "showed noise"
+
+# 10) Trojan-Source bidi-override characters (CVE-2021-42574).
+#
+# This is the path the external audit named directly: `mem find --json`
+# hands this hook the RAW entry (`h.entry`), not the already-sanitised
+# `compactLine` label — see the long comment at the top of the `BLOCK=`
+# node script in bin/mem-retrieve for why. An entry whose title carries
+# an embedded RLO (U+202E) must not reach `additionalContext` with that
+# character intact, because THIS is the text an agent reads
+# automatically, before it has decided to trust anything in the memory.
+echo "10) a bidi-override character in an entry does not reach additionalContext raw"
+build_memory
+# The character goes in via a real `mem log` call, the same write path
+# any entry takes — not injected into the JSONL by hand, so this proves
+# the whole pipe (write -> find --json -> hook), not just the sanitiser.
+RLO=$'‮'
+node "$WORK/mem/bin/mem" --root "$WORK/mem" \
+  log decision --topic bidiprobe --choice "ship it" \
+  --why "reordered${RLO}gnihtemos hidden here" >/dev/null 2>&1
+OUT="$(printf '%s' '{"prompt":"why did we decide on the bidiprobe reordering"}' \
+  | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+if [ -z "$OUT" ]; then
+  bad "no context at all — cannot tell whether the character was neutralised"
+else
+  printf '%s' "$OUT" | grep -qF "$RLO" \
+    && bad "the raw RLO character reached additionalContext unneutralised" \
+    || ok "the RLO character never reaches additionalContext raw"
+  printf '%s' "$OUT" | grep -q 'U+202E' \
+    && ok "a plain-ASCII marker stands in its place" \
+    || bad "the character vanished silently instead of being marked"
+fi
+
+# And the same thing again on a Node that cannot `require()` an ESM
+# file. This is not a hypothetical: `require(esm)` only landed in Node
+# 22.12, this package declares `engines: >=18`, and its own CI matrix
+# runs Node 20. `--no-experimental-require-module` puts the Node running
+# here into exactly that state, so one runner can measure both.
+#
+# Without this half the check above is green on Node 22 whether the hook
+# loads the sanitiser or silently falls back to raw text — it passed
+# both before and after the bug was found (2026-09-19). A check that
+# cannot tell the broken case from the working one is not a check.
+if node --no-experimental-require-module -e '' 2>/dev/null; then
+  OUT20="$(printf '%s' '{"prompt":"why did we decide on the bidiprobe reordering"}' \
+    | env NODE_OPTIONS="--no-experimental-require-module" \
+          MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+          CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+  if [ -z "$OUT20" ]; then
+    bad "no context at all without require(esm) — the hook fell over there"
+  else
+    printf '%s' "$OUT20" | grep -qF "$RLO" \
+      && bad "without require(esm) the raw RLO reaches additionalContext (Node 20 path)" \
+      || ok "the Node 20 path marks it too, not just Node 22"
+  fi
+else
+  # Three states, never two: an old Node that does not know the flag
+  # cannot answer this question, and saying nothing is not saying yes.
+  echo "  ??   --no-experimental-require-module unavailable — Node 20 path not measured here"
+fi
 
 echo
 echo "green=$GREEN red=$RED"

@@ -20,6 +20,7 @@
  */
 
 import * as search from './search.mjs';
+import * as bidi from './bidi.mjs';
 
 // --- Terminal escapes (all of them) -------------------------------------
 const ALT_ON = '\x1b[?1049h';
@@ -45,12 +46,23 @@ export const TYPE_FILTERS = Object.freeze([
   null, 'decision', 'error', 'event', 'learning', 'duty', 'thought',
 ]);
 
-/** Cut to width without ever emitting a half-truncated escape sequence. */
+/**
+ * Cut to width without ever emitting a half-truncated escape sequence —
+ * and, since 2026-09-19, without ever emitting one of the nine
+ * Trojan-Source bidi-override characters (CVE-2021-42574) either.
+ *
+ * Same reasoning as the ANSI stripping right below it: this is the ONE
+ * function every line `render()` prints goes through (see the two call
+ * sites in `render()`), so it is the single place that closes list view,
+ * detail view and the help line at once — an entry whose `why` or
+ * `title` carries an embedded RLO cannot reorder what the terminal shows
+ * after this, because the character never reaches the terminal at all.
+ */
 export function fit(s, width) {
   // Stripping ANSI codes is the PURPOSE of this line; the control
   // character is what is being searched for, not an accident.
   // eslint-disable-next-line no-control-regex
-  const flat = String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\x1b\[[0-9;]*m/g, '');
+  const flat = bidi.visible(String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\x1b\[[0-9;]*m/g, ''));
   if (width <= 0) return '';
   return flat.length <= width ? flat : `${flat.slice(0, Math.max(0, width - 1))}…`;
 }
