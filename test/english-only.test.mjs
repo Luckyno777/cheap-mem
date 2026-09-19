@@ -364,3 +364,191 @@ test('no scanned file ends inside an unterminated block comment', () => {
     + `It is reading code as comment text from that point to the end of the file. `
     + `Usually a ${BLOCK_OPEN} inside a string literal — build it from parts.`);
 });
+
+// --- Does the PRODUCT'S OWN CODE carry German, not just its comments? -
+//
+// The first probe above never reads code, on purpose: `src/thesaurus.mjs`
+// holds German synonym words as DATA. `scanBenchOutput` closed the same
+// gap for bench/ output; this closes it for src/ and bin/ — the
+// identifiers and string literals a stranger actually runs, which
+// nobody proofreads the way they proofread a sentence.
+//
+// Same dictionary, same two-word threshold. Comments are stripped with
+// `codeLines`, built from the SAME state machine as `commentLines`
+// above — not `scanBenchOutput`'s plainer `startsWith('//'|'*'|'/*')`
+// check. That plainer check would misread this house: src/ and bin/
+// carry heavy JSDoc blocks whose continuation lines do not start with
+// `*` (confirmed 2026-09-19 in src/astra.mjs and src/viewer.mjs, ~60
+// lines of ordinary design-rationale prose). Read as code by mistake,
+// those lines would be re-scanned for German the comment probe above
+// already cleared them of — an "innocent reported" false positive
+// waiting to happen the day one of them picks up a second word this
+// dictionary knows. `codeLines` tracks the same block state and hands
+// back only the text before/after/outside a comment on each line.
+//
+// **Measured 2026-09-19 against src/+bin/ (93 files): eleven lines.**
+// Nine are the bilingual stop-word lists this file already explains are
+// DATA: src/language.mjs:39-45 (DE_STOP) and src/search.mjs:1367-1368.
+// A tenth is the same kind of DATA one level down: src/thesaurus.mjs:108,
+// one German synonym quartet for "because/reason", in the very file the
+// header above names as holding German word groups on purpose, so a
+// memory written in German stays searchable. All ten are named below,
+// verbatim and by substring rather than file-and-line — same idiom as
+// `KNOWN_GERMAN_DATA` above — so a later reflow does not silently stop
+// covering them; a companion test checks that each one still matches
+// something real.
+//
+// The eleventh is not data and not German: src/cli/commands/write.mjs:124
+// checks a guard-check result and calls this file's fatal-exit helper.
+// Both of those two ordinary English names happen to sit on GERMAN_WORDS
+// too, for unrelated reasons of the dictionary's own — one was added
+// there for German prose using the same spelling, the other is a
+// definite article. Renaming an established, correctly-English name to
+// dodge a dictionary collision would be solving the probe's problem in
+// the product's vocabulary, so it is named as a false positive instead
+// — exactly the way `KNOWN_VERBATIM_QUOTES` above excuses one exact
+// quotation rather than inventing a pattern for "sentences that quote
+// something".
+//
+// **A claim measured here, and found short.** Commit 2378a6a said, of
+// this exact count: "Re-measured: nine lines left in src/ and bin/, all
+// nine the stop lists, no prose." That was one DATA line short (it
+// missed src/thesaurus.mjs:108, present in the tree at that commit
+// already) before even counting the write.mjs false positive. Re-stated
+// here rather than quietly matched, because a guard that repeats an
+// unverified count is the exact failure this file's own house rule —
+// "Prüfe nach... miss selbst" — exists to catch.
+const KNOWN_SRC_GERMAN_DATA = Object.freeze([
+  // src/language.mjs: DE_STOP, the German half of the bilingual
+  // tokenizer stopword pack.
+  "'der', 'die', 'das', 'den', 'dem', 'des', 'ein', 'eine', 'einen', 'einem',",
+  "'einer', 'eines', 'und', 'oder', 'aber', 'ist', 'sind', 'war', 'waren',",
+  "'wird', 'werden', 'wurde', 'wurden', 'hat', 'haben', 'hatte', 'hatten',",
+  "'sein', 'seine', 'ich', 'du', 'er', 'sie', 'es', 'wir', 'ihr', 'nicht',",
+  "'kein', 'keine', 'mit', 'von', 'zu', 'zum', 'zur', 'auf', 'in', 'im',",
+  "'an', 'am', 'fuer', 'für', 'bei', 'aus', 'nach', 'ueber', 'über', 'als',",
+  "'wie', 'wenn', 'dass', 'da', 'so', 'auch', 'noch', 'nur', 'schon',",
+  // src/search.mjs: the same bilingual stop list, second copy, for the
+  // content-word filter used at query time.
+  "'der', 'die', 'das', 'und', 'ist', 'nicht', 'auch', 'noch', 'aber', 'wir',",
+  "'ich', 'mit', 'ein', 'eine', 'dass', 'wie', 'was', 'schon', 'nur', 'mal',",
+  // src/thesaurus.mjs: one German synonym group among many.
+  "'weil', 'grund', 'begruendung', 'warum'],",
+]);
+
+// Named, singular, and explained above rather than pattern-matched — a
+// dictionary collision on real English identifiers, not German.
+const KNOWN_SRC_FALSE_POSITIVES = Object.freeze([
+  "if (probe.state === 'broken') die(`log: the latch is no good",
+]);
+
+/**
+ * Non-comment text of one file, as { number, raw, code } per line.
+ *
+ * Mirrors `commentLines`'s block-comment state machine so the two never
+ * disagree about which lines are comments — `code` is what is left once
+ * every `//`, `#` and `/* ... *&#47;` span (including one that opens and
+ * closes within the same line) is removed.
+ */
+function codeLines(text, blocks = true) {
+  const out = [];
+  let inBlock = false;
+  const lines = text.split('\n');
+  for (let i = 0; i < lines.length; i += 1) {
+    const raw = lines[i];
+    let code = '';
+    let pos = 0;
+    for (;;) {
+      if (inBlock) {
+        const close = raw.indexOf(BLOCK_CLOSE, pos);
+        if (close === -1) break;
+        inBlock = false;
+        pos = close + 2;
+        continue;
+      }
+      const rest = raw.slice(pos);
+      const lineComment = rest.indexOf('//');
+      const hashComment = rest.indexOf('#');
+      const blockStart = blocks ? rest.indexOf(BLOCK_OPEN) : -1;
+      const candidates = [lineComment, hashComment, blockStart]
+        .map((n) => (n === -1 ? Infinity : n));
+      const earliest = Math.min(...candidates);
+      if (!Number.isFinite(earliest)) { code += rest; break; }
+      code += rest.slice(0, earliest);
+      if (earliest === blockStart) { inBlock = true; pos += earliest + 2; continue; }
+      break; // // or # runs to the end of the line
+    }
+    out.push({ number: i + 1, raw, code });
+  }
+  out.unterminated = inBlock;
+  return out;
+}
+
+function scanSrcOutput() {
+  const files = [];
+  for (const d of ['src', 'bin']) listFiles(path.join(REPO, d), files);
+  const offenders = [];
+  const unterminated = [];
+  for (const file of files) {
+    const rel = path.relative(REPO, file);
+    const text = fs.readFileSync(file, 'utf8');
+    const lines = codeLines(text, hasBlocks(file, text));
+    if (lines.unterminated) unterminated.push(rel);
+    for (const { number, raw, code } of lines) {
+      const trimmed = code.trim();
+      if (!trimmed) continue;
+      if (KNOWN_SRC_GERMAN_DATA.some((q) => raw.includes(q))) continue;
+      if (KNOWN_SRC_FALSE_POSITIVES.some((q) => raw.includes(q))) continue;
+      const hits = germanHits(code);
+      if (hits.length >= 2) offenders.push({ file: rel, number, hits, text: trimmed });
+    }
+  }
+  return { files, offenders, unterminated };
+}
+
+test('POSITIVE: the src/bin code scan walks files and the dictionary still bites', () => {
+  const { files } = scanSrcOutput();
+  assert.ok(files.length >= 40, `only ${files.length} src/bin files scanned — empty-scan false pass`);
+  const probeHits = germanHits("const antwort = 'der Eintrag ist nicht gemessen';");
+  assert.ok(probeHits.length >= 2,
+    `the dictionary finds only ${probeHits.length} German word(s) in an obviously German line`);
+});
+
+test('every named src/bin exception still matches a real line', () => {
+  // The gegenprobe for the exception list itself. A line can move, be
+  // reworded or be deleted; a substring exception that no longer matches
+  // anything is not "safely unused" — it is silent cover for whatever
+  // that same text would flag if it reappeared verbatim somewhere else,
+  // and it is a sign the count above ("eleven") is no longer measured,
+  // only remembered.
+  const files = [];
+  for (const d of ['src', 'bin']) listFiles(path.join(REPO, d), files);
+  const texts = files.map((f) => fs.readFileSync(f, 'utf8'));
+  const stale = [...KNOWN_SRC_GERMAN_DATA, ...KNOWN_SRC_FALSE_POSITIVES]
+    .filter((q) => !texts.some((t) => t.includes(q)));
+  assert.deepEqual(stale, [],
+    `named src/bin exception(s) match nothing any more, re-measure and update them:\n`
+    + stale.map((q) => `  ${JSON.stringify(q)}`).join('\n'));
+});
+
+test('no src/ or bin/ line outside comments carries two or more German words, unless it is named DATA', () => {
+  // The identifiers and strings a stranger who clones this repo actually
+  // runs, as opposed to the prose the two probes above already cover.
+  const { offenders } = scanSrcOutput();
+  const report = offenders
+    .map((o) => `  ${o.file}:${o.number}  [${o.hits.join(', ')}]  ${o.text}`)
+    .join('\n');
+  assert.deepEqual(offenders.map((o) => `${o.file}:${o.number}`), [],
+    `${offenders.length} src/bin code line(s) carry German outside the named exceptions:\n${report}`);
+});
+
+test('no src/ or bin/ file ends inside an unterminated block comment (code scan)', () => {
+  // Same failure mode as the comment-probe's own version of this check,
+  // for `codeLines` instead of `commentLines`: an unterminated block
+  // comment usually means a `/*`-like sequence inside a string fooled
+  // the extractor, and everything after it in the file was read as the
+  // wrong thing from that point on.
+  const { unterminated } = scanSrcOutput();
+  assert.deepEqual(unterminated, [],
+    `codeLines never leaves a block comment open in: ${unterminated.join(', ')}`);
+});
