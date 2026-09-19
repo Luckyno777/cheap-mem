@@ -192,3 +192,74 @@ test('the push trigger is not narrowed to main alone', () => {
     + 'no open pull request gets no CI at all, the exact defect measured '
     + '2026-09-19 on this branch');
 });
+
+// A switch a script does not declare is not an error in PowerShell.
+//
+// **Measured 2026-09-19 (run 232 and 233).** The installer step called
+//
+//     powershell ... -File install\windows.ps1 -RepoRoot (Get-Location).Path
+//
+// and install/windows.ps1 declares only SkipTask, SkipClaudeDesktop and
+// SkipClaudeCode. A *simple* script - one with param() and no
+// [CmdletBinding()] - collects unmatched arguments in $args instead of
+// refusing them. So the call bound nothing, said nothing, and the step
+// went on believing it had steered the repo root. It had not; the
+// installer derives it from $PSCommandPath, which is why nothing broke
+// and why nobody would have noticed.
+//
+// The rule is about the SHAPE of a CI call, so it finds the calls
+// itself rather than listing today's.
+
+/** Every `-File <script>.ps1` invocation in ci.yml, with what follows it. */
+function powershellCalls() {
+  const out = [];
+  for (const s of steps()) {
+    const re = /-File\s+([^\s]+\.ps1)([^\r\n]*)/gi;
+    let m;
+    while ((m = re.exec(s.body)) !== null) {
+      out.push({ step: s.name, script: m[1].replace(/\\/g, '/').replace(/^\.\//, ''), rest: m[2] });
+    }
+  }
+  return out;
+}
+
+/** The parameter names a PowerShell script declares in its param() block. */
+function declaredParams(text) {
+  const block = /(^|\n)param\s*\(([\s\S]*?)\n\)/.exec(text);
+  if (!block) return null;
+  return [...block[2].matchAll(/\$([A-Za-z_][\w]*)/g)].map((m) => m[1].toLowerCase());
+}
+
+test('every switch a CI step passes to one of our scripts is actually declared', () => {
+  const offenders = [];
+  let geprueft = 0;
+  for (const { step, script, rest } of powershellCalls()) {
+    const p = path.join(REPO, script);
+    if (!fs.existsSync(p)) continue;          // a generated hook in a temp dir
+    const declared = declaredParams(fs.readFileSync(p, 'utf8'));
+    if (declared === null) continue;
+    geprueft += 1;
+    for (const m of rest.matchAll(/(^|\s)-([A-Za-z][\w]*)/g)) {
+      if (!declared.includes(m[2].toLowerCase())) {
+        offenders.push(`${step}: -${m[2]} is not declared by ${script}`);
+      }
+    }
+  }
+  assert.ok(geprueft > 0, 'no call to a shipped .ps1 found - the reader broke');
+  assert.deepEqual(offenders, [],
+    'PowerShell puts an undeclared switch into $args without a word, so the '
+    + 'call does nothing and the step reads as if it had worked.');
+});
+
+test('POSITIVE CONTROL: the reader really reads both sides', () => {
+  const calls = powershellCalls().filter((c) => fs.existsSync(path.join(REPO, c.script)));
+  assert.ok(calls.length > 0, 'no CI step calls a shipped .ps1 - the reader broke');
+  assert.ok(calls.some((c) => c.script === 'install/windows.ps1'),
+    'the installer call is not seen');
+  // And the param reader must answer with the real block, not an empty
+  // list, which would make the rule above pass on anything.
+  const declared = declaredParams(fs.readFileSync(path.join(REPO, 'install/windows.ps1'), 'utf8'));
+  assert.deepEqual(declared, ['skiptask', 'skipclaudedesktop', 'skipclaudecode']);
+  // The detector must fire on the shape it exists for.
+  assert.ok(!declared.includes('reporoot'));
+});

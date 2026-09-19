@@ -727,11 +727,31 @@ jobs:
             exit 1
           }
 
+          # `powershell`, not `pwsh`: 5.1 is what a default Windows box
+          # has and what README.md:613 tells people to run. The step
+          # above parses every script with it; this one runs one.
+          #
+          # -SkipTask because this step is about the Claude Code lanes.
+          # It also means MEM_WATCH_WHO, which the installer requires
+          # before it registers the Scheduled Task, is not needed here -
+          # measured 2026-09-19 (run 233): without the flag the
+          # installer correctly exited 2 on that missing variable and
+          # the step blamed the missing settings.json instead.
+          # -SkipClaudeDesktop so the runner's real APPDATA is left
+          # alone.
+          #
+          # So this step does NOT measure the Scheduled Task path or the
+          # Claude Desktop registration. Naming the gap rather than
+          # letting a green check imply it.
           $alt = $env:USERPROFILE
           $env:USERPROFILE = $scratch
           $env:CHEAP_MEM_ROOT = $memdir
           try {
-            & powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -RepoRoot (Get-Location).Path
+            & powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -SkipTask -SkipClaudeDesktop
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::the installer exited $LASTEXITCODE"
+              exit 1
+            }
           } finally { $env:USERPROFILE = $alt }
 
           $settings = Join-Path $scratch '.claude\settings.json'
@@ -784,7 +804,11 @@ jobs:
           # two on UserPromptSubmit means every message pays twice.
           $env:USERPROFILE = $scratch
           try {
-            & powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -RepoRoot (Get-Location).Path
+            & powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -SkipTask -SkipClaudeDesktop
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "::error::the second install exited $LASTEXITCODE"
+              exit 1
+            }
           } finally { $env:USERPROFILE = $alt }
           $cfg2 = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
           foreach ($e in $erwartet) {
