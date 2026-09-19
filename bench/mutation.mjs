@@ -495,10 +495,40 @@ export const MUTANTS=[
   try{ execFileSync('node',['--test',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
   catch(e){
     const out=String(e.stdout||'');
-    const bad=(out.match(/^not ok [0-9]+ - (.*)$/gm)||[]).slice(0,10);
+    // The TAP block under a failing test - location, error, the diff -
+    // and not just its name.
+    //
+    // **Measured 2026-09-19 (run 234).** The baseline went red on
+    // `raw captures do not change the order of the curated entries`
+    // and that one line was the whole report. The test carries two
+    // assertions with two very different meanings - a positive control
+    // that the fixture finds the answer at all, and the order
+    // comparison the test exists for - and both of them carry a
+    // message built for exactly this moment. Neither reached the log.
+    // Thirty local reruns, a full suite and three runs of this very
+    // command could not reproduce it, so the one report there was had
+    // to carry the diagnosis, and it carried a name.
+    //
+    // A harness that says WHICH test broke but not HOW forces the next
+    // person to reproduce a failure that may not reproduce.
+    const lines=out.split('\n');
+    const bad=[];
+    for(let i=0;i<lines.length && bad.length<5;i+=1){
+      const m=/^not ok [0-9]+ - (.*)$/.exec(lines[i]);
+      if(!m) continue;
+      const block=[lines[i]];
+      // The YAML block belongs to this test: it opens on the next line
+      // with '---' and ends at '...'. Bounded, so a malformed block
+      // cannot swallow the rest of the output.
+      for(let j=i+1;j<lines.length && j<i+40;j+=1){
+        block.push(lines[j]);
+        if(/^\s*\.\.\.\s*$/.test(lines[j])) break;
+      }
+      bad.push(block.join('\n'));
+    }
     console.log('The suites these mutants rely on are already failing:\n');
-    for(const b of bad) console.log('  '+b);
-    console.log('\nMutation testing needs a green baseline. On a red suite every');
+    for(const b of bad) console.log(b+'\n');
+    console.log('Mutation testing needs a green baseline. On a red suite every');
     console.log('mutant is "caught" by a failure that was there before it.');
     process.exit(1);
   }
