@@ -27,6 +27,7 @@ import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
 import * as mirror from './findingmirror.mjs';
 import * as environment from './environment.mjs';
+import * as clock from './clock.mjs';
 import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
@@ -1119,43 +1120,58 @@ export function checkIntegrity(root) {
  * silent when absent. Each finding names the LAYER responsible, because
  * cheap-mem cannot fix a filesystem, only refuse to pretend it checked
  * one.
+ *
+ * **`clock` is handled separately from the other three (2026-09-20).**
+ * `environment.checkClock` compares the single newest entry in the
+ * WHOLE memory against this process's own clock — which, on a memory
+ * with one writer, is really "my clock vs. my own last write" and
+ * proves nothing about skew between machines. `src/clock.mjs` narrows
+ * that to the newest FOREIGN line specifically (see its module doc for
+ * why "ahead" and "behind" are not symmetric evidence), so its finding
+ * replaces `environment.checkClock`'s entry here rather than being
+ * folded into the generic mapping below. `environment.checkEnvironment`
+ * still runs its own `checkClock` as part of the four-check array it
+ * always returns — that result is simply not the one this function
+ * reports under `env/clock`.
  */
 export function checkEnvironmentContract(root) {
-  let newestTs = null;
-  try {
-    const r = integrity.scanIntegrity(root);
-    void r;
-    newestTs = newestTimestamp(root);
-  } catch { /* an unreadable log is the integrity check's problem, not this one */ }
-
   let checks;
-  try { checks = environment.checkEnvironment(root, { newestTs }); }
+  try { checks = environment.checkEnvironment(root, {}); }
   catch { return [finding('environment', LEVEL.UNKNOWN, 'environment could not be checked')]; }
 
-  return checks.map((c) => {
+  const mapped = checks.filter((c) => c.name !== 'clock').map((c) => {
     const name = `env/${c.name}`;
     if (c.ok === true) return finding(name, LEVEL.GOOD, `[${c.layer}] ${c.detail}`);
     if (c.ok === null) return finding(name, LEVEL.UNKNOWN, `[${c.layer}] ${c.detail}`, c.fix);
     return finding(name, LEVEL.ERROR, `[${c.layer}] ${c.detail}`,
       c.fix ?? 'This guarantee is not cheap-mem\'s to provide — fix it in that layer.');
   });
+
+  return [...mapped, checkClockSkew(root)];
 }
 
-/** Newest `ts` across all logs, for the clock check. */
-function newestTimestamp(root) {
-  let newest = null;
-  for (const f of integrity.logFiles(root)) {
-    let raw;
-    try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { continue; }
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const e = JSON.parse(line);
-        if (typeof e.ts === 'string' && (!newest || e.ts > newest)) newest = e.ts;
-      } catch { /* the integrity check reports this line */ }
-    }
+/**
+ * The `env/clock` finding, built from `src/clock.mjs`'s cross-writer
+ * skew measurement. Kept as its own function (rather than inlined
+ * above) so a doctor test can call it directly without wading through
+ * the other three environment checks.
+ */
+export function checkClockSkew(root, opts = {}) {
+  let result;
+  try { result = clock.measureClockSkew(root, opts); }
+  catch { return finding('env/clock', LEVEL.UNKNOWN, 'clock skew could not be measured'); }
+
+  const tag = `[${environment.LAYER.OPS}]`;
+  if (result.state === clock.STATE.UNKNOWN) {
+    return finding('env/clock', LEVEL.UNKNOWN, `${tag} ${result.reason}`);
   }
-  return newest;
+  if (result.state === clock.STATE.ERROR) {
+    return finding('env/clock', LEVEL.ERROR, `${tag} ${result.detail}`, result.fix);
+  }
+  if (result.state === clock.STATE.WARN) {
+    return finding('env/clock', LEVEL.WARN, `${tag} ${result.detail}`, result.fix);
+  }
+  return finding('env/clock', LEVEL.GOOD, `${tag} ${result.detail}`);
 }
 
 
