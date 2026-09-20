@@ -125,6 +125,7 @@
 
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import { appendLine } from './append.mjs';
 
 /** The hash chain has not started yet. Fixed, not random: reproducible
  *  across every machine that verifies the same content. */
@@ -543,7 +544,7 @@ export function appendSeal(absPath, writer, {
     chain_seal: sealPayload(writer, throughId, hash),
   };
   const line = JSON.stringify(entry);
-  fs.appendFileSync(absPath, `${line}\n`, 'utf8');
+  appendLine(absPath, `${line}\n`);
   return entry;
 }
 
@@ -577,6 +578,6 @@ export function maybeSeal(absPath, writer, {
     agent,
     chain_seal: sealPayload(writer, throughId, hash),
   };
-  fs.appendFileSync(absPath, `${JSON.stringify(entry)}\n`, 'utf8');
+  appendLine(absPath, `${JSON.stringify(entry)}\n`);
   return entry;
 }

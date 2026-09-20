@@ -43,6 +43,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as redaction from './redaction.mjs';
+import { appendLine } from './append.mjs';
 
 export const STORE = 'store';
 export const REGISTER = 'store/register.jsonl';
@@ -183,7 +184,7 @@ export function put(root, source, {
     ...(retention ? { retention } : {}),
   };
   fs.mkdirSync(path.dirname(registerPath(root)), { recursive: true });
-  fs.appendFileSync(registerPath(root), `${JSON.stringify(line)}\n`, 'utf8');
+  appendLine(registerPath(root), `${JSON.stringify(line)}\n`);
   return { ...line, already, at: path.relative(root, target) };
 }
 
@@ -207,7 +208,7 @@ export function remove(root, hash, { reason = '', now = new Date() } = {}) {
     deleted_at: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
     reason: String(reason || ''),
   };
-  fs.appendFileSync(registerPath(root), `${JSON.stringify(line)}\n`, 'utf8');
+  appendLine(registerPath(root), `${JSON.stringify(line)}\n`);
   return { hash: h, bytesRemoved: wasThere };
 }
 

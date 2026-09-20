@@ -28,6 +28,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { appendLine } from './append.mjs';
 
 // At the root of the memory, next to global/ and inbox/ — not in a
 // subdirectory of its own. A memory laid out by `mem init` has four
@@ -89,7 +90,7 @@ export function beat(root, agent, {
     ...(what ? { what: String(what).slice(0, 200) } : {}),
   };
   fs.mkdirSync(path.dirname(file(root)), { recursive: true });
-  fs.appendFileSync(file(root), `${JSON.stringify(line)}\n`);
+  appendLine(file(root), `${JSON.stringify(line)}\n`);
   return { written: true, line };
 }
 

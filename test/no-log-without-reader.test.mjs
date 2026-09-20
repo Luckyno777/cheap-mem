@@ -151,14 +151,42 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   // is called.
   const selfCleaning = (t) => /mkdtempSync?\(/.test(t) && /rmSync\(|\brm\(/.test(t);
 
+  // **The primitive is not a log. (2026-09-20)**
+  //
+  // `src/append.mjs` landed here the day the missing-newline repair was
+  // centralised in one place: it is the append primitive itself. Every
+  // path it writes to arrives as an argument, and the module that CHOSE
+  // that path is in this list on its own account and is checked there.
+  // Demanding a reader for `append.mjs` would demand a reader for a file
+  // it does not own -- the third time this guard would have reported the
+  // innocent.
+  //
+  // Structural, not a name list: a module is excused only if it builds
+  // no path at all (no `node:path`, no `path.join`/`path.resolve`) AND
+  // imports nothing from this house. A real log module always does one
+  // or the other -- it either constructs the location it writes to or
+  // reaches for a sibling that does. `src/chain.mjs` takes its path as
+  // an argument too, but it imports `./append.mjs`, so it stays in
+  // `appending` and keeps being checked.
+  const primitive = (t) => !/from 'node:path'/.test(t)
+    && !/path\.(join|resolve)\(/.test(t)
+    && !/from '\.\/[^']+\.mjs'/.test(t);
+
   const appending = [];
   const probesOnly = [];
+  const primitives = [];
   for (const f of src) {
     const t = fs.readFileSync(path.join(ROOT, 'src', f), 'utf8');
-    if (!/appendFileSync|appendFile\(/.test(code(t))) continue;
+    if (!/appendFileSync|appendFile\(|appendLine\(/.test(code(t))) continue;
     if (selfCleaning(code(t))) { probesOnly.push(f); continue; }
+    if (primitive(code(t))) { primitives.push(f); continue; }
     appending.push([f, t]);
   }
+  // Same reasoning as the self-cleaning cap below: a carve-out that
+  // grows is a hole.
+  assert.ok(primitives.length <= 1,
+    `${primitives.length} modules were excused as the append primitive (${primitives.join(', ')}). `
+    + 'There is one append primitive in this house; more than one is the two-truths defect.');
   assert.ok(appending.length >= 5,
     `only ${appending.length} appending modules found — the probe scans the wrong place`);
   // The carve-out must stay small and named. If it starts absorbing
@@ -199,4 +227,29 @@ test('COUNTER-PROBE: the self-cleaning carve-out does not excuse a real log', ()
   // And the shape that IS a probe.
   const sonde = 'const dir = fs.mkdtempSync(p);\nfs.appendFileSync(f, l);\nfs.rmSync(dir, { recursive: true });';
   assert.equal(selfCleaning(sonde), true, 'a self-cleaning probe was not recognised');
+});
+
+test('COUNTER-PROBE: the append-primitive carve-out does not excuse a real log', () => {
+  // Mirror of the test above, for the second carve-out. Widened far
+  // enough, `primitive` would excuse every appending module and the
+  // guarantee would pass forever while watching nothing.
+  const primitive = (t) => !/from 'node:path'/.test(t)
+    && !/path\.(join|resolve)\(/.test(t)
+    && !/from '\.\/[^']+\.mjs'/.test(t);
+
+  // The real thing: no path, no house import, just the append.
+  assert.equal(primitive("import fs from 'node:fs';\nfs.appendFileSync(p, line);"), true,
+    'the append primitive itself was not recognised');
+
+  // A module that builds the location it writes to OWNS that log.
+  assert.equal(primitive("import fs from 'node:fs';\nfs.appendFileSync(path.join(root, 'x.jsonl'), line);"), false,
+    'a module that constructs its own drawer path was excused as a primitive');
+
+  // A module that reaches for a sibling is not a leaf utility.
+  assert.equal(primitive("import fs from 'node:fs';\nimport { appendLine } from './append.mjs';\nappendLine(p, line);"), false,
+    'a module importing from the house was excused as a primitive');
+
+  // And the import form the house actually uses for paths.
+  assert.equal(primitive("import path from 'node:path';\nfs.appendFileSync(p, line);"), false,
+    'importing node:path was not enough to disqualify');
 });

@@ -1493,3 +1493,86 @@ moves cold shards out of the working tree, and the discrepancy is
 recorded here rather than silently corrected, because the same class of
 gap is already on this house's record: *a synthetic corpus of short
 entries measures retrieval wrong by an order of magnitude.*
+
+### 10.23 Deleting from an append-only log — `src/shred.mjs`
+
+An append-only log and a duty to delete are not compatible by editing
+the log — rewriting a line is the one thing this design refuses. Crypto-
+shredding resolves it without touching a byte: each entry's **body** is
+encrypted at write time (AES-256-GCM, a fresh 32-byte key per entry),
+the key lives in `.mem/keyring.json`, and deleting means destroying the
+key and appending an ordinary new marker line (`shredded_of`,
+`shredded_reason`). The original line stays exactly as written, so a
+sealed hash chain still verifies.
+
+**Named explicitly, because the point is what stays legible.**
+`NEVER_ENCRYPT` is `id` (the register's key), `ts` (as-of queries), `v`
+(schema dispatch), `agent` (chain replay reads it raw), `project`
+(scope filtering) and the deletion marker's own fields. Everything in
+`SHREDDABLE_FIELDS` is body.
+
+Four states from `readEntryBody`, and the boundaries between them are
+the feature: `ok` (decrypted), `plain` (a real entry that was never
+encrypted), `unreadable` with a reason that distinguishes *the keyring
+is absent entirely* from *this one key is gone*, and `unknown` when
+there is no entry to inspect at all.
+
+**It ships OFF (`shred: true` per call), and here is why that is not
+timidity.** `title` is a body field — correctly, it is the field most
+likely to name a person — and it is also what the indexer weights most.
+So an entry written with shredding on is not "body hidden until
+decrypted", it is **unfindable**: `retrieve` returns zero claims for its
+own title, while `readEntryBody` returns the whole body correctly.
+Nothing is lost; nothing can reach it to ask. Turning this on by default
+would quietly remove entries from every answer the memory gives while
+every body-readability test stayed green. Closing it means a decrypt
+hook in `search.mjs` and `retrieval.mjs`, a coordinated change.
+
+**Three more limits, measured rather than assumed:**
+
+- **Cost fails its own criterion.** Baseline `logEntry` is ~0.08 ms flat.
+  With shredding: 0.44 ms at 0 keys, 1.38 ms at 500, 6.92 ms at 3000 —
+  because the keyring is read and rewritten whole on every write. That
+  is the same corpus-size dependence the write path was repaired to
+  remove, reintroduced by the keyring's storage design.
+- **Raw capture is a separate store and is not covered.** A capture
+  holding the same text survives a shred of the structured entry.
+- **A versioned keyring defeats the whole mechanism.** If
+  `.mem/keyring.json` is committed with retained history, destroying a
+  key is just another commit and the old key is recoverable from the
+  previous one — demonstrated. The keyring needs a distribution that
+  does not retain history.
+
+### 10.24 One place that appends — `src/append.mjs`
+
+Every JSONL write in this memory is an append, and every one of them
+assumed the file already ended in a newline. It usually does. When it
+does not — a write cut short, a file touched from outside — the next
+append merges into the last line and **two** entries become unreadable:
+the new one and the one that was fine before it. Measured through the
+normal CLI: a drawer holding one valid entry without a trailing newline
+goes to `0 valid, 1 broken` after a single `mem log`.
+
+There was no shared append path to fix: 14 call sites across 11 modules
+here, 11 across as many in the sister house, each with the same
+unchecked assumption. They now go through one function, because the
+alternative is the same rule spelled fourteen times.
+
+The check reads **one byte** — `openSync` + `fstatSync` + `readSync` at
+`size - 1` — never the file. `\n` (0x0A) is never part of a multi-byte
+UTF-8 sequence, so the last byte is the right question to ask. The
+healing newline is prepended and written in a *single* `appendFileSync`,
+because two writes would give up the O_APPEND atomicity
+`test/concurrent-append.test.mjs` relies on. Cost, measured over 5000
+appends: 0.0045 ms → 0.0116 ms, constant regardless of file size; an
+`fsync` on the same path costs 0.24–0.29 ms.
+
+**What it does not fix:** concurrent writers still tear lines — that is
+a different failure with its own measurement in the sister house (one
+line in 1922). The check limits the damage rather than preventing it.
+Under a race between probe and write the worst case is an *empty* line,
+which every reader here already skips.
+
+`checkNewline: false` exists only so the guarantee can be broken on
+purpose: `test/append-newline.test.mjs` uses it to show the loss coming
+back, with the control running the same call checked, right beside it.

@@ -29,6 +29,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { appendLine } from './append.mjs';
 
 /** Where the journal lives, relative to the memory root. */
 export const JOURNAL_FILE = path.join('.pipeline', 'injections.jsonl');
@@ -114,7 +115,7 @@ export function book(root, fields = {}) {
   const where = path.join(root, JOURNAL_FILE);
   try {
     fs.mkdirSync(path.dirname(where), { recursive: true });
-    fs.appendFileSync(where, JSON.stringify(line) + '\n');
+    appendLine(where, JSON.stringify(line) + '\n');
     return true;
   } catch {
     return false;

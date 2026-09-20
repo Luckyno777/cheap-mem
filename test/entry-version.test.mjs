@@ -32,11 +32,11 @@ function tmpRoot() {
 }
 
 // memory.mjs's whole dependency closure (checked by grepping every
-// `^import` in each file): freshness/authority/bidi have none of their
-// own, config.mjs imports agents.mjs, agents.mjs imports only node
-// builtins. All five live flat in src/, so copying them flat keeps
+// `^import` in each file): freshness/authority/bidi/append have none of
+// their own, config.mjs imports agents.mjs, agents.mjs imports only node
+// builtins. All six live flat in src/, so copying them flat keeps
 // every relative `./x.mjs` import resolving unchanged.
-const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs'];
+const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs', 'append.mjs'];
 
 /**
  * A private, disposable copy of memory.mjs (with `patch` applied to its

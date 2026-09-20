@@ -71,6 +71,7 @@ import { randomBytes } from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as archive from './archive.mjs';
 import { LEVEL } from './doctor.mjs';
+import { appendLine } from './append.mjs';
 
 /** Four states, never two — reusing this house's own vocabulary. */
 export const PASS = LEVEL.GOOD;
@@ -101,7 +102,7 @@ export function readManifest(root) {
 }
 
 function appendManifest(root, row) {
-  fs.appendFileSync(manifestPath(root), `${JSON.stringify(row)}\n`, 'utf8');
+  appendLine(manifestPath(root), `${JSON.stringify(row)}\n`);
 }
 
 /** The most recent manifest row for an id, or null. Append-only: last wins. */
@@ -165,7 +166,7 @@ export function archiveOldest(root, type, { project = null, count } = {}) {
     out.push(`${line}\n`);
     offset += bytes + 1; // the newline this format writes between lines
   }
-  fs.appendFileSync(shardFile, out.join(''), 'utf8');
+  appendLine(shardFile, out.join(''));
 
   // The archive write above succeeded — only now shrink the tracked
   // file. See the doc comment above for why this order, not the other.

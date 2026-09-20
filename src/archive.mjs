@@ -38,6 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
+import { appendLine } from './append.mjs';
 
 /**
  * The default is the TRACKED `raw/`, not somewhere gitignored.
@@ -318,7 +319,7 @@ export function writeRecord(root, row) {
     const old = path.join(root, LEGACY_RECORD_FILE);
     if (fs.existsSync(old)) fs.renameSync(old, target);
   }
-  fs.appendFileSync(target, `${JSON.stringify(row)}\n`, 'utf8');
+  appendLine(target, `${JSON.stringify(row)}\n`);
 }
 
 /**

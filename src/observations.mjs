@@ -34,6 +34,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { appendLine } from './append.mjs';
 
 /** Where the ledger lives — per machine, not a JSONL "log" type. */
 export const LEDGER_FILE = path.join('.pipeline', 'observations.jsonl');
@@ -62,7 +63,7 @@ export function record(root, { lane, ids = [], query = null, now = new Date() } 
     ids: Array.isArray(ids) ? ids.filter((x) => typeof x === 'string') : [],
     query: query ? String(query) : null,
   });
-  fs.appendFileSync(p, `${line}\n`, 'utf8');
+  appendLine(p, `${line}\n`);
 }
 
 /**

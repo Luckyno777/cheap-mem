@@ -19,6 +19,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import * as redaction from './redaction.mjs';
 import * as archive from './archive.mjs';
+import { appendLine } from './append.mjs';
 
 /**
  * What a capture DROPS before it stores anything — and why the memory
@@ -153,7 +154,7 @@ function appendLedger(root, captures, extra = {}) {
   if (captures.length === 0) return;
   const p = path.join(root, LEDGER_FILE);
   const rec = { ts: isoSeconds(new Date()), captures: [...captures].sort(), ...extra };
-  fs.appendFileSync(p, `${JSON.stringify(rec)}\n`, 'utf8');
+  appendLine(p, `${JSON.stringify(rec)}\n`);
 }
 export const BELL_FILE = path.join('.mem', 'digest-bell.json');
 

@@ -37,6 +37,7 @@ import * as archive from './archive.mjs';
 import * as stores from './stores.mjs';
 import * as memory from './memory.mjs';
 import * as setup from './setup.mjs';
+import { appendLine } from './append.mjs';
 
 /** Machine-local, gitignored: what was set here applies here. */
 export const LOG_FILE = path.join('.mem', 'console-log.jsonl');
@@ -173,9 +174,9 @@ export function apply(root, id, value, { by = 'console' } = {}) {
 export function writeLog(root, row) {
   const file = path.join(root, LOG_FILE);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, `${JSON.stringify({
+  appendLine(file, `${JSON.stringify({
     ts: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), ...row,
-  })}\n`, 'utf8');
+  })}\n`);
 }
 
 /** The last changes, newest first. Broken lines are skipped, not swallowed. */

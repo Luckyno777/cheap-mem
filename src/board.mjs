@@ -34,6 +34,7 @@ import * as question from './question.mjs';
 import * as heartbeat from './heartbeat.mjs';
 import * as errorclass from './errorclass.mjs';
 import * as setup from './setup.mjs';
+import { appendLine } from './append.mjs';
 
 export const STATE = Object.freeze({
   CALM: 'calm',         // measured, in order
@@ -296,7 +297,7 @@ export function report(root, version, { by = null } = {}) {
   };
   const file = path.join(root, REPORT_FILE);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, `${JSON.stringify(row)}\n`, 'utf8');
+  appendLine(file, `${JSON.stringify(row)}\n`);
   return { row, file };
 }
 

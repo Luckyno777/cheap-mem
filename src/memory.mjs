@@ -21,6 +21,7 @@ import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
 import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
+import { appendLine } from './append.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -42,6 +43,17 @@ import * as bidi from './bidi.mjs';
  */
 let chain = null;
 try { chain = await import('./chain.mjs'); } catch { /* sibling not present here — sealing skipped */ }
+
+/**
+ * The crypto-shredding module (`src/shred.mjs`), loaded the same
+ * tolerant way as `chain` above and for the identical reason (the
+ * entry-version sandbox in `test/entry-version.test.mjs` copies this
+ * file alone plus a hand-picked dependency list). `shred` is null when
+ * the sibling module is not sitting beside this one; every call site
+ * below checks that explicitly rather than assuming it loaded.
+ */
+let shred = null;
+try { shred = await import('./shred.mjs'); } catch { /* sibling not present here — crypto-shredding unavailable */ }
 
 /**
  * Known log types. Each has its own JSONL per project + global.
@@ -336,7 +348,7 @@ export function agentDefault(env = process.env) {
  *
  * **Stamped in exactly one place.** `logEntry` is the only function in
  * this repo that appends to a TYPES log (`decisions.jsonl`,
- * `errors.jsonl`, ... — checked by grepping every `appendFileSync` in
+ * `errors.jsonl`, ... — checked by grepping every `appendLine` in
  * `src/`: the others write board reports, heartbeats, the observation
  * ledger, the redaction register, the topic-alias log and similar —
  * fixed-shape records of their own, not entries, and never read back
@@ -517,7 +529,39 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   // version a real build once produced, and this is precisely the field
   // a later migration has to trust. Whatever `data.v` holds is dropped
   // here, at the one door, not merged past it.
-  const { v: _callerVersion, ...rest } = data;
+  const { v: _callerVersion, shred: shredRequested, ...rest0 } = data;
+  let rest = rest0;
+
+  // Crypto-shredding (P14, src/shred.mjs) — OFF unless a caller
+  // explicitly asks (`shred: true`), the same "ships off, explicit
+  // switch" shape `chainSealCadenceFor` already uses just below. Turning
+  // this on for every write would silently change what every OTHER
+  // reader in this repo sees (`find`'s substring match on the raw line,
+  // `floodTextOf`, `search.mjs`'s indexer — none of them know to
+  // decrypt), which is not a change this build has authorization to make
+  // land quietly. See the build report for exactly which readers stay
+  // un-integrated with this.
+  //
+  // `shred` is never persisted: it is a write-time instruction, not a
+  // fact about the entry (presence of `body_enc` already says that, once
+  // written) — leaving it in the clear would also be a free tell that
+  // "this entry is the sensitive one".
+  if (shredRequested === true) {
+    if (!shred) {
+      throw new Error(
+        'crypto-shredding requested (shred: true) but src/shred.mjs is not available — '
+        + 'refusing to write the body in the clear when encryption was explicitly asked for.');
+    }
+    const { redacted, key } = shred.shredWrite(rest0);
+    rest = redacted;
+    // The key is persisted BEFORE the line is appended below. If the
+    // process dies between these two writes, the worst case is an
+    // orphan key sitting unused in the keyring — harmless. The other
+    // order (append first, key second) would risk the opposite: a
+    // ciphertext body on disk with no key ever recorded for it,
+    // permanently unreadable through no fault of `mem shred` at all.
+    shred.putKey(root, id, key, { now });
+  }
   const entry = { id, ts, v: ENTRY_VERSION, ...rest };
 
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -542,7 +586,8 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   }
   // **Durability promise, stated where the write happens.**
   //
-  // `fs.appendFileSync` here is `open` + `write` + `close` with no
+  // `appendLine` (src/append.mjs) probes the file's last byte and then
+  // does one `fs.appendFileSync` — `open` + `write` + `close` with no
   // `fsync`/`fdatasync` in between. When `logEntry` RETURNS, the line has
   // reached the OS (the kernel's page cache) — a reader that opens the
   // same file right after, in this process or another, sees it — but it
@@ -560,7 +605,7 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   // `test/p16-durability-promise.test.mjs` proves the claim made in this
   // comment (`fsyncSync`/`fsync` is never called on this path) rather
   // than trusting the prose.
-  fs.appendFileSync(p, `${line}\n`, 'utf8');
+  appendLine(p, `${line}\n`);
 
   // Chain sealing (src/chain.mjs), best-effort and OPT-IN — see
   // `chainSealCadenceFor` for why this is not on by default, and
@@ -579,6 +624,87 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   }
 
   return { path: p, entry };
+}
+
+/**
+ * Read one entry's body through crypto-shredding (`src/shred.mjs`) if
+ * it carries `body_enc`, or hand back its `SHREDDABLE_FIELDS` unchanged
+ * if it does not. See `shred.readEntryBody` for the exact four-state
+ * result shape (`plain` / `ok` / `unreadable: keyring-absent` /
+ * `unreadable: no-key|key-corrupt|decrypt-failed`).
+ *
+ * `{ state: 'unreadable', reason: 'shred-module-absent' }` when
+ * `shred.mjs` itself is not sitting beside this file (the entry-version
+ * sandbox) — a fourth flavour of "cannot currently answer", never
+ * silently treated as `plain`, which would claim an entry has no
+ * protected body when the truth is that nothing here can check.
+ */
+export function readEntryBody(root, entry) {
+  if (!shred) return { state: 'unreadable', reason: 'shred-module-absent', fields: null };
+  return shred.readEntryBody(root, entry);
+}
+
+/**
+ * Crypto-shred one entry: destroy its key (so its body becomes and
+ * stays unreadable), and append an ordinary new line recording the
+ * deletion — the same "a correction is a new line, never an edit" shape
+ * this codebase already uses for `replaces_id` and a duty's
+ * `closes_id`. The original line is never touched; nothing here rewrites
+ * a byte of the log.
+ *
+ * Throws if `type`/`project` do not hold an entry `id`, or if that entry
+ * was never written with `shred: true` (no `body_enc` — there is no key
+ * to destroy, so nothing this function does would mean anything).
+ *
+ * Returns `{ destroyed, marker }` — `destroyed` is `shred.destroyKey`'s
+ * own result (`{ destroyed: true, ... }`, or `{ destroyed: false,
+ * reason: 'no-such-key' }` for an entry already shredded), `marker` is
+ * the newly appended entry (see `shredStatus` for reading it back).
+ */
+export function shredEntry(root, type, id, {
+  project = null, reason = null, now = new Date(), agent = null,
+} = {}) {
+  if (!shred) {
+    throw new Error('crypto-shredding requested but src/shred.mjs is not available');
+  }
+  let found = null;
+  for (const e of iterLog(root, type, { project })) {
+    if (e && e.id === id) { found = e; break; }
+  }
+  if (!found) {
+    throw new Error(`No entry '${id}' in ${type}${project ? `/${project}` : ''} — nothing to shred.`);
+  }
+  if (!found.body_enc) {
+    throw new Error(
+      `Entry '${id}' was never crypto-shredding-encrypted (no body_enc) — there is no key to `
+      + 'destroy. Crypto-shredding only protects entries written with shred: true.');
+  }
+  const destroyed = shred.destroyKey(root, id, { reason, now });
+  const marker = logEntry(root, type, {
+    shredded_of: id,
+    shredded_reason: reason,
+    ...(agent ? { agent } : {}),
+  }, { project, now });
+  return { destroyed, marker: marker.entry };
+}
+
+/**
+ * The current deletion state of one entry, folding its original line
+ * together with the newest `shredded_of` marker that names it — the
+ * same fold shape `openDuties()` uses for `closes_id`. Answers the
+ * register's own question ("is this deleted, since when, why") without
+ * needing the key at all: the marker line is never encrypted (see
+ * `shred.mjs`'s `NEVER_ENCRYPT`), so this works even when the keyring
+ * is entirely absent.
+ */
+export function shredStatus(root, type, id, { project = null } = {}) {
+  let marker = null;
+  for (const e of iterLog(root, type, { project })) {
+    if (e && e.shredded_of === id) marker = e; // append-only: the last one wins
+  }
+  return marker
+    ? { shredded: true, at: marker.ts, reason: marker.shredded_reason ?? null, markerId: marker.id }
+    : { shredded: false, at: null, reason: null, markerId: null };
 }
 
 /**
@@ -2448,7 +2574,7 @@ export function mergeTopics(root, from, to, { why = '', agent = null, now = new 
   for (const src of sources) {
     if (src === target) continue;
     const line = { ts, from: src, to: target, why: String(why || ''), ...(agent ? { agent } : {}) };
-    fs.appendFileSync(p, `${JSON.stringify(line)}\n`, 'utf8');
+    appendLine(p, `${JSON.stringify(line)}\n`);
     written.push(line);
   }
   return { target, written };
