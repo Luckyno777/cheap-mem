@@ -392,7 +392,17 @@ export function redactAgainstEnv(text, secrets = envSecrets()) {
 // A silent failure is the most dangerous state: everything keeps
 // running, just unprotected.
 
-const CANARIES = Object.freeze([
+/**
+ * Exported so nothing else has to write a second copy of these samples.
+ *
+ * `bench/atlas/phase-doctor.mjs` needs the exact aws-key-id sample twice:
+ * once to plant it in a capture, once to patch it back out of a copy of
+ * this file. Hard-coding it there made two problems at once — a second
+ * source of truth that silently rots when a sample moves, and a literal
+ * that looks exactly like a leaked credential to this repo's own
+ * pre-commit scanner, which reported it and was right to.
+ */
+export const CANARIES = Object.freeze([
   ['anthropic-key', `sk-ant-api03-${'K'.repeat(28)}`],
   ['openai-key',    `sk-${'K'.repeat(32)}`],
   ['github-token',  `ghp_${'K'.repeat(36)}`],
