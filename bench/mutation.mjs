@@ -484,6 +484,32 @@ export const MUTANTS=[
    tests:['test/atomic-cache.test.mjs'] },
 ];
 
+// **The catalogue is importable; none of the rest of this file is.**
+//
+// `test/mutation-anchors.test.mjs` (and `test/readme-zahlen.test.mjs`,
+// which reads `MUTANTS.length` to check the README's own count) both
+// import this module only to read `MUTANTS` — cheap, without applying a
+// single mutant or running a single test. Every effectful line below,
+// starting with the baseline check, has to sit behind the SAME
+// run-as-a-command gate the mutation sweep already used further down
+// (`ALS_BEFEHL`, moved up here so it covers the baseline check too):
+// computed BEFORE anything runs, so a bare `import()` of this file does
+// nothing observable at all.
+//
+// The occasion: a bare `import('bench/mutation.mjs')` printed "Mutation
+// testing needs a green baseline" and launched a full baseline
+// `execFileSync('node', ['--test', ...])` run as a SIDE EFFECT of being
+// imported, because only the sweep loop further down was behind
+// `ALS_BEFEHL` — the baseline check above it was not. Every run of
+// `test/readme-zahlen.test.mjs` was paying for a full baseline test run
+// it never asked for, and a transient flake in that baseline (see the
+// 2026-09-19 note below) could fail a test file with nothing to do with
+// mutation testing at all.
+const ALS_BEFEHL = process.argv[1]
+  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (ALS_BEFEHL) {
+
 // A mutant counts as caught when the tests fail. So on a suite that is
 // ALREADY failing, every mutant counts as caught and the score is perfect.
 // Found on 2026-09-05 by stripping assertions out of state.test.mjs: one
@@ -547,19 +573,15 @@ process.on('uncaughtException', (e)=>{ restore(); throw e; });
 
 console.log('Mutant                                           | do tests fail?');
 console.log('-------------------------------------------------+----------------');
-// **The catalogue is importable; the sweep is not.**
-//
-// `test/mutation-anchors.test.mjs` checks on every `npm test` whether
-// the anchors still match — cheap, without applying a single mutant.
-// For that it must be able to import MUTANTS without setting the whole
-// sweep going (each mutant runs a full test suite).
+// **The catalogue is importable; the sweep is not.** (`ALS_BEFEHL` itself
+// now lives at the top of this file, ahead of the baseline check — see
+// the comment there. `test/mutation-anchors.test.mjs` and
+// `test/readme-zahlen.test.mjs` both rely on importing `MUTANTS` costing
+// nothing: no baseline run, no sweep.)
 //
 // The occasion: a rename on 2026-09-17 left six anchors pointing at
 // nothing. The mutants did not fail — they stopped running, and six
 // guarantees quietly stopped being checked.
-const ALS_BEFEHL = process.argv[1]
-  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (ALS_BEFEHL) {
 for(const m of MUTANTS){
   const p=`${ROOT}/${m.file}`;
   const orig=fs.readFileSync(p,'utf8');

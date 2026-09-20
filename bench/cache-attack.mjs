@@ -15,8 +15,30 @@
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
-import { loadIndex, CACHE_FILE } from '../src/search.mjs';
+import { loadIndex, CACHE_DIR, CACHE_VERSION } from '../src/search.mjs';
+import { readIndexCache, writeIndexCache } from '../src/indexcache.mjs';
 const j=o=>JSON.stringify(o)+'\n';
+
+// **Since B8 (2026-09-20):** the live cache is a shard directory
+// (`CACHE_DIR`, `src/indexcache.mjs`), not the single file
+// (`.mem/search-index.json`) this probe used to poke directly. Reading
+// and writing it through `readIndexCache`/`writeIndexCache` — the exact
+// functions `loadIndex` itself calls — is what makes this a probe of the
+// real thing again: before this change, `CACHE_FILE` named a path
+// `loadIndex` never even opens any more, so every tamper below landed on
+// a file nothing read, and the "held" verdicts proved nothing.
+function readCache(root) {
+  const res = readIndexCache(path.join(root, CACHE_DIR), {
+    expectedVersion: CACHE_VERSION, expectedLanguage: 'en',
+  });
+  if (!res.ok) throw new Error(`bench fixture: cache at ${root} did not read back: ${res.reason}`);
+  return { index: res.index, files: res.files, fullAt: res.fullAt };
+}
+function writeCache(root, c) {
+  writeIndexCache(path.join(root, CACHE_DIR), {
+    version: CACHE_VERSION, language: 'en', files: c.files, fullAt: c.fullAt, index: c.index,
+  });
+}
 function build(){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'ca-'));
   fs.mkdirSync(path.join(root,'projects','a'),{recursive:true});
@@ -64,35 +86,32 @@ if(!/m1\/disputed/.test(B_POISON)){
 
 // 1. retired fields removed: does that get the disputed claim through?
 { const root=build(); loadIndex(root);
-  const cp=path.join(root,CACHE_FILE);
-  const c=JSON.parse(fs.readFileSync(cp,'utf8'));
+  const c=readCache(root);
   let removed=0;
   for(const d of c.index.documents){ if(d.retired){ delete d.retired; removed++; } }
-  fs.writeFileSync(cp, JSON.stringify(c));
+  writeCache(root,c);
   if(!removed){ console.log('\n  ==> No retired field in the cache: the tampering touches nothing.'); process.exit(1); }
   check(1,`cache tampered with: ${removed} retired field(s) removed`,Q_POISON,root,B_POISON);
   fs.rmSync(root,{recursive:true,force:true}); }
 
 // 2. Forged state: the genuine claim marked as superseded.
 { const root=build(); loadIndex(root);
-  const cp=path.join(root,CACHE_FILE);
-  const c=JSON.parse(fs.readFileSync(cp,'utf8'));
+  const c=readCache(root);
   let touched=0;
   for(const d of c.index.documents){
     if(d.entry?.id==='m1'){ delete d.retired; touched++; }
     if(d.entry?.id==='u1'){ d.retired={state:'superseded',by:'m1',ts:'2026-06-01T00:00:00Z'}; touched++; }
   }
-  fs.writeFileSync(cp, JSON.stringify(c));
+  writeCache(root,c);
   if(touched<2){ console.log('\n  ==> The expected cache entries are missing: the tampering touches nothing.'); process.exit(1); }
   check(2,'cache tampered with: genuine claim marked superseded',Q_GENUINE,root,B_GENUINE);
   fs.rmSync(root,{recursive:true,force:true}); }
 
 // 3. Cache replaced wholesale by one that only knows the bait.
 { const root=build(); loadIndex(root);
-  const cp=path.join(root,CACHE_FILE);
-  const c=JSON.parse(fs.readFileSync(cp,'utf8'));
+  const c=readCache(root);
   c.index.documents=c.index.documents.filter(d=>d.entry?.id==='m1').map(d=>({...d,retired:undefined}));
-  fs.writeFileSync(cp, JSON.stringify(c));
+  writeCache(root,c);
   check(3,'cache replaced: knows only the bait, with no retired',Q_POISON,root,B_POISON);
   fs.rmSync(root,{recursive:true,force:true}); }
 

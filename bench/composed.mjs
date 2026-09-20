@@ -17,9 +17,27 @@ import { execFileSync } from 'node:child_process';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
 import { deriveState, statusOf } from '../src/state.mjs';
-import { loadIndex, CACHE_FILE } from '../src/search.mjs';
+import { loadIndex, CACHE_DIR, CACHE_VERSION } from '../src/search.mjs';
+import { readIndexCache, writeIndexCache } from '../src/indexcache.mjs';
 import { checkEpoch, recordEpoch } from '../src/epoch.mjs';
 import * as memory from '../src/memory.mjs';
+
+// **Since B8 (2026-09-20):** the live cache is a shard directory
+// (`CACHE_DIR`, `src/indexcache.mjs`), not the single file this attack
+// used to rewrite directly. Going through the same read/write functions
+// `loadIndex` calls is what puts the tamper back on the path it reads.
+function readCache(root) {
+  const res = readIndexCache(path.join(root, CACHE_DIR), {
+    expectedVersion: CACHE_VERSION, expectedLanguage: 'en',
+  });
+  if (!res.ok) throw new Error(`bench fixture: cache at ${root} did not read back: ${res.reason}`);
+  return { index: res.index, files: res.files, fullAt: res.fullAt };
+}
+function writeCache(root, c) {
+  writeIndexCache(path.join(root, CACHE_DIR), {
+    version: CACHE_VERSION, language: 'en', files: c.files, fullAt: c.fullAt, index: c.index,
+  });
+}
 
 const z = (o) => JSON.stringify(o) + '\n';
 let failed = 0;
@@ -61,10 +79,9 @@ const claim = (id, x = {}) => ({ id, ts: '2026-01-01T00:00:00Z', author: 'alice'
     claim('new', { replaces_id: 'old', choice: 'voellig andere woerter', why: 'anders' }),
   ]);
   loadIndex(root);
-  const cp = path.join(root, CACHE_FILE);
-  const c = JSON.parse(fs.readFileSync(cp, 'utf8'));
+  const c = readCache(root);
   for (const d of c.index.documents) delete d.retired;      // stale AND tampered
-  fs.writeFileSync(cp, JSON.stringify(c));
+  writeCache(root, c);
   const r = retrieve(root, 'production database PostgreSQL', grantProject('a'), { top: 5 });
   result(2, 'valid replacement + tampered index + selective query',
     !r.claims.some((x) => x.id === 'old'),

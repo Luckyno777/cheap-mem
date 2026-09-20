@@ -60,16 +60,62 @@
 // independent of corpus content — a hard wall, exactly as the brief
 // says, not a gradually worsening latency.
 //
-// **What the new format buys, beyond removing the wall:** at every
-// size BOTH formats could still handle, the new format already loads
-// 26-42% faster and uses 19-55% less peak RSS (widening as N grows —
-// 900,000: 15,174 ms/3,165 MB old vs 9,523 ms/1,697 MB new). That is
-// the "loading must not need the whole thing in memory at once"
-// guarantee showing up as a number, not an assertion: one shard's
-// string is parsed, folded into the final structures, and released,
-// rather than the whole cache's string and the whole cache's generic
-// parsed tree both staying alive at once alongside the final Maps and
-// Sets, which is what the old single-`JSON.parse` shape does.
+// **What this LADDER's synthetic corpus shows, beyond removing the
+// wall:** at every size both formats could still handle, the new format
+// here loads 26-42% faster and uses 19-55% less peak RSS (widening as N
+// grows — 900,000: 15,174 ms/3,165 MB old vs 9,523 ms/1,697 MB new).
+// This is a real number, but it is a property of THIS ladder's fixture,
+// not of the format: `syntheticIndex` above gives every document
+// exactly three weight keys (`title`, `body`, `shared`), which keeps
+// both the per-document payload and the vocabulary tiny and lets the
+// new format's per-shard bookkeeping cost disappear into rounding.
+//
+// **Measured against REAL corpora, built through `logEntry` (not this
+// ladder's synthetic documents), the result reverses: the new format is
+// SLOWER — 5,000 entries: +27%, 20,000 entries: +14%, 50,000 entries:
+// +93% (B8's measurement, 2026-09-20).**
+//
+// A second measurement the same day, over 8 runs in isolated child
+// processes, agreed on direction at 5,000 (+17-18%) and 50,000 (+28%)
+// but NOT at 20,000, where it put the new format 7-11% FASTER. The two
+// runs are not a contradiction to resolve by picking one: they used
+// corpora of different vocabulary diversity. The second built its
+// entries from near-identical templated text, so `meta.json` barely
+// grew; the first used real, varied entries, where it grows fast. That
+// difference IS the mechanism described below, so the disagreement
+// locates it rather than undermining it — but it also means the exact
+// per-size percentages are a property of the corpus, not of the format,
+// and 20,000 specifically is the size where the two costs come close
+// enough that corpus content decides the sign. What holds across both
+// runs: the cost is real, it grows with vocabulary, and it is largest
+// at the top of the range. What does NOT hold: any single number here
+// as a prediction for an arbitrary corpus.
+//
+// Two causes, neither one this ladder's fixture can
+// show: (1) a real entry's `weights` map carries far more than three
+// keys — title, body, tags and every distinct token in each are all
+// separate entries — so a real document is a bigger per-line payload
+// and the corpus grows a correspondingly bigger vocabulary (`docFreq`,
+// `lexicon`, `tagGraph`, `termGraph`, `entityIndex` in `meta.json`),
+// none of which this ladder's near-identical synthetic text exercises;
+// (2) the new format pays roughly 80 ms per shard for the sha256
+// verification `readIndexCache` performs on every shard and on
+// `meta.json` — a cost the old format never paid because it never
+// verified anything it read — plus roughly 60 ms of general read
+// overhead from being split across several files instead of one. On a
+// synthetic corpus whose documents are all nearly the same few hundred
+// bytes, that fixed per-load cost is smaller than the parse-time this
+// ladder saves by not materialising one huge string; on a real corpus
+// with real vocabulary growth, it is not — the ladder's 26-42% is real,
+// but it does not generalise, and a reader relying on it for "how much
+// faster is a real memory going to load" would be measuring the ladder,
+// not the product.
+//
+// **The 978k wall being removed remains true regardless of any of the
+// above** — that is a hard ceiling on what the OLD format can even
+// WRITE (see `src/indexcache.mjs` and the numbers earlier in this
+// comment), independent of the shape of the content or which of the two
+// formats loads faster below that ceiling.
 //
 // invariant: leer-ist-kein-bestehen
 import test from 'node:test';
@@ -157,6 +203,12 @@ test('the wall is real on THIS node, at the documented byte count', () => {
   assert.doesNotThrow(() => 'x'.repeat(Math.min(max - 1, 10_000_000)));
 });
 
+// "faster and lighter than old" below is true of THIS ladder's synthetic
+// fixture (three weight keys/doc, tiny vocabulary) and is what the test
+// name describes — not a general product claim. See the header comment's
+// real-corpus counter-measurement for what a `logEntry`-built corpus
+// does instead. Nothing here is asserted on timing either way (see the
+// comment inside the test); this loop only reports numbers.
 for (const n of [5_000, 30_000, 120_000]) {
   test(`ladder @ ${n.toLocaleString('en-US')}: new format loads faster and lighter than old`, () => {
     const index = syntheticIndex(n);

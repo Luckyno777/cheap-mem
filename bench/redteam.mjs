@@ -3,7 +3,7 @@
 // docs/architecture-audit-2026-09-05.md section 4.
 
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
-import { buildIndex, search, loadIndex } from '../src/search.mjs';
+import { buildIndex, search, loadIndex, CACHE_DIR } from '../src/search.mjs';
 const R='../src/';
 const red=await import(R+'redaction.mjs');
 function fresh(){ const d=fs.mkdtempSync(path.join(os.tmpdir(),'rt-'));
@@ -60,9 +60,20 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
 { const d=fresh();
   fs.writeFileSync(path.join(d,'projects','a','decisions.jsonl'),j({id:'a1',ts:'2026-01-01T00:00:00Z',topic:'t',choice:'hummingbird',why:'x'}));
   loadIndex(d);                                   // create the cache
-  const cache=path.join(d,'.mem','search-index.json');
-  const existedBefore=fs.existsSync(cache);
-  fs.writeFileSync(cache,'{ this is not JSON ');  // destroy it
+  // Since B8 (2026-09-20) the live cache is a shard directory
+  // (`CACHE_DIR`, `src/indexcache.mjs`), keyed off `manifest.json` — not
+  // the single file (`.mem/search-index.json`) this probe used to
+  // destroy directly. That old path is never read by `loadIndex` any
+  // more, so destroying it destroyed nothing: `existedBefore` came back
+  // `false` even though a cache genuinely existed, and the "search
+  // still works" verdict that followed was true for the wrong reason
+  // (nothing real had been touched). Destroying the manifest is the
+  // actual equivalent move: without it `readIndexCache` cannot even
+  // find the shards.
+  const cacheDir=path.join(d,CACHE_DIR);
+  const manifestPath=path.join(cacheDir,'manifest.json');
+  const existedBefore=fs.existsSync(manifestPath);
+  fs.writeFileSync(manifestPath,'{ this is not JSON ');  // destroy it
   let ok=false,failure=null;
   try{ ok=search(loadIndex(d),'hummingbird',{}).length>0; }catch(e){ failure=e.message; }
   result(6,'the index cache is destroyed',
