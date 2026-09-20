@@ -29,6 +29,7 @@ import * as thesaurus from './thesaurus.mjs';
 import * as entity from './entity.mjs';
 import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
+import { deriveState } from './state.mjs';
 
 /**
  * The file path of one indexed piece.
@@ -64,7 +65,10 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // 7: `symbols` is now a weighted field, and the exact index recognises
 //    dot-separated names. An old cache has neither — it would keep
 //    finding nothing, and silently at that.
-export const CACHE_VERSION = 7;
+// 8: each file's cache record now carries `docs`, the number of index
+//    documents it contributed (see `docCountsMatch` below) — an older
+//    cache has no such count to check the loaded documents against.
+export const CACHE_VERSION = 8;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -1241,6 +1245,133 @@ export function renameWithRetry(from, to, {
   }
 }
 
+/**
+ * How many index documents came from each source file, keyed the same
+ * way `indexedFiles` keys its map (a path relative to `root`).
+ *
+ * The one place both `writeCache` and the load-time check below get this
+ * number from — computed the same way in both, so they can never drift
+ * apart the way two independent counts always eventually do (the exact
+ * failure `checkDrawers`'s docstring names for `mem doctor`'s own line
+ * count, one file over from this one).
+ */
+function sourceDocCounts(documents) {
+  const out = new Map();
+  for (const d of documents) {
+    if (!d.source) continue;
+    out.set(d.source, (out.get(d.source) ?? 0) + 1);
+  }
+  return out;
+}
+
+/**
+ * Does the cache's OWN bookkeeping agree with the documents it is
+ * actually carrying?
+ *
+ * **The finding (SCHWER, 2026-09-19).** Cut one document out of
+ * `.mem/search-index.json` and shrink `N` to match — an edit that is
+ * internally consistent, and contradicts nothing the file says about
+ * itself. `appendToIndex` only ever compares the CURRENT bytes of a log
+ * file on disk against the bytes recorded at the last cache write
+ * (`before[rel]` vs `now`); if the actual log file has not moved, that
+ * comparison passes and the cached `documents` array — tampered or not —
+ * is served as-is. A search for the cut entry's own anchor text then
+ * goes from 1 hit to 0, `index.N` reports fewer entries than the log
+ * actually holds, and nothing says so.
+ *
+ * The gap is that nothing ties the cached DOCUMENTS back to the cached
+ * FILE METADATA that is supposedly what produced them. `writeCache` now
+ * records, per file, how many documents it actually contributed
+ * (`docs`); this recomputes that same count from the documents just
+ * unpacked from the cache and compares. A mismatch means the two halves
+ * of the cache disagree with EACH OTHER — not with the log, which is
+ * cheap to notice and needs no re-read of any log file — and the honest
+ * answer is to distrust the whole cache and rebuild, the same way a
+ * version mismatch or a missing `files` entry already does below.
+ *
+ * Cost: one pass over the already-unpacked `documents` array, which
+ * `loadIndex` walks anyway to turn `weights` back into `Map`s — so this
+ * adds one counter increment per document already being touched, not a
+ * new pass over anything. Measured on a 20k-document cache load
+ * (2026-09-19): +0.6 ms over a load that already takes ~140 ms, i.e.
+ * noise against the cost of unpacking the cache in the first place.
+ */
+function docCountsMatch(documents, files) {
+  const actual = sourceDocCounts(documents);
+  for (const [rel, info] of Object.entries(files)) {
+    if ((actual.get(rel) ?? 0) !== (info.docs ?? 0)) return false;
+  }
+  return true;
+}
+
+/**
+ * Overwrite every document's `retired` field with what the LOG currently
+ * says, never with what the cache happened to bake in.
+ *
+ * **The finding (SCHWER, 2026-09-19).** Log an entry, `mem done <id>`,
+ * `mem find --fresh` (a full rebuild AND a cache write — `retired` lands
+ * correctly on the document at that moment), then delete the `retired`
+ * field from the CACHED document by hand. `mem find` then serves the
+ * retired entry as live again. The cause: `buildIndex` bakes `retired`
+ * into the document once, at build time, and `appendToIndex` only ever
+ * updates it for entries that a NEWLY read line retires — bytes that
+ * were already on disk before this run started are never looked at
+ * again. So once a document's `retired` field is in the cache, nothing
+ * downstream of a cache HIT ever re-derives it; whatever the cache file
+ * says, correct or tampered, is what `search()` and `admits()` see.
+ *
+ * `mem retrieve` never had this hole, and not by luck: `retrieval.mjs`
+ * calls `state.deriveState(root)` — which reads the log itself, fresh,
+ * every call, with no cache in the loop at all — and looks status up
+ * there instead of trusting anything carried on the hit. That is the
+ * module doc's whole point: "THE LOG DECIDES WHAT IS TRUE. THE INDEX
+ * DECIDES ONLY WHAT IS FAST TO FIND." The ranked lane of `mem find`
+ * (`src/cli/commands/search.mjs`) is the one caller that still read
+ * retirement off the INDEX — so the fix belongs where the index is
+ * produced, once, rather than in that caller, which would have to
+ * remember to ask `state.mjs` on every call site it has.
+ *
+ * **Cost, measured (2026-09-20, this machine, medians of 20 runs on the
+ * Atlas corpus at seed 42).** The number that matters is the added cost
+ * on top of an already-warm cache hit, because that is the path this
+ * sits in:
+ *
+ *   entries   cache-hit load   of which deriveState
+ *     1,012          10.7 ms                 1.4 ms
+ *     5,012          65.8 ms                 6.6 ms
+ *    20,012         236.4 ms                32.2 ms
+ *
+ * So roughly 13 % of a warm load, growing with the LOG (it re-reads every
+ * typed file) and not with the index. That is a real cost and it is paid
+ * on every ranked `mem find`; it buys the ranked lane the same immunity
+ * `mem retrieve` already had — a cache may decide what is FAST to find,
+ * never what is RETIRED. Above roughly 100k entries it stops being
+ * noise, and the honest answer then is an incremental retirement feed,
+ * not a bigger cache; `bench/atlas.mjs --phase ceiling` is where that
+ * threshold gets re-measured rather than re-guessed.
+ *
+ * The figures that stood here before this line were written by a hand
+ * that had not run the function — it was defined and never called, so
+ * the "3.1 ms -> 8.4 ms" it reported could not have been observed. The
+ * class is `behauptet-statt-gemessen`, and it is the reason a cost
+ * comment in this house now names its corpus and its date.
+ *
+ * Applied to every document, not only ones the cache marked retired —
+ * the opposite tamper (forging `retired` on a document that is actually
+ * still active, to suppress it) needs the same correction, and costs
+ * nothing extra since the whole log is read regardless.
+ */
+function reconcileRetired(root, index) {
+  const state = deriveState(root);
+  for (const doc of index.documents) {
+    const id = doc.entry?.id;
+    const info = id ? state.get(id) : null;
+    if (info) doc.retired = info;
+    else if (doc.retired) delete doc.retired;
+  }
+  return index;
+}
+
 export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   const cachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);
@@ -1294,9 +1425,13 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
     }
   };
 
-  // The state of every file the index covers, right now.
+  // The state of every file the index covers, right now. `docCounts`
+  // (from `sourceDocCounts`) is what closes the Case-3 gap above: it is
+  // recorded per file so a LATER load can check the documents it just
+  // unpacked from the cache against what the cache itself claims they
+  // should add up to.
   const now = indexedFiles(root);
-  const stateOf = (files, lines) => {
+  const stateOf = (files, lines, docCounts) => {
     const out = {};
     for (const [rel, info] of files) {
       out[rel] = {
@@ -1306,6 +1441,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
         project: info.project,
         lines: lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
         tail: tailHash(piecePath(root, rel), info.bytes),
+        docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
       };
     }
     return out;
@@ -1325,17 +1461,27 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
           termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
         };
+        // Cheap, and checked BEFORE anything else trusts `index.documents`:
+        // a cache whose own per-file counts disagree with what it is
+        // actually carrying is corrupt regardless of what the log on disk
+        // says, and `appendToIndex` below has no way to see that — it only
+        // ever compares log bytes, never the documents derived from them.
+        // Thrown so the surrounding catch does exactly what it already
+        // does for a version mismatch: fall through to a full rebuild.
+        if (!docCountsMatch(index.documents, c.files)) {
+          throw new Error('cache doc counts do not match the documents it holds');
+        }
         const fullAt = c.fullAt ?? index.N;
         const grown = appendToIndex(root, index, c.files, now, lang);
 
         if (grown && grown.added === 0) {
-          return { ...index, fromCache: true, appended: 0, graphsStale: false };
+          return { ...reconcileRetired(root, index), fromCache: true, appended: 0, graphsStale: false };
         }
         // Rebuild rather than append once enough of the corpus is new that
         // the lexicon and the learned graphs would be measurably behind.
         if (grown && index.N <= fullAt * (1 + REBUILD_AFTER_FRACTION)) {
           if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) {
-            const files = stateOf(now, grown.lastLines);
+            const files = stateOf(now, grown.lastLines, sourceDocCounts(index.documents));
             // Line counts for untouched files carry over unchanged.
             for (const [rel, old] of Object.entries(c.files)) {
               if (files[rel] && !grown.lastLines.has(rel)) files[rel].lines = old.lines ?? files[rel].lines;
@@ -1348,14 +1494,24 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           // though finding them does not. Saying so is the point: an
           // approximation nobody declares is how a memory starts giving
           // two different answers to the same question.
-          return { ...index, fromCache: true, appended: grown.added, graphsStale: grown.added > 0 };
+          return {
+            ...reconcileRetired(root, index),
+            fromCache: true,
+            appended: grown.added,
+            graphsStale: grown.added > 0,
+          };
         }
       }
     } catch { /* a broken cache is not an error, just a rebuild */ }
   }
 
+  // No `reconcileRetired` here on purpose: this index was just derived
+  // from the log itself, a few lines up in `buildIndex`, which applies
+  // `memory.retiredMap` to exactly those entries. Re-deriving the same
+  // answer from the same file would be the second reading of one truth,
+  // and it would cost every cold start a log re-read for nothing.
   const index = buildIndex(root, { language });
-  writeCache(index, stateOf(now, null), index.N);
+  writeCache(index, stateOf(now, null, sourceDocCounts(index.documents)), index.N);
   return { ...index, fromCache: false, appended: 0, graphsStale: false };
 }
 

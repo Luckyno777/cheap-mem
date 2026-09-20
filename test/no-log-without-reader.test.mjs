@@ -118,22 +118,33 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   assert.ok(binFiles.length > 50_000,
     `only ${binFiles.length} characters of CLI source read — the probe is looking in the wrong place`);
 
-  const anhaengend = [];
+  // **Comments stripped before classifying. A mention is not a call.**
+  //
+  // Found on 2026-09-19: a docblock in `src/environment.mjs` explaining
+  // why `fs.appendFileSync` is the relevant syscall was enough to file
+  // that module under "appends to disk" — and since nothing in `bin/`
+  // reaches it, the probe then reported a module that writes nothing as
+  // an unreachable log. The house has a name for this shape and keeps
+  // shipping it; here it made a guard report the innocent, which is the
+  // fastest way to teach everyone to ignore the guard.
+  const code = (t) => t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
+
+  const appending = [];
   for (const f of src) {
     const t = fs.readFileSync(path.join(ROOT, 'src', f), 'utf8');
-    if (/appendFileSync|appendFile\(/.test(t)) anhaengend.push([f, t]);
+    if (/appendFileSync|appendFile\(/.test(code(t))) appending.push([f, t]);
   }
-  assert.ok(anhaengend.length >= 5,
-    `only ${anhaengend.length} appending modules found — the probe scans the wrong place`);
+  assert.ok(appending.length >= 5,
+    `only ${appending.length} appending modules found — the probe scans the wrong place`);
 
-  const unerreichbar = [];
-  for (const [f, t] of anhaengend) {
-    const modul = f.replace('.mjs', '');
-    const exporte = [...t.matchAll(/export function (\w+)/g)].map((m) => m[1]);
-    const benutzt = exporte.some((fn) => new RegExp(`\\b${modul}\\.${fn}\\b`).test(binFiles));
-    if (!benutzt) unerreichbar.push(f);
+  const unreachable = [];
+  for (const [f, t] of appending) {
+    const moduleName = f.replace('.mjs', '');
+    const exportNames = [...t.matchAll(/export function (\w+)/g)].map((m) => m[1]);
+    const benutzt = exportNames.some((fn) => new RegExp(`\\b${moduleName}\\.${fn}\\b`).test(binFiles));
+    if (!benutzt) unreachable.push(f);
   }
-  assert.deepEqual(unerreichbar, [],
+  assert.deepEqual(unreachable, [],
     'These modules append lines to disk and nothing in bin/ calls into them. '
     + 'A log nobody can reach is a file that grows, not an audit trail.');
 });

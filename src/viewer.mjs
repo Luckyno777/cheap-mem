@@ -41,6 +41,7 @@ import * as memory from './memory.mjs';
 import * as agentsModule from './agents.mjs';
 import * as storeModule from './store.mjs';
 import * as procedure from './procedure.mjs';
+import * as bidi from './bidi.mjs';
 import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
@@ -331,6 +332,43 @@ function summarize(rows) {
   return { total: rows.length, perType, perProject, perDay };
 }
 
+/**
+ * The whole payload, with bidi.visible() applied to every string it
+ * contains, wherever it sits in the (deeply nested) structure.
+ *
+ * **Why here, and why the browser cannot do it.** compactLine,
+ * browse.fit and memory.context all run in the same Node process that
+ * also does the printing, so each calls bidi.visible() right where it
+ * builds its output. The viewer's actual render step — the DOM strings
+ * built by `card()`, `topicCard()`, `viewFacts()` and the rest inside
+ * the inline `<script>` below — runs in a BROWSER, in a file this
+ * package's own code never executes; that inline script is plain
+ * client-side JS, not an ES module, and has no way to `import
+ * './bidi.mjs'`. So neutralising there is not merely inconvenient, it
+ * is not an option, and the only place left to do it is HERE, on the
+ * data, before it is serialised into the `<script id="data">` block
+ * `safeJson()` embeds. Once the marker is baked into the string,
+ * every one of the client's own `esc()` calls treats it as any other
+ * harmless ASCII text — no client-side change needed at all.
+ *
+ * **Recurses over the whole object rather than naming fields**, same
+ * choice as `sanitizeForDisplay` in `src/cli/display.mjs` and for the
+ * same reason: this payload carries entries, topics, links,
+ * experiences, facts, agents and the store register, each shaped
+ * differently, and naming seven surfaces by hand is exactly the
+ * pattern that left an eighth (this one) with none at all.
+ */
+function sanitizeDeep(value) {
+  if (typeof value === 'string') return bidi.visible(value);
+  if (Array.isArray(value)) return value.map(sanitizeDeep);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = sanitizeDeep(v);
+    return out;
+  }
+  return value;
+}
+
 // Embed JSON safely inside <script>. The only sequence that can break
 // out of a script element is "</" (case-insensitive, e.g. </script>);
 // escaping the slash neutralises it while staying valid JSON. Also guard
@@ -362,10 +400,13 @@ function safeJson(value) {
 export function renderHtml(data, { title = 'cheap-mem', generatedAt = new Date() } = {}) {
   // Accept the old shape (a bare array of rows) so a caller that still
   // passes rows keeps working instead of rendering an empty page.
-  const payload = Array.isArray(data)
+  const rawPayload = Array.isArray(data)
     ? { generatedAt: generatedAt.toISOString(),
       memories: [{ name: title, entries: data, topics: [], areas: [], quality: null, agents: [], store: [], storeState: null, links: [], experiences: [], facts: [], counts: summarize(data) }] }
     : data;
+  // The one and only place this neutralisation happens for the viewer —
+  // see sanitizeDeep's docstring for why it cannot happen in the browser.
+  const payload = sanitizeDeep(rawPayload);
   const total = payload.memories.reduce((n, m) => n + m.entries.length, 0);
   const when = new Date(payload.generatedAt || generatedAt).toISOString().replace('T', ' ').slice(0, 16);
 

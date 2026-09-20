@@ -15,6 +15,24 @@
 // forks and dangling edges. Resolution walked it without a depth cap, so
 // a cycle was an unbounded loop waiting for the right two lines.
 //
+// **A `.jsonl` under an unknown name was invisible, not merely
+// unchecked (found 2026-09-19, self-reproduced).** `logFiles` above,
+// `memory.find` and `search.buildIndex` all iterate over
+// `memory.TYPES` — a closed map of type name -> filename, by design (see
+// the docstring on `memory.TYPES`: forcing an entry into the wrong
+// drawer is worse than a new one). But that means a FILENAME the map
+// does not know, sitting right next to the files it does — `dutys.jsonl`
+// for `duties.jsonl`, one missed keystroke — is opened by NOTHING: not
+// `mem find`, not the index, not `mem doctor`'s own drawer count. Every
+// one of those answered "243 entries" while 42 more sat on disk,
+// unparsed, unmentioned, in a repo `mem doctor` called healthy.
+//
+// `orphanJsonlFiles` below does not read those files — that would be
+// the same mistake as the first failure class here in different
+// clothes, guessing at meaning the type map deliberately does not
+// grant. It only says how many there are and where, so the gap is a
+// finding instead of a silence.
+//
 // Nothing here reads or returns line CONTENT. A broken line may hold a
 // half-written secret, and a diagnostic that prints it turns a corruption
 // report into a leak. File and line number only.
@@ -38,6 +56,69 @@ export function logFiles(root) {
     }
   }
   return out;
+}
+
+/**
+ * `.jsonl` files that sit in `global/` or a `projects/<name>/` directory
+ * but whose basename is not one of `memory.TYPES`'s files — so no
+ * reading path in this system (find, the index, doctor's own drawer
+ * count) will ever open them, no matter how many valid entries they
+ * hold.
+ *
+ * **Exemptions, and why each one is safe.** A handful of `.jsonl` files
+ * are deliberately NOT a `memory.TYPES` drawer and just as deliberately
+ * live beside them:
+ *
+ *   - `global/topic-aliases.jsonl` (`memory.ALIAS_LOG`) — a second,
+ *     append-only log with its own reader (`memory.topicAliases`),
+ *     read on every topic lookup. Not a mistyped drawer.
+ *
+ * Every other `.jsonl` this codebase writes on purpose — `digested.jsonl`,
+ * `raw-record.jsonl` / the legacy `raw-nachweis.jsonl`, `heartbeat.jsonl`,
+ * `.mem/bridge-reports.jsonl`, `.mem/console-log.jsonl`,
+ * `.pipeline/injections.jsonl`, `.pipeline/observations.jsonl`,
+ * `shared/finding-map.jsonl` — is checked (2026-09-19, against every
+ * `path.join(root, ...)` call site for a `.jsonl` name in `src/`) to sit
+ * at the memory root, under `.mem/`, `.pipeline/` or `shared/`, never
+ * under `global/` or `projects/<name>/`. So scanning exactly those two
+ * places, with the one exemption above, does not fire on a single file
+ * this codebase itself creates — confirmed by running this against a
+ * fresh `mem init` and against this repo's own memory, both silent.
+ *
+ * Directories under `projects/` are read directly with `fs.readdirSync`,
+ * not through `memory.listProjects` — a project folder whose NAME is
+ * itself invalid is already invisible to every normal path for that
+ * reason, and hiding it here too would let a second, compounding way to
+ * go unread escape a check built specifically to catch that shape of
+ * bug.
+ */
+export function orphanJsonlFiles(root) {
+  const known = new Set(Object.values(memory.TYPES));
+  const exempt = new Set([path.basename(memory.ALIAS_LOG)]);
+  const out = [];
+  const scan = (dir, project) => {
+    let entries;
+    // `withFileTypes` rather than plain names: a DIRECTORY called
+    // `something.jsonl` holds no unread entries, and a finding that
+    // names it would be a wrong report under a message that says
+    // "files ... read by nothing". A check that accuses the innocent is
+    // a check somebody switches off, and then the real one goes with it.
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.jsonl')) continue;
+      if (known.has(e.name) || exempt.has(e.name)) continue;
+      out.push({ rel: path.relative(root, path.join(dir, e.name)), project, name: e.name });
+    }
+  };
+  scan(path.join(root, 'global'), null);
+  const projectsDir = path.join(root, 'projects');
+  let projectDirs = [];
+  try {
+    projectDirs = fs.readdirSync(projectsDir, { withFileTypes: true })
+      .filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch { /* no projects/ yet */ }
+  for (const p of projectDirs) scan(path.join(projectsDir, p), p);
+  return out.sort((a, b) => a.rel.localeCompare(b.rel));
 }
 
 /**
@@ -85,10 +166,29 @@ export function scanIntegrity(root) {
         claims.set(e.id, { replaces: e.replaces_id ?? e.replaces ?? null, file: f.rel, line: i + 1 });
       }
 
-      // Timestamps. A missing one is not an error for every drawer, but a
-      // present-and-unparseable one always is, and a far-future one is
-      // either a wrong clock or an attempt to look newest forever.
-      if (e.ts !== undefined) {
+      // Timestamps.
+      //
+      // **A missing `ts` used to fall through every check here (found
+      // 2026-09-19).** `logEntry` (memory.mjs) stamps every line it
+      // writes, with no way to opt out — so a line with no `ts` at all
+      // can only be a hand-edit, a bad merge or a partial write, never
+      // ordinary use. The three checks below were each guarded with
+      // `if (e.ts !== undefined)`, which was written to skip entries that
+      // legitimately never carry a timestamp — but no such entry exists
+      // in this schema, so the guard only ever hid the worst case: an
+      // absent `ts` is caught by NONE of "unparseable", "in the future"
+      // or the `valid_until`-ordering check, while a present-but-garbled
+      // one is caught by the first. Missing is strictly worse than
+      // malformed and was the one case reported as if it were fine.
+      //
+      // Reported the same way an unparseable `ts` already is — one more
+      // `why` in the same bucket, not a new severity — because it is the
+      // same class of defect (a timestamp that cannot be trusted), and a
+      // corpus made entirely of `logEntry` writes will never trip this
+      // by construction: nothing here fires on ordinary use.
+      if (e.ts === undefined) {
+        badTimestamp.push({ file: f.rel, line: i + 1, id: e.id ?? null, why: 'missing ts' });
+      } else {
         const t = Date.parse(e.ts);
         if (!Number.isFinite(t)) {
           badTimestamp.push({ file: f.rel, line: i + 1, id: e.id ?? null, why: 'unparseable ts' });

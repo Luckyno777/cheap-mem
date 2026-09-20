@@ -229,6 +229,25 @@ function germanHits(text) {
   return [...found];
 }
 
+/**
+ * A comment line with its backtick-quoted spans removed.
+ *
+ * **Why (2026-09-19).** The two houses share `shared/invariants.jsonl`
+ * byte for byte, and its ids are German by design. `leer-ist-kein-bestehen`
+ * and its siblings are names, not prose. An English comment
+ * that cites one was reported as German, because `ist` and `kein` are
+ * on the word list. That is a guard reporting the innocent, and it will
+ * recur for every future citation, which is why this is a rule and not
+ * another entry in KNOWN_VERBATIM_QUOTES.
+ *
+ * A backtick-quoted span is an identifier, a path or a command. Prose
+ * outside the backticks is still scanned, so a German sentence cannot
+ * hide by putting one word in backticks.
+ */
+function asProse(line) {
+  return String(line).replace(/`[^`]*`/g, ' ');
+}
+
 function scanRepo() {
   const files = [];
   for (const d of SCAN_DIRS) listFiles(path.join(REPO, d), files);
@@ -241,7 +260,7 @@ function scanRepo() {
       if (!trimmed) continue;
       if (NEARLY_MARKER.test(raw)) continue;
       if (KNOWN_VERBATIM_QUOTES.some((q) => lineText.includes(q))) continue;
-      const hits = germanHits(lineText);
+      const hits = germanHits(asProse(lineText));
       if (hits.length >= 2) offenders.push({ file: rel, number, hits, text: trimmed });
     }
   }
@@ -259,6 +278,27 @@ test('POSITIVE: the scan really walks a meaningful number of files', () => {
   assert.ok(files.length >= 40,
     `only ${files.length} files were scanned in src/, bin/, test/, bench/ — `
     + 'this is an empty-scan false pass, not a clean codebase');
+});
+
+// Test data for the counter-probe below, held as constants rather than
+// inline literals: this file's own comment extractor treats a `//` inside
+// a string as the start of a comment, so a sample carrying one would be
+// scanned as prose and reported against this very file. Naming them keeps
+// the samples out of the scanner without weakening it for anyone else.
+const GERMAN_PROSE_SAMPLE = ['dieser', 'Satz', 'ist', 'auf', 'Deutsch'].join(' ');
+const IDENTIFIER_SAMPLE = 'one word in `leer-ist-kein-bestehen` is not German prose';
+const LAUNDERING_SAMPLE = ['`ok`', 'und', '`nein`', 'sind', 'hier', 'beide'].join(' ');
+
+test('COUNTER-PROBE: stripping backticks does not switch the detector off', () => {
+  // Without this, `asProse` could be widened until nothing is ever
+  // scanned and the guard above would pass forever — the exact shape
+  // this repo calls empty green.
+  assert.ok(germanHits(asProse(GERMAN_PROSE_SAMPLE)).length >= 2,
+    'German prose outside backticks must still be caught');
+  assert.ok(germanHits(asProse(IDENTIFIER_SAMPLE)).length < 2,
+    'a backticked identifier must not count as German prose');
+  assert.ok(germanHits(asProse(LAUNDERING_SAMPLE)).length >= 2,
+    'backticks must not launder a German sentence around them');
 });
 
 test('no comment line in src/, bin/, test/ or bench/ carries two or more German words', () => {

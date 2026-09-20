@@ -29,6 +29,27 @@ import { countLines } from '../display.mjs';
 /** 12 commands. */
 export const COMMANDS = {
   inbox: async ({ rest, args }) => {
+    // There was no isHelp() guard here at all. `sub = rest[0] ?? 'new'`
+    // ran first no matter what, so `mem inbox --help` fell straight
+    // into the `new` branch: without a stored `whoami` it died with
+    // "Who is this install in the channel?" (exit 1), and WITH one it
+    // printed the actual inbox contents (exit 0) — never help, either
+    // way.
+    if (isHelp(args)) {
+      out([
+        'mem inbox new        [--as N]              what is new for me',
+        'mem inbox all        [--as N]              all messages to me',
+        'mem inbox write      [--as N] --to N --subject "..." [< text.md]',
+        'mem inbox show <name> [--as N]',
+        'mem inbox ack <name> [state]               state -> replied (default)',
+        'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
+        '                     exit 0/1/3, for shell pollers',
+        '',
+        '  Without a subcommand: same as `inbox new`.',
+        '  --as picks who this call speaks as; without it, the stored `mem whoami`.',
+      ].join('\n'));
+      return;
+    }
     const sub = rest[0] ?? 'new';
     const root = findRoot(args);
     const cfg = requireConfig(root);
@@ -553,6 +574,25 @@ export const COMMANDS = {
   },
 
   whoami: async ({ rest, args }) => {
+    // No isHelp() guard existed here either. `mem whoami --help` fell
+    // straight into requireConfig(): on an UNINITIALISED root that
+    // dies (exit 1, no usage at all) instead of showing help, and on
+    // an initialised one it silently printed the current identity —
+    // never the word "help". `--help` is read-only everywhere else in
+    // this file; here it could even reach `inbox.setWhoAmI()` and
+    // WRITE the identity file, if `--help` were ever typo'd right
+    // before a name (`mem whoami --help lucky`: rest[0] would be
+    // 'lucky', not the help flag).
+    if (isHelp(args)) {
+      out([
+        'mem whoami [<name>]',
+        '',
+        '  No argument: prints who this install is currently set to be.',
+        `  With <name>: sets it (saved to ${inbox.WHOAMI_FILE}), one of the`,
+        '  configured participants.',
+      ].join('\n'));
+      return;
+    }
     checkFlags(args, [], 'whoami');
     const root = findRoot(args);
     const cfg = requireConfig(root);

@@ -358,6 +358,23 @@ export const COMMANDS = {
   },
 
   correction: async ({ rest, args }) => {
+    // No isHelp() guard existed at all: `mem correction --help` fell
+    // straight into the missing-arguments check below and died with
+    // "correction: which type?" — exit 1, no usage shown, for the one
+    // flag that is supposed to never fail.
+    if (isHelp(args)) {
+      out([
+        'mem correction <type> <old-id> [--project <name>] --<field> <value> [...]',
+        '',
+        '  Writes a NEW entry that supersedes <old-id>: the old one keeps',
+        `  standing in the log, but memory.holds() no longer counts it.`,
+        '  Same field rules as `mem log` (see `mem log --help`) — --tags,',
+        '  --origin, --valid_from/--valid_until, the swallowed-value guard.',
+        '',
+        `  Types: ${Object.keys(memory.TYPES).join(', ')}`,
+      ].join('\n'));
+      return;
+    }
     const type = rest[0];
     const oldId = rest[1];
     if (!type) die("correction: which type?");

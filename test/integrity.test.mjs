@@ -7,7 +7,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { scanIntegrity, replacementGraph, isClean, MAX_CHAIN } from '../src/integrity.mjs';
+import {
+  scanIntegrity, replacementGraph, isClean, MAX_CHAIN, orphanJsonlFiles,
+} from '../src/integrity.mjs';
+import * as memory from '../src/memory.mjs';
 
 function fixture(lines) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-int-'));
@@ -142,4 +145,54 @@ test('graph analysis is order-independent', () => {
   assert.deepEqual(a.forks, b.forks);
   assert.deepEqual(a.cycles, b.cycles);
   assert.deepEqual(a.missing.map((m) => m.id), b.missing.map((m) => m.id));
+});
+
+// --- a drawer nobody opens ---------------------------------------------
+//
+// Found 2026-09-19 by making the mistake: a generator wrote
+// `dutys.jsonl` instead of `duties.jsonl`. 512 entries went on disk, 470
+// were read back, and `mem doctor` said `ok  drawers  10 files`. Every
+// reading path — `mem find`, the search index, the drawer count itself —
+// iterates `memory.TYPES`, so a filename the map does not know is not
+// merely unchecked, it is invisible.
+//
+// The probes below are the pair that makes that measurable: the
+// misspelling must be FOUND, and a correctly named drawer must NOT be,
+// because a check that flags every file would be turned off within a day.
+
+test('a .jsonl under an unknown name is reported', () => {
+  const root = fixture([claim('a1')]);
+  const bad = path.join(root, 'projects', 'p', 'dutys.jsonl');
+  fs.writeFileSync(bad, `${line({ id: 'x1', ts: '2026-01-01T00:00:00Z', title: 't' })}\n`);
+  const orphans = orphanJsonlFiles(root);
+  assert.equal(orphans.length, 1, 'the misspelled drawer was not found');
+  assert.equal(orphans[0].name, 'dutys.jsonl');
+  assert.equal(orphans[0].project, 'p');
+  // The path is reported; the CONTENT is not read. Guessing at meaning
+  // the type map deliberately withholds is the failure one layer up.
+  assert.ok(!JSON.stringify(orphans).includes('"title"'));
+});
+
+test('COUNTER-CHECK: every correctly named drawer is left alone', () => {
+  const root = fixture([claim('a1')]);
+  for (const file of Object.values(memory.TYPES)) {
+    fs.writeFileSync(path.join(root, 'projects', 'p', file), '');
+  }
+  fs.mkdirSync(path.join(root, 'global'), { recursive: true });
+  fs.writeFileSync(path.join(root, memory.ALIAS_LOG), '');
+  assert.deepEqual(orphanJsonlFiles(root), [],
+    'a check that flags known drawers is a check somebody switches off');
+});
+
+test('non-.jsonl files and stray directories are not drawers', () => {
+  const root = fixture([claim('a1')]);
+  fs.writeFileSync(path.join(root, 'projects', 'p', 'notes.md'), 'not a log');
+  fs.mkdirSync(path.join(root, 'projects', 'p', 'sub.jsonl'), { recursive: true });
+  const names = orphanJsonlFiles(root).map((o) => o.name);
+  // Neither is a drawer with unread entries in it. The directory case is
+  // the one worth pinning: the scan filters on `isFile()`, not on the
+  // name, because a finding that says "files ... read by nothing" and
+  // points at a folder is a wrong report — and a check that accuses the
+  // innocent gets switched off, taking the real findings with it.
+  assert.deepEqual(names, []);
 });

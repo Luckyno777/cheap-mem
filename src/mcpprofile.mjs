@@ -48,8 +48,8 @@ export const PROFILE = Object.freeze({
  * readable, and that is the wrong side to fall to.
  */
 export const READING = Object.freeze([
-  'mem_heartbeat', 'mem_bridge_report', 'mem_board', 'mem_questions',
-  'mem_procedures', 'mem_component', 'mem_source', 'mem_links',
+  'mem_board', 'mem_questions',
+  'mem_procedures', 'mem_component', 'mem_links',
   'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts',
   'mem_explain', 'mem_retrieve', 'mem_find', 'mem_duties',
   'mem_context', 'mem_inbox_show', 'mem_store_list', 'mem_store_get',
@@ -65,9 +65,41 @@ export const READING = Object.freeze([
 export const WRITING = Object.freeze([
   'mem_answer', 'mem_log', 'mem_duty_close', 'mem_inbox_new',
   'mem_inbox_write', 'mem_inbox_ack', 'mem_project_init', 'mem_store_put',
+  // These three sat in READING until 2026-09-20, and the probe in
+  // test/mcpprofile.test.mjs was green the whole time, because it only
+  // looked at the case body in bin/mem-mcp and each of them writes one
+  // hop further in:
+  //
+  //   mem_heartbeat     -> heartbeat.beat() -> fs.appendFileSync
+  //   mem_bridge_report -> board.report()   -> fs.appendFileSync
+  //   mem_source        -> source.take()    -> memory.logEntry()
+  //
+  // `mem_source` is the one that mattered: it puts caller-supplied text
+  // into the memory under a read-only profile. The other two append to
+  // operational files. All three are classified by what the code does.
+  'mem_heartbeat', 'mem_bridge_report', 'mem_source',
 ]);
 
+/**
+ * Writing tools that the read-only profile lets through anyway.
+ *
+ * **This is a policy decision, and it is deliberately not a
+ * classification.** `mem_heartbeat` writes — it says so in WRITING, and
+ * the source probe holds it to that. But an agent that may only read
+ * still has to be able to say it is alive, and a heartbeat carries no
+ * caller content: it is a name and a timestamp. Refusing it would make
+ * a read-only bridge invisible to the board rather than harmless.
+ *
+ * Kept separate from READING so the two questions stay apart: "does
+ * this write?" is answered by the code, "may it write here anyway?" is
+ * answered here, by name, one line per exception, with the reason
+ * above. A tool added to this list is a decision someone has to defend;
+ * a tool moved into READING would be a lie about the code.
+ */
+export const READONLY_EXCEPTIONS = Object.freeze(['mem_heartbeat']);
+
 const READING_SET = new Set(READING);
+const READONLY_EXCEPTIONS_SET = new Set(READONLY_EXCEPTIONS);
 
 /**
  * Read the profile from the environment.
@@ -85,13 +117,16 @@ export function fromEnv(env = process.env) {
 export function allowed(name, profile) {
   if (profile !== PROFILE.READ_ONLY) return true;
   // Unknown counts as writing. See the head of this file.
-  return READING_SET.has(String(name));
+  return READING_SET.has(String(name)) || READONLY_EXCEPTIONS_SET.has(String(name));
 }
 
 /** Which tools are listed at all. */
 export function visible(tools, profile) {
   if (profile !== PROFILE.READ_ONLY) return tools;
-  return tools.filter((t) => READING_SET.has(String(t?.name ?? t)));
+  // Listed and callable must be the same set. A tool that is allowed
+  // but invisible is a tool nobody finds; a tool that is visible but
+  // refused is a tool everybody tries.
+  return tools.filter((t) => allowed(String(t?.name ?? t), profile));
 }
 
 /**
@@ -110,6 +145,6 @@ export function refusal(name) {
  * instead of quietly being refused for the wrong reason.
  */
 export function coverage(names = []) {
-  const known = new Set([...READING, ...WRITING]);
+  const known = new Set([...READING, ...WRITING, ...READONLY_EXCEPTIONS]);
   return names.filter((n) => !known.has(String(n)));
 }

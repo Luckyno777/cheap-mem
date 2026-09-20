@@ -114,7 +114,89 @@ export function checkPreCommitHook(root) {
  * Reported as UNKNOWN rather than OK where it cannot be determined. An
  * environment check that guesses is worse than none, because it converts
  * an unknown into a false assurance.
+ *
+ * ## Allow-list, not a deny-list (fixed 2026-09-19)
+ *
+ * The previous version matched a short deny-list of unsafe names and
+ * called *everything else* atomic — including a filesystem type it had
+ * never seen. That inverts the doc comment above it: "reported as
+ * UNKNOWN where it cannot be determined" only holds if the unknown case
+ * actually reaches UNKNOWN. Measured against `overlay`, `overlayfs`,
+ * `sshfs`, `vfat` and a made-up `unknown-0x1234`: all five came back
+ * "OK, O_APPEND writes are atomic here". `overlay`/`overlayfs` is the
+ * filesystem of every Docker container — including the one cheap-mem
+ * itself typically runs in — so this was not a corner case, it was the
+ * common case reporting a guarantee nobody had checked.
+ *
+ * So: three lists. GOOD only for names this comment can back with a
+ * reason; BAD only for names with a documented failure mode; UNKNOWN —
+ * the safe default — for everything else, the type string named
+ * verbatim so a human can look it up.
+ *
+ * `stat -f -c %T` on Linux reports the *statfs magic number's* name, not
+ * the driver: ext2, ext3 and ext4 all carry magic `0xEF53` and are all
+ * printed as `ext2/ext3` (confirmed on this machine: `/` is mounted
+ * `ext4` per `mount`, `stat -f -c %T /` prints `ext2/ext3`). The GOOD
+ * list accounts for that; it is not a gap in coverage.
  */
+
+/**
+ * Local filesystems whose regular (buffered, non-`O_DIRECT`) write path
+ * is documented to hold the inode exclusive-lock (`i_rwsem`) for the
+ * whole `write()` call when `O_APPEND` is set — the mechanism the
+ * `open(2)` man page's atomicity guarantee rests on for "local
+ * filesystems". `fs.appendFileSync` uses exactly that path (buffered,
+ * not `O_DIRECT`), which is what cheap-mem does everywhere.
+ *
+ *   ext2/ext3   `stat -f -c %T` name for magic 0xEF53 — covers ext2,
+ *               ext3 AND ext4 (they share the magic; ext4 never prints
+ *               as "ext4"). ext4_file_write_iter -> inode_lock().
+ *   ext4        kept as a second key in case some other tool ever
+ *               surfaces the driver name rather than the magic name —
+ *               same code path, same guarantee.
+ *   xfs         xfs_file_write_iter takes XFS_IOLOCK_EXCL for buffered
+ *               writes for the duration of the call.
+ *   btrfs       btrfs_file_write_iter takes inode_lock() for buffered
+ *               writes (COW affects block layout, not this lock).
+ *   f2fs        f2fs_file_write_iter takes inode_lock() the same way.
+ *   tmpfs       shmem_file_write_iter takes inode_lock() the same way;
+ *               it is memory-backed (a reboot loses it), but that is a
+ *               PERSISTENCE property, a different guarantee from
+ *               atomicity, which is all this check reports on.
+ *
+ * Deliberately NOT here without a specific reason found for it: jfs,
+ * reiserfs, zfs, ufs and any other local filesystem. They may well be
+ * fine — but "may well be" is a guess, and a guess reported as OK is
+ * the exact defect this list replaces. They fall through to UNKNOWN.
+ */
+const ATOMIC_APPEND_OK = new Set(['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs']);
+
+/**
+ * Filesystems with a DOCUMENTED failure mode for concurrent O_APPEND,
+ * not merely "not on the good list".
+ *
+ *   nfs, nfs4    the `open(2)` man page names this exact case: NFS does
+ *                not support appending server-side, so the client
+ *                kernel simulates it, and two clients doing that race.
+ *   smb, smb2,
+ *   smb3, cifs   same architecture as NFS — the client simulates append
+ *                against a network protocol with no atomic append
+ *                primitive — so the same failure mode applies.
+ *   sshfs        FUSE over SFTP: measured directly (see module doc
+ *                block above `checkAppendAtomicity`'s test fixtures) —
+ *                `FEHLER … concurrent appends may interleave` is the
+ *                correct call, not a guess.
+ *
+ * `fuseblk`, `fuse`, `9p` and `virtiofs` used to be on this list too.
+ * They are pulled off it here: each CAN be backed by something that
+ * forwards straight through to a locking filesystem, and each can also
+ * be backed by something that does not, and `stat -f -c %T` cannot
+ * tell the two apart. Calling them unsafe was as much a guess as
+ * calling them safe — they belong in UNKNOWN, named, not in either
+ * list.
+ */
+const ATOMIC_APPEND_BAD = new Set(['nfs', 'nfs4', 'smb', 'smb2', 'smb3', 'cifs', 'sshfs']);
+
 export function checkAppendAtomicity(root) {
   let fsType = null;
   try {
@@ -128,14 +210,26 @@ export function checkAppendAtomicity(root) {
       'filesystem type could not be determined — atomicity unverified',
       'On Linux, `stat -f -c %T .` names it. Avoid NFS for the memory root.');
   }
-  const unsafe = /^(nfs|smb|cifs|fuseblk|9p|virtiofs)/i.test(fsType);
-  if (unsafe) {
+  const key = fsType.toLowerCase();
+  if (ATOMIC_APPEND_BAD.has(key)) {
     return check('append-atomicity', LAYER.OS, false,
       `filesystem is ${fsType} — concurrent appends may interleave`,
       'Move the memory root onto a local filesystem, or serialise writers.');
   }
-  return check('append-atomicity', LAYER.OS, true,
-    `filesystem is ${fsType} — O_APPEND writes are atomic here`);
+  if (ATOMIC_APPEND_OK.has(key)) {
+    return check('append-atomicity', LAYER.OS, true,
+      `filesystem is ${fsType} — O_APPEND writes are atomic here`);
+  }
+  // Includes `overlay`/`overlayfs` (the type this check itself most
+  // often meets — see the module doc block above): whether it forwards
+  // to a filesystem in ATOMIC_APPEND_OK depends on the storage driver
+  // (overlay2 vs. fuse-overlayfs vs. a sandbox's own overlay), which
+  // `stat -f -c %T` does not reveal. Not measurable here is not zero.
+  return check('append-atomicity', LAYER.OS, null,
+    `filesystem is ${fsType} — atomicity neither verified safe nor documented unsafe`,
+    'On Linux, only ext2/ext3/ext4, xfs, btrfs, f2fs and tmpfs are treated '
+    + 'as verified here. Confirm this one directly or move the memory root '
+    + 'onto one of those.');
 }
 
 /**

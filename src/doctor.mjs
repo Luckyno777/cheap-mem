@@ -153,6 +153,7 @@ export function checkAll(root) {
   f.push(checkRedaction());
   f.push(checkGitHook(root));
   f.push(...checkDrawers(root));
+  f.push(checkOrphanDrawers(root));
   f.push(checkCaptures(root));
   f.push(checkArchiveBacklog(root));
   f.push(checkDigest(root));
@@ -535,6 +536,45 @@ function* checkDrawers(root) {
     return;
   }
   yield finding('drawers', LEVEL.GOOD, `${files.length} files, ${scan.lines} lines`);
+}
+
+/**
+ * `.jsonl` files under `global/` or `projects/<name>/` that no reading
+ * path in this system will ever open, because their NAME is not one of
+ * `memory.TYPES`'s files — see `integrity.orphanJsonlFiles`.
+ *
+ * **A separate finding, not folded into `drawers` (decided 2026-09-19).**
+ * `drawers` answers one question — "of the logs this system KNOWS about,
+ * does every line parse" — and that question is sourced from
+ * `integrity.logFiles`, which is itself built by iterating
+ * `memory.TYPES`. Folding this check in there would mean computing it
+ * from the very iteration that cannot see the problem, which is the bug
+ * repeating one layer up. This finding reads the directory instead, so
+ * it can report on a file none of `drawers`, `mem find` or the index
+ * will ever touch.
+ *
+ * ERROR, not WARN: this is not a style nit like topic quality — it is
+ * entries that exist on disk and answer no search, no `mem find`, no
+ * doctor count, ever, until the name is fixed. `mem doctor` reporting
+ * "healthy" over exactly that is the failure this whole assignment
+ * measures.
+ */
+function checkOrphanDrawers(root) {
+  let orphans;
+  try { orphans = integrity.orphanJsonlFiles(root); }
+  catch (e) { return finding('orphan-drawers', LEVEL.UNKNOWN, `could not scan global/ or projects/: ${e.message}`); }
+  if (orphans.length === 0) {
+    return finding('orphan-drawers', LEVEL.GOOD, 'no .jsonl files outside the known types');
+  }
+  const names = orphans.map((o) => o.rel).slice(0, 5).join(', ')
+    + (orphans.length > 5 ? ' ...' : '');
+  return finding('orphan-drawers', LEVEL.ERROR,
+    `${orphans.length} .jsonl file${orphans.length === 1 ? '' : 's'} in global/ or projects/ `
+    + `match${orphans.length === 1 ? 'es' : ''} no known type, and are read by nothing: ${names}`,
+    `Rename to one of ${Object.keys(memory.TYPES).map((t) => memory.TYPES[t]).join(', ')} if that is what `
+    + 'it should have been, or move it out of global//projects/<name> if it is not a log at all. '
+    + '`mem find`, the search index and this doctor all iterate the type map, so nothing short of the '
+    + 'right filename makes these entries findable.');
 }
 
 function checkCaptures(root) {

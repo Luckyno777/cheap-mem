@@ -25,7 +25,7 @@ import * as timeexpr from '../../timeexpr.mjs';
 import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
-import { asOfOf, sinceOf, showWindow, compactLine, markedEntry } from '../display.mjs';
+import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
 /** 13 commands. */
 export const COMMANDS = {
@@ -131,7 +131,7 @@ export const COMMANDS = {
       // consumer that applies a threshold here should fail on null
       // rather than on an invented number. `literal: true` says it too.
       if (args.json) {
-        out(JSON.stringify({
+        out(JSON.stringify(sanitizeForDisplay({
           query,
           literal: true,
           asOf,
@@ -144,7 +144,7 @@ export const COMMANDS = {
             state: h._retired?.state ?? null,
             label: compactLine(h) || '',
           })),
-        }, null, 2));
+        }), null, 2));
         return;
       }
       // Three states, not two: "found nothing" and "found something that
@@ -272,9 +272,9 @@ export const COMMANDS = {
       // able to see whether filtering happened — a missing field reads as
       // "not filtered" and as "older version of the tool" at the same
       // time.
-      out(JSON.stringify({
+      out(JSON.stringify(sanitizeForDisplay({
         query, ms, asOf, hits: hits.map((h) => ({ ...h, entry: markedEntry(h.entry) })),
-      }, null, 2));
+      }), null, 2));
       return;
     }
     if (hits.length === 0) {
@@ -289,8 +289,12 @@ export const COMMANDS = {
       const mark = (h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '')
         + (h.retired ? `  [${h.retired.state}]` : '');
       out(`  ${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}`);
+      // compactLine() already neutralises the digested branch; the raw-
+      // capture branch reads straight from the un-digested transcript
+      // (raw.snippet / the raw entry's own .text) and never passed
+      // through compactLine at all, so it needs its own call here.
       const preview = h.raw
-        ? (raw.snippet(root, h.source, query) || String(h.entry.text ?? '').slice(0, 160))
+        ? sanitizeForDisplay(String(raw.snippet(root, h.source, query) || h.entry.text || ''))
         : compactLine(h.entry);
       out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
     }
@@ -341,7 +345,7 @@ export const COMMANDS = {
       out(`${hits.length} semantic hits for '${query}':`);
       for (const h of hits) {
         out(`  ${h.source_file}:${h.line_number}  [${h.ts}]  ${h.score.toFixed(3)}`);
-        out(`    ${h.text.replace(/\s+/g, ' ').slice(0, 160)}`);
+        out(`    ${sanitizeForDisplay(String(h.text)).replace(/\s+/g, ' ').slice(0, 160)}`);
       }
     } finally { try { db.close(); } catch { /* fine */ } }
   },
@@ -388,7 +392,7 @@ export const COMMANDS = {
       const src = h.source ?? h.source_file;
       const line = h.line ?? h.line_number;
       const ts = h.entry?.ts ?? h.ts ?? '?';
-      const preview = h.entry ? compactLine(h.entry) : String(h.text ?? '');
+      const preview = h.entry ? compactLine(h.entry) : sanitizeForDisplay(String(h.text ?? ''));
       out(`  ${src}:${line}  [${ts}]  [${f.found_by.join('+')}]`);
       out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
     }
@@ -437,14 +441,14 @@ export const COMMANDS = {
     try {
       observations.record(root, { lane: 'retrieve', ids: r.claims.map((c) => c.id), query: r.query });
     } catch { /* observation lost, retrieval unaffected — see src/observations.mjs */ }
-    if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+    if (args.json) { out(JSON.stringify(sanitizeForDisplay(r), null, 2)); return; }
     if (!r.claims.length) {
       out(`No claims for '${r.query}' within ${r.scopes.join(' ') || '(no scope)'}.`);
     }
     for (const c of r.claims) {
       out(`${c.id}  [${c.authority}${c.author ? '/' + c.author : ''}]  ${c.scope}  `
         + `${c.ts ?? '?'}  ${c.score.toFixed(2)}${c.bodyTruncated ? '  (body truncated)' : ''}`);
-      out(`  ${c.body.replace(/\s+/g, ' ')}`);
+      out(`  ${sanitizeForDisplay(c.body).replace(/\s+/g, ' ')}`);
     }
     if (r.excluded.length) {
       warn(`${r.excluded.length} excluded — mem explain <id> says why`);
@@ -501,7 +505,7 @@ export const COMMANDS = {
       ? capability.grantProject(String(args.project), { subject: 'cli' })
       : capability.grantAll('cli');
     const r = retrieval.explainMissing(root, q, cap, id);
-    if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+    if (args.json) { out(JSON.stringify(sanitizeForDisplay(r), null, 2)); return; }
     out(r.returned
       ? `${id}: returned at rank ${r.rank}, score ${r.score.toFixed(4)}`
       : `${id}: not returned — ${r.reason}`);
@@ -567,11 +571,11 @@ export const COMMANDS = {
     if (!id) die('show: which id? Example: mem show a1b2c3');
     const e = memory.getEntry(root, id);
     if (!e) die(`show: id '${id}' not found (or retired/tombstone).`);
-    if (args.json) { out(JSON.stringify(markedEntry(e))); return; }
+    if (args.json) { out(JSON.stringify(sanitizeForDisplay(markedEntry(e)))); return; }
     out(`${e._source}  [${e.ts ?? '?'}]  id=${e.id}`);
     for (const [k, v] of Object.entries(e)) {
       if (k.startsWith('_') || k === 'id' || k === 'ts') continue;
-      out(`  ${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`);
+      out(`  ${k}: ${typeof v === 'string' ? sanitizeForDisplay(v) : JSON.stringify(sanitizeForDisplay(v))}`);
     }
   },
 

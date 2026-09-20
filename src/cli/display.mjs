@@ -117,7 +117,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
     const hits = newest.map((e, i) => ({
       score: 1000 - i, source: e._source, line: e._line, entry: e,
     }));
-    out(JSON.stringify({ query, ms, window: wj, asOf, hits }, null, 2));
+    out(JSON.stringify(sanitizeForDisplay({ query, ms, window: wj, asOf, hits }), null, 2));
     return;
   }
 
@@ -139,7 +139,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
     });
     out('');
     out(`--- raw conversation in window (${lines.length} lines from ${files} captures${capped ? ', capped' : ''}) ---`);
-    for (const l of lines) out(`  [${l.ts}] ${l.type || ''}: ${l.text}`);
+    for (const l of lines) out(`  [${l.ts}] ${l.type || ''}: ${bidi.visible(String(l.text ?? ''))}`);
   }
 }
 
@@ -182,6 +182,56 @@ export function compactLine(e) {
  */
 export function markedEntry(e) {
   return e && e.rule ? { ...e, marking: procedure.mark(e) } : e;
+}
+
+/**
+ * A JSON-shaped value (string, or anything JSON.stringify accepts) with
+ * bidi.visible() applied to every string it contains, wherever it sits
+ * in the structure.
+ *
+ * **Why a round trip through JSON rather than a hand-written walk.**
+ * `bidi.visible()` is a plain string-to-string function: it does not
+ * care whether the string it is given is a whole entry's JSON dump, one
+ * field, or a line of prose — it only ever replaces the nine override
+ * codepoints wherever they occur. `JSON.stringify` already turns any
+ * JSON-safe value into exactly one string with every field's content
+ * inlined (unescaped, since JSON only mandates escaping `"`, `\` and
+ * control characters below U+0020 — U+202E is none of those); running
+ * `bidi.visible()` over THAT string reaches every field at once, and
+ * `JSON.parse` turns the marked text back into a value with the same
+ * shape. A hand-written recursive walk would do the same job with more
+ * code and a second place to forget a container type (Map, class
+ * instance, whatever the next caller passes) — the failure mode this
+ * whole file exists to close, not repeat one field-by-field function
+ * at a time.
+ *
+ * **This is glue, not a second bidi module.** The only place that knows
+ * what an override character IS or how to mark one stays `src/bidi.mjs`
+ * — `bidi.visible()`, called once, right here. This function only
+ * decides WHERE to call it (every string in a value, not just one).
+ *
+ * **Decision: `--json` gets the same marker as prose, deliberately.**
+ * `mem show --json`/`mem retrieve --json` and the MCP bridge's
+ * `structuredContent` hand a caller FIELDS instead of a paragraph
+ * (`docs/security-model.md:116-120`), and that file is explicit that a
+ * client can still flatten those fields back into prose — MCP does not
+ * fix that, it only moves where the flattening happens. Once a body
+ * reaches a machine reader as UTF-8 text at all — a JSON field is not
+ * an exception — a raw U+202E in it is one flattening step (or one
+ * naive `console.log`) from reordering exactly what a human sees, same
+ * as if it had come out of `mem show`'s prose form. `bidi.mjs`'s own
+ * docstring names "the context handed to an agent" as a render path in
+ * scope; a structured field an agent reads is that context. So: same
+ * closed nine-codepoint marker, same function, whether the caller asked
+ * for prose or for JSON. What is NOT done here: touching object KEYS —
+ * those are this package's own field names (`body`, `title`, `score`),
+ * never attacker-controlled, and marking them would only make a normal
+ * `--json` payload harder to grep for no security gain.
+ */
+export function sanitizeForDisplay(value) {
+  if (typeof value === 'string') return bidi.visible(value);
+  if (value === null || value === undefined) return value;
+  return JSON.parse(bidi.visible(JSON.stringify(value)));
 }
 
 export function countLines(p) {

@@ -23,15 +23,20 @@
 // sites WITH COMMENTS STRIPPED, so a call that was commented out during
 // a refactor cannot pass by looking like one.
 import test from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as bidi from '../src/bidi.mjs';
-import { compactLine } from '../src/cli/display.mjs';
+import { compactLine, sanitizeForDisplay } from '../src/cli/display.mjs';
 import * as memory from '../src/memory.mjs';
 import * as browse from '../src/browse.mjs';
 import * as cfg from '../src/config.mjs';
+import * as viewer from '../src/viewer.mjs';
+
+const MEM = fileURLToPath(new URL('../bin/mem', import.meta.url));
 
 // --- the closed list itself --------------------------------------------
 
@@ -257,4 +262,59 @@ test('integration: browse.hitLine() -> fit() end to end, as render() actually ca
   const rendered = browse.fit(`${h.when}  ${h.type}  ${h.what}`, 60);
   assert.ok(!rendered.includes(RLO));
   assert.ok(rendered.includes('U+202E'));
+});
+
+// --- the four surfaces that were still leaking on 2026-09-19 -----------
+//
+// The four probes above measured four of eleven output surfaces, and
+// were green while seven others handed raw override characters out. The
+// leaking ones that mattered were the machine-facing lanes — `--json`
+// and the viewer's embedded data block — precisely the paths a FOREIGN
+// agent reads, which is the reader this control exists for. Each is
+// pinned here on the effect, through the real exported function, not on
+// the presence of a call.
+
+test('integration: sanitizeForDisplay reaches a string, a nested field and an array', () => {
+  assert.equal(sanitizeForDisplay(`a${RLO}b`), 'a[U+202E:RLO]b');
+  const deep = sanitizeForDisplay({
+    hits: [{ entry: { title: `safe${RLO}evil`, tags: [`t${RLO}g`] } }],
+  });
+  const dumped = JSON.stringify(deep);
+  assert.ok(!dumped.includes(RLO), 'sanitizeForDisplay left a raw override inside the structure');
+  assert.equal(deep.hits[0].entry.title, 'safe[U+202E:RLO]evil');
+  assert.equal(deep.hits[0].entry.tags[0], 't[U+202E:RLO]g');
+  // Shape survives the round trip, or the fix would be a different bug.
+  assert.equal(deep.hits.length, 1);
+  // Keys are deliberately NOT marked — they are this package's own field
+  // names. If that ever changes, the decision in the docstring changed
+  // with it, and this line is where it gets noticed.
+  assert.ok(Object.hasOwn(deep.hits[0].entry, 'title'));
+});
+
+test('integration: mem find --json does not hand a raw override to its caller', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'learning', {
+    title: `jsonlane${RLO}probe`, text: `body jsonlane${RLO}probe`,
+  });
+  const r = spawnSync(process.execPath, [MEM, 'find', 'jsonlane', '--json'], {
+    env: { ...process.env, CHEAP_MEM_ROOT: root }, encoding: 'utf8',
+  });
+  assert.equal(r.status, 0, `mem find --json failed: ${r.stderr}`);
+  assert.ok(r.stdout.includes('jsonlane'), 'the probe entry was not found at all — nothing was measured');
+  assert.ok(!r.stdout.includes(RLO), 'mem find --json emitted a raw bidi-override character');
+  assert.ok(r.stdout.includes('U+202E'), 'mem find --json dropped the character instead of marking it');
+});
+
+test('integration: the viewer embeds no raw override in its data block', () => {
+  const root = tmpRoot();
+  memory.logEntry(root, 'learning', {
+    title: `viewerlane${RLO}probe`, text: `body viewerlane${RLO}probe`,
+  });
+  const { entries } = memory.readLog(root, 'learning');
+  const html = viewer.renderHtml(entries, { title: 'probe' });
+  assert.ok(html.includes('viewerlane'), 'the entry never reached the page — nothing was measured');
+  assert.ok(!html.includes(RLO),
+    'renderHtml embedded a raw bidi-override character; the browser-side esc() cannot help, '
+    + 'the inline script cannot import src/bidi.mjs');
+  assert.ok(html.includes('U+202E'), 'renderHtml dropped the character instead of marking it');
 });

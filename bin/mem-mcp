@@ -53,6 +53,8 @@ try {
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as bidi from '../src/bidi.mjs';
+import { sanitizeForDisplay } from '../src/cli/display.mjs';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
 import * as retrieval from '../src/retrieval.mjs';
@@ -100,8 +102,21 @@ function resolveRoot() {
     '(create it with `mem init`).');
 }
 
+/**
+ * Every text reply leaves through here — one choke point, on purpose.
+ *
+ * Before this, `bin/mem-mcp` called `bidi.visible()` nowhere at all
+ * (measured: the string `bidi` did not occur in the file), while the
+ * three other render paths — `compactLine`, `memory.context()`,
+ * `browse.fit()` — each called it individually. Latching each of the
+ * ~25 branches in `handleCall` by hand would only be as strong as the
+ * one a future branch forgets; wrapping the single function every
+ * branch already returns through closes all of them at once, the same
+ * reasoning `compactLine`'s docstring gives for why IT is one function
+ * instead of four copies.
+ */
 function textResult(text) {
-  return { content: [{ type: 'text', text }] };
+  return { content: [{ type: 'text', text: sanitizeForDisplay(String(text)) }] };
 }
 
 /**
@@ -117,11 +132,22 @@ function textResult(text) {
  * flatten these fields back into a paragraph. What it does is remove the
  * step where the MEMORY does the flattening, which is the step this side
  * of the boundary controls.
+ *
+ * **Bidi marking applies to BOTH halves, deliberately, including
+ * `structuredContent`.** See the long comment on `sanitizeForDisplay`
+ * (`src/cli/display.mjs`) for the reasoning: a field is not exempt from
+ * "display" just because it is typed rather than prose — the moment a
+ * client (or a foreign agent reading this JSON directly, which is
+ * exactly who this tool is for) turns `claims[].body` into a paragraph
+ * or feeds it into a model's context, an unmarked U+202E does the same
+ * damage it would have done in the text half. Object KEYS are left
+ * alone (`sanitizeForDisplay` only touches string values) — they are
+ * this package's own field names, never attacker-controlled.
  */
 function structuredResult(data, lines) {
   return {
-    content: [{ type: 'text', text: lines.join('\n') }],
-    structuredContent: data,
+    content: [{ type: 'text', text: sanitizeForDisplay(lines.join('\n')) }],
+    structuredContent: sanitizeForDisplay(data),
   };
 }
 
@@ -1124,7 +1150,15 @@ function shortLine(e) {
   if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
   if (e.rule) parts.push(String(e.rule).slice(0, 120).replace(/\s+/g, ' '));
   if (e.question) parts.push(String(e.question).slice(0, 120).replace(/\s+/g, ' '));
-  return parts.join(' — ') || '(no summary)';
+  // Same latch as display.compactLine, and for the same reason: this is
+  // the summary line behind mem_component, mem_links, mem_experiences,
+  // mem_topics and mem_facts. Before this it carried the identical
+  // docblock to compactLine's but never actually called bidi.visible() —
+  // every caller here was also saved by textResult()'s own call, but a
+  // second latch at the point the summary is actually BUILT means a
+  // future caller that returns shortLine()'s result some other way (not
+  // through textResult) is still covered, not merely lucky.
+  return bidi.visible(parts.join(' — ')) || '(no summary)';
 }
 
 /**

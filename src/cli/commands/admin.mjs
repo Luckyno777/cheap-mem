@@ -396,7 +396,20 @@ export const COMMANDS = {
     const root = findRoot(args);
     const res = setup.check(root);
 
-    if (args.json) { out(JSON.stringify(res)); return; }
+    if (args.json) {
+      out(JSON.stringify(res));
+      // **This `return` used to skip the exit-code logic below
+      // entirely.** A root with an unreadable .mem/config.json made
+      // `mem status` exit 1 and `mem status --json` exit 0 — with a
+      // payload that itself says `"state":"broken"`. A shell poller
+      // that only checks the exit code never found out. The text form
+      // gets its non-zero exit from `die()` a few lines down; --json
+      // has to reach the same verdict without going through it, since
+      // `die()` writes a line to stderr that the text form wants and a
+      // JSON consumer does not.
+      if (res.broken) process.exitCode = 1;
+      return;
+    }
 
     const mark = { ok: ' ok ', open: ' -- ', broken: 'FAIL' };
     for (const s of res.steps) {

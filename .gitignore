@@ -211,3 +211,11 @@ coverage/
 .mem/hooks/
 # per-machine observation ledger — retrieval/ranking never reads it
 .pipeline/observations.jsonl
+
+# Atlas runs. Each `npm run atlas` writes a timestamped directory; those are
+# working output, not history. The ONE committed artefact is
+# bench/atlas-baseline.json — the run a later run compares itself against.
+# Committing every run would make the diff of this repo unreadable and would
+# also bake a particular machine's timings into the history as if they were
+# a property of the code.
+bench/atlas-out/

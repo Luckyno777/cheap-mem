@@ -13,7 +13,9 @@
     "bench": "node bench/tokens.mjs && node bench/retrieval.mjs",
     "verify": "node bench/mutation.mjs && node bench/fuzz.mjs && node bench/composed.mjs && node bench/byzantine.mjs && node bench/cache-attack.mjs && node bench/query-independence.mjs && node bench/merge-driver.mjs",
     "lint": "eslint bin src test bench",
-    "coverage": "c8 --reporter=text-summary --reporter=lcov node --test"
+    "coverage": "c8 --reporter=text-summary --reporter=lcov node --test",
+    "atlas": "node bench/atlas.mjs",
+    "atlas:quick": "node bench/atlas.mjs --quick"
   },
   "engines": {
     "node": ">=18"

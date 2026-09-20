@@ -14,6 +14,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as memory from '../../memory.mjs';
 import * as store from '../../store.mjs';
@@ -30,6 +31,28 @@ import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore } from '
 /** 14 commands. */
 export const COMMANDS = {
   init: async ({ args }) => {
+    // **`--help` used to fall straight through into the body below.**
+    // There was no isHelp() guard on this command at all, so `mem init
+    // --help` on a fresh directory created `.mem/config.json` and the
+    // rest of the skeleton — the very thing "just show me the usage"
+    // is supposed to never do. Found 2026-09-19: fresh root, `mem init
+    // --help`, `.mem/config.json` existed afterwards.
+    if (isHelp(args)) {
+      out([
+        'mem init [--force] [--participants a,b,c] [--branch main] [--remote origin]',
+        '',
+        '  Creates .mem/config.json plus the log skeleton (global/, projects/,',
+        '  inbox/, raw/), the merge driver and the memory .gitignore.',
+        '',
+        '  Idempotent without --force: an existing config is left alone, only',
+        '  the .gitignore and merge-driver guarantees are checked and repaired.',
+        '  --force overwrites the config outright.',
+        '',
+        '  --participants  comma-separated names (default from cfgmod.DEFAULT_CONFIG)',
+        '  --branch/--remote  defaults used by `mem inbox watch`',
+      ].join('\n'));
+      return;
+    }
     checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
     // `mem --root X init` and `mem init --root X` must mean the same
     // thing. The pre-scan strips a LEADING --root out of argv and puts
@@ -368,7 +391,16 @@ export const COMMANDS = {
     if (count.red) process.exitCode = 1;
   },
 
-  version: async () => {
+  version: async ({ args }) => {
+    // No isHelp() guard existed here either — `mem version --help` just
+    // printed the version number, same as `mem version` with no flag.
+    // Harmless (no write), but still not "help", so the universal
+    // `--help` contract failed for this command too.
+    if (isHelp(args)) {
+      out('mem version   which cheap-mem this install is.');
+      return;
+    }
+    checkFlags(args, [], 'version');
     const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
     out(`cheap-mem ${pkg.version}`);
   },
@@ -432,7 +464,20 @@ export const COMMANDS = {
     }
     checkFlags(args, ['port', 'host', 'readonly', 'root'], 'serve');
     const root = findRoot(args);
-    const mod = await import(new URL('./mem-serve', import.meta.url).href);
+    // **Anchored to PKG_ROOT, not to this file's own directory.**
+    // Until 2026-09-18 the handlers lived in `bin/mem`, right next to
+    // `bin/mem-serve`, so `new URL('./mem-serve', import.meta.url)`
+    // resolved correctly. Commit 9dae830 ("Sixty handlers leave
+    // bin/mem: 4503 lines to 223") moved this handler into
+    // src/cli/commands/setup.mjs without moving the import path with
+    // it — `mem serve` then looked for
+    // src/cli/commands/mem-serve, which never existed, and died with
+    // "Cannot find module". Nothing caught it: the tests for the
+    // server (test/console.test.mjs, test/dashboard.test.mjs) import
+    // bin/mem-serve DIRECTLY and never go through this CLI path.
+    // PKG_ROOT is the repo root regardless of which file computes it
+    // (see src/cli/shell.mjs), so this survives the next move too.
+    const mod = await import(pathToFileURL(path.join(PKG_ROOT, 'bin', 'mem-serve')).href);
     const env = { ...process.env };
     if (args.port && args.port !== true) env.CHEAP_MEM_SERVE_PORT = String(args.port);
     if (args.host && args.host !== true) env.CHEAP_MEM_SERVE_HOST = String(args.host);
