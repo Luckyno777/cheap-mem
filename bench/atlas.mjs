@@ -47,6 +47,7 @@ const PHASES = [
   ['defence', './atlas/phase-defence.mjs', 'Neutralisation coverage, flooding curve, tamper detection'],
   ['robust', './atlas/phase-robust.mjs', 'Broken state and concurrent writers'],
   ['ceiling', './atlas/phase-ceiling.mjs', 'Where this design stops working, and why'],
+  ['register', './atlas/phase-register.mjs', 'The register prototype (sqlite+FTS5) against today\'s linear scan'],
   ['real', './atlas/phase-real.mjs', 'The same measurements against a real, grown memory'],
 ];
 
