@@ -31,6 +31,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 
 export const LAYER = Object.freeze({
   APP: 'application',      // cheap-mem's own code
@@ -106,130 +107,360 @@ export function checkPreCommitHook(root) {
 }
 
 /**
- * Append atomicity. Not probed with real concurrency — that costs
- * hundreds of milliseconds at every startup, and a probe that passes once
- * proves nothing about the next write anyway. What is checked is the
- * thing that actually predicts it: the filesystem under the repository.
+ * Append atomicity. MEASURED, not guessed from a name (rewritten
+ * 2026-09-20).
  *
- * Reported as UNKNOWN rather than OK where it cannot be determined. An
- * environment check that guesses is worse than none, because it converts
- * an unknown into a false assurance.
+ * ## The incident this replaces
  *
- * ## Allow-list, not a deny-list (fixed 2026-09-19)
+ * The benchmark record `robust.concurrency.filesystem` sits at
+ * not-measured because three tools disagree about the SAME filesystem,
+ * on the SAME machine, at the SAME moment:
  *
- * The previous version matched a short deny-list of unsafe names and
- * called *everything else* atomic — including a filesystem type it had
- * never seen. That inverts the doc comment above it: "reported as
- * UNKNOWN where it cannot be determined" only holds if the unknown case
- * actually reaches UNKNOWN. Measured against `overlay`, `overlayfs`,
- * `sshfs`, `vfat` and a made-up `unknown-0x1234`: all five came back
- * "OK, O_APPEND writes are atomic here". `overlay`/`overlayfs` is the
- * filesystem of every Docker container — including the one cheap-mem
- * itself typically runs in — so this was not a corner case, it was the
- * common case reporting a guarantee nobody had checked.
+ *     doctor (this check, old version):  ext2/ext3
+ *     df -T:                             ext4
+ *     stat -f -c %T:                     ext2/ext3
  *
- * So: three lists. GOOD only for names this comment can back with a
- * reason; BAD only for names with a documented failure mode; UNKNOWN —
- * the safe default — for everything else, the type string named
- * verbatim so a human can look it up.
+ * `doctor` and `stat -f -c %T` "agree" only because the old version of
+ * this check was itself just `stat -f -c %T` fed through an allow-list
+ * — it is one source wearing two names, not two sources agreeing. `df`
+ * names the actual driver; `stat -f` names the statfs *magic number*,
+ * and ext2/ext3/ext4 share magic `0xEF53`, so `stat -f` can never spell
+ * "ext4" no matter which of the three is actually mounted. Three
+ * strings, one measurement, and the old check turned that single
+ * measurement into a guarantee — "ext2/ext3 -> O_APPEND is atomic here"
+ * — without ever performing the write it was making a claim about.
+ * That is `Behauptet statt gemessen`: a guarantee derived from a label
+ * instead of from an observation, and the label was disputed by the
+ * system's own other tools.
  *
- * `stat -f -c %T` on Linux reports the *statfs magic number's* name, not
- * the driver: ext2, ext3 and ext4 all carry magic `0xEF53` and are all
- * printed as `ext2/ext3` (confirmed on this machine: `/` is mounted
- * `ext4` per `mount`, `stat -f -c %T /` prints `ext2/ext3`). The GOOD
- * list accounts for that; it is not a gap in coverage.
+ * ## What changed
+ *
+ * This check now does what `test/concurrent-append.test.mjs` and
+ * `bench/atlas/phase-robust.mjs`'s `partConcurrency` already do to
+ * establish the same property: spawn several writers, have them append
+ * to the same file at once, then read the file back and look for torn
+ * (unparseable), missing and duplicated lines. Reusing that shape
+ * rather than inventing a second one — `Zwei Implementierungen einer
+ * Wahrheit` is its own named failure here. The difference from those
+ * two is budget: they can afford full OS processes and ten-plus rounds
+ * because they run in CI or a benchmark, not on every `mem doctor`.
+ * This one runs on every `mem doctor`, so it uses `node:worker_threads`
+ * (threads inside THIS process, no second Node startup) and a single
+ * round, with a hard time budget — see `runAppendAtomicityProbe` below.
+ * `fs.appendFileSync` inside a worker thread still opens its own fd
+ * with `O_APPEND` and takes the OS-level path being tested; the kernel
+ * lock this rests on (`inode_lock()` / `XFS_IOLOCK_EXCL`, whichever the
+ * filesystem uses) is a property of the file and the syscall, not of
+ * whether the caller happens to share a process with other callers.
+ *
+ * ## The verdict boundary — the name explains, it never decides
+ *
+ * `stat -f -c %T` is still read, but ONLY for two things now: (1)
+ * deciding whether to measure at all, and (2) being printed alongside
+ * the verdict as context. It is never again the thing that PRODUCES
+ * `ok`. Search for "context only" below — everything past that comment
+ * is measurement, nothing past it is a name lookup.
+ *
+ * A small set of mount types skip the measurement and return UNKNOWN:
+ * NFS/SMB/CIFS (the `open(2)` man page names these explicitly — the
+ * client kernel simulates append against a protocol with no atomic
+ * append primitive) and FUSE/9p/virtiofs mounts (a passthrough layer
+ * whose backing store this process cannot see, and whose latency can
+ * make a quick local round-trip pass for reasons that will not hold up
+ * under real concurrent load). These are reported as UNKNOWN, not as a
+ * failure: this check does not run the probe there, so it has not
+ * measured anything, and a claim of "fails" without a measurement would
+ * be the same `Behauptet statt gemessen` mistake pointed the other way.
+ * The advice text says the guarantee "cannot be established", not that
+ * it "fails".
+ *
+ * Everything else — ext4, xfs, btrfs, overlay, an fs type this file has
+ * never seen, a `stat -f -c %T` that returns nothing at all — is
+ * measured. There is no more allow-list to keep in sync with reality:
+ * the measurement IS the reality.
+ *
+ * ## What this still cannot see
+ *
+ * One round, small volume, one moment in time. It cannot see a defect
+ * that only shows up under sustained load, on a cold page cache, or
+ * under memory pressure, and a PASS here is a statement about the
+ * moment `mem doctor` ran, not a lifetime guarantee — the same
+ * limitation `bench/atlas/phase-robust.mjs` names for its own (larger,
+ * repeated) version of this probe. It also cannot see failures that a
+ * network mount could exhibit while behaving perfectly on a fast, empty
+ * local link during the probe.
  */
 
 /**
- * Local filesystems whose regular (buffered, non-`O_DIRECT`) write path
- * is documented to hold the inode exclusive-lock (`i_rwsem`) for the
- * whole `write()` call when `O_APPEND` is set — the mechanism the
- * `open(2)` man page's atomicity guarantee rests on for "local
- * filesystems". `fs.appendFileSync` uses exactly that path (buffered,
- * not `O_DIRECT`), which is what cheap-mem does everywhere.
+ * Mounts where measuring would be misleading rather than merely slow:
+ * a network protocol with no atomic-append primitive of its own (NFS,
+ * SMB/CIFS — `open(2)` names this failure mode directly), or a
+ * passthrough layer this process cannot see through to the real backing
+ * store (FUSE, 9p, virtiofs). A clean local round-trip against one of
+ * these proves nothing about the real link under real concurrency, so
+ * the probe is skipped rather than run and trusted.
  *
- *   ext2/ext3   `stat -f -c %T` name for magic 0xEF53 — covers ext2,
- *               ext3 AND ext4 (they share the magic; ext4 never prints
- *               as "ext4"). ext4_file_write_iter -> inode_lock().
- *   ext4        kept as a second key in case some other tool ever
- *               surfaces the driver name rather than the magic name —
- *               same code path, same guarantee.
- *   xfs         xfs_file_write_iter takes XFS_IOLOCK_EXCL for buffered
- *               writes for the duration of the call.
- *   btrfs       btrfs_file_write_iter takes inode_lock() for buffered
- *               writes (COW affects block layout, not this lock).
- *   f2fs        f2fs_file_write_iter takes inode_lock() the same way.
- *   tmpfs       shmem_file_write_iter takes inode_lock() the same way;
- *               it is memory-backed (a reboot loses it), but that is a
- *               PERSISTENCE property, a different guarantee from
- *               atomicity, which is all this check reports on.
- *
- * Deliberately NOT here without a specific reason found for it: jfs,
- * reiserfs, zfs, ufs and any other local filesystem. They may well be
- * fine — but "may well be" is a guess, and a guess reported as OK is
- * the exact defect this list replaces. They fall through to UNKNOWN.
+ * This is the ONLY place a filesystem name is allowed to decide
+ * anything in this file. It decides "skip, report unknown" — never
+ * "ok".
  */
-const ATOMIC_APPEND_OK = new Set(['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs']);
+/**
+ * Filesystems where O_APPEND atomicity is DOCUMENTED not to hold.
+ *
+ * `open(2)`: "O_APPEND may lead to corrupted files on NFS filesystems if
+ * more than one process appends data to a file at once." That is a
+ * published property of the protocol, not a guess from a name — so the
+ * verdict here is `false`, not `unknown`. "Nicht messbar ist nicht null"
+ * governs what we could not determine; this we can determine, from the
+ * documentation, without measuring.
+ *
+ * And it is deliberately NOT measured: the race is rare, not impossible,
+ * so a clean run of a few dozen lines would be evidence of nothing while
+ * looking like evidence of something. A green probe here would be worse
+ * than no probe.
+ */
+const DOCUMENTED_UNSAFE_FS = new Set([
+  'nfs', 'nfs4', 'smb', 'smb2', 'smb3', 'cifs', 'sshfs',
+]);
 
 /**
- * Filesystems with a DOCUMENTED failure mode for concurrent O_APPEND,
- * not merely "not on the good list".
+ * Filesystems that forward to another one, so nothing about them
+ * decides the question either way.
  *
- *   nfs, nfs4    the `open(2)` man page names this exact case: NFS does
- *                not support appending server-side, so the client
- *                kernel simulates it, and two clients doing that race.
- *   smb, smb2,
- *   smb3, cifs   same architecture as NFS — the client simulates append
- *                against a network protocol with no atomic append
- *                primitive — so the same failure mode applies.
- *   sshfs        FUSE over SFTP: measured directly (see module doc
- *                block above `checkAppendAtomicity`'s test fixtures) —
- *                `FEHLER … concurrent appends may interleave` is the
- *                correct call, not a guess.
- *
- * `fuseblk`, `fuse`, `9p` and `virtiofs` used to be on this list too.
- * They are pulled off it here: each CAN be backed by something that
- * forwards straight through to a locking filesystem, and each can also
- * be backed by something that does not, and `stat -f -c %T` cannot
- * tell the two apart. Calling them unsafe was as much a guess as
- * calling them safe — they belong in UNKNOWN, named, not in either
- * list.
+ * FUSE, 9p and virtiofs may sit on top of a perfectly safe local disk or
+ * on top of something arbitrary. Unknown is the honest answer, and it
+ * stays unknown even when the probe finds nothing — see `AFFIRMS_APPEND`.
  */
-const ATOMIC_APPEND_BAD = new Set(['nfs', 'nfs4', 'smb', 'smb2', 'smb3', 'cifs', 'sshfs']);
+const PASSTHROUGH_FS = new Set(['fuse', 'fuseblk', '9p', 'virtiofs']);
 
-export function checkAppendAtomicity(root) {
+/**
+ * Filesystems whose own documentation affirms atomic O_APPEND.
+ *
+ * **Why a passing probe is not enough on its own.** Six writers and
+ * forty-eight lines that come back whole prove that no tearing HAPPENED,
+ * not that none CAN happen. A measurement of this shape can only ever
+ * falsify the guarantee; it cannot establish it. So `ok` needs two
+ * independent sources that agree — the documented property of the
+ * filesystem, and a run that did not contradict it. One source alone
+ * leaves the third state.
+ *
+ * `stat -f -c %T` reports the statfs MAGIC name, not the mount driver:
+ * ext2, ext3 and ext4 all share magic 0xEF53, so this can only ever
+ * print `ext2/ext3` for any of them. That is why the entry below covers
+ * the family rather than naming ext4 (verified 2026-09-20: `mount` says
+ * ext4 on this machine, `stat -f` says ext2/ext3 — one filesystem, two
+ * labels, not two sources disagreeing).
+ */
+const AFFIRMS_APPEND = new Set([
+  'ext2/ext3', 'ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs', 'zfs', 'jfs', 'reiserfs',
+]);
+
+const APPEND_PROBE_DEFAULTS = Object.freeze({
+  workers: 6, perWorker: 8, padBytes: 6000, timeoutMs: 400,
+});
+
+// Runs inside a worker thread, evaluated as CommonJS (the `eval: true`
+// Worker default) so it needs no build step and no module resolution.
+// Deliberately padded past PIPE_BUF (4096 B) — below that, an atomic
+// append is the easy case every filesystem gets right (see the same
+// comment in `test/concurrent-append.test.mjs`).
+const APPEND_PROBE_WORKER_SRC = `
+const { workerData } = require('worker_threads');
+const fs = require('fs');
+const { file, id, lines, pad, sab } = workerData;
+const doneFlag = new Int32Array(sab);
+const filler = pad > 0 ? 'x'.repeat(pad) : '';
+for (let i = 0; i < lines; i += 1) {
+  const line = JSON.stringify({ w: id, i, marker: 'w' + id + 'e' + i, filler });
+  fs.appendFileSync(file, line + '\\n');
+}
+Atomics.add(doneFlag, 0, 1);
+Atomics.notify(doneFlag, 0);
+`;
+
+/**
+ * The verdict logic on its own, fed a file path and the count of
+ * markers that should be in it. Deliberately separate from the
+ * orchestration below: a sabotage counter-probe must be able to break
+ * the VERDICT without needing to win an actual race, by handing this
+ * function a file it wrote itself. Mirrors `inspectLog` in
+ * `bench/atlas/phase-robust.mjs` — torn (unparseable) lines, missing
+ * markers, duplicated markers.
+ */
+export function analyzeAppendProbe(filePath, expectedCount) {
+  const text = fs.readFileSync(filePath, 'utf8');
+  const rows = text.split('\n').filter((l) => l.trim().length > 0);
+  let torn = 0;
+  const seen = new Map();
+  for (const row of rows) {
+    let entry;
+    try { entry = JSON.parse(row); } catch { torn += 1; continue; }
+    const marker = entry && typeof entry === 'object' ? entry.marker : null;
+    if (!marker) { torn += 1; continue; }
+    seen.set(marker, (seen.get(marker) ?? 0) + 1);
+  }
+  const duplicates = [...seen.values()].filter((n) => n > 1).length;
+  const missing = Math.max(expectedCount - seen.size, 0);
+  return {
+    ok: torn === 0 && duplicates === 0 && missing === 0,
+    torn, missing, duplicates, found: seen.size, expected: expectedCount, rows: rows.length,
+  };
+}
+
+/**
+ * The orchestration: spawn `workers` threads, each appending
+ * `perWorker` lines to one shared file, wait for all of them (bounded
+ * by `timeoutMs`), then hand the file to `analyzeAppendProbe`.
+ *
+ * Runs the probe file INSIDE `root`, not in a shared temp directory —
+ * the property under test belongs to the filesystem the memory root
+ * lives on, and `os.tmpdir()` is frequently a different mount (tmpfs on
+ * many Linux setups) that would silently answer a different question.
+ *
+ * Synchronisation uses `Atomics.wait`/`Atomics.notify` on a
+ * `SharedArrayBuffer`, not `worker.on('message', …)`: a worker's
+ * `postMessage` is delivered through the event loop, and the caller
+ * here is a synchronous function with no `await` — it cannot let the
+ * event loop turn to receive it. Direct atomics on shared memory are
+ * visible to `Atomics.wait` immediately, independent of the event loop,
+ * which is what makes a synchronous wait with a real timeout possible
+ * at all. (Confirmed the hard way: an earlier version of this used
+ * `postMessage` and hung to its timeout on every run, despite the
+ * writes themselves completing in milliseconds — the file was already
+ * correct while the caller still had no way to know it.)
+ *
+ * Never throws. Every failure path — cannot write into `root`, worker
+ * threads unavailable, timeout — comes back as `{ measured: false,
+ * reason }`, which `checkAppendAtomicity` turns into UNKNOWN, never OK.
+ */
+export function runAppendAtomicityProbe(root, opts = {}) {
+  const { workers, perWorker, padBytes, timeoutMs } = { ...APPEND_PROBE_DEFAULTS, ...opts };
+
+  let dir;
+  try {
+    dir = fs.mkdtempSync(path.join(root, '.append-atomicity-'));
+  } catch (err) {
+    return { measured: false, reason: `could not create a probe file under ${root}: ${err.message}` };
+  }
+
+  try {
+    const file = path.join(dir, 'probe.jsonl');
+    fs.writeFileSync(file, '');
+    const sab = new SharedArrayBuffer(4);
+    const doneFlag = new Int32Array(sab);
+
+    const handles = [];
+    try {
+      for (let w = 0; w < workers; w += 1) {
+        handles.push(new Worker(APPEND_PROBE_WORKER_SRC, {
+          eval: true,
+          workerData: { file, id: w, lines: perWorker, pad: padBytes, sab },
+        }));
+      }
+    } catch (err) {
+      for (const h of handles) h.terminate().catch(() => {});
+      return { measured: false, reason: `could not start writer threads: ${err.message}` };
+    }
+
+    const deadline = Date.now() + timeoutMs;
+    while (Atomics.load(doneFlag, 0) < workers && Date.now() < deadline) {
+      const remaining = Math.max(deadline - Date.now(), 1);
+      Atomics.wait(doneFlag, 0, Atomics.load(doneFlag, 0), Math.min(20, remaining));
+    }
+    const finishedCount = Atomics.load(doneFlag, 0);
+    for (const h of handles) h.terminate().catch(() => {});
+
+    if (finishedCount < workers) {
+      return {
+        measured: false,
+        reason: `${finishedCount}/${workers} writer threads finished within ${timeoutMs}ms`,
+      };
+    }
+
+    const result = analyzeAppendProbe(file, workers * perWorker);
+    return { measured: true, workers, perWorker, ...result };
+  } catch (err) {
+    return { measured: false, reason: err.message };
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort cleanup */ }
+  }
+}
+
+/**
+ * Is a concurrent append safe on the mount this memory sits on?
+ *
+ * `opts.probe` replaces the measurement itself. It is there so the
+ * VERDICT can be tested apart from the run — "a torn line outranks a
+ * reassuring filesystem name" is a rule about judgement, and forcing a
+ * real filesystem to tear a line on demand is not something a test can
+ * arrange. It is a collaborator, not a switch: the default is the real
+ * probe, nothing in the product passes it, and passing a made-up result
+ * does not make the verdict any less strict.
+ */
+export function checkAppendAtomicity(root, opts = {}) {
+  const { probe: probeFn = runAppendAtomicityProbe, ...probeOpts } = opts;
   let fsType = null;
   try {
     const out = execFileSync('stat', ['-f', '-c', '%T', root],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
     fsType = out || null;
-  } catch { /* stat -f is not portable; absence is not a failure */ }
+  } catch { /* stat -f is not portable; absence is not a failure to measure */ }
+  const key = fsType ? fsType.toLowerCase() : null;
 
-  if (!fsType) {
-    return check('append-atomicity', LAYER.OS, null,
-      'filesystem type could not be determined — atomicity unverified',
-      'On Linux, `stat -f -c %T .` names it. Avoid NFS for the memory root.');
-  }
-  const key = fsType.toLowerCase();
-  if (ATOMIC_APPEND_BAD.has(key)) {
+  // Documented unsafe: answered from the documentation, not measured.
+  if (key && DOCUMENTED_UNSAFE_FS.has(key)) {
     return check('append-atomicity', LAYER.OS, false,
-      `filesystem is ${fsType} — concurrent appends may interleave`,
-      'Move the memory root onto a local filesystem, or serialise writers.');
+      `filesystem is ${fsType} — O_APPEND is documented NOT to be atomic here `
+      + '(open(2)). Not measured: the race is rare rather than impossible, so a '
+      + 'clean short run would look like evidence and be none.',
+      'Move the memory root onto a local filesystem (ext4, xfs, btrfs, f2fs, '
+      + 'tmpfs, …), or serialise writers if it must stay on this mount.');
   }
-  if (ATOMIC_APPEND_OK.has(key)) {
+
+  const probe = probeFn(root, probeOpts);
+  const fsNote = fsType ? ` [filesystem: ${fsType}]` : ' [filesystem name unavailable]';
+
+  if (!probe.measured) {
+    return check('append-atomicity', LAYER.OS, null,
+      `could not measure concurrent O_APPEND writes — ${probe.reason}${fsNote}`,
+      'Re-run `mem doctor`. If this persists, the memory root may not allow '
+      + 'spawning worker threads or writing temporary files.');
+  }
+
+  const found = `${probe.workers} concurrent writers x ${probe.perWorker} lines `
+    + `(${probe.expected} total)`;
+
+  // **Tearing found: the name does not get a vote.** A measurement of
+  // this shape can only falsify, and here it did. Whatever the
+  // filesystem calls itself, concurrent appends are not safe on this
+  // mount.
+  if (!probe.ok) {
+    return check('append-atomicity', LAYER.OS, false,
+      `measured: ${found} — ${probe.torn} torn, ${probe.missing} missing, `
+      + `${probe.duplicates} duplicated${fsNote}`,
+      'Concurrent O_APPEND writes are not safe on this filesystem or mount as '
+      + 'measured. Move the memory root, or serialise writers.');
+  }
+
+  // Nothing torn. That is only half an answer: it says no tearing
+  // HAPPENED, not that none CAN happen. The guarantee is affirmed only
+  // where the filesystem's own documentation affirms it too.
+  if (key && AFFIRMS_APPEND.has(key)) {
     return check('append-atomicity', LAYER.OS, true,
-      `filesystem is ${fsType} — O_APPEND writes are atomic here`);
+      `measured: ${found} — none torn, none missing, none duplicated${fsNote}, `
+      + 'and this filesystem documents atomic O_APPEND. Two sources agree.');
   }
-  // Includes `overlay`/`overlayfs` (the type this check itself most
-  // often meets — see the module doc block above): whether it forwards
-  // to a filesystem in ATOMIC_APPEND_OK depends on the storage driver
-  // (overlay2 vs. fuse-overlayfs vs. a sandbox's own overlay), which
-  // `stat -f -c %T` does not reveal. Not measurable here is not zero.
+
+  const warum = key && PASSTHROUGH_FS.has(key)
+    ? `${fsType} forwards to another filesystem, so its name says nothing either way`
+    : `${fsType ?? 'this filesystem'} is not one whose documentation affirms atomic O_APPEND`;
   return check('append-atomicity', LAYER.OS, null,
-    `filesystem is ${fsType} — atomicity neither verified safe nor documented unsafe`,
-    'On Linux, only ext2/ext3/ext4, xfs, btrfs, f2fs and tmpfs are treated '
-    + 'as verified here. Confirm this one directly or move the memory root '
-    + 'onto one of those.');
+    `measured: ${found} — none torn, none missing, none duplicated, but ${warum}. `
+    + 'A short clean run shows that no tearing happened, not that none can: this '
+    + 'measurement can falsify the guarantee, never establish it.',
+    'If this mount must carry the memory, serialise writers — or run the '
+    + 'measurement under real load for long enough that a passing result means '
+    + 'something.');
 }
 
 /**

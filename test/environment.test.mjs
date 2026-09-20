@@ -212,7 +212,12 @@ test('append-atomicity: filesystems with a documented failure mode report FAIL',
   for (const t of ['nfs', 'nfs4', 'smb', 'smb2', 'smb3', 'cifs', 'sshfs']) {
     const c = withFakeStat(t, () => checkAppendAtomicity(root));
     assert.equal(c.ok, false, `${t} should be reported as unsafe`);
-    assert.match(c.detail, /interleave/);
+    // Der Grund muss dabeistehen, und zwar als Beleg, nicht als
+    // Behauptung: das Urteil kommt hier aus open(2), nicht aus einer
+    // Messung — und der Text sagt auch, warum NICHT gemessen wurde.
+    assert.match(c.detail, /documented NOT to be atomic/);
+    assert.match(c.detail, /open\(2\)/);
+    assert.match(c.detail, /[Nn]ot measured/);
   }
   fs.rmSync(root, { recursive: true, force: true });
 });
@@ -234,9 +239,12 @@ test('append-atomicity: overlay and every unverified name is UNKNOWN, never OK',
 });
 
 test('append-atomicity: undeterminable stays unknown, not ok', () => {
+  // Ohne Namen laeuft die Messung trotzdem — aber ein sauberer kurzer
+  // Lauf belegt die Zusage nicht, er widerlegt sie nur nicht. Also
+  // bleibt es beim dritten Zustand, und der Text muss sagen warum.
   const c = withFakeStat('', () => checkAppendAtomicity(tmp()));
   assert.equal(c.ok, null);
-  assert.match(c.detail, /could not be determined/);
+  assert.match(c.detail, /can falsify the guarantee, never establish it/);
 });
 
 test('append-atomicity: this machine — not faked, cross-checked against the real `stat`', () => {
