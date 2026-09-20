@@ -1,0 +1,297 @@
+{
+  "noOptions": [
+    {
+      "score": 0.23551267560477368,
+      "type": "decision",
+      "project": null,
+      "source": "global/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "gid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "global marker entry",
+        "choice": "global-marker-alpha-beta",
+        "why": "shared root fact",
+        "topic": "shared/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    },
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "alpha",
+      "source": "projects/alpha/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "aid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "alpha project marker entry",
+        "choice": "alpha-marker-alpha-beta",
+        "why": "alpha reasons",
+        "topic": "alpha/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    },
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "beta",
+      "source": "projects/beta/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "bid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "beta project marker entry",
+        "choice": "beta-marker-alpha-beta",
+        "why": "beta reasons",
+        "topic": "beta/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    }
+  ],
+  "top10": [
+    {
+      "score": 0.23551267560477368,
+      "type": "decision",
+      "project": null,
+      "source": "global/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "gid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "global marker entry",
+        "choice": "global-marker-alpha-beta",
+        "why": "shared root fact",
+        "topic": "shared/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    },
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "alpha",
+      "source": "projects/alpha/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "aid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "alpha project marker entry",
+        "choice": "alpha-marker-alpha-beta",
+        "why": "alpha reasons",
+        "topic": "alpha/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    },
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "beta",
+      "source": "projects/beta/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "bid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "beta project marker entry",
+        "choice": "beta-marker-alpha-beta",
+        "why": "beta reasons",
+        "topic": "beta/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    }
+  ],
+  "withProjectAlpha": [
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "alpha",
+      "source": "projects/alpha/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "aid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "alpha project marker entry",
+        "choice": "alpha-marker-alpha-beta",
+        "why": "alpha reasons",
+        "topic": "alpha/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    }
+  ],
+  "withProjectGlobal": [
+    {
+      "score": 0.23551267560477368,
+      "type": "decision",
+      "project": null,
+      "source": "global/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "gid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "global marker entry",
+        "choice": "global-marker-alpha-beta",
+        "why": "shared root fact",
+        "topic": "shared/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    }
+  ],
+  "withMmr": [
+    {
+      "score": 0.23551267560477368,
+      "type": "decision",
+      "project": null,
+      "source": "global/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "gid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "global marker entry",
+        "choice": "global-marker-alpha-beta",
+        "why": "shared root fact",
+        "topic": "shared/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    },
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "alpha",
+      "source": "projects/alpha/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "aid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "alpha project marker entry",
+        "choice": "alpha-marker-alpha-beta",
+        "why": "alpha reasons",
+        "topic": "alpha/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    },
+    {
+      "score": 0.23297674649556968,
+      "type": "decision",
+      "project": "beta",
+      "source": "projects/beta/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "bid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "beta project marker entry",
+        "choice": "beta-marker-alpha-beta",
+        "why": "beta reasons",
+        "topic": "beta/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false
+    }
+  ],
+  "exactHitsAlpha": [
+    {
+      "score": 2.1218586233731793,
+      "type": "decision",
+      "project": "alpha",
+      "source": "projects/alpha/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "aid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "alpha project marker entry",
+        "choice": "alpha-marker-alpha-beta",
+        "why": "alpha reasons",
+        "topic": "alpha/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false,
+      "exact": [
+        "alpha-marker-alpha-beta"
+      ],
+      "__w": {}
+    }
+  ],
+  "exactHitsNoLimits": [
+    {
+      "score": 2.1218586233731793,
+      "type": "decision",
+      "project": "beta",
+      "source": "projects/beta/decisions.jsonl",
+      "line": 1,
+      "entry": {
+        "id": "bid00000001",
+        "ts": "2026-01-01T00:00:00Z",
+        "v": 1,
+        "title": "beta project marker entry",
+        "choice": "beta-marker-alpha-beta",
+        "why": "beta reasons",
+        "topic": "beta/topic",
+        "agent": "tester"
+      },
+      "raw": false,
+      "pending": false,
+      "lang": "uncertain",
+      "langCertain": false,
+      "exact": [
+        "beta-marker-alpha-beta"
+      ],
+      "__w": {}
+    }
+  ]
+}

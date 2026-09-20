@@ -51,6 +51,7 @@ function piecePath(root, rel) {
 import { pack } from './language.mjs';
 import { detectEntryLanguage, DETECTABLE_LANGUAGES, UNCERTAIN } from './langdetect.mjs';
 import * as profile from './profile.mjs';
+import * as capabilityMod from './capability.mjs';
 
 /**
  * The packs consulted when an entry's (or a query's) language is not
@@ -917,6 +918,37 @@ export function admits(doc, {
   noRaw = false,
   onlyRaw = false,
   withRetired = false,
+  // **Optional, and that word is load-bearing (P13 repair half).**
+  //
+  // The measurement that led here (test/scope-lattice-redteam.test.mjs,
+  // 2026-09-19/20): `search()` and `exactHits()` filtered `project` by
+  // bare string equality and never consulted `capability.mjs` at all —
+  // `retrieve()` only enforced a scope because `retrieval.mjs` ran ITS
+  // OWN `capability.admits(...)` check on top, a second, differently-
+  // spelled copy of the same rule. Seven of ten entry-point lanes go
+  // straight to `search()`/`exactHits()` and got the weaker spelling.
+  //
+  // When a caller HOLDS a capability and hands it in, this is now the
+  // SAME predicate `retrieval.mjs` already uses — lattice-aware (global
+  // inheritance, descendants), which bare equality never was: a
+  // capability admitting `global` must still see a document filed under
+  // no project, and a capability admitting `project:a` with descendants
+  // must see `project:a:sub`. Equality could do neither.
+  //
+  // When no capability is passed, this is BYTE-IDENTICAL to what it was
+  // before this change: the `project` string check below still runs
+  // exactly as it did. Wiring an individual lane to pass a capability is
+  // a separate, later step — this change only makes it POSSIBLE.
+  //
+  // **What this is not.** A capability handed in here still has to come
+  // from somewhere, and today every caller mints it from its own
+  // `--project` argument (or does not pass one at all). That prevents an
+  // accidental cross-project answer, not a hostile one: nothing here
+  // authenticates who is allowed to hold which capability. A real
+  // boundary needs a register of who may mint what, which does not
+  // exist yet. See `capability.mjs`'s own banner for the same point made
+  // about `retrieval.mjs`.
+  capability = null,
 } = {}) {
   if (!doc) return false;
   const isRaw = doc.type === 'raw';
@@ -928,7 +960,9 @@ export function admits(doc, {
     const t = String(doc.entry?.authority ?? 'unknown').toLowerCase();
     if ((TIERS_KNOWN.has(t) ? t : 'unknown') !== authority) return false;
   }
-  if (project !== null && project !== undefined) {
+  if (capability) {
+    if (!capability.admits(capabilityMod.scopeOf({ project: doc.project }))) return false;
+  } else if (project !== null && project !== undefined) {
     const target = project === 'global' ? null : project;
     if (doc.project !== target) return false;
   }
@@ -954,6 +988,14 @@ export function search(index, query, {
   mmrLambda = 0.7,       // 1 = pure relevance, 0 = pure diversity
   coverage = 1,          // reward covering more of the TYPED query (0 = off)
   coverageFloor = COVERAGE_FLOOR,  // how far coordination may pull a score down
+  // OPTIONAL (P13 repair half). When a caller holds a Capability and
+  // passes it, every `admits()` call below uses it in place of the bare
+  // `project` string check — see `admits`'s own doc comment for why and
+  // for what this does NOT become. Omitted, this function is
+  // byte-identical to before: `project` still filters by equality,
+  // exactly as it always did. No caller in this codebase passes this yet
+  // — wiring one is a separate change.
+  capability = null,
 } = {}) {
   // --- The id lane: asking for an id means asking for ONE entry ----
   //
@@ -982,7 +1024,7 @@ export function search(index, query, {
       // `if (doc.retired && !withRetired) break;` and nothing else, so
       // an id lookup answered across projects and types that the caller
       // had explicitly excluded.
-      if (!admits(doc, { type, project, authority, since, noRaw, onlyRaw, withRetired })) break;
+      if (!admits(doc, { type, project, authority, since, noRaw, onlyRaw, withRetired, capability })) break;
       return [{
         score: 1000,
         type: doc.type,
@@ -1041,7 +1083,7 @@ export function search(index, query, {
   }
 
   const now = Date.now();
-  const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired };
+  const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired, capability };
 
   const hits = [];
   for (const doc of index.documents) {
@@ -2005,6 +2047,13 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
  * literally" is not a score, which is the reason the lane exists. Scope
  * is a different question and is answered by `admits`, once, for every
  * lane.
+ *
+ * **`limits.capability`, optional (P13 repair half).** `limits` is
+ * forwarded to `admits()` unchanged, so a caller that holds a
+ * Capability passes it as `limits.capability` and gets the same
+ * lattice-aware scope check `search()` now offers, in place of the bare
+ * `limits.project` equality check. No caller does this yet, and with no
+ * `capability` this lane is exactly what it was before.
  */
 export function exactHits(index, query, slots, limits = {}) {
   const found = entity.hits(index.entityIndex, query, slots);
