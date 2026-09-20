@@ -59,8 +59,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import {
   VERDICT, SEVERITY, mem, buildCorpus, tempRoot, pct, dirBytes,
+  captureForeignLoad, foreignLoadDelta, timeVerdictUnderLoad, FOREIGN_LOAD_DENIED_MS_PER_SEC,
 } from './core.mjs';
 import { FIELD_WEIGHTS } from '../../src/search.mjs';
 
@@ -223,12 +225,20 @@ const QUERY_PERCENTILE_FLOOR = 5;
 // keeps them one object instead of a module-level counter that would
 // leak between runs of this phase inside the same process.
 
-// The only two words this phase's guarded fields ever spell out — see
-// the doc comment above for why the set stays this small. Both name
-// which of two things a CLI measurement ran against (`copy`) or would
-// have run against had it been safe to (`original`); neither carries
-// anything about the memory's content.
-const ALLOWED_WORDS = new Set(['copy', 'original']);
+// The only words this phase's guarded fields ever spell out — see the
+// doc comment above for why the set stays this small. `copy`/`original`
+// name which of two things a CLI measurement ran against; `cgroup1`/
+// `cgroup2` name which cgroup hierarchy answered a foreign-load reading
+// (B3, `core.mjs#readCgroupThrottle`) — a fixed, closed pair of literals
+// this measuring apparatus itself defines, never a byte of memory
+// content. Found the hard way: the first cut of `real.load.foreign`
+// left `cgroupSource` to fall through to the guard's default (redact,
+// count as content) — a fresh instance of exactly the B4 defect this
+// phase now has a whole mechanism for, on a value that was never
+// content in the first place. Extending this vocabulary was the more
+// targeted fix; the origin-literal check below is for PROSE, not for a
+// two-value enum from another module.
+const ALLOWED_WORDS = new Set(['copy', 'original', 'cgroup1', 'cgroup2']);
 
 // A token is numeric-shaped if it is a signed number, optionally with
 // internal separators a timing or a ratio would use (`.` `,` `:` `%`
@@ -237,9 +247,16 @@ const ALLOWED_WORDS = new Set(['copy', 'original']);
 // does not, because a word does not start with a digit or a sign.
 const NUMERIC_SHAPE = /^[+-]?\d[\d.,:%/()<>=~-]*(ms|s|kb|mb|gb|b|d|x)?$/i;
 
+// A `some/file.mjs:123` token names a place in THIS codebase, never a
+// byte of memory content — this phase's own guard findings (B4, below)
+// need to say where in this file a mistake happened, and that location
+// string has to survive the guard the same way a timing does.
+const LOCATION_SHAPE = /^[\w./-]+\.mjs:\d+$/;
+
 function isSafeToken(token) {
   if (token === '') return true;
   if (NUMERIC_SHAPE.test(token)) return true;
+  if (LOCATION_SHAPE.test(token)) return true;
   return ALLOWED_WORDS.has(token.toLowerCase());
 }
 
@@ -248,9 +265,83 @@ function isSafeString(s) {
   return s.split(/\s+/).every(isSafeToken);
 }
 
-class Guard {
+// --- telling a harness bug from a real leak, inside one redaction ------
+//
+// **The finding this answers (2026-09-20).** `real.guard.redactions`
+// reported one redaction and read like a content leak. It was a plain
+// string literal someone wrote directly into an `expected` field instead
+// of building it with `say`/`Vouched` — a bug in THIS file, not a byte of
+// lucky-mem. The guard was right to scrub it (a raw string is exactly the
+// shape a real leak would have); the report was wrong to call every
+// scrub the same thing.
+//
+// **The distinguishing signal is origin, not appearance.** A value this
+// file wrote as a literal is, by construction, sitting verbatim inside
+// this file's own source text — a `.mjs` file's string/template literals
+// are not generated, they are copied byte-for-byte from the source into
+// the running string. A value read out of lucky-mem's drawers cannot
+// coincidentally BE a long stretch of this file's own English prose. So:
+// scrub a string, and if it is also an exact, sufficiently long substring
+// of this file's own source, call it a harness bug (`minor`) and name
+// where; otherwise assume the worse case and call it a leak (`critical`)
+// — per this house's rule that a guard which lets a real leak through
+// quietly is the failure to avoid, never the guard that occasionally
+// over-flags its own code.
+//
+// `MIN_OWN_SOURCE_MATCH_LEN` exists because a SHORT match proves nothing:
+// this file's own prose contains common short words ("index", "search",
+// "cache", ...) that real memory content could also contain by pure
+// coincidence, and calling THAT a harness bug would be exactly the
+// "critical leak reads as minor" failure the abort criterion below names.
+// Long, exact matches do not have that problem — nobody's real memory
+// entry happens to contain forty-plus consecutive characters of this
+// file's own comments.
+const OWN_SOURCE = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8');
+const MIN_OWN_SOURCE_MATCH_LEN = 20;
+
+/** Is `value` verbatim, exact, and long enough to trust as OUR OWN literal — not lucky-mem's content? */
+function looksLikeOwnSourceLiteral(value) {
+  return value.length >= MIN_OWN_SOURCE_MATCH_LEN && OWN_SOURCE.includes(value);
+}
+
+/** `"phase-real.mjs:NNN"` for the call site that handed the guard a raw string, or `null` if the stack could not be parsed. */
+/**
+ * `"<file>:<line>"` of whatever called `Guard#scrub` — deliberately NOT
+ * restricted to `phase-real.mjs`, so `Guard` reports a real location
+ * both from its one production caller (this file's own `record()`
+ * wrapper) and from a test that drives `scrub()` directly, which is how
+ * `test/atlas-real-guard-origin.test.mjs` sabotages it (a parameter, not
+ * a source patch — see this house's rule for sabotage probes). `null`
+ * only if the stack trace itself could not be parsed at all.
+ */
+function callerLocation() {
+  const holder = {};
+  Error.captureStackTrace(holder, callerLocation);
+  const frames = String(holder.stack ?? '').split('\n');
+  // Skip this function's own frame and `Guard#scrub`'s frame, and land
+  // on the first frame after those — the actual call site that handed
+  // the guard a string, in whichever file that was.
+  for (const frame of frames) {
+    if (frame.includes('.scrub') || frame.includes('callerLocation')) continue;
+    const m = frame.match(/([^\s(/\\]+\.mjs):(\d+):\d+/);
+    if (m) return `${m[1]}:${m[2]}`;
+  }
+  return null;
+}
+
+// Exported for `test/atlas-real-guard-origin.test.mjs`: that file drives
+// the guard through the exact same public surface this phase itself
+// uses (`new Guard()`, `.scrub()`), never a source patch — see this
+// house's rule that sabotage goes in through a parameter.
+export class Guard {
   constructor() {
     this.redactions = 0;
+    // Two buckets for the same redaction count, split by origin — see the
+    // doc comment above. `ownStringRedactions` names where in THIS file
+    // the mistake was made; `contentRedactions` is the count this phase's
+    // final check must be zero for the run to call itself clean.
+    this.ownStringRedactions = [];
+    this.contentRedactions = 0;
   }
 
   /** Recursively replace anything the allow-list cannot vouch for. */
@@ -260,6 +351,11 @@ class Guard {
     if (typeof value === 'string') {
       if (isSafeString(value)) return value;
       this.redactions += 1;
+      if (looksLikeOwnSourceLiteral(value)) {
+        this.ownStringRedactions.push({ location: callerLocation() ?? 'unknown location', length: value.length });
+      } else {
+        this.contentRedactions += 1;
+      }
       return '[[redacted by content guard]]';
     }
     if (Array.isArray(value)) return value.map((v) => this.scrub(v));
@@ -272,8 +368,12 @@ class Guard {
       return out;
     }
     // A function, symbol or bigint is not a shape this phase ever
-    // legitimately produces for a record. Redact rather than guess.
+    // legitimately produces for a record. Redact rather than guess — and
+    // count it as content-grade (critical), not a harness string: no
+    // literal in this file's source is a function, a symbol or a bigint,
+    // so `looksLikeOwnSourceLiteral` could never fire for one anyway.
     this.redactions += 1;
+    this.contentRedactions += 1;
     return '[[redacted: unsupported value shape]]';
   }
 }
@@ -551,19 +651,20 @@ function biasRatio(a, b) {
 }
 
 
-function biasVerdict(ratio) {
+// Exported so a test can pin its signature: this function takes ONLY a
+// ratio, never a foreign-load delta, which is the structural half of the
+// B3 guarantee that non-time-based checks are untouched by load — see
+// `test/atlas-foreign-load.test.mjs`.
+export function biasVerdict(ratio) {
   if (ratio === null) return VERDICT.NOT_MEASURED;
   if (ratio > BIAS_FAIL_RATIO) return VERDICT.FAIL;
   if (ratio > BIAS_DEGRADED_RATIO) return VERDICT.DEGRADED;
   return VERDICT.PASS;
 }
 
-function timeVerdict(ms, degradedAt, failAt) {
-  if (ms === null || ms === undefined) return VERDICT.NOT_MEASURED;
-  if (ms > failAt) return VERDICT.FAIL;
-  if (ms > degradedAt) return VERDICT.DEGRADED;
-  return VERDICT.PASS;
-}
+// `timeVerdict` (plain) and `timeVerdictUnderLoad` (foreign-load-aware)
+// now live in core.mjs, so every phase that adopts the load-awareness
+// this file pioneered gets it from one place instead of a copy each.
 
 // The measurements this phase intends to take, named once so the
 // "lucky-mem is absent" branch and the "everything ran" branch report
@@ -584,6 +685,7 @@ const INTENDED = [
   ['real.cli.doctor-time', 'mem doktor wall time against the real corpus'],
   ['real.cli.doctor-findings', 'mem doktor finding counts against the real corpus'],
   ['real.cli.kontext', 'mem kontext wall time and output size against the real corpus'],
+  ['real.load.foreign', 'foreign load measured around this phase\'s timed CLI calls'],
 ];
 
 // --- the phase -----------------------------------------------------
@@ -621,6 +723,48 @@ export async function run(atlas, { quick = false } = {}) {
     measured: pass(fields.measured),
   });
   const say = vouch(guard);
+
+  /**
+   * The guard's verdict, split by origin (B4, 2026-09-20 — see the doc
+   * comment on `Guard` above). Two records, not one:
+   *
+   * - `real.guard.redactions` counts CONTENT-grade redactions only — a
+   *   string the guard could not vouch for and could not attribute to
+   *   this file's own source. Zero is the only value that means this
+   *   phase behaved; anything else is `critical` and unchanged from
+   *   before this fix.
+   * - `real.guard.own-string-redactions` counts strings traced back to
+   *   this file's own source text — a harness bug (someone built a
+   *   record field with a bare backtick instead of `say`), reported as
+   *   `minor` with the exact `file:line` so it can be fixed, not read as
+   *   a leak from lucky-mem.
+   *
+   * Called once, at the very end of every path through this phase
+   * (present, absent, or disk-budget-blind) — every early return in this
+   * file goes through here so no path can skip reporting what its own
+   * guard instance caught.
+   */
+  const recordGuardFindings = (g) => {
+    record({
+      id: 'real.guard.redactions',
+      title: 'the content guard caught zero attempts to leak REAL memory content (own-code mistakes are reported separately, see real.guard.own-string-redactions)',
+      verdict: g.contentRedactions === 0 ? VERDICT.PASS : VERDICT.FAIL,
+      expected: say`0 values replaced`,
+      actual: say`${g.contentRedactions} value(s) replaced by the guard`,
+      severity: g.contentRedactions === 0 ? null : SEVERITY.CRITICAL,
+    });
+    const locations = g.ownStringRedactions.map((r) => r.location).join(' ');
+    record({
+      id: 'real.guard.own-string-redactions',
+      title: 'the guard caught a string this file wrote directly instead of building with `say` — a bug in this phase, not a leak',
+      verdict: g.ownStringRedactions.length === 0 ? VERDICT.PASS : VERDICT.FAIL,
+      expected: say`0 own-code strings redacted`,
+      actual: g.ownStringRedactions.length
+        ? say`${g.ownStringRedactions.length} own-code string(s) redacted, at ${locations}`
+        : say`0 own-code strings redacted`,
+      severity: g.ownStringRedactions.length === 0 ? null : SEVERITY.MINOR,
+    });
+  };
 
   /**
    * The stated expectation every real-against-generated comparison holds
@@ -700,14 +844,7 @@ export async function run(atlas, { quick = false } = {}) {
       });
       atlas.blind(title, 'lucky-mem is not present at the expected path in this environment');
     }
-    record({
-      id: 'real.guard.redactions',
-      title: 'the content guard caught zero attempts to leak memory content',
-      verdict: guard.redactions === 0 ? VERDICT.PASS : VERDICT.FAIL,
-      expected: 0,
-      actual: guard.redactions,
-      severity: guard.redactions === 0 ? null : SEVERITY.CRITICAL,
-    });
+    recordGuardFindings(guard);
     atlas.blind('retrieval quality on lucky-mem',
       'lucky-mem was not present; quality needs a human-labelled answer key in any case, '
       + 'and inventing one from the entries would mean reading them');
@@ -948,7 +1085,7 @@ export async function run(atlas, { quick = false } = {}) {
   if (!fits) {
     for (const [id, title] of INTENDED) {
       if (id === 'real.cli.disk-budget') continue;
-      if (!id.startsWith('real.cli.')) continue;
+      if (!id.startsWith('real.cli.') && id !== 'real.load.foreign') continue;
       record({
         id, title, verdict: VERDICT.NOT_MEASURED, expected: null, actual: null,
       });
@@ -967,6 +1104,18 @@ export async function run(atlas, { quick = false } = {}) {
     // `frequentTokens()`. Never assigned to anything this phase records.
     const queries = frequentTokens(LUCKY_MEM_ROOT, queryCount, realFields);
 
+    // === B3: bracket every timed CLI call below with one foreign-load ===
+    // snapshot pair (see `captureForeignLoad`/`foreignLoadDelta` in
+    // core.mjs). One snapshot pair for the whole section, not one per
+    // call: these calls run back to back in well under a second of
+    // wall time between them, so a shared window is both cheaper and
+    // exactly what "was this phase's own timing trustworthy" asks —
+    // none of its four timed checks below can be trusted if ANY part of
+    // this window saw denied compute. All four `record()` calls for the
+    // timed checks are deliberately AFTER `loadAfter` is captured, so
+    // every one of them can use the same delta.
+    const loadBefore = captureForeignLoad();
+
     // --- cold index build, via the first query ---------------------
     const pipelineDir = path.join(copyRoot, '.pipeline');
     const indexPath = path.join(pipelineDir, 'suchindex.json');
@@ -975,11 +1124,68 @@ export async function run(atlas, { quick = false } = {}) {
     const indexBytes = fs.existsSync(indexPath) ? fs.statSync(indexPath).size : null;
     const pipelineBytes = fs.existsSync(pipelineDir) ? dirBytes(pipelineDir) : null;
 
+    // --- warm finde latency, one call per remaining frequent token --
+    const warmQueries = queries.slice(1).length ? queries.slice(1) : queries;
+    const findeRuns = warmQueries.map((q) => runMem(['finde', q, '--json', '--top', '10']));
+    const findeMs = findeRuns.map((r) => r.ms).sort((a, b) => a - b);
+    const enough = findeMs.length >= QUERY_PERCENTILE_FLOOR;
+    const findeP50 = pct(findeMs, 50);
+    const findeP95 = enough ? pct(findeMs, 95) : null;
+
+    // --- doktor, warm (the index is already built above) ------------
+    const doctor = runMem(['doktor', '--json']);
+    let doctorCounts = null;
+    try {
+      const parsed = JSON.parse(doctor.stdout);
+      doctorCounts = parsed.zusammenfassung ?? null;
+    } catch { /* left null; the timing record below still stands */ }
+
+    // --- kontext ------------------------------------------------------
+    const kontext = runMem(['kontext']);
+
+    const loadAfter = captureForeignLoad();
+    const load = foreignLoadDelta(loadBefore, loadAfter);
+    record({
+      id: 'real.load.foreign',
+      title: 'foreign load measured around this phase\'s timed CLI calls (CPU steal + cgroup throttling, never loadavg — see core.mjs)',
+      // A pure measurement, not a claim of good or bad — see the doc
+      // comment on `Atlas#record` for why that is `not-measured` rather
+      // than a graded verdict either way. The four timed checks below
+      // are what actually turn this into a verdict.
+      verdict: VERDICT.NOT_MEASURED,
+      expected: null,
+      // Every dynamic value below goes through `.val()` (scrubbed), never
+      // through `.plus()` with a value baked into a template literal —
+      // the latter would hand the guard's protection a value it never
+      // actually checked. `.val(null)` prints "not measured" on its own,
+      // so the steal/cgroup-unavailable cases need no special-casing here.
+      actual: load.measured
+        ? say`${load.deniedMsPerSec} ms/s denied over ${load.wallMs} ms wall — steal `
+          .val(load.stealMs).plus(' ms, cgroup ').val(load.cgroupMs).plus(' ms via ').val(load.cgroupSource)
+        : say`neither CPU steal nor cgroup throttling could be read in this container`,
+      measured: {
+        wallMs: load.wallMs,
+        stealTicks: load.stealTicks,
+        stealMs: load.stealMs,
+        cgroupSource: load.cgroupSource,
+        cgroupThrottledUsec: load.cgroupThrottledUsec,
+        cgroupNrThrottled: load.cgroupNrThrottled,
+        cgroupMs: load.cgroupMs,
+        deniedMsPerSec: load.deniedMsPerSec,
+        thresholdMsPerSec: FOREIGN_LOAD_DENIED_MS_PER_SEC,
+      },
+    });
+    if (!load.measured) {
+      atlas.blind('foreign load during this phase\'s timed CLI calls',
+        'neither /proc/stat steal nor a cgroup cpu.stat with throttling fields could be read in this container');
+    }
+
     record({
       id: 'real.cli.index-build',
       title: 'cold search index build time against the real corpus',
-      verdict: timeVerdict(cold.ms, BUILD_DEGRADED_MS, BUILD_FAIL_MS),
-      expected: say`under ${BUILD_DEGRADED_MS} ms (over ${BUILD_FAIL_MS} ms means hung, not slow)`,
+      verdict: timeVerdictUnderLoad(cold.ms, BUILD_DEGRADED_MS, BUILD_FAIL_MS, load),
+      expected: say`under ${BUILD_DEGRADED_MS} ms (over ${BUILD_FAIL_MS} ms means hung, not slow; `
+        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
       actual: say`${cold.ms} ms to build the index over ${real.validEntries} real entries`,
       severity: SEVERITY.MINOR,
       ms: cold.ms,
@@ -1000,20 +1206,13 @@ export async function run(atlas, { quick = false } = {}) {
       measured: { indexBytes, pipelineBytes, entries: real.validEntries },
     });
 
-    // --- warm finde latency, one call per remaining frequent token --
-    const warmQueries = queries.slice(1).length ? queries.slice(1) : queries;
-    const findeRuns = warmQueries.map((q) => runMem(['finde', q, '--json', '--top', '10']));
-    const findeMs = findeRuns.map((r) => r.ms).sort((a, b) => a - b);
-    const enough = findeMs.length >= QUERY_PERCENTILE_FLOOR;
-    const findeP50 = pct(findeMs, 50);
-    const findeP95 = enough ? pct(findeMs, 95) : null;
-
     record({
       id: 'real.cli.finde-latency',
       title: 'mem finde wall time over several real-vocabulary queries (query text never recorded)',
-      verdict: enough ? timeVerdict(findeP95, FINDE_DEGRADED_MS, FINDE_FAIL_MS)
-        : timeVerdict(findeP50, FINDE_DEGRADED_MS, FINDE_FAIL_MS),
-      expected: say`under ${FINDE_DEGRADED_MS} ms (over ${FINDE_FAIL_MS} ms means hung, not slow)`,
+      verdict: enough ? timeVerdictUnderLoad(findeP95, FINDE_DEGRADED_MS, FINDE_FAIL_MS, load)
+        : timeVerdictUnderLoad(findeP50, FINDE_DEGRADED_MS, FINDE_FAIL_MS, load),
+      expected: say`under ${FINDE_DEGRADED_MS} ms (over ${FINDE_FAIL_MS} ms means hung, not slow; `
+        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
       actual: say`${enough ? findeP95 : findeP50} ms at `
         .plus(`${enough ? 'p95' : 'p50'} over ${findeMs.length} queries`),
       severity: SEVERITY.MINOR,
@@ -1033,19 +1232,12 @@ export async function run(atlas, { quick = false } = {}) {
         `fewer than ${QUERY_PERCENTILE_FLOOR} distinct queries were available from this corpus's own vocabulary`);
     }
 
-    // --- doktor, warm (the index is already built above) ------------
-    const doctor = runMem(['doktor', '--json']);
-    let doctorCounts = null;
-    try {
-      const parsed = JSON.parse(doctor.stdout);
-      doctorCounts = parsed.zusammenfassung ?? null;
-    } catch { /* left null; the timing record below still stands */ }
-
     record({
       id: 'real.cli.doctor-time',
       title: 'mem doktor wall time against the real corpus',
-      verdict: timeVerdict(doctor.ms, DOCTOR_DEGRADED_MS, DOCTOR_FAIL_MS),
-      expected: say`under ${DOCTOR_DEGRADED_MS} ms (over ${DOCTOR_FAIL_MS} ms means hung, not slow)`,
+      verdict: timeVerdictUnderLoad(doctor.ms, DOCTOR_DEGRADED_MS, DOCTOR_FAIL_MS, load),
+      expected: say`under ${DOCTOR_DEGRADED_MS} ms (over ${DOCTOR_FAIL_MS} ms means hung, not slow; `
+        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
       actual: say`${doctor.ms} ms for a full doctor run over ${real.validEntries} real entries`,
       severity: SEVERITY.MINOR,
       ms: doctor.ms,
@@ -1077,13 +1269,12 @@ export async function run(atlas, { quick = false } = {}) {
       atlas.blind('doktor finding counts on the real corpus', 'doktor --json output on the copy did not parse');
     }
 
-    // --- kontext ------------------------------------------------------
-    const kontext = runMem(['kontext']);
     record({
       id: 'real.cli.kontext',
       title: 'mem kontext wall time and output size against the real corpus',
-      verdict: timeVerdict(kontext.ms, KONTEXT_DEGRADED_MS, KONTEXT_FAIL_MS),
-      expected: say`under ${KONTEXT_DEGRADED_MS} ms (over ${KONTEXT_FAIL_MS} ms means hung, not slow)`,
+      verdict: timeVerdictUnderLoad(kontext.ms, KONTEXT_DEGRADED_MS, KONTEXT_FAIL_MS, load),
+      expected: say`under ${KONTEXT_DEGRADED_MS} ms (over ${KONTEXT_FAIL_MS} ms means hung, not slow; `
+        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
       actual: say`${kontext.ms} ms, ${kontext.bytes} bytes of session context`,
       severity: SEVERITY.MINOR,
       ms: kontext.ms,
@@ -1099,14 +1290,7 @@ export async function run(atlas, { quick = false } = {}) {
 
   // === section C — named, not faked ======================================
 
-  record({
-    id: 'real.guard.redactions',
-    title: 'the content guard caught zero attempts to leak memory content',
-    verdict: guard.redactions === 0 ? VERDICT.PASS : VERDICT.FAIL,
-    expected: say`0 values replaced`,
-    actual: say`${guard.redactions} values replaced by the guard`,
-    severity: guard.redactions === 0 ? null : SEVERITY.CRITICAL,
-  });
+  recordGuardFindings(guard);
 
   atlas.blind('retrieval quality on lucky-mem',
     'whether `finde` returns the RIGHT entry cannot be measured without a human-labelled '

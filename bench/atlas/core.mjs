@@ -127,6 +127,294 @@ export function heapAround(fn, { everyMs = 5 } = {}) {
   };
 }
 
+// --- foreign load: CPU steal and cgroup throttling ---------------------
+//
+// **Why not `os.loadavg()`.** Load average rises when a process is
+// waiting on disk or network just as readily as when it is waiting for a
+// CPU another tenant is using, so a load-average-based guard cannot tell
+// "this machine is slow because of us" from "this machine is slow because
+// of something else". CPU steal (time a hypervisor gave to another guest
+// instead of this one) and cgroup CFS throttling (time this cgroup was
+// runnable but had already spent its quota for the period) both measure
+// DENIED compute directly, attributed to a specific decider. Where a
+// container exposes neither, the honest answer is `not-measured`, never
+// `0` — a `0` here would claim "no foreign load" about a quantity nobody
+// could read.
+//
+// Both readers below are plain `fs.readFileSync` over `/proc` and
+// `/sys/fs/cgroup`, never a spawned tool, so a phase can snapshot them on
+// either side of a slow measurement at effectively zero cost.
+
+/**
+ * CPU ticks stolen from this host's view of the CPU since boot, summed
+ * across all CPUs (`/proc/stat`'s top `cpu ` line, the field named
+ * `steal` — the 8th number after the `cpu` label: user, nice, system,
+ * idle, iowait, irq, softirq, **steal**, guest, guest_nice).
+ *
+ * `null` when `/proc/stat` cannot be read or does not carry a `steal`
+ * field at all (pre-2.6.11 kernels, or a `/proc` this process cannot
+ * see) — a container that hides this number gets `not-measured`
+ * downstream, not a silent zero.
+ */
+export function readCpuStealTicks() {
+  try {
+    const firstLine = fs.readFileSync('/proc/stat', 'utf8').split('\n', 1)[0];
+    const parts = firstLine.trim().split(/\s+/);
+    if (parts[0] !== 'cpu' || parts.length < 9) return null;
+    const steal = Number(parts[8]);
+    return Number.isFinite(steal) ? steal : null;
+  } catch {
+    return null;
+  }
+}
+
+// Ticks-per-second, read once via `getconf` rather than assumed: the
+// conversion from steal TICKS to steal MILLISECONDS depends on it, and
+// hard-coding 100 would be quietly wrong on the rare kernel built with a
+// different `CONFIG_HZ`. 100 is kept as the fallback because it is the
+// value on every machine this codebase has run on (verified here via
+// `getconf CLK_TCK` on 2026-09-20, cheap-mem's own container: 100).
+let clkTckCache = null;
+function clockTicksPerSecond() {
+  if (clkTckCache !== null) return clkTckCache;
+  try {
+    const out = execFileSync('getconf', ['CLK_TCK'], { encoding: 'utf8' }).trim();
+    const n = parseInt(out, 10);
+    clkTckCache = Number.isFinite(n) && n > 0 ? n : 100;
+  } catch {
+    clkTckCache = 100;
+  }
+  return clkTckCache;
+}
+
+/** First mountpoint of filesystem type `fstype`, optionally requiring `optionToken` among its mount options. `null` if none matches or `/proc/mounts` cannot be read. */
+function firstMountpoint(fstype, optionToken) {
+  try {
+    const lines = fs.readFileSync('/proc/mounts', 'utf8').split('\n');
+    for (const line of lines) {
+      const fields = line.split(' ');
+      const [, mnt, fst, opts] = fields;
+      if (!mnt || fst !== fstype) continue;
+      if (optionToken && !(opts ?? '').split(',').includes(optionToken)) continue;
+      return mnt;
+    }
+  } catch { /* no /proc/mounts to read */ }
+  return null;
+}
+
+/**
+ * This process's own cgroup path for one hierarchy, from `/proc/self/cgroup`.
+ * `controllerToken === null` asks for the unified (cgroup v2) line, which
+ * `/proc/self/cgroup` always writes as `0::<path>`; otherwise it asks for
+ * the v1 hierarchy whose controller list contains `controllerToken`.
+ */
+function ownCgroupPath(controllerToken) {
+  try {
+    const lines = fs.readFileSync('/proc/self/cgroup', 'utf8').split('\n');
+    for (const line of lines) {
+      const [hierId, controllers, sub] = line.split(':');
+      if (sub === undefined) continue;
+      if (controllerToken === null) {
+        if (hierId === '0' && controllers === '') return sub;
+      } else if ((controllers ?? '').split(',').includes(controllerToken)) {
+        return sub;
+      }
+    }
+  } catch { /* no /proc/self/cgroup to read */ }
+  return null;
+}
+
+function parseKeyValueFile(p) {
+  const out = {};
+  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const sp = t.indexOf(' ');
+    if (sp < 0) continue;
+    out[t.slice(0, sp)] = Number(t.slice(sp + 1));
+  }
+  return out;
+}
+
+/**
+ * This process's cgroup CPU throttling counters, cgroup v2 first (where
+ * the cpu controller is enabled on this cgroup, `cpu.stat` carries
+ * `throttled_usec`/`nr_throttled` directly), falling back to cgroup v1
+ * (`cpu.stat` carries `throttled_time` in NANOSECONDS instead, converted
+ * to microseconds here so callers never have to know which hierarchy
+ * answered). `null` when neither hierarchy is mounted, reachable, or
+ * carries throttling fields at all — e.g. this repo's own dev container,
+ * where the v2 leaf has no `cpu.max` and the v1 leaf reports real numbers
+ * only once something actually sets a quota (see the derivation on
+ * `FOREIGN_LOAD_DENIED_MS_PER_SEC` below for what that container showed
+ * once a quota was set for the experiment).
+ */
+export function readCgroupThrottle() {
+  const v2Mount = firstMountpoint('cgroup2', null);
+  const v2Sub = ownCgroupPath(null);
+  if (v2Mount && v2Sub !== null) {
+    try {
+      const kv = parseKeyValueFile(path.join(v2Mount, v2Sub, 'cpu.stat'));
+      if (Number.isFinite(kv.throttled_usec) && Number.isFinite(kv.nr_throttled)) {
+        return { source: 'cgroup2', throttledUsec: kv.throttled_usec, nrThrottled: kv.nr_throttled };
+      }
+    } catch { /* try v1 below */ }
+  }
+  const v1Mount = firstMountpoint('cgroup', 'cpu');
+  const v1Sub = ownCgroupPath('cpu');
+  if (v1Mount && v1Sub !== null) {
+    try {
+      const kv = parseKeyValueFile(path.join(v1Mount, v1Sub, 'cpu.stat'));
+      if (Number.isFinite(kv.throttled_time) && Number.isFinite(kv.nr_throttled)) {
+        return { source: 'cgroup1', throttledUsec: kv.throttled_time / 1000, nrThrottled: kv.nr_throttled };
+      }
+    } catch { /* neither hierarchy readable */ }
+  }
+  return null;
+}
+
+/** One snapshot of both foreign-load signals, timestamped. Take one before and one after the work being measured, then pass both to `foreignLoadDelta`. */
+export function captureForeignLoad() {
+  return {
+    atMs: Date.now(),
+    stealTicks: readCpuStealTicks(),
+    cgroup: readCgroupThrottle(),
+  };
+}
+
+/**
+ * How much compute this process was denied between two `captureForeignLoad()`
+ * snapshots, as milliseconds denied per second of wall time elapsed — a
+ * rate, so a short phase and a long phase are comparable on the same
+ * threshold. Either side missing, or the cgroup hierarchy changing
+ * between snapshots (should not happen; checked anyway), yields `null`
+ * for that source rather than treating it as zero.
+ */
+export function foreignLoadDelta(before, after) {
+  const wallMs = after.atMs - before.atMs;
+  const stealTicks = (before.stealTicks !== null && after.stealTicks !== null)
+    ? after.stealTicks - before.stealTicks : null;
+  const stealMs = stealTicks !== null ? (stealTicks * 1000) / clockTicksPerSecond() : null;
+
+  const cgroupOk = before.cgroup !== null && after.cgroup !== null
+    && before.cgroup.source === after.cgroup.source;
+  const cgroupThrottledUsec = cgroupOk ? after.cgroup.throttledUsec - before.cgroup.throttledUsec : null;
+  const cgroupNrThrottled = cgroupOk ? after.cgroup.nrThrottled - before.cgroup.nrThrottled : null;
+  const cgroupMs = cgroupThrottledUsec !== null ? cgroupThrottledUsec / 1000 : null;
+
+  // The rate this phase's checks are gated on: whichever source answered,
+  // summed (a phase can be denied by both at once), converted to a
+  // per-second rate over the wall time actually elapsed. `null` only when
+  // NEITHER source could be read at all — the genuinely blind case.
+  const deniedMs = (stealMs !== null ? stealMs : 0) + (cgroupMs !== null ? cgroupMs : 0);
+  const measured = stealMs !== null || cgroupMs !== null;
+  const deniedMsPerSec = measured && wallMs > 0 ? (deniedMs * 1000) / wallMs : (measured ? 0 : null);
+
+  return {
+    wallMs,
+    stealTicks,
+    stealMs: stealMs !== null ? +stealMs.toFixed(2) : null,
+    cgroupSource: cgroupOk ? after.cgroup.source : null,
+    cgroupThrottledUsec,
+    cgroupNrThrottled,
+    cgroupMs: cgroupMs !== null ? +cgroupMs.toFixed(2) : null,
+    measured,
+    deniedMsPerSec: deniedMsPerSec !== null ? +deniedMsPerSec.toFixed(2) : null,
+  };
+}
+
+/**
+ * The rate of denied compute (see `foreignLoadDelta`) above which a
+ * time-based check can no longer trust its own clock, in milliseconds
+ * denied per second of wall time.
+ *
+ * **Derived, not guessed — 2026-09-20, this repo's own dev container
+ * (4 vCPUs, cgroup v1 `cpu` hierarchy writable).** Method: a synchronous
+ * ~5.4 ms CPU-bound unit of work (JSON-stringify-heavy loop, chosen to
+ * resemble the per-call cost of the search/scoring work the real timed
+ * checks in `phase-real.mjs` do), timed 60 times per run with
+ * `process.hrtime.bigint()`, run inside a cgroup v1 `cpu` child with
+ * `cpu.cfs_period_us=100000` and a swept `cpu.cfs_quota_us`. `cpu.stat`
+ * was read immediately before and after each run to get the REAL
+ * `throttled_time` delta, converted to a ms/s rate over that run's own
+ * wall time (`nr_periods` delta × 100 ms) — the same computation
+ * `foreignLoadDelta` does. Unloaded baseline (six runs, no cgroup limit
+ * at all): p95 5.59-6.05 ms in five of six runs, one outlier at 10.19 ms
+ * — median 5.79 ms, taken as the reference. 20 % over that reference is
+ * 6.94 ms.
+ *
+ * ```
+ * quota (of one CPU)   denied ms/s     p95 measured    deviation
+ * unlimited (-1)              0 (*)      5.59-6.05 ms   baseline
+ * 90 %                     78.7          15.58 ms        +169 %
+ * 70 %                    ~330           35.42 ms        +512 %
+ * 55 %                    ~455           51.45 ms        +789 %
+ * 45 % .. 25 %          580-950          60-80 ms      +940-1280 %
+ * ```
+ * (*) `nr_throttled` stayed exactly 0 at every unloaded run — no
+ * throttling occurred, so there is no rate to compute; 0 is the
+ * measurement, not a stand-in for "unknown".
+ *
+ * **The mechanism is a cliff, not a ramp.** CFS quota throttling freezes
+ * the whole process for the remainder of a period once its quota is
+ * spent, so the FIRST quota tight enough to throttle at all (90 % of one
+ * CPU, ~79 ms/s denied) already blew the 20 % bound by more than 8×.
+ * A finer sweep (95 %, 92 %, 91 %...) would only narrow the gap between
+ * "0, never throttled" and "79 ms/s, already 8x over" — it would not
+ * find a gentler slope, because the underlying mechanism has none. Given
+ * that, the threshold below is set well inside the confirmed-safe side
+ * (0 ms/s, real, idle) and well below the confirmed-broken side (79 ms/s,
+ * real, measured): a round 20 ms/s, one quarter of the lowest rate this
+ * container ever measured as already-broken.
+ *
+ * **CPU steal could not be experimentally induced from inside this
+ * container** — steal is the hypervisor denying THIS guest's vCPU time to
+ * ANOTHER guest, which requires controlling a second guest on the same
+ * host, not available here. Idle steal in this container measured 0
+ * ticks over a 10 s window (`awk '/^cpu /{print $9}' /proc/stat`, twice,
+ * 10 s apart, 2026-09-20) — consistent with "not currently contended",
+ * not with "unmeasurable". The same 20 ms/s rate is applied to steal by
+ * analogy rather than by its own derivation: both quantities are "CPU
+ * time this process wanted and did not get", differing only in which
+ * scheduler denied it, so the same rate is the best available number
+ * until a host that can genuinely induce steal is available to check it
+ * against. That substitution is a real gap in this derivation and is
+ * named here rather than hidden — see the report's "what was wrong with
+ * this brief" section.
+ */
+export const FOREIGN_LOAD_DENIED_MS_PER_SEC = 20;
+
+/**
+ * Nearest-rank percentile threshold verdict for a timed measurement,
+ * `not-measured` instead of pass/fail whenever the foreign-load delta
+ * measured around it shows denied compute over `FOREIGN_LOAD_DENIED_MS_PER_SEC`.
+ *
+ * This only changes TIME-BASED verdicts. A check that does not measure a
+ * duration was never affected by how much CPU this process got, and
+ * routing it through here would be exactly the "a guard that meddles with
+ * things it wasn't asked to grade" mistake this house watches for — such
+ * checks keep calling `timeVerdict` (or their own comparison) directly.
+ *
+ * `load` is a `foreignLoadDelta()` result, or `null` when no load
+ * measurement was taken around this check at all (in which case this
+ * degrades to plain `timeVerdict` — a phase that never measured foreign
+ * load cannot use it as an excuse, it just did not ask the question).
+ */
+export function timeVerdictUnderLoad(ms, degradedAt, failAt, load) {
+  if (load && load.deniedMsPerSec !== null && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC) {
+    return VERDICT.NOT_MEASURED;
+  }
+  return timeVerdict(ms, degradedAt, failAt);
+}
+
+/** Plain wall-clock threshold verdict, with no load awareness at all. */
+export function timeVerdict(ms, degradedAt, failAt) {
+  if (ms === null || ms === undefined) return VERDICT.NOT_MEASURED;
+  if (ms > failAt) return VERDICT.FAIL;
+  if (ms > degradedAt) return VERDICT.DEGRADED;
+  return VERDICT.PASS;
+}
+
 // --- running the real CLI ---------------------------------------------
 
 /**
