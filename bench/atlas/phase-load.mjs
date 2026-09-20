@@ -33,6 +33,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   VERDICT, SEVERITY, mem, buildCorpus, tempRoot, pct, dirBytes,
+  cacheExists, cacheBytes, removeCacheDir,
 } from './core.mjs';
 
 // --- thresholds, in the open ------------------------------------------
@@ -787,8 +788,17 @@ export async function run(atlas, { quick = false } = {}) {
       restamp(c.dir, mode);
       // The cache was written against the old stamps. It is keyed on file
       // size and mtime, and a rewrite can leave the size identical — so
-      // the cache is removed rather than trusted to notice.
-      fs.rmSync(path.join(root, '.mem', 'search-index.json'), { force: true });
+      // the cache is removed rather than trusted to notice. B8
+      // (2026-09-20) moved the cache from a single file to a directory of
+      // shards (`CACHE_DIR`); removing the whole directory is the
+      // directory-shaped equivalent of the old `fs.rmSync(file, { force
+      // })`. Before this fix, this line targeted the retired single-file
+      // path, which never exists post-B8 — the `force: true` swallowed
+      // the resulting ENOENT silently, so the real cache (at `CACHE_DIR`)
+      // was never actually cleared and this scenario ran against a STALE
+      // cache keyed on the pre-restamp mtimes, exactly the confound this
+      // line exists to remove.
+      removeCacheDir(root);
       mem(['find', 'warmup'], { root, timeoutMs: 900000 });
       const anchors = c.anchors.slice(0, quick ? 6 : 8);
       // Diluted, not bare: with the bare phrase only one document matches
@@ -865,7 +875,6 @@ export async function run(atlas, { quick = false } = {}) {
 
   const coldRows = [];
   for (const st of corpora) {
-    const idx = path.join(st.root, '.mem', 'search-index.json');
     const row = { label: st.label, entries: st.corpus.count };
     row.corpusBytes = dirBytes(path.join(st.root, 'global'));
     for (const [name, args] of [
@@ -873,16 +882,20 @@ export async function run(atlas, { quick = false } = {}) {
       ['retrieve', ['retrieve', WORK_QUERY, '--json']],
     ]) {
       try {
-        fs.rmSync(idx, { force: true });
+        removeCacheDir(st.root);
         const cold = mem(args, { root: st.root, timeoutMs: 900000 });
-        const cacheBytes = fs.existsSync(idx) ? fs.statSync(idx).size : null;
+        // `null`, not 0, when there is no cache to size — "not
+        // measurable is not zero" applies here too: a cache that was
+        // never written and a cache that is genuinely empty are
+        // different facts, and only `cacheExists` can tell them apart.
+        const cacheBytesNow = cacheExists(st.root) ? cacheBytes(st.root) : null;
         const warm = timeCli(args, st.root, tuning);
         row[`${name}ColdMs`] = round(cold.ms, 1);
         row[`${name}WarmP50Ms`] = round(warm.p50, 1);
         row[`${name}WarmN`] = warm.n;
         row[`${name}PenaltyMs`] = round(cold.ms - warm.p50, 1);
         row[`${name}ColdStatus`] = cold.status;
-        if (name === 'find') row.cacheBytes = cacheBytes;
+        if (name === 'find') row.cacheBytes = cacheBytesNow;
       } catch (e) {
         row[`${name}Error`] = String(e.message).slice(0, 160);
       }
@@ -904,9 +917,9 @@ export async function run(atlas, { quick = false } = {}) {
     actual: coldRows.map((r) => `${r.label}: find +${r.findPenaltyMs} ms, `
       + `retrieve +${r.retrievePenaltyMs} ms, cache ${r.cacheBytes} B`).join('; '),
     measured: { rows: coldRows, findPenaltiesMs: penalties },
-    evidence: 'Cold = `.mem/search-index.json` removed immediately before the run, '
-      + 'so the process pays the full build AND the cache write. Warm = the same '
-      + 'command with the cache in place.',
+    evidence: 'Cold = the search-index cache directory (`CACHE_DIR`, `src/search.mjs`) '
+      + 'removed immediately before the run, so the process pays the full build AND '
+      + 'the cache write. Warm = the same command with the cache in place.',
   });
 
   // The cache file itself, per stage — the thing that has to be read and

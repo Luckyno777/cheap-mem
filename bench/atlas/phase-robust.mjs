@@ -37,11 +37,23 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import { createHash } from 'node:crypto';
 import { spawnSync, spawn } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import {
   VERDICT, SEVERITY, REPO, mem, tempRoot, buildCorpus, dirBytes, heapAround,
+  cacheDirPath, cacheManifestPath, cacheBytes, cacheMtimeMs,
 } from './core.mjs';
+
+/** Same digest `src/indexcache.mjs`'s (unexported) `sha256` computes —
+ * duplicated rather than imported because that helper is a private
+ * implementation detail of the writer, not part of its public shape. Used
+ * only to re-sign a shard this phase deliberately tampers with, so a
+ * tampered-but-still-`sha256`-consistent cache is distinguishable from a
+ * merely truncated one when `readIndexCache` re-verifies it. */
+function sha256(buf) {
+  return createHash('sha256').update(buf).digest('hex');
+}
 
 // ---------------------------------------------------------------------
 // Reading the truth off the disk, without asking the system under test
@@ -493,7 +505,12 @@ async function partBroken(atlas, quick) {
     ]) {
       const { root, anchor } = scenarioRoot(`index-${key}`, N);
       mem(['find', anchor], { root });               // make a real cache first
-      const cachePath = path.join(root, '.mem', 'search-index.json');
+      // The cache is a directory of shards now (B8), but `manifest.json`
+      // is still the one JSON document that governs whether the whole
+      // thing is trusted (`readIndexCache` reads and `JSON.parse`s it
+      // before touching a single shard) — so it is what plays the old
+      // single file's role for "corrupt the cache" here.
+      const cachePath = cacheManifestPath(root);
       const had = fs.existsSync(cachePath);
       fs.writeFileSync(cachePath, body);
 
@@ -556,26 +573,64 @@ async function partBroken(atlas, quick) {
     const beforeJson = mem(['retrieve', `${marker} claim`, '--json'], { root });
     const beforeAnchor = mem(['find', corpusAnchor], { root });
 
-    const cachePath = path.join(root, '.mem', 'search-index.json');
+    // B8 moved the cache from one JSON document to a directory of
+    // shards plus a manifest (`CACHE_DIR`, `src/indexcache.mjs`), so
+    // "the doc with this id" now means "the ndjson line with this id,
+    // in whichever shard holds it" rather than an entry in one
+    // in-memory array — the tampering has to walk the manifest's shard
+    // list to find it.
+    const cacheDir = cacheDirPath(root);
+    const manifestPath = cacheManifestPath(root);
     let strippedRetired = false; let removedDoc = false; let hadRetired = false;
     try {
-      const c = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      const docs = c.index?.documents ?? [];
-      // A document is `{ entry, type, project, source, line, weights,
-      // length, retired? }` — the id sits on `entry`, not on the doc.
-      for (const d of docs) {
-        if (d.entry?.id !== 'liar1') continue;
-        hadRetired = Boolean(d.retired);
-        if (d.retired) { delete d.retired; strippedRetired = true; }
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      let removedFromShards = 0;
+      for (const shard of manifest.documents ?? []) {
+        const shardPath = path.join(cacheDir, shard.file);
+        const text = fs.readFileSync(shardPath, 'utf8');
+        const lines = text.length ? text.slice(0, -1).split('\n') : [];
+        let shardChanged = false;
+        const nextLines = [];
+        for (const line of lines) {
+          const doc = JSON.parse(line);
+          const id = doc.entry?.id;
+          if (id === 'anchor1') {
+            // A second lie, in the other direction: remove a document
+            // the log holds, so the cache is internally consistent and
+            // only DISAGREES WITH THE LOG.
+            removedFromShards += 1;
+            shardChanged = true;
+            continue;
+          }
+          if (id === 'liar1') {
+            // A document is `{ entry, type, project, source, line,
+            // weights, length, retired? }` — the id sits on `entry`,
+            // not on the doc.
+            hadRetired = Boolean(doc.retired);
+            if (doc.retired) { delete doc.retired; strippedRetired = true; shardChanged = true; }
+          }
+          nextLines.push(JSON.stringify(doc));
+        }
+        if (!shardChanged) continue;
+        const body = nextLines.length ? `${nextLines.join('\n')}\n` : '';
+        const buf = Buffer.from(body, 'utf8');
+        fs.writeFileSync(shardPath, buf);
+        // The shard's manifest-recorded byte length and sha256 must
+        // match the tampered content, or `readIndexCache`'s per-shard
+        // verification refuses the whole shard as truncated and the
+        // cache is discarded wholesale on the next load — measuring
+        // "the cache was thrown away", not "the cache lies and is
+        // still trusted", which is the thing under test here.
+        shard.bytes = buf.length;
+        shard.sha256 = sha256(buf);
+        shard.count = nextLines.length;
       }
-      // A second lie, in the other direction: remove a document the log
-      // holds, and shrink N to match, so the cache is internally
-      // consistent and only DISAGREES WITH THE LOG.
-      const before = docs.length;
-      c.index.documents = docs.filter((d) => d.entry?.id !== 'anchor1');
-      removedDoc = c.index.documents.length < before;
-      if (removedDoc && typeof c.index.N === 'number') c.index.N -= (before - c.index.documents.length);
-      fs.writeFileSync(cachePath, JSON.stringify(c));
+      removedDoc = removedFromShards > 0;
+      if (removedDoc) {
+        manifest.documentCount = (manifest.documentCount ?? 0) - removedFromShards;
+        if (typeof manifest.N === 'number') manifest.N -= removedFromShards;
+      }
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest));
     } catch { /* recorded as not-established below */ }
 
     const afterJson = mem(['retrieve', `${marker} claim`, '--json'], { root });
@@ -1351,9 +1406,12 @@ function logBytes(root) {
   return n;
 }
 
-function cacheBytes(root) {
-  try { return fs.statSync(path.join(root, '.mem', 'search-index.json')).size; } catch { return 0; }
-}
+// `cacheBytes` (dirBytes over the cache directory) is imported from
+// `./core.mjs` — this file used to carry its own copy, hand-rolled
+// against the retired single-file path (`fs.statSync(...).size`, 0 on
+// ENOENT); that is exactly the "no second source of truth" trap the
+// shared helper exists to close, so the copy is gone, not fixed in
+// place.
 
 async function partResources(atlas, quick) {
   const sizes = quick ? [500, 1000, 2000] : [1000, 3000, 10000];
@@ -1482,7 +1540,7 @@ async function partResources(atlas, quick) {
       const root = tempRoot(`atlas-robust-cache${n}-`);
       const corpus = buildCorpus(root, 1000, { anchors: 1, seed: 13 });
       mem(['find', corpus.anchors[0].phrase], { root });     // cache exists now
-      const before = { bytes: cacheBytes(root), mtime: fs.statSync(path.join(root, '.mem', 'search-index.json')).mtimeMs };
+      const before = { bytes: cacheBytes(root), mtime: cacheMtimeMs(root) };
       const target = path.join(root, 'global', 'learnings.jsonl');
       const logBefore = logBytes(root);
       const filler = 'bulkfillerword '.repeat(Math.ceil(800_000 / 15));
@@ -1491,7 +1549,7 @@ async function partResources(atlas, quick) {
       }
       const newBytes = logBytes(root) - logBefore;
       const find = mem(['find', corpus.anchors[0].phrase], { root, timeoutMs: 180000 });
-      const after = { bytes: cacheBytes(root), mtime: fs.statSync(path.join(root, '.mem', 'search-index.json')).mtimeMs };
+      const after = { bytes: cacheBytes(root), mtime: cacheMtimeMs(root) };
       return {
         n,
         approxNewLogBytes: newBytes,

@@ -23,6 +23,23 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TYPES as memoryTypes } from '../../src/memory.mjs';
+import { CACHE_DIR } from '../../src/search.mjs';
+
+// Re-exported so every phase file imports the search-cache path from ONE
+// place (this module already imports it from `src/search.mjs`, its
+// canonical source) rather than each phase hardcoding
+// `.mem/search-index` a second time. B8 (2026-09-20) moved the cache
+// from a single file (the retired `CACHE_FILE`) to this directory of
+// shards; see `src/search.mjs` and `src/indexcache.mjs` for why.
+export { CACHE_DIR };
+
+/** `manifest.json`'s name within `CACHE_DIR` — small, always present on
+ * an intact cache (see `src/indexcache.mjs`'s module doc), absent or
+ * unreadable on a cold, torn or missing one. Not exported from
+ * `src/indexcache.mjs` itself (it is a `readIndexCache`/`writeIndexCache`
+ * implementation detail there), so it is named once, here, rather than
+ * spelled out as a string literal at every call site. */
+const MANIFEST_FILE = 'manifest.json';
 
 export const SCHEMA_VERSION = 1;
 
@@ -1317,6 +1334,57 @@ export function dirBytes(p) {
     } else n += st.size;
   }
   return n;
+}
+
+// --- the search-index cache, as a directory (B8, 2026-09-20) -----------
+//
+// A shared home for the three questions every phase used to ask of the
+// old single `.mem/search-index.json` file — does a cache exist, how
+// big is it, when was it last written — now asked of the directory
+// `CACHE_DIR` holds instead. One helper per question, used everywhere a
+// phase used to `fs.existsSync`/`fs.statSync` the old path directly, so
+// the path itself (imported above) is spelled out in exactly one place.
+
+/** Absolute path to the cache directory under a given memory root. */
+export function cacheDirPath(root) {
+  return path.join(root, CACHE_DIR);
+}
+
+/** Absolute path to that cache's manifest. */
+export function cacheManifestPath(root) {
+  return path.join(root, CACHE_DIR, MANIFEST_FILE);
+}
+
+/**
+ * Does a cache actually exist at this root? A bare `CACHE_DIR` with no
+ * `manifest.json` is a torn write or a directory some other probe left
+ * behind, not a usable cache — `readIndexCache` treats a manifest-less
+ * directory as `reason: 'no-manifest'`, the same as a cold start, so
+ * this checks the manifest specifically rather than the directory alone.
+ */
+export function cacheExists(root) {
+  return fs.existsSync(cacheManifestPath(root));
+}
+
+/** Total bytes the cache occupies on disk — every shard, `meta.json`
+ * and `manifest.json` — via `dirBytes`, not a second size computation. */
+export function cacheBytes(root) {
+  return dirBytes(cacheDirPath(root));
+}
+
+/** When the cache was last (re)written, or `null` if there is none.
+ * `manifest.json` is the last file `writeIndexCache` renames into place
+ * as part of the atomic swap, so its mtime is the cache's mtime. */
+export function cacheMtimeMs(root) {
+  try { return fs.statSync(cacheManifestPath(root)).mtimeMs; } catch { return null; }
+}
+
+/** Remove the cache directory entirely (and nothing else), the
+ * directory-shaped equivalent of `fs.rmSync(oldSingleFile, { force:
+ * true })`. Used to force a rebuild the same way clearing the old file
+ * did. */
+export function removeCacheDir(root) {
+  fs.rmSync(cacheDirPath(root), { recursive: true, force: true });
 }
 
 // --- output ------------------------------------------------------------

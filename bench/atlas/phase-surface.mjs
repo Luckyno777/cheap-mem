@@ -30,7 +30,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn } from 'node:child_process';
-import { mem, buildCorpus, tempRoot, VERDICT, SEVERITY, pct, REPO, MEM } from './core.mjs';
+import {
+  mem, buildCorpus, tempRoot, VERDICT, SEVERITY, pct, REPO, MEM,
+  cacheExists, removeCacheDir,
+} from './core.mjs';
 
 import { COMMANDS as WRITE } from '../../src/cli/commands/write.mjs';
 import { COMMANDS as SEARCH } from '../../src/cli/commands/search.mjs';
@@ -63,7 +66,6 @@ function commandList() {
   return list;
 }
 
-const CACHE_FILE = path.join('.mem', 'search-index.json');
 
 /** Seconds of wall clock a single CLI call may take before it is killed. */
 const CALL_TIMEOUT_MS = 60000;
@@ -1035,7 +1037,6 @@ function cacheStates(atlas, quick) {
   const entries = quick ? 300 : 2000;
   const { root, corpus } = freshRoot('atlas-cache-', entries);
   const query = corpus.anchors[0].query;
-  const cachePath = path.join(root, CACHE_FILE);
   const opts = { root, timeoutMs: CALL_TIMEOUT_MS };
 
   const stats = (ms) => {
@@ -1044,24 +1045,24 @@ function cacheStates(atlas, quick) {
       max: s[s.length - 1] ?? null };
   };
 
-  // --- cold: the cache file is removed before every run.
+  // --- cold: the cache directory is removed before every run.
   const cold = [];
   let coldStateHeld = true;
   for (let i = 0; i < runs; i += 1) {
-    try { fs.rmSync(cachePath, { force: true }); } catch { /* not there is fine */ }
-    if (fs.existsSync(cachePath)) coldStateHeld = false;
+    removeCacheDir(root);
+    if (cacheExists(root)) coldStateHeld = false;
     const r = mem(['find', query], opts);
     if (r.status !== 0) coldStateHeld = false;
     cold.push(r.ms);
   }
-  const cacheWritten = fs.existsSync(cachePath);
+  const cacheWritten = cacheExists(root);
 
   // --- warm-fresh: one `--fresh` rebuild, then plain runs off that cache.
   mem(['find', query, '--fresh'], opts);
   const freshWarm = [];
-  let freshStateHeld = fs.existsSync(cachePath);
+  let freshStateHeld = cacheExists(root);
   for (let i = 0; i < runs; i += 1) {
-    if (!fs.existsSync(cachePath)) freshStateHeld = false;
+    if (!cacheExists(root)) freshStateHeld = false;
     const r = mem(['find', query], opts);
     if (r.status !== 0) freshStateHeld = false;
     freshWarm.push(r.ms);
@@ -1075,7 +1076,7 @@ function cacheStates(atlas, quick) {
     const w = mem(['log', 'learning', '--title', `atlas cache tail ${i}`,
       '--text', 'appended so the next search reads an un-cached tail'], opts);
     if (w.status !== 0) incrStateHeld = false;
-    if (!fs.existsSync(cachePath)) incrStateHeld = false;
+    if (!cacheExists(root)) incrStateHeld = false;
     const r = mem(['find', query], opts);
     if (r.status !== 0) incrStateHeld = false;
     incr.push(r.ms);
@@ -1097,7 +1098,7 @@ function cacheStates(atlas, quick) {
   });
 
   for (const [id, label, s] of [
-    ['cold', 'cold: .mem/search-index.json deleted before each run', c],
+    ['cold', 'cold: the search-index cache directory deleted before each run', c],
     ['warm-fresh', 'warm-fresh: straight off a cache just rebuilt with --fresh', f],
     ['warm-incremental', 'warm-incremental: cache plus one freshly appended entry', w],
   ]) {

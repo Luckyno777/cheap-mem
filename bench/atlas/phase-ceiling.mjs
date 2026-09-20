@@ -43,7 +43,9 @@ import { constants as bufferConstants } from 'node:buffer';
 import { pathToFileURL } from 'node:url';
 import {
   VERDICT, SEVERITY, MEM, REPO, mem, buildCorpus, tempRoot, dirBytes, pct,
+  cacheDirPath, cacheManifestPath,
 } from './core.mjs';
+import { MAX_SHARD_BYTES, META_SIZE_LIMIT } from '../../src/indexcache.mjs';
 
 // --- thresholds, in the open -------------------------------------------
 //
@@ -505,9 +507,27 @@ export async function run(atlas, { quick = false } = {}) {
     // distribution: at the top of the ladder this alone can take minutes,
     // and paying for it seven times to get a p95 nobody asked about would
     // eat the disk-safety margin's time budget for nothing.
-    const cachePath = path.join(root, '.mem', 'search-index.json');
+    const cacheDir = cacheDirPath(root);
+    const manifestPath = cacheManifestPath(root);
     const buildR = mem(['find', anchorPhrase, '--fresh', '--top', '1'], { root, timeoutMs: 300000 });
-    const cacheBytes = fs.existsSync(cachePath) ? fs.statSync(cachePath).size : null;
+    // `null`, not 0, when the build above produced no readable cache —
+    // "not measurable is not zero" applies to a rung's cache size the
+    // same as anywhere else.
+    let cacheBytes = null;
+    // The one JSON document B8 still reads and writes as a single
+    // string (see Wall 1 below); `null` when there is no manifest to
+    // read it from.
+    let metaBytes = null;
+    let maxShardBytes = null;
+    if (fs.existsSync(manifestPath)) {
+      cacheBytes = dirBytes(cacheDir);
+      try {
+        const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+        metaBytes = manifest.meta?.bytes ?? null;
+        const shardSizes = (manifest.documents ?? []).map((d) => d.bytes ?? 0);
+        maxShardBytes = shardSizes.length ? Math.max(...shardSizes) : 0;
+      } catch { /* manifest present but unreadable; cacheBytes stands, the rest stay null */ }
+    }
 
     const rssResult = await peakRssDuringCli(['find', anchorPhrase, '--top', '10'], root);
 
@@ -515,7 +535,7 @@ export async function run(atlas, { quick = false } = {}) {
 
     const rung = {
       n, entries: corpus.count,
-      corpusBytes, cacheBytes,
+      corpusBytes, cacheBytes, metaBytes, maxShardBytes,
       findP50: findT.p50, findP95: findT.p95, findReps: findT.reps,
       doctorP50: doctorT.p50, doctorP95: doctorT.p95,
       contextP50: contextT.p50, contextP95: contextT.p95,
@@ -591,7 +611,7 @@ export async function run(atlas, { quick = false } = {}) {
     { key: 'doctor', label: 'mem doctor p50', get: (r) => r.doctorP50 },
     { key: 'context', label: 'mem context p50', get: (r) => r.contextP50 },
     { key: 'indexBuild', label: 'index build time', get: (r) => r.indexBuildMs },
-    { key: 'indexBytes', label: 'index cache file size', get: (r) => r.cacheBytes },
+    { key: 'indexBytes', label: 'index cache size on disk', get: (r) => r.cacheBytes },
   ];
 
   for (const s of SERIES) {
@@ -704,47 +724,91 @@ export async function run(atlas, { quick = false } = {}) {
 
   // --- Wall 1: JSON.parse on the whole index cache -------------------------
   //
-  // `loadIndex` in src/search.mjs reads the entire cache file into one
-  // string and calls `JSON.parse` on it whole (line ~1443:
-  // `JSON.parse(fs.readFileSync(cachePath, 'utf8'))`). V8 refuses to
-  // build a string longer than `buffer.constants.MAX_STRING_LENGTH`
-  // regardless of available memory, so past that many bytes the cache
-  // cannot be loaded at all — not slow, not degraded, simply unreadable.
-  // Computed from the measured cache-bytes-per-entry, not observed: this
-  // phase does not allocate a 512 MB string just to watch it throw.
-  if (topRung.cacheBytes) {
-    const cacheBytesPerEntry = topRung.cacheBytes / topRung.entries;
-    const entriesAtStringLimit = Math.floor(bufferConstants.MAX_STRING_LENGTH / cacheBytesPerEntry);
+  // **Superseded by B8 (2026-09-20), not just relocated.** This wall used
+  // to be `loadIndex` reading the entire cache file into one string and
+  // calling `JSON.parse` on it whole — V8 refuses to build a string past
+  // `buffer.constants.MAX_STRING_LENGTH` regardless of available memory,
+  // so the cache became simply unreadable past that many bytes
+  // (`src/indexcache.mjs`'s module doc: measured at ~978k entries). B8
+  // replaced that single file with a directory of shards, each capped at
+  // `MAX_SHARD_BYTES` BY CONSTRUCTION (`planShards` in
+  // `src/indexcache.mjs`) — an order of magnitude under the string
+  // limit — so no single read can ever again approach it, independent of
+  // corpus size. Projecting the OLD per-entry-linear model onto the new
+  // total cache-directory bytes would score a wall that no longer exists
+  // (every shard is already bounded, not growing toward a limit) — so
+  // this checks the two things that actually could still hit a limit,
+  // measured rather than assumed:
+  //   shard cap    every observed shard, at every rung reached, stays
+  //                at or under `MAX_SHARD_BYTES` — the structural
+  //                guarantee `planShards` is supposed to provide.
+  //   meta.json    the one part of the cache still written and read as
+  //                ONE JSON string (`docFreq`/`lexicon`/`tagGraph`/
+  //                `termGraph`/`entityIndex`). It is bounded by
+  //                VOCABULARY size, not entry count (Heaps' law: growth
+  //                is sub-linear in the corpus) — extrapolating it
+  //                linearly to 5M would OVERSTATE its growth, so this
+  //                reports it measured at the largest rung reached
+  //                instead of projecting it. `src/indexcache.mjs`'s own
+  //                module doc already names this NOT-MEASURED: "whether
+  //                a real corpus can grow a termGraph or entityIndex
+  //                large enough to matter".
+  const shardCapRungs = rungs.filter((r) => r.maxShardBytes != null);
+  const overShardCap = shardCapRungs.find((r) => r.maxShardBytes > MAX_SHARD_BYTES);
+  if (topRung.metaBytes != null && shardCapRungs.length) {
+    const metaBytesPerEntry = topRung.metaBytes / topRung.entries;
+    const metaVsStringLimit = topRung.metaBytes / bufferConstants.MAX_STRING_LENGTH;
+    const metaVsSizeLimit = topRung.metaBytes / META_SIZE_LIMIT;
+    const nearAWall = metaVsStringLimit > 0.5 || metaVsSizeLimit > 0.5;
     atlas.record({
       id: 'ceiling.c.wall1.json-parse-limit',
       title: 'wall 1: JSON.parse on the whole index cache hits V8\'s max string length',
-      verdict: entriesAtStringLimit < TARGET_N ? VERDICT.FAIL : VERDICT.PASS,
-      expected: `the index cache should stay parseable at ${TARGET_N.toLocaleString('en-US')} `
-        + 'entries — the design\'s implicit promise that the cache scales with the log',
-      actual: `computed: ${cacheBytesPerEntry.toFixed(1)} B/entry in the cache (measured at `
-        + `${topRung.entries.toLocaleString('en-US')} entries) means `
-        + `buffer.constants.MAX_STRING_LENGTH (${bufferConstants.MAX_STRING_LENGTH.toLocaleString('en-US')} `
-        + `bytes) is reached at ~${entriesAtStringLimit.toLocaleString('en-US')} entries — `
-        + `${entriesAtStringLimit < TARGET_N ? 'BELOW' : 'above'} the 5M target`,
+      verdict: overShardCap ? VERDICT.FAIL : (nearAWall ? VERDICT.DEGRADED : VERDICT.PASS),
+      expected: `every shard stays at or under MAX_SHARD_BYTES (${MAX_SHARD_BYTES.toLocaleString('en-US')} `
+        + `B) at every rung reached, and meta.json stays well under both V8's max string `
+        + `length (${bufferConstants.MAX_STRING_LENGTH.toLocaleString('en-US')} B) and `
+        + `META_SIZE_LIMIT (${META_SIZE_LIMIT.toLocaleString('en-US')} B)`,
+      actual: overShardCap
+        ? `a shard of ${overShardCap.maxShardBytes.toLocaleString('en-US')} B exceeded `
+          + `MAX_SHARD_BYTES at ${overShardCap.entries.toLocaleString('en-US')} entries — `
+          + 'the structural cap did not hold'
+        : `largest shard observed: ${Math.max(...shardCapRungs.map((r) => r.maxShardBytes))
+          .toLocaleString('en-US')} B, at or under the ${MAX_SHARD_BYTES.toLocaleString('en-US')} `
+          + `B cap at every rung reached (${shardCapRungs.length} rung(s)); meta.json at `
+          + `${topRung.entries.toLocaleString('en-US')} entries: `
+          + `${topRung.metaBytes.toLocaleString('en-US')} B `
+          + `(${metaBytesPerEntry.toFixed(2)} B/entry, NOT extrapolated to `
+          + `${TARGET_N.toLocaleString('en-US')} — vocabulary growth is sub-linear, see evidence)`,
       severity: SEVERITY.CRITICAL,
       measured: {
-        cacheBytesPerEntry: round(cacheBytesPerEntry, 2),
+        maxShardBytesByRung: shardCapRungs.map((r) => ({ entries: r.entries, maxShardBytes: r.maxShardBytes })),
+        maxShardBytesCap: MAX_SHARD_BYTES,
+        metaBytesAtTopRung: topRung.metaBytes,
+        metaBytesPerEntry: round(metaBytesPerEntry, 2),
+        metaVsStringLimit: round(metaVsStringLimit, 4),
+        metaVsSizeLimit: round(metaVsSizeLimit, 4),
         maxStringLength: bufferConstants.MAX_STRING_LENGTH,
-        entriesAtStringLimit,
+        metaSizeLimit: META_SIZE_LIMIT,
       },
-      evidence: 'src/search.mjs loadIndex(): `JSON.parse(fs.readFileSync(cachePath, '
-        + '\'utf8\'))` — the whole cache becomes one JS string before parsing starts. '
-        + 'Computed, not observed: this ratio is measured, the limit is not allocated.',
+      evidence: 'B8 (2026-09-20, src/indexcache.mjs) retired the single whole-cache '
+        + '`JSON.parse` this wall used to project against: `writeIndexCache`\'s '
+        + '`planShards` caps every document shard at `MAX_SHARD_BYTES` before it is ever '
+        + 'written, so no shard read can approach the string limit at any corpus size — '
+        + 'a structural guarantee, checked here rather than assumed. `meta.json` is the '
+        + 'one remaining single-JSON-string read (`readIndexCache`); it holds vocabulary '
+        + 'structures that grow sub-linearly with the corpus (Heaps\' law), so this '
+        + 'reports its measured size at the largest rung reached and does not extrapolate '
+        + 'it to 5M the way the retired per-entry model did for the whole cache.',
     });
   } else {
     atlas.record({
       id: 'ceiling.c.wall1.json-parse-limit',
       title: 'wall 1: JSON.parse on the whole index cache hits V8\'s max string length',
       verdict: VERDICT.NOT_MEASURED,
-      expected: 'a cache-bytes-per-entry ratio to compute the limit from',
-      actual: 'no rung produced a readable index cache file',
+      expected: 'a manifest.json to read shard sizes and meta.json size from',
+      actual: 'no rung produced a readable index cache (manifest.json missing or unparsable)',
     });
-    atlas.blind('wall 1: JSON.parse string-length ceiling', 'no cache-bytes-per-entry ratio was measured');
+    atlas.blind('wall 1: JSON.parse string-length ceiling', 'no cache manifest was measured');
   }
 
   // --- Wall 2: whole-file read of a drawer ---------------------------------
