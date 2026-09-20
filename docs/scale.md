@@ -106,3 +106,24 @@ SQLite with FTS5 is the honest next step: still one file, still no
 server, still no model in the read path. It is also the point where this
 stops being cheap-mem and becomes something else. Splitting the memory is
 almost always the cheaper answer, and it is available today.
+
+## The full-surface run
+
+This page answers one question — how big can one memory get — from
+`node bench/scale.mjs`, which measures the search path. The wider run is
+`npm run atlas`: every command executed as a process, seven phases, four
+verdicts, and one JSON a later run is diffed against.
+
+Its ceiling phase re-measures the ladder above and then does the thing
+that makes a projection worth anything: it fits on the smaller rungs,
+predicts the largest, and checks the prediction against what that rung
+actually measured. Four of five models fail that check — so the timings
+here describe the sizes they were taken at, and not much beyond them.
+The one exception is the index cache, whose growth is linear and
+predictable to 0.0 %, and which therefore carries the one hard limit this
+design has: **at about 978 000 entries the cache exceeds V8's maximum
+string length and `JSON.parse` cannot read it at all.**
+
+[docs/benchmark-atlas.md](benchmark-atlas.md) is the reading of that run,
+including the five walls, what is confirmed broken, and the 26 things it
+could not see.

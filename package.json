@@ -15,7 +15,9 @@
     "lint": "eslint bin src test bench",
     "coverage": "c8 --reporter=text-summary --reporter=lcov node --test",
     "atlas": "node bench/atlas.mjs",
-    "atlas:quick": "node bench/atlas.mjs --quick"
+    "atlas:quick": "node bench/atlas.mjs --quick",
+    "atlas:baseline": "node bench/atlas.mjs --save-baseline",
+    "atlas:compare": "node bench/atlas.mjs --compare"
   },
   "engines": {
     "node": ">=18"

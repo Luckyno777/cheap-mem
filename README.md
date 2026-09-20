@@ -246,7 +246,11 @@ then split per team or product. Measured, not estimated: at 50k a search
 costs 61 ms and loading the index 430 ms; at 200k that is 247 ms and
 1.7 s, and the recall hook stops being invisible. At 500–1000 entries a
 day that point arrives in a few months, so decide the boundary early —
-[docs/scale.md](docs/scale.md) has the numbers and the reasoning.
+[docs/scale.md](docs/scale.md) has the numbers and the reasoning, and
+[docs/benchmark-atlas.md](docs/benchmark-atlas.md) the full-surface run
+behind them — including the one hard wall this design has: at about
+978 000 entries the index cache exceeds V8's maximum string length and
+cannot be parsed at all.
 
 **Errors get a shared vocabulary.** `mem log error --class ...` refuses a
 category you invented and prints the twelve it knows, each with the
@@ -294,7 +298,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-19: **60 CLI commands, 28 MCP tools, 63 modules, 1346
+As of 2026-09-20: **60 CLI commands, 28 MCP tools, 63 modules, 1379
 tests**, about 24,000 lines in `bin/` and `src/`, at **87.9 % statement
 coverage** (`npm run coverage`, enforced with a floor in CI).
 
@@ -339,6 +343,7 @@ enforced fails the build rather than waiting for someone to audit it.
 | `bench/cache-attack.mjs` | an unsigned local file changed what the memory means |
 | `bench/query-independence.mjs` | two queries disagreed about whether the same claim is active |
 | `bench/merge-driver.mjs` | the `*.jsonl merge=union` contract stopped holding |
+| `npm run atlas` | the full-surface run: every command executed as a process, seven phases, four verdicts — including `not-measured`, which is not a pass |
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
 green baseline and will not credit a mutant it could not apply, and every

@@ -140,12 +140,35 @@ function changedVsBase(obs, base) {
   return out;
 }
 
-/** Does any output state a number of entries it could NOT read? */
+/**
+ * Does any output state that entries could NOT be read — and say where?
+ *
+ * **The doctor half is structural, on purpose (rewritten 2026-09-20).**
+ * It used to be the same word list `GAP_WORDS` still applies to the two
+ * unstructured outputs. That word list went on reporting the memory as
+ * "silent" after `orphan-drawers` was built and was saying, in a FAIL:
+ * "1 .jsonl file in global/ or projects/ matches no known type, and are
+ * read by nothing". Every word of that is the gap being stated; none of
+ * them was in the list. Widening the list would have been the same
+ * mistake with more words in it — the next finding would phrase it
+ * differently again.
+ *
+ * So the doctor is asked the question directly instead: is there a
+ * finding that is NOT ok and that names the file by its path? A memory
+ * that says "this file exists and nothing reads it" has accounted for
+ * the gap, whatever vocabulary it chose; one that only says `ok` about
+ * the files it does know has not.
+ */
 const GAP_WORDS = /(unparseable|unreadable|could not read|skipped|not read|ignored|unknown file|unrecognis|unrecogniz)/i;
-function statesTheGap(obs) {
+function statesTheGap(obs, unreachable = []) {
   const where = [];
   for (const [name, f] of obs.doctor.findings) {
-    if (GAP_WORDS.test(f.detail)) where.push(`doctor/${name}: ${f.detail.slice(0, 160)}`);
+    const names = unreachable.some((rel) => f.detail.includes(rel));
+    if (f.level !== 'ok' && names) {
+      where.push(`doctor/${name} (${f.level}): ${f.detail.slice(0, 160)}`);
+    } else if (GAP_WORDS.test(f.detail)) {
+      where.push(`doctor/${name}: ${f.detail.slice(0, 160)}`);
+    }
   }
   if (GAP_WORDS.test(obs.find.stdout)) where.push('find stdout');
   if (GAP_WORDS.test(obs.context.stdout)) where.push('context stdout');
@@ -273,7 +296,7 @@ async function partBroken(atlas, quick) {
 
     const drawers = obs.doctor.findings.get('drawers');
     const integ = obs.doctor.findings.get('integrity');
-    const gapStated = statesTheGap(obs);
+    const gapStated = statesTheGap(obs, ['global/dutys.jsonl']);
     const unread = obs.disk.parseable - (obs.find.n ?? 0);
 
     // THE record. Expected behaviour is stated in the words the brief

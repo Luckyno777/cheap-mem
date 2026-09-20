@@ -28,7 +28,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { mem, buildCorpus, tempRoot, VERDICT, SEVERITY, pct, REPO } from './core.mjs';
+import http from 'node:http';
+import { spawn } from 'node:child_process';
+import { mem, buildCorpus, tempRoot, VERDICT, SEVERITY, pct, REPO, MEM } from './core.mjs';
 
 import { COMMANDS as WRITE } from '../../src/cli/commands/write.mjs';
 import { COMMANDS as SEARCH } from '../../src/cli/commands/search.mjs';
@@ -239,7 +241,7 @@ function invocations(ctx) {
 
 // --- 1. the full sweep --------------------------------------------------
 
-function sweep(atlas, quick) {
+async function sweep(atlas, quick) {
   const entries = quick ? 300 : 2000;
   const { root, corpus } = freshRoot('atlas-surface-', entries);
 
@@ -353,7 +355,7 @@ function sweep(atlas, quick) {
     }
 
     if (plan.server) {
-      serveProbe(atlas, plan, root, cmd.group);
+      await serveProbe(atlas, plan, root, cmd.group, corpus ? corpus.anchors[0].phrase : null);
       ran += 1;
       continue;
     }
@@ -415,33 +417,167 @@ function sweep(atlas, quick) {
 }
 
 /**
- * `mem serve` binds a port and then stays up, which `spawnSync` cannot
- * outlive. So the probe is: start it, let the timeout kill it, and read
- * what it managed to say. A server that announces its link has bound the
- * port; one that dies before that has not started at all.
+ * `mem serve` is started, ASKED, and then killed.
+ *
+ * **Why this is not the "it announced its link" probe it used to be.**
+ * The old version drove the server through `core.mem()`, which is
+ * `spawnSync` — it blocks this process for as long as the server runs,
+ * so no request could be issued and the probe settled for reading the
+ * startup banner. It then declared "answering an HTTP request" a blind
+ * spot, with that as the reason.
+ *
+ * The reason was true of `spawnSync` and false of this phase, which is
+ * async and can use `spawn` like `phase-ceiling.mjs` does. And the gap
+ * mattered: `mem serve` was dead from 9dae830 until 2026-09-19 — the
+ * dynamic import in `setup.mjs` pointed beside itself instead of at
+ * `bin/mem-serve` — while the dashboard tests stayed green because they
+ * import `bin/mem-serve` DIRECTLY and never go through the command. A
+ * probe that reads a banner would have caught that particular death;
+ * one that never asks the server anything would not catch the next one,
+ * where the process lives and the page is empty.
+ *
+ * So: bind, GET `/`, and require the page to carry this corpus's own
+ * anchor phrase. The anchor is the positive control — a 200 with an
+ * empty shell is the failure this is built to see, and without the
+ * anchor it would read as a pass.
  */
-function serveProbe(atlas, plan, root, group) {
-  const r = mem(plan.argv, { root, timeoutMs: 5000 });
-  const announced = /Console: http:\/\/[^\s]+/.test(r.stdout);
-  const started = Boolean(r.timedOut) && announced;
+async function serveProbe(atlas, plan, root, group, anchor) {
+  const started = Date.now();
+  const child = spawn(process.execPath, [MEM, ...plan.argv], {
+    cwd: root,
+    env: { ...process.env, CHEAP_MEM_ROOT: root },
+  });
+  let out = '';
+  let err = '';
+  child.stdout?.on('data', (d) => { out += d; });
+  child.stderr?.on('data', (d) => { err += d; });
+
+  // Wait for the banner, which is the server saying it has the port.
+  const base = await new Promise((resolve) => {
+    const deadline = Date.now() + 15000;
+    const tick = setInterval(() => {
+      const m = out.match(/Console: (http:\/\/[^\s]+)/);
+      if (m) { clearInterval(tick); resolve(m[1].replace(/\/$/, '')); return; }
+      if (child.exitCode !== null || Date.now() > deadline) { clearInterval(tick); resolve(null); }
+    }, 50);
+  });
+
+  const bound = Boolean(base);
   atlas.record({
     id: 'surface.cmd.serve',
-    title: `mem ${plan.argv.join(' ')}`,
-    verdict: started ? VERDICT.PASS : VERDICT.FAIL,
+    title: `mem ${plan.argv.join(' ')} — binds a port and announces its link`,
+    verdict: bound ? VERDICT.PASS : VERDICT.FAIL,
     expected: 'binds the port and prints its console link, then keeps running',
-    actual: started
-      ? 'bound and announced, killed by the harness'
-      : `exit ${r.status} after ${Math.round(r.ms)} ms — ${firstLine(r)}`,
-    ms: r.ms,
+    actual: bound ? 'bound and announced' : `exit ${child.exitCode} — ${(err || out).split('\n')[0]}`,
+    ms: Date.now() - started,
     severity: SEVERITY.MAJOR,
-    measured: { group, status: r.status, timedOut: Boolean(r.timedOut), announced, ms: r.ms },
-    evidence: started ? null
-      : `mem ${plan.argv.join(' ')}\n-> exit ${r.status}\n${r.stdout.slice(0, 400)}${r.stderr.slice(0, 600)}`,
+    measured: { group, announced: bound },
+    evidence: bound ? null : `${out.slice(0, 400)}${err.slice(0, 600)}`,
   });
-  atlas.blind('mem serve (answering an HTTP request)',
-    'core mem() drives the CLI with spawnSync, which blocks this process for as '
-    + 'long as the server runs — no request can be issued from here. Start and '
-    + 'bind are measured; what the server answers is not');
+
+  {
+    // **Each route is asked what IT promises, not what the server as a
+    // whole vaguely might.** The first cut of this asked `/` for an
+    // arbitrary entry of the corpus and called a 200 without it a
+    // failure. `/` is the DESK — a dashboard of counts, findings and
+    // recent work — and it never promised to carry any particular
+    // entry: at 312 entries the anchors happened to be inside its
+    // recent window and it "passed"; at 2012 they were not and it
+    // "failed". Neither reading was about the server. A probe whose
+    // verdict depends on corpus size for a route that does not vary
+    // with the corpus is measuring the wrong thing under the right
+    // name, which is the defect this whole phase exists to find.
+    //
+    // So: `/health` must be exactly `ok`; `/` must answer with HTML;
+    // `/viewer` is the route that lists entries, and THAT is where the
+    // corpus anchor has to appear; an unlisted path must be refused.
+    const checks = [
+      {
+        id: 'health', path: '/health',
+        expected: 'answers `ok` with no auth, so a supervisor can check without a token',
+        ok: (r) => r.status === 200 && r.body.trim() === 'ok',
+        say: (r) => `${r.status}, body ${JSON.stringify(r.body.slice(0, 20))}`,
+      },
+      {
+        id: 'desk', path: '/',
+        expected: 'answers 200 with an HTML page (the desk: counts and findings, not a list of entries)',
+        ok: (r) => r.status === 200 && /<(html|!doctype|main|section|article)/i.test(r.body),
+        say: (r) => `${r.status}, ${r.body.length} bytes of ${/<(html|!doctype)/i.test(r.body) ? 'HTML' : 'something else'}`,
+      },
+      {
+        id: 'viewer', path: '/viewer',
+        expected: anchor
+          ? 'answers 200 AND the page carries this corpus\'s own anchor phrase'
+          : 'answers 200 (no corpus in this run, so nothing to look for on the page)',
+        ok: (r) => r.status === 200 && (anchor ? r.body.includes(anchor) : r.body.length > 0),
+        say: (r) => `${r.status}, ${r.body.length} bytes, anchor `
+          + `${anchor ? (r.body.includes(anchor) ? 'on the page' : 'NOT on the page') : 'not looked for'}`,
+      },
+      {
+        id: 'unlisted', path: '/does-not-exist',
+        expected: '404 — a path not on the allow-list is refused, not guessed at',
+        ok: (r) => r.status === 404,
+        say: (r) => `${r.status}`,
+      },
+    ];
+
+    for (const c of checks) {
+      // **Recorded even when the server never came up.** A check that
+      // simply stops appearing between two runs reads as one fewer
+      // problem; `compare()` in bench/atlas.mjs says so in as many
+      // words. So an unbound server produces four not-measured records
+      // with the reason, not four absences.
+      if (!bound) {
+        atlas.record({
+          id: `surface.serve.${c.id}`,
+          title: `mem serve: GET ${c.path}`,
+          verdict: VERDICT.NOT_MEASURED,
+          expected: c.expected,
+          actual: 'the server never bound a port, so no request was made',
+        });
+        atlas.blind(`mem serve: GET ${c.path}`, 'the server did not start');
+        continue;
+      }
+      const r = await httpGet(`${base}${c.path}`).catch((e) => ({ status: null, body: String(e && e.message) }));
+      atlas.record({
+        id: `surface.serve.${c.id}`,
+        title: `mem serve: GET ${c.path}`,
+        verdict: c.ok(r) ? VERDICT.PASS : VERDICT.FAIL,
+        expected: c.expected,
+        actual: c.say(r),
+        severity: SEVERITY.MAJOR,
+        measured: { path: c.path, status: r.status, bytes: r.body ? r.body.length : null },
+        evidence: c.ok(r) ? null : String(r.body).slice(0, 400),
+      });
+    }
+    if (bound && !anchor) {
+      atlas.blind('mem serve /viewer showing the right memory',
+        'this run built no corpus, so there was no anchor phrase to look for; only the 200 was checked');
+    }
+  }
+
+  try { child.kill('SIGTERM'); } catch { /* already gone */ }
+
+  // What is still not measured, stated narrowly rather than as the whole
+  // command: the token-guarded mode, the write route, and more than one
+  // reader at a time.
+  atlas.blind('mem serve: the token-guarded mode, /setting writes, and concurrent readers',
+    'four anonymous GETs against a localhost-only server say nothing about auth, '
+    + 'about the one route that can change state, or about two readers at once');
+}
+
+/** One GET, no dependencies, with a deadline. */
+function httpGet(url, { timeoutMs = 10000 } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = http.get(url, (res) => {
+      let body = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => { body += d; });
+      res.on('end', () => resolve({ status: res.statusCode, body }));
+    });
+    req.setTimeout(timeoutMs, () => { req.destroy(new Error('timeout')); });
+    req.on('error', reject);
+  });
 }
 
 /**
@@ -1091,7 +1227,7 @@ export async function run(atlas, { quick = false } = {}) {
     + 'previous run left behind. Nothing here is imported: `bin/mem` is '
     + 'started, exactly as a hook or a timer starts it.');
 
-  const s = sweep(atlas, quick);
+  const s = await sweep(atlas, quick);
   exitContracts(atlas);
   statusJson(atlas);
   helpDispatch(atlas);

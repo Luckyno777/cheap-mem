@@ -60,12 +60,17 @@ const PHASES = [
 
 function parseArgs(argv) {
   const o = {
-    quick: false, out: null, compare: null,
+    quick: false, out: null, compare: null, saveBaseline: false,
     phases: PHASES.map(([id]) => id), label: 'full',
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
-    if (a === '--quick') { o.quick = true; o.label = 'quick'; } else if (a === '--out') { o.out = argv[++i]; } else if (a === '--compare') { o.compare = argv[++i]; } else if (a === '--phase' || a === '--phases') {
+    if (a === '--quick') { o.quick = true; o.label = 'quick'; } else if (a === '--out') { o.out = argv[++i]; } else if (a === '--save-baseline') { o.saveBaseline = true; } else if (a === '--compare') {
+      // Bare `--compare` means "against the committed baseline", which
+      // is the comparison anybody actually wants; a following path only
+      // counts if it is not the next flag.
+      o.compare = (argv[i + 1] && !argv[i + 1].startsWith('--')) ? argv[++i] : BASELINE;
+    } else if (a === '--phase' || a === '--phases') {
       o.phases = String(argv[++i]).split(',').map((s) => s.trim()).filter(Boolean);
       o.label = o.phases.join('+');
     } else if (a === '--label') { o.label = argv[++i]; } else if (a === '--help' || a === '-h') { o.help = true; }
@@ -73,16 +78,23 @@ function parseArgs(argv) {
   return o;
 }
 
+// The one committed artefact: the run a later run measures itself
+// against. Everything else a run writes is working output and ignored.
+const BASELINE = path.join(REPO, 'bench', 'atlas-baseline.json');
+
 const HELP = `mem atlas — full-surface benchmark
 
   node bench/atlas.mjs [--quick] [--phase a,b] [--out DIR] [--label NAME]
-  node bench/atlas.mjs --compare bench/atlas-out/<run>/atlas.json
+  node bench/atlas.mjs --compare [FILE]     default: bench/atlas-baseline.json
+  node bench/atlas.mjs --save-baseline      also write bench/atlas-baseline.json
 
 Phases: ${PHASES.map(([id]) => id).join(', ')}
 
 Writes atlas.json, report.md, records.csv and findings.json into
-bench/atlas-out/<timestamp>-<label>/. The committed baseline that later runs
-compare against lives at bench/atlas-baseline.json.
+bench/atlas-out/<timestamp>-<label>/, which is ignored. The committed
+baseline that later runs compare against lives at bench/atlas-baseline.json
+and is written by --save-baseline; nothing writes it by accident, because a
+baseline that moves on every run compares a thing to itself.
 `;
 
 // --- comparing two runs ------------------------------------------------
@@ -220,7 +232,10 @@ async function main() {
   const outDir = opt.out ?? path.join(REPO, 'bench', 'atlas-out', `${stamp}-${opt.label}`);
   writeOut(result, outDir);
 
-  if (opt.compare) {
+  if (opt.compare && !fs.existsSync(opt.compare)) {
+    process.stdout.write(`\natlas: no baseline at ${path.relative(REPO, opt.compare)} — `
+      + 'nothing to compare against. Write one with --save-baseline.\n');
+  } else if (opt.compare) {
     const text = compare(opt.compare, result);
     fs.writeFileSync(path.join(outDir, 'comparison.md'), text);
     process.stdout.write(`\n${text}\n`);
@@ -240,6 +255,15 @@ async function main() {
     process.stdout.write(`  CRITICAL  ${f.phase}/${f.id}  ${f.title}\n`);
   }
   process.stdout.write(`report: ${path.relative(REPO, outDir)}/report.md\n`);
+
+  // Deliberately last, and only on request: a baseline that rewrites
+  // itself on every run turns every comparison into "this run equals
+  // this run", which is the quietest way for a benchmark to stop saying
+  // anything at all.
+  if (opt.saveBaseline) {
+    fs.writeFileSync(BASELINE, `${JSON.stringify(result, null, 2)}\n`);
+    process.stdout.write(`baseline: ${path.relative(REPO, BASELINE)} (committed artefact, now this run)\n`);
+  }
 
   // Exit code carries meaning, like the rest of this CLI:
   //   0  everything that ran, passed
