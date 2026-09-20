@@ -18,9 +18,9 @@
 //
 // **Why a date, not just a reason.** A justification that never expires
 // is not a decision, it is a permanent excuse — this house measured
-// that shape directly (2026-09-20 build plan, B7): "sie verfaellt nach
-// 14 Tagen, dann wird der Riegel wieder rot". `isExpired` is that
-// clock. It takes `today` as an argument on purpose, so a test can hand
+// that shape directly (2026-09-20 build plan, B7): the justification
+// expires after 14 days, and then the guard goes red again. `isExpired`
+// is that clock. It takes `today` as an argument on purpose, so a test can hand
 // it a fixed date instead of depending on when the suite happens to
 // run.
 //

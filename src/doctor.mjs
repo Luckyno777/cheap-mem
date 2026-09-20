@@ -1324,11 +1324,11 @@ export function tickEpoch(root, doctorResult) {
  * train people to ignore the output.
  */
 export function checkGitignoreEffective(root) {
-  // `.mem/search-index/` seit B8 (2026-09-20): der Cache ist ein
-  // VERZEICHNIS, und genau diesen Pfad prueft niemand mehr, wenn hier
-  // nur der alte Ein-Datei-Name steht. Beide bleiben — eine Altdatei
-  // kann noch herumliegen, und ein Gedaechtnis aus der Zeit davor
-  // traegt nur die alte Zeile.
+  // `.mem/search-index/` since B8 (2026-09-20): the cache is a
+  // DIRECTORY, and nobody checks that path at all if only the old
+  // single-file name stands here. Both stay — a leftover file from
+  // before the change can still be lying around, and a memory created
+  // back then carries only the old line.
   const PFLICHT = [
     '.mem/embed.env', '.mem/epoch.json',
     '.mem/search-index.json', '.mem/search-index/',
