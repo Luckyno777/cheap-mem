@@ -298,7 +298,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-20: **60 CLI commands, 28 MCP tools, 63 modules, 1379
+As of 2026-09-20: **60 CLI commands, 28 MCP tools, 63 modules, 1384
 tests**, about 24,000 lines in `bin/` and `src/`, at **87.9 % statement
 coverage** (`npm run coverage`, enforced with a floor in CI).
 
