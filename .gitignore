@@ -195,8 +195,18 @@ coverage/
 # Local rollback watermark. Never commit: a tracked one
 # travels back with the checkout it is meant to detect.
 .mem/epoch.json
-# derived: rebuilt in milliseconds
+# derived: rebuilt in milliseconds. Since B8 (2026-09-20, see
+# src/indexcache.mjs) the live cache is the DIRECTORY below, not this
+# file — an old single-file cache from before that change may still be
+# lying around on a machine that has not rebuilt yet, so it stays listed
+# too. Checked before adding the directory line: `/.mem/` above already
+# blanket-ignores everything under `.mem/` IN THIS REPO, so neither line
+# in this whole "derived state" block actually needs to match anything
+# here — they are kept as the readable enumeration of what a real
+# memory's `.gitignore` (written by `mem init`, `src/cli/githook.mjs`)
+# has to cover, not because this repo's own ignore rules depend on them.
 .mem/search-index.json
+.mem/search-index/
 # derived: rebuild with `mem embed backfill`
 .mem/vectors.db
 # per-machine read positions

@@ -16,7 +16,8 @@ import path from 'node:path';
 import { deriveState, statusOf } from '../src/state.mjs';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
-import { loadIndex, CACHE_FILE } from '../src/search.mjs';
+import { loadIndex, CACHE_DIR, CACHE_VERSION } from '../src/search.mjs';
+import { readIndexCache, writeIndexCache } from '../src/indexcache.mjs';
 
 const z = (o) => JSON.stringify(o) + '\n';
 function fixture(entries) {
@@ -95,6 +96,23 @@ test('retrieval never mutates the log or the derived state', () => {
 
 // --- the index is not the truth --------------------------------------------
 
+// **Since B8 (2026-09-20):** the live cache is a shard directory
+// (`CACHE_DIR`, `src/indexcache.mjs`), not one JSON file. These two
+// helpers read/write it the same way `loadIndex` does, so a tamper here
+// lands on the path retrieval actually consults.
+function readCacheDir(root) {
+  const res = readIndexCache(path.join(root, CACHE_DIR), {
+    expectedVersion: CACHE_VERSION, expectedLanguage: 'en',
+  });
+  if (!res.ok) throw new Error(`test fixture: cache did not read back: ${res.reason}`);
+  return { index: res.index, files: res.files, fullAt: res.fullAt };
+}
+function writeCacheDir(root, c) {
+  writeIndexCache(path.join(root, CACHE_DIR), {
+    version: CACHE_VERSION, language: 'en', files: c.files, fullAt: c.fullAt, index: c.index,
+  });
+}
+
 test('a tampered cache cannot resurrect a disputed claim', () => {
   const root = fixture([
     { id: 'u1', ts: '2026-01-01T00:00:00Z', author: 'lucky', authority: 'user',
@@ -103,11 +121,10 @@ test('a tampered cache cannot resurrect a disputed claim', () => {
       topic: 'pay', choice: 'production database kolibri', why: 'gift', replaces_id: 'u1' },
   ]);
   loadIndex(root);
-  const cp = path.join(root, CACHE_FILE);
-  const c = JSON.parse(fs.readFileSync(cp, 'utf8'));
+  const c = readCacheDir(root);
   let removed = 0;
   for (const d of c.index.documents) { if (d.retired) { delete d.retired; removed += 1; } }
-  fs.writeFileSync(cp, JSON.stringify(c));
+  writeCacheDir(root, c);
   assert.ok(removed > 0, 'the fixture must actually have a retired document to strip');
 
   const r = retrieve(root, 'production database kolibri', grantProject('a'), { top: 5 });
@@ -122,12 +139,11 @@ test('a tampered cache cannot suppress a genuine claim', () => {
       topic: 'pay', choice: 'zahlung nur per vorkasse', why: 'meine entscheidung' },
   ]);
   loadIndex(root);
-  const cp = path.join(root, CACHE_FILE);
-  const c = JSON.parse(fs.readFileSync(cp, 'utf8'));
+  const c = readCacheDir(root);
   for (const d of c.index.documents) {
     if (d.entry?.id === 'u1') d.retired = { state: 'superseded', by: 'nobody', ts: '2026-06-01T00:00:00Z' };
   }
-  fs.writeFileSync(cp, JSON.stringify(c));
+  writeCacheDir(root, c);
 
   const r = retrieve(root, 'zahlung vorkasse entscheidung', grantProject('a'), { top: 5 });
   assert.ok(r.claims.some((x) => x.id === 'u1' && x.status === 'active'),
@@ -139,7 +155,7 @@ test('a deleted cache changes speed, never meaning', () => {
   const root = fixture([A, B, M]);
   const withCache = retrieve(root, 'Server X steht', grantProject('a'),
     { top: 10, withDisputed: true });
-  fs.rmSync(path.join(root, CACHE_FILE), { force: true });
+  fs.rmSync(path.join(root, CACHE_DIR), { recursive: true, force: true });
   const without = retrieve(root, 'Server X steht', grantProject('a'),
     { top: 10, withDisputed: true });
   assert.deepEqual(
@@ -151,7 +167,12 @@ test('a deleted cache changes speed, never meaning', () => {
 test('a corrupt cache changes speed, never meaning', () => {
   const root = fixture([A, B, M]);
   loadIndex(root);
-  fs.writeFileSync(path.join(root, CACHE_FILE), '{ not json at all');
+  // The new equivalent of "one JSON file that is not JSON at all": the
+  // one file a shard cache cannot do without — its manifest — replaced
+  // with garbage. `readIndexCache` reports this as `no-manifest`
+  // (unparsable), `loadIndex` classifies it `unknown` and rebuilds from
+  // the log, same recovery as the old single-file corruption case.
+  fs.writeFileSync(path.join(root, CACHE_DIR, 'manifest.json'), '{ not json at all');
   const r = retrieve(root, 'Server X steht', grantProject('a'), { top: 10, withDisputed: true });
   const byId = new Map(r.claims.map((c) => [c.id, c.status]));
   assert.equal(byId.get('B'), 'active');

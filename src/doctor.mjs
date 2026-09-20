@@ -1324,7 +1324,15 @@ export function tickEpoch(root, doctorResult) {
  * train people to ignore the output.
  */
 export function checkGitignoreEffective(root) {
-  const PFLICHT = ['.mem/embed.env', '.mem/epoch.json', '.mem/search-index.json'];
+  // `.mem/search-index/` seit B8 (2026-09-20): der Cache ist ein
+  // VERZEICHNIS, und genau diesen Pfad prueft niemand mehr, wenn hier
+  // nur der alte Ein-Datei-Name steht. Beide bleiben — eine Altdatei
+  // kann noch herumliegen, und ein Gedaechtnis aus der Zeit davor
+  // traegt nur die alte Zeile.
+  const PFLICHT = [
+    '.mem/embed.env', '.mem/epoch.json',
+    '.mem/search-index.json', '.mem/search-index/',
+  ];
   if (!fs.existsSync(path.join(root, '.git'))) {
     return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');
   }

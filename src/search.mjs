@@ -30,6 +30,7 @@ import * as entity from './entity.mjs';
 import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
+import * as indexcache from './indexcache.mjs';
 
 /**
  * The file path of one indexed piece.
@@ -77,7 +78,31 @@ function packsFor(langInfo) {
 const K1 = 1.2;
 const B = 0.75;
 
+// **Legacy, pre-B8 (2026-09-20) single-file cache path.** No longer
+// written or read by `loadIndex` — see `CACHE_DIR` below, and
+// `src/indexcache.mjs`'s module doc for the wall this retired. Kept
+// exported (rather than deleted) purely so existing imports of it do
+// not crash at load time; several files outside this change's scope
+// still reference it (bench scripts, `src/doctor.mjs`'s required-files
+// list, `src/cli/githook.mjs`'s generated `.gitignore` template — see
+// the session report for the exact list). `loadIndex` actively removes
+// a leftover file at this path once a rebuild lands the new cache, so
+// it never sits beside the new one pretending to still be live.
 export const CACHE_FILE = path.join('.mem', 'search-index.json');
+
+/**
+ * The search index cache, as a directory of shards (B8, 2026-09-20
+ * build plan; see `src/indexcache.mjs`). Replaces `CACHE_FILE` as the
+ * path `loadIndex` actually reads and writes: the old format was one
+ * JSON document, which could not be parsed back past V8's maximum
+ * string length (measured break: ~978k entries) — not a slow decline,
+ * a deterministic `RangeError` on every corpus past that line. A
+ * different name from `CACHE_FILE`, not a repurposed one: the two
+ * never need to be distinguished by shape (file vs. directory) at the
+ * same path, and a stale copy of the old format can be told apart from
+ * the live one by its name alone while it is being cleaned up.
+ */
+export const CACHE_DIR = path.join('.mem', 'search-index');
 
 // Cache schema version. When the shape of an index document changes
 // (e.g. the new `retired` field), an old cache MUST be discarded — else
@@ -97,7 +122,14 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 //    An older cache has neither: its documents were tokenised with one
 //    corpus-wide pack, so serving it as-is would keep answering the
 //    exact defect P28 exists to close.
-export const CACHE_VERSION = 9;
+// 10: B8 — the cache moved from one JSON file (`CACHE_FILE`) to a
+//     directory of shards (`CACHE_DIR`, `src/indexcache.mjs`). The
+//     version number is almost decorative here (the two formats live
+//     at different paths, so nothing at the new path could ever be
+//     mistaken for the old shape) — bumped anyway so the changelog
+//     stays a complete history of every reason a cache stopped being
+//     trusted as-is, this being the most consequential one yet.
+export const CACHE_VERSION = 10;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -1739,57 +1771,26 @@ function reconcileRetired(root, index) {
 }
 
 export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
-  const cachePath = path.join(root, CACHE_FILE);
+  const cacheDir = path.join(root, CACHE_DIR);
+  const legacyCachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);
 
   const writeCache = (index, files, fullAt) => {
-    // Declared out here so the cleanup below can actually name it — a
-    // catch block cannot see a const from inside the try, and a cleanup
-    // that removes a path nobody wrote is the quietest no-op there is.
-    let tmpPath = null;
-    try {
-      fs.mkdirSync(path.dirname(cachePath), { recursive: true });
-      // **Write beside it, then rename.**
-      //
-      // `rename` is atomic on POSIX; `writeFileSync` straight onto the
-      // target path is not. A reader that comes in mid-write — and the
-      // retrieval hook reads this very path in parallel — sees half a
-      // file, `JSON.parse` throws, and the caller falls back to a full
-      // rebuild: expensive, and inside a hook that means hitting the
-      // time limit and going silent.
-      //
-      // Not a theory: measured on the sibling memory with the same
-      // shape, a reader in a tight loop saw broken JSON in 2 to 6 of
-      // roughly 600 reads, reproducibly, across three runs.
-      //
-      // The temporary name carries the process and a roll of the dice,
-      // because a fixed `.tmp` only moves the tear: two processes
-      // rebuilding at once would write the SAME scratch file, and one
-      // would rename the other's half.
-      tmpPath = `${cachePath}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-      fs.writeFileSync(tmpPath, JSON.stringify({
-        version: CACHE_VERSION,
-        language: index.language,
-        files,
-        fullAt,
-        index: {
-          ...index,
-          documents: index.documents.map((d) => ({ ...d, weights: [...d.weights] })),
-          docFreq: [...index.docFreq],
-          statsDocFreq: [...index.statsDocFreq],
-          entityIndex: entity.pack(index.entityIndex),
-          lexicon: [...index.lexicon],
-          lexicons: [...(index.lexicons ?? new Map())].map(([code, set]) => [code, [...set]]),
-          tagGraph: thesaurus.packTagGraph(index.tagGraph),
-          termGraph: thesaurus.packTagGraph(index.termGraph),
-        },
-      }));
-      renameWithRetry(tmpPath, cachePath);
-    } catch {
-      // An unwritable cache costs speed, not correctness — but a
-      // scratch file left lying around costs both, so it goes.
-      if (tmpPath) { try { fs.rmSync(tmpPath, { force: true }); } catch { /* nothing to clean */ } }
-    }
+    // The write itself — scratch directory, shard files, meta.json,
+    // manifest, then ONE atomic rename of the whole directory into
+    // place — lives in `indexcache.mjs`'s `writeIndexCache`; this
+    // function owns WHEN to call it, not HOW it lands on disk (see that
+    // module's "Integration" note). It already swallows its own write
+    // failures the same way this function used to before B8: an
+    // unwritable cache costs speed, not correctness, never the other
+    // way round.
+    indexcache.writeIndexCache(cacheDir, {
+      version: CACHE_VERSION,
+      language: index.language,
+      files,
+      fullAt,
+      index,
+    });
   };
 
   // The state of every file the index covers, right now. `docCounts`
@@ -1814,36 +1815,58 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
     return out;
   };
 
-  if (!fresh && fs.existsSync(cachePath)) {
-    try {
-      const c = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
-      if (c.version === CACHE_VERSION && c.language === lang.name && c.files) {
-        const index = {
-          ...c.index,
-          documents: c.index.documents.map((d) => ({ ...d, weights: new Map(d.weights) })),
-          docFreq: new Map(c.index.docFreq),
-          statsDocFreq: new Map(c.index.statsDocFreq ?? c.index.docFreq),
-          entityIndex: entity.unpack(c.index.entityIndex),
-          lexicon: new Set(c.index.lexicon),
-          lexicons: new Map((c.index.lexicons ?? []).map(([code, arr]) => [code, new Set(arr)])),
-          tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
-          termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
-        };
+  // **`cacheStatus`, distinct from `fromCache`.** `fromCache` (returned
+  // below either way) has always answered one question: did this call
+  // have to rebuild. `cacheStatus` answers a second one `fromCache`
+  // cannot: WHY, when it did. 'hit' — used as-is or appended. 'miss' —
+  // nothing was there to try (an ordinary cold start, or `fresh: true`
+  // was asked for). 'stale' — a version or language mismatch: expected,
+  // e.g. right after an upgrade. 'unknown' — the plan's `unbekannt`: a
+  // cache directory WAS there and did not read back whole (a missing
+  // shard, a torn one, a manifest from a different build). B8 of the
+  // 2026-09-20 build plan is explicit that this last case must not look
+  // like a cold start from the outside — a silently-rebuilt index is
+  // exactly how a broken store hides behind a working one.
+  let cacheStatus = 'miss';
+
+  if (!fresh) {
+    // Whether a cache directory already existed BEFORE this read — the
+    // one fact `readIndexCache`'s `'no-manifest'` reason cannot carry by
+    // itself. Absent entirely, it is an ordinary cold start; present but
+    // missing its manifest, it is a torn cache (a crashed write, a
+    // manifest deleted by hand) and must not be classified the same way.
+    const existedBefore = fs.existsSync(cacheDir);
+    const res = indexcache.readIndexCache(cacheDir, {
+      expectedVersion: CACHE_VERSION,
+      expectedLanguage: lang.name,
+    });
+
+    if (res.ok) {
+      try {
+        const index = res.index;
         // Cheap, and checked BEFORE anything else trusts `index.documents`:
         // a cache whose own per-file counts disagree with what it is
         // actually carrying is corrupt regardless of what the log on disk
         // says, and `appendToIndex` below has no way to see that — it only
         // ever compares log bytes, never the documents derived from them.
-        // Thrown so the surrounding catch does exactly what it already
-        // does for a version mismatch: fall through to a full rebuild.
-        if (!docCountsMatch(index.documents, c.files)) {
+        // Thrown so the catch below does exactly what it already does for
+        // a version mismatch: fall through to a full rebuild. (This guard
+        // predates B8 — see `cache-tamper.test.mjs` — and its
+        // silent-rebuild-on-tamper behaviour is unchanged; B8 only adds
+        // the classification below, for the shard READER's own
+        // structural failures, which this guard cannot see at all since
+        // it never runs unless `readIndexCache` already said `ok: true`.)
+        if (!docCountsMatch(index.documents, res.files)) {
           throw new Error('cache doc counts do not match the documents it holds');
         }
-        const fullAt = c.fullAt ?? index.N;
-        const grown = appendToIndex(root, index, c.files, now);
+        const fullAt = res.fullAt ?? index.N;
+        const grown = appendToIndex(root, index, res.files, now);
 
         if (grown && grown.added === 0) {
-          return { ...reconcileRetired(root, index), fromCache: true, appended: 0, graphsStale: false };
+          return {
+            ...reconcileRetired(root, index),
+            fromCache: true, appended: 0, graphsStale: false, cacheStatus: 'hit',
+          };
         }
         // Rebuild rather than append once enough of the corpus is new that
         // the lexicon and the learned graphs would be measurably behind.
@@ -1851,7 +1874,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) {
             const files = stateOf(now, grown.lastLines, sourceDocCounts(index.documents));
             // Line counts for untouched files carry over unchanged.
-            for (const [rel, old] of Object.entries(c.files)) {
+            for (const [rel, old] of Object.entries(res.files)) {
               if (files[rel] && !grown.lastLines.has(rel)) files[rel].lines = old.lines ?? files[rel].lines;
             }
             writeCache(index, files, fullAt);
@@ -1867,10 +1890,36 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
             fromCache: true,
             appended: grown.added,
             graphsStale: grown.added > 0,
+            cacheStatus: 'hit',
           };
         }
-      }
-    } catch { /* a broken cache is not an error, just a rebuild */ }
+        // Neither branch returned: too much of the corpus is new relative
+        // to the last full build (or `appendToIndex` declined outright).
+        // Falls through to the full rebuild below, same as always.
+      } catch { /* a broken cache is not an error, just a rebuild */ }
+    } else if (res.reason === 'version-mismatch' || res.reason === 'language-mismatch') {
+      // Expected, not corruption: a schema bump or a language change
+      // makes yesterday's cache the wrong shape ON PURPOSE. Silent, same
+      // as this always behaved.
+      cacheStatus = 'stale';
+    } else if (res.reason === 'no-manifest' && !existedBefore) {
+      // Nothing was ever built here — the ordinary cold start.
+      cacheStatus = 'miss';
+    } else {
+      // A cache directory WAS there: a missing shard, a torn shard, a
+      // manifest from another build, an oversized or unparsable
+      // meta.json, or a manifest gone missing out from under an
+      // otherwise-present directory. A rebuild is still the right
+      // recovery — but it must not happen QUIETLY, or this is
+      // indistinguishable from a cold start to everything downstream.
+      cacheStatus = 'unknown';
+      console.error(
+        `cheap-mem: search index cache at ${cacheDir} did not read back whole `
+        + `(${res.reason}) — rebuilding from the log. If this keeps happening, `
+        + 'something keeps damaging the cache on disk instead of replacing it '
+        + 'atomically.',
+      );
+    }
   }
 
   // No `reconcileRetired` here on purpose: this index was just derived
@@ -1879,8 +1928,25 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
   // answer from the same file would be the second reading of one truth,
   // and it would cost every cold start a log re-read for nothing.
   const index = buildIndex(root, { language });
+  // **Migration (decided, not defaulted): discard, never convert-in-place.**
+  // A pre-B8 single-file cache at `legacyCachePath` is never read by the
+  // code above — different path (`CACHE_DIR` vs. `CACHE_FILE`), different
+  // shape (directory vs. file) — so it cannot silently half-apply.
+  // Converting it WAS the other option, and was rejected: reading it back
+  // to convert would mean the exact one-`JSON.parse`-of-the-whole-thing
+  // this round exists to retire, to convert a format that, by
+  // definition, could only ever hold up to the wall (~978k entries,
+  // `src/indexcache.mjs`) in the first place — anything that size is
+  // already cheap to rebuild straight from the log, which is what a
+  // normal cold start does regardless. Once the rebuild below lands the
+  // new cache, any leftover old-format file is actively removed rather
+  // than left beside it: a live cache and an inert leftover sitting side
+  // by side under two different names — never READ together, but both
+  // present — is the "half old, half new" shape this round was told to
+  // rule out, so it does not get to exist even briefly on disk.
+  try { fs.rmSync(legacyCachePath, { force: true }); } catch { /* nothing to remove */ }
   writeCache(index, stateOf(now, null, sourceDocCounts(index.documents)), index.N);
-  return { ...index, fromCache: false, appended: 0, graphsStale: false };
+  return { ...index, fromCache: false, appended: 0, graphsStale: false, cacheStatus };
 }
 
 /** Lines in a file — only ever called on a full build. */

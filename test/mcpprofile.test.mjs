@@ -163,7 +163,19 @@ test('SOURCE PROBE: the classification comes from the code, not from memory', ()
     ['search.loadIndex', {
       why: 'rebuildable cache, carries no caller byte',
       // A cache write is still a write: it must be visible as one.
-      holds: (body) => SYSCALLS.test(body),
+      //
+      // **Since B8 (2026-09-20):** the actual `fs.writeFileSync` calls
+      // moved one hop further in, out of `loadIndex`'s own body and into
+      // `indexcache.mjs`'s `writeIndexCache` (the cache is now a shard
+      // directory, not one file `loadIndex` writes directly — see that
+      // module). So the flat "does this function's own text contain a
+      // syscall" check that worked before B8 would now find nothing and
+      // report the exception as stale. This follows that one hop instead:
+      // `loadIndex`'s body must still call `indexcache.writeIndexCache`,
+      // and that function — via the general walker defined below, not a
+      // second flat regex — must still actually reach a real write.
+      holds: (body) => /indexcache\.writeIndexCache\s*\(/.test(body)
+        && reachesAWrite('indexcache', 'writeIndexCache'),
     }],
     ['setup.archiveStep', {
       why: 'write-and-delete probe: the answer to "is this writable"',

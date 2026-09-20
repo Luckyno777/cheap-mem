@@ -224,7 +224,15 @@ export function writeMemoryGitignore(root) {
   const wanted = [
     ['.mem/embed.env', 'API keys. NEVER commit this.'],
     ['.mem/epoch.json', 'Local rollback watermark. Never commit: a tracked one\n     travels back with the checkout it is meant to detect.'],
-    ['.mem/search-index.json', 'derived: rebuilt in milliseconds'],
+    // Beide Namen, und das ist kein Versehen. Seit B8 (2026-09-20) legt
+    // `loadIndex` den Cache als VERZEICHNIS `.mem/search-index/` an;
+    // `.mem/search-index.json` ist der alte Ein-Datei-Name. Ein
+    // Gedaechtnis, das vor der Umstellung angelegt wurde, traegt die
+    // alte Zeile in seiner .gitignore und wuerde das neue Verzeichnis
+    // COMMITTEN — gemessen an genau dieser Zeile gefunden. Die alte
+    // Zeile bleibt, weil eine Altdatei noch herumliegen kann.
+    ['.mem/search-index.json', 'derived: rebuilt in milliseconds (old single-file name)'],
+    ['.mem/search-index/', 'derived: the shard cache, rebuilt in milliseconds'],
     ['.mem/vectors.db', 'derived: rebuild with `mem embed backfill`'],
     ['.mem/raw-offsets.json', 'per-machine read positions'],
     ['.mem/digest-bell.json', 'transient'],

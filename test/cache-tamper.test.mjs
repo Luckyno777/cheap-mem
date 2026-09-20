@@ -36,6 +36,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
+import * as ic from '../src/indexcache.mjs';
 
 /** A memory with `n` learnings, each carrying its own unique anchor word. */
 function seeded(n = 6) {
@@ -54,9 +55,29 @@ function seeded(n = 6) {
   return { root, ids };
 }
 
-const cachePath = (root) => path.join(root, search.CACHE_FILE);
-const readCache = (root) => JSON.parse(fs.readFileSync(cachePath(root), 'utf8'));
-const writeCache = (root, c) => fs.writeFileSync(cachePath(root), JSON.stringify(c));
+// **Since B8 (2026-09-20):** the live cache is a shard directory
+// (`search.CACHE_DIR`, `src/indexcache.mjs`), not the single file this
+// probe used to poke directly. `readCache`/`writeCache` now go through
+// `readIndexCache`/`writeIndexCache` so the tamper still lands on the
+// path `loadIndex` actually reads — and comes back out RE-HASHED and
+// RE-COUNTED by `writeIndexCache`, so it is a structurally intact cache
+// with tampered CONTENT, exactly like the old raw-JSON rewrite was. The
+// shape returned mirrors the old `{ index, files }` closely enough that
+// the rest of this file barely changes.
+const cacheDir = (root) => path.join(root, search.CACHE_DIR);
+function readCache(root) {
+  const res = ic.readIndexCache(cacheDir(root), {
+    expectedVersion: search.CACHE_VERSION,
+    expectedLanguage: 'en',
+  });
+  if (!res.ok) throw new Error(`test fixture: cache at ${cacheDir(root)} did not read back: ${res.reason}`);
+  return { index: res.index, files: res.files, fullAt: res.fullAt };
+}
+function writeCache(root, c) {
+  ic.writeIndexCache(cacheDir(root), {
+    version: search.CACHE_VERSION, language: 'en', files: c.files, fullAt: c.fullAt, index: c.index,
+  });
+}
 
 /** How many documents does a fresh ranked search find for this word? */
 function hits(root, word, opt = {}) {
@@ -171,8 +192,12 @@ test('the cache version moved, so no cache written before these guards is truste
     'CACHE_VERSION was not raised for the `docs` field the guard depends on');
   const { root } = seeded(3);
   search.loadIndex(root, { fresh: true });
+  // `readCache` itself is the version check: it calls `readIndexCache`
+  // with `expectedVersion: search.CACHE_VERSION` and throws if that read
+  // comes back `ok: false` — which a version mismatch would. Reaching
+  // the next line already proves the cache on disk carries the current
+  // version.
   const c = readCache(root);
-  assert.equal(c.version, search.CACHE_VERSION);
   for (const [rel, info] of Object.entries(c.files)) {
     assert.equal(typeof info.docs, 'number', `${rel} carries no docs count`);
   }

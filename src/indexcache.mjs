@@ -88,10 +88,27 @@
 //
 // **Integration.** This module owns the shape; `src/search.mjs` owns
 // deciding WHEN to read or write it (append-vs-rebuild, the version
-// stamp, `reconcileRetired`). `loadIndex` was held by another agent
-// during this file's writing (per-entry language detection, P28's
-// tail), so the two call sites that would change are NOT edited here —
-// see the session report for the exact diff.
+// stamp, `reconcileRetired`) — `loadIndex` there calls
+// `writeIndexCache`/`readIndexCache` directly (B8, 2026-09-20 build
+// plan). Two decisions that belong to `loadIndex`, not to this file:
+//
+//   migration   an existing single-file cache (the pre-B8 format) is
+//               never read by `readIndexCache` at all — different path
+//               (`CACHE_DIR` here vs. the old `CACHE_FILE`), different
+//               shape. `loadIndex` does not convert it; it rebuilds
+//               from the log (the authoritative source regardless) and
+//               removes the stale file once the new cache lands, so a
+//               live cache and an inert leftover never sit side by
+//               side under two names that both look current.
+//   `unbekannt` a `readIndexCache` failure whose reason is NOT
+//               'version-mismatch'/'language-mismatch' (an expected,
+//               ordinary case) and NOT 'no-manifest' on a cache
+//               directory that never existed (an ordinary cold start)
+//               means a cache directory WAS there and did not read
+//               back whole — `loadIndex` still recovers by rebuilding,
+//               but says so (`cacheStatus: 'unknown'` plus a stderr
+//               line), rather than letting a rebuilt index look
+//               identical to a cold one.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -131,19 +148,28 @@ function sha256(buf) {
  *
  * The finding this guards against (a reader mid-`readFileSync` makes
  * Windows answer `EPERM` on `rename`, reproducibly) belongs to
- * `src/search.mjs`'s `renameWithRetry`, which is exported from a file
- * this module deliberately does not import — `search.mjs` is expected
- * to eventually import THIS module (see the integration note above),
- * and importing back from here would make that a cycle for no gain.
- * The retry loop itself is five lines; duplicating it is cheaper than
- * the alternative.
+ * `src/search.mjs`'s `renameWithRetry` originally. This is a SEPARATE
+ * copy, deliberately — `search.mjs` now imports this module (see the
+ * integration note above), and importing search.mjs back from here
+ * would make that a cycle for no gain. The retry loop itself is five
+ * lines; duplicating it is cheaper than the alternative.
+ *
+ * Exported, and with the same injectable `rename`/`pause` shape
+ * `search.mjs`'s copy has, for the same reason that one has it: a
+ * source-level check ("does the word `attempts` appear") was measured
+ * there to be worthless — it stayed green when the retry itself was
+ * deleted. Driving this copy the same way is `test/atomic-cache.test.mjs`.
  */
 const TRANSIENT_RENAME = new Set(['EPERM', 'EACCES', 'EBUSY']);
-function renameWithRetry(from, to, attempts = 6) {
+export function renameWithRetry(from, to, {
+  attempts = 6,
+  rename = fs.renameSync,
+  pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+} = {}) {
   for (let i = 1; ; i += 1) {
-    try { fs.renameSync(from, to); return; } catch (err) {
+    try { rename(from, to); return i; } catch (err) {
       if (i >= attempts || !TRANSIENT_RENAME.has(err.code)) throw err;
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, i * 5);
+      pause(i * 5);
     }
   }
 }

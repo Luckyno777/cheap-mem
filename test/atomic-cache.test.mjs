@@ -46,6 +46,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { renameWithRetry } from '../src/search.mjs';
+import { renameWithRetry as renameWithRetryIC } from '../src/indexcache.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -206,62 +207,82 @@ test('A the rename-based write never tears', async () => {
 });
 
 test('B the shipped writer renames, and never writes onto the cache path', () => {
-  const src = fs.readFileSync(path.join(REPO, 'src', 'search.mjs'), 'utf8');
-  const start = src.indexOf('const writeCache =');
-  assert.ok(start > 0, 'writeCache is gone or renamed — re-point this probe');
-  const end = src.indexOf('\n  };', start);
-  assert.ok(end > start, 'could not find the end of writeCache');
+  // **Since B8 (2026-09-20):** `search.mjs`'s own `writeCache` no longer
+  // does the write-then-rename itself — it delegates the whole cache
+  // (now a directory of shards, not one file) to
+  // `indexcache.mjs`'s `writeIndexCache`. The pattern this test pins —
+  // write beside the target, then rename the WHOLE thing into place in
+  // one syscall, never straight onto the live path — moved there with
+  // it, so this probe now reads that function's body instead.
+  const src = fs.readFileSync(path.join(REPO, 'src', 'indexcache.mjs'), 'utf8');
+  const start = src.indexOf('export function writeIndexCache(');
+  assert.ok(start > 0, 'writeIndexCache is gone or renamed — re-point this probe');
+  const end = src.indexOf('\n}', start);
+  assert.ok(end > start, 'could not find the end of writeIndexCache');
   const body = src.slice(start, end);
 
-  assert.match(body, /renameWithRetry\(\s*tmpPath\s*,\s*cachePath\s*\)/,
-    'writeCache no longer renames its scratch file into place');
-  assert.match(body, /fs\.writeFileSync\(\s*tmpPath\s*,/,
-    'writeCache no longer writes to a scratch file');
-  assert.doesNotMatch(body, /fs\.writeFileSync\(\s*cachePath\s*,/,
-    'writeCache writes straight onto the cache path again — that is the ' +
-    'tear assertion P reproduces');
+  assert.match(body, /renameWithRetry\(\s*tmpDir\s*,\s*cacheDir\s*\)/,
+    'writeIndexCache no longer renames its scratch directory into place');
+  assert.match(body, /fs\.mkdirSync\(\s*tmpDir\s*,/,
+    'writeIndexCache no longer builds a scratch directory to write into');
+  assert.doesNotMatch(body, /fs\.writeFileSync\(\s*path\.join\(\s*cacheDir\s*,/,
+    'writeIndexCache writes straight into the live cache directory again — ' +
+    'that is the tear assertion P reproduces, one level up (a directory ' +
+    'instead of a file)');
 
   // And the rename it calls survives what Windows actually answers.
   // Without this, dropping the retry would only show up on a Windows
-  // runner — which is precisely where it was found, and precisely the
-  // place a green POSIX suite cannot speak for.
+  // runner — which is precisely where the file-based version's retry was
+  // found necessary, and precisely the place a green POSIX suite cannot
+  // speak for.
   assert.match(body, /renameWithRetry/,
-    'writeCache no longer goes through the retrying rename');
+    'writeIndexCache no longer goes through a retrying rename');
 });
 
-test('C the rename it calls survives what Windows actually answers', () => {
-  // Driven, not read. A source-level check here was worthless: the
-  // first cut asserted that the word `attempts` appears in the helper,
-  // and stayed green when the retry itself was deleted.
-  const refuse = (code, times) => {
-    let n = 0;
-    return () => { n += 1; if (n <= times) throw Object.assign(new Error(code), { code }); };
-  };
-  const nopause = () => {};
+// **Since B8 (2026-09-20):** `indexcache.mjs` carries a SEPARATE copy of
+// this helper (deliberately — see its doc comment: importing
+// `search.mjs`'s would be a cycle now that `search.mjs` imports
+// `indexcache.mjs`). A separate copy is a separate place for the exact
+// regression test C exists to catch to creep back in unnoticed, so both
+// copies are driven through the identical probe below rather than
+// trusting that "the same five lines, twice" stayed the same five lines.
+for (const [label, impl] of [
+  ['search.mjs', renameWithRetry],
+  ['indexcache.mjs', renameWithRetryIC],
+]) {
+  test(`C (${label}) the rename it calls survives what Windows actually answers`, () => {
+    // Driven, not read. A source-level check here was worthless: the
+    // first cut asserted that the word `attempts` appears in the helper,
+    // and stayed green when the retry itself was deleted.
+    const refuse = (code, times) => {
+      let n = 0;
+      return () => { n += 1; if (n <= times) throw Object.assign(new Error(code), { code }); };
+    };
+    const nopause = () => {};
 
-  for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
-    const tries = renameWithRetry('a', 'b', { rename: refuse(code, 2), pause: nopause });
-    assert.equal(tries, 3, `${code} is no longer treated as a transient refusal`);
-  }
+    for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+      const tries = impl('a', 'b', { rename: refuse(code, 2), pause: nopause });
+      assert.equal(tries, 3, `${label}: ${code} is no longer treated as a transient refusal`);
+    }
 
-  // A refusal that never lets up is still an error — the caller's
-  // "a cache is optional" catch has to get something to catch.
-  assert.throws(
-    () => renameWithRetry('a', 'b',
-      { attempts: 4, rename: refuse('EPERM', 99), pause: nopause }),
-    /EPERM/, 'an endless refusal is swallowed instead of thrown on');
+    // A refusal that never lets up is still an error — the caller's
+    // "a cache is optional" catch has to get something to catch.
+    assert.throws(
+      () => impl('a', 'b', { attempts: 4, rename: refuse('EPERM', 99), pause: nopause }),
+      /EPERM/, `${label}: an endless refusal is swallowed instead of thrown on`);
 
-  // And anything else fails at once: retrying a missing file six times
-  // only makes the wait longer.
-  assert.throws(
-    () => renameWithRetry('a', 'b', { rename: refuse('ENOENT', 99), pause: nopause }),
-    /ENOENT/);
-  let versuche = 0;
-  try {
-    renameWithRetry('a', 'b', {
-      rename: () => { versuche += 1; throw Object.assign(new Error('x'), { code: 'ENOENT' }); },
-      pause: nopause,
-    });
-  } catch { /* expected */ }
-  assert.equal(versuche, 1, 'a permanent error is retried anyway');
-});
+    // And anything else fails at once: retrying a missing file six times
+    // only makes the wait longer.
+    assert.throws(
+      () => impl('a', 'b', { rename: refuse('ENOENT', 99), pause: nopause }),
+      /ENOENT/);
+    let versuche = 0;
+    try {
+      impl('a', 'b', {
+        rename: () => { versuche += 1; throw Object.assign(new Error('x'), { code: 'ENOENT' }); },
+        pause: nopause,
+      });
+    } catch { /* expected */ }
+    assert.equal(versuche, 1, `${label}: a non-transient error is retried instead of thrown at once`);
+  });
+}
