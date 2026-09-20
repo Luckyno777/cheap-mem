@@ -41,6 +41,9 @@ export const COMMANDS = {
         '            Normal runs treat unknown as unknown.',
         '',
         '  exit 0 fine · 1 warnings · 2 errors (or, with --strict, unknowns)',
+        '',
+        '  A run with no ERROR also advances `mem epoch`\'s rollback',
+        '  watermark to the state just checked — see `mem epoch --help`.',
       ].join('\n'));
       return;
     }
@@ -66,6 +69,17 @@ export const COMMANDS = {
     // costs nothing: `checkAll` runs on a bare directory and reports
     // `config: error` by itself — verified before this change.
     const result = doctor.checkAll(root);
+
+    // The automatic tick (P21, 2026-09-20): every `mem doctor` run that
+    // comes back with no ERROR advances the rollback watermark to the
+    // state just checked. This is what makes `mem epoch record` a
+    // command nobody has to remember any more — see
+    // `doctor.tickEpoch`'s docblock for exactly what "no ERROR" does
+    // and does not require. Runs before --alarm's early exit, so an
+    // unattended start-banner invocation ticks the mark too, not only
+    // an interactive one.
+    doctor.tickEpoch(root, result);
+
     // --alarm is the shape for a start banner: only what is down now,
     // and no output at all when nothing is. Reasoning in the docblock
     // of doctor.alarm().
@@ -224,7 +238,14 @@ export const COMMANDS = {
         'mem epoch [show|record] [--force]',
         '',
         '  show    has the memory gone backwards since this machine last looked?',
-        '  record  move the watermark forward. Refuses to lower it without --force.',
+        '  record  move the watermark forward BY HAND. Refuses to lower it',
+        '          without --force.',
+        '',
+        '  Recording by hand is the escape hatch, not the normal path: every',
+        '  `mem doctor` run that comes back with no error already does this',
+        '  automatically, on the state doctor just certified. `mem epoch',
+        '  record` remains for establishing a mark right now without waiting',
+        '  for the next doctor run, or for the deliberate --force override.',
         '',
         '  The watermark is LOCAL and gitignored on purpose: one committed',
         '  alongside the log would travel back with the checkout it is meant',

@@ -1202,6 +1202,65 @@ export function checkRollback(root) {
 }
 
 /**
+ * Advance the watermark automatically — the missing tick (P21,
+ * 2026-09-20). `mem epoch record` has existed since the watermark was
+ * designed, but nothing ever called it on its own: the mark could only
+ * move by an operator remembering to type one more command, so on every
+ * memory in this house it never moved. "no watermark yet" was not a
+ * fact about any particular memory — it was a fact about the command
+ * never having been run.
+ *
+ * **What the "tick" is.** `checkAll()` — the very self-check `mem
+ * doctor` already runs, on whatever already wakes that up. No new
+ * timer, no new schedule: a caller that runs `checkAll` and then this
+ * function right after it has just made every doctor run BE the tick.
+ * See the CLI wiring in `src/cli/commands/admin.mjs`'s `doctor` command
+ * for the one caller this house has today.
+ *
+ * **What "passed" means, precisely: `worst !== LEVEL.ERROR`.** The same
+ * line `mem doctor`'s own exit code already draws for pass/fail without
+ * `--strict` (0 or 1, never 2). Two things this is deliberately NOT:
+ *
+ *   - **not zero-WARN.** A warning means "look at this", not "this
+ *     state is too broken to trust as a reference". Most memories carry
+ *     at least one WARN somewhere in this file's 25+ checks on any
+ *     given day (git-hook not installed, index empty, digest backlog);
+ *     gating the mark on zero-WARN would mean it advances only on the
+ *     rare day nothing at all needs attention, which is a bad day to
+ *     hang the one rollback detector this house has.
+ *   - **not zero-UNKNOWN.** `checkRollback` above reports UNKNOWN on
+ *     every machine that has never recorded a mark — which, before this
+ *     function is wired in anywhere, is every machine that exists.
+ *     Requiring zero UNKNOWN would mean the very first tick can never
+ *     fire, because the one finding this feature exists to eventually
+ *     turn green is itself blocking its own first green. `--strict`
+ *     (the CLI's separate, opt-in "unknown counts as failure" bar for
+ *     CI) is not consulted here on purpose.
+ *
+ * An ERROR blocks the tick unconditionally — including one that has
+ * nothing to do with rollback at all. A memory with a leaked credential
+ * is not a state worth enshrining as "the reference to roll back to
+ * safely", even though nothing about ITS claim count is wrong. That is
+ * the reason this is coupled to the FULL self-check (`doctorResult`)
+ * and not to `checkRollback`'s own verdict alone.
+ *
+ * An in-progress rollback is caught twice, on purpose. `checkRollback`
+ * itself already returns LEVEL.ERROR when `state.status === 'rollback'`
+ * (above), which makes `doctorResult.worst` `'error'` and this function
+ * return before `recordEpoch` is even called. `recordEpoch`'s own
+ * refusal to lower the mark (src/epoch.mjs) is the second, independent
+ * guard, for any caller that reaches it a different way (e.g. `mem
+ * epoch record` run by hand on a rolled-back state).
+ */
+export function tickEpoch(root, doctorResult) {
+  if (doctorResult.worst === LEVEL.ERROR) {
+    return { advanced: false, reason: 'doctor found an error; not enshrining this state as the reference' };
+  }
+  const r = epoch.recordEpoch(root);
+  return { advanced: r.written, epoch: r };
+}
+
+/**
  * The SHAPE of an entry — is it still the thing someone meant to write?
  *
  * `checkIntegrity` already covers unparseable lines, duplicate ids and
