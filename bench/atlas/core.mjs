@@ -309,6 +309,29 @@ export function environment() {
 // out the hard way on 2026-09-05 — its first version used ~70 distinct
 // words and the timings came out WORSE than reality.
 
+// **This vocabulary carries almost no stopwords, and that matters for
+// one measurement it was never built for.** Every word below is a
+// content word; `the`, `we`, `der`, `und` appear nowhere. Language
+// detection (src/langdetect.mjs) scores stopword overlap, so it reports
+// `uncertain` for 97.6 % of the documents this generator produces —
+// against 2.2 % on lucky-mem's 1,889 real entries, measured 2026-09-20.
+//
+// Nothing noticed for as long as nothing was language-sensitive. Now
+// something is: an uncertain document is tokenised under every
+// detectable language pack, so a corpus that is almost entirely
+// uncertain makes the index build look roughly twice as expensive as it
+// is on real prose (1,540 ms at 99.4 % uncertain against 1,045 ms at
+// 1.4 %, same corpus size).
+//
+// Deliberately NOT fixed by sprinkling stopwords in here. The
+// generator's job is to reproduce the SHAPE of a real memory — type
+// concentration, tag sparsity, recency clustering, reachability — and
+// those were each calibrated against a measured real share. Adding
+// filler words to make one new measurement look better would change
+// every other measurement taken against this corpus, for a number
+// nobody has measured on real text. The honest form is this comment:
+// any language-sensitive figure taken against this corpus is a worst
+// case, and must say so.
 const COMMON = ('deploy database index search cache memory session agent error '
   + 'timeout retry config branch commit merge test probe guard boundary redaction '
   + 'capability archive digest inbox duty question skill procedure source store '
