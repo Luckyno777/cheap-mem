@@ -22,7 +22,7 @@
 //
 // All four need a process boundary to fail, so this file only ever
 // spawns `bin/mem` as a child process. It never imports the command
-// tables to call a handler directly — only to read off the 60 names,
+// tables to call a handler directly — only to read off the 62 names,
 // which is data, not a shortcut around the process boundary.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -72,7 +72,7 @@ function freshRoot() {
 
 test('POSITIVE: the command list itself is not empty (vacuity check)', async () => {
   const names = await allCommands();
-  assert.equal(names.length, 60, `expected 60 commands, found ${names.length}: ${names.join(',')}`);
+  assert.equal(names.length, 62, `expected 62 commands, found ${names.length}: ${names.join(',')}`);
 });
 
 test('every command: --help exits 0, prints something, and leaves no file behind', async () => {

@@ -50,7 +50,7 @@ code.
 | tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search, median | **0.027 ms** over the index | `node bench/retrieval.mjs` |
-| what you download | **581 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+| what you download | **717 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
@@ -299,7 +299,7 @@ can only pass is decoration.
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
 As of 2026-09-20: **62 CLI commands, 28 MCP tools, 70 modules, 1698
-tests**, about 24,000 lines in `bin/` and `src/`, at **87.9 % statement
+tests**, about 30,700 lines in `bin/` and `src/`, at **87.9 % statement
 coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly

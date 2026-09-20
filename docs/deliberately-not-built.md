@@ -242,8 +242,8 @@ command's own `--help` prints must be one `checkFlags` accepts. A flag
 the help promises and the CLI rejects is a lie the reader hits on their
 first try.
 
-**Why not.** Measured on 2026-09-17, across all 60 commands. The naive
-reading reported nine commands with a mismatch:
+**Why not.** Measured on 2026-09-17, across all sixty commands then in
+the table. The naive reading reported nine commands with a mismatch:
 
 ```
 facts: value, valid, source     find: valid        init: strict

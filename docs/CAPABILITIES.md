@@ -1553,10 +1553,10 @@ the new one and the one that was fine before it. Measured through the
 normal CLI: a drawer holding one valid entry without a trailing newline
 goes to `0 valid, 1 broken` after a single `mem log`.
 
-There was no shared append path to fix: 14 call sites across 11 modules
-here, 11 across as many in the sister house, each with the same
-unchecked assumption. They now go through one function, because the
-alternative is the same rule spelled fourteen times.
+There was no shared append path to fix: 14 call sites across eleven
+modules here, eleven across as many in the sister house, each with the
+same unchecked assumption. They now go through one function, because
+the alternative is the same rule spelled fourteen times.
 
 The check reads **one byte** — `openSync` + `fstatSync` + `readSync` at
 `size - 1` — never the file. `\n` (0x0A) is never part of a multi-byte
