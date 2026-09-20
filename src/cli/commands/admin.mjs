@@ -46,7 +46,25 @@ export const COMMANDS = {
     }
     checkFlags(args, ['quiet', 'strict', 'alarm'], 'doctor');
     const root = findRoot(args);
-    requireConfig(root);
+    // **No `requireConfig` here, deliberately (2026-09-20).**
+    //
+    // Every other command demands a readable config and exits when there
+    // is none, which is right: writing into a memory that is not set up
+    // would make a mess. The doctor is the one command whose JOB is a
+    // memory that may be broken, and this line made exactly that case
+    // unreportable. `requireConfig` calls `die()`, so the process ended
+    // before a single finding existed.
+    //
+    // Measured: `doctor.can-fail` stood at 28 of 31. The three that
+    // could not fail were `config`, `root` and `orphan-drawers` — and
+    // for the first two the reason was this line, not their own code.
+    // `checkConfig` has always returned an ERROR finding for an
+    // unreadable config and `checkRoot` for a missing directory; nobody
+    // ever got to see either.
+    //
+    // A check that cannot fail is not a check. Taking the gate away
+    // costs nothing: `checkAll` runs on a bare directory and reports
+    // `config: error` by itself — verified before this change.
     const result = doctor.checkAll(root);
     // --alarm is the shape for a start banner: only what is down now,
     // and no output at all when nothing is. Reasoning in the docblock
