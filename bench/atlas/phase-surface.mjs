@@ -236,6 +236,20 @@ function invocations(ctx) {
     t('thesaurus', ['thesaurus']),
     t('embed', ['embed', 'status']),
     t('status', ['status'], [0, 1], { note: '1 when a step is broken' }),
+    // Added 2026-09-20 with the commands themselves. The full atlas run
+    // that day caught their absence as
+    // `surface.table-covers-every-command: 2 uncovered` — the check
+    // doing exactly its job, which is why it exists: a command that
+    // ships without an entry here is a command this phase silently
+    // stops driving, and nothing else would have said so.
+    //
+    // Both are read-only reports over a memory that may legitimately
+    // have nothing to report, so both are pinned at 0: "no seals yet"
+    // and "no archived shards" are answers, not failures. `chain`
+    // returning non-zero would mean a broken chain, which the surface
+    // sweep must not manufacture — `test/chain.test.mjs` owns that.
+    t('chain', ['chain'], [0], { json: ['chain', '--json'] }),
+    t('archive', ['archive'], [0], { json: ['archive', '--json'] }),
   ];
 }
 

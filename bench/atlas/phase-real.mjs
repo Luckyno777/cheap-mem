@@ -735,7 +735,15 @@ export async function run(atlas, { quick = false } = {}) {
       : (mirrorDrift.onlyInMirror + mirrorDrift.onlyInSource === 0 ? VERDICT.PASS : VERDICT.DEGRADED),
     expected: mirrorDrift === null
       ? null
-      : 'no field on one side and missing on the other',
+      // `say`, not a bare literal. The content guard scrubs every raw
+      // string whole — by design, because a raw string is exactly how
+      // measured content would escape this phase — and then counts the
+      // redaction. A code-authored sentence with no measured value in
+      // it therefore showed up as `real.guard.redactions: 1 value
+      // redacted` on the 2026-09-20 full run, which reads like a
+      // content leak and is not one. The guard was right; this line
+      // was wrong.
+      : say`no field on one side and missing on the other`,
     actual: mirrorDrift === null
       ? say`could not read the weights out of the sister checkout's source`
       : say`${mirrorDrift.onlyInMirror} fields only here, ${mirrorDrift.onlyInSource} only there `
