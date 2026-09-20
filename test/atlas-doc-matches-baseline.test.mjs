@@ -100,28 +100,37 @@ test('CONTROL: the matcher would notice a wrong number', () => {
   assert.equal(pageStates(base.blindSpots.length), true,
     'pageStates() cannot find the blind-spot count, which the page definitely states');
   // The boundary half of the control: a number that occurs only INSIDE
-  // another number must not count as stated. `548.7` is on the page as
-  // the cache bytes per entry, so `548` and `8.7` are both substrings of
-  // it and neither is a figure the page states.
-  assert.ok(doc.includes('548.7'), 'the fixture for this control moved');
-  assert.equal(pageStates(548), false, 'pageStates() matched a prefix of a longer number');
-  assert.equal(pageStates(8.7), false, 'pageStates() matched a suffix of a longer number');
+  // another number must not count as stated. `288.94` is on the page as
+  // meta.json's bytes per entry, so `288` and `8.94` are both substrings
+  // of it and neither is a figure the page states.
+  assert.ok(doc.includes('288.94'), 'the fixture for this control moved');
+  assert.equal(pageStates(288), false, 'pageStates() matched a prefix of a longer number');
+  assert.equal(pageStates(8.94), false, 'pageStates() matched a suffix of a longer number');
 });
 
 test('CONTROL: the baseline is a real run, not an empty shell', () => {
   const total = base.phases.reduce((n, p) => n + p.records.length, 0);
   assert.ok(total > 300, `only ${total} records in the baseline — that is not a full run`);
-  assert.equal(base.phases.length, 7, 'the baseline does not carry all seven phases');
+  assert.equal(base.phases.length, 8, 'the baseline does not carry all eight phases');
   assert.ok(base.blindSpots.length > 0,
     'a run with zero blind spots is a run that stopped naming them');
 });
 
 // --- the hard wall ------------------------------------------------------
 
-test('the page states the entry count at which the index cache stops parsing', () => {
+test('the page states the per-shard cap that replaced the JSON.parse wall, and the meta.json figures it is now checked against', () => {
+  // B8 (2026-09-20) retired the single whole-cache JSON.parse this wall used
+  // to project against: shards are now capped before they are ever written,
+  // so there is no longer an "entries at which parsing breaks" figure to
+  // pin — pinning it would mean pinning `undefined`. What is pinned instead
+  // is the cap every shard is held under, the largest shard this run
+  // actually saw, and the one remaining single-JSON-string read (meta.json)
+  // measured against V8's real limit.
   const m = recordOf('ceiling.c.wall1.json-parse-limit').measured;
-  pinned('the cache-parse limit in entries', m.entriesAtStringLimit);
-  pinned('cache bytes per entry', m.cacheBytesPerEntry, { decimals: 1 });
+  pinned('the per-shard byte cap', m.maxShardBytesCap);
+  pinned('the largest shard observed at the largest rung reached',
+    m.maxShardBytesByRung[m.maxShardBytesByRung.length - 1].maxShardBytes);
+  pinned("meta.json's bytes per entry", m.metaBytesPerEntry, { decimals: 2 });
   pinned("V8's maximum string length", m.maxStringLength);
 });
 
@@ -158,14 +167,13 @@ test('every growth exponent on the page is the one the baseline fitted', () => {
 });
 
 test('every counter-check verdict on the page is the one the baseline reached', () => {
-  // The single most load-bearing claim on the page: four of five models
-  // do not predict a rung they did not see. If a re-run changes that —
-  // in either direction — the page is telling a story the data stopped
-  // supporting.
+  // The single most load-bearing claim on the page: which models do not
+  // predict a rung they did not see. If a re-run changes that — in either
+  // direction — the page is telling a story the data stopped supporting.
   const passing = SERIES.filter((s) => recordOf(`ceiling.b.counter-check.${s}`).verdict === 'pass');
-  assert.deepEqual(passing, ['indexBytes'],
+  assert.deepEqual(passing, ['indexBuild', 'indexBytes'],
     `the page says only the index-size model predicts; the baseline says ${passing.join(', ') || 'none'} do`);
-  assert.match(doc, /Four of the five models cannot predict one rung they did not see/,
+  assert.match(doc, /Three of the five models cannot predict one rung they did not see/,
     'the page no longer states the counter-check result it is built around');
 });
 
