@@ -45,15 +45,46 @@ function capture(root, msOld, { name = null } = {}) {
 
 const check = (root) => checkArchiveBacklog(root, { env: {}, now: NOW });
 
-test('no capture folder in the clone is good', () => {
+// **These two were nearly changed to UNKNOWN on 2026-09-20, and that
+// was wrong.** The measurement that day found 13 of 31 findings
+// reporting ok over a zero count, and this looked like the sharpest of
+// them: "raw/ is empty — the drain has taken everything", claimed where
+// nothing ever arrived.
+//
+// Only the SENTENCE was wrong. The level was right, and the sister
+// house had already written down why, in its own test: an empty folder
+// is measurably empty, and turning that into "not measurable" is a
+// false unknown. The question this finding asks — is anything piling up
+// here? — is answered by looking, and the folder was looked at.
+//
+// The other half of why GOOD is safe: if captures stop arriving, the
+// silence belongs to `capture`, which says "no captures at all" and
+// warns. A finding that stays quiet because a neighbour speaks hides
+// nothing. `topic-quality` has no such neighbour and really is unknown
+// on an empty memory — same measurement, opposite answer, and the
+// difference is the question, not the count.
+
+test('no capture folder is good — and does not claim a drain that never ran', () => {
   const root = tmpRoot();
-  try { assert.equal(check(root).level, LEVEL.GOOD); } finally { gone(root); }
+  try {
+    const f = check(root);
+    assert.equal(f.level, LEVEL.GOOD, f.text);
+    assert.doesNotMatch(f.text, /the drain has taken everything/,
+      'nothing ever arrived here for a drain to take');
+  } finally { gone(root); }
 });
 
-test('an empty capture folder is good', () => {
+test('an empty capture folder is good, and says why it is empty', () => {
   const root = tmpRoot();
   fs.mkdirSync(path.join(root, archive.DEFAULT_LOCATION), { recursive: true });
-  try { assert.equal(check(root).level, LEVEL.GOOD); } finally { gone(root); }
+  try {
+    const f = check(root);
+    assert.equal(f.level, LEVEL.GOOD, f.text);
+    assert.doesNotMatch(f.text, /the drain has taken everything/,
+      'a successful drain was reported where nothing ever arrived');
+    assert.match(f.text, /no capture has ever been recorded/,
+      'the reader cannot tell an idle drain from a working one');
+  } finally { gone(root); }
 });
 
 test('fresh material is good — the transport is allowed to be full', () => {
@@ -142,6 +173,7 @@ test('only .jsonl.gz counts — the folder carries other files too', () => {
     fs.writeFileSync(path.join(base, '2026', '08', 'README.md'), '# not a capture\n');
     const f = check(root);
     assert.equal(f.level, LEVEL.GOOD, f.text);
-    assert.match(f.text, /is empty/);
+    assert.doesNotMatch(f.text, /\b[1-9]\d* captures?\b/,
+      'files that are not .jsonl.gz were counted as captures');
   } finally { gone(root); }
 });

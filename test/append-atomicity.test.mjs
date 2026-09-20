@@ -238,8 +238,7 @@ test('innocence: a real concurrent run on the local filesystem is not reported a
 test('documented-unsafe mounts report FAIL, from the documentation, unmeasured', () => {
   // `open(2)`: O_APPEND may corrupt files on NFS when more than one
   // process appends at once. That is a published property, not a guess
-  // from a name — so this is a determination, and "nicht messbar ist
-  // nicht null" does not apply: it was determinable without measuring.
+  // from a name — so this is a determination, and "nicht messbar ist nicht null" does not apply: it was determinable without measuring.
   //
   // And it must NOT be measured. The race is rare rather than
   // impossible, so a clean short run there would look like evidence and

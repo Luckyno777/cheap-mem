@@ -79,9 +79,29 @@ const SCAN_DIRS = ['src', 'bin', 'test', 'bench'];
 // exact text rather than matched by a pattern — see the file header for
 // why. If this line ever changes or the incident is rewritten, this
 // allowance should be revisited alongside it, not silently widened.
+// Lines this scanner must not read as German prose, because they are
+// German being QUOTED rather than German being written.
+//
+// **Why an exact-substring list and not a "text in quotes is fine"
+// rule.** The loose rule would launder any German sentence somebody
+// puts in quotation marks, which is exactly the leak this guard exists
+// to stop. An entry here is a decision about one specific sentence, and
+// it has to be copied from the source, so it cannot grow by accident.
+//
+// The house rules below are shared vocabulary between the two
+// repositories and are deliberately kept in the original: translating
+// "leer-ist-kein-bestehen" into English would give the same invariant
+// two names, and then two houses would claim to share an id they no
+// longer share. Same reasoning as the invariant ids themselves.
 const KNOWN_VERBATIM_QUOTES = Object.freeze([
   '"Die FAKTEN-KRITISCH-Notiz erwähnt die Container `claude`,',
   '`diggi-tunnel`, `omniroute` […] die vollständige Datei unter',
+  // Shared house rules, quoted in the original (added 2026-09-20):
+  'leer-ist-kein-bestehen',
+  'nicht messbar ist nicht null',
+  'Nicht messbar ist nicht null',
+  'Ein Riegel, der Unschuldige meldet, wird abgeschaltet',
+  'Ein leerer Ordner ist messbar leer',
 ]);
 
 // The required dictionary from the task, plus real German function

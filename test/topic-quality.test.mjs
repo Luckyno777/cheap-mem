@@ -158,9 +158,16 @@ test('the doctor warns while every topic has exactly one entry', () => {
   } finally { rm(r); }
 });
 
-test('an empty memory is not sick, only empty', () => {
+test('an empty memory is not sick, only empty — and that is UNKNOWN, not GOOD', () => {
+  // The name of this test was right and the level was wrong. GOOD means
+  // "I checked and it is fine"; over zero assigned topics nothing was
+  // checked. UNKNOWN says exactly what the name says: not sick, not
+  // confirmed healthy, just empty. Changed 2026-09-20, wording kept —
+  // "no topics assigned yet" was already honest.
   const r = root();
   try {
-    assert.equal(doctor.checkTopicQuality(r).level, doctor.LEVEL.GOOD);
+    const f = doctor.checkTopicQuality(r);
+    assert.equal(f.level, doctor.LEVEL.UNKNOWN);
+    assert.match(f.text, /no topics assigned yet/);
   } finally { rm(r); }
 });

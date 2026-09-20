@@ -217,8 +217,11 @@ function checkDigestYield(root) {
   let open = new Set();
   try { open = new Set(raw.pending(root).open); } catch { /* no watermark */ }
   const digested = captures.filter((f) => !open.has(f));
+  // Denominator: digested captures. Zero digested is not zero gaps — it
+  // is nothing to divide by. `nothing to measure` was already honest
+  // about that; it just used to report it as a pass. leer-ist-kein-bestehen.
   if (digested.length === 0) {
-    return finding('digest-yield', LEVEL.GOOD, 'nothing digested yet — nothing to measure');
+    return finding('digest-yield', LEVEL.UNKNOWN, 'nothing digested yet — nothing to measure');
   }
   const referenced = new Set();
   let withOrigin = 0;
@@ -252,6 +255,12 @@ export function checkFactConflicts(root) {
   let facts = [];
   try { facts = memory.currentFacts(root); }
   catch { return finding('fact-conflicts', LEVEL.UNKNOWN, 'could not resolve timeline facts'); }
+  // Denominator: tracked facts. With none, "no conflicts" is not a clean
+  // bill of health — there was nothing to disagree about.
+  // The house rule, in the original: "nicht messbar ist nicht null".
+  if (facts.length === 0) {
+    return finding('fact-conflicts', LEVEL.UNKNOWN, 'no timeline facts recorded — nothing to check for conflicts');
+  }
   const clashes = facts.filter((f) => f.conflict);
   if (clashes.length === 0) {
     return finding('fact-conflicts', LEVEL.GOOD, `${facts.length} tracked facts, no conflicts`);
@@ -279,8 +288,11 @@ export function checkTopicQuality(root) {
   let q;
   try { q = memory.topicQuality(root); }
   catch { return finding('topic-quality', LEVEL.UNKNOWN, 'topics unreadable'); }
+  // Denominator: topics assigned at all. Zero topics means the ratio
+  // below has nothing to divide by — the text already said so
+  // honestly, it only used to grade that as a pass.
   if (q.topics === 0) {
-    return finding('topic-quality', LEVEL.GOOD, 'no topics assigned yet');
+    return finding('topic-quality', LEVEL.UNKNOWN, 'no topics assigned yet');
   }
   const parts = [`${q.topics} topics across ${q.areas} areas`,
     `${q.entriesPerTopic} entries per topic`];
@@ -350,7 +362,11 @@ export function checkDelivery(root) {
       + 'is a header with no blank line after it.');
   }
 
-  if (!messages.length) return finding('delivery', LEVEL.GOOD, 'drawer empty');
+  // Denominator: messages ever placed in the drawer. None means
+  // delivery was never exercised here, not that it is confirmed working.
+  if (!messages.length) {
+    return finding('delivery', LEVEL.UNKNOWN, 'no messages in the drawer — delivery is unexercised, not confirmed');
+  }
 
   const registered = new Set(agents.listAgents(root).map((a) => a.name));
   const senders = new Set(messages.map((m) => m.from).filter(Boolean));
@@ -404,6 +420,13 @@ export function checkOrphans(root) {
         }
       }
     }
+  }
+  // Denominator: correction/close/link pointers. None means there is
+  // nothing here that COULD dangle — "all resolve" over zero edges is
+  // not the same claim as "all resolve" over a real graph.
+  if (pointers.length === 0) {
+    return finding('orphans', LEVEL.UNKNOWN,
+      'no correction, close or link pointers exist yet — nothing to check for orphans');
   }
   const orphans = pointers.filter((p) => !ids.has(p.to));
   if (orphans.length === 0) {
@@ -564,6 +587,18 @@ function checkOrphanDrawers(root) {
   try { orphans = integrity.orphanJsonlFiles(root); }
   catch (e) { return finding('orphan-drawers', LEVEL.UNKNOWN, `could not scan global/ or projects/: ${e.message}`); }
   if (orphans.length === 0) {
+    // Denominator: entries actually written. `mem init` pre-creates the
+    // known .jsonl files empty, so counting FILES would call a fresh,
+    // untouched memory "scanned" — the stub files exist, nothing is in
+    // them. The real question this finding answers ("did anything get
+    // filed under a name nothing reads") only has an answer once
+    // something has been filed at all.
+    let entries = 0;
+    try { ({ entries } = integrity.scanIntegrity(root)); } catch { /* fall through to unknown below */ }
+    if (entries === 0) {
+      return finding('orphan-drawers', LEVEL.UNKNOWN,
+        'no entries in any log yet — nothing has been filed anywhere to check for orphans');
+    }
     return finding('orphan-drawers', LEVEL.GOOD, 'no .jsonl files outside the known types');
   }
   const names = orphans.map((o) => o.rel).slice(0, 5).join(', ')
@@ -620,8 +655,12 @@ function checkDigest(root) {
   if (!watermarkHere && !ledgerHere) {
     let count = 0;
     try { count = raw.listCaptures(root).length; } catch { /* no raw/ */ }
+    // Denominator: captures that exist to be pending. Zero captures is
+    // not the same fact as "checked, none pending" — no digest ever ran
+    // here, because there was nothing to run it against.
     if (count === 0) {
-      return finding('digest', LEVEL.GOOD, 'nothing pending');
+      return finding('digest', LEVEL.UNKNOWN,
+        'no captures exist in this clone — there is nothing to measure a digest backlog against');
     }
     const bell = raw.bellState(root);
     return finding('digest', LEVEL.UNKNOWN,
@@ -878,7 +917,9 @@ function checkLegacyLeaks(root) {
   let captures;
   try { captures = raw.listCaptures(root); }
   catch { return finding('legacy', LEVEL.UNKNOWN, 'raw material unreadable'); }
-  if (captures.length === 0) return finding('legacy', LEVEL.GOOD, 'no raw material');
+  // Denominator: captures to scan. None means the scan never ran, not
+  // that it ran clean.
+  if (captures.length === 0) return finding('legacy', LEVEL.UNKNOWN, 'no raw material');
 
   const CAP = 8 * 1024 * 1024;
   let read = 0;
@@ -1202,10 +1243,12 @@ export function checkEntryForm(root) {
   const TEXT_FIELDS = ['title', 'text', 'topic', 'choice', 'why', 'fact', 'summary'];
   const broken = [];
   let cap = null;
+  let total = 0;
 
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of Object.keys(memory.TYPES)) {
       const { entries, path: p } = memory.readLog(root, type, { project });
+      total += entries.length;
       const rel = path.relative(root, p);
       entries.forEach((e, i) => {
         if (!e || typeof e !== 'object' || e.__broken) return;
@@ -1236,6 +1279,13 @@ export function checkEntryForm(root) {
   // cap it may not belong to.
   const open = cap ? broken.filter((b) => !b.ts || b.ts > cap) : broken;
   const capped = broken.length - open.length;
+
+  // Denominator: entries to check the shape of. None means the shape
+  // was never examined — "no malformed entries" over an empty memory
+  // proves nothing about the write path.
+  if (total === 0) {
+    return finding('entry-form', LEVEL.UNKNOWN, 'no entries in any log — entry shape cannot be checked');
+  }
 
   if (!open.length) {
     const extra = capped
@@ -1304,11 +1354,40 @@ function timeFromCaptureName(name) {
   return Number.isNaN(ms) ? null : ms;
 }
 
+// Denominator: captures this memory has EVER recorded, drained or not —
+// `archive.records()` is the tracked, append-only ledger written on
+// every capture, so it survives a migrate that empties raw/ back out.
+// Has anything ever been captured into this memory?
+//
+// **Why this does NOT make the finding unknown (decided 2026-09-20).**
+// The first cut turned "empty and nothing ever captured" into UNKNOWN,
+// on the rule that `ok` over a zero count claims a check that did not
+// happen. The sister house pushed back with a better argument, written
+// into its own test months earlier — quoted here in the original:
+// "Ein leerer Ordner ist messbar leer, daraus ein UNBEKANNT zu machen waere ein falsches nicht messbar."
+//
+// It is right, and the difference is which question the finding asks.
+// This one asks "is anything piling up here?" — and an empty folder
+// answers it. The folder WAS inspected. What was wrong was never the
+// level; it was the sentence "the drain has taken everything", which
+// reports a drain that never ran.
+//
+// The other half of why GOOD is safe here: if captures stop arriving,
+// the silence is not this finding's to catch — `capture` says "no
+// captures at all" and warns. A finding that stays quiet because a
+// NEIGHBOUR speaks is not a finding that hides something. `topic-quality`
+// has no such neighbour, which is why that one really is unknown on an
+// empty memory.
+function everCaptured(root) {
+  try { return archive.records(root).length > 0; } catch { return false; }
+}
+
 export function checkArchiveBacklog(root, { env = process.env, now = Date.now() } = {}) {
   const dir = path.join(root, archive.DEFAULT_LOCATION);
   if (!fs.existsSync(dir)) {
     return finding('archive-backlog', LEVEL.GOOD,
-      `no ${archive.DEFAULT_LOCATION}/ in the clone — nothing is lying here`);
+      `no ${archive.DEFAULT_LOCATION}/ in the clone — nothing is lying here`
+      + (everCaptured(root) ? '' : ', and no capture has ever been recorded'));
   }
 
   // Only what REALLY lies here. The record travels with the repository
@@ -1337,8 +1416,13 @@ export function checkArchiveBacklog(root, { env = process.env, now = Date.now() 
   }
 
   if (count === 0) {
-    return finding('archive-backlog', LEVEL.GOOD,
-      `${archive.DEFAULT_LOCATION}/ is empty — the drain has taken everything`);
+    return finding('archive-backlog', LEVEL.GOOD, everCaptured(root)
+      ? `${archive.DEFAULT_LOCATION}/ is empty — the drain has taken everything`
+      // Not "the drain has taken everything": nothing ever arrived for
+      // one to take, and claiming a successful drain there is the
+      // sentence this finding was corrected for.
+      : `${archive.DEFAULT_LOCATION}/ is empty, and no capture has ever been recorded — `
+        + 'nothing is lying here because nothing has arrived, not because a drain ran');
   }
 
   const mb = (bytes / 1048576).toFixed(1);

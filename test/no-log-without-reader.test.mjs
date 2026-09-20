@@ -129,13 +129,43 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   // fastest way to teach everyone to ignore the guard.
   const code = (t) => t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
 
+  // **A log persists. A probe deletes itself. (2026-09-20)**
+  //
+  // `src/environment.mjs` started appending for real this day: the
+  // append-atomicity check has several writers append marker lines to
+  // one file and then looks for torn ones. It landed here as "a module
+  // that appends and cannot be reached", and that is the wrong reading
+  // — this file lives in a directory the module creates with `mkdtemp`
+  // and removes in a `finally`. Nothing grows, so there is nothing to
+  // show, so the rule does not apply.
+  //
+  // Second time this guard has flagged this module; the first was a
+  // MENTION in a comment on 2026-09-19. Both times the defect was in
+  // the classifier, not in the module — and a guard that keeps
+  // reporting the innocent is the fastest way to teach everyone to
+  // ignore it.
+  //
+  // Structural, not a name list: a module qualifies only if it BOTH
+  // creates a throwaway directory and removes one. A module that
+  // appends to a path it keeps still lands in `appending`, whatever it
+  // is called.
+  const selfCleaning = (t) => /mkdtempSync?\(/.test(t) && /rmSync\(|\brm\(/.test(t);
+
   const appending = [];
+  const probesOnly = [];
   for (const f of src) {
     const t = fs.readFileSync(path.join(ROOT, 'src', f), 'utf8');
-    if (/appendFileSync|appendFile\(/.test(code(t))) appending.push([f, t]);
+    if (!/appendFileSync|appendFile\(/.test(code(t))) continue;
+    if (selfCleaning(code(t))) { probesOnly.push(f); continue; }
+    appending.push([f, t]);
   }
   assert.ok(appending.length >= 5,
     `only ${appending.length} appending modules found — the probe scans the wrong place`);
+  // The carve-out must stay small and named. If it starts absorbing
+  // modules, the rule has quietly stopped applying to the house.
+  assert.ok(probesOnly.length <= 2,
+    `${probesOnly.length} modules were excused as self-cleaning probes (${probesOnly.join(', ')}). `
+    + 'That is no longer a carve-out, it is a hole.');
 
   const unreachable = [];
   for (const [f, t] of appending) {
@@ -147,4 +177,26 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   assert.deepEqual(unreachable, [],
     'These modules append lines to disk and nothing in bin/ calls into them. '
     + 'A log nobody can reach is a file that grows, not an audit trail.');
+});
+
+test('COUNTER-PROBE: the self-cleaning carve-out does not excuse a real log', () => {
+  // Without this, `selfCleaning` could be widened until every appending
+  // module slips through and the guarantee above passes forever.
+  const selfCleaning = (t) => /mkdtempSync?\(/.test(t) && /rmSync\(|\brm\(/.test(t);
+
+  // A real ledger: appends to a path it keeps, never cleans up.
+  const echterLog = 'fs.appendFileSync(ledgerPath(root), line);';
+  assert.equal(selfCleaning(echterLog), false,
+    'a module that only appends was excused as a probe');
+
+  // A ledger that happens to delete something ELSE is still a ledger:
+  // both halves are required, and the temp-dir half is the load-bearing
+  // one.
+  const logMitAufraeumen = 'fs.appendFileSync(ledgerPath(root), line);\nfs.rmSync(oldBackup);';
+  assert.equal(selfCleaning(logMitAufraeumen), false,
+    'deleting something unrelated turned a ledger into a probe');
+
+  // And the shape that IS a probe.
+  const sonde = 'const dir = fs.mkdtempSync(p);\nfs.appendFileSync(f, l);\nfs.rmSync(dir, { recursive: true });';
+  assert.equal(selfCleaning(sonde), true, 'a self-cleaning probe was not recognised');
 });

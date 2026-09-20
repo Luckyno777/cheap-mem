@@ -64,10 +64,14 @@ function putCapture(root, name) {
   return rel;
 }
 
-test('digest yield: nothing digested yet is GOOD (nothing to measure)', () => {
+test('digest yield: nothing digested yet is UNKNOWN (nothing to measure)', () => {
+  // The wording was honest all along — "nothing digested yet — nothing
+  // to measure" — and the level contradicted it. Only the level moved
+  // (2026-09-20); the text is deliberately unchanged, because it was
+  // already saying the right thing.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-yield-'));
   const b = findFinding(doctor.checkAll(root), 'digest-yield');
-  assert.equal(b.level, 'good');
+  assert.equal(b.level, 'unknown');
   assert.match(b.text, /nothing to measure/);
 });
 
