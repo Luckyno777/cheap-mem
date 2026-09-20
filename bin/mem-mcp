@@ -775,7 +775,15 @@ async function handleCall(name, args) {
       const p = String(args.path ?? '').trim();
       if (!p) throw new Error('path missing');
       const top = Math.min(25, Math.max(1, Number(args.top) || 8));
-      const hits = component.find(root, p, {});
+      // issue #136: `component.find` -> `memory.find` now requires a real
+      // Capability. `mem_component`'s own tool schema has no `project`
+      // argument — it never has — so unlike `mem_find`/`mem_explain` there
+      // is no narrower value to mint from; the capability an MCP session
+      // "actually holds" here is the same full reach this tool always
+      // read with. Named explicitly so a later `project` argument, if one
+      // is ever added to the schema, is an obvious two-line change here
+      // rather than a silent widening of what looks unscoped today.
+      const hits = component.find(root, p, capability.grantAll('mcp'));
       if (!hits.length) {
         return textResult(`Nothing about '${p}'. Asked for: ${component.forms(p).join(', ')}`);
       }
@@ -982,21 +990,23 @@ async function handleCall(name, args) {
 
       if (literal) {
         const types = type ? [type] : Object.keys(memory.TYPES);
-        // P13 wiring: `memory.find` has no Capability parameter (it is
-        // off limits for this change — see the P13 brief), so the
-        // lattice-aware answer is reached the only way available here:
-        // by choosing WHICH drawers get read. A real project name reads
-        // that project's drawer PLUS `global` (global is the lattice
-        // root, inherited by every project — see `capability.mjs`'s
-        // `admits()`), matching what `capability.grantProject` would
-        // admit if this call could take one. `--project global` keeps
-        // its old, narrower meaning: the global drawer only, nothing
-        // inherited from it. No `--project` at all: every drawer,
-        // unchanged.
-        const projects = project
-          ? (project === 'global' ? [null] : [null, project])
-          : null;
-        const hits = memory.find(root, q, { types, projects, since: s });
+        // issue #136: `memory.find` now requires a real Capability
+        // instead of a hand-built drawer list, minted the same way
+        // `mem_retrieve`/`mem_explain`/the ranked branch below already
+        // do. A real project name -> `grantProject` (which also admits
+        // `global`, the lattice root every capability with read
+        // inherits — see `capability.mjs`'s `admits()` — so this no
+        // longer has to spell out "PLUS global" by hand). `project:
+        // "global"` mints `grantProject('global')`: no document is ever
+        // filed under a project literally named "global", so only the
+        // universal global-inheritance rule lets anything through —
+        // its old, narrower meaning survives as a side effect of the
+        // SAME rule, not a second one. No `project` at all: `grantAll`,
+        // every drawer, unchanged.
+        const literalCapability = project
+          ? capability.grantProject(project, { subject: 'mcp' })
+          : capability.grantAll('mcp');
+        const hits = memory.find(root, q, literalCapability, { types, since: s });
         if (!hits.length) return textResult(`No literal hits for '${q}'.`);
         return textResult(hits.slice(0, 50).map((h) =>
           `${h._source}:${h._line}  [${h.ts ?? '?'}]  ${shortLine(h)}`).join('\n'));

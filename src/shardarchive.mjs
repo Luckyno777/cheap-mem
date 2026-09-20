@@ -70,6 +70,7 @@ import path from 'node:path';
 import { randomBytes } from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as archive from './archive.mjs';
+import * as capability from './capability.mjs';
 import { LEVEL } from './doctor.mjs';
 import { appendLine } from './append.mjs';
 
@@ -308,9 +309,19 @@ export function archiveStatus(root) {
  * `notice` says plainly that the answer may be incomplete, how many
  * archived entries could not be checked, and where to look
  * (`archive-manifest.jsonl`) to find out which ones.
+ *
+ * **Not wired to any CLI or MCP entry point today** — confirmed by
+ * grepping every caller of this file's exports; only its own test
+ * suite calls it. Kept working rather than deleted, since the archive
+ * feature it belongs to (P10-adjacent) is real, but that also means
+ * nothing external has ever asked it for a narrower scope. `memory.find`
+ * now requires a Capability (issue #136); this always-full-reach helper
+ * mints its own full grant the same way `viewer.collect`/
+ * `broadcast.recipients` do, rather than growing a parameter no caller
+ * — real or in this file's own tests — has ever used.
  */
 export function findWithArchiveNotice(root, pattern, opts = {}) {
-  const liveHits = memory.find(root, pattern, opts);
+  const liveHits = memory.find(root, pattern, capability.grantAll('shardarchive'), opts);
   const status = archiveStatus(root);
 
   if (status.archivedCount === 0) {

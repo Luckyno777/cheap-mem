@@ -38,6 +38,7 @@
 
 import path from 'node:path';
 import * as memory from './memory.mjs';
+import * as capability from './capability.mjs';
 import * as agentsModule from './agents.mjs';
 import * as storeModule from './store.mjs';
 import * as procedure from './procedure.mjs';
@@ -304,10 +305,20 @@ export function collectAll(roots, { names = null } = {}) {
 }
 
 export function collect(root) {
+  // issue #136: `memory.find` now requires a Capability. The viewer has
+  // never taken a scope argument of its own — `mem viewer`/`mem-serve`
+  // hand it a root and get back the WHOLE memory, by design (it is a
+  // local, single-owner tool: a file you open yourself, or a
+  // token-gated page that only ever shows the whole thing to whoever
+  // holds the token). So the grant is minted right here, explicit and
+  // full, rather than added as a parameter every caller would then have
+  // to pass identically — there is no narrower value any caller of this
+  // function has ever legitimately wanted.
+  const viewerCapability = capability.grantAll('viewer');
   // withRetired: the viewer shows the WHOLE history — done/discarded/
   // superseded too, just marked. Everyday recall hides the same ones;
   // here, rummaging, you want them.
-  const all = memory.find(root, '', { withRetired: true });
+  const all = memory.find(root, '', viewerCapability, { withRetired: true });
   const rows = all.map((e) => {
     const type = typeOfEntry(e);
     const project = projectOfEntry(e);

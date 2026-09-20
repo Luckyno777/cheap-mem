@@ -23,6 +23,7 @@ import { execFileSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
 import * as archive from '../src/archive.mjs';
 import * as cfg from '../src/config.mjs';
+import * as capability from '../src/capability.mjs';
 import * as shardarchive from '../src/shardarchive.mjs';
 import { buildCorpus } from '../bench/atlas/core.mjs';
 
@@ -90,7 +91,7 @@ test('POSITIVE CONTROL: findWithArchiveNotice matches memory.find with no notice
   seedLearnings(root, 5);
   shardarchive.archiveOldest(root, 'learning', { count: 3 });
 
-  const direct = memory.find(root, 'step 0');
+  const direct = memory.find(root, 'step 0', capability.grantAll('test'));
   const wrapped = shardarchive.findWithArchiveNotice(root, 'step 0');
   assert.equal(wrapped.notice, null);
   assert.equal(wrapped.state, shardarchive.PASS);

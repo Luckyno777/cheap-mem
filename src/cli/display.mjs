@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import * as memory from '../memory.mjs';
 import * as retrieval from '../retrieval.mjs';
 import * as timesearch from '../timesearch.mjs';
+import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
 import { out, die, checkFlags, isHelp, findRoot, requireConfig } from './shell.mjs';
@@ -95,9 +96,16 @@ export function sinceOf(s) {
 export function showWindow(root, query, window, args, { asOf = null } = {}) {
   const t0 = Date.now();
   const words = timesearch.keywordsOf(query);
-  const project = args.project && args.project !== 'global' ? args.project : null;
-  const all = timesearch.entriesInWindow(root, {
-    from: window.from, to: window.to, project, words,
+  // issue #136: the same capability every other scoped lane mints from
+  // `--project` (`mem find`, `mem retrieve`, `mem component`) — see
+  // `timesearch.entriesInWindow`'s doc comment for the disagreement this
+  // replaces (a bare project name used to see LESS here than everywhere
+  // else: no `global`).
+  const windowCapability = args.project
+    ? capability.grantProject(String(args.project), { subject: 'cli' })
+    : capability.grantAll('cli');
+  const all = timesearch.entriesInWindow(root, windowCapability, {
+    from: window.from, to: window.to, words,
   });
   // **The time-window lane filters too.** Two different times, and they
   // do not clash: the window says WHEN something was written down,

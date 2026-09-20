@@ -224,10 +224,25 @@ test('P13 MCP-mem_find(ranked) SABOTAGE: removing the capability wiring drops gl
 
 // =========================================================================
 // LANE: MCP `mem_find`, literal branch — routes through memory.find(),
-// which takes no Capability (memory.mjs is off limits for P13), so the
-// lattice-aware answer is reached by choosing which drawers get read:
-// a real project now reads [global, that project] instead of [that
-// project] alone.
+// which as of issue #136 REQUIRES a Capability. This branch mints one
+// from `project` the same way `mem_retrieve`/`mem_explain`/the ranked
+// branch below already do (`grantProject(project)` — which also admits
+// `global`, the lattice root every capability with read inherits — or
+// `grantAll()` with no project).
+//
+// **Why the sabotage is a LEAK probe now, not a "global vanishes" one.**
+// Before issue #136, "does a project capability also see global" was
+// decided independently in each of these four lanes, by hand, and the
+// probe that mattered was: revert this lane's own copy of that rule and
+// watch global disappear from an alpha-scoped query. Now that rule lives
+// in exactly one place — `Capability#admits`, consulted by
+// `memory.find` itself — so reverting it here cannot make global vanish
+// any more; it isn't decided here. What CAN still go wrong here is
+// simpler and, for this specific call site, more serious: forgetting to
+// mint a project-scoped capability at all, and handing `memory.find` the
+// everything-capability regardless of what the caller asked for. That
+// sabotage is checked directly: a foreign project (`beta`) leaks into an
+// alpha-scoped query.
 // =========================================================================
 
 test('P13 MCP-mem_find(literal): project argument now also returns global, never a foreign project', () => {
@@ -241,34 +256,38 @@ test('P13 MCP-mem_find(literal): project argument now also returns global, never
   } finally { cleanup(root); }
 });
 
-test('P13 MCP-mem_find(literal) SABOTAGE: reverting the drawer selection drops global (RED), restore brings it back (GREEN)', () => {
+test('P13 MCP-mem_find(literal) SABOTAGE: minting grantAll regardless of project leaks a foreign project (RED), restore brings the boundary back (GREEN)', () => {
   const root = buildLatticeCorpus();
   try {
     const [before] = mcpBridge(root, [['mem_find', { query: TOKEN, project: 'alpha', literal: true, top: 50 }]]);
-    assert.ok(mcpText(before).includes('shared setup note'), 'sanity: wired lane should see global entries');
+    assert.ok(!mcpText(before).includes('beta-only'), 'sanity: wired lane should not leak beta');
 
     const [afterReply] = withSabotage(
       MCP_FILE,
       (src) => src.replace(
-        "const projects = project\n          ? (project === 'global' ? [null] : [null, project])\n          : null;",
-        "const projects = project ? [project === 'global' ? null : project] : null;",
+        "const literalCapability = project\n          ? capability.grantProject(project, { subject: 'mcp' })\n          : capability.grantAll('mcp');",
+        "const literalCapability = capability.grantAll('mcp');",
       ),
       () => mcpBridge(root, [['mem_find', { query: TOKEN, project: 'alpha', literal: true, top: 50 }]]),
     );
     const afterText = mcpText(afterReply);
-    assert.ok(!afterText.includes('shared setup note'),
-      `SABOTAGE DID NOT FLIP RED: global entries still reached MCP mem_find(literal) with the old drawer selection: ${afterText.slice(0, 200)}`);
-    assert.ok(afterText.includes('alpha-only step'), 'sabotage broke more than the drawer selection — alpha lost its own entries too');
+    assert.ok(afterText.includes('beta-only'),
+      `SABOTAGE DID NOT FLIP RED: beta still did not leak into MCP mem_find(literal) with the capability wiring removed: ${afterText.slice(0, 200)}`);
+    assert.ok(afterText.includes('alpha-only step'), 'sabotage broke more than the wiring — alpha lost its own entries too');
 
     const [restored] = mcpBridge(root, [['mem_find', { query: TOKEN, project: 'alpha', literal: true, top: 50 }]]);
-    assert.ok(mcpText(restored).includes('shared setup note'), 'GREEN after restore: global entries should be back');
+    assert.ok(!mcpText(restored).includes('beta-only'), 'GREEN after restore: beta should no longer leak');
   } finally { cleanup(root); }
 });
 
 // =========================================================================
 // LANE: CLI `mem component` — routes through component.find() ->
-// memory.find(), same constraint as the MCP literal branch above:
-// wired by choosing drawers, in src/cli/commands/setup.mjs.
+// memory.find(), which as of issue #136 requires a Capability, minted in
+// src/cli/commands/setup.mjs the same way `mem retrieve` already does.
+// See the MCP-literal lane above for why the sabotage here is a LEAK
+// probe (a foreign project reaching an alpha-scoped query) rather than a
+// "global vanishes" one: global inheritance is decided once now, in
+// `Capability#admits`, not re-derived per lane.
 // =========================================================================
 
 test('P13 CLI-component: --project alpha now also returns global, never beta', () => {
@@ -291,7 +310,7 @@ test('P13 CLI-component: --project alpha now also returns global, never beta', (
   } finally { cleanup(root); }
 });
 
-test('P13 CLI-component SABOTAGE: reverting the drawer selection drops global (RED), restore brings it back (GREEN)', () => {
+test('P13 CLI-component SABOTAGE: minting grantAll regardless of --project leaks a foreign project (RED), restore brings the boundary back (GREEN)', () => {
   const root = buildLatticeCorpus();
   const componentPath = `src/${TOKEN}-sabotage-component.mjs`;
   try {
@@ -300,30 +319,32 @@ test('P13 CLI-component SABOTAGE: reverting the drawer selection drops global (R
       '--text', `mentions ${componentPath}`]);
     runMem(root, ['log', 'error', '--project', 'alpha', '--class', 'redteam-probe',
       '--title', `${TOKEN} alpha note about ${componentPath}`, '--text', `alpha touches ${componentPath}`]);
+    runMem(root, ['log', 'error', '--project', 'beta', '--class', 'redteam-probe',
+      '--title', `${TOKEN} beta note about ${componentPath}`, '--text', `beta touches ${componentPath}`]);
 
     const before = memJson(root, ['component', componentPath, '--project', 'alpha']);
-    assert.ok(JSON.stringify(before).includes('shared note'), 'sanity: wired lane should see the global entry');
+    assert.ok(!JSON.stringify(before).includes('beta note'), 'sanity: wired lane should not leak beta');
 
     const after = withSabotage(
       CLI_SETUP_FILE,
       (src) => src.replace(
-        "const projects = args.project\n      ? (args.project === 'global' ? [null] : [null, args.project])\n      : null;",
-        "const projects = args.project ? [args.project === 'global' ? null : args.project] : null;",
+        "const cap = args.project\n      ? capability.grantProject(String(args.project), { subject: 'cli' })\n      : capability.grantAll('cli');",
+        "const cap = capability.grantAll('cli');",
       ),
       () => memJson(root, ['component', componentPath, '--project', 'alpha']),
     );
     const afterText = JSON.stringify(after);
-    assert.ok(!afterText.includes('shared note'),
-      `SABOTAGE DID NOT FLIP RED: the global entry still reached mem component with the old drawer selection: ${afterText.slice(0, 300)}`);
-    assert.ok(afterText.includes('alpha note'), 'sabotage broke more than the drawer selection — alpha lost its own entry too');
+    assert.ok(afterText.includes('beta note'),
+      `SABOTAGE DID NOT FLIP RED: beta still did not leak into mem component with the capability wiring removed: ${afterText.slice(0, 300)}`);
+    assert.ok(afterText.includes('alpha note'), 'sabotage broke more than the wiring — alpha lost its own entry too');
 
     const restored = memJson(root, ['component', componentPath, '--project', 'alpha']);
-    assert.ok(JSON.stringify(restored).includes('shared note'), 'GREEN after restore: the global entry should be back');
+    assert.ok(!JSON.stringify(restored).includes('beta note'), 'GREEN after restore: beta should no longer leak');
   } finally { cleanup(root); }
 });
 
 // =========================================================================
-// LANE: CLI `mem find --literal` — the fourth lane, and the one this
+// LANE: CLI `mem find --literal` — the fourth lane, and the one the P13
 // build point first MISSED.
 //
 // **Measured 2026-09-20, after the other three lanes were wired and
@@ -336,9 +357,15 @@ test('P13 CLI-component SABOTAGE: reverting the drawer selection drops global (R
 //   mem_find {q, project:"beta", literal:true} -> 4 rows, global + beta
 //
 // Neither door leaked, so every leak probe in
-// `test/scope-lattice-redteam.test.mjs` stayed green through it. That is
-// the `two-truths` class, and it is why this lane now has both a probe
-// here and a door-parity probe over there.
+// `test/scope-lattice-redteam.test.mjs` stayed green through it. That was
+// the `two-truths` class this parameter (issue #136) exists to end: this
+// lane, like the other three, now mints a Capability via
+// `capability.grantProject`/`grantAll` and hands it to `memory.find`,
+// which is the only place left that decides what a scope admits. See the
+// MCP-literal lane above for why the sabotage below checks for a LEAK
+// (a foreign project reaching an alpha-scoped query) instead of "global
+// vanishes" — that second failure mode is no longer reachable from this
+// call site at all, since it is not decided here any more.
 // =========================================================================
 
 test('P13 CLI-find(--literal): --project alpha now also returns global, never beta', () => {
@@ -361,29 +388,29 @@ test('P13 CLI-find(--literal): --project alpha now also returns global, never be
   } finally { cleanup(root); }
 });
 
-test('P13 CLI-find(--literal) SABOTAGE: reverting the drawer selection drops global (RED), restore brings it back (GREEN)', () => {
+test('P13 CLI-find(--literal) SABOTAGE: minting grantAll regardless of --project leaks a foreign project (RED), restore brings the boundary back (GREEN)', () => {
   const root = buildLatticeCorpus();
   try {
     const before = memJson(root, ['find', TOKEN, '--literal', '--project', 'alpha', '--top', '50']);
-    assert.ok(JSON.stringify(before.hits).includes('shared setup note'),
-      'sanity: wired lane should see global entries');
+    assert.ok(!JSON.stringify(before.hits).includes('beta-only'),
+      'sanity: wired lane should not leak beta');
 
     const after = withSabotage(
       CLI_SEARCH_FILE,
       (src) => src.replace(
-        "      const projects = args.project\n        ? (args.project === 'global' ? [null] : [null, args.project])\n        : null;",
-        "      const projects = args.project ? [args.project === 'global' ? null : args.project] : null;",
+        "      const literalCapability = args.project\n        ? capability.grantProject(String(args.project), { subject: 'cli' })\n        : capability.grantAll('cli');",
+        "      const literalCapability = capability.grantAll('cli');",
       ),
       () => memJson(root, ['find', TOKEN, '--literal', '--project', 'alpha', '--top', '50']),
     );
     const afterText = JSON.stringify(after.hits);
-    assert.ok(!afterText.includes('shared setup note'),
-      `SABOTAGE DID NOT FLIP RED: global entries still reached the CLI literal lane with the old drawer selection: ${afterText.slice(0, 300)}`);
+    assert.ok(afterText.includes('beta-only'),
+      `SABOTAGE DID NOT FLIP RED: beta still did not leak into the CLI literal lane with the capability wiring removed: ${afterText.slice(0, 300)}`);
     assert.ok(afterText.includes('alpha-only step'),
-      'sabotage broke more than the drawer selection — alpha lost its own entries too');
+      'sabotage broke more than the wiring — alpha lost its own entries too');
 
     const restored = memJson(root, ['find', TOKEN, '--literal', '--project', 'alpha', '--top', '50']);
-    assert.ok(JSON.stringify(restored.hits).includes('shared setup note'),
-      'GREEN after restore: global entries should be back');
+    assert.ok(!JSON.stringify(restored.hits).includes('beta-only'),
+      'GREEN after restore: beta should no longer leak');
   } finally { cleanup(root); }
 });

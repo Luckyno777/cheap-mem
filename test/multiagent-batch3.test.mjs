@@ -26,6 +26,7 @@ import * as neighbours from '../src/neighbours.mjs';
 import * as onboarding from '../src/onboarding.mjs';
 import * as source from '../src/source.mjs';
 import * as component from '../src/component.mjs';
+import * as capability from '../src/capability.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -314,9 +315,10 @@ test('THE PURPOSE: the second form fetches the missed entries', () => {
     memory.logEntry(w, 'error', { class: 'b', title: 'capture.sh catches nothing' });
     memory.logEntry(w, 'error', { class: 'c', title: 'and capture.sh again' });
 
-    assert.equal(memory.find(w, 'bin/capture.sh', {}).length, 1,
+    const cap = capability.grantAll('test');
+    assert.equal(memory.find(w, 'bin/capture.sh', cap).length, 1,
       'the precondition of this test does not hold');
-    const wide = component.find(w, 'bin/capture.sh', {});
+    const wide = component.find(w, 'bin/capture.sh', cap);
     assert.equal(wide.length, 3, 'the second form fetches nothing');
     assert.equal(wide.filter((e) => e._form === 'exact').length, 1);
     assert.equal(wide.filter((e) => e._form === 'base').length, 2);
@@ -328,7 +330,7 @@ test('and NOT the entries of a same-named other file', () => {
   try {
     memory.logEntry(w, 'error', { class: 'a', title: 'global/events.jsonl is broken' });
     memory.logEntry(w, 'error', { class: 'b', title: 'projects/x/events.jsonl too' });
-    const hits = component.find(w, 'global/events.jsonl', {});
+    const hits = component.find(w, 'global/events.jsonl', capability.grantAll('test'));
     assert.equal(hits.length, 1, `confused: ${hits.map((e) => e.title).join(' | ')}`);
     assert.match(hits[0].title, /global/);
   } finally { fs.rmSync(w, { recursive: true, force: true }); }
@@ -338,7 +340,7 @@ test('each entry appears ONCE, with the narrower form', () => {
   const w = world();
   try {
     memory.logEntry(w, 'error', { class: 'a', title: 'bin/mem.sh and mem.sh in one entry' });
-    const hits = component.find(w, 'bin/mem.sh', {});
+    const hits = component.find(w, 'bin/mem.sh', capability.grantAll('test'));
     assert.equal(hits.length, 1);
     assert.equal(hits[0]._form, 'exact', 'the weaker evidence won');
   } finally { fs.rmSync(w, { recursive: true, force: true }); }

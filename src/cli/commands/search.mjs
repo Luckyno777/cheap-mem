@@ -104,26 +104,30 @@ export const COMMANDS = {
 
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
-      // P13 wiring, the CLI half. `memory.find` takes no Capability (it
-      // is off limits for this change), so the lattice-aware answer is
-      // reached the only way available here: by choosing WHICH drawers
-      // get read. A real project name reads that project's drawer PLUS
-      // `global`, because global is the lattice ROOT that every scope
-      // inherits (see `capability.mjs`'s `admits()`), not a sibling a
-      // project search may leave out. `--project global` keeps its
-      // narrower, literal meaning: the global drawer only. No
-      // `--project`: every drawer, unchanged.
+      // issue #136: `memory.find` now requires a real Capability instead
+      // of a hand-built drawer list. Minted exactly the way `mem
+      // retrieve`/the ranked branch below already do: a real project
+      // name -> `grantProject` (which also admits `global`, the lattice
+      // ROOT every capability with read inherits — see `capability.mjs`'s
+      // `admits()` — so nothing here has to spell out "PLUS global" by
+      // hand any more). `--project global` mints `grantProject('global')`:
+      // no document is ever filed under a project literally named
+      // "global", so that capability's own scope never matches anything
+      // and only the universal global-inheritance rule lets the global
+      // drawer through — its narrower, literal meaning is preserved as a
+      // side effect of the SAME rule, not a second one. No `--project`:
+      // `grantAll`, every drawer, unchanged.
       //
-      // Measured before this line existed (2026-09-20): `mem find X
-      // --literal --project beta` returned beta only, while the SAME
-      // question asked through the MCP bridge (`mem_find`, literal:true,
-      // project:"beta") returned global AND beta. One lane, two answers,
-      // depending on which door you came through. That is the
-      // `two-truths` class, and it is why this lane is spelled here
-      // identically to `bin/mem-mcp`'s literal branch.
-      const projects = args.project
-        ? (args.project === 'global' ? [null] : [null, args.project])
-        : null;
+      // Until 2026-09-20 this lane built its own `[null, project]` list
+      // by hand, and `bin/mem-mcp`'s literal branch built a DIFFERENT
+      // one (`mem find X --literal --project beta` returned beta only,
+      // `mem_find` with the same arguments returned global AND beta) —
+      // the exact `two-truths` class this parameter exists to end: one
+      // rule, in `capability.mjs`, instead of one hand-rolled copy per
+      // lane.
+      const literalCapability = args.project
+        ? capability.grantProject(String(args.project), { subject: 'cli' })
+        : capability.grantAll('cli');
       const withRetiredFlag = Boolean(args['with-retired']);
       // `--as-of` opens the retired gate at the CANDIDATE stage too — a
       // superseded entry has to reach `validAt` before it can be judged
@@ -132,8 +136,8 @@ export const COMMANDS = {
       // keeps `done`/`discarded`/`obsolete`/`disputed` out unless
       // `--with-retired` was actually asked for — `--as-of` was never a
       // request to see those.
-      const allHits = memory.find(root, query, {
-        types, projects, since, withRetired: withRetiredFlag || Boolean(asOf),
+      const allHits = memory.find(root, query, literalCapability, {
+        types, since, withRetired: withRetiredFlag || Boolean(asOf),
       });
       // Here too, not only in the ranked lane. `--literal --as-of` must
       // mean the same as `--as-of` alone, or the answer to "what held

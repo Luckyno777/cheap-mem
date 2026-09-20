@@ -31,14 +31,31 @@ export function keywordsOf(query) {
 }
 
 /**
- * Digested entries in [from, to), chronological. Optional narrowing by project
- * and by subject words.
+ * Digested entries in [from, to), chronological. Optional narrowing by
+ * subject words.
+ *
+ * **`capability`, required (issue #136).** Which projects this can see is
+ * decided entirely by `capability` now, handed straight to `memory.find`
+ * — there used to be a `project` option here too, translated by hand into
+ * `[project === 'global' ? null : project]`, and it was NARROWER than the
+ * lattice: a real project name saw only that project, never `global`,
+ * unlike every other scoped lane (`mem find`, `mem retrieve`, `mem
+ * component`), which all read that project's drawer PLUS `global` — the
+ * lattice root every capability with read inherits (`capability.mjs`'s
+ * `admits()`). That made `mem find "<time phrase>" --project X` and `mem
+ * when ... --project X` answer with LESS than `mem find X --literal
+ * --project X` did, for the same memory, same project, same everything
+ * except which lane happened to run — a live disagreement, found while
+ * wiring this parameter, not introduced by it. Passing a capability
+ * instead of a hand-rolled project list fixes it as a side effect: the
+ * caller (`cli/display.mjs`'s `showWindow`) mints the SAME capability
+ * every other lane mints from `--project`, and `memory.find` alone
+ * decides what that admits.
  */
-export function entriesInWindow(root, {
-  from, to, project = null, words = [],
+export function entriesInWindow(root, capability, {
+  from, to, words = [],
 } = {}) {
-  const projects = project ? [project === 'global' ? null : project] : null;
-  const all = find(root, '', { projects, since: from || null, withRetired: true });
+  const all = find(root, '', capability, { since: from || null, withRetired: true });
   const fMs = from ? new Date(from).getTime() : -Infinity;
   const tMs = to ? new Date(to).getTime() : Infinity;
   const w = words.map((x) => x.toLowerCase());

@@ -273,11 +273,13 @@ test('path: memory.find — a substring search for the plaintext finds nothing o
     // Before shredding, the CIPHERTEXT gives find() nothing either — the
     // secret was never in the clear on disk even for a split second, so
     // this is not "find only fails after deletion", it never had it.
-    assert.equal(memory.find(r, SECRET).length, 0, 'find matched a substring that was never written in the clear');
+    assert.equal(memory.find(r, SECRET, caps.grantAll()).length, 0,
+      'find matched a substring that was never written in the clear');
     memory.shredEntry(r, 'decision', a.id, { project: 'p', reason: 'x' });
-    assert.equal(memory.find(r, SECRET).length, 0, 'find still must not match after shredding');
+    assert.equal(memory.find(r, SECRET, caps.grantAll()).length, 0, 'find still must not match after shredding');
     // Counter-probe: find CAN still see the entry by its unencrypted id.
-    assert.ok(memory.find(r, a.id).some((h) => h.id === a.id), 'find lost the ability to see the entry at all');
+    assert.ok(memory.find(r, a.id, caps.grantAll()).some((h) => h.id === a.id),
+      'find lost the ability to see the entry at all');
   } finally { away(r); }
 });
 

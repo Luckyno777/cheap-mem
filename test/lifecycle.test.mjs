@@ -5,6 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
+import * as capability from '../src/capability.mjs';
+
+const FULL = capability.grantAll('test');
 
 function tmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-life-'));
@@ -61,8 +64,8 @@ test('memory.find hides retired by default', () => {
   const root = tmp();
   const { entry } = memory.logEntry(root, 'thought', { text: 'thesaurus as sqlite' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded' });
-  assert.equal(memory.find(root, 'thesaurus', {}).length, 0);
-  const withR = memory.find(root, 'thesaurus', { withRetired: true });
+  assert.equal(memory.find(root, 'thesaurus', FULL).length, 0);
+  const withR = memory.find(root, 'thesaurus', FULL, { withRetired: true });
   assert.equal(withR.length, 1);
   assert.equal(withR[0]._retired.state, 'discarded');
 });
@@ -71,7 +74,7 @@ test('memory.find never returns tombstone lines', () => {
   const root = tmp();
   const { entry } = memory.logEntry(root, 'thought', { text: 'whatever' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded', why: 'thesaurus-reason' });
-  assert.equal(memory.find(root, 'thesaurus-reason', { withRetired: true }).length, 0);
+  assert.equal(memory.find(root, 'thesaurus-reason', FULL, { withRetired: true }).length, 0);
 });
 
 test('BM25 search hides retired, --with-retired brings it back', () => {

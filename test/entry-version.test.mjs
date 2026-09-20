@@ -22,21 +22,35 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 
-const SRC = new URL('../src/', import.meta.url).pathname;
+// `fileURLToPath`, not `.pathname`: on Windows a file URL's pathname
+// is `/C:/...`, with a leading slash that no filesystem call accepts.
+// test/windows-paths.test.mjs guards exactly this and had been red on
+// this line.
+const SRC = fileURLToPath(new URL('../src/', import.meta.url));
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-ver-'));
 }
 
 // memory.mjs's whole dependency closure (checked by grepping every
-// `^import` in each file): freshness/authority/bidi/append have none of
-// their own, config.mjs imports agents.mjs, agents.mjs imports only node
-// builtins. All six live flat in src/, so copying them flat keeps
-// every relative `./x.mjs` import resolving unchanged.
-const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs', 'append.mjs'];
+// `^import` in each file): freshness/authority/bidi/append/capability
+// have none of their own, config.mjs imports agents.mjs, agents.mjs
+// imports only node builtins. All seven live flat in src/, so copying
+// them flat keeps every relative `./x.mjs` import resolving unchanged.
+//
+// `capability.mjs` joined this list on 2026-09-20 (issue #136,
+// `memory.find`'s new required capability parameter): it is a leaf too
+// — no imports of its own, same as freshness/authority/bidi/append —
+// so it gets the same static-import treatment as those, not the
+// tolerant top-level `await import()` that `chain.mjs`/`shred.mjs` use
+// just above in memory.mjs. That tolerant path exists for modules whose
+// own dependency closure is larger than is worth hand-copying here;
+// capability.mjs has none, so there is nothing to avoid copying.
+const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs', 'append.mjs',
+  'capability.mjs'];
 
 /**
  * A private, disposable copy of memory.mjs (with `patch` applied to its

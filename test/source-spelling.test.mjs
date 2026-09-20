@@ -19,6 +19,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
+import * as capability from '../src/capability.mjs';
+
+const FULL = capability.grantAll('test');
 
 function world() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-src-'));
@@ -35,7 +38,7 @@ test('no _source carries a native separator, wherever it was produced', () => {
   const r = world();
   try {
     const seen = [];
-    for (const h of memory.find(r, 'needle', {})) seen.push(h._source);
+    for (const h of memory.find(r, 'needle', FULL)) seen.push(h._source);
     for (const e of Object.values(memory.entriesById(r))) if (e._source) seen.push(e._source);
     assert.ok(seen.length >= 2, 'the fixture produced no sources — nothing was measured');
     for (const s of seen) {
@@ -68,7 +71,7 @@ test('a source still points at a file that is really there', () => {
   // Forward slashes resolve on both platforms, so this holds everywhere.
   const r = world();
   try {
-    const hits = memory.find(r, 'needle', {});
+    const hits = memory.find(r, 'needle', FULL);
     assert.ok(hits.length > 0, 'nothing found — the fixture, not the property');
     for (const h of hits) {
       assert.ok(fs.existsSync(path.join(r, h._source)),

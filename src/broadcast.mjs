@@ -38,6 +38,7 @@
  */
 import * as memory from './memory.mjs';
 import * as inbox from './inbox.mjs';
+import * as capability from './capability.mjs';
 
 /**
  * A path in plain text: at least one slash, an extension.
@@ -122,10 +123,19 @@ export function recipients(root, entry, { participants, sender = null } = {}) {
   const withoutInbox = new Set();
   const known = new Set(Object.keys(participants ?? {}));
   const trig = triggers(entry);
+  // issue #136: `memory.find` now requires a Capability. Broadcast is an
+  // internal routing function, not a caller-facing read: it decides who
+  // gets NOTIFIED about a path, across every project, on purpose — a
+  // recipient in a different project than the one that wrote the error
+  // is exactly who this lane exists to reach. It has never taken a scope
+  // argument, so the grant is minted here, explicit and full, rather
+  // than as a parameter every caller (there is exactly one today) would
+  // have to pass identically anyway.
+  const broadcastCapability = capability.grantAll('broadcast');
 
   for (const p of trig) {
     let hits;
-    try { hits = memory.find(root, p, {}); } catch { continue; }
+    try { hits = memory.find(root, p, broadcastCapability, {}); } catch { continue; }
     for (const h of hits) {
       const a = h.agent;
       if (!a || a === from) continue;

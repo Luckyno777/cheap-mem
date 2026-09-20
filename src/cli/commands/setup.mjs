@@ -23,6 +23,7 @@ import * as viewer from '../../viewer.mjs';
 import * as guard from '../../guard.mjs';
 import * as source from '../../source.mjs';
 import * as component from '../../component.mjs';
+import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
@@ -874,22 +875,24 @@ export const COMMANDS = {
     checkFlags(args, ['top', 'json', 'root', 'project'], 'component');
     const p = rest.join(' ').trim();
     const top = args.top ? Number(args.top) : 8;
-    // null (default) = every project, unchanged from before this flag
-    // existed. `--project global` means the global drawer ONLY — the
-    // same convention `find --literal` and `duties` already use.
-    //
-    // P13 wiring: `component.find` -> `memory.find` has no Capability
-    // parameter (`memory.mjs` is off limits for this change — see the
-    // P13 brief), so a real project name now reads that project's
-    // drawer PLUS `global`, mirroring what `capability.grantProject`
-    // would admit if this call could take one: global is the lattice
-    // root, inherited by every project (see `capability.mjs`'s
-    // `admits()`), not a sibling drawer a project search used to leave
-    // out. `--project global` keeps its narrower, literal meaning.
-    const projects = args.project
-      ? (args.project === 'global' ? [null] : [null, args.project])
-      : null;
-    const hits = component.find(root, p, { projects });
+    // issue #136: `component.find` -> `memory.find` now takes a real
+    // Capability instead of a hand-built drawer list. `--project X`
+    // mints exactly the capability `mem retrieve --project X` already
+    // mints (`grantProject`), which is why it also sees `global` — that
+    // is the lattice root every capability with read inherits (see
+    // `capability.mjs`'s `admits()`), not a sibling drawer this call has
+    // to remember to add. `--project global` keeps its established,
+    // narrower meaning by minting `grantProject('global', ...)`: no real
+    // document is ever filed under a project literally named "global",
+    // so that capability's own scope never matches anything and only
+    // the universal global-inheritance rule lets the global drawer
+    // through — the same trick the ranked `find` lane already relies on.
+    // No `--project` at all: `grantAll`, unchanged from before this flag
+    // existed.
+    const cap = args.project
+      ? capability.grantProject(String(args.project), { subject: 'cli' })
+      : capability.grantAll('cli');
+    const hits = component.find(root, p, cap);
     if (args.json) {
       out(JSON.stringify({
         path: p,

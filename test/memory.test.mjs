@@ -4,6 +4,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
+import * as capability from '../src/capability.mjs';
+
+const FULL = capability.grantAll('test');
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-test-'));
@@ -41,7 +44,7 @@ test('find is case-insensitive substring', () => {
   const root = tmpRoot();
   memory.logEntry(root, 'event', { title: 'Auth flow shipped' });
   memory.logEntry(root, 'error', { class: 'timeout', text: 'auth check timed out' });
-  const hits = memory.find(root, 'auth');
+  const hits = memory.find(root, 'auth', FULL);
   assert.equal(hits.length, 2);
 });
 
@@ -49,7 +52,7 @@ test('find respects --since', () => {
   const root = tmpRoot();
   memory.logEntry(root, 'event', { title: 'old', ts: '2020-01-01T00:00:00Z' });
   memory.logEntry(root, 'event', { title: 'new' });
-  const hits = memory.find(root, 'e', { since: new Date(Date.now() - 60_000) });
+  const hits = memory.find(root, 'e', FULL, { since: new Date(Date.now() - 60_000) });
   assert.equal(hits.length, 1);
   assert.equal(hits[0].title, 'new');
 });

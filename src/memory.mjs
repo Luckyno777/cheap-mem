@@ -22,6 +22,7 @@ import * as authority from './authority.mjs';
 import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
 import { appendLine } from './append.mjs';
+import * as capabilityMod from './capability.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1074,15 +1075,95 @@ export function iterLog(root, type, { project = null } = {}) {
 /**
  * Search across many log files. Case-insensitive substring match.
  * Returns entries annotated with `_source` (relative path) and `_line`.
+ *
+ * **`capability`, required (P13, the deferred half; issue #136).**
+ *
+ * Until this change, "which drawers get read" was decided TWICE: once
+ * here, by `projects === null ? [null, ...listProjects(root)] : projects`,
+ * and once in `capability.mjs`'s lattice (`Capability#admits`), which
+ * `retrieval.retrieve` and `search.search` already consult. The two
+ * happened to agree — every caller that named a real project also read
+ * `[null, project]`, matching what `capability.grantProject` would admit
+ * — but nothing enforced that agreement, and it is exactly the kind of
+ * thing that drifts silently: a caller changed here, or a new lattice
+ * rule added there, and one lane sees more or less than the others with
+ * no red test until someone measures it by hand. A rule written down
+ * twice is a defect even while both copies still say the same thing.
+ *
+ * So: a capability now decides directly. `admits()` is asked once per
+ * scope this memory actually has (`global` plus every real project),
+ * and that IS the drawer list — nothing here re-derives "does a project
+ * capability also see global" or spells out `[null, project]` by hand
+ * any more. That question has exactly one answer in the codebase now,
+ * and it lives in `capability.mjs`.
+ *
+ * **Required, not optional, and that is a deliberate choice, not the
+ * default shape of a refactor.** An optional third parameter that
+ * defaults to "everything" would be a silent hole exactly where the
+ * guarantee is supposed to live: every call site written before this
+ * change compiles and runs unchanged, quietly seeing every project
+ * again, and the one thing this change was for — no caller can omit the
+ * scope question — would be exactly as false as it was before. A
+ * required parameter breaks every existing caller LOUDLY instead, at
+ * the first call, which is the right failure mode for a boundary: it
+ * forces every one of them to say, in its own file, whose reach this
+ * read actually uses. See `retrieval.retrieve`, which took this shape
+ * first — this function follows its convention rather than inventing a
+ * second one.
+ *
+ * Failure is closed but shaped by WHY it failed, matching the two guard
+ * clauses `retrieve` already uses:
+ *   - not a `Capability` at all -> throws. This is not a caller that
+ *     legitimately has no reach, it is a caller that forgot the
+ *     argument or passed the wrong kind of value — a programming
+ *     mistake, and `find` returns a bare array with no room to explain
+ *     itself, so the loud failure has to happen here instead of coming
+ *     back as a result that merely LOOKS like "found nothing".
+ *   - a real `Capability` that does not carry `read` -> returns `[]`.
+ *     This is a legitimate value (a write-only capability, say), not a
+ *     mistake, and an empty read is the honest answer to it.
+ *
+ * `projects`, if given, NARROWS within what `capability` admits — "I may
+ * see everything, show me only this one" — and can only ever shrink the
+ * answer. A name in `projects` that the capability does not admit is
+ * dropped from the request rather than honoured or used to widen
+ * anything: the same rule `Capability#narrow` already applies to a
+ * scope list, so a caller asking for a drawer it may not open gets
+ * exactly what it would get asking for a drawer that does not exist —
+ * nothing from it, never an error that leaks whether it exists, never a
+ * silent grant of it either. See `test/p13-memory-find-capability.
+ * test.mjs` for the probes (required capability, the read/write split,
+ * the red/green scope check, and this narrowing/over-reach case), and
+ * `test/p13-lattice-wiring.test.mjs` / `test/scope-lattice-redteam.
+ * test.mjs` for the callers that mint the capabilities this function
+ * now consumes.
  */
-export function find(root, pattern, {
+export function find(root, pattern, capability, {
   types = Object.keys(TYPES),
-  projects = null,   // null = global + all projects
+  projects = null,   // narrows WITHIN what `capability` admits; null = everything it admits
   since = null,
   withRetired = false,  // include retired (done/discarded/superseded)?
 } = {}) {
+  if (!(capability instanceof capabilityMod.Capability)) {
+    throw new TypeError(
+      "memory.find(root, pattern, capability, opts) — 'capability' is required and must be "
+      + 'a capability.mjs Capability. There is no default: an omitted or optional capability '
+      + 'that quietly meant "everything" is the exact second-spelling hole this parameter '
+      + 'exists to close (see this function\'s doc comment). Pass capability.grantAll(subject) '
+      + 'for a caller that legitimately has full reach, or capability.grantProject(name, '
+      + '{ subject }) for one scoped to a single project.');
+  }
+  // Every scope this capability admits, computed against what the
+  // memory actually has — `global` plus every real project directory.
+  // This IS the drawer list now; nothing below re-derives it.
+  const admitted = capability.has('read')
+    ? [null, ...listProjects(root)]
+      .filter((p) => capability.admits(capabilityMod.scopeOf({ project: p })))
+    : [];
+  const scopes = projects === null
+    ? admitted
+    : projects.filter((p) => admitted.includes(p));
   const needle = String(pattern).toLowerCase();
-  const scopes = projects === null ? [null, ...listProjects(root)] : projects;
 
   // Pass 1: parse every line of the target logs. Only after that is it
   // known what is retired — a tombstone sits in the same log as its

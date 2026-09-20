@@ -82,8 +82,16 @@ export function compatible(text, base, askedPrefix) {
  * or `base` (only the file name, named compatibly). The difference
  * belongs in the display: a base hit is weaker evidence, and whoever
  * reads it should see that.
+ *
+ * **`capability`, required — a thin pass-through, not a second policy.**
+ * This is a wrapper over `memory.find`, and `memory.find` requires a
+ * capability now (issue #136); a wrapper that swallowed that requirement
+ * behind its own optional default would just move the second-spelling
+ * hole one file over instead of closing it. So `capability` is required
+ * here for the same reason and handed straight to both `memory.find`
+ * calls, unexamined — this file has no opinion of its own about scope.
  */
-export function find(root, p, opt = {}) {
+export function find(root, p, capability, opt = {}) {
   const f = forms(p);
   if (!f.length) return [];
   const [two, base] = f.length === 2 ? f : [null, f[0]];
@@ -101,10 +109,10 @@ export function find(root, p, opt = {}) {
   };
 
   if (two) {
-    try { take(memory.find(root, two, opt), 'exact'); } catch { /* empty */ }
+    try { take(memory.find(root, two, capability, opt), 'exact'); } catch { /* empty */ }
   }
   try {
-    const raw = memory.find(root, base, opt);
+    const raw = memory.find(root, base, capability, opt);
     take(raw.filter((e) => compatible(JSON.stringify(e), base, pre)), 'base');
   } catch { /* empty */ }
 
