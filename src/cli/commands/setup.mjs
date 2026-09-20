@@ -877,7 +877,18 @@ export const COMMANDS = {
     // null (default) = every project, unchanged from before this flag
     // existed. `--project global` means the global drawer ONLY — the
     // same convention `find --literal` and `duties` already use.
-    const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
+    //
+    // P13 wiring: `component.find` -> `memory.find` has no Capability
+    // parameter (`memory.mjs` is off limits for this change — see the
+    // P13 brief), so a real project name now reads that project's
+    // drawer PLUS `global`, mirroring what `capability.grantProject`
+    // would admit if this call could take one: global is the lattice
+    // root, inherited by every project (see `capability.mjs`'s
+    // `admits()`), not a sibling drawer a project search used to leave
+    // out. `--project global` keeps its narrower, literal meaning.
+    const projects = args.project
+      ? (args.project === 'global' ? [null] : [null, args.project])
+      : null;
     const hits = component.find(root, p, { projects });
     if (args.json) {
       out(JSON.stringify({

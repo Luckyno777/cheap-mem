@@ -104,7 +104,26 @@ export const COMMANDS = {
 
     if (args.literal) {
       const types = args.type ? [args.type] : Object.keys(memory.TYPES);
-      const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
+      // P13 wiring, the CLI half. `memory.find` takes no Capability (it
+      // is off limits for this change), so the lattice-aware answer is
+      // reached the only way available here: by choosing WHICH drawers
+      // get read. A real project name reads that project's drawer PLUS
+      // `global`, because global is the lattice ROOT that every scope
+      // inherits (see `capability.mjs`'s `admits()`), not a sibling a
+      // project search may leave out. `--project global` keeps its
+      // narrower, literal meaning: the global drawer only. No
+      // `--project`: every drawer, unchanged.
+      //
+      // Measured before this line existed (2026-09-20): `mem find X
+      // --literal --project beta` returned beta only, while the SAME
+      // question asked through the MCP bridge (`mem_find`, literal:true,
+      // project:"beta") returned global AND beta. One lane, two answers,
+      // depending on which door you came through. That is the
+      // `two-truths` class, and it is why this lane is spelled here
+      // identically to `bin/mem-mcp`'s literal branch.
+      const projects = args.project
+        ? (args.project === 'global' ? [null] : [null, args.project])
+        : null;
       const withRetiredFlag = Boolean(args['with-retired']);
       // `--as-of` opens the retired gate at the CANDIDATE stage too — a
       // superseded entry has to reach `validAt` before it can be judged
@@ -175,11 +194,21 @@ export const COMMANDS = {
     // states (done/discarded/obsolete/disputed) hidden even though the
     // gate just opened for them too. See that function's docstring.
     const withRetiredForFetch = withRetiredFlag || Boolean(asOf);
+    // P13 wiring: a `--project` arg now mints a Capability instead of
+    // relying on the bare string comparison in `admits()`. Scoped to
+    // exactly the named project, no descendants of its own — see
+    // `capability.mjs`'s `admits()` for why a project capability still
+    // sees `global` entries anyway (global is the lattice root, which
+    // every scope inherits — it is not a sibling that needs descendants
+    // to reach). With no `--project`, `findCapability` stays null and
+    // both lanes below behave exactly as before this change.
+    const findCapability = args.project ? capability.grantProject(args.project) : null;
     const hits0 = search.search(index, query, {
       // Fetch wider, so enough remains after filtering.
       top: args['with-echo'] ? wanted : wanted * 3,
       type: args.type ?? null,
       project: args.project ?? null,
+      capability: findCapability,
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
@@ -226,6 +255,7 @@ export const COMMANDS = {
     const exactMatches = search.exactHits(index, query, wanted, {
       type: args.type ?? null,
       project: args.project ?? null,
+      capability: findCapability,
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),

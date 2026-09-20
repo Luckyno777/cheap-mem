@@ -982,7 +982,20 @@ async function handleCall(name, args) {
 
       if (literal) {
         const types = type ? [type] : Object.keys(memory.TYPES);
-        const projects = project ? [project === 'global' ? null : project] : null;
+        // P13 wiring: `memory.find` has no Capability parameter (it is
+        // off limits for this change — see the P13 brief), so the
+        // lattice-aware answer is reached the only way available here:
+        // by choosing WHICH drawers get read. A real project name reads
+        // that project's drawer PLUS `global` (global is the lattice
+        // root, inherited by every project — see `capability.mjs`'s
+        // `admits()`), matching what `capability.grantProject` would
+        // admit if this call could take one. `--project global` keeps
+        // its old, narrower meaning: the global drawer only, nothing
+        // inherited from it. No `--project` at all: every drawer,
+        // unchanged.
+        const projects = project
+          ? (project === 'global' ? [null] : [null, project])
+          : null;
         const hits = memory.find(root, q, { types, projects, since: s });
         if (!hits.length) return textResult(`No literal hits for '${q}'.`);
         return textResult(hits.slice(0, 50).map((h) =>
@@ -992,8 +1005,14 @@ async function handleCall(name, args) {
       const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
       thesaurus.loadUserGroups(root, fs, path);
       const index = search.loadIndex(root, { language: cfg.language });
+      // P13 wiring: mint a real Capability from the `project` argument,
+      // the same as `mem_retrieve`/`mem_explain` already do, and hand it
+      // to `search.search()` instead of a bare string. With no `project`
+      // this stays null and `search()` is byte-identical to before.
+      const findCapability = project ? capability.grantProject(project, { subject: 'mcp' }) : null;
       const ranked = search.search(index, q, {
         top: top ?? 10, type: type ?? null, project: project ?? null,
+        capability: findCapability,
         since: s, language: cfg.language,
       });
       if (!ranked.length) {
