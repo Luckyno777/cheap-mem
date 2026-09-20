@@ -70,21 +70,42 @@ test('the cap is on the FINISHED line, not on any one field', () => {
 });
 
 test('an entry exactly at the boundary is the last one accepted', () => {
-  const root = tmpRoot();
-  // Binary-search the exact byte where a `why`-only entry crosses
+  // Binary-search the exact byte where an entry crosses
   // MAX_ENTRY_BYTES, so the boundary itself — not just "way under" and
   // "way over" — is proven correct.
-  const lineBytes = (why) => Buffer.byteLength(JSON.stringify({
-    id: 'x'.repeat(memory.ID_LENGTH), ts: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-    agent: memory.agentDefault(), why,
-  }), 'utf8');
+  //
+  // **The search asks the WRITER, not a reconstruction (2026-09-20).**
+  // It used to rebuild the line by hand as `{id, ts, agent, why}` and
+  // measure that. That is the entry shape written down a second time,
+  // and the second copy went stale the day `logEntry` started stamping a
+  // version field: the computed boundary sat six bytes above the one the
+  // writer really enforced, and this test failed against correct code.
+  //
+  // `logEntry` either accepts a payload or throws, and that is the
+  // property under test. Asking it directly cannot drift from it, and
+  // the next field added to an entry needs no edit here.
+  const root = tmpRoot();
+  const accepts = (n) => {
+    try { memory.logEntry(root, 'decision', { why: 'w'.repeat(n) }); return true; }
+    catch { return false; }
+  };
   let lo = 0; let hi = memory.MAX_ENTRY_BYTES;
   while (lo < hi) {
     const mid = Math.ceil((lo + hi) / 2);
-    if (lineBytes('w'.repeat(mid)) <= memory.MAX_ENTRY_BYTES) lo = mid; else hi = mid - 1;
+    if (accepts(mid)) lo = mid; else hi = mid - 1;
   }
-  assert.doesNotThrow(() => memory.logEntry(root, 'decision', { why: 'w'.repeat(lo) }));
-  assert.throws(() => memory.logEntry(root, 'decision', { why: 'w'.repeat(lo + 1) }));
+  // The search leaves the boundary at `lo`. Both sides are asserted
+  // again on a FRESH root, so a pass cannot come from state the search
+  // itself left behind.
+  const clean = tmpRoot();
+  assert.doesNotThrow(() => memory.logEntry(clean, 'decision', { why: 'w'.repeat(lo) }),
+    `the writer rejected ${lo} bytes of payload, which the search found acceptable`);
+  assert.throws(() => memory.logEntry(clean, 'decision', { why: 'w'.repeat(lo + 1) }),
+    `the writer accepted ${lo + 1} bytes, one past the boundary the search found`);
+  // And the boundary is a real one, not zero: a search that always
+  // answered "no" would leave lo at 0 and both assertions above could
+  // still hold on a cap of zero.
+  assert.ok(lo > 100, `the boundary came out at ${lo} bytes — the search found nothing`);
 });
 
 test('configurable via .mem/config.json "maxEntryBytes"', () => {

@@ -144,8 +144,24 @@ export function collectMemory(root, { name = null } = {}) {
   const rows = collect(root);
   const byId = new Map(rows.map((r) => [r.id, r]));
 
+  // `memory.topicState(root, topic)` each re-reads and re-scans the WHOLE
+  // corpus through `memory.topicEntries()` — correct for a single lookup
+  // (e.g. `mem topics <name>`), but calling it once per topic here turned
+  // this loop into one full corpus read PER TOPIC: cost topics x entries.
+  // Confirmed at bench/atlas/phase-load.mjs: `load.a.viewer` (raw n^1.74,
+  // net of floor n^1.87 — 318 ms -> 56.8 s over 1,012 -> 20,012 entries)
+  // and `load.a.viewer-topics` (topics x4.83, entries x1.4, product model
+  // predicts x6.75, observed x5.32). `memory.topicEntries()` with no key
+  // already returns EVERY entry in the same newest-first order topicState()
+  // derives its per-topic current/history from — one full scan, grouped
+  // here in O(entries) instead of O(topics x entries).
+  const idsByTopic = new Map();
+  for (const e of memory.topicEntries(root)) {
+    if (!idsByTopic.has(e._topic)) idsByTopic.set(e._topic, []);
+    idsByTopic.get(e._topic).push(e.id || null);
+  }
   const topics = memory.topics(root).map((t) => {
-    const state = memory.topicState(root, t.topic);
+    const ids = idsByTopic.get(t.topic) || [];
     return {
       topic: t.topic,
       count: t.count,
@@ -154,8 +170,8 @@ export function collectMemory(root, { name = null } = {}) {
       // Only ids: the entries themselves are already in `rows`, and
       // repeating them would double the size of a file that is meant to
       // be opened, not downloaded.
-      current: state.current ? state.current.id : null,
-      trail: state.history.map((e) => e.id).filter(Boolean),
+      current: ids[0] ?? null,
+      trail: ids.slice(1).filter(Boolean),
     };
   });
 

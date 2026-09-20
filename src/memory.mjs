@@ -288,6 +288,122 @@ export function agentDefault(env = process.env) {
   return user ? `human:${user}` : 'human:unnamed';
 }
 
+/**
+ * Schema version of an ENTRY — not of the file.
+ *
+ * **Entry, not file.** The file is one append-only JSONL log meant to
+ * hold entries written under different rules for years: `decisions.jsonl`
+ * from 2026 will still sit beside a line written in 2031 under a shape
+ * nobody here has designed yet. A file-level version could only ever
+ * describe the LAST line appended — a fact about whatever happens to be
+ * at the bottom right now, not about the file. Stamping the ENTRY instead
+ * means every line, forever, carries the rules it was actually written
+ * under, and a reader picks the adapter per LINE, never per file.
+ *
+ * **Absent means v=0, and v=0 is a KNOWN fact, not an unknown one.**
+ * Every line written before this change has no `v` field, with no
+ * exceptions, because the field did not exist yet. That is not "we don't
+ * know what version this is" — it is "this was written before
+ * versioning", which is exactly as knowable as any other historical fact
+ * already sitting in this corpus. Folding that into `unknown` would erase
+ * the one thing the corpus IS certain of about its own past. A line whose
+ * `v` is PRESENT but does not parse as a non-negative integer — a
+ * corrupted line, a hand-edit, a future format this build has never seen
+ * — is the genuinely unknown case, and stays unknown rather than being
+ * rounded down to 0. See `entryVersionOf`.
+ *
+ * **Stamped in exactly one place.** `logEntry` is the only function in
+ * this repo that appends to a TYPES log (`decisions.jsonl`,
+ * `errors.jsonl`, ... — checked by grepping every `appendFileSync` in
+ * `src/`: the others write board reports, heartbeats, the observation
+ * ledger, the redaction register, the topic-alias log and similar —
+ * fixed-shape records of their own, not entries, and never read back
+ * through `readLog`/`find`/`entriesById`). One door, one place that
+ * stamps.
+ */
+export const ENTRY_VERSION = 1;
+
+/**
+ * One reader per version, forever. `adaptEntry` normalises any entry —
+ * whichever version it carries — into the shape the current code expects.
+ * Because the log is append-only, this map can only ever GROW: the day
+ * `ENTRY_VERSION` becomes 2, adapter `1` stays exactly as it is (it still
+ * has to read every v=1 line already on disk, unchanged) and a NEW
+ * adapter `2` joins it.
+ *
+ * **The guard, not the comment.** "A new version must not be
+ * introducible without a reader" used to be exactly the kind of rule
+ * that lives only in prose — and a rule that lives only in a comment is
+ * not enforced, it is hoped for. `assertVersionHasReader` runs the
+ * moment this module loads (see the call right below the map), so
+ * bumping `ENTRY_VERSION` without adding its adapter does not produce a
+ * subtly wrong reader discovered later — it stops the module from
+ * importing at all, everywhere, immediately. A rule that only lives in
+ * a comment is worse than no rule at all, because it looks enforced.
+ */
+const ENTRY_ADAPTERS = new Map([
+  // v=0: no `v` field at all — every entry ever written before this
+  // change. The adapter's only job is to say so explicitly.
+  [0, (entry) => ({ ...entry, v: 0 })],
+  // v=1: the shape this change introduces. `v` is already present and
+  // correct; nothing to translate (yet).
+  [1, (entry) => ({ ...entry })],
+]);
+
+export const V_UNKNOWN = 'unknown';
+
+function assertVersionHasReader(v) {
+  if (!ENTRY_ADAPTERS.has(v)) {
+    throw new Error(
+      `Entry schema version ${v} has no reader adapter registered in `
+      + 'ENTRY_ADAPTERS (src/memory.mjs). A version must never be '
+      + 'introduced without one — add the adapter first, then the version.');
+  }
+}
+// The guard fires at IMPORT time, for the version this build actually
+// writes — the mistake it exists to catch (bump ENTRY_VERSION, forget
+// the adapter) is caught before a single entry is written, not after.
+assertVersionHasReader(ENTRY_VERSION);
+
+/**
+ * What version an entry ACTUALLY carries, before any adaptation.
+ *
+ *   - no `v` field at all          -> 0 ("written before versioning")
+ *   - `v` a non-negative integer   -> that integer
+ *   - anything else (string,
+ *     float, negative, NaN, ...)   -> V_UNKNOWN
+ *
+ * Never silently coerced to 0 — an unparseable `v` is a different fact
+ * from an absent one, and collapsing them is exactly the mistake this
+ * field exists to make impossible.
+ */
+export function entryVersionOf(entry) {
+  if (entry == null || typeof entry !== 'object') return V_UNKNOWN;
+  if (!('v' in entry)) return 0;
+  const raw = entry.v;
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0) return raw;
+  return V_UNKNOWN;
+}
+
+/**
+ * Read one entry through the adapter for whatever version it claims.
+ *
+ * A `V_UNKNOWN` entry is returned as-is, flagged — the house's fourth
+ * state applies to a field exactly as it does to a check:
+ * "Nicht messbar ist nicht null." A version that DOES parse but has no
+ * registered adapter throws here too, at read time rather than import
+ * time — this is the one path where that can happen for a version
+ * genuinely written by some OTHER, newer build of this code (a corpus
+ * is read by whichever version of the reader happens to run, not only
+ * by the one that wrote the line).
+ */
+export function adaptEntry(entry) {
+  const v = entryVersionOf(entry);
+  if (v === V_UNKNOWN) return { ...entry, v: V_UNKNOWN };
+  assertVersionHasReader(v);
+  return ENTRY_ADAPTERS.get(v)(entry);
+}
+
 export function logEntry(root, type, data, { project = null, now = new Date() } = {}) {
   // The agent comes from the origin stamp when it is not set explicitly.
   // Two routes, so the second axis fills itself without every caller
@@ -374,7 +490,13 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
       + 'generated.');
   }
   const id = data.id ?? shortId();
-  const entry = { id, ts, ...data };
+  // The version is authored by the CODE that appends the line, never by
+  // the caller — a caller-supplied `v` would look exactly like a real
+  // version a real build once produced, and this is precisely the field
+  // a later migration has to trust. Whatever `data.v` holds is dropped
+  // here, at the one door, not merged past it.
+  const { v: _callerVersion, ...rest } = data;
+  const entry = { id, ts, v: ENTRY_VERSION, ...rest };
 
   fs.mkdirSync(path.dirname(p), { recursive: true });
 
