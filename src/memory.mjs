@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
+import { StringDecoder } from 'node:string_decoder';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
 import * as cfgmod from './config.mjs';
@@ -699,10 +700,15 @@ function shortId() {
  * see the note at the call site for why generated ids skip it.
  */
 function takenIds(root) {
+  // P12: needs to see EVERY entry (a uniqueness check cannot skip any of
+  // them), but only ever keeps its `id` — the rest of each entry, which
+  // is most of a drawer's bytes, was being materialised into an array
+  // and then thrown away unread. `iterLog` still visits every line; it
+  // just never holds more than one at a time while doing it.
   const all = new Set();
   for (const project of [null, ...listProjects(root)]) {
     for (const type of Object.keys(TYPES)) {
-      for (const e of readLog(root, type, { project }).entries) {
+      for (const e of iterLog(root, type, { project })) {
         if (e && e.id) all.add(e.id);
       }
     }
@@ -732,13 +738,85 @@ function takenIds(root) {
  * call would report itself as a repeat, and a warning that always fires
  * is not a warning.
  */
+/**
+ * The last `tailBytes` of one drawer, as whole parsed lines.
+ *
+ * **Same shape as `neighbours.mjs`'s `readTail`, deliberately** — this
+ * house does not get a second convention for "read the recent part of a
+ * drawer and say whether that was the whole thing". Same field names
+ * (`entries`, `scannedWholeFile`, `scannedEntries`), same reasoning for
+ * why the boundary is safe: a tombstone is always appended AFTER the
+ * entry it retires, so nothing inside the window can be wrongly reported
+ * live because its retirement fell outside the window — a bounded read
+ * here can only miss an OLD entry, never mis-state one it did see.
+ *
+ * `scannedWholeFile: false` is the one signal a caller MUST check before
+ * treating `entries`/`scannedEntries` as a total rather than a recent
+ * slice — see `sameClass` just below for a caller whose contract is a
+ * total (`count`) and therefore cannot use `entries` on its own once
+ * this is false.
+ */
+export function tailEntries(root, type, { project = null, tailBytes = 512 * 1024 } = {}) {
+  const p = logPath(root, type, project);
+  let size;
+  try { size = fs.statSync(p).size; } catch { return { entries: [], scannedWholeFile: true, scannedEntries: 0 }; }
+  let raw;
+  let whole;
+  if (size <= tailBytes) {
+    try { raw = fs.readFileSync(p, 'utf8'); whole = true; }
+    catch { return { entries: [], scannedWholeFile: true, scannedEntries: 0 }; }
+  } else {
+    let fd;
+    try {
+      fd = fs.openSync(p, 'r');
+      const buf = Buffer.alloc(tailBytes);
+      fs.readSync(fd, buf, 0, tailBytes, size - tailBytes);
+      const text = buf.toString('utf8');
+      // The first line of a mid-file read is almost always cut in half —
+      // drop it, never parse it. Safe because it is the OLDEST line in
+      // the window, and a bounded reader only ever needs to protect the
+      // newest end.
+      const cut = text.indexOf('\n');
+      raw = cut >= 0 ? text.slice(cut + 1) : '';
+      whole = false;
+    } catch {
+      return { entries: [], scannedWholeFile: true, scannedEntries: 0 };
+    } finally {
+      if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already gone */ } }
+    }
+  }
+  const entries = [];
+  for (const line of raw.split('\n')) {
+    if (!line.trim()) continue;
+    try { entries.push(JSON.parse(line)); }
+    catch { entries.push({ __broken: true, raw: line }); }
+  }
+  return { entries, scannedWholeFile: whole, scannedEntries: entries.length };
+}
+
 export function sameClass(root, className, { except = null, max = 3 } = {}) {
   const wanted = String(className ?? '').trim();
   if (!wanted) return { className: wanted, count: 0, latest: [] };
   const hits = [];
   for (const project of [null, ...listProjects(root)]) {
-    let entries = [];
-    try { ({ entries } = readLog(root, 'error', { project })); } catch { continue; }
+    // Fast path: a bounded tail read (see `tailEntries`) — most drawers
+    // sit well under the window (the same 512 KB `neighbours.mjs`
+    // measured and justified), so this is usually the ONLY read done
+    // for a project: no array holding every entry in the drawer, just
+    // the ones near the end.
+    //
+    // `sameClass`'s contract is an EXACT `count`, though — not "recent
+    // entries" — so the one thing it must never do is treat a partial
+    // window as if it were the whole drawer. When `tailEntries` says it
+    // did not see everything, this falls back to the exhaustive,
+    // non-materialising iterator (`iterLog`) instead of trusting the
+    // window: slower for a drawer that has actually grown past the
+    // window, but never silently wrong. Dropping that check is exactly
+    // the "silent partial answer" this house forbids — see
+    // `test/p12-bounded-read.test.mjs`'s sabotage case, which forces
+    // `scannedWholeFile` to lie and shows the count go wrong.
+    const tail = tailEntries(root, 'error', { project });
+    const entries = tail.scannedWholeFile ? tail.entries : iterLog(root, 'error', { project });
     for (const e of entries) {
       if (e?.class !== wanted) continue;
       if (except && e.id === except) continue;
@@ -764,6 +842,107 @@ export function readLog(root, type, { project = null } = {}) {
     }
   }
   return { path: p, missing: false, entries };
+}
+
+/**
+ * P12 · read a drawer WITHOUT materialising it.
+ *
+ * **Measured on 2026-09-20** (see `test/p12-ladder.test.mjs`), per byte
+ * of drawer: parsing every line into an array of live objects (what
+ * `readLog` does) costs roughly 2.6x the raw text in peak RSS and
+ * dominates the wall-clock too — reading line-by-line into the SAME
+ * array changes almost nothing, because the array of N objects is the
+ * expensive part, not the read.
+ *
+ * **Chosen shape: an iterator, not a bounded window.** `neighbours.mjs`
+ * already has the bounded-window shape (`readTail` + `scannedWholeFile`)
+ * for the one caller that only wants the newest few and can safely miss
+ * older ones (`tailEntries` below follows that exact shape for the one
+ * caller here that fits it, `sameClass`). Every caller converted onto
+ * THIS function is different: it wants ONE entry, by id, that could be
+ * anywhere in the file — a byte window would either have to guess wrong
+ * or read the whole file anyway, so a window buys nothing. What it does
+ * NOT need is to hold every OTHER entry in memory while looking for that
+ * one. A generator gives exactly that: the caller sees entries one at a
+ * time and stops as soon as it has what it wants, so nothing after the
+ * match is ever parsed, and nothing before it is retained once looked
+ * at.
+ *
+ * **Also reads in bounded CHUNKS, not the whole file at once.** A first
+ * version here called `fs.readFileSync` and scanned the one resulting
+ * string lazily — which removes the array of N parsed objects, but for
+ * a single drawer that has grown very large, that ONE string is itself
+ * already close to the size of the problem this build exists to fix (a
+ * drawer's raw bytes and its parsed size are the same order of
+ * magnitude). `retiredMapFromFiles` (see `memory.mjs`'s own comment)
+ * reads every drawer up to three times over, and three such strings
+ * alive at once — even briefly, before a GC gets around to them —
+ * measured WORSE than the one-array original at 100k rows
+ * (`test/p11-ladder.test.mjs`'s first cut, kept as a comment there: this
+ * is the actual dead end that made the chunked version necessary, not a
+ * hypothetical). Reading in bounded chunks via `fs.readSync` keeps
+ * memory bounded by `chunkBytes`, not by the file — regardless of how
+ * many passes read it, and regardless of how large it has grown.
+ * `node:string_decoder`'s `StringDecoder` is used rather than
+ * `buf.toString('utf8')` per chunk because a multi-byte UTF-8 character
+ * WILL sometimes straddle a chunk boundary in real drawers (this project
+ * ships its own bidi/language handling; assuming ASCII would corrupt
+ * exactly the entries most worth reading correctly) — `StringDecoder`
+ * buffers an incomplete trailing sequence and completes it on the next
+ * chunk instead of mangling it.
+ *
+ * There is still no byte-offset index to seek by (that would be the
+ * "register" the build plan describes, and it is out of scope for what
+ * this house asked for this round — see the report): every byte of the
+ * file is still read and every line still parsed for a caller that scans
+ * to the end. What is bounded is how much of it is EVER resident at
+ * once. A caller that walks every entry anyway gets no benefit from
+ * this over `readLog` besides that bound; it should still prefer
+ * `readLog` when it truly wants everything materialised.
+ */
+export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
+  let fd;
+  try { fd = fs.openSync(absPath, 'r'); } catch { return; }
+  try {
+    const decoder = new StringDecoder('utf8');
+    const buf = Buffer.alloc(chunkBytes);
+    let pending = '';
+    for (;;) {
+      let bytesRead;
+      try { bytesRead = fs.readSync(fd, buf, 0, chunkBytes, null); }
+      catch { break; }
+      if (bytesRead === 0) break;
+      pending += decoder.write(buf.subarray(0, bytesRead));
+      let start = 0;
+      let nl = pending.indexOf('\n', start);
+      while (nl !== -1) {
+        const line = pending.slice(start, nl);
+        if (line.trim()) {
+          try { yield JSON.parse(line); }
+          catch { yield { __broken: true, raw: line }; }
+        }
+        start = nl + 1;
+        nl = pending.indexOf('\n', start);
+      }
+      // Only the tail after the last newline carries forward — bounded
+      // by the longest single LINE, never by how much of the file has
+      // been read so far.
+      pending = pending.slice(start);
+    }
+    pending += decoder.end();
+    if (pending.trim()) {
+      try { yield JSON.parse(pending); }
+      catch { yield { __broken: true, raw: pending }; }
+    }
+  } finally {
+    try { fs.closeSync(fd); } catch { /* already gone */ }
+  }
+}
+
+/** {@link iterLogFile}, addressed the way every other reader is: by
+ * (root, type, project) rather than an absolute path. */
+export function iterLog(root, type, { project = null } = {}) {
+  return iterLogFile(logPath(root, type, project));
 }
 
 /**
@@ -1789,8 +1968,14 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
   if (typeof oldId !== 'string' || !oldId) {
     throw new Error('Correction needs an old id');
   }
-  const { entries } = readLog(root, type, { project });
-  const old = entries.find((e) => e.id === oldId);
+  // P12: wants ONE entry by id, not the whole drawer — `iterLog` stops
+  // parsing the moment it is found instead of materialising every other
+  // entry first. See the comment on `iterLogFile` for why this, and not
+  // a bounded window, is the right shape for an id lookup.
+  let old = null;
+  for (const e of iterLog(root, type, { project })) {
+    if (e.id === oldId) { old = e; break; }
+  }
   if (!old) {
     throw new Error(
       `Old id '${oldId}' not found in ${type}${project ? ` (project ${project})` : ''}. Correction without original is not allowed.`);
@@ -1893,6 +2078,90 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
  * id -> { state, why, by, ts }. Pure, no I/O, so the BM25 index
  * (search.mjs), memory.find and the viewer share one truth.
  */
+/**
+ * One entry's effect on a retirement map already under construction.
+ *
+ * Factored out of `retiredMap` for P11 (see `retiredMapFromFiles` below):
+ * this is the ONE place the retirement rule is written, and both the
+ * array-based reader and the streaming one call it, so a memory-shaped
+ * change to how `deriveState` reads its input can never quietly drift
+ * from what `retiredMap` decides for the exact same data. `byId` may
+ * hold FULL entries (as `retiredMap` builds it) or the slim
+ * {@link authorityProjection} (as `retiredMapFromFiles` builds it) —
+ * this function only ever reads `byId.get(...)` and hands the result to
+ * `authority.maySupersede`, which only reads the five projected fields,
+ * so both inputs are correct.
+ */
+function applyRetirement(map, byId, e) {
+  if (!e) return;
+  if (e.retires_id) {
+    map.set(e.retires_id, {
+      state: e.state ?? DUTY_STATE.DONE,
+      why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
+    });
+  }
+  if (e.closes_id) {
+    map.set(e.closes_id, {
+      state: e.state ?? DUTY_STATE.DONE,
+      why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
+    });
+  }
+  if (e.replaces_id) {
+    const target = byId.get(e.replaces_id);
+
+    // Target not in this set: a drawer read in isolation cannot see a
+    // correction that lives elsewhere. Allowing it preserves the
+    // behaviour every caller had before the rule existed; the GLOBAL
+    // check, where every entry is visible, is `mem doctor` (integrity).
+    // Refusing here would break legitimate cross-drawer corrections to
+    // catch an attacker who can simply write in the same drawer anyway.
+    const verdict = target
+      ? authority.maySupersede(e, target)
+      : { ok: true, reason: 'target not in this view — checked globally by doctor' };
+
+    if (verdict.ok) {
+      map.set(e.replaces_id, {
+        state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
+        // `supersededAt` — the moment the OLD claim stopped being true,
+        // DERIVED, never stored twice. This is the fix for a defect
+        // named in the 2026-09-17 review: `valid_until` and
+        // supersession both answer "when did this stop being true",
+        // and until this field existed they answered it independently
+        // — so `--as-of` a date BEFORE a correction was written still
+        // excluded the corrected claim outright (measured: a decision
+        // logged 2026-01-01 and corrected later came back empty for
+        // `--as-of 2026-03-01`, a moment at which only the correction
+        // existed in the future). `retrieval.validAt` is the one place
+        // that reads this field; nowhere else computes it from raw
+        // fields again.
+        //
+        // Preferring the successor's `valid_from` over its `ts` is the
+        // same choice `freshness.mjs` already makes for "when did this
+        // version start holding" — a human-stated moment beats the
+        // moment the correction happened to be typed. Falling back to
+        // `ts` covers the common case where nobody bothered to state
+        // one explicitly; the predecessor is then still considered
+        // true right up until the correction was recorded, which is
+        // the least surprising reading of "there was no stated date".
+        supersededAt: e.valid_from ?? e.ts ?? null,
+      });
+    } else if (e.id) {
+      // Append-only: the attempt is NOT rejected and NOT removed. The
+      // target simply stays active, and the attempting claim is marked
+      // disputed — which keeps it out of retrieval while leaving it
+      // fully readable in the log, in `doctor`, and in the viewer.
+      //
+      // That asymmetry is the defence against flooding: writing
+      // disputed claims costs the attacker writes and the defender
+      // bytes, and buys no influence over any assembled context.
+      map.set(e.id, {
+        state: 'disputed', why: verdict.reason,
+        by: e.replaces_id, ts: e.ts ?? null,
+      });
+    }
+  }
+}
+
 export function retiredMap(entries) {
   const map = new Map();
 
@@ -1905,74 +2174,85 @@ export function retiredMap(entries) {
     if (e && typeof e.id === 'string' && e.id && !byId.has(e.id)) byId.set(e.id, e);
   }
 
-  for (const e of entries) {
-    if (!e) continue;
-    if (e.retires_id) {
-      map.set(e.retires_id, {
-        state: e.state ?? DUTY_STATE.DONE,
-        why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
-      });
-    }
-    if (e.closes_id) {
-      map.set(e.closes_id, {
-        state: e.state ?? DUTY_STATE.DONE,
-        why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
-      });
-    }
-    if (e.replaces_id) {
-      const target = byId.get(e.replaces_id);
+  for (const e of entries) applyRetirement(map, byId, e);
+  return map;
+}
 
-      // Target not in this set: a drawer read in isolation cannot see a
-      // correction that lives elsewhere. Allowing it preserves the
-      // behaviour every caller had before the rule existed; the GLOBAL
-      // check, where every entry is visible, is `mem doctor` (integrity).
-      // Refusing here would break legitimate cross-drawer corrections to
-      // catch an attacker who can simply write in the same drawer anyway.
-      const verdict = target
-        ? authority.maySupersede(e, target)
-        : { ok: true, reason: 'target not in this view — checked globally by doctor' };
+/** The only fields `authority.authorOf`/`tierOf` ever read off a
+ * supersession TARGET (see `src/authority.mjs`). Projecting an entry
+ * down to these before it goes into `retiredMapFromFiles`'s `byId` is
+ * what keeps that map small: the entry's own body — usually most of a
+ * drawer's bytes — is never the reason a target is looked up. */
+function authorityProjection(e) {
+  return { id: e.id, author: e.author, agent: e.agent, origin: e.origin, authority: e.authority };
+}
 
-      if (verdict.ok) {
-        map.set(e.replaces_id, {
-          state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
-          // `supersededAt` — the moment the OLD claim stopped being true,
-          // DERIVED, never stored twice. This is the fix for a defect
-          // named in the 2026-09-17 review: `valid_until` and
-          // supersession both answer "when did this stop being true",
-          // and until this field existed they answered it independently
-          // — so `--as-of` a date BEFORE a correction was written still
-          // excluded the corrected claim outright (measured: a decision
-          // logged 2026-01-01 and corrected later came back empty for
-          // `--as-of 2026-03-01`, a moment at which only the correction
-          // existed in the future). `retrieval.validAt` is the one place
-          // that reads this field; nowhere else computes it from raw
-          // fields again.
-          //
-          // Preferring the successor's `valid_from` over its `ts` is the
-          // same choice `freshness.mjs` already makes for "when did this
-          // version start holding" — a human-stated moment beats the
-          // moment the correction happened to be typed. Falling back to
-          // `ts` covers the common case where nobody bothered to state
-          // one explicitly; the predecessor is then still considered
-          // true right up until the correction was recorded, which is
-          // the least surprising reading of "there was no stated date".
-          supersededAt: e.valid_from ?? e.ts ?? null,
-        });
-      } else if (e.id) {
-        // Append-only: the attempt is NOT rejected and NOT removed. The
-        // target simply stays active, and the attempting claim is marked
-        // disputed — which keeps it out of retrieval while leaving it
-        // fully readable in the log, in `doctor`, and in the viewer.
-        //
-        // That asymmetry is the defence against flooding: writing
-        // disputed claims costs the attacker writes and the defender
-        // bytes, and buys no influence over any assembled context.
-        map.set(e.id, {
-          state: 'disputed', why: verdict.reason,
-          by: e.replaces_id, ts: e.ts ?? null,
-        });
+/**
+ * P11 · same result as `retiredMap([...every entry across these
+ * files])`, without ever holding "every entry" in memory at once.
+ *
+ * **The measured problem (2026-09-20, `test/p11-ladder.test.mjs`).**
+ * `state.mjs`'s old `deriveState` read every log file, `JSON.parse`d
+ * every line, and pushed the result into one array before handing it to
+ * `retiredMap` — so the memory cost was the size of the WHOLE memory,
+ * for a function whose actual output is a handful of retirement
+ * records. Bauplan measurement (5,000,000 entries, 1.33 KB/entry):
+ * ~6.4 GB.
+ *
+ * **Why three passes over the same files, not one.** `retiredMap`'s own
+ * algorithm needs two things from the corpus: (a) every line that
+ * carries `retires_id`/`closes_id`/`replaces_id` (there are always few
+ * of these — see `state.mjs`'s header comment, "the clever path… tested
+ * every line against every wanted id"), and (b) for a `replaces_id`
+ * line specifically, the FEW fields of the entry it points at that
+ * `authority.maySupersede` reads. Neither of those is "every entry",
+ * but the single-pass array version could only get at them by holding
+ * every entry at once. Splitting the same algorithm into three
+ * sequential, disk-backed passes gets the same two things without that:
+ *
+ *   1. which ids are ever NAMED by a `replaces_id` — a `Set<string>`,
+ *      not an array of entries.
+ *   2. for exactly those ids, {@link authorityProjection} — never the
+ *      entry's full body.
+ *   3. `applyRetirement` itself, run against that slim `byId` — the
+ *      EXACT same function `retiredMap` calls, so this can never decide
+ *      a case differently than `retiredMap` would for the same data.
+ *      `test/p11-equivalence.test.mjs` checks the two against each
+ *      other directly, over a corpus with retirements, corrections,
+ *      cycles and dangling references — the case the OLD `deriveState`
+ *      was never actually tested against (see the bauplan note this
+ *      was built from).
+ *
+ * Trade made explicit: three sequential reads of the same bytes instead
+ * of one, for a memory footprint that no longer grows with the corpus —
+ * see the ladder in the build report for the honest before/after on
+ * both axes. `iterLogFile` is used for every pass, so no single pass
+ * ever holds more than one parsed entry.
+ *
+ * The JSONL stays the one source of truth throughout: nothing here is
+ * cached or persisted, every call recomputes from the files given to
+ * it, exactly like the function it replaces.
+ */
+export function retiredMapFromFiles(absPaths) {
+  const wanted = new Set();
+  for (const abs of absPaths) {
+    for (const e of iterLogFile(abs)) {
+      if (e && e.replaces_id) wanted.add(e.replaces_id);
+    }
+  }
+
+  const byId = new Map();
+  for (const abs of absPaths) {
+    for (const e of iterLogFile(abs)) {
+      if (e && typeof e.id === 'string' && e.id && wanted.has(e.id) && !byId.has(e.id)) {
+        byId.set(e.id, authorityProjection(e));
       }
     }
+  }
+
+  const map = new Map();
+  for (const abs of absPaths) {
+    for (const e of iterLogFile(abs)) applyRetirement(map, byId, e);
   }
   return map;
 }
@@ -2029,8 +2309,12 @@ export function retireEntry(root, type, id, { state = 'done', why = null, projec
   if (!RETIRE_STATE.includes(state)) {
     throw new Error(`Unknown state '${state}'. Allowed: ${RETIRE_STATE.join(', ')}`);
   }
-  const { entries } = readLog(root, type, { project });
-  const target = entries.find((e) => e.id === id && !isClosingLine(e));
+  // P12: same shape as `correctionEntry` above — one id, stop at the
+  // first match instead of materialising the whole drawer to find it.
+  let target = null;
+  for (const e of iterLog(root, type, { project })) {
+    if (e.id === id && !isClosingLine(e)) { target = e; break; }
+  }
   if (!target) {
     throw new Error(`id '${id}' not found in ${type}${project ? ` (project ${project})` : ''}.`);
   }
@@ -2045,11 +2329,17 @@ export function retireEntry(root, type, id, { state = 'done', why = null, projec
  * or null.
  */
 export function findEntryLocation(root, id) {
+  // P12: this used to build the FULL entries array for every (type,
+  // project) pair before asking `.some()` whether the id was in it —
+  // paying for the whole drawer on every miss, of which there are many
+  // (every type/project combination the id does NOT live in). `iterLog`
+  // lets the loop stop the instant it finds the id, or exhaust the file
+  // with nothing ever fully materialised, without changing which id it
+  // finds first (same file order as `readLog` would have given it).
   for (const project of [null, ...listProjects(root)]) {
     for (const type of Object.keys(TYPES)) {
-      const { entries } = readLog(root, type, { project });
-      if (entries.some((e) => e.id === id && !isClosingLine(e))) {
-        return { type, project };
+      for (const e of iterLog(root, type, { project })) {
+        if (e.id === id && !isClosingLine(e)) return { type, project };
       }
     }
   }
@@ -2065,8 +2355,13 @@ export function findEntryLocation(root, id) {
 export function getEntry(root, id) {
   const loc = findEntryLocation(root, id);
   if (!loc) return null;
-  const { entries } = readLog(root, loc.type, { project: loc.project });
-  const e = entries.find((x) => x.id === id && !isClosingLine(x));
+  // P12: `findEntryLocation` already knows WHICH drawer; this second
+  // pass only has to find the one line in it, so it stops there instead
+  // of materialising that drawer too.
+  let e = null;
+  for (const x of iterLog(root, loc.type, { project: loc.project })) {
+    if (x.id === id && !isClosingLine(x)) { e = x; break; }
+  }
   if (!e) return null;
   return { ...e, _type: loc.type, _project: loc.project,
     _source: `${loc.type}${loc.project ? `/${loc.project}` : ''}` };

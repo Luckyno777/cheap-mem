@@ -49,7 +49,42 @@ import fs from 'node:fs';
 import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
 
+/**
+ * P11 · `deriveState` used to read every log file, `JSON.parse` every
+ * line and push the result into ONE array (`all`) before handing it to
+ * `memory.retiredMap` — measured at 2026-09-20 ago as ~6.4 GB at
+ * 5,000,000 entries (bauplan figure, 1.33 KB/entry). The array was the
+ * cost: this function's actual OUTPUT is a small map of retirement
+ * records, not a copy of the memory.
+ *
+ * `memory.retiredMapFromFiles` computes the exact same map — same
+ * algorithm, same `applyRetirement` step, see its own comment in
+ * `memory.mjs` — from the SAME files, without ever holding "every
+ * entry" in one array. The rule this module exists to make structural
+ * (see the header above) does not move: it is still given every log
+ * file, still decides retirement from the whole log, never a subset.
+ * What changes is only how many entries are resident in memory AT ONCE
+ * while it does that.
+ *
+ * `deriveStateMaterialized` below is the OLD implementation, kept only
+ * as the equivalence oracle `test/p11-equivalence.test.mjs` checks this
+ * function against — not because any caller should still use it.
+ */
 export function deriveState(root) {
+  const files = integrity.logFiles(root).map((f) => f.abs);
+  // The authorisation rule lives in exactly one place and is given the
+  // WHOLE log, which is the property the first status bug violated.
+  return memory.retiredMapFromFiles(files);
+}
+
+/**
+ * The pre-P11 implementation, byte-for-byte. Exists ONLY so
+ * `test/p11-equivalence.test.mjs` has an independent oracle to check
+ * `deriveState` against — never call this from production code; it is
+ * exactly the "reads the whole memory into one array" cost `deriveState`
+ * was rewritten to avoid.
+ */
+export function deriveStateMaterialized(root) {
   const all = [];
   for (const f of integrity.logFiles(root)) {
     let raw;
@@ -59,8 +94,6 @@ export function deriveState(root) {
       try { all.push(JSON.parse(line)); } catch { /* integrity reports these */ }
     }
   }
-  // The authorisation rule lives in exactly one place and is given the
-  // WHOLE log, which is the property the first status bug violated.
   return memory.retiredMap(all);
 }
 
