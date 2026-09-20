@@ -524,6 +524,18 @@ export function entityText(doc) {
 }
 
 /** BM25 IDF (with +1 to keep very common terms from going negative). */
+/**
+ * How far the coordination multiplier may pull a score down.
+ *
+ * 0 reproduces the pre-2026-09-20 behaviour (a pure product, which
+ * annihilates); 1 switches coordination off entirely. The measured
+ * window in which both the dilution and the contested fixture pass is
+ * [0.50, 0.75] — see the block that uses this constant, and
+ * test/coverage-floor.test.mjs, which pins the window itself rather than
+ * only this value.
+ */
+export const COVERAGE_FLOOR = 0.6;
+
 function idf(index, term) {
   const df = index.statsDocFreq ?? index.docFreq;
   const N = index.statsN ?? index.N;
@@ -722,6 +734,7 @@ export function search(index, query, {
   mmr = false,           // re-rank the top for diversity (MMR)
   mmrLambda = 0.7,       // 1 = pure relevance, 0 = pure diversity
   coverage = 1,          // reward covering more of the TYPED query (0 = off)
+  coverageFloor = COVERAGE_FLOOR,  // how far coordination may pull a score down
 } = {}) {
   // --- The id lane: asking for an id means asking for ONE entry ----
   //
@@ -822,7 +835,43 @@ export function search(index, query, {
       for (const g of groups) {
         for (const t of g) { if (doc.weights.has(t)) { covered += 1; break; } }
       }
-      score *= (covered / groups.length) ** coverage;
+      // **The floor (2026-09-20).** Until this day the line read
+      //
+      //     score *= (covered / groups.length) ** coverage;
+      //
+      // and that is a PRODUCT, so a small factor annihilates. Measured
+      // over the atlas anchors at three corpus sizes: with three or more
+      // ordinary words in the question the right entry left the top ten
+      // entirely — recall@1 went 1.0 -> 0.0. Those are the two standing
+      // failures `load.b.recall.diluted3` and `diluted5`.
+      //
+      // The mechanism, in one line: at five noise words the anchor covers
+      // 1 of 6 typed words (0.167) and any filler sentence covers 5 of 6
+      // (0.833), so coverage hands the win to the filler. Coverage counts
+      // WORDS, not information, and one rare word is worth more than five
+      // common ones.
+      //
+      // Two repairs suggested themselves and BOTH were measured and
+      // rejected: switching the multiplier off, and weighting coverage by
+      // IDF mass. Each fixes dilution and each loses the case the
+      // multiplier exists for — a decoy carrying one query word several
+      // times beat the answer carrying all three, pushing the answer from
+      // rank 1 to rank 8. (The IDF arm fails for a reason worth keeping:
+      // when one query word is rare it holds nearly all the IDF mass, so
+      // covering it alone already scores ~1.0. It does not solve the
+      // contested case, it restates it.)
+      //
+      // A floor under the product holds both. Swept in steps of 0.05 at
+      // 5,000 and at 20,000 entries, the window where dilution AND the
+      // contested case both pass is [0.50, 0.75]; below it k=5 still
+      // fails, above it the decoy takes rank 1. 0.6 sits inside with
+      // room on both sides.
+      //
+      // Note the floor does NOT weaken the ordering: covering more still
+      // scores strictly higher. It only stops a partial cover from being
+      // multiplied down to nothing.
+      const share = (covered / groups.length) ** coverage;
+      score *= coverageFloor + (1 - coverageFloor) * share;
     }
 
     // Mild recency bonus: max +15%, halved after 90 days.
