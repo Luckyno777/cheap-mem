@@ -85,9 +85,13 @@ export const MUTANTS=[
    tests:['test/properties.test.mjs'] },
 
  { name:'memory: retiredMap ignores replaces_id entirely',
+   // Re-anchored 2026-09-20: `applyRetirement` (the function this line
+   // lives in) sits at top-level indent now, not nested one level
+   // deeper — the anchor's leading four spaces became two. Same line,
+   // same guarantee, verified still caught by the tests below.
    file:'src/memory.mjs',
-   from:'    if (e.replaces_id) {',
-   to:'    if (false && e.replaces_id) {  // MUTANT',
+   from:'  if (e.replaces_id) {',
+   to:'  if (false && e.replaces_id) {  // MUTANT',
    tests:['test/authority.test.mjs','test/properties.test.mjs'] },
 
  { name:'epoch: never report a rollback',
@@ -472,9 +476,19 @@ export const MUTANTS=[
    tests:['test/reserved-typo.test.mjs'] },
 
  { name:'the search cache is written straight onto its own path again',
-   file:'src/search.mjs',
-   from:'      renameWithRetry(tmpPath, cachePath);',
-   to:'      fs.copyFileSync(tmpPath, cachePath);  // MUTANT: no longer atomic',
+   // Re-anchored 2026-09-20 (B8, the shard-cache migration): the single
+   // JSON file and its `renameWithRetry(tmpPath, cachePath)` swap are
+   // gone from src/search.mjs. The cache is now a directory of shards,
+   // and the atomic swap moved into `indexcache.mjs`'s
+   // `writeIndexCache`, as `renameWithRetry(tmpDir, cacheDir)` — see
+   // that file's own doc comment. `fs.copyFileSync` cannot stand in for
+   // the mutation any more (the target is a directory, not a file), so
+   // the mutant now swaps the atomic rename for a non-atomic recursive
+   // copy — same defect (the swap is no longer one syscall, so a reader
+   // can see a half-written cacheDir), same test catching it.
+   file:'src/indexcache.mjs',
+   from:'      renameWithRetry(tmpDir, cacheDir);',
+   to:'      fs.cpSync(tmpDir, cacheDir, { recursive: true, force: true });  // MUTANT: no longer atomic',
    tests:['test/atomic-cache.test.mjs'] },
 
  { name:'a rename Windows refuses is no longer retried',

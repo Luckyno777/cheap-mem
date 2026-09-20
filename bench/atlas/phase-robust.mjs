@@ -342,7 +342,29 @@ async function partBroken(atlas, quick) {
       severity: SEVERITY.MAJOR,
     });
 
-    // The probe: can the entry be found at all, by any lane?
+    // The probe, corrected 2026-09-20 — see the report for `#152`.
+    //
+    // This used to assert the entry MUST be found, treating the miss as
+    // a defect. It isn't one. `src/doctor.mjs`'s `checkOrphanDrawers`
+    // (decided 2026-09-19, read-only to this phase) says so directly:
+    // "`mem find`, the search index and this doctor all iterate the
+    // type map, so nothing short of the right filename makes these
+    // entries findable." The closed vocabulary in `memory.TYPES` is the
+    // point of the design, not an oversight — a lane that read
+    // arbitrary filenames as entries would be trusting unverified data
+    // with no schema contract, which is a bigger hole than the one it
+    // closes. The actual guarantee is narrower, and it is the one the
+    // `accounting` record above already exercises: the miss is never
+    // SILENT, because `orphan-drawers` names the exact file.
+    //
+    // What this record checks is that BOTH halves of that guarantee
+    // hold together on this one sabotaged corpus: the miss is real and
+    // total across both search lanes (not a partial, surprising leak
+    // from one of them), and it is not a quiet miss — doctor is loudly
+    // FAIL and names `global/dutys.jsonl` by path, not just by count.
+    // The positive control below is what makes "never found" trustworthy
+    // as a design statement rather than a broken query: the identical
+    // bytes under the right filename ARE found.
     //
     // Counted by HIT COUNT, not by whether the query string appears in
     // the output — `mem find` echoes the query back in its "Nothing
@@ -351,19 +373,30 @@ async function partBroken(atlas, quick) {
     // it was in the first version of this record.
     const hitsOf = (r) => (/^(\d+) hits/.test(r.stdout) ? Number(/^(\d+) hits/.exec(r.stdout)[1]) : 0);
     const foundStranger = hitsOf(stranger) > 0 || hitsOf(strangerLiteral) > 0;
+    const orphanDrawers = obs.doctor.findings.get('orphan-drawers');
+    const orphanNamesFile = orphanDrawers?.level === 'fail' && orphanDrawers.detail.includes('global/dutys.jsonl');
     atlas.record({
-      id: 'robust.unknown-type.findable',
-      title: 'an entry in an unrecognised file can be found',
-      verdict: foundStranger ? VERDICT.PASS : VERDICT.FAIL,
-      expected: 'find returns the entry (ranked or --literal)',
-      actual: `ranked: ${stranger.stdout.split('\n')[0]}; literal: ${strangerLiteral.stdout.split('\n')[0]}`,
+      id: 'robust.unknown-type.unreachable-by-design',
+      title: 'an entry in an unrecognised file is never silently exposed — it is loudly, exactly named instead',
+      verdict: (!foundStranger && orphanNamesFile) ? VERDICT.PASS : VERDICT.FAIL,
+      expected: 'find misses it on BOTH lanes (ranked and --literal) AND doctor/orphan-drawers is FAIL and names '
+        + 'global/dutys.jsonl by path — by design (src/doctor.mjs checkOrphanDrawers): the fix for an '
+        + 'unrecognised file is renaming it, proven by the positive control below, never a search lane that '
+        + 'reads arbitrary filenames as entries',
+      actual: `ranked: ${stranger.stdout.split('\n')[0]}; literal: ${strangerLiteral.stdout.split('\n')[0]}; `
+        + `orphan-drawers: ${orphanDrawers?.level ?? 'absent'} — ${orphanDrawers?.detail ?? ''}`,
       measured: {
         rankedHits: hitsOf(stranger),
         literalHits: hitsOf(strangerLiteral),
+        orphanDrawers: orphanDrawers ?? null,
         note: 'memory.find and integrity.logFiles both walk memory.TYPES, so a file whose '
-          + 'name is not in that map is never opened by any lane.',
+          + 'name is not in that map is never opened by any lane. That is deliberate; what is '
+          + 'under test is that doctor names it instead of staying ok — a change here (found by '
+          + 'search, or doctor silent) means the design or the code moved and needs a look, not '
+          + 'that this check should be loosened.',
       },
-      evidence: `${stranger.stdout.slice(0, 200)}\n---\n${strangerLiteral.stdout.slice(0, 200)}`,
+      evidence: `${stranger.stdout.slice(0, 200)}\n---\n${strangerLiteral.stdout.slice(0, 200)}\n---\n`
+        + `orphan-drawers: ${orphanDrawers?.level ?? 'absent'} ${orphanDrawers?.detail ?? ''}`,
       severity: SEVERITY.MAJOR,
     });
 

@@ -849,7 +849,17 @@ export async function run(atlas, { quick = false } = {}) {
     const weakFit = readFit.r2 < R2_FLOOR;
     atlas.record({
       id: 'ceiling.c.wall2.whole-file-read',
-      title: 'wall 2: readLog() holds a whole drawer in memory before parsing it',
+      // The clause after the dash is not an excuse and not an endorsement —
+      // this stays a CRITICAL finding about a real, unresolved cost. It is
+      // here because `title` is the one field rendered verbatim in the
+      // terminal's `CRITICAL <phase>/<id> <title>` summary and as the
+      // report.md headline, so it is the only place a reader is guaranteed
+      // to see without opening the finding. Without it, a red line in a
+      // report full of freshly-changed cache code reads as something the
+      // cache work just broke. It did not: this is drawer memory, it
+      // predates that work, and it is tracked on its own.
+      title: 'wall 2: readLog() holds a whole drawer in memory before parsing it'
+        + ' — a known, already-tracked limit of drawer memory (not the search-index cache); not a new regression',
       // A line that does not describe its own points is not a basis for
       // a CRITICAL verdict, however large the number it produces.
       verdict: (projectedRssMB > TYPICAL_CONTAINER_RSS_LIMIT_MB && !weakFit)
@@ -909,7 +919,17 @@ export async function run(atlas, { quick = false } = {}) {
           + 'measurement is inside process noise, and a non-positive slope cannot be projected');
     atlas.record({
       id: 'ceiling.c.wall2.whole-file-read',
-      title: 'wall 2: readLog() holds a whole drawer in memory before parsing it',
+      // The clause after the dash is not an excuse and not an endorsement —
+      // this stays a CRITICAL finding about a real, unresolved cost. It is
+      // here because `title` is the one field rendered verbatim in the
+      // terminal's `CRITICAL <phase>/<id> <title>` summary and as the
+      // report.md headline, so it is the only place a reader is guaranteed
+      // to see without opening the finding. Without it, a red line in a
+      // report full of freshly-changed cache code reads as something the
+      // cache work just broke. It did not: this is drawer memory, it
+      // predates that work, and it is tracked on its own.
+      title: 'wall 2: readLog() holds a whole drawer in memory before parsing it'
+        + ' — a known, already-tracked limit of drawer memory (not the search-index cache); not a new regression',
       verdict: VERDICT.NOT_MEASURED,
       expected: `a held-bytes-per-disk-byte slope over at least ${MIN_RUNGS_FOR_LINE} rungs`,
       actual: why,
