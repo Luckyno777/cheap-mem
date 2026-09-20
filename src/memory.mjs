@@ -22,6 +22,27 @@ import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
 
 /**
+ * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
+ * tolerantly rather than with a normal `import`.
+ *
+ * `test/entry-version.test.mjs` copies THIS file alone, plus a
+ * hand-checked list of its dependencies, into a throwaway sandbox
+ * directory to test schema-version behaviour in isolation — the same
+ * situation `FLOOD_STOPWORDS` below is duplicated (not imported) to
+ * avoid. A normal `import * as chain from './chain.mjs'` would fail
+ * module resolution for that sandbox the moment memory.mjs is loaded at
+ * all — before a single test in that file runs, whether or not it ever
+ * calls `logEntry` — breaking a suite about entry versioning for a
+ * reason it has nothing to do with. A top-level `await import()`
+ * resolves once, here, and the `catch` turns "chain.mjs is not sitting
+ * beside this file" into "sealing is skipped", never into "this module
+ * fails to load". `logEntry` itself stays fully synchronous either way:
+ * by the time it runs, `chain` is already settled to one or the other.
+ */
+let chain = null;
+try { chain = await import('./chain.mjs'); } catch { /* sibling not present here — sealing skipped */ }
+
+/**
  * Known log types. Each has its own JSONL per project + global.
  *
  * Five of these exist because a digest run kept producing entries that
@@ -519,7 +540,109 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
       + 'Refusing to write rather than truncate a field silently.');
   }
   fs.appendFileSync(p, `${line}\n`, 'utf8');
+
+  // Chain sealing (src/chain.mjs), best-effort and OPT-IN — see
+  // `chainSealCadenceFor` for why this is not on by default, and
+  // `CHAIN_SEAL_CADENCE` for the cadence to configure when it is turned
+  // on. `chain` is null when the sibling module is not sitting beside
+  // this one (the entry-version sandbox — see the import comment above);
+  // either way a sealing failure must never turn a write that already
+  // landed on disk into a thrown error from `logEntry`.
+  if (chain) {
+    const cadence = chainSealCadenceFor(root);
+    if (cadence > 0) {
+      try {
+        chain.maybeSeal(p, chain.writerOf(entry), { cadence, now });
+      } catch { /* the write already succeeded; sealing is bookkeeping, not the write itself */ }
+    }
+  }
+
   return { path: p, entry };
+}
+
+/**
+ * How many unsealed lines a writer is allowed to accumulate, per
+ * (file, writer), before `logEntry` reseals them — when sealing is
+ * turned on at all. See `chainSealCadenceFor` just below for why it
+ * defaults to OFF.
+ *
+ * **Chosen from measurement, not a guess**, for anyone who turns it on.
+ * Two numbers decide it:
+ *
+ *   - The cost a seal now has, with `chain.mjs`'s tail-bounded
+ *     `appendSeal`/`maybeSeal`: bounded by the TAIL, not the file — see
+ *     `test/chain-cost.test.mjs`, which reseals a small constant tail at
+ *     1k/10k/100k/500k existing rows and finds the time roughly FLAT
+ *     across that whole range (the exact numbers are in that file's own
+ *     comment and the build report; the old, file-replaying
+ *     implementation ranged from 9.3 ms to 2624.3 ms over the same
+ *     ladder). A tail bounded to `CHAIN_SEAL_CADENCE` lines is a small
+ *     fraction of even the smallest chunk read, so it lands in the flat
+ *     part of that measurement regardless of how large the file has
+ *     grown — the whole point of this build.
+ *   - The write path's own measured throughput: 8.91 entries/sec through
+ *     one writer at 150,008 existing rows (`docs/benchmark-atlas.md`,
+ *     "One writer per type"), i.e. ~112 ms per `mem log` call. Against
+ *     that, a tail-bounded seal measured at low single-digit
+ *     milliseconds is well under 5% of one write's own cost even
+ *     sealing on EVERY write — cost is not what argues for batching here.
+ *
+ * What argues for batching instead is what a seal COSTS every OTHER
+ * reader of the log, forever: a seal is an ordinary JSONL line sitting
+ * in the same file as real entries (`find`, the search index, `mem
+ * agents`, every drawer count) — sealing every write would DOUBLE the
+ * number of lines every one of them has to parse, for a value (the
+ * unsealed window) that only has to be "short enough to be a bounded
+ * blind spot", not zero. 50 caps that window at 50 entries per writer
+ * (a few KB of unprotected tail at any moment, since a realistic entry
+ * runs under 1.5 KB — see `test/entry-version.test.mjs`'s own COST
+ * test) while keeping seal lines to about 2% of a log's entries — a
+ * bounded, honest trade rather than either extreme.
+ */
+export const CHAIN_SEAL_CADENCE = 50;
+
+/**
+ * Sealing ships OFF by default. Reachable only through
+ * `.mem/config.json`'s ad-hoc-optional `chainSealCadence` key (the same
+ * pattern as `maxEntryBytesFor` above) — a positive number turns it on
+ * at that cadence; anything else (absent, non-numeric, non-positive, no
+ * config at all) means "do not seal".
+ *
+ * **Why not on unconditionally, the way the build brief asked for.**
+ * A seal is, by this module's own design (see `src/chain.mjs`), an
+ * ORDINARY JSONL line living in the very same file as real entries —
+ * nothing marks it as special to a generic reader. Every existing
+ * consumer of a TYPES log was written before this line shape existed
+ * and reads generically: `find`, the search index, `procedure.forKeywords`,
+ * `standing`/`floodGroups`, and several tests that count lines or rank
+ * documents. Turning sealing on unconditionally at a 50-write cadence
+ * was tried, and measurably broke four suites this build has no
+ * authorization to touch or fix: `test/concurrent-append.test.mjs`
+ * (exact survived-line-count assertion — a seal line looks like
+ * corruption to it), `test/coverage-floor.test.mjs` and
+ * `test/raw-stats.test.mjs`/`test/incremental.test.mjs` (search/ranking
+ * assertions disturbed by extra, mostly-empty documents entering the
+ * index). None of those are chain.mjs's or memory.mjs's own tests, and
+ * `src/search.mjs`/`src/retrieval.mjs` — the files that would need to
+ * learn to skip a `chain_seal` line — are explicitly out of scope for
+ * this change (other agents were editing them this round). Shipping the
+ * unconditional version anyway would be handing back a "done" that
+ * quietly breaks work already in flight elsewhere. See the build report
+ * for the exact before/after test runs that found this.
+ *
+ * Confirmed by running each of the four flagged suites once with this
+ * hook forced on and once with it forced off, one file at a time (never
+ * the full suite — see the house rule on that): all four pass with
+ * sealing off, and the same four failures reproduce with it on, with no
+ * other change in between.
+ */
+function chainSealCadenceFor(root) {
+  try {
+    const cfg = cfgmod.readConfig(root);
+    const v = Number(cfg.chainSealCadence);
+    if (Number.isFinite(v) && v > 0) return v;
+  } catch { /* no config yet, or unreadable — sealing stays off */ }
+  return 0;
 }
 
 /** Length of a generated id. Always this, never "usually this". */

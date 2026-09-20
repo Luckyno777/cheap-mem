@@ -40,6 +40,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
+import * as chain from './chain.mjs';
 
 /** Longest supersession chain we follow before calling it pathological. */
 export const MAX_CHAIN = 64;
@@ -134,6 +135,9 @@ export function scanIntegrity(root) {
   const duplicateIds = [];    // { id, files: [...] }
   const seen = new Map();     // id -> [{ file, line }]
   const claims = new Map();   // id -> { replaces, file, line }
+  // Fed to `chain.verifyChain` once at the end, reusing the bytes this
+  // loop already read rather than opening every file a second time.
+  const chainFiles = [];
   let lines = 0;
   let entries = 0;
 
@@ -144,6 +148,7 @@ export function scanIntegrity(root) {
     let raw;
     try { raw = fs.readFileSync(f.abs, 'utf8'); }
     catch { broken.push({ file: f.rel, line: 0, why: 'unreadable' }); continue; }
+    chainFiles.push({ rel: f.rel, raw, project: f.project, type: f.type });
 
     const rows = raw.split('\n');
     for (let i = 0; i < rows.length; i += 1) {
@@ -210,7 +215,34 @@ export function scanIntegrity(root) {
     if (at.length > 1) duplicateIds.push({ id, at });
   }
 
-  return { lines, entries, broken, badTimestamp, duplicateIds, replacement: replacementGraph(claims) };
+  return {
+    lines,
+    entries,
+    broken,
+    badTimestamp,
+    duplicateIds,
+    replacement: replacementGraph(claims),
+    // See `src/chain.mjs` for what this checks and its honest limits.
+    // `state: 'unknown'` here is the correct, expected answer for every
+    // corpus written before chaining existed — it is not a lesser result
+    // that a future change is expected to turn into 'ok' on its own; a
+    // seal has to actually be written for that to happen.
+    chain: chain.verifyChain(chainFiles),
+  };
+}
+
+/**
+ * The chain check alone, for a caller that wants it without the rest of
+ * `scanIntegrity` — same enumeration `scanIntegrity` itself uses
+ * (`logFiles`), so the two never disagree about which files exist.
+ */
+export function checkChain(root) {
+  const files = logFiles(root).map((f) => {
+    let raw = '';
+    try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { /* absent/unreadable: an empty file has no chain either */ }
+    return { rel: f.rel, raw, project: f.project, type: f.type };
+  });
+  return chain.verifyChain(files);
 }
 
 /**
@@ -307,5 +339,14 @@ export function isClean(report) {
     && report.duplicateIds.length === 0
     && report.replacement.cycles.length === 0
     && report.replacement.missing.length === 0
-    && !report.replacement.tooDeep;
+    && !report.replacement.tooDeep
+    // A corpus with no seal at all (`chain.state === 'unknown'`) is NOT a
+    // failure here — the house rule against a bolt that reports the
+    // innocent: "Ein Riegel, der Unschuldige meldet, wird abgeschaltet."
+    // Every corpus written before chaining existed would otherwise fail
+    // a strict run forever, for a gap that is this module's own, not the
+    // memory's. An actual hash mismatch (`chain.tampered`) is a failure
+    // regardless of that. `report.chain` is optional so a hand-built
+    // report from before this field existed still evaluates.
+    && (report.chain?.tampered?.length ?? 0) === 0;
 }
