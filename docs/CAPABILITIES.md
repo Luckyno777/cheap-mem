@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 60 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 62 CLI commands, 28 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1413 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -469,7 +469,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 60 commands
+### 7.1 CLI — 62 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -478,7 +478,7 @@ browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
-find-embed find-hybrid raw-capture topic-merge
+find-embed find-hybrid raw-capture topic-merge archive chain
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
@@ -1407,3 +1407,89 @@ lane would look alive where nobody is running any more.
 
 Not added: `broadcast` (fires by itself when an error is logged) and
 `guard run` (an operational handle, not a working tool).
+
+### 10.18 Integrity of the log itself — `src/chain.mjs`, `mem chain`
+
+`mem doctor`'s append-only check compares the working tree against
+`git show HEAD:<path>`. That catches an edit made before it is
+committed — where carelessness actually happens — but once a rewrite is
+committed, HEAD *is* the rewritten content and the check compares clean
+history to itself. Measured detection against five tampers: **1 of 5**.
+
+`src/chain.mjs` is a second signal that never reads git. It hashes the
+raw JSONL line byte for byte and compares against a seal recorded
+earlier inside the log. One chain per writer, because writers append
+concurrently and a single global chain would report every interleaving
+as a break.
+
+Four states, and the third one matters: a seal that covers **zero**
+lines reports `unknown`, not `ok`. A check that can say `ok` without
+being able to say what it inspected is not a check. Sealing is opt-in
+(`chainSealCadence`) until `search.mjs` and `retrieval.mjs` learn to
+skip `chain_seal` lines — an un-integrated reader would otherwise
+return seals as if they were content.
+
+### 10.19 Clock skew between writers — `src/clock.mjs`
+
+`env/clock` used to compare the newest entry in the whole memory
+against `Date.now()`, whoever wrote it. Comparing your own clock to
+your own clock's recent output says nothing about a fleet; it only says
+you did not write in the future.
+
+This narrows the comparison to the newest line from a **foreign**
+writer against this process's clock. That is the number that `ts`-based
+ordering between writers actually rests on. Ordering *within* one
+writer is `chain.mjs`'s business, and this module does not touch it.
+Nothing is ever reordered on the strength of it — it is reported, not
+applied.
+
+### 10.20 The index cache, as shards — `src/indexcache.mjs`
+
+The old cache was one JSON document. That works until the serialized
+**text** passes V8's maximum string length (2**29 − 24 UTF-16 code
+units — a V8 constant, not a flag). At the measured 548.7 bytes per
+entry that is ~978,477 entries, matching the build plan's measured
+break at 978,395. It is not a slow decline: every entry before the line
+loads, every corpus past it throws `RangeError: Invalid string length`
+inside `JSON.parse`, deterministically.
+
+Streaming the bytes is not the fix — Node has no streaming `JSON.parse`
+— so the cache is written and read as shards instead, none of which
+approaches the limit. `test/index-cache-ladder.test.mjs` re-establishes
+the wall on whichever machine runs the test rather than trusting a
+number measured on another one.
+
+**Not yet wired into `loadIndex`.** Landing it is a coordinated change
+across roughly a dozen files (doctor, .gitignore, the git hook, four
+atlas phases, six tests and benches); it is validated in a sandbox and
+deliberately deferred rather than half-landed.
+
+### 10.21 Language per entry, not per memory — `src/langdetect.mjs`
+
+The index used to carry ONE language, read once from `.mem/config.json`
+and applied to every entry. A German company writing German notes about
+English code got the wrong stemmer for whichever half did not match —
+and nothing said so.
+
+Detection is stopword overlap over the entry's fields, weighted the way
+`search.mjs` already weights them for BM25, and a language wins only by
+a real margin. No model, no network, no dictionary beyond the stopword
+lists `language.mjs` already carries. Deterministic: the same entry
+always yields the same verdict, so an index rebuild cannot quietly
+change what a query matches. Below the margin the answer is the
+memory's configured language — a fallback, named as one.
+
+### 10.22 Archiving shards — `src/shardarchive.mjs`
+
+Git does not carry a multi-gigabyte body. The build plan projected
+~166.2 B/entry and a ~4.8 GB body at 5,000,000 entries; re-running the
+same generator on the current tree measures ~974 B/entry for
+`learnings.jsonl` and a ~1253 B/entry mean across every drawer type —
+6-7x the cited figure, and in line with the real corpus (p50 979 B over
+2,286 real entries), which the older synthetic figure is not.
+
+The honest number to design against is the higher one. This module
+moves cold shards out of the working tree, and the discrepancy is
+recorded here rather than silently corrected, because the same class of
+gap is already on this house's record: *a synthetic corpus of short
+entries measures retrieval wrong by an order of magnitude.*
