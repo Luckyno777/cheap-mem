@@ -197,11 +197,98 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
   assert.ok(h.names.size >= 20, `only ${h.names.size} findings found — has the call name changed?`);
 });
 
-test('the real pair holds: every finding of both houses is judged', () => {
-  // The actual latch. If this goes red, one of the two houses has
-  // gained or lost a finding nobody has looked at.
+// --- Part 2 of #154: this probe used to read a SIBLING REPOSITORY on
+// the same disk, at a path that is neither repo (`../lucky-mem`), which
+// made its result a property of the machine it ran on, not of the code.
+//
+// Proven by sabotage on 2026-09-20: moving the sibling out of the way
+// and running this file still printed "ok" for the old test below, in
+// well under a millisecond — it never even opened the process it was
+// meant to run. On a CI runner that checks out only this one repo (the
+// normal case), that early `return` fires on every single run. A test
+// silently green through every real divergence it exists to catch is
+// worse than no test — the file header names exactly this trap, and
+// this was it.
+//
+// Fix (option 1 of the two named in #154): check the neighbour's
+// finding names against a COMMITTED SNAPSHOT instead of only the live
+// clone. That makes the comparison reproducible on any machine, CI
+// included — a name gained or lost over there shows up as a diff to
+// this snapshot that a human approves when refreshing it deliberately,
+// never as a probe that quietly never ran.
+//
+// Snapshot captured 2026-09-20 from lucky-mem/src/doktor.mjs via this
+// file's own `readHouse()` (54 `befund(...)` names — includes
+// `auftragslage`, the finding that triggered this issue). To refresh
+// after a real change on the lucky-mem side, with the sibling checked
+// out at `../lucky-mem`, run from this repo's root:
+//
+//   node -e "import('./src/findingmirror.mjs').then(({readHouse}) => \
+//     console.log(JSON.stringify([...readHouse('../lucky-mem').names].sort(), null, 2)))"
+//
+// and replace the `names` array below with the result, as its own
+// reviewed change — never silently.
+const LUCKY_MEM_SNAPSHOT = Object.freeze({
+  capturedAt: '2026-09-20',
+  source: 'lucky-mem/src/doktor.mjs',
+  names: Object.freeze([
+    'abrufquote', 'altlast', 'anhang', 'ansicht', 'archiv-haltbar',
+    'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
+    'bauweise', 'befund-gleichstand', 'bestand', 'briefkasten', 'bruecke',
+    'dubletten', 'eintragsform', 'faecher', 'faecher-jsonl',
+    'fakt-konflikte', 'fang-doppelt', 'fasser', 'fasser-ausbeute',
+    'fasser-timer', 'frageworte', 'git', 'git-hook', 'hook-doppelt',
+    'hook-kopie', 'index', 'klingel', 'modell-start', 'nachher-haken',
+    'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-liegt',
+    'post-stau', 'redaktion', 'rohfang', 'rueckstand', 'startlast',
+    'stop-hook', 'tagform', 'themen-guete', 'transkript-schema',
+    'waechter', 'waechter-fassung', 'waisen', 'wirksamkeit', 'wurzel',
+    'zeilenzugriff', 'zustellnachweis', 'zustellschuld', 'zustellung',
+  ]),
+});
+
+test('the real pair holds against a committed snapshot: every finding of '
+  + 'both houses is judged (reproducible with no sibling on disk)', () => {
+  // The actual latch, made independent of the machine. If this goes
+  // red, one of the two houses has gained or lost a finding nobody has
+  // looked at — provably, because it runs the same way everywhere.
+  const here = readHouse(REPO);
+  const there = {
+    root: `<committed snapshot, captured ${LUCKY_MEM_SNAPSHOT.capturedAt}>`,
+    style: 'befund',
+    source: LUCKY_MEM_SNAPSHOT.source,
+    names: new Set(LUCKY_MEM_SNAPSHOT.names),
+    missing: false,
+    empty: false,
+  };
+  const map = readMap(REPO);
+  const g = compare(here, there, map);
+  const open = { onlyHere: g.onlyHere, onlyThere: g.onlyThere, stale: g.stale,
+    incomplete: g.incomplete, ambiguous: g.ambiguous };
+  const openCount = g.onlyHere.length + g.onlyThere.length + g.stale.length
+    + g.incomplete.length + g.ambiguous.length;
+  assert.equal(openCount, 0, JSON.stringify(open, null, 2));
+});
+
+test('freshness: the committed snapshot matches the live neighbour, '
+  + 'when one is actually on disk', (t) => {
+  // This is the ONLY place a live sibling is still read, and only as a
+  // bonus check for whoever happens to have it checked out — it is
+  // never the thing that makes the guarantee above pass or fail.
+  //
+  // Absent sibling: explicitly SKIPPED, not silently "ok". "Not
+  // measurable" must look different from "measured and fine" in the
+  // test output, the same rule the doctor findings themselves follow.
   const sibling = path.join(REPO, '..', 'lucky-mem');
-  if (!fs.existsSync(path.join(sibling, 'src', 'doktor.mjs'))) return;  // not cloned
-  const r = run(['--root', REPO, '--against', sibling]);
-  assert.equal(r.status, 0, r.stdout);
+  if (!fs.existsSync(path.join(sibling, 'src', 'doktor.mjs'))) {
+    t.skip('no sibling checked out at ../lucky-mem — snapshot freshness is '
+      + 'NOT MEASURABLE here, not confirmed fresh. The committed-snapshot '
+      + 'test above still ran for real and is unaffected.');
+    return;
+  }
+  const live = readHouse(sibling);
+  assert.deepEqual([...live.names].sort(), [...LUCKY_MEM_SNAPSHOT.names].sort(),
+    'the live neighbour has drifted from the committed snapshot — refresh '
+    + 'LUCKY_MEM_SNAPSHOT in this file deliberately (see the comment above '
+    + 'it) and re-run');
 });

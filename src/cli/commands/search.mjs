@@ -217,7 +217,28 @@ export const COMMANDS = {
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
       withRetired: withRetiredForFetch,
-      language: cfg.language,
+      // Deliberately NOT `language: cfg.language`. `cfg.language` is the
+      // memory's configured DEFAULT (src/config.mjs, 'en' unless set), not
+      // a per-query "the user asked for one language" signal — `find` has
+      // no `--lang` flag to produce that signal in the first place, and it
+      // is not in `find`'s checkFlags whitelist. Passing the config default
+      // here pins `search()`'s QUERY tokenization to one stemmer pack (see
+      // `search()`'s own `language` parameter: `const queryPacks = language
+      // ? [pack(language)] : DETECTABLE_PACKS`), which defeats the
+      // multi-pack detection that `retrieval.retrieve()` — the gateway —
+      // always gets, because it never passes `language` to `search()` at
+      // all.
+      //
+      // Measured 2026-09-20 on one index, one query, one entry:
+      //   without `language`      score 10.879, rank 1
+      //   with `language: 'en'`   score  1.808, rank last of 17
+      // The second number matched the CLI's real output exactly. That was
+      // the THIRD divergence between `mem find` and `retrieve()` — the
+      // class test/paths-agree.test.mjs exists to catch, and did.
+      //
+      // The three `language: cfg.language` uses elsewhere in this file feed
+      // `loadIndex(...)` and are unrelated: they pick the fallback lexicon
+      // pack while BUILDING the index, not the query-side tokenization.
       // MMR on by default: keep the top-k from filling with near-duplicates.
       // --no-mmr restores pure BM25 order.
       mmr: !args['no-mmr'],
