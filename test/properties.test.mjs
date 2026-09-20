@@ -47,7 +47,16 @@ function randomEntries(r, n) {
       ts,
       topic: TOPICS[Math.floor(r() * TOPICS.length)],
       choice: `${WORDS[Math.floor(r() * WORDS.length)]} ${WORDS[Math.floor(r() * WORDS.length)]} ${i}`,
-      why: `${WORDS[Math.floor(r() * WORDS.length)]} because ${WORDS[Math.floor(r() * WORDS.length)]}`,
+      // "the" / "of" are deliberate: with none of `WORDS` a stopword in
+      // either language (P28's per-entry detection, added in search.mjs),
+      // a purely-synthetic entry like the old `"${w} because ${w}"` had NO
+      // language signal at all and came back UNCERTAIN — tokenised under
+      // BOTH rule sets rather than one, which is correct for a genuinely
+      // ambiguous entry but is not what THIS generator is for: these
+      // fixtures exist to exercise index-rebuild equivalence, not
+      // detection, so they get an unambiguous English marker instead.
+      why: `the ${WORDS[Math.floor(r() * WORDS.length)]} happened because of `
+        + `the ${WORDS[Math.floor(r() * WORDS.length)]}`,
     };
     // ~20% of entries correct an earlier one.
     if (ids.length && r() < 0.2) e.replaces_id = ids[Math.floor(r() * ids.length)];

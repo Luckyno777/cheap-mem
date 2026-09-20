@@ -49,7 +49,29 @@ function piecePath(root, rel) {
     ?? path.join(root, rel);
 }
 import { pack } from './language.mjs';
+import { detectEntryLanguage, DETECTABLE_LANGUAGES, UNCERTAIN } from './langdetect.mjs';
 import * as profile from './profile.mjs';
+
+/**
+ * The packs consulted when an entry's (or a query's) language is not
+ * pinned down — either because detection came back UNCERTAIN, or
+ * because a caller asked no single language be assumed. See
+ * `langdetect.mjs` for why only these two are real candidates today.
+ */
+const DETECTABLE_PACKS = DETECTABLE_LANGUAGES.map((code) => pack(code));
+
+/**
+ * Which pack(s) apply to one piece of content, given its detection
+ * result. CERTAIN gets its own language's rules and nothing else —
+ * exactly what a single-language corpus already got before this file
+ * carried per-entry detection at all, so a correctly-detected entry
+ * costs nothing extra. UNCERTAIN gets every detectable rule set: "apply
+ * both, claim nothing" is not a slogan here, it is which packs get
+ * handed to the tokenizer.
+ */
+function packsFor(langInfo) {
+  return langInfo.certain ? [pack(langInfo.language)] : DETECTABLE_PACKS;
+}
 
 const K1 = 1.2;
 const B = 0.75;
@@ -68,7 +90,13 @@ export const CACHE_FILE = path.join('.mem', 'search-index.json');
 // 8: each file's cache record now carries `docs`, the number of index
 //    documents it contributed (see `docCountsMatch` below) — an older
 //    cache has no such count to check the loaded documents against.
-export const CACHE_VERSION = 8;
+// 9: P28 — every document now carries its own DETECTED `lang` and
+//    `langCertain`, and the index carries `lexicons` (one compound
+//    lexicon per detectable language) alongside the single `lexicon`.
+//    An older cache has neither: its documents were tokenised with one
+//    corpus-wide pack, so serving it as-is would keep answering the
+//    exact defect P28 exists to close.
+export const CACHE_VERSION = 9;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -198,32 +226,80 @@ export function tokenize(text, opts = {}) {
  * `tokenize` is this function flattened, so the two cannot drift apart.
  */
 export function tokenizeGroups(text, { lexicon = null, lang = pack('en') } = {}) {
+  return tokenizeGroupsMulti(text, {
+    langs: [lang],
+    lexicons: lexicon ? new Map([[lang.name, lexicon]]) : new Map(),
+  });
+}
+
+/**
+ * The same grouping as `tokenizeGroups`, but against SEVERAL language
+ * packs at once — one typed word still yields one group, and that group
+ * now holds forms from every pack in `langs`.
+ *
+ * This is where "ask the question against both rule sets" (P28) and
+ * "one entry, its own rule set" both live: a single-pack call (what
+ * `tokenizeGroups` is a thin wrapper over) reproduces the old, single-
+ * language behaviour byte for byte, so a CERTAIN entry or an explicit
+ * single-language query costs exactly what it always did.
+ *
+ * **Stopwords are filtered by UNION, not by any one pack.** A word is
+ * dropped only if EVERY pack in `langs` calls it a stopword. Filtering
+ * by intersection instead — drop it if pack A alone calls it a
+ * stopword — would let an English filler word ("the") survive into a
+ * German-tokenised group just because German's stopword list has never
+ * heard of it, which is noise, not signal, and it is the UNION that
+ * reproduces single-pack behaviour exactly when `langs` has one member.
+ */
+/**
+ * One typed word's token forms under ONE pack: itself stemmed, both
+ * spellings when normalising changed it, and its compound parts when
+ * the pack's lexicon knows them. This is the unit both
+ * `tokenizeGroupsMulti` (sums these across packs — see its own doc
+ * comment on why that stacking is fine within ONE pack) and
+ * `tokenizeGroupsPacked` (keeps one pack's forms apart from another's —
+ * see that function) are built from, so the two cannot drift apart.
+ */
+function wordForms(f, lang, lexicon) {
+  const out = [];
+  const n = lang.normalize(f);
+  out.push(lang.stem(n));
+  if (n !== f) out.push(lang.stem(f));   // both spellings
+  if (lexicon) {
+    const parts = splitCompound(n, lexicon, lang);
+    if (parts) for (const p of parts) out.push(lang.stem(p));
+  }
+  return out;
+}
+
+/** Hyphenated words yield BOTH the full form (`pull-request`) and the
+ *  parts (`pull`, `request`). Without that, "embedding" never finds the
+ *  entry "embeddings-endpoint". Shared by both grouping functions below. */
+function hyphenForms(w, isStop) {
+  const forms = [w];
+  if (w.includes('-')) {
+    for (const part of w.split('-')) {
+      if (part.length >= 2 && !isStop(part)) forms.push(part);
+    }
+  }
+  return forms;
+}
+
+export function tokenizeGroupsMulti(text, { lexicons = new Map(), langs } = {}) {
   if (typeof text !== 'string') return [];
+  const packs = langs && langs.length ? langs : [pack('en')];
+  const isStop = (w) => packs.every((l) => l.stopwords.has(w));
+
   const rawWords = text
     .toLowerCase()
     .split(/[^\p{L}\p{N}_-]+/u)
-    .filter((w) => w.length >= 2 && !lang.stopwords.has(w));
+    .filter((w) => w.length >= 2 && !isStop(w));
 
   const groups = [];
   for (const w of rawWords) {
     const out = [];
-    // Hyphenated words yield BOTH the full form (`pull-request`) and
-    // the parts (`pull`, `request`). Without that, "embedding" never
-    // finds the entry "embeddings-endpoint".
-    const forms = [w];
-    if (w.includes('-')) {
-      for (const part of w.split('-')) {
-        if (part.length >= 2 && !lang.stopwords.has(part)) forms.push(part);
-      }
-    }
-    for (const f of forms) {
-      const n = lang.normalize(f);
-      out.push(lang.stem(n));
-      if (n !== f) out.push(lang.stem(f));   // both spellings
-      if (lexicon) {
-        const parts = splitCompound(n, lexicon, lang);
-        if (parts) for (const p of parts) out.push(lang.stem(p));
-      }
+    for (const f of hyphenForms(w, isStop)) {
+      for (const lang of packs) out.push(...wordForms(f, lang, lexicons.get(lang.name) ?? null));
     }
     if (out.length) groups.push(out);
   }
@@ -231,17 +307,90 @@ export function tokenizeGroups(text, { lexicon = null, lang = pack('en') } = {})
 }
 
 /**
+ * The QUERY-side grouping (P28): one entry per typed word, but with each
+ * applicable pack's forms kept in its OWN sub-list rather than pooled —
+ * `groups[i]` is `[[en's forms for word i], [de's forms for word i], ...]`
+ * for the packs that do not already treat the word as a stopword.
+ *
+ * **Why this needs to be a different shape from `tokenizeGroupsMulti`.**
+ * `search()` scores a candidate spelling's alternates from DIFFERENT
+ * language packs with MAX, not SUM — see the scoring loop's own comment
+ * for why summing them broke the exact coordination guarantee
+ * `test/coverage-floor.test.mjs` exists to protect: an UNCERTAIN
+ * document indexed under both `cache` and `cach` would otherwise be
+ * scored as if it had matched the query TWICE. Forms WITHIN one pack
+ * (hyphen parts, compound parts) still stack, exactly as they always
+ * have — see `wordForms` — because those are genuinely different
+ * evidence for the same word, not two guesses about which language it
+ * is in.
+ */
+export function tokenizeGroupsPacked(text, { lexicons = new Map(), langs } = {}) {
+  if (typeof text !== 'string') return [];
+  const packs = langs && langs.length ? langs : [pack('en')];
+  const isStop = (w) => packs.every((l) => l.stopwords.has(w));
+
+  const rawWords = text
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .filter((w) => w.length >= 2 && !isStop(w));
+
+  const groups = [];
+  for (const w of rawWords) {
+    const forms = hyphenForms(w, isStop);
+    const perPack = [];
+    for (const lang of packs) {
+      if (lang.stopwords.has(w)) continue;   // this pack alone calls it filler
+      const out = [];
+      for (const f of forms) out.push(...wordForms(f, lang, lexicons.get(lang.name) ?? null));
+      if (out.length) perPack.push(out);
+    }
+    if (perPack.length) groups.push(perPack);
+  }
+  return groups;
+}
+
+/**
  * One entry to weighted fields. Returns a Map token -> weight: the
  * same word in the title counts more than in the body.
+ *
+ * **Why each pack is tokenised SEPARATELY and its share HALVED when
+ * `langs` holds more than one (P28's UNCERTAIN case), rather than
+ * pooling every pack's tokens at full field weight.** The first version
+ * of this did pool them, and it broke exactly the guarantee
+ * `test/coverage-floor.test.mjs` exists to protect: an UNCERTAIN
+ * document — no stopword fired either way, so BOTH rule sets apply —
+ * got en-stem AND de-stem tokens each at the FULL field weight, so one
+ * word repeated three times contributed as if it had been repeated six
+ * times. That is a real BM25 score inflation, not a test artifact: the
+ * adversarial "one word carried often" fixture in that file has no
+ * stopword at all, so under the pooled version it went from losing to
+ * the honest three-word answer (as coordination requires) to beating it
+ * outright, simply for lacking a stopword to be certain about.
+ *
+ * Splitting the field weight `1/packs.length` ways fixes it structurally
+ * rather than by tuning a number: an occurrence's total weight mass is
+ * the same whether it lands on one spelling (CERTAIN, one pack, full
+ * share) or is spread across two candidate spellings (UNCERTAIN, half
+ * each) — hedging between two rule sets costs nothing extra and buys
+ * nothing extra, which is what "claim nothing" has to mean for a score,
+ * not only for a label. When both packs happen to stem a word to the
+ * SAME spelling the two halves land back on one key and recombine to
+ * the full weight, so a CERTAIN-worthy word occurring in an UNCERTAIN
+ * entry is not quietly penalised either.
  */
-export function fieldsOfEntry(entry, { lexicon = null, lang = pack('en') } = {}) {
+export function fieldsOfEntry(entry, { lexicon = null, lang = pack('en'), lexicons = null, langs = null } = {}) {
+  const packs = langs && langs.length ? langs : [lang];
+  const lex = lexicons ?? (lexicon ? new Map([[lang.name, lexicon]]) : new Map());
+  const share = 1 / packs.length;
   const weights = new Map();
   for (const [field, weight] of Object.entries(FIELD_WEIGHTS)) {
     const value = entry[field];
     if (!value) continue;
     const text = Array.isArray(value) ? value.join(' ') : String(value);
-    for (const t of tokenize(text, { lexicon, lang })) {
-      weights.set(t, (weights.get(t) ?? 0) + weight);
+    for (const p of packs) {
+      for (const t of tokenizeGroupsMulti(text, { lexicons: lex, langs: [p] }).flat()) {
+        weights.set(t, (weights.get(t) ?? 0) + weight * share);
+      }
     }
   }
   return weights;
@@ -268,7 +417,7 @@ export const RAW_WEIGHT = 0.35;
  * One capture becomes ONE document (not one per line) — otherwise a
  * single long session would swamp the whole index.
  */
-function* rawDocuments(root, lexicon, lang, only = null) {
+function* rawDocuments(root, lexicons, only = null) {
   let captures;
   if (only) captures = only;
   else {
@@ -298,9 +447,22 @@ function* rawDocuments(root, lexicon, lang, only = null) {
     if (pieces.length === 0) continue;
 
     const text = pieces.join('\n').slice(0, RAW_CAP);
+    // A capture is a transcript — it carries the same silent-mis-stem
+    // risk a typed entry does, and a raw German session is common
+    // enough (bilingual sessions, see FILLER above) that it gets the
+    // same per-piece detection rather than one language for the whole
+    // corpus.
+    const langInfo = detectEntryLanguage({ text }, { fieldWeights: { text: 1 } });
+    const packs = packsFor(langInfo);
+    // Split per pack, same reasoning as `fieldsOfEntry`: an UNCERTAIN
+    // capture must not outweigh a CERTAIN one just for trying both rule
+    // sets.
+    const share = RAW_WEIGHT / packs.length;
     const weights = new Map();
-    for (const t of tokenize(text, { lexicon, lang })) {
-      weights.set(t, (weights.get(t) ?? 0) + RAW_WEIGHT);
+    for (const p of packs) {
+      for (const t of tokenizeGroupsMulti(text, { lexicons, langs: [p] }).flat()) {
+        weights.set(t, (weights.get(t) ?? 0) + share);
+      }
     }
 
     yield {
@@ -309,6 +471,8 @@ function* rawDocuments(root, lexicon, lang, only = null) {
       source: rel,
       line: 0,
       weights,
+      lang: langInfo.language,
+      langCertain: langInfo.certain,
       pending: openSet.has(rel),
       entry: {
         ts: header?.__stamp?.ts_to ?? header?.__captured_at ?? null,
@@ -335,11 +499,44 @@ function conversationText(l) {
 }
 
 /**
+ * Word frequencies for ONE language's compound lexicon (pass 1 of
+ * `buildIndex`, pulled out because it now runs once per detectable
+ * language instead of once for the whole corpus — see P28).
+ */
+function buildLexicon(rawEntries, langPack) {
+  const wordCount = new Map();
+  for (const { entry } of rawEntries) {
+    for (const field of Object.keys(FIELD_WEIGHTS)) {
+      const value = entry[field];
+      if (!value) continue;
+      const text = Array.isArray(value) ? value.join(' ') : String(value);
+      for (const w of text.toLowerCase().split(/[^\p{L}\p{N}_]+/u)) {
+        if (w.length < 4 || langPack.stopwords.has(w)) continue;
+        const n = langPack.normalize(w);
+        wordCount.set(n, (wordCount.get(n) ?? 0) + 1);
+      }
+    }
+  }
+  const set = new Set();
+  for (const [w, n] of wordCount) if (n >= 2) set.add(w);
+  return set;
+}
+
+/**
  * Build the index. Reads all JSONL files, tokenizes, collects document
  * frequencies. Two passes, because the compound lexicon only comes into
  * being from the corpus:
- *   pass 1  without lexicon -> word frequencies -> lexicon
- *   pass 2  with lexicon    -> final index
+ *   pass 1  without lexicon -> word frequencies -> lexicon (per language)
+ *   pass 2  with lexicon    -> final index, one language per ENTRY
+ *
+ * **`language` no longer picks the corpus's one tokenisation.** It used
+ * to: every entry was stemmed and stopword-filtered with the SAME pack,
+ * so a memory that mixed languages found one of them worse than the
+ * other, silently (P28). It still names the CONFIGURED default — kept
+ * for `index.language` (cache versioning, `mem doctor`, the CLI's
+ * `--fresh` path) and for `index.lexicon`, the single Set those callers
+ * already read — but which pack actually tokenises a given document is
+ * now decided PER DOCUMENT, by `detectEntryLanguage` below.
  */
 export function buildIndex(root, { types = null, language = 'en' } = {}) {
   const lang = pack(language);
@@ -366,24 +563,19 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     }
   }
 
-  // Pass 1: word frequencies for the compound lexicon.
-  const lexicon = new Set();
-  if (lang.compounds) {
-    const wordCount = new Map();
-    for (const { entry } of rawEntries) {
-      for (const field of Object.keys(FIELD_WEIGHTS)) {
-        const value = entry[field];
-        if (!value) continue;
-        const text = Array.isArray(value) ? value.join(' ') : String(value);
-        for (const w of text.toLowerCase().split(/[^\p{L}\p{N}_]+/u)) {
-          if (w.length < 4 || lang.stopwords.has(w)) continue;
-          const n = lang.normalize(w);
-          wordCount.set(n, (wordCount.get(n) ?? 0) + 1);
-        }
-      }
-    }
-    for (const [w, n] of wordCount) if (n >= 2) lexicon.add(w);
+  // Pass 1: word frequencies for the compound lexicon — one lexicon per
+  // language a document could actually be detected as, PLUS the
+  // configured default (which may be neither: `nl`, `sv`... have no
+  // stopword list, so `detectEntryLanguage` can never name them, but a
+  // memory can still be explicitly CONFIGURED to one of them, and that
+  // still deserves compound splitting the way it always has).
+  const lexiconLangs = new Set([...DETECTABLE_LANGUAGES, lang.name]);
+  const lexicons = new Map();
+  for (const code of lexiconLangs) {
+    const p = pack(code);
+    lexicons.set(code, p.compounds ? buildLexicon(rawEntries, p) : new Set());
   }
+  const lexicon = lexicons.get(lang.name) ?? new Set();
 
   // Pass 2: the final index.
   const documents = [];
@@ -418,9 +610,19 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   for (const r of rawEntries) {
     if (memory.isClosingLine(r.entry)) continue;
     const info = r.entry.id ? retired.get(r.entry.id) : null;
+    // **The per-entry decision (P28).** Detected from the entry's OWN
+    // weighted fields — never from `language`/`lang` above, and never
+    // hand-set anywhere: this is the only place a document's language
+    // comes from, so there is no second copy of it to drift out of
+    // sync. CERTAIN gets exactly that language's pack, matching what a
+    // correctly-configured single-language memory already got.
+    // UNCERTAIN gets every detectable pack — see `packsFor`.
+    const langInfo = detectEntryLanguage(r.entry, { fieldWeights: FIELD_WEIGHTS });
     addDoc({
       ...r,
-      weights: fieldsOfEntry(r.entry, { lexicon: lang.compounds ? lexicon : null, lang }),
+      lang: langInfo.language,
+      langCertain: langInfo.certain,
+      weights: fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons }),
       ...(info ? { retired: info } : {}),
     });
   }
@@ -441,7 +643,7 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   // quiet. This is the number to ask for first.
   profile.measure('index', 'raw', () => {
     let n = 0;
-    for (const doc of rawDocuments(root, lang.compounds ? lexicon : null, lang)) { addDoc(doc); n += 1; }
+    for (const doc of rawDocuments(root, lexicons)) { addDoc(doc); n += 1; }
     return n;
   }, { count: (n) => n });
 
@@ -451,16 +653,20 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   // Captures are deliberately excluded: they are raw transcript, and their
   // boilerplate and tool output would dominate the statistics and teach the
   // graph associations that say more about the terminal than about the work.
-  // Stopwords of the corpus language AND of English: quoted error messages
-  // drag foreign filler in ("because it was ignored not ..."), and that
-  // filler clusters tightly enough to look like a real association.
-  // Stemmed AND unstemmed: the graph works on stemmed terms, so a raw list
-  // of stopwords misses them all — "because" never matches the "becaus"
-  // that actually sits in the index, and the filler sails straight through.
+  // Stopwords of EVERY detectable language, not just the configured
+  // default: documents are no longer all tokenised with the same pack
+  // (P28), so a term graph that only knew the configured language's
+  // filler would let the OTHER language's stopwords straight through
+  // wherever a document actually used it. Stemmed AND unstemmed: the
+  // graph works on stemmed terms, so a raw list of stopwords misses them
+  // all — "because" never matches the "becaus" that actually sits in the
+  // index, and the filler sails straight through.
   const stopwords = new Set();
-  for (const w of [...lang.stopwords, ...pack('en').stopwords]) {
-    stopwords.add(w);
-    stopwords.add(lang.stem(lang.normalize(w)));
+  for (const p of new Set([lang, ...DETECTABLE_PACKS])) {
+    for (const w of p.stopwords) {
+      stopwords.add(w);
+      stopwords.add(p.stem(p.normalize(w)));
+    }
   }
   const termGraph = thesaurus.buildTermGraph(
     documents.filter((d) => d.type !== 'raw').map((d) => d.weights),
@@ -474,6 +680,7 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     documents,
     docFreq,
     lexicon,
+    lexicons,
     tagGraph,
     termGraph,
     entityIndex,
@@ -541,6 +748,18 @@ function idf(index, term) {
   const N = index.statsN ?? index.N;
   const n = df.get(term) ?? 0;
   return Math.log(1 + (N - n + 0.5) / (n + 0.5));
+}
+
+/** BM25's contribution from one term against one document, IDF x the
+ *  length-normalised term frequency. Pulled out so the P28 per-pack
+ *  scoring below (see `search`) can call it once per candidate spelling
+ *  instead of duplicating the formula. */
+function bm25Term(index, doc, term) {
+  const f = doc.weights.get(term);
+  if (!f) return 0;
+  const avg = index.statsAvgLength ?? index.avgLength;
+  const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / avg));
+  return idf(index, term) * norm;
 }
 
 /**
@@ -772,25 +991,52 @@ export function search(index, query, {
         line: doc.line,
         entry: doc.entry,
         raw: doc.type === 'raw',
+        lang: doc.lang ?? UNCERTAIN,
+        langCertain: doc.langCertain ?? false,
         ...(doc.retired ? { retired: doc.retired } : {}),
         exact: ['id'],
       }];
     }
   }
 
-  const lang = pack(language ?? index.language ?? 'en');
-  // Grouped, not flat: coverage below counts TYPED WORDS, and one typed
-  // word can expand into several tokens (hyphen parts, compound parts).
-  const groups = tokenizeGroups(query, { lexicon: index.lexicon, lang });
-  const own = groups.flat();
+  // **The question is asked against BOTH rule sets (P28), not the one
+  // the corpus happens to be configured for.** An explicit `language`
+  // still pins it down — `mem find --lang de` stays exact, and stays as
+  // cheap as it always was, one pack. Left unset, a query cannot know
+  // which of a mixed memory's two languages it was typed in any better
+  // than an entry can, so it gets every detectable pack rather than
+  // guessing at the corpus default the way `index.language ?? 'en'`
+  // used to. See `tokenizeGroupsMulti` for how one typed word still
+  // counts as one word: the extra pack adds FORMS to try, not extra
+  // groups for `coverage` to divide by.
+  const queryPacks = language ? [pack(language)] : DETECTABLE_PACKS;
+  const queryLexicons = index.lexicons
+    ?? (index.lexicon ? new Map([[index.language, index.lexicon]]) : new Map());
+  // Grouped BY TYPED WORD, and — inside each word — by PACK: `groups[i]`
+  // is `[[en's forms], [de's forms], ...]` for word `i`. `coverage`
+  // below only needs to know THAT a word matched, so it flattens each
+  // word's packs together; the score loop keeps them apart on purpose —
+  // see its own comment for why an alternate spelling from a second
+  // rule set must never be allowed to add a SECOND match for one word.
+  const groups = tokenizeGroupsPacked(query, { lexicons: queryLexicons, langs: queryPacks });
+  const own = groups.flatMap((packVariants) => packVariants.flat());
   if (own.length === 0) return [];
+  const ownSet = new Set(own);
 
+  // The curated thesaurus is English-only (see `curatedCoverage`'s own
+  // doc comment) — a German pack could not look its own words up in it
+  // any better, so this leg of expansion stays pinned to English rather
+  // than joining the multi-pack query tokenisation above. The learned
+  // term graph, expanded via the SAME call, has no such limit: it is
+  // keyed by whatever the corpus's documents actually stemmed to, in
+  // either language. These are genuinely ADDITIONAL evidence (a
+  // different word entirely), so — unlike the language alternates above
+  // — they keep stacking additively with the literal score, exactly as
+  // before P28.
   const terms = new Map();
-  for (const t of own) terms.set(t, Math.max(terms.get(t) ?? 0, 1.0));
-
-  for (const [syn, g] of thesaurus.expand(own, index.tagGraph, lang, index.termGraph)) {
-    const stemmed = lang.stem(lang.normalize(syn));
-    if (terms.has(stemmed)) continue;   // the original beats the expansion
+  for (const [syn, g] of thesaurus.expand(own, index.tagGraph, pack('en'), index.termGraph)) {
+    const stemmed = pack('en').stem(pack('en').normalize(syn));
+    if (ownSet.has(stemmed)) continue;   // the original beats the expansion
     terms.set(stemmed, g);
   }
 
@@ -809,13 +1055,30 @@ export function search(index, query, {
     const isRaw = doc.type === 'raw';
 
     let score = 0;
-    for (const [term, qWeight] of terms) {
-      const f = doc.weights.get(term);
-      if (!f) continue;
-      const avg = index.statsAvgLength ?? index.avgLength;
-      const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / avg));
-      score += qWeight * idf(index, term) * norm;
+    // **Literal terms: MAX across packs, SUM across everything else
+    // (P28).** `groups[i]` is one typed word's forms, split by which
+    // pack produced them. Within a pack, forms still stack exactly as
+    // they always have (a hyphen part or a compound part is genuinely
+    // separate evidence). ACROSS packs they must NOT: they are two
+    // rule sets' competing guesses about the SAME occurrence, and
+    // summing them let an UNCERTAIN document — indexed under both
+    // `cache` and `cach` — score as though it had matched the word
+    // TWICE. Reproduced in `test/coverage-floor.test.mjs`'s contested
+    // fixture: pooling put the "cache cache cache" decoy at rank 1
+    // ahead of the document actually answering the question.
+    for (const packVariants of groups) {
+      let best = 0;
+      for (const forms of packVariants) {
+        let sub = 0;
+        for (const t of forms) sub += bm25Term(index, doc, t);
+        if (sub > best) best = sub;
+      }
+      score += best;
     }
+    // Expansions (thesaurus, tag graph, term graph): genuinely additional
+    // evidence — a different word the query did not type — so these keep
+    // stacking additively, unchanged from before P28.
+    for (const [term, qWeight] of terms) score += qWeight * bm25Term(index, doc, term);
     if (score <= 0) continue;
 
     // Coordination. BM25 adds up term scores and has no notion of "this
@@ -832,8 +1095,8 @@ export function search(index, query, {
     // compound splitter is for.
     if (coverage > 0 && groups.length > 1) {
       let covered = 0;
-      for (const g of groups) {
-        for (const t of g) { if (doc.weights.has(t)) { covered += 1; break; } }
+      for (const packVariants of groups) {
+        if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) covered += 1;
       }
       // **The floor (2026-09-20).** Until this day the line read
       //
@@ -930,6 +1193,12 @@ export function search(index, query, {
       entry: doc.entry,
       raw: isRaw,
       pending: doc.pending ?? false,
+      // The detected language this document was actually indexed with —
+      // exposed rather than kept internal, so "which rule set answered
+      // this" is checkable instead of assumed. `lang` is UNCERTAIN when
+      // both rule sets were applied; see `langdetect.mjs`.
+      lang: doc.lang ?? UNCERTAIN,
+      langCertain: doc.langCertain ?? false,
       ...(doc.retired ? { retired: doc.retired } : {}),
       __w: doc.weights,   // internal: term vector for MMR; stripped below
     });
@@ -1123,7 +1392,7 @@ export const CACHE_WRITE_AFTER_BYTES = 4 * 1024 * 1024;
  * changed prefix, a file that disappeared — in which case the caller
  * falls back to a full build. Refusing is always safe; guessing is not.
  */
-function appendToIndex(root, index, before, now, lang) {
+function appendToIndex(root, index, before, now) {
   const added = [];
   const lastLines = new Map();   // rel -> line count after this append
   let newBytes = 0;
@@ -1161,7 +1430,7 @@ function appendToIndex(root, index, before, now, lang) {
   const knownRaw = new Set(Object.keys(before).filter((r) => before[r].kind === 'raw'));
   const freshRaw = [...now.keys()].filter((r) => now.get(r).kind === 'raw' && !knownRaw.has(r));
   const rawDocs = freshRaw.length
-    ? [...rawDocuments(root, lang.compounds ? index.lexicon : null, lang, freshRaw)]
+    ? [...rawDocuments(root, index.lexicons ?? new Map(), freshRaw)]
     : [];
 
   // A tombstone or correction in the new lines retires an entry that is
@@ -1207,9 +1476,15 @@ function appendToIndex(root, index, before, now, lang) {
   for (const d of added) {
     if (memory.isClosingLine(d.entry)) continue;
     const info = d.entry.id ? retired.get(d.entry.id) : null;
+    // Same per-entry detection as a full build (P28) — an appended
+    // entry gets its OWN rule set immediately, not the rule set the
+    // rest of the corpus happened to be built with.
+    const langInfo = detectEntryLanguage(d.entry, { fieldWeights: FIELD_WEIGHTS });
     push({
       ...d,
-      weights: fieldsOfEntry(d.entry, { lexicon: lang.compounds ? index.lexicon : null, lang }),
+      lang: langInfo.language,
+      langCertain: langInfo.certain,
+      weights: fieldsOfEntry(d.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() }),
       ...(info ? { retired: info } : {}),
     });
   }
@@ -1462,6 +1737,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           statsDocFreq: [...index.statsDocFreq],
           entityIndex: entity.pack(index.entityIndex),
           lexicon: [...index.lexicon],
+          lexicons: [...(index.lexicons ?? new Map())].map(([code, set]) => [code, [...set]]),
           tagGraph: thesaurus.packTagGraph(index.tagGraph),
           termGraph: thesaurus.packTagGraph(index.termGraph),
         },
@@ -1507,6 +1783,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           statsDocFreq: new Map(c.index.statsDocFreq ?? c.index.docFreq),
           entityIndex: entity.unpack(c.index.entityIndex),
           lexicon: new Set(c.index.lexicon),
+          lexicons: new Map((c.index.lexicons ?? []).map(([code, arr]) => [code, new Set(arr)])),
           tagGraph: thesaurus.unpackTagGraph(c.index.tagGraph),
           termGraph: thesaurus.unpackTagGraph(c.index.termGraph),
         };
@@ -1521,7 +1798,7 @@ export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
           throw new Error('cache doc counts do not match the documents it holds');
         }
         const fullAt = c.fullAt ?? index.N;
-        const grown = appendToIndex(root, index, c.files, now, lang);
+        const grown = appendToIndex(root, index, c.files, now);
 
         if (grown && grown.added === 0) {
           return { ...reconcileRetired(root, index), fromCache: true, appended: 0, graphsStale: false };
@@ -1753,6 +2030,8 @@ export function exactHits(index, query, slots, limits = {}) {
       entry: doc.entry,
       raw: doc.type === 'raw',
       pending: doc.pending ?? false,
+      lang: doc.lang ?? UNCERTAIN,
+      langCertain: doc.langCertain ?? false,
       ...(doc.retired ? { retired: doc.retired } : {}),
       exact: which,
       __w: doc.weights,
