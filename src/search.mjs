@@ -870,6 +870,40 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
   if (candidates.length <= 1) return candidates.slice(0, top);
   const maxScore = candidates.reduce((m, c) => (c.score > m ? c.score : m), 0);
   const remaining = candidates.map((c) => c);
+  // `maxSim[p]` tracks, incrementally, the highest similarity
+  // `remaining[p]` has to anything already selected (#122).
+  //
+  // The previous version recomputed this from scratch every round: for
+  // every remaining candidate, loop over the WHOLE `selected` set and
+  // take the max. That is an inner loop over `selected` inside an outer
+  // loop over `remaining` inside the `top`-round while loop below —
+  // O(candidates * top^2) overall, because each round's cost grows with
+  // how much has already been picked, not just with the corpus.
+  //
+  // Measured (bench/atlas surface phase, corpus of 2012 documents, `mem
+  // retrieve --top 50` -> 300 candidates per authority tier via
+  // `retrieve()`'s `perTier`): the old code did not finish inside the
+  // 60s Atlas timeout. `node --prof` on the direct repro attributed
+  // 57.5% of ticks to `docSimilarity` and 33.4% to
+  // `FindOrderedHashMapEntry` (the Map lookups inside it) — actively
+  // CPU-bound the whole time, not blocked on anything external. This is
+  // (b): superlinear, not an infinite loop — the same code finished in
+  // well under a second on the same corpus at the CLI's default `top`
+  // (perTier 60), it just grows quadratically with `top` from there.
+  //
+  // The fix needs no bound or timeout, because the quadratic factor is
+  // pure waste: `simOf(cand, s)` for a `s` selected in an EARLIER round
+  // never changes, so recomputing it every round recomputes the same
+  // number. Only the similarity to the ONE item just added is new.
+  // Caching the running max and updating it with a single comparison
+  // against the newest pick turns this into O(candidates * top): one
+  // comparison per remaining candidate per round, not one per remaining
+  // candidate per SELECTED item per round. The greedy choice at every
+  // step is unchanged — same `val`, same tie-break — so this is a
+  // performance fix, not a behaviour change; see
+  // "mmrRerank: incremental maxSim matches the naive recomputation, at
+  // a size too small to feel the difference" in test/search.test.mjs.
+  const maxSim = remaining.map(() => 0);
   const selected = [];
   while (selected.length < top && remaining.length) {
     // **`bestPos = -1`, not `0`, and `bestVal` left unset.**
@@ -887,12 +921,7 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
     for (let p = 0; p < remaining.length; p += 1) {
       const cand = remaining[p];
       const rel = maxScore > 0 ? cand.score / maxScore : 0;
-      let maxSim = 0;
-      for (const s of selected) {
-        const sim = simOf(cand, s);
-        if (sim > maxSim) maxSim = sim;
-      }
-      const val = lambda * rel - (1 - lambda) * maxSim;
+      const val = lambda * rel - (1 - lambda) * maxSim[p];
       // **Equal here means: equal down to the last bits.**
       //
       // This used to read `val > bestVal`, with a comment saying the
@@ -909,7 +938,16 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
         bestVal = val; bestPos = p;
       }
     }
-    selected.push(remaining.splice(bestPos, 1)[0]);
+    const picked = remaining.splice(bestPos, 1)[0];
+    maxSim.splice(bestPos, 1);
+    selected.push(picked);
+    // The only similarities that just became relevant: every surviving
+    // candidate against the item just picked. Anything against an
+    // earlier pick is already folded into `maxSim[p]`.
+    for (let p = 0; p < remaining.length; p += 1) {
+      const sim = simOf(remaining[p], picked);
+      if (sim > maxSim[p]) maxSim[p] = sim;
+    }
   }
   return selected;
 }

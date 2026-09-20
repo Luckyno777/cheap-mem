@@ -185,6 +185,107 @@ test('mmrRerank: prefers a diverse result over a near-duplicate', () => {
   assert.deepEqual(pure.map((o) => o.id), ['a', 'b']);
 });
 
+/**
+ * A byte-for-byte copy of `mmrRerank` as it read before #122: for every
+ * remaining candidate, on every round, rescan the WHOLE `selected` set to
+ * find the max similarity. Kept here — not in `src/search.mjs` — purely
+ * as a reference to check the incremental version against on small,
+ * randomized input. The one thing it must never be is the shipped
+ * algorithm again.
+ */
+function mmrRerankNaive(candidates, { lambda = 0.7, top = 10, simOf }) {
+  if (candidates.length <= 1) return candidates.slice(0, top);
+  const maxScore = candidates.reduce((m, c) => (c.score > m ? c.score : m), 0);
+  const remaining = candidates.map((c) => c);
+  const selected = [];
+  const GLEICH = 1e-12;
+  const key = (h) => `${h.source ?? ''}:${String(h.line ?? 0).padStart(9, '0')}`;
+  while (selected.length < top && remaining.length) {
+    let bestPos = -1;
+    let bestVal = 0;
+    for (let p = 0; p < remaining.length; p += 1) {
+      const cand = remaining[p];
+      const rel = maxScore > 0 ? cand.score / maxScore : 0;
+      let maxSim = 0;
+      for (const s of selected) {
+        const sim = simOf(cand, s);
+        if (sim > maxSim) maxSim = sim;
+      }
+      const val = lambda * rel - (1 - lambda) * maxSim;
+      if (bestPos === -1) { bestVal = val; bestPos = p; continue; }
+      const spanne = Math.max(Math.abs(val), Math.abs(bestVal), 1) * GLEICH;
+      if (val > bestVal + spanne) { bestVal = val; bestPos = p; continue; }
+      if (val >= bestVal - spanne && key(cand) < key(remaining[bestPos])) {
+        bestVal = val; bestPos = p;
+      }
+    }
+    selected.push(remaining.splice(bestPos, 1)[0]);
+  }
+  return selected;
+}
+
+test('mmrRerank: incremental maxSim matches the naive recomputation', () => {
+  // The #122 fix caches the running max similarity to `selected` instead
+  // of rescanning it every round. Same greedy rule, same tie-break —
+  // this proves the two produce IDENTICAL selections across a spread of
+  // random, overlapping candidate sets, so the speed-up in the test
+  // below is not silently a behaviour change.
+  let seed = 1234567;
+  const rand = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let trial = 0; trial < 30; trial += 1) {
+    const n = 5 + Math.floor(rand() * 25);
+    const cands = [];
+    for (let i = 0; i < n; i += 1) {
+      cands.push({
+        id: `c${i}`, score: rand() * 10, source: `s${i % 4}`, line: i,
+        vec: new Set(Array.from({ length: 3 }, () => Math.floor(rand() * 8))),
+      });
+    }
+    const simOf = (a, b) => {
+      let inter = 0;
+      for (const v of a.vec) if (b.vec.has(v)) inter += 1;
+      return inter / 3;
+    };
+    const top = 1 + Math.floor(rand() * n);
+    const lambda = 0.3 + rand() * 0.6;
+    const got = search.mmrRerank(cands, { lambda, top, simOf }).map((c) => c.id);
+    const want = mmrRerankNaive(cands, { lambda, top, simOf }).map((c) => c.id);
+    assert.deepEqual(got, want, `trial ${trial}: n=${n} top=${top} lambda=${lambda}`);
+  }
+});
+
+test('mmrRerank: cost is bounded by candidates * top, not candidates * top^2', () => {
+  // The #122 finding: `mem explain`/`mem retrieve --top 50` hung past a
+  // 60s Atlas timeout on a 2012-document corpus. `node --prof` on the
+  // direct repro put 57.5% of ticks in `docSimilarity` and 33.4% in the
+  // Map lookups inside it, called from `mmrRerank` — CPU-bound the whole
+  // time, so this is superlinear work, not a stuck lock or process. The
+  // old code rescanned the whole `selected` set for every remaining
+  // candidate on every round: O(candidates * top^2) similarity calls.
+  //
+  // This asserts a bounded AMOUNT OF WORK (similarity calls), not wall
+  // clock — the number is host-independent — and not merely "it
+  // returned". At candidates=500, top=200 (comparable in shape to the
+  // real corpus's 300-per-tier candidate pool), the naive algorithm this
+  // repo shipped before #122 makes ~7.3M similarity calls; the
+  // incremental one makes ~80k. The bound below sits between the two by
+  // more than an order of magnitude, so it goes RED on the pre-#122
+  // algorithm (reverting the `mmrRerank` body while keeping this test
+  // reproduces that) and GREEN on the fix.
+  const n = 500;
+  const top = 200;
+  const cands = [];
+  for (let i = 0; i < n; i += 1) cands.push({ id: `c${i}`, score: n - i, source: `s${i}`, line: i });
+  let calls = 0;
+  const simOf = () => { calls += 1; return 0.5; };
+  const out = search.mmrRerank(cands, { lambda: 0.7, top, simOf });
+  assert.equal(out.length, top);
+  const bound = n * top; // O(candidates * top): ~100000 here
+  assert.ok(calls <= bound,
+    `expected at most ${bound} similarity calls (O(candidates*top)), got ${calls} `
+    + '(quadratic-in-top blowup is back)');
+});
+
 test('search --mmr pulls a distinct relevant hit over a near-duplicate', () => {
   const root = corpus([
     ['event', { title: 'deploy staging cache warmup latency' }],   // e1
