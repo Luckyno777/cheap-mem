@@ -262,10 +262,11 @@ function checkDigestYield(root) {
   }
   const referenced = new Set();
   let withOrigin = 0;
+  // P12: bounded — single pass per drawer, nothing kept but the
+  // `referenced` set and a count.
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of Object.keys(memory.TYPES)) {
-      const { entries } = memory.readLog(root, type, { project });
-      for (const e of entries) {
+      for (const e of memory.iterLog(root, type, { project })) {
         const src = e && e.origin && e.origin.raw;
         if (src) { withOrigin += 1; referenced.add(src); }
       }
@@ -438,24 +439,25 @@ export function checkOrphans(root) {
   const pointers = []; // { field, to }
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of Object.keys(memory.TYPES)) {
-      let entries;
-      try { ({ entries } = memory.readLog(root, type, { project })); } catch { continue; }
-      for (const e of entries) {
-        if (e.__broken || !e.id) continue;
-        ids.add(e.id);
-        if (e.replaces_id) pointers.push({ field: 'replaces_id', to: e.replaces_id });
-        if (e.closes_id) pointers.push({ field: 'closes_id', to: e.closes_id });
-        // A link is two pointers. An edge into nothing is exactly the same
-        // defect as an orphaned correction: it resolves to no entry, so it
-        // silently does nothing — and a graph is only worth walking if its
-        // edges are known to land.
-        if (type === 'link') {
-          const from = e.from ?? e.source ?? null;
-          const to = e.to ?? e.target ?? null;
-          if (from) pointers.push({ field: 'link.from', to: from });
-          if (to) pointers.push({ field: 'link.to', to: to });
+      // P12: bounded — single pass, only ids/pointers survive it.
+      try {
+        for (const e of memory.iterLog(root, type, { project })) {
+          if (e.__broken || !e.id) continue;
+          ids.add(e.id);
+          if (e.replaces_id) pointers.push({ field: 'replaces_id', to: e.replaces_id });
+          if (e.closes_id) pointers.push({ field: 'closes_id', to: e.closes_id });
+          // A link is two pointers. An edge into nothing is exactly the same
+          // defect as an orphaned correction: it resolves to no entry, so it
+          // silently does nothing — and a graph is only worth walking if its
+          // edges are known to land.
+          if (type === 'link') {
+            const from = e.from ?? e.source ?? null;
+            const to = e.to ?? e.target ?? null;
+            if (from) pointers.push({ field: 'link.from', to: from });
+            if (to) pointers.push({ field: 'link.to', to: to });
+          }
         }
-      }
+      } catch { continue; }
     }
   }
   // Denominator: correction/close/link pointers. None means there is

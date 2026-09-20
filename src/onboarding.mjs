@@ -77,15 +77,16 @@ function checkHouseRules(root, houseRulesPath) {
 }
 
 function ownEntries(root, name) {
+  // P12: bounded — single pass, only the matching entries are kept.
   const out = [];
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of Object.keys(memory.TYPES)) {
-      let res;
-      try { res = memory.readLog(root, type, { project }); } catch { continue; }
-      for (const e of res.entries) {
-        if (e.__broken) continue;
-        if (e.agent === name) out.push({ ...e, _type: type, _project: project });
-      }
+      try {
+        for (const e of memory.iterLog(root, type, { project })) {
+          if (e.__broken) continue;
+          if (e.agent === name) out.push({ ...e, _type: type, _project: project });
+        }
+      } catch { continue; }
     }
   }
   return out;

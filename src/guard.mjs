@@ -102,16 +102,20 @@ export function check(guard, { root = process.cwd() } = {}) {
  *
  * Only `error` entries carry one: a latch is the answer to an error,
  * not to a thought.
+ *
+ * P12: bounded — a single pass over each drawer, only matching latches
+ * kept, so this takes an `iterLog`-shaped dependency (an iterable of
+ * entries) rather than `readLog`'s `{ path, missing, entries }`.
  */
-export function all(root, { readLog, listProjects }) {
+export function all(root, { iterLog, listProjects }) {
   const out = [];
   for (const project of [null, ...listProjects(root)]) {
-    let res;
-    try { res = readLog(root, 'error', { project }); } catch { continue; }
-    for (const e of res.entries) {
-      if (e.__broken || !e.guard) continue;
-      out.push({ entry: e, project, guard: e.guard });
-    }
+    try {
+      for (const e of iterLog(root, 'error', { project })) {
+        if (e.__broken || !e.guard) continue;
+        out.push({ entry: e, project, guard: e.guard });
+      }
+    } catch { continue; }
   }
   return out;
 }

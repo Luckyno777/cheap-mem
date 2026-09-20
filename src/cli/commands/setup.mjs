@@ -356,7 +356,7 @@ export const COMMANDS = {
     }
     const root = findRoot(args);
     requireConfig(root);
-    const list = guard.all(root, { readLog: memory.readLog, listProjects: memory.listProjects });
+    const list = guard.all(root, { iterLog: memory.iterLog, listProjects: memory.listProjects });
     if (!list.length) {
       out('No latch yet. An error without a latch is a diary entry.');
       out('43 % of classified errors recur (measured 2026-09-08, reference deployment).');
@@ -577,15 +577,19 @@ export const COMMANDS = {
     const root = findRoot(args);
     const net = await import('../../net.mjs');
     const readAll = () => {
+      // P12: bounded — single pass over each drawer, nothing but the
+      // matched-through rows is retained afterwards, so `iterLog`
+      // replaces `readLog` here without changing what `acc` ends up
+      // holding.
       const acc = [];
       for (const project of [null, ...memory.listProjects(root)]) {
         for (const type of Object.keys(memory.TYPES)) {
-          let res;
-          try { res = memory.readLog(root, type, { project }); } catch { continue; }
-          for (const e of res.entries) {
-            if (e.__broken) continue;
-            acc.push({ project: project ?? 'global', drawer: type, entry: e });
-          }
+          try {
+            for (const e of memory.iterLog(root, type, { project })) {
+              if (e.__broken) continue;
+              acc.push({ project: project ?? 'global', drawer: type, entry: e });
+            }
+          } catch { continue; }
         }
       }
       return acc;

@@ -623,12 +623,17 @@ export const COMMANDS = {
     checkFlags(args, ['open', 'json', 'root'], 'classes');
     const root = findRoot(args);
 
-    const all = [];
-    for (const project of [null, ...memory.listProjects(root)]) {
-      try { all.push(...memory.readLog(root, 'error', { project }).entries); }
-      catch { /* log absent */ }
+    // P12: bounded — `errorclass.coverage` only ever walks its input
+    // once (`for (const e of entries ?? [])`), so it can take the raw
+    // generator directly instead of a materialised array of every
+    // project's entries.
+    function* allEntries() {
+      for (const project of [null, ...memory.listProjects(root)]) {
+        try { yield* memory.iterLog(root, 'error', { project }); }
+        catch { /* log absent */ }
+      }
     }
-    const c = errorclass.coverage(all);
+    const c = errorclass.coverage(allEntries());
 
     if (args.json) { out(JSON.stringify({ classes: errorclass.CLASSES, ...c })); return; }
 

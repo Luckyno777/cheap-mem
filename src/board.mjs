@@ -153,18 +153,26 @@ export function tileDigest(root, { now = new Date() } = {}) {
  * barely moves and therefore says nothing about NOW.
  */
 export function tileErrors(root, { now = new Date(), windowDays = 14 } = {}) {
-  const all = [];
+  // P12: bounded — walk each drawer with `iterLog` instead of
+  // materialising every project's entries into one array before
+  // filtering to the window. `any` replaces `all.length` as the "was
+  // there anything at all" signal.
+  let any = false;
+  const edge = now.getTime() - windowDays * 86400000;
+  const inWindow = [];
   for (const project of [null, ...memory.listProjects(root)]) {
-    try { all.push(...memory.readLog(root, 'error', { project }).entries); }
-    catch { /* log absent */ }
+    try {
+      for (const e of memory.iterLog(root, 'error', { project })) {
+        any = true;
+        if (Date.parse(e?.ts ?? '') >= edge) inWindow.push(e);
+      }
+    } catch { /* log absent */ }
   }
-  if (!all.length) {
+  if (!any) {
     return { id: 'errors', title: 'Error classes', state: STATE.UNKNOWN,
       line: 'no error entries readable' };
   }
 
-  const edge = now.getTime() - windowDays * 86400000;
-  const inWindow = all.filter((e) => Date.parse(e?.ts ?? '') >= edge);
   const c = errorclass.coverage(inWindow);
   const top = c.byClass[0];
 
