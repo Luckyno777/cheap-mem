@@ -539,6 +539,26 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
       + '(.mem/config.json "maxEntryBytes" to raise or lower it). '
       + 'Refusing to write rather than truncate a field silently.');
   }
+  // **Durability promise, stated where the write happens.**
+  //
+  // `fs.appendFileSync` here is `open` + `write` + `close` with no
+  // `fsync`/`fdatasync` in between. When `logEntry` RETURNS, the line has
+  // reached the OS (the kernel's page cache) — a reader that opens the
+  // same file right after, in this process or another, sees it — but it
+  // is NOT guaranteed to have reached the disk. A kernel panic or a power
+  // loss between this line returning and the next background writeback
+  // can still lose it. This is a stated cost, not a silent one: adding an
+  // `fsync` here was measured at ~0.24–0.29 ms/write (open+write+fsync+
+  // close, median of 15, vs ~0.006–0.01 ms for the bare append above —
+  // see `test/p16-durability-promise.test.mjs`), which is cheap in
+  // isolation but is not what `mem log`'s 8.91 entries/sec ceiling is
+  // spent on (`src/cli/commands/write.mjs`'s pre- and post-write corpus
+  // scans dominate that number by two to three orders of magnitude — see
+  // `test/p16-append-exponent.test.mjs`), so turning it on here would pay
+  // a real cost for a guarantee the current bottleneck does not need yet.
+  // `test/p16-durability-promise.test.mjs` proves the claim made in this
+  // comment (`fsyncSync`/`fsync` is never called on this path) rather
+  // than trusting the prose.
   fs.appendFileSync(p, `${line}\n`, 'utf8');
 
   // Chain sealing (src/chain.mjs), best-effort and OPT-IN — see
