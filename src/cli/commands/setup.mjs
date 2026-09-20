@@ -843,7 +843,7 @@ export const COMMANDS = {
   component: async ({ rest, args }) => {
     if (isHelp(args) || !rest.length) {
       out([
-        'mem component <path> [--top 8] [--json]',
+        'mem component <path> [--top 8] [--project <name>|global] [--json]',
         '',
         '  Everything about ONE file — literal, but over both spellings.',
         '',
@@ -857,15 +857,28 @@ export const COMMANDS = {
         '  WITHOUT a prefix or with the SAME one. `projects/x/events.jsonl`',
         '  answers no question about `global/events.jsonl` — the confusion',
         '  would be worse than the gap.',
+        '',
+        '  --project  restrict to one project (or `global`). Every sibling',
+        '             read command (`find`, `retrieve`, `duties`, ...) has',
+        '             this; until 2026-09-20 `component` was the one command',
+        '             that could not be scoped even when a caller wanted to —',
+        '             the flag did not exist, so the pre-edit hook (which',
+        '             calls this, unscoped) read across every project with',
+        '             no way to ask it not to. Omit it and behaviour is',
+        '             unchanged: every project, as before.',
       ].join('\n'));
       return;
     }
     const root = findRoot(args);
     requireConfig(root);
-    checkFlags(args, ['top', 'json', 'root'], 'component');
+    checkFlags(args, ['top', 'json', 'root', 'project'], 'component');
     const p = rest.join(' ').trim();
     const top = args.top ? Number(args.top) : 8;
-    const hits = component.find(root, p, {});
+    // null (default) = every project, unchanged from before this flag
+    // existed. `--project global` means the global drawer ONLY — the
+    // same convention `find --literal` and `duties` already use.
+    const projects = args.project ? [args.project === 'global' ? null : args.project] : null;
+    const hits = component.find(root, p, { projects });
     if (args.json) {
       out(JSON.stringify({
         path: p,
