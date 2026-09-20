@@ -63,6 +63,7 @@ import { fileURLToPath } from 'node:url';
 import {
   VERDICT, SEVERITY, mem, buildCorpus, tempRoot, pct, dirBytes,
   captureForeignLoad, foreignLoadDelta, timeVerdictUnderLoad, FOREIGN_LOAD_DENIED_MS_PER_SEC,
+  captureQuietCalibrationBaseline, CALIBRATION_LOAD_FACTOR,
 } from './core.mjs';
 import { FIELD_WEIGHTS } from '../../src/search.mjs';
 
@@ -685,7 +686,7 @@ const INTENDED = [
   ['real.cli.doctor-time', 'mem doktor wall time against the real corpus'],
   ['real.cli.doctor-findings', 'mem doktor finding counts against the real corpus'],
   ['real.cli.kontext', 'mem kontext wall time and output size against the real corpus'],
-  ['real.load.foreign', 'foreign load measured around this phase\'s timed CLI calls'],
+  ['real.load.foreign', 'foreign load measured around this phase\'s timed CLI calls (calibration loop, PSI, steal, cgroup)'],
 ];
 
 // --- the phase -----------------------------------------------------
@@ -1114,7 +1115,23 @@ export async function run(atlas, { quick = false } = {}) {
     // this window saw denied compute. All four `record()` calls for the
     // timed checks are deliberately AFTER `loadAfter` is captured, so
     // every one of them can use the same delta.
-    const loadBefore = captureForeignLoad();
+    //
+    // **Sensors swapped, 2026-09-20.** Steal and cgroup throttling alone
+    // measured a real, honestly-computed 0.00 ms/s under 8 CPU-bound
+    // processes pinned against this container's 4 cores — the exact
+    // load this guard exists to catch — because steal only counts a
+    // HYPERVISOR denying another VM guest and this container's cgroup
+    // has no quota set to be throttled against (see the long comment on
+    // `FOREIGN_LOAD_DENIED_MS_PER_SEC` in core.mjs for the measurement).
+    // The quiet baseline for the calibration loop is captured ONCE here,
+    // before `loadBefore`, self-checking its own reps for internal
+    // agreement (and, where readable, PSI's `avg10`) so a machine that
+    // is already busy at the moment of capture is caught rather than
+    // silently producing an inflated reference — see
+    // `captureQuietCalibrationBaseline`'s doc comment in core.mjs for
+    // the full reasoning and the bounded retry.
+    const calibBaseline = captureQuietCalibrationBaseline();
+    const loadBefore = captureForeignLoad(calibBaseline);
 
     // --- cold index build, via the first query ---------------------
     const pipelineDir = path.join(copyRoot, '.pipeline');
@@ -1143,11 +1160,11 @@ export async function run(atlas, { quick = false } = {}) {
     // --- kontext ------------------------------------------------------
     const kontext = runMem(['kontext']);
 
-    const loadAfter = captureForeignLoad();
-    const load = foreignLoadDelta(loadBefore, loadAfter);
+    const loadAfter = captureForeignLoad(calibBaseline);
+    const load = foreignLoadDelta(loadBefore, loadAfter, calibBaseline);
     record({
       id: 'real.load.foreign',
-      title: 'foreign load measured around this phase\'s timed CLI calls (CPU steal + cgroup throttling, never loadavg — see core.mjs)',
+      title: 'foreign load measured around this phase\'s timed CLI calls (a fixed calibration loop against its own quiet baseline, plus PSI, CPU steal and cgroup throttling — never loadavg — see core.mjs)',
       // A pure measurement, not a claim of good or bad — see the doc
       // comment on `Atlas#record` for why that is `not-measured` rather
       // than a graded verdict either way. The four timed checks below
@@ -1158,11 +1175,13 @@ export async function run(atlas, { quick = false } = {}) {
       // through `.plus()` with a value baked into a template literal —
       // the latter would hand the guard's protection a value it never
       // actually checked. `.val(null)` prints "not measured" on its own,
-      // so the steal/cgroup-unavailable cases need no special-casing here.
+      // so an unavailable source needs no special-casing here.
       actual: load.measured
-        ? say`${load.deniedMsPerSec} ms/s denied over ${load.wallMs} ms wall — steal `
-          .val(load.stealMs).plus(' ms, cgroup ').val(load.cgroupMs).plus(' ms via ').val(load.cgroupSource)
-        : say`neither CPU steal nor cgroup throttling could be read in this container`,
+        ? say`calibration loop `.val(load.calibRatio).plus('x baseline (baseline ')
+          .val(calibBaseline.trustworthy).plus(' trustworthy, ').val(calibBaseline.attempts)
+          .plus(' attempt(s)), PSI ').val(load.psiMsPerSec).plus(' ms/s, steal+cgroup ')
+          .val(load.deniedMsPerSec).plus(' ms/s, over ').val(load.wallMs).plus(' ms wall')
+        : say`none of the calibration loop, PSI, CPU steal or cgroup throttling could be read in this container`,
       measured: {
         wallMs: load.wallMs,
         stealTicks: load.stealTicks,
@@ -1172,12 +1191,36 @@ export async function run(atlas, { quick = false } = {}) {
         cgroupNrThrottled: load.cgroupNrThrottled,
         cgroupMs: load.cgroupMs,
         deniedMsPerSec: load.deniedMsPerSec,
+        psiMs: load.psiMs,
+        psiMsPerSec: load.psiMsPerSec,
+        calibMs: load.calibMs,
+        calibBaselineMs: load.calibBaselineMs,
+        calibRatio: load.calibRatio,
+        calibOverThreshold: load.calibOverThreshold,
+        calibBaselineTrustworthy: calibBaseline.trustworthy,
+        calibBaselineAttempts: calibBaseline.attempts,
+        calibBaselineGaveUp: calibBaseline.gaveUp,
+        calibBaselineSpreadRatio: calibBaseline.spreadRatio,
+        calibBaselinePsiAvg10: calibBaseline.psiAvg10AtCapture,
         thresholdMsPerSec: FOREIGN_LOAD_DENIED_MS_PER_SEC,
+        calibrationLoadFactor: CALIBRATION_LOAD_FACTOR,
       },
     });
     if (!load.measured) {
       atlas.blind('foreign load during this phase\'s timed CLI calls',
-        'neither /proc/stat steal nor a cgroup cpu.stat with throttling fields could be read in this container');
+        'neither the calibration loop, a PSI cpu pressure file, CPU steal nor cgroup throttling could be read '
+        + 'in this container');
+    }
+    if (!calibBaseline.trustworthy) {
+      // Not the same failure as `!load.measured` above — PSI or
+      // steal/cgroup may still be carrying this phase's timed checks.
+      // This names the ONE signal that gave up, and why: the machine
+      // looked busy at every baseline-capture attempt, which is this
+      // signal correctly declining to trust a number it could not
+      // establish cleanly, not the apparatus failing to try.
+      atlas.blind('calibration-loop foreign-load signal for this run',
+        `the quiet baseline could not be captured cleanly after ${calibBaseline.attempts} attempt(s) — `
+        + 'this machine looked busy at every attempt, so this run relies on PSI/steal/cgroup for that signal');
     }
 
     record({
@@ -1185,7 +1228,7 @@ export async function run(atlas, { quick = false } = {}) {
       title: 'cold search index build time against the real corpus',
       verdict: timeVerdictUnderLoad(cold.ms, BUILD_DEGRADED_MS, BUILD_FAIL_MS, load),
       expected: say`under ${BUILD_DEGRADED_MS} ms (over ${BUILD_FAIL_MS} ms means hung, not slow; `
-        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
+        .plus(`not-measured instead of either if the calibration loop, PSI, or steal+cgroup showed foreign load — ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied, or ${CALIBRATION_LOAD_FACTOR}x the calibration baseline)`),
       actual: say`${cold.ms} ms to build the index over ${real.validEntries} real entries`,
       severity: SEVERITY.MINOR,
       ms: cold.ms,
@@ -1212,7 +1255,7 @@ export async function run(atlas, { quick = false } = {}) {
       verdict: enough ? timeVerdictUnderLoad(findeP95, FINDE_DEGRADED_MS, FINDE_FAIL_MS, load)
         : timeVerdictUnderLoad(findeP50, FINDE_DEGRADED_MS, FINDE_FAIL_MS, load),
       expected: say`under ${FINDE_DEGRADED_MS} ms (over ${FINDE_FAIL_MS} ms means hung, not slow; `
-        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
+        .plus(`not-measured instead of either if the calibration loop, PSI, or steal+cgroup showed foreign load — ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied, or ${CALIBRATION_LOAD_FACTOR}x the calibration baseline)`),
       actual: say`${enough ? findeP95 : findeP50} ms at `
         .plus(`${enough ? 'p95' : 'p50'} over ${findeMs.length} queries`),
       severity: SEVERITY.MINOR,
@@ -1237,7 +1280,7 @@ export async function run(atlas, { quick = false } = {}) {
       title: 'mem doktor wall time against the real corpus',
       verdict: timeVerdictUnderLoad(doctor.ms, DOCTOR_DEGRADED_MS, DOCTOR_FAIL_MS, load),
       expected: say`under ${DOCTOR_DEGRADED_MS} ms (over ${DOCTOR_FAIL_MS} ms means hung, not slow; `
-        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
+        .plus(`not-measured instead of either if the calibration loop, PSI, or steal+cgroup showed foreign load — ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied, or ${CALIBRATION_LOAD_FACTOR}x the calibration baseline)`),
       actual: say`${doctor.ms} ms for a full doctor run over ${real.validEntries} real entries`,
       severity: SEVERITY.MINOR,
       ms: doctor.ms,
@@ -1274,7 +1317,7 @@ export async function run(atlas, { quick = false } = {}) {
       title: 'mem kontext wall time and output size against the real corpus',
       verdict: timeVerdictUnderLoad(kontext.ms, KONTEXT_DEGRADED_MS, KONTEXT_FAIL_MS, load),
       expected: say`under ${KONTEXT_DEGRADED_MS} ms (over ${KONTEXT_FAIL_MS} ms means hung, not slow; `
-        .plus(`not-measured instead of either if foreign load exceeded ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied)`),
+        .plus(`not-measured instead of either if the calibration loop, PSI, or steal+cgroup showed foreign load — ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied, or ${CALIBRATION_LOAD_FACTOR}x the calibration baseline)`),
       actual: say`${kontext.ms} ms, ${kontext.bytes} bytes of session context`,
       severity: SEVERITY.MINOR,
       ms: kontext.ms,

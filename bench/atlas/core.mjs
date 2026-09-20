@@ -127,23 +127,50 @@ export function heapAround(fn, { everyMs = 5 } = {}) {
   };
 }
 
-// --- foreign load: CPU steal and cgroup throttling ---------------------
+// --- foreign load: steal, cgroup throttling, PSI, and a calibration loop
 //
 // **Why not `os.loadavg()`.** Load average rises when a process is
 // waiting on disk or network just as readily as when it is waiting for a
 // CPU another tenant is using, so a load-average-based guard cannot tell
 // "this machine is slow because of us" from "this machine is slow because
-// of something else". CPU steal (time a hypervisor gave to another guest
+// of something else".
+//
+// **The finding that made this section four sensors instead of two
+// (2026-09-20).** CPU steal (time a hypervisor gave to another guest
 // instead of this one) and cgroup CFS throttling (time this cgroup was
 // runnable but had already spent its quota for the period) both measure
-// DENIED compute directly, attributed to a specific decider. Where a
-// container exposes neither, the honest answer is `not-measured`, never
-// `0` — a `0` here would claim "no foreign load" about a quantity nobody
-// could read.
+// DENIED compute directly, attributed to a specific decider — but both
+// are blind to the exact load that motivated this apparatus. Steal only
+// counts time a HYPERVISOR gave to another VM GUEST; a sibling process in
+// the SAME container competing for the SAME cores steals nothing by that
+// definition, so it reads a real, honestly-measured 0 while the CPU is
+// fully contended. cgroup throttling only fires once a QUOTA is set on
+// `cpu.cfs_quota_us`; a container with no quota (this one, and many
+// others) never throttles no matter how contended its cores are, so it
+// too reads a real, honestly-measured 0. Verified here: 8 CPU-bound
+// processes pinned against 4 cores in this exact container measured
+// 0.00 ms/s on both — a genuinely correct reading of the wrong question.
+// `readCpuStealTicks` and `readCgroupThrottle` are kept below (a real VM
+// guest sharing a host with noisy neighbours DOES generate steal, and a
+// cgroup with a quota DOES throttle, so the signal is real where it
+// applies) but neither is trusted as the SOLE gate any more — see
+// `FOREIGN_LOAD_DENIED_MS_PER_SEC`'s doc comment for the two sensors
+// that now carry the actual detection: PSI and a fixed calibration loop.
 //
-// Both readers below are plain `fs.readFileSync` over `/proc` and
+// Where a container exposes none of the four signals at all, the honest
+// answer is `not-measured`, never `0` — a `0` here would claim "no
+// foreign load" about a quantity nobody could read. Where SOME signals
+// are readable and others are not, only the unreadable ones say
+// `not-measured` for themselves (see `readPsiCpuSomeTotal`'s doc
+// comment) — a phase must not go blind for every signal just because one
+// of four could not be read here.
+//
+// All readers below are plain `fs.readFileSync` over `/proc` and
 // `/sys/fs/cgroup`, never a spawned tool, so a phase can snapshot them on
-// either side of a slow measurement at effectively zero cost.
+// either side of a slow measurement at effectively zero cost — except the
+// calibration loop, which is itself a few milliseconds of real CPU work
+// by construction (see its own doc comment for why that cost is paid
+// deliberately, and kept small).
 
 /**
  * CPU ticks stolen from this host's view of the CPU since boot, summed
@@ -273,24 +300,337 @@ export function readCgroupThrottle() {
   return null;
 }
 
-/** One snapshot of both foreign-load signals, timestamped. Take one before and one after the work being measured, then pass both to `foreignLoadDelta`. */
-export function captureForeignLoad() {
+/**
+ * Read one numeric field off the `some` line of `/proc/pressure/cpu`
+ * (Pressure Stall Information — Linux 4.20+, `CONFIG_PSI=y`, mounted at
+ * `/proc/pressure` when the kernel supports it). The `some` line covers
+ * time where AT LEAST ONE runnable task on this cgroup/host was stalled
+ * waiting for CPU — exactly "CPU time wanted and not given", the same
+ * quantity steal and cgroup throttling measure, but read from the
+ * scheduler's own stall accounting instead of a hypervisor's or a
+ * quota's counter, so it sees contention neither of those two can:
+ * ordinary sibling processes on the same cores, with no quota in play.
+ *
+ * Shared by the two exported readers below via the field's own regex,
+ * so a caller never parses `/proc/pressure/cpu` by hand. `null` when the
+ * file cannot be read (PSI not compiled in, not mounted, or a
+ * permission this container does not have) or the `some` line does not
+ * carry the requested field — matching `readCpuStealTicks` and
+ * `readCgroupThrottle` above: a container that hides this gets
+ * `not-measured` for PSI specifically, never a silent zero.
+ */
+function readPsiCpuSomeField(fieldRegex) {
+  try {
+    const text = fs.readFileSync('/proc/pressure/cpu', 'utf8');
+    const line = text.split('\n').find((l) => l.startsWith('some '));
+    if (!line) return null;
+    const m = line.match(fieldRegex);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The `some` line's `total=` field: cumulative MICROSECONDS of CPU stall
+ * since PSI accounting started for this cgroup, monotonic like
+ * `/proc/stat`'s steal field above — callers take two snapshots and
+ * DIFFERENCE them (see `foreignLoadDelta`), never read this as a rate on
+ * its own.
+ */
+export function readPsiCpuSomeTotal() {
+  return readPsiCpuSomeField(/\btotal=(\d+)\b/);
+}
+
+/**
+ * The `some` line's `avg10=` field: the kernel's own decaying 10-second
+ * average of stall time, as a percentage (0-100, though PSI defines it
+ * per-cgroup so in principle it can read slightly differently than a
+ * simple percentage of one core). Read as an INSTANTANEOUS snapshot, not
+ * a total to difference — used only to sanity-check that a moment was
+ * quiet (`captureCalibrationBaselineOnce` below, when taking the
+ * calibration loop's baseline), never as this phase's own load gate: a
+ * 10-second decaying average lags a real event by design, while the
+ * cumulative `total=` field differenced over the phase's own window
+ * tracks that window exactly.
+ */
+export function readPsiCpuSomeAvg10() {
+  return readPsiCpuSomeField(/\bavg10=([\d.]+)\b/);
+}
+
+// --- foreign load: a fixed calibration loop against its own baseline ---
+//
+// **Why this is the recommended primary signal.** Steal and cgroup
+// throttling are blind exactly where this container's own load is
+// (see above), and PSI needs `/proc/pressure` to exist and be readable
+// at all. A calibration loop needs neither: it is ordinary synchronous
+// JavaScript, timed with `process.hrtime.bigint()`, so it runs — and
+// means the same thing — on any machine that can run this benchmark at
+// all. It also measures the actual quantity a TIME-BASED check cares
+// about directly: "how much slower is a fixed amount of work right now",
+// rather than an amount of denied compute this file must then translate
+// into a slowdown by assumption.
+const CALIBRATION_LOOP_UNREACHABLE = 'unreachable: calibration loop produced NaN';
+
+/**
+ * Iteration count for `calibrationLoopMs()`, tuned so the loop takes
+ * roughly 5.5 ms on an idle core of this repo's own dev container
+ * (measured 2026-09-20: 7 warmed-up reps at this count landed at
+ * 5.45-5.69 ms, ratio of max/min 1.04 — see `CALIBRATION_BASELINE_MAX_SPREAD_RATIO`
+ * below for why that number is the basis for detecting a corrupted
+ * baseline capture). Chosen to resemble the ~5.4 ms unit of work
+ * `FOREIGN_LOAD_DENIED_MS_PER_SEC`'s own derivation experiment used,
+ * for the same reason that derivation gives: short enough to run
+ * before/after a phase's timed section at negligible cost, long enough
+ * that `process.hrtime.bigint()`'s own resolution does not dominate it.
+ */
+export const CALIBRATION_LOOP_ITERATIONS = 400000;
+
+/**
+ * A fixed, purely CPU-bound synchronous unit of work — arithmetic plus
+ * occasional small string building, no timers, no I/O, no allocation
+ * pattern heavy enough to make GC pauses the dominant cost — timed with
+ * `process.hrtime.bigint()`. Its wall time is this container's ground
+ * truth for "how much slower is fixed work right now": unlike steal or
+ * cgroup throttling, it cannot read as a false 0 while the CPU is
+ * genuinely contended, because it does not ask the hypervisor or the
+ * quota what happened — it simply does the work and times how long that
+ * took.
+ *
+ * `acc`'s final value is folded into a thrown-error condition that can
+ * never actually be true (`NaN` cannot arise from this arithmetic) so
+ * V8 cannot prove the loop's result is unused and dead-code-eliminate
+ * it — a loop the engine is free to skip measures nothing.
+ */
+export function calibrationLoopMs() {
+  const t0 = process.hrtime.bigint();
+  let acc = 0;
+  for (let i = 0; i < CALIBRATION_LOOP_ITERATIONS; i += 1) {
+    acc = (acc + Math.sqrt((i + 1) * 1.0000001)) % 104729;
+    if ((i & 1023) === 0) acc += JSON.stringify({ i, acc }).length;
+  }
+  if (Number.isNaN(acc)) throw new Error(CALIBRATION_LOOP_UNREACHABLE);
+  return Number(process.hrtime.bigint() - t0) / 1e6;
+}
+
+/**
+ * How many times worse than its own quiet baseline the calibration loop
+ * may run before a time-based check is no longer trusted — the same
+ * 20 % bound `FOREIGN_LOAD_DENIED_MS_PER_SEC` restates for steal and
+ * cgroup, applied here to a ratio instead of a rate: 1.2 IS "at least
+ * 20 % slower than this machine's own idle self".
+ */
+export const CALIBRATION_LOAD_FACTOR = 1.2;
+
+/**
+ * How much the calibration loop's own repeated timings, taken back to
+ * back while capturing a baseline, may disagree with each other before
+ * that CAPTURE is judged to have happened on a machine too busy to
+ * trust as "quiet" — see `captureCalibrationBaselineOnce`'s doc comment
+ * for why this matters as much as the load threshold itself. 1.15 sits
+ * above the idle spread measured here (1.04, seven reps, 2026-09-20) and
+ * below `CALIBRATION_LOAD_FACTOR` (1.2), so an ordinary idle capture
+ * passes with margin while a capture contaminated by real load — which
+ * would show the same kind of spread the loaded-run ROT probe measured
+ * (baseline reps swinging between roughly idle and roughly loaded
+ * timings) — is caught before it can poison every later comparison.
+ */
+export const CALIBRATION_BASELINE_MAX_SPREAD_RATIO = 1.15;
+
+/** Default rep count for one baseline capture attempt — enough for a median and a spread check without materially adding to a phase's own runtime (5 reps at ~5.5 ms is ~28 ms). */
+export const CALIBRATION_BASELINE_REPS = 5;
+
+/** Default number of throwaway warm-up reps before a baseline capture is measured — the FIRST call through `calibrationLoopMs()` in a process pays JIT warm-up cost the rest do not (measured here: 4.98 ms first call vs 0.6-0.7 ms steady state at a ten-times-smaller iteration count used only for that check), and mixing that into the baseline would inflate it for a reason that has nothing to do with foreign load. */
+export const CALIBRATION_BASELINE_WARMUP = 1;
+
+/** Default number of baseline-capture attempts before giving up and reporting the calibration signal itself as unavailable for this run — see `captureQuietCalibrationBaseline`'s doc comment for what "giving up" means and why it is not the dead-line failure this house watches for. */
+export const CALIBRATION_BASELINE_MAX_ATTEMPTS = 3;
+
+/**
+ * One attempt at capturing this run's "quiet baseline" for the
+ * calibration loop: `warmup` throwaway reps, then `reps` measured reps,
+ * their median taken as the baseline itself.
+ *
+ * **The problem this solves (decision named in the brief this fix
+ * answers).** A baseline taken once, unconditionally, at the start of a
+ * run is cheap — but if the machine is ALREADY busy at that moment, the
+ * baseline itself comes out inflated, and every later comparison against
+ * it silently under-reports load forever: the exact "quiet line that
+ * looks like it does something" failure this house names, just moved one
+ * layer down. The fix is not to take the baseline more carefully once —
+ * a single capture cannot tell "quiet" from "busy" about itself — it is
+ * to make the capture SELF-CHECKING: several reps of a fixed unit of
+ * work, on a genuinely quiet machine, should land within a few percent
+ * of each other (measured here: max/min 1.04 over 7 reps). A machine
+ * already under load produces reps that disagree with EACH OTHER, not
+ * just with some external reference, because the load competing for the
+ * core does not hold still between reps. `internallyStable` catches
+ * that without needing to know anything about this machine in advance.
+ * `psiQuiet` is a second, independent check of the same moment — belt
+ * and suspenders, and useful specifically when the contamination is a
+ * STEADY load that happens to keep all reps similarly slow (stable but
+ * uniformly inflated), which the spread check alone cannot see.
+ *
+ * **`psiQuiet` uses a FRESH delta over the capture's own window, not
+ * PSI's `avg10` gauge — found by this fix's own test suite.** The first
+ * cut of this function used `readPsiCpuSomeAvg10()` (a kernel-computed,
+ * exponentially-decaying 10-second average) as the second check. That
+ * failed its own positive-control test: immediately after killing 16
+ * real CPU-bound processes on this container's 4 cores, `avg10` was
+ * STILL 9.17 (over the ceiling that was tried, 5) even though the
+ * machine was, at that exact instant, genuinely idle again — `avg10`'s
+ * decay lags real events by design (the same reason its doc comment
+ * says it must never be this apparatus's own load GATE), and using it
+ * here to judge "was THIS capture quiet" inherited that lag as a false
+ * positive for contamination. The fix: read PSI's cumulative `total=`
+ * field (see `readPsiCpuSomeTotal`) once before the reps and once after,
+ * and rate-check the DELTA over the capture's own short window — the
+ * exact same delta-over-a-window pattern `foreignLoadDelta` already uses
+ * for the phase's real timed section, reusing `FOREIGN_LOAD_DENIED_MS_PER_SEC`
+ * as the same threshold rather than inventing a second number. This
+ * responds to the capture's own window only, with no memory of load
+ * from moments before it — including moments the same PROCESS caused,
+ * such as the loop's own JIT warm-up.
+ *
+ * `psiQuiet === false` is the only PSI reading allowed to veto an
+ * otherwise-stable capture; `null` (PSI unreadable here) does not, or a
+ * kernel without PSI would fail every baseline capture on unrelated
+ * grounds and take down the one signal — the loop itself — that needs
+ * no `/proc` access at all. `psiAvg10AtCapture` is still recorded, for a
+ * reader's own reference, but no longer decides `trustworthy`.
+ */
+export function captureCalibrationBaselineOnce({
+  reps = CALIBRATION_BASELINE_REPS, warmup = CALIBRATION_BASELINE_WARMUP,
+} = {}) {
+  const psiTotalBefore = readPsiCpuSomeTotal();
+  const captureStartMs = Date.now();
+  for (let i = 0; i < warmup; i += 1) calibrationLoopMs();
+  const samples = [];
+  for (let i = 0; i < reps; i += 1) samples.push(calibrationLoopMs());
+  const captureWallMs = Date.now() - captureStartMs;
+  const psiTotalAfter = readPsiCpuSomeTotal();
+  const psiAvg10AtCapture = readPsiCpuSomeAvg10();
+
+  const sorted = [...samples].sort((a, b) => a - b);
+  const medianMs = pct(sorted, 50);
+  const minMs = sorted[0];
+  const maxMs = sorted[sorted.length - 1];
+  const spreadRatio = minMs > 0 ? maxMs / minMs : (maxMs === 0 ? 1 : Infinity);
+  const internallyStable = Number.isFinite(spreadRatio) && spreadRatio <= CALIBRATION_BASELINE_MAX_SPREAD_RATIO;
+
+  const psiOk = typeof psiTotalBefore === 'number' && typeof psiTotalAfter === 'number';
+  const psiDeltaUsec = psiOk ? psiTotalAfter - psiTotalBefore : null;
+  const psiRateDuringCaptureMsPerSec = psiOk && captureWallMs > 0
+    ? ((psiDeltaUsec / 1000) * 1000) / captureWallMs : (psiOk ? 0 : null);
+  const psiQuiet = psiRateDuringCaptureMsPerSec === null
+    ? null : psiRateDuringCaptureMsPerSec <= FOREIGN_LOAD_DENIED_MS_PER_SEC;
+
+  const trustworthy = internallyStable && psiQuiet !== false;
   return {
-    atMs: Date.now(),
-    stealTicks: readCpuStealTicks(),
-    cgroup: readCgroupThrottle(),
+    reps,
+    warmup,
+    samples,
+    medianMs,
+    minMs,
+    maxMs,
+    spreadRatio: Number.isFinite(spreadRatio) ? +spreadRatio.toFixed(3) : null,
+    psiAvg10AtCapture,
+    psiRateDuringCaptureMsPerSec: psiRateDuringCaptureMsPerSec !== null
+      ? +psiRateDuringCaptureMsPerSec.toFixed(2) : null,
+    internallyStable,
+    psiQuiet,
+    trustworthy,
   };
 }
 
 /**
- * How much compute this process was denied between two `captureForeignLoad()`
- * snapshots, as milliseconds denied per second of wall time elapsed — a
- * rate, so a short phase and a long phase are comparable on the same
- * threshold. Either side missing, or the cgroup hierarchy changing
- * between snapshots (should not happen; checked anyway), yields `null`
- * for that source rather than treating it as zero.
+ * `captureCalibrationBaselineOnce`, retried up to `maxAttempts` times
+ * until one attempt comes back `trustworthy`.
+ *
+ * **Why retry at all, and why bounded.** A single bad attempt could be a
+ * moment's coincidence (a GC pause, a neighbour's brief burst); retrying
+ * a few times costs almost nothing (each attempt is ~5 reps of a
+ * ~5.5 ms loop) and recovers the common case for free. Bounding it
+ * matters for the OTHER decision this answers: if the machine is
+ * genuinely, persistently busy, every attempt will keep failing, and
+ * `captureCalibrationBaselineOnce` cannot be made to declare a busy
+ * machine quiet no matter how many times it is asked — so this gives up
+ * after `maxAttempts` and returns the LAST attempt with `gaveUp: true`
+ * rather than spinning forever. `gaveUp` is not the dead-line failure
+ * this house watches for: it does not silently keep the calibration
+ * signal claiming a stale or corrupted number, it hands back a baseline
+ * honestly marked `trustworthy: false`, so `foreignLoadDelta` below
+ * refuses to use it and the caller can report the calibration signal
+ * itself as unavailable for this run — a real `not-measured`, on a
+ * machine that earned it, not a permanent one: the very next run, once
+ * the machine quiets down, captures cleanly again.
  */
-export function foreignLoadDelta(before, after) {
+export function captureQuietCalibrationBaseline({
+  maxAttempts = CALIBRATION_BASELINE_MAX_ATTEMPTS, reps, warmup,
+} = {}) {
+  let attempt;
+  let attempts = 0;
+  do {
+    attempts += 1;
+    attempt = captureCalibrationBaselineOnce({ reps, warmup });
+  } while (!attempt.trustworthy && attempts < maxAttempts);
+  return { ...attempt, attempts, gaveUp: !attempt.trustworthy };
+}
+
+/**
+ * One snapshot of every foreign-load signal, timestamped. Take one
+ * before and one after the work being measured, then pass both (plus
+ * the run's calibration baseline, if one was captured) to
+ * `foreignLoadDelta`.
+ *
+ * The calibration loop is only run here when `calibBaseline` is both
+ * present and `trustworthy` — an untrustworthy baseline has nothing
+ * honest to compare a fresh reading against, so running the loop again
+ * would only spend CPU time on a number `foreignLoadDelta` is going to
+ * discard anyway.
+ */
+export function captureForeignLoad(calibBaseline = null) {
+  return {
+    atMs: Date.now(),
+    stealTicks: readCpuStealTicks(),
+    cgroup: readCgroupThrottle(),
+    psiTotal: readPsiCpuSomeTotal(),
+    calibMs: (calibBaseline && calibBaseline.trustworthy) ? calibrationLoopMs() : null,
+  };
+}
+
+/**
+ * How much compute this process was denied between two
+ * `captureForeignLoad()` snapshots — now four independent readings, not
+ * two, each `null` when its own source could not be read rather than
+ * treated as zero:
+ *
+ * - `deniedMsPerSec` — steal + cgroup throttling, summed (a phase can be
+ *   denied by both at once), as milliseconds denied per second of wall
+ *   time. Kept from the original design (see `FOREIGN_LOAD_DENIED_MS_PER_SEC`'s
+ *   doc comment for why these two are no longer trusted alone).
+ * - `psiMsPerSec` — the SAME kind of rate, read from PSI's cumulative
+ *   `total=` field instead, which sees contention neither steal nor
+ *   cgroup throttling can (ordinary sibling processes on shared cores,
+ *   with no quota set).
+ * - `calibRatio` / `calibOverThreshold` — the calibration loop's fresh
+ *   reading (the WORSE of one taken at `before` and one at `after`,
+ *   since a spike partway through the window must not be averaged away)
+ *   against this run's own quiet baseline. Needs `calibBaseline` (a
+ *   `captureQuietCalibrationBaseline()` result) to be both supplied and
+ *   `trustworthy` — otherwise this signal reports itself unavailable
+ *   rather than compare against a baseline that was never established.
+ *
+ * `measured` is true if ANY of the four could be read — so a container
+ * with neither `/proc/pressure` nor a working cgroup hierarchy still
+ * gets a real answer from the calibration loop alone, which needs
+ * neither. `timeVerdictUnderLoad` below gates on each independently:
+ * one unreadable signal must not blind every other timed check to the
+ * signals that DID come back.
+ */
+export function foreignLoadDelta(before, after, calibBaseline = null) {
   const wallMs = after.atMs - before.atMs;
   const stealTicks = (before.stealTicks !== null && after.stealTicks !== null)
     ? after.stealTicks - before.stealTicks : null;
@@ -302,13 +642,33 @@ export function foreignLoadDelta(before, after) {
   const cgroupNrThrottled = cgroupOk ? after.cgroup.nrThrottled - before.cgroup.nrThrottled : null;
   const cgroupMs = cgroupThrottledUsec !== null ? cgroupThrottledUsec / 1000 : null;
 
-  // The rate this phase's checks are gated on: whichever source answered,
-  // summed (a phase can be denied by both at once), converted to a
-  // per-second rate over the wall time actually elapsed. `null` only when
-  // NEITHER source could be read at all — the genuinely blind case.
+  // Steal + cgroup, summed and converted to a per-second rate — unchanged
+  // from the original design. `null` only when NEITHER could be read.
   const deniedMs = (stealMs !== null ? stealMs : 0) + (cgroupMs !== null ? cgroupMs : 0);
-  const measured = stealMs !== null || cgroupMs !== null;
-  const deniedMsPerSec = measured && wallMs > 0 ? (deniedMs * 1000) / wallMs : (measured ? 0 : null);
+  const stealOrCgroupMeasured = stealMs !== null || cgroupMs !== null;
+  const deniedMsPerSec = stealOrCgroupMeasured && wallMs > 0
+    ? (deniedMs * 1000) / wallMs : (stealOrCgroupMeasured ? 0 : null);
+
+  // PSI: a monotonic cumulative counter, exactly like steal ticks — take
+  // the delta, convert microseconds to milliseconds, then to a rate.
+  const psiOk = typeof before.psiTotal === 'number' && typeof after.psiTotal === 'number';
+  const psiDeltaUsec = psiOk ? after.psiTotal - before.psiTotal : null;
+  const psiMs = psiDeltaUsec !== null ? psiDeltaUsec / 1000 : null;
+  const psiMsPerSec = psiMs !== null && wallMs > 0 ? (psiMs * 1000) / wallMs : (psiMs !== null ? 0 : null);
+
+  // Calibration loop: NOT a delta of a counter — a fresh, direct timing
+  // taken at `before` and again at `after` (see `captureForeignLoad`),
+  // compared against the run's own baseline. The worse (higher) of the
+  // two is used, so a spike confined to one edge of the window is not
+  // diluted by averaging it against a quiet other edge.
+  const calibReady = !!(calibBaseline && calibBaseline.trustworthy
+    && typeof before.calibMs === 'number' && typeof after.calibMs === 'number'
+    && calibBaseline.medianMs > 0);
+  const calibMsWorst = calibReady ? Math.max(before.calibMs, after.calibMs) : null;
+  const calibRatio = calibReady ? calibMsWorst / calibBaseline.medianMs : null;
+  const calibOverThreshold = calibRatio !== null && calibRatio > CALIBRATION_LOAD_FACTOR;
+
+  const measured = stealOrCgroupMeasured || psiMs !== null || calibReady;
 
   return {
     wallMs,
@@ -318,8 +678,15 @@ export function foreignLoadDelta(before, after) {
     cgroupThrottledUsec,
     cgroupNrThrottled,
     cgroupMs: cgroupMs !== null ? +cgroupMs.toFixed(2) : null,
-    measured,
     deniedMsPerSec: deniedMsPerSec !== null ? +deniedMsPerSec.toFixed(2) : null,
+    psiMs: psiMs !== null ? +psiMs.toFixed(2) : null,
+    psiMsPerSec: psiMsPerSec !== null ? +psiMsPerSec.toFixed(2) : null,
+    calibMs: calibMsWorst !== null ? +calibMsWorst.toFixed(3) : null,
+    calibBaselineMs: calibBaseline ? calibBaseline.medianMs : null,
+    calibBaselineTrustworthy: calibBaseline ? calibBaseline.trustworthy : null,
+    calibRatio: calibRatio !== null ? +calibRatio.toFixed(3) : null,
+    calibOverThreshold,
+    measured,
   };
 }
 
@@ -381,13 +748,52 @@ export function foreignLoadDelta(before, after) {
  * against. That substitution is a real gap in this derivation and is
  * named here rather than hidden — see the report's "what was wrong with
  * this brief" section.
+ *
+ * **Confirmed structurally blind in THIS container, and why (2026-09-20,
+ * the fix this comment now documents).** 8 CPU-bound processes pinned
+ * against this container's 4 cores — the exact shape of load that
+ * motivated this whole apparatus — measured 0.00 ms/s on BOTH steal and
+ * cgroup throttling, at the same moment PSI (below) read ~800 ms/s and
+ * the calibration loop ran at 1.79x its own baseline. This is not a bug
+ * in either reader: steal counts only what a HYPERVISOR gives to another
+ * VM GUEST, and a sibling process in the SAME container competing for
+ * the SAME cores is invisible to that definition by design; cgroup
+ * throttling counts only time spent already-over-quota, and this
+ * container's `cpu.cfs_quota_us` is unlimited (`-1`), so there is no
+ * quota to spend past. Both readers are honest; the question they answer
+ * is the wrong one for a shared-container-without-a-quota host. They are
+ * kept (a real VM guest with noisy neighbours DOES generate steal, and a
+ * cgroup WITH a quota DOES throttle) but are no longer the sole gate —
+ * see `timeVerdictUnderLoad` below, and `foreignLoadDelta`'s doc comment
+ * for the two signals that now actually detect this container's own
+ * load: PSI and the calibration loop in the section above.
+ *
+ * **PSI reuses this same threshold rather than deriving its own.** PSI's
+ * `some total=` field measures the same underlying quantity — CPU time
+ * wanted and not given — just via the kernel's own stall accounting
+ * instead of a hypervisor's or a quota's counter, so the same "ms
+ * denied per second of wall time" unit applies unchanged. Checked
+ * against real numbers in this container rather than assumed: idle PSI
+ * measured ~1.2 ms/s over a genuinely quiet 3 s window (`sleep 3` while
+ * this process did nothing else), and the 8-fressers-on-4-cores run
+ * above measured ~800 ms/s — 20 ms/s sits with ample margin on both
+ * sides of that gap, the same shape of margin the original derivation
+ * used for steal and cgroup.
  */
 export const FOREIGN_LOAD_DENIED_MS_PER_SEC = 20;
 
 /**
  * Nearest-rank percentile threshold verdict for a timed measurement,
  * `not-measured` instead of pass/fail whenever the foreign-load delta
- * measured around it shows denied compute over `FOREIGN_LOAD_DENIED_MS_PER_SEC`.
+ * measured around it shows load on ANY of its independent signals: steal
+ * + cgroup combined over `FOREIGN_LOAD_DENIED_MS_PER_SEC`, PSI over the
+ * same threshold, or the calibration loop over `CALIBRATION_LOAD_FACTOR`
+ * times its own quiet baseline. Each is checked independently — one
+ * signal reading `null` (its source unreadable here) never suppresses a
+ * REAL reading from another; see `foreignLoadDelta`'s doc comment for
+ * why `measured` alone would not be enough (a cgroup that never
+ * throttles because it has no quota reads a real, non-null, structurally
+ * blind 0 — see this constant's own doc comment above).
  *
  * This only changes TIME-BASED verdicts. A check that does not measure a
  * duration was never affected by how much CPU this process got, and
@@ -401,8 +807,13 @@ export const FOREIGN_LOAD_DENIED_MS_PER_SEC = 20;
  * load cannot use it as an excuse, it just did not ask the question).
  */
 export function timeVerdictUnderLoad(ms, degradedAt, failAt, load) {
-  if (load && load.deniedMsPerSec !== null && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC) {
-    return VERDICT.NOT_MEASURED;
+  if (load) {
+    const stealOrCgroupOver = load.deniedMsPerSec !== null && load.deniedMsPerSec !== undefined
+      && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+    const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec !== undefined
+      && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+    const calibOver = load.calibOverThreshold === true;
+    if (stealOrCgroupOver || psiOver || calibOver) return VERDICT.NOT_MEASURED;
   }
   return timeVerdict(ms, degradedAt, failAt);
 }

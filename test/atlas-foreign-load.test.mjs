@@ -22,16 +22,50 @@
 // comment on that constant in `bench/atlas/core.mjs` for the numbers —
 // but verifying the GATING LOGIC that consumes it does not need to
 // reproduce that experiment every time this suite runs.
+//
+// **Addendum, 2026-09-20: the sensors themselves were wrong.** Steal and
+// cgroup throttling measured a real, honestly-computed 0.00 ms/s under
+// 8 CPU-bound processes pinned against this container's 4 cores — the
+// exact load this guard exists to catch — because steal only counts a
+// HYPERVISOR denying another VM guest, and this container's cgroup has
+// no quota to be throttled against. `core.mjs` now also reads PSI
+// (`/proc/pressure/cpu`, sees ordinary sibling contention neither of the
+// other two can) and runs a fixed calibration loop against its own
+// self-checked quiet baseline (needs no `/proc` access at all, so it
+// works everywhere). The gating-logic tests above still use fabricated
+// `foreignLoadDelta`-shaped objects for the reason given above; the
+// tests below this line additionally exercise the new sensors against
+// REAL spawned CPU load, because the finding they answer ("the sensor
+// itself reads 0 under real load") cannot be reproduced by a fabricated
+// object — a fake can only prove the gate reacts to a number, not that
+// the number is the right one.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import os from 'node:os';
+import { spawn, execFileSync } from 'node:child_process';
 import {
   VERDICT, timeVerdict, timeVerdictUnderLoad, foreignLoadDelta, captureForeignLoad,
   readCpuStealTicks, readCgroupThrottle, FOREIGN_LOAD_DENIED_MS_PER_SEC,
+  readPsiCpuSomeTotal, readPsiCpuSomeAvg10, calibrationLoopMs,
+  captureCalibrationBaselineOnce, captureQuietCalibrationBaseline, CALIBRATION_LOAD_FACTOR,
 } from '../bench/atlas/core.mjs';
 import { biasVerdict } from '../bench/atlas/phase-real.mjs';
 
 const DEGRADED_AT = 1000;
 const FAIL_AT = 5000;
+
+/** Spawn `count` CPU-bound child processes that spin until killed, for tests that need REAL foreign load rather than a fabricated `foreignLoadDelta`. Always killed in the caller's `finally`. */
+function spawnCpuFressers(count) {
+  const children = [];
+  for (let i = 0; i < count; i += 1) {
+    children.push(spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += Math.sqrt(x + 1); }']));
+  }
+  return children;
+}
+
+function killAll(children) {
+  for (const p of children) { try { p.kill('SIGKILL'); } catch { /* already gone */ } }
+}
 
 /** A `foreignLoadDelta()`-shaped object with a chosen denied-ms/s rate, without touching /proc or a cgroup. */
 function fakeLoad(deniedMsPerSec) {
@@ -167,6 +201,114 @@ test('foreignLoadDelta: the cgroup hierarchy changing between snapshots is treat
   assert.equal(delta.cgroupSource, null);
 });
 
+// --- the new sensors: PSI and the calibration loop ----------------------
+//
+// The gating tests below still inject through the `load` PARAMETER
+// `timeVerdictUnderLoad` takes (this house's rule for sabotage probes —
+// see the file header), now exercising the two NEW independent fields
+// (`psiMsPerSec`, `calibOverThreshold`) the same way the original tests
+// above exercise `deniedMsPerSec`. Real-sensor behaviour (does PSI
+// actually see contention steal and cgroup cannot; does a corrupted
+// baseline capture actually get caught) is proven further down with
+// real spawned processes, because a fabricated object can only prove
+// the gate reacts to a number, never that the number is the right one.
+
+/** A `foreignLoadDelta()`-shaped object naming exactly ONE signal as over threshold, all others quiet — for testing that each signal gates independently. */
+function fakeLoadOn(signal, value) {
+  const base = {
+    wallMs: 1000,
+    stealTicks: 0,
+    stealMs: 0,
+    cgroupSource: 'cgroup1',
+    cgroupThrottledUsec: 0,
+    cgroupNrThrottled: 0,
+    cgroupMs: 0,
+    deniedMsPerSec: 0,
+    psiMs: 0,
+    psiMsPerSec: 0,
+    calibMs: 5.5,
+    calibBaselineMs: 5.5,
+    calibBaselineTrustworthy: true,
+    calibRatio: 1,
+    calibOverThreshold: false,
+    measured: true,
+  };
+  if (signal === 'stealCgroup') return { ...base, deniedMsPerSec: value };
+  if (signal === 'psi') return { ...base, psiMsPerSec: value };
+  if (signal === 'calib') {
+    return {
+      ...base, calibMs: 5.5 * value, calibRatio: value, calibOverThreshold: value > CALIBRATION_LOAD_FACTOR,
+    };
+  }
+  throw new Error(`unknown signal ${signal}`);
+}
+
+test('ROT: PSI alone, over threshold, forces not-measured even with steal/cgroup and the calibration loop quiet', () => {
+  const load = fakeLoadOn('psi', FOREIGN_LOAD_DENIED_MS_PER_SEC * 5);
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, load), VERDICT.NOT_MEASURED);
+});
+
+test('GRUEN (positive control): the same PSI-only load object, with PSI quiet, passes', () => {
+  const load = fakeLoadOn('psi', 0);
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, load), VERDICT.PASS);
+});
+
+test('ROT: the calibration loop alone, over its own baseline by more than CALIBRATION_LOAD_FACTOR, forces not-measured', () => {
+  const load = fakeLoadOn('calib', CALIBRATION_LOAD_FACTOR * 2);
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, load), VERDICT.NOT_MEASURED);
+});
+
+test('GRUEN (positive control): the same calibration-ratio object, at 1.0x baseline, passes', () => {
+  const load = fakeLoadOn('calib', 1.0);
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, load), VERDICT.PASS);
+});
+
+test('a calibration ratio exactly AT CALIBRATION_LOAD_FACTOR still passes (the gate is "over", not "at or over")', () => {
+  assert.equal(
+    timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, fakeLoadOn('calib', CALIBRATION_LOAD_FACTOR)),
+    VERDICT.PASS,
+  );
+  assert.equal(
+    timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, fakeLoadOn('calib', CALIBRATION_LOAD_FACTOR + 0.01)),
+    VERDICT.NOT_MEASURED,
+  );
+});
+
+test('decision #2: PSI unreadable (null) does not force not-measured, and does not hide a real reading from another signal', () => {
+  const psiUnreadableButQuiet = {
+    ...fakeLoadOn('psi', 0), psiMsPerSec: null,
+  };
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, psiUnreadableButQuiet), VERDICT.PASS,
+    'PSI reading null (unreadable here) must fall back to the other signals, not force not-measured on its own');
+
+  const psiUnreadableButCalibOver = {
+    ...fakeLoadOn('calib', CALIBRATION_LOAD_FACTOR * 2), psiMsPerSec: null,
+  };
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, psiUnreadableButCalibOver), VERDICT.NOT_MEASURED,
+    'PSI being unreadable must not suppress a genuine over-threshold reading from the calibration loop');
+});
+
+test('decision #3: steal+cgroup are kept and still gate on their own, unaffected by the new signals', () => {
+  // Backward-compatibility pin: the pre-existing `fakeLoad()` helper
+  // (steal/cgroup only, no psi/calib fields at all) must still gate
+  // exactly as it did before this fix — old callers that never learn
+  // about the new fields are not silently weakened.
+  assert.equal(
+    timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, fakeLoad(FOREIGN_LOAD_DENIED_MS_PER_SEC * 5)),
+    VERDICT.NOT_MEASURED,
+  );
+});
+
+test('all three signals over threshold at once still yields exactly one not-measured, never a crash from double-gating', () => {
+  const load = {
+    ...fakeLoadOn('stealCgroup', FOREIGN_LOAD_DENIED_MS_PER_SEC * 3),
+    psiMsPerSec: FOREIGN_LOAD_DENIED_MS_PER_SEC * 3,
+    calibRatio: CALIBRATION_LOAD_FACTOR * 3,
+    calibOverThreshold: true,
+  };
+  assert.equal(timeVerdictUnderLoad(50, DEGRADED_AT, FAIL_AT, load), VERDICT.NOT_MEASURED);
+});
+
 test('readCpuStealTicks and readCgroupThrottle each return a number/object or null, never throw', () => {
   // This is the third state in practice: whatever this container can or
   // cannot expose, the reader must say so cleanly rather than crash the
@@ -196,4 +338,140 @@ test('captureForeignLoad -> foreignLoadDelta round-trips on THIS machine without
   // misread (e.g. wrapped or read from two different cgroups).
   if (delta.stealTicks !== null) assert.ok(delta.stealTicks >= 0);
   if (delta.cgroupThrottledUsec !== null) assert.ok(delta.cgroupThrottledUsec >= 0);
+});
+
+test('readPsiCpuSomeTotal and readPsiCpuSomeAvg10 each return a number or null, never throw', () => {
+  const total = readPsiCpuSomeTotal();
+  assert.ok(total === null || (typeof total === 'number' && Number.isFinite(total) && total >= 0));
+  const avg10 = readPsiCpuSomeAvg10();
+  assert.ok(avg10 === null || (typeof avg10 === 'number' && Number.isFinite(avg10) && avg10 >= 0));
+});
+
+test('calibrationLoopMs returns a positive, finite, small number of milliseconds', () => {
+  const ms = calibrationLoopMs();
+  assert.ok(Number.isFinite(ms) && ms > 0, `expected a positive finite ms, got ${ms}`);
+  // Generous ceiling: this is a fixed unit of work meant to run in single-
+  // digit milliseconds on an idle core; even heavily contended it should
+  // not run for full seconds inside one test's own budget.
+  assert.ok(ms < 2000, `calibration loop took implausibly long (${ms} ms) — iteration count may need retuning`);
+});
+
+test('captureCalibrationBaselineOnce on THIS (idle) machine reports a trustworthy baseline', () => {
+  const baseline = captureCalibrationBaselineOnce();
+  assert.equal(baseline.reps, 5);
+  assert.ok(Number.isFinite(baseline.medianMs) && baseline.medianMs > 0);
+  assert.ok(Number.isFinite(baseline.spreadRatio) && baseline.spreadRatio >= 1);
+  // A genuinely flaky assertion would be "always trustworthy on any CI
+  // box" — this is instead the GRUEN half of the baseline-corruption
+  // pair below: on an otherwise-idle machine (this suite's own default
+  // condition, not a claim about every possible CI runner) capture
+  // should succeed cleanly. If this ever flakes on a shared CI runner,
+  // that is itself useful evidence about the runner, not a reason to
+  // weaken the check the ROT test below depends on.
+  assert.equal(baseline.trustworthy, true,
+    `expected an idle-machine baseline capture to be trustworthy; got ${JSON.stringify(baseline)}`);
+});
+
+test('captureQuietCalibrationBaseline reports attempts and never exceeds maxAttempts', () => {
+  const baseline = captureQuietCalibrationBaseline({ maxAttempts: 2 });
+  assert.ok(baseline.attempts >= 1 && baseline.attempts <= 2);
+  assert.equal(baseline.gaveUp, !baseline.trustworthy);
+});
+
+test('decision #1, ROT: a baseline captured WHILE under real load is flagged, not silently accepted', { timeout: 20000 }, () => {
+  const cpuCount = os.cpus().length || 4;
+  const fressers = spawnCpuFressers(cpuCount * 2);
+  try {
+    execFileSync('sleep', ['1.5']); // let the fressers actually ramp up
+    const baseline = captureCalibrationBaselineOnce();
+    assert.equal(baseline.trustworthy, false,
+      `a baseline captured under ${cpuCount * 2} CPU fressers on ${cpuCount} cores must not be accepted as `
+      + `quiet — got ${JSON.stringify(baseline)}`);
+    assert.ok(!baseline.internallyStable || baseline.psiQuiet === false,
+      'a corrupted capture must be caught by internal rep-to-rep disagreement, PSI\'s avg10, or both — '
+      + 'not silently pass both checks');
+  } finally {
+    killAll(fressers);
+  }
+});
+
+test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline recovers once the load is gone', { timeout: 20000 }, () => {
+  // Same machine, no fressers this time — proves the check above is not
+  // simply broken/always-false; it responds to the actual condition.
+  const baseline = captureQuietCalibrationBaseline();
+  assert.equal(baseline.trustworthy, true,
+    `expected recovery to a trustworthy baseline once no load is present; got ${JSON.stringify(baseline)}`);
+});
+
+test('ROT (the real finding this whole fix answers): under 2x-oversubscribed real CPU load, the OLD sensors '
+  + '(steal + cgroup) stay blind while the NEW sensors correctly force not-measured', { timeout: 30000 }, () => {
+  const cpuCount = os.cpus().length || 4;
+  const fressers = spawnCpuFressers(cpuCount * 2);
+  try {
+    execFileSync('sleep', ['1.5']); // ramp-up, matching the brief's own measurement method
+    const calibBaseline = captureQuietCalibrationBaseline(); // captured before the timed window, per B3
+    const before = captureForeignLoad(calibBaseline);
+    // A longer window than the "0.2s" a real timed CLI call might take, deliberately: a single
+    // stray host-level steal tick (this sandbox itself sits on a shared host, so a tick every
+    // so often is real, not a bug) produces a LARGE rate over a short window and a small one over
+    // a longer window — this dilutes that noise without hiding the sustained load under test.
+    execFileSync('sleep', ['1.5']); // stand-in for a timed CLI call running while the fressers churn
+    const after = captureForeignLoad(calibBaseline);
+    const load = foreignLoadDelta(before, after, calibBaseline);
+
+    // This is the exact bug reported: steal + cgroup read close to zero
+    // even while the machine is genuinely, heavily contended. Documented
+    // as a fact about this container's sensors, not asserted away.
+    assert.ok((load.deniedMsPerSec ?? 0) < FOREIGN_LOAD_DENIED_MS_PER_SEC,
+      `expected the OLD sensors to stay under threshold in this container even under real load `
+      + `(this is the bug the fix answers) — got deniedMsPerSec=${load.deniedMsPerSec}`);
+
+    // The new sensors must catch what the old ones missed: EITHER PSI or
+    // the calibration loop (or, if the baseline capture itself could not
+    // stay trustworthy under this much sustained contention, that is
+    // reported too — checked below) must show the load.
+    const newSensorsCaughtIt = (load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC)
+      || load.calibOverThreshold === true;
+    assert.ok(newSensorsCaughtIt,
+      `expected PSI or the calibration loop to detect real load that steal/cgroup missed — got ${JSON.stringify({
+        psiMsPerSec: load.psiMsPerSec, calibRatio: load.calibRatio, calibOverThreshold: load.calibOverThreshold,
+      })}`);
+
+    // The end-to-end effect this whole apparatus exists for: a fast
+    // (comfortably-under-threshold) measurement must come back
+    // not-measured, never a false pass, while this load is present.
+    const verdict = timeVerdictUnderLoad(10, DEGRADED_AT, FAIL_AT, load);
+    assert.equal(verdict, VERDICT.NOT_MEASURED,
+      `a fast, otherwise-passing measurement must be not-measured under real foreign load — got ${verdict}`);
+  } finally {
+    killAll(fressers);
+  }
+});
+
+test('GRUEN (positive control): the identical real measurement, with the fressers gone, passes cleanly', { timeout: 20000 }, () => {
+  const calibBaseline = captureQuietCalibrationBaseline();
+  const before = captureForeignLoad(calibBaseline);
+  execFileSync('sleep', ['1.5']); // same longer window as the ROT test above, for the same reason
+  const after = captureForeignLoad(calibBaseline);
+  const load = foreignLoadDelta(before, after, calibBaseline);
+  const verdict = timeVerdictUnderLoad(10, DEGRADED_AT, FAIL_AT, load);
+  assert.equal(verdict, VERDICT.PASS,
+    `a guard that never comes back green on a genuinely quiet run is not measuring anything — got ${verdict}, `
+    + `load=${JSON.stringify(load)}`);
+});
+
+test('an unrelated, non-time-based check is untouched by real load: biasVerdict never sees a load argument', () => {
+  // The "unschuldiger" probe from the brief, restated with the real
+  // sensors in scope: real.shape.* comparisons go through `biasVerdict`,
+  // which — per the arity pin above — cannot even receive a load value,
+  // so no amount of real contention changes its answer for a fixed ratio.
+  const cpuCount = os.cpus().length || 4;
+  const fressers = spawnCpuFressers(cpuCount * 2);
+  try {
+    execFileSync('sleep', ['0.5']);
+    assert.equal(biasVerdict(1.2), VERDICT.PASS);
+    assert.equal(biasVerdict(2), VERDICT.DEGRADED);
+  } finally {
+    killAll(fressers);
+  }
 });
