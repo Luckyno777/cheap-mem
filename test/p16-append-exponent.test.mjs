@@ -41,6 +41,43 @@
 // documents, with the same measurement method, that the other two named
 // functions are the actual source of growth (out of scope, evidence
 // only — no assertion is made that would require editing them).
+//
+// **Addendum, 2026-09-20 (#157): the neighbours()-is-bounded probe below
+// was reporting an innocent.** It passed alone and in a quiet full run,
+// then failed in the very next one, with nothing in between that touches
+// `src/neighbours.mjs`. Measured directly: a SINGLE call to
+// `neighbours()` at n=60000 occasionally lands 3-4x its own typical cost
+// (2.9 ms -> 9-13 ms) even on an otherwise idle instance of this
+// container, with steal, cgroup and PSI in `bench/atlas/core.mjs` ALL
+// reading quiet during that exact window — see the report for the
+// numbers. That is a real, reproducible property of a single sample at
+// this magnitude on this shared/virtualised host, not a defect in
+// `neighbours()`: 9 independent repeated samples per rung, median taken,
+// land at a stable ~0.15-0.24 exponent across six separate quiet-machine
+// experiments (well under the 0.4 gate) even though individual samples
+// inside those same experiments ranged as high as 3-6x the median.
+// Spawning real CPU fressers confirms the shape: on this 4-core
+// container the median-of-9 design stays clean through 0-3 fressers and
+// only starts flipping at 4 (full core oversubscription) and above — and
+// at every load level where it DOES flip, PSI (and, at heavier levels,
+// steal+cgroup) was ALSO reading over threshold, so gating on that half
+// of the `bench/atlas/core.mjs` apparatus — reused exactly as
+// `test/atlas-foreign-load.test.mjs` already established for this
+// identical problem, not a second convention — turns every one of those
+// flips into an honest `t.skip()` with the real numbers instead of a
+// false red. The apparatus's THIRD signal, the calibration loop's ratio
+// to its own quiet baseline, is deliberately NOT used as part of this
+// gate — measured to read 1.4-1.6x its own baseline from this test's own
+// ordinary GC alone, with zero foreign load present, often enough to
+// make the gate fire on nearly every run; see `measureUnderLoadGate`'s
+// own doc comment below for the numbers and why. The isolated
+// single-sample noise (present even with zero fressers, from this
+// host's own virtualisation jitter) is what the median-of-9 fixes; PSI
+// and steal+cgroup are what catch genuine, sustained contention (a full
+// parallel `node --test` run, or deliberate fressers) that could
+// otherwise skew the median itself. Neither change touches how
+// `neighbours()` is timed — every sample is still one real, unmodified
+// call.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,6 +88,10 @@ import { performance } from 'node:perf_hooks';
 import * as memory from '../src/memory.mjs';
 import * as neighbours from '../src/neighbours.mjs';
 import { countLines } from '../src/cli/display.mjs';
+import {
+  captureQuietCalibrationBaseline, captureForeignLoad, foreignLoadDelta,
+  FOREIGN_LOAD_DENIED_MS_PER_SEC,
+} from '../bench/atlas/core.mjs';
 
 /** A fresh root with `n` pre-existing `learning` entries, written directly
  * (no CLI, no logEntry) so building the fixture never pollutes the thing
@@ -125,6 +166,143 @@ function measureAt(n, { sabotageExtraReads = 0 } = {}) {
   }
 }
 
+/** How many independent, real calls to `neighbours()` are medianed per
+ * rung below — see the file-header addendum for why a single call is not
+ * enough for THIS function specifically. Odd, for a clean median. Kept
+ * small on purpose: 21 reps and 9 reps gave the same ~0.15-0.24 answer
+ * across six independent quiet-machine experiments (see the report), so
+ * more reps buy nothing but a slower suite. */
+const NEIGHBOURS_MEDIAN_REPS = 9;
+
+/**
+ * `neighbours()`'s own cost at corpus size `n`, as the MEDIAN of
+ * `NEIGHBOURS_MEDIAN_REPS` independent real calls against ONE freshly
+ * built root.
+ *
+ * This is not the "repeated in-process loop" the file header warns
+ * against: that warning is about looping over a growing, multi-megabyte
+ * in-memory array, which piles up allocation across iterations and times
+ * the loop's own GC. `neighbours()` is a pure, side-effect-free read
+ * against a root that is built once and never mutated between calls, so
+ * repeating the call `reps` times draws `reps` i.i.d. samples of the
+ * SAME one real cost — no iteration compounds into the next, and each
+ * sample is still one full, unmodified, real invocation of
+ * `neighbours()`, exactly as before. Only the STATISTIC drawn from those
+ * real calls changes, from "trust the one sample you happened to get" to
+ * "take the middle of nine".
+ *
+ * `opts` is forwarded to `neighbours.neighbours()` unchanged — used by
+ * the sabotage test below to pass `{ tailBytes: Infinity }` and force a
+ * full-file read at every rung, without touching `src/neighbours.mjs`.
+ */
+function neighboursMedianAt(n, reps = NEIGHBOURS_MEDIAN_REPS, opts = {}) {
+  const r = rootWith(n);
+  try {
+    const samples = [];
+    for (let i = 0; i < reps; i += 1) {
+      const t0 = performance.now();
+      neighbours.neighbours(r, 'learning', { topic: 'topic-0' }, opts);
+      samples.push(performance.now() - t0);
+    }
+    const sorted = [...samples].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const medianMs = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return {
+      n, medianMs, minMs: sorted[0], maxMs: sorted[sorted.length - 1], samples: samples.map((s) => +s.toFixed(3)),
+    };
+  } finally {
+    away(r);
+  }
+}
+
+/**
+ * Runs `work()` once, bracketed by `bench/atlas/core.mjs`'s own
+ * quiet-calibration baseline and before/after foreign-load snapshots —
+ * the SAME apparatus `test/atlas-foreign-load.test.mjs` already
+ * establishes and sabotage-verifies for exactly this class of problem
+ * (PSI, CPU steal + cgroup throttling, and a fixed calibration loop
+ * checked against its own quiet baseline), reused here rather than
+ * reinvented. See `FOREIGN_LOAD_DENIED_MS_PER_SEC` in that file for
+ * where the threshold below comes from.
+ *
+ * **Deliberately NOT gated on `calibOverThreshold` — measured, not
+ * assumed.** The calibration loop's own doc comment says its
+ * `before`/`after` readings bracket "a phase's timed section", which in
+ * every existing atlas phase is a real CLI child process or a `sleep`
+ * — nothing CPU- or GC-heavy running in the SAME process as the
+ * calibration loop itself. `work()` here is the opposite: dozens of
+ * real, in-process `neighbours()` calls plus multi-megabyte fixture
+ * writes, all sharing this process's own heap and GC with the
+ * calibration loop's `after` reading. Measured directly (see the
+ * report): calling `calibrationLoopMs()` right after an equivalent
+ * workload, with ZERO other process on the machine, read 1.4-1.6x its
+ * own quiet baseline in roughly a fifth of trials, purely from this
+ * workload's OWN ordinary GC — and inside the real `node --test` file
+ * (which runs two more `rootWith(60000)`-sized tests first, growing the
+ * heap further before this one runs) that rate was high enough to skip
+ * this test in 5 of 6 straight alone-on-a-quiet-machine runs, EVERY
+ * time on `calibRatio` alone, with PSI and steal+cgroup reading quiet
+ * throughout. A gate that fires that often on a genuinely idle machine
+ * is the "guard that reports innocents" this house switches off — so
+ * for THIS probe specifically, `calibOverThreshold` is left out: it
+ * cannot tell this workload's own GC from a sibling process's CPU use,
+ * which is exactly the distinction the gate exists to draw. PSI and
+ * steal+cgroup are kernel-computed from OTHER runnable tasks contending
+ * for the CPU; a single process doing its own GC does not manufacture
+ * a reading on either of them, so they stay as the gate, along with the
+ * baseline's own `trustworthy` flag (captured BEFORE `work()` runs, so
+ * this workload cannot have polluted it either).
+ *
+ * Returns `{ result, load, calibBaseline, notMeasuredReason }`.
+ * `notMeasuredReason` is a human-readable string carrying the real
+ * numbers whenever the window could not be shown quiet — either the
+ * baseline itself never stabilised, or steal+cgroup or PSI read over
+ * threshold during this exact window. `null` means the window measured
+ * clean and `result` may be trusted. This function never decides
+ * pass/fail on its own — that stays with the caller's own assertion,
+ * exactly as `timeVerdictUnderLoad` leaves non-time-based verdicts
+ * alone.
+ */
+function measureUnderLoadGate(work) {
+  const calibBaseline = captureQuietCalibrationBaseline();
+  const before = captureForeignLoad(calibBaseline);
+  const result = work();
+  const after = captureForeignLoad(calibBaseline);
+  const load = foreignLoadDelta(before, after, calibBaseline);
+
+  if (!calibBaseline.trustworthy) {
+    return {
+      result,
+      load,
+      calibBaseline,
+      notMeasuredReason: `this run's own quiet-calibration baseline never stabilised in `
+        + `${calibBaseline.attempts} attempt(s) (spreadRatio=${calibBaseline.spreadRatio}, `
+        + `psiQuiet=${calibBaseline.psiQuiet}) — the machine cannot be shown quiet here, so nothing `
+        + 'downstream of it can be trusted either.',
+    };
+  }
+  const stealCgroupOver = load.deniedMsPerSec !== null && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  // calibOverThreshold is intentionally NOT part of this gate — see the
+  // doc comment above. `load.calibRatio` is still carried into the report
+  // string below for a reader's own reference, exactly as
+  // `psiAvg10AtCapture` is kept-but-not-gating in `captureCalibrationBaselineOnce`.
+  if (stealCgroupOver || psiOver) {
+    return {
+      result,
+      load,
+      calibBaseline,
+      notMeasuredReason: `foreign load was measured during this window (deniedMsPerSec=${load.deniedMsPerSec}, `
+        + `psiMsPerSec=${load.psiMsPerSec}, threshold ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s; for reference, `
+        + `calibRatio=${load.calibRatio}, not gated on here) — this window's timings cannot be trusted to `
+        + 'reflect the real cost being measured.',
+    };
+  }
+  return {
+    result, load, calibBaseline, notMeasuredReason: null,
+  };
+}
+
 test('memory.logEntry: per-write cost does not grow with corpus size (append exponent ~0)', () => {
   const points = RUNGS.map((n) => ({ n, ms: measureAt(n).logEntryMs }));
   const exponent = fitExponent(points);
@@ -162,7 +340,7 @@ test('sabotage: the exponent fit actually catches an O(n) write path, restored e
   );
 });
 
-test('the write path no longer grows with the drawer: neighbours() is bounded', () => {
+test('the write path no longer grows with the drawer: neighbours() is bounded', (t) => {
   // **This test used to assert the opposite, and that is the point.**
   //
   // It was written as EVIDENCE: neighbours() and countLines() each ran
@@ -181,12 +359,46 @@ test('the write path no longer grows with the drawer: neighbours() is bounded', 
   // A defect-recording test that is left asserting the defect after the
   // repair is worse than no test: it goes red on the fix and teaches
   // whoever sees it to revert.
+  //
+  // **Why the neighbours() half is measured differently from the
+  // countLines() half below — see the file-header addendum for the
+  // full story.** In short: a single call to neighbours() is noisy
+  // enough at this magnitude (single-digit ms) that one unlucky sample
+  // can fail this assertion with nothing wrong in `src/neighbours.mjs`
+  // at all. The fix is two independent layers, both reused from
+  // established apparatus rather than invented here: `neighboursMedianAt`
+  // takes the median of several real calls per rung (fixes the
+  // brief, single-sample noise this host produces even when idle), and
+  // `measureUnderLoadGate` wraps the whole window in `bench/atlas/core.mjs`'s
+  // own foreign-load sensors (fixes genuine, sustained contention that
+  // could skew the median itself — a full parallel `node --test` run,
+  // or real CPU fressers). Neither layer changes what is being timed.
+  const {
+    result: neighboursRungs, load, calibBaseline, notMeasuredReason,
+  } = measureUnderLoadGate(() => RUNGS.map((n) => neighboursMedianAt(n)));
+
+  // countLines() keeps the original single-call-per-rung measurement:
+  // it was never the flaky half of this test (it is asserted `> 0.6`,
+  // i.e. "did not flatten" — foreign load inflating it further cannot
+  // manufacture a false pass, only push the window into the not-measured
+  // branch below alongside neighbours()).
   const points = RUNGS.map((n) => measureAt(n));
-  const neighboursExponent = fitExponent(points.map((p) => ({ n: p.n, ms: p.neighboursMs })));
+
+  if (notMeasuredReason) {
+    t.skip(
+      `not measured: ${notMeasuredReason} neighbours rungs (median of ${NEIGHBOURS_MEDIAN_REPS} reps each): `
+      + `${JSON.stringify(neighboursRungs)}; load: ${JSON.stringify(load)}; `
+      + `calibration baseline: ${JSON.stringify(calibBaseline)}`,
+    );
+    return;
+  }
+
+  const neighboursExponent = fitExponent(neighboursRungs.map((p) => ({ n: p.n, ms: p.medianMs })));
   assert.ok(
     neighboursExponent < 0.4,
     `neighbours() grows with corpus size again (exponent ${neighboursExponent.toFixed(2)}). `
-    + `The tail bound in src/neighbours.mjs is the thing to look at. Points: ${JSON.stringify(points)}`,
+    + `The tail bound in src/neighbours.mjs is the thing to look at. Rungs (median of `
+    + `${NEIGHBOURS_MEDIAN_REPS} reps each): ${JSON.stringify(neighboursRungs)}`,
   );
 
   // countLines() is still linear, and is NOT asserted flat — an exact
@@ -199,5 +411,46 @@ test('the write path no longer grows with the drawer: neighbours() is bounded', 
     countLinesExponent > 0.6,
     `countLines() stopped growing (exponent ${countLinesExponent.toFixed(2)}) — if that is real, `
     + `this comment is stale and the claim above needs re-measuring. Points: ${JSON.stringify(points)}`,
+  );
+});
+
+test('sabotage: breaking the tail bound turns neighbours() red again on a quiet machine', (t) => {
+  // This is the house rule in force: "a guard that reports innocents
+  // gets switched off" cuts both ways — the fix above must not have
+  // quietly turned this probe into a check that can no longer fail.
+  //
+  // RED: force a full-file read at EVERY rung via the `tailBytes`
+  // PARAMETER `neighbours()` already exposes (src/neighbours.mjs) —
+  // this house's rule for sabotage probes, a parameter over a source
+  // patch, and this one already exists for exactly this purpose, no
+  // `if (false && ...)` needed. `tailBytes: Infinity` disables the tail
+  // window outright, so n=60000 must parse all ~60,000 lines instead of
+  // the ~2,650-line tail — reintroducing the O(n) shape this whole test
+  // exists to catch.
+  const red = measureUnderLoadGate(
+    () => RUNGS.map((n) => neighboursMedianAt(n, NEIGHBOURS_MEDIAN_REPS, { tailBytes: Infinity })),
+  );
+  if (red.notMeasuredReason) {
+    t.skip(`not measured (RED half): ${red.notMeasuredReason} rungs: ${JSON.stringify(red.result)}`);
+    return;
+  }
+  const redExponent = fitExponent(red.result.map((p) => ({ n: p.n, ms: p.medianMs })));
+  assert.ok(
+    redExponent >= 0.6,
+    `sabotage did not turn red: exponent ${redExponent.toFixed(2)} at ${JSON.stringify(red.result)} — `
+    + 'a guard that cannot fail is not a guard.',
+  );
+
+  // GREEN: restored exactly — default tailBytes, the same call the real
+  // test above makes.
+  const green = measureUnderLoadGate(() => RUNGS.map((n) => neighboursMedianAt(n)));
+  if (green.notMeasuredReason) {
+    t.skip(`not measured (GREEN half): ${green.notMeasuredReason} rungs: ${JSON.stringify(green.result)}`);
+    return;
+  }
+  const greenExponent = fitExponent(green.result.map((p) => ({ n: p.n, ms: p.medianMs })));
+  assert.ok(
+    greenExponent < 0.4,
+    `did not return to green after sabotage: exponent ${greenExponent.toFixed(2)} at ${JSON.stringify(green.result)}`,
   );
 });
