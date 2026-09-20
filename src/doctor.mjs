@@ -146,6 +146,42 @@ export function checkFindingParity(root, { sibling = null } = {}) {
     + 'to be missing — but somebody has to have looked at it once.');
 }
 
+/**
+ * Findings allowed to report `ok` over a count of zero — with the reason.
+ *
+ * **Why this lives in the product and not in a test.** Three places ask
+ * the same question: the guarantee in `test/no-empty-green.test.mjs`,
+ * the `doctor.ok-on-empty` record in the atlas, and anyone reading a
+ * doctor run. Before 2026-09-20 each answered it for itself, and the
+ * atlas answered it with a word list — `/(0|no|nothing|empty)/` over the
+ * finding's text — which flags `corpus-size` ("0 entries, under the
+ * 50000-entry sharding line") as a check that measured nothing. It
+ * measured; the answer was zero.
+ *
+ * The rule, stated once: **a finding may report `ok` only if it can say
+ * what it INSPECTED.** A zero in the text is not the test — an honest
+ * zero over something that was looked at is a measurement.
+ *
+ * Every name here needs a reason, and `test/no-empty-green.test.mjs`
+ * refuses a reason that names a category instead of making an argument.
+ * A list without arguments is how a guarantee quietly stops
+ * guaranteeing.
+ */
+export const OK_OVER_ZERO = Object.freeze({
+  'archive-backlog': 'inspected the folder and found it empty, which answers "is anything '
+    + 'piling up"; and if captures stop arriving, `capture` warns — a finding that stays '
+    + 'quiet because a neighbour speaks hides nothing',
+  drawers: 'inspected every known drawer file and reports how many lines each holds, '
+    + 'which is a measurement whose answer happens to be zero',
+  integrity: 'read every line of every log and found none broken — zero broken lines out '
+    + 'of zero lines is the honest result of a scan that ran',
+  'corpus-size': 'compared the entry count against the sharding line; the count is an '
+    + 'input to that comparison, and the comparison was made',
+  'append-only-git': 'compared each log against what git already holds, which is a real '
+    + 'comparison over the skeleton `mem init` writes',
+  root: 'checked that the directory exists, which is the whole of its question',
+});
+
 export function checkAll(root) {
   const f = [];
   f.push(checkRoot(root));

@@ -56,6 +56,7 @@ import path from 'node:path';
 import zlib from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 import { CANARIES } from '../../src/redaction.mjs';
+import * as doctorModule from '../../src/doctor.mjs';
 
 /**
  * The aws-key-id sample, read from the redaction module's own canary
@@ -297,13 +298,23 @@ function mutantTool(tag, patch) {
   return path.join(home, 'bin', 'mem');
 }
 
-/** Run a doctor and parse it. `tool` defaults to the repository's own. */
-function doctorOn(root, { env = {}, tool = null } = {}) {
+/**
+ * Run a doctor and parse it. `tool` defaults to the repository's own.
+ *
+ * `cwd` exists for one recipe and is worth the parameter: the `root`
+ * recipe aims a doctor at a directory that is NOT there, and `mem()`
+ * runs the child with `cwd: root`. A working directory that does not
+ * exist fails the spawn itself, so the finding never appeared at all —
+ * it came back `absent`, which reads like "the doctor has no such
+ * check" rather than "the harness could not start". A recipe about a
+ * missing directory has to be run from one that is present.
+ */
+function doctorOn(root, { env = {}, tool = null, cwd = null } = {}) {
   const r = tool
     ? (() => {
       const t0 = process.hrtime.bigint();
       const p = spawnSync(process.execPath, [tool, 'doctor'], {
-        cwd: root,
+        cwd: cwd ?? root,
         env: { ...process.env, CHEAP_MEM_ROOT: root, ...env },
         encoding: 'utf8',
         timeout: 120000,
@@ -314,7 +325,7 @@ function doctorOn(root, { env = {}, tool = null } = {}) {
         ms: +(Number(process.hrtime.bigint() - t0) / 1e6).toFixed(2),
       };
     })()
-    : mem(['doctor'], { root, env });
+    : mem(['doctor'], { root, env, ...(cwd ? { cwd } : {}) });
   return { ...parseDoctor(r.stdout), raw: r.stdout, stderr: r.stderr, status: r.status, ms: r.ms };
 }
 
@@ -329,6 +340,49 @@ function doctorOn(root, { env = {}, tool = null } = {}) {
 // with the recipe without re-deriving it from the code.
 
 const RECIPES = [
+  {
+    // **Reachable since 2026-09-20.** `mem doctor` used to call
+    // `requireConfig(root)` first, so a root that does not exist made
+    // the command die with "No memory config at ..." and `checkRoot`
+    // never ran. That gate is gone; the doctor is the one command whose
+    // job is a broken memory.
+    finding: 'root',
+    aim: ['error'],
+    note: 'the root is a path that was never created',
+    build: () => ({
+      root: path.join(os.tmpdir(), `atlas-doctor-absent-${process.pid}-${Date.now()}`),
+      // Run from somewhere that exists — see doctorOn's docblock.
+      cwd: os.tmpdir(),
+    }),
+  },
+  {
+    finding: 'config',
+    aim: ['error'],
+    note: 'a real directory with .mem/config.json removed',
+    build: (t) => {
+      const root = newRoot(t);
+      fs.rmSync(path.join(root, '.mem', 'config.json'), { force: true });
+      return { root };
+    },
+  },
+  {
+    finding: 'orphan-drawers',
+    aim: ['error'],
+    // Two things are needed, and the second is the one that was missing
+    // before: a stray drawer AND at least one real entry. With no
+    // entries the finding reports `unknown` — "nothing has been filed
+    // anywhere to check for orphans" — which is honest but is not the
+    // state this recipe is built to produce.
+    note: 'a .jsonl under global/ whose name matches no known type, alongside one real entry',
+    build: (t) => {
+      const root = newRoot(t);
+      appendLines(root, 'learnings.jsonl',
+        [{ id: 'od1', ts: '2026-01-01T00:00:00Z', title: 'a real entry', text: 'so the finding has a denominator' }]);
+      fs.writeFileSync(path.join(root, 'global', 'notatype.jsonl'),
+        `${JSON.stringify({ id: 'od2', ts: '2026-01-01T00:00:00Z', title: 'filed where nothing reads', text: 'x' })}\n`);
+      return { root };
+    },
+  },
   {
     finding: 'git-hook',
     aim: ['error'],
@@ -747,21 +801,19 @@ const RECIPES = [
  * that drops what it cannot reach reports health for something it never
  * looked at.
  */
-const NO_RECIPE = [
-  {
-    finding: 'root',
-    why: 'unreachable through the CLI: `mem doctor` calls requireConfig(root) BEFORE checkAll, '
-      + 'and a root that does not exist has no .mem/config.json, so the command dies with '
-      + '"No memory config at ..." and checkRoot never runs. The only state this finding can '
-      + 'ever print is ok.',
-  },
-  {
-    finding: 'config',
-    why: 'same gate: requireConfig(root) reads the same config checkConfig would report on, and '
-      + 'dies first with "Config error: ...". Probed directly — an invalid .mem/config.json '
-      + 'produces no doctor output at all, so the finding can only ever print ok.',
-  },
-];
+// **Findings with no recipe. Empty since 2026-09-20.**
+//
+// `root` and `config` stood here with the same reason: `mem doctor`
+// called `requireConfig(root)` before `checkAll`, so on the one memory
+// the doctor exists for — one that is not set up — the process ended
+// before a single finding existed. Their own code had always been
+// correct; nobody could reach it.
+//
+// The gate is gone (src/cli/commands/admin.mjs), so both are reachable
+// and both have recipes below. The list stays as a named place: a
+// finding that genuinely cannot be driven from `mem doctor` belongs
+// here with its reason, never silently dropped.
+const NO_RECIPE = [];
 
 // --- the phase --------------------------------------------------------
 
@@ -911,7 +963,7 @@ export async function run(atlas) {
     let built = null; let out = null; let failure = null;
     try {
       built = recipe.build(tag);
-      out = doctorOn(built.root, { env: built.env ?? {}, tool: built.tool ?? null });
+      out = doctorOn(built.root, { env: built.env ?? {}, tool: built.tool ?? null, cwd: built.cwd ?? null });
     } catch (e) {
       failure = String(e && e.message).slice(0, 400);
     }
@@ -1051,8 +1103,23 @@ export async function run(atlas) {
   // zero of the thing it watches and called that health. Taken from the
   // finding's own text, not from a hand-kept list, so it cannot go stale
   // silently; the pattern is a leading zero count.
+  // **The doctor's own declaration, not a word list (2026-09-20).**
+  //
+  // This used to read `/(0|no|nothing|empty)/` over the finding's text,
+  // and that is a rule about spelling. It flagged `corpus-size` — "0
+  // entries, under the 50000-entry sharding line" — as a check that
+  // measured nothing. It measured; the answer was zero. It flagged
+  // `drawers` — "4 files, 0 lines" — after reading four files.
+  //
+  // `OK_OVER_ZERO` in src/doctor.mjs names the findings that may report
+  // `ok` over a zero count, each with the argument for it. One truth,
+  // read here and in test/no-empty-green.test.mjs. A finding that starts
+  // claiming a clean bill over nothing and is NOT on that list still
+  // lands here, whatever it calls itself.
   const aboutNothing = (run) => [...run.levels.entries()]
-    .filter(([n, l]) => l === 'good' && /(^|\s)(0|no|nothing|empty)\b/i.test(run.texts.get(n) ?? ''))
+    .filter(([n, l]) => l === 'good'
+      && !Object.hasOwn(doctorModule.OK_OVER_ZERO, n)
+      && /(^|\s)(0|no|nothing|empty)\b/i.test(run.texts.get(n) ?? ''))
     .map(([n]) => n);
   const okAboutNothing = aboutNothing(emptyRun);
   const okAboutNothingVersioned = aboutNothing(emptyVersioned);
