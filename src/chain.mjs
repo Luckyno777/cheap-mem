@@ -268,9 +268,18 @@ export function verifyFile(f) {
     const total = counts.get(writer) ?? 0;
     const lastSeal = seals.length ? seals[seals.length - 1] : null;
 
+    // **A seal that covers no line is not evidence.** Found 2026-09-20
+    // while wiring `mem chain`: sealing a writer name that never wrote
+    // anything produced a seal over the genesis hash, and this reported
+    // `ok` — a clean verdict over zero inspected bytes, in a module
+    // whose whole job is to say whether bytes changed. Same rule the
+    // doctor's findings follow: a verdict may only say ok if it can say
+    // what it looked at.
+    const covered = lastSeal ? lastSeal.coveredCount : 0;
+
     let state;
     if (firstBad) state = 'error';
-    else if (seals.length === 0) state = 'unknown';
+    else if (seals.length === 0 || covered === 0) state = 'unknown';
     else state = 'ok';
 
     rows.push({
@@ -285,7 +294,10 @@ export function verifyFile(f) {
       // last-line window this module trades the unbounded one for. When
       // no seal exists, everything this writer has ever written is, by
       // definition, in that window.
-      unsealedSince: firstBad ? null : (total - (lastSeal ? lastSeal.coveredCount : 0)),
+      unsealedSince: firstBad ? null : (total - covered),
+      // How many lines the newest seal actually vouches for. A reader
+      // that sees `ok` is entitled to know over how much.
+      coveredCount: covered,
       brokenAt: firstBad,
     });
   }

@@ -19,6 +19,9 @@ import * as setup from '../../setup.mjs';
 import * as thesaurus from '../../thesaurus.mjs';
 import * as doctor from '../../doctor.mjs';
 import * as epoch from '../../epoch.mjs';
+import * as integrity from '../../integrity.mjs';
+import * as chain from '../../chain.mjs';
+import * as shardarchive from '../../shardarchive.mjs';
 import * as embedmod from '../../embed/index.mjs';
 import * as embedHook from '../../embed-hook.mjs';
 import * as maintenance from '../../maintenance.mjs';
@@ -229,6 +232,117 @@ export const COMMANDS = {
     out('');
     out(`${report.length} ${report.length === 1 ? 'entry' : 'entries'} `
       + `${dryRun ? 'would be' : ''} superseded by content-hash merge.`);
+  },
+
+  // **A log nobody can read is a file that grows, not an audit trail.**
+  //
+  // Both commands below exist because `test/no-log-without-reader.test.mjs`
+  // caught their modules appending to disk with nothing in the CLI able
+  // to show what they had written. `src/chain.mjs` was the sharper case:
+  // `scanIntegrity` already COMPUTED the chain verdict and every caller
+  // threw it away, so the memory could tell you it had been tampered
+  // with and no command would say so.
+  chain: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem chain [--json]',
+        '',
+        '  What the per-writer hash chains say about this memory.',
+        '',
+        '  Three states per writer — the same words the chain itself',
+        '  uses, not a second vocabulary for the screen:',
+        '    ok       every seal recomputes to the hash it declared,',
+        '             over a stated number of lines',
+        '    error    a sealed line changed after it was sealed; the',
+        '             line, the id it covered and both hashes are named',
+        '    unknown  nothing sealed, or a seal that covers no line.',
+        '             This memory cannot say whether it was tampered',
+        '             with — which is NOT the same as saying it was not.',
+        '',
+        '  Lines appended since the newest seal are reported alongside:',
+        '  they are outside what any seal vouches for.',
+        '',
+        '  Sealing is off unless `chainSealCadence` is set in',
+        '  .mem/config.json — see src/chain.mjs.',
+      ].join('\n'));
+      return;
+    }
+    // `integrity.logFiles` owns which drawer files exist; `chain.verifyChain`
+    // owns what a seal means. Calling both here keeps one enumeration and
+    // one verifier — and it is also what makes this command visibly the
+    // chain's reader rather than a reader of something that reads it.
+    const root = findRoot(args);
+    const files = integrity.logFiles(root).map((f) => {
+      let raw = '';
+      try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { /* absent: no chain either */ }
+      return { rel: f.rel, raw, project: f.project, type: f.type };
+    });
+    const verdict = chain.verifyChain(files);
+    if (args.json) { out(JSON.stringify(verdict, null, 2)); return; }
+    out(`${verdict.filesChecked} drawer file(s) read, ${verdict.sealsFound} seal(s) found.`);
+    // **The condition is the seal count, not the writer count.** The
+    // first version asked whether any WRITER was known, and a memory
+    // with writers and no seals therefore skipped this sentence and
+    // went straight to a per-writer list reading `unknown` — true, but
+    // it never said the plain thing: nothing here can be verified.
+    if (!verdict.sealsFound) {
+      out('No seal has been written, so nothing here can be verified.');
+      out('That is an honest unknown, not a clean bill of health.');
+      if (verdict.writers.length) {
+        out(`${verdict.writers.length} writer(s) have appended lines that no seal covers.`);
+      }
+      return;
+    }
+    for (const w of verdict.writers) {
+      const where = [w.project, w.type].filter(Boolean).join('/') || 'global';
+      out(`  ${String(w.state).padEnd(9)} ${String(w.writer).padEnd(18)} ${where}`
+        + `  seals ${w.seals}${w.unsealedSince ? `, ${w.unsealedSince} line(s) unsealed since` : ''}`);
+      if (w.brokenAt) {
+        out(`      broke at line ${w.brokenAt.line}, covering through ${w.brokenAt.throughId}`);
+        out(`      declared ${w.brokenAt.declared}`);
+        out(`      computed ${w.brokenAt.computed}`);
+      }
+    }
+  },
+
+  archive: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem archive [--json]',
+        '',
+        '  Which older shards have been moved out of this clone, and',
+        '  whether they can still be reached from here.',
+        '',
+        '  Nothing is deleted — only its address changes. A clone',
+        '  without the archive still answers, either with the entry or',
+        '  with the way to it; never with a silent nothing.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    const st = shardarchive.archiveStatus(root);
+    if (args.json) { out(JSON.stringify(st, null, 2)); return; }
+    // **`good` over an empty archive would be the wrong word**, and the
+    // first version of this line said it. Nothing has been archived
+    // here, so there is no reachability to be good about — the honest
+    // report is that the question does not arise yet. Same rule the
+    // doctor's findings follow: a verdict has to be able to say what it
+    // inspected.
+    const shardCount = Array.isArray(st.shards) ? st.shards.length : 0;
+    if (!st.archivedCount) {
+      out('Nothing archived: every entry still lives in this clone.');
+      out('  Archiving moves older shards out of git and leaves a');
+      out('  manifest behind, so an entry stays addressable from here.');
+      return;
+    }
+    out(`${st.state}: ${st.archivedCount} entry/entries in ${shardCount} shard(s), `
+      + `${st.reachableShards} reachable.`);
+    if (st.unreachableShards) {
+      out(`  ${st.unreachableShards} shard(s) cannot be read from here.`);
+      out('  Entries in them are addressable but not readable: `mem show <id>`');
+      out('  will name the shard and where it should be, rather than say');
+      out('  the entry does not exist.');
+    }
   },
 
   epoch: async ({ rest, args }) => {
