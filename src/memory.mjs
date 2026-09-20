@@ -886,6 +886,287 @@ export function experiences(root, { minCited = 0, type = 'learning' } = {}) {
   return out;
 }
 
+// --- Flood grouping: a key that always exists, closeness instead of ---
+// --- exact match -------------------------------------------------------
+//
+// `potentialConflicts` (src/retrieval.mjs) groups claims by `scope` +
+// `topic` to flag a flood as contested. Measured against a corpus of
+// learnings and errors — the two types a flood realistically arrives
+// as, since an attacker picks the entry type and neither carries a
+// `topic` unless someone sets one: with a topic field, 3 of 3 flood
+// variants were flagged; without one, 0 of 3. The detector was present
+// and inert for whole entry types.
+//
+// Two things had to change, and this section is deliberately kept
+// separate from `potentialConflicts` rather than reworking it in place:
+// this file cannot reach into src/retrieval.mjs, and the two also serve
+// different questions. `potentialConflicts` asks "are these claims
+// disputed" (needs overlapping validity, because a settled supersession
+// is not a dispute). Flood grouping asks a narrower question — "do many
+// near-identical entries exist at once" — and does not need validity
+// windows to answer it.
+//
+//   1. A key that always exists. `topic` stays the key where an entry
+//      carries one (unchanged from `potentialConflicts`); everything
+//      else falls back to a signature built from the entry's own words,
+//      so "no topic" no longer means "never grouped".
+//
+//   2. Closeness, not identity, for the fallback. Bucketing fallback-key
+//      entries by the EXACT signature string is still exact-match
+//      underneath — changing one word (a swapped synonym, an added
+//      index) changes the signature and evades it, which is precisely
+//      the case security-model.md's flood curve calls "stranger": a
+//      flood of identical bodies is collapsed by `canonicalBody` before
+//      this ever runs (confirmed below, and directly: 20 byte-identical
+//      flood entries plus one truth entry come back from `mem retrieve`
+//      as ONE flood claim, not 20), while a flood that varies survives
+//      untouched and is exactly the shape this section exists to catch.
+
+/**
+ * A short English stopword list, deliberately duplicated from
+ * `src/language.mjs` (`EN_STOP`) rather than imported from it.
+ *
+ * `test/entry-version.test.mjs` sandboxes `memory.mjs` by copying it plus
+ * a hand-checked list of its dependencies into a temp directory; adding
+ * an import here would have to be added there too, in a file outside
+ * this change's scope, or every sandboxed test in it breaks on a
+ * `Cannot find module` it has nothing to do with — confirmed by trying
+ * the import first and watching exactly that happen. Flood text is
+ * treated as English regardless of the memory's configured language,
+ * because the fallback signature only needs "which words are common
+ * enough to ignore", not a full per-language pipeline; keep this in
+ * sync with `EN_STOP` by hand if that list ever changes.
+ */
+const FLOOD_STOPWORDS = new Set([
+  'the', 'a', 'an', 'and', 'or', 'but', 'is', 'are', 'was', 'were',
+  'be', 'been', 'being', 'has', 'have', 'had', 'do', 'does', 'did',
+  'will', 'would', 'can', 'could', 'should', 'may', 'might', 'must',
+  'i', 'you', 'he', 'she', 'it', 'we', 'they', 'this', 'that', 'these',
+  'not', 'no', 'to', 'of', 'in', 'on', 'at', 'for', 'with', 'from',
+  'by', 'as', 'if', 'so', 'than', 'then', 'too', 'very', 'just', 'only',
+]);
+
+/**
+ * The scope a claim belongs to, for flood grouping purposes.
+ *
+ * Independent of `capability.scopeOf` in src/retrieval.mjs (out of reach
+ * from here) — this only needs a stable partition so a flood in one
+ * project cannot mask, or be masked by, one in another. A raw JSONL
+ * entry (as written directly to a log, with no `scope`/`project` field)
+ * falls back to `fallback`, which callers set to whatever they already
+ * know the entries share.
+ */
+function floodScopeOf(entry, fallback = 'global') {
+  const s = entry?.scope ?? entry?.project ?? entry?._project;
+  return typeof s === 'string' && s.trim() ? s.trim() : fallback;
+}
+
+/**
+ * The words a flood signature is built from: lowercased, split on
+ * anything that is not a letter/digit/underscore/hyphen, hyphenated
+ * forms contribute both the whole word and its parts (so
+ * "ap-southeast-3" also offers "southeast"), stopworded and short
+ * fragments dropped, and — the one deliberate departure from a plain
+ * tokenizer — anything containing a digit is dropped outright.
+ *
+ * That last rule is doing real work. An attacker's easiest lever is a
+ * counter: a suffixed id, a port, a date. Keeping digit-bearing tokens
+ * in the signature would make every copy look distinct for free; a
+ * flood built by incrementing a number is the case this rule exists
+ * for, and it costs nothing against a claim that genuinely differs.
+ */
+function floodWords(text) {
+  const words = String(text ?? '')
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}_-]+/u)
+    .flatMap((w) => (w.includes('-') ? [w, ...w.split('-')] : [w]))
+    .filter((w) => w.length >= 3 && !FLOOD_STOPWORDS.has(w) && !/\d/.test(w));
+  return [...new Set(words)].sort();
+}
+
+/**
+ * The normalised short form of one entry: its title and text reduced to
+ * a sorted, deduplicated word signature. Always defined — an entry with
+ * no words left after filtering signs with the literal `(empty)`, which
+ * is still a valid, always-present key rather than an empty string that
+ * would silently coincide with every other contentless entry across
+ * every scope.
+ */
+/**
+ * The text a flood signature is taken from, in ONE place.
+ *
+ * A stored entry carries `title` and `text`; a claim handed back by
+ * `retrieval.retrieve()` carries neither — it has already folded both
+ * into `body`. Measured 2026-09-20, the day this detector was wired
+ * into the live retrieve path: reading only `title`/`text` gave EVERY
+ * claim an empty signature, so all eight claims — the genuine user
+ * claim among them — landed in one `(empty)` group. A detector that
+ * flags everything is a latch that reports the innocent, and those get
+ * switched off.
+ *
+ * Both shapes are read here rather than at the call site, so the
+ * detector cannot disagree with itself depending on who called it.
+ */
+function floodTextOf(entry) {
+  return [entry?.title, entry?.text, entry?.body].filter(Boolean).join(' ');
+}
+
+export function floodShortForm(entry) {
+  const words = floodWords(floodTextOf(entry));
+  return words.length ? words.join(',') : '(empty)';
+}
+
+/**
+ * The grouping key that always exists: `topic` where an entry carries
+ * one (matching `potentialConflicts`), the normalised short form plus
+ * scope otherwise. Exported as the single source of truth for "what
+ * bucket is this entry in" — `floodGroups` below uses the same words
+ * `floodShortForm` reports, so the key a caller can print and the key
+ * the detector actually groups by never drift apart.
+ */
+export function floodGroupKey(entry, { scope: fallbackScope = 'global' } = {}) {
+  const scope = floodScopeOf(entry, fallbackScope);
+  const topic = typeof entry?.topic === 'string' ? entry.topic.trim().toLowerCase() : '';
+  return topic
+    ? `${scope}\u0000topic\u0000${topic}`
+    : `${scope}\u0000shape\u0000${floodShortForm(entry)}`;
+}
+
+/**
+ * Union-find over array indices. Nothing fancier is needed: every
+ * caller here does one pass of unions followed by one pass of reads.
+ */
+function makeUnionFind(n) {
+  const parent = Array.from({ length: n }, (_, i) => i);
+  const find = (x) => {
+    while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+    return x;
+  };
+  const union = (a, b) => { const ra = find(a); const rb = find(b); if (ra !== rb) parent[ra] = rb; };
+  return { find, union };
+}
+
+/**
+ * Every claim in one connected shape-cluster shares a "leave one word
+ * out" key with at least one other member of the cluster.
+ *
+ * This is the closeness step, and it is deliberately not a similarity
+ * SCORE with a threshold to calibrate (the docs reject exactly that for
+ * `enforceAuthorShare`, for having "no calibratable threshold"). Instead:
+ * for a signature of k words, generate k+1 keys — the full signature and
+ * one for each word removed. Two entries that differ by exactly one word
+ * share the key produced by removing THAT word from each, so they land
+ * in the same bucket without either ever being compared to a fixed
+ * closeness cutoff. Entries differing by two or more words share no key
+ * and are never joined by this step alone — which is exactly the
+ * boundary the innocence probe in test/flood-grouping.test.mjs is built
+ * to sit right on top of.
+ *
+ * Bounded on purpose: only entries with at most `maxWords` significant
+ * words generate leave-one-out keys at all (12 is generous for a claim's
+ * title+text signature), so this stays linear in the corpus size and
+ * never quadratic in a claim's own length.
+ */
+function looClusters(entries, maxWords = 12) {
+  const uf = makeUnionFind(entries.length);
+  const byKey = new Map();
+  entries.forEach((e, i) => {
+    const words = e._floodWords;
+    // No words is not a shape, it is the absence of one. Clustering on
+    // the empty key would union every contentless entry with every
+    // other — grouping by what they do not have. They stay singletons
+    // and fall out below on the group-size floor.
+    if (words.length === 0) return;
+    const keys = [words.join(',')];
+    if (words.length >= 2 && words.length <= maxWords) {
+      for (let skip = 0; skip < words.length; skip += 1) {
+        keys.push(words.filter((_, j) => j !== skip).join(','));
+      }
+    }
+    for (const k of keys) {
+      const bucket = byKey.get(k);
+      if (bucket !== undefined) uf.union(bucket, i);
+      else byKey.set(k, i);
+    }
+  });
+  const clusters = new Map();
+  entries.forEach((_, i) => {
+    const r = uf.find(i);
+    const list = clusters.get(r) ?? [];
+    list.push(i);
+    clusters.set(r, list);
+  });
+  return [...clusters.values()];
+}
+
+/**
+ * Flood groups across a set of claims: entries that land on the same
+ * always-present key (`floodGroupKey`), joined by closeness rather than
+ * exact text where no `topic` exists, and written by enough distinct
+ * authors that a coincidence is unlikely.
+ *
+ * Deliberately narrower than `potentialConflicts`: no validity-overlap
+ * check, because a flood is a quantity-and-similarity question, not a
+ * disputed-fact question — the same subject revisited by ONE author over
+ * months (a correction, a supersession) already falls out on author
+ * count alone, whatever its content looks like.
+ *
+ * Every group reports its own denominator: `matched` is the cluster
+ * size, `of` is how many claims shared that claim's scope in the input
+ * — "3 grouped" means nothing without knowing whether that was 3 of 3
+ * or 3 of 3000.
+ */
+export function floodGroups(claims, { scope: fallbackScope = 'global', minAuthors = 2 } = {}) {
+  const list = Array.isArray(claims) ? claims : [];
+  const byScope = new Map();
+  for (const c of list) {
+    const scope = floodScopeOf(c, fallbackScope);
+    const bucket = byScope.get(scope) ?? [];
+    bucket.push(c);
+    byScope.set(scope, bucket);
+  }
+
+  const out = [];
+  for (const [scope, scoped] of byScope) {
+    const of = scoped.length;
+
+    // Entries WITH a topic: unchanged from `potentialConflicts` — exact
+    // (case-folded) topic match is the key, because that guarantee
+    // already held (3 of 3 flagged) and nothing here should weaken it.
+    const withTopic = new Map();
+    const noTopic = [];
+    for (const c of scoped) {
+      const topic = typeof c?.topic === 'string' ? c.topic.trim().toLowerCase() : '';
+      if (topic) { const g = withTopic.get(topic) ?? []; g.push(c); withTopic.set(topic, g); } else {
+        noTopic.push({ ...c, _floodWords: floodWords(floodTextOf(c)) });
+      }
+    }
+
+    const candidateGroups = [];
+    for (const [topic, g] of withTopic) candidateGroups.push({ topic, members: g });
+    for (const idxs of looClusters(noTopic)) {
+      if (idxs.length < 2) continue;
+      candidateGroups.push({ topic: null, members: idxs.map((i) => noTopic[i]) });
+    }
+
+    for (const { topic, members } of candidateGroups) {
+      if (members.length < 2) continue;
+      const authors = [...new Set(members.map((m) => m.author ?? '(none)'))].sort();
+      if (authors.length < minAuthors) continue;
+      out.push({
+        scope,
+        topic,
+        key: topic ? `topic:${topic}` : `shape:${floodShortForm(members[0])}`,
+        authors,
+        ids: members.map((m) => m.id).filter(Boolean).sort(),
+        matched: members.length,
+        of,
+      });
+    }
+  }
+  return out;
+}
+
 /**
  * Every entry that belongs to a topic, across all types and projects.
  *

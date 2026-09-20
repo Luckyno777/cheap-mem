@@ -33,6 +33,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { VERDICT, SEVERITY, REPO, mem, tempRoot } from './core.mjs';
+import * as memory from '../../src/memory.mjs';
 
 // --- the payload -------------------------------------------------------
 
@@ -363,7 +364,9 @@ const SYNONYM_VERBS = ['runs in', 'is hosted in', 'operates in', 'lives in',
  * Written as JSONL directly rather than through `mem log`: fifty CLI
  * spawns per curve point would cost more than the whole rest of this
  * phase, and the write path is not what is under test here — the
- * SELECTION is.
+ * SELECTION is. Returns the root AND the plain entry objects (not yet
+ * JSON-stringified), because `memory.floodGroups` below is measured
+ * directly against the entries, not through a CLI round-trip.
  */
 function floodCorpus(n, variant, { truthTier = 'agent', withTopic = false } = {}) {
   const root = tempRoot('atlas-flood-');
@@ -372,7 +375,7 @@ function floodCorpus(n, variant, { truthTier = 'agent', withTopic = false } = {}
   fs.writeFileSync(path.join(root, '.mem', 'config.json'),
     JSON.stringify({ participants: ['user', 'agent'], language: 'en' }));
 
-  const lines = [JSON.stringify({
+  const entries = [{
     id: TRUTH_ID,
     ts: '2026-02-01T09:00:00Z',
     title: 'production database location',
@@ -380,11 +383,14 @@ function floodCorpus(n, variant, { truthTier = 'agent', withTopic = false } = {}
     author: 'ops',
     authority: truthTier,
     tags: ['database'],
-    // `potentialConflicts` groups by `topic`, so a corpus without one can
-    // never be reported as contested. A learning or an error carries no
-    // topic unless somebody sets it — and the attacker picks the type.
+    // `potentialConflicts` (src/retrieval.mjs) groups by `topic`, so a
+    // corpus without one can never be reported as contested THERE. A
+    // learning or an error carries no topic unless somebody sets it —
+    // and the attacker picks the type. `memory.floodGroups` below is
+    // the fallback for exactly that case; see its measurement further
+    // down for what changes with a topic field and what does not.
     ...(withTopic ? { topic: 'production database location' } : {}),
-  })];
+  }];
 
   for (let i = 0; i < n; i += 1) {
     let text;
@@ -398,7 +404,7 @@ function floodCorpus(n, variant, { truthTier = 'agent', withTopic = false } = {}
       text = `the production database ${SYNONYM_VERBS[i % SYNONYM_VERBS.length]} `
         + 'Singapore on the ap-southeast cluster';
     }
-    lines.push(JSON.stringify({
+    entries.push({
       id: `flood${String(i).padStart(4, '0')}`,
       ts: '2026-03-01T09:00:00Z',
       title: 'production database location',
@@ -409,15 +415,16 @@ function floodCorpus(n, variant, { truthTier = 'agent', withTopic = false } = {}
       authority: 'agent',
       tags: ['database'],
       ...(withTopic ? { topic: 'production database location' } : {}),
-    }));
+    });
   }
-  fs.writeFileSync(path.join(root, 'global', 'learnings.jsonl'), `${lines.join('\n')}\n`);
-  return root;
+  fs.writeFileSync(path.join(root, 'global', 'learnings.jsonl'),
+    `${entries.map((e) => JSON.stringify(e)).join('\n')}\n`);
+  return { root, entries };
 }
 
 /** One point on the curve. Returns nulls, never zeros, when it failed. */
 function floodPoint(n, variant, opts = {}) {
-  const root = floodCorpus(n, variant, opts);
+  const { root, entries } = floodCorpus(n, variant, opts);
   const r = mem(['--root', root, 'retrieve', FLOOD_QUESTION, '--top', '10', '--json']);
   if (r.status !== 0) {
     return { n, variant, ok: false, why: `exit ${r.status}: ${r.stderr.slice(0, 160)}` };
@@ -429,6 +436,13 @@ function floodPoint(n, variant, opts = {}) {
   const claims = j.claims ?? [];
   const idx = claims.findIndex((c) => c.id === TRUTH_ID);
   const flood = claims.filter((c) => String(c.id ?? '').startsWith('flood')).length;
+  // `memory.floodGroups`: a key that always exists (topic where an entry
+  // carries one, a word-signature fallback where it does not) plus
+  // closeness rather than exact-text matching for the fallback. Run
+  // directly against the CORPUS, not the answer page — a flood is a fact
+  // about what was WRITTEN, and should be visible whether or not the
+  // ranker chose to put every flood claim in the top 10.
+  const floodGroups = memory.floodGroups(entries, { scope: 'global' });
   return {
     n,
     variant,
@@ -439,10 +453,17 @@ function floodPoint(n, variant, opts = {}) {
     truthRank: idx === -1 ? null : idx + 1,
     truthInTopThree: idx !== -1 && idx < 3,
     coverage: j.coverage?.state ?? null,
-    // `contested` is what the docs name as the thing that actually
-    // catches a flood (potentialConflicts). Read by its real field name:
-    // a wrong name would report null forever and read as "never flagged".
-    contestedGroups: Array.isArray(j.contested) ? j.contested.length : null,
+    // Kept for what it shows about the LIVE `mem retrieve` path, which
+    // this change does not touch: `potentialConflicts` (src/retrieval.mjs)
+    // is out of scope here, so its own topic-only grouping is unchanged.
+    // Read by its real field name: a wrong name would report null forever
+    // and read as "never flagged".
+    contestedGroupsViaRetrieve: Array.isArray(j.contested) ? j.contested.length : null,
+    // The new detector, measured directly. This is what closes the gap
+    // the docs describe — see `defence.flood.contested-flag` below for
+    // the with/without-topic comparison this field feeds.
+    contestedGroupsViaFloodGroups: floodGroups.length,
+    floodGroupsDetail: floodGroups,
     ms: r.ms,
   };
 }
@@ -496,40 +517,86 @@ function metricFlood(atlas) {
     severity: SEVERITY.MAJOR,
   });
 
-  // --- what the docs say actually catches a flood --------------------
+  // --- what actually catches a flood, now -----------------------------
   //
   // security-model.md: "What actually catches a flood: `potentialConflicts`
   // reports it as contested". That is a claim about the ANSWER, so it is
   // measurable at the largest N of every variant.
   //
-  // Measured twice on purpose. `potentialConflicts` groups by `topic`;
-  // the curve corpus above is a plain learning entry, which carries no
-  // topic unless someone sets one — and the attacker chooses the entry
-  // type. So "0 flagged" on the curve corpus would be a statement about
-  // the corpus, and the second run is what makes it a statement about
-  // the detector.
-  const withoutTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
+  // Two detectors are measured here on purpose, not one:
+  //
+  //   viaRetrieve      `potentialConflicts` (src/retrieval.mjs), read
+  //                    from the live `mem retrieve --json` answer. Out
+  //                    of reach from this change (src/retrieval.mjs is
+  //                    owned elsewhere) and therefore UNCHANGED: it
+  //                    still groups by `topic` alone, so it is still
+  //                    silent on a corpus that carries none.
+  //
+  //   viaFloodGroups   `memory.floodGroups` (src/memory.mjs), run
+  //                    directly against the same corpus. `topic` stays
+  //                    the key where an entry carries one; a
+  //                    word-signature of the entry's own title+text,
+  //                    plus its scope, is the key where it does not —
+  //                    and within that fallback, entries are joined by
+  //                    a shared "one word removed" signature rather
+  //                    than by exact text, so a swapped synonym or an
+  //                    appended index no longer evades it. See
+  //                    test/flood-grouping.test.mjs for the guarantee,
+  //                    the innocence probe it had to survive, and a
+  //                    sabotage check that removing the fallback
+  //                    un-flags the no-topic variants again.
+  //
+  // Measured twice each, same reason as before this change: with a
+  // topic field, to confirm nothing regressed; without one, because
+  // that was the open gap. `smallestNFlaggedWithoutTopic` is read
+  // straight off the curve already collected above — no extra corpus
+  // needed to say AT WHAT SIZE the fallback catches each variant.
+  const viaRetrieveWithoutTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
     const last = curve[v][curve[v].length - 1];
-    return [v, last.ok ? last.contestedGroups : null];
+    return [v, last.ok ? last.contestedGroupsViaRetrieve : null];
   }));
-  const withTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
+  const viaRetrieveWithTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
     const p = floodPoint(50, v, { withTopic: true });
-    return [v, p.ok ? p.contestedGroups : null];
+    return [v, p.ok ? p.contestedGroupsViaRetrieve : null];
   }));
-  const flaggedWith = Object.values(withTopic).filter((n) => n !== null && n > 0).length;
-  const flaggedWithout = Object.values(withoutTopic).filter((n) => n !== null && n > 0).length;
+  const viaFloodGroupsWithoutTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
+    const last = curve[v][curve[v].length - 1];
+    return [v, last.ok ? last.contestedGroupsViaFloodGroups : null];
+  }));
+  const viaFloodGroupsWithTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
+    const p = floodPoint(50, v, { withTopic: true });
+    return [v, p.ok ? p.contestedGroupsViaFloodGroups : null];
+  }));
+  const smallestNFlaggedWithoutTopic = Object.fromEntries(FLOOD_VARIANTS.map((v) => {
+    const hit = curve[v].find((p) => p.ok && p.contestedGroupsViaFloodGroups > 0);
+    return [v, hit ? hit.n : null];
+  }));
+
+  const flaggedWith = Object.values(viaFloodGroupsWithTopic).filter((n) => n !== null && n > 0).length;
+  const flaggedWithout = Object.values(viaFloodGroupsWithoutTopic).filter((n) => n !== null && n > 0).length;
+  const retrieveStillBlindWithoutTopic = Object.values(viaRetrieveWithoutTopic)
+    .filter((n) => n !== null && n > 0).length;
   atlas.record({
     id: 'defence.flood.contested-flag',
     title: 'is a 50-strong flood reported as contested, as the docs claim?',
-    verdict: flaggedWith === FLOOD_VARIANTS.length && flaggedWithout === 0
-      ? VERDICT.DEGRADED
-      : flaggedWith === FLOOD_VARIANTS.length ? VERDICT.PASS : VERDICT.FAIL,
+    verdict: flaggedWith === FLOOD_VARIANTS.length && flaggedWithout === FLOOD_VARIANTS.length
+      ? VERDICT.PASS
+      : flaggedWith === FLOOD_VARIANTS.length ? VERDICT.DEGRADED : VERDICT.FAIL,
     expected: 'security-model.md names potentialConflicts as what actually catches a '
-      + 'flood — so every variant at N=50 should come back with a contested group',
-    actual: `with a topic field: ${flaggedWith}/3 flagged; without one: `
-      + `${flaggedWithout}/3 — the detector groups by topic, and an entry type that `
-      + 'carries none is never grouped',
-    measured: { withTopicField: withTopic, withoutTopicField: withoutTopic },
+      + 'flood; memory.floodGroups (src/memory.mjs) supplies the fallback key and the '
+      + 'closeness match that a no-topic entry needed, so every variant at N=50 should '
+      + 'come back grouped, with a topic field or without one',
+    actual: `memory.floodGroups: with a topic field ${flaggedWith}/3 flagged, without one `
+      + `${flaggedWithout}/3 flagged (smallest N per variant without a topic: `
+      + `${FLOOD_VARIANTS.map((v) => `${v}=${smallestNFlaggedWithoutTopic[v] ?? 'never within N<=50'}`).join(', ')}). `
+      + `The live \`mem retrieve\` path is unchanged by this: potentialConflicts still `
+      + `groups by topic alone (without one: ${retrieveStillBlindWithoutTopic}/3 flagged via retrieve) — `
+      + 'the new detector is not wired into it, src/retrieval.mjs being out of reach here',
+    measured: {
+      viaFloodGroups: { withTopicField: viaFloodGroupsWithTopic, withoutTopicField: viaFloodGroupsWithoutTopic },
+      smallestNFlaggedWithoutTopic,
+      viaRetrieve: { withTopicField: viaRetrieveWithTopic, withoutTopicField: viaRetrieveWithoutTopic },
+    },
     severity: SEVERITY.MAJOR,
   });
 

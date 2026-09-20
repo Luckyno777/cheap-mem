@@ -23,6 +23,7 @@ import * as authority from './authority.mjs';
 import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
 import { loadIndex, search, isEchoHit, exactHits, corpusGeneration } from './search.mjs';
+import { floodGroups } from './memory.mjs';
 
 /**
  * Resource bounds (I13). Defaults, not laws — but never unbounded.
@@ -748,6 +749,20 @@ export function retrieve(root, query, capability, {
 
   return {
     contested: potentialConflicts(page),
+    // A second, narrower signal, and a separate field on purpose.
+    //
+    // `contested` asks "are these claims about the same subject in
+    // conflict" and needs a `topic` plus overlapping validity to say so.
+    // Measured 2026-09-20: a flood whose entries carry no `topic` was
+    // caught 0 times out of 3 — the entire defence hung on one optional
+    // field, which is the field an attacker is least likely to fill in.
+    //
+    // `crowded` asks the quantity-and-similarity question instead:
+    // several distinct authors writing near-identical shapes into one
+    // scope. Folding it into `contested` would give one field two
+    // meanings, so a caller could no longer tell a disputed fact from a
+    // flood. Two questions, two names.
+    crowded: floodGroups(page),
     query: useQuery,
     queryTruncated: qCapped,
     scopes: capability.scopes,
@@ -815,8 +830,11 @@ export function bodyHash(text) {
  * threshold. So the bound stays where it is honest.
  *
  * What a flood is actually caught by: `potentialConflicts` flags it as
- * contested, the genuine `user` claim is exempt from the cap and stays in
- * the answer, and the caller is told both. Bounded domination is NOT among
+ * contested WHERE THE ENTRIES CARRY A TOPIC, `memory.floodGroups` flags
+ * it as crowded where they do not (measured 2026-09-20: without a topic
+ * the topic-only check caught 0 of 3 flood variants; the shape-based one
+ * catches all three from N=2), the genuine `user` claim is exempt from
+ * the cap and stays in the answer, and the caller is told all of it. Bounded domination is NOT among
  * the guarantees; a caller that needs it must lower `perAuthorShare`
  * itself and accept the shorter answers.
  *
