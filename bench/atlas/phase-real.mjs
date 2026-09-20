@@ -129,6 +129,12 @@ export const WEIGHTED_FIELDS_DE = [
   'titel', 'topic', 'klasse', 'tags', 'frageworte', 'skill', 'wahl',
   'verworfen', 'learning', 'pflicht', 'frage', 'regel', 'warum', 'auszug',
   'beschreibung', 'text', 'fakt',
+  // `abrufbegriffe` gained a weight in the sister house on 2026-09-20.
+  // This line is here because the drift check below caught it within
+  // minutes of it landing, which is the entire reason that check exists:
+  // a copy of someone else's schema goes stale silently, and the only
+  // thing that makes it not silent is something that reads the original.
+  'abrufbegriffe',
 ];
 
 // The cheap-mem side, imported rather than mirrored: this IS our house,
