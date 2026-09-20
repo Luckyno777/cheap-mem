@@ -62,6 +62,7 @@ import { execFileSync } from 'node:child_process';
 import {
   VERDICT, SEVERITY, mem, buildCorpus, tempRoot, pct, dirBytes,
 } from './core.mjs';
+import { FIELD_WEIGHTS } from '../../src/search.mjs';
 
 // --- where the sister house lives, and how to drive it -----------------
 
@@ -97,16 +98,77 @@ const DISK_SAFETY_FACTOR = 3;
 // question their own health check asks.
 const FINDABLE_MIN_WORDS = 3;
 
-// Mirrors the keys of `FELDGEWICHT` in that checkout's `src/suche.mjs`
-// (read directly, not imported — this file stays a plain reader of the
-// other house's data, never a caller of its code). These are lucky-mem's
-// own field NAMES, which are schema, not content: knowing that a
-// document has a field called `titel` says nothing about what is in it.
-const WEIGHTED_FIELDS = [
+// Two corpora, two vocabularies — and this phase measured both with one.
+//
+// The list below mirrors the keys of `FELDGEWICHT` in that checkout's
+// `src/suche.mjs` (read, not imported — this file stays a plain reader
+// of the other house's data, never a caller of its code). These are
+// lucky-mem's own field NAMES, which are schema, not content: knowing
+// that a document has a field called `titel` says nothing about what is
+// in it.
+//
+// **The defect this replaces.** One list was applied to both sides of
+// the comparison, and the synthetic corpus is cheap-mem's, in English.
+// Of seventeen German names exactly three — `topic`, `tags`, `text` —
+// exist on an English entry, so `title`, `class`, `choice`, `why` and
+// the rest were never read on the generated side. The reachability
+// number for the synthetic corpus was therefore computed over a
+// fraction of the fields its own search actually ranks on, and every
+// real/synthetic ratio built on it compared a full measurement with a
+// partial one. A `riegel-prueft-das-falsche` sitting in the measuring
+// apparatus itself: the phase reported a number, the number was wrong,
+// and nothing in the output said so.
+//
+// The fix is not one merged list of both languages — that would count a
+// German name on an English entry as a legitimately absent field and
+// quietly go on being a comparison of two different questions. Each
+// corpus is measured by the field weights of the house that writes it,
+// so "unreachable" means the same sentence on both sides: unreachable
+// by the search that will actually be asked to find it.
+export const WEIGHTED_FIELDS_DE = [
   'titel', 'topic', 'klasse', 'tags', 'frageworte', 'skill', 'wahl',
   'verworfen', 'learning', 'pflicht', 'frage', 'regel', 'warum', 'auszug',
   'beschreibung', 'text', 'fakt',
 ];
+
+// The cheap-mem side, imported rather than mirrored: this IS our house,
+// so a copied list here would be a second source of truth that goes
+// stale the next time a field gains a weight — which is exactly how
+// `symbols` was stored-but-unrankable for a while (see `FIELD_WEIGHTS`).
+export const WEIGHTED_FIELDS_EN = Object.freeze(Object.keys(FIELD_WEIGHTS));
+
+/**
+ * The German list above is a COPY, and a copy of someone else's schema
+ * goes stale without saying so — exactly the shape of defect this phase
+ * exists to find. So rather than trusting it, read the keys of
+ * `FELDGEWICHT` straight out of that checkout's `src/suche.mjs` and
+ * compare.
+ *
+ * Text, not import: this file stays a plain reader of the other house's
+ * data and never loads its code. A regex over a source file is a weak
+ * reader by construction — which is why a failure to parse returns
+ * `null` and the caller reports the third state, instead of returning
+ * an empty list that would read as "lucky-mem ranks no fields at all".
+ */
+function readSisterWeightedFields(root) {
+  let src;
+  try {
+    src = fs.readFileSync(path.join(root, 'src', 'suche.mjs'), 'utf8');
+  } catch { return null; }
+  const start = src.indexOf('FELDGEWICHT = Object.freeze({');
+  if (start < 0) return null;
+  const end = src.indexOf('});', start);
+  if (end < 0) return null;
+  const body = src.slice(start, end);
+  const keys = [];
+  // Only lines that are a bare `name: <number>,` pair at the start of a
+  // line. A key named inside one of that file's long comments is a
+  // mention, and a mention is not a weight.
+  for (const m of body.matchAll(/^\s{2}([a-z_][a-z0-9_]*):\s*[\d.]+\s*,/gmi)) {
+    keys.push(m[1]);
+  }
+  return keys.length ? keys : null;
+}
 
 const LARGE_LINE_BYTES = 10 * 1024;
 const RECENCY_WINDOWS_DAYS = [7, 30, 90];
@@ -346,10 +408,14 @@ function drawerFiles(root) {
  * How many words over three letters this entry carries across the
  * fields search ranks on — lucky-mem's own `auffindbareWorte()`
  * (src/doktor.mjs), read here rather than imported.
+ *
+ * `fields` is the caller's business precisely because it differs per
+ * corpus: an entry is reachable or not by the search of the house that
+ * wrote it, never by a vocabulary borrowed from the other one.
  */
-function weightedWordCount(entry) {
+export function weightedWordCount(entry, fields) {
   const parts = [];
-  for (const f of WEIGHTED_FIELDS) {
+  for (const f of fields) {
     const v = entry?.[f];
     if (!v) continue;
     parts.push(Array.isArray(v) ? v.join(' ') : String(v));
@@ -362,7 +428,7 @@ function weightedWordCount(entry) {
  * byte sizes, word counts, tag counts, timestamps. Nothing this
  * function returns is a string that came out of an entry.
  */
-function analyzeCorpus(root) {
+function analyzeCorpus(root, fields) {
   const perBasename = new Map();
   const sizesBytes = [];
   const tagCounts = [];
@@ -389,7 +455,7 @@ function analyzeCorpus(root) {
       perBasename.set(base, (perBasename.get(base) ?? 0) + 1);
       const tags = Array.isArray(entry.tags) ? entry.tags : [];
       tagCounts.push(tags.length);
-      wordCounts.push(weightedWordCount(entry));
+      wordCounts.push(weightedWordCount(entry, fields));
       const t = Date.parse(entry.ts);
       if (Number.isFinite(t)) timestamps.push(t);
     }
@@ -424,6 +490,7 @@ function analyzeCorpus(root) {
     sizeMax: sortedSizes[sortedSizes.length - 1] ?? null,
     largestLineBytes,
     linesOver10KB,
+    weightedFieldCount: fields.length,
     findablePercent: validEntries ? round((findable / validEntries) * 100, 2) : null,
     unfindablePercent: validEntries ? round(100 - (findable / validEntries) * 100, 2) : null,
     recencyShares,
@@ -446,7 +513,7 @@ function analyzeCorpus(root) {
  * `measured` field, the guard above will redact it and this phase's own
  * final check will fail — that failure is the backstop, not the plan.
  */
-function frequentTokens(root, topN) {
+function frequentTokens(root, topN, fields) {
   const freq = new Map();
   for (const file of drawerFiles(root)) {
     let raw;
@@ -455,7 +522,7 @@ function frequentTokens(root, topN) {
       if (line.length === 0) continue;
       let entry;
       try { entry = JSON.parse(line); } catch { continue; }
-      for (const f of WEIGHTED_FIELDS) {
+      for (const f of fields) {
         const v = entry?.[f];
         if (!v) continue;
         const text = Array.isArray(v) ? v.join(' ') : String(v);
@@ -643,7 +710,46 @@ export async function run(atlas, { quick = false } = {}) {
 
   // === section A — corpus shape, read directly, no CLI, no risk =========
 
-  const real = analyzeCorpus(LUCKY_MEM_ROOT);
+  // Before any reachability number is computed: is the German field
+  // list still the list lucky-mem actually ranks on? Parsed when it can
+  // be, and the mirror is the fallback — but a silent fallback would be
+  // the whole defect again, so which of the two was used is recorded.
+  const sisterFields = readSisterWeightedFields(LUCKY_MEM_ROOT);
+  const mirrorDrift = sisterFields
+    ? {
+      onlyInMirror: WEIGHTED_FIELDS_DE.filter((f) => !sisterFields.includes(f)).length,
+      onlyInSource: sisterFields.filter((f) => !WEIGHTED_FIELDS_DE.includes(f)).length,
+    }
+    : null;
+  record({
+    id: 'real.shape.field-mirror',
+    title: 'the German field list this phase measures with still matches the one lucky-mem ranks on',
+    verdict: mirrorDrift === null
+      ? VERDICT.NOT_MEASURED
+      : (mirrorDrift.onlyInMirror + mirrorDrift.onlyInSource === 0 ? VERDICT.PASS : VERDICT.DEGRADED),
+    expected: mirrorDrift === null
+      ? null
+      : 'no field on one side and missing on the other',
+    actual: mirrorDrift === null
+      ? say`could not read the weights out of the sister checkout's source`
+      : say`${mirrorDrift.onlyInMirror} fields only here, ${mirrorDrift.onlyInSource} only there `
+        .plus(`(${sisterFields.length} weighted fields read from source)`),
+    severity: mirrorDrift && mirrorDrift.onlyInMirror + mirrorDrift.onlyInSource > 0
+      ? SEVERITY.MAJOR : null,
+    measured: {
+      mirroredFieldCount: WEIGHTED_FIELDS_DE.length,
+      sourceFieldCount: sisterFields ? sisterFields.length : null,
+      fieldsOnlyInMirror: mirrorDrift ? mirrorDrift.onlyInMirror : null,
+      fieldsOnlyInSource: mirrorDrift ? mirrorDrift.onlyInSource : null,
+      ownFieldCount: WEIGHTED_FIELDS_EN.length,
+    },
+  });
+
+  // The parsed list wins when it parsed: measuring with what the sister
+  // house ranks on today beats measuring with what it ranked on when
+  // this file was written.
+  const realFields = sisterFields ?? WEIGHTED_FIELDS_DE;
+  const real = analyzeCorpus(LUCKY_MEM_ROOT, realFields);
 
   record({
     id: 'real.shape.scale',
@@ -666,7 +772,7 @@ export async function run(atlas, { quick = false } = {}) {
   // against, not a strawman.
   const syntheticRoot = tempRoot('atlas-real-synthetic-');
   buildCorpus(syntheticRoot, Math.max(real.validEntries, 1), { seed: 42, anchors: 12 });
-  const synthetic = analyzeCorpus(syntheticRoot);
+  const synthetic = analyzeCorpus(syntheticRoot, WEIGHTED_FIELDS_EN);
 
   const realMaxShare = real.rankShares[0] ?? null;
   const synthMaxShare = synthetic.rankShares[0] ?? null;
@@ -740,6 +846,13 @@ export async function run(atlas, { quick = false } = {}) {
       syntheticFindablePercent: synthetic.findablePercent,
       syntheticUnfindablePercent: synthetic.unfindablePercent,
       minWordsToBeFindable: FINDABLE_MIN_WORDS,
+      // Each side counted over its OWN house's ranked fields — see
+      // `WEIGHTED_FIELDS_DE` / `_EN`. The two counts are recorded
+      // because they are not equal, and a reader who sees only one
+      // ratio would have no way to know that the question was asked
+      // twice in two vocabularies.
+      realWeightedFields: real.weightedFieldCount,
+      syntheticWeightedFields: synthetic.weightedFieldCount,
     },
   });
 
@@ -838,7 +951,7 @@ export async function run(atlas, { quick = false } = {}) {
     const queryCount = quick ? 4 : 8;
     // Discarded the instant it is used — see the doc comment on
     // `frequentTokens()`. Never assigned to anything this phase records.
-    const queries = frequentTokens(LUCKY_MEM_ROOT, queryCount);
+    const queries = frequentTokens(LUCKY_MEM_ROOT, queryCount, realFields);
 
     // --- cold index build, via the first query ---------------------
     const pipelineDir = path.join(copyRoot, '.pipeline');

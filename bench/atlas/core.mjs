@@ -329,6 +329,102 @@ const COMMON = ('deploy database index search cache memory session agent error '
 const TYPE_FILES = Object.entries(memoryTypes)
   .filter(([t]) => t !== 'link' && t !== 'timeline');
 
+// --- corpus shape, measured against a real memory -----------------------
+//
+// Every constant below was fit against lucky-mem's real 2,286 entries,
+// measured 2026-09-20 by the atlas's own `real` phase
+// (bench/atlas/phase-real.mjs) and a further breakdown over that same
+// run. They are named, not inlined, so a later reader can see where a
+// number came from and argue with it instead of re-deriving it from a
+// comment buried inside a loop.
+
+// Share of entries in the single largest type. Real: 31.51% (rank shares
+// [31.51, 19.57, 16.33, 9.47, 9.13, ...] across 14 real types). Only the
+// MAX share is what the atlas's bias check compares, so `TYPE_FILES[0]`
+// gets this share and the rest split it flat — enough to fix the
+// measured factor-of-3 gap without inventing a full rank curve nobody
+// asked for.
+export const DOMINANT_TYPE_SHARE = 0.3151;
+
+// Entry line size, in bytes of the full JSON line — what `analyzeCorpus`
+// in phase-real.mjs actually measures. Real: p50 964-979 B, p90 1609 B,
+// p99 2482 B, max 3519 B. A long tail, not a narrow band: most entries
+// draw a normal word count, a smaller share draw a much longer one, so
+// p95 lands several times p50 instead of beside it.
+export const ENTRY_LONG_TAIL_SHARE = 0.13;
+export const ENTRY_WORDS_NORMAL_MIN = 62;
+export const ENTRY_WORDS_NORMAL_RANGE = 48;
+export const ENTRY_WORDS_LONG_MIN = 140;
+export const ENTRY_WORDS_LONG_RANGE = 240;
+
+// Tags per entry, over ALL entries including the untagged ones. Real
+// (further measurement, 2026-09-20): p50 3, p95 5, max 8. Built as a
+// small hand-fit discrete curve (see `tagCountFor`) rather than one
+// formula, since a real tag count is not one distribution shape — most
+// entries get a couple of tags, and progressively fewer get more.
+export const UNTAGGED_SHARE = 0.1723; // share of entries with NO tags. Real: 17.23%.
+
+// Share of entries too thin, across the fields search ranks on, to ever
+// surface at all. Real: 0.9% — a case the old generator produced exactly
+// zero of. `UNREACHABLE_MIN_WORDS` mirrors `FINDABLE_MIN_WORDS` in
+// phase-real.mjs (that file's name for the same threshold, over the
+// same weighted fields lucky-mem's own doctor uses); kept as a literal
+// here rather than imported, so this file stays independent of the
+// atlas phases that consume it.
+export const UNREACHABLE_SHARE = 0.009;
+export const UNREACHABLE_MIN_WORDS = 3;
+
+// Recency. Real entries cluster hard: 46.14% inside the last 7 days,
+// 100% inside the last 30 AND the last 90 (span ~25 days total) — a
+// memory that is being used, not one written once a year ago and left
+// alone. Every ordinary entry's age is drawn as
+// `RECENCY_CLUSTER_DAYS * r() ** RECENCY_CLUSTER_SKEW` days: the skew
+// pulls the mass toward 0 without changing the 30-day ceiling, and this
+// exponent was fit so the 7-day share lands near the real 46.14%.
+/**
+ * The day a generated corpus clusters around, by default.
+ *
+ * Fixed on purpose. A generator that reads the wall clock produces a
+ * different corpus for the same seed on a different day, and everything
+ * quoted against that seed — the committed baseline, every fixture built
+ * on `buildCorpus` — then moves for a reason nobody can see in a diff.
+ *
+ * It does mean the absolute dates age. That is the right trade: the
+ * SHAPE (how tightly entries cluster) is what the measurement is about,
+ * and the shape is relative to this anchor. Move the constant
+ * deliberately when the drift starts to matter, and the move shows up
+ * in the history.
+ */
+export const CORPUS_AS_OF = Date.parse('2026-09-20T00:00:00Z');
+
+export const RECENCY_CLUSTER_DAYS = 30;
+export const RECENCY_CLUSTER_SKEW = 1.7;
+
+/**
+ * Weighted pick over `TYPE_FILES`: the first entry (`decision`) takes
+ * `DOMINANT_TYPE_SHARE`, the remaining share is split flat across
+ * everything else. See `DOMINANT_TYPE_SHARE` for why flat is enough.
+ */
+function pickTypeFile(r) {
+  const x = r();
+  if (TYPE_FILES.length <= 1 || x < DOMINANT_TYPE_SHARE) return TYPE_FILES[0];
+  const rest = TYPE_FILES.length - 1;
+  const idx = 1 + Math.min(rest - 1,
+    Math.floor(((x - DOMINANT_TYPE_SHARE) / (1 - DOMINANT_TYPE_SHARE)) * rest));
+  return TYPE_FILES[idx];
+}
+
+/** Tag count for one (already-decided-tagged) entry. See `UNTAGGED_SHARE` doc above. */
+function tagCountFor(r) {
+  let n = 2 + Math.floor(r() * 2);
+  if (r() < 0.45) n += 1;
+  if (r() < 0.20) n += 1;
+  if (r() < 0.08) n += 1;
+  if (r() < 0.02) n += 1;
+  if (r() < 0.005) n += 1;
+  return Math.min(n, 8);
+}
+
 /** Deterministic PRNG: a corpus that differs per run is not a baseline. */
 export function rng(seed = 42) {
   let s = seed >>> 0;
@@ -358,7 +454,9 @@ function zipfWord(r, i) {
  * benchmark that only times is exactly the kind that confirms the code
  * instead of testing it.
  */
-export function buildCorpus(root, count, { seed = 42, anchors = 12, project = null } = {}) {
+export function buildCorpus(root, count, {
+  seed = 42, anchors = 12, project = null, asOfDay = CORPUS_AS_OF,
+} = {}) {
   const r = rng(seed);
   const dir = project ? path.join(root, 'projects', project) : path.join(root, 'global');
   fs.mkdirSync(dir, { recursive: true });
@@ -370,37 +468,85 @@ export function buildCorpus(root, count, { seed = 42, anchors = 12, project = nu
 
   const streams = new Map();
   const anchorList = [];
-  const start = Date.parse('2026-01-01T00:00:00Z');
+  // The day the corpus clusters around — see RECENCY_CLUSTER_DAYS.
+  //
+  // **A fixed default, not `Date.now()` (2026-09-20).** The first cut of
+  // the recency shaping read the wall clock, so seed 42 produced a
+  // different corpus on a different calendar day. That is not a small
+  // thing here: `bench/atlas-baseline.json` is what later runs are
+  // compared against, and a corpus that drifts daily mixes a real
+  // regression with a corpus change in the same number. Tests built on
+  // this generator would have been flaky BY CALENDAR, which is the
+  // hardest kind to find.
+  //
+  // `asOfDay` keeps both properties. The default is fixed, so the same
+  // seed gives the same bytes forever. A caller who genuinely wants
+  // "clustered around today" — a one-off measurement, not a baseline —
+  // passes `Date.now()` and says so at the call site.
+  const nowDay = Math.floor(asOfDay / 86400000) * 86400000;
 
   for (let i = 0; i < count; i += 1) {
-    const [type, file] = TYPE_FILES[Math.floor(r() * TYPE_FILES.length)];
+    const [type, file] = pickTypeFile(r);
+    const untagged = r() < UNTAGGED_SHARE;
+    const unreachable = r() < UNREACHABLE_SHARE;
+    const long = !unreachable && r() < ENTRY_LONG_TAIL_SHARE;
+    // Unreachable entries carry no body at all — see the `topic` note
+    // below for why that has to hold across every field this loop can
+    // set, not just `text`.
+    const wordCount = unreachable ? 0
+      : long ? ENTRY_WORDS_LONG_MIN + Math.floor(r() * ENTRY_WORDS_LONG_RANGE)
+        : ENTRY_WORDS_NORMAL_MIN + Math.floor(r() * ENTRY_WORDS_NORMAL_RANGE);
     const words = [];
-    for (let w = 0; w < 6 + Math.floor(r() * 10); w += 1) {
+    for (let w = 0; w < wordCount; w += 1) {
       words.push(r() < 0.75 ? COMMON[Math.floor(r() * COMMON.length)] : zipfWord(r, i + w));
     }
-    // Spread timestamps across a year so time-range recall has something
-    // to bite on. Whole seconds, because that is what logEntry writes.
-    const ts = new Date(start + Math.floor(r() * 365 * 86400) * 1000)
+    const tagCount = (untagged || unreachable) ? 0 : tagCountFor(r);
+    const tags = [];
+    for (let t = 0; t < tagCount; t += 1) tags.push(COMMON[Math.floor(r() * COMMON.length)]);
+
+    // Age drawn from a skewed distribution, not spread flat across a
+    // year — see RECENCY_CLUSTER_DAYS/SKEW above for the real numbers
+    // this is fit against. Whole seconds, because that is what
+    // logEntry writes.
+    const ageDays = Math.floor(RECENCY_CLUSTER_DAYS * (r() ** RECENCY_CLUSTER_SKEW));
+    const secondsIntoDay = Math.floor(r() * 86400);
+    const ts = new Date(nowDay - (ageDays * 86400000) + (secondsIntoDay * 1000))
       .toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+    const title = `${COMMON[Math.floor(r() * COMMON.length)]} ${zipfWord(r, i)}`;
     const e = {
       id: `g${i.toString(36)}`,
       ts,
-      title: `${COMMON[Math.floor(r() * COMMON.length)]} ${zipfWord(r, i)}`,
+      title,
       text: words.join(' '),
-      tags: [COMMON[Math.floor(r() * COMMON.length)]],
+      tags,
     };
-    if (type === 'decision') { e.topic = e.title; e.choice = words[0]; e.why = e.text; }
+    if (type === 'decision') {
+      // `topic` is one of the fields phase-real.mjs's `analyzeCorpus`
+      // weighs when it decides whether an entry is findable at all (it
+      // mirrors lucky-mem's own field). Filling it with the title for
+      // an "unreachable" entry would smuggle real words back into a
+      // case that is supposed to have none — so an unreachable decision
+      // gets empty strings here exactly as it gets an empty body above.
+      e.topic = unreachable ? '' : title;
+      e.choice = unreachable ? '' : (words[0] ?? 'x');
+      e.why = unreachable ? '' : e.text;
+    }
     if (type === 'error') { e.class = 'measurement'; }
     if (!streams.has(file)) streams.set(file, []);
     streams.get(file).push(JSON.stringify(e));
   }
 
-  // The anchors go in last so they are not diluted by the generator.
+  // The anchors go in last so they are not diluted by the generator, and
+  // built by hand rather than through the shaping above: an anchor must
+  // never land in the untagged or unreachable share that now exists
+  // among the ordinary entries, since every recall measurement in the
+  // atlas depends on it being both tagged and findable.
   for (let a = 0; a < anchors; a += 1) {
     const phrase = `anchorphrase${a}zzq`;
     const e = {
       id: `anchor${a}`,
-      ts: new Date(start + (a + 1) * 86400 * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z'),
+      ts: new Date(nowDay - ((a + 1) * 86400000)).toISOString().replace(/\.\d{3}Z$/, 'Z'),
       title: `anchor ${a} ${phrase}`,
       text: `this entry exists so a recall measurement has a known-correct answer ${phrase}`,
       tags: ['anchor'],
