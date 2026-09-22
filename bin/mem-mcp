@@ -2,7 +2,8 @@
 /**
  * mem-mcp — MCP server that exposes cheap-mem operations as tools.
  *
- * Uses stdio transport. Wire it up in any MCP-capable client:
+ * Uses stdio by default. `--http` starts a guarded Streamable HTTP
+ * endpoint for clients that cannot launch a local process.
  *
  *   Claude Desktop (~/Library/Application Support/Claude/claude_desktop_config.json):
  *     {
@@ -26,21 +27,28 @@
  */
 
 // The SDK is an OPTIONAL peer dependency, loaded here and nowhere else.
-// It carries an HTTP server stack (express, cors, ajv) that this stdio
-// server never uses — 28 MB across 91 packages, measured — so making it
+// It carries an HTTP server stack (express, cors, ajv) — 28 MB across
+// 91 packages, measured — so making it
 // a hard dependency would have charged every `npx cheap-mem` for a file
 // most people never run. A missing peer must say what to do about it:
 // a bare MODULE_NOT_FOUND inside an MCP client is invisible, because the
 // client reports only that the server would not start.
-let Server; let StdioServerTransport;
+let Server; let StdioServerTransport; let StreamableHTTPServerTransport;
+const HTTP_MODE = process.argv.slice(2).includes('--http');
 /** Read at start-up, not per call: a boundary that can change
  *  mid-session is not one. */
-const PROFILE = mcpprofile.fromEnv();
+const PROFILE = HTTP_MODE && process.env.CHEAP_MEM_MCP_READONLY === undefined
+  ? mcpprofile.PROFILE.READ_ONLY
+  : mcpprofile.fromEnv();
 
 let CallToolRequestSchema; let ListToolsRequestSchema;
 try {
   ({ Server } = await import('@modelcontextprotocol/sdk/server/index.js'));
   ({ StdioServerTransport } = await import('@modelcontextprotocol/sdk/server/stdio.js'));
+  if (HTTP_MODE) {
+    ({ StreamableHTTPServerTransport } =
+      await import('@modelcontextprotocol/sdk/server/streamableHttp.js'));
+  }
   ({ CallToolRequestSchema, ListToolsRequestSchema } =
     await import('@modelcontextprotocol/sdk/types.js'));
 } catch {
@@ -51,6 +59,7 @@ try {
   process.exit(1);
 }
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as bidi from '../src/bidi.mjs';
@@ -72,6 +81,7 @@ import * as question from '../src/question.mjs';
 import * as component from '../src/component.mjs';
 import * as source from '../src/source.mjs';
 import * as board from '../src/board.mjs';
+import * as webauth from '../src/webauth.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -1220,10 +1230,7 @@ function houseRules(fs) {
   }
 }
 
-async function main() {
-  const fs = await import('node:fs');
-  const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
-
+function createServer(pkg) {
   const server = new Server(
     { name: 'cheap-mem', version: pkg.version },
     { capabilities: { tools: {} }, instructions: houseRules(fs) },
@@ -1242,6 +1249,152 @@ async function main() {
     }
   });
 
+  return server;
+}
+
+function httpConfig(env = process.env) {
+  const port = Number(env.CHEAP_MEM_MCP_PORT || 8849);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`CHEAP_MEM_MCP_PORT must be an integer from 1 to 65535, got '${env.CHEAP_MEM_MCP_PORT}'.`);
+  }
+  return {
+    host: env.CHEAP_MEM_MCP_HOST || '127.0.0.1',
+    port,
+    token: env.CHEAP_MEM_MCP_TOKEN || '',
+    hosts: String(env.CHEAP_MEM_MCP_HOSTS ?? '')
+      .split(',').map((x) => x.trim()).filter(Boolean),
+    origins: String(env.CHEAP_MEM_MCP_ORIGINS ?? '')
+      .split(',').map((x) => x.trim()).filter(Boolean),
+  };
+}
+
+function jsonError(res, status, message) {
+  if (res.headersSent) return;
+  res.writeHead(status, {
+    'cache-control': 'no-store',
+    'content-type': 'application/json; charset=utf-8',
+    'x-content-type-options': 'nosniff',
+  }).end(JSON.stringify({
+    jsonrpc: '2.0', error: { code: -32000, message }, id: null,
+  }));
+}
+
+async function readJson(req) {
+  let size = 0;
+  const chunks = [];
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > 1024 * 1024) {
+      const error = new Error('Request body exceeds 1 MiB.');
+      error.status = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    const error = new Error('Request body is not valid JSON.');
+    error.status = 400;
+    throw error;
+  }
+}
+
+async function startHttp(pkg) {
+  const cfg = httpConfig();
+  const bind = webauth.bindAllowed({
+    host: cfg.host, token: cfg.token, variable: 'CHEAP_MEM_MCP_TOKEN',
+  });
+  if (!bind.ok) throw new Error(bind.reason);
+
+  const network = http.createServer(async (req, res) => {
+    let url;
+    try { url = new URL(req.url, 'http://cheap-mem.invalid'); }
+    catch { jsonError(res, 400, 'Bad request.'); return; }
+
+    // Health reveals no memory content and needs no credential, so a
+    // supervisor can distinguish "down" from "the door refused me".
+    if (url.pathname === '/health') {
+      res.writeHead(200, {
+        'cache-control': 'no-store', 'content-type': 'text/plain; charset=utf-8',
+      }).end('ok');
+      return;
+    }
+    if (url.pathname !== '/mcp') { jsonError(res, 404, 'Not found.'); return; }
+
+    // Host is checked at the actual socket, not only in a helper test.
+    // An exact configured name passes; a suffix lookalike does not.
+    if (!webauth.hostAllowed(req.headers.host, cfg.hosts)) {
+      jsonError(res, 403, 'Foreign or missing Host.');
+      return;
+    }
+    // MCP clients need not send Origin. Browsers do; when it exists it
+    // must name this Host or one of the explicitly configured origins.
+    if (req.headers.origin
+      && !webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {
+      jsonError(res, 403, 'Foreign Origin.');
+      return;
+    }
+
+    const auth = webauth.authDecision({
+      token: cfg.token,
+      given: webauth.bearerFrom(req),
+      remoteLoopback: webauth.remoteIsLoopback(req),
+    });
+    if (!auth.allowed) {
+      if (auth.code === 401) res.setHeader('www-authenticate', 'Bearer');
+      jsonError(res, auth.code, 'Not authorized.');
+      return;
+    }
+
+    let body;
+    try {
+      if (req.method === 'POST') body = await readJson(req);
+    } catch (error) {
+      jsonError(res, error.status || 400, error.message);
+      return;
+    }
+
+    // Stateless means no cross-client session and lets each request own
+    // its server instance. Agent, scope and profile remain process-wide:
+    // run one process per agent rather than accepting identity claims in
+    // a request.
+    const server = createServer(pkg);
+    const transport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+    try {
+      await server.connect(transport);
+      await transport.handleRequest(req, res, body);
+    } catch (error) {
+      jsonError(res, 500, 'Internal MCP error.');
+      process.stderr.write(`mem-mcp request failed: ${error.stack || error.message}\n`);
+    } finally {
+      await server.close().catch(() => {});
+    }
+  });
+
+  await new Promise((resolve, reject) => {
+    network.once('error', reject);
+    network.listen(cfg.port, cfg.host, resolve);
+  });
+  process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
+  process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (loopback only)'}\n`);
+
+  const stop = () => network.close(() => process.exit(0));
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+}
+
+async function main() {
+  const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
+  if (HTTP_MODE) {
+    await startHttp(pkg);
+    return;
+  }
+
+  const server = createServer(pkg);
   const transport = new StdioServerTransport();
   await server.connect(transport);
 }
