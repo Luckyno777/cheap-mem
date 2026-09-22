@@ -16,8 +16,7 @@ and documented, and unreachable from the bridge. `mem store verify` and
 call at the CLI.
 
 **First: install the SDK.** `mem-mcp` needs `@modelcontextprotocol/sdk`,
-which is an *optional peer* — it is 28 MB across 91 packages (an HTTP
-server stack this stdio server never uses), so it is not fetched unless
+which is an *optional peer* — it is 28 MB across 91 packages, so it is not fetched unless
 you want the MCP tools:
 
 ```bash
@@ -28,7 +27,8 @@ Without it `mem-mcp` exits with that command rather than a stack trace —
 an import failure inside an MCP client is otherwise invisible, since the
 client reports only that the server would not start.
 
-Every MCP config below just points at `bin/mem-mcp` and sets `CHEAP_MEM_ROOT`.
+Every local MCP config below just points at `bin/mem-mcp` and sets `CHEAP_MEM_ROOT`.
+Stdio remains the default; the remote HTTP mode is documented separately below.
 
 ## Claude Code
 
@@ -93,23 +93,19 @@ Settings → Features → **MCP** → Add Server:
 }
 ```
 
-## ChatGPT — via Custom GPTs / Actions
+## OpenAI Codex CLI
 
-MCP is not native to ChatGPT yet. Two working paths:
+Codex reads **`~/.codex/config.toml`**, not the JSON shape above. The key
+is `[mcp_servers.<name>]`:
 
-1. **`codex` CLI** (OpenAI's terminal client) — this works today, but
-   NOT with the JSON above. Codex reads **`~/.codex/config.toml`**, and
-   the key is `[mcp_servers.<name>]` — TOML, a different file, a
-   different spelling:
+```toml
+[mcp_servers.cheap-mem]
+command = "node"
+args = ["/absolute/path/to/cheap-mem/bin/mem-mcp"]
 
-   ```toml
-   [mcp_servers.cheap-mem]
-   command = "node"
-   args = ["/absolute/path/to/cheap-mem/bin/mem-mcp"]
-
-   [mcp_servers.cheap-mem.env]
-   CHEAP_MEM_ROOT = "/absolute/path/to/your-memory"
-   ```
+[mcp_servers.cheap-mem.env]
+CHEAP_MEM_ROOT = "/absolute/path/to/your-memory"
+```
 
    This page said `~/.codex/config.json` with an `mcpServers` key until
    2026-09-07. Following it did nothing at all — and said nothing
@@ -117,23 +113,93 @@ MCP is not native to ChatGPT yet. Two working paths:
    without the server. Found by someone setting it up for the first
    time, on Windows.
 
-   Verify — and do verify, because silence is the failure mode here:
+Verify — and do verify, because silence is the failure mode here:
 
-   ```bash
-   codex mcp list
-   ```
+```bash
+codex mcp list
+```
 
-   The server must show up with status `enabled`. `Auth: Unsupported`
-   next to it is normal for every local stdio server, OpenAI's own
-   included; it means the transport has no OAuth, not that something is
-   broken.
+The server must show up with status `enabled`. `Auth: Unsupported` next
+to a local stdio server means that transport has no OAuth; it does not
+mean the process failed.
 
-   Codex rewrites `config.toml` on start, adding its own keys. It
-   **merges** — measured on 2026-09-07: an added `[mcp_servers.…]` block
-   survived a rewrite untouched. The same holds for `~/.claude.json`.
+Codex rewrites `config.toml` on start, adding its own keys. It **merges**
+— measured on 2026-09-07: an added `[mcp_servers.…]` block survived a
+rewrite untouched. The same holds for `~/.claude.json`.
 
-2. **Custom GPT with Actions**. Wrap the CLI in a tiny HTTP server; not
-   documented here yet.
+## Hosted clients — Streamable HTTP
+
+`mem-mcp --http` serves the same tools at `/mcp` for a client that cannot
+launch a local process. It is deliberately a second transport in the
+same program: tool definitions, profile checks and house rules therefore
+cannot drift into a separate wrapper.
+
+Run one process per agent. `CHEAP_MEM_AGENT`, the capability profile and
+the memory root are process-wide facts; they are never accepted as
+claims inside a request.
+
+The safe reverse-proxy shape is:
+
+```bash
+CHEAP_MEM_ROOT=/absolute/path/to/your-memory \
+CHEAP_MEM_AGENT=chat-client \
+CHEAP_MEM_MCP_HOSTS=memory.example.org \
+node /absolute/path/to/cheap-mem/bin/mem-mcp --http
+```
+
+It listens on `127.0.0.1:8849` by default. Point an authenticated tunnel
+or reverse proxy at it and configure the remote client with:
+
+```text
+https://memory.example.org/mcp
+```
+
+The public name is an exact allowlist entry. `memory.example.org` passes;
+`memory.example.org.attacker.invalid` does not. If the proxy preserves a
+port in `Host`, include that exact `host:port` value instead.
+
+HTTP starts **read-only by default**. To expose writing tools, make that
+choice explicitly for that one process:
+
+```bash
+CHEAP_MEM_MCP_READONLY=0 node /absolute/path/to/cheap-mem/bin/mem-mcp --http
+```
+
+Other HTTP settings:
+
+| Variable | Default | Meaning |
+|---|---:|---|
+| `CHEAP_MEM_MCP_HOST` | `127.0.0.1` | bind address |
+| `CHEAP_MEM_MCP_PORT` | `8849` | listen port |
+| `CHEAP_MEM_MCP_HOSTS` | empty | comma-separated, exact additional Host values |
+| `CHEAP_MEM_MCP_ORIGINS` | empty | comma-separated additional browser Origins |
+| `CHEAP_MEM_MCP_TOKEN` | empty | static bearer token |
+| `CHEAP_MEM_MCP_READONLY` | read-only in HTTP mode | `0` explicitly exposes the full profile |
+
+A non-loopback bind without `CHEAP_MEM_MCP_TOKEN` is refused at startup.
+When the process stays on loopback, authentication may live at the
+reverse proxy; do not publish the loopback listener through an
+unauthenticated proxy. A client that mandates OAuth still needs an OAuth
+capable proxy or gateway — Cheap Mem does not pretend a static bearer
+token is OAuth.
+
+Probe both sides of the Host boundary after deployment:
+
+```bash
+# expected: 200
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H 'Host: memory.example.org' \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' \
+  http://127.0.0.1:8849/mcp
+
+# expected: 403 (send an MCP request, because /health reveals no memory)
+curl -sS -o /dev/null -w '%{http_code}\n' \
+  -H 'Host: memory.example.org.attacker.invalid' \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' \
+  http://127.0.0.1:8849/mcp
+```
 
 ### The server already tells the model (since 2026-09-08)
 
