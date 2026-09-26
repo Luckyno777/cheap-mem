@@ -241,10 +241,10 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'frageworte', 'git', 'git-hook', 'hook-doppelt', 'hook-kopie', 'index',
     'klingel', 'modell-start', 'nachher-haken', 'nachweis-luecke',
     'offene-funde', 'plattenplatz', 'post-liegt', 'post-stau', 'redaktion',
-    'rohfang', 'rueckstand', 'startlast', 'stop-hook', 'tagform',
-    'themen-guete', 'transkript-schema', 'waechter', 'waechter-fassung',
-    'waisen', 'wiederholung', 'wirksamkeit', 'wurzel', 'zeilenzugriff',
-    'zustellnachweis', 'zustellschuld', 'zustellung',
+    'regel-vorschlag', 'rohfang', 'rueckstand', 'startlast', 'stop-hook',
+    'tagform', 'themen-guete', 'transkript-schema', 'waechter',
+    'waechter-fassung', 'waisen', 'wiederholung', 'wirksamkeit', 'wurzel',
+    'zeilenzugriff', 'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),
 });
 
