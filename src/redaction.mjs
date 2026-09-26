@@ -80,7 +80,10 @@ export const PATTERNS = Object.freeze([
   // --- Headers / URLs ------------------------------------------------
   ['bearer',          /\b[Bb]earer\s+[A-Za-z0-9._~+/-]{20,}=*/g],
   ['basic-auth',      /\b[Bb]asic\s+[A-Za-z0-9+/]{20,}=*/g],
-  ['url-credentials', /\b([a-z][a-z0-9+.-]*):\/\/[^\s:@/]+:[^\s@/]+@/gi],
+  // Scheme bounded (2026-09-26): unbounded, it restarted at every word
+  // boundary of a long run like 'a.b-c+d...' and went quadratic (lucky-mem
+  // measured 64,000 chars in 1718 ms). Real schemes are short.
+  ['url-credentials', /\b([a-z][a-z0-9+.-]{0,31}):\/\/[^\s:@/]+:[^\s@/]+@/gi],
   ['x-api-key',       new RegExp(`\\b(x-api-key|api[_-]?key|apikey)${SP}*${SEP}${SP}*["']?[A-Za-z0-9._-]{16,}["']?`, 'gi')],
 
   // --- Environment variables -----------------------------------------
@@ -89,11 +92,37 @@ export const PATTERNS = Object.freeze([
     // The prefix before the keyword is OPTIONAL. It used to be
     // [A-Za-z_][A-Za-z0-9_]* — at least one character — which let a
     // bare `token=...` in a URL slip through.
-    new RegExp(`\\b([A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]*)${SP}*${SEP}${SP}*["']?([^\\s"'\`,;&]{8,})["']?`, 'gi')],
+    new RegExp(`\\b([A-Za-z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]{0,64})${SP}*${SEP}${SP}*["']?([^\\s"'\`,;&]{8,})["']?`, 'gi')],
 
   // Lowercase in JSON/YAML: "password": "...", secret: ...
+  //
+  // **The keyword may sit anywhere in the key, not only as the whole key
+  // (2026-09-26).** Measured against main before this change, every one
+  // of these went through untouched, value in plain text:
+  //
+  //     {"secretKey": "..."}      {"passwordHash": "..."}
+  //     {"tokenPage": "..."}      {"apiKeyId": "..."}
+  //     {"secret-value": "..."}   {"tokenValue": "..."}
+  //
+  // Each of the two assignment rules carried half the shape. `env-secret`
+  // allows letters around the keyword but wants the separator right after
+  // the name, so the closing quote of a JSON key defeats it. `json-secret`
+  // took the quote and allowed nothing around the keyword. Together they
+  // covered everything except the most common case: in JSON the key is
+  // usually `secretKey`, not `secret`. The same hole was found and closed
+  // in lucky-mem the same day; this is the English rebuild, not a copy.
+  //
+  // Widening the key needs HARMLESS_KEY below, or every pagination
+  // cursor (`nextPageToken`) turns into a finding.
+  //
+  // **Bounded, and anchored to a word start.** With `*` before AND after
+  // the keyword, a long run with no separator backtracked catastrophically:
+  // 4,000 chars of 'tokentoken...' took 4.8 s, and test/entry-size-cap
+  // never finished. Key names are short: at most 64 characters on either
+  // side of the keyword. The price, named: a key with more than 64
+  // characters before the keyword is no longer caught by THIS rule.
   ['json-secret',
-    new RegExp(`(["']?(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{8,})["']`, 'gi')],
+    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{8,})["']`, 'gi')],
 ]);
 
 /**
@@ -109,6 +138,36 @@ const HARMLESS = [
   /^REDACTED/,
   /^\.\.\./,
 ];
+
+/**
+ * Keys that NAME a token but never grant access: pagination cursors.
+ *
+ * `HARMLESS` judges the VALUE, and a cursor's value is arbitrary — only
+ * the key says it is not a credential. Found in lucky-mem on 2026-09-26:
+ * two `nextPageToken` values from a Google Drive listing (208 and 636
+ * characters) held its CI red. A cursor is opaque, short-lived and
+ * grants nothing on its own.
+ *
+ * **Why not simply require a word boundary before `token`.** That is the
+ * obvious way out and a real weakening: `authToken`, `accessToken`,
+ * `sessionToken` (a live credential in AWS) and `idToken` ARE secrets.
+ * An exception by NAME takes out exactly the four known cursor names and
+ * leaves everything else sharp.
+ *
+ * Anchored to the END of the key: `pageToken` is exempt,
+ * `pageTokenSecret` is not.
+ */
+const HARMLESS_KEY = [
+  // Google (nextPageToken, pageToken), AWS (nextToken),
+  // Azure and S3 (continuationToken) — each also in snake_case.
+  /(?:^|[^A-Za-z0-9])(?:next_?page_?token|page_?token|next_?token|continuation_?token)$/i,
+];
+
+/** Does this key name something that grants no access? See HARMLESS_KEY. */
+export function isHarmlessKey(name) {
+  const bare = String(name ?? '').trim().replace(/^["'\s]+/, '').replace(/["'\s:=]+$/, '');
+  return HARMLESS_KEY.some((r) => r.test(bare));
+}
 
 /**
  * A REFERENCE to a secret is not the secret.
@@ -239,14 +298,28 @@ export function redact(text) {
       const real = groups.slice(0, -2).filter((g) => typeof g === 'string');
 
       if (type === 'env-secret' && real.length >= 2) {
+        // No HARMLESS_KEY here on purpose: `NEXT_TOKEN=...` in an
+        // environment is not a JSON cursor, and it was redacted before.
         const [, value] = real;
         if (isHarmless(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return replaceValue(match, value, `[REDACTED:${type}]`);
       }
       if (type === 'json-secret' && real.length >= 2) {
-        const [, value] = real;
+        const [key, value] = real;
+        if (isHarmlessKey(key)) return match;
         if (isHarmless(value)) return match;
+        // **A kebab-case key needs a credential-shaped value.** Widening
+        // the key reached `'secret-leak': '...'` in src/errorclass.mjs — a
+        // map from one error-class slug to another, no secret anywhere,
+        // and the pre-commit hook would have blocked the next edit of
+        // that file. Kebab keys are vocabulary far more often than
+        // configuration, so there (and only there) the value must also
+        // look like a key: letters AND digits in a run of 12+.
+        // The gap this leaves, named: a diceware-style passphrase
+        // (`"secret-value": "correct-horse-battery"`) under a kebab key.
+        // camelCase and bare keys are untouched.
+        if (/[A-Za-z0-9]-[A-Za-z0-9]/.test(key.replace(/["'\s:=]+$/, '')) && !looksLikeCredential(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return replaceValue(match, value, `[REDACTED:${type}]`);
       }
