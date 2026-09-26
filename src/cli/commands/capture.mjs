@@ -19,9 +19,10 @@ import * as raw from '../../raw.mjs';
 import * as archive from '../../archive.mjs';
 import * as stores from '../../stores.mjs';
 import * as redaction from '../../redaction.mjs';
+import * as userhabits from '../../userhabits.mjs';
 import { out, die, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
-/** 3 commands. */
+/** 4 commands. */
 export const COMMANDS = {
   raw: async ({ rest, args }) => {
     if (isHelp(args) || rest.length === 0) {
@@ -487,6 +488,132 @@ export const COMMANDS = {
     if (args.json) out(JSON.stringify(f, null, 2));
     else out(shrink.asText(f));
     if (f.state === shrink.STATE.ALARM) process.exitCode = 2;
+  },
+
+  // N4 (cheap-mem parity for lucky-mem's nutzerverstaendnis.mjs):
+  // a GENERIC, English, config-driven habit meter over the human
+  // user's own captures. No participant name and no phrase belonging
+  // to any one person lives here — the four shipped defaults are
+  // generic (delegated decision, correction, pasted terminal output,
+  // language) and every deployment can point at its own pattern file.
+  user: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem user [--json] [--min-evidence N] [--patterns <file.json>]',
+        'mem user --self-test [--patterns <file.json>]',
+        'mem user --session-start [--min-evidence N]',
+        '',
+        '  A code-only habit meter over YOUR OWN captured transcripts',
+        '  (the same material `mem raw` holds) — no model, no network,',
+        '  no name baked in. Each habit is a regex loaded from a JSON',
+        '  pattern file: name, regex, a positive AND a negative example,',
+        '  and the action line a session should take. Four generic',
+        '  defaults ship in src/user-patterns.default.json (delegated',
+        '  decision, correction of the assistant, pasted terminal',
+        '  output merged with the prompt, language). Point at your own:',
+        '  --patterns <file.json>, env CHEAP_MEM_USER_PATTERNS, or',
+        '  .mem/config.json\'s "userHabitPatterns" — whichever wins is',
+        '  applied the same way every time.',
+        '',
+        '  Every observation is one of three states, never a bare 0:',
+        '    measured             >= --min-evidence hits, with a',
+        '                         located first/last quote (capped at',
+        '                         120 chars, redacted).',
+        '    too_little_evidence  some hits, below the threshold —',
+        '                         honestly little, not an error.',
+        '    unknown               NO capture on this machine is',
+        '                         readable (archive not mounted, fresh',
+        '                         install) — never reported as 0.',
+        '',
+        '  --self-test        every pattern against its own positive/',
+        '                     negative examples — needs neither a root',
+        '                     nor a capture.',
+        '  --session-start    at most 5 lines for a SessionStart hook:',
+        '                     only patterns/metrics over the (higher)',
+        '                     display threshold AND actionable — "UTC',
+        '                     hour-of-day" is measured but never shown',
+        '                     here, because a session cannot decide',
+        '                     WHEN it is called. cheap-mem\'s own',
+        '                     SessionStart path is',
+        '                     install/hooks/session-start.sh; wiring',
+        '                     this in needs exactly one added line:',
+        '                       node "$CHEAP_MEM_ROOT/bin/mem" user --session-start',
+        '                     (not added by this command — that file is',
+        '                     someone else\'s to touch; this prints',
+        '                     exactly what that line would inject).',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'min-evidence', 'patterns', 'self-test', 'session-start'], 'user');
+    const patternsPath = args.patterns && args.patterns !== true
+      ? path.resolve(String(args.patterns)) : null;
+
+    if (args['self-test']) {
+      let patterns;
+      try { patterns = userhabits.loadPatterns(patternsPath); }
+      catch (e) { die(`user --self-test: ${e.message}`); }
+      const { ok, errors } = userhabits.checkAllExamples(patterns);
+      if (args.json) { out(JSON.stringify({ ok, errors })); return; }
+      if (!ok) die(`Failed:\n${errors.map((e) => `  ${e}`).join('\n')}`);
+      out(`All examples passed for ${patterns.length} pattern(s).`);
+      return;
+    }
+
+    const root = findRoot(args);
+    requireConfig(root);
+
+    let minEvidence;
+    if (args['min-evidence'] !== undefined) {
+      minEvidence = Number(args['min-evidence']);
+      if (!Number.isFinite(minEvidence)) die('user: --min-evidence needs a number');
+    }
+
+    if (args['session-start']) {
+      let sp;
+      try {
+        sp = userhabits.sessionStartLines(root, {
+          minEvidence: minEvidence ?? userhabits.MIN_EVIDENCE_DISPLAY, patternsPath,
+        });
+      } catch (e) { die(`user --session-start: ${e.message}`); }
+      if (args.json) { out(JSON.stringify(sp)); return; }
+      for (const l of sp.lines) out(l);
+      return;
+    }
+
+    let r;
+    try {
+      r = userhabits.analyze(root, {
+        minEvidence: minEvidence ?? userhabits.MIN_EVIDENCE_MEASURE, patternsPath,
+      });
+    } catch (e) { die(`user: ${e.message}`); }
+
+    if (args.json) { out(JSON.stringify(r)); return; }
+
+    if (r.capturesReadable === 0) {
+      out(`unknown — ${r.reason}`);
+      return;
+    }
+
+    out(`${r.total} real message(s) across ${r.capturesReadable} readable capture(s)`
+      + `${r.capturesUnreadable ? `, ${r.capturesUnreadable} not readable` : ''}`
+      + `${r.capped ? ' — time cap hit, incomplete' : ''}.`);
+    out('');
+    for (const o of r.observations) {
+      if (o.state === userhabits.STATE.UNKNOWN) { out(`  ${o.title}: unknown`); continue; }
+      if (o.state === userhabits.STATE.TOO_LITTLE_EVIDENCE) {
+        out(`  ${o.title}: too_little_evidence (${o.count ?? 0}/${o.total ?? r.total})`);
+        continue;
+      }
+      const extra = o.kind === 'metric'
+        ? (o.median !== undefined
+          ? `median ${o.median}`
+          : `main hours: ${o.mainHours?.length ? o.mainHours.map((h) => `${h}h`).join(', ') : 'none'}`)
+        : `${o.count}/${o.total} (${(o.share * 100).toFixed(1)}%)`;
+      out(`  ${o.title}: measured — ${extra}`);
+      if (o.first) out(`    first: ${o.first.path}:${o.first.line} — "${o.first.quote}"`);
+      if (o.last) out(`    last:  ${o.last.path}:${o.last.line} — "${o.last.quote}"`);
+      if (o.action) out(`    -> ${o.action}`);
+    }
   },
 
 };

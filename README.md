@@ -298,8 +298,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **62 CLI commands, 28 MCP tools, 73 modules, 1837
-tests**; as of 2026-09-20, about 30,700 lines in `bin/` and `src/`, at
+As of 2026-09-26: **63 CLI commands, 29 MCP tools, 74 modules, 1896
+tests**; as of 2026-09-20, about 32,477 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -416,6 +416,10 @@ mem links <id>                 typed edges in and out (causes, generalizes, ...)
 mem experiences [--all]        lessons ranked by how much of the memory leans on them
 mem viewer [--out f.html]      one self-contained HTML page to browse it all
 mem raw pending|show|digested  the captured material
+mem user [--json]              generic, code-only habit meter over YOUR OWN
+                               captures (delegated decision, correction,
+                               pasted terminal output, language) -- patterns
+                               are a configurable JSON file, no names baked in
 mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem hooks install|check        arm and prove the secret check

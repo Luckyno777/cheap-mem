@@ -122,6 +122,12 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  raw archive [--set <where>] [--list-stores]  where the raw capture lives");
   out("  raw migrate [--remove] / raw export --from --to --into");
   out("");
+  out("  user [--json] [--min-evidence N] [--patterns f.json]  generic, code-only");
+  out("                    habit meter over YOUR OWN captures (delegated decision,");
+  out("                    correction, pasted terminal output, language) --");
+  out("                    patterns are a JSON file, no participant names");
+  out("  user --self-test / user --session-start (<= 5 lines for a hook)");
+  out("");
   out("State at a glance:");
   out("  serve  [--port N] [--readonly]               console + viewer at one link");
   out("  board  [--html] [--json] [--days N]          every lane on one screen");

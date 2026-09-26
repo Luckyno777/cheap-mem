@@ -1,0 +1,73 @@
+[
+  {
+    "name": "delegated_decision",
+    "title": "Delegates the decision instead of choosing",
+    "regex": "\\b(your call|you decide|whatever you (?:think|prefer)|up to you|your (?:recommendation|judg(?:e)?ment)|i'll leave (?:it|that) to you|do what you think is best)\\b",
+    "flags": "i",
+    "inverted": false,
+    "action": "Give one recommendation, not a menu of options to choose from",
+    "examples": {
+      "positive": [
+        "ok, your call — just go with it",
+        "up to you, whatever you think is best"
+      ],
+      "negative": [
+        "I'll take option 2, not variant B",
+        "let's check the tests first before deciding"
+      ]
+    }
+  },
+  {
+    "name": "correction",
+    "title": "Corrects the assistant, without expecting an apology",
+    "regex": "\\b(that'?s not right|that isn'?t right|that is not right|that'?s wrong|you missed|you didn'?t|that didn'?t work|still (?:broken|failing|wrong)|not what i asked|you misunderstood)\\b",
+    "flags": "i",
+    "inverted": false,
+    "action": "Accept the correction and keep working — no apology loop",
+    "examples": {
+      "positive": [
+        "that's not right, you missed the second file",
+        "still broken — not what I asked for"
+      ],
+      "negative": [
+        "nice work, that looks right",
+        "can you explain how this works?"
+      ]
+    }
+  },
+  {
+    "name": "pasted_terminal_output",
+    "title": "Pasted terminal output merged with the prompt",
+    "regex": "^\\s*[\\w.-]+@[\\w.-]+[:\\s]\\S{0,60}\\s*[$#>]\\s",
+    "flags": "i",
+    "inverted": false,
+    "action": "Read the start of the message as pasted terminal output, not as an instruction",
+    "examples": {
+      "positive": [
+        "user@host:~$ ls -la\ndrwxr-xr-x 3 root root 4096 Sep 26 .",
+        "user@host ~/project $ git status\nOn branch main"
+      ],
+      "negative": [
+        "can you check the status please?"
+      ]
+    }
+  },
+  {
+    "name": "non_default_language",
+    "title": "Message carries no signal word of the configured default language",
+    "regex": "\\b(the|and|does|doesn't|isn't|didn't|wasn't|weren't|can't|won't|wouldn't|shouldn't|couldn't|please|thanks|thank|you|your|this|that|have|has|had|with|for|what|when|where|why|how)\\b",
+    "flags": "i",
+    "inverted": true,
+    "action": "Keep quoted technical terms verbatim; do not switch the reply language automatically",
+    "examples": {
+      "positive": [
+        "veuillez vérifier les journaux et me dire ce qui s'est passé",
+        "por favor revisa los registros y dime qué pasó"
+      ],
+      "negative": [
+        "please check the logs and tell me what happened",
+        "your help would be appreciated, thanks"
+      ]
+    }
+  }
+]

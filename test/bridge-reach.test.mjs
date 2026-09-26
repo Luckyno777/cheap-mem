@@ -359,6 +359,7 @@ const TOOLS = [
   'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
   'mem_questions', 'mem_retrieve', 'mem_show', 'mem_source',
   'mem_store_get', 'mem_store_list', 'mem_store_put', 'mem_topics',
+  'mem_user_habits',
 ];
 
 test('the tool list is exactly this, by name', () => {
