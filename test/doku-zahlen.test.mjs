@@ -38,6 +38,7 @@
 //
 // Every one of those exemptions is COUNTED and asserted to be small, so
 // that "skipped" can never quietly become "all of them".
+import { isArchive } from './doc-archive.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -127,16 +128,9 @@ const bandFuer = (was) => TOLERANZ[was] ?? TOLERANZ_VORGABE;
 
 // --- Which documents are living, and which are records ---------------
 
-/**
- * A file is an ARCHIVE if its name carries a date, or it is the
- * changelog. Everything else is living and gets checked — including
- * files that do not exist yet, which is the point: a new document is
- * guarded the day someone writes it, without anyone remembering to add
- * it here.
- */
-function istArchiv(rel) {
-  return rel === 'CHANGELOG.md' || /-\d{4}-\d{2}-\d{2}/.test(rel);
-}
+// The archive rule lives in test/doc-archive.mjs, shared with
+// test/tool-count-doc.test.mjs.
+const istArchiv = isArchive;
 
 function dokumente() {
   const raus = [];
