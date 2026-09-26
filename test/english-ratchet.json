@@ -53,48 +53,24 @@
   ],
   "filenameAllowlist": [
     {
-      "path": "eval/paar.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "eval/paar-a-c.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "eval/paar-auswerten.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
       "path": "eval/runs/paar-sauber.jsonl",
-      "reason": "to be renamed in B6/B4"
+      "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
     },
     {
       "path": "eval/runs/paar-sauber-20260916-restricted.jsonl",
-      "reason": "to be renamed in B6/B4"
+      "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
     },
     {
       "path": "eval/runs/paar2-sauber.jsonl",
-      "reason": "to be renamed in B6/B4"
+      "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
     },
     {
       "path": "eval/runs/paar3-treu.jsonl",
-      "reason": "to be renamed in B6/B4"
+      "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
     },
     {
       "path": "eval/runs/paar4-ausgeglichen.jsonl",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "eval/grundwert.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "eval/kennzahlen.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "eval/nur-roh.mjs",
-      "reason": "to be renamed in B6/B4"
+      "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
     },
     {
       "path": "test/eine-sprache.test.mjs",
@@ -116,25 +92,15 @@
     "docs/analyse-2026-09-08-vergleich-fremdsysteme.md": 331,
     "docs/viewer-design-tokens.json": 18,
     "eslint.config.mjs": 12,
-    "eval/README.md": 384,
-    "eval/ablation.mjs": 14,
-    "eval/arms.mjs": 27,
-    "eval/corpus.mjs": 91,
-    "eval/echo.mjs": 37,
+    "eval/arms.mjs": 7,
+    "eval/corpus.mjs": 36,
+    "eval/echo.mjs": 5,
     "eval/final-eingefroren.json": 15,
-    "eval/flood.mjs": 9,
-    "eval/frageworte-wirkung.mjs": 18,
-    "eval/frageworte.mjs": 20,
-    "eval/grundwert.mjs": 20,
-    "eval/independence.mjs": 38,
-    "eval/kennzahlen.mjs": 39,
-    "eval/nur-roh.mjs": 23,
-    "eval/paar-a-c.mjs": 36,
-    "eval/paar-auswerten.mjs": 16,
-    "eval/paar.mjs": 32,
-    "eval/run.mjs": 29,
-    "eval/tasks.mjs": 136,
-    "eval/world.mjs": 85,
+    "eval/flood.mjs": 1,
+    "eval/pair.mjs": 2,
+    "eval/pair-evaluate.mjs": 1,
+    "eval/tasks.mjs": 85,
+    "eval/world.mjs": 26,
     "shared/invariants.jsonl": 9,
     "src/cli/commands/write.mjs": 1,
     "src/language.mjs": 7,

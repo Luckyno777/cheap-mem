@@ -1,36 +1,36 @@
-// eval/corpus.mjs — giesst die Fakten aus world.mjs in eine cheap-mem-Memory.
+// eval/corpus.mjs — pours the facts from world.mjs into a cheap-mem memory.
 //
-// Bedingungen:
-//   clean     die Fakten + Ablenkungsmaterial
-//   poisoned  zusaetzlich POISON, Flutung durch einen Autor und Echos
+// Conditions:
+//   clean     the facts + distractor material
+//   poisoned  plus POISON, flooding by one author, and echoes
 //
-// Ablenkungsmaterial ist kein Fuellstoff: ohne thematisch benachbarte, aber
-// unbrauchbare Eintraege misst der Benchmark einen Korpus, in dem jede
-// Antwort die einzige Kandidatin ist. Das ist die Lage, in der Retrieval
-// immer gewinnt und nie etwas beweist.
+// Distractor material is not filler: without topically-adjacent but
+// unusable entries, the benchmark measures a corpus in which every
+// answer is the only candidate. That is the situation in which
+// retrieval always wins and proves nothing.
 
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as memory from '../src/memory.mjs';
 import { FACTS, POISON, PROJECT } from './world.mjs';
-import { sicher } from './frageworte.mjs';
+import { safeWords } from './query-words.mjs';
 
-/** Deterministischer Zufall: derselbe Seed, derselbe Korpus. */
+/** Deterministic randomness: same seed, same corpus. */
 export function rng(seed) {
   let s = seed >>> 0;
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; };
 }
 
-// DICHTE. Gemessen am gewachsenen lucky-mem-Korpus (731 Eintraege):
-// Textlaenge Median 551 Zeichen, Mittel 561, p75 715. Die erste Fassung
-// dieses Generators schrieb Einzeiler von 80-150 Zeichen — und BM25-Scores
-// haengen an Termhaeufigkeit und Dokumentlaenge, also lagen die Scores bei
-// 0,5-5,5 statt bei den echten 2-93. Ergebnis: kein einziger Treffer
-// erreichte die Vorgabe-Schwelle 5.0, was wie ein grosser Befund aussah und
-// nur den Korpus beschrieb.
+// DENSITY. Measured against the grown lucky-mem corpus (731 entries):
+// text length median 551 characters, mean 561, p75 715. This
+// generator's first version wrote one-liners of 80-150 characters — and
+// BM25 scores hinge on term frequency and document length, so the
+// scores sat at 0.5-5.5 instead of the real 2-93. Result: not a single
+// hit reached the target threshold of 5.0, which looked like a big
+// finding and only described the corpus.
 //
-// Kurze Kunsteintraege sind kein Ersatz fuer gewachsene.
+// Short synthetic entries are no substitute for grown ones.
 const AUSBAU = [
   'Der Punkt kam auf, als die Umstellung anstand und niemand sagen konnte, was vorher galt.',
   'Wir haben zwei Varianten nebeneinandergelegt und die einfachere genommen, weil die andere ein zweites bewegliches Teil gebraucht haette.',
@@ -42,7 +42,7 @@ const AUSBAU = [
   'Die Umsetzung beruehrt drei Stellen, und an zweien davon war es vorher anders geregelt.',
 ];
 
-/** Vokabular A, in der Dichte echter Eintraege (Ziel: 400-800 Zeichen). */
+/** Vocabulary A, at the density of real entries (target: 400-800 characters). */
 const satzA = (f, r) => {
   const k = f.kern;
   const n = 5 + Math.floor(r() * 3);
@@ -54,19 +54,19 @@ const satzA = (f, r) => {
 
 
 // ---------------------------------------------------------------------
-// VOKABULAR-REICHTUM. Gemessen am gewachsenen lucky-mem (930 Dokumente):
-// 8944 verschiedene Woerter, Median 61 Woerter je Dokument. Die erste
-// Fassung dieses Generators kam auf 403 verschiedene Woerter bei 259
-// Dokumenten — Wortzahl je Dokument stimmte, das Vokabular war 22-fach zu
-// arm. Folge: bei 403 Woertern ist jedes haeufig, also ist jede idf
-// winzig, also liegen alle BM25-Scores bei 0-10 statt bei den echten
-// 2-93, und keine Retrieval-Aenderung laesst sich sinnvoll bewerten.
+// VOCABULARY RICHNESS. Measured against the grown lucky-mem (930
+// documents): 8944 distinct words, median 61 words per document. This
+// generator's first version reached 403 distinct words across 259
+// documents — word count per document was right, the vocabulary was 22x
+// too poor. Consequence: with 403 words every one is frequent, so every
+// idf is tiny, so all BM25 scores sit at 0-10 instead of the real 2-93,
+// and no retrieval change can be meaningfully judged.
 //
-// Deutsche Komposita loesen das ohne Wortliste: 60 Bestimmungswoerter mal
-// 60 Grundwoerter ergeben 3600 verschiedene, plausible Fachbegriffe. Jeder
-// Ablenkungs-Eintrag bekommt ein eigenes Thema aus diesem Vorrat — kein
-// Buendel fast gleicher Eintraege mehr, das dem termGraph falsche
-// Ko-Okkurrenz beibringt.
+// German compound words solve this without a word list: 60 determiner
+// words times 60 base words give 3600 distinct, plausible technical
+// terms. Every distractor entry gets its own topic from this pool — no
+// more cluster of near-identical entries teaching termGraph a false
+// co-occurrence.
 const BESTIMMUNG = ['abrechnung', 'protokoll', 'zugriff', 'vorlage', 'auftrag', 'termin',
   'material', 'werkzeug', 'baustelle', 'fahrzeug', 'lager', 'einkauf', 'angebot', 'rechnung',
   'mahnung', 'gutschrift', 'stundenzettel', 'urlaub', 'schicht', 'zeiterfassung', 'kunde',
@@ -93,7 +93,7 @@ const UMSTAND = ['seit der Umstellung', 'im Nachtlauf', 'bei hoher Last', 'am Mo
 const wort = (r) => BESTIMMUNG[Math.floor(r() * BESTIMMUNG.length)] + GRUNDWORT[Math.floor(r() * GRUNDWORT.length)];
 const einer = (a, r) => a[Math.floor(r() * a.length)];
 
-/** Ein Ablenkungs-Eintrag mit eigenem Thema und eigenem Wortschatz. */
+/** One distractor entry with its own topic and its own vocabulary. */
 function streuEintrag(r, i) {
   const thema = wort(r);
   const teile = [];
@@ -122,11 +122,11 @@ const ABLENKUNG_THEMEN = [
   ['rechte', 'Rollen statt Einzelrechte', 'Einzelrechte waren nach vier Wochen nicht mehr pruefbar'],
 ];
 
-// Ablenkung, die genau das Vokabular teilt, an dem eine Aufgabe nicht
-// vorbeikommt. Eine Frage nach einem Port MUSS das Wort Port enthalten —
-// also darf das Wort nicht mehr nur im Gold-Eintrag stehen. Das ist die
-// richtige Korrektur: nicht die Frage verrenken, sondern den Korpus
-// aufhoeren zu lassen, entartet zu sein. bench/tokens.mjs sagt es selbst:
+// Distractors that share exactly the vocabulary a task cannot get past.
+// A question about a port MUST contain the word "port" — so that word
+// may no longer sit only in the gold entry. That is the right fix: not
+// to contort the question, but to stop the corpus from being
+// degenerate. bench/tokens.mjs says it itself:
 // "A benchmark on degenerate data measures the data."
 const ABLENKUNG_TEILT_VOKABULAR = [
   ['metrikendienst', 'Port 3000 fuer den Metrikendienst', 'der Standardport der Bibliothek'],
@@ -136,9 +136,9 @@ const ABLENKUNG_TEILT_VOKABULAR = [
   ['rechnungen', 'Rechnungen 10 Jahre aufheben', 'handelsrechtliche Frist, nicht verhandelbar'],
   ['zwischenspeicher', 'Zwischenspeicher nach 7 Tagen leeren', 'danach ist er ohnehin kalt'],
   ['ausgabeformate', 'Listen zusaetzlich als JSON anbieten', 'die Auswertung haengt sonst am Tabellenprogramm'],
-  // Zweite Welle, fuer die Aufgaben ab 2026-09-06. Gleiche Regel: ein
-  // Nutzer sagt "Sicherung", wenn er eine Sicherung meint — also darf das
-  // Wort nicht nur im Gold-Eintrag stehen.
+  // Second wave, for the tasks from 2026-09-06 on. Same rule: a user
+  // says "backup" when they mean a backup — so that word may not sit
+  // only in the gold entry.
   ['archivsicherung', 'Archive monatlich auf das zweite Laufwerk sichern', 'das erste stand im selben Schrank'],
   ['sicherungspruefung', 'jede Sicherung einmal im Quartal zurueckspielen', 'eine ungepruefte Sicherung ist eine Vermutung'],
   ['versandwege', 'Versand ueber den Hausanbieter statt eigenem Relais', 'ein eigenes Relais landet im Spam'],
@@ -158,34 +158,35 @@ const ABLENKUNG_FEHLER = [
 ];
 
 /**
- * @param {string} root       Zielverzeichnis
+ * @param {string} root       target directory
  * @param {object} opt
  * @param {boolean} opt.poisoned
- * @param {number} opt.noise   Ablenkungsrunden mit geteiltem Vokabular
- * @param {number} opt.streu   Eintraege mit je eigenem Thema (Vokabular-Reichtum)
- * @param {number} opt.flood   wie viele Flutungs-Eintraege eines Autors (nur poisoned)
- * @param {string[]} opt.echoes  Fragetexte, die als Rohfang-Echo abgelegt werden
- * @param {boolean} opt.frageworte  Frageworte mit in die Eintraege schreiben
- *   (das `asked`-Feld, das der Fasser im Betrieb fuellt). Vorgabe aus,
- *   damit A/B messbar bleibt.
- * @param {string[]} opt.nurRoh  Fakt-IDs, die NUR als Rohfang existieren —
- *   ungefasst, so wie der Stop-Hook sie ablegt, bevor der Fasser gelaufen
- *   ist. Damit laesst sich der PREIS der Reserve-Bahn messen: eine Angabe,
- *   die es nirgends gepflegt gibt.
+ * @param {number} opt.noise   distractor rounds with shared vocabulary
+ * @param {number} opt.streu   entries with their own topic each (vocabulary richness)
+ * @param {number} opt.flood   how many flooding entries by one author (poisoned only)
+ * @param {string[]} opt.echoes  question texts filed as a raw-capture echo
+ * @param {boolean} opt.queryWords  write query words into the entries too
+ *   (the `asked` field, which the digester fills in real operation).
+ *   Off by default, so A/B stays measurable.
+ * @param {string[]} opt.rawOnly  fact IDs that exist ONLY as raw capture —
+ *   undigested, the way the stop hook files them before the digester has
+ *   run. This lets the PRICE of the reserve lane be measured: a fact
+ *   that is nowhere kept up to date.
  */
-export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], nurRoh = [], frageworte = false, seed = 7 } = {}) {
+export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], rawOnly = [], queryWords = false, seed = 7 } = {}) {
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   const r = rng(seed);
   const ids = [];
 
-  // 1. Die Fakten selbst. Ersetzungen werden als solche geschrieben, damit
-  //    der Zustand aus dem Log kommt und nicht aus der Reihenfolge.
-  const nurRohSet = new Set(nurRoh);
+  // 1. The facts themselves. Replacements are written as such, so that
+  //    state comes from the log and not from ordering.
+  const rawOnlySet = new Set(rawOnly);
   const rohDir = path.join(root, 'raw', '2026', '08');
   for (const f of FACTS) {
-    if (nurRohSet.has(f.id)) {
-      // Ungefasst: derselbe Satz, aber als Mitschrift eines Gespraechs,
-      // eingebettet in Umgebungsgerede — so wie er wirklich anfaellt.
+    if (rawOnlySet.has(f.id)) {
+      // Undigested: the same sentence, but as a transcript of a
+      // conversation, embedded in ambient chatter — the way it really
+      // arrives.
       fs.mkdirSync(rohDir, { recursive: true });
       const satz = satzA(f, r);
       const zeilen = [
@@ -202,13 +203,13 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
       continue;
     }
     const data = { id: f.id, ...satzA(f, r), tags: [f.kern.thema], project: PROJECT };
-    // Die Frageworte kommen NICHT aus vokB. Sie stammen aus einem
-    // getrennten Modelllauf, der nur die Eintraege gesehen hat und keine
-    // einzige Aufgabe — genau wie der Fasser im Betrieb. Waeren sie aus
-    // vokB abgeschrieben, wuerde der Benchmark seine eigene Antwort
-    // messen und jede Zahl daraus waere wertlos.
-    if (frageworte) {
-      const w = sicher(f.id);
+    // The query words do NOT come from vokB. They come from a separate
+    // model run that saw only the entries and not a single task — exactly
+    // like the digester in real operation. Had they been copied from
+    // vokB, the benchmark would be measuring its own answer, and every
+    // number from it would be worthless.
+    if (queryWords) {
+      const w = safeWords(f.id);
       if (w.length) data.asked = w;
     }
     if (f.kern.autor) { data.author = f.kern.autor; data.authority = f.kern.autor === 'lucky' ? 'user' : 'agent'; }
@@ -218,9 +219,9 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
     ids.push(f.id);
   }
 
-  // 2a. Streuung: viele Eintraege mit je eigenem Thema und eigenem
-  //     Wortschatz. Das ist es, was den Korpus dem echten aehnlich macht —
-  //     nicht mehr Runden desselben Themas.
+  // 2a. Scatter: many entries with their own topic and their own
+  //     vocabulary each. That is what makes the corpus resemble a real
+  //     one — not more rounds of the same topic.
   for (let i = 0; i < streu; i += 1) {
     memory.logEntry(root, i % 3 === 0 ? 'error' : 'decision',
       { ...streuEintrag(r, i), author: 'lucky', authority: 'user', project: PROJECT,
@@ -228,7 +229,7 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
       { project: PROJECT });
   }
 
-  // 2b. Ablenkung: thematisch benachbart, fuer keine Aufgabe die Antwort.
+  // 2b. Distractors: topically adjacent, the answer to no task.
   for (let i = 0; i < noise; i += 1) {
     for (const [thema, wahl, grund] of ABLENKUNG_THEMEN) {
       memory.logEntry(root, 'decision', {
@@ -255,7 +256,7 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
 
   if (!poisoned) return { ids, poisoned: false };
 
-  // 3a. Gezielte Falschbehauptungen gegen genau die Fakten, die Aufgaben brauchen.
+  // 3a. Targeted false claims against exactly the facts the tasks need.
   for (const p of POISON) {
     memory.logEntry(root, 'decision', {
       id: p.id, topic: p.kern.thema, choice: p.kern.wahl,
@@ -264,7 +265,7 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
     }, { project: PROJECT });
   }
 
-  // 3b. Flutung: ein Autor, viele plausible Varianten desselben Themas.
+  // 3b. Flooding: one author, many plausible variants of the same topic.
   const THEMEN = [...new Set(POISON.map((p) => p.kern.thema))];
   for (let i = 0; i < flood; i += 1) {
     const t = THEMEN[Math.floor(r() * THEMEN.length)];
@@ -276,15 +277,15 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
     }, { project: PROJECT });
   }
 
-  // 3c. Echos: die Frage selbst, als Rohfang abgelegt. Genau der Effekt, den
-  //     src/search.mjs mit 13 von 18 gemessen hat.
+  // 3c. Echoes: the question itself, filed as a raw capture. Exactly the
+  //     effect src/search.mjs measured at 13 of 18.
   //
-  //     Bis zum 2026-09-06 stand hier `logEntry(root, 'thought', ...)` —
-  //     der Kommentar sagte "Rohfang", der Code legte einen getippten
-  //     Eintrag an. Damit stand der Angriff auf einer Bahn, auf der die
-  //     Abwehr per Bauart nicht steht, und die Kennzahl "36 % Echos"
-  //     mass einen Gegner, den es so nicht gibt. Jetzt schreibt der
-  //     Korpus, was der Stop-Hook schreibt: gzip-JSONL unter raw/.
+  //     Until 2026-09-06 this said `logEntry(root, 'thought', ...)` —
+  //     the comment said "raw capture", the code filed a typed entry.
+  //     That put the attack on a lane the defense by design does not
+  //     cover, and the "36% echoes" metric was measuring an opponent
+  //     that does not exist that way. Now the corpus writes what the
+  //     stop hook writes: gzip-JSONL under raw/.
   if (echoes.length) {
     const dir = path.join(root, 'raw', '2026', '09');
     fs.mkdirSync(dir, { recursive: true });

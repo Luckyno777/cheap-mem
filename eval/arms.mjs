@@ -1,16 +1,23 @@
-// eval/arms.mjs — die sechs Varianten. Jede baut NUR den Prompt; das
-// Modell ruft run.mjs auf.
+// eval/arms.mjs — the six variants. Each builds ONLY the prompt; the
+// model is called by run.mjs.
 //
-// WICHTIG zur Tokenmessung: die claude-CLI schiebt 20.000-28.000 Token
-// eigenen Systemprompt (Werkzeugdefinitionen, MCP) vor jeden Aufruf, und
-// das laesst sich mit --system-prompt, --exclude-dynamic-system-prompt-
-// sections, --strict-mcp-config und leerem --allowedTools nicht abstellen
-// (gemessen: 24k / 20k / 28k je nach Flag-Kombination). Der Unterschied
-// zwischen den Armen liegt bei einigen hundert Token und waere darin
-// unsichtbar. Deshalb misst das Harness BEIDES getrennt:
-//   promptTokens  der von uns gebaute Text (die marginale Kosten von Memory)
-//   cliTokens     was die CLI zusaetzlich berechnet (eine Konstante)
-// Nur die erste Zahl vergleicht Arme sinnvoll.
+// IMPORTANT for token measurement: the claude CLI pushes 20,000-28,000
+// tokens of its own system prompt (tool definitions, MCP) ahead of every
+// call, and this cannot be turned off with --system-prompt,
+// --exclude-dynamic-system-prompt-sections, --strict-mcp-config, and an
+// empty --allowedTools (measured: 24k / 20k / 28k depending on the flag
+// combination). The difference between arms sits at a few hundred
+// tokens and would be invisible inside that. So the harness measures
+// BOTH separately:
+//   promptTokens  the text we build ourselves (memory's marginal cost)
+//   cliTokens     what the CLI additionally charges (a constant)
+// Only the first number compares arms meaningfully.
+//
+// The strings this file builds below (the system prompt, the transcript,
+// the "Notizen aus dem Projektgedaechtnis" framing, the section labels)
+// are the actual model-facing prompt content, in German to match the
+// German corpus and tasks — they are measurement substance, not
+// documentation, and stay as they are.
 
 import * as retrieval from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
@@ -22,14 +29,14 @@ export const SYSTEM = 'Du bist ein Entwickler-Assistent fuer das Projekt kolibri
   + 'Antworte knapp und auf Deutsch. Wenn dir Notizen aus dem Projektgedaechtnis '
   + 'vorliegen, beruecksichtige sie; wenn sie sich widersprechen, sage das.';
 
-/** Vokabular A, chronologisch: was in einer langen Zusammenarbeit gesagt wurde. */
+/** Vocabulary A, chronological: what was said over a long collaboration. */
 export function transcript() {
   const turns = [];
   for (const f of FACTS) {
     turns.push(`Lucky: Zu ${f.kern.thema} — wir machen ${f.kern.wahl}. Grund: ${f.kern.grund}.`);
     turns.push('Assistent: Verstanden, ich halte mich daran.');
   }
-  // Spaeteres, unbeteiligtes Geplauder, das das Fenster fuellt.
+  // Later, unrelated chatter that fills up the window.
   for (let i = 0; i < 40; i += 1) {
     turns.push(`Lucky: Kannst du kurz Vorgang ${2000 + i} anschauen?`);
     turns.push(`Assistent: Angeschaut, nichts Auffaelliges bei ${2000 + i}.`);
@@ -38,9 +45,9 @@ export function transcript() {
 }
 
 /**
- * Arm B: das, was ein Chatfenster ohne Memory tatsaechlich noch sieht.
- * Die alten Festlegungen sind herausgescrollt — genau die Lage, fuer die
- * ein Gedaechtnis behauptet, sie zu loesen.
+ * Arm B: what a chat window without memory actually still sees. The
+ * old decisions have scrolled out — exactly the situation a memory
+ * claims to solve.
  */
 export function historyWindow(turns, maxChars = 2500) {
   const out = [];
@@ -54,16 +61,16 @@ export function historyWindow(turns, maxChars = 2500) {
 
 const claimLine = (c) => `- [${c.id}] (${c.authority}/${c.author}, ${c.status}) ${c.body}`;
 
-/** Arm C: flach, so wie der Reflex heute einspeist. */
+/** Arm C: flat, the way the reflex feeds it in today. */
 export function flatContext(claims) {
   if (!claims.length) return '';
   return 'Notizen aus dem Projektgedaechtnis:\n' + claims.map(claimLine).join('\n');
 }
 
 /**
- * Arm D: dieselben Claims, gruppiert. Kein neues Primitiv — die Sektionen
- * kommen aus Feldern, die retrieve() ohnehin liefert (type, authority,
- * status). Wenn Gruppieren nichts bringt, ist das ein Ergebnis.
+ * Arm D: the same claims, grouped. No new primitive — the sections come
+ * from fields retrieve() already provides (type, authority, status). If
+ * grouping doesn't help, that is a result too.
  */
 export function sectionedContext(claims, contested) {
   if (!claims.length) return '';
@@ -88,16 +95,16 @@ export function sectionedContext(claims, contested) {
   return parts.join('\n');
 }
 
-/** Der Abruf selbst — identisch fuer C, D, E; F ruft spaeter mit dem Entwurf ab. */
+/** The retrieval itself — identical for C, D, E; F retrieves later with the draft. */
 export function recall(root, query, { top = 5, min = 5.0 } = {}) {
   const cap = grantProject(PROJECT);
   const r = retrieval.retrieve(root, query, cap, { top });
-  // Exakt-Treffer gehen an der Schwelle vorbei — wie im Abruf-Hook.
+  // Exact hits bypass the threshold — same as in the retrieval hook.
   const kept = r.claims.filter((c) => c.score >= min || (c.exact && c.exact.length));
   return { ...r, claims: kept, dropped: r.claims.length - kept.length };
 }
 
-/** Die Widerspruchspruefung fuer E und F: beratend, mit Zitat, nie Veto. */
+/** The contradiction check for E and F: advisory, with citation, never a veto. */
 export function contradictionPrompt(task, draft, claims) {
   const notes = claims.length
     ? claims.map(claimLine).join('\n')
@@ -115,7 +122,7 @@ export function buildPrompt(arm, task, ctx) {
   if (arm === 'B') return `Bisheriges Gespraech:\n${ctx.history.join('\n')}\n\nFrage: ${task.prompt}`;
   if (arm === 'C') return `${ctx.flat}\n\nFrage: ${task.prompt}`.trim();
   if (arm === 'D') return `${ctx.sectioned}\n\nFrage: ${task.prompt}`.trim();
-  if (arm === 'E') return `${ctx.flat}\n\nFrage: ${task.prompt}`.trim();  // Entwurfsphase
-  if (arm === 'F') return task.prompt;                                     // Entwurfsphase
-  throw new Error(`unbekannter Arm ${arm}`);
+  if (arm === 'E') return `${ctx.flat}\n\nFrage: ${task.prompt}`.trim();  // draft phase
+  if (arm === 'F') return task.prompt;                                     // draft phase
+  throw new Error(`unknown arm ${arm}`);
 }
