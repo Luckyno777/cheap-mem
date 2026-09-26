@@ -1,7 +1,7 @@
 {
   "noOptions": [
     {
-      "score": 0.23551267560477368,
+      "score": 0.26864680509503447,
       "type": "decision",
       "project": null,
       "source": "global/decisions.jsonl",
@@ -22,7 +22,7 @@
       "langCertain": false
     },
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "alpha",
       "source": "projects/alpha/decisions.jsonl",
@@ -43,7 +43,7 @@
       "langCertain": false
     },
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "beta",
       "source": "projects/beta/decisions.jsonl",
@@ -66,7 +66,7 @@
   ],
   "top10": [
     {
-      "score": 0.23551267560477368,
+      "score": 0.26864680509503447,
       "type": "decision",
       "project": null,
       "source": "global/decisions.jsonl",
@@ -87,7 +87,7 @@
       "langCertain": false
     },
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "alpha",
       "source": "projects/alpha/decisions.jsonl",
@@ -108,7 +108,7 @@
       "langCertain": false
     },
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "beta",
       "source": "projects/beta/decisions.jsonl",
@@ -131,7 +131,7 @@
   ],
   "withProjectAlpha": [
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "alpha",
       "source": "projects/alpha/decisions.jsonl",
@@ -154,7 +154,7 @@
   ],
   "withProjectGlobal": [
     {
-      "score": 0.23551267560477368,
+      "score": 0.26864680509503447,
       "type": "decision",
       "project": null,
       "source": "global/decisions.jsonl",
@@ -177,7 +177,7 @@
   ],
   "withMmr": [
     {
-      "score": 0.23551267560477368,
+      "score": 0.26864680509503447,
       "type": "decision",
       "project": null,
       "source": "global/decisions.jsonl",
@@ -198,7 +198,7 @@
       "langCertain": false
     },
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "alpha",
       "source": "projects/alpha/decisions.jsonl",
@@ -219,7 +219,7 @@
       "langCertain": false
     },
     {
-      "score": 0.23297674649556968,
+      "score": 0.26575409772212677,
       "type": "decision",
       "project": "beta",
       "source": "projects/beta/decisions.jsonl",
@@ -242,7 +242,7 @@
   ],
   "exactHitsAlpha": [
     {
-      "score": 2.1218586233731793,
+      "score": 2.42038157211186,
       "type": "decision",
       "project": "alpha",
       "source": "projects/alpha/decisions.jsonl",
@@ -269,7 +269,7 @@
   ],
   "exactHitsNoLimits": [
     {
-      "score": 2.1218586233731793,
+      "score": 2.42038157211186,
       "type": "decision",
       "project": "beta",
       "source": "projects/beta/decisions.jsonl",

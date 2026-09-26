@@ -47,6 +47,42 @@
 //     `limits.capability`.
 // Re-running the corpus script against the CURRENT (repaired) file and
 // diffing its output against the saved fixture is exactly test 1 below.
+//
+// **Fixture regenerated 2026-09-26 — cause measured, not guessed, and
+// named here per BUILDING.md's "smaller provable number" rule.** Test 1
+// went red in the full suite with every field byte-identical except
+// `score`, off by a uniform factor (0.9994778515408691…, IDENTICAL
+// across every entry regardless of magnitude — 0.2353897.../0.23551267...
+// = 2.12075.../2.12185862... to 15 digits). A uniform ratio independent
+// of magnitude rules out BM25/IDF/coverage-floor (`git log -S
+// COVERAGE_FLOOR -- src/search.mjs` shows exactly one commit, predating
+// this repair entirely) — those scale per-document, not by one shared
+// constant. It reproduces exactly `search.mjs`'s recency bonus
+// (`score *= 1 + 0.15 * exp(-ageDays/90)`, all three corpus entries
+// sharing one `ts`, hence one `ageDays`, hence one identical factor):
+// the fixture was recorded when this test file was written (2026-09-20,
+// `git log` on this file), the corpus's `ts` is pinned at
+// `FIXED_NOW` = 2026-01-01, and `ageDays = floor(now/86400000) -
+// floor(stamped/86400000)` used the REAL clock (262 days old then, 268
+// six days later) while nothing else about the code, the query, or the
+// corpus changed at all — confirmed by computing that exact ratio from
+// the two ages independently and matching it to 13 significant figures.
+// So: not an intended scoring change (no commit touched it), and not
+// really "an unintended change" in the sense of a regression either —
+// no commit did this, elapsed real time did, and it would have gone
+// stale again on every later run regardless of any future edit. That
+// makes this the flaky-probe case BUILDING.md's house rule names: fixed
+// at the root rather than reported-and-left, by giving `search()` (and
+// `exactHits()`, one line forwarding `limits.now` into its internal
+// `search()` call) the SAME injectable `now` every other recency-shaped
+// module here already takes (`archive.mjs`, `audit.mjs`, `board.mjs`) —
+// see `now`'s own doc comment on `search()`'s options. Default
+// (`Date.now()`) is unchanged, so no existing caller's behaviour moves;
+// this file is simply the first caller to pass it, pinned to the same
+// `FIXED_NOW` the corpus already uses, which fixes `ageDays` at 0 for
+// every entry (constant +15% recency factor) and stops it drifting ever
+// again. The fixture below was regenerated against the now-deterministic
+// scoring for that same reason.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -85,15 +121,24 @@ function buildCorpus() {
 
 function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
 
-function runScenarios(index) {
+// `now` is forwarded into every call below (search()'s own scoring, and
+// exactHits()'s internal search() call via its `limits.now` — see
+// search.mjs's `exactHits` for that one-line forward). Without it, each
+// hit's recency bonus ages against the REAL clock while the corpus's
+// `ts` stays pinned at `FIXED_NOW` forever, so a score recorded today
+// stops matching a re-run made on any other day — measured 2026-09-26,
+// see the header comment above for the full story. Pinning it to
+// `FIXED_NOW` here (the same instant the corpus was written) makes the
+// recency factor a constant for every entry, on every machine, forever.
+function runScenarios(index, now) {
   return {
-    noOptions: search.search(index, 'marker', {}),
-    top10: search.search(index, 'marker', { top: 10 }),
-    withProjectAlpha: search.search(index, 'marker', { project: 'alpha', top: 10 }),
-    withProjectGlobal: search.search(index, 'marker', { project: 'global', top: 10 }),
-    withMmr: search.search(index, 'marker', { top: 10, mmr: true }),
-    exactHitsAlpha: search.exactHits(index, 'alpha-marker-alpha-beta', 10, { project: 'alpha' }),
-    exactHitsNoLimits: search.exactHits(index, 'beta-marker-alpha-beta', 10, {}),
+    noOptions: search.search(index, 'marker', { now }),
+    top10: search.search(index, 'marker', { top: 10, now }),
+    withProjectAlpha: search.search(index, 'marker', { project: 'alpha', top: 10, now }),
+    withProjectGlobal: search.search(index, 'marker', { project: 'global', top: 10, now }),
+    withMmr: search.search(index, 'marker', { top: 10, mmr: true, now }),
+    exactHitsAlpha: search.exactHits(index, 'alpha-marker-alpha-beta', 10, { project: 'alpha', now }),
+    exactHitsNoLimits: search.exactHits(index, 'beta-marker-alpha-beta', 10, { now }),
   };
 }
 
@@ -113,7 +158,7 @@ test('search()/exactHits(): no capability given is byte-identical to the pre-rep
     // does) compares a live Map against the `{}` JSON.stringify already
     // collapsed it to when the fixture was recorded — a false mismatch
     // about serialisation, not about scope.
-    const actual = JSON.parse(JSON.stringify(runScenarios(index)));
+    const actual = JSON.parse(JSON.stringify(runScenarios(index, FIXED_NOW.getTime())));
     const fixturePath = path.join(HERE, 'fixtures', 'search-capability-baseline.json');
     const expected = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
     assert.deepEqual(actual, expected,

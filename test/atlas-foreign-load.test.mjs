@@ -55,6 +55,16 @@ import { biasVerdict } from '../bench/atlas/phase-real.mjs';
 const DEGRADED_AT = 1000;
 const FAIL_AT = 5000;
 
+/**
+ * Set by the ROT test below, read by the documentary test right after it —
+ * so the "did the old sensors ALSO stay blind on THIS host" question reuses
+ * that test's own real-load measurement window instead of paying for a
+ * second 3-second spawn-and-sleep round just to look at the same fact
+ * twice. `null` until the ROT test runs (or if it was filtered out), which
+ * the documentary test treats as "nothing to check" rather than a pass.
+ */
+let lastRealLoadMeasurement = null;
+
 /** Spawn `count` CPU-bound child processes that spin until killed, for tests that need REAL foreign load rather than a fabricated `foreignLoadDelta`. Always killed in the caller's `finally`. */
 function spawnCpuFressers(count) {
   const children = [];
@@ -493,13 +503,17 @@ test('ROT (the real finding this whole fix answers): under 2x-oversubscribed rea
     execFileSync('sleep', ['1.5']); // stand-in for a timed CLI call running while the fressers churn
     const after = captureForeignLoad(calibBaseline);
     const load = foreignLoadDelta(before, after, calibBaseline);
+    lastRealLoadMeasurement = load; // shared with the documentary test right below, see its own comment
 
-    // This is the exact bug reported: steal + cgroup read close to zero
-    // even while the machine is genuinely, heavily contended. Documented
-    // as a fact about this container's sensors, not asserted away.
-    assert.ok((load.deniedMsPerSec ?? 0) < FOREIGN_LOAD_DENIED_MS_PER_SEC,
-      `expected the OLD sensors to stay under threshold in this container even under real load `
-      + `(this is the bug the fix answers) — got deniedMsPerSec=${load.deniedMsPerSec}`);
+    // Whether steal + cgroup read close to zero here is a fact about THIS
+    // HOST's virtualization layer (see the documentary test right after
+    // this one, and FOREIGN_LOAD_DENIED_MS_PER_SEC's own derivation
+    // comment in bench/atlas/core.mjs) — not something this test can
+    // force, and not the guarantee this fix actually has to deliver. What
+    // the fix must deliver, unconditionally, on ANY host, is the next two
+    // assertions: something new catches real load, and the end-to-end
+    // verdict reflects it. Those do not depend on the old sensors having
+    // stayed blind, so they are asserted here regardless of that fact.
 
     // The new sensors must catch what the old ones missed: EITHER PSI or
     // the calibration loop (or, if the baseline capture itself could not
@@ -521,6 +535,38 @@ test('ROT (the real finding this whole fix answers): under 2x-oversubscribed rea
   } finally {
     killAll(fressers);
   }
+});
+
+test('documentary: on THIS host, did the OLD sensors (steal + cgroup) ALSO stay blind under the same real load '
+  + 'the ROT test above measured?', (t) => {
+  // This checks the historical finding itself (bauplan 2, 2026-09-20: on
+  // that host, steal read exactly 0.00 under this identical scenario,
+  // because that host's hypervisor never charged this guest steal time
+  // for its OWN self-generated 2x oversubscription — see the long file
+  // header comment). That is a fact about a HOST's virtualization layer,
+  // not about this code, and it is not reproducible from inside a guest:
+  // some hosts charge self-induced contention as real steal, some don't,
+  // and a test cannot pick which kind of host it runs on. Per BUILDING.md
+  // rule 11, this is measured against the real reading rather than an
+  // assumption, and reported — never silently passed or dropped — when it
+  // does not hold here.
+  if (lastRealLoadMeasurement === null) {
+    t.skip('the ROT test above did not run (filtered out?), so there is no shared real-load measurement to '
+      + 'check this documentary claim against — it needs that test\'s own window, not a fresh one');
+    return;
+  }
+  const stayedBlind = (lastRealLoadMeasurement.deniedMsPerSec ?? 0) < FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  if (!stayedBlind) {
+    t.skip(`environment-dependent, not reproduced on this host: steal/cgroup did NOT stay blind under `
+      + `self-generated 2x CPU oversubscription (deniedMsPerSec=${lastRealLoadMeasurement.deniedMsPerSec}, `
+      + `threshold ${FOREIGN_LOAD_DENIED_MS_PER_SEC}) — this host's hypervisor charges the guest's own `
+      + `self-induced contention as real steal time, unlike the host the original finding was measured on. `
+      + `This is a fact about the host, not a regression: the fix's actual guarantee (new sensors catch real `
+      + `load; the verdict comes back not-measured) is asserted unconditionally in the ROT test above and is `
+      + `unaffected by this host difference.`);
+    return;
+  }
+  assert.ok(stayedBlind, 'sanity: the branch above already returned when this was false');
 });
 
 test('GRUEN (positive control): the identical real measurement, with the fressers gone, passes cleanly', { timeout: 20000 }, (t) => {
