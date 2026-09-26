@@ -7,7 +7,7 @@
 // costs nothing at retrieval time. Embeddings cost one call per QUERY;
 // this costs one per digest run.
 //
-// Measured on the eval corpus (eval/frageworte-wirkung.mjs): gold in
+// Measured on the eval corpus (eval/query-words-effect.mjs): gold in
 // context 24/63 -> 28/63, nothing lost, precision 10 % -> 11 %.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';

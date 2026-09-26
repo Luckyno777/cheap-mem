@@ -1,18 +1,26 @@
-// eval/tasks.mjs — die Aufgaben, in Vokabular B, mit DETERMINISTISCHER Bewertung.
+// eval/tasks.mjs — the tasks, in vocabulary B, with DETERMINISTIC grading.
 //
-// Kein Modell als Richter. Ein LLM-Judge waere das naechste unkalibrierte
-// Instrument in einem Projekt, das gerade drei davon gefunden hat. Jede
-// Aufgabe ist deshalb so geschnitten, dass Erfolg an einer Regel haengt:
-// enthaelt die Antwort X, enthaelt sie Y nicht.
+// No model as a judge. An LLM judge would be the next uncalibrated
+// instrument in a project that just found three of those. Every task is
+// therefore cut so that success hinges on a rule: does the answer
+// contain X, does it not contain Y.
 //
-// Das kostet Ausdrucksstaerke — Antwortqualitaet im weiteren Sinn wird so
-// NICHT gemessen. Das ist eine bewusste Grenze und steht im Bericht.
+// This costs expressiveness — answer quality in the broader sense is
+// NOT measured this way. That is a deliberate limit and is stated in
+// the report.
 //
-// Gates sind KEINE Punktabzuege. Sie sind Ausschlusskriterien: wer eine
-// korrigierte Angabe durch die veraltete ersetzt, hat nicht 'etwas
-// schlechter' geantwortet, sondern falsch.
+// Gates are NOT point deductions. They are exclusion criteria: whoever
+// replaces a corrected fact with the stale one has not answered
+// "somewhat worse," they have answered wrong.
+//
+// The task prompts, `must`/`mustNot` patterns and `kontrollen` controls
+// below are the actual test content, in German to match the German
+// corpus (see eval/world.mjs) — they are measurement substance, not
+// documentation, and stay as they are. The `final` split is additionally
+// frozen byte-for-byte (test/eval-frozen.test.mjs); nothing in this file
+// touches it.
 
-/** dev = Entwicklung, val = Auswahl zwischen Varianten, final = eingefroren */
+/** dev = development, val = choosing between variants, final = frozen */
 export const SPLITS = ['dev', 'val', 'final'];
 
 const T = (o) => o;
@@ -38,7 +46,7 @@ const T = (o) => o;
 const zahl = (n) => new RegExp(`(?<![\\w-])${n}(?![\\w-])`);
 
 export const TASKS = [
-  // ---- A: faktisches Langzeitwissen ----------------------------------
+  // ---- A: factual long-term knowledge --------------------------------
   T({ id: 'A1', klasse: 'A', split: 'dev', gold: ['F-tz'],
       prompt: 'Ich baue den Monatsbericht fuer die Kunden. In welcher Form sollen die Zeitstempel darin stehen? Antworte in einem Satz.',
       must: [/utc/i], mustNot: [], gates: {} }),
@@ -49,7 +57,7 @@ export const TASKS = [
       prompt: 'Der Support meldet, dass die Zeitstempel in der Liste verwirren. Was ist bei uns dazu festgelegt? Antworte in einem Satz.',
       must: [/utc/i], mustNot: [], gates: {} }),
 
-  // ---- B: Benutzerpraeferenz -----------------------------------------
+  // ---- B: user preference ------------------------------------------
   T({ id: 'B1', klasse: 'B', split: 'dev', gold: ['F-deploy'], adversarial: true,
       prompt: 'Wie bringe ich den Dienst bei der Auslieferung so zum Laufen, dass er einen Neustart ueberlebt? Antworte in einem Satz.',
       must: [/systemd/i], mustNot: [/docker[- ]?compose|kompositionsdatei/i], gates: { false_memory: [/docker[- ]?compose|kompositionsdatei/i] } }),
@@ -60,7 +68,7 @@ export const TASKS = [
       prompt: 'Ein Kollege schlaegt vor, die Auslieferung kuenftig ueber Container zu fahren. Passt das zu unserem Aufbau? Antworte in einem Satz.',
       must: [/systemd|einzelne|eine vm|passt nicht|nein/i], mustNot: [], gates: {} }),
 
-  // ---- C: historische Architekturentscheidung ------------------------
+  // ---- C: historical architecture decision ---------------------------
   T({ id: 'C1', klasse: 'C', split: 'dev', gold: ['F-db'], adversarial: true,
       prompt: 'Wo legen wir die neuen Sitzungsdaten ab? Antworte in einem Satz.',
       must: [/datei/i], mustNot: [/postgres|mysql|mariadb|redis/i], gates: { false_memory: [/postgres|mysql|mariadb/i] } }),
@@ -71,7 +79,7 @@ export const TASKS = [
       prompt: 'Brauchen wir fuer die Ablage der Auswertung eine externe Datenbank? Antworte mit ja oder nein und einem Halbsatz Begruendung.',
       must: [/\bnein\b|\bkein/i], mustNot: [], gates: { false_memory: [/^\s*ja\b/i] } }),
 
-  // ---- D: Korrektur (alte Angabe wurde ersetzt) -----------------------
+  // ---- D: correction (an old fact was replaced) ------------------------
   T({ id: 'D1', klasse: 'D', split: 'dev', gold: ['F-port-neu'], adversarial: true,
       prompt: 'Welchen Port trage ich fuer die Gesundheitspruefung ein? Nenne die Zahl.',
       must: [/9443/], mustNot: [/8080/], gates: { correction_failure: [/8080/] } }),
@@ -87,10 +95,10 @@ export const TASKS = [
       prompt: 'Die Ueberwachung meldet nichts. Auf welchem Port laeuft die Gesundheitspruefung? Nenne die Zahl.',
       must: [/9443/], mustNot: [/8080/], gates: { correction_failure: [/8080/] } }),
 
-  // ---- E: Widerspruch --------------------------------------------------
+  // ---- E: contradiction ------------------------------------------------
   T({ id: 'E1', klasse: 'E', split: 'dev', gold: ['F-konflikt-a', 'F-konflikt-b'],
       prompt: 'Welche Obergrenze bei der Bildgroesse gilt beim Hochladen? Antworte in einem Satz.',
-      // Erfolg = den Widerspruch offenlegen, nicht still eine Seite waehlen.
+      // Success = surfacing the contradiction, not silently picking a side.
       must: [/(\b2\b[\s\S]*\b10\b)|(\b10\b[\s\S]*\b2\b)|widerspr|uneinheitlich|zwei angaben|unklar|nicht eindeutig/i],
       mustNot: [], gates: { silent_pick: [/^(?!.*(widerspr|uneinheitlich|unklar|nicht eindeutig|zwei)).*\b(2|10)\s?mb/is] } }),
   T({ id: 'E2', klasse: 'E', split: 'val', gold: ['F-konflikt-a', 'F-konflikt-b'],
@@ -102,7 +110,7 @@ export const TASKS = [
       must: [/widerspr|uneinheitlich|unklar|nicht eindeutig|zwei angaben|ruecksprache|nachfragen/i],
       mustNot: [], gates: {} }),
 
-  // ---- F: irrelevantes Memory (aus dem Prompt allein loesbar) ----------
+  // ---- F: irrelevant memory (solvable from the prompt alone) -----------
   T({ id: 'F1', klasse: 'F', split: 'dev', gold: [],
       prompt: 'Wandle 2500 Millisekunden in Sekunden um. Antworte nur mit der Zahl.',
       must: [/2[.,]5/], mustNot: [], gates: { pollution: [/systemd|utc|9443|postgres|sitzungsdaten/i] } }),
@@ -114,7 +122,7 @@ export const TASKS = [
       prompt: 'Eine Liste hat 12 Eintraege, auf eine Seite passen 5. Wie viele Seiten werden gedruckt? Antworte nur mit der Zahl.',
       must: [/\b3\b/], mustNot: [], gates: { pollution: [/systemd|utc|9443|postgres|sitzungsdaten/i] } }),
 
-  // ---- H: Historical Lock-In (die Anforderung hat sich geaendert) ------
+  // ---- H: historical lock-in (the requirement has since changed) -------
   T({ id: 'H1', klasse: 'H', split: 'dev', gold: ['F-lockin'],
       prompt: 'Der neue Kunde kann Tabellen nicht einlesen und verlangt die Auswertung ueber eine Schnittstelle. In welchem Berichtsformat geben wir sie ihm? Antworte in einem Satz.',
       must: [/json/i], mustNot: [], gates: { lock_in: [/\bcsv\b[^.]*\b(bleibt|weiterhin|stattdessen|nehmen wir)\b/i] } }),
@@ -125,11 +133,11 @@ export const TASKS = [
       prompt: 'Gilt die alte Festlegung zum Berichtsformat noch, wenn der Kunde etwas anderes verlangt? Antworte mit ja oder nein und einem Halbsatz.',
       must: [/\bnein\b|nicht mehr|angepasst/i], mustNot: [], gates: { lock_in: [/^\s*ja\b/i] } }),
 
-  // ---- Erweiterung 2026-09-06: mehr Aufgaben = mehr Trennschaerfe ------
-  // Vier Laeufe derselben Aufgabe sind KEINE vier Beobachtungen. Der
-  // Vorzeichentest laeuft ueber Aufgaben; bei fuenf ist das kleinste
-  // erreichbare p gleich 1,000, die Stichprobe kann also nichts zeigen.
-  // Ab sechs abweichenden Aufgaben ist p < 0,05 ueberhaupt erst moeglich.
+  // ---- Extension 2026-09-06: more tasks = more discriminating power ---
+  // Four runs of the same task are NOT four observations. The sign test
+  // runs over tasks; at five, the smallest reachable p equals 1.000, so
+  // the sample can show nothing. p < 0.05 only becomes possible at all
+  // from six differing tasks on.
   T({ id: 'A4', klasse: 'A', split: 'dev', gold: ['F-backup'],
       prompt: 'Wie oft wird gesichert und wie weit koennen wir zurueck? Antworte in einem Satz.',
       must: [/03:00|nachts|taeglich/i], mustNot: [], gates: {} }),
@@ -203,25 +211,25 @@ export const TASKS = [
       prompt: 'Der Abnehmer akzeptiert kein Tabellenformat mehr. Was liefern wir? Antworte in einem Satz.',
       must: [/json|schnittstelle|anders|anpass/i], mustNot: [],
       gates: { lock_in: [/\bcsv\b[^.]*\b(bleibt|weiterhin|stattdessen)\b/i] } }),
-  // ---- I: Entity-Lookup (2026-09-06, nur dev/val) ---------------------
+  // ---- I: entity lookup (2026-09-06, dev/val only) ---------------------
   //
-  // Maschinenfoermige Terme: Pfad, Vorgangsnummer, Dienstname, Fassung.
-  // Die Aufgabe nennt die Sache mit einem ANDEREN Wort als der Korpus —
-  // sonst misst sie Zeichenketten-Vergleich statt Abruf. Aber sie nennt
-  // das THEMA, denn wer nach einem Pfad fragt, weiss wovon er redet.
+  // Machine-shaped terms: path, case number, service name, version. The
+  // task names the thing with a DIFFERENT word than the corpus — else it
+  // measures string comparison instead of retrieval. But it names the
+  // TOPIC, since whoever asks about a path knows what they're talking about.
   //
-  // Die erste Fassung ging zu weit: bei vier von sechs Aufgaben gab es
-  // gar keinen gemeinsamen Term mehr, das Gold war nicht im Fang, Rang
-  // unendlich. Das ist kein schwerer Abruf, das ist ein Raetsel — und
-  // ein Benchmark, dessen Gold unerreichbar ist, misst nichts. Genau in
-  // diese Falle ist dieses Verzeichnis schon einmal getappt
-  // (siehe README, "Unabhaengigkeit ueberoptimiert").
+  // The first version went too far: on four of six tasks there was no
+  // shared term left at all, the gold was not in the capture, rank
+  // infinite. That is not hard retrieval, that is a riddle — and a
+  // benchmark whose gold is unreachable measures nothing. This directory
+  // has fallen into exactly this trap once before (see README,
+  // "over-optimized independence").
   //
-  // Bewusst KEINE final-Aufgaben: der final-Split ist am 2026-09-06
-  // versiegelt (test/eval-frozen.test.mjs). Wer ihn nachtraeglich
-  // erweitert, hebt das Siegel auf und misst danach, wie gut die
-  // Aufgaben an das Ergebnis angepasst wurden. Diese Klasse waechst in
-  // dev/val und wird spaeter EIGENS eingefroren, wenn ueberhaupt.
+  // Deliberately NO final tasks: the final split was sealed on
+  // 2026-09-06 (test/eval-frozen.test.mjs). Extending it after the fact
+  // lifts the seal and then measures how well the tasks were fitted to
+  // the result. This class grows in dev/val and gets frozen separately
+  // later, if at all.
   T({ id: 'I1', klasse: 'I', split: 'dev', gold: ['F-pfad'],
       prompt: 'In welcher Datei liegt die Selbstpruefung der Redaktion? Nenne nur den Pfad.',
       must: [/src\/redaktion\/kanarienvogel\.mjs/], mustNot: [], gates: {} }),
@@ -241,15 +249,15 @@ export const TASKS = [
       prompt: 'Darf ich die Vorlagenbibliothek auf die neueste Fassung heben? Nenne die Fassung, auf der wir stehen.',
       must: [/3\.7\.2/], mustNot: [], gates: {} }),
 
-  // ---- Ausbau D und I (2026-09-06, nur dev/val) -----------------------
+  // ---- Extending D and I (2026-09-06, dev/val only) --------------------
   //
-  // Die beiden Klassen, bei denen der zustandslose Grundwert null ist —
-  // dort und nur dort kann Memory etwas beweisen. Sechs Aufgaben trugen
-  // keine Statistik; mit je achtzehn ist ein Hebel, der drei gewinnt,
-  // von Zufall unterscheidbar.
+  // The two classes whose stateless baseline is zero — there and only
+  // there can memory prove anything. Six tasks carried no statistics;
+  // at eighteen each, a lever that wins three is distinguishable from
+  // chance.
   //
-  // Jede D-Aufgabe hat ein GATE auf den alten Wert: wer die ersetzte
-  // Angabe nennt, hat nicht schlechter geantwortet, sondern falsch.
+  // Every D task has a GATE on the old value: whoever names the
+  // replaced fact has not answered worse, they have answered wrong.
   T({ id: 'D7', klasse: 'D', split: 'dev', gold: ['F-timeout-neu'], adversarial: true,
       prompt: 'Nach wie vielen Sekunden geben wir eine haengende Anfrage auf? Nenne nur die Zahl.',
       must: [zahl(45)], mustNot: [zahl(12)], gates: { correction_failure: [/\b12\b/] } ,
@@ -292,9 +300,9 @@ export const TASKS = [
       prompt: 'Wonach ist die Liste der Vorgaenge sortiert? Antworte in einem Satz.',
       must: [/aenderung|geaendert|zuletzt/i], mustNot: [/alphabet/i], gates: { correction_failure: [/nach name|alphabet/i] } }),
   T({ id: 'D14', klasse: 'D', split: 'val', gold: ['F-sortierung-neu'], adversarial: true,
-      // `must` darf kein Wort enthalten, das schon in der Frage steht —
-      // die erste Fassung liess "oben" zu und war damit selbstbeantwortend
-      // (von eval/independence.mjs gefangen, 1 von 63).
+      // `must` may not contain a word that already sits in the question —
+      // the first version allowed "near the top" and was thereby
+      // self-answering (caught by eval/independence.mjs, 1 of 63).
       prompt: 'Ein Betrieb sucht seinen Vorgang von gestern. Findet er ihn weit oben, und wonach richtet sich das? Antworte in einem Satz.',
       must: [/aenderung|geaendert|zuletzt/i], mustNot: [], gates: { correction_failure: [/nach name|alphabet/i] } }),
   T({ id: 'D15', klasse: 'D', split: 'dev', gold: ['F-frist-neu'], adversarial: true,
@@ -313,9 +321,9 @@ export const TASKS = [
         negativ: ['14', '14 Tage', 'Steht bei uns nirgends.'],
         irrefuehrend: ['14 Tage. Quelle V-regel-21.', 'Siehe F-wert-21.'],
       } }),
-  // Die Einheit gehoert ins Muster: die Frage lautet "wie viel Prozent",
-  // und eine blanke `3` kann aus einer Quellenkennung stammen. Siehe die
-  // lange Begruendung an `ohneQuellen`.
+  // The unit belongs in the pattern: the question asks "how many
+  // percent," and a bare `3` could come from a source identifier. See
+  // the long rationale at `ohneQuellen`.
   T({ id: 'D17', klasse: 'D', split: 'dev', gold: ['F-skonto-neu'], adversarial: true,
       prompt: 'Wie viel Abzug gewaehren wir Schnellzahlern? Nenne nur die Zahl.',
       must: [/\b3\s*(%|prozent)/i], mustNot: [/\b2\s*(%|prozent)/i],
@@ -330,8 +338,8 @@ export const TASKS = [
       must: [/\b3\s*(%|prozent)/i], mustNot: [],
       gates: { correction_failure: [/heute\s*bei\s*2|weiterhin\s*2/i] },
       kontrollen: {
-        // Die vier Antworten aus dem gespeicherten Lauf, die als Erfolg
-        // gezaehlt wurden, obwohl sie zehn Prozent sagen.
+        // The four answers from the stored run that were counted as
+        // success even though they say ten percent.
         positiv: ['3 Prozent.', 'Heute sind es 3 %.', 'Heute 3 Prozent, Quelle V-preisstaffel-3.'],
         negativ: ['10 Prozent.', 'Zwei Prozent, wie gehabt.'],
         irrefuehrend: ['10 Prozent. Quelle V-preisstaffel-3.', '10 Prozent (V-preisstaffel-3).'],
@@ -378,37 +386,36 @@ export const TASKS = [
 
 
 /**
- * VORAB FESTGELEGT am 2026-09-06, vor dem ersten Lauf auf dem
- * eingefrorenen final-Split.
+ * PRE-REGISTERED on 2026-09-06, before the first run on the frozen
+ * final split.
  *
- * Der gepaarte Lauf vom Vortag zeigte etwas, das die binaere Bewertung
- * nicht sieht: OHNE den Gold-Claim antwortete das Modell auf D3 mit
- * "Port 3000" aus einem Ablenkungseintrag und auf E2 mit einer frei
- * erfundenen "16-MB-Grenze"; MIT ihm blieb es zurueckhaltend
- * beziehungsweise sachlich richtig. Beides zaehlte gleich als Misserfolg.
+ * The paired run from the day before showed something the binary
+ * grading does not see: WITHOUT the gold claim, the model answered D3
+ * with "port 3000" from a distractor entry and E2 with a freely
+ * invented "16 MB limit"; WITH it, it stayed cautious or factually
+ * correct respectively. Both counted equally as failure.
  *
- * Die Hypothese daraus: der Nutzen von Memory liegt womoeglich weniger
- * darin, die richtige Antwort zu LIEFERN, als darin, das Erfinden zu
- * VERHINDERN. Diese Hypothese stammt aus den Daten und darf deshalb nicht
- * an denselben Daten geprueft werden — sie wird hier festgeschrieben und
- * am eingefrorenen Split gemessen.
+ * The hypothesis from that: memory's benefit may lie less in DELIVERING
+ * the right answer than in PREVENTING invention. This hypothesis comes
+ * from the data and therefore must not be tested on the same data — it
+ * is fixed here and measured on the frozen split.
  *
- * Gezaehlt wird deterministisch: eine ZAHL in der Antwort, die weder in
- * der Frage noch im uebergebenen Kontext vorkommt. Keine Modellbewertung,
- * keine Wortlisten, kein Ermessen.
+ * Counted deterministically: a NUMBER in the answer that occurs neither
+ * in the question nor in the supplied context. No model grading, no
+ * word lists, no judgment call.
  *
- * Bewusste Grenze: eine richtig gerechnete Zahl (Klasse F) zaehlt
- * ebenfalls als "erfunden". Deshalb wird die Kennzahl NUR auf Aufgaben mit
- * Gold ausgewertet, nie auf Klasse F.
+ * Deliberate limit: a correctly computed number (class F) also counts
+ * as "invented." So the metric is evaluated ONLY on tasks with gold,
+ * never on class F.
  */
 export function erfundeneZahlen(answer, prompt, context) {
-  const bekannt = new Set(String(`${prompt}\n${context ?? ''}`).match(/\d+(?:[.,]\d+)?/g) ?? []);
-  const inAntwort = String(answer ?? '').match(/\d+(?:[.,]\d+)?/g) ?? [];
-  const erfunden = inAntwort.filter((z) => !bekannt.has(z));
-  return { gesamt: inAntwort.length, erfunden: erfunden.length, welche: [...new Set(erfunden)] };
+  const known = new Set(String(`${prompt}\n${context ?? ''}`).match(/\d+(?:[.,]\d+)?/g) ?? []);
+  const inAnswer = String(answer ?? '').match(/\d+(?:[.,]\d+)?/g) ?? [];
+  const invented = inAnswer.filter((z) => !known.has(z));
+  return { gesamt: inAnswer.length, erfunden: invented.length, welche: [...new Set(invented)] };
 }
 
-/** Deterministische Bewertung. Kein Modell. */
+/** Deterministic grading. No model. */
 /**
  * **Post-hoc correction to the D-class number contracts, 2026-09-17.**
  *

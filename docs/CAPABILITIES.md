@@ -696,7 +696,7 @@ node bench/ranking-attack.mjs               # flooding and rank manipulation
 node bench/byzantine.mjs                    # corrupted and hostile log lines
 node bench/alias-fragmentation.mjs --root <mem> --set "a,b,c"
 node bench/duplicate-rate.mjs --root <mem>  # does the digest consolidate?
-node eval/kennzahlen.mjs                    # retrieval ceiling and floor, no model
+node eval/metrics.mjs                       # retrieval ceiling and floor, no model
 mem doctor                                  # what is actually configured here
 ```
 

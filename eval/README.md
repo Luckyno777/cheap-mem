@@ -1,517 +1,507 @@
-# eval/ — macht cheap-mem einen Agenten messbar besser?
+# eval/ — does cheap-mem make an agent measurably better?
 
-Diese Werkzeuge beantworten die Frage nicht durch Argumente. Stand:
-**unbewiesen** — die Baseline mit Modell in der Schleife ist noch nicht
-gelaufen. Was hier schon misst, misst ohne Modell.
+These tools do not answer the question by argument. Status:
+**unproven** — the baseline with a model in the loop has not run yet.
+What already measures here measures without a model.
 
-## Das Prinzip: Modelle nur, wo Intelligenz gebraucht wird
+## The principle: models only where intelligence is actually needed
 
-Ein Benchmark, der hunderte Modellaufrufe verbrennt, um ein Werkzeug zu
-pruefen, dessen ganzer Sinn Sparsamkeit ist, widerlegt sich selbst. Die
-Frage zerfaellt deshalb erst, und nur ein Teil bleibt fuer ein Modell uebrig:
+A benchmark that burns hundreds of model calls to test a tool whose
+whole point is frugality refutes itself. So the question is split
+apart first, and only a part of it is left for a model:
 
-| Teilfrage | Modell? |
+| Sub-question | Model? |
 |---|---|
-| Kommt die benoetigte Angabe ueberhaupt im Kontext an? | nein — **Obergrenze** des Nutzens |
-| Wie viel des Eingespeisten ist Ballast? | nein — **Untergrenze** des Schadens |
-| Wird eine Korrektur wirksam, ein Konflikt gemeldet, Autoritaet gewahrt? | nein — reiner Zustand |
-| Was kostet der Kontext? | nein — exakt zaehlbar |
-| **Aendert die Angabe die Antwort, wenn sie ankommt?** | **ja, nur hier** |
+| Does the needed fact arrive in context at all? | no — **ceiling** on the benefit |
+| How much of what's fed in is noise? | no — **floor** on the harm |
+| Does a correction take effect, a conflict get reported, is authority respected? | no — pure state |
+| What does the context cost? | no — exactly countable |
+| **Does the fact change the answer, when it arrives?** | **yes, only here** |
 
-`kennzahlen.mjs` beantwortet die ersten vier fuer 0 USD und sagt, ob der
-fuenfte sich lohnt. Kommt das Gold nie an, ist jeder Modellversuch
-verschwendetes Geld.
+`metrics.mjs` answers the first four for 0 USD and says whether the
+fifth is worth it. If the gold never arrives, every model trial is
+wasted money.
 
-## Reihenfolge
+## Order
 
-| Datei | beantwortet | Modell noetig |
+| File | answers | model needed |
 |---|---|---|
-| `independence.mjs` | verraet die Aufgabe ihre eigene Antwort? Und ist das Gold ueberhaupt auffindbar? | nein |
-| `echo.mjs` | wie viel des automatisch Eingespeisten ist die eigene Frage von vorher? | nein |
-| `nur-roh.mjs` | was kostet die Reserve-Bahn, wenn eine Angabe nur ungefasst vorliegt? | nein |
-| `flood.mjs` | ab welcher Menge verdraengt reine Masse die Wahrheit? | nein |
-| `kennzahlen.mjs` | Ober- und Untergrenze des Nutzens, alle Gates | nein |
-| `run.mjs` | loesen Agenten die Aufgabe mit Memory besser? | **ja** |
+| `independence.mjs` | does the task give away its own answer? And is the gold findable at all? | no |
+| `echo.mjs` | how much of what's auto-fed is the user's own earlier question? | no |
+| `raw-only.mjs` | what does the reserve lane cost, when a fact exists only undigested? | no |
+| `flood.mjs` | at what volume does sheer mass displace the truth? | no |
+| `metrics.mjs` | ceiling and floor of the benefit, all gates | no |
+| `run.mjs` | do agents solve the task better with memory? | **yes** |
 
-`run.mjs` ohne `--yes` ist ein Trockenlauf und nennt nur die Kosten.
+`run.mjs` without `--yes` is a dry run and only names the cost.
 
-## Was bisher gemessen wurde
+## What has been measured so far
 
-- **Echo-Rate reproduziert** (der Befund `13/18` aus `src/search.mjs:1031`):
-  bei wortgleicher Wiederholung 81,2 % (2056/2532, 95 % 79,6–82,7), bei
-  Umformulierung 37,8 % / 59,8 % / 69,7 % bei 107 / 389 / 1141 Dokumenten.
-  **Die Rate waechst mit der Memory-Groesse** — das ist neu und war bei
-  n=18 nicht sichtbar.
-  **Zurueckgenommen am 2026-09-06** — siehe den naechsten Punkt. Diese
-  Zahlen beschreiben, wie viele Treffer *Echos sind*, gemessen an
-  nachgebauten `thought`-Eintraegen. Sie beschreiben nicht, wie viele der
-  ausgelieferte Filter *verwirft*.
-- **Was der ausgelieferte Echo-Filter wirklich verwirft** (2026-09-06,
-  nach `search.isEchoHit`, dem Aufruf, den `mem find` und der Gateway
-  tatsaechlich machen):
+- **Echo rate reproduced** (the `13/18` finding from `src/search.mjs:1031`):
+  81.2% (2056/2532, 95% 79.6-82.7) on verbatim repetition, 37.8% / 59.8%
+  / 69.7% on rephrasing at 107 / 389 / 1141 documents. **The rate grows
+  with memory size** — that is new and was not visible at n=18.
+  **Retracted on 2026-09-06** — see the next point. These numbers
+  describe how many hits *are echoes*, measured against rebuilt
+  `thought` entries. They do not describe how many the shipped filter
+  *drops*.
+- **What the shipped echo filter actually drops** (2026-09-06, per
+  `search.isEchoHit`, the call `mem find` and the gateway actually make):
 
-  | Bedingung | Rohfaenge | Fragen | eingespeist | verworfen | 95 % |
+  | Condition | raw captures | questions | fed in | dropped | 95% |
   |---|---|---|---|---|---|
-  | synthetisch, 1 Nachricht je Fang (Obergrenze) | 600 | 600 | 1800 | 66,8 % | 64,6–69,0 |
-  | synthetisch, 12 Nachrichten je Fang (Sitzungsform) | 50 | 600 | 1800 | **0,0 %** | 0,0–0,2 |
-  | **echt** (lucky-mem, 483 Faenge, 211 getippte Nutzernachrichten) | 483 | 211 | 535 | **5,0 %** | 3,5–7,2 |
+  | synthetic, 1 message per capture (ceiling) | 600 | 600 | 1800 | 66.8% | 64.6-69.0 |
+  | synthetic, 12 messages per capture (session shape) | 50 | 600 | 1800 | **0.0%** | 0.0-0.2 |
+  | **real** (lucky-mem, 483 captures, 211 hand-typed user messages) | 483 | 211 | 535 | **5.0%** | 3.5-7.2 |
 
-  Am echten Material verlieren 4 von 211 Fragen (1,9 %) ihren ganzen
-  Kontext an den Filter, 17 (8,1 %) einen Teil. Die Stichprobe der
-  Verworfenen sind wortgleiche Wiederholungen — der Filter trifft, was er
-  treffen soll, nur viel seltener als „72 %" nahelegt.
+  On real material, 4 of 211 questions (1.9%) lose their entire context
+  to the filter, 17 (8.1%) lose part of it. The sample of dropped ones
+  are verbatim repetitions — the filter hits what it should, just far
+  more rarely than "72%" suggests.
 
-  Der Mechanismus dahinter ist eine Grenze, keine Meinung: `isEchoHit`
-  sieht `entry.text`, also die ersten 400 Zeichen des Fangs. Eine
-  Nachricht, die nicht in den ersten 400 Zeichen steht, kann nicht als
-  Echo erkannt werden. Das ist richtig so — eingespeist wuerden genau
-  diese 400 Zeichen; was nicht gezeigt wird, darf auch nicht der Grund
-  zum Verwerfen sein. Es heisst aber: der Filter greift praktisch nur bei
-  Fangen, die mit der wiederholten Frage *beginnen*.
-- **Die Schwelle `MEM_RETRIEVE_MIN=5.0` ist am echten Korpus richtig
-  kalibriert**: 93,3 % der Treffer liegen darueber, Median 11,34. Eine
-  frueher Fassung dieses Verzeichnisses meldete 1,1 % — das war der
-  synthetische Korpus, nicht cheap-mem.
+  The mechanism behind this is a limit, not an opinion: `isEchoHit` sees
+  `entry.text`, i.e. the first 400 characters of the capture. A message
+  that is not in the first 400 characters cannot be recognized as an
+  echo. That is correct — exactly these 400 characters would be fed in;
+  what is not shown must also not be a reason to drop something. But it
+  means: the filter practically only engages on captures that *begin*
+  with the repeated question.
+- **The threshold `MEM_RETRIEVE_MIN=5.0` is correctly calibrated against
+  the real corpus**: 93.3% of hits sit above it, median 11.34. An
+  earlier version of this directory reported 1.1% — that was the
+  synthetic corpus, not cheap-mem.
 
-## Der Rohfang hat die eigene Suche verschlechtert (2026-09-06)
+## Raw capture made the search itself worse (2026-09-06)
 
-Gefunden beim Aufraeumen des Korpus, nicht gesucht. Nachdem die Echos
-ehrlich als Rohfang gepflanzt waren, fiel **Gold-im-Kontext von 11/33 auf
-8/33** — mit Filter wie ohne. Die drei verlorenen Aufgaben haben KEINE
-Quittung: das Gold wird gar nicht erst Kandidat.
+Found while cleaning up the corpus, not searched for. After the echoes
+were honestly planted as raw capture, **gold-in-context fell from 11/33
+to 8/33** — with the filter as without it. The three lost tasks carry
+NO receipt at all: the gold never even becomes a candidate.
 
-Am Index nachgemessen: die Schwelle ist nicht schuld (6/33 ueber 5,0,
-beidesmal), der mittlere Gold-Score faellt nur von 3,52 auf 3,29 — aber
-der mittlere Rang bricht von 9,1 auf 21,6 ein.
+Re-measured at the index: the threshold is not to blame (6/33 over 5.0,
+both times), the mean gold score only falls from 3.52 to 3.29 — but the
+mean rank collapses from 9.1 to 21.6.
 
-Der Grund ist eine Asymmetrie, die seit dem Rohfang-Einbau im Code stand:
-`termGraph` schliesst Rohfang aus, `docFreq`, `N` und `avgLength` nicht.
-Der Stop-Hook legt jede Nachricht ab, also enthaelt der Rohfang jede
-Frage im Wortlaut — und macht damit genau die Woerter haeufig, nach denen
-am oeftesten gesucht wird. Die idf dieser Woerter faellt, und der
-gepflegte Eintrag verliert seinen Vorsprung gegenueber thematischen
-Nachbarn. **Die Memory wird genau dort schlechter, wo sie am meisten
-benutzt wird.**
+The reason is an asymmetry that has stood in the code since raw capture
+was added: `termGraph` excludes raw capture, `docFreq`, `N` and
+`avgLength` do not. The stop hook files every message, so raw capture
+contains every question verbatim — and thereby makes exactly the words
+that get searched for most often frequent. Their idf falls, and the
+digested entry loses its edge over topical neighbors. **The memory gets
+worse exactly where it is used the most.**
 
-Behoben: BM25 rechnet mit einer zweiten Statistik (`statsN`,
-`statsDocFreq`, `statsAvgLength`) aus dem gepflegten Teil. Rohfaenge
-werden weiter gefunden; sie werden nur nicht mehr gefragt, was ein
-seltenes Wort ist. Auch der Anhaenge-Pfad — der, den der Betrieb bei
-jeder Sitzung geht — haelt sich daran.
+Fixed: BM25 now computes with a second statistic (`statsN`,
+`statsDocFreq`, `statsAvgLength`) drawn from the digested part alone.
+Raw captures are still found; they just no longer skew what counts as a
+rare word. The attachment path too — the one real operation takes on
+every session — follows this.
 
-Was es bringt, ehrlich:
+What it buys, honestly:
 
-| | vorher | nachher |
+| | before | after |
 |---|---:|---:|
-| Gold, sauberer Korpus | 12/33 | 12/33 |
-| Gold, vergiftet (39 Rohfaenge) | 8/33 | **9/33** |
-| `bench/retrieval.mjs` R@5 | 93 % | 93 % |
+| Gold, clean corpus | 12/33 | 12/33 |
+| Gold, poisoned (39 raw captures) | 8/33 | **9/33** |
+| `bench/retrieval.mjs` R@5 | 93% | 93% |
 
-**Eine von drei verlorenen Aufgaben kommt zurueck, zwei nicht.** Die
-Statistik war ein Teil der Ursache, nicht die ganze.
+**One of three lost tasks comes back, two do not.** The statistic was
+part of the cause, not all of it.
 
-### Die anderen zwei: der Fang draengt sich vor
+### The other two: the capture crowds in
 
-Fuer C3 aufgeschluesselt, mit sauberer Statistik. Die Punktzahlen der
-gepflegten Eintraege sind mit und ohne Flut **identisch** — die
-Verschmutzung ist weg. Trotzdem faellt die Antwort raus:
+Broken down for C3, with the clean statistic. The digested entries'
+scores are **identical** with and without flooding — the pollution is
+gone. Yet the answer still drops out:
 
 ```
-ohne Flut                          mit Flut
-  N-abhaengigkeiten-0   22.57        [roh] echo37          30.31
+without flooding                    with flooding
+  N-abhaengigkeiten-0   22.57        [raw] echo37          30.31
   V-metrikendienst-2    19.64        N-abhaengigkeiten-0   22.57
   FL-25                 18.91        V-metrikendienst-2    19.64
   F-db (GOLD)           18.77        FL-25                 18.91
   P-db                  13.83        P-db                  13.83
 ```
 
-Ein einziger Rohfang mit 30,31 nimmt den Platz der Antwort mit 18,77.
-Der Echo-Filter laesst ihn zu Recht in Ruhe: der Fang gehoert zu einer
-ANDEREN Frage, er ist kein Echo dieser hier.
+A single raw capture at 30.31 takes the answer's place at 18.77. The
+echo filter rightly leaves it alone: the capture belongs to a DIFFERENT
+question, it is not an echo of this one.
 
-Der Fang gewinnt fast immer, wenn er antritt — er ist lang,
-zusammengeklebt und enthaelt viele Frageworte. Und er trat gleichberechtigt
-an, weil er in der Stufe `unknown` landet und der Rundlauf jeder Stufe
-denselben Platz pro Runde gibt. Ein Fang = ein verdraengter gepflegter
-Anspruch.
+The capture wins almost every time it competes — it is long, run
+together, and contains many query words. And it competed on equal
+footing, because it lands in the `unknown` tier and the round-robin
+gives every tier the same slot per round. One capture = one digested
+claim displaced.
 
-Das kehrt den Entwurf um. Die drei Bahnen sind fangen -> verdichten ->
-abrufen; ein Fang ist per Definition **noch kein Anspruch**, der Fasser
-ist noch nicht darueber gelaufen. Ein unverarbeitetes Protokoll vor eine
-geprueste Entscheidung zu stellen, macht Bahn 1 zur Hauptbahn und den
-Fasser ueberfluessig.
+That inverts the design. The three lanes are capture -> digest ->
+retrieve; a capture is by definition **not yet a claim**, the digester
+has not run over it yet. Putting an unprocessed transcript ahead of a
+reviewed decision makes lane 1 the main lane and the digester redundant.
 
-**Rohfang ist jetzt die Reserve-Bahn**: erst alles Gepflegte, dann der
-Fang. Nicht "Fang raus" — auf einer frischen Memory ist er das einzige
-Material, und dann sind die Plaetze ohnehin frei.
+**Raw capture is now the reserve lane**: everything digested first,
+then the capture. Not "drop the capture" — on a fresh memory it is the
+only material, and then the slots are free anyway.
 
-| | vorher | Statistik | + Reserve-Bahn |
+| | before | statistic | + reserve lane |
 |---|---:|---:|---:|
-| Gold, sauberer Korpus | 12/33 | 12/33 | 12/33 |
-| Gold, vergiftet (39 Rohfaenge) | 8/33 | 9/33 | **11/33** |
-| Kontextkosten vergiftet (Token) | 17 601 | 18 241 | 22 234 |
-| `bench/retrieval.mjs` R@5 | 93 % | 93 % | 93 % |
+| Gold, clean corpus | 12/33 | 12/33 | 12/33 |
+| Gold, poisoned (39 raw captures) | 8/33 | 9/33 | **11/33** |
+| Context cost, poisoned (tokens) | 17,601 | 18,241 | 22,234 |
+| `bench/retrieval.mjs` R@5 | 93% | 93% | 93% |
 
-Die Flut kostet damit noch **eine** Aufgabe statt drei.
+The flood now costs only **one** task instead of three.
 
-Zwei Dinge, die dabei ehrlich dazugehoeren:
+Two things that honestly belong here too:
 
-- **Der Preis, jetzt gemessen** (`node eval/nur-roh.mjs`). Ein Drittel
-  der Fakten existiert dort NUR als Rohfang — ungefasst, so wie der
-  Stop-Hook sie ablegt, bevor der Fasser gelaufen ist. Das trifft 14 der
-  33 Aufgaben.
+- **The price, now measured** (`node eval/raw-only.mjs`). A third of the
+  facts there exist ONLY as raw capture — undigested, the way the stop
+  hook files them before the digester has run. That hits 14 of the 33
+  tasks.
 
-  | Bedingung | Fakt im Kontext | davon betroffene | Rohfang-Claims |
+  | Condition | fact in context | of those affected | raw-capture claims |
   |---|---:|---:|---:|
-  | alles gepflegt (Grundlinie) | 12/33 | 5/14 | 0 |
-  | ein Drittel nur Rohfang, Reserve-Bahn | 12/33 | **4/14** | 0 |
-  | dieselbe Verlagerung, Rohfang gleichberechtigt | 12/33 | **6/14** | 27 |
+  | everything digested (baseline) | 12/33 | 5/14 | 0 |
+  | a third raw-capture-only, reserve lane | 12/33 | **4/14** | 0 |
+  | same displacement, raw capture on equal footing | 12/33 | **6/14** | 27 |
 
-  Die Reserve-Bahn kostet also **2 der 14 betroffenen Aufgaben**
-  gegenueber dem gleichberechtigten Fang. Und noch schaerfer: auf diesem
-  Korpus kommt der Fang **nie** durch — 0 Rohfang-Claims, obwohl sieben
-  Fakten nur dort stehen. Das Gepflegte fuellt die fuenf Plaetze immer.
+  So the reserve lane costs **2 of the 14 affected tasks** compared to
+  giving the capture equal footing. And more sharply still: on this
+  corpus the capture **never** gets through — 0 raw-capture claims, even
+  though seven facts live only there. The digested entries always fill
+  the five slots.
 
-  Der Handel ist damit benannt, nicht wegerklaert: die Regel gewinnt 2
-  Aufgaben, wo die Memory geflutet ist, und verliert 2, wo der Fasser
-  noch nicht gelaufen ist. Was das Vorzeichen entscheidet, ist die
-  Verzoegerung des Fassers — laeuft er stuendlich, ist das Fenster
-  schmal; laeuft er nie, ist "nur im Rohfang" der Normalfall.
+  So the trade-off is named, not explained away: the rule wins 2 tasks
+  where the memory is flooded, and loses 2 where the digester has not
+  run yet. What decides the sign is the digester's delay — if it runs
+  hourly, the window is narrow; if it never runs, "only in raw capture"
+  is the normal case.
 
-  **Wie schnell "nie" eintritt, war schaerfer als zuerst berichtet.** Der
-  erste Bericht sagte "auf einem dichten Korpus". Gemessen mit einer
-  wachsenden Zahl gepflegter Eintraege, die zur Frage passen, und fuenf
-  Rohfaengen daneben:
+  **How fast "never" sets in was sharper than first reported.** The
+  first report said "on a dense corpus." Measured with a growing number
+  of digested entries matching the question, and five raw captures
+  alongside:
 
-  | gepflegte Eintraege | 0 | 1 | 2 | 3 | 4 | **5** | 6 | 12 | 100 |
+  | digested entries | 0 | 1 | 2 | 3 | 4 | **5** | 6 | 12 | 100 |
   |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-  | Rohfang-Claims von 5 | 5 | 4 | 3 | 2 | 1 | **0** | 0 | 0 | 0 |
+  | raw-capture claims out of 5 | 5 | 4 | 3 | 2 | 1 | **0** | 0 | 0 | 0 |
 
-  **Fuenf passende gepflegte Eintraege, und die Rohfang-Bahn ist zu.**
-  Nicht "ein dichter Korpus" — fuenf. Eine gewachsene Memory ist damit
-  praktisch immer zu, und der ungefasste Fang ist fuer den Agenten nicht
-  vorhanden.
+  **Five matching digested entries, and the raw-capture lane is shut.**
+  Not "a dense corpus" — five. A grown memory is thus practically always
+  shut, and the undigested capture does not exist for the agent.
 
-  Was daraus folgt, und es ist keine Kleinigkeit: **cheap-mem haengt jetzt
-  daran, dass der Fasser laeuft.** Vorher war ein Rueckstand unordentlich,
-  jetzt ist er eine Luecke im Abrufbaren. `mem doctor` sagt das seitdem
-  dazu, statt nur die Zahl zu melden.
-- **Der Echo-Filter hat dadurch weniger zu tun.** Im vergifteten Korpus
-  verwirft er jetzt 0 statt 39 — nicht weil er schlechter wurde, sondern
-  weil die Echos gar nicht mehr bis zur Auswahl kommen. Er zaehlt noch,
-  wo der Fang leere Plaetze fuellt.
+  What follows from this, and it is not a small thing: **cheap-mem now
+  depends on the digester actually running.** Before, a backlog was
+  merely untidy; now it is a gap in what can be retrieved. `mem doctor`
+  has said so ever since, instead of only reporting the number.
+- **The echo filter has less work to do as a result.** In the poisoned
+  corpus it now drops 0 instead of 39 — not because it got worse, but
+  because the echoes no longer even reach the selection. It still
+  counts where the capture fills empty slots.
 
-## Der zustandslose Grundwert — der Kopfraum, nicht die Obergrenze (2026-09-06)
+## The stateless baseline — the headroom, not the ceiling (2026-09-06)
 
-`node eval/run.mjs --split all --arms A --model claude-sonnet-5` — Arm A
-ist die blosse Frage, kein Kontext, kein Verlauf. 45 Aufgaben, ~2 USD.
-`node eval/grundwert.mjs <lauf>` wertet aus.
+`node eval/run.mjs --split all --arms A --model claude-sonnet-5` — arm A
+is the bare question, no context, no history. 45 tasks, ~2 USD.
+`node eval/baseline.mjs <run>` evaluates it.
 
-**Warum ueberhaupt.** "Bei 38 % der Aufgaben kommt die noetige Angabe im
-Kontext an" sagt nur, ob sie ANKOMMT — nicht, ob das Modell sie ohnehin
-gewusst haette. Bei "UTC, ISO-8601" raet es richtig, und an solchen
-Aufgaben misst der Benchmark nichts.
+**Why at all.** "For 38% of tasks the needed fact makes it into
+context" only says whether it ARRIVES — not whether the model would
+have known it anyway. For "UTC, ISO-8601" it guesses right, and on
+tasks like that the benchmark measures nothing.
 
-| | ohne Memory richtig | 95 % |
+| | right without memory | 95% |
 |---|---:|---|
-| als ratbar vorhergesagt (18) | 39 % | 20-61 |
-| als nicht ratbar vorhergesagt (21) | 24 % | 11-45 |
-| ohne Gold, Klasse F (6) | 83 % | 44-97 |
+| predicted guessable (18) | 39% | 20-61 |
+| predicted not guessable (21) | 24% | 11-45 |
+| no gold, class F (6) | 83% | 44-97 |
 
-Nach Klasse, und hier steht das Ergebnis: **D (Korrektur) 0/6, I
-(Entity-Lookup) 0/6** — ohne Gedaechtnis kommt das Modell dort nie hin.
-**H (Lock-In) 4/6, F 5/6** — dort braucht es keins.
+By class, and here is where the result sits: **D (correction) 0/6, I
+(entity lookup) 0/6** — without memory the model never gets there.
+**H (lock-in) 4/6, F 5/6** — there it needs none.
 
-**Der Kopfraum.** Beide Zahlen einzeln zu berichten ueberschaetzt den
-Nutzen, weil die Mengen ueberlappen:
+**The headroom.** Reporting either number alone overestimates the
+benefit, because the sets overlap:
 
-Erster Lauf, 39 Aufgaben mit Gold:
-
-| | |
-|---|---:|
-| Angabe kommt im Kontext an | 15/39 = 38 % |
-| Modell antwortet ohne Memory richtig | 12/39 = 31 % |
-| **beides: Angabe da UND ohne sie gescheitert** | **6/39 = 15 %** |
-
-Sechs Aufgaben tragen keine Statistik. Also wuchsen genau die zwei
-Klassen, bei denen der Grundwert **null** ist — D (Korrektur) und I
-(Bezeichner) — von je 6 auf je 18. Nur sie: die anderen zu vergroessern
-haette den Benchmark teurer gemacht, nicht schaerfer.
-
-Zweiter Lauf, 63 Aufgaben mit Gold (24 neue, `--only` spart die schon
-gemessenen):
+First run, 39 tasks with gold:
 
 | | |
 |---|---:|
-| Angabe kommt im Kontext an | 24/63 = 38 % |
-| Modell antwortet ohne Memory richtig | 12/63 = 19 % |
-| **KOPFRAUM: Angabe da UND ohne sie gescheitert** | **15/63 = 24 %** |
-| ohne Angabe trotzdem richtig (Weltwissen) | 3/63 = 5 % |
+| fact arrives in context | 15/39 = 38% |
+| model answers right without memory | 12/39 = 31% |
+| **both: fact present AND failed without it** | **6/39 = 15%** |
 
-Nach Klasse ist das Bild sauber: **D 0/18, I 0/18** ohne Gedaechtnis —
-dort MUSS ein zustandsloser Agent scheitern. **H 4/6, F 5/6** — dort
-braucht es keins.
+Six tasks carry no statistics. So exactly the two classes whose
+baseline is **zero** — D (correction) and I (identifier) — grew from 6
+each to 18 each. Only those: enlarging the others would have made the
+benchmark more expensive, not sharper.
 
-Das erklaert den gepaarten Modelltest vom selben Tag (35/48 gegen 28/48,
-p = 0,625, nicht signifikant) besser als jede Vermutung ueber das
-Retrieval: bei einem Kopfraum von 9 % ist ein nicht signifikantes
-Ergebnis kein Raetsel, sondern die Erwartung.
+Second run, 63 tasks with gold (24 new, `--only` spares the ones
+already measured):
 
-**Das Label war schlechter als die Messung, und das war der Punkt.**
-`erratbar` in world.mjs ist eine ausdrueckliche VORHERSAGE. Wie unsicher
-sie ist, wurde zweifach gezeigt: eine unabhaengige zweite Einschaetzung
-derselben 15 Fakten stimmte bei 9 ueberein, und gegen die Messung trifft
-das Label bei 23 von 39 Aufgaben — 59 %. Elf als "ratbar" gelabelte
-Aufgaben scheiterten ohne Memory, fuenf als "nicht ratbar" gelabelte
-gelangen. Ein Urteil mit dieser Trefferquote darf keine Kennzahl tragen;
-es steht im Korpus, damit die Messung es korrigieren kann.
+| | |
+|---|---:|
+| fact arrives in context | 24/63 = 38% |
+| model answers right without memory | 12/63 = 19% |
+| **HEADROOM: fact present AND failed without it** | **15/63 = 24%** |
+| right anyway without the fact (world knowledge) | 3/63 = 5% |
 
-## Frageworte: der einzige Hebel, der den Kopfraum vergroessert (2026-09-06)
+By class the picture is clean: **D 0/18, I 0/18** without memory —
+there a stateless agent MUST fail. **H 4/6, F 5/6** — there it needs none.
 
-Der Fasser schreibt beim Verdichten je Eintrag drei bis fuenf Woerter
-dazu, mit denen jemand danach SUCHEN wuerde und die im Eintrag selbst
-nicht vorkommen (`mem log --asked`, Feldgewicht wie `tags`). Kosten im
-Abruf: null — die Arbeit passiert auf Bahn 2, wo ohnehin ein Modell
-laeuft. Embeddings kosten einen Aufruf je ANFRAGE, das hier einen je
-Verdichtungslauf.
+That explains the paired model test from the same day (35/48 versus
+28/48, p = 0.625, not significant) better than any guess about
+retrieval would: at a headroom of 9%, a non-significant result is not a
+puzzle, it is the expectation.
 
-`node eval/frageworte-wirkung.mjs`, derselbe Korpus zweimal:
+**The label was worse than the measurement, and that was the point.**
+`guessable` in world.mjs is an explicit PREDICTION. How uncertain it is
+was shown twice: an independent second assessment of the same 15 facts
+agreed on 9, and against the measurement the label matches on 23 of 39
+tasks — 59%. Eleven tasks labeled "guessable" failed without memory,
+five labeled "not guessable" succeeded. A judgment with this hit rate
+may not carry a metric; it sits in the corpus so the measurement can
+correct it.
 
-| | ohne | mit |
+## Query words: the only lever that grows the headroom (2026-09-06)
+
+While digesting, the digester adds three to five words per entry that
+someone would later SEARCH with and that do not occur in the entry
+itself (`mem log --asked`, weighted like `tags`). Cost at retrieval
+time: zero — the work happens on lane 2, where a model runs anyway.
+Embeddings cost one call per QUERY; this costs one per digest run.
+
+`node eval/query-words-effect.mjs`, the same corpus twice:
+
+| | without | with |
 |---|---:|---:|
-| Gold im eingespeisten Kontext | 24/63 = 38 % | **28/63 = 44 %** |
-| Praezision (Gold je Claim) | 10 % | 11 % |
-| **Kopfraum** | 15/63 = 24 % | **19/63 = 30 %** |
+| Gold in fed context | 24/63 = 38% | **28/63 = 44%** |
+| Precision (gold per claim) | 10% | 11% |
+| **Headroom** | 15/63 = 24% | **19/63 = 30%** |
 
-Gewonnen: A3, E1, D10, D15. Verloren: keine. Alle vier liegen IM
-Kopfraum — das Modell scheitert dort ohne Memory, und jetzt kommt die
-Angabe an.
+Gained: A3, E1, D10, D15. Lost: none. All four sit IN the headroom —
+the model fails there without memory, and now the fact arrives.
 
-**Woher die Woerter stammen, entscheidet ueber den Wert der Zahl.** Sie
-kommen aus einem getrennten Modelllauf, der nur die Korpus-Eintraege
-gesehen hat und keine einzige Aufgabe — genau die Lage des Fassers im
-Betrieb. Waeren sie aus `vokB` abgeschrieben, dem Wortschatz der
-Aufgaben, haette der Benchmark seine eigene Vorlage gemessen.
+**Where the words come from decides the value of the number.** They
+come from a separate model run that saw only the corpus entries and not
+a single task — exactly the digester's position in real operation. Had
+they been copied from `vokB`, the tasks' vocabulary, the benchmark would
+have measured its own template.
 
-**Und ein Riegel danach.** Von 31 Eintraegen trug jeder dritte ein Wort,
-das die BEWERTUNGSREGEL einer Aufgabe erfuellt: `cookie` gegen
-`/keks|cookie|sitzung/`, `textdatei` gegen `/datei/`, `ticket` gegen
-`/sammelpostfach|ticket/`. Solche Woerter sind nicht Frage, sondern
-Antwort. `sicher()` wirft sie heraus (141 -> 132 Woerter), ein Test haelt
-fest, dass keins durchkommt. Im Betrieb gibt es keine Bewertungsregel,
-dort DARF der Fasser `cookie` schreiben — **die gemessene Wirkung ist
-also eine Untergrenze.**
+**And one guard afterward.** Of 31 entries, every third carried a word
+that satisfies a task's SCORING RULE: `cookie` against
+`/keks|cookie|sitzung/`, `textdatei` against `/datei/`, `ticket` against
+`/sammelpostfach|ticket/`. Words like that are not a question but an
+answer. `safeWords()` throws them out (141 -> 132 words), a test records
+that none gets through. In real operation there is no scoring rule,
+there the digester MAY write `cookie` — **so the measured effect is a
+lower bound.**
 
-## Nuetzt Memory einem Agenten? Ja — unter benannten Bedingungen (2026-09-06)
+## Does memory help an agent? Yes — under named conditions (2026-09-06)
 
-Die Frage, um die es die ganze Zeit ging. `node eval/paar-a-c.mjs`:
-dieselbe Aufgabe zweimal, Arm A (kein Kontext) gegen Arm C (Kontext
-eingespeist), Sonnet 5, 63 Aufgaben mit Gold, ~3,15 USD.
+The question this was all leading up to. `node eval/pair-a-c.mjs`: the
+same task twice, arm A (no context) against arm C (context fed in),
+Sonnet 5, 63 tasks with gold, ~3.15 USD.
 
 | | |
 |---|---:|
-| ohne Memory richtig | 12/63 = 19 % |
-| mit Memory richtig | **34/63 = 54 %** |
-| besser mit Memory | **22** |
-| schlechter | **0** |
-| unveraendert | 41 |
+| right without memory | 12/63 = 19% |
+| right with memory | **34/63 = 54%** |
+| better with memory | **22** |
+| worse | **0** |
+| unchanged | 41 |
 
-Vorzeichentest ueber die 22 abweichenden Aufgaben: **p < 0,0001**.
-Auf den 28 Aufgaben, bei denen die Angabe tatsaechlich ankam: 19 besser,
-0 schlechter.
+Sign test over the 22 differing tasks: **p < 0.0001**. On the 28 tasks
+where the fact actually arrived: 19 better, 0 worse.
 
-Nach Klasse:
+By class:
 
-| | ohne | mit |
+| | without | with |
 |---|---:|---:|
-| D (Korrektur) | 0/18 | **8/18** |
-| I (Bezeichner) | 0/18 | **9/18** |
-| E (Konflikt) | 1/3 | 3/3 |
-| H (Lock-In) | 4/6 | 5/6 |
+| D (correction) | 0/18 | **8/18** |
+| I (identifier) | 0/18 | **9/18** |
+| E (conflict) | 1/3 | 3/3 |
+| H (lock-in) | 4/6 | 5/6 |
 | A, B | 5/12 | 7/12 |
 | C | 2/6 | 2/6 |
 
-**Was das heisst und was nicht.** Der fruehere gepaarte Lauf desselben
-Tages ergab 35/48 gegen 28/48 bei p = 0,625 — nicht signifikant. Der
-Unterschied liegt nicht am Abruf, sondern am Aufgabensatz: dort waren
-die meisten Fragen ohne Gedaechtnis zu erraten, hier sind 36 von 63 aus
-Klassen, deren Grundwert null ist.
+**What this means and what it does not.** The earlier paired run from
+the same day gave 35/48 versus 28/48 at p = 0.625 — not significant. The
+difference is not in retrieval, it is in the task set: there, most
+questions were guessable without memory; here, 36 of 63 come from
+classes whose baseline is zero.
 
-Die absoluten 54 % sind deshalb **eine Eigenschaft dieser Aufgabenmischung,
-keine Rate, die sich uebertragen laesst**. Was sich uebertragen laesst,
-ist die bedingte Aussage: *wo die Angabe nur im Gedaechtnis steht,
-liefert cheap-mem sie, und das Modell nutzt sie* — 22 Verbesserungen,
-keine einzige Verschlechterung.
+The absolute 54% is therefore **a property of this task mix, not a rate
+that transfers**. What does transfer is the conditional statement:
+*where the fact lives only in memory, cheap-mem delivers it, and the
+model uses it* — 22 improvements, not a single regression.
 
-Die Grenzen, ungeschminkt: ein Lauf je Bedingung (ein einzelner
-Unterschied kann Rauschen sein, nur die Bilanz traegt), ein Modell, ein
-synthetischer Korpus. Und 29 der 63 Aufgaben bleiben auch mit Memory
-falsch — bei den meisten, weil die Angabe gar nicht erst ankommt.
+The limits, unvarnished: one run per condition (a single difference can
+be noise, only the balance carries weight), one model, one synthetic
+corpus. And 29 of the 63 tasks stay wrong even with memory — on most of
+them, because the fact never arrives in the first place.
 
-**Ein eigener Fehler beim Auswerten**, weil er die Klasse zeigt: ich habe
-`gold_retrieved` als Ja/Nein gelesen. Es ist eine LISTE, und ein leeres
-Array ist in JavaScript truthy — meine erste Zwischenzahl sagte
-"63 von 63 hatten Gold im Kontext" statt 28. Der Vergleich `=== true`
-liess die Teilauswertung dann still ausfallen, statt zu klagen. Beides
-haette niemand bemerkt. Das Skript wirft jetzt, wenn das Feld eine
-unerwartete Form hat, und sagt es laut, wenn die Teilmenge leer ist.
+**A bug of my own while evaluating**, because it shows the class: I read
+`gold_retrieved` as a yes/no. It is a LIST, and an empty array is truthy
+in JavaScript — my first intermediate number said "63 of 63 had gold in
+context" instead of 28. The `=== true` comparison then silently let the
+sub-analysis fail instead of complaining. Neither would have been
+noticed. The script now throws if the field has an unexpected shape,
+and says so loudly if the subset is empty.
 
-## Die Falle, in die dieses Verzeichnis dreimal getappt ist
+## The trap this directory has fallen into three times
 
-1. **Sonde statt Sache gemessen.** Die erste Echo-Messung uebergab die
-   JSON-Zeile an `isEcho`; deren Schluesselnamen druecken die Ueberlappung
-   unter die Schwelle. Ergebnis: 0 von 2532 Echos. Seitdem laeuft eine
-   Positivkontrolle vor jeder Messung.
-2. **Den Pfad gemessen, den niemand geht.** Die zweite Fassung derselben
-   Messung legte jede frühere Frage als `thought`-Eintrag ab und pruefte
-   mit `isEcho(frage, compactLine(eintrag))`. Im Betrieb schreibt der
-   Stop-Hook aber eine gzip-Datei unter `raw/`, und der ausgelieferte
-   Filter sieht nur Rohfang und darin nur den gefangenen Text. Die
-   Positivkontrolle war da — sie prueft nur die Sonde, nicht ob die Sonde
-   an der Stelle steht, an der die Sache passiert. `echo.mjs` legt jetzt
-   echte Rohfaenge an und zaehlt mit `isEchoHit`.
-3. **Unabhaengigkeit ueberoptimiert.** Um lexikalische Leckage auf null zu
-   bringen, wurden die Aufgaben so entkernt, dass BM25 den Gold-Eintrag
-   nicht mehr finden konnte. Ein A/B haette Memory faelschlich als
-   wirkungslos gezeigt. Das Kriterium ist jetzt nicht "kein gemeinsames
-   Wort", sondern "kein gemeinsames Wort, das den Gold-Eintrag EINDEUTIG
-   identifiziert" — und `independence.mjs` meldet die Auffindbarkeit als
-   gleichwertige Pflichtzahl daneben.
+1. **Measured the probe instead of the thing.** The first echo
+   measurement passed the raw JSON line to `isEcho`; its key names push
+   the overlap below the threshold. Result: 0 of 2532 echoes. A positive
+   control has run before every measurement since.
+2. **Measured a path nobody takes.** The second version of the same
+   measurement filed every earlier question as a `thought` entry and
+   checked with `isEcho(question, compactLine(entry))`. In real
+   operation, though, the stop hook writes a gzip file under `raw/`, and
+   the shipped filter sees only raw capture, and within it only the
+   captured text. The positive control was there — it only checks the
+   probe, not whether the probe sits where the thing actually happens.
+   `echo.mjs` now files real raw captures and counts with `isEchoHit`.
+3. **Over-optimized independence.** To drive lexical leakage to zero,
+   the tasks were gutted so far that BM25 could no longer find the gold
+   entry. An A/B would have wrongly shown memory as ineffective. The
+   criterion is now not "no shared word," but "no shared word that
+   UNIQUELY identifies the gold entry" — and `independence.mjs` reports
+   findability as an equally mandatory number alongside it.
 
-## Gemessen ohne einen Modellaufruf (synthetischer Korpus, 21 Aufgaben)
+## Measured without a single model call (synthetic corpus, 21 tasks)
 
-| Kennzahl | sauber | vergiftet |
+| Metric | clean | poisoned |
 |---|---:|---:|
-| Gold im eingespeisten Kontext | **5/18 = 28 %** | 4/18 = 22 % |
-| Aufgaben mit leerem Kontext | 8/21 | 0/21 |
-| Praezision (Gold je Claim) | **12 %** | 7 % |
-| davon Echos der Frage | 0/42 | **21/59 = 36 %** |
-| veraltete Fassung als aktiv | 0 | 0 |
-| Konflikt gemeldet, **wenn beide Seiten Kandidat** | 1/1 | 2/2 |
-| Konflikt gar nicht erkennbar (nur eine Seite da) | 2 | 1 |
-| Autoritaetsbruch | 0 | 0 |
-| Kontextkosten | 6143 Token | 6533 Token |
+| Gold in fed context | **5/18 = 28%** | 4/18 = 22% |
+| Tasks with empty context | 8/21 | 0/21 |
+| Precision (gold per claim) | **12%** | 7% |
+| of those, echoes of the question | 0/42 | **21/59 = 36%** |
+| stale version fed in as active | 0 | 0 |
+| conflict reported, **when both sides are candidates** | 1/1 | 2/2 |
+| conflict not even detectable (only one side present) | 2 | 1 |
+| authority breach | 0 | 0 |
+| context cost | 6143 tokens | 6533 tokens |
 
-**Memory kann hoechstens 28 % dieser Aufgaben verbessern** — bei 13 von 18
-kommt die Angabe gar nicht an. Gleichzeitig sind 88 % des Eingespeisten
-nicht die gesuchte Angabe. Der moegliche Nutzen liegt in einem schmalen
-Band, und nur dafuer lohnt ein Modellversuch — gepaart (dieselbe Aufgabe
-mit und ohne genau diesen Claim), damit die Aufgabenvarianz herausfaellt.
+**Memory can improve at most 28% of these tasks** — on 13 of 18 the fact
+never arrives at all. At the same time, 88% of what's fed in is not the
+fact being sought. The possible benefit lies in a narrow band, and only
+for that band is a model trial worth it — paired (the same task with and
+without exactly this claim), so that task variance drops out.
 
-Alle Gates halten. Die erste Fassung dieser Tabelle meldete "Konflikt nur
-1 von 3" und sah nach einem Defekt in `potentialConflicts` aus. Die
-Diagnose zeigte etwas anderes: bei zwei der drei Aufgaben war nie BEIDES in
-den Kandidaten, und melden kann nur, was da ist. Die Kennzahl war falsch
-gestellt, nicht der Code.
+All gates hold. The first version of this table reported "conflict only
+1 of 3" and looked like a defect in `potentialConflicts`. The diagnosis
+showed something else: on two of the three tasks, BOTH sides were never
+among the candidates, and reporting can only report what is there. The
+metric was framed wrong, not the code.
 
-Dabei fiel der eigentliche Befund an: **`search()` hat `mmr: false` als
-Vorgabe. `bin/mem find` schaltet die Vielfalts-Neuordnung ein,
-`src/retrieval.mjs` tat es nicht** — der Agentenpfad (`mem retrieve`, MCP
-`mem_retrieve`) war also schlechter als der Menschenpfad. Fast gleiche
-Eintraege desselben Themas fuellten die Trefferliste. Gemessen: das gesuchte
-Claim war in den top-5 bei **7 von 18** Aufgaben ohne MMR und bei **9 von
-18** mit. Behoben, mit Test und Mutant (`test/gateway-diversity.test.mjs`).
+Along the way, the real finding turned up: **`search()` has `mmr: false`
+as its default. `bin/mem find` turns diversity re-ranking on,
+`src/retrieval.mjs` did not** — so the agent path (`mem retrieve`, MCP
+`mem_retrieve`) was worse than the human path. Near-identical entries on
+the same topic filled up the hit list. Measured: the sought claim was in
+the top-5 on **7 of 18** tasks without MMR and on **9 of 18** with it.
+Fixed, with a test and a mutant (`test/gateway-diversity.test.mjs`).
 
-Im vergifteten Korpus schiessen die Scores auf 60-128, weil die Echos die
-Frage woertlich enthalten — sie verdraengen alles andere. Das ist die
-Verdraengung, konkret und ohne Modell gemessen.
+In the poisoned corpus, scores spike to 60-128 because the echoes
+contain the question verbatim — they displace everything else. That is
+displacement, concretely measured, without a model.
 
-**Grenze dieser Zahlen:** sie gelten fuer diesen Korpus. Er trifft die
-Dichte des echten (Median 563 gegen 551 Zeichen), aber noch nicht dessen
-Score-Verteilung (42 % ueber der Schwelle gegen 93 %). Die 28 % sind eine
-Eigenschaft dieses Benchmarks, keine Aussage ueber den Betrieb.
+**Limit of these numbers:** they hold for this corpus. It matches the
+real one's density (median 563 versus 551 characters), but not yet its
+score distribution (42% over the threshold versus 93%). The 28% is a
+property of this benchmark, not a statement about real operation.
 
-## Offen
+## Open
 
-Der synthetische Korpus erzeugt Scores von 0,5–5,5, der echte 2–93. Kurze
-Kunsteintraege sind kein Ersatz fuer gewachsene. Bevor die Baseline laeuft,
-muss der Korpus dem echten in Laenge und Dichte aehneln — sonst ist jede
-Retrieval-Zahl um eine Groessenordnung daneben.
+The synthetic corpus produces scores of 0.5-5.5, the real one 2-93.
+Short synthetic entries are no substitute for grown ones. Before the
+baseline runs, the corpus must resemble the real one in length and
+density — otherwise every retrieval number is off by an order of
+magnitude.
 
-## Der gepaarte Test — das Einzige, wofuer ein Modell noetig war
+## The paired test — the one thing a model was needed for
 
-40 Aufrufe, 0,70 USD, Haiku 4.5, sauberer Korpus. Gefahren wurde nur auf
-den 5 Aufgaben, bei denen das Gold ueberhaupt im Kontext ankommt; bei den
-uebrigen 13 ist die Antwort schon ohne Modell bekannt. Beide Bedingungen
-bekommen gleich viele Claims — der Gold-Claim wird durch den naechstbesten
-Nicht-Gold-Claim ersetzt, nicht ersatzlos entfernt.
+40 calls, 0.70 USD, Haiku 4.5, clean corpus. Only run on the 5 tasks
+where the gold actually arrives in context; on the remaining 13 the
+answer is already known without a model. Both conditions get the same
+number of claims — the gold claim is replaced by the next-best non-gold
+claim, not removed without replacement.
 
-| Task | entfernt | MIT | OHNE | Delta |
+| Task | removed | WITH | W/OUT | Delta |
 |---|---|---:|---:|---:|
 | C3 | F-db | 4/4 | 4/4 | 0 |
 | D3 | F-port-neu | 0/4 | 0/4 | 0 |
 | E2 | F-konflikt-a | 0/4 | 0/4 | 0 |
-| H2 | F-lockin | 3/4 | 1/4 | **+50 %** |
+| H2 | F-lockin | 3/4 | 1/4 | **+50%** |
 | H3 | F-lockin | 4/4 | 4/4 | 0 |
 
-Gesamt 11/20 gegen 9/20. Eine Aufgabe unterscheidet sich, vier nicht.
-**Vorzeichentest: p = 1,000.** Bei einer einzigen abweichenden Aufgabe ist
-das kleinste erreichbare p ebenfalls 1,000 — diese Stichprobe KANN keinen
-Effekt zeigen, egal wie er ausfaellt.
+Total 11/20 versus 9/20. One task differs, four do not. **Sign test:
+p = 1.000.** With a single differing task, the smallest reachable p is
+also 1.000 — this sample CANNOT show an effect, whatever it turns out
+to be.
 
-**Ergebnis: kein nachweisbarer Effekt bei n=5 Aufgaben.**
+**Result: no demonstrable effect at n=5 tasks.**
 
-### Und ein Befund gegen das eigene Messgeraet
+### And a finding against the gauge itself
 
-Der Blick in die Antworten zeigt Unterschiede, die die binaere Bewertung
-nicht sieht:
+A look at the answers shows differences the binary grading does not see:
 
-- **D3** ohne Gold: *"**3000** — die Notiz [V-metrikendienst-6] gibt an,
-  dass der Metrikendienst auf Port 3000 laeuft"* — eine selbstbewusste
-  falsche Zahl aus einem Ablenkungseintrag. Mit Gold: kein Zahlensprung,
-  sondern ein Vorbehalt. Beides zaehlt als Misserfolg.
-- **E2** ohne Gold: *"Ja, 5 MB sind unter dem Artifact-Limit von 16 MB"* —
-  eine erfundene Grenze. Mit Gold: *"Nein, maximal 2 MB"* — sachlich
-  richtig, aber ohne den Widerspruch zu nennen, den mein Raster verlangt.
-  Und nennen konnte das Modell ihn nicht: der Abruf lieferte nur EINE der
-  beiden Seiten.
+- **D3** without gold: *"**3000** — the note [V-metrikendienst-6] states
+  that the metrics service runs on port 3000"* — a confident wrong
+  number from a distractor entry. With gold: no wrong number, but a
+  caveat. Both count as failure.
+- **E2** without gold: *"Yes, 5 MB is under the artifact limit of
+  16 MB"* — an invented limit. With gold: *"No, 2 MB maximum"* —
+  factually correct, but without naming the contradiction my rubric
+  requires. And the model could not have named it: retrieval only
+  supplied ONE of the two sides.
 
-Das ist eine Hypothese fuer die naechste Runde, kein Ergebnis dieser: sie
-entstand NACH dem Blick auf die Daten. Wer sie jetzt als Kennzahl
-nachtraegt und dieselben Laeufe neu auswertet, misst seine eigene
-Erwartung. Sie gehoert vorher festgelegt und an neuen Aufgaben geprueft.
+That is a hypothesis for the next round, not a result of this one: it
+arose AFTER looking at the data. Whoever now adds it as a metric after
+the fact and re-evaluates the same runs is measuring their own
+expectation. It belongs pre-registered and tested on new tasks.
 
 ---
 
-# Stufe 1 — warum kommt die Angabe nicht an? (0 USD)
+# Stage 1 — why doesn't the fact arrive? (0 USD)
 
 `node eval/ablation.mjs`
 
-## Befund A: die kuratierten Synonyme sind englisch
+## Finding A: the curated synonyms are English
 
-| Sprache | Fragen | Terme | Synonyme | Fragen mit mindestens einem |
+| Language | Questions | Terms | Synonyms | Questions with at least one |
 |---|---:|---:|---:|---:|
-| deutsch | 21 | 198 | **0** | **0/21** |
-| englisch | 15 | 44 | 53 | 11/15 |
+| German | 21 | 198 | **0** | **0/21** |
+| English | 15 | 44 | 53 | 11/15 |
 
-`THESAURUS` in `src/thesaurus.mjs`: 39 Gruppen, 188 Woerter, kein einziges
-deutsches. Fuer eine deutsche Memory traegt diese Schicht **nichts** bei.
-Die englische Messung ist die Positivkontrolle: der Mechanismus
-funktioniert, er greift nur nicht.
+`THESAURUS` in `src/thesaurus.mjs`: 39 groups, 188 words, not a single
+German one. For a German memory, this layer contributes **nothing**.
+The English measurement is the positive control: the mechanism works,
+it just does not engage.
 
-Das betrifft lucky-mem unmittelbar — das ist eine deutsche Memory.
-Der Ausweg existiert (`.mem/thesaurus.json`, `loadUserGroups`), wird aber
-nirgends angezeigt: ein deutscher Nutzer bekommt still schlechteren Abruf,
-bis er die Datei von sich aus entdeckt.
+This affects lucky-mem directly — that is a German memory. A way out
+exists (`.mem/thesaurus.json`, `loadUserGroups`), but it is displayed
+nowhere: a German user silently gets worse retrieval until they
+discover the file on their own.
 
-## Befund B: der gelernte termGraph schadet auf Deutsch und nuetzt auf Englisch
+## Finding B: the learned termGraph hurts in German and helps in English
 
-Gold-Claim in den top-5, gleicher Code, gleiche Aufrufe:
+Gold claim in the top-5, same code, same calls:
 
-| Schwelle | deutsch mit | deutsch ohne | englisch mit | englisch ohne |
+| Threshold | German with | German without | English with | English without |
 |---:|---:|---:|---:|---:|
 | 2 | 9/18 | **14/18** | 13/15 | 13/15 |
 | 3 | 8/18 | **12/18** | **13/15** | 10/15 |
 | 4 | 7/18 | 8/18 | **13/15** | 8/15 |
 | 5 | 5/18 | 6/18 | **12/15** | 7/15 |
 
-Kein Score-Inflations-Artefakt: bei Schwelle 2 sind die englischen Zahlen
-gleich, darueber haelt der termGraph die richtigen Dokumente oben. Auf
-Deutsch schadet er bei jeder Schwelle.
+Not a score-inflation artifact: at threshold 2 the English numbers are
+equal, above that the termGraph keeps the right documents on top. In
+German it hurts at every threshold.
 
-## Befund C: der Schaden waechst mit der Wiederholung im Korpus
+## Finding C: the damage grows with repetition in the corpus
 
-| Wiederholungen | Dokumente | mit termGraph | ohne |
+| Repetitions | Documents | with termGraph | without |
 |---:|---:|---:|---:|
 | 1 | 35 | 16/18 | 16/18 |
 | 2 | 57 | 16/18 | 16/18 |
@@ -519,141 +509,139 @@ Deutsch schadet er bei jeder Schwelle.
 | 8 | 189 | 9/18 | 16/18 |
 | 16 | 365 | 8/18 | 16/18 |
 
-Ohne termGraph bleibt der Recall konstant, mit ihm faellt er monoton.
-`buildTermGraph` schuetzt gegen ALLGEGENWART (maxDocFraction, nPMI), nicht
-gegen LOKALE Redundanz: ein Buendel fast gleicher Eintraege laesst zwei
-Rauschwoerter perfekt ko-okkurrieren, und nPMI belohnt genau das maximal.
+Without termGraph, recall stays constant; with it, recall falls
+monotonically. `buildTermGraph` guards against OMNIPRESENCE
+(maxDocFraction, nPMI), not against LOCAL redundancy: a cluster of
+near-identical entries lets two noise words co-occur perfectly, and
+nPMI rewards exactly that to the maximum.
 
-Zusammen mit der Echo-Rate, die ebenfalls mit der Groesse waechst, ergibt
-das ein Muster: **die Abrufguete verschlechtert sich, waehrend die Memory
-waechst.**
+Together with the echo rate, which also grows with size, this forms a
+pattern: **retrieval quality degrades as the memory grows.**
 
-## Gegenprobe gegen mich selbst
+## Counter-check against myself
 
-Mein Dichte-Ausbau zog ALLE Eintraege aus einem Pool von acht Saetzen —
-das erzeugt genau die Ko-Okkurrenz, die den Befund treibt. Mit eindeutiger
-Fuellung je Eintrag: mit termGraph 7/18, ohne 10/18. Der Abstand schrumpft
-von 7 auf 3 und **verschwindet nicht**. Ein Teil des Befundes war mein
-Artefakt, der Rest steht.
+My density expansion drew ALL entries from a pool of eight sentences —
+that produces exactly the co-occurrence driving the finding. With
+distinct filler per entry: with termGraph 7/18, without 10/18. The gap
+shrinks from 7 to 3 and **does not disappear**. Part of the finding was
+my own artifact, the rest stands.
 
-## Kalibrierung auf dev+val (final unberuehrt)
+## Calibration on dev+val (final untouched)
 
-| termGraph | Schwelle | Gold | Claims | Praezision | Token | leerer Kontext |
+| termGraph | threshold | gold | claims | precision | tokens | empty context |
 |---|---:|---:|---:|---:|---:|---:|
-| mit | 5 *(heutige Vorgabe)* | 2/12 | 29 | 7 % | 5439 | 6 |
-| mit | 3 | 4/12 | 63 | 6 % | 11729 | 1 |
-| **ohne** | **3** | **8/12** | **27** | **33 %** | **5339** | **4** |
-| ohne | 2 | 8/12 | 39 | 26 % | 7574 | 4 |
+| with | 5 *(today's default)* | 2/12 | 29 | 7% | 5439 | 6 |
+| with | 3 | 4/12 | 63 | 6% | 11729 | 1 |
+| **without** | **3** | **8/12** | **27** | **33%** | **5339** | **4** |
+| without | 2 | 8/12 | 39 | 26% | 7574 | 4 |
 
-Auf diesem Korpus dominiert `ohne termGraph, Schwelle 3` die heutige
-Vorgabe auf **jeder** Achse: viermal so viel Gold, fuenfmal die Praezision,
-bei geringfuegig weniger Token.
+On this corpus, `without termGraph, threshold 3` dominates today's
+default on **every** axis: four times the gold, five times the
+precision, at slightly fewer tokens.
 
-**Was daraus NICHT folgt:** den termGraph abzuschalten. Die englische
-Messung sagt das Gegenteil. Was folgt, steht in Stufe 2.
+**What does NOT follow from this:** turning the termGraph off. The
+English measurement says the opposite. What follows is in stage 2.
 
 ---
 
-# Stufe 3 — Schwelle: beide Kandidaten abgelehnt (0 USD)
+# Stage 3 — threshold: both candidates rejected (0 USD)
 
-Kalibriert auf dev+val, final unberuehrt.
+Calibrated on dev+val, final untouched.
 
-| Regel | deutsch Gold | Claims | Praez. | englisch Gold | Claims | Praez. |
+| Rule | German gold | claims | prec. | English gold | claims | prec. |
 |---|---:|---:|---:|---:|---:|---:|
-| absolut >= 5 *(heute)* | 2/14 | 29 | 7 % | 12/15 | 68 | 79 % |
-| absolut >= 3 | 4/14 | 63 | 6 % | 13/15 | 75 | 79 % |
-| relativ >= 0,5x Bester | 4/14 | 70 | 6 % | 13/15 | 75 | 79 % |
-| relativ >= 0,8x Bester | 3/14 | 62 | 5 % | 13/15 | 73 | 81 % |
+| absolute >= 5 *(today)* | 2/14 | 29 | 7% | 12/15 | 68 | 79% |
+| absolute >= 3 | 4/14 | 63 | 6% | 13/15 | 75 | 79% |
+| relative >= 0.5x best | 4/14 | 70 | 6% | 13/15 | 75 | 79% |
+| relative >= 0.8x best | 3/14 | 62 | 5% | 13/15 | 73 | 81% |
 
-**REJECT: relative Schwelle.** Sie bringt gegenueber `absolut >= 3` auf
-beiden Korpora nichts. Die Vermutung, eine absolute BM25-Schwelle sei
-fragil, weil die Score-Verteilungen sich um eine Groessenordnung
-unterscheiden (eigener Korpus 0-10, echter 2-93), hat sich in den Zahlen
-nicht niedergeschlagen.
+**REJECT: relative threshold.** It gains nothing over `absolute >= 3` on
+either corpus. The suspicion that an absolute BM25 threshold would be
+fragile, because the score distributions differ by an order of
+magnitude (own corpus 0-10, real one 2-93), did not show up in the numbers.
 
-**REJECT: Vorgabe von 5 auf 3 senken.** Sie kauft auf Deutsch +2 Gold fuer
-+34 Rausch-Claims bei unveraenderter Praezision (6 %). Am echten Korpus
-liegen ohnehin 93,3 % der Treffer ueber 5, dort aendert es fast nichts.
+**REJECT: lowering the default from 5 to 3.** In German it buys +2 gold
+for +34 noise claims at unchanged precision (6%). On the real corpus,
+93.3% of hits already sit above 5, so it barely changes anything there.
 
-Der informative Teil des Nullergebnisses: **die Schwelle ist nicht die
-bindende Grenze.** Das Ranking ist es. Wer den Recall heben will, muss an
-der Reihenfolge arbeiten, nicht am Filter.
+The informative part of the null result: **the threshold is not the
+binding constraint.** The ranking is. Whoever wants to raise recall has
+to work on the ordering, not on the filter.
 
-# Stufe 4 — Verdraengung: haelt (0 USD)
+# Stage 4 — displacement: holds (0 USD)
 
-`node eval/flood.mjs` — vier Bedingungen (Angreifer als agent/user,
-thematisch aehnlich/unaehnlich, kurz/lang), Flut von 0 bis 400 Eintraegen.
+`node eval/flood.mjs` — four conditions (attacker as agent/user,
+topically similar/dissimilar, short/long), flooding from 0 to 400 entries.
 
-**Der echte Anspruch wird in keiner Bedingung verdraengt.** Er bleibt auf
-Rang 1-4, und der Widerspruch wird ab dem ERSTEN Flut-Eintrag gemeldet.
+**The real claim is displaced under no condition.** It stays at rank
+1-4, and the conflict gets reported from the FIRST flood entry on.
 
-Und ein Mechanismus, der vorher niemandem aufgefallen war: **ab etwa 34
-Flut-Eintraegen verschwindet der Angreifer ganz** aus dem eingespeisten
-Kontext. Je mehr Kopien er schreibt, desto haeufiger werden seine Woerter,
-desto kleiner ihre idf, desto niedriger jeder einzelne Score. **BM25 macht
-Massenflutung selbstbegrenzend.** Das ist kein Entwurf, sondern eine
-Eigenschaft, die hier zum ersten Mal gemessen wurde.
+And a mechanism nobody had noticed before: **from roughly 34 flood
+entries on, the attacker disappears entirely** from the fed-in context.
+The more copies it writes, the more frequent its words become, the
+smaller their idf, the lower every individual score. **BM25 makes mass
+flooding self-limiting.** That is not a design choice, but a property
+measured here for the first time.
 
-Die erste Fassung dieser Datei meldete fuer JEDE Flutmenge "verdraengt",
-auch fuer 0 — bei Schwelle 5.0 kam auf dem damals zu duennen Korpus gar
-nichts an. Ein Messgeraet, das ohne Angriff schon Alarm schlaegt, misst
-nichts. Jetzt laeuft eine Positivkontrolle davor.
+The first version of this file reported "displaced" for EVERY flood
+amount, even for 0 — at threshold 5.0, nothing was arriving at all on
+the then-too-thin corpus. A gauge that sounds the alarm even without an
+attack measures nothing. A positive control now runs before it.
 
-# Stufe 5 — Kennzahlen nach den Reparaturen (0 USD)
+# Stage 5 — metrics after the fixes (0 USD)
 
-Obergrenze unveraendert bei **5/18 = 28 %**; MMR half in den top-5
-(7 -> 9), die Schwelle schneidet den Gewinn wieder ab. Alle Gates halten.
+Ceiling unchanged at **5/18 = 28%**; MMR helped in the top-5 (7 -> 9),
+the threshold cuts the gain back off. All gates hold.
 
-**Abgleich gegen den echten Korpus, als Grenze notiert statt weggetunt:**
-eigener Korpus p50 4,84 / 47,6 % ueber der Schwelle; echter p50 11,34 /
-93,3 %. Die Dichte stimmt jetzt (Median 563 gegen 551 Zeichen), die
-Score-Verteilung nicht. Jede Zahl hier gilt fuer diesen Korpus.
+**Checked against the real corpus, noted as a limit instead of tuned
+away:** own corpus p50 4.84 / 47.6% over the threshold; real one p50
+11.34 / 93.3%. The density now matches (median 563 versus 551
+characters), the score distribution does not. Every number here holds
+for this corpus.
 
-# Stufe 6 — mehr Aufgaben, und eingefroren (0 USD)
+# Stage 6 — more tasks, and frozen (0 USD)
 
-21 -> **39 Aufgaben**, 13 je Split, 7 Klassen. Trennschaerfe haengt an der
-Aufgabenzahl: vier Laeufe derselben Aufgabe sind keine vier Beobachtungen,
-und bei fuenf Aufgaben ist das kleinste erreichbare p gleich 1,000.
+21 -> **39 tasks**, 13 per split, 7 classes. Discriminating power
+depends on the task count: four runs of the same task are not four
+observations, and at five tasks the smallest reachable p equals 1.000.
 
-## Das Unabhaengigkeitskriterium, dritte und letzte Fassung
+## The independence criterion, third and final version
 
-Die ersten beiden waren falsch, beide zu streng:
+The first two were wrong, both too strict:
 
-1. *"kein gemeinsames Wort"* — entkernte die Aufgaben so, dass BM25 das
-   Gold gar nicht mehr finden konnte. Ein A/B haette Memory faelschlich
-   als wirkungslos gezeigt.
-2. *"kein gemeinsames SELTENES Wort"* — auch falsch. Steht ein Fakt einmal
-   im Korpus, ist sein Themenwort per Konstruktion selten. Dass eine Frage
-   nach der Gesundheitspruefung das Wort "Gesundheitspruefung" enthaelt,
-   ist keine Leckage, sondern der Normalfall, fuer den ein Gedaechtnis
-   existiert.
+1. *"no shared word"* — gutted the tasks so far that BM25 could no
+   longer find the gold at all. An A/B would have wrongly shown memory
+   as ineffective.
+2. *"no shared RARE word"* — also wrong. If a fact appears once in the
+   corpus, its topic word is rare by construction. That a question
+   about the health check contains the word "health check" is not
+   leakage, but the normal case memory exists for.
 
-Richtig ist: **verraet die Frage die ANTWORT?** Exakt pruefbar, weil
-`must`/`mustNot` ohnehin definieren, was als richtig gilt — wuerde die
-Frage selbst als Antwort durchgehen, testet die Aufgabe nichts. Ergebnis
-nach zwei echten Korrekturen (C1 bot "Dateien oder Datenbank" an, H1
-nannte JSON): **0 von 33 verraten, 33 nur thematisch.**
+The right question is: **does the question give away the ANSWER?**
+Exactly checkable, because `must`/`mustNot` already define what counts
+as correct — if the question itself would pass as the answer, the task
+tests nothing. Result after two real corrections (C1 offered "files or
+database," H1 named JSON): **0 of 33 given away, 33 topical only.**
 
-## Eingefroren
+## Frozen
 
-`eval/final-eingefroren.json` + `.sha256`, versiegelt durch
-`test/eval-frozen.test.mjs`. Ab hier keine Umformulierung, keine
-gelockerte Regel, keine Sonderbehandlung auf final.
+`eval/final-eingefroren.json` + `.sha256`, sealed by
+`test/eval-frozen.test.mjs`. From here on: no rewording, no relaxed
+rule, no special case on final.
 
-## Vorab festgelegte Zweitkennzahl
+## Pre-registered secondary metric
 
-`erfundeneZahlen(antwort, frage, kontext)` — Zahlen in der Antwort, die
-weder in der Frage noch im Kontext stehen. Deterministisch, kein
-Modellrichter. Sie prueft die Hypothese aus dem Vortag (Memory verhindert
-womoeglich eher das Erfinden, als die richtige Antwort zu liefern) an
-Daten, aus denen sie NICHT stammt. Klasse F ist ausgenommen: dort rechnet
-das Modell zu Recht.
+`erfundeneZahlen(answer, question, context)` — numbers in the answer
+that occur neither in the question nor in the context. Deterministic,
+no model judge. It tests the hypothesis from the day before (memory may
+prevent invention more than it delivers the right answer) on data it
+did NOT come from. Class F is excluded: there the model rightly computes.
 
-# Stufe 7 — der gepaarte Lauf auf dem erweiterten Satz (0,77 USD)
+# Stage 7 — the paired run on the extended set (0.77 USD)
 
-48 Aufrufe, 6 Aufgaben mit ankommendem Gold, Haiku 4.5, sauberer Korpus.
+48 calls, 6 tasks with arriving gold, Haiku 4.5, clean corpus.
 
-| Task | entfernt | MIT | OHNE | erfundene Zahlen MIT/OHNE |
+| Task | removed | WITH | W/OUT | invented numbers WITH/W-OUT |
 |---|---|---:|---:|---:|
 | C3 | F-db | 4/4 | 4/4 | 0 / 0 |
 | D3 | F-port-neu | 0/4 | 0/4 | **2 / 0** |
@@ -662,185 +650,178 @@ das Modell zu Recht.
 | H2 | F-lockin | 1/4 | 0/4 | 0 / 0 |
 | H3 | F-lockin | 4/4 | 4/4 | 0 / 0 |
 
-Erfolg 13/24 gegen 12/24, **eine** Aufgabe unterscheidet sich, p = 1,000.
-Erfundene Zahlen 2 gegen 4, **eine Aufgabe besser, eine schlechter**,
-p = 1,000.
+Success 13/24 versus 12/24, **one** task differs, p = 1.000. Invented
+numbers 2 versus 4, **one task better, one worse**, p = 1.000.
 
-## Die vorab festgelegte Hypothese ist NICHT bestaetigt
+## The pre-registered hypothesis is NOT confirmed
 
-Sie geht in beide Richtungen: bei E2 verhinderte Memory die Erfindung, bei
-D3 verursachte sie eine. Genau dafuer gibt es Vorab-Festlegung — haette
-ich nach dem Lauf nur E2 angesehen, waere die Hypothese "bestaetigt"
-gewesen.
+It cuts both ways: on E2 memory prevented invention, on D3 it caused
+one. That is exactly what pre-registration is for — had I only looked
+at E2 after the run, the hypothesis would have looked "confirmed."
 
-## Und die Kennzahl selbst taugt nicht, was der Blick in die Antworten zeigt
+## And the metric itself is not up to what the answers show
 
-Das ist eine Feststellung nach dem Lauf und aendert am Ergebnis nichts —
-sie sagt nur, was beim naechsten Mal anders sein muss:
+This is an observation made after the run and changes nothing about the
+result — it only says what has to be different next time:
 
-- **D3 ohne Gold**: *"**3000** — das ist der Port des Metrikendiensts
-  gemaess Notiz [V-metrikendienst-1]"*. Falsche Antwort, selbstbewusst,
-  **nicht als erfunden gezaehlt** — die Zahl stand ja im (unpassenden)
-  Kontext.
-- **E2 ohne Gold**: *"maximal 2 MB je Datei"* — die RICHTIGE Antwort,
-  **als erfunden gezaehlt**, weil die 2 nicht im Kontext stand.
+- **D3 without gold**: *"**3000** — that is the metrics service's port
+  per note [V-metrikendienst-1]"*. A wrong answer, confidently stated,
+  **not counted as invented** — the number did, after all, sit in the
+  (wrong) context.
+- **E2 without gold**: *"2 MB maximum per file"* — the RIGHT answer,
+  **counted as invented**, because the 2 did not sit in the context.
 
-Die Kennzahl misst "Zahl nicht im Kontext" und vermengt damit drei Dinge:
-eine falsche Zahl erfinden (schlecht), eine richtige aus Modellwissen
-nennen (unbedenklich), eine falsche aus unpassendem Kontext abschreiben
-(schlecht, aber ungezaehlt). Sie braucht die RICHTIGKEIT als Bezug, nicht
-die Herkunft.
+The metric measures "number not in context" and thereby conflates three
+things: inventing a wrong number (bad), stating a correct one from the
+model's own knowledge (harmless), copying a wrong one from mismatched
+context (bad, but uncounted). It needs CORRECTNESS as its reference, not
+provenance.
 
-# Stufe 8 — Feature-Tests: nicht gefahren
+# Stage 8 — feature tests: not run
 
-Abbruch nach der eigenen Regel. Die Obergrenze ist 28 %: bei 33 Aufgaben
-mit Gold kommen 6 an, und ueber 6 Aufgaben kann kein Vorzeichentest ein
-p < 0,05 erreichen, wenn nicht alle sechs gleichsinnig ausfallen. Empty
-Answer Semantics, `why` als Feld, Widerspruchspruefung und Sectioning
-haetten dieselbe Decke.
+Aborted by its own rule. The ceiling is 28%: of 33 tasks with gold, 6
+arrive, and over 6 tasks no sign test can reach p < 0.05 unless all six
+go the same way. Empty answer semantics, `why` as a field, contradiction
+checking, and sectioning would all hit the same ceiling.
 
-Geld fuer eine Messung auszugeben, deren Aussagekraft vorher schon null
-ist, waere genau der Fehler, gegen den diese ganze Reihe gebaut wurde.
+Spending money on a measurement whose discriminating power is already
+zero beforehand would be exactly the mistake this whole series was
+built against.
 
-**Der Engpass ist nicht das Modell und nicht das Feature. Es ist der
-Recall.**
+**The bottleneck is not the model and not the feature. It is recall.**
 
 ---
 
-# Der treue Korpus — und was er an den eigenen Befunden widerlegt
+# The faithful corpus — and what it disproves about its own findings
 
-Bis hierher lagen alle Zahlen auf einem Korpus, dessen Score-Verteilung um
-das Doppelte danebenlag. Gemessen am gewachsenen lucky-mem (930 Dokumente):
-**8944 verschiedene Woerter**, Median 61 je Dokument. Der Generator kam auf
-**403** bei 259 Dokumenten — Wortzahl je Dokument stimmte, das Vokabular
-war 22-fach zu arm. Bei 403 Woertern ist jedes haeufig, jede idf winzig,
-und alle Scores liegen bei 0-10 statt bei den echten 2-93.
+Up to here, every number sat on a corpus whose score distribution was
+off by a factor of two. Measured against the grown lucky-mem (930
+documents): **8944 distinct words**, median 61 per document. The
+generator reached **403** across 259 documents — word count per
+document was right, the vocabulary was 22x too poor. At 403 words every
+one is frequent, every idf is tiny, and all scores sit at 0-10 instead
+of the real 2-93.
 
-Deutsche Komposita loesen das ohne Wortliste: 60 Bestimmungswoerter mal 60
-Grundwoerter ergeben 3600 plausible Fachbegriffe, jeder Ablenkungs-Eintrag
-bekommt ein eigenes Thema daraus.
+German compound words solve this without a word list: 60 determiner
+words times 60 base words give 3600 plausible technical terms, and
+every distractor entry gets its own topic from that.
 
-| | Dokumente | verschiedene Woerter | p50 | >= 5,0 |
+| | documents | distinct words | p50 | >= 5.0 |
 |---|---:|---:|---:|---:|
-| alt | 259 | 403 | 4,84 | 47,6 % |
-| **neu** | **839** | **3915** | **9,89** | **94,9 %** |
-| **echt** | **930** | **8944** | **11,34** | **93,3 %** |
+| old | 259 | 403 | 4.84 | 47.6% |
+| **new** | **839** | **3915** | **9.89** | **94.9%** |
+| **real** | **930** | **8944** | **11.34** | **93.3%** |
 
-## Drei eigene Befunde, die damit fallen
+## Three of my own findings that fall as a result
 
-**1. "Der termGraph schadet auf Deutsch" — WIDERRUFEN.** Auf dem treuen
-Korpus:
+**1. "The termGraph hurts in German" — RETRACTED.** On the faithful corpus:
 
-| | top-5 | ueber Schwelle | leerer Kontext |
+| | top-5 | over threshold | empty context |
 |---|---:|---:|---:|
-| voll | 13/33 | **13/33** | **0** |
-| ohne termGraph | 18/33 | 12/33 | **15** |
+| full | 13/33 | **13/33** | **0** |
+| without termGraph | 18/33 | 12/33 | **15** |
 
-Der Ranking-Schaden bleibt, schlaegt aber nicht auf das durch, was
-eingespeist wird — und **ohne** den termGraph bekommen 15 von 33 Aufgaben
-gar keinen Kontext. Der frueher gemessene Schaden (9/18 gegen 16/18) war
-ein Artefakt der Wiederholung im armen Korpus.
+The ranking damage remains, but does not carry through to what gets fed
+in — and **without** the termGraph, 15 of 33 tasks get no context at
+all. The damage measured earlier (9/18 versus 16/18) was an artifact of
+repetition in a poor corpus.
 
-**2. "8 von 21 Aufgaben bekommen leeren Kontext" — WIDERRUFEN.** Auf dem
-treuen Korpus: **0 von 39.** Damit faellt auch die Hauptbegruendung fuer
-die Empty-Answer-Semantik als vordringliches Feature.
+**2. "8 of 21 tasks get empty context" — RETRACTED.** On the faithful
+corpus: **0 of 39.** This also removes the main justification for
+empty-answer semantics as an urgent feature.
 
-**3. Obergrenze 28 % — korrigiert auf 36 %** (12 von 33).
+**3. Ceiling 28% — corrected to 36%** (12 of 33).
 
-## Was haelt
+## What holds
 
-- **Die Echo-Rate waechst mit der Memory-Groesse**: 31,3 / 57,3 / 66,8 %
-  bei 829 / 1159 / 2039 Dokumenten (umformulierte Fragen). Der Befund ist
-  korpusunabhaengig — gilt aber fuer Fange mit EINER Nachricht. Bei
-  Sitzungsform (12 Nachrichten je Fang) faellt er auf 0,0 %.
-- **Die Schwelle 5 ist richtig**: der Recall ist von 0 bis 6 flach
-  (13/33) und faellt erst ab 7. Stufe 3 bestaetigt.
-- **Alle Gates halten**: kein Korrekturversagen, Konflikte 2/2 gemeldet,
-  kein Autoritaetsbruch.
-- **Verdraengung findet nicht statt**, Flutung ist selbstbegrenzend.
+- **The echo rate grows with memory size**: 31.3 / 57.3 / 66.8% at 829 /
+  1159 / 2039 documents (rephrased questions). The finding is
+  corpus-independent — but holds for captures of ONE message. In
+  session shape (12 messages per capture) it falls to 0.0%.
+- **The threshold of 5 is right**: recall is flat from 0 to 6 (13/33)
+  and only falls from 7 on. Stage 3 confirmed.
+- **All gates hold**: no correction failure, conflicts 2/2 reported, no
+  authority breach.
+- **Displacement does not occur**, flooding is self-limiting.
 
-# Deutsche Synonyme: INCONCLUSIVE, behalten
+# German synonyms: INCONCLUSIVE, kept
 
-`THESAURUS` ist um deutsche Woerter erweitert, und zwar **in** den
-bestehenden Gruppen statt daneben — damit findet eine deutsche Frage auch
-einen englischen Eintrag. Gemischte Memories sind der Normalfall, sobald
-Werkzeuge englisch protokollieren und der Mensch deutsch fragt.
+`THESAURUS` is extended with German words, and specifically **into**
+the existing groups rather than alongside them — so a German question
+also finds an English entry. Mixed-language memories are the normal
+case as soon as tools log in English and the human asks in German.
 
-Gemessen:
+Measured:
 
-- Deckung: vorher **0 Synonyme aus 342 Termen** ueber 39 deutsche Fragen,
-  jetzt gedeckt. Die Luecke war real.
-- **Recall auf dem Benchmark: 13/33 vorher, 13/33 nachher. Keine Wirkung.**
-  Die Gruppen ueberbruecken nicht die Wortpaare, die dieser Benchmark
-  trennt.
-- Sprachuebergreifend, deutsche Frage auf englischen Eintrag: **0/4 vorher,
-  1/4 nachher.** Der Mechanismus greift ("Zugangsdaten" fand `credential`
-  auf Rang 2), die Wirkung ist klein und n=4.
+- Coverage: before, **0 synonyms out of 342 terms** across 39 German
+  questions; now covered. The gap was real.
+- **Recall on the benchmark: 13/33 before, 13/33 after. No effect.** The
+  groups do not bridge the word pairs this benchmark separates on.
+- Cross-language, German question onto an English entry: **0/4 before,
+  1/4 after.** The mechanism engages ("Zugangsdaten" found `credential`
+  at rank 2), the effect is small and n=4.
 
-**Urteil: INCONCLUSIVE.** Ein realer Deckungsmangel ist geschlossen, ein
-kleiner sprachuebergreifender Effekt ist messbar, ein Recall-Gewinn ist es
-NICHT. Behalten, weil es kein Verhalten aendert und keine Laufzeit kostet
-— nicht, weil es sich bewaehrt haette.
+**Verdict: INCONCLUSIVE.** A real coverage gap is closed, a small
+cross-language effect is measurable, a recall gain is NOT. Kept because
+it changes no behavior and costs no runtime — not because it proved itself.
 
 ---
 
-# Der entscheidende Lauf — und was er nach der Korrektur sagt
+# The decisive run — and what it says after the correction
 
-Zwei Laeufe auf dem treuen Korpus, 12 Aufgaben mit ankommendem Gold,
-je 96 Aufrufe.
+Two runs on the faithful corpus, 12 tasks with arriving gold, 96 calls each.
 
-## Lauf 1: schief gepaart, verworfen
+## Run 1: unbalanced pairing, discarded
 
-83 % gegen 63 %, sieben Aufgaben besser, eine schlechter, p = 0,070. Das
-sah nach dem ersten echten Signal dieser Reihe aus.
+83% versus 63%, seven tasks better, one worse, p = 0.070. This looked
+like this series' first real signal.
 
-Der Token-Unterschied lag bei **+7416**, obwohl er gepaart nahe null sein
-muss. Der Ersatzvorrat fuer den entfernten Gold-Claim kam aus derselben
-top-N-Abfrage und war leer, sobald der Abruf N Treffer lieferte: MIT trug
-in 9 von 12 Paaren einen Claim mehr.
+The token difference sat at **+7416**, even though it must be near zero
+when paired. The replacement pool for the removed gold claim came from
+the same top-N query and was empty as soon as retrieval returned N
+hits: WITH carried one more claim in 9 of 12 pairs.
 
-| | Paare | besser | schlechter |
+| | pairs | better | worse |
 |---|---:|---:|---:|
-| ausgeglichen | 3 | 1 | 1 |
-| unausgeglichen | 9 | **6** | 0 |
+| balanced | 3 | 1 | 1 |
+| unbalanced | 9 | **6** | 0 |
 
-Der gesamte Effekt steckte in den schiefen Paaren. **Verworfen.**
+The entire effect sat in the unbalanced pairs. **Discarded.**
 
-## Lauf 2: ausgeglichen
+## Run 2: balanced
 
-Alle 12 Paare tragen beidseitig gleich viele Claims, Token-Unterschied
-+1252 ueber 96 Aufrufe (rund 13 je Aufruf, aus unterschiedlich langen
-Ersatz-Claims).
+All 12 pairs carry the same number of claims on both sides, token
+difference +1252 over 96 calls (about 13 per call, from replacement
+claims of varying length).
 
-| Task | Kl | MIT | OHNE | Delta |
+| Task | Cl | WITH | W/OUT | Delta |
 |---|---|---:|---:|---:|
-| H1 | H | 4/4 | 0/4 | **+100 %** |
-| E3 | E | 3/4 | 0/4 | **+75 %** |
-| C5 | C | 4/4 | 2/4 | **+50 %** |
-| H4 | H | 1/4 | 3/4 | **−50 %** |
+| H1 | H | 4/4 | 0/4 | **+100%** |
+| E3 | E | 3/4 | 0/4 | **+75%** |
+| C5 | C | 4/4 | 2/4 | **+50%** |
+| H4 | H | 1/4 | 3/4 | **−50%** |
 | B1 B3 B5 C3 D3 E2 H2 H3 | | | | 0 |
 
-**Erfolg 35/48 (73 %) gegen 28/48 (58 %). Drei Aufgaben besser, eine
-schlechter, acht gleich. Vorzeichentest p = 0,625 — nicht signifikant.**
+**Success 35/48 (73%) versus 28/48 (58%). Three tasks better, one
+worse, eight equal. Sign test p = 0.625 — not significant.**
 
-Erfundene Zahlen: MIT 0, OHNE 1. Eine Aufgabe unterscheidet sich, p = 1,000.
+Invented numbers: WITH 0, W/OUT 1. One task differs, p = 1.000.
 
-## Das Ergebnis dieser Phase
+## The result of this phase
 
-**Frage 1 bleibt unbewiesen.** Nicht mehr aus Mangel an Trennschaerfe —
-die war nach der Korpus- und Retrieval-Arbeit da (12 Aufgaben statt 6,
-p < 0,05 erreichbar) — sondern weil der Effekt bei sauberer Paarung auf
-3 zu 1 zusammenschrumpft.
+**Question 1 stays unproven.** Not for lack of discriminating power
+this time — that was there after the corpus and retrieval work (12
+tasks instead of 6, p < 0.05 reachable) — but because the effect shrinks
+to 3 to 1 under clean pairing.
 
-Die aggregierten 73 % gegen 58 % sehen nach etwas aus. Die Einheit der
-Aussage ist aber die Aufgabe, nicht der Lauf, und auf Aufgabenebene steht
-es 3:1 bei acht Unentschieden.
+The aggregated 73% versus 58% looks like something. But the unit of the
+statement is the task, not the run, and at the task level it stands at
+3:1 with eight ties.
 
-**Wo Memory sichtbar half:** H1 (eine alte Festlegung gilt nicht mehr, 4/4
-gegen 0/4), E3 (ein Widerspruch muss offengelegt werden, 3/4 gegen 0/4),
-C5 (eine Benutzerpraeferenz, 4/4 gegen 2/4). Alle drei sind Faelle, in
-denen die Antwort NICHT aus dem Modellwissen kommen kann.
+**Where memory visibly helped:** H1 (an old decision no longer applies,
+4/4 versus 0/4), E3 (a contradiction must be surfaced, 3/4 versus 0/4),
+C5 (a user preference, 4/4 versus 2/4). All three are cases where the
+answer CANNOT come from the model's own knowledge.
 
-**Wo sie schadete:** H4, 1/4 gegen 3/4. Die alte Freigabe-Regel im Kontext
-haelt das Modell davon ab, sie fuer ueberholt zu erklaeren — Historical
-Lock-In, live gemessen.
+**Where it hurt:** H4, 1/4 versus 3/4. The old approval rule in context
+keeps the model from declaring it outdated — historical lock-in, measured live.

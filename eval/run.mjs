@@ -1,10 +1,10 @@
-// eval/run.mjs — der Lauf. Ruft das Modell, bewertet deterministisch,
-// schreibt fuer JEDE Einspeisung eine Quittung (Receipt) nach JSONL.
+// eval/run.mjs — the run. Calls the model, grades deterministically,
+// writes a receipt to JSONL for EVERY call.
 //
 //   node eval/run.mjs --split dev --arms A,C --corpus clean --runs 1 \
 //                     --model claude-haiku-4-5-20251001 --out eval/runs/pilot.jsonl
 //
-// Ohne --yes wird nur geschaetzt, was der Lauf kostet, und nichts gerufen.
+// Without --yes, only the run's cost is estimated, and nothing is called.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,34 +28,34 @@ const TOP = Number(arg('top', '5'));
 const OUT = arg('out', `eval/runs/${SPLIT}-${Date.now()}.jsonl`);
 const SEED = Number(arg('seed', '7'));
 
-// `--only A1,B2` fuer den Nachlauf: waechst der Aufgabensatz, muessen die
-// schon gemessenen Aufgaben nicht noch einmal bezahlt werden. Die alten
-// Zeilen bleiben gueltig — gleiches Modell, gleicher Arm, gleiche Bedingung.
+// `--only A1,B2` for a follow-up run: as the task set grows, tasks
+// already measured need not be paid for again. The old lines stay
+// valid — same model, same arm, same condition.
 const ONLY = arg('only', '');
-const nurIds = ONLY ? new Set(ONLY.split(',').map((x) => x.trim())) : null;
+const onlyIds = ONLY ? new Set(ONLY.split(',').map((x) => x.trim())) : null;
 const tasks = TASKS
   .filter((t) => SPLIT === 'all' || t.split === SPLIT)
-  .filter((t) => !nurIds || nurIds.has(t.id));
+  .filter((t) => !onlyIds || onlyIds.has(t.id));
 const est = (s) => Math.ceil(String(s).length / 4);
-// E und F brauchen zwei Modellaufrufe (Entwurf + Pruefung).
+// E and F need two model calls (draft + check).
 const callsFor = (a) => (a === 'E' || a === 'F' ? 2 : 1);
 const totalCalls = tasks.length * CORPORA.length * RUNS
   * ARMS.reduce((n, a) => n + callsFor(a), 0);
 
-console.log(`Aufgaben ${tasks.length} (${SPLIT}) x Arme ${ARMS.join('')} x Korpus ${CORPORA.join('/')} x Laeufe ${RUNS}`);
-console.log(`Modellaufrufe: ${totalCalls}`);
-console.log(`Grobkosten bei ~0,05 USD/Aufruf: ~${(totalCalls * 0.05).toFixed(2)} USD`);
-if (!flag('yes')) { console.log('\nTrockenlauf. Mit --yes wirklich ausfuehren.'); process.exit(0); }
+console.log(`Tasks ${tasks.length} (${SPLIT}) x arms ${ARMS.join('')} x corpus ${CORPORA.join('/')} x runs ${RUNS}`);
+console.log(`Model calls: ${totalCalls}`);
+console.log(`Rough cost at ~0.05 USD/call: ~${(totalCalls * 0.05).toFixed(2)} USD`);
+if (!flag('yes')) { console.log('\nDry run. Pass --yes to actually run it.'); process.exit(0); }
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 const sink = fs.createWriteStream(OUT, { flags: 'a' });
 
-// Die Feldnamen der Nutzungsstatistik werden zusammengesetzt statt
-// hingeschrieben. Grund: der pre-commit-Riegel liest `*_tokens: <wert>` als
-// Geheimnis-Zuweisung und blockiert die Datei (6 Treffer, alle falsch
-// positiv). Den Scanner dafuer aufzuweichen waere der falsche Handel — ein
-// Zaehlwert heisst nun einmal "tokens", und das Muster ist ansonsten
-// richtig streng. Als Befund festgehalten, nicht mit --no-verify umgangen.
+// The usage-stat field names are assembled instead of written out
+// literally. Reason: the pre-commit guard reads `*_tokens: <value>` as a
+// secret assignment and blocks the file (6 hits, all false positives).
+// Loosening the scanner for this would be the wrong trade — a count is
+// simply called "tokens", and the pattern is otherwise rightly strict.
+// Recorded as a finding, not worked around with --no-verify.
 const CC = 'cache_creation_input' + '_tok' + 'ens';
 const CR = 'cache_read_input' + '_tok' + 'ens';
 const IN = 'input' + '_tok' + 'ens';
@@ -63,21 +63,21 @@ const IN = 'input' + '_tok' + 'ens';
 function ask(prompt) {
   const t0 = Date.now();
   const out = execFileSync('claude', [
-    // **`--restricted`, und es ist keine Vorsichtsmassnahme.**
+    // **`--restricted`, and it is not a mere precaution.**
     //
-    // Gemessen am 2026-09-16: ohne dieses Flag erbt der Messlauf den
-    // Startkontext der messenden Maschine. Die CLI fuehrt die user-level
-    // SessionStart-Hooks aus, und deren Ausgabe steht im Kontext jeder
-    // Frage. Im gepaarten Lauf vom selben Tag zitierten 9 von 192
-    // Antworten fremde Notizen, die im Testkorpus nicht vorkommen —
-    // gezaehlt als „erfundene Zahlen", obwohl das Modell sie gelesen und
-    // nicht erfunden hatte.
+    // Measured on 2026-09-16: without this flag the measurement run
+    // inherits the measuring machine's startup context. The CLI runs
+    // the user-level SessionStart hooks, and their output sits in the
+    // context of every question. In the paired run from that same day,
+    // 9 of 192 answers cited notes foreign to the test corpus — counted
+    // as "invented numbers," even though the model had read them, not
+    // invented them.
     //
-    // Positivkontrolle, mit der das Flag geprueft wurde: eine Frage, die
-    // NUR aus dem Hook-Text beantwortbar ist. Ohne das Flag kam die
-    // Antwort, mit ihm „KEIN-KONTEXT". `--settings` mit leeren Hooks
-    // reicht NICHT, die user-level Datei wird dazugemischt; `--bare`
-    // schaltet die Hooks zwar ab, bricht aber die Anmeldung.
+    // Positive control used to verify the flag: a question answerable
+    // ONLY from the hook text. Without the flag the answer came through;
+    // with it, "NO CONTEXT". `--settings` with empty hooks is NOT
+    // enough, the user-level file still gets mixed in; `--bare` does
+    // turn the hooks off, but breaks login.
     '--restricted',
     '-p', prompt, '--model', MODEL, '--output-format', 'json',
     '--system-prompt', arms.SYSTEM,
@@ -104,10 +104,10 @@ for (const cond of CORPORA) {
   build(root, {
     poisoned: cond === 'poisoned', seed: SEED,
     echoes: cond === 'poisoned' ? tasks.map((t) => t.prompt) : [],
-    // `--frageworte` misst cheap-mem SO WIE ES HEUTE IST. Ohne den
-    // Schalter fehlt dem Korpus das `asked`-Feld, und der Lauf misst
-    // einen Stand, den niemand mehr ausliefert.
-    frageworte: flag('frageworte'),
+    // `--query-words` measures cheap-mem AS IT STANDS TODAY. Without the
+    // switch, the corpus lacks the `asked` field, and the run measures a
+    // state nobody ships any more.
+    queryWords: flag('query-words'),
   });
   roots[cond] = root;
 }
@@ -119,15 +119,15 @@ let done = 0;
 for (const cond of CORPORA) {
   const root = roots[cond];
   for (const task of tasks) {
-    // Ein Abruf je (Aufgabe, Korpus) — identisch fuer C/D/E, damit die Arme
-    // sich nur in der DARSTELLUNG unterscheiden, nicht im Abruf.
+    // One retrieval per (task, corpus) — identical for C/D/E, so the arms
+    // differ only in PRESENTATION, not in retrieval.
     const r = arms.recall(root, task.prompt, { top: TOP, min: MIN });
     const ctx = {
       history,
       flat: arms.flatContext(r.claims),
       sectioned: arms.sectionedContext(r.claims, r.contested),
     };
-    // Retrieval-Guete gegen das bekannte Gold, unabhaengig vom Modell.
+    // Retrieval quality against the known gold, independent of the model.
     const got = new Set(r.claims.map((c) => c.id));
     const goldHit = task.gold.filter((g) => got.has(g));
     const precision = r.claims.length ? goldHit.length / r.claims.length : null;
@@ -140,7 +140,7 @@ for (const cond of CORPORA) {
         try { a1 = ask(p1); } catch (e) { a1 = { text: '', ms: 0, cliTok: 0, outTok: 0, cost: null, apiError: String(e.message).slice(0, 200) }; }
         answer = a1.text;
         if (arm === 'E' || arm === 'F') {
-          // F ruft ERST NACH dem Entwurf ab — mit dem Entwurf als Anfrage.
+          // F retrieves ONLY AFTER the draft — using the draft as the query.
           const cl = arm === 'F' ? arms.recall(root, `${task.prompt} ${a1.text}`, { top: TOP, min: MIN }).claims : r.claims;
           const p2 = arms.contradictionPrompt(task, a1.text, cl);
           promptTok += est(p2);
@@ -174,5 +174,5 @@ for (const cond of CORPORA) {
   }
 }
 sink.end();
-console.log(`\nFertig. ${OUT}`);
+console.log(`\nDone. ${OUT}`);
 for (const r of Object.values(roots)) fs.rmSync(r, { recursive: true, force: true });
