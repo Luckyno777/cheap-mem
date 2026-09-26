@@ -53,6 +53,7 @@ export const READING = Object.freeze([
   'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts',
   'mem_explain', 'mem_retrieve', 'mem_find', 'mem_duties',
   'mem_context', 'mem_inbox_show', 'mem_store_list', 'mem_store_get',
+  'mem_user_habits',
 ]);
 
 /**

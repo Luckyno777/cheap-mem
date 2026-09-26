@@ -70,6 +70,7 @@ import * as retrieval from '../src/retrieval.mjs';
 import * as capability from '../src/capability.mjs';
 import * as thesaurus from '../src/thesaurus.mjs';
 import * as raw from '../src/raw.mjs';
+import * as userhabits from '../src/userhabits.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
 import * as mcpprofile from '../src/mcpprofile.mjs';
@@ -678,6 +679,29 @@ const TOOLS = [
       required: ['hash'],
     },
   },
+  {
+    name: 'mem_user_habits',
+    description:
+      'A generic, code-only habit meter over the human user’s OWN captured '
+      + 'transcripts (mem_log/mem_find never enter into it — this reads the raw '
+      + 'capture directly). Each habit is a regex loaded from a JSON pattern file '
+      + '(name, positive/negative example, action line); the shipped defaults are '
+      + 'generic — a delegated decision, a correction of the assistant, pasted '
+      + 'terminal output merged with the prompt, and a message with no signal word '
+      + 'of the configured language — no participant name is baked in. Three '
+      + 'states, never a bare 0: measured (with a redacted, 120-char-capped quote '
+      + 'and its location), too_little_evidence, or unknown when NO capture on '
+      + 'this machine is readable. Read-only: it never writes.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        min_evidence: {
+          type: 'number',
+          description: 'Hits needed before a habit counts as "measured" (default 5)',
+        },
+      },
+    },
+  },
 ];
 
 async function handleCall(name, args) {
@@ -1175,6 +1199,36 @@ async function handleCall(name, args) {
       }
       return structuredResult({ sha256: l.sha256, at: store.objectPath(root, l.sha256) },
         [store.objectPath(root, l.sha256)]);
+    }
+    case 'mem_user_habits': {
+      const minEvidence = args?.min_evidence === undefined
+        ? userhabits.MIN_EVIDENCE_MEASURE : Number(args.min_evidence);
+      if (!Number.isFinite(minEvidence)) throw new Error('mem_user_habits: min_evidence needs a number.');
+      const r = userhabits.analyze(root, { minEvidence });
+      if (r.capturesReadable === 0) return textResult(`unknown — ${r.reason}`);
+      const lines = [
+        `${r.total} real message(s) across ${r.capturesReadable} readable capture(s)`
+        + `${r.capturesUnreadable ? `, ${r.capturesUnreadable} not readable` : ''}`
+        + `${r.capped ? ' — time cap hit, incomplete' : ''}.`,
+        '',
+      ];
+      for (const o of r.observations) {
+        if (o.state === userhabits.STATE.UNKNOWN) { lines.push(`  ${o.title}: unknown`); continue; }
+        if (o.state === userhabits.STATE.TOO_LITTLE_EVIDENCE) {
+          lines.push(`  ${o.title}: too_little_evidence (${o.count ?? 0}/${o.total ?? r.total})`);
+          continue;
+        }
+        const extra = o.kind === 'metric'
+          ? (o.median !== undefined
+            ? `median ${o.median}`
+            : `main hours: ${o.mainHours?.length ? o.mainHours.map((h) => `${h}h`).join(', ') : 'none'}`)
+          : `${o.count}/${o.total} (${(o.share * 100).toFixed(1)}%)`;
+        lines.push(`  ${o.title}: measured — ${extra}`);
+        if (o.first) lines.push(`    first: ${o.first.path}:${o.first.line} — "${o.first.quote}"`);
+        if (o.last) lines.push(`    last:  ${o.last.path}:${o.last.line} — "${o.last.quote}"`);
+        if (o.action) lines.push(`    -> ${o.action}`);
+      }
+      return structuredResult(r, lines);
     }
 
     default:
