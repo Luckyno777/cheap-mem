@@ -38,6 +38,13 @@ bower_components
 build/Release
 
 # Dependency directories
+# Both spellings on purpose. `node_modules/` matches ONLY a directory; a
+# `node_modules` SYMLINK (a worktree sharing its dependencies) slips past it
+# and gets committed by `git add -A`. That happened on 2026-09-26: the
+# committed link pointed at itself after a merge and replaced the real
+# directory, and 56 MCP tests went red looking like a broken merge.
+# lucky-mem learned this earlier; this is the same line, rebuilt here.
+node_modules
 node_modules/
 jspm_packages/
 
