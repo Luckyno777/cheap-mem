@@ -38,6 +38,9 @@ import * as redaction from './redaction.mjs';
 import * as cfgmod from './config.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import { pack } from './language.mjs';
+import * as errorfile from './errorfile.mjs';
+import * as repetition from './repetition.mjs';
+import * as errorcontext from './errorcontext.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -198,6 +201,9 @@ export function checkAll(root) {
   f.push(checkFactConflicts(root));
   f.push(checkOrphans(root));
   f.push(checkTopicQuality(root));
+  f.push(checkRepetition(root));
+  f.push(checkClosedWithoutEvidence(root));
+  f.push(checkAutoDutyAge(root));
   f.push(checkDelivery(root));
   f.push(checkIndex(root));
   f.push(checkSynonyms(root));
@@ -346,6 +352,173 @@ export function checkTopicQuality(root) {
     + `${q.orphanAreas ? `, ${q.orphanAreas} areas have a single child` : ''}. `
     + 'The digest should reuse existing topics instead of inventing new ones: '
     + 'run `mem topics --names-only` before a pass, rule in the digest spec.');
+}
+
+/**
+ * F0 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): how many of the
+ * NEW errors (7 days) hit a file that already had an error of the SAME
+ * class in the 30 days before — a real repeat, not just the same file
+ * touched somehow.
+ *
+ * The file and repetition questions are factored out
+ * (`src/errorfile.mjs`, `src/repetition.mjs`) so F1 (the write-time
+ * hint) gets the same answer as this finding.
+ *
+ * **What the warning threshold below is, and is not.** lucky-mem
+ * measured its equivalent finding against its own real installation
+ * (2026-09-26: roughly a fifth of new errors with a file repeated).
+ * cheap-mem is the tool's own repository, not an installed memory — it
+ * carries no error corpus of its own to re-measure that ratio against,
+ * the same admission `src/errorclass.mjs` already makes for its twelve
+ * classes. So this constant is NOT a cheap-mem measurement dressed up
+ * as one: it is inherited, at the same order of magnitude, set a little
+ * below the one real number available so the same phenomenon would
+ * already warn. A real installation's own `mem doctor` run is the
+ * first place this could actually be checked against fresh data — until
+ * then, "measured here" would be invented.
+ *
+ * **"Not measurable is not zero."** No new error with a determinable
+ * file means UNKNOWN, not 0 % — a denominator of zero is not a rate.
+ */
+export const REPETITION_WARN_AT = 0.15;
+
+export function checkRepetition(root, now = new Date()) {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const asOf = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  const all = [];
+  for (const project of [null, ...memory.listProjects(root)]) {
+    let entries;
+    try { ({ entries } = memory.readLog(root, 'error', { project })); }
+    catch { continue; }
+    for (const e of entries) {
+      if (!e || e.__broken || memory.isClosingLine(e)) continue;
+      all.push(e);
+    }
+  }
+
+  if (!all.length) {
+    return finding('repetition', LEVEL.UNKNOWN, 'no error entries — repetition is not measurable here');
+  }
+
+  const cutoff7 = asOf - 7 * DAY_MS;
+  const recent = all.filter((e) => {
+    const t = Date.parse(e.ts);
+    return Number.isFinite(t) && t >= cutoff7 && t <= asOf;
+  });
+
+  const withFile = [];
+  const hotspots = new Map();
+  for (const e of recent) {
+    const files = errorfile.files(e);
+    if (!files.length) continue;
+    withFile.push(e);
+    const r = repetition.check(e, all, { now: asOf });
+    if (r.reasons.includes('file-class-30-days')) {
+      const f = files[0];
+      hotspots.set(f, (hotspots.get(f) ?? 0) + 1);
+    }
+  }
+
+  if (!withFile.length) {
+    return finding('repetition', LEVEL.UNKNOWN,
+      `${recent.length} new errors (7 days), none with a determinable file — `
+      + 'the repetition rate is not measurable here, not 0 %.',
+      'Errors with no path in title/text and no `file` field stay out — see src/errorfile.mjs.');
+  }
+
+  const repeated = [...hotspots.values()].reduce((sum, n) => sum + n, 0);
+  const ratio = repeated / withFile.length;
+  const top = [...hotspots.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const hotspotText = top.length
+    ? ` · hotspots: ${top.map(([f, n]) => `${f} ${n}x`).join(', ')}`
+    : '';
+  const core = `${repeated} of ${withFile.length} new errors (7 days) with a file hit `
+    + `the same file+class as an error from the 30 days before (${Math.round(ratio * 100)}%)`
+    + `${hotspotText}`;
+
+  if (ratio >= REPETITION_WARN_AT) {
+    return finding('repetition', LEVEL.WARN, core,
+      'Same file, same class, within 30 days: the guard is missing, not the care. '
+      + '`mem log error` shows this while logging (F1) and, on a real repetition, '
+      + 'opens a duty "Guard for <class> at <file>" — `mem doctor` only shows the overall picture here.');
+  }
+  return finding('repetition', LEVEL.GOOD, core);
+}
+
+/**
+ * F2 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): a duty that grew
+ * out of errors (carries `error_ids`) may only close with real
+ * evidence — a `guard` field on one of the errors, or a test file with
+ * `// error: <id>` and `test(`. `mem duties close`/`mem_duty_close`
+ * refuse that without evidence since this build; here the doctor
+ * reports what was already closed WITHOUT it — through a write path
+ * that predates the check, or one that went around `memory.closeDuty`.
+ */
+export function checkClosedWithoutEvidence(root) {
+  let done;
+  try { ({ done } = memory.openDuties(root)); }
+  catch (e) {
+    return finding('closed-without-evidence', LEVEL.UNKNOWN, `duties unreadable: ${e?.message || e}`);
+  }
+  const withErrorIds = done.filter((d) => Array.isArray(d.error_ids) && d.error_ids.length);
+  if (!withErrorIds.length) {
+    return finding('closed-without-evidence', LEVEL.GOOD,
+      'no closed duties with an error reference (error_ids) — F4 has nothing to check here yet');
+  }
+  const withoutEvidence = withErrorIds.filter((d) => !errorcontext.evidencePresent(root, d).ok);
+  if (!withoutEvidence.length) {
+    return finding('closed-without-evidence', LEVEL.GOOD,
+      `${withErrorIds.length} closed duties with an error reference, all with evidence`);
+  }
+  return finding('closed-without-evidence', LEVEL.WARN,
+    `${withoutEvidence.length} of ${withErrorIds.length} closed duties with an error reference `
+    + `have no evidence: ${withoutEvidence.slice(0, 5).map((d) => d.id).join(', ')}`
+    + `${withoutEvidence.length > 5 ? ', ...' : ''}`,
+    'F4: closing needs either a `guard` field on one of the errors or a test/ file with '
+    + '`// error: <id>` AND `test(`. `memory.closeDuty()` AND `memory.correctionEntry()` both '
+    + 'refuse that since this build (one check, one place) — these are older, or came through a '
+    + 'write path that did not go through memory.mjs. Append-only, so the lines stay; catching up '
+    + 'means a `guard` field on the affected error or a probe with the marker.');
+}
+
+/** From when an auto-duty counts as "old" (BAUPLAN-mem-admin_02.md, Block F). */
+export const AUTO_DUTY_AGE_DAYS = 14;
+/** From how many of those the plan's abort criterion fires. */
+export const AUTO_DUTY_AGE_WARN_ABOVE = 20;
+
+/**
+ * Makes the abort criterion from Block F measurable, without enforcing
+ * it automatically: "> 20 automatically created duties older than 14
+ * days, still open -> cut the mechanism back." This finding only
+ * COUNTS — it switches nothing off. Cutting back stays a decision a
+ * session/human makes, not an automaton that turns its own tap off
+ * (see the header comment on `src/errorcontext.mjs`).
+ */
+export function checkAutoDutyAge(root, now = new Date()) {
+  const asOf = now instanceof Date ? now.getTime() : new Date(now).getTime();
+  let open;
+  try { ({ open } = memory.openDuties(root)); }
+  catch (e) {
+    return finding('auto-duty-age', LEVEL.UNKNOWN, `duties unreadable: ${e?.message || e}`);
+  }
+  const auto = open.filter((d) => d[errorcontext.AUTOMATIC_FIELD] === true);
+  if (!auto.length) {
+    return finding('auto-duty-age', LEVEL.GOOD, 'no open automatically created duties');
+  }
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const old = auto.filter((d) => {
+    const t = Date.parse(d.ts);
+    return Number.isFinite(t) && (asOf - t) > AUTO_DUTY_AGE_DAYS * DAY_MS;
+  });
+  const core = `${old.length} of ${auto.length} open auto-duties older than ${AUTO_DUTY_AGE_DAYS} days`;
+  if (old.length > AUTO_DUTY_AGE_WARN_ABOVE) {
+    return finding('auto-duty-age', LEVEL.WARN, core,
+      `BAUPLAN-mem-admin_02.md Block F, abort criterion: more than ${AUTO_DUTY_AGE_WARN_ABOVE} `
+      + `automatically created duties older than ${AUTO_DUTY_AGE_DAYS} days and still open means `
+      + 'the mechanism is producing noise instead of work — per the plan it then gets cut narrower '
+      + 'or switched off. That is a decision for a session/human; this finding only counts.');
+  }
+  return finding('auto-duty-age', LEVEL.GOOD, core);
 }
 
 // Delivery: is there mail for a recipient nobody reads?

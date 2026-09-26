@@ -112,6 +112,32 @@ export const LINK_KINDS = Object.freeze({
 });
 
 /**
+ * L4 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): types for which
+ * `mem log` gives NO hint about a missing `asked`.
+ *
+ * lucky-mem measured this per type against its own real corpus (2026-09-26):
+ * every type except `verknuepfung` (its `link`) had genuine, if uneven,
+ * `asked` usage, and `link` sat at 0 of 61 for a structural reason — a
+ * link is a typed edge between two OTHER entries, found through their
+ * ends (`mem links`), not through search words of its own. cheap-mem has
+ * no error corpus of its own to re-measure the exact ratio against (the
+ * same admission `src/errorclass.mjs` already makes for its twelve
+ * classes) — but the STRUCTURAL argument for `link` carries over
+ * unchanged: a typed edge with no content of its own has nothing an
+ * `asked` field could point at either. So `link` is exempt here on the
+ * same reasoning, not on a re-measured number; every other type keeps
+ * the hint until a real installation's own `mem doctor` can measure it.
+ */
+export const ASKED_HINT_EXEMPT = Object.freeze(['link']);
+
+export function needsAskedHint(type, data) {
+  if (ASKED_HINT_EXEMPT.includes(type)) return false;
+  const a = data?.asked;
+  if (Array.isArray(a)) return a.length === 0;
+  return !(typeof a === 'string' && a.trim());
+}
+
+/**
  * Which entries this one says it was drawn from — ALL the shapes.
  *
  * **The finding (external audit, 2026-09-17).** Provenance is written in
@@ -2214,6 +2240,79 @@ Log entries land in the three JSONL files here.
 `;
 }
 
+/** How deep `dutyHasEvidence()` looks into a test file — a latch must never be expensive. */
+const EVIDENCE_MAX_BYTES = 2 * 1024 * 1024;
+
+/**
+ * F2 (BAUPLAN-mem-admin_02.md, Block F, ported to cheap-mem as F4): does
+ * closing this duty carry real evidence, or only the claim that it is
+ * done?
+ *
+ * A duty WITHOUT `error_ids` is not one that grew out of an error — F2
+ * simply does not apply to it (`ok: true`, with a reason, never quietly).
+ *
+ * Otherwise exactly one of these has to hold:
+ *   (a) one of the errors under `error_ids` carries a `guard` field
+ *       (see `src/guard.mjs` — the same latch `mem log error
+ *       --guard-kind ... --guard-path ...` writes);
+ *   (b) a file under `test/` contains `// error: <id>` for one of these
+ *       ids AND contains `test(` — a probe, not a comment that merely
+ *       carries the marker.
+ */
+export function dutyHasEvidence(root, duty) {
+  const ids = Array.isArray(duty?.error_ids) ? duty.error_ids.filter(Boolean) : [];
+  if (!ids.length) return { ok: true, why: 'no error_ids — F4 does not apply here' };
+
+  for (const project of [null, ...listProjects(root)]) {
+    let entries;
+    try { ({ entries } = readLog(root, 'error', { project })); } catch { continue; }
+    for (const e of entries) {
+      if (e?.id && ids.includes(e.id) && e.guard && typeof e.guard === 'object') {
+        return { ok: true, why: `guard field on error ${e.id}` };
+      }
+    }
+  }
+
+  let files = [];
+  try { files = fs.readdirSync(path.join(root, 'test')); } catch { files = []; }
+  for (const f of files) {
+    const full = path.join(root, 'test', f);
+    let stat;
+    try { stat = fs.statSync(full); } catch { continue; }
+    if (!stat.isFile() || stat.size > EVIDENCE_MAX_BYTES) continue;
+    let text;
+    try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
+    if (!/\btest\(/.test(text)) continue;
+    for (const id of ids) {
+      if (text.includes(`// error: ${id}`)) return { ok: true, why: `test/${f} (// error: ${id})` };
+    }
+  }
+
+  return {
+    ok: false,
+    why: `no test/ file with "// error: <id>" (for ${ids.join(', ')}) and "test(", `
+      + 'and none of the errors carries a guard field',
+  };
+}
+
+/**
+ * Throws when closing this duty (state `done`) has no evidence.
+ * `dropped` is not affected — dropping says "this no longer applies",
+ * not "this was fixed", and needs no F4.
+ */
+function evidenceOrThrow(root, type, state, target, { origin }) {
+  if (type !== 'duty' || String(state ?? '') !== DUTY_STATE.DONE || !target) return;
+  if (!Array.isArray(target.error_ids) || !target.error_ids.length) return;
+  const evidence = dutyHasEvidence(root, target);
+  if (evidence.ok) return;
+  throw new Error(
+    `${origin}: '${target.id}' grew out of errors (error_ids: ${target.error_ids.join(', ')}) `
+    + `and has no evidence: ${evidence.why}.\n`
+    + 'F4: closing needs either a `guard` field on one of the errors '
+    + '(`mem log error --guard-kind ... --guard-path ...`) or a test/ file with '
+    + '`// error: <id>` AND `test(`. Nothing was closed.');
+}
+
 /**
  * Write a correction entry that supersedes an earlier one.
  *
@@ -2236,6 +2335,15 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
     throw new Error(
       `Old id '${oldId}' not found in ${type}${project ? ` (project ${project})` : ''}. Correction without original is not allowed.`);
   }
+  // F4: a correction is not the documented way to close a duty in
+  // cheap-mem (that is `closeDuty`, via `closes_id`) — but `newData` is
+  // an open bag of fields, and nothing stopped one from carrying
+  // `closes_id` plus `state: 'done'` and walking straight past
+  // `closeDuty`'s check. Same guard, same place it is actually enforced,
+  // so a correction cannot do what a close is not allowed to either.
+  if (newData && newData.closes_id) {
+    evidenceOrThrow(root, type, newData.state, old, { origin: 'correction' });
+  }
   return logEntry(root, type, { ...newData, replaces_id: oldId }, { project });
 }
 
@@ -2248,14 +2356,25 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
  * mutation. It is the only folded view in the whole memory, and it
  * exists because an unfolded duty list is useless: nobody can read
  * fifty lines to work out which three things they still owe.
+ *
+ * **A correction (`replaces_id`) is NOT a new duty.** Ported from
+ * lucky-mem's `offenePflichten` (F1, BAUPLAN-mem-admin_02.md Block F):
+ * a repetition that only appends an error id to an already-open
+ * auto-duty writes through `correctionEntry` — append-only, no line
+ * touched — and that correction is a SECOND standalone line with its
+ * own id. Without folding it here, this function counted the original
+ * AND the correction as two open duties, exactly the flood "one duty
+ * per file+class" promises there will not be. `predecessor` holds the
+ * chain so only the NEWEST stage of each one counts.
  */
 export function openDuties(root, { project = undefined } = {}) {
   const targets = project === undefined
     ? [null, ...listProjects(root)]
     : [project === 'global' ? null : project];
 
-  const all = new Map();      // id -> entry
-  const closed = new Map();   // id -> {state, by, ts}
+  const all = new Map();         // id -> entry
+  const closed = new Map();      // id -> {state, by, ts}
+  const predecessor = new Map(); // id -> replaces_id (the stage BEFORE it)
 
   for (const p of targets) {
     const file = logPath(root, 'duty', p);
@@ -2275,6 +2394,7 @@ export function openDuties(root, { project = undefined } = {}) {
         continue;
       }
       if (!e.id) continue;
+      if (e.replaces_id) predecessor.set(e.id, e.replaces_id);
       all.set(e.id, {
         ...e,
         _source: asSource(root, file),
@@ -2284,10 +2404,29 @@ export function openDuties(root, { project = undefined } = {}) {
     }
   }
 
+  // Whoever was later replaced is no longer "the" duty — only the
+  // newest stage of each chain counts on its own.
+  const replacedIds = new Set(predecessor.values());
+  // Whether ANY stage of the chain (the newest or a predecessor) was
+  // closed — a closing line can point at whichever id was known at the
+  // time it was written.
+  function closedForChain(id) {
+    let cur = id;
+    const seen = new Set();
+    while (cur && !seen.has(cur)) {
+      const shut = closed.get(cur);
+      if (shut) return shut;
+      seen.add(cur);
+      cur = predecessor.get(cur);
+    }
+    return null;
+  }
+
   const open = [];
   const done = [];
   for (const [id, e] of all) {
-    const shut = closed.get(id);
+    if (replacedIds.has(id)) continue; // an earlier stage — the newer line represents it
+    const shut = closedForChain(id);
     if (shut) done.push({ ...e, _closed: shut });
     else open.push(e);
   }
@@ -2308,9 +2447,16 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
     throw new Error(`Unknown duty state '${state}'. Known: ${Object.values(DUTY_STATE).join(', ')}`);
   }
   const { open } = openDuties(root, { project: project ?? undefined });
-  if (!open.some((d) => d.id === id)) {
+  const target = open.find((d) => d.id === id);
+  if (!target) {
     throw new Error(`No open duty with id '${id}'.`);
   }
+  // F4 (BAUPLAN-mem-admin_02.md Block F, ported): the ONE point every
+  // close goes through — the CLI (`mem duties close`) and the MCP
+  // bridge (`mem_duty_close`) both call this function and nothing else,
+  // so the check sits here once instead of twice, one of them eventually
+  // drifting behind the other.
+  evidenceOrThrow(root, 'duty', state, target, { origin: 'closeDuty' });
   return logEntry(root, 'duty', { closes_id: id, state, why }, { project });
 }
 

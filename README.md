@@ -298,7 +298,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **62 CLI commands, 28 MCP tools, 70 modules, 1790
+As of 2026-09-26: **62 CLI commands, 28 MCP tools, 73 modules, 1837
 tests**; as of 2026-09-20, about 30,700 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
@@ -390,13 +390,21 @@ mem init                       one-time setup
 mem log <type> --<field> ...   append an entry (ten types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
+                               `error`: shows up to 3 earlier errors for the
+                               same file, and on a real repetition (same
+                               file+class in 30 days, or the same class 3x
+                               in 7) opens one duty per file+class — or
+                               appends to it if one is already open
 mem find "<query>"             ranked search, no model    [--literal --fresh]
                                --as-of <ISO>: what HELD then, not what is
                                recorded now (same rule as `mem retrieve`)
 mem browse                     interactive search: re-ranks on every keystroke
 mem discard <id> / done <id>   retire a thought/task (recall hides it)
 mem duties                     what is still owed
-mem duties close <id>          append a closing line
+mem duties close <id>          append a closing line — refused with no
+                               evidence (a `guard` field on the error, or a
+                               test/ file with `// error: <id>` and `test(`)
+                               when the duty carries `error_ids`
 mem context                    compact dump for session start
                                --budget <chars>: a hard ceiling. Sections give
                                way bottom-up, never mid-entry, and the block

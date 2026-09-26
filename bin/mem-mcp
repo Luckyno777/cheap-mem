@@ -76,6 +76,7 @@ import * as mcpprofile from '../src/mcpprofile.mjs';
 import * as store from '../src/store.mjs';
 import * as procedure from '../src/procedure.mjs';
 import * as broadcast from '../src/broadcast.mjs';
+import * as errorcontext from '../src/errorcontext.mjs';
 import * as heartbeat from '../src/heartbeat.mjs';
 import * as question from '../src/question.mjs';
 import * as component from '../src/component.mjs';
@@ -862,6 +863,26 @@ async function handleCall(name, args) {
         `Appended: ${path.relative(root, p)}`,
         `  id: ${entry.id}   agent: ${entry.agent}`,
       ];
+
+      // **F1/F4 belong HERE too, not only in bin/mem.** Same reasoning
+      // as the broadcast right below: a foreign agent files errors over
+      // THIS path, and a repetition it triggers has to look the same
+      // here as at the CLI — see src/errorcontext.mjs.
+      if (type === 'error') {
+        lines.push(...errorcontext.historyLines(root, entry, { project }));
+        const rep = errorcontext.checkAndDuty(root, entry, { project });
+        if (rep.triggered) {
+          if (rep.created) {
+            lines.push(`Repetition (${rep.reasons.join(', ')}) — opened duty ${rep.duty.id}: ${rep.duty.title}`);
+          } else if (rep.appended) {
+            lines.push(`Repetition (${rep.reasons.join(', ')}) — appended to existing duty ${rep.duty.id}`);
+          } else if (rep.duty) {
+            lines.push(`Repetition (${rep.reasons.join(', ')}) — already tracked under duty ${rep.duty.id}`);
+          } else {
+            lines.push(`Repetition (${rep.reasons.join(', ')}) — no duty (${rep.why}).`);
+          }
+        }
+      }
 
       // **The broadcast belongs HERE too, not only in bin/mem.**
       //

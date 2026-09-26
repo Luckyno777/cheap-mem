@@ -19,6 +19,7 @@ import * as procedure from '../../procedure.mjs';
 import * as question from '../../question.mjs';
 import * as neighbours from '../../neighbours.mjs';
 import * as errorclass from '../../errorclass.mjs';
+import * as errorcontext from '../../errorcontext.mjs';
 import { out, die, warn, checkFlags, isHelp, fieldsFrom, findRoot, requireConfig } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -238,6 +239,25 @@ export const COMMANDS = {
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
 
+    // **L4 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): `asked`
+    // is missing almost always, because so far only the digest writes
+    // it.** See `memory.needsAskedHint()` for which types are exempt
+    // and why. No compulsion — the entry is written either way.
+    if (memory.needsAskedHint(type, data)) {
+      warn('without --asked: only findable through the words in title/text/... '
+        + "(see `mem doctor`: repetition's sibling finding does not cover this — "
+        + 'this is a plain reminder, not a measured check).');
+    }
+
+    // **F1 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): the file,
+    // not only the class.** Earlier errors for the same file, their
+    // guards, open duties about it — shown once the entry exists, so a
+    // repeat is visible the moment it is filed, not only later in
+    // `mem doctor`.
+    if (type === 'error') {
+      for (const l of errorcontext.historyLines(root, entry, { project: args.project ?? null })) out(l);
+    }
+
     // **The class as a warning, not a label.**
     //
     // On 2026-09-07 one first-time install produced four defects; three
@@ -279,6 +299,28 @@ export const COMMANDS = {
         out('');
         out(`  ${armed.length} procedure${armed.length === 1 ? '' : 's'} in force for this class:`);
         for (const p of armed) out(`    ${procedure.display(p)}`);
+      }
+    }
+
+    // **F1 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): on a real
+    // repetition, a duty is not optional.** Same file + class within 30
+    // days, or the same class three times within 7 — `mem log` creates
+    // exactly one open duty per file+class, or appends this error's id
+    // to the one that already exists. See `src/errorcontext.mjs` and
+    // `src/repetition.mjs`.
+    if (type === 'error') {
+      const rep = errorcontext.checkAndDuty(root, entry, { project: args.project ?? null });
+      if (rep.triggered) {
+        out('');
+        if (rep.created) {
+          out(`  Repetition (${rep.reasons.join(', ')}) — opened duty ${rep.duty.id}: ${rep.duty.title}`);
+        } else if (rep.appended) {
+          out(`  Repetition (${rep.reasons.join(', ')}) — appended to existing duty ${rep.duty.id}`);
+        } else if (rep.duty) {
+          out(`  Repetition (${rep.reasons.join(', ')}) — already tracked under duty ${rep.duty.id}`);
+        } else {
+          out(`  Repetition (${rep.reasons.join(', ')}) — no duty (${rep.why}); see the class warning above.`);
+        }
       }
     }
 
