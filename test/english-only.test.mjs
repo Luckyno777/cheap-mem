@@ -71,68 +71,23 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NEARLY_MARKER } from '../bench/invariants.mjs';
+import {
+  GERMAN_WORDS, GERMAN_WORD_SET, germanHits, asProse, KNOWN_VERBATIM_QUOTES,
+} from './english-dictionary.mjs';
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SCAN_DIRS = ['src', 'bin', 'test', 'bench'];
 
-// The one verbatim quotation this probe must not flag. Named by its
-// exact text rather than matched by a pattern — see the file header for
-// why. If this line ever changes or the incident is rewritten, this
-// allowance should be revisited alongside it, not silently widened.
-// Lines this scanner must not read as German prose, because they are
-// German being QUOTED rather than German being written.
-//
-// **Why an exact-substring list and not a "text in quotes is fine"
-// rule.** The loose rule would launder any German sentence somebody
-// puts in quotation marks, which is exactly the leak this guard exists
-// to stop. An entry here is a decision about one specific sentence, and
-// it has to be copied from the source, so it cannot grow by accident.
-//
-// The house rules below are shared vocabulary between the two
-// repositories and are deliberately kept in the original: translating
-// "leer-ist-kein-bestehen" into English would give the same invariant
-// two names, and then two houses would claim to share an id they no
-// longer share. Same reasoning as the invariant ids themselves.
-const KNOWN_VERBATIM_QUOTES = Object.freeze([
-  '"Die FAKTEN-KRITISCH-Notiz erwähnt die Container `claude`,',
-  '`diggi-tunnel`, `omniroute` […] die vollständige Datei unter',
-  // Shared house rules, quoted in the original (added 2026-09-20):
-  'leer-ist-kein-bestehen',
-  'nicht messbar ist nicht null',
-  'Nicht messbar ist nicht null',
-  'Ein Riegel, der Unschuldige meldet, wird abgeschaltet',
-  'Ein leerer Ordner ist messbar leer',
-]);
-
-// The required dictionary from the task, plus real German function
-// words this translation pass actually found causing false negatives
-// (a word missing from the list simply cannot be caught). Deliberately
-// excludes two words that are genuine German/English homographs and
-// produced false positives during calibration against this repo's own
-// English comments: "was" (past tense of "is") and "so". Leaving them
-// out means a line using ONLY those plus one real German word still
-// needs a second real German word to flag — which is the point of the
-// two-word threshold in the first place.
-const GERMAN_WORDS = Object.freeze([
-  'der', 'die', 'das', 'und', 'nicht', 'wird', 'werden', 'ist', 'sind',
-  'eine', 'einen', 'keine', 'dass', 'weil', 'wenn', 'dann', 'noch',
-  'schon', 'auch', 'aber', 'oder', 'durch', 'ueber', 'über', 'unter',
-  'nach', 'vor', 'bei', 'mit', 'zum', 'zur', 'vom', 'beim', 'sich',
-  'ihre', 'seine', 'hier', 'damit', 'sonst', 'immer', 'nie', 'jede',
-  'jeder', 'alle', 'etwas', 'nichts', 'mehr', 'gemessen', 'gebaut',
-  'fehler', 'zeile', 'datei', 'eintrag', 'probe',
-  // Found while translating this repo, not in the task's starting list:
-  'fuer', 'für', 'muss', 'koennen', 'können', 'soll', 'diese', 'dieser',
-  'dieses', 'einem', 'einer', 'eines', 'wie', 'wer', 'wo', 'kein',
-  'keinen', 'keiner', 'waere', 'wäre', 'haette', 'hätte', 'wurde',
-  'wurden', 'auf', 'als', 'nur', 'geht', 'laeuft', 'läuft',
-  'ausdruecklich', 'erlaubt', 'begruendung', 'niemand', 'verlangte',
-  'direkt', 'ohne', 'koerper', 'pruefen', 'nachpruefen', 'erste',
-  'muster', 'ausnahme', 'sondern', 'statt', 'moeglich', 'moeglichkeit',
-  'sowie', 'ebenfalls', 'deshalb', 'trotzdem', 'zwar', 'einschraenkung',
-  'entscheidend', 'gehoert', 'gegenteil', 'unbegruendeten',
-]);
-const GERMAN_WORD_SET = new Set(GERMAN_WORDS);
+// The dictionary, the two-distinct-word threshold (`germanHits`), the
+// backtick-stripping rule (`asProse`) and the one verbatim-quotation
+// allowance (`KNOWN_VERBATIM_QUOTES`) all live in
+// test/english-dictionary.mjs — extracted on 2026-09-26 so that
+// test/english-ratchet.test.mjs's much wider scan (every tracked text
+// file, not the comments this file limits itself to) shares the exact
+// same recognition rule instead of a second, driftable copy of it. See
+// that module for the reasoning behind each piece; see below for why
+// THIS file limits its own scan to comments in src/, bin/, test/ and
+// bench/ rather than every line of every file.
 
 // **Built from parts, and that is the whole point.** This extractor is
 // line-based and does not parse the language, so a marker inside a
@@ -239,33 +194,6 @@ function commentLines(text, blocks = true) {
   }
   out.unterminated = inBlock;
   return out;
-}
-
-/** Distinct dictionary words a comment line's own text carries. */
-function germanHits(text) {
-  const words = text.toLowerCase().match(/[a-zäöüß]+/g) ?? [];
-  const found = new Set();
-  for (const w of words) if (GERMAN_WORD_SET.has(w)) found.add(w);
-  return [...found];
-}
-
-/**
- * A comment line with its backtick-quoted spans removed.
- *
- * **Why (2026-09-19).** The two houses share `shared/invariants.jsonl`
- * byte for byte, and its ids are German by design. `leer-ist-kein-bestehen`
- * and its siblings are names, not prose. An English comment
- * that cites one was reported as German, because `ist` and `kein` are
- * on the word list. That is a guard reporting the innocent, and it will
- * recur for every future citation, which is why this is a rule and not
- * another entry in KNOWN_VERBATIM_QUOTES.
- *
- * A backtick-quoted span is an identifier, a path or a command. Prose
- * outside the backticks is still scanned, so a German sentence cannot
- * hide by putting one word in backticks.
- */
-function asProse(line) {
-  return String(line).replace(/`[^`]*`/g, ' ');
 }
 
 function scanRepo() {

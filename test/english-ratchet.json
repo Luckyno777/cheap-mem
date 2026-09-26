@@ -1,0 +1,127 @@
+{
+  "_read_me_first": [
+    "Ceilings for test/english-ratchet.test.mjs. A ceiling is the number",
+    "of German-flagged lines a tracked text file had when it was last",
+    "measured. The test fails if a file's CURRENT count exceeds its",
+    "ceiling, or if a file carries German lines with no ceiling entry at",
+    "all (a new offender). A count BELOW its ceiling is not a failure —",
+    "the test prints a hint to lower that entry, and this file should",
+    "then be edited to match, so the ratchet only ever tightens.",
+    "",
+    "'exemptions' are files whose German content is DATA or a",
+    "MEASUREMENT RECORD by design, not prose debt, and so are never",
+    "ceilinged and never fail — see each entry's own reason.",
+    "",
+    "'filenameAllowlist' is the file-NAME version of the same idea: a",
+    "short explicit list of German words (Lucky's decision, 2026-09-26)",
+    "must not appear in any tracked path unless it is named here."
+  ],
+  "metric": "German lines per file / total tracked text files, using test/english-dictionary.mjs's two-distinct-word threshold and KNOWN_VERBATIM_QUOTES over EVERY line of EVERY file `git ls-files` tracks (not only comments) — the same rule test/english-only.test.mjs applies to src/bin/test/bench comments, widened to the whole repo per Lucky's 2026-09-26 decision that cheap-mem is throughout-English.",
+  "baseline": {
+    "measured_2026-09-26_by_this_agent": "2348 German lines across 66 of 434 tracked files (52 files/1681 lines ceilinged below, 14 files/667 lines in 'exemptions')",
+    "cited_in_task_2026-09-26_by_lucky": "2406 German lines across 69 files, measured before this branch's dictionary refactor moved test/english-only.test.mjs's inline word list into test/english-dictionary.mjs — that move changed which FILE a few dozen self-referential 'dictionary as data' lines live in and how they wrap, which explains most of the gap; both numbers were produced by the identical dictionary and threshold, re-measuring rather than reusing Lucky's figure is why they differ."
+  },
+  "expected": "every ceiling in this file only falls or holds — never rises without a matching drop elsewhere; the grand total (ceilings + exemptions) never rises; a file not listed here that gains a German-flagged line becomes a failing new offender, not a silent addition.",
+  "abort": "the ratchet flags a genuinely English line as German. Checked by hand: a 20-line sample from each of the five largest offenders (eval/README.md, docs/analyse-2026-09-08-vergleich-fremdsysteme.md, BAUWEISE.md, eval/tasks.mjs, eval/world.mjs, plus eval/runs/paar-sauber-20260916-restricted.jsonl) — roughly 100 lines total. Every flagged line was genuine German prose or genuine German data (JSONL run records); zero false positives found.",
+  "exemptions": [
+    {
+      "pattern": "eval/runs/*.jsonl",
+      "reason": "measurement records: translating falsifies evidence (the model's actual German-language answers, quoted verbatim, are the finding)"
+    },
+    {
+      "pattern": "shared/*.jsonl",
+      "reason": "cross-house contract files shared byte-for-byte with lucky-mem (the German house) — shared/invariants.jsonl and shared/finding-map.jsonl exist so both repos agree on the same ids; translating either would desynchronize the two repos' copies of the same contract"
+    },
+    {
+      "pattern": "src/language.mjs",
+      "reason": "DE_STOP: the German half of the bilingual tokenizer stopword list is data, not prose, so a memory written in German stays searchable (same rationale test/english-only.test.mjs already documents for src/thesaurus.mjs)"
+    },
+    {
+      "pattern": "src/search.mjs",
+      "reason": "a second copy of the same bilingual stopword list, used by the query-time content-word filter — same reason as src/language.mjs"
+    },
+    {
+      "pattern": "src/thesaurus.mjs",
+      "reason": "German synonym groups are data by design, so a memory written in German stays searchable — already named as such in test/english-only.test.mjs's own header"
+    },
+    {
+      "pattern": "bench/duplicate-rate.mjs",
+      "reason": "STOP: a bilingual near-duplicate-detection stopword list, same rationale as src/language.mjs's DE_STOP"
+    },
+    {
+      "pattern": "test/english-dictionary.mjs",
+      "reason": "the guard's own recognition dictionary — German function words listed as DATA so the probe can find them in prose, not prose itself"
+    }
+  ],
+  "filenameGermanWords": ["paar", "grundwert", "kennzahlen", "nur-roh", "eine-sprache", "messgeraete", "kontext-riegel", "welt"],
+  "filenameAllowlist": [
+    { "path": "eval/paar.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/paar-a-c.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/paar-auswerten.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/runs/paar-sauber.jsonl", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/runs/paar-sauber-20260916-restricted.jsonl", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/runs/paar2-sauber.jsonl", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/runs/paar3-treu.jsonl", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/runs/paar4-ausgeglichen.jsonl", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/grundwert.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/kennzahlen.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "eval/nur-roh.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "test/eine-sprache.test.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "test/audit-messgeraete.test.mjs", "reason": "to be renamed in B6/B4" },
+    { "path": "test/eval-kontext-riegel.test.mjs", "reason": "to be renamed in B6/B4" }
+  ],
+  "ceilings": {
+    "BAUWEISE.md": 156,
+    "bench/atlas/phase-real.mjs": 2,
+    "docs/analyse-2026-09-08-vergleich-fremdsysteme.md": 331,
+    "docs/viewer-design-tokens.json": 18,
+    "eslint.config.mjs": 12,
+    "eval/README.md": 384,
+    "eval/ablation.mjs": 14,
+    "eval/arms.mjs": 27,
+    "eval/corpus.mjs": 91,
+    "eval/echo.mjs": 37,
+    "eval/final-eingefroren.json": 15,
+    "eval/flood.mjs": 9,
+    "eval/frageworte-wirkung.mjs": 18,
+    "eval/frageworte.mjs": 20,
+    "eval/grundwert.mjs": 20,
+    "eval/independence.mjs": 38,
+    "eval/kennzahlen.mjs": 39,
+    "eval/nur-roh.mjs": 23,
+    "eval/paar-a-c.mjs": 36,
+    "eval/paar-auswerten.mjs": 16,
+    "eval/paar.mjs": 32,
+    "eval/run.mjs": 29,
+    "eval/tasks.mjs": 136,
+    "eval/world.mjs": 85,
+    "src/cli/commands/write.mjs": 1,
+    "test/asked.test.mjs": 1,
+    "test/atlas-real-guard-origin.test.mjs": 3,
+    "test/audit-messgeraete.test.mjs": 2,
+    "test/calculations.test.mjs": 1,
+    "test/consumption-funnel.test.mjs": 1,
+    "test/coverage-state.test.mjs": 3,
+    "test/dashboard.test.mjs": 1,
+    "test/english-only.test.mjs": 17,
+    "test/english-ratchet.json": 1,
+    "test/eval-frozen.test.mjs": 1,
+    "test/exact-lane.test.mjs": 3,
+    "test/finding-mirror.test.mjs": 1,
+    "test/gateway-diversity.test.mjs": 4,
+    "test/hook-windows-root.test.mjs": 1,
+    "test/install-hooks.test.mjs": 1,
+    "test/installer-parity.test.mjs": 1,
+    "test/invariants.test.mjs": 1,
+    "test/langdetect.test.mjs": 17,
+    "test/language-per-entry.test.mjs": 8,
+    "test/paths-agree.test.mjs": 4,
+    "test/raw-reserve.test.mjs": 8,
+    "test/raw-review.test.mjs": 1,
+    "test/raw-stats.test.mjs": 6,
+    "test/redaction-unicode.test.mjs": 1,
+    "test/search.test.mjs": 1,
+    "test/setup-status.test.mjs": 2,
+    "test/viewer.test.mjs": 1
+  }
+}
