@@ -43,6 +43,14 @@ const STX = '\x02'; // separates commits in the raw log output
 const US = '\x1f'; // separates hash from raw body within one commit
 const ETX = '\x03'; // separates the header (hash+body) from the --name-only file list
 
+// Named exceptions, each with its reason. Only for commits that were
+// already merged AND pushed before the rule reached their branch, so the
+// line can no longer be added without rewriting pushed history (forbidden).
+// Adding an entry here is a decision, not a convenience: one hash, one why.
+export const EXEMPT = new Map([
+  ['8201ff4ef856', 'N4, merged and pushed on the integration branch (de588b8) before the L5 merge 7f1d479 brought the rule there; parity: lucky-mem has its own N1 (mem_nutzer), so the honest value would have been lm=yes'],
+]);
+
 export const TRAILER_PATTERN = /^Parity:\s*lm=(yes|no|open)\s*$/m;
 
 function git(args, root) {
@@ -118,6 +126,36 @@ export function hasLine(commit) {
   return TRAILER_PATTERN.test(commit.body);
 }
 
+/**
+ * Commits brought in by a merge commit that DOES carry the parity line.
+ *
+ * **Why (2026-09-26, first real hit, ported from lucky-mem).** Agents
+ * work on their own branches, often started before the cutoff, and do
+ * not know the rule while working; the orchestrator decides parity at
+ * merge time. If merge commit M carries the line, it applies to every
+ * commit in M^1..M^2 — exactly the ones it brings in. A merge WITHOUT
+ * the line covers nothing; every code commit in it stays a violation.
+ */
+export function coveredByMerge(root, cutoff) {
+  const map = new Map();
+  let merges;
+  try {
+    merges = git(['log', `${cutoff}..HEAD`, '--merges', `--format=${STX}%H${US}%B${ETX}`], root);
+  } catch { return map; }
+  for (const block of merges.split(STX).filter(Boolean)) {
+    const [hash, rest = ''] = block.split(US);
+    const body = rest.split(ETX)[0];
+    const hit = body.match(TRAILER_PATTERN);
+    if (!hit) continue;
+    let list = '';
+    try { list = git(['rev-list', `${hash}^1..${hash}^2`], root); } catch { continue; }
+    for (const h of list.split('\n').map((z) => z.trim()).filter(Boolean)) {
+      if (!map.has(h)) map.set(h, hit);
+    }
+  }
+  return map;
+}
+
 /** Core evaluation, shared by the counter and the gate test. */
 export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   if (!cutoffMeasurable(root, cutoff)) {
@@ -128,11 +166,13 @@ export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   }
   const commits = commitsSince(root, cutoff);
   const codeCommits = commits.filter(needsLine);
+  const covered = coveredByMerge(root, cutoff);
   const counts = { yes: 0, no: 0, open: 0 };
   const violations = [];
   for (const c of codeCommits) {
-    const m = c.body.match(TRAILER_PATTERN);
+    const m = c.body.match(TRAILER_PATTERN) ?? covered.get(c.hash);
     if (m) counts[m[1]] += 1;
+    else if (EXEMPT.has(c.hash.slice(0, 12))) continue;
     else violations.push({ hash: c.hash.slice(0, 12), subject: c.body.split('\n')[0] });
   }
   return {

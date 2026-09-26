@@ -149,3 +149,22 @@ test('shallow: a shallow clone reports "not measurable", not red, not green', ()
   assert.equal(result.measurable, false);
   assert.match(result.reason, /shallow|reachable/i);
 });
+
+test('merge coverage: a merge WITH the line covers the commits it brings in, without it does not', () => {
+  for (const [withLine, expected] of [[true, 0], [false, 1]]) {
+    const { r, git, cutoff } = repo();
+    const main = git('rev-parse', '--abbrev-ref', 'HEAD').trim();
+    git('checkout', '-q', '-b', 'side');
+    fs.writeFileSync(path.join(r, 'src', 'main.mjs'), 'export const a = 2;\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'agent changes src without the line');
+    git('checkout', '-q', main);
+    fs.writeFileSync(path.join(r, 'README.md'), '# Test repo\ntwo\n');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'docs on main');
+    git('merge', '-q', '--no-ff', 'side', '-m',
+      withLine ? 'Merge side\n\nParity: lm=open' : 'Merge side');
+    const result = evaluate(r, cutoff);
+    assert.equal(result.violations.length, expected, withLine ? 'merge with the line does not cover' : 'merge without the line wrongly covers');
+  }
+});
