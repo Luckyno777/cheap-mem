@@ -292,3 +292,83 @@ test('freshness: the committed snapshot matches the live neighbour, '
     + 'LUCKY_MEM_SNAPSHOT in this file deliberately (see the comment above '
     + 'it) and re-run');
 });
+
+// --- Latch: warum/why parity in the real mapping file ---------------------
+//
+// Decision on 2026-09-26: every line now carries an English `why` next
+// to the German `warum` — the same reasoning, translated. Two traps
+// this latch hunts: a line gets a new `warum` on its next edit but
+// nobody adds `why`; or the translation quietly changes a number (a
+// date, a percentage, milliseconds), and the two language versions end
+// up claiming different things without anyone noticing.
+
+function readRealMap() {
+  const text = fs.readFileSync(path.join(REPO, MAP_PLACES[0]), 'utf8');
+  return text.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+}
+
+function numberMultiset(text) {
+  return (text.match(/\d+/g) || []).slice().sort();
+}
+
+/** The same check the two probes below run against the real file — as
+ *  a function, so the positive controls can run it against a fixture
+ *  instead of duplicating the check. */
+function checkWhy(entry) {
+  const problems = [];
+  const id = entry.id ?? '(no id)';
+  if (typeof entry.warum !== 'string' || entry.warum.trim() === '') {
+    problems.push(`${id}: warum is missing or empty`);
+  }
+  if (typeof entry.why !== 'string' || entry.why.trim() === '') {
+    problems.push(`${id}: why is missing or empty`);
+  }
+  if (typeof entry.warum === 'string' && typeof entry.why === 'string') {
+    const de = numberMultiset(entry.warum);
+    const en = numberMultiset(entry.why);
+    if (JSON.stringify(de) !== JSON.stringify(en)) {
+      problems.push(`${id}: numbers in warum (${de}) and why (${en}) differ`);
+    }
+  }
+  return problems;
+}
+
+test('every line of the real mapping file has a non-empty warum AND a non-empty why', () => {
+  const lines = readRealMap();
+  assert.ok(lines.length >= 50, `only ${lines.length} lines found — wrong place, or parsed wrong?`);
+  for (const l of lines) {
+    assert.ok(typeof l.warum === 'string' && l.warum.trim() !== '', `${l.id}: warum is missing or empty`);
+    assert.ok(typeof l.why === 'string' && l.why.trim() !== '', `${l.id}: why is missing or empty`);
+  }
+});
+
+test('in every line of the real mapping file the numbers in warum and why are the same multiset', () => {
+  const lines = readRealMap();
+  for (const l of lines) {
+    assert.deepEqual(numberMultiset(l.warum), numberMultiset(l.why),
+      `${l.id}: numbers in warum (${numberMultiset(l.warum)}) and why (${numberMultiset(l.why)}) differ`);
+  }
+});
+
+test('POSITIVE CONTROL: a fixture line without why is flagged', () => {
+  // Not checked against the real file — that one is supposed to be clean.
+  const bad = { id: 'fixture-no-why', warum: 'ein Text mit Substanz' };
+  const problems = checkWhy(bad);
+  assert.ok(problems.length > 0);
+  assert.ok(problems.some((p) => /why/.test(p)));
+});
+
+test('POSITIVE CONTROL: a fixture line with a diverging number in why is flagged', () => {
+  const bad = { id: 'fixture-number', warum: 'gebaut am 2026-09-19', why: 'built on 2026-09-20' };
+  const problems = checkWhy(bad);
+  assert.ok(problems.length > 0);
+  assert.ok(problems.some((p) => /numbers/.test(p)));
+});
+
+test('the counter-check: a complete fixture line with matching numbers is NOT flagged', () => {
+  // Without this, checkWhy could report "broken" even when everything
+  // is actually fine, and the two probes above would pass for the
+  // wrong reason.
+  const good = { id: 'fixture-ok', warum: 'gebaut am 2026-09-19', why: 'built on 2026-09-19' };
+  assert.deepEqual(checkWhy(good), []);
+});
