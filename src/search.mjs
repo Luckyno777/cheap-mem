@@ -1066,6 +1066,21 @@ export function search(index, query, {
   // exactly as it always did. No caller in this codebase passes this yet
   // — wiring one is a separate change.
   capability = null,
+  // OPTIONAL, defaults to the real clock. The recency bonus below reads
+  // wall-clock "now" to age every document against, exactly like every
+  // OTHER module here that has a recency-shaped calculation
+  // (`archive.mjs`'s backlog check, `audit.mjs`'s fact currency,
+  // `board.mjs`'s heartbeats — all take an injectable `now`). `search()`
+  // alone did not, which is a gap, not a design choice: a test that
+  // freezes its corpus's `ts` but not the clock scoring it against
+  // measures a value that keeps drifting by real elapsed days forever —
+  // found 2026-09-26 in `test/search-capability.test.mjs`'s frozen
+  // fixture, whose recorded scores quietly stopped matching a few days
+  // after they were recorded, entirely from the recency term, with
+  // every other term byte-identical. Omitted, this is `Date.now()`,
+  // exactly as before — no caller anywhere in this codebase passes it
+  // today, so nothing changes for anyone but a test that now can.
+  now = Date.now(),
 } = {}) {
   // --- The id lane: asking for an id means asking for ONE entry ----
   //
@@ -1152,7 +1167,6 @@ export function search(index, query, {
     terms.set(stemmed, g);
   }
 
-  const now = Date.now();
   const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired, capability };
 
   const hits = [];
@@ -2167,7 +2181,7 @@ export function exactHits(index, query, slots, limits = {}) {
   const scores = new Map();
   for (const h of search(index, query, {
     top: index.N ?? index.documents.length, minScore: 0,
-    withRetired: true, mmr: false,
+    withRetired: true, mmr: false, now: limits.now,
   })) scores.set(`${h.source}:${h.line}`, h.score);
   const out = [];
   for (const [i, which] of found) {
