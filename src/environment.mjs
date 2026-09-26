@@ -210,7 +210,7 @@ export function checkPreCommitHook(root) {
  * `open(2)`: "O_APPEND may lead to corrupted files on NFS filesystems if
  * more than one process appends data to a file at once." That is a
  * published property of the protocol, not a guess from a name — so the
- * verdict here is `false`, not `unknown`. "Nicht messbar ist nicht null"
+ * verdict here is `false`, not `unknown`. "Not measurable is not zero"
  * governs what we could not determine; this we can determine, from the
  * documentation, without measuring.
  *

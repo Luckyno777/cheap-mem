@@ -451,7 +451,7 @@ export function entryVersionOf(entry) {
  *
  * A `V_UNKNOWN` entry is returned as-is, flagged — the house's fourth
  * state applies to a field exactly as it does to a check:
- * "Nicht messbar ist nicht null." A version that DOES parse but has no
+ * "Not measurable is not zero." A version that DOES parse but has no
  * registered adapter throws here too, at read time rather than import
  * time — this is the one path where that can happen for a version
  * genuinely written by some OTHER, newer build of this code (a corpus

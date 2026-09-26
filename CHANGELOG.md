@@ -257,6 +257,23 @@ are the day the work landed on `main`.
   `needs:` pointing at a renamed job, the publish behind every gate and
   behind its condition, no literal token, and no cancel-in-progress on a
   release.
+- **A guarded Streamable HTTP transport for `bin/mem-mcp`** (#24). Stdio
+  stays the default; `mem-mcp --http` serves the identical tool
+  definitions, profile checks and house rules at `/mcp` for a hosted
+  client that cannot launch a local process — a second transport in the
+  same program, not a separate wrapper that could drift from it. It
+  starts **read-only by default** (`CHEAP_MEM_MCP_READONLY=0` opts a
+  process into the full profile, deliberately, once), and a non-loopback
+  bind with no `CHEAP_MEM_MCP_TOKEN` is refused before the socket ever
+  opens. `Host` is checked against an exact allowlist
+  (`CHEAP_MEM_MCP_HOSTS`) — `memory.example.org.attacker.invalid` must
+  not pass because `memory.example.org` does — and `test/mcp-http.test.mjs`
+  proves that exact boundary against a real socket, not a mock:
+  the configured Host reaches the server, the suffix lookalike gets a
+  403, and the unauthenticated non-loopback bind never listens at all.
+  Documented in `docs/mcp-setup.md` under "Hosted clients — Streamable
+  HTTP", with the reverse-proxy shape and a curl probe for both sides of
+  the Host check.
 
 ### Changed
 

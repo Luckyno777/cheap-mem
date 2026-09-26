@@ -137,6 +137,12 @@ export function readAgent(root, name) {
     // field being set. Retiring one is the exception.
     active: head.active !== false,
     inherits_from: head.inherits_from ?? head['inherits-from'] ?? null,
+    // Announced silence: until when this agent does NOT answer, and why.
+    // See `silentStatus()` — the deadline runs out, the field does not.
+    // Both fields are passed through raw here; judged only there, so
+    // that stays the one place.
+    silent_until: typeof head.silent_until === 'string' ? head.silent_until.trim() : null,
+    silent_why: typeof head.silent_why === 'string' ? head.silent_why.trim() : null,
     home: rel(root, home) || AGENTS_DIR,
     content: rel(root, content) || '.',
     prompt: promptPath ? rel(root, promptPath) : null,
@@ -144,6 +150,62 @@ export function readAgent(root, name) {
     skills: entriesIn('skills', null),
     note: head.note ?? '',
   };
+}
+
+/**
+ * Announced silence: an agent that does NOT answer, and that is known.
+ *
+ * **Why a deadline and not a switch.** A bare `silent: true` with no
+ * expiry is a warning somebody switched off — and nobody ever switches
+ * it back on. `silent_until` lets TIME re-arm it, and then it says MORE
+ * than before: "was announced silent until X, and still is". An expired
+ * announcement is a stronger finding than none at all.
+ *
+ * Returns `{ silent, until, why, expired, invalid? }`. `silent` is true
+ * only while the deadline has not passed.
+ */
+export function silentStatus(agent, now = new Date()) {
+  const until = agent && typeof agent.silent_until === 'string' ? agent.silent_until.trim() : '';
+  if (!until) return { silent: false, until: null, why: null, expired: false };
+  const end = new Date(`${until}T23:59:59Z`);
+  if (Number.isNaN(end.getTime())) {
+    // An unreadable date is NOT a silence. Otherwise a typo would be an
+    // unbounded switch.
+    return { silent: false, until, why: agent.silent_why ?? null, expired: false, invalid: true };
+  }
+  const expired = new Date(now).getTime() > end.getTime();
+  return {
+    silent: !expired,
+    until,
+    why: (agent.silent_why ?? '').trim() || null,
+    expired,
+  };
+}
+
+/**
+ * Who is CURRENTLY announced silent, and whose announcement expired?
+ *
+ * @returns {{silent: Map<string,object>, expired: Map<string,object>}}
+ */
+export function announcedSilence(root, now = new Date()) {
+  const silent = new Map();
+  const expired = new Map();
+  let names;
+  try { names = listAgents(root).map((a) => a.name); } catch { return { silent, expired }; }
+  for (const name of names) {
+    let st;
+    try { st = silentStatus(readAgent(root, name), now); } catch { continue; }
+    if (st.silent) silent.set(name, { name, ...st });
+    else if (st.expired) expired.set(name, { name, ...st });
+  }
+  return { silent, expired };
+}
+
+/** Like `announcedSilence().silent`, as text for a finding — empty when nobody is silent. */
+export function silenceNote(silent) {
+  if (!silent || silent.size === 0) return '';
+  return ' · announced silent: ' + [...silent.values()]
+    .map((x) => `${x.name} until ${x.until}${x.why ? ` (${x.why})` : ''}`).join(', ');
 }
 
 /** Every agent, alphabetically. Retired ones are included and marked. */

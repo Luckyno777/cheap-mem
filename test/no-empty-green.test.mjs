@@ -18,7 +18,7 @@
 // denominator (messages ever delivered, captures ever made, entries
 // ever logged, facts ever tracked, pointers ever written, topics ever
 // assigned) that was zero, and each reported the same "clean" verdict a
-// genuinely healthy, well-populated memory would report. "nicht messbar ist nicht null": a check that cannot see its own denominator has to
+// genuinely healthy, well-populated memory would report. "Not measurable is not zero": a check that cannot see its own denominator has to
 // say so, not default to the answer that looks like success.
 //
 // **Why this is shaped as three fixtures, not one.** A single "empty
@@ -269,7 +269,7 @@ test('GUARANTEE: no finding is ok over an empty memory without naming a positive
 // --- THE INNOCENCE COUNTER-PROBE -----------------------------------------
 
 test('INNOCENCE COUNTER-PROBE: the six environment guarantees stay ok on the same empty memory', () => {
-  // "Ein Riegel, der Unschuldige meldet, wird abgeschaltet." If fixing
+  // "A bolt that reports the innocent gets switched off." If fixing
   // the ten above pushed one of these into `unknown` too, this is where
   // it shows: these six measure the LAYER (participants configured,
   // redaction armed, git ignoring what it must, the merge driver, atomic
