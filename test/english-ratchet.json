@@ -29,50 +29,90 @@
       "reason": "measurement records: translating falsifies evidence (the model's actual German-language answers, quoted verbatim, are the finding)"
     },
     {
-      "pattern": "shared/*.jsonl",
-      "reason": "cross-house contract files shared byte-for-byte with lucky-mem (the German house) — shared/invariants.jsonl and shared/finding-map.jsonl exist so both repos agree on the same ids; translating either would desynchronize the two repos' copies of the same contract"
-    },
-    {
-      "pattern": "src/language.mjs",
-      "reason": "DE_STOP: the German half of the bilingual tokenizer stopword list is data, not prose, so a memory written in German stays searchable (same rationale test/english-only.test.mjs already documents for src/thesaurus.mjs)"
-    },
-    {
-      "pattern": "src/search.mjs",
-      "reason": "a second copy of the same bilingual stopword list, used by the query-time content-word filter — same reason as src/language.mjs"
+      "pattern": "shared/finding-map.jsonl",
+      "reason": "the one cross-house file that is byte-identical with lucky-mem's geteilt/befund-zuordnung.jsonl (BAUWEISE rule 15); decision 2026-09-26: it will carry both 'warum' and 'why', so German stays in it by design. shared/invariants.jsonl and shared/calculations.jsonl are NOT exempt: each house writes its own prose there, and cheap-mem's must be English."
     },
     {
       "pattern": "src/thesaurus.mjs",
       "reason": "German synonym groups are data by design, so a memory written in German stays searchable — already named as such in test/english-only.test.mjs's own header"
     },
     {
-      "pattern": "bench/duplicate-rate.mjs",
-      "reason": "STOP: a bilingual near-duplicate-detection stopword list, same rationale as src/language.mjs's DE_STOP"
-    },
-    {
       "pattern": "test/english-dictionary.mjs",
       "reason": "the guard's own recognition dictionary — German function words listed as DATA so the probe can find them in prose, not prose itself"
     }
   ],
-  "filenameGermanWords": ["paar", "grundwert", "kennzahlen", "nur-roh", "eine-sprache", "messgeraete", "kontext-riegel", "welt"],
+  "filenameGermanWords": [
+    "paar",
+    "grundwert",
+    "kennzahlen",
+    "nur-roh",
+    "eine-sprache",
+    "messgeraete",
+    "kontext-riegel",
+    "welt"
+  ],
   "filenameAllowlist": [
-    { "path": "eval/paar.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/paar-a-c.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/paar-auswerten.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/runs/paar-sauber.jsonl", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/runs/paar-sauber-20260916-restricted.jsonl", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/runs/paar2-sauber.jsonl", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/runs/paar3-treu.jsonl", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/runs/paar4-ausgeglichen.jsonl", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/grundwert.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/kennzahlen.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "eval/nur-roh.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "test/eine-sprache.test.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "test/audit-messgeraete.test.mjs", "reason": "to be renamed in B6/B4" },
-    { "path": "test/eval-kontext-riegel.test.mjs", "reason": "to be renamed in B6/B4" }
+    {
+      "path": "eval/paar.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/paar-a-c.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/paar-auswerten.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/runs/paar-sauber.jsonl",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/runs/paar-sauber-20260916-restricted.jsonl",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/runs/paar2-sauber.jsonl",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/runs/paar3-treu.jsonl",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/runs/paar4-ausgeglichen.jsonl",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/grundwert.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/kennzahlen.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "eval/nur-roh.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "test/eine-sprache.test.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "test/audit-messgeraete.test.mjs",
+      "reason": "to be renamed in B6/B4"
+    },
+    {
+      "path": "test/eval-kontext-riegel.test.mjs",
+      "reason": "to be renamed in B6/B4"
+    }
   ],
   "ceilings": {
     "BAUWEISE.md": 156,
     "bench/atlas/phase-real.mjs": 2,
+    "bench/duplicate-rate.mjs": 2,
     "docs/analyse-2026-09-08-vergleich-fremdsysteme.md": 331,
     "docs/viewer-design-tokens.json": 18,
     "eslint.config.mjs": 12,
@@ -95,7 +135,10 @@
     "eval/run.mjs": 29,
     "eval/tasks.mjs": 136,
     "eval/world.mjs": 85,
+    "shared/invariants.jsonl": 9,
     "src/cli/commands/write.mjs": 1,
+    "src/language.mjs": 7,
+    "src/search.mjs": 2,
     "test/asked.test.mjs": 1,
     "test/atlas-real-guard-origin.test.mjs": 3,
     "test/audit-messgeraete.test.mjs": 2,
