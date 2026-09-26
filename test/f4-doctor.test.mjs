@@ -63,11 +63,22 @@ test('POSITIVE CONTROL: a real repetition ratio above the threshold warns, with 
 
 // --- closed-without-evidence -------------------------------------------
 
-test('closed-without-evidence: good with no closed error-derived duties', () => {
+test('closed-without-evidence: UNKNOWN with no closed duties at all — not measurable is not zero', () => {
   const root = fresh();
   try {
     const f = checkClosedWithoutEvidence(root);
+    assert.equal(f.level, LEVEL.UNKNOWN);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('closed-without-evidence: good, with a real count, when closed duties exist but none carry error_ids', () => {
+  const root = fresh();
+  try {
+    const duty = memory.logEntry(root, 'duty', { title: 'plain duty' }).entry;
+    memory.closeDuty(root, duty.id, { state: 'done' });
+    const f = checkClosedWithoutEvidence(root);
     assert.equal(f.level, LEVEL.GOOD);
+    assert.match(f.text, /0 of 1 closed duties carry an error reference/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
@@ -102,11 +113,21 @@ test('POSITIVE CONTROL: a duty closed without evidence through an OLDER path is 
 
 // --- auto-duty-age -------------------------------------------------------
 
-test('auto-duty-age: good with no open auto-duties', () => {
+test('auto-duty-age: UNKNOWN with no open duties at all — not measurable is not zero', () => {
   const root = fresh();
   try {
     const f = checkAutoDutyAge(root);
+    assert.equal(f.level, LEVEL.UNKNOWN);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('auto-duty-age: good, with a real count, when open duties exist but none are auto-created', () => {
+  const root = fresh();
+  try {
+    memory.logEntry(root, 'duty', { title: 'plain duty' });
+    const f = checkAutoDutyAge(root);
     assert.equal(f.level, LEVEL.GOOD);
+    assert.match(f.text, /0 of 1 open duties are automatically created/);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

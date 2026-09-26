@@ -67,6 +67,8 @@ directory. The section number in brackets is where it is explained.
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
 | `epoch.mjs` | noticing that the memory went backwards (4) |
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
+| `errorcontext.mjs` | `mem log error`'s file history (max 3) and the auto-duty it opens on a real repetition, one per file+class |
+| `errorfile.mjs` | which file an error concerns: an explicit field first, else the path pattern |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
@@ -92,6 +94,7 @@ directory. The section number in brackets is where it is explained.
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
+| `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |

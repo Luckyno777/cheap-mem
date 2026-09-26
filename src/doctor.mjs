@@ -460,10 +460,19 @@ export function checkClosedWithoutEvidence(root) {
   catch (e) {
     return finding('closed-without-evidence', LEVEL.UNKNOWN, `duties unreadable: ${e?.message || e}`);
   }
+  // "Not measurable is not zero": no closed duty AT ALL (a freshly
+  // initialised memory, say) has nothing for this check to have looked
+  // AT — that is a different state from "closed duties exist, and none
+  // of them happen to carry error_ids", which is a real, inspected
+  // zero and says so below with the count it inspected.
+  if (!done.length) {
+    return finding('closed-without-evidence', LEVEL.UNKNOWN,
+      'no closed duties at all — closed-without-evidence is not measurable here');
+  }
   const withErrorIds = done.filter((d) => Array.isArray(d.error_ids) && d.error_ids.length);
   if (!withErrorIds.length) {
     return finding('closed-without-evidence', LEVEL.GOOD,
-      'no closed duties with an error reference (error_ids) — F4 has nothing to check here yet');
+      `0 of ${done.length} closed duties carry an error reference (error_ids) — F4 does not apply to any of them`);
   }
   const withoutEvidence = withErrorIds.filter((d) => !errorcontext.evidencePresent(root, d).ok);
   if (!withoutEvidence.length) {
@@ -501,9 +510,16 @@ export function checkAutoDutyAge(root, now = new Date()) {
   catch (e) {
     return finding('auto-duty-age', LEVEL.UNKNOWN, `duties unreadable: ${e?.message || e}`);
   }
+  // Same "not measurable is not zero" split as checkClosedWithoutEvidence
+  // just above: no open duty of ANY kind is nothing to have counted;
+  // open duties that are simply never auto-created is a real, inspected
+  // zero, named against the total that was actually looked at.
+  if (!open.length) {
+    return finding('auto-duty-age', LEVEL.UNKNOWN, 'no open duties at all — auto-duty-age is not measurable here');
+  }
   const auto = open.filter((d) => d[errorcontext.AUTOMATIC_FIELD] === true);
   if (!auto.length) {
-    return finding('auto-duty-age', LEVEL.GOOD, 'no open automatically created duties');
+    return finding('auto-duty-age', LEVEL.GOOD, `0 of ${open.length} open duties are automatically created`);
   }
   const DAY_MS = 24 * 60 * 60 * 1000;
   const old = auto.filter((d) => {

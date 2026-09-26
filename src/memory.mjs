@@ -2453,8 +2453,8 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
   }
   // F4 (BAUPLAN-mem-admin_02.md Block F, ported): the ONE point every
   // close goes through — the CLI (`mem duties close`) and the MCP
-  // bridge (`mem_duty_close`) both call this function and nothing else,
-  // so the check sits here once instead of twice, one of them eventually
+  // bridge (`mem_duty_close`) both call closeDuty, nothing else, so the
+  // check sits here once instead of twice, one of them eventually
   // drifting behind the other.
   evidenceOrThrow(root, 'duty', state, target, { origin: 'closeDuty' });
   return logEntry(root, 'duty', { closes_id: id, state, why }, { project });
