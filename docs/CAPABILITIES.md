@@ -770,7 +770,7 @@ one needs to say so out loud:
 | The threat model | [`security-model.md`](security-model.md) |
 | Scaling numbers | [`scale.md`](scale.md) |
 | Why something is missing | [`deliberately-not-built.md`](deliberately-not-built.md) |
-| An external comparison | [`analyse-2026-09-08-vergleich-fremdsysteme.md`](analyse-2026-09-08-vergleich-fremdsysteme.md) |
+| An external comparison | [`analysis-2026-09-08-comparison-foreign-systems.md`](analysis-2026-09-08-comparison-foreign-systems.md) |
 
 ---
 

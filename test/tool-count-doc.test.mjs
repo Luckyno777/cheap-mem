@@ -22,6 +22,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isArchive } from './doc-archive.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -72,6 +73,9 @@ test('every documented tool count matches the server', () => {
   const wrong = [];
   let claimsChecked = 0;
   for (const f of docFiles()) {
+    // A dated report records what was true that day; it is not a claim
+    // about today. Same rule as test/doku-zahlen.test.mjs.
+    if (isArchive(path.relative(ROOT, f))) continue;
     const text = fs.readFileSync(f, 'utf8');
     for (const [, claim] of text.matchAll(CLAIM)) {
       claimsChecked += 1;
@@ -154,4 +158,14 @@ test('the tool names in the docs all exist', () => {
     n + [...fs.readFileSync(f, 'utf8').matchAll(/`(mem_[a-z_]+)`/g)].length, 0);
   assert.ok(seen > 0,
     'no `mem_*` name found in any document — this test checked nothing');
+});
+
+test('POSITIVE: the archive rule exempts dated records and nothing living', () => {
+  // Both directions: a dated report is skipped, a living guide is not.
+  // If the rule widened to "everything under docs/", the sweep above
+  // would pass on nothing but the README.
+  assert.equal(isArchive('docs/analysis-2026-09-08-comparison-foreign-systems.md'), true);
+  assert.equal(isArchive('CHANGELOG.md'), true);
+  assert.equal(isArchive('docs/mcp-setup.md'), false);
+  assert.equal(isArchive('README.md'), false);
 });
