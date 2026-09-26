@@ -33,6 +33,10 @@
       "reason": "the one cross-house file that is byte-identical with lucky-mem's geteilt/befund-zuordnung.jsonl (BAUWEISE rule 15); decision 2026-09-26: it will carry both 'warum' and 'why', so German stays in it by design. shared/invariants.jsonl and shared/calculations.jsonl are NOT exempt: each house writes its own prose there, and cheap-mem's must be English."
     },
     {
+      "pattern": "eval/final-eingefroren.json",
+      "reason": "the frozen reference result, pinned by its sha256 in test/eval-frozen.test.mjs — translating it would break the pin and falsify the record; same class as eval/runs/*.jsonl"
+    },
+    {
       "pattern": "src/thesaurus.mjs",
       "reason": "German synonym groups are data by design, so a memory written in German stays searchable — already named as such in test/english-only.test.mjs's own header"
     },
@@ -92,7 +96,6 @@
     "eval/arms.mjs": 7,
     "eval/corpus.mjs": 36,
     "eval/echo.mjs": 5,
-    "eval/final-eingefroren.json": 15,
     "eval/flood.mjs": 1,
     "eval/pair.mjs": 2,
     "eval/pair-evaluate.mjs": 1,
