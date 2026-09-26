@@ -110,11 +110,8 @@
     }
   ],
   "ceilings": {
-    "BAUWEISE.md": 156,
     "bench/atlas/phase-real.mjs": 2,
     "bench/duplicate-rate.mjs": 2,
-    "docs/analyse-2026-09-08-vergleich-fremdsysteme.md": 331,
-    "docs/viewer-design-tokens.json": 18,
     "eslint.config.mjs": 12,
     "eval/README.md": 384,
     "eval/ablation.mjs": 14,
