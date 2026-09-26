@@ -108,6 +108,60 @@ function measureGrowth(builder) {
   return { points, exponent: exponent(p0.ms, p0.entries, pN.ms, pN.entries) };
 }
 
+/**
+ * Reconstruct the pre-fix `collectMemory()` — one `memory.topicState()`
+ * call per topic instead of one `memory.topicEntries()` call grouped by
+ * topic — from the real, currently-checked-in `viewer.mjs`. Shared by
+ * the two sabotage checks below (timing and counting) so the
+ * reconstruction lives in exactly one place.
+ *
+ * Never a hand-maintained duplicate of viewer.mjs, never `git checkout`:
+ * everything outside the marked block is the real file, symlinked in
+ * unchanged; only the block between the markers is swapped.
+ */
+async function loadSabotagedViewer() {
+  const viewerPath = fileURLToPath(new URL('../src/viewer.mjs', import.meta.url));
+  const src = fs.readFileSync(viewerPath, 'utf8');
+
+  const startMarker = '  const idsByTopic = new Map();';
+  const endMarker = '  const links = [];';
+  const startIdx = src.indexOf(startMarker);
+  const endIdx = src.indexOf(endMarker);
+  if (!(startIdx >= 0 && endIdx > startIdx)) {
+    throw new Error('the topic-grouping block markers moved — update this sabotage helper to match');
+  }
+
+  const sabotagedBlock = `  const topics = memory.topics(root).map((t) => {
+    const state = memory.topicState(root, t.topic);
+    return {
+      topic: t.topic,
+      count: t.count,
+      last: t.last,
+      types: t.types,
+      current: state.current ? state.current.id : null,
+      trail: state.history.map((e) => e.id).filter(Boolean),
+    };
+  });
+
+`;
+  const sabotaged = src.slice(0, startIdx) + sabotagedBlock + src.slice(endIdx);
+  if (sabotaged === src) throw new Error('sabotage produced no change — the swap did nothing');
+
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-sabotage-'));
+  const srcSiblingDir = path.join(tmpDir, 'src');
+  fs.mkdirSync(srcSiblingDir);
+  const realSrcDir = path.dirname(viewerPath);
+  for (const name of fs.readdirSync(realSrcDir)) {
+    if (name === 'viewer.mjs') continue;
+    fs.symlinkSync(path.join(realSrcDir, name), path.join(srcSiblingDir, name));
+  }
+  const sabotagedInSrc = path.join(srcSiblingDir, 'viewer.mjs');
+  fs.writeFileSync(sabotagedInSrc, sabotaged, 'utf8');
+
+  const mod = await import(pathToFileURL(sabotagedInSrc).href);
+  return { module: mod, cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }) };
+}
+
 // ---------------------------------------------------------------------
 // 1. Positive control
 // ---------------------------------------------------------------------
@@ -203,55 +257,7 @@ test('the guarantee: viewer build time grows sub-quadratically with corpus size'
 // ---------------------------------------------------------------------
 
 test('sabotage: reintroducing per-topic topicState() makes the exponent check fail', async () => {
-  const viewerPath = fileURLToPath(new URL('../src/viewer.mjs', import.meta.url));
-  const src = fs.readFileSync(viewerPath, 'utf8');
-
-  const startMarker = '  const idsByTopic = new Map();';
-  const endMarker = '  const links = [];';
-  const startIdx = src.indexOf(startMarker);
-  const endIdx = src.indexOf(endMarker);
-  assert.ok(startIdx >= 0 && endIdx > startIdx,
-    'the topic-grouping block markers moved — update this sabotage test to match');
-
-  // The exact shape the code had before the fix: one full-corpus
-  // `memory.topicState()` call per topic. Reconstructed from the real,
-  // currently-checked-in source (everything outside this block is
-  // untouched), never from a hand-maintained duplicate of viewer.mjs and
-  // never via `git checkout`.
-  const sabotagedBlock = `  const topics = memory.topics(root).map((t) => {
-    const state = memory.topicState(root, t.topic);
-    return {
-      topic: t.topic,
-      count: t.count,
-      last: t.last,
-      types: t.types,
-      current: state.current ? state.current.id : null,
-      trail: state.history.map((e) => e.id).filter(Boolean),
-    };
-  });
-
-`;
-  const sabotaged = src.slice(0, startIdx) + sabotagedBlock + src.slice(endIdx);
-  assert.notEqual(sabotaged, src, 'sabotage produced no change — the swap did nothing');
-
-  // A sibling directory that symlinks every OTHER real src/ file (never
-  // copies — a copy could silently drift from the real module) alongside
-  // one real, ordinary file: the sabotaged viewer. Its relative imports
-  // ('./memory.mjs' etc.) then resolve, through the symlinks, to the real
-  // memory.mjs, agents.mjs and friends — untouched, never opened for
-  // writing. Only viewer.mjs's own code differs in this reconstruction.
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-sabotage-'));
-  const srcSiblingDir = path.join(tmpDir, 'src');
-  fs.mkdirSync(srcSiblingDir);
-  const realSrcDir = path.dirname(viewerPath);
-  for (const name of fs.readdirSync(realSrcDir)) {
-    if (name === 'viewer.mjs') continue;
-    fs.symlinkSync(path.join(realSrcDir, name), path.join(srcSiblingDir, name));
-  }
-  const sabotagedInSrc = path.join(srcSiblingDir, 'viewer.mjs');
-  fs.writeFileSync(sabotagedInSrc, sabotaged, 'utf8');
-
-  const sabotagedModule = await import(pathToFileURL(sabotagedInSrc).href);
+  const { module: sabotagedModule, cleanup } = await loadSabotagedViewer();
 
   const before = measureGrowth((root) => sabotagedModule.collectMemory(root));
   const beforeReport = before.points
@@ -272,5 +278,106 @@ test('sabotage: reintroducing per-topic topicState() makes the exponent check fa
     `restore should be GREEN (exponent < ${EXPONENT_BOUND}) but measured `
     + `${after.exponent.toFixed(3)} — ${afterReport}`);
 
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+  cleanup();
+});
+
+// ---------------------------------------------------------------------
+// 5. Counting probe — the same guarantee, pinned without a wall clock
+// ---------------------------------------------------------------------
+//
+// Checks 3 and 4 time collectMemory() with `performance.now()`, which is
+// the right unit for "does a user actually wait longer" but is noisy on
+// a machine shared with other work — a busy box can blur a real
+// regression into ordinary jitter, or fail a green build on nothing.
+// This pins the identical guarantee a second way, by COUNTING instead of
+// timing, so it cannot flake on load at all.
+//
+// The invariant: one `collectMemory()` call reads each on-disk log file
+// (one per project x type in `memory.TYPES`) exactly once, no matter how
+// many distinct topics live inside those files — `topicEntries(root)`
+// with no key is a single pass. So raising the topic count WITHOUT
+// adding a new project or type must not add a single extra
+// `fs.readFileSync` call. A per-topic full-corpus rescan (the bug this
+// file is named for) breaks that immediately: it adds one rescan's
+// worth of reads PER topic.
+function countReadFileSyncCalls(root) {
+  const orig = fs.readFileSync;
+  let calls = 0;
+  fs.readFileSync = (...args) => { calls += 1; return orig(...args); };
+  let data;
+  try { data = viewer.collectMemory(root); } finally { fs.readFileSync = orig; }
+  return { calls, topics: data.topics.length, entries: data.entries.length };
+}
+
+/** Append `count` entries that are new TOPICS but not a new project/type. */
+function appendExtraTopics(root, count) {
+  const lines = [];
+  for (let i = 0; i < count; i += 1) {
+    lines.push(JSON.stringify({
+      id: `probe${i.toString(36)}`, ts: '2026-03-01T00:00:00Z',
+      topic: `probe-extra-topic/${i}`, choice: 'a', why: 'counting-probe filler',
+      title: `probe extra topic ${i}`, text: 'deploy cache index entry',
+    }));
+  }
+  fs.appendFileSync(path.join(root, 'global', 'decisions.jsonl'), `${lines.join('\n')}\n`);
+}
+
+test('counting probe: the viewer reads the corpus once per render, not once per topic', () => {
+  const root = tmpRoot();
+  corpus.buildCorpus(root, 500, { seed: 42, anchors: 12 });
+
+  const before = countReadFileSyncCalls(root);
+  const EXTRA_TOPICS = 2000;
+  appendExtraTopics(root, EXTRA_TOPICS);
+  const after = countReadFileSyncCalls(root);
+
+  const gainedTopics = after.topics - before.topics;
+  assert.ok(gainedTopics >= EXTRA_TOPICS - 100,
+    `expected the appended lines to add ~${EXTRA_TOPICS} topics, only got ${gainedTopics} `
+    + '— the corpus fixture changed, this probe needs updating');
+  assert.equal(after.calls, before.calls,
+    `fs.readFileSync calls grew from ${before.calls} to ${after.calls} after adding `
+    + `${gainedTopics} topics to the SAME on-disk files (no new project, no new type) — `
+    + 'the viewer is reading the corpus once per topic again, not once per render');
+
+  fs.rmSync(root, { recursive: true, force: true });
+});
+
+test('sabotage (counting probe): per-topic topicState() makes reads scale with topic count', async () => {
+  const root = tmpRoot();
+  corpus.buildCorpus(root, 500, { seed: 42, anchors: 12 });
+  const { module: sabotagedModule, cleanup } = await loadSabotagedViewer();
+
+  const countReadsOf = (mod) => {
+    const orig = fs.readFileSync;
+    let calls = 0;
+    fs.readFileSync = (...args) => { calls += 1; return orig(...args); };
+    let data;
+    try { data = mod.collectMemory(root); } finally { fs.readFileSync = orig; }
+    return { calls, topics: data.topics.length };
+  };
+
+  const before = countReadsOf(sabotagedModule);
+  const EXTRA_TOPICS = 2000;
+  appendExtraTopics(root, EXTRA_TOPICS);
+  const after = countReadsOf(sabotagedModule);
+
+  const gainedTopics = after.topics - before.topics;
+  assert.ok(gainedTopics >= EXTRA_TOPICS - 100,
+    `expected ~${EXTRA_TOPICS} new topics, got ${gainedTopics}`);
+  assert.ok(after.calls > before.calls,
+    `sabotage should have gone RED (reads should scale with topic count) but calls stayed `
+    + `at ${after.calls} after adding ${gainedTopics} topics — before was ${before.calls}`);
+
+  // Restore: on this same, now topic-heavy corpus, the real checked-in
+  // module must still match the flat-reads guarantee the check above
+  // pins on a fresh corpus — no git command involved, "restore" is
+  // simply using the untouched, real module.
+  const restored = countReadFileSyncCalls(root);
+  assert.ok(restored.calls < after.calls,
+    `restore should be GREEN (fewer reads than the sabotaged module's ${after.calls}) `
+    + `but the real module also took ${restored.calls} reads`);
+
+  cleanup();
+  fs.rmSync(root, { recursive: true, force: true });
 });
