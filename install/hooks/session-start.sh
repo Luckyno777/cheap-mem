@@ -75,6 +75,33 @@ if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
   echo ""
 fi
 
+# --- How the human user works, measured (parity with lucky-mem N2) ---
+#
+# `mem user --session-start` (src/userhabits.mjs, `sessionStartLines()`)
+# is a generic, English, code-only habit meter over the user's OWN
+# captured transcripts — no name, no phrase belonging to any one person.
+# It already enforces every guarantee this line needs, so the hook adds
+# NOTHING beyond calling it and deciding whether to print what came
+# back:
+#   - at most 5 lines total, header included (SESSION_START_MAX_LINES);
+#   - only patterns/metrics at or above MIN_EVIDENCE_DISPLAY (8 hits,
+#     deliberately higher than the 5-hit measurement threshold — a line
+#     shown on EVERY session start is a stronger claim than a row in
+#     `mem user`'s own table) AND actionable (a session can act on a
+#     habit, not on when it happens to be called — see the module doc
+#     for why "UTC hour-of-day" never appears here);
+#   - captured into a variable first, the same shape as MEM_ALARM below:
+#     "not enough evidence yet" and "no capture readable at all" both
+#     come back as an EMPTY string, and an empty string prints nothing —
+#     silence, never the false claim "no habits".
+if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+  MEM_USER_HABITS="$(node "$CHEAP_MEM_ROOT/bin/mem" user --session-start 2>/dev/null || true)"
+  if [ -n "$MEM_USER_HABITS" ]; then
+    echo "$MEM_USER_HABITS"
+    echo ""
+  fi
+fi
+
 # --- What is down right now ------------------------------------------
 #
 # **Why (2026-09-17).** On the sibling house's machine a VM reboot wiped
