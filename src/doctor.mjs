@@ -1360,11 +1360,45 @@ export function checkGitignoreEffective(root) {
     'run `mem init` again in this memory: it rewrites the block and repairs broken lines');
 }
 
+/**
+ * `empty-entry` — the acknowledgement class for an entry `hasContent()`
+ * finds empty (2026-09-26; see `memory.hasContent`).
+ *
+ * **Why this is not just another `entry-form` cap.** The existing cap
+ * above (`class === 'entry-form'`, a single timestamp) works for shapes
+ * a CORRECTION can fix: append `mem correction <type> <id> --title ...`
+ * with the full content, and the original stops mattering. An entry
+ * with no content at all cannot be corrected that way — there is
+ * nothing in it a correction would be replacing, and `mem correction`
+ * writes a NEW line pointing at the old one, which does not make the
+ * old one any less empty. So this needs its own acknowledgement, one
+ * that names the specific id rather than a blanket "before this date":
+ * a finding-class entry whose title or text mentions the empty entry's
+ * id marks THAT id, and only that id, as handled. The write path for
+ * new empty entries closed on 2026-09-26 (`mem log` now refuses them —
+ * see `write.mjs`), so this only ever has to cover what a build before
+ * that date already wrote.
+ *
+ * Mirrors the sibling project's `leerer-eintrag` class — same shape,
+ * English name, because this house's code, tests and log classes are
+ * English throughout.
+ *
+ *     mem log error --class empty-entry \
+ *       --title "empty via --tags: <id>" \
+ *       --text "global/errors.jsonl:41 (id <id>) carries no content field. ..."
+ */
+export const EMPTY_ENTRY_CLASS = 'empty-entry';
+
 export function checkEntryForm(root) {
   const TEXT_FIELDS = ['title', 'text', 'topic', 'choice', 'why', 'fact', 'summary'];
   const broken = [];
   let cap = null;
   let total = 0;
+  // Ids an `empty-entry` finding line has explicitly named as handled —
+  // see the doc comment above. Separate from `cap`: a correction can
+  // rescue a malformed-but-present field, never a missing one, so this
+  // is per-id, not per-timestamp.
+  const contentAcked = new Set();
 
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of Object.keys(memory.TYPES)) {
@@ -1375,6 +1409,11 @@ export function checkEntryForm(root) {
         if (!e || typeof e !== 'object' || e.__broken) return;
         if (e.class === 'entry-form' && e.ts && (!cap || String(e.ts) > cap)) {
           cap = String(e.ts);
+        }
+        if (e.class === EMPTY_ENTRY_CLASS) {
+          for (const m of `${e.title ?? ''} ${e.text ?? ''}`.matchAll(/\b([0-9a-z]{7,12})\b/g)) {
+            contentAcked.add(m[1]);
+          }
         }
         const where = `${rel}:${i + 1}`;
         const ts = e.ts ? String(e.ts) : null;
@@ -1388,6 +1427,15 @@ export function checkEntryForm(root) {
           broken.push({ where, ts, what: `${empty} is true instead of text` });
           return;
         }
+        // Same rule `mem log` refuses new entries with (memory.hasContent) —
+        // one place, two callers. Only what a build before 2026-09-26
+        // already wrote can still show up here.
+        if (!memory.hasContent(e)) {
+          broken.push({
+            where, ts, id: e.id ?? null, kind: EMPTY_ENTRY_CLASS, what: 'no content field',
+          });
+          return;
+        }
         if (Array.isArray(e.tags)
           && e.tags.some((t) => typeof t === 'string' && /["[\]{}]/.test(t))) {
           broken.push({ where, ts, what: 'half-parsed JSON in tags' });
@@ -1397,8 +1445,13 @@ export function checkEntryForm(root) {
   }
 
   // No ts counts as open. Better once too loud than quietly filed under a
-  // cap it may not belong to.
-  const open = cap ? broken.filter((b) => !b.ts || b.ts > cap) : broken;
+  // cap it may not belong to. An `empty-entry` finding is a SEPARATE
+  // acknowledgement, matched by id rather than by the cap's timestamp —
+  // see the doc comment above for why a cap alone cannot cover this case.
+  const open = broken.filter((b) => {
+    if (b.kind === EMPTY_ENTRY_CLASS && b.id && contentAcked.has(b.id)) return false;
+    return !cap || !b.ts || b.ts > cap;
+  });
   const capped = broken.length - open.length;
 
   // Denominator: entries to check the shape of. None means the shape
@@ -1410,7 +1463,7 @@ export function checkEntryForm(root) {
 
   if (!open.length) {
     const extra = capped
-      ? `, ${capped} on the record (an entry-form note exists; the lines stay — append-only)`
+      ? `, ${capped} on the record (an entry-form or ${EMPTY_ENTRY_CLASS} note exists; the lines stay — append-only)`
       : '';
     return finding('entry-form', LEVEL.GOOD, `no malformed entries${extra}`);
   }
@@ -1422,9 +1475,11 @@ export function checkEntryForm(root) {
     + 'with `mem correction <type> <id> --title ...` carrying the FULL content: a '
     + 'correction writes only the fields you give it, so a partial one replaces the '
     + 'entry with a stub. The write paths closed on 2026-09-07, so no new ones can '
-    + 'appear. To put the existing ones on the record: '
+    + 'appear. To put existing malformed-but-present fields on the record: '
     + '`mem log error --class entry-form --title "..." --text "..."` — that caps '
-    + 'everything written before it.');
+    + 'everything written before it. An entry with NO content field cannot be '
+    + `corrected that way; name its id in a \`mem log error --class ${EMPTY_ENTRY_CLASS}\` `
+    + 'finding instead — see checkEntryForm\'s doc comment.');
 }
 
 /**

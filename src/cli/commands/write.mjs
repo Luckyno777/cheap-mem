@@ -132,6 +132,19 @@ export const COMMANDS = {
       }
     }
     if (Object.keys(data).length === 0) die("log: no data. Give at least one --field.");
+
+    // A field is not content. `--tags a,b` alone writes {tags, agent} —
+    // a real field, no way to ever find it again by anything it says.
+    // The rule lives once in memory.hasContent() — the doctor's
+    // `checkEntryForm` asks the same question about what already got
+    // written before this check existed.
+    if (!memory.hasContent(data)) {
+      die([
+        'log: this entry would have no content.',
+        '  At least one non-empty text field is required, e.g. --title "..." --text "...".',
+        '  An entry with no text is never findable again. Nothing was written.',
+      ].join('\n'));
+    }
     // Report the topic's shape, but do NOT abort. `mem log` is the path
     // along which things get saved that would otherwise be forgotten — a
     // write that fails on a naming rule loses the content. Better recorded
