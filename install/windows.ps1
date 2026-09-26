@@ -244,6 +244,76 @@ if (Test-Path `$mem) {
   & node `$mem context --n 10
   Write-Host ''
 }
+
+# --- How the human user works, measured (parity with the POSIX hook) -
+#
+# mem user --session-start already enforces every guarantee this line
+# needs (at most 5 lines, only patterns at or above the higher display
+# bar, only actionable ones) - see install/hooks/session-start.sh for
+# the reasoning. This hook adds nothing beyond calling it and deciding
+# whether to print what came back: an empty string, from "not enough
+# evidence" or "no capture readable at all" alike, prints nothing.
+if (Test-Path `$mem) {
+  try {
+    `$habits = & node `$mem user --session-start 2>`$null
+    if (`$habits) {
+      `$habits | ForEach-Object { Write-Host `$_ }
+      Write-Host ''
+    }
+  } catch { }
+}
+
+# --- What is down right now -------------------------------------------
+#
+# Same reasoning as install/hooks/session-start.sh: --alarm prints
+# level ERROR only, and prints NOTHING when nothing is red, so there is
+# no unconditional Write-Host outside the checks below. Windows has no
+# timeout binary, so the cap is a background job with a wait limit -
+# the same shape bin/mem-watch.ps1 and bin/mem-reflect.ps1 already use.
+# A cap that expires reports itself as expired, never as "all fine".
+if (Test-Path `$mem) {
+  try {
+    `$alarmSeconds = 8
+    if (`$env:MEM_ALARM_SECONDS) { `$alarmSeconds = [int]`$env:MEM_ALARM_SECONDS }
+    `$alarmJob = Start-Job -ScriptBlock {
+      param(`$m)
+      & node `$m doctor --alarm 2>`$null
+    } -ArgumentList `$mem
+    `$alarmDone = Wait-Job -Job `$alarmJob -Timeout `$alarmSeconds
+    if (-not `$alarmDone) {
+      Stop-Job -Job `$alarmJob -ErrorAction SilentlyContinue
+      Remove-Job -Job `$alarmJob -Force -ErrorAction SilentlyContinue
+      Write-Host '=== DOWN RIGHT NOW ==='
+      Write-Host "The alarm hit its time cap (`$alarmSeconds s) - NOT checked."
+      Write-Host "By hand: node `$mem doctor --quiet"
+      Write-Host ''
+    } else {
+      `$alarmOut = Receive-Job -Job `$alarmJob -ErrorAction SilentlyContinue
+      Remove-Job -Job `$alarmJob -Force -ErrorAction SilentlyContinue
+      if (`$alarmOut) {
+        Write-Host '=== DOWN RIGHT NOW (mem doctor --alarm) ==='
+        `$alarmOut | ForEach-Object { Write-Host `$_ }
+        Write-Host ''
+      }
+    }
+  } catch { }
+}
+
+Write-Host '=== how to use this memory this session ==='
+Write-Host ''
+Write-Host 'Log substantial things as they happen:'
+Write-Host "  node `$mem log event    --title <text> --tags <tag1,tag2>"
+Write-Host "  node `$mem log decision --topic <text> --choice <choice> --why <reason>"
+Write-Host "  node `$mem log error    --class <name> --title <text> --text <details>"
+Write-Host ''
+Write-Host 'Look for known context before asking:'
+Write-Host "  node `$mem find <query>"
+Write-Host ''
+Write-Host 'Send an inbox message (delivered after commit + push):'
+Write-Host "  node `$mem inbox write --as session --to librarian --subject <text> < body.md"
+Write-Host ''
+Write-Host 'The Stop hook (cheap-mem-session-stop.ps1) will reflect automatically once the'
+Write-Host 'transcript grows past the byte-delta threshold.'
 "@ | Set-Content -LiteralPath $startHookDst -Encoding UTF8
 
   @"
