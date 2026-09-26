@@ -229,21 +229,22 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-09-20',
+  capturedAt: '2026-09-26',
   source: 'lucky-mem/src/doktor.mjs',
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
-    'bauweise', 'befund-gleichstand', 'bestand', 'briefkasten', 'bruecke',
-    'dubletten', 'eintragsform', 'faecher', 'faecher-jsonl',
-    'fakt-konflikte', 'fang-doppelt', 'fasser', 'fasser-ausbeute',
-    'fasser-timer', 'frageworte', 'git', 'git-hook', 'hook-doppelt',
-    'hook-kopie', 'index', 'klingel', 'modell-start', 'nachher-haken',
-    'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-liegt',
-    'post-stau', 'redaktion', 'rohfang', 'rueckstand', 'startlast',
-    'stop-hook', 'tagform', 'themen-guete', 'transkript-schema',
-    'waechter', 'waechter-fassung', 'waisen', 'wirksamkeit', 'wurzel',
-    'zeilenzugriff', 'zustellnachweis', 'zustellschuld', 'zustellung',
+    'auto-pflichten-alter', 'bauweise', 'befund-gleichstand', 'bestand',
+    'briefkasten', 'bruecke', 'dubletten', 'eintragsform',
+    'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl', 'fakt-konflikte',
+    'fang-doppelt', 'fasser', 'fasser-ausbeute', 'fasser-timer',
+    'frageworte', 'git', 'git-hook', 'hook-doppelt', 'hook-kopie', 'index',
+    'klingel', 'modell-start', 'nachher-haken', 'nachweis-luecke',
+    'offene-funde', 'plattenplatz', 'post-liegt', 'post-stau', 'redaktion',
+    'rohfang', 'rueckstand', 'startlast', 'stop-hook', 'tagform',
+    'themen-guete', 'transkript-schema', 'waechter', 'waechter-fassung',
+    'waisen', 'wiederholung', 'wirksamkeit', 'wurzel', 'zeilenzugriff',
+    'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),
 });
 
