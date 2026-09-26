@@ -235,7 +235,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'abrufquote', 'altlast', 'anhang', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'bauweise', 'befund-gleichstand', 'bestand',
-    'briefkasten', 'bruecke', 'dubletten', 'eintragsform',
+    'briefkasten', 'bruecke', 'dispatcher', 'dubletten', 'eintragsform',
     'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl', 'fakt-konflikte',
     'fang-doppelt', 'fasser', 'fasser-ausbeute', 'fasser-timer',
     'frageworte', 'git', 'git-hook', 'hook-doppelt', 'hook-kopie', 'index',
