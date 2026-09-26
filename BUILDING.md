@@ -252,6 +252,38 @@ with beforehand.
     is. A model knows the state of its training, not that of the
     installed version.
 
+17. **"Both houses always kept level" is a claim until it is counted**
+    (BAUPLAN-mem-admin_02.md L5, lucky-mem's own house). Every commit
+    since 2026-09-26 that changes `src/` or `bin/` carries
+    `Parity: lm=yes|no|open` — whether the lucky-mem counterpart is
+    built, deliberately not built (with a reason in the message), or
+    still pending. The gate (`test/parity-gate.test.mjs`) checks ONLY
+    that the line is present and holds one of the three values, not
+    whether it is true — no code can judge that, which is rule 5 turned
+    around: a machine judges even less than a person does. Per rule 14
+    this is a case a single repo can answer on its own, so the gate is
+    an ordinary `npm test` case, not a doctor finding.
+
+    Commits BEFORE the cutoff are excluded, not backfilled: the line did
+    not exist yet, nobody could have written it, and rewriting history
+    is forbidden. Pure doc/log/test commits and merge commits are
+    excluded too, because they either never touch `src`/`bin` or consist
+    entirely of commits that were already checked on their own.
+
+    **The gate's limit is the history it can see, not the intent.** In a
+    shallow clone (this workflow's default `actions/checkout`, with no
+    `fetch-depth` set — effectively depth 1) the cutoff is unreachable;
+    the gate then reports "not measurable", not automatically green.
+    Deliberately NOT fixed with `fetch-depth: 0` in ci.yml: this
+    workflow already runs a 3-OS x 2-node matrix plus a coverage job on
+    every push and pull request with no paths filter (see its own header
+    comment on why), and a full checkout in each of those jobs for one
+    line that already gates cleanly locally (`npm test`) and via the
+    counter (`node bench/parity.mjs`) is exactly the cost rule 10 asks to
+    name before paying it, for a benefit close to zero. Anyone who wants
+    the line truly enforced in CI measures the extra cost first and only
+    then changes ci.yml on purpose — not the other way round.
+
 ## The filter for every change
 
 Does retrieval stay model-free and in the millisecond range? Does the
