@@ -108,7 +108,7 @@ test('isClean does not fail merely because no seal exists yet — a bolt that re
     const r = integrity.scanIntegrity(root);
     assert.equal(r.chain.state, 'unknown');
     assert.equal(integrity.isClean(r), true,
-      '"Ein Riegel, der Unschuldige meldet, wird abgeschaltet" — an absent chain must not fail a strict run');
+      '"a bolt that reports the innocent gets switched off" — an absent chain must not fail a strict run');
   } finally { away(root); }
 });
 

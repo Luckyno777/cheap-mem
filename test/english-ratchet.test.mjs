@@ -147,7 +147,7 @@ function scan() {
 }
 
 test('POSITIVE: the ratchet walks a meaningful number of tracked files', () => {
-  // House rule: leeres Bestehen ist Durchfallen — an empty walk passes
+  // House rule: an empty pass is a failure — an empty walk passes
   // and proves nothing. 431 files were tracked on 2026-09-26; 300 is a
   // floor with room for this repo to shrink without this test needing
   // to move with it.

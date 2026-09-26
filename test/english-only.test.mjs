@@ -217,7 +217,7 @@ function scanRepo() {
 
 test('POSITIVE: the scan really walks a meaningful number of files', () => {
   // A probe run against an empty directory always passes and measures
-  // nothing — house rule: leeres Bestehen ist Durchfallen. 197 files were
+  // nothing — house rule: an empty pass is a failure. 197 files were
   // counted in src/+bin/+test/ on 2026-09-17 (178 .mjs, 5 .ps1, 3 .sh, 11
   // extensionless bin/ scripts); 40 is a floor well below that, chosen so
   // a future reorganisation has room without this assertion needing to

@@ -250,7 +250,7 @@ test('foreignLoadDelta: a source that could not be read on either side is null, 
   assert.equal(delta.cgroupThrottledUsec, null);
   assert.equal(delta.measured, false);
   assert.equal(delta.deniedMsPerSec, null,
-    '"nicht messbar ist nicht null" — an unreadable source must not silently score as zero foreign load');
+    '"not measurable is not zero" — an unreadable source must not silently score as zero foreign load');
 });
 
 test('foreignLoadDelta: the cgroup hierarchy changing between snapshots is treated as unmeasured, not subtracted', () => {

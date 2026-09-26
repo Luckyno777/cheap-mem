@@ -342,7 +342,7 @@ export function isClean(report) {
     && !report.replacement.tooDeep
     // A corpus with no seal at all (`chain.state === 'unknown'`) is NOT a
     // failure here — the house rule against a bolt that reports the
-    // innocent: "Ein Riegel, der Unschuldige meldet, wird abgeschaltet."
+    // innocent: "a bolt that reports the innocent gets switched off."
     // Every corpus written before chaining existed would otherwise fail
     // a strict run forever, for a gap that is this module's own, not the
     // memory's. An actual hash mismatch (`chain.tampered`) is a failure

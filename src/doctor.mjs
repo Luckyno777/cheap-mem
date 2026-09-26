@@ -301,7 +301,7 @@ export function checkFactConflicts(root) {
   catch { return finding('fact-conflicts', LEVEL.UNKNOWN, 'could not resolve timeline facts'); }
   // Denominator: tracked facts. With none, "no conflicts" is not a clean
   // bill of health — there was nothing to disagree about.
-  // The house rule, in the original: "nicht messbar ist nicht null".
+  // The house rule, translated: "not measurable is not zero".
   if (facts.length === 0) {
     return finding('fact-conflicts', LEVEL.UNKNOWN, 'no timeline facts recorded — nothing to check for conflicts');
   }
@@ -610,8 +610,9 @@ export function checkDelivery(root) {
     unknown.set(to, (unknown.get(to) ?? 0) + 1);
   }
   if (!unknown.size) {
+    const { silent } = agents.announcedSilence(root);
     return finding('delivery', LEVEL.GOOD,
-      `${messages.length} messages, ${open.length} open, every recipient known`);
+      `${messages.length} messages, ${open.length} open, every recipient known${agents.silenceNote(silent)}`);
   }
   const list = [...unknown.entries()].map(([a, n]) => `${a} (${n})`).join(', ');
   return finding('delivery', LEVEL.WARN,
@@ -1728,8 +1729,8 @@ function timeFromCaptureName(name) {
 // The first cut turned "empty and nothing ever captured" into UNKNOWN,
 // on the rule that `ok` over a zero count claims a check that did not
 // happen. The sister house pushed back with a better argument, written
-// into its own test months earlier — quoted here in the original:
-// "Ein leerer Ordner ist messbar leer, daraus ein UNBEKANNT zu machen waere ein falsches nicht messbar."
+// into its own test months earlier — quoted here, translated:
+// "An empty folder is measurably empty; turning that into an UNKNOWN would be a false 'not measurable'."
 //
 // It is right, and the difference is which question the finding asks.
 // This one asks "is anything piling up here?" — and an empty folder
