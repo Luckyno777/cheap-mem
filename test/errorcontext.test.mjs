@@ -76,6 +76,7 @@ test('no repetition -> no duty', () => {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+// invariant: eine-offene-pflicht-je-datei-klasse
 test('a SECOND repetition on the same file+class appends, it does not open a second duty', () => {
   const root = fresh();
   try {
