@@ -131,6 +131,7 @@
     "test/redaction-unicode.test.mjs": 1,
     "test/search.test.mjs": 1,
     "test/setup-status.test.mjs": 2,
+    "test/userhabits.test.mjs": 1,
     "test/viewer.test.mjs": 1
   }
 }
