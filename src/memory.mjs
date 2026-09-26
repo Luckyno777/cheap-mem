@@ -955,6 +955,55 @@ export function sameClass(root, className, { except = null, max = 3 } = {}) {
   return { className: wanted, count: hits.length, latest: hits.slice(0, max) };
 }
 
+/**
+ * Does this entry carry any content at all?
+ *
+ * **The finding (2026-09-26).** `mem log error --tags a,b` wrote
+ * `{id, ts, v, tags, agent}` and `mem log error --hilfe` wrote
+ * `{id, ts, v, hilfe: true, agent}` — both exit 0, neither leaves
+ * anything a later search could ever find. The only check on this path
+ * was "at least one `--field`" (`write.mjs`), and a field that is an
+ * array, a boolean, or a bare id link satisfies that while saying
+ * nothing. The sibling project (lucky-mem) found the identical hole the
+ * same day: 4 of 2441 real entries carried no text field at all, every
+ * one of them from a help-flag typo (`--hilfe`, read as a plain field
+ * because that house has no such flag).
+ *
+ * The rule is deliberately the weakest one that closes it: ONE
+ * non-empty string field that is not a MACHINE_FIELD. A first draft
+ * required 3 characters, which also caught entries that are genuinely
+ * fine — a one-word `--why` or `--fact` is still content. Checked
+ * against the corpus this repo was extracted from (see
+ * `test/entry-content.test.mjs` and the innocence run in the build
+ * report): zero ordinary entries are caught, only the shapes above.
+ *
+ * `class` is deliberately NOT a machine field: it is a value the
+ * *user* chose (checked against `errorclass.mjs`'s vocabulary), not
+ * one this code stamps — the same reasoning that keeps it off the
+ * lucky-mem list too. An entry logged with only `--class` and nothing
+ * else is thin, but it is a real, human-chosen fact, not a swallowed
+ * flag; the class-vocabulary warning already right above this check
+ * in `write.mjs` is what nudges that case towards a fuller entry.
+ *
+ * One function, two callers (`mem log`, which refuses; the doctor's
+ * `checkEntryForm`, which reports what already got past an earlier
+ * build) — the same shape `logEntry`'s own doc comment already argues
+ * for elsewhere in this file: two copies of one rule drift apart
+ * without either one looking wrong.
+ */
+export const MACHINE_FIELDS = Object.freeze(new Set([
+  'id', 'ts', 'v', 'agent', 'project', 'state', 'status',
+  'replaces_id', 'closes_id', 'retires_id',
+  'authority', 'authority_clamped_from', 'guard_at_creation',
+]));
+export const CONTENT_MIN_CHARS = 1;
+
+export function hasContent(e) {
+  if (!e || typeof e !== 'object') return false;
+  return Object.entries(e).some(([k, v]) => !MACHINE_FIELDS.has(k)
+    && typeof v === 'string' && v.trim().length >= CONTENT_MIN_CHARS);
+}
+
 export function readLog(root, type, { project = null } = {}) {
   const p = logPath(root, type, project);
   if (!fs.existsSync(p)) return { path: p, missing: true, entries: [] };
