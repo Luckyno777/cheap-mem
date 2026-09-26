@@ -768,11 +768,74 @@ export function entityText(doc) {
  * How far the coordination multiplier may pull a score down.
  *
  * 0 reproduces the pre-2026-09-20 behaviour (a pure product, which
- * annihilates); 1 switches coordination off entirely. The measured
- * window in which both the dilution and the contested fixture pass is
- * [0.50, 0.75] — see the block that uses this constant, and
- * test/coverage-floor.test.mjs, which pins the window itself rather than
- * only this value.
+ * annihilates); 1 switches coordination off entirely. `test/coverage-
+ * floor.test.mjs` pins the WINDOW of values that pass both its dilution
+ * and its contested (bait) fixture, currently [0.30, 0.65] on that
+ * test's own fixtures, rather than pinning only this one value.
+ *
+ * **Re-measured 2026-09-26 (Q1c), because the corpus that first
+ * calibrated 0.6 is admittedly distorted.** `test/coverage-floor.test.mjs`
+ * builds its fixtures from `bench/atlas/core.mjs`'s `buildCorpus`, whose
+ * filler vocabulary is either a fixed 24-word pool or effectively
+ * unbounded per-entry identifiers — the same class of defect lucky-mem
+ * found and fixed on its own real corpus as error `1czzbds7x7qy` (a
+ * synthetic vocabulary that does not GROW the way a real one does).
+ * cheap-mem has no large real corpus of its own to re-fit against, so
+ * `bench/heaps-corpus.mjs` builds an honest substitute instead: an
+ * English corpus whose vocabulary grows by Heaps' law
+ * (`V(n) = K * n^beta`), with K=138.6, beta=0.618 carried over from
+ * lucky-mem's OWN fit on ITS real corpus (German, 2286 entries,
+ * 2026-09-25) — a starting point, not a measurement of English or of
+ * cheap-mem; transferability is unmeasured (see that file's own banner).
+ *
+ * `bench/coverage-floor-sweep.mjs` then runs the same three measurements
+ * lucky-mem ran on its real corpus (`lm-post/bench/deckung-
+ * verduennung.mjs`), on this honest Heaps corpus, at the five candidate
+ * floors the coordinator named: dilution recall@1 (a rare anchor plus
+ * k frequent words), a bait/decoy pair (an entry covering every query
+ * word against one repeating just one of them), and injections per
+ * query through the REAL `bin/mem-retrieve` filter (top 3, MMR, score
+ * >= `MEM_RETRIEVE_MIN` (5.0) or an exact hit) — with a fixed `now` in
+ * every `search()` call (injectable since B12), so the numbers below
+ * do not drift with real elapsed time. Reproduce with:
+ *
+ *   node bench/coverage-floor-sweep.mjs --count 6000 --seed 20260926
+ *
+ *   floor   dilution recall@1 (k=0..5, clean anchors)   bait    inject/query      anchor    identifier   existing
+ *                                                        rec@1   (median/growth)  precision cliff score  COUNTER-PROBE
+ *   0.00    28/28 20/28  7/28  5/28  4/28  3/28          30/30   3 / +0%          0.107     2.608 green  green
+ *   0.50    28/28 25/28 23/28 15/28  9/28  6/28          30/30   3 / +1.2%        0.274     3.911 green  green
+ *   0.60    28/28 25/28 24/28 18/28 10/28  6/28          30/30   3 / +1.2%        0.286     4.172 green  green
+ *   0.70    28/28 25/28 24/28 20/28 15/28  8/28          30/30   3 / +1.2%        0.310     4.433 green  RED
+ *   0.80    28/28 25/28 26/28 23/28 17/28 12/28          30/30   3 / +1.2%        0.321     4.694 green  RED
+ *
+ * (n=6000, seed 20260926; re-run at seed 777/n=8000 reproduces the same
+ * pattern — the numbers move a little, the verdicts do not.)
+ *
+ * **The abort criterion the coordinator named never fires here** —
+ * injections-per-query grow at most 1.2% (not >20%) and anchor precision
+ * only rises (0.107 -> 0.321) all the way to floor 0.80. On the honest
+ * corpus ALONE there is headroom up to 0.80. **The bind is
+ * `test/coverage-floor.test.mjs`'s own COUNTER-PROBE**, one of this
+ * task's own targeted tests: its bait fixture (built on the very
+ * generator this comment calls distorted) stops holding at floor 0.70.
+ * Unlike lucky-mem's finding — where the real-corpus measurement never
+ * hit its abort criterion either, and the bind turned out to be the
+ * IDENTIFIER test (`test/bezeichner.test.mjs`, an absolute-score
+ * cliff) — cheap-mem's `test/exact-lane.test.mjs` fixture stays green
+ * at every candidate floor up to 0.80 (score without the exact lane:
+ * 2.6 to 4.69, always under the 5.0 threshold). The bind here is
+ * structural (a bait fixture, not an absolute-score cliff), but the
+ * shape of the finding is the same one BUILDING.md names: a new,
+ * honest measurement earns a change only by ALSO passing what the
+ * suite already enforces, not by outrunning it.
+ *
+ * **Decision: COVERAGE_FLOOR stays 0.6** — the largest of the five
+ * candidate values (0 / 0.5 / 0.6 / 0.7 / 0.8) that keeps `test/coverage-
+ * floor.test.mjs` green. 0.6 also sits one step inside that window
+ * (0.5 and 0.6 both hold; 0.7 does not), so it is not on the edge
+ * either. See `bench/heaps-corpus.mjs` and `bench/coverage-floor-
+ * sweep.mjs` for the full, reproducible measurement.
  */
 export const COVERAGE_FLOOR = 0.6;
 
