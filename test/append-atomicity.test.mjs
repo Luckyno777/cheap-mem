@@ -110,15 +110,26 @@ test('the check performs real work, not a name lookup — timing evidence', () =
 });
 
 test('budget: the default (production) probe stays under the ~500ms target', () => {
-  const root = tmpRoot();
-  try {
-    const t0 = Date.now();
-    checkAppendAtomicity(root); // default budget, not GENEROUS
-    const elapsed = Date.now() - t0;
-    assert.ok(elapsed < 500, `took ${elapsed}ms — over the ~500ms budget this check must stay under`);
-  } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+  // Best of up to three runs, not a single one. Measured 2026-09-27:
+  // ~120-150 ms alone, but 8 suites in parallel (load ~10) pushed single
+  // runs past 500 ms — the scheduler's cost, not the probe's. The budget
+  // is about what the probe COSTS, and the fastest run is the closest
+  // reading of that. A probe that really grew (more workers, more lines)
+  // is slow on every run and still turns this red.
+  const runs = [];
+  for (let i = 0; i < 3; i += 1) {
+    const root = tmpRoot();
+    try {
+      const t0 = Date.now();
+      checkAppendAtomicity(root); // default budget, not GENEROUS
+      runs.push(Date.now() - t0);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+    if (runs[runs.length - 1] < 500) break;
   }
+  const best = Math.min(...runs);
+  assert.ok(best < 500, `best of ${runs.length} runs took ${best}ms (${runs.join('/')}) — over the ~500ms budget this check must stay under`);
 });
 
 // --- sabotage counter-probe: a torn line must turn the verdict red --------
@@ -246,9 +257,14 @@ test('documented-unsafe mounts report FAIL, from the documentation, unmeasured',
   for (const fsType of ['nfs', 'nfs4', 'cifs', 'smb2', 'sshfs']) {
     const root = tmpRoot();
     try {
-      const t0 = Date.now();
-      const c = withFakeStat(fsType, () => checkAppendAtomicity(root, GENEROUS));
-      const elapsed = Date.now() - t0;
+      // Whether the probe ran is asked of the probe itself, not of the
+      // clock: a wall-clock bound (was `elapsed < 50`) failed at 50 ms
+      // under parallel suites on 2026-09-27 without anything having
+      // been measured. The injected probe counts its calls; one call is
+      // exactly "measured here", whatever the machine's load.
+      let probeCalls = 0;
+      const spy = () => { probeCalls += 1; return { measured: false, reason: 'spy' }; };
+      const c = withFakeStat(fsType, () => checkAppendAtomicity(root, { ...GENEROUS, probe: spy }));
       assert.equal(c.ok, false, `${fsType}: expected a failing verdict, got ${c.ok}`);
       assert.match(c.detail, new RegExp(fsType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')),
         'the verdict must name the mount type');
@@ -257,8 +273,8 @@ test('documented-unsafe mounts report FAIL, from the documentation, unmeasured',
       assert.match(c.detail, /open\(2\)/, 'and name the source');
       assert.match(c.detail, /[Nn]ot measured/,
         'the text must say the probe was deliberately not run');
-      assert.ok(elapsed < 50,
-        `took ${elapsed}ms — long enough to have measured, which is exactly what must not happen here`);
+      assert.equal(probeCalls, 0,
+        `${fsType}: the probe ran ${probeCalls}x — it measured, which is exactly what must not happen here`);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
