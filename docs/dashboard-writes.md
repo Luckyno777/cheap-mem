@@ -18,7 +18,10 @@ Two ways, and only these two:
 ```json
 {
   "version": 1,
-  "participants": { "...": "..." },
+  "participants": {
+    "user": { "role": "The human.", "human": true },
+    "session": "..."
+  },
   "dashboard": { "allowWrites": true }
 }
 ```
@@ -92,10 +95,13 @@ from the inbox (P1b, below) was the first route added this way.
 
 ## Replying from the inbox (P1b)
 
-The Agents tab shows the human participant's tray (the `user` key of
-`participants` in `.mem/config.json`). Under each message is a small
-form: a text box and **Reply**. It posts to `/inbox/reply` with only the
-message's file name and the text.
+The Agents tab shows the human participant's tray — whichever entry in
+`participants` (`.mem/config.json`) carries `"human": true`, never a
+hardcoded key. A config with none marked (or more than one) reports
+that honestly instead of guessing; see `humanParticipant()` in
+`src/config.mjs`. Under each message is a small form: a text box and
+**Reply**. It posts to `/inbox/reply` with only the message's file name
+and the text.
 
 - **Same write as the CLI.** `inbox.reply()` reads the original, turns
   its header around (from its recipient, to its sender, subject

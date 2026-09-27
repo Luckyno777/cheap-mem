@@ -25,7 +25,21 @@ mem init
 That writes `.mem/config.json`, `FACTS.md`, and skeleton directories.
 
 By default there are three participants: `user`, `session`, `librarian`.
-Customize with `mem init --participants me,my-agent,helper`.
+Customize with `mem init --participants me,my-agent,helper` — the first
+name given (`me` above) is marked as **the human**; name a different one
+with `--human`, e.g. `mem init --participants me,my-agent,helper --human me`.
+
+That mark (`"human": true` on one participant in `.mem/config.json`) is
+what the dashboard's inbox tray and its reply form (`mem serve`) use to
+find you — never a hardcoded name, so renaming your participant later
+is safe as long as the mark moves with it:
+
+```json
+"participants": {
+  "me": { "role": "The human.", "human": true },
+  "my-agent": "..."
+}
+```
 
 ## 3. Tell this install who it is
 
