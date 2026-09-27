@@ -116,6 +116,7 @@ directory. The section number in brackets is where it is explained.
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
+| `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections (10.25) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
@@ -596,6 +597,8 @@ typing a long command is, in practice, not changeable.
 | `/viewer` | the viewer, with a way back |
 | `/console.json` | the same numbers, for tools |
 | `/dashboard.json` | the desk's numbers, for tools |
+| `/task`, `/task/cancel` | start/cancel a long CLI work item as a task (E1.7, `src/tasks.mjs`) |
+| `/task.json` | a task's progress/result, or the two-kind overview |
 | `/health` | no auth, reveals nothing — for a supervisor or tunnel |
 
 The list lives once, as `PATHS` in `bin/mem-serve`, and the auth probe
@@ -617,21 +620,30 @@ gets exactly what an unknown path gets, a bare 404, so a scanner sees
 `src/webauth.mjs`, once, because two copies of one door means one of
 them is tested and the other is the one with the hole.
 
-**Writing over HTTP has three latches**, and this is the only place in
-the project that writes over HTTP at all:
+**Writing over HTTP has three latches.** Until E1.7 (2026-09-27) `/setting`
+was the only place in the project that wrote over HTTP; `/task` and
+`/task/cancel` (starting/cancelling a task — `src/tasks.mjs`, `docs/
+dashboard-tasks.md`) are the second, sharing the SAME three latches
+rather than a fourth copy of them:
 
 1. **A closed list.** `SETTINGS` names every knob with its check and its
-   writer. A field name that is not in it is REFUSED, not ignored.
-2. **The same writer as the CLI.** `archive.setLocation` creates the
-   directory, writes a probe file, removes it, and records the location
-   only then. A second writer here would be two truths, and the second
-   would not have the probe.
+   writer (`/task`: `tasks.KINDS` names every kind that can be started).
+   A name that is not in the list is REFUSED, not ignored.
+2. **The same execution path as the CLI.** `archive.setLocation` creates
+   the directory, writes a probe file, removes it, and records the
+   location only then — the exact function the CLI itself calls
+   (`/task`: the exact CLI COMMAND itself, spawned as a child process —
+   `src/tasks.mjs`, no second export/verify logic invented beside it).
+   A second writer here would be two truths, and the second would not
+   have the probe.
 3. **Origin.** A POST without an `Origin` matching the request's own
    `Host` is refused — stricter than the rule for reads, because a
    browser always sends `Origin` on a POST, so a missing one on a
    state-changing request is a form from somewhere else. The session
    cookie is `SameSite=Lax` and would not travel with such a POST
-   anyway; this is the second, independent reason.
+   anyway; this is the second, independent reason. `/task` and
+   `/task/cancel` call the exact same `webauth.postOriginOk` check, not
+   a fourth copy of it.
 
 Every change is logged, machine-locally, to `.mem/console-log.jsonl`,
 and the last five are shown on the page. A setting that changes

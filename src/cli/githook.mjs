@@ -234,6 +234,7 @@ export function writeMemoryGitignore(root) {
     ['.mem/search-index.json', 'derived: rebuilt in milliseconds (old single-file name)'],
     ['.mem/search-index/', 'derived: the shard cache, rebuilt in milliseconds'],
     ['.mem/vectors.db', 'derived: rebuild with `mem embed backfill`'],
+    ['.mem/tasks/', 'per-machine task log (E1.7): started/progress/result/cancelled\n     lines for `mem-serve`\'s /task route, and the export it writes into'],
     ['.mem/raw-offsets.json', 'per-machine read positions'],
     ['.mem/digest-bell.json', 'transient'],
     ['.mem/digest.lock', 'transient'],
