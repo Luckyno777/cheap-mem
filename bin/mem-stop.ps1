@@ -190,7 +190,17 @@ if ($env:MEM_STOP_NO_PUSH -ne '1' -and (Test-Path -LiteralPath (Join-Path $Root 
       $pushed = Invoke-Git ('-C "{0}" push -q origin HEAD:main' -f $Root) 30
       if (-not $pushed.Ok) {
         # Remote moved ahead - rebase once and retry.
-        Invoke-Git ('-C "{0}" pull --rebase -q' -f $Root) 30 | Out-Null
+        #
+        # --autostash (L12, mirrored from lucky-mem): the capture and its
+        # record are already committed above, but anything ELSE tracked
+        # and left unstaged makes `git rebase` refuse outright with
+        # "cannot rebase: You have unstaged changes" before it looks at a
+        # single commit. Without --autostash that refusal (and the push
+        # after it) fails silently every run, and the capture commit
+        # stacks up locally forever. --autostash sets the unrelated mess
+        # aside first and reapplies it after; the capture commit is
+        # unaffected either way.
+        Invoke-Git ('-C "{0}" pull --rebase --autostash -q' -f $Root) 30 | Out-Null
         Invoke-Git ('-C "{0}" push -q origin HEAD:main' -f $Root) 30 | Out-Null
       }
     }

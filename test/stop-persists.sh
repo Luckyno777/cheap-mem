@@ -177,6 +177,64 @@ else
   bad "mem-stop does not know '$FROM_CODE' — hook and archive are decoupled"
 fi
 
+echo "9) L12: a genuinely diverged root, PLUS an unstaged tracked file outside"
+echo "   raw/+record, must not strand captures forever"
+# **The trap (mirrored from lucky-mem's error 1968v6itl823, 2026-09-27).**
+# mem-stop already brings the remote in with a `pull --ff-only` before it
+# commits — that alone absorbs an ordinary foreign commit, no rebase ever
+# needed. The trap needs REAL divergence: this clone already carries an
+# earlier LOCAL commit the remote does not have (a previous stop-hook run
+# that captured but was never pushed — exactly the incident), while origin
+# has ALSO moved on. The ff-only pull then fails for real, the new capture
+# commit stacks on top, the push fails (non-fast-forward), and only then
+# does `git pull --rebase` run. The capture and its record are staged and
+# committed already, so THEY never block the rebase — but if some OTHER
+# tracked file is left unstaged (a stray edit, pipeline state, anything),
+# `git pull --rebase` refuses outright with "cannot rebase: You have
+# unstaged changes", before it even looks at a single commit. That refusal,
+# and the push after it, are swallowed by `|| true` and the hook still
+# exits 0 — so BOTH local commits sit stranded FOREVER, on every
+# subsequent run, and nothing says why. Fixed with `pull --rebase --autostash`.
+build_memory
+echo 'v1' > "$WORK/mem/pipeline-state.txt"
+git -C "$WORK/mem" add pipeline-state.txt >/dev/null
+git -C "$WORK/mem" commit -qm "pipeline state tracked" >/dev/null
+git -C "$WORK/mem" push -q origin main >/dev/null 2>&1
+# An earlier stop-hook run that captured but never pushed — this clone is
+# now ahead of origin on its OWN side, before this run even starts.
+mkdir -p "$WORK/mem/raw/2026/01"
+printf 'x' | gzip > "$WORK/mem/raw/2026/01/stranded.jsonl.gz"
+git -C "$WORK/mem" add raw/2026/01/stranded.jsonl.gz >/dev/null
+git -C "$WORK/mem" commit -qm "capture: 2026-09-27T00-00-00Z" >/dev/null
+# Meanwhile origin ALSO moves on, from a different clone — real divergence.
+git clone -q "$WORK/remote" "$WORK/other9" >/dev/null 2>&1
+git -C "$WORK/other9" config user.email t@t
+git -C "$WORK/other9" config user.name T
+echo 'x' > "$WORK/other9/elsewhere.txt"
+git -C "$WORK/other9" add elsewhere.txt >/dev/null
+git -C "$WORK/other9" commit -qm "foreign commit" >/dev/null
+git -C "$WORK/other9" push -q origin main >/dev/null 2>&1
+# EXACTLY the symptom: a tracked file gets an unstaged edit that never
+# gets committed — the same shape as a journal line appended but never
+# committed on the lucky-mem side.
+echo 'v2 (unstaged)' >> "$WORK/mem/pipeline-state.txt"
+T="$(transcript)"
+BEFORE="$(git -C "$WORK/remote" rev-parse main)"
+STOPJSON "$T" | env CHEAP_MEM_ROOT="$WORK/mem" bash "$STOP" >/dev/null 2>&1
+AFTER="$(git -C "$WORK/remote" rev-parse main)"
+if [ "$AFTER" != "$BEFORE" ] \
+   && git -C "$WORK/remote" ls-tree -r --name-only main | grep -q '^raw/2026/01/stranded\.jsonl\.gz$' \
+   && git -C "$WORK/remote" ls-tree -r --name-only main | grep -q '^raw/.*\.jsonl\.gz$'; then
+  ok "both the earlier stranded capture AND the new one reached origin"
+else
+  bad "the captures did NOT reach origin — exactly the stranding failure"
+fi
+if [ "$(cat "$WORK/mem/pipeline-state.txt" 2>/dev/null)" = "$(printf 'v1\nv2 (unstaged)')" ]; then
+  ok "the unrelated unstaged edit survived (autostash popped back)"
+else
+  bad "the unrelated unstaged edit was lost: $(cat "$WORK/mem/pipeline-state.txt" 2>/dev/null)"
+fi
+
 echo
 echo "green=$GREEN red=$RED"
 [ "$RED" = 0 ]
