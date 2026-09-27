@@ -339,15 +339,23 @@ test('humanInbox: honestly unreadable when the memory renamed away from "user"',
   } finally { rm(r); }
 });
 
-test('humanInbox is rendered read-only: the view emits no send/mark-seen control', () => {
+test('humanInbox never writes on its own: the only control is a reply form, disabled unless writing is on', () => {
   const r = root();
   try {
     const cfg = cfgmod.readConfig(r);
     inbox.write(r, cfg.participants, { from: 'session', to: 'user', subject: 'ping', text: 'x', now: NOW });
     const data = dashboard.collect(r, { now: NOW });
     const html = agentsView(data);
-    assert.match(html, /[Rr]ead-only/);
-    assert.doesNotMatch(html, /<button/, 'no interactive control on a view that must not process anything');
-    assert.doesNotMatch(html, /<form/);
+    // Default is off: every control on the tray is disabled, and the way
+    // to turn it on is said in words.
+    const buttons = html.match(/<button[^>]*>/g) ?? [];
+    assert.equal(buttons.length, 1, 'one reply button per message, nothing else');
+    for (const b of buttons) assert.match(b, /disabled/);
+    assert.match(html, /mem serve --allow-writes/);
+    // The only form goes to the reply route — no mark-seen, no ack.
+    const actions = [...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(actions, ['/inbox/reply']);
+    // Positive control: switched on, the button is live.
+    assert.match(agentsView(data, { writable: true }), /<button type="submit">Reply<\/button>/);
   } finally { rm(r); }
 });

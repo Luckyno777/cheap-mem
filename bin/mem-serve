@@ -37,6 +37,8 @@ import * as webauth from '../src/webauth.mjs';
 import * as pages from '../src/pages.mjs';
 import * as tasks from '../src/tasks.mjs';
 import * as writegate from '../src/writegate.mjs';
+import * as inbox from '../src/inbox.mjs';
+import * as memConfig from '../src/config.mjs';
 
 export function readConfig(env = process.env) {
   return {
@@ -88,7 +90,7 @@ function tokenFrom(req, url) {
  */
 export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
-  '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel',
+  '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel', '/inbox/reply',
 ]);
 
 /**
@@ -96,7 +98,7 @@ export const PATHS = Object.freeze([
  * first; the probes read this list, so a fourth writing route is
  * covered the moment it is named here.
  */
-export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel']);
+export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply']);
 
 /** The server config, as `writegate.read()` takes it. */
 export function gateOpts(cfg) {
@@ -177,12 +179,13 @@ export function buildHandler(root, cfg, env = process.env) {
 
     // --- Writing paths -------------------------------------------------
     //
-    // Exactly three, and each one starts with `writegate.refusal()`:
+    // Exactly four, and each one starts with `writegate.refusal()`:
     //   POST /setting      set one knob from console.SETTINGS
     //   POST /task         start a long CLI job as a child process
     //   POST /task/cancel  end one
-    // Every other path only reads. `WRITE_PATHS` below is the list the
-    // probes check against; a fourth writing route belongs in it.
+    //   POST /inbox/reply  answer one message in the human's tray (P1b)
+    // Every other path only reads. `WRITE_PATHS` above is the list the
+    // probes check against; a fifth writing route belongs in it.
 
     // --- Setting --------------------------------------------------------
     if (url.pathname === '/setting') {
@@ -219,6 +222,55 @@ export function buildHandler(root, cfg, env = process.env) {
         // becomes a way to send someone somewhere else.
         const back = p.get('from') === '/' ? '/' : '/console';
         res.writeHead(303, { location: back }).end();
+      });
+      return;
+    }
+
+    // --- Reply from the inbox (P1b) -------------------------------------
+    //
+    // The same write `mem inbox write` makes: `inbox.reply()` reads the
+    // original, turns its header around and calls `inbox.write()` — no
+    // second message format. The form sends only the message NAME and
+    // the text; who answers is the desk's human participant
+    // (`dashboard.HUMAN_PARTICIPANT`, a key of `.mem/config.json`'s
+    // `participants`), and the recipient is read from the original file.
+    // A message not addressed to that participant is refused (400).
+    // Nothing is committed or pushed, exactly like the CLI.
+    if (url.pathname === '/inbox/reply') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' })
+          .end('POST only');
+        return;
+      }
+      // The write switch, then readonly, Host, Origin — all in ONE
+      // function (`src/writegate.mjs`), shared by every writing route.
+      const no = writegate.refusal(root, cfg, req);
+      if (no) { short(res, no.code, no.text); return; }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        // A reply is a few paragraphs; 16 KB is room for that and a cap
+        // so a form cannot fill the process.
+        if (body.length > 16384) { tooBig = true; return; }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooBig) { short(res, 413, 'Too much.'); return; }
+        const form = new URLSearchParams(body);
+        const text = form.get('text') ?? '';
+        if (!text.trim()) { short(res, 400, 'Empty reply — nothing written.'); return; }
+        try {
+          const { participants } = memConfig.readConfig(root);
+          inbox.reply(root, participants, {
+            name: form.get('name') ?? '', as: dashboard.HUMAN_PARTICIPANT, text,
+          });
+        } catch (e) {
+          short(res, 400, e?.message || String(e));
+          return;
+        }
+        // Redirect after writing, so a reload does not send it twice.
+        // A CLOSED target, like `/setting`'s: the desk, nothing else.
+        res.writeHead(303, { location: '/' }).end();
       });
       return;
     }

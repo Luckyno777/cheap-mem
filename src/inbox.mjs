@@ -328,6 +328,49 @@ export function write(root, participants, {
 }
 
 /**
+ * The subject of a reply: `Re: <original>`, never `Re: Re: <original>`.
+ * Pure, so the dashboard and a test agree on it without a round trip.
+ */
+export function replySubject(subject) {
+  const s = String(subject ?? '').trim();
+  return /^re:\s/i.test(s) ? s : `Re: ${s}`;
+}
+
+/**
+ * Answer one message, as the participant it was addressed to (P1b).
+ *
+ * **The same write as `mem inbox write`.** This does not build a
+ * message of its own: it reads the original through `readMessage()`
+ * (the one name guard), turns its header around — the reply goes FROM
+ * the original's recipient TO its sender, subject `Re: ...` — and hands
+ * that to `write()` above, exactly the call the CLI makes. Same file
+ * name scheme, same header, same exclusive create, same clone mark.
+ * Nothing is committed or pushed: delivery stays `git add/commit/push`,
+ * as the CLI prints.
+ *
+ * `as` is who is answering. The call refuses when the original was not
+ * addressed to `as` — no form field decides whom the reply goes to, so
+ * a crafted name cannot make one participant speak for another
+ * (fail closed, same rule lucky-mem's desk applies to its replies).
+ *
+ * The original is left as it is. Marking it `replied` is a separate,
+ * deliberate step (`mem inbox ack`), as it is on the command line.
+ */
+export function reply(root, participants, { name, as, text, now = new Date() }) {
+  const original = parse(readMessage(root, name));
+  if (typeof as !== 'string' || original.to !== as) {
+    throw new Error(`'${name}' is addressed to '${original.to}', not to '${as}' — `
+      + 'only its recipient can answer it');
+  }
+  return {
+    ...write(root, participants, {
+      from: original.to, to: original.from, subject: replySubject(original.subject), text, now,
+    }),
+    to: original.from,
+  };
+}
+
+/**
  * Three states, never two: no dir, empty dir, has messages.
  *
  * And per message, also three states, never two: read, broken, filtered

@@ -45,6 +45,7 @@ gate calls:
 | `POST /setting` | one knob from `SETTINGS` (raw archive location, error window, agent quiet limit) plus a line in `.mem/console-log.jsonl` |
 | `POST /task` | starts a long CLI job (`raw export`, `chain`) as a child process; state under `.mem/` |
 | `POST /task/cancel` | ends one |
+| `POST /inbox/reply` | one new message in `inbox/`, answering a message in the human participant's tray — the same `inbox.write()` `mem inbox write` calls (P1b) |
 
 Every other path (`/`, `/console`, `/viewer`, the `.json` routes) only
 reads.
@@ -78,15 +79,40 @@ it on start.
 ## On the pages
 
 With the switch not `on`, the console's and the desk's Settings forms and
-the Long-jobs Start/Cancel buttons are rendered `disabled`, and a note
-names the way to turn writing on. No script is involved — the server
+the Long-jobs Start/Cancel buttons and the reply form under each message
+in the Agents tab's inbox are rendered `disabled`, and a note names the
+way to turn writing on. No script is involved — the server
 decides what it renders.
 
 ## For new writing routes
 
 Call `writegate.refusal(root, cfg, req)` before reading the body and add
-the path to `WRITE_PATHS`. One function, not a copy per route: the next
-route (replying from the inbox, P1b) uses exactly this.
+the path to `WRITE_PATHS`. One function, not a copy per route: replying
+from the inbox (P1b, below) was the first route added this way.
+
+## Replying from the inbox (P1b)
+
+The Agents tab shows the human participant's tray (the `user` key of
+`participants` in `.mem/config.json`). Under each message is a small
+form: a text box and **Reply**. It posts to `/inbox/reply` with only the
+message's file name and the text.
+
+- **Same write as the CLI.** `inbox.reply()` reads the original, turns
+  its header around (from its recipient, to its sender, subject
+  `Re: <original>`, never `Re: Re:`) and calls `inbox.write()` — the
+  call `mem inbox write` makes. Same file name scheme, same header,
+  same body. `test/inbox-reply.test.mjs` writes the same reply through
+  the CLI and compares the two files.
+- **Nothing is delivered by the page.** Like the CLI, it writes the
+  file and stops; delivery is still `git add`, `commit`, `push`.
+- **The original is left alone.** Marking it `replied` stays a separate
+  step (`mem inbox ack <name>`).
+- **Nobody speaks for someone else.** No form field picks the sender or
+  the recipient. A message not addressed to the human participant, a
+  path instead of a name, or an empty text answers 400 and writes
+  nothing.
+- After a successful reply the server answers 303 back to the desk, so
+  a reload does not send it twice.
 
 ## Migrating
 

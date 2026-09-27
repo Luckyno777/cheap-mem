@@ -603,6 +603,7 @@ typing a long command is, in practice, not changeable.
 | `/dashboard.json` | the desk's numbers, for tools |
 | `/task`, `/task/cancel` | start/cancel a long CLI work item as a task (E1.7, `src/tasks.mjs`) |
 | `/task.json` | a task's progress/result, or the two-kind overview |
+| `/inbox/reply` | answer one message in the human participant's tray — same write as `mem inbox write` (P1b) |
 | `/health` | no auth, reveals nothing — for a supervisor or tunnel |
 
 The list lives once, as `PATHS` in `bin/mem-serve`, and the auth probe
