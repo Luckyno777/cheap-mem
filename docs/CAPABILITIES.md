@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 64 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2033 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2052 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -46,7 +46,9 @@ directory. The section number in brackets is where it is explained.
 
 | Module | What it is |
 |---|---|
+| `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
 | `agents.mjs` | registered agents: who exists, what each is for |
+| `append.mjs` | the one place a JSONL drawer is appended to — guards against a fused line when the file did not already end on a newline |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
 | `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); not yet wired into `getEntryFast()` |
@@ -56,7 +58,9 @@ directory. The section number in brackets is where it is explained.
 | `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
+| `chain.mjs` | a per-writer hash chain over the append-only logs — catches a rewrite that survives a commit, which a git-diff check alone cannot |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
+| `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
@@ -78,8 +82,10 @@ directory. The section number in brackets is where it is explained.
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
+| `indexcache.mjs` | the search index cache as shards, never as one JSON string — the old cache broke past ~978,000 entries |
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not (10.19) |
 | `integrity.mjs` | what is wrong with the log itself (4) |
+| `langdetect.mjs` | cheap, deterministic per-entry language detection — one memory can hold German and English text without a mismatched stemmer |
 | `language.mjs` | stemming and stop words, per language |
 | `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active (10.27) |
 | `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing (10.26) |
@@ -92,6 +98,7 @@ directory. The section number in brackets is where it is explained.
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree (10.21) |
 | `pointer.mjs` | a pointer instead of silence when something was already shown (10.22) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |
+| `profile.mjs` | switchable measuring points that land in the ordinary log — finds where time went without a hand-written report script |
 | `provenance.mjs` | which clone answered, and how old it is (10.23) |
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
@@ -101,6 +108,8 @@ directory. The section number in brackets is where it is explained.
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
 | `setup.mjs` | the five steps between installed and working (10.12) |
+| `shardarchive.mjs` | P17: splits the raw-capture body across shards so git never has to carry one multi-GB blob |
+| `shred.mjs` | per-entry body encryption plus a small, NOT append-only keyring — a real deletion without rewriting history |
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * The countable numbers in README.md — count them, compare them, pull
  * them forward.
@@ -41,6 +43,19 @@
  * an earlier replacement never moves a later one's position. The
  * counter-probe for exactly this class lives in
  * `test/readme-numbers-writer.test.mjs`.
+ *
+ * **More than one file (M14, 2026-09-27).** `docs/CAPABILITIES.md` has
+ * its own "N tests" claim ("17 benchmarks, an eval harness with a
+ * frozen reference run, 2033 tests") — a SECOND place stating the same
+ * `tests` count as README's claim, checked by
+ * `test/doku-zahlen.test.mjs`'s static count, but this file used to
+ * write only `README.md`. The gap was not theoretical: on 2026-09-27
+ * README already said 2041 while CAPABILITIES.md still said 2033,
+ * eight commits of drift that `--write` never touched because it never
+ * looked at that file. Each `CLAIMS` entry now names its own `file`
+ * (default `README.md`), and both `checkNumbers`/`updateNumbers` walk
+ * every file that has at least one claim — still ONE truth (the same
+ * `buildCounters()`), just read into more than one document.
  *
  * Usage:
  *   node bench/readme-numbers.mjs                 # report only
@@ -95,9 +110,11 @@ export function buildCounters(root = DEFAULT_ROOT) {
   };
 }
 
-// What the README says -> how it is counted. Each entry's `fields` names
+// What the docs say -> how it is counted. Each entry's `fields` names
 // the capture groups left-to-right; a field left out of `only` is simply
-// skipped, its group untouched.
+// skipped, its group untouched. `file` is relative to `root` and
+// defaults to `README.md` — see the file header for why more than one
+// document can carry the same field.
 export const CLAIMS = [
   {
     pattern: /As of [\d-]+: \*\*(\d+) CLI commands, (\d+) MCP tools, (\d+) modules, ([\d,]+)\s*\ntests\*\*/,
@@ -111,6 +128,15 @@ export const CLAIMS = [
     pattern: /one of (\d+) guarantees was broken on purpose/,
     fields: ['guarantees'],
   },
+  {
+    // docs/CAPABILITIES.md's own "N tests" claim (0. Inventory). The
+    // benchmark count ahead of it is not one of buildCounters()'s
+    // fields and is left uncaptured on purpose — this file has nothing
+    // to compare it against and no business rewriting it.
+    file: 'docs/CAPABILITIES.md',
+    pattern: /\d+ benchmarks, an eval harness with a frozen reference run, ([\d,]+) tests\b/,
+    fields: ['tests'],
+  },
 ];
 
 /** The exact, low-noise selection: safe to write on every run. */
@@ -122,72 +148,102 @@ export const ALL = [...EXACT, 'tests', 'lines'];
 const stripCommas = (s) => Number(String(s).replace(/,/g, ''));
 
 /**
- * Compares the README against the code. Never writes; `updateNumbers`
- * below does that and calls this for its report.
+ * Groups claims by the file they belong to, preserving each file's
+ * first-seen order and each claim's order within it — so processing
+ * one file at a time changes nothing about the order claims used to be
+ * checked in when there was only ever `README.md`.
  */
-export async function checkNumbers({ root = DEFAULT_ROOT, only = ALL } = {}) {
-  const readmePath = path.join(root, 'README.md');
-  const text = fs.readFileSync(readmePath, 'utf8');
+function byFile(claims) {
+  const groups = new Map();
+  for (const claim of claims) {
+    const file = claim.file ?? 'README.md';
+    if (!groups.has(file)) groups.set(file, []);
+    groups.get(file).push(claim);
+  }
+  return groups;
+}
+
+/**
+ * Compares the docs against the code. Never writes; `updateNumbers`
+ * below does that and calls this for its report. A `file` a claim
+ * names but that does not exist under `root` is skipped rather than
+ * reported missing — a caller running this against a partial tree
+ * (a test fixture, say) is not claiming that tree has every document.
+ */
+export async function checkNumbers({ root = DEFAULT_ROOT, only = ALL, claims = CLAIMS } = {}) {
   const counters = buildCounters(root);
   const missing = [];
   const mismatches = [];
-  for (const claim of CLAIMS) {
-    const m = claim.pattern.exec(text);
-    if (!m) { missing.push(String(claim.pattern)); continue; }
-    for (let i = 0; i < claim.fields.length; i += 1) {
-      const field = claim.fields[i];
-      if (!only.includes(field)) continue;
-      const claimed = stripCommas(m[i + 1]);
-      const real = await counters[field]();
-      if (claimed !== real) mismatches.push({ field, claimed, real });
+  for (const [file, fileClaims] of byFile(claims)) {
+    const filePath = path.join(root, file);
+    if (!fs.existsSync(filePath)) continue;
+    const text = fs.readFileSync(filePath, 'utf8');
+    for (const claim of fileClaims) {
+      const m = claim.pattern.exec(text);
+      if (!m) { missing.push(`${file}: ${claim.pattern}`); continue; }
+      for (let i = 0; i < claim.fields.length; i += 1) {
+        const field = claim.fields[i];
+        if (!only.includes(field)) continue;
+        const claimed = stripCommas(m[i + 1]);
+        const real = await counters[field]();
+        if (claimed !== real) mismatches.push({ file, field, claimed, real });
+      }
     }
   }
   return { missing, mismatches };
 }
 
 /**
- * Pulls the numbers forward. Returns what it changed (or would change,
- * dry-run) — always, even without `--write`, so a caller can report
- * without writing.
+ * Pulls the numbers forward, in every file a claim names. Returns what
+ * it changed (or would change, dry-run) — always, even without
+ * `--write`, so a caller can report without writing. Same skip rule as
+ * `checkNumbers` for a file that does not exist under `root`.
  */
 export async function updateNumbers({
-  root = DEFAULT_ROOT, only = null, all = false, write = false,
+  root = DEFAULT_ROOT, only = null, all = false, write = false, claims = CLAIMS,
 } = {}) {
-  const readmePath = path.join(root, 'README.md');
-  let text = fs.readFileSync(readmePath, 'utf8');
   const counters = buildCounters(root);
   const allowed = only ?? (all ? ALL : EXACT);
   const missing = [];
   const changes = [];
 
-  for (const claim of CLAIMS) {
-    // The 'd' flag reports each group's [start, end) in the source text,
-    // so a later replacement never has to re-find where an earlier one
-    // was — see the file header for the bug this closes.
-    const withIndices = new RegExp(claim.pattern.source, `${claim.pattern.flags.replace(/d/g, '')}d`);
-    const m = withIndices.exec(text);
-    if (!m) { missing.push(String(claim.pattern)); continue; }
-    const pending = [];
-    for (let i = 0; i < claim.fields.length; i += 1) {
-      const field = claim.fields[i];
-      if (!allowed.includes(field)) continue;
-      const span = m.indices?.[i + 1];
-      if (!span) continue;
-      const claimed = m[i + 1];
-      const real = String(await counters[field]());
-      if (claimed === real) continue;
-      pending.push({ field, from: claimed, to: real, span });
+  for (const [file, fileClaims] of byFile(claims)) {
+    const filePath = path.join(root, file);
+    if (!fs.existsSync(filePath)) continue;
+    let text = fs.readFileSync(filePath, 'utf8');
+    let touched = false;
+
+    for (const claim of fileClaims) {
+      // The 'd' flag reports each group's [start, end) in the source text,
+      // so a later replacement never has to re-find where an earlier one
+      // was — see the file header for the bug this closes.
+      const withIndices = new RegExp(claim.pattern.source, `${claim.pattern.flags.replace(/d/g, '')}d`);
+      const m = withIndices.exec(text);
+      if (!m) { missing.push(`${file}: ${claim.pattern}`); continue; }
+      const pending = [];
+      for (let i = 0; i < claim.fields.length; i += 1) {
+        const field = claim.fields[i];
+        if (!allowed.includes(field)) continue;
+        const span = m.indices?.[i + 1];
+        if (!span) continue;
+        const claimed = m[i + 1];
+        const real = String(await counters[field]());
+        if (claimed === real) continue;
+        pending.push({ field, from: claimed, to: real, span });
+      }
+      // Rightmost first: replacing a later span never shifts an earlier
+      // one's [start, end), because it lies entirely after it.
+      for (const p of [...pending].sort((a, b) => b.span[0] - a.span[0])) {
+        text = text.slice(0, p.span[0]) + p.to + text.slice(p.span[1]);
+      }
+      if (pending.length) touched = true;
+      changes.push(...pending.map(({ field, from, to }) => ({ file, field, from, to })));
     }
-    // Rightmost first: replacing a later span never shifts an earlier
-    // one's [start, end), because it lies entirely after it.
-    for (const p of [...pending].sort((a, b) => b.span[0] - a.span[0])) {
-      text = text.slice(0, p.span[0]) + p.to + text.slice(p.span[1]);
-    }
-    changes.push(...pending.map(({ field, from, to }) => ({ field, from, to })));
+
+    if (write && touched) fs.writeFileSync(filePath, text, 'utf8');
   }
 
   const wrote = write && changes.length > 0;
-  if (wrote) fs.writeFileSync(readmePath, text, 'utf8');
   return { changes, missing, wrote };
 }
 
