@@ -596,6 +596,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     // shows an enabled button while the server refuses the POST is the
     // one people believe.
     settings: con.settings,
+    writes: con.writes,
     setup: con.setup,
     connections: con.connections,
     stores: con.stores,

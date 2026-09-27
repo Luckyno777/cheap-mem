@@ -68,7 +68,8 @@ export function tasksPanel(d, { writable }) {
     <p class="page-subtitle">${writable
     ? 'Each one starts the same CLI command a person would type, as a child process of this '
       + 'server. The page does not poll — reload it to see how a job went.'
-    : 'This server runs READ ONLY, so no job can be started or cancelled from here.'}
+    : 'This server runs READ ONLY right now, so no job can be started or cancelled from '
+      + 'here — the write-switch note under Settings above says why and how to turn it on.'}
       <code>GET /task.json</code> answers the same state as JSON.</p>
     ${note}<div class="cards">${cards}</div>`;
 }

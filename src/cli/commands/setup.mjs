@@ -437,7 +437,7 @@ export const COMMANDS = {
   serve: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem serve [--port N] [--host H] [--readonly]',
+        'mem serve [--port N] [--host H] [--readonly] [--allow-writes]',
         '',
         '  The console and the viewer at one fixed link, instead of a',
         '  one-off HTML file. This is the only place where anything can',
@@ -455,6 +455,11 @@ export const COMMANDS = {
         '  /console.json   the same numbers, for tools',
         '  /health         no auth, reveals nothing — for supervisors',
         '',
+        '  Writing from the page (settings, long jobs) is OFF by default.',
+        '  --allow-writes   turn it on for this run only',
+        '  .mem/config.json "dashboard": { "allowWrites": true }  turn it on',
+        '                   for this memory. The page itself cannot turn it on.',
+        '',
         '  CHEAP_MEM_SERVE_TOKEN     the door. Without it: localhost only.',
         '  CHEAP_MEM_SERVE_HOST      bind address (default 127.0.0.1)',
         '  CHEAP_MEM_SERVE_PORT      port (default 8847)',
@@ -463,7 +468,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['port', 'host', 'readonly', 'root'], 'serve');
+    checkFlags(args, ['port', 'host', 'readonly', 'allow-writes', 'root'], 'serve');
     const root = findRoot(args);
     // **Anchored to PKG_ROOT, not to this file's own directory.**
     // Until 2026-09-18 the handlers lived in `bin/mem`, right next to
@@ -483,9 +488,17 @@ export const COMMANDS = {
     if (args.port && args.port !== true) env.CHEAP_MEM_SERVE_PORT = String(args.port);
     if (args.host && args.host !== true) env.CHEAP_MEM_SERVE_HOST = String(args.host);
     if (args.readonly) env.CHEAP_MEM_SERVE_READONLY = '1';
+    // A switch, not a value: `--allow-writes foo` would otherwise eat the
+    // next word and leave the reader unsure what was turned on.
+    const aw = args['allow-writes'];
+    if (aw !== undefined && aw !== true && aw !== 'true') {
+      die(`serve: --allow-writes takes no value (got '${aw}').`);
+      return;
+    }
+    const allowWrites = aw !== undefined;
     let started;
     try {
-      started = await mod.serve(root, env);
+      started = await mod.serve(root, env, { allowWrites });
     } catch (e) {
       // The bind refusal is a decision, not a crash: say what to do.
       die(e?.message || String(e));
@@ -496,6 +509,9 @@ export const COMMANDS = {
     out(`  root ${root}`);
     out(`  ${started.cfg.token ? 'token set' : 'no token — localhost only'}`
       + `${started.cfg.readonly ? ', read-only' : ''}`);
+    const gate = (await import(pathToFileURL(path.join(PKG_ROOT, 'src', 'writegate.mjs')).href))
+      .read(root, mod.gateOpts(started.cfg));
+    out(`  writing from the page: ${gate.state} — ${gate.reason}`);
     out('  Ctrl-C to stop.');
   },
 

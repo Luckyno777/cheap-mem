@@ -35,6 +35,7 @@ import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as pages from '../src/pages.mjs';
 import * as tasks from '../src/tasks.mjs';
+import * as writegate from '../src/writegate.mjs';
 
 export function readConfig(env = process.env) {
   return {
@@ -42,13 +43,14 @@ export function readConfig(env = process.env) {
     host: env.CHEAP_MEM_SERVE_HOST || '127.0.0.1',
     port: Number(env.CHEAP_MEM_SERVE_PORT || 8847),
     title: env.CHEAP_MEM_SERVE_TITLE || 'cheap-mem',
-    // **Writing is ON by default, and that is the decision, not the
-    // convenience.** A console that cannot set anything unless someone
-    // finds a flag is the built-but-out-of-reach class: shipped,
-    // documented, and absent where a person is standing. It is carried
-    // by three latches that already exist — the bind rule, the
-    // SameSite=Lax cookie, and the POST origin check.
+    // **Writing is OFF by default** (decision 2026-09-27, reversing the
+    // earlier "on by default"): an open-source dashboard writes nothing
+    // before its owner allows it. The switch is `dashboard.allowWrites`
+    // in `.mem/config.json`, or `allowWrites` below for one run
+    // (`mem serve --allow-writes`); see `src/writegate.mjs`. READONLY is
+    // the older, stricter latch and still wins over both.
     readonly: env.CHEAP_MEM_SERVE_READONLY === '1',
+    allowWrites: false,
     hosts: String(env.CHEAP_MEM_SERVE_HOSTS ?? '')
       .split(',').map((x) => x.trim()).filter(Boolean),
     origins: String(env.CHEAP_MEM_SERVE_ORIGINS ?? '')
@@ -87,6 +89,18 @@ export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
   '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel',
 ]);
+
+/**
+ * The paths that WRITE. Every one of them runs `writegate.refusal()`
+ * first; the probes read this list, so a fourth writing route is
+ * covered the moment it is named here.
+ */
+export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel']);
+
+/** The server config, as `writegate.read()` takes it. */
+export function gateOpts(cfg) {
+  return { flag: cfg.allowWrites === true, readonly: cfg.readonly === true };
+}
 
 /** The headers every content response carries. Once, not three times. */
 const HEAD = Object.freeze({
@@ -160,29 +174,26 @@ export function buildHandler(root, cfg, env = process.env) {
       return;
     }
 
-    // --- Setting: the only writing path of this server ---------------
+    // --- Writing paths -------------------------------------------------
+    //
+    // Exactly three, and each one starts with `writegate.refusal()`:
+    //   POST /setting      set one knob from console.SETTINGS
+    //   POST /task         start a long CLI job as a child process
+    //   POST /task/cancel  end one
+    // Every other path only reads. `WRITE_PATHS` below is the list the
+    // probes check against; a fourth writing route belongs in it.
+
+    // --- Setting --------------------------------------------------------
     if (url.pathname === '/setting') {
       if (req.method !== 'POST') {
         res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' })
           .end('POST only');
         return;
       }
-      if (cfg.readonly) {
-        short(res, 403, 'Writing is off (CHEAP_MEM_SERVE_READONLY=1).');
-        return;
-      }
-      // Host first: Origin-against-Host is a same-origin check and
-      // trusts the Host. Under DNS rebinding both carry the
-      // attacker's name and match. Only the name we agree to be
-      // reachable under separates them.
-      if (!webauth.hostAllowed(req.headers.host, cfg.hosts)) {
-        short(res, 403, 'Foreign or missing host.');
-        return;
-      }
-      if (!webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {
-        short(res, 403, 'Foreign or missing origin.');
-        return;
-      }
+      // The write switch, then readonly, Host, Origin — all in ONE
+      // function (`src/writegate.mjs`), shared by every writing route.
+      const no = writegate.refusal(root, cfg, req);
+      if (no) { short(res, no.code, no.text); return; }
       let body = '';
       let tooBig = false;
       req.on('data', (chunk) => {
@@ -232,7 +243,7 @@ export function buildHandler(root, cfg, env = process.env) {
         return;
       }
       res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
-        .end(consolePage.asHtml(data, { writable: !cfg.readonly }));
+        .end(consolePage.asHtml(data, { writable: data.writes.allowed }));
       return;
     }
 
@@ -300,15 +311,9 @@ export function buildHandler(root, cfg, env = process.env) {
     // A task is a child process of an EXISTING CLI command
     // (`src/tasks.mjs`, `KINDS`) — no second export/verify code path.
     // `/task.json` only reads. `/task` and `/task/cancel` write (start
-    // or end a child process) and sit behind the SAME three latches
-    // `/setting` already uses — `cfg.readonly`, `webauth.hostAllowed`,
-    // `webauth.postOriginOk` — because a SECOND, separately-guarded
-    // writing surface already exists on this server (`/setting`,
-    // writable by default; see this file's own header comment on that
-    // decision). There was therefore no "no writing route yet" case to
-    // guard behind a new opt-in flag: these three routes extend the
-    // surface that is already there, under the guards it already has,
-    // nothing loosened and nothing new introduced beside it.
+    // or end a child process) and sit behind the SAME check `/setting`
+    // uses — `writegate.refusal()`: the write switch (off by default,
+    // since 2026-09-27), then readonly, Host and Origin.
     if (url.pathname === '/task.json') {
       const id = url.searchParams.get('id');
       if (id) {
@@ -333,18 +338,10 @@ export function buildHandler(root, cfg, env = process.env) {
           .end('POST only');
         return;
       }
-      if (cfg.readonly) {
-        short(res, 403, 'Writing is off (CHEAP_MEM_SERVE_READONLY=1).');
-        return;
-      }
-      if (!webauth.hostAllowed(req.headers.host, cfg.hosts)) {
-        short(res, 403, 'Foreign or missing host.');
-        return;
-      }
-      if (!webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {
-        short(res, 403, 'Foreign or missing origin.');
-        return;
-      }
+      // The write switch, then readonly, Host, Origin — all in ONE
+      // function (`src/writegate.mjs`), shared by every writing route.
+      const no = writegate.refusal(root, cfg, req);
+      if (no) { short(res, no.code, no.text); return; }
       let body = '';
       let tooBig = false;
       req.on('data', (chunk) => {
@@ -421,7 +418,7 @@ export function buildHandler(root, cfg, env = process.env) {
       try {
         built = url.pathname === '/dashboard.json'
           ? { data: dashboard.collect(root, { env, cfg }) }
-          : astra.build(root, { title: cfg.title, env, cfg, writable: !cfg.readonly });
+          : astra.build(root, { title: cfg.title, env, cfg, writable: writegate.read(root, gateOpts(cfg)).allowed });
       } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
           .end(`desk could not be built: ${e?.message || e}`);
@@ -451,8 +448,14 @@ export function buildHandler(root, cfg, env = process.env) {
   };
 }
 
-export function serve(root, env = process.env) {
-  const cfg = readConfig(env);
+/**
+ * @param opts.allowWrites true = writing on for THIS run
+ *   (`mem serve --allow-writes`). Deliberately not an environment
+ *   variable: an exported variable outlives the run it was meant for,
+ *   and the switch then has a third, invisible home.
+ */
+export function serve(root, env = process.env, { allowWrites = false } = {}) {
+  const cfg = { ...readConfig(env), allowWrites: allowWrites === true };
   const allowed = bindAllowed(cfg);
   if (!allowed.ok) throw new Error(allowed.reason);
   const server = http.createServer(buildHandler(root, cfg, env));
@@ -464,12 +467,13 @@ export function serve(root, env = process.env) {
 // Started directly rather than imported: run it.
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const root = process.env.CHEAP_MEM_ROOT || process.cwd();
-  serve(root).then(({ server, cfg }) => {
+  const flags = process.argv.slice(2);
+  serve(root, process.env, { allowWrites: flags.includes('--allow-writes') }).then(({ server, cfg }) => {
     const bound = server.address();
     process.stderr.write(
       `cheap-mem console on http://${cfg.host}:${bound.port}/ `
       + `(root ${root}, ${cfg.token ? 'token set' : 'localhost only'}`
-      + `${cfg.readonly ? ', read-only' : ''})\n`);
+      + `, writing ${writegate.read(root, gateOpts(cfg)).state})\n`);
   }).catch((e) => {
     process.stderr.write(`${e.message}\n`);
     process.exit(1);

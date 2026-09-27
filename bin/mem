@@ -129,7 +129,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  user --self-test / user --session-start (<= 5 lines for a hook)");
   out("");
   out("State at a glance:");
-  out("  serve  [--port N] [--readonly]               console + viewer at one link");
+  out("  serve  [--port N] [--readonly] [--allow-writes]  console + viewer at one link");
   out("  board  [--html] [--json] [--days N]          every lane on one screen");
   out("  status [--json]                              installed vs. actually working");
   out("  classes [--open]                             the twelve error classes, and coverage");
