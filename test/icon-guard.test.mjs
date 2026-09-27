@@ -24,15 +24,29 @@
 // - The sibling's mark: `lucky-mem/src/marke.mjs` draws an SVG path —
 //   `M300 230 V1010 H1010` (the L) plus `M470 730 L690 545 L910 730`
 //   with three circles — and `lucky-mem/src/pwa.mjs` draws the same
-//   geometry as a PNG. Both are pure functions too. This file imports
-//   them by ABSOLUTE path from the neighbouring worktree (`wt-p2`) —
-//   the sibling's real generator function, not a copy of its formulas
-//   kept here.
+//   geometry as a PNG. Both are pure functions too.
 //
-// **A hash instead of raw bytes.** A PNG literal in this file would be
-// unreadable and would need re-pasting on every palette change. A
-// SHA-256 of the generated PNG is just as unique (two different images
-// essentially never share one) and stays legible in a diff.
+// **No import across the repository boundary — fixed fixtures instead
+// of a neighbour path (coordinator finding, 2026-09-27, before this
+// merge).** An earlier version of this file imported
+// `../../wt-p2/src/marke.mjs`, `pwa.mjs` and `gestalt.mjs` by absolute
+// path and called them at test time — the sibling's real generator
+// function, but only FOR AS LONG AS the neighbouring worktree `wt-p2`
+// happens to sit next to this one. That worktree is a fixture of this
+// one session: CI and the VM never have it, and it gets deleted. An
+// import across that boundary is "built but unreachable" — the exact
+// failure class this house already names for a delivered page (see
+// `test/board.test.mjs`'s header on state that was never measured),
+// just at the guard itself instead of at a page.
+//
+// The fix: the foreign geometry, captured ONCE and embedded as text
+// constants below (`FOREIGN_LINK_SVG`, `FOREIGN_PNG_B64`) — with
+// source and date in the comment, so it is clear what they are a copy
+// OF and WHEN they were captured. If lucky-mem's mark ever changes
+// geometry or palette, these constants go stale silently; that is the
+// price of not depending on a worktree that will not always exist. A
+// SHA-256 of the bytes is still the feature actually compared against
+// — not the raw bytes spelled out in every failure message.
 //
 // **What actually carries a mark today — measured, not assumed (order
 // point 3).** Checked by calling the real render functions against a
@@ -68,21 +82,45 @@ import * as astra from '../src/astra.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
-// **The sibling, by real path — not transcribed.** Both houses run in
-// this session as two allowed worktrees (wt-p2, wt-p2-cm). The import
-// is absolute because the two repositories share no package.json or
-// node_modules — it is the same move as importing a file from this
-// repo's own tree, just with a different path in front of it.
-const SIBLING_MARKE = path.resolve(HERE, '../../wt-p2/src/marke.mjs');
-const SIBLING_PWA = path.resolve(HERE, '../../wt-p2/src/pwa.mjs');
+/**
+ * The foreign mark (lucky-mem), as fixed fixtures — no import across
+ * the repository boundary (see the file header for why).
+ *
+ * **Source: `lucky-mem/src/marke.mjs`, `marke.zeichenLink(gestalt.TINTE)`
+ * — the exact `<link rel="icon">` the sibling's `/` and `/post` pages
+ * embed for their SVG favicon (dark palette: `grund:#101B1B,
+ * tinte:#F6F4EC, violett:#54D6A0`). Captured 2026-09-27** by calling
+ * that real generator function once, in the then-present neighbour
+ * worktree `wt-p2` (see `git log -1 -- src/marke.mjs src/gestalt.mjs`
+ * there at that time for the exact commit). Pure function of the
+ * colour table and the size argument — no clock, no randomness — so
+ * this text is stable for as long as `marke.zug()`'s geometry and
+ * `gestalt.TINTE`'s hex values are not touched.
+ */
+const FOREIGN_LINK_SVG = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20'
+  + 'viewBox%3D%220%200%201240%201240%22%20width%3D%2264%22%20height%3D%2264%22%20role%3D%22img%22%20'
+  + 'aria-label%3D%22lucky-mem%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsv'
+  + 'g%22%3E%3Crect%20width%3D%221240%22%20height%3D%221240%22%20rx%3D%22223%22%20fill%3D%22%23101B1B%'
+  + '22%2F%3E%3Cg%20transform%3D%22translate(620%20620)%20scale(0.8)%20translate(-620%20-620)%22%3E%3C'
+  + 'path%20d%3D%22M300%20230%20V1010%20H1010%22%20stroke%3D%22%23F6F4EC%22%20stroke-width%3D%22152%2'
+  + '2%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Cpath%20d%3D%22M470%20730'
+  + '%20L690%20545%20L910%20730%22%20stroke%3D%22%2354D6A0%22%20stroke-width%3D%2278%22%20stroke-linec'
+  + 'ap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3Ccircle%20cx%3D%22690%22%20cy%3D%22545%22'
+  + '%20r%3D%22104%22%20fill%3D%22%2354D6A0%22%2F%3E%3Ccircle%20cx%3D%22470%22%20cy%3D%22730%22%20r%3D'
+  + '%2288%22%20fill%3D%22%2354D6A0%22%2F%3E%3Ccircle%20cx%3D%22910%22%20cy%3D%22730%22%20r%3D%2288%22'
+  + '%20fill%3D%22%2354D6A0%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E">';
 
-function siblingOrSkip(t) {
-  if (!fs.existsSync(SIBLING_MARKE) || !fs.existsSync(SIBLING_PWA)) {
-    t.skip(`lucky-mem is not checked out at ${SIBLING_MARKE} — cannot load the foreign mark`);
-    return null;
-  }
-  return { marke: SIBLING_MARKE, pwa: SIBLING_PWA };
-}
+/**
+ * **Source: `lucky-mem/src/pwa.mjs`, `pwa.symbol(64, {dunkel:false})`
+ * — the same geometry as a PNG (the light palette; this is what
+ * `pwa.symbolLink()`'s default embeds). Captured 2026-09-27**,
+ * alongside `FOREIGN_LINK_SVG` above, same worktree, same commit.
+ */
+const FOREIGN_PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAABBUlEQVR42u3bQQ6CMBCF4Z7AuOda'
+  + '3sSTuzNucGeMxNriPKbT+ZvMggWk7ysJhTClNI7H/bZGqmI1ogU3g4ge/C+I2cJ3Icwavglh9vBVhCzhvyKkBsgWfoPQe+J5W'
+  + 'TYVFsAifGgEAAAAAAAAAAAAAAAAAAAAb4DT9fKqVADvwT9reoBa+CMQAPAEaAmvRgAAAAB8AHrCKxFcAPaEVyEcCvArWO1YhS'
+  + 'ADsFpR9Z0hAbCetBLBHEA1WdV1XQAUL00AAADAGADqDxzDPwVqE7XavAy/D+CjKAAAAABARoDRKj1ACwIAAGQH6P1feCYA07/'
+  + 'Fw64+DRMA0DRF2xyNk7TO0jydtn3+CQSGdEORfWMuAAAAAElFTkSuQmCC';
 
 function root() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-guard-'));
@@ -185,12 +223,8 @@ test('bin/mem-serve serves no manifest, service worker or favicon route today', 
   }
 });
 
-test('SABOTAGE: the foreign mark (lucky-mem) spliced into the dashboard turns the guard RED', async (t) => {
-  const sibling = siblingOrSkip(t);
-  if (!sibling) return;
-  const marke = await import(`${sibling.marke}?t=${Math.random()}`);
-  const gestalt = await import(`${path.resolve(HERE, '../../wt-p2/src/gestalt.mjs')}?t=${Math.random()}`);
-  const foreignLink = marke.zeichenLink(gestalt.TINTE); // the sibling's REAL generator function
+test('SABOTAGE: the foreign mark (lucky-mem) spliced into the dashboard turns the guard RED', () => {
+  const foreignLink = FOREIGN_LINK_SVG; // the fixed fixture, see file header
 
   const r = root();
   try {
@@ -209,12 +243,8 @@ test('SABOTAGE: the foreign mark (lucky-mem) spliced into the dashboard turns th
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('SABOTAGE: the viewer with its own mark replaced by the foreign one turns RED', async (t) => {
-  const sibling = siblingOrSkip(t);
-  if (!sibling) return;
-  const pwa = await import(`${sibling.pwa}?t=${Math.random()}`);
-  const foreignPng = pwa.symbol(64, { dunkel: false }); // the sibling's REAL generator function
-  const foreignHashes = [pngHash(foreignPng)];
+test('SABOTAGE: the viewer with its own mark replaced by the foreign one turns RED', () => {
+  const foreignHashes = [pngHash(Buffer.from(FOREIGN_PNG_B64, 'base64'))];
 
   const r = root();
   try {
@@ -222,7 +252,7 @@ test('SABOTAGE: the viewer with its own mark replaced by the foreign one turns R
     const ownLink = icon.markLink();
     assert.ok(html.includes(ownLink), 'precondition broken: the viewer no longer carries its own markLink() output');
     const sabotaged = html.replace(ownLink,
-      `<link rel="icon" type="image/png" href="data:image/png;base64,${foreignPng.toString('base64')}">`);
+      `<link rel="icon" type="image/png" href="data:image/png;base64,${FOREIGN_PNG_B64}">`);
     const verdict = guardVerdict(sabotaged, { must: true, foreignHashes });
     assert.ok(verdict, 'own mark swapped for the foreign PNG was not caught');
     assert.match(verdict, /FOREIGN/);
@@ -247,15 +277,11 @@ test('EMPTY IS NOT A PASS: the viewer stripped of its icon is RED, not GREEN', (
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('SABOTAGE: even board (no mark today) turns RED the moment the foreign one lands', async (t) => {
+test('SABOTAGE: even board (no mark today) turns RED the moment the foreign one lands', () => {
   // The strongest case: a page that shows nothing today is not
   // automatically safe from the foreign mark. The guard must catch it
   // here too, or "carries nothing today" would be a blind spot.
-  const sibling = siblingOrSkip(t);
-  if (!sibling) return;
-  const marke = await import(`${sibling.marke}?t=${Math.random()}`);
-  const gestalt = await import(`${path.resolve(HERE, '../../wt-p2/src/gestalt.mjs')}?t=${Math.random()}`);
-  const foreignLink = marke.zeichenLink(gestalt.TINTE);
+  const foreignLink = FOREIGN_LINK_SVG;
 
   const r = root();
   try {
