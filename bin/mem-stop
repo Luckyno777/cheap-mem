@@ -95,6 +95,16 @@ if   [ -f "$ROOT/src/answercheck.mjs" ]; then CHECKER="$ROOT/src/answercheck.mjs
 elif [ -f "$HERE/../src/answercheck.mjs" ]; then CHECKER="$HERE/../src/answercheck.mjs"
 fi
 if [ -n "$CHECKER" ] && [ -n "$STDIN_JSON" ]; then
+  # An ESM specifier is a URL, not a path — same trap mem-before-edit
+  # already carries a note about: this script also runs under Git Bash
+  # on Windows, where a bare path is `D:/a/...` and Node reads `D:` as
+  # a URL SCHEME.
+  CHECKER_FS="$CHECKER"
+  command -v cygpath >/dev/null 2>&1 && CHECKER_FS="$(cygpath -m "$CHECKER")"
+  case "$CHECKER_FS" in
+    /*) CHECKER_URL="file://$CHECKER_FS" ;;
+    *)  CHECKER_URL="file:///$CHECKER_FS" ;;
+  esac
   ANSWER_JSON="$(printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" cap 10 node -e '
     let raw = ""; process.stdin.on("data", (d) => { raw += d; });
     process.stdin.on("end", () => {
@@ -103,7 +113,7 @@ if [ -n "$CHECKER" ] && [ -n "$STDIN_JSON" ]; then
         const r = m.checkStop(process.env.CHEAP_MEM_ROOT, input);
         if (r) process.stdout.write(JSON.stringify(r));
       }).catch(() => {});
-    });' "$CHECKER" 2>/dev/null)" || ANSWER_JSON=""
+    });' "$CHECKER_URL" 2>/dev/null)" || ANSWER_JSON=""
 fi
 
 # --- 1) Capture (model-free, always) --------------------------------

@@ -51,11 +51,26 @@ fi
 # malformed or absent stdin cannot make the module import fail.
 if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi
 
+# An ESM specifier is a URL, not a path — the same trap mem-before-edit
+# already carries a long note about. On Linux a plain absolute path
+# happens to also be a valid specifier, but this same script runs under
+# Git Bash on Windows too, where the path is `D:/a/...` and Node reads
+# `D:` as a URL SCHEME (ERR_UNSUPPORTED_ESM_URL_SCHEME). `cygpath -m`
+# gives the forward-slash form that survives unescaped in the URL; a
+# leading slash needs only the `file://` prefix, anything else (a
+# drive letter) needs a third slash.
+MODULE_FS="$MODULE"
+command -v cygpath >/dev/null 2>&1 && MODULE_FS="$(cygpath -m "$MODULE")"
+case "$MODULE_FS" in
+  /*) MODULE_URL="file://$MODULE_FS" ;;
+  *)  MODULE_URL="file:///$MODULE_FS" ;;
+esac
+
 CHEAP_MEM_ROOT="$ROOT" node -e '
   import(process.argv[1]).then((m) => {
     const r = m.hookResult(process.env.CHEAP_MEM_ROOT);
     if (r) process.stdout.write(JSON.stringify(r));
   }).catch(() => {});
-' "$MODULE" 2>/dev/null
+' "$MODULE_URL" 2>/dev/null
 
 exit 0
