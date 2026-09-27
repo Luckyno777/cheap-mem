@@ -47,7 +47,15 @@ import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
 // like filenames. Unknown types fall back to their own key.
-const TYPE_LABEL = Object.freeze({
+//
+// **Exported since D1 (2026-09-27).** `dashboard.getEntryFast()` needs
+// the exact same label for its single-entry route, and it resolves the
+// type directly (it already knows which drawer it read) rather than
+// through `typeOfEntry()` below — but the LABEL for that type has to
+// stay one function, not a second copy that drifts the day a type is
+// added here and not there. Additive only; every other caller is
+// unchanged.
+export const TYPE_LABEL = Object.freeze({
   decision: 'Decisions',
   error: 'Errors',
   event: 'Events',
@@ -91,7 +99,10 @@ function projectOfEntry(e) {
   return m ? m[1] : null;
 }
 
-function headline(e) {
+// Exported since D1 (2026-09-27), for the same reason as `TYPE_LABEL`
+// above: a pure function of ONE entry that `getEntryFast()` needs
+// without writing the headline rule out a second time.
+export function headline(e) {
   const bits = [];
   // **A procedure does not come out of the viewer without its author
   // either.** The viewer is the third display path next to CLI and

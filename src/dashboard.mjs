@@ -31,6 +31,7 @@
 //
 // invariant: drei-zustaende-nie-zwei
 // invariant: leer-ist-kein-bestehen
+import fs from 'node:fs';
 import * as consolePage from './console.mjs';
 import * as viewer from './viewer.mjs';
 import * as memory from './memory.mjs';
@@ -136,6 +137,20 @@ export const agentKey = (project) => (project === 'global' ? '(global)' : projec
  * JSON too, and the tests can then check numbers without reaching
  * through markup.
  */
+
+/**
+ * What an entry claims it was built on — its own field, never an
+ * inference. Pulled out to its own function (2026-09-27, D1) so
+ * `getEntryFast()` below can read the exact same rule instead of the
+ * ternary being written out a second time; `collect()`'s entry map
+ * calls this too now, so the two can never disagree about one entry.
+ */
+export function declaredDerivedFrom(e) {
+  if (e && Array.isArray(e.origin?.derived_from)) return e.origin.derived_from;
+  if (e && Array.isArray(e.provenance?.derived_from)) return e.provenance.derived_from;
+  return [];
+}
+
 export function collect(root, { env = process.env, now = new Date(), cfg = {} } = {}) {
   const con = consolePage.collect(root, { env, now, cfg });
   const mem = viewer.collectMemory(root);
@@ -202,8 +217,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
       author: e ? (authority.authorOf(e) || null) : null,
       scope: e ? capability.scopeOf(e) : null,
       // What it was built on — the entry's own claim, not an inference.
-      derivedFrom: e && Array.isArray(e.origin?.derived_from) ? e.origin.derived_from
-        : (e && Array.isArray(e.provenance?.derived_from) ? e.provenance.derived_from : []),
+      derivedFrom: declaredDerivedFrom(e),
       cited: s ? s.cited : 0,
       contested: s ? Boolean(s.contested) : false,
       // Retired is a MEASURED state. Absent means "not retracted", which
@@ -358,6 +372,281 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     log: con.log,
     views: VIEWS,
     raw: { captures: rawCaptures, counts: rawCounts, readable: rawReadable, error: rawError },
+  };
+}
+
+// -----------------------------------------------------------------------
+// D1 single-entry contract (2026-09-27)
+// -----------------------------------------------------------------------
+//
+// Mirrors lucky-mem's `schreibtisch.holeEintragSchnell()` (its commit
+// 6f5280f0, section "D1 Datenvertrag Einzelabruf" in its own dashboard
+// coverage notes): one id resolved directly, never `collect()`'s full
+// pass over every drawer of every project just to hand back one row.
+//
+//   found      { state:'ok',      entry, source:{file,line}, asOf }      -> 200
+//   not found  { state:'unknown', id, reason? }                         -> 404
+//   unreadable { state:'error',   id, reason }                          -> 500
+//   partial    { state:'warning', entry, source, asOf, reason }         -> 200
+//
+// `state:'unknown'` means every drawer this function searched was
+// readable, and none of them carried the id — never a guess dressed up
+// as a clean miss. `state:'error'`/`'warning'` mean at least one source
+// line could not be read WHILE the answer was being built; that gap
+// travels in `reason`, it is never swallowed into a silent not-found or
+// a silently thinner answer. `asOf` is the mtime of the drawer actually
+// read (`fs.statSync`), not an invented cache timestamp.
+//
+// `entry` carries exactly the fields `collect()`'s own `entries` array
+// shows for that id, from the SAME functions — `viewer.TYPE_LABEL` /
+// `viewer.headline` for the label and headline, `basis.markOf` /
+// `authority.tierOf` / `authority.authorOf` / `capability.scopeOf` for
+// the three per-entry marks, `declaredDerivedFrom()` above for what the
+// entry claims it was built on, `memory.retiredMap` for whether a later
+// line superseded it, and `net.linksOf` for every declared edge this
+// function actually reads. None of that is computed a second way here;
+// see `test/dashboard-entry-fast.test.mjs`'s probe (3) for the check
+// that this and `collect()` cannot quietly disagree about one id.
+//
+// **The one honest gap.** `net.build` (inside `collect()`) finds an
+// INCOMING `derived_from` edge, and the citation count `memory.
+// standing()` gives an entry, by reading every drawer of every project
+// and asking each entry there what it cites — there is no address to
+// look up "who cites this id" at, only that full pass, which is exactly
+// what this function exists to avoid paying for on every single-entry
+// read. So here, `cited`/`backlinks`/`contradictedBy` count only:
+//   (a) this id's OWN drawer, read in full anyway (for the line number)
+//       — for a same-drawer correction or tombstone, which is where one
+//       always lands: `retireEntry`/`correctionEntry` (`src/memory.
+//       mjs`) always append to the SAME (type, project) as the entry
+//       they retire or replace, never a different one;
+//   (b) the `link` drawer, once per project — every hand-drawn edge,
+//       any kind, because that drawer exists so a caller does not have
+//       to read every OTHER drawer to find an edge between two ids.
+// An incoming `derived_from` edge declared on an entry in a DIFFERENT
+// drawer than this id's own is NOT searched. `links`/`contradicts`
+// (this id's OUTGOING edges) have no such gap — they come from this
+// id's OWN fields, always read in full, never another entry's.
+// `graphNote` names this in EVERY answer, not only the ones it actually
+// changes: a gap reported only sometimes cannot be told apart from one
+// that never bites, without doing the very search it exists to avoid.
+const GRAPH_NOTE = "cited/backlinks/contradictedBy count only this id's own drawer "
+  + "(a same-drawer correction or tombstone) and the 'link' drawer across every "
+  + 'project. An incoming derived_from edge declared on an entry in a DIFFERENT '
+  + 'drawer is not searched by this fast path — that needs the full pass this '
+  + 'route exists to avoid. links/contradicts (this id\'s outgoing edges) have no '
+  + 'such gap: they come from this id\'s own fields, always read in full.';
+
+/**
+ * Which drawer holds `id`, stopping the instant it turns up — and
+ * whether a broken line turned up on the way there.
+ *
+ * Built from the same three primitives `memory.findEntryLocation` uses
+ * (`memory.listProjects`, `memory.TYPES`, `memory.iterLog`), walked in
+ * the same order, so this can never settle on a different drawer than
+ * that function would for the same id — one id path, not a second one
+ * invented beside it. It is its own function rather than a change to
+ * `findEntryLocation` only because that function has no way to hand
+ * back "did a line fail to parse on the way" without changing what
+ * every one of its OTHER callers receives; that signal is the whole
+ * reason this one exists.
+ */
+function locateDrawer(root, id) {
+  let sawBroken = false;
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const type of Object.keys(memory.TYPES)) {
+      let it;
+      try { it = memory.iterLog(root, type, { project }); } catch { continue; }
+      for (const e of it) {
+        if (e.__broken) { sawBroken = true; continue; }
+        if (e.id === id && !memory.isClosingLine(e)) return { drawer: { type, project }, sawBroken };
+      }
+    }
+  }
+  return { drawer: null, sawBroken };
+}
+
+/**
+ * A bounded "does this id exist anywhere" check, for the `known` flag
+ * on a declared OUTGOING edge. `memory.findEntryLocation` already IS
+ * that check — reused, not re-implemented — and it stays cheap here
+ * specifically because it only ever runs once per edge THIS id
+ * actually has, never once per entry in the whole memory.
+ */
+function knownChecker(root) {
+  const cache = new Map();
+  return (targetId) => {
+    if (!cache.has(targetId)) cache.set(targetId, Boolean(memory.findEntryLocation(root, targetId)));
+    return cache.get(targetId);
+  };
+}
+
+/**
+ * One entry for GENUINELY one id — never `collect()`'s pass over every
+ * drawer of every project.
+ *
+ * Reads: (a) drawers, stopping the instant `id` turns up (`locateDrawer`
+ * above); (b) the ONE drawer it lives in, read in full (for its line
+ * number and any tombstone/correction of it — both live in that same
+ * drawer by the convention `retireEntry`/`correctionEntry` follow); (c)
+ * the `link` drawer, once per project (every hand-drawn edge touching
+ * `id`, in either direction). Never every type of every project — see
+ * the header comment above for the one search this deliberately skips,
+ * and why.
+ */
+export function getEntryFast(root, id) {
+  if (typeof id !== 'string' || !id) return { state: 'unknown', id: id ?? '' };
+
+  const { drawer, sawBroken } = locateDrawer(root, id);
+  if (!drawer) {
+    // A not-found next to corruption THIS SAME SEARCH actually saw is
+    // not an established not-found — the line that failed to parse
+    // could have been the one being asked for.
+    return sawBroken
+      ? {
+        state: 'error',
+        id,
+        reason: 'At least one source line could not be read while searching for this '
+          + 'id — a not-found cannot be established this way.',
+      }
+      : { state: 'unknown', id };
+  }
+
+  const file = memory.logPath(root, drawer.type, drawer.project);
+  let raw;
+  try { raw = fs.readFileSync(file, 'utf8'); } catch (err) {
+    return { state: 'error', id, reason: `Drawer not readable: ${err?.message || err}` };
+  }
+
+  const rows = []; // { entry, line }
+  let ownDrawerBroken = false;
+  const rawLines = raw.split('\n');
+  for (let i = 0; i < rawLines.length; i += 1) {
+    const text = rawLines[i];
+    if (!text.trim()) continue;
+    let entry;
+    try { entry = JSON.parse(text); } catch { ownDrawerBroken = true; continue; }
+    rows.push({ entry, line: i + 1 });
+  }
+  const hit = rows.find((r) => r.entry.id === id && !memory.isClosingLine(r.entry));
+  if (!hit) {
+    // The drawer changed between (a) and (b) (a rare race with a
+    // concurrent writer) — an honest 'unknown', never a guess at what
+    // it used to hold.
+    return { state: 'unknown', id };
+  }
+  const { entry: e, line } = hit;
+  const retired = memory.retiredMap(rows.map((r) => r.entry)).get(id) ?? null;
+
+  // --- (c) declared edges: this drawer's own fields, plus the `link`
+  // drawer across every project ---------------------------------------
+  const known = knownChecker(root);
+  const out = [];   // this id's outgoing edges, any kind
+  const into = [];  // incoming edges, any kind EXCEPT derived_from (the gap)
+  let cited = 0;
+  let contested = false;
+
+  // Display edges (`links`/`backlinks`/`contradicts`/`contradictedBy`):
+  // exactly `net.linksOf`, the same function `collect()`'s own net pass
+  // uses, so an edge kind added there is never missed here.
+  function collectDisplay(entries) {
+    for (const entry of entries) {
+      for (const l of net.linksOf(entry)) {
+        if (l.from === id) out.push({ kind: l.kind, id: l.to, known: known(l.to) });
+        if (l.to === id && l.kind !== 'derived_from') into.push({ kind: l.kind, id: l.from, known: true });
+      }
+    }
+  }
+  // Standing (`cited`/`contested`): mirrors `memory.standing()`'s OWN
+  // `link`-drawer loop field for field (`to`/`target`, any kind), not
+  // `net.linksOf`'s stricter shape — `standing()` does not check a
+  // kind against the closed vocabulary before counting it, and `cited`
+  // here has to be the SAME number `collect()` shows, not a stricter
+  // reading of the same lines.
+  function collectStanding(entries) {
+    for (const l of entries) {
+      if (memory.isClosingLine(l)) continue;
+      const to = l.to ?? l.target ?? null;
+      if (to !== id) continue;
+      if (l.kind === 'contradicts') contested = true;
+      else cited += 1;
+    }
+  }
+
+  collectDisplay(rows.map((r) => r.entry));
+  // `id`'s own drawer IS the `link` drawer when `id` names a hand-drawn
+  // edge itself — `standing()` would still read those same lines (as
+  // part of that project's `link` drawer), so this has to as well.
+  if (drawer.type === 'link') collectStanding(rows.map((r) => r.entry));
+
+  let linkDrawerBroken = false;
+  for (const project of [null, ...memory.listProjects(root)]) {
+    if (drawer.type === 'link' && project === drawer.project) continue; // already read as `rows`
+    let it;
+    try { it = memory.iterLog(root, 'link', { project }); } catch { continue; }
+    const linkEntries = [];
+    for (const l of it) {
+      if (l.__broken) { linkDrawerBroken = true; } else linkEntries.push(l);
+    }
+    collectDisplay(linkEntries);
+    collectStanding(linkEntries);
+  }
+
+  // A retired id never accumulates standing, in `collect()` either: it
+  // is not in `memory.entriesById()` (the substrate `memory.standing()`
+  // walks), because `holds()` excludes it — so nothing can be counted
+  // AS citing or contesting IT. Same rule, applied without walking the
+  // whole substrate to reach it.
+  if (retired) { cited = 0; contested = false; }
+
+  let asOf = null;
+  try { asOf = fs.statSync(file).mtime.toISOString(); } catch { /* no evidence -> null */ }
+
+  const source = memory.asSource(root, file);
+  const entry = {
+    id,
+    ts: e.ts,
+    day: String(e.ts || '').slice(0, 10),
+    type: drawer.type,
+    typeLabel: viewer.TYPE_LABEL[drawer.type] || drawer.type,
+    project: drawer.project || 'global',
+    tags: Array.isArray(e.tags) ? e.tags : [],
+    headline: viewer.headline(e),
+    source,
+    line,
+    readable: true,
+    basis: basis.markOf(e),
+    authority: authority.tierOf(e),
+    author: authority.authorOf(e) || null,
+    scope: capability.scopeOf(e),
+    derivedFrom: declaredDerivedFrom(e),
+    cited,
+    contested,
+    retired: retired ? { state: retired.state, why: retired.why || null } : null,
+    replaces: e.replaces_id ? String(e.replaces_id) : null,
+    contradicts: out.filter((l) => l.kind === 'contradicts'),
+    contradictedBy: into.filter((l) => l.kind === 'contradicts'),
+    links: out,
+    backlinks: into,
+  };
+
+  const reasons = [];
+  if (ownDrawerBroken) {
+    reasons.push("this id's own drawer carries at least one line that could not be read");
+  }
+  if (linkDrawerBroken) {
+    reasons.push("the 'link' drawer carries at least one line that could not be read — "
+      + 'cited/contested/links/backlinks/contradictedBy can undercount because of it');
+  }
+
+  return {
+    state: reasons.length ? 'warning' : 'ok',
+    id,
+    asOf,
+    source: { file: source, line },
+    graphNote: GRAPH_NOTE,
+    ...(reasons.length ? { reason: reasons.join('; ') } : {}),
+    entry,
   };
 }
 
