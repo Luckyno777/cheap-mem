@@ -16,6 +16,30 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **`GET /entry.json?id=<id>`, a single-entry route that never builds
+  the whole desk** (`bin/mem-serve`, `src/dashboard.mjs`,
+  `src/viewer.mjs`). Until now, looking up one entry over the server
+  meant `dashboard.collect()` — every drawer of every project, several
+  passes over each, just to hand back one row. `dashboard.
+  getEntryFast()` resolves the id through the same primitives `memory.
+  findEntryLocation()` already uses, reads only that one drawer plus
+  the `link` drawer per project, and answers the same four states every
+  other measurement in this repo does: `state:'ok'`/`'warning'` (200,
+  found — the second with a disclosed read gap), `'unknown'` (404, no
+  drawer this route searched carried the id), `'error'` (500, a source
+  line could not be read while searching, so a not-found could not be
+  established). Behind the same auth/origin guards as every other
+  route — `/entry.json` is in `PATHS`, checked the same way. `viewer.
+  TYPE_LABEL`/`viewer.headline` are exported additively so this route
+  and `dashboard.collect()` share one label/headline rule, never two.
+  The one honest gap: an incoming `derived_from` edge declared on an
+  entry in a DIFFERENT drawer than this id's own is not searched (that
+  needs the full pass this route exists to avoid) — every answer says
+  so in `graphNote`, always, not only when it bites. See
+  `docs/dashboard-single-entry.md` for the full contract and
+  `test/dashboard-entry-fast.test.mjs` (12 probes, red on the pre-D1
+  state) for what backs it.
+
 - **Deleting a raw capture** — `mem raw review` and `mem raw delete`
   (`bin/mem`, `src/raw.mjs`, `src/archive.mjs`). The bytes leave the
   archive, outside git, and the append-only register keeps the capture's
