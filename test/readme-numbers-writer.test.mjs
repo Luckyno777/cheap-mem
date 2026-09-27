@@ -22,7 +22,7 @@ import * as numbers from '../bench/readme-numbers.mjs';
  * NOT this repo's own tree: a test that writes the real README changes
  * the very thing it is checking.
  */
-function tree({ cli = 2, mcp = 2, modules = 2, tests = 2, line = null }) {
+function tree({ cli = 2, mcp = 2, modules = 2, tests = 2, line = null, capsLine = null }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'readme-numbers-'));
   fs.mkdirSync(path.join(root, 'src', 'cli', 'commands'), { recursive: true });
   fs.mkdirSync(path.join(root, 'test'), { recursive: true });
@@ -55,11 +55,19 @@ function tree({ cli = 2, mcp = 2, modules = 2, tests = 2, line = null }) {
   fs.writeFileSync(path.join(root, 'bench', 'mutation.mjs'), 'export const MUTANTS = [{}, {}];\n');
 
   fs.writeFileSync(path.join(root, 'README.md'), `# Title\n\n${line}\n`);
+  // docs/CAPABILITIES.md's own "N tests" claim (M14) — only when asked
+  // for, so every fixture that predates this file keeps working with
+  // no docs/ directory at all.
+  if (capsLine !== null) {
+    fs.mkdirSync(path.join(root, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'docs', 'CAPABILITIES.md'), `# Capabilities\n\n${capsLine}\n`);
+  }
   return root;
 }
 
 const rm = (r) => fs.rmSync(r, { recursive: true, force: true });
 const CLAIM = (cli, mcp, modules, tests) => `As of 2026-01-01: **${cli} CLI commands, ${mcp} MCP tools, ${modules} modules, ${tests}\ntests**`;
+const CAPS_CLAIM = (tests) => `17 benchmarks, an eval harness with a frozen reference run, ${tests} tests`;
 
 test('the write path pulls the exact numbers forward', async () => {
   const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(1, 1, 1, 1) });
@@ -152,4 +160,71 @@ test('POSITIVE: EXACT and ALL are not accidentally empty', () => {
   assert.ok(numbers.ALL.length > numbers.EXACT.length);
   assert.ok(!numbers.EXACT.includes('tests'));
   assert.ok(!numbers.EXACT.includes('lines'));
+});
+
+// --- M14: more than one file ------------------------------------------
+//
+// docs/CAPABILITIES.md carries the same `tests` claim README.md does,
+// in different words. Both drifted for real on 2026-09-27 (2041 vs.
+// 2033) before this file's CLAIMS list learned about the second one.
+// These tests are the fixture version of exactly that repair.
+
+test('a fixture with NO docs/ directory at all is untouched — the M14 target is opt-in', async () => {
+  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(3, 4, 5, 6) });
+  try {
+    assert.ok(!fs.existsSync(path.join(root, 'docs')), 'precondition: no docs/ in this fixture');
+    const report = await numbers.updateNumbers({ root, all: true, write: true });
+    assert.deepEqual(report.changes, []);
+    // The fixture's README has no "about N lines"/"one of N guarantees"
+    // text at all (only the CLAIM() line), so those two stay missing —
+    // unrelated to docs/. What matters here is the ABSENT file: no
+    // entry in `missing` should ever name docs/CAPABILITIES.md when
+    // there is no docs/ directory to look in.
+    assert.ok(!report.missing.some((m) => m.startsWith('docs/CAPABILITIES.md')),
+      `a file that is not there must not be reported missing either: ${report.missing.join('; ')}`);
+  } finally { rm(root); }
+});
+
+test('THE FIX THAT MUST NOT REGRESS: one --all --write pulls `tests` forward in BOTH README.md and docs/CAPABILITIES.md', async () => {
+  // The artificial drift BAUPLAN M14 asks for: two files, two stale
+  // numbers, ONE writer run.
+  const root = tree({
+    cli: 3, mcp: 4, modules: 5, tests: 9,
+    line: CLAIM(3, 4, 5, 1), capsLine: CAPS_CLAIM(2),
+  });
+  try {
+    const report = await numbers.updateNumbers({ root, all: true, write: true });
+    const fields = report.changes.map((c) => `${c.file}:${c.field}`).sort();
+    assert.deepEqual(fields, ['README.md:tests', 'docs/CAPABILITIES.md:tests']);
+    const readme = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+    const caps = fs.readFileSync(path.join(root, 'docs', 'CAPABILITIES.md'), 'utf8');
+    assert.match(readme, /9\ntests\*\*/, `README.md was not pulled forward: ${readme}`);
+    assert.match(caps, /frozen reference run, 9 tests/, `docs/CAPABILITIES.md was not pulled forward: ${caps}`);
+    // And a second run finds nothing left to do — both are now true.
+    const again = await numbers.updateNumbers({ root, all: true, write: true });
+    assert.deepEqual(again.changes, []);
+  } finally { rm(root); }
+});
+
+test('a stale docs/CAPABILITIES.md claim alone is reported by checkNumbers without touching README.md', async () => {
+  const root = tree({
+    cli: 3, mcp: 4, modules: 5, tests: 6,
+    line: CLAIM(3, 4, 5, 6), capsLine: CAPS_CLAIM(1),
+  });
+  try {
+    const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
+    const report = await numbers.checkNumbers({ root, only: numbers.ALL });
+    assert.equal(fs.readFileSync(path.join(root, 'README.md'), 'utf8'), before, 'checkNumbers must never write');
+    assert.deepEqual(
+      report.mismatches.map((m) => `${m.file}:${m.field}`),
+      ['docs/CAPABILITIES.md:tests'],
+    );
+  } finally { rm(root); }
+});
+
+test('POSITIVE: CLAIMS names more than one file — this is what M14 closed', () => {
+  const files = new Set(numbers.CLAIMS.map((c) => c.file ?? 'README.md'));
+  assert.ok(files.has('README.md'));
+  assert.ok(files.has('docs/CAPABILITIES.md'),
+    'docs/CAPABILITIES.md dropped out of CLAIMS again — its own "N tests" line would go back to being fixed by hand');
 });

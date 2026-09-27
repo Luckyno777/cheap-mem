@@ -92,6 +92,49 @@ for (const [what, probe, inDoc] of [
 }
 
 /**
+ * The "0.1 Every module in `src/`" table BY NAME — not "is the module
+ * mentioned anywhere in this file", which is all the loose
+ * `DOC.includes(`${n}.mjs`)` check two tests up can tell.
+ *
+ * **Why this second, narrower probe exists (BAUPLAN M14).** Twice a
+ * README/CAPABILITIES merge conflict dropped rows from exactly this
+ * table, and neither loss was noticed here: the dropped module's name
+ * still occurred elsewhere in the doc's prose (a `src/x.mjs` reference
+ * in some unrelated section), so the substring check stayed green
+ * while the inventory table itself was missing entries. Measured
+ * 2026-09-27, before this probe existed: nine real modules
+ * (`agentledger`, `append`, `chain`, `clock`, `indexcache`,
+ * `langdetect`, `profile`, `shardarchive`, `shred`) had no row in the
+ * table, all nine still mentioned by name somewhere else in the file.
+ *
+ * A module missing here is reported, never invented: the description
+ * is a human's (or an agent's) one line of judgement about what the
+ * module is FOR, not something a script can make up from a filename.
+ */
+const moduleTableRows = () => {
+  const start = DOC.indexOf('### 0.1 Every module');
+  assert.ok(start >= 0, 'the "0.1 Every module in src/" heading cannot be found');
+  const end = DOC.indexOf('\n---', start);
+  const block = DOC.slice(start, end >= 0 ? end : undefined);
+  return new Set([...block.matchAll(/^\|\s*`([a-z-]+\.mjs)`\s*\|/gm)].map((m) => m[1]));
+};
+
+test('POSITIVE: the module-table reading finds a real row and not a made-up one', () => {
+  const rows = moduleTableRows();
+  assert.ok(rows.has('memory.mjs'), 'a module known to be in the table was not read — the reader broke');
+  assert.ok(!rows.has('doesnotexist.mjs'), 'the reading invents rows that are not there');
+});
+
+test('every src module has its OWN row in the "0.1" table, not just a mention elsewhere', () => {
+  const rows = moduleTableRows();
+  const missing = modules().filter((n) => !rows.has(`${n}.mjs`));
+  assert.deepEqual(missing, [],
+    `module(s) missing a row in the "0.1 Every module in src/" table: ${missing.join(', ')} — `
+    + 'most likely a merge conflict dropped the row (BAUPLAN M14); add it back with a real '
+    + 'one-line description of what the module is for. Do not invent the description here.');
+});
+
+/**
  * NEGATIVE CONTROL for the guard itself.
  *
  * The probe has to report something that is NOT in the reference.
