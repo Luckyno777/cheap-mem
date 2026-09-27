@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 63 CLI commands, 29 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 64 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 1984 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -475,7 +475,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 63 commands
+### 7.1 CLI — 64 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -484,7 +484,7 @@ browse setup experiences links agents agent store topics topic core
 viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
-find-embed find-hybrid raw-capture topic-merge archive chain user
+find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
@@ -499,7 +499,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 29 tools
+### 7.2 MCP — 30 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio.
@@ -535,6 +535,7 @@ Desktop). `bin/mem-mcp`, stdio.
 | `mem_store_list` | what is held in the file store right now |
 | `mem_store_get` | resolve a hash to the local path of the stored bytes |
 | `mem_user_habits` | generic, code-only habit meter over the user's own captures |
+| `mem_ledger` | jobs per agent kind/model — counted, never a claimed strength (`src/agentledger.mjs`) |
 
 `mem store verify` and `mem store remove` stay off the bridge —
 deleting a registered artifact is a human's call at the CLI.
@@ -1583,3 +1584,44 @@ which every reader here already skips.
 `checkNewline: false` exists only so the guarantee can be broken on
 purpose: `test/append-newline.test.mjs` uses it to show the loss coming
 back, with the control running the same call checked, right beside it.
+
+### 10.25 The agent ledger — `src/agentledger.mjs`, `mem ledger`, `mem_ledger`
+
+An agent registry that BELIEVES a strength ("this model is strong at
+design" — plausible and unproven) is assumption dressed as
+measurement. `mem ledger` counts the opposite: per agent kind/model,
+only what the job journal can show — jobs, jobs usable on the first
+try, follow-up jobs, packages with a real `git revert`. Below **20**
+jobs for a group the verdict is always `unknown (n<20)`, never a
+claimed strength.
+
+**Not a new file, not a new writer.** There is no separate ledger on
+disk: it is the set of `event` entries tagged `job`, read through
+`memory.iterLog()` the same way every other reader does. The logging
+convention is five extra English fields on an ordinary `mem log
+event`, documented in `agentledger.mjs`'s own header:
+
+```
+mem log event --project <name> --tags job,agents,<package> \
+  --title "..." --package <package> --agent_kind <kind> \
+  --model <model> --first_try yes|no --follow_ups <n>
+```
+
+A `package` field missing means the entry cannot be attributed to a
+job — it counts in `unassigned`, never guessed at. A missing
+`agent_kind`/`model` is recorded as `'unknown'`, never left null.
+
+**"usable on the first try" is a floor, not a measurement.** Nothing
+written at job time reliably says whether a follow-up will be needed
+later, so a job counts as first-try-usable unless there is evidence
+otherwise — the structured field, a follow-up word in the entry's own
+text, or a commit on `git log --all` (every branch) whose subject
+starts `<package>-followup`/`<package>-rework`. Any one of the three is
+enough; none of them can be cancelled by another, so this can only
+undercount follow-ups, never invent one. A revert counts only a real
+`git revert` commit, deduplicated by hash across branches.
+
+Both surfaces are read-only: `mem ledger [--json]` at the CLI,
+`mem_ledger` at the bridge (`src/mcpprofile.mjs`'s `READING` list). An
+empty journal reports "no jobs recorded" — not a silent, misleadingly
+green zero.

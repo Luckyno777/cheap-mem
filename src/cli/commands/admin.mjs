@@ -26,9 +26,10 @@ import * as embedmod from '../../embed/index.mjs';
 import * as embedHook from '../../embed-hook.mjs';
 import * as maintenance from '../../maintenance.mjs';
 import * as observations from '../../observations.mjs';
+import * as agentledger from '../../agentledger.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
-/** 8 commands. */
+/** 9 commands. */
 export const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
@@ -581,6 +582,30 @@ export const COMMANDS = {
     // Only broken is an error. Open is a to-do list, and a to-do list
     // that exits non-zero breaks every script that runs this.
     if (res.broken) die(`${res.broken} step(s) are broken — see above.`);
+  },
+
+  ledger: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem ledger [--json]',
+        '',
+        '  Counts jobs, not strengths. Per agent kind/model, from the job',
+        '  journal (`event` entries tagged `job` — see src/agentledger.mjs',
+        '  for the logging convention): jobs, jobs usable on the first',
+        '  try, follow-up jobs, and packages with a real `git revert`.',
+        '',
+        `  Below ${agentledger.THRESHOLD_N} jobs for a group the verdict is always`,
+        '  "unknown (n<20)" — never a claimed strength without a count.',
+        '',
+        '  Read-only: reads the log and `git log --all`, writes nothing.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'root'], 'ledger');
+    const root = findRoot(args);
+    const result = agentledger.ledger(root);
+    if (args.json) out(JSON.stringify(result, null, 2));
+    else out(agentledger.reportText(result));
   },
 
 };
