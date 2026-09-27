@@ -32,6 +32,24 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **Freshness for state questions** (`src/statequestion.mjs`, wired into
+  `search()`): a question carrying a state signal word ("current",
+  "still", "latest", "status", ...; English defaults in
+  `src/state-signal-words.default.json`, overridable per install via
+  `CHEAP_MEM_STATE_SIGNAL_WORDS` or `stateSignalWords` in
+  `.mem/config.json`) now dampens OLDER hits sharing a `topic` with a
+  newer one among that query's own results (×0.35); the newest of the
+  topic, and any entry with no readable `ts`, is untouched. A question
+  without such a word is not affected. Probe: `test/statequestion.test.mjs`;
+  reach and eval-ceiling guard: `bench/state-freshness.mjs`.
+- **`mem effect`** (`src/effect.mjs`): did an injection get used? Of the
+  (injection, entry) pairs the recall hook actually showed
+  (`.pipeline/injections.jsonl`), the share named/opened/edited again
+  within 30 minutes, with a 95% Wilson interval; "not-measurable" under
+  1000 pairs. Reuses `askedlearn.mjs`'s session-reading (`mentions()`,
+  its 30-minute window); a mention only explained by the memory
+  re-showing the same place is dropped, not counted either way. A
+  finding, never a ranking signal. Probe: `test/effect.test.mjs`.
 - **Reply from the dashboard's inbox** (P1b, `POST /inbox/reply`,
   `inbox.reply()`): a reply form under each message in the human
   participant's tray on the Agents tab. It writes through the same

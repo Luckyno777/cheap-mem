@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 65 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 66 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2196 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -69,6 +69,7 @@ directory. The section number in brackets is where it is explained.
 | `dashboard.mjs` | the workspace's DATA layer: one pass, seven views' worth of numbers (7.5) |
 | `astra.mjs` | the workspace's PAGE: sidebar, knowledge space, no second data source (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
+| `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
@@ -118,6 +119,7 @@ directory. The section number in brackets is where it is explained.
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
+| `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
 | `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped |
@@ -492,7 +494,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 65 commands
+### 7.1 CLI — 66 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -502,7 +504,7 @@ viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
-asked-learn
+asked-learn effect
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,

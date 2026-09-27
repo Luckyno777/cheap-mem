@@ -180,6 +180,36 @@ export const COMMANDS = {
     out(askedlearn.asText(r, { written }));
   },
 
+  effect: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem effect [--json]',
+        '',
+        '  Did an injection get used? Of the (injection, entry) pairs the',
+        '  recall hook recorded (M18b\'s journal, `.pipeline/injections.jsonl`),',
+        '  what share were named, opened, or edited again within 30 minutes —',
+        '  read off what the session did next, the same way `mem asked-learn`',
+        '  reads a miss, not from a self-report.',
+        '',
+        '  Below 1000 pairs the share is not reported at all: an interval on',
+        '  that few would say nothing. A mention only counts once — a mention',
+        '  the memory itself caused by showing the SAME place again in the',
+        '  meantime is dropped, not counted either way.',
+        '',
+        '  A finding, never a ranking signal: nothing here feeds back into',
+        '  `mem find`.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'root'], 'effect');
+    const root = findRoot(args);
+    requireConfig(root);
+    const effect = await import('../../effect.mjs');
+    const r = effect.measure(root);
+    if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+    out(effect.asText(r));
+  },
+
   observations: async ({ args }) => {
     if (isHelp(args)) {
       out([

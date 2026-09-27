@@ -10,6 +10,10 @@
  *         + tag-graph expansion       learned, weight = nPMI (max 0.5)
  *         × field weight              title 3.0 … text 1.0
  *         × recency                   max +15%, halved after 90 days
+ *         × state-question freshness  ×0.35 on older same-`topic` hits,
+ *                                     only when the QUESTION itself asks
+ *                                     about the current state (see
+ *                                     `statequestion.mjs`)
  *
  * Every expansion stays below 1.0, so a synonym never outranks a
  * literal hit.
@@ -34,6 +38,7 @@ import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
+import * as statequestion from './statequestion.mjs';
 
 /**
  * The file path of one indexed piece.
@@ -1156,7 +1161,15 @@ export function search(index, query, {
   // exactly as before — no caller anywhere in this codebase passes it
   // today, so nothing changes for anyone but a test that now can.
   now = Date.now(),
+  // OPTIONAL. `undefined` = whatever the index carries (`loadIndex`
+  // attaches the configured signal words, English by default — see
+  // `statequestion.mjs`); `null` switches the whole mechanism off for
+  // this one call. Same convention as `bridge` just above.
+  stateWords = undefined,
 } = {}) {
+  // The raw question, before the bridge strips its OWN question words
+  // below — a state signal word ("still", "current", ...) is neither.
+  const rawQuery = String(query ?? '');
   // --- The id lane: asking for an id means asking for ONE entry ----
   //
   // **The finding (2026-09-08, reported by a connected agent.)** It
@@ -1426,6 +1439,17 @@ export function search(index, query, {
       ...(doc.retired ? { retired: doc.retired } : {}),
       __w: doc.weights,   // internal: term vector for MMR; stripped below
     });
+  }
+
+  // State-question freshness: only when the QUESTION carries a signal
+  // word ("current", "still", "latest", ...) does an older hit of the
+  // same `topic` lose ground to a newer one among THESE candidates —
+  // see `statequestion.mjs` for what "older" does and does not cover.
+  // A question without one is not touched: relevance alone still
+  // decides. Runs before the sort below because it changes the order.
+  const words = stateWords === undefined ? (index.stateWords ?? null) : stateWords;
+  if (words && statequestion.isStateQuestion(rawQuery, words)) {
+    statequestion.applyTopicFreshness(hits);
   }
 
   hits.sort(byScoreThenIdentity);
@@ -1934,6 +1958,18 @@ export function loadIndex(root, opts = {}) {
   } catch (e) {
     index.bridge = null;
     index.bridgeError = e.message;
+  }
+  // Same reasoning as `bridge` just above: read fresh from config on
+  // every load, never cached, so a deployment can point at its own
+  // signal-word file without a rebuild. A broken CUSTOM file fails
+  // loudly (`stateWordsError`) rather than silently serving the English
+  // defaults and looking like it worked.
+  try {
+    index.stateWords = statequestion.loadWords(statequestion.resolveWordsPath(root));
+    index.stateWordsError = null;
+  } catch (e) {
+    index.stateWords = null;
+    index.stateWordsError = e.message;
   }
   return index;
 }
