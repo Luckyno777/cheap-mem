@@ -422,7 +422,7 @@ if (-not (Test-Path `$before)) { exit 0 }
   @"
 # cheap-mem PostToolUse hook (Windows), matcher Bash. Delegates to
 # mem-catch-fail.ps1. Catches a Bash call that exits 0 while its own
-# output carries a failure signature — PostToolUseFailure never fires
+# output carries a failure signature - PostToolUseFailure never fires
 # for that case at all. Model-free.
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
@@ -494,7 +494,7 @@ if (-not (Test-Path `$catchFail)) { exit 0 }
     # the path of a file being READ is not an intention to change it.
     # Same matcher as the POSIX side; it is the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
-    # Same matcher as the POSIX side (Bash only) — the rule, not a preference.
+    # Same matcher as the POSIX side (Bash only) - the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PostToolUse' 'cheap-mem-catch-fail.ps1' "$ps `"$catchFailHookDst`"" 'Bash'
 
     if (-not $cfg.ContainsKey('permissions')) { $cfg['permissions'] = @{} }
