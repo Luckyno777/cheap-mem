@@ -36,10 +36,11 @@ function tmpRoot() {
 }
 
 // memory.mjs's whole dependency closure (checked by grepping every
-// `^import` in each file): freshness/authority/bidi/append/capability
-// have none of their own, config.mjs imports agents.mjs, agents.mjs
-// imports only node builtins. All seven live flat in src/, so copying
-// them flat keeps every relative `./x.mjs` import resolving unchanged.
+// `^import` in each file): freshness/authority/bidi/append/capability/
+// probescaffold have none of their own, config.mjs imports agents.mjs,
+// agents.mjs imports only node builtins. All eight live flat in src/,
+// so copying them flat keeps every relative `./x.mjs` import resolving
+// unchanged.
 //
 // `capability.mjs` joined this list on 2026-09-20 (issue #136,
 // `memory.find`'s new required capability parameter): it is a leaf too
@@ -49,8 +50,15 @@ function tmpRoot() {
 // just above in memory.mjs. That tolerant path exists for modules whose
 // own dependency closure is larger than is worth hand-copying here;
 // capability.mjs has none, so there is nothing to avoid copying.
+//
+// `probescaffold.mjs` joined on 2026-09-27 (parity build for
+// lucky-mem's M12, `memory.dutyHasEvidence` reading `isEmpty`): a leaf
+// too — `fs`/`path` only — same treatment, and its absence here is
+// exactly what made this suite fail at first (`ERR_MODULE_NOT_FOUND`
+// resolving it from the sandboxed `memory.mjs`, not a version-guard
+// finding at all).
 const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs', 'append.mjs',
-  'capability.mjs'];
+  'capability.mjs', 'probescaffold.mjs'];
 
 /**
  * A private, disposable copy of memory.mjs (with `patch` applied to its
