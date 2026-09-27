@@ -240,7 +240,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
-    'hook-kopie', 'index', 'kennzahlen-gleich', 'klingel', 'modell-start', 'nachher-haken',
+    'hook-kopie', 'hook-stand', 'index', 'kennzahlen-gleich', 'klingel', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
