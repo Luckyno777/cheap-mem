@@ -382,6 +382,21 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     }
   }
 
+  // **D3 (2026-09-27): the type vocabulary the knowledge view filters by,
+  // from ONE source.** `Object.keys(memory.TYPES)` — never derived from
+  // which types happen to appear in `entries` below. Deriving it from
+  // `entries` was the actual defect this replaces: a type with zero
+  // entries (or every one of them retired away later) would silently
+  // lose its chip, and nobody filtering by it could tell "this type does
+  // not exist" apart from "this type happens to be empty right now".
+  // `astra/knowledge.mjs` reads this list and hand-types no type of its
+  // own — a type this file forgets to add here is a type the view never
+  // learns about either, which is the point: one truth, one place that
+  // can be wrong.
+  const types = Object.keys(memory.TYPES).map((type) => ({
+    type, label: viewer.TYPE_LABEL[type] || type,
+  }));
+
   const entries = mem.entries.map((r) => {
     const e = raw.get(r.id) ?? null;
     const s = stand.get(r.id) ?? null;
@@ -549,6 +564,8 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     attention: tiles.filter((t) => t.state !== 'calm'),
     work: [duties, questions, agentTile],
     entries,
+    // D3: the closed type vocabulary — see the comment above `types`.
+    types,
     counts: mem.counts,
     broken: pass.broken,
     projects,
