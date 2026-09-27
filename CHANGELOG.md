@@ -56,6 +56,22 @@ are the day the work landed on `main`.
   of faking it. The workspace shows the same three states under
   Settings, drawn from the same function, never recomputed.
 
+### Changed
+
+- **The desk's seven views split into one module each, under
+  `src/astra/`** (`src/astra.mjs` and new `src/astra/shared.mjs`,
+  `desk.mjs`, `knowledge.mjs`, `space.mjs`, `projects.mjs`,
+  `agents.mjs`, `net.mjs`, `set.mjs`). Preparation for dashboard block
+  D2-D8: several agents extending one view each would otherwise meet in
+  one 1237-line file. Pure refactor, no behaviour change — `astra.mjs`
+  stays the facade with the same exports and signatures; escaping, the
+  study's palette and `LIST_MAX` moved to `shared.mjs` so nothing is
+  duplicated. Checked byte-identical (rendered HTML and collected data,
+  fixed fixture, fixed `now`) against the pre-split commit in a detached
+  worktree; `test/astra-modules.test.mjs` latches that each view stays
+  in exactly one module and that `astra.mjs` declares none of them. See
+  `docs/dashboard-astra-split.md`.
+
 ### Fixed
 
 - **A mistyped reserved switch is refused instead of becoming a field**
