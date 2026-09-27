@@ -211,6 +211,7 @@ export function checkAll(root) {
   f.push(checkLegacyLeaks(root));
   f.push(checkBehind(root));
   f.push(checkGitState(root));
+  f.push(checkHookRootStranded(root));
   f.push(checkIntegrity(root));
   f.push(checkEntryForm(root));
   f.push(checkGitignoreEffective(root));
@@ -1211,6 +1212,101 @@ function checkBehind(root) {
     + `old rules: git -C ${root} pull`);
 }
 
+/**
+ * Has this clone's root diverged from origin, in the way that hides
+ * unpushed captures? (L12, mirrored from lucky-mem's `haken-wurzel-stau`.)
+ *
+ * **The incident this measures (2026-09-27, error `1968v6itl823`,
+ * lucky-mem side).** A clone's `origin/main` had moved 365 commits
+ * ahead while the clone itself sat 62 commits ahead on its own side
+ * (capture commits) — a genuine divergence. `pull --ff-only` then
+ * failed on every start, visible only as one overlooked warning line
+ * ("pull failed — working with the local state"); the Stop hook kept
+ * committing captures locally, because it never checked whether a push
+ * had ever actually succeeded.
+ *
+ * **Read while building this finding, and confirmed true:** cheap-mem's
+ * `bin/mem-stop` carries the exact same auto-commit mechanism for
+ * `raw/` + `raw-record.jsonl` (`pull --ff-only`, on failure
+ * `pull --rebase` + one retry) — so the divergence half of this finding
+ * is buildable here too, unlike lucky-mem's third, journal-specific
+ * path (`betrieb/abruf-journal/`): cheap-mem has no display journal at
+ * all, so there is nothing that could get stranded at that spot; only
+ * two paths are measured here, not three.
+ *
+ * **Four states, not two**, exactly as on the lucky-mem side:
+ *   unknown  no git, no branch, or no `origin/<branch>` known at all —
+ *            not measurable is not good.
+ *   ok       no local commits ahead of origin, no unstaged changes in
+ *            raw/ or raw-record.jsonl.
+ *   warning  ahead and/or dirty, but fast-forwardable — a plain push
+ *            is enough.
+ *   error    NOT fast-forwardable (diverged) AND exactly the capture
+ *            paths are ahead/dirty — the case that went unnoticed: a
+ *            plain push can no longer save this without losing content.
+ *
+ * Read-only: no network, only `git rev-list`/`merge-base`/`status`
+ * against the already-fetched `origin`.
+ */
+function checkHookRootStranded(root) {
+  const branch = quietRun('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD']);
+  if (branch === null) return finding('hook-root-stranded', LEVEL.UNKNOWN, 'git not runnable');
+  const b = branch.trim();
+
+  const aheadCount = quietRun('git', ['-C', root, 'rev-list', '--count', `origin/${b}..HEAD`]);
+  if (aheadCount === null) {
+    return finding('hook-root-stranded', LEVEL.UNKNOWN,
+      `no origin/${b} known — never fetched?`,
+      `git -C ${root} fetch origin ${b}`);
+  }
+  const ahead = Number(aheadCount.trim());
+  if (!Number.isFinite(ahead)) {
+    return finding('hook-root-stranded', LEVEL.UNKNOWN, 'counter unreadable');
+  }
+
+  const dirty = quietRun('git', ['-C', root, 'status', '--porcelain', '--', 'raw/', 'raw-record.jsonl']);
+  const dirtyN = dirty ? dirty.split('\n').filter(Boolean).length : 0;
+
+  if (ahead === 0 && dirtyN === 0) {
+    return finding('hook-root-stranded', LEVEL.GOOD,
+      `no unpushed captures (${b} against origin/${b})`);
+  }
+
+  // Fast-forwardable means: origin/b is an ancestor of HEAD, so a push
+  // would be a plain fast-forward. exit 0 = yes, 1 = diverged, anything
+  // else (128, etc.) stays unknown rather than guessed.
+  let fastForwardable = null;
+  try {
+    const r = spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', `origin/${b}`, 'HEAD'],
+      { encoding: 'utf8', timeout: 5000 });
+    if (r.status === 0) fastForwardable = true;
+    else if (r.status === 1) fastForwardable = false;
+  } catch { /* stays null */ }
+
+  let captureCommits = 0;
+  if (ahead > 0) {
+    const log = quietRun('git', ['-C', root, 'log', '--format=%s', `origin/${b}..HEAD`]);
+    captureCommits = (log ?? '').split('\n').filter((s) => /^capture:/.test(s)).length;
+  }
+  const somethingIsStuck = captureCommits > 0 || dirtyN > 0;
+
+  const parts = [];
+  if (ahead > 0) parts.push(`${ahead} commits ahead of origin/${b} (${captureCommits} of them captures)`);
+  if (dirtyN > 0) parts.push(`${dirtyN} unstaged changes in raw//raw-record.jsonl`);
+  const text = parts.join(', ') || 'unstaged changes';
+
+  if (fastForwardable === false && somethingIsStuck) {
+    return finding('hook-root-stranded', LEVEL.ERROR,
+      `${text} — and NOT fast-forwardable: a plain push can no longer save this`,
+      `Do not rebase/merge (diverged): create a separate worktree from origin/${b} `
+      + `(git -C ${root} worktree add --detach <place> origin/${b}), copy raw/ and `
+      + `raw-record.jsonl from ${root} over there, commit and push there — only THEN `
+      + `bring ${root} up to the new origin/${b} with fetch + reset --hard.`);
+  }
+  return finding('hook-root-stranded', LEVEL.WARN,
+    `${text} — fast-forwardable`,
+    `git -C ${root} push origin HEAD:${b}`);
+}
 
 // --- integrity of the log itself -------------------------------------------
 
