@@ -219,8 +219,7 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail}.sh"
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,subagent-start}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,subagent-start}.sh"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"

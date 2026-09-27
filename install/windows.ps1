@@ -534,8 +534,7 @@ if (-not (Test-Path `$subagent)) { exit 0 }
     $cfg['permissions']['deny']  = @($cfg['permissions']['deny']  + $denyNeeded  | Select-Object -Unique)
 
     ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $Settings -Encoding UTF8
-    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail}.ps1"
-    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,subagent-start}.ps1"
+    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,subagent-start}.ps1"
     Write-Host "  Claude Code settings: $Settings"
   }
   Write-Host ""
