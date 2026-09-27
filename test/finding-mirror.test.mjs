@@ -229,7 +229,7 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-09-26',
+  capturedAt: '2026-09-27',
   source: 'lucky-mem/src/doktor.mjs',
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'ansicht', 'archiv-haltbar',
@@ -237,16 +237,16 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'auto-pflichten-alter', 'bauweise', 'befund-gleichstand',
     'behauptung-ohne-beleg', 'bestand', 'briefkasten', 'bruecke',
     'dispatcher', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
-    'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt', 'fasser',
-    'fasser-ausbeute', 'fasser-timer', 'frageworte', 'git', 'git-hook',
-    'haken-fehlen', 'hook-doppelt', 'hook-kopie', 'index', 'klingel',
-    'modell-start', 'nachher-haken', 'nachweis-luecke', 'offene-funde',
-    'plattenplatz', 'post-anfragen', 'post-liegt', 'post-stau',
-    'redaktion', 'regel-vorschlag', 'rohfang', 'rueckstand', 'startlast',
-    'stop-hook', 'tagform', 'themen-guete', 'transkript-schema',
-    'waechter', 'waechter-fassung', 'waisen', 'wiederholung',
-    'wirksamkeit', 'wurzel', 'zeilenzugriff', 'zustellnachweis',
-    'zustellschuld', 'zustellung',
+    'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
+    'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'git',
+    'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
+    'hook-kopie', 'index', 'klingel', 'modell-start', 'nachher-haken',
+    'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-anfragen',
+    'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
+    'rueckstand', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
+    'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',
+    'wiederholung', 'wirksamkeit', 'wurzel', 'zeilenzugriff',
+    'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),
 });
 
