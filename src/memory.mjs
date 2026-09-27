@@ -25,6 +25,7 @@ import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
 import { appendLine } from './append.mjs';
 import * as capabilityMod from './capability.mjs';
+import * as probescaffold from './probescaffold.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -2259,7 +2260,11 @@ const EVIDENCE_MAX_BYTES = 2 * 1024 * 1024;
  *       --guard-kind ... --guard-path ...` writes);
  *   (b) a file under `test/` contains `// error: <id>` for one of these
  *       ids AND contains `test(` — a probe, not a comment that merely
- *       carries the marker.
+ *       carries the marker — AND is not still an EMPTY scaffold
+ *       (`src/probescaffold.mjs`'s `isEmpty`: the `// scaffold: empty`
+ *       marker, or any `test.todo(` left in it). `mem log error --file`
+ *       lays such a scaffold down automatically; leaving it untouched
+ *       must never count as having proven anything.
  */
 export function dutyHasEvidence(root, duty) {
   const ids = Array.isArray(duty?.error_ids) ? duty.error_ids.filter(Boolean) : [];
@@ -2285,6 +2290,12 @@ export function dutyHasEvidence(root, duty) {
     let text;
     try { text = fs.readFileSync(full, 'utf8'); } catch { continue; }
     if (!/\btest\(/.test(text)) continue;
+    // Parity build for lucky-mem's M12: an empty scaffold (the
+    // `// scaffold: empty` marker, or any `test.todo(` left in it) is
+    // not evidence — even when it also holds a `test(` somewhere (a
+    // stray one, or one still inside a comment). Empty is not passing.
+    // See `probescaffold.isEmpty`, the one place this rule is decided.
+    if (probescaffold.isEmpty(text)) continue;
     for (const id of ids) {
       if (text.includes(`// error: ${id}`)) return { ok: true, why: `test/${f} (// error: ${id})` };
     }

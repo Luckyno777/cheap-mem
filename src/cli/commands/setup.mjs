@@ -23,6 +23,7 @@ import * as store from '../../store.mjs';
 import * as cfgmod from '../../config.mjs';
 import * as viewer from '../../viewer.mjs';
 import * as guard from '../../guard.mjs';
+import * as probescaffold from '../../probescaffold.mjs';
 import * as source from '../../source.mjs';
 import * as component from '../../component.mjs';
 import * as capability from '../../capability.mjs';
@@ -350,11 +351,31 @@ export const COMMANDS = {
   },
 
   guard: async ({ rest, args }) => {
-    if (args.help || (rest[0] && rest[0] !== 'run')) {
+    // Parity build for lucky-mem's M12 (BAUPLAN-mem-admin_02.md §0 rule
+    // 2): `mem guard quote` — the measure "share of errors with a
+    // guard", plus the empty/stalled test scaffolds
+    // (`src/probescaffold.mjs`).
+    if (rest[0] === 'quote' && !isHelp(args)) {
+      checkFlags(args, [], 'guard quote');
+      const root = findRoot(args);
+      requireConfig(root);
+      const allErrors = function* () {
+        for (const project of [null, ...memory.listProjects(root)]) {
+          try { yield* memory.iterLog(root, 'error', { project }); } catch { /* no error.jsonl */ }
+        }
+      };
+      const q = probescaffold.quote(root, allErrors());
+      out(`${q.state.toUpperCase()}  guardquote  ${q.text}`);
+      for (const s of q.stale) out(`  stalled empty: ${s.path} (${s.ids.join(', ')})`);
+      if (q.state === 'unknown') process.exitCode = 2;
+      return;
+    }
+    if (args.help || (rest[0] && rest[0] !== 'run' && rest[0] !== 'quote')) {
       out([
         'mem guard run [--duty]',
+        'mem guard quote          share of errors with a guard, empty test scaffolds',
         '',
-        '  Checks every latch in the memory. A latch hangs off an `error`',
+        '  run: checks every latch in the memory. A latch hangs off an `error`',
         '  entry and answers ONE question: is the error back?',
         '',
         `  Kinds: ${Object.keys(guard.GUARD_KINDS).join(', ')}`,
@@ -369,6 +390,11 @@ export const COMMANDS = {
         '  latches.',
         '',
         '  --duty: raise a duty for every red latch.',
+        '',
+        '  quote: measures the SHARE of `error` entries that carry a guard',
+        '  (field or non-empty test/error-<id>.test.mjs — the same rule as',
+        '  `memory.dutyHasEvidence`, F4), and names test scaffolds that are',
+        `  still empty for more than ${probescaffold.STALE_DAYS} days.`,
       ].join('\n'));
       return;
     }

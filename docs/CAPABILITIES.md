@@ -879,6 +879,33 @@ error the error is *there*, so the latch must be red. A latch that was
 never red is unproven — the same thing as a falsification test without
 a backdrop.
 
+**A test scaffold, not only a latch — `src/probescaffold.mjs`.** With
+an explicit `--file`, `mem log error` also lays down
+`test/error-<id>.test.mjs`: the marker `// error: <id>` and three
+`test.todo` sections (sabotage, positive control, red on the old
+stand). Measured against a reference deployment: only a handful of
+errors ever carried a guard, because going from error to probe is its
+own separate step, and that step is exactly the one that gets skipped.
+`--without-scaffold` turns it off; an existing file is never
+overwritten.
+
+**Empty is not passing.** A scaffold that ran green while still empty
+would be worse than none — it would look like a latch and catch
+nothing. So the `// scaffold: empty` marker, or any remaining
+`test.todo(`, keeps the file worthless as F4 evidence
+(`memory.dutyHasEvidence`, `probescaffold.isEmpty`) even once it
+contains a stray `test(`.
+
+```
+mem log error --class silent-fail --title "..." --file src/foo.mjs
+mem guard quote
+```
+
+`mem guard quote` measures the SHARE of `error` entries that carry a
+guard (field, or a non-empty scaffold — the same rule `dutyHasEvidence`
+uses), and names scaffolds that have sat empty for more than
+`probescaffold.STALE_DAYS` (14) days as a warning, never silently `ok`.
+
 ### 10.3 Heartbeats — `src/heartbeat.mjs`, `mem heartbeat`
 
 Measured: for twenty hours no agent but one session had written
