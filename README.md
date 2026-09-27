@@ -313,8 +313,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **65 CLI commands, 30 MCP tools, 83 modules, 2196
-tests**; as of 2026-09-20, about 36609 lines in `bin/` and `src/`, at
+As of 2026-09-26: **66 CLI commands, 30 MCP tools, 87 modules, 2238
+tests**; as of 2026-09-20, about 37697 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
