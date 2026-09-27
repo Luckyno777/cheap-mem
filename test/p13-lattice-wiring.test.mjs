@@ -24,9 +24,27 @@
 // `if (false && ...)`, which this repo's ESLint rejects — the global
 // entries vanish again (RED), and restoring the file exactly brings
 // them back (GREEN). The file is read into memory, patched, run, and
-// restored from that same in-memory copy inside a `finally`, so a
-// crash mid-test cannot leave a sabotaged file on disk for the next
-// agent sharing this clone.
+// restored from that same in-memory copy inside a `finally`.
+//
+// **Where the sabotage happens: a throwaway COPY, never this checkout.**
+// Every `mem` / `mem-mcp` this file spawns runs from a copy of `bin/`,
+// `src/`, `hooks/` and `package.json` in a temp directory (with
+// `node_modules` symlinked in, inside that temp directory only), and
+// every sabotage patches that copy. Until 2026-09-27 the patch went to
+// the live sources in this repo. `node --test` runs test FILES in
+// parallel, and each write of a live source (the patch, and the restore
+// too, even with identical bytes: truncate, then write) is a window in
+// which any other `bin/mem` process started from this checkout, by
+// another test file or by a second run of this one, imports a module
+// that is empty, half written or sabotaged. Measured: rewriting
+// `src/cli/commands/search.mjs` in a loop made 117 of 177 concurrent
+// `mem log --project alpha` runs die with `SyntaxError: Unexpected end
+// of input` / `does not provide an export named 'COMMANDS'`, which the
+// corpus builder's non-strict `runMem` swallowed: the "alpha lost its own
+// entry 0" failure of 2026-09-27. Three concurrent runs of this file in
+// one checkout also read each other's sabotage as the original ("did not
+// change anything") and could have restored a sabotaged file for good.
+// `test/no-test-writes-repo-sources.test.mjs` keeps it that way.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -36,19 +54,49 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const MEM_BIN = path.join(REPO, 'bin', 'mem');
-const MCP_BIN = path.join(REPO, 'bin', 'mem-mcp');
-const CLI_SEARCH_FILE = path.join(REPO, 'src', 'cli', 'commands', 'search.mjs');
-const MCP_FILE = path.join(REPO, 'bin', 'mem-mcp');
-const CLI_SETUP_FILE = path.join(REPO, 'src', 'cli', 'commands', 'setup.mjs');
+
+/**
+ * A disposable copy of the package this file runs and sabotages. Only the
+ * parts `bin/mem` and `bin/mem-mcp` load at run time are copied;
+ * `node_modules` is a symlink created inside the temp directory and
+ * pointing back at this checkout's, so nothing is ever created in or
+ * written to the checkout itself.
+ */
+function makePackageCopy() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-p13-pkg-'));
+  for (const d of ['bin', 'src', 'hooks']) {
+    fs.cpSync(path.join(REPO, d), path.join(dir, d), { recursive: true });
+  }
+  for (const f of ['package.json', 'HOUSE-RULES.md']) {
+    fs.copyFileSync(path.join(REPO, f), path.join(dir, f));
+  }
+  const deps = path.join(REPO, 'node_modules');
+  if (fs.existsSync(deps)) {
+    fs.symlinkSync(fs.realpathSync(deps), path.join(dir, 'node_modules'),
+      process.platform === 'win32' ? 'junction' : 'dir');
+  }
+  return dir;
+}
+
+const PKG = makePackageCopy();
+test.after(() => fs.rmSync(PKG, { recursive: true, force: true }));
+
+const MEM_BIN = path.join(PKG, 'bin', 'mem');
+const MCP_BIN = path.join(PKG, 'bin', 'mem-mcp');
+const CLI_SEARCH_FILE = path.join(PKG, 'src', 'cli', 'commands', 'search.mjs');
+const MCP_FILE = path.join(PKG, 'bin', 'mem-mcp');
+const CLI_SETUP_FILE = path.join(PKG, 'src', 'cli', 'commands', 'setup.mjs');
 
 const RUN = Date.now().toString(36);
 const TOKEN = `zzzlattice${RUN}`;
 
 function runMem(root, args) {
   const r = spawnSync('node', [MEM_BIN, ...args], { cwd: root, encoding: 'utf8', timeout: 30000 });
-  if ((r.status !== 0 && !args.includes('--json')) && (r.error || r.signal)) {
-    throw new Error(`mem ${args.join(' ')} failed: ${r.error?.message ?? r.signal}\n${r.stderr}`);
+  // A corpus write that fails must fail HERE, loudly, not surface later
+  // as a missing entry that reads like a scoping bug ("alpha lost its own
+  // entry 0"). `--json` reads are judged by their output instead.
+  if (r.error || r.signal || (r.status !== 0 && !args.includes('--json'))) {
+    throw new Error(`mem ${args.join(' ')} failed: status=${r.status} ${r.error?.message ?? r.signal ?? ''}\n${r.stderr}`);
   }
   return r;
 }
@@ -116,12 +164,15 @@ function buildLatticeCorpus() {
 function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
 
 /**
- * Patch a file's SOURCE on disk for the duration of `fn`, then restore
- * it byte-for-byte from the copy read before patching — even if `fn`
- * throws. `transform` must actually change the content, or the
+ * Patch a file of the throwaway package COPY for the duration of `fn`,
+ * then restore it byte-for-byte from the copy read before patching —
+ * even if `fn` throws. `transform` must actually change the content, or the
  * sabotage is a no-op and the test would prove nothing.
  */
 function withSabotage(filePath, transform, fn) {
+  const rel = path.relative(PKG, filePath);
+  assert.ok(rel && !rel.startsWith('..') && !path.isAbsolute(rel),
+    `refusing to sabotage ${filePath}: only the throwaway package copy under ${PKG} may be patched`);
   const original = fs.readFileSync(filePath, 'utf8');
   const sabotaged = transform(original);
   assert.notEqual(sabotaged, original,
