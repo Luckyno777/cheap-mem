@@ -66,3 +66,60 @@ test('init creates the raw directory so capture has somewhere to write', () => {
     }
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+// -----------------------------------------------------------------------
+// Who is the human — marked, not assumed (see src/config.mjs
+// humanParticipant()). The default `mem init` config has to keep
+// marking `user`, or every existing quickstart instruction breaks.
+// -----------------------------------------------------------------------
+
+function readConfig(root) {
+  return JSON.parse(fs.readFileSync(path.join(root, '.mem', 'config.json'), 'utf8'));
+}
+
+test('init default: "user" is marked human, so the desk and P1b work out of the box', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-init-human-default-'));
+  try {
+    init(root);
+    const cfg = readConfig(root);
+    assert.deepEqual(cfg.participants.user, { role: 'The human. Messages here are questions for them.', human: true });
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('init --participants marks the FIRST name human by default', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-init-human-first-'));
+  try {
+    init(root, ['--participants', 'alice,bob,carol']);
+    const cfg = readConfig(root);
+    assert.equal(cfg.participants.alice.human, true);
+    assert.notEqual(cfg.participants.bob?.human, true);
+    assert.notEqual(cfg.participants.carol?.human, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('init --participants --human names a different one as human', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-init-human-named-'));
+  try {
+    init(root, ['--participants', 'alice,bob,carol', '--human', 'carol']);
+    const cfg = readConfig(root);
+    assert.equal(cfg.participants.carol.human, true);
+    assert.notEqual(cfg.participants.alice?.human, true);
+    assert.notEqual(cfg.participants.bob?.human, true);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('init --human naming a name outside --participants is refused, nothing written', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-init-human-badname-'));
+  try {
+    assert.throws(() => init(root, ['--participants', 'alice,bob', '--human', 'nobody']));
+    assert.equal(fs.existsSync(path.join(root, '.mem', 'config.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('init --human without --participants is refused (the default already marks one)', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-init-human-noparts-'));
+  try {
+    assert.throws(() => init(root, ['--human', 'someone']));
+    assert.equal(fs.existsSync(path.join(root, '.mem', 'config.json')), false);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});

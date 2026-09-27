@@ -276,13 +276,6 @@ function agentSignals(root, agent, ctx) {
   };
 }
 
-// The one participant key `config.mjs`'s own `DEFAULT_CONFIG` describes
-// as "The human. Messages here are questions for them." — not a name
-// this file invents, the same key `mem init` writes unless someone
-// renamed it. A memory that renamed it away from `user` honestly reports
-// "not configured" below rather than guessing at the new name.
-export const HUMAN_PARTICIPANT = 'user';
-
 /**
  * The human's own tray — read-only (E5.4). Built from the SAME
  * `inbox.read` pass `agentChannel` above already paid for, never a
@@ -290,24 +283,23 @@ export const HUMAN_PARTICIPANT = 'user';
  * a seen-list or touch git, and opening this page must not change a
  * delivery attempt or a re-surfacing state just because someone looked.
  *
+ * Who the human IS comes from `cfgmod.humanParticipant()` — the
+ * participant marked `"human": true` in `.mem/config.json`, never a
+ * name this file assumes. A memory with none marked (or two) reports
+ * that honestly below rather than guessing.
+ *
  * `name` is carried so the desk can offer a reply under each message
  * (P1b). Replying is a separate POST (`/inbox/reply` in bin/mem-serve,
  * behind `writegate.refusal()`); collecting this tray still writes
  * nothing.
  */
 function humanInboxState(participants, inboxMessages, inboxBroken) {
-  if (!participants) return { readable: false, reason: 'no memory config here', messages: [] };
-  if (!Object.hasOwn(participants, HUMAN_PARTICIPANT)) {
-    return {
-      readable: false,
-      reason: `no '${HUMAN_PARTICIPANT}' participant configured`,
-      messages: [],
-    };
-  }
+  const { name: who, reason } = cfgmod.humanParticipant(participants);
+  if (!who) return { readable: false, reason, messages: [] };
   return {
     readable: true,
-    who: HUMAN_PARTICIPANT,
-    messages: inboxMessages.filter((m) => m.to === HUMAN_PARTICIPANT)
+    who,
+    messages: inboxMessages.filter((m) => m.to === who)
       .map((m) => ({
         name: m.name, from: m.from, time: m.time, subject: m.subject, state: m.state,
       })),
