@@ -195,30 +195,24 @@ names, so its `stdio` array explicitly lists fds 3 through 9 as
 one that matters, and a few either side of it for the same reason,
 without touching `bin/_portable.sh` at all.
 
-## The routes stay behind the guards that already exist — no new flag
+## The routes sit behind the write switch and the existing guards
 
-`POST /task` and `POST /task/cancel` check, in this order: `cfg.readonly`
-(403 under `CHEAP_MEM_SERVE_READONLY=1`, exactly like `/setting`), then
-`webauth.hostAllowed(req.headers.host, cfg.hosts)`, then
-`webauth.postOriginOk(req.headers.origin, req.headers.host,
-cfg.origins)` — the SAME calls `/setting` already makes, not a fourth
-copy of either check. `GET /task.json` needs no origin check, like
+`POST /task` and `POST /task/cancel` call `writegate.refusal()` — the
+same single check `/setting` calls: first the dashboard write switch
+(off by default since 2026-09-27; `"dashboard": { "allowWrites": true }`
+in `.mem/config.json` or `mem serve --allow-writes`, see
+`docs/dashboard-writes.md`), then `cfg.readonly` (403 under
+`CHEAP_MEM_SERVE_READONLY=1`), then `webauth.hostAllowed`, then
+`webauth.postOriginOk`. `GET /task.json` needs no origin check, like
 `/entries.json`: it only reads. All three sit behind the same
 token/loopback guard every other path in `PATHS` does, ahead of the
 routing in `buildHandler`.
 
-**Why no new opt-in flag, deliberately, and said here plainly.** The
-brief for this work made adding a new opt-in flag (default OFF)
-conditional on cheap-mem's server having NO writing route at all yet.
-That condition does not hold: `/setting` already writes over HTTP, is
-writable BY DEFAULT (`bin/mem-serve`'s own header comment: "Writing is
-ON by default, and that is the decision, not the convenience"), and is
-carried by exactly the three latches named above. `/task` and
-`/task/cancel` extend that SAME already-open writing surface, under
-the SAME guards it already has — nothing loosened, and no separate
-flag added beside it. A memory that wants the console read-only already
-has the one switch that covers every writing route on this server,
-`/setting` included: `CHEAP_MEM_SERVE_READONLY=1`.
+**History.** When E1.7 landed, the brief made a new opt-in flag
+conditional on the server having no writing route yet; `/setting` was
+already writable by default, so the task routes joined it under the
+existing latches and no flag was added. On 2026-09-27 the owner decided
+the other way for ALL writing routes at once: off by default, one switch.
 
 ## Belonging where they were spawned
 
@@ -244,8 +238,8 @@ The forms send `from=/`. With it, `/task` and `/task/cancel` answer a
 success with `303 → /` and a refusal with a short HTML page; without it
 (or with any other value — a closed list, like `/setting`'s) the JSON
 contract above is unchanged. The page does not poll: it is a snapshot,
-and a running card says "reload for the current state". Under
-`CHEAP_MEM_SERVE_READONLY=1` every button is disabled and the panel says
+and a running card says "reload for the current state". With the write switch off, or under
+`CHEAP_MEM_SERVE_READONLY=1`, every button is disabled and the panel says
 so. It is a section, not a tab, so `dashboard.VIEWS` stays at seven.
 
 ## Probes

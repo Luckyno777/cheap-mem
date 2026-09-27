@@ -620,7 +620,15 @@ gets exactly what an unknown path gets, a bare 404, so a scanner sees
 `src/webauth.mjs`, once, because two copies of one door means one of
 them is tested and the other is the one with the hole.
 
-**Writing over HTTP has three latches.** Until E1.7 (2026-09-27) `/setting`
+**Writing over HTTP is off until the owner turns it on** (2026-09-27,
+`src/writegate.mjs`, `docs/dashboard-writes.md`). In front of every
+writing route sits one switch: `"dashboard": { "allowWrites": true }` in
+`.mem/config.json`, or `mem serve --allow-writes` for one run. Off, each
+writing route answers 403 and says how to turn it on; the dashboard
+itself cannot flip it. One function, `writegate.refusal()`, runs the
+switch and the Host/Origin/readonly latches for every route.
+
+**Behind the switch, three latches.** Until E1.7 (2026-09-27) `/setting`
 was the only place in the project that wrote over HTTP; `/task` and
 `/task/cancel` (starting/cancelling a task — `src/tasks.mjs`, `docs/
 dashboard-tasks.md`) are the second, sharing the SAME three latches
@@ -650,7 +658,8 @@ and the last five are shown on the page. A setting that changes
 silently is the state this project spends its time hunting.
 
 `CHEAP_MEM_SERVE_READONLY=1` shows everything and sets nothing — and
-the page says that it is in that mode, rather than looking broken.
+the page says that it is in that mode, rather than looking broken. It
+wins over the write switch and over `--allow-writes`.
 
 **Of any token, only WHETHER it is set is shown.** A console that
 printed the link with the token in it, so you could conveniently copy
@@ -663,8 +672,9 @@ Five views over one memory: **Desk** (system state, attention, active
 work), **Knowledge** (every entry, master–detail), **Projects**,
 **Agents**, **Net**. The console answers "how are things and what can I
 change"; the desk answers "what is in here and how does it hang
-together". Read-only — the only writing path in this server remains the
-console's `/setting`.
+together". Its Settings tab carries the console's forms and the Long-jobs buttons;
+like every writing route they are off until the write switch is on
+(`docs/dashboard-writes.md`).
 
 **It has no fallback, and that is the feature.** The page is rendered
 from collected data and the data is embedded in it: no fetch, no CDN,
