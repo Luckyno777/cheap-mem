@@ -127,6 +127,16 @@ chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
   tail -n +2 "$CODE_ROOT/bin/mem-catch-fail"
 } > "$HOOKS_DIR/cheap-mem-catch-fail.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-catch-fail.sh"
+# A subagent is its own thread — it gets neither SessionStart nor
+# UserPromptSubmit, so without this it starts knowing nothing this
+# memory holds (see src/subagentstart.mjs).
+{
+  echo "#!/usr/bin/env bash"
+  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  tail -n +2 "$HERE/hooks/subagent-start.sh"
+} > "$HOOKS_DIR/cheap-mem-subagent-start.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-subagent-start.sh"
 
 # Merge settings.json without touching unrelated config.
 node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" <<'NODE_MERGE'
@@ -173,6 +183,10 @@ upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit');
 // both are needed (PostToolUseFailure only fires on a real nonzero
 // exit, and misses a failure the exit code itself hid).
 upsertHook('PostToolUse', 'catch-fail', 'Bash');
+// No matcher: every subagent type gets the same tagged procedures plus
+// context recap (src/subagentstart.mjs) — there is no agent-type axis
+// to filter on here, unlike PreToolUse above.
+upsertHook('SubagentStart', 'subagent-start');
 
 cfg.permissions = cfg.permissions || {};
 const allow = [
@@ -206,6 +220,7 @@ NODE_MERGE
 echo ""
 echo "=== done ==="
 echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,subagent-start}.sh"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"
@@ -215,3 +230,7 @@ echo "  - PreToolUse hook warns before editing a file the memory knows about"
 echo "  - Stop hook triggers mem-reflect (byte-delta throttled)"
 echo "  - PostToolUse hook (Bash only) does the same when a Bash call exits 0 but its"
 echo "    own output carries a failure signature (# fail N>0, not ok, Error:, FAIL, fatal:)"
+echo "  - Stop hook captures the transcript and checks the last answer"
+echo "    against any patterns tied to a logged error (see mem-stop --help)"
+echo "  - SubagentStart hook shows any procedure tagged 'subagent-start',"
+echo "    plus a context recap"

@@ -198,6 +198,11 @@ if (-not $SkipClaudeCode) {
   # The failure the exit code hid (M19 port from lucky-mem): PostToolUse,
   # matcher Bash only. See bin/mem-catch-fail.ps1's own header.
   $catchFailHookDst = Join-Path $HooksDir 'cheap-mem-catch-fail.ps1'
+  # A subagent is its own thread and gets neither SessionStart nor
+  # UserPromptSubmit (see src/subagentstart.mjs) - without this lane it
+  # starts on Windows knowing nothing this memory holds, same class of
+  # gap as the two lanes above.
+  $subagentHookDst = Join-Path $HooksDir 'cheap-mem-subagent-start.ps1'
 
   @"
 # cheap-mem SessionStart hook (Windows).
@@ -424,6 +429,11 @@ if (-not (Test-Path `$before)) { exit 0 }
 # mem-catch-fail.ps1. Catches a Bash call that exits 0 while its own
 # output carries a failure signature - PostToolUseFailure never fires
 # for that case at all. Model-free.
+# cheap-mem SubagentStart hook (Windows). Delegates to mem-subagent-start.ps1.
+# A subagent gets neither SessionStart nor UserPromptSubmit (its own
+# thread - src/gauges.mjs), so this shows it any procedure tagged
+# 'subagent-start' plus a context recap. Model-free, no matcher: every
+# subagent type gets the same block.
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
@@ -442,6 +452,10 @@ if (-not `$memRoot) { exit 0 }
 if (-not (Test-Path `$catchFail)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
 "@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
+`$subagent = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-subagent-start.ps1'
+if (-not (Test-Path `$subagent)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
+"@ | Set-Content -LiteralPath $subagentHookDst -Encoding UTF8
 
   # Merge settings.json.
   $cfg = @{}
@@ -496,6 +510,10 @@ if (-not (Test-Path `$catchFail)) { exit 0 }
     Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
     # Same matcher as the POSIX side (Bash only) - the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PostToolUse' 'cheap-mem-catch-fail.ps1' "$ps `"$catchFailHookDst`"" 'Bash'
+    # No matcher: every subagent type gets the same tagged procedures
+    # plus context recap - there is no agent-type axis to filter on here,
+    # unlike PreToolUse above.
+    Upsert-Hook $cfg['hooks'] 'SubagentStart' 'cheap-mem-subagent-start.ps1' "$ps `"$subagentHookDst`""
 
     if (-not $cfg.ContainsKey('permissions')) { $cfg['permissions'] = @{} }
     $allowNeeded = @(
@@ -517,6 +535,7 @@ if (-not (Test-Path `$catchFail)) { exit 0 }
 
     ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $Settings -Encoding UTF8
     Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail}.ps1"
+    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,subagent-start}.ps1"
     Write-Host "  Claude Code settings: $Settings"
   }
   Write-Host ""
