@@ -113,6 +113,21 @@ chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 } > "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 
+# The failure the exit code hid (M19 port from lucky-mem). PostToolUse
+# (success!), matcher `Bash` only: a command that exits 0 while its own
+# output carries a failure signature (`npm test | tail`, `... || true`,
+# a suite that prints `# fail 3` and still exits clean) runs past
+# PostToolUseFailure entirely, so this hook catches it from the other
+# side. `bin/mem-catch-fail` is copied straight through, not templated
+# with CODE_ROOT this time — the script resolves its own tool root the
+# same way mem-retrieve does (two shapes, see its own header).
+{
+  echo "#!/usr/bin/env bash"
+  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  tail -n +2 "$CODE_ROOT/bin/mem-catch-fail"
+} > "$HOOKS_DIR/cheap-mem-catch-fail.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-catch-fail.sh"
+
 # Merge settings.json without touching unrelated config.
 node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" <<'NODE_MERGE'
 const fs = require('fs');
@@ -152,6 +167,12 @@ upsertHook('UserPromptSubmit', 'user-prompt');
 // With a matcher — otherwise it would also run on Read and Bash, and
 // the path of a file being READ is not an intention to change it.
 upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit');
+// PostToolUse (success!), matcher `Bash` only — a DIFFERENT event from
+// any PostToolUseFailure hook, so the two can never register as
+// duplicates of each other; see bin/mem-catch-fail's own header for why
+// both are needed (PostToolUseFailure only fires on a real nonzero
+// exit, and misses a failure the exit code itself hid).
+upsertHook('PostToolUse', 'catch-fail', 'Bash');
 
 cfg.permissions = cfg.permissions || {};
 const allow = [
@@ -184,7 +205,7 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail}.sh"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"
@@ -192,3 +213,5 @@ echo "  - SessionStart hook prints FACTS.md + mem context"
 echo "  - UserPromptSubmit hook recalls matching memory on every message"
 echo "  - PreToolUse hook warns before editing a file the memory knows about"
 echo "  - Stop hook triggers mem-reflect (byte-delta throttled)"
+echo "  - PostToolUse hook (Bash only) does the same when a Bash call exits 0 but its"
+echo "    own output carries a failure signature (# fail N>0, not ok, Error:, FAIL, fatal:)"

@@ -75,6 +75,10 @@ export const COMMANDS = {
     const cfg = requireConfig(root);
     let query = rest[0];
     if (!query) die("find: no query. Example: mem find 'flaky ci'");
+    // The gate below (M16 port) reads the text exactly as it arrived —
+    // before --content-words may shorten it to a rarity-ranked word list,
+    // which would throw away the very tag a harness wrapper starts with.
+    const rawQuery = query;
 
     // --content-words: pull the carrying words out of a SPOKEN question,
     // ranked by rarity in the index, at most eight. The retrieval hook
@@ -102,7 +106,21 @@ export const COMMANDS = {
     // retrieval instead of keyword search — so recall triggers on language,
     // not on a typed command. Because mem-retrieve calls `mem find`, this
     // applies to the hook too. --literal and --since bypass it.
-    if (!args.literal && !args.since) {
+    //
+    // **Two gates first (M16 port from lucky-mem).** `hasTimeIntent()`
+    // keeps a date merely MENTIONED in running text (an agent report, a
+    // relayed system message) from being read as a date ASKED about —
+    // see timeexpr.mjs for the reasoning and the one exception (a
+    // preposition right before the date). `beginsWithHarnessMarker()`
+    // is a second, independent check on the UNSHORTENED original text:
+    // a turn a harness wrapped from the start is not a person's question
+    // at all, whatever a stray timestamp further in says. Neither gate
+    // touches `windowFor()` itself — that function stays exactly as
+    // test/timeexpr.test.mjs already proves it, byte for byte; `mem
+    // when` (an explicit, human-typed command) calls it directly and is
+    // not gated — a person who typed a bare date already meant it.
+    if (!args.literal && !args.since && !timeexpr.beginsWithHarnessMarker(rawQuery)
+      && timeexpr.hasTimeIntent(query)) {
       const zone = process.env.MEM_TZ || cfg.timezone || undefined;
       const window = timeexpr.windowFor(query, { zone });
       if (window) { showWindow(root, query, window, args, { asOf }); return; }
