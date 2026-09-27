@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-watch.ps1 - native Windows PowerShell port of bin/mem-watch.
 #
 # Endless loop: every N seconds, look at the remote via `mem inbox watch`.

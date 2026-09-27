@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # shellcheck shell=bash
 #
 # A `shell` directive, not a shebang: this file is SOURCED, never

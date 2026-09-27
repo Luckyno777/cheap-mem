@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/calculations.mjs — does this house work the same thing out twice?
 //
 // A measuring instrument, not a feature. It changes nothing and writes

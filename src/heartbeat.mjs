@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/heartbeat.mjs — is an agent running, or does it just have
 // nothing to say?
 //

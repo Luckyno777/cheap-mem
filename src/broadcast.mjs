@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * Error broadcast — a recorded error reaches whoever it is about to
  * hit, instead of waiting to be found.

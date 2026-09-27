@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // freshness.mjs — living facts, the cheap-mem way (deterministic, no model).
 //
 // The best idea in the field is a memory that does not fill with stale

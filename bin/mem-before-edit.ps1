@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-before-edit.ps1 - native Windows port of bin/mem-before-edit.
 #
 # **Why this file exists (measured 2026-09-19, reported by a cheap-mem

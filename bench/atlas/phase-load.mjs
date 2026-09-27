@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-load.mjs — scale, latency, and whether the right
 // answer survives the growth.
 //

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas.mjs — the full-surface atlas: one run, every phase, one report.
 //
 //     node bench/atlas.mjs                      # everything, ~10 min

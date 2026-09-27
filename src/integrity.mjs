@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/integrity.mjs — what is wrong with the log itself.
 //
 // Two failure classes that used to be invisible.

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # install/macos.sh — install cheap-mem watcher as a macOS launchd
 # service. Starts at login, restarts on failure.
 #

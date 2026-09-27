@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/retrieval.mjs — measured numbers for cheap-mem's retrieval.
 //
 // The comparison tables that float around ("~0 ms", "< 20 ms via BM25")

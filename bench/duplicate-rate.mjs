@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/duplicate-rate.mjs — does the digest write variants of the same
 // finding, or does it consolidate?
 //

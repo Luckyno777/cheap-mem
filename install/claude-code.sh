@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # install/claude-code.sh — installs cheap-mem into Claude Code
 # (user-level hooks and permissions), so every Claude Code session on
 # this machine loads the memory context, and the Stop hook captures the

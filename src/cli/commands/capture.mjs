@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * The raw-capture lane: transcripts in, redacted, indexed, archived.
  *

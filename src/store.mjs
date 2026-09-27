@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // store.mjs — every generated file provable, without bloating the repo.
 //
 // "Keep everything we generate" is the right goal for an audit trail. The

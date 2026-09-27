@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * bidi — the Trojan Source bidi-override characters (CVE-2021-42574),
  * caught at DISPLAY time.

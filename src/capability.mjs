@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/capability.mjs — scope as a boundary, not an argument.
 //
 // The measured hole (2026-09-05, bench/redteam.mjs scenario 2): `search()`

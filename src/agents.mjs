@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // agents.mjs — the per-agent layer.
 //
 // **Why this is its own axis and not another project.** `project` answers

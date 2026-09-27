@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/environment.mjs — the guarantees cheap-mem does NOT provide itself.
 //
 // Round two of the 2026-09-05 audit found the failure class behind all the

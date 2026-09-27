@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * userhabits — a generic, code-only habit meter over the human user's
  * OWN captured transcripts.

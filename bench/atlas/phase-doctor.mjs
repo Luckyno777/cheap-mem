@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-doctor.mjs — the state ladder of `mem doctor`.
 //
 // **The question.** `mem doctor` prints one line per finding, each with

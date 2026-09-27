@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/epoch.mjs — noticing that the memory went backwards.
 //
 // The hole (documented as unsolved after round three): check out an older

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/authority.mjs — who is entitled to overrule whom.
 //
 // The measured hole (2026-09-05): `replaces_id` was applied with no check

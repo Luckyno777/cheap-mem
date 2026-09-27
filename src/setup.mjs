@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // setup.mjs — the steps between "installed" and "actually working",
 // and which of them are still open.
 //

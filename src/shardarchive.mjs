@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // shardarchive.mjs — P17: git does not carry a 4.8 GB body.
 //
 // **The number this was built against, and what re-measuring it found.**

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # install/linux.sh — install cheap-mem watcher as a systemd USER service
 # on Linux. Restart on failure, autostart on login (or on boot if
 # `loginctl enable-linger $USER` is set).

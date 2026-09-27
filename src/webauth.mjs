@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // webauth.mjs — the door in front of any HTTP service that hands out memory.
 //
 // **The one rule this exists for:** binding to anything other than the

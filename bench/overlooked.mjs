@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // Failure classes that appeared neither in the brief nor in the first audit.
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { execFileSync } from 'node:child_process';

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/core.mjs — the measuring apparatus for the full-surface atlas.
 //
 // **What this is for.** `bench/` already holds two dozen honest probes,

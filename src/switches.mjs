@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/switches.mjs — ONE place that knows which switch names are taken.
 //
 // **The finding (2026-09-17, sibling memory, found by making it).**

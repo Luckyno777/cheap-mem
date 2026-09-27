@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/field-without-writer.mjs — reads a field nobody ever sets.
 //
 // A measuring instrument, not a feature. It changes nothing and writes

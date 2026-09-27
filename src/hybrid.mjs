@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // hybrid.mjs — BM25 and semantic recall, fused.
 //
 // `mem find` (BM25) is the default: free, offline, sub-millisecond, and it

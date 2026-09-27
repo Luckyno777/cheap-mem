@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-register.mjs — the REGISTER prototype, turned into a
 // repeatable measurement.
 //

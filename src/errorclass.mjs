@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // errorclass.mjs — a closed vocabulary, so that errors become countable.
 //
 // **Where the evidence comes from, and where it does not.** The sibling

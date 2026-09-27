@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * pages.mjs — E1.3: filter lists server-side, page them by cursor.
  *

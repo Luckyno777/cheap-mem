@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/chain.mjs — a per-writer hash chain over append-only logs.
 //
 // The problem this answers: `checkAppendOnlyGit` (src/doctor.mjs) compares

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/clock.mjs — clock skew between writers, measured from the log
 // itself, never used to reorder anything.
 //

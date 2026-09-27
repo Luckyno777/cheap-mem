@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-ceiling.mjs — where this design stops working, and why,
 // extrapolated up to 5,000,000 log entries.
 //

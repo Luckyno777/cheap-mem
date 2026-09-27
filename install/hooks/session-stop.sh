@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # session-stop.sh — Claude Code Stop hook. Delegates to mem-stop:
 # model-free capture + persist (push where nothing else will). The model
 # reflect runs only if MEM_REFLECT=1. See bin/mem-stop for the full story.

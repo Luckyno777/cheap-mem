@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // backlinks.mjs — who points, by a declared edge, at one id?
 //
 // ## The occasion (dashboard build plan E1.4)

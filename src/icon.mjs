@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // icon.mjs — the mark, drawn in code.
 //
 // **Why an encoder and not a file.** The mark has to be a PNG: iOS accepts

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/gateway-attack.mjs — attacking the gateway that was built to fix
 // the earlier findings. Five attacks; two found real defects in it and are
 // now fixed (global invisible to a project capability; the author-share cap

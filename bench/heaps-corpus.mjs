@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * bench/heaps-corpus.mjs — an English Heaps-law corpus builder for
  * cheap-mem, ported from lucky-mem's `bench/korpus-heaps.mjs`.

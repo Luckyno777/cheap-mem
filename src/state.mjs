@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/state.mjs — the derived state, and nothing else derives it.
 //
 // The failure that made this module necessary (2026-09-05, post-closure

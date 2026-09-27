@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # user-prompt.sh — Claude Code UserPromptSubmit hook. Delegates to
 # mem-retrieve, which recalls matching memory for the turn (no model,
 # a few milliseconds) and prints it back as additionalContext.

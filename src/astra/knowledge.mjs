@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra/knowledge — the entries tab: search, filter chips, detail pane.
 //
 // Split out of `astra.mjs` (dashboard block D2-D8: one view per module).

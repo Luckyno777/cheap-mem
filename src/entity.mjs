@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // entity.mjs — machine-shaped identifiers, exact rather than similar.
 //
 // THE FINDING behind it (2026-09-06). A new class of task asks about

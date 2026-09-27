@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // dashboard.mjs — the desk: five views over one memory, no demo data.
 //
 // **Where this came from.** A UI export arrived that proposed five

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/scale.mjs — what actually happens at 10k, 100k and 1M entries.
 //
 // The question "how does this behave with a million memories" is usually

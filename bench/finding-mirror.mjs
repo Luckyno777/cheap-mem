@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/finding-mirror.mjs — the command around src/findingmirror.mjs.
 //
 // A measuring instrument, not a feature. It changes nothing and writes
