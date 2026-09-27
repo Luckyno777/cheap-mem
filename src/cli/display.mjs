@@ -21,6 +21,7 @@ import * as timesearch from '../timesearch.mjs';
 import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
+import * as injection from '../injection.mjs';
 import { out, die, checkFlags, isHelp, findRoot, requireConfig } from './shell.mjs';
 
 /**
@@ -123,10 +124,42 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
   if (args.json) {
     // Newest first, capped: the hook takes only the top few — they should be
     // the freshest of the window, not the oldest.
-    const newest = [...entries].reverse().slice(0, 20);
+    //
+    // **The cap honours `--top` (M16 port from lucky-mem, "the time lane
+    // floods the same 20 entries").** Until this fix the 20 below was
+    // unconditional: `mem find` passes `args.top` all the way down to
+    // here (it is the SAME `args` object `find`'s ranked lane reads),
+    // and a hook asking for its usual `--top 3` got up to 20 anyway the
+    // moment the query took the time-window route instead of the ranked
+    // one — the exact shape of the sibling house's defect, just with the
+    // literal number 20 instead of a coincidence that also came out to
+    // 20. Default stays 20 for a bare `--json` with no `--top` (`mem
+    // when` never sets it, so its own callers see no change).
+    const cap = args.top ? Number(args.top) : 20;
+    const newest = [...entries].reverse().slice(0, cap > 0 ? cap : 20);
     const hits = newest.map((e, i) => ({
       score: 1000 - i, source: e._source, line: e._line, entry: e,
     }));
+    // **Booked like the ranked lane (M16 port).** Until this fix only
+    // `find`'s ranked branch wrote to the injection journal — a question
+    // that took the time-window route instead left no trace of what was
+    // shown or that anything was asked at all, so `mem asked-learn` and
+    // the already-injected accounting both silently skipped every time-
+    // routed turn. A window hit has no real score to compare against
+    // `--journal-min`; being IN the matched window is itself the reason
+    // it is shown, so every hit counts as shown here.
+    if (typeof args['journal-session'] === 'string' && args['journal-session']) {
+      injection.book(root, {
+        session: args['journal-session'],
+        occasion: injection.OCCASION.QUESTION,
+        reason: hits.length ? null : injection.REASON.EMPTY,
+        bytes: null,
+        hits: hits.length,
+        searched: all.length,
+        sources: hits.map((h) => `${h.source}:${h.line}`),
+        questionBytes: Buffer.byteLength(String(query)),
+      });
+    }
     out(JSON.stringify(sanitizeForDisplay({ query, ms, window: wj, asOf, hits }), null, 2));
     return;
   }

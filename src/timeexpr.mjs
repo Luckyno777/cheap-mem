@@ -81,6 +81,108 @@ function hour24(h, ap) {
 
 const win = (from, to, label) => ({ from, to, label });
 
+// --- Real time question vs. a bare date sitting in running text ------
+//
+// **Ported idea (lucky-mem BAUPLAN M16, 2026-09-27 — "the time lane
+// floods the same 20 entries").** `windowFor()` recognises an ISO or
+// slash date ANYWHERE in the text — right for a short, deliberate
+// question ("on 2026-08-29 from 3 to 8pm"), wrong for a long,
+// passed-through text (an agent report, a journal line, a session
+// timestamp) that only MENTIONS a date without ASKING about it. Found
+// on the sibling house's journal: three turns in the same minute, 20
+// hits, the same sources, ~5x the usual injection size — all from a
+// date that was merely quoted, not asked about.
+//
+// `hasTimeIntent()` is the gate IN FRONT of `windowFor()`, not a rewrite
+// of it: that function's shape is covered byte for byte by
+// test/timeexpr.test.mjs, and both dated cases already proven there
+// ("on 2026-08-29 from 15:00 to 20:00") carry a preposition ("on")
+// right before the date — that stays valid here too. A relative time
+// word (yesterday, last week, a weekday, an hour span) is its own
+// intent and needs no second signal. A BARE date with no preposition
+// needs one: a question or retrospective word somewhere in the text
+// ("when", "which", "did we", "decided", ...). Neither present: the
+// date is a mention, not a question — NEVER guess, see the file header.
+const QUESTION_OR_RETROSPECT = new RegExp(
+  '\\b(?:when|which|did we|have we|had we|do we|does it|'
+  + 'decided|discussed|researched|built|happened|shipped|'
+  + 'what\\s+(?:was|is|did|were|have|has|had))\\b',
+);
+const DATE_WITH_PREPOSITION = [
+  /\b(?:on|since|from)\s+\d{4}-\d{2}-\d{2}\b/,
+  /\b(?:on|since|from)\s+\d{1,2}\/\d{1,2}\/\d{4}\b/,
+];
+
+/**
+ * Does `text` actually ASK about a time, rather than merely mention a
+ * date in passing? Call this before `windowFor()` in an automatic
+ * (non-explicit) lane — `mem when` stays direct, a person typing it
+ * has already chosen to ask about time.
+ */
+export function hasTimeIntent(text) {
+  if (!text || typeof text !== 'string') return false;
+  const s = text.toLowerCase();
+
+  if (/\b(?:last|past|previous)\s+\d{1,3}\s*(?:hours?|days?|weeks?)\b/.test(s)) return true;
+  if (/\b(?:last|past)\s+(?:hour|day|week)\b/.test(s)) return true;
+  if (/\b(?:day before yesterday|yesterday|today)\b/.test(s)) return true;
+  for (const name of Object.keys(WEEKDAYS)) {
+    if (new RegExp(`\\b${name}\\b`).test(s)) return true;
+  }
+
+  // An hour span on its own ("between 3 and 8pm", "3-8pm", a section
+  // word) is already a time question, even without a day — windowFor()
+  // then anchors it to today (step 5 there). Blank an ISO date first,
+  // same guard windowFor() itself uses, so a date's own digits cannot
+  // be misread as one side of a span.
+  const sHours = s.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ');
+  const span = /\b(?:between\s+)?\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*(?:-|–|to|and|until)\s*\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/
+    .test(sHours)
+    || /\bfrom\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\s*to\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/.test(sHours);
+  if (span) return true;
+  for (const word of Object.keys(SECTIONS)) {
+    if (new RegExp(`\\b${word}\\b`).test(s)) return true;
+  }
+
+  const hasDate = /\b\d{4}-\d{2}-\d{2}\b/.test(s) || /\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(s);
+  if (!hasDate) return false; // no time word, no date -> not a time question
+
+  if (DATE_WITH_PREPOSITION.some((re) => re.test(s))) return true;
+  return QUESTION_OR_RETROSPECT.test(s); // bare date in running text -> not a time question
+}
+
+// --- Harness wrapper tags at the START of a turn -----------------------
+//
+// A client may hand the memory a "prompt" that is really infrastructure
+// it relayed verbatim: `<task-notification>…</task-notification>`,
+// `<system-reminder>…</system-reminder>`, and similar paired blocks.
+// Ported idea (lucky-mem M16): a turn that BEGINS with one of these is
+// not a person asking about a date, even when a stray timestamp sits
+// further in the text — so the time lane should stay off for it. This
+// checks only the START (after leading whitespace); a marker quoted
+// mid-text is left alone, and none of a person's own words are cut.
+export const HARNESS_MARKERS = Object.freeze([
+  'task-notification',
+  'system-reminder',
+  'wake',
+  'event',
+  'untrusted_external_data',
+  'function_results',
+  'command-name',
+  'command-message',
+  'command-args',
+  'local-command-stdout',
+  'local-command-stderr',
+]);
+
+/** Does `text` begin (after leading whitespace) with a harness wrapper tag? */
+export function beginsWithHarnessMarker(text) {
+  const s = String(text ?? '').replace(/^[\s​﻿]+/, '');
+  if (!s) return false;
+  const m = /^<([a-z_][a-z0-9_-]*)[\s>]/i.exec(s);
+  return Boolean(m && HARNESS_MARKERS.includes(m[1].toLowerCase()));
+}
+
 /**
  * Detect a time window in `text`. Returns `{from, to, label}` (UTC Dates) or
  * `null`. `now` is the reference instant (default: real now); `zone` an IANA
