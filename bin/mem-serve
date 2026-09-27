@@ -34,6 +34,7 @@ import * as dashboard from '../src/dashboard.mjs';
 import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as pages from '../src/pages.mjs';
+import * as tasks from '../src/tasks.mjs';
 
 export function readConfig(env = process.env) {
   return {
@@ -84,7 +85,7 @@ function tokenFrom(req, url) {
  */
 export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
-  '/entry.json', '/entries.json',
+  '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel',
 ]);
 
 /** The headers every content response carries. Once, not three times. */
@@ -288,6 +289,113 @@ export function buildHandler(root, cfg, env = process.env) {
       if (!code) throw new Error(`pages.page() answered an unknown state '${found.state}'`);
       res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
         .end(JSON.stringify(found));
+      return;
+    }
+
+    // --- Tasks: long CLI work with progress/result/cancel (E1.7, -----
+    // 2026-09-27). See `src/tasks.mjs` (header comment) for the full
+    // contract, and `docs/dashboard-tasks.md` for the operational
+    // write-up. English mirror of lucky-mem's `/vorgang` family.
+    //
+    // A task is a child process of an EXISTING CLI command
+    // (`src/tasks.mjs`, `KINDS`) — no second export/verify code path.
+    // `/task.json` only reads. `/task` and `/task/cancel` write (start
+    // or end a child process) and sit behind the SAME three latches
+    // `/setting` already uses — `cfg.readonly`, `webauth.hostAllowed`,
+    // `webauth.postOriginOk` — because a SECOND, separately-guarded
+    // writing surface already exists on this server (`/setting`,
+    // writable by default; see this file's own header comment on that
+    // decision). There was therefore no "no writing route yet" case to
+    // guard behind a new opt-in flag: these three routes extend the
+    // surface that is already there, under the guards it already has,
+    // nothing loosened and nothing new introduced beside it.
+    if (url.pathname === '/task.json') {
+      const id = url.searchParams.get('id');
+      if (id) {
+        const found = tasks.read(root, id);
+        const code = { ok: 200, warning: 200, unknown: 404, error: 500 }[found.state] ?? 500;
+        res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify(found));
+        return;
+      }
+      const kinds = {};
+      for (const [key, spec] of Object.entries(tasks.KINDS)) {
+        kinds[key] = { title: spec.title, description: spec.description, resume: spec.resume };
+      }
+      res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify({ state: 'ok', kinds, running: tasks.overview(root) }));
+      return;
+    }
+
+    if (url.pathname === '/task' || url.pathname === '/task/cancel') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' })
+          .end('POST only');
+        return;
+      }
+      if (cfg.readonly) {
+        short(res, 403, 'Writing is off (CHEAP_MEM_SERVE_READONLY=1).');
+        return;
+      }
+      if (!webauth.hostAllowed(req.headers.host, cfg.hosts)) {
+        short(res, 403, 'Foreign or missing host.');
+        return;
+      }
+      if (!webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {
+        short(res, 403, 'Foreign or missing origin.');
+        return;
+      }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        if (body.length > 4096) { tooBig = true; return; }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooBig) { short(res, 413, 'Too much.'); return; }
+        const kind = new URLSearchParams(body).get('kind') ?? '';
+        if (url.pathname === '/task') {
+          let began;
+          try {
+            began = tasks.start(root, kind);
+          } catch (e) {
+            if (e?.code === 'UNKNOWN_KIND') {
+              res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+                .end(JSON.stringify({ state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) }));
+              return;
+            }
+            if (e?.code === 'LOCK_ACTIVE') {
+              res.writeHead(409, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+                .end(JSON.stringify({ state: 'warning', reason: e.message, runningId: e.runningId }));
+              return;
+            }
+            res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+              .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+            return;
+          }
+          res.writeHead(201, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'ok', ...began }));
+          return;
+        }
+        // /task/cancel
+        tasks.cancel(root, kind).then((result) => {
+          res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'ok', ...result }));
+        }).catch((e) => {
+          if (e?.code === 'UNKNOWN_KIND') {
+            res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+              .end(JSON.stringify({ state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) }));
+            return;
+          }
+          if (e?.code === 'NOTHING_ACTIVE') {
+            res.writeHead(409, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+              .end(JSON.stringify({ state: 'warning', reason: e.message }));
+            return;
+          }
+          res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+        });
+      });
       return;
     }
 
