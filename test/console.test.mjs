@@ -41,7 +41,12 @@ function memory() {
   return r;
 }
 
-async function start(root, env = {}) {
+// Writing is off by default since 2026-09-27 (`src/writegate.mjs`).
+// The probes in this file test the latches BEHIND that switch (origin,
+// host, readonly, closed setting list), so they run with it ON — else a
+// 403 from the switch would pass them without ever reaching the latch
+// they name. The switch itself is probed in test/writegate.test.mjs.
+async function start(root, env = {}, opts = { allowWrites: true }) {
   // pathToFileURL, not the bare path: on Windows an absolute path
   // starts with a drive letter, and the ESM loader reads `D:` as a URL
   // scheme. It then refuses with "Only URLs with a scheme in: file,
@@ -53,7 +58,7 @@ async function start(root, env = {}) {
     CHEAP_MEM_SERVE_HOST: '127.0.0.1',
     CHEAP_MEM_SERVE_PORT: '0',
     ...env,
-  });
+  }, opts);
   return {
     cfg,
     server,

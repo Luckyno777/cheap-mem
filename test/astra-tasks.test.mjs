@@ -138,11 +138,15 @@ test('brand: the panel carries nothing of the sibling project', () => {
 const DOOR = ['probe', 'door', String(process.pid)].join('-');
 const WITH_DOOR = { authorization: `Bearer ${DOOR}` };
 
+// Writing is off by default since 2026-09-27 (`src/writegate.mjs`);
+// this file probes the form round trip BEHIND the switch, so it turns
+// the switch on for its run. The switch itself is probed in
+// test/writegate.test.mjs.
 async function serve(root) {
   const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
   const { server } = await mod.serve(root, {
     CHEAP_MEM_SERVE_TOKEN: DOOR, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
-  });
+  }, { allowWrites: true });
   return {
     base: `http://127.0.0.1:${server.address().port}`,
     stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }),

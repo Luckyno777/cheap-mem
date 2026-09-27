@@ -267,14 +267,19 @@ test('overview() names both kinds even when nothing was ever started', () => {
 const DOOR = ['probe', 'door', String(process.pid)].join('-');
 const WITH_DOOR = { authorization: `Bearer ${DOOR}` };
 
-async function start(root, env = {}) {
+// Writing is off by default since 2026-09-27 (`src/writegate.mjs`).
+// The probes in this file test the latches BEHIND that switch (origin,
+// host, readonly, closed setting list), so they run with it ON — else a
+// 403 from the switch would pass them without ever reaching the latch
+// they name. The switch itself is probed in test/writegate.test.mjs.
+async function start(root, env = {}, opts = { allowWrites: true }) {
   const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
   const { server } = await mod.serve(root, {
     CHEAP_MEM_SERVE_TOKEN: DOOR,
     CHEAP_MEM_SERVE_HOST: '127.0.0.1',
     CHEAP_MEM_SERVE_PORT: '0',
     ...env,
-  });
+  }, opts);
   return {
     server,
     base: `http://127.0.0.1:${server.address().port}`,
