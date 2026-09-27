@@ -8,7 +8,16 @@
 // case body itself. This version instead FOLLOWS calls through the
 // modules they resolve to, however many hops it takes, and checks for
 // the one thing that cannot be delegated away: an actual
-// `fs.appendFileSync`/`writeFileSync` call at the bottom.
+// `fs.appendFileSync`/`writeFileSync`/`writeSync` call at the bottom.
+//
+// **2026-09-27: `appendLine` (src/append.mjs) stopped calling
+// `fs.appendFileSync` directly.** It now rolls its own single write
+// (`fs.writeSync`, wrapped so a short write or an ENOSPC failure is
+// rolled back instead of leaving a torn line — see that module's
+// header) so `SYSCALLS` below has to name that primitive too, or every
+// tool that only ever writes through `appendLine` — `heartbeat.beat`
+// among them, this file's own regression positive control — would
+// silently stop being detected as writing at all.
 //
 // **2026-09-20, issue #149: the walker only resolved LOCAL calls.**
 // `mod.fn(` was followed when `mod` was a real module key, and a bare
@@ -146,7 +155,7 @@ test('SOURCE PROBE: the classification comes from the code, not from memory', ()
   // been the same mistake with more lines, so instead the bodies of the
   // called functions are read too, two hops deep — enough for every
   // path measured here, and it generalises to the next one.
-  const SYSCALLS = /fs\.(appendFileSync|writeFileSync|writeFile\(|appendFile\()|fs\.promises\.(write|append)/;
+  const SYSCALLS = /fs\.(appendFileSync|writeFileSync|writeFile\(|appendFile\(|writeSync\()|fs\.promises\.(write|append)/;
 
   // **Derived state is not memory content.**
   //
