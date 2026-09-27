@@ -258,3 +258,76 @@ export function forKeywords(root, input, { project = null } = {}) {
   }
   return orderByAuthorityThenRecency(out);
 }
+
+/**
+ * A THIRD lane, beside class and keyword: procedures shown at the start
+ * of every SUBAGENT, not because something matched but because a human
+ * decided the assignment itself always needs saying.
+ *
+ * **Why this needs a lane of its own, not another `on_class`/`triggers`
+ * value.** Both existing lanes fire on something the CALLER offers (a
+ * class being filed, a phrase being typed). A subagent offers nothing
+ * of the kind at the moment it starts — no error class, no question
+ * text — so a rule that matters for every subagent has no situation to
+ * match against. `tags` already exists on every logged entry (see
+ * `onboarding.mjs`'s `PROBE_TAG` for the same idiom: one fixed string,
+ * looked up, never guessed at); this reuses it rather than adding a
+ * fourth field that means the same thing.
+ *
+ * **Ported from an idea, not a file.** A sibling memory (lucky-mem)
+ * built the identical shape under a different name (`verfahren.mjs`,
+ * `fuerUnteragenten`) for its own SubagentStart hook. What is ported
+ * here is the SHAPE — one fixed tag, materialised entries (never a
+ * streaming reader that has not learned about a correction — see the
+ * paragraph below), oldest first — not its code and not its rule text:
+ * the rules a norm names are this memory's own, set by this memory's
+ * own human, never the sibling's.
+ *
+ * **Why `readLog` + `retiredMap` + `holds`, not a hand-rolled scan.**
+ * The sibling's first build read its log with a STREAMING iterator that
+ * only ever saw one entry at a time and never learned that a later
+ * correction (`replaces_id`) had superseded an earlier one — so a
+ * retired rule kept being shown next to the text that replaced it. The
+ * fix there was to collect corrections by hand before filtering. That
+ * whole class of bug does not exist on this side to begin with: this
+ * function reads every procedure the ordinary way, through the same
+ * `readLog` + `retiredMap` + `holds` that `forClass` and `forKeywords`
+ * two lanes up already use — the checked, single-pass materialisation.
+ * A `retiredMap` computed from a partial view is not a `retiredMap`,
+ * and there is exactly one function in this codebase that builds one.
+ */
+export const SUBAGENT_START_TAG = 'subagent-start';
+
+/**
+ * The procedures in force that carry `SUBAGENT_START_TAG`, oldest first
+ * — the order they were issued in, not the order they sit in the log
+ * (a later-filed correction keeps its predecessor's place in time).
+ */
+export function forSubagentStart(root, { project = null } = {}) {
+  const out = [];
+  for (const p of [null, ...(project ? [project] : memory.listProjects(root))]) {
+    let entries;
+    try { ({ entries } = memory.readLog(root, TYPE, { project: p })); }
+    catch { continue; }
+    const retired = memory.retiredMap(entries);
+    for (const e of entries) {
+      if (!e.rule || !e.id || !memory.holds(e, retired)) continue;
+      const tags = Array.isArray(e.tags) ? e.tags : [];
+      if (!tags.includes(SUBAGENT_START_TAG)) continue;
+      out.push({ ...e, _project: p });
+    }
+  }
+  // `ts` has one-SECOND resolution (see the entries this repo actually
+  // writes), so two procedures logged back to back routinely tie. No id
+  // tiebreak: an id is assigned randomly and sorting by it would UNDO
+  // insertion order on exactly the ties it is meant to break. A stable
+  // sort (guaranteed by the language since ES2019) leaves tied entries
+  // in the order `readLog` produced them, which for entries from the
+  // same append-only file already IS insertion order.
+  out.sort((a, b) => {
+    const ta = String(a.ts ?? '');
+    const tb = String(b.ts ?? '');
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+  });
+  return out;
+}

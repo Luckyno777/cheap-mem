@@ -11,6 +11,18 @@
 #
 # This hook makes capture model-free AND persistent, everywhere:
 #
+#   0. Answer     the last answer against patterns tied to a LOGGED
+#      check      error in THIS memory (src/answercheck.mjs). A hit is
+#                 the only thing this hook ever writes to stdout:
+#                 `{"decision":"block","reason":...}`, which resumes the
+#                 SAME turn instead of waiting for the next one to catch
+#                 it. Patterns are this memory's own data
+#                 (.mem/answer-patterns.json, see
+#                 docs/answer-check-patterns.example.json) — never a
+#                 built-in list, and never on suspicion: a pattern whose
+#                 `error_id` is not actually logged here is dropped
+#                 before it can match anything. No populated, matching
+#                 patterns file means this step is a no-op.
 #   1. Capture   model-free (~50ms), ALWAYS, every environment / repo.
 #   2. Persist   commit raw/ + push — SYNCHRONOUS, best-effort. Nothing
 #                else pushes captures, so this hook does. Synchronous
@@ -71,6 +83,28 @@ if   command -v timeout  >/dev/null 2>&1; then CAP=(timeout)
 elif command -v gtimeout >/dev/null 2>&1; then CAP=(gtimeout)
 else CAP=(); fi
 cap() { local s="$1"; shift; if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$s" "$@"; else "$@"; fi; }
+
+# --- 0) Answer check (see the header) -------------------------------
+# Computed FIRST and printed LAST (after capture/persist/reflect below),
+# so a hit never changes whether the rest of this hook still runs. This
+# is meant to be the ONLY thing this hook ever writes to stdout; every
+# other step below is redirected to /dev/null.
+ANSWER_JSON=""
+CHECKER=""
+if   [ -f "$ROOT/src/answercheck.mjs" ]; then CHECKER="$ROOT/src/answercheck.mjs"
+elif [ -f "$HERE/../src/answercheck.mjs" ]; then CHECKER="$HERE/../src/answercheck.mjs"
+fi
+if [ -n "$CHECKER" ] && [ -n "$STDIN_JSON" ]; then
+  ANSWER_JSON="$(printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" cap 10 node -e '
+    let raw = ""; process.stdin.on("data", (d) => { raw += d; });
+    process.stdin.on("end", () => {
+      import(process.argv[1]).then((m) => {
+        let input = null; try { input = JSON.parse(raw); } catch { return; }
+        const r = m.checkStop(process.env.CHEAP_MEM_ROOT, input);
+        if (r) process.stdout.write(JSON.stringify(r));
+      }).catch(() => {});
+    });' "$CHECKER" 2>/dev/null)" || ANSWER_JSON=""
+fi
 
 # --- 1) Capture (model-free, always) --------------------------------
 CAPTURE=""
@@ -164,5 +198,9 @@ if [ "${MEM_REFLECT:-}" = "1" ]; then
     printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" bash "$REFLECTOR" >/dev/null 2>&1 || true
   fi
 fi
+
+# --- 0b) Emit the answer-check result (see step 0 above) ------------
+# The only stdout this hook ever produces.
+[ -n "$ANSWER_JSON" ] && printf '%s\n' "$ANSWER_JSON"
 
 exit 0

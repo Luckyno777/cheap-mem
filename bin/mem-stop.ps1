@@ -22,6 +22,9 @@
 #
 # This hook makes capture model-free AND persistent, everywhere:
 #
+#   0. Answer     the last answer against patterns tied to a LOGGED
+#      check      error in THIS memory (src/answercheck.mjs). A hit is
+#                 the only thing this hook ever writes to stdout.
 #   1. Capture   model-free (~50ms), ALWAYS, every environment / repo.
 #   2. Persist   commit raw/ + push - SYNCHRONOUS, best-effort. Nothing
 #                else pushes captures, so this hook does. Synchronous
@@ -87,6 +90,38 @@ $Here = Split-Path -Parent $PSCommandPath
 
 $StdinJson = ''
 if ([Console]::IsInputRedirected) { $StdinJson = [Console]::In.ReadToEnd() }
+
+# --- 0) Answer check (last answer vs. patterns tied to a logged error) -
+#
+# Computed FIRST, printed LAST (after capture/persist/reflect below), so
+# a hit never changes whether the rest of this hook still runs - the
+# same ordering as the POSIX hook. Patterns are this memory's own data
+# (.mem/answer-patterns.json, see
+# docs/answer-check-patterns.example.json) - never built into this
+# codebase, and never on suspicion: src/answercheck.mjs drops any
+# pattern whose `error_id` is not actually logged here before it can
+# match anything. No populated, matching patterns file means this step
+# is a no-op.
+$AnswerJson = ''
+$Checker = $null
+foreach ($c in @((Join-Path $Root 'src/answercheck.mjs'), (Join-Path $Here '../src/answercheck.mjs'))) {
+  if (Test-Path -LiteralPath $c) { $Checker = $c; break }
+}
+if ($Checker -and $StdinJson) {
+  $CheckerUrl = ([System.Uri]::new($Checker)).AbsoluteUri
+  $CheckScript = @'
+let raw = ""; process.stdin.on("data", (d) => { raw += d; });
+process.stdin.on("end", () => {
+  import(process.argv[1]).then((m) => {
+    let input = null; try { input = JSON.parse(raw); } catch { return; }
+    const r = m.checkStop(process.env.CHEAP_MEM_ROOT, input);
+    if (r) process.stdout.write(JSON.stringify(r));
+  }).catch(() => {});
+});
+'@
+  $env:CHEAP_MEM_ROOT = $Root
+  try { $AnswerJson = ($StdinJson | & node -e $CheckScript $CheckerUrl 2>$null) -join '' } catch { $AnswerJson = '' }
+}
 
 # Which PowerShell is running this hook? The sub-hooks below must be
 # started with the SAME host: install/windows.ps1 wires hooks up with
@@ -226,5 +261,9 @@ if ($env:MEM_REFLECT -eq '1') {
     Remove-Item -LiteralPath $t -Force -ErrorAction SilentlyContinue
   }
 }
+
+# --- 0b) Emit the answer-check result (see step 0 above) ------------
+# The only stdout this hook ever produces.
+if ($AnswerJson) { [Console]::Out.Write("$AnswerJson`n") }
 
 exit 0

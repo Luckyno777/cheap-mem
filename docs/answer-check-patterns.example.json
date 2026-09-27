@@ -1,0 +1,11 @@
+[
+  {
+    "id": "example-pattern",
+    "error_id": "REPLACE-WITH-A-REAL-ID-FROM-YOUR-OWN-errors.jsonl",
+    "pattern": "TODO: a regex that would have matched the answer that repeated the mistake",
+    "reason": "One sentence: why this text in an answer means the mistake logged under error_id happened again.",
+    "flags": "i",
+    "disabled": true,
+    "measured": { "reports": 0, "correct": 0 }
+  }
+]

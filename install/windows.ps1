@@ -195,6 +195,11 @@ if (-not $SkipClaudeCode) {
   # events that would have called them. See the note above Upsert-Hook.
   $promptHookDst = Join-Path $HooksDir 'cheap-mem-user-prompt.ps1'
   $editHookDst   = Join-Path $HooksDir 'cheap-mem-pre-edit.ps1'
+  # A subagent is its own thread and gets neither SessionStart nor
+  # UserPromptSubmit (see src/subagentstart.mjs) - without this lane it
+  # starts on Windows knowing nothing this memory holds, same class of
+  # gap as the two lanes above.
+  $subagentHookDst = Join-Path $HooksDir 'cheap-mem-subagent-start.ps1'
 
   @"
 # cheap-mem SessionStart hook (Windows).
@@ -416,6 +421,31 @@ if (-not (Test-Path `$before)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$before
 "@ | Set-Content -LiteralPath $editHookDst -Encoding UTF8
 
+  @"
+# cheap-mem SubagentStart hook (Windows). Delegates to mem-subagent-start.ps1.
+# A subagent gets neither SessionStart nor UserPromptSubmit (its own
+# thread - src/gauges.mjs), so this shows it any procedure tagged
+# 'subagent-start' plus a context recap. Model-free, no matcher: every
+# subagent type gets the same block.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
+if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
+`$subagent = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-subagent-start.ps1'
+if (-not (Test-Path `$subagent)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
+"@ | Set-Content -LiteralPath $subagentHookDst -Encoding UTF8
+
   # Merge settings.json.
   $cfg = @{}
   if (Test-Path $Settings) {
@@ -467,6 +497,10 @@ if (-not (Test-Path `$before)) { exit 0 }
     # the path of a file being READ is not an intention to change it.
     # Same matcher as the POSIX side; it is the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
+    # No matcher: every subagent type gets the same tagged procedures
+    # plus context recap - there is no agent-type axis to filter on here,
+    # unlike PreToolUse above.
+    Upsert-Hook $cfg['hooks'] 'SubagentStart' 'cheap-mem-subagent-start.ps1' "$ps `"$subagentHookDst`""
 
     if (-not $cfg.ContainsKey('permissions')) { $cfg['permissions'] = @{} }
     $allowNeeded = @(
@@ -487,7 +521,7 @@ if (-not (Test-Path `$before)) { exit 0 }
     $cfg['permissions']['deny']  = @($cfg['permissions']['deny']  + $denyNeeded  | Select-Object -Unique)
 
     ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $Settings -Encoding UTF8
-    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit}.ps1"
+    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,subagent-start}.ps1"
     Write-Host "  Claude Code settings: $Settings"
   }
   Write-Host ""

@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
+# mem-subagent-start — SubagentStart hook.
+#
+# A subagent is its own thread: it never saw whatever SessionStart or
+# UserPromptSubmit showed its parent, and it gets neither event itself
+# (see src/gauges.mjs). Left alone it starts knowing nothing this
+# memory holds — including any procedure a human wrote specifically for
+# how an agent assignment is supposed to run (src/procedure.mjs,
+# `forSubagentStart`, tag `subagent-start`). This hook is what puts that
+# in front of the subagent before its first task.
+#
+# No model, no network: the tag lookup and the context recap
+# (src/subagentstart.mjs) are both deterministic reads over the memory's
+# own JSONL logs. Always exits 0 — a hook that starts a subagent must
+# never be the reason it fails to start.
+
+set -u
+
+entrutscht() { printf '%s' "${1//\\//}"; }
+[ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
+[ "${MEM_SUBAGENT_START_OFF:-}" = "1" ] && exit 0
+
+PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+
+ROOT=""
+# shellcheck disable=SC2086
+for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+  [ -z "$k" ] && continue
+  k="$(entrutscht "$k")"
+  [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
+done
+[ -z "$ROOT" ] && exit 0
+
+# Two shapes, same as mem-before-edit: the memory carries the module
+# itself, or a separate code checkout does (CHEAP_MEM_CODE, set by the
+# installer for exactly this case).
+MODULE=""
+if   [ -f "$ROOT/src/subagentstart.mjs" ]; then MODULE="$ROOT/src/subagentstart.mjs"
+elif [ -n "${CHEAP_MEM_CODE:-}" ] && [ -f "$CHEAP_MEM_CODE/src/subagentstart.mjs" ]; then
+  MODULE="$CHEAP_MEM_CODE/src/subagentstart.mjs"
+else
+  HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+  [ -f "$HERE/../src/subagentstart.mjs" ] && MODULE="$HERE/../src/subagentstart.mjs"
+fi
+[ -z "$MODULE" ] && exit 0
+
+# The stdin JSON carries session_id etc., but nothing here is keyed on
+# it (the block is the same for every subagent) — it is only read so a
+# malformed or absent stdin cannot make the module import fail.
+if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi
+
+CHEAP_MEM_ROOT="$ROOT" node -e '
+  import(process.argv[1]).then((m) => {
+    const r = m.hookResult(process.env.CHEAP_MEM_ROOT);
+    if (r) process.stdout.write(JSON.stringify(r));
+  }).catch(() => {});
+' "$MODULE" 2>/dev/null
+
+exit 0

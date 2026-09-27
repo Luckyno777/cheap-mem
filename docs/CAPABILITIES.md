@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 65 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2157 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2178 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -48,6 +48,7 @@ directory. The section number in brackets is where it is explained.
 |---|---|
 | `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
 | `agents.mjs` | registered agents: who exists, what each is for |
+| `answercheck.mjs` | the Stop hook's last-answer check: patterns tied to a LOGGED error in this memory, never on suspicion, dropped once their own measured hit rate falls under 1 in 5 |
 | `append.mjs` | the one place a JSONL drawer is appended to — guards against a fused line when the file did not already end on a newline |
 | `askedlearn.mjs` | query words learned from recall misses: a miss the same session then fetched by id teaches the entry the words it was asked with, in any language (`mem asked-learn`, M18b) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
@@ -117,6 +118,7 @@ directory. The section number in brackets is where it is explained.
 | `state.mjs` | the derived state, and nothing else derives it |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
+| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections (10.25) |

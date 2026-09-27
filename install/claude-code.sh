@@ -113,6 +113,17 @@ chmod +x "$HOOKS_DIR/cheap-mem-user-prompt.sh"
 } > "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 
+# A subagent is its own thread — it gets neither SessionStart nor
+# UserPromptSubmit, so without this it starts knowing nothing this
+# memory holds (see src/subagentstart.mjs).
+{
+  echo "#!/usr/bin/env bash"
+  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  tail -n +2 "$HERE/hooks/subagent-start.sh"
+} > "$HOOKS_DIR/cheap-mem-subagent-start.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-subagent-start.sh"
+
 # Merge settings.json without touching unrelated config.
 node - "$SETTINGS" "$HOOKS_DIR_CMD" "$CHEAP_MEM_ROOT" "$BASH_BIN" <<'NODE_MERGE'
 const fs = require('fs');
@@ -152,6 +163,10 @@ upsertHook('UserPromptSubmit', 'user-prompt');
 // With a matcher — otherwise it would also run on Read and Bash, and
 // the path of a file being READ is not an intention to change it.
 upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit');
+// No matcher: every subagent type gets the same tagged procedures plus
+// context recap (src/subagentstart.mjs) — there is no agent-type axis
+// to filter on here, unlike PreToolUse above.
+upsertHook('SubagentStart', 'subagent-start');
 
 cfg.permissions = cfg.permissions || {};
 const allow = [
@@ -184,11 +199,14 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,subagent-start}.sh"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"
 echo "  - SessionStart hook prints FACTS.md + mem context"
 echo "  - UserPromptSubmit hook recalls matching memory on every message"
 echo "  - PreToolUse hook warns before editing a file the memory knows about"
-echo "  - Stop hook triggers mem-reflect (byte-delta throttled)"
+echo "  - Stop hook captures the transcript and checks the last answer"
+echo "    against any patterns tied to a logged error (see mem-stop --help)"
+echo "  - SubagentStart hook shows any procedure tagged 'subagent-start',"
+echo "    plus a context recap"

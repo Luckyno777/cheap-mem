@@ -313,8 +313,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **65 CLI commands, 30 MCP tools, 81 modules, 2157
-tests**; as of 2026-09-20, about 35902 lines in `bin/` and `src/`, at
+As of 2026-09-26: **65 CLI commands, 30 MCP tools, 83 modules, 2178
+tests**; as of 2026-09-20, about 36573 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -522,7 +522,7 @@ claude mcp add cheap-mem -- node ~/cheap-mem/bin/mem-mcp
 ```
 
 Either way it is idempotent — run it again after moving the memory and
-it re-points. It drops three hooks into `~/.claude/hooks/` and merges
+it re-points. It drops five hooks into `~/.claude/hooks/` and merges
 the needed permissions into `~/.claude/settings.json`:
 
 - **SessionStart** — prints `FACTS.md` + context at the top of a session.
@@ -541,7 +541,14 @@ the needed permissions into `~/.claude/settings.json`:
   only when the person types; the building happens in between. Measured
   2026-09-08 against four defects of one Windows install: for **three**
   of them an entry already existed naming the very file being touched.
-- **Stop** — a byte-delta throttled reflector.
+- **Stop** — captures the transcript (model-free) and persists it (see
+  below); also checks the session's last answer against any patterns
+  you have tied to a logged error, before that answer reaches you — see
+  [docs/answer-check.md](docs/answer-check.md). Off until you arm it.
+- **SubagentStart** — every subagent gets its own thread and neither of
+  the two hooks above (`src/gauges.mjs`), so this shows it any procedure
+  tagged `subagent-start` (a norm only a human can issue — see
+  `mem log procedure --help`) plus a context recap.
 
 Some things are missing on purpose — usage counters, a `confidence`
 field, decay-as-deletion, a graph store, an LLM per fact. Each was
