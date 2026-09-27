@@ -1,0 +1,19 @@
+cheap-mem
+Copyright (c) 2026 Lucky H. (GitHub: Luckyno777)
+
+cheap-mem was conceived, designed and directed by Lucky H.: the overall
+architecture, the house rules (HOUSE-RULES.md and the procedures it
+names), the choice and order of what was built, and the acceptance of
+every change. Much of the code was written by AI coding agents working
+under that direction; the git history shows which commits they authored.
+
+This project is released under the MIT License (see LICENSE). The MIT
+License permits use, copying, modification and distribution, on the
+condition that the copyright notice above and the permission notice in
+LICENSE are included in all copies or substantial portions of the
+software. If you reuse cheap-mem or parts of it, keep this NOTICE and
+LICENSE with it.
+
+The name "cheap-mem" and the C mark (src/icon.mjs, docs/assets/brand/)
+identify this project. The MIT License grants rights to the code; it does
+not grant use of the name or the mark to identify a different product.
