@@ -2,9 +2,9 @@
 //
 // ## The occasion (dashboard build plan E1.4)
 //
-// `dashboard.getEntryFast()` (src/dashboard.mjs, D1) cannot see an
-// incoming `derived_from` edge declared on an entry in a DIFFERENT
-// drawer than the id's own — see `GRAPH_NOTE` there. A complete
+// Until D1b, `dashboard.getEntryFast()` (src/dashboard.mjs, D1) could
+// not see an incoming `derived_from` edge declared on an entry in a
+// DIFFERENT drawer than the id's own. A complete
 // backlink answer needs a pass through EVERY drawer of EVERY project,
 // and that full pass is exactly the cost the single-entry route exists
 // to avoid paying on every call.
@@ -52,16 +52,15 @@
 //   error     no readable cache at all (never built, or not valid
 //             JSON) — with nothing built, there is nothing to say.
 //
-// ## Where this is (still) NOT wired in
+// ## Where this is wired in (D1b)
 //
-// `dashboard.getEntryFast()` does not call this module yet (no change
-// to src/dashboard.mjs — that file is being refactored by another
-// session). See the session report that added this module for the
-// exact connection spot: the `into` array `collectDisplay()` builds for
-// `derived_from` edges from OTHER drawers is exactly the gap
-// `GRAPH_NOTE` names, and `backlinks()`'s `sources` (filtered to
-// `kind === 'derived_from'`) is the fix for it; `graphNote: GRAPH_NOTE`
-// on the return value is what retires once that gap closes.
+// `dashboard.getEntryFast()` reads `backlinks()` for `backlinks`/
+// `contradictedBy` and the derived_from share of `cited`; when this
+// answers anything but 'ok' it falls back to the locally visible edges
+// and answers 'warning' with the reason from here. `bin/mem-serve`'s
+// `/entry.json` branch keeps the register fresh (`update()` before the
+// lookup, rebuild only when the corpus changed). Probe:
+// test/backlinks-wired.test.mjs.
 
 import fs from 'node:fs';
 import path from 'node:path';

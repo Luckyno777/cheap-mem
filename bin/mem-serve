@@ -31,6 +31,7 @@ import path from 'node:path';
 import * as viewer from '../src/viewer.mjs';
 import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
+import * as backlinkIndex from '../src/backlinks.mjs';
 import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as pages from '../src/pages.mjs';
@@ -252,8 +253,15 @@ export function buildHandler(root, cfg, env = process.env) {
     // 404, 'error' answers 500. No fallback: a state this route does
     // not recognise is a bug in `getEntryFast()`, not something to
     // paper over here.
+    //
+    // D1b: bring the backlink index up to date first — `backlinks.
+    // update()` only stats the drawers and rebuilds ONLY when the corpus
+    // changed since the last build (the `search.loadIndex` pattern). If
+    // that fails, `getEntryFast()` itself answers 'warning' with the
+    // reason; the entry does not go missing over it.
     if (url.pathname === '/entry.json') {
       const id = url.searchParams.get('id') || '';
+      try { backlinkIndex.update(root); } catch { /* reason surfaces through getEntryFast() */ }
       let found;
       try { found = dashboard.getEntryFast(root, id); } catch (e) {
         res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })

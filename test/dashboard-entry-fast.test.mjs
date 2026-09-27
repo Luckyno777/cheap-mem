@@ -21,6 +21,7 @@ import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as dashboard from '../src/dashboard.mjs';
 import * as memory from '../src/memory.mjs';
+import * as bl from '../src/backlinks.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -54,6 +55,9 @@ function build({ fill = 0 } = {}) {
     memory.logEntry(r, 'thought', { text: `filler thought ${i}, touches nothing above` });
     memory.logEntry(r, 'decision', { choice: 'filler', why: `filler decision ${i}` });
   }
+  // D1b: incoming edges come from the backlink index; without a fresh
+  // one getEntryFast() answers 'warning' (see test/backlinks-wired.test.mjs).
+  bl.update(r);
   return { r, leaf, source, target, disputer };
 }
 
@@ -128,6 +132,7 @@ test('(3) POSITIVE CONTROL: a leaf entry matches dashboard.collect() exactly', (
 test('(3b) POSITIVE CONTROL: a linked, contested and superseded entry matches too', () => {
   const { r, source, target, disputer } = build();
   const corrected = memory.correctionEntry(r, 'error', target.id, { title: 'break v2', text: 'effect, corrected' });
+  bl.update(r);
   const full = dashboard.collect(r, {});
   try {
     for (const id of [source.id, target.id, disputer.id, corrected.entry.id]) {

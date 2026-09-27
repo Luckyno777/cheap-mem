@@ -4,8 +4,8 @@
 //
 // Four fields:
 //   measure    missing backlinks in the single-entry lookup (edges from
-//              a DIFFERENT drawer than the id's own — see dashboard.
-//              getEntryFast()'s GRAPH_NOTE)
+//              a DIFFERENT drawer than the id's own — getEntryFast()
+//              before D1b; wired since, probe test/backlinks-wired.test.mjs)
 //   baseline   every foreign-drawer derived_from edge (unmeasured —
 //              getEntryFast() does not search for them at all)
 //   target     0, on a fresh index (backlinks() hands them back)
