@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * askedlearn — query words learned from real misses (M18b, the port of
  * lucky-mem's M8 `mem knapp --lernen`).

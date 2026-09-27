@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // writegate.mjs — the one switch in front of every writing path of the
 // dashboard server (`bin/mem-serve`).
 //

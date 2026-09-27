@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra/tasks — the "long jobs" panel of the settings tab (E1.7).
 //
 // Not a view of its own: it is drawn inside `setView`, because the

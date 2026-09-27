@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * langbridge — optional starter dictionaries from the language a person
  * ASKS in to the language the memory is WRITTEN in.
