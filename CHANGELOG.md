@@ -16,6 +16,14 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **`/entry.json` shows every backlink, not only same-drawer ones**
+  (D1b): `dashboard.getEntryFast()` merges in the E1.4 backlink index
+  (`src/backlinks.mjs`), so an incoming `derived_from` from another
+  drawer or project now appears, and the answer equals
+  `dashboard.collect()`'s for the same id. `graphNote` and the
+  not-yet-wired declaration for `backlinks` are gone; a missing or
+  stale index answers `warning` with its reason. Probe:
+  `test/backlinks-wired.test.mjs`.
 - **`GET /entries.json?type=&project=&q=&after=<cursor>&n=`, a filtered,
   cursor-paged list that never builds the whole desk** (`bin/mem-serve`,
   `src/pages.mjs`). Until now, listing entries over the server meant

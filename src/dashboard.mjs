@@ -36,6 +36,7 @@ import * as consolePage from './console.mjs';
 import * as viewer from './viewer.mjs';
 import * as memory from './memory.mjs';
 import * as net from './net.mjs';
+import * as backlinkIndex from './backlinks.mjs';
 import * as question from './question.mjs';
 import * as basis from './basis.mjs';
 import * as authority from './authority.mjs';
@@ -642,34 +643,21 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
 // see `test/dashboard-entry-fast.test.mjs`'s probe (3) for the check
 // that this and `collect()` cannot quietly disagree about one id.
 //
-// **The one honest gap.** `net.build` (inside `collect()`) finds an
-// INCOMING `derived_from` edge, and the citation count `memory.
-// standing()` gives an entry, by reading every drawer of every project
-// and asking each entry there what it cites — there is no address to
-// look up "who cites this id" at, only that full pass, which is exactly
-// what this function exists to avoid paying for on every single-entry
-// read. So here, `cited`/`backlinks`/`contradictedBy` count only:
-//   (a) this id's OWN drawer, read in full anyway (for the line number)
-//       — for a same-drawer correction or tombstone, which is where one
-//       always lands: `retireEntry`/`correctionEntry` (`src/memory.
-//       mjs`) always append to the SAME (type, project) as the entry
-//       they retire or replace, never a different one;
-//   (b) the `link` drawer, once per project — every hand-drawn edge,
-//       any kind, because that drawer exists so a caller does not have
-//       to read every OTHER drawer to find an edge between two ids.
-// An incoming `derived_from` edge declared on an entry in a DIFFERENT
-// drawer than this id's own is NOT searched. `links`/`contradicts`
-// (this id's OUTGOING edges) have no such gap — they come from this
-// id's OWN fields, always read in full, never another entry's.
-// `graphNote` names this in EVERY answer, not only the ones it actually
-// changes: a gap reported only sometimes cannot be told apart from one
-// that never bites, without doing the very search it exists to avoid.
-const GRAPH_NOTE = "cited/backlinks/contradictedBy count only this id's own drawer "
-  + "(a same-drawer correction or tombstone) and the 'link' drawer across every "
-  + 'project. An incoming derived_from edge declared on an entry in a DIFFERENT '
-  + 'drawer is not searched by this fast path — that needs the full pass this '
-  + 'route exists to avoid. links/contradicts (this id\'s outgoing edges) have no '
-  + 'such gap: they come from this id\'s own fields, always read in full.';
+// **Incoming edges come from the backlink index (D1b, E1.4).** Until
+// D1b, `cited`/`backlinks`/`contradictedBy` here saw only this id's own
+// drawer and the `link` drawer; an incoming `derived_from` edge declared
+// in a DIFFERENT drawer was not searched, and every answer carried a
+// fixed `graphNote` saying so. Now this reads `backlinks.backlinks()` —
+// ONE file, built from the SAME `net.linksOf()` in the same order
+// (project, drawer, line) as `collect()`'s own pass, so the same list
+// as its `into`.
+//
+// When the index is not fresh (never built, corrupt, stale, or a broken
+// line seen while building it), this falls back to the locally visible
+// edges and answers `warning` with the index's own reason — a gap
+// disclosed, never swallowed. The read path never rebuilds the index
+// itself; `bin/mem-serve`'s `/entry.json` branch runs `backlinks.
+// update()` first (rebuild only when the corpus changed).
 
 /**
  * Which drawer holds `id`, stopping the instant it turns up — and
@@ -724,9 +712,8 @@ function knownChecker(root) {
  * number and any tombstone/correction of it — both live in that same
  * drawer by the convention `retireEntry`/`correctionEntry` follow); (c)
  * the `link` drawer, once per project (every hand-drawn edge touching
- * `id`, in either direction). Never every type of every project — see
- * the header comment above for the one search this deliberately skips,
- * and why.
+ * `id`, in either direction); (d) the backlink index, ONE file (see
+ * the header comment above). Never every type of every project.
  */
 export function getEntryFast(root, id) {
   if (typeof id !== 'string' || !id) return { state: 'unknown', id: id ?? '' };
@@ -776,7 +763,7 @@ export function getEntryFast(root, id) {
   // drawer across every project ---------------------------------------
   const known = knownChecker(root);
   const out = [];   // this id's outgoing edges, any kind
-  const into = [];  // incoming edges, any kind EXCEPT derived_from (the gap)
+  const into = [];  // incoming edges from the local drawers, any kind EXCEPT derived_from (fallback only)
   let cited = 0;
   let contested = false;
 
@@ -826,6 +813,17 @@ export function getEntryFast(root, id) {
     collectStanding(linkEntries);
   }
 
+  // Incoming edges: from the index when it is fresh — otherwise the
+  // locally visible ones above, and a warning with the index's reason.
+  const bl = backlinkIndex.backlinks(root, id);
+  const indexFresh = bl.state === 'ok';
+  const backlinks = indexFresh
+    ? bl.sources.map((l) => ({ kind: l.kind, id: l.id, known: true }))
+    : into;
+  // Same as `memory.standing()`: every derived_from edge onto this id
+  // counts, plus every hand-drawn link except 'contradicts' (above).
+  if (indexFresh) cited += bl.sources.filter((l) => l.kind === 'derived_from').length;
+
   // A retired id never accumulates standing, in `collect()` either: it
   // is not in `memory.entriesById()` (the substrate `memory.standing()`
   // walks), because `holds()` excludes it — so nothing can be counted
@@ -859,14 +857,18 @@ export function getEntryFast(root, id) {
     retired: retired ? { state: retired.state, why: retired.why || null } : null,
     replaces: e.replaces_id ? String(e.replaces_id) : null,
     contradicts: out.filter((l) => l.kind === 'contradicts'),
-    contradictedBy: into.filter((l) => l.kind === 'contradicts'),
+    contradictedBy: backlinks.filter((l) => l.kind === 'contradicts'),
     links: out,
-    backlinks: into,
+    backlinks,
   };
 
   const reasons = [];
   if (ownDrawerBroken) {
     reasons.push("this id's own drawer carries at least one line that could not be read");
+  }
+  if (!indexFresh) {
+    reasons.push("backlinks only from the 'link' drawer and this id's own drawer — "
+      + `backlink index ${bl.state}: ${bl.reason}`);
   }
   if (linkDrawerBroken) {
     reasons.push("the 'link' drawer carries at least one line that could not be read — "
@@ -878,7 +880,6 @@ export function getEntryFast(root, id) {
     id,
     asOf,
     source: { file: source, line },
-    graphNote: GRAPH_NOTE,
     ...(reasons.length ? { reason: reasons.join('; ') } : {}),
     entry,
   };

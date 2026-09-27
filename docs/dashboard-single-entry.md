@@ -62,22 +62,17 @@ there is no address to look up "who cites this id" at, only that full
 pass, which is exactly what this route exists to avoid paying for on
 every single lookup.
 
-So `cited`, `backlinks` and `contradictedBy` count only:
-
-- this id's OWN drawer (read in full anyway, for the line number) — for
-  a same-drawer correction or tombstone, which is where one always
-  lands, per the convention above;
-- the `link` drawer, once per project — every hand-drawn edge, any kind.
-
-An incoming `derived_from` edge declared on an entry in a DIFFERENT
-drawer than this id's own is not searched. `links` and `contradicts`
-(this id's OUTGOING edges) have no such gap: they come from this id's
-own fields, always read in full, never another entry's.
-
-Every answer carries a constant `graphNote` field naming this — not
-only the answers it actually changes. A gap reported only sometimes
-cannot be told apart from one that never bites, without doing the very
-search it exists to avoid.
+**Closed by D1b.** Until D1b, `cited`, `backlinks` and `contradictedBy`
+counted only this id's own drawer and the `link` drawer, and every
+answer carried a constant `graphNote` saying so. Now the route reads
+the backlink index (`src/backlinks.mjs`, E1.4): one file, built from the
+same `net.linksOf()` in the same order as `dashboard.collect()`'s own
+pass, so the same list. `graphNote` is gone. When the index is not
+fresh (never built, corrupt, stale), the answer falls back to the
+locally visible edges and says so as `state: 'warning'` with the
+index's reason. `/entry.json` runs `backlinks.update()` first, which
+rebuilds only when the corpus changed. Probe:
+`test/backlinks-wired.test.mjs`.
 
 ## The desk's UI
 
