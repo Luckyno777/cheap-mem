@@ -38,6 +38,7 @@ import * as stores from './stores.mjs';
 import * as memory from './memory.mjs';
 import * as setup from './setup.mjs';
 import { appendLine } from './append.mjs';
+import * as writegate from './writegate.mjs';
 
 /** Machine-local, gitignored: what was set here applies here. */
 export const LOG_FILE = path.join('.mem', 'console-log.jsonl');
@@ -292,6 +293,9 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   return {
     board: b,
     settings,
+    // The write switch in front of every writing route — four states,
+    // see `src/writegate.mjs`. The page draws it; the server enforces it.
+    writes: writegate.read(root, { flag: cfg.allowWrites === true, readonly: cfg.readonly === true }),
     connections: connections(env, cfg),
     setup: steps,
     git: gitState(root),
@@ -364,6 +368,31 @@ export function insertNav(html, active = 'viewer') {
   if (i < 0) return html;
   const end = html.indexOf('>', i) + 1;
   return html.slice(0, end) + style + nav(active) + html.slice(end);
+}
+
+/**
+ * The write switch, said on the page. Four states, four sentences: an
+ * unreadable config is NOT printed as "off", and every non-on state
+ * names the way to turn it on. Shared with the desk (`src/astra/set.mjs`).
+ */
+export function writesNote(w, writable = true) {
+  if (!w) {
+    return writable ? ''
+      : '<p class="note">Writing is off. The fields show the state but accept nothing.</p>';
+  }
+  const how = w.source === 'readonly'
+    ? ''
+    : ' Turn it on for one run with <code>mem serve --allow-writes</code>, or for this memory with '
+      + '<code>"dashboard": { "allowWrites": true }</code> in <code>.mem/config.json</code>.';
+  const head = {
+    on: 'Writing is on',
+    off: 'Writing is off',
+    unknown: 'Writing is off — the switch holds an unrecognised value',
+    error: 'Writing is off — the switch could not be read',
+  }[w.state] ?? `Writing is off — unrecognised switch state '${w.state}'`;
+  const cls = w.state === 'on' ? 'note' : 'note off';
+  return `<p class="${cls}" id="writes" data-writes="${h(w.state)}"><b>${h(head)}.</b> ${h(w.reason)}${
+    w.state === 'on' ? '' : ` The fields show the state but accept nothing.${how}`}</p>`;
 }
 
 /** The console as a page. No script — forms do not need one. */
@@ -476,7 +505,7 @@ ${nav('console')}
 ${tiles}
 
 <h2>Settings</h2>
-${writable ? '' : '<p class="note">Writing is off (<code>CHEAP_MEM_SERVE_READONLY=1</code>). The fields show the state but accept nothing.</p>'}
+${writesNote(d.writes, writable)}
 ${forms}
 ${storeList}
 

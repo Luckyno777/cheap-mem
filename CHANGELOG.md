@@ -14,6 +14,22 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — migration needed if you set things from the dashboard
+
+- **Writing from the dashboard is now OFF by default** (`src/writegate.mjs`,
+  `bin/mem-serve`). Every writing route — `POST /setting`, `POST /task`,
+  `POST /task/cancel` — answers 403 with the way to turn it on until either
+  `"dashboard": { "allowWrites": true }` is in `.mem/config.json` or the
+  server runs with `mem serve --allow-writes` (this run only). An
+  open-source dashboard writes nothing before its owner allows it. The
+  dashboard cannot turn the switch on itself. Read-only mode, the Host and
+  the Origin checks stay in force behind it. The switch has four states
+  (`on`, `off`, `unknown` for an unrecognised value, `error` for an
+  unreadable config), shown on the console and the desk's Settings tab and
+  in `/console.json` / `/dashboard.json` as `writes`. **If you used the
+  console's forms before:** add the config key or the flag, or the forms
+  stay disabled. See `docs/dashboard-writes.md`.
+
 ### Added
 
 - **`/entry.json` shows every backlink, not only same-drawer ones**

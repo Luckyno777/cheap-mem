@@ -5,6 +5,7 @@
 // Pure move — every template string below is unchanged.
 import { h, INK, tone, LIST_MAX } from './shared.mjs';
 import { tasksPanel } from './tasks.mjs';
+import { writesNote } from '../console.mjs';
 
 export function setView(d, { writable }) {
   const forms = d.settings.map((s) => `
@@ -84,8 +85,9 @@ export function setView(d, { writable }) {
   return `<div class="eyebrow">What you can change</div><h1>Settings.</h1>
     <p class="page-subtitle">${writable
     ? 'What is set here takes effect at once and is written down as a line.'
-    : 'This server runs READ ONLY. The fields are disabled, and the page says so rather '
-      + 'than pretending.'} Every setting names its source and its effect.</p>
+    : 'This server runs READ ONLY right now. The fields are disabled, and the page says so '
+      + 'rather than pretending — the note below says why and how to turn writing on.'} Every setting names its source and its effect.</p>
+    ${writesNote(d.writes, writable)}
     <h2>Settings <em>${d.settings.length}</em></h2>
     ${forms || '<p class="none">Nothing here can be set.</p>'}
     ${stores}
