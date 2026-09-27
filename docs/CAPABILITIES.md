@@ -75,6 +75,7 @@ directory. The section number in brackets is where it is explained.
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
 | `errorcontext.mjs` | `mem log error`'s file history (max 3) and the auto-duty it opens on a real repetition, one per file+class |
 | `errorfile.mjs` | which file an error concerns: an explicit field first, else the path pattern |
+| `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |

@@ -195,6 +195,9 @@ if (-not $SkipClaudeCode) {
   # events that would have called them. See the note above Upsert-Hook.
   $promptHookDst = Join-Path $HooksDir 'cheap-mem-user-prompt.ps1'
   $editHookDst   = Join-Path $HooksDir 'cheap-mem-pre-edit.ps1'
+  # The failure the exit code hid (M19 port from lucky-mem): PostToolUse,
+  # matcher Bash only. See bin/mem-catch-fail.ps1's own header.
+  $catchFailHookDst = Join-Path $HooksDir 'cheap-mem-catch-fail.ps1'
 
   @"
 # cheap-mem SessionStart hook (Windows).
@@ -416,6 +419,30 @@ if (-not (Test-Path `$before)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$before
 "@ | Set-Content -LiteralPath $editHookDst -Encoding UTF8
 
+  @"
+# cheap-mem PostToolUse hook (Windows), matcher Bash. Delegates to
+# mem-catch-fail.ps1. Catches a Bash call that exits 0 while its own
+# output carries a failure signature — PostToolUseFailure never fires
+# for that case at all. Model-free.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
+if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
+`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-catch-fail.ps1'
+if (-not (Test-Path `$catchFail)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
+"@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
+
   # Merge settings.json.
   $cfg = @{}
   if (Test-Path $Settings) {
@@ -467,6 +494,8 @@ if (-not (Test-Path `$before)) { exit 0 }
     # the path of a file being READ is not an intention to change it.
     # Same matcher as the POSIX side; it is the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
+    # Same matcher as the POSIX side (Bash only) — the rule, not a preference.
+    Upsert-Hook $cfg['hooks'] 'PostToolUse' 'cheap-mem-catch-fail.ps1' "$ps `"$catchFailHookDst`"" 'Bash'
 
     if (-not $cfg.ContainsKey('permissions')) { $cfg['permissions'] = @{} }
     $allowNeeded = @(
@@ -487,7 +516,7 @@ if (-not (Test-Path `$before)) { exit 0 }
     $cfg['permissions']['deny']  = @($cfg['permissions']['deny']  + $denyNeeded  | Select-Object -Unique)
 
     ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $Settings -Encoding UTF8
-    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit}.ps1"
+    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail}.ps1"
     Write-Host "  Claude Code settings: $Settings"
   }
   Write-Host ""
