@@ -63,6 +63,14 @@ export const NOT_YET_WIRED = Object.freeze({
       + 'contract (test/provenance.test.mjs asserts pure age-based STALE), out of scope '
       + 'for a wiring pass. Declared rather than forced in.',
   },
+  backlinks: {
+    since: '2026-09-27',
+    reason: 'built as the E1.4 backlink index while src/astra.mjs and src/dashboard.mjs were '
+      + 'being split into per-view modules by a sibling agent; wiring it into getEntryFast() '
+      + '(src/dashboard.mjs, the `into` array and `graphNote`) had to wait for that split to '
+      + 'land to avoid two agents in one file. Resolves when getEntryFast merges '
+      + 'backlinks(root,id).sources and drops GRAPH_NOTE, the next dashboard wave.',
+  },
 });
 
 /**
