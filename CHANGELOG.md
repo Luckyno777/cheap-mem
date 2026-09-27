@@ -16,6 +16,33 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **`GET /entries.json?type=&project=&q=&after=<cursor>&n=`, a filtered,
+  cursor-paged list that never builds the whole desk** (`bin/mem-serve`,
+  `src/pages.mjs`). Until now, listing entries over the server meant
+  `dashboard.collect()` — every drawer of every project, several passes
+  over each, to hand back a slice of one list. `pages.page()` opens only
+  the drawers the type/project filter selects; without `q` it streams
+  them with `memory.iterLog()` (constant memory per line), with `q` it
+  runs the EXISTING search path (`search.loadIndex()`/`search.search()`)
+  rather than a second, hand-rolled text search — and either way feeds
+  the same narrow top-N selection, holding at most `n` candidates at
+  once. Stable order (`ts` descending, `id` ascending on a tie, since
+  `ts` alone is not unique). The cursor encodes `(ts, id)` plus a stamp
+  over exactly the touched drawers and the filter itself: a corpus
+  change between two pages answers `state:'warning'`/"Corpus changed"
+  rather than silently turning a stale or mismatched page, and a broken
+  cursor answers `state:'error'` rather than silently restarting at page
+  1. An unknown type/project answers `state:'unknown'` (400) before any
+  drawer is opened — never confused with a valid filter's honest zero
+  hits (`state:'ok'`, `entries:[]`). Behind the same auth guard as every
+  other route — `/entries.json` is in `PATHS`, checked the same way.
+  The known gap: `search.mjs`'s index build drops any entry with no
+  weighted field at all, so the `q` path can miss such an entry even
+  though the same entry appears fine without `q` — documented, not
+  hidden, and reproduced directly in the test file. See
+  `docs/dashboard-entries-list.md` for the full contract and
+  `test/pages.test.mjs` (red on the pre-E1.3 state) for what backs it.
+
 - **`GET /entry.json?id=<id>`, a single-entry route that never builds
   the whole desk** (`bin/mem-serve`, `src/dashboard.mjs`,
   `src/viewer.mjs`). Until now, looking up one entry over the server

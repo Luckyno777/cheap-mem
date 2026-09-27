@@ -33,6 +33,7 @@ import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
 import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
+import * as pages from '../src/pages.mjs';
 
 export function readConfig(env = process.env) {
   return {
@@ -83,7 +84,7 @@ function tokenFrom(req, url) {
  */
 export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
-  '/entry.json',
+  '/entry.json', '/entries.json',
 ]);
 
 /** The headers every content response carries. Once, not three times. */
@@ -261,6 +262,30 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       const code = { ok: 200, warning: 200, unknown: 404, error: 500 }[found.state];
       if (!code) throw new Error(`getEntryFast() answered an unknown state '${found.state}'`);
+      res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(found));
+      return;
+    }
+
+    // --- A filtered, paged list, without building the desk (E1.3, ----
+    // 2026-09-27). See `src/pages.mjs` (header comment) for the full
+    // contract and `docs/dashboard-entries-list.md` for the operational
+    // write-up.
+    //
+    //   ok/warning  -> 200 (warning still carries a page)
+    //   unknown     -> 400 (the FILTER itself names something unknown)
+    //   error       -> 500 (a broken cursor, or the search index for
+    //                  `q` could not be built)
+    if (url.pathname === '/entries.json') {
+      const found = pages.page(root, {
+        type: url.searchParams.get('type') || null,
+        project: url.searchParams.get('project') || null,
+        q: url.searchParams.get('q') || '',
+        after: url.searchParams.get('after') || null,
+        n: url.searchParams.get('n') || undefined,
+      });
+      const code = { ok: 200, warning: 200, unknown: 400, error: 500 }[found.state];
+      if (!code) throw new Error(`pages.page() answered an unknown state '${found.state}'`);
       res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
         .end(JSON.stringify(found));
       return;
