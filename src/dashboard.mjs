@@ -44,6 +44,13 @@ import * as capability from './capability.mjs';
 // `const raw` (the entry map) — two bindings of the same name in one
 // module is exactly the kind of silent confusion this codebase avoids.
 import * as rawCapture from './raw.mjs';
+// D5 (2026-09-27): the agents view's own four honest fields, and the
+// human's read-only tray. Read-only dependencies — this file never
+// writes agents/, heartbeat.jsonl or inbox/.
+import * as agentsModule from './agents.mjs';
+import * as heartbeatModule from './heartbeat.mjs';
+import * as inboxModule from './inbox.mjs';
+import * as cfgmod from './config.mjs';
 
 export const VIEWS = Object.freeze(['desk', 'knowledge', 'space', 'projects', 'agents', 'net', 'set']);
 
@@ -130,6 +137,173 @@ function workTile(title, open, total, { noun, whenEmpty }) {
 /** The global drawer is `global` in this file and `(global)` in agentState. */
 export const agentKey = (project) => (project === 'global' ? '(global)' : project);
 
+// -----------------------------------------------------------------------
+// D5 (2026-09-27): four honest, differentiated agent fields
+// -----------------------------------------------------------------------
+//
+// `mem.agents` (built in `viewer.collectMemory`, above, unchanged by this
+// section) already answers "registered vs. seen in the log" — the same
+// question `board.tileAgents` answers off a SINGLE source (`heartbeat.
+// jsonl` alone), and that tile deliberately never reports CALM from it:
+// "an agent with an old heartbeat is not necessarily broken — it may
+// have had nothing to do." This view claims something stronger than that
+// tile does — "alive" — and a stronger claim needs a stronger
+// measurement, not a louder word over the same one signal.
+//
+// So `activity` below demands TWO INDEPENDENT sources that agree:
+// `heartbeat.jsonl` (a deliberate pulse call, its own file) and the
+// memory's own drawers/inbox (what the agent actually produced — read
+// through entirely separate modules, at an entirely different write
+// rate). One fresh source alone could just as well mean the OTHER source
+// broke, not that the agent did — so one source is `unknown`, never
+// `alive`; two agreeing is `alive`; none is `not seen`. The freshness
+// window reuses `board.mjs`'s OWN `tileAgents` default (`quietMin =
+// 60 * 24`, one day) rather than inventing a second threshold beside it.
+//
+// The other three fields are each answerable from ONE real check and
+// never invent a value past what that check actually saw:
+//   `startable` — a plain file check (does `agents.readAgent` find
+//                 PROMPT.md/START.md for this name, right here, right
+//                 now?), always answerable, never `unknown`.
+//   `pause`     — `agents.silentStatus()`, unchanged; `unknown` only
+//                 when there is no AGENT.yaml to read it from.
+//   `channel`   — `ok` only when at least one message TO this agent's
+//                 own inbox has actually moved past `open`
+//                 (`inbox.isDone`) — proof something on the other end
+//                 reads it. Configured-but-never-answered and
+//                 not-configured-at-all both read `unknown`: this field
+//                 is `ok`/`unknown` only, on purpose — a channel nobody
+//                 has proven working does not get to be green.
+//
+// This resolution happens HERE, at collection time, not in the view:
+// `astra/agents.mjs` stays a pure function of what this file hands it —
+// same contract `renderHtml` already promises the whole page ("no I/O,
+// so a test can hand it a fixture").
+const ACTIVITY_WINDOW_MIN = 60 * 24;
+
+/** Minutes since an ISO timestamp, or `null` when there is nothing to age. */
+function minutesSince(ts, now) {
+  if (!ts) return null;
+  const t = Date.parse(String(ts));
+  if (Number.isNaN(t)) return null;
+  return Math.max(0, (now.getTime() - t) / 60000);
+}
+
+/** The two-source "alive" decision. See the section header above. */
+function agentActivity(root, agent, { now, participants, inboxMessages }) {
+  let heartbeatAgeMin = null;
+  try { heartbeatAgeMin = heartbeatModule.ageMin(root, agent.name, { now }); }
+  catch { /* stays null: unmeasurable, not zero */ }
+  const heartbeatFresh = heartbeatAgeMin !== null && heartbeatAgeMin <= ACTIVITY_WINDOW_MIN;
+
+  const sentByThis = (participants && Object.hasOwn(participants, agent.name))
+    ? inboxMessages.filter((m) => m.from === agent.name).map((m) => m.time)
+    : [];
+  const lastSent = sentByThis.length ? [...sentByThis].sort().at(-1) : null;
+  const writeAgeMin = minutesSince(agent.last || null, now);
+  const sentAgeMin = minutesSince(lastSent, now);
+  const contentAges = [writeAgeMin, sentAgeMin].filter((x) => x !== null);
+  const contentAgeMin = contentAges.length ? Math.min(...contentAges) : null;
+  const contentFresh = contentAgeMin !== null && contentAgeMin <= ACTIVITY_WINDOW_MIN;
+
+  const freshCount = (heartbeatFresh ? 1 : 0) + (contentFresh ? 1 : 0);
+  const state = freshCount === 2 ? 'alive' : freshCount === 1 ? 'unknown' : 'not seen';
+
+  return {
+    state,
+    windowMin: ACTIVITY_WINDOW_MIN,
+    heartbeat: { ageMin: heartbeatAgeMin, fresh: heartbeatFresh },
+    content: { ageMin: contentAgeMin, fresh: contentFresh },
+  };
+}
+
+/** Can `mem` find this agent's own start instructions locally, right now? */
+function agentStartable(full, agent) {
+  if (!agent.registered) {
+    return { local: false, reason: 'no agents/<name>/ folder in this memory — nothing to start' };
+  }
+  if (!full) return { local: false, reason: 'the folder could not be read' };
+  if (!full.prompt) return { local: false, reason: `${full.content}/ has no PROMPT.md or START.md` };
+  return { local: true, reason: `instructions at ${full.prompt}` };
+}
+
+/** `agents.silentStatus()`, unchanged — `unknown` only without an AGENT.yaml. */
+function agentPause(full, now) {
+  if (!full) {
+    return { state: 'unknown', reason: 'not registered — no AGENT.yaml to read silent_until from' };
+  }
+  const st = agentsModule.silentStatus(full, now);
+  if (st.invalid) {
+    return {
+      state: 'unknown', until: st.until, why: st.why,
+      reason: `silent_until '${st.until}' is not a readable date`,
+    };
+  }
+  if (st.silent) return { state: 'paused', until: st.until, why: st.why };
+  if (st.expired) return { state: 'expired', until: st.until, why: st.why };
+  return { state: 'active' };
+}
+
+/** `ok` only once a message to this agent has actually been acted on. */
+function agentChannel(agent, participants, inboxMessages) {
+  const known = Boolean(participants) && Object.hasOwn(participants, agent.name);
+  if (!known) return { state: 'unknown', reason: 'not a configured inbox participant' };
+  const toThis = inboxMessages.filter((m) => m.to === agent.name);
+  if (!toThis.length) return { state: 'unknown', reason: 'no message has ever reached this inbox' };
+  const answered = toThis.filter((m) => inboxModule.isDone(m.state));
+  if (!answered.length) {
+    return {
+      state: 'unknown',
+      reason: `${toThis.length} message(s) waiting here, none answered or processed yet`,
+    };
+  }
+  return { state: 'ok', reason: `${answered.length} of ${toThis.length} messages were answered or processed` };
+}
+
+/** The four D5 fields for one agent, all with a real data path. */
+function agentSignals(root, agent, ctx) {
+  let full = null;
+  try { full = agentsModule.readAgent(root, agent.name); } catch { full = null; }
+  return {
+    activity: agentActivity(root, agent, ctx),
+    startable: agentStartable(full, agent),
+    pause: agentPause(full, ctx.now),
+    channel: agentChannel(agent, ctx.participants, ctx.inboxMessages),
+  };
+}
+
+// The one participant key `config.mjs`'s own `DEFAULT_CONFIG` describes
+// as "The human. Messages here are questions for them." — not a name
+// this file invents, the same key `mem init` writes unless someone
+// renamed it. A memory that renamed it away from `user` honestly reports
+// "not configured" below rather than guessing at the new name.
+const HUMAN_PARTICIPANT = 'user';
+
+/**
+ * The human's own tray — read-only (E5.4). Built from the SAME
+ * `inbox.read` pass `agentChannel` above already paid for, never a
+ * second read, and never `inbox.newFor`/`markSeen`/`watch`: those write
+ * a seen-list or touch git, and opening this page must not change a
+ * delivery attempt or a re-surfacing state just because someone looked.
+ */
+function humanInboxState(participants, inboxMessages, inboxBroken) {
+  if (!participants) return { readable: false, reason: 'no memory config here', messages: [] };
+  if (!Object.hasOwn(participants, HUMAN_PARTICIPANT)) {
+    return {
+      readable: false,
+      reason: `no '${HUMAN_PARTICIPANT}' participant configured`,
+      messages: [],
+    };
+  }
+  return {
+    readable: true,
+    who: HUMAN_PARTICIPANT,
+    messages: inboxMessages.filter((m) => m.to === HUMAN_PARTICIPANT)
+      .map((m) => ({ from: m.from, time: m.time, subject: m.subject, state: m.state })),
+    broken: inboxBroken.length,
+  };
+}
+
 /**
  * Everything the desk shows — as data, not as HTML.
  *
@@ -155,6 +329,27 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   const con = consolePage.collect(root, { env, now, cfg });
   const mem = viewer.collectMemory(root);
   const pass = readPass(root);
+
+  // --- D5: agent signals + the human's own tray -----------------------
+  // `cfg` above is the SERVER's config (host, port, token) — a different
+  // object from the MEMORY's `.mem/config.json` (participants), which is
+  // read here on its own. Absence is a legitimate, honestly-reported gap
+  // (a bare memory before `mem init`'s config exists), never a crash.
+  let participants = null;
+  try { participants = cfgmod.readConfig(root).participants; } catch { participants = null; }
+  // One `inbox.read` pass, shared by every agent's `channel` field and by
+  // the human's tray below — never a second read, and never a WRITE:
+  // `inbox.read` only ever reads a directory it is handed.
+  let inboxMessages = [];
+  let inboxBroken = [];
+  try {
+    const ib = inboxModule.read(root, participants ?? {}, {});
+    inboxMessages = ib.messages;
+    inboxBroken = ib.broken;
+  } catch { /* stays empty: an unreadable inbox has no messages to show */ }
+  const agentCtx = { now, participants, inboxMessages };
+  const agentsOut = mem.agents.map((a) => ({ ...a, ...agentSignals(root, a, agentCtx) }));
+  const humanInbox = humanInboxState(participants, inboxMessages, inboxBroken);
 
   // --- the net -------------------------------------------------------
   // Built from the same pass, in the shape `mem net` already uses, so
@@ -357,7 +552,13 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     counts: mem.counts,
     broken: pass.broken,
     projects,
-    agents: mem.agents,
+    // D5: `mem.agents` enriched with the four fields above, never a
+    // second, disagreeing copy of the name/count/model/role part.
+    agents: agentsOut,
+    // The human's own tray, read-only — E5.4: nothing above this line
+    // marks a message seen or attempts delivery; opening the page never
+    // changes what `mem post` shows next.
+    humanInbox,
     facts: mem.facts,
     net: { ...graph, layers: net.layers(graph) },
     // What the console could set and this page could not. Carried
