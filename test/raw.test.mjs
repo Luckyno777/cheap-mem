@@ -108,11 +108,23 @@ test('the stamp says where from, never who', () => {
     const e = raw.capture(root, t);
     const s = e.stamp;
     assert.ok(s.session_id && s.surface);
-    const asText = JSON.stringify(s);
-    assert.ok(!asText.includes(os.userInfo().username), 'the stamp carries a login name');
-    assert.ok(!asText.includes(os.hostname()), 'the stamp carries a machine name');
+    // As a whole word, not as a substring: this container's hostname is
+    // two characters long, and a random session id or timestamp contains
+    // two given characters often enough to fail a full suite now and
+    // then (seen 2026-09-27). A name that leaks arrives as a word.
+    assert.ok(!namesIn(s, os.userInfo().username), 'the stamp carries a login name');
+    assert.ok(!namesIn(s, os.hostname()), 'the stamp carries a machine name');
+    // Positive control: the same check does catch a name that is there.
+    assert.ok(namesIn({ ...s, surface: `ssh:${os.hostname()}` }, os.hostname()),
+      'the leak check cannot see a machine name placed in the stamp');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+function namesIn(stamp, name) {
+  if (!name) return false;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![A-Za-z0-9])${esc}(?![A-Za-z0-9])`).test(JSON.stringify(stamp));
+}
 
 test('the bell governs dueness — no bell, nothing happens', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-raw-bell-'));
