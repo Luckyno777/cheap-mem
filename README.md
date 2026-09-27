@@ -50,7 +50,7 @@ code.
 | tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search, median | **0.027 ms** over the index | `node bench/retrieval.mjs` |
-| what you download | **717 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+| what you download | **831 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
@@ -187,6 +187,21 @@ name the words somebody will search for that the entry itself does not
 contain. The other is `mem find-hybrid`, which fuses BM25 with a **local**
 embedding rerank so an entry surfaced by either survives.
 
+**Asking in another language.** Agents mostly write English; the person
+asking may not. Two answers, neither a model. `mem asked-learn` learns
+from real misses: a question recall found nothing for, after which the
+same session fetched an entry by id, teaches that entry the words it was
+asked with (a correction line, with the miss as evidence) — for any
+language pair, out of your own questions. And an optional starter
+dictionary per pair (`"languageBridges": ["es-en"]` in `.mem/config.json`,
+shipped: `de-en`, `es-en`, off by default) covers the core terms from day
+one. Measured on the benchmark corpus (`node bench/lang-bridge.mjs`, 14
+questions per language): Spanish questions in the top 3 went 1 → 5 with
+the dictionary; a second, differently worded question after learning
+2 → 11 (13 with the dictionary; German 7 → 12, 13). That learned figure
+assumes every miss was followed by a fetch by id — an upper bound. The
+42 English queries rank exactly as before.
+
 The benchmark also records what was tried and **rejected** — the term
 graph's real gain, and why pseudo-relevance feedback was measured and
 thrown away. Details: [docs/architecture.md](docs/architecture.md).
@@ -298,8 +313,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **64 CLI commands, 30 MCP tools, 79 modules, 2101
-tests**; as of 2026-09-20, about 34728 lines in `bin/` and `src/`, at
+As of 2026-09-26: **65 CLI commands, 30 MCP tools, 81 modules, 2118
+tests**; as of 2026-09-20, about 35374 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -422,6 +437,7 @@ mem user [--json]              generic, code-only habit meter over YOUR OWN
                                are a configurable JSON file, no names baked in
 mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
+mem asked-learn [--write]      learn query words from recall misses, any language
 mem hooks install|check        arm and prove the secret check
 mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when

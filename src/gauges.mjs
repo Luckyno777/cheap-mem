@@ -225,7 +225,9 @@ export function occupancy({
   // first version printed "0 bytes / 0.0 %" here and named the blind
   // spot twenty lines further down — so the head read like a finding
   // ("our injections cost nothing") while nothing had been measured.
-  if (!measured) {
+  // An injection booked without its size (`mem find --journal-session`,
+  // M18b) makes the sum unknown, not smaller.
+  if (!measured || injections.some((e) => e.bytes == null)) {
     return {
       bytes: null, injections: null, material_bytes: materialBytes,
       share_material: null, units: null, share_window: null,

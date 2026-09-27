@@ -211,7 +211,12 @@ fi
 # a stable shape. The prompt goes in as an argv value, never through a
 # shell — node does not evaluate argv, so an odd character in the
 # prompt cannot turn into a command.
-HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)" || exit 0
+# `--journal-session` books the question into .pipeline/injections.jsonl
+# with the same bar applied below — what was shown, or why nothing was.
+# A miss on record is what `mem asked-learn` learns query words from.
+JOURNAL=()
+[ -n "${SESSION_ID:-}" ] && JOURNAL=(--journal-session "$SESSION_ID" --journal-min "$MIN")
+HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json ${JOURNAL[@]+"${JOURNAL[@]}"} 2>/dev/null)" || exit 0
 [ -z "$HITS" ] && exit 0
 
 # Keep only what clears the bar, render one line each, and wrap it in the

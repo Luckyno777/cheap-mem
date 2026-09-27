@@ -1,0 +1,51 @@
+# Language bridge German (asked) -> English (written). Read by src/langbridge.mjs,
+# switched on per memory with .mem/config.json "languageBridges": ["de-en"].
+#
+# Per line: asked forms <TAB> written forms <TAB> evidence. Forms comma-separated.
+# German forms are stemmed by the German pack; list forms the stemmer does not join.
+# A written column of "-" makes the asked words query-only stop words.
+#
+# Core terms only, and every line names why it is core (test/langbridge.test.mjs checks it):
+#   type:<t>        the written word is a cheap-mem entry type (src/memory.mjs TYPES)
+#   field:<f>       the written word is a ranked field (src/search.mjs FIELD_WEIGHTS)
+#   thesaurus:<w>   the written word sits in a curated group of src/thesaurus.mjs
+#   stop:query      a question word of the asked language, dropped from the query only
+#
+# NOT here: German words the thesaurus already carries (fehler, absturz, datenbank ...
+# - the thesaurus bridges those both ways already), loanwords spelled the same in both
+# languages (cache, test, deploy - they match as typed), and German function words that
+# are also English words (die, war, an, in, am, so, also, will, hat). Everything else a
+# memory needs is learned from its own misses (src/askedlearn.mjs), not guessed here.
+leck,speicherleck	leak	thesaurus:leak
+wettlauf,wettlaufsituation,gleichzeitig	race,concurrent	thesaurus:race
+rueckschritt,verschlechterung	regression,regressed	thesaurus:regression
+bauen,gebaut,kompilieren,kompiliert	build,compile	thesaurus:build
+zusammenfuehren,zusammengefuehrt	merge	thesaurus:merge
+zweig	branch	thesaurus:branch
+schnell,zuegig	fast,quick	thesaurus:fast
+arbeitsspeicher	memory,ram	thesaurus:ram
+offenlegung,preisgabe	exposure,disclosure	thesaurus:exposure
+abwaegung,kompromiss	tradeoff,compromise	thesaurus:tradeoff
+mitschnitt,aufzeichnung,protokoll,protokolle	log,capture,transcript	thesaurus:log
+verdichten,verdichtet,zusammenfassung,zusammenfassen	digest,summarize	thesaurus:digest
+warten,wartet,wartend	waiting,queued	thesaurus:waiting
+ereignis,ereignisse	event	type:event
+gedanke,gedanken,ueberlegung	thought	type:thought
+zeitleiste	timeline	type:timeline
+frage,fragen	question	type:question
+faehigkeit,anleitung	skill	type:skill
+verfahren,vorgehen	procedure	type:procedure
+quelle,quellen	source	type:source
+aktualisierung,aktualisiert,aktualisieren	update	type:update
+verknuepfung,verweis	link	type:link
+titel	title	field:title
+thema,themen	topic	field:topic
+verworfen,abgelehnt	rejected	field:rejected
+regel,regeln	rule	field:rule
+beschreibung	description	field:description
+tatsache,tatsachen	fact	field:fact
+auszug	excerpt	field:excerpt
+wo,wohin,woher,wann,wieso,weshalb,welche,welcher,welches,wer,wen,wem	-	stop:query
+mein,meine,meinen,meinem,meiner,unser,unsere,unseren,unserem,unserer	-	stop:query
+der,das,den,dem,des,ein,eine,einen,einem,einer,eines,und,oder,ist,sind,wird,wurde,wurden	-	stop:query
+haben,hatte,nicht,kein,keine,mit,von,zu,zum,zur,auf,im,fuer,bei,aus,nach,ueber,als,wie,wenn,dass,auch,noch,nur,schon	-	stop:query

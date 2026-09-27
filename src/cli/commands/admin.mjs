@@ -142,6 +142,42 @@ export const COMMANDS = {
     else out(gauges.asText(r));
   },
 
+  'asked-learn': async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem asked-learn [--write] [--json]',
+        '',
+        '  Query words learned from recall misses (M18b). A question the',
+        '  recall hook found nothing for, followed in the SAME session by',
+        '  that session naming an entry by id (the person typing it, or',
+        '  `mem show <id>`), teaches the entry the question\'s words — as',
+        '  `asked` on a correction line, with the journal line as evidence.',
+        '  Works for any language pair: an English entry learns the',
+        '  Spanish or German words its user actually asked with.',
+        '',
+        '  Not evidence: an entry the memory itself showed (that would',
+        '  reinforce its own guesses), a word common in the memory, a word',
+        '  that would be learned for two different entries.',
+        '',
+        '  Source is the injection journal (.pipeline/) and the raw',
+        '  capture. Without --write nothing is written.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['write', 'json', 'root'], 'asked-learn');
+    const root = findRoot(args);
+    requireConfig(root);
+    const askedlearn = await import('../../askedlearn.mjs');
+    const r = askedlearn.cases(root);
+    let written = null;
+    if (args.write) {
+      written = 0;
+      for (const c of r.cases) if (askedlearn.write(root, c).written) written += 1;
+    }
+    if (args.json) { out(JSON.stringify({ ...r, written }, null, 2)); return; }
+    out(askedlearn.asText(r, { written }));
+  },
+
   observations: async ({ args }) => {
     if (isHelp(args)) {
       out([
