@@ -35,6 +35,9 @@ const WRITES = [
   ['/setting', 'id=error-window&value=30&from=%2F'],
   ['/task', 'kind=integrity'],
   ['/task/cancel', 'kind=integrity'],
+  // P1b: replying from the inbox. The switch refuses before the body
+  // is read, so the name need not exist for these probes.
+  ['/inbox/reply', 'name=none.md&text=hello&from=%2F'],
 ];
 
 function memory() {

@@ -9,7 +9,8 @@
 // independent sources agree), `startable` (can this be started locally,
 // right now?), `pause` (`silent_until`) and `channel` (the inbox "bell",
 // `ok`/`unknown` only, never green without a message that was actually
-// answered) — plus the human's own read-only tray. `dashboard.collect()`
+// answered) — plus the human's own tray (read without writing; since P1b
+// with a reply form under each message, live only behind the write switch). `dashboard.collect()`
 // resolves every one of those in `agentSignals()`/`humanInboxState()`;
 // this module stays a pure string-selector over `d` — same "no I/O, so a
 // test can hand it a fixture" contract `astra.renderHtml` promises the
@@ -59,8 +60,42 @@ function pauseNote(pause) {
   return '';
 }
 
-/** The human's own tray. Read-only, E5.4: no button here sends, marks seen, or replies. */
-function humanInboxSection(d) {
+/** Why replying is off, and how to turn it on — said in words, not only a greyed button. */
+function replyOffNote(writes) {
+  const why = writes?.reason ? ` ${h(writes.reason)}` : '';
+  if (writes?.source === 'readonly') {
+    return `<p class="note off" data-reply="off"><b>Replying is off.</b>${why}</p>`;
+  }
+  return `<p class="note off" data-reply="off"><b>Replying is off.</b>${why} Turn it on for one run `
+    + 'with <code>mem serve --allow-writes</code>, or for this memory with '
+    + '<code>"dashboard": { "allowWrites": true }</code> in <code>.mem/config.json</code>.</p>';
+}
+
+/**
+ * The reply form under one message (P1b). A plain form, no script: it
+ * posts to `/inbox/reply` and the server answers with a 303 back to the
+ * desk. Only the message NAME travels — who answers and to whom is read
+ * from the message file on the server, never from a form field.
+ */
+function replyForm(m, writable) {
+  if (!m.name) return '';
+  const off = writable ? '' : ' disabled';
+  const id = `reply-${h(m.name)}`;
+  return `<form class="reply" method="post" action="/inbox/reply">
+        <input type="hidden" name="name" value="${h(m.name)}">
+        <input type="hidden" name="from" value="/">
+        <label for="${id}">Reply to ${h(m.from)}</label>
+        <textarea id="${id}" name="text" rows="3" required${off}></textarea>
+        <button type="submit"${off}>Reply</button>
+      </form>`;
+}
+
+/**
+ * The human's own tray. Looking never writes (E5.4): nothing here marks a
+ * message seen or retries a delivery. The one control is the reply form
+ * under each message (P1b), and it only works when the write switch is on.
+ */
+function humanInboxSection(d, { writable = false } = {}) {
   const box = d.humanInbox;
   if (!box) {
     return `<h2>Your inbox</h2><p class="none unmeasured">${NO_PATH}</p>`;
@@ -76,20 +111,23 @@ function humanInboxSection(d) {
       <div class="name">${h(m.subject)}</div>
       <div class="state">from ${h(m.from)} · ${h(m.state)}</div>
       <p class="why">${h(String(m.time).replace('T', ' ').replace('Z', ''))}</p>
+      ${replyForm(m, writable)}
     </article>`).join('');
   return `<h2>Your inbox <em>${box.messages.length}</em></h2>
-    <p class="page-subtitle">Read-only: this row is exactly what ${h(box.who)}'s inbox already
-      holds. Looking at this page does not mark anything seen, retry a delivery, or bring a
-      message back up.</p>
+    <p class="page-subtitle">This row is exactly what ${h(box.who)}'s inbox already holds.
+      Looking at this page does not mark anything seen, retry a delivery, or bring a
+      message back up. A reply is written like <code>mem inbox write</code> writes it —
+      into <code>inbox/</code>, delivered only once you commit and push.</p>
+    ${writable ? '' : replyOffNote(d.writes)}
     <div class="cards">${rows}</div>${
   box.broken ? `<p class="why">${box.broken} message(s) in this drawer could not be read.</p>` : ''}`;
 }
 
-export function agentsView(d) {
+export function agentsView(d, { writable = false } = {}) {
   if (!d.agents.length) {
     return '<div class="eyebrow">Who writes here</div><h1>Agents.</h1>'
       + '<p class="none">Nobody is registered and nobody appears in the log.</p>'
-      + humanInboxSection(d);
+      + humanInboxSection(d, { writable });
   }
   const cards = d.agents.map((a) => {
     const state = (a.registered && a.count > 0) ? 'calm' : 'watch';
@@ -133,5 +171,5 @@ export function agentsView(d) {
       "unknown", and the bell only reads "ok" once a message was actually answered.</p>
     <h2>Known <em>${d.agents.length}</em></h2>
     <div class="cards">${cards}</div>
-    ${humanInboxSection(d)}`;
+    ${humanInboxSection(d, { writable })}`;
 }

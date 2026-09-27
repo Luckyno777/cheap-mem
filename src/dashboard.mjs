@@ -281,7 +281,7 @@ function agentSignals(root, agent, ctx) {
 // this file invents, the same key `mem init` writes unless someone
 // renamed it. A memory that renamed it away from `user` honestly reports
 // "not configured" below rather than guessing at the new name.
-const HUMAN_PARTICIPANT = 'user';
+export const HUMAN_PARTICIPANT = 'user';
 
 /**
  * The human's own tray — read-only (E5.4). Built from the SAME
@@ -289,6 +289,11 @@ const HUMAN_PARTICIPANT = 'user';
  * second read, and never `inbox.newFor`/`markSeen`/`watch`: those write
  * a seen-list or touch git, and opening this page must not change a
  * delivery attempt or a re-surfacing state just because someone looked.
+ *
+ * `name` is carried so the desk can offer a reply under each message
+ * (P1b). Replying is a separate POST (`/inbox/reply` in bin/mem-serve,
+ * behind `writegate.refusal()`); collecting this tray still writes
+ * nothing.
  */
 function humanInboxState(participants, inboxMessages, inboxBroken) {
   if (!participants) return { readable: false, reason: 'no memory config here', messages: [] };
@@ -303,7 +308,9 @@ function humanInboxState(participants, inboxMessages, inboxBroken) {
     readable: true,
     who: HUMAN_PARTICIPANT,
     messages: inboxMessages.filter((m) => m.to === HUMAN_PARTICIPANT)
-      .map((m) => ({ from: m.from, time: m.time, subject: m.subject, state: m.state })),
+      .map((m) => ({
+        name: m.name, from: m.from, time: m.time, subject: m.subject, state: m.state,
+      })),
     broken: inboxBroken.length,
   };
 }

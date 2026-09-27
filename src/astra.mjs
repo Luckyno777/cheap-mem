@@ -264,6 +264,13 @@ form.set button:hover:not(:disabled){background:var(--violet);color:#0a0b0e}
 form.set button:disabled,form.set input:disabled{opacity:.45;cursor:not-allowed}
 form.set .src{font:11px var(--code);color:var(--muted);margin:12px 0 0}
 form.set .eff{color:var(--muted);font-size:13px;margin:6px 0 0}
+form.reply{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+form.reply label{font-size:12px;color:var(--muted)}
+form.reply textarea{padding:9px 11px;border:1px solid var(--line);border-radius:9px;resize:vertical;
+  background:var(--bg);color:var(--text);font:13px var(--code)}
+form.reply button{align-self:flex-start;padding:8px 16px;border:1px solid var(--violet);
+  border-radius:9px;background:rgba(181,160,250,.14);color:var(--violet);font:14px var(--font)}
+form.reply button:disabled,form.reply textarea:disabled{opacity:.45;cursor:not-allowed}
 ol.steps{list-style:none;padding:0;margin:0}
 ol.steps li{background:var(--panel);border:1px solid var(--line);
   border-left:2px solid var(--c,var(--line));border-radius:12px;padding:13px 16px;margin:0 0 9px}
@@ -774,7 +781,7 @@ export function renderHtml(d, { title = 'cheap-mem', writable = true } = {}) {
     knowledge: knowledgeView(d),
     space: spaceView(d),
     projects: projectsView(d),
-    agents: agentsView(d),
+    agents: agentsView(d, { writable }),
     net: netView(d),
     set: setView(d, { writable }),
   };

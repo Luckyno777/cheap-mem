@@ -32,6 +32,15 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **Reply from the dashboard's inbox** (P1b, `POST /inbox/reply`,
+  `inbox.reply()`): a reply form under each message in the human
+  participant's tray on the Agents tab. It writes through the same
+  `inbox.write()` as `mem inbox write` (same file name, header and body;
+  nothing committed or pushed), sits behind the dashboard write switch
+  (403 and a disabled form until `allowWrites` / `--allow-writes`), and
+  keeps the readonly, Host and Origin latches. Only the message's
+  recipient can answer it; the form carries no sender or recipient
+  field. Probe: `test/inbox-reply.test.mjs`.
 - **`/entry.json` shows every backlink, not only same-drawer ones**
   (D1b): `dashboard.getEntryFast()` merges in the E1.4 backlink index
   (`src/backlinks.mjs`), so an incoming `derived_from` from another
