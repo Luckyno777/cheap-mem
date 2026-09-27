@@ -4,6 +4,7 @@
 // Split out of `astra.mjs` (dashboard block D2-D8: one view per module).
 // Pure move — every template string below is unchanged.
 import { h, INK, tone, LIST_MAX } from './shared.mjs';
+import { tasksPanel } from './tasks.mjs';
 
 export function setView(d, { writable }) {
   const forms = d.settings.map((s) => `
@@ -91,6 +92,7 @@ export function setView(d, { writable }) {
     <h2>Setup <em>${d.setup.filter((s) => s.state !== 'done').length} of ${
   d.setup.length} still open</em></h2>
     <ol class="steps">${steps}</ol>
+    ${tasksPanel(d, { writable })}
     <h2>Doors <em>of which only WHETHER a token is set is shown</em></h2>
     <div class="cards">${doors}</div>
     <h2>Raw captures <em>${d.raw.readable

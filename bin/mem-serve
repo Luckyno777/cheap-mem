@@ -353,47 +353,56 @@ export function buildHandler(root, cfg, env = process.env) {
       });
       req.on('end', () => {
         if (tooBig) { short(res, 413, 'Too much.'); return; }
-        const kind = new URLSearchParams(body).get('kind') ?? '';
+        const form = new URLSearchParams(body);
+        const kind = form.get('kind') ?? '';
+        // The desk's own no-JS forms (`src/astra/tasks.mjs`) send
+        // `from=/`: they get a 303 back to the desk on success and a
+        // short HTML page on refusal — never raw JSON in a browser tab.
+        // A CLOSED list, like `/setting`'s: any other `from` is ignored
+        // and the JSON contract below stays exactly as it was.
+        const page = form.get('from') === '/';
+        const answer = (code, json) => {
+          if (!page) {
+            res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+              .end(JSON.stringify(json));
+          } else if (code < 300) {
+            res.writeHead(303, { location: '/' }).end();
+          } else {
+            short(res, code, json.reason || json.state);
+          }
+        };
         if (url.pathname === '/task') {
           let began;
           try {
             began = tasks.start(root, kind);
           } catch (e) {
             if (e?.code === 'UNKNOWN_KIND') {
-              res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-                .end(JSON.stringify({ state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) }));
+              answer(400, { state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) });
               return;
             }
             if (e?.code === 'LOCK_ACTIVE') {
-              res.writeHead(409, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-                .end(JSON.stringify({ state: 'warning', reason: e.message, runningId: e.runningId }));
+              answer(409, { state: 'warning', reason: e.message, runningId: e.runningId });
               return;
             }
-            res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-              .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+            answer(500, { state: 'error', reason: e?.message || String(e) });
             return;
           }
-          res.writeHead(201, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-            .end(JSON.stringify({ state: 'ok', ...began }));
+          answer(201, { state: 'ok', ...began });
           return;
         }
         // /task/cancel
         tasks.cancel(root, kind).then((result) => {
-          res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-            .end(JSON.stringify({ state: 'ok', ...result }));
+          answer(200, { state: 'ok', ...result });
         }).catch((e) => {
           if (e?.code === 'UNKNOWN_KIND') {
-            res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-              .end(JSON.stringify({ state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) }));
+            answer(400, { state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) });
             return;
           }
           if (e?.code === 'NOTHING_ACTIVE') {
-            res.writeHead(409, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-              .end(JSON.stringify({ state: 'warning', reason: e.message }));
+            answer(409, { state: 'warning', reason: e.message });
             return;
           }
-          res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-            .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+          answer(500, { state: 'error', reason: e?.message || String(e) });
         });
       });
       return;

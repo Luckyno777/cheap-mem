@@ -51,6 +51,7 @@ import * as agentsModule from './agents.mjs';
 import * as heartbeatModule from './heartbeat.mjs';
 import * as inboxModule from './inbox.mjs';
 import * as cfgmod from './config.mjs';
+import * as tasksModule from './tasks.mjs';
 
 export const VIEWS = Object.freeze(['desk', 'knowledge', 'space', 'projects', 'agents', 'net', 'set']);
 
@@ -325,6 +326,17 @@ export function declaredDerivedFrom(e) {
   return [];
 }
 
+function collectTasks(root) {
+  const kinds = Object.entries(tasksModule.KINDS).map(([kind, spec]) => ({
+    kind, title: spec.title, description: spec.description, resume: spec.resume,
+  }));
+  try {
+    return { readable: true, error: null, kinds, latest: tasksModule.overview(root) };
+  } catch (e) {
+    return { readable: false, error: e?.message || String(e), kinds, latest: {} };
+  }
+}
+
 export function collect(root, { env = process.env, now = new Date(), cfg = {} } = {}) {
   const con = consolePage.collect(root, { env, now, cfg });
   const mem = viewer.collectMemory(root);
@@ -588,6 +600,10 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     connections: con.connections,
     stores: con.stores,
     log: con.log,
+    // E1.7: the long jobs, read through `tasks.overview()` — the same
+    // `.mem/tasks/*.jsonl` files `/task.json` reads, never a second copy.
+    // `latest[kind]` is null when that kind never ran.
+    tasks: collectTasks(root),
     views: VIEWS,
     raw: { captures: rawCaptures, counts: rawCounts, readable: rawReadable, error: rawError },
   };

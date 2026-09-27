@@ -229,6 +229,25 @@ sidestep the `noexec`-mount problem `bin/_portable.sh`'s header comment
 documents for its own hooks: a file that may not be EXECUTED may still
 be READ.
 
+## On the desk: the "Long jobs" panel
+
+The Settings tab of the desk (`/`) carries a **Long jobs** section
+(`src/astra/tasks.mjs`, drawn inside `setView`): one card per kind with
+its title, the command it runs, the latest task's state (`never
+started`, `running`, `ok`, `warning`, `cancelled`, `no longer tracked`
+after a server restart, `error`), its times and reason, and one no-JS
+form — **Start**, or **Cancel** while one runs. The data is
+`dashboard.collect()`'s `tasks` field, read through `tasks.overview()`;
+`/dashboard.json` carries the same field.
+
+The forms send `from=/`. With it, `/task` and `/task/cancel` answer a
+success with `303 → /` and a refusal with a short HTML page; without it
+(or with any other value — a closed list, like `/setting`'s) the JSON
+contract above is unchanged. The page does not poll: it is a snapshot,
+and a running card says "reload for the current state". Under
+`CHEAP_MEM_SERVE_READONLY=1` every button is disabled and the panel says
+so. It is a section, not a tab, so `dashboard.VIEWS` stays at seven.
+
 ## Probes
 
 `test/tasks.test.mjs` (24 probes, real child processes, no mock):
@@ -253,3 +272,11 @@ the full path `POST /task` → `GET /task.json?id=` to a result; an
 unknown id → 404; `GET /task.json` with no id lists both kinds; two
 starts of the same kind back to back → the second gets 409 with the
 running id; `POST /task/cancel` with nothing running → 409, no crash.
+
+Panel, `test/astra-tasks.test.mjs`: `collect()` carries both kinds with
+titles from `KINDS`; the Settings section shows a card and a start form
+per kind, no cancel form when nothing runs; a finished `warning` shows
+state, end time and reason; a foreign-epoch task reads "no longer
+tracked"; read-only disables every button; no sibling-project names in
+the panel; a form POST with `from=/` gets 303, a refused one HTML, and
+any other `from` keeps the 201 JSON answer.
