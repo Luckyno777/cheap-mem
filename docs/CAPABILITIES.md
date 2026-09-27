@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 65 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2157 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2166 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -99,6 +99,7 @@ directory. The section number in brackets is where it is explained.
 | `pages.mjs` | filtered, cursor-paged lists over the drawers — never the whole desk (`/entries.json`, E1.3) |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree (10.21) |
 | `pointer.mjs` | a pointer instead of silence when something was already shown (10.22) |
+| `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |
 | `profile.mjs` | switchable measuring points that land in the ordinary log — finds where time went without a hand-written report script |
 | `provenance.mjs` | which clone answered, and how old it is (10.23) |
@@ -878,6 +879,33 @@ entry records `guard_at_creation: green`. At the moment you log an
 error the error is *there*, so the latch must be red. A latch that was
 never red is unproven — the same thing as a falsification test without
 a backdrop.
+
+**A test scaffold, not only a latch — `src/probescaffold.mjs`.** With
+an explicit `--file`, `mem log error` also lays down
+`test/error-<id>.test.mjs`: the marker `// error: <id>` and three
+`test.todo` sections (sabotage, positive control, red on the old
+stand). Measured against a reference deployment: only a handful of
+errors ever carried a guard, because going from error to probe is its
+own separate step, and that step is exactly the one that gets skipped.
+`--without-scaffold` turns it off; an existing file is never
+overwritten.
+
+**Empty is not passing.** A scaffold that ran green while still empty
+would be worse than none — it would look like a latch and catch
+nothing. So the `// scaffold: empty` marker, or any remaining
+`test.todo(`, keeps the file worthless as F4 evidence
+(`memory.dutyHasEvidence`, `probescaffold.isEmpty`) even once it
+contains a stray `test(`.
+
+```
+mem log error --class silent-fail --title "..." --file src/foo.mjs
+mem guard quote
+```
+
+`mem guard quote` measures the SHARE of `error` entries that carry a
+guard (field, or a non-empty scaffold — the same rule `dutyHasEvidence`
+uses), and names scaffolds that have sat empty for more than
+`probescaffold.STALE_DAYS` (14) days as a warning, never silently `ok`.
 
 ### 10.3 Heartbeats — `src/heartbeat.mjs`, `mem heartbeat`
 

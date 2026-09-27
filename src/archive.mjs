@@ -476,6 +476,26 @@ export function migrate(archive, root, paths, { remove = false } = {}) {
 
     // Take the time span from the header so the range export works for
     // migrated captures too.
+    //
+    // **The bug this replaced (parity item 3, 2026-09-27).** This read
+    // `header?.__gefangen_am`, `header?.__ts_von`, `header?.__ts_bis`,
+    // `header?.__zeilen` and `header?.__stempel` — field names `raw.mjs`'s
+    // header has never carried (it writes `__captured_at`, `__lines` and
+    // a `__stamp` object with `ts_from`/`ts_to`; see `capture()` above).
+    // Every migrated capture therefore landed with `captured_at`,
+    // `ts_from`, `ts_to`, `lines` and `stamp` all `null` — silently: no
+    // error, no warning. Downstream that meant a migrated capture (a) is
+    // excluded by `inRange`, which drops any row without `ts_to`/
+    // `captured_at` (`mem raw export`/`mem raw review` with a date range
+    // both call it), (b) shows `lines: null` and `project: null`
+    // (`capturesWithState` reads `rec.stamp?.project`, and `stamp` was
+    // never set) in `mem raw review` and the dashboard — the same class
+    // as lucky-mem's 68712f5a: a route into the register that quietly
+    // drops the very fields a count depends on. `test/archive.test.mjs`'s
+    // own migrate test used the CORRECT field names in its fixture but
+    // never asserted on the written row, so the mismatch stayed green;
+    // see `test/archive-migrate-fields.test.mjs` for the assertions that
+    // catch it.
     let header = null;
     try {
       const text = zlib.gunzipSync(data).toString('utf8');
@@ -483,12 +503,12 @@ export function migrate(archive, root, paths, { remove = false } = {}) {
     } catch { /* then without it */ }
 
     writeRecord(root, {
-      stempel: header?.__stempel ?? null,
+      stamp: header?.__stamp ?? null,
       path: relPath,
-      captured_at: header?.__gefangen_am ?? null,
-      ts_from: header?.__ts_von ?? null,
-      ts_to: header?.__ts_bis ?? header?.__gefangen_am ?? null,
-      lines: header?.__zeilen ?? null,
+      captured_at: header?.__captured_at ?? null,
+      ts_from: header?.__stamp?.ts_from ?? null,
+      ts_to: header?.__stamp?.ts_to ?? header?.__captured_at ?? null,
+      lines: header?.__lines ?? null,
       ...ablage,
       migrated: true,
     });

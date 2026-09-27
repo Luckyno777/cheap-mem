@@ -163,6 +163,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("");
   out("Health and limits:");
   out("  guard run [--duty]                           every latch: is the error back?");
+  out("  guard quote                                  share of errors with a guard, empty test scaffolds");
   out("  epoch show|record [--force]                  has the memory gone BACKWARDS here?");
   out("  chain [--json]                               do the per-writer seals still hold?");
   out("  archive [--json]                             what moved out of this clone, still reachable?");

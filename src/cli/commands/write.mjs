@@ -16,6 +16,7 @@
 import path from 'node:path';
 import * as memory from '../../memory.mjs';
 import * as guard from '../../guard.mjs';
+import * as probescaffold from '../../probescaffold.mjs';
 import * as broadcast from '../../broadcast.mjs';
 import * as procedure from '../../procedure.mjs';
 import * as question from '../../question.mjs';
@@ -36,6 +37,9 @@ export const COMMANDS = {
         "  Reserved: --project, --root",
         "  Every other --flag becomes a field in the JSONL entry.",
         "  --tags takes a comma-separated list.",
+        "  --file <path>  for `log error`: lays down test/error-<id>.test.mjs",
+        "             (marker, three test.todo sections) unless one is already",
+        "             there. Never overwritten. --without-scaffold turns it off.",
         "  --valid_from / --valid_until  when the content HOLDS (not when it was",
         "             written — that is --ts). --valid_until is refused if it is",
         "             not a readable date. State it only when you know a real end",
@@ -68,6 +72,12 @@ export const COMMANDS = {
     if (Object.hasOwn(data, 'valid_until')) {
       data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'log');
     }
+
+    // A pure switch, not a field — same reasoning as the guard-kind
+    // trio below: left in `data` it would become a stray boolean field
+    // on every error entry that opts out of the scaffold.
+    const withoutScaffold = Boolean(data['without-scaffold']);
+    delete data['without-scaffold'];
 
     // **A class outside the vocabulary is warned about, never refused.**
     //
@@ -281,6 +291,31 @@ export const COMMANDS = {
         if (seen.count + 1 >= 3) {
           out('    Three of a kind means the guard is missing, not the care.');
         }
+      }
+    }
+
+    // **Parity build for lucky-mem's M12 (BAUPLAN-mem-admin_02.md §0
+    // rule 2): the error brings its test scaffold with it.** With an
+    // explicit `--file`, `test/error-<id>.test.mjs` lands right here —
+    // marker, three sections, all `test.todo` with a reason. Empty
+    // counts neither as a passing test nor as F4 evidence
+    // (`probescaffold.isEmpty`, read by `memory.dutyHasEvidence`).
+    // `--without-scaffold` turns it off. A failure here must never stop
+    // the log itself.
+    if (type === 'error' && !withoutScaffold) {
+      try {
+        const s = probescaffold.lay(root, entry);
+        if (s.created) {
+          out('');
+          out(`  Test scaffold laid down: ${s.path} (// error: ${entry.id})`);
+          out('    Sabotage / positive control / red on the old stand — still empty');
+          out('    (todo), counts as evidence only once filled and `// scaffold: empty`');
+          out('    is deleted.');
+        } else if (s.path) {
+          out(`  Test scaffold ${s.path}: ${s.why}.`);
+        }
+      } catch (e) {
+        warn(`Test scaffold not laid down: ${e.message}`);
       }
     }
 
