@@ -178,7 +178,11 @@ test('SOURCE PROBE: the classification comes from the code, not from memory', ()
   // wrote. The day the probe starts leaving its file behind, this test
   // fails rather than waving it through.
   const EXCEPTED_WRITES = new Map([
-    ['search.loadIndex', {
+    // **Since M18b (2026-09-27):** `loadIndex` became a thin wrapper that
+    // attaches the language bridges (read-only); the cache load and its
+    // write moved unchanged into `loadIndexCached`. The exception follows
+    // the write to where it now lives, with the same claim.
+    ['search.loadIndexCached', {
       why: 'rebuildable cache, carries no caller byte',
       // A cache write is still a write: it must be visible as one.
       //
