@@ -49,6 +49,7 @@ directory. The section number in brackets is where it is explained.
 | `agents.mjs` | registered agents: who exists, what each is for |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
+| `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); not yet wired into `getEntryFast()` |
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number (10.18) |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
