@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/query-independence.mjs — does the query change the STATE?
 // The same log, six queries that hit different subsets. Every query must
 // agree about which claims are active, superseded and disputed; only the

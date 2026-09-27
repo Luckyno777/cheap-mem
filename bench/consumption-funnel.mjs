@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/consumption-funnel.mjs — what gets produced, next to what arrives.
 //
 // A measuring instrument, not a feature. It changes nothing and writes

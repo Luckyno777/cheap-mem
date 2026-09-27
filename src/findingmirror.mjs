@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/findingmirror.mjs — which doctor findings does this house know,
 // and which does the other one not.
 //

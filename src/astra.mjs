@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra — the workspace, as Lucky and ChatGPT drew it.
 //
 // **What this file is.** The desk's presentation layer, rebuilt to the

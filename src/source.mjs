@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * Sources — pointers at knowledge that already exists, indexed rather
  * than copied.

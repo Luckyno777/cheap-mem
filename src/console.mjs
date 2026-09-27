@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // console.mjs — the console: see AND set, in one place.
 //
 // **What is different from the board.** `board.mjs` answers one

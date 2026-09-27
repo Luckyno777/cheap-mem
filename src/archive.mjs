@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // archive.mjs — the raw capture does NOT live in the repository.
 //
 // **Why this exists.** Reported on 2026-09-08 from a Windows install:

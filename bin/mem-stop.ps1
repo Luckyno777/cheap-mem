@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-stop.ps1 - native Windows port of bin/mem-stop, the ONE
 # environment-independent Stop hook.
 #

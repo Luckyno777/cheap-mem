@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path';
 import { buildIndex, search } from '../src/search.mjs';
 const j=(o)=>JSON.stringify(o)+'\n';

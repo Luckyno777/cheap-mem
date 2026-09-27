@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra/set — the settings tab: settings forms, setup steps, connection
 // doors, and the raw-capture review table.
 //

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/byzantine.mjs — the writer who breaks no rule.
 //
 // Every defence built so far stops a writer who VIOLATES something:

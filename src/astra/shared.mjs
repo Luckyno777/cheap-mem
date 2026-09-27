@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra/shared — what every view of the workspace needs and none of
 // them owns: escaping, the study's palette, state-to-colour, the rail's
 // glyphs, and the one number that says how many rows a list draws.

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra/net — the links tab: the declared-only drawer matrix.
 //
 // Split out of `astra.mjs` (dashboard block D2-D8: one view per module).

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/cache-attack.mjs — can an unsigned local cache decide meaning?
 // Measured 2026-09-05: yes, in BOTH directions, until state moved to the
 // log. Stripping `retired` from .mem/search-index.json served a disputed

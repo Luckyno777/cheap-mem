@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/invariants.mjs — what one house learned, and whether the other knows.
 //
 // A measuring instrument, not a feature. It changes nothing and writes

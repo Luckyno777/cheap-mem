@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * bench/coverage-floor-sweep.mjs — measures cheap-mem's COVERAGE_FLOOR
  * (`src/search.mjs`) on an honest corpus instead of the distorted one it

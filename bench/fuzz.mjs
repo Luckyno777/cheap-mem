@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/fuzz.mjs — malformed input against every parser.
 //
 // Looking for: crashes, hangs, unbounded memory, and — the one that

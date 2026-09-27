@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/selectivity.mjs — is the bottleneck the scan, or the candidate set?
 // Measured 2026-09-05: rare-term candidate generation scores 3x-1038x fewer
 // documents with identical top-10 in 8 of 8 queries. See

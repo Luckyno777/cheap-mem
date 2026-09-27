@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * errorcontext — F1 (BAUPLAN-mem-admin_02.md, Block F, ported as F4):
  * what appears IN ADDITION to its own line when an error is logged.

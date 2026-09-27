@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // Does a STRUCTURAL hop surface history that word retrieval misses?
 //
 // **The question this exists to settle**, before anything is built on

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // viewer.mjs — the "rummage through the memory" view.
 //
 // A memory nobody can look at is a memory nobody trusts. People want to

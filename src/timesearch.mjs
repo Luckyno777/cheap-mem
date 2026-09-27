@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/timesearch.mjs — retrieval by time window (no model).
 //
 // Digested entries carry `ts`; raw captures carry a per-line `timestamp`. So

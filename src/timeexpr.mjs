@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/timeexpr.mjs — natural language → time window.
 //
 // So retrieval triggers on language, not on a typed command: if a query names

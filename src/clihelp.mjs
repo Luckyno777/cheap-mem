@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/clihelp.mjs — does the CLI's own help describe the CLI it has?
 //
 // **The finding (2026-09-17).** `bin/mem`'s no-argument help is a

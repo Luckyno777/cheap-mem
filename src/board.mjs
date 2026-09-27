@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // board.mjs — the operating state at a glance.
 //
 // **Why this is needed even though there is a viewer.** The viewer shows

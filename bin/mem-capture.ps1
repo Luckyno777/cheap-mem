@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-capture.ps1 - native Windows port of bin/mem-capture.
 #
 # Lane 1: the Stop hook. Copies the new part of the session transcript

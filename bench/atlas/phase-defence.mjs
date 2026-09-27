@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-defence.mjs — three defences, turned into three numbers.
 //
 // **What this phase is and is not.** Every probe below is a test stand

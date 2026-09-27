@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/alias-fragmentation.mjs — does THIS corpus need an entity layer?
 //
 // An instrument, not a feature. It changes nothing and writes nothing.

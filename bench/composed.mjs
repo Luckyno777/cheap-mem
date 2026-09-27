@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/composed.mjs — the rules are correct one at a time. Together?
 //
 // Every fundamental bug in this project was a COMPOSITION failure: each

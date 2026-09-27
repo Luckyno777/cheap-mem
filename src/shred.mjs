@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/shred.mjs — crypto-shredding: per-entry body encryption plus a
 // small, NOT append-only keyring, built for P14 of the 2026-09-20
 // build plan ("Append-only against a duty to delete").

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-robust.mjs — broken state, concurrent writers, resources.
 //
 // **The question this phase asks.** Not "does the memory work", which the

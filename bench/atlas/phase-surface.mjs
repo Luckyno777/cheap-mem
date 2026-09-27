@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-surface.mjs — every command, actually executed.
 //
 // **Why this phase exists.** cheap-mem has sixty top-level commands and,

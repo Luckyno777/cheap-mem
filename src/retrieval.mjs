@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/retrieval.mjs — the gateway. Structured claims out, never prose.
 //
 // Named in the round-two audit as the single change with the largest

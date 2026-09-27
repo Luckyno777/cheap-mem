@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/indexcache.mjs — the search index cache, as shards, never as one string.
 //
 // **The wall (measured, P9 of the 2026-09-20 build plan).** The old cache

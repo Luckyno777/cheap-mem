@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # session-start.sh — Claude Code SessionStart hook.
 #
 # Copy to ~/.claude/hooks/session-start.sh and register in

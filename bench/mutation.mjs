@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/mutation.mjs — are the guarantees ENFORCED, or only documented?
 //
 // A test suite that passes proves the tests pass. It does not prove the

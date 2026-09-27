@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/redteam.mjs — the attack scenarios from the 2026-09-05 audit brief,
 // run against the real code. Three of seven failed; see
 // docs/architecture-audit-2026-09-05.md section 4.

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // bench/atlas/phase-real.mjs — the same measurements, against a memory
 // nobody generated.
 //

@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-reflect.ps1 - native Windows PowerShell port of bin/mem-reflect.
 #
 # Stop-Hook style reflector: reads the session transcript and, throttled

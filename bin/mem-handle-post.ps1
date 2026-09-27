@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-handle-post.ps1 - Windows PowerShell port of bin/mem-handle-post.
 #
 # Default handler run by mem-watch.ps1 when new inbox mail arrives.

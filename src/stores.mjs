@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // stores.mjs — the usual places people keep files, found by name.
 //
 // **Why this is not just "it's a path".** When the archive was built I

@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * The injection journal — what the retrieval hook actually put into a
  * turn, and what it did NOT put there.

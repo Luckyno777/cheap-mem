@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // astra/space — the knowledge space tab (the 3D-ish canvas stage's HTML
 // shell; the drawing itself lives in astra.mjs's SCRIPT template, which
 // is shared browser-side code and stays there).

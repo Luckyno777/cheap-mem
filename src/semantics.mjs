@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/semantics.mjs — which rules produced this state.
 //
 // The question (§5 of the final audit): if the conflict or authority rules

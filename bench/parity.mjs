@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * Parity counter (mem-admin_02 L5): how many commits since the cutoff
  * carry `Parity: lm=yes|no|open`? Turns "both houses always kept level"

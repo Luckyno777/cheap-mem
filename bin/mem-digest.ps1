@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
 # mem-digest.ps1 - native Windows port of bin/mem-digest.
 #
 # Lane 2: the one model call. Runs on a Scheduled Task, checks whether

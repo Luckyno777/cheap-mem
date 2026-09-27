@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/guard.mjs — a recorded error becomes a latch.
 //
 // **The finding (2026-09-08, reference deployment).** 289 classified
