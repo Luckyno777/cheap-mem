@@ -42,7 +42,7 @@ export const COMMANDS = {
     // --help`, `.mem/config.json` existed afterwards.
     if (isHelp(args)) {
       out([
-        'mem init [--force] [--participants a,b,c] [--branch main] [--remote origin]',
+        'mem init [--force] [--participants a,b,c] [--human name] [--branch main] [--remote origin]',
         '',
         '  Creates .mem/config.json plus the log skeleton (global/, projects/,',
         '  inbox/, raw/), the merge driver and the memory .gitignore.',
@@ -52,11 +52,14 @@ export const COMMANDS = {
         '  --force overwrites the config outright.',
         '',
         '  --participants  comma-separated names (default from cfgmod.DEFAULT_CONFIG)',
+        '  --human         which of --participants is the human (default: the first)',
+        '                  — writes that one\'s "human": true; ignored without',
+        '                  --participants, where the default config already marks it',
         '  --branch/--remote  defaults used by `mem inbox watch`',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['force', 'participants', 'branch', 'remote'], 'init');
+    checkFlags(args, ['force', 'participants', 'human', 'branch', 'remote'], 'init');
     // `mem --root X init` and `mem init --root X` must mean the same
     // thing. The pre-scan strips a LEADING --root out of argv and puts
     // it in the environment, so args.root is empty in that form — and
@@ -101,10 +104,23 @@ export const COMMANDS = {
     }
     let participants = cfgmod.DEFAULT_CONFIG.participants;
     if (args.participants && typeof args.participants === 'string') {
-      participants = {};
-      for (const p of args.participants.split(',').map((s) => s.trim()).filter(Boolean)) {
-        participants[p] = `(role: ${p})`;
+      const names = args.participants.split(',').map((s) => s.trim()).filter(Boolean);
+      // Someone has to be human, or the desk's inbox and P1b's reply
+      // form come up honestly "not configured" (see `humanParticipant()`
+      // in `src/config.mjs`) — the same design rule 3 problem this
+      // command used to cause silently: a custom `--participants` list
+      // never marked ANY of them human. Default to the first name given;
+      // `--human` names a different one.
+      const humanName = (typeof args.human === 'string' && args.human.trim()) || names[0];
+      if (humanName && !names.includes(humanName)) {
+        die(`--human '${humanName}' is not one of --participants (${names.join(', ')})`);
       }
+      participants = {};
+      for (const p of names) {
+        participants[p] = p === humanName ? { role: `(role: ${p})`, human: true } : `(role: ${p})`;
+      }
+    } else if (typeof args.human === 'string' && args.human.trim()) {
+      die('--human needs --participants — the default participants already mark one human');
     }
     const cfg = {
       ...cfgmod.DEFAULT_CONFIG,

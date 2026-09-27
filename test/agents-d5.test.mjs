@@ -39,7 +39,7 @@ function root() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-d5-'));
   cfgmod.writeConfig(r, {
     version: 1,
-    participants: { user: 'The human.', session: 'A session.' },
+    participants: { user: { role: 'The human.', human: true }, session: 'A session.' },
     language: 'en',
   });
   return r;
@@ -329,13 +329,54 @@ test('humanInbox: shows what is addressed to the configured human participant, n
   } finally { rm(r); }
 });
 
-test('humanInbox: honestly unreadable when the memory renamed away from "user"', () => {
+test('humanInbox: honestly unreadable when no participant is marked "human": true', () => {
   const r = root();
   try {
+    // Old-shape, plain-string participants — none of them carries the
+    // `human` marker, so nobody is guessed to be the human either.
     cfgmod.writeConfig(r, { version: 1, participants: { owner: 'The human.' }, language: 'en' });
     const data = dashboard.collect(r, { now: NOW });
     assert.equal(data.humanInbox.readable, false);
-    assert.match(data.humanInbox.reason, /'user'/);
+    assert.match(data.humanInbox.reason, /"human": true/);
+  } finally { rm(r); }
+});
+
+test('humanInbox: a renamed human still works once "human": true moves with it (the D5/P1b fix)', () => {
+  // This is the exact defect report: `dashboard.HUMAN_PARTICIPANT` used
+  // to hardcode 'user', so renaming the human's key silently broke the
+  // tray and the reply form. Now the mark travels with the rename.
+  const r = root();
+  try {
+    cfgmod.writeConfig(r, {
+      version: 1,
+      participants: { lucky: { role: 'The human, renamed.', human: true }, session: 'A session.' },
+      language: 'en',
+    });
+    const cfg = cfgmod.readConfig(r);
+    inbox.write(r, cfg.participants, { from: 'session', to: 'lucky', subject: 'hi', text: 'x', now: NOW });
+    const data = dashboard.collect(r, { now: NOW });
+    assert.equal(data.humanInbox.readable, true);
+    assert.equal(data.humanInbox.who, 'lucky');
+    assert.deepEqual(data.humanInbox.messages.map((m) => m.subject), ['hi']);
+  } finally { rm(r); }
+});
+
+test('humanInbox: two participants marked human is refused, not guessed at', () => {
+  const r = root();
+  try {
+    cfgmod.writeConfig(r, {
+      version: 1,
+      participants: {
+        user: { role: 'The human.', human: true },
+        lucky: { role: 'Also marked, by mistake.', human: true },
+      },
+      language: 'en',
+    });
+    const data = dashboard.collect(r, { now: NOW });
+    assert.equal(data.humanInbox.readable, false);
+    assert.match(data.humanInbox.reason, /2 participants/);
+    assert.match(data.humanInbox.reason, /user/);
+    assert.match(data.humanInbox.reason, /lucky/);
   } finally { rm(r); }
 });
 

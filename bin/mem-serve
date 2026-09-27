@@ -231,10 +231,12 @@ export function buildHandler(root, cfg, env = process.env) {
     // The same write `mem inbox write` makes: `inbox.reply()` reads the
     // original, turns its header around and calls `inbox.write()` — no
     // second message format. The form sends only the message NAME and
-    // the text; who answers is the desk's human participant
-    // (`dashboard.HUMAN_PARTICIPANT`, a key of `.mem/config.json`'s
-    // `participants`), and the recipient is read from the original file.
-    // A message not addressed to that participant is refused (400).
+    // the text; who answers is the desk's human participant — the one
+    // `memConfig.humanParticipant()` finds marked `"human": true` in
+    // `.mem/config.json`'s `participants`, never a hardcoded key — and
+    // the recipient is read from the original file. A message not
+    // addressed to that participant is refused (400); a memory with no
+    // human marked (or more than one) is refused (400) with the reason.
     // Nothing is committed or pushed, exactly like the CLI.
     if (url.pathname === '/inbox/reply') {
       if (req.method !== 'POST') {
@@ -261,8 +263,10 @@ export function buildHandler(root, cfg, env = process.env) {
         if (!text.trim()) { short(res, 400, 'Empty reply — nothing written.'); return; }
         try {
           const { participants } = memConfig.readConfig(root);
+          const { name: humanName, reason } = memConfig.humanParticipant(participants);
+          if (!humanName) { short(res, 400, reason); return; }
           inbox.reply(root, participants, {
-            name: form.get('name') ?? '', as: dashboard.HUMAN_PARTICIPANT, text,
+            name: form.get('name') ?? '', as: humanName, text,
           });
         } catch (e) {
           short(res, 400, e?.message || String(e));

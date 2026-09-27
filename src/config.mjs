@@ -10,6 +10,14 @@
  * Three states, never two: no config, malformed config, valid config.
  * A missing config is a friendly error with a hint to run `mem init`,
  * not a silent default that lies later.
+ *
+ * **A participant's value** is either a plain string (a role
+ * description only — the original, still-supported shape) or an
+ * object `{ role, human }`. `human: true` is the ONLY way a
+ * participant is the memory's human — nothing here ever assumes a
+ * key named `user` means "the human" (that was the bug: renaming the
+ * key silently broke the desk's inbox and P1b's reply form). See
+ * `humanParticipant()` below, the single place that decision is made.
  */
 
 import fs from 'node:fs';
@@ -22,7 +30,7 @@ export const CONFIG_FILE = 'config.json';
 export const DEFAULT_CONFIG = Object.freeze({
   version: 1,
   participants: {
-    user: 'The human. Messages here are questions for them.',
+    user: { role: 'The human. Messages here are questions for them.', human: true },
     session: 'Any AI coding session (Claude, Cursor, ChatGPT, ...) working for the user.',
     librarian: 'The permanent curator session running locally.',
   },
@@ -30,6 +38,52 @@ export const DEFAULT_CONFIG = Object.freeze({
   defaultRemote: 'origin',
   language: 'en',
 });
+
+/** The role text of a participant, whichever shape its value has. */
+export function roleOf(value) {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object' && typeof value.role === 'string') return value.role;
+  return '';
+}
+
+/** True only for the object shape with `human: true` — never guessed from a name. */
+export function isHuman(value) {
+  return Boolean(value) && typeof value === 'object' && value.human === true;
+}
+
+/**
+ * Which configured participant is the memory's human — the one thing
+ * `src/dashboard.mjs`'s desk and P1b's `/inbox/reply` both need and
+ * neither may hardcode (design rule 3: no participant names in `src/`).
+ *
+ * Three honest outcomes, never a silent guess:
+ *   - `{ name, reason: null }`       exactly one participant is marked.
+ *   - `{ name: null, reason }`       none is marked (a fresh legacy
+ *                                    config, or one that renamed its
+ *                                    human away without moving the
+ *                                    mark) — `reason` says so, by name.
+ *   - `{ name: null, reason }`       MORE than one is marked — refused
+ *                                    rather than picking either.
+ */
+export function humanParticipant(participants) {
+  if (!participants || typeof participants !== 'object') {
+    return { name: null, reason: 'no memory config here' };
+  }
+  const marked = Object.keys(participants).filter((name) => isHuman(participants[name]));
+  if (marked.length === 1) return { name: marked[0], reason: null };
+  if (marked.length > 1) {
+    return {
+      name: null,
+      reason: `${marked.length} participants are marked "human": true (${marked.join(', ')}) — `
+        + 'exactly one must be',
+    };
+  }
+  return {
+    name: null,
+    reason: 'no participant is marked "human": true in .mem/config.json — '
+      + 'add it to the one that is you',
+  };
+}
 
 export function configPath(root) {
   return path.join(root, CONFIG_DIR, CONFIG_FILE);

@@ -298,6 +298,70 @@ test('a path instead of a name, an unknown name and an empty text are refused, n
 });
 
 // ---------------------------------------------------------------------------
+// 4. Who "the human" is comes from `.mem/config.json`, never a hardcoded
+//    key. `dashboard.HUMAN_PARTICIPANT` used to be the literal string
+//    'user'; renaming that key silently turned the tray and this very
+//    route into "not configured". Now it is whichever participant
+//    carries `"human": true`, wherever that key is named.
+// ---------------------------------------------------------------------------
+
+/** A memory whose human participant is renamed away from `user`. */
+function renamedHumanMemory({ allowWrites } = {}) {
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-reply-renamed-'));
+  const init = mem(['init', '--root', r, '--participants', 'lucky,session', '--human', 'lucky']);
+  assert.equal(init.status, 0, init.stderr);
+  if (allowWrites !== undefined) {
+    const file = path.join(r, '.mem', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(file, 'utf8'));
+    cfg.dashboard = { allowWrites };
+    fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`);
+  }
+  return r;
+}
+
+test('POSITIVE: a renamed human ("lucky", "human": true) gets a working tray and reply form', async () => {
+  const r = renamedHumanMemory({ allowWrites: true });
+  const name = send(r, { as: 'session', to: 'lucky', subject: 'ping', text: 'are you there?' });
+  const s = await start(r);
+  try {
+    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
+    assert.match(page, /lucky's inbox/, 'the tray does not name the renamed human');
+    const before = inboxFiles(r);
+    const res = await reply(s, { name, text: 'yes, renamed and still working' });
+    assert.equal(res.status, 303, await res.text());
+    const added = inboxFiles(r).filter((n) => !before.includes(n));
+    assert.equal(added.length, 1);
+    const content = fs.readFileSync(path.join(r, 'inbox', added[0]), 'utf8');
+    assert.match(content, /^From: lucky\nTo: session\n/);
+  } finally { await s.stop(); gone(r); }
+});
+
+test('a memory with no participant marked "human": true refuses the reply honestly (400), not as "user"', async () => {
+  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-reply-nohuman-'));
+  fs.mkdirSync(path.join(r, 'inbox'), { recursive: true });
+  fs.mkdirSync(path.join(r, 'global'), { recursive: true });
+  const file = path.join(r, '.mem', 'config.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  // Both participants exist (old, plain-string shape), neither is
+  // marked human, and there is no 'user' key at all — the old hardcode
+  // would already have refused this, but for the wrong reason (missing
+  // key, not missing mark).
+  fs.writeFileSync(file, `${JSON.stringify({
+    version: 1, participants: { alice: 'a person', bob: 'another' },
+    dashboard: { allowWrites: true },
+  }, null, 2)}\n`);
+  const name = send(r, { as: 'alice', to: 'bob', subject: 'ping', text: 'x' });
+  const s = await start(r);
+  try {
+    const before = snapshot(r);
+    const res = await reply(s, { name, text: 'y' });
+    assert.equal(res.status, 400);
+    assert.match(await res.text(), /"human": true/);
+    assert.deepEqual(snapshot(r), before);
+  } finally { await s.stop(); gone(r); }
+});
+
+// ---------------------------------------------------------------------------
 // The page: a form under each message, disabled with a note when off
 // ---------------------------------------------------------------------------
 
