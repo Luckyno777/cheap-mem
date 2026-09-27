@@ -68,6 +68,7 @@ directory. The section number in brackets is where it is explained.
 | `dashboard.mjs` | the workspace's DATA layer: one pass, seven views' worth of numbers (7.5) |
 | `astra.mjs` | the workspace's PAGE: sidebar, knowledge space, no second data source (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
+| `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
@@ -115,6 +116,7 @@ directory. The section number in brackets is where it is explained.
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
+| `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
@@ -498,7 +500,7 @@ viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
-asked-learn
+asked-learn effect
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
