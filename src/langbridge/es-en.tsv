@@ -1,0 +1,73 @@
+# Language bridge Spanish (asked) -> English (written). Read by src/langbridge.mjs,
+# switched on per memory with .mem/config.json "languageBridges": ["es-en"].
+#
+# Per line: asked forms <TAB> written forms <TAB> evidence. Forms comma-separated.
+# Spanish has no stemming pack here: accents are stripped, and every form to match is listed.
+# A written column of "-" makes the asked words query-only stop words.
+#
+# Core terms only, and every line names why it is core (test/langbridge.test.mjs checks it):
+#   type:<t>        the written word is a cheap-mem entry type (src/memory.mjs TYPES)
+#   field:<f>       the written word is a ranked field (src/search.mjs FIELD_WEIGHTS)
+#   thesaurus:<w>   the written word sits in a curated group of src/thesaurus.mjs
+#   stop:query      a question word of the asked language, dropped from the query only
+#
+# NOT here: loanwords spelled the same in both languages once accents are stripped
+# (error, decision, cache, test - they match as typed), and Spanish function words that
+# are also English words (son, sin, era, con, hay, me). Everything else a memory needs
+# is learned from its own misses (src/askedlearn.mjs), not guessed here.
+fallo,fallos,falla,fallas,defecto,defectos,averia,roto,rota	error,failure,bug,broken	thesaurus:error
+intermitente,esporadico,inestable	flaky,intermittent,unstable	thesaurus:flake
+bloqueado,colgado,atascado,congelado	stuck,hang,blocked,frozen	thesaurus:timeout
+caida,cayo,caido,murio,colapso	crash,died	thesaurus:crash
+fuga,fugas	leak	thesaurus:leak
+carrera,concurrencia,concurrente	race,concurrent	thesaurus:race
+regresion	regression	thesaurus:regression
+iniciar,inicio,arrancar,arranque	start,startup	thesaurus:start
+detener,parar,apagar	stop,shutdown	thesaurus:stop
+reiniciar,reinicio,reinicia	restart,reboot	thesaurus:restart
+terminado,completado,acabado	done,finished,completed	thesaurus:done
+abierto,pendiente,pendientes	open,pending	thesaurus:open
+esperando,espera	waiting	thesaurus:waiting
+compilar,compilacion	build,compile	thesaurus:build
+desplegar,despliegue,despliegues,lanzamiento	deploy,release	thesaurus:deploy
+prueba,pruebas,verificar,comprobar	test,check,verify	thesaurus:test
+fusionar,fusion	merge	thesaurus:merge
+rama,ramas	branch	thesaurus:branch
+revertir,deshacer	rollback,revert	thesaurus:rollback
+lento,lenta,lentitud,retraso	slow,latency,delay	thesaurus:slow
+rapido,rapida,rapidos,rapidas	fast,quick	thesaurus:fast
+memoria	memory,ram	thesaurus:ram
+secreto,secretos,credenciales,contrasena,contrasenas,clave	secret,password,credential	thesaurus:secret
+autenticacion,autenticar	auth,login	thesaurus:auth
+permiso,permisos,acceso	permission,access	thesaurus:permission
+almacenamiento,guardar	storage,store	thesaurus:database
+consulta,consultas,busqueda,buscar	query,search	thesaurus:query
+indice,indices	index	thesaurus:index
+migracion	migration	thesaurus:migration
+decidimos,elegimos,elegir,eleccion,escogimos	decision,chose,choice	thesaurus:decision
+razon,motivo	reason,why	thesaurus:because
+equilibrio	tradeoff	thesaurus:tradeoff
+recordar,recuerdo	remember,recall	thesaurus:memory
+registro,registros,transcripcion	log,capture,transcript	thesaurus:log
+resumir,resumen	digest,summarize	thesaurus:digest
+deber,deberes,obligacion,promesa	duty,obligation	thesaurus:duty
+aprendizaje,leccion,aprendimos	learning,lesson	thesaurus:learning
+evento,eventos,suceso	event	type:event
+pensamiento	thought	type:thought
+cronologia	timeline	type:timeline
+pregunta,preguntas	question	type:question
+habilidad,destreza	skill	type:skill
+procedimiento	procedure	type:procedure
+fuente,fuentes	source	type:source
+actualizacion,actualizar,actualizamos	update	type:update
+enlace,enlaces,vinculo	link	type:link
+titulo	title	field:title
+tema,temas	topic	field:topic
+clase	class	field:class
+rechazado,descartado	rejected	field:rejected
+regla,reglas	rule	field:rule
+descripcion	description	field:description
+extracto	excerpt	field:excerpt
+el,la,los,las,un,una,unos,unas,de,del,al,lo,y,o,u,en,que,se,su,sus	-	stop:query
+por,para,como,donde,cuando,cual,cuales,quien,quienes,cuanto,cuanta,porque,pero,sobre	-	stop:query
+mi,mis,nuestro,nuestra,nuestros,nuestras,es,fue,fueron,estaba,estuvo,ha,han,muy,mas,ya,nos,le,les	-	stop:query

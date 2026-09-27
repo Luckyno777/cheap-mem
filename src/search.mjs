@@ -26,6 +26,7 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as thesaurus from './thesaurus.mjs';
+import * as langbridge from './langbridge.mjs';
 import * as entity from './entity.mjs';
 import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
@@ -377,6 +378,10 @@ export function tokenizeGroupsPacked(text, { lexicons = new Map(), langs } = {})
       for (const f of forms) out.push(...wordForms(f, lang, lexicons.get(lang.name) ?? null));
       if (out.length) perPack.push(out);
     }
+    // The typed word itself rides along (M18b): the language bridge is
+    // looked up by what was TYPED, in the asked language's own rules,
+    // not by any pack's stem of it.
+    perPack.word = w;
     if (perPack.length) groups.push(perPack);
   }
   return groups;
@@ -1129,6 +1134,11 @@ export function search(index, query, {
   // exactly as it always did. No caller in this codebase passes this yet
   // — wiring one is a separate change.
   capability = null,
+  // OPTIONAL (M18b). The switched-on language bridges
+  // (src/langbridge.mjs). `undefined` means "whatever the index carries"
+  // — `loadIndex` attaches the memory's configured pairs — and `null`
+  // switches them off for this one call.
+  bridge = undefined,
   // OPTIONAL, defaults to the real clock. The recency bonus below reads
   // wall-clock "now" to age every document against, exactly like every
   // OTHER module here that has a recency-shaped calculation
@@ -1199,6 +1209,11 @@ export function search(index, query, {
   // used to. See `tokenizeGroupsMulti` for how one typed word still
   // counts as one word: the extra pack adds FORMS to try, not extra
   // groups for `coverage` to divide by.
+  // M18b: the asked language's question words go before tokenising —
+  // only in the query, never in the index. Nothing switched on, nothing
+  // changes.
+  const bridges = bridge === undefined ? (index.bridge ?? null) : bridge;
+  if (bridges) query = langbridge.stripQueryStops(bridges, query);
   const queryPacks = language ? [pack(language)] : DETECTABLE_PACKS;
   const queryLexicons = index.lexicons
     ?? (index.lexicon ? new Map([[index.language, index.lexicon]]) : new Map());
@@ -1228,6 +1243,20 @@ export function search(index, query, {
     const stemmed = pack('en').stem(pack('en').normalize(syn));
     if (ownSet.has(stemmed)) continue;   // the original beats the expansion
     terms.set(stemmed, g);
+  }
+  // M18b: the language bridge, per typed word, asked language → written
+  // language. Last, so neither an original nor a thesaurus word is
+  // overwritten — only a weaker graph term is raised to the bridge
+  // weight. The group remembers its bridged terms for coverage below.
+  if (bridges) {
+    for (const packVariants of groups) {
+      const over = langbridge.lookup(bridges, packVariants.word).filter((t) => !ownSet.has(t));
+      if (!over.length) continue;
+      packVariants.bridged = over;
+      for (const t of over) {
+        if ((terms.get(t) ?? 0) < langbridge.BRIDGE_WEIGHT) terms.set(t, langbridge.BRIDGE_WEIGHT);
+      }
+    }
   }
 
   const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired, capability };
@@ -1286,6 +1315,10 @@ export function search(index, query, {
       let covered = 0;
       for (const packVariants of groups) {
         if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) covered += 1;
+        // M18b: a bridged word covers HALF — a translation is a guess
+        // about the typed word, not the word itself (lucky-mem M18
+        // measured full coverage: same hit rate, more risk).
+        else if (packVariants.bridged?.some((t) => doc.weights.has(t))) covered += 0.5;
       }
       // **The floor (2026-09-20).** Until this day the line read
       //
@@ -1885,7 +1918,25 @@ function reconcileRetired(root, index) {
   return index;
 }
 
-export function loadIndex(root, { fresh = false, language = 'en' } = {}) {
+export function loadIndex(root, opts = {}) {
+  const index = loadIndexCached(root, opts);
+  // M18b: the memory's switched-on language bridges ride on the loaded
+  // index — read fresh from the config on every load, never written to
+  // the cache, so switching a pair on or off needs no rebuild. An
+  // unknown pair name does NOT fail the load — the recall hook would
+  // then go silent, which is worse than no bridge — but it is not
+  // swallowed either: `bridgeError` carries it, and `mem find` says it.
+  try {
+    index.bridge = langbridge.loadBridges(root);
+    index.bridgeError = null;
+  } catch (e) {
+    index.bridge = null;
+    index.bridgeError = e.message;
+  }
+  return index;
+}
+
+function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
   const cacheDir = path.join(root, CACHE_DIR);
   const legacyCachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);

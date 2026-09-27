@@ -58,13 +58,17 @@ export const COMMANDS = {
         '             stage of a two-stage recall. Then: mem show <id>',
         '  --with-echo  keep hits that merely repeat the question (default: dropped)',
         '  --mmr-lambda F  0..1, higher = more relevance, lower = more diversity (default 0.7)',
+        '  --journal-session ID  book this question into the injection journal',
+        '             (.pipeline/injections.jsonl) for session ID: what cleared',
+        '             --journal-min, or why nothing did. The recall hooks pass it;',
+        '             `mem asked-learn` learns from the misses it books.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
       ].join('\n'));
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'with-echo'], 'find');
+      'content-words', 'with-echo', 'journal-session', 'journal-min'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -191,6 +195,7 @@ export const COMMANDS = {
     thesaurus.loadUserGroups(root, fs, path);
     const t0 = Date.now();
     const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
+    if (index.bridgeError) process.stderr.write(`mem find: language bridge off: ${index.bridgeError}\n`);
     const wanted = args.top ? Number(args.top) : 10;
     const withRetiredFlag = Boolean(args['with-retired']);
     // `--as-of` needs superseded candidates to survive to `heldThen`
@@ -304,6 +309,28 @@ export const COMMANDS = {
       ...filtered.filter((h) => !exactIds.has(h.entry?.id)).filter(heldThen)]
       .slice(0, wanted);
     const ms = Date.now() - t0;
+
+    // M18b: the recall hooks book every question they ask — the injected
+    // places, or why there were none. Until this flag nothing ever wrote
+    // the journal (src/injection.mjs had a closed vocabulary with
+    // `too-weak` and no production writer), so no miss was on record and
+    // nothing could be learned from one. Same bar as the hook applies:
+    // score at or over `--journal-min`, or an exact hit.
+    if (typeof args['journal-session'] === 'string' && args['journal-session']) {
+      const injection = await import('../../injection.mjs');
+      const min = Number(args['journal-min'] ?? 5);
+      const shown = hits.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length));
+      injection.book(root, {
+        session: args['journal-session'],
+        occasion: injection.OCCASION.QUESTION,
+        reason: shown.length ? null : (hits.length ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY),
+        bytes: null,
+        hits: shown.length,
+        searched: index.N,
+        sources: shown.map((h) => `${h.source}:${h.line}`),
+        questionBytes: Buffer.byteLength(String(query)),
+      });
+    }
 
     if (args.json) {
       // --brief is the first stage of a two-stage recall: id + a compact

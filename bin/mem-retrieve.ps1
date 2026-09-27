@@ -221,7 +221,12 @@ if ($SessionId) {
 # user's prompt into a single command line to win a cap is the trade
 # this hook must not make: the search is local BM25 over an in-memory
 # index, no model and no network.
-$Hits = (& node @MemArgv find $Prompt --top $Top --json 2>$null) -join "`n"
+# --journal-session books the question into .pipeline/injections.jsonl
+# with the same bar applied below - what was shown, or why nothing was.
+# A miss on record is what `mem asked-learn` learns query words from.
+$Journal = @()
+if ($SessionId) { $Journal = @('--journal-session', $SessionId, '--journal-min', $Min) }
+$Hits = (& node @MemArgv find $Prompt --top $Top --json @Journal 2>$null) -join "`n"
 if ($LASTEXITCODE -ne 0) { exit 0 }
 if (-not $Hits) { exit 0 }
 

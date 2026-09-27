@@ -1,0 +1,17 @@
+# Spanish questions against the English test corpus (bench/retrieval.mjs DOCS).
+# question <TAB> gold id <TAB> a second phrasing of the same need (for the learned-words arm)
+# Written before any bridge file existed, so the bridge could not be tuned to it.
+por qué elegimos postgres para la facturación	d-postgres	postgres o mongodb para la facturación
+el proceso se quedó sin memoria al importar un csv	e-oom	importación de un csv enorme se cayó
+un cliente pagó dos veces el mismo pedido	e-race	cobro doble tras dos clics rápidos
+el proveedor de pagos se cayó y no se podía pagar	ev-incident	cuánto tiempo estuvo caído el proveedor de pagos
+por qué se pierden las sesiones al reiniciar	e-session	los usuarios quedan desconectados en cada despliegue
+el enlace para restablecer la contraseña seguía siendo válido	e-reset	un enlace viejo para restablecer tomó una cuenta
+errores de redondeo en facturas divididas	e-rounding	falta un céntimo en las facturas divididas
+la lista de pedidos tardaba nueve segundos	e-index	por qué la lista de pedidos carga tan lenta
+un certificado caducado tumbó el sitio	e-tls	el sitio cayó el domingo por el certificado
+las tareas programadas se ejecutaron dos veces con el cambio de hora	e-clock	el cambio de hora duplicó las tareas
+dónde están las traducciones	d-i18n	una traducción que falta debe romper la compilación
+por qué borramos las alertas	d-alerts	alertas que nadie atendía
+una copia de seguridad que nunca se restauró	l-backup	alguna vez restauramos la copia de seguridad
+el disco se llenó con los registros	e-disk	el servidor se quedó sin espacio por los registros

@@ -43,6 +43,14 @@
     {
       "pattern": "test/english-dictionary.mjs",
       "reason": "the guard's own recognition dictionary — German function words listed as DATA so the probe can find them in prose, not prose itself"
+    },
+    {
+      "pattern": "src/langbridge/*.tsv",
+      "reason": "language bridge dictionaries (M18b): the asked-language column IS German/Spanish by design, which is the whole point of a bridge from the user's language to the agents' English — data, not prose, same class as src/thesaurus.mjs"
+    },
+    {
+      "pattern": "bench/lang-gold/*.tsv",
+      "reason": "gold questions in the language the user asks in (M18b), the measurement input for bench/lang-bridge.mjs — translating them to English would remove the very thing measured"
     }
   ],
   "filenameGermanWords": [

@@ -91,7 +91,10 @@ export function buildLine({
     session: session || null,
     occasion: OCCASIONS.has(occasion) ? occasion : 'unknown',
     reason: reason == null ? null : (REASONS.has(reason) ? reason : 'unknown'),
-    bytes: Number.isFinite(bytes) ? Math.max(0, Math.round(bytes)) : 0,
+    // `null` = this writer cannot know what was injected (`mem find
+    // --journal-session` books the question; the hook renders the text
+    // afterwards). Not 0: an unmeasured occupancy must not read as none.
+    bytes: bytes === null ? null : (Number.isFinite(bytes) ? Math.max(0, Math.round(bytes)) : 0),
     hits: Number.isFinite(hits) ? Math.max(0, Math.round(hits)) : 0,
     // How many entries the index held at all. `null` means "not
     // recorded" — deliberately not 0, or an empty memory cannot be

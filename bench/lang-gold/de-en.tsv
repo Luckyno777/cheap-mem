@@ -1,0 +1,17 @@
+# German questions against the English test corpus (bench/retrieval.mjs DOCS).
+# question <TAB> gold id <TAB> a second phrasing of the same need (for the learned-words arm)
+# Written before any bridge file existed, so the bridge could not be tuned to it.
+warum haben wir postgres für die abrechnung genommen	d-postgres	wieso postgres statt mongodb bei der abrechnung
+der import einer riesigen csv datei ist abgestürzt	e-oom	speicher voll beim einlesen der csv datei
+ein kunde hat für eine bestellung zweimal bezahlt	e-race	doppelte abbuchung nach zwei schnellen klicks
+der zahlungsanbieter war weg und die kasse ging nicht	ev-incident	wie lange war die kasse wegen des zahlungsanbieters weg
+warum sind nach jedem neustart alle angemeldeten nutzer rausgeflogen	e-session	sitzungen verschwinden bei jedem neustart der schnittstelle
+der link zum zurücksetzen des passworts blieb gültig	e-reset	alter link zum zurücksetzen übernimmt ein konto
+rundungsfehler bei geteilten rechnungen	e-rounding	ein cent fehlt auf geteilten rechnungen
+die bestellliste brauchte neun sekunden zum laden	e-index	warum lädt die liste der bestellungen so lange
+ein abgelaufenes zertifikat hat die seite lahmgelegt	e-tls	seite am sonntag wegen zertifikat nicht erreichbar
+geplante aufgaben liefen bei der zeitumstellung zweimal	e-clock	zeitumstellung hat aufgaben doppelt ausgelöst
+wo liegen die übersetzungen	d-i18n	fehlende übersetzung soll den bau brechen
+warum haben wir alarme gelöscht	d-alerts	alarme auf die niemand reagiert hat
+eine sicherung die nie wiederhergestellt wurde	l-backup	haben wir die sicherung jemals wiederhergestellt
+die festplatte lief mit protokolldateien voll	e-disk	server hatte keinen platz mehr wegen protokollen
