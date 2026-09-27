@@ -124,6 +124,7 @@ directory. The section number in brackets is where it is explained.
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
 | `webauth.mjs` | the door in front of any HTTP service (7.4) |
+| `writegate.mjs` | the dashboard write switch: off by default, one check in front of every writing route (7.4) |
 
 Plus `src/embed/` — the optional embedding lane (provider, store,
 index), which is off unless configured.
