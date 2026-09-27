@@ -84,6 +84,7 @@ import * as component from '../src/component.mjs';
 import * as source from '../src/source.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
+import * as agentledger from '../src/agentledger.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -444,6 +445,19 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { stale_days: { type: 'number', description: 'Flag facts older than this (default 120)' } },
+    },
+  },
+  {
+    name: 'mem_ledger',
+    description:
+      'Counts jobs, not strengths: per agent kind/model, jobs, jobs usable on the '
+      + 'first try, follow-up jobs, and packages with a real git revert, from the job '
+      + 'journal (`event` entries tagged `job`). Below 20 jobs a group is always '
+      + '"unknown (n<20)" — call it before repeating a strength claim about an agent, '
+      + 'never to invent one. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: { json: { type: 'boolean', description: 'Return the structured result instead of the table' } },
     },
   },
   {
@@ -983,6 +997,10 @@ async function handleCall(name, args) {
         return `${f.key}  =  ${c.value ?? shortLine(c)}   (as of ${seit}`
           + `${f.stale ? ', STALE' : ''}${f.history?.length ? `, ${f.history.length} older` : ''})`;
       }).join('\n'));
+    }
+    case 'mem_ledger': {
+      const result = agentledger.ledger(root);
+      return textResult(args.json ? JSON.stringify(result, null, 2) : agentledger.reportText(result));
     }
     case 'mem_explain': {
       const cap = args.project

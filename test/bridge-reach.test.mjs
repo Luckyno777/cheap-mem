@@ -356,7 +356,7 @@ const TOOLS = [
   'mem_context', 'mem_duties', 'mem_duty_close', 'mem_experiences',
   'mem_explain', 'mem_facts', 'mem_find', 'mem_heartbeat',
   'mem_inbox_ack', 'mem_inbox_new', 'mem_inbox_show', 'mem_inbox_write',
-  'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
+  'mem_ledger', 'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
   'mem_questions', 'mem_retrieve', 'mem_show', 'mem_source',
   'mem_store_get', 'mem_store_list', 'mem_store_put', 'mem_topics',
   'mem_user_habits',
