@@ -232,7 +232,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   capturedAt: '2026-09-27',
   source: 'lucky-mem/src/doktor.mjs',
   names: Object.freeze([
-    'abrufquote', 'altlast', 'anhang', 'ansicht', 'archiv-haltbar',
+    'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'bauweise', 'befund-gleichstand',
     'behauptung-ohne-beleg', 'bestand', 'briefkasten', 'bruecke',
