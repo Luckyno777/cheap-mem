@@ -22,7 +22,7 @@
 //    write gate — really deleting, really refusing.
 //
 // invariant: vier-zustaende-eigener-ton
-// invariant: unbekannt-ist-nicht-null
+// invariant: nicht-messbar-ist-nicht-null
 // invariant: kein-cors-kopf
 // invariant: host-riegel-lesewege
 import test from 'node:test';

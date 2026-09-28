@@ -8,7 +8,7 @@
 // piece of information and every function the old UI had has a real
 // place in the dashboard. This file is that proof, in the same shape as
 // the sibling's own completeness test (each house tests the same
-// invariant in its own language — shared/invariants.jsonl,
+// rule in its own language — shared/invariants.jsonl,
 // "dashboard-vollstaendig").
 //
 // **How it checks.** One memory with real entries (several types, a
