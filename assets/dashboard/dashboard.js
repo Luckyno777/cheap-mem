@@ -155,6 +155,13 @@ const link = (text, to) => `<button class="textlink" data-route="${to}">${text} 
 const open = (id, text, cls = 'btn small') => `<button class="${cls}" data-entry="${esc(id)}">${esc(text || byId(id)?.title || id)}</button>`;
 const panel = (title, body, sub = '', extra = '') =>
   `<article class="panel pad ${extra}"><div class="panelhead"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>${body}</article>`;
+// Machine reasons from the server turned into a sentence with the remedy
+// (dash-fix4: "foreign-host" alone told nobody anything on a phone).
+function reasonPlain(r) {
+  if (!r) return 'unknown';
+  if (r === 'foreign-host') return 'foreign-host — the server does not know this host name. On the host: add it to CHEAP_MEM_SERVE_HOSTS (or its origin to CHEAP_MEM_SERVE_ORIGINS), then restart mem serve.';
+  return r;
+}
 function note(t, kind = '') {
   return `<div class="callout ${kind}">${t}</div>`;
 }
@@ -288,7 +295,14 @@ function render() {
   else {
     html = heading(s.name, pageTitle(), pageDesc());
     html += `<nav class="tabs" aria-label="Sub-views">${s.tabs.map(([k, n]) => `<button data-route="${state.area}/${k}" class="${state.tab === k ? 'active' : ''}" ${state.tab === k ? 'aria-current="page"' : ''}>${n}</button>`).join('')}</nav>`;
-    html += pages[state.tab]();
+    // A renderer that throws (a field missing or renamed) must not leave
+    // a silent blank: the sub-view says "unknown" with the reason (house
+    // rule "not measurable is not zero", dash-fix4).
+    try {
+      html += pages[state.tab]();
+    } catch (e) {
+      html += panel('View cannot be drawn', note('This sub-view could not be drawn: ' + esc(e?.message || String(e)) + '. State: unknown — an empty area would be a false statement here.', 'bad'));
+    }
   }
   $('#screen').innerHTML = `<div class="screen-enter">${state.missing ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
   if ($('#brain')) initGraph();
@@ -697,9 +711,9 @@ const pages = {
   export: () =>
     `<div class="grid two">${panel(
       'Assemble a package',
-      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓', 'export-json', 'disabled', 'primary')}${btn('Offline reading view ↓', 'export-html', 'disabled', 'ghost')}</div><p style="margin-top:12px">${readonlyMark('mem raw export --from <date> --into <dir>')}</p>`,
+      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓ (not built)', 'export-json', 'aria-disabled="true"', 'ghost')}${btn('Offline reading view ↓ (not built)', 'export-html', 'aria-disabled="true"', 'ghost')}</div>`,
       'The selection shows the scope a package would have.',
-    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('A project package export is not built into the product yet. The existing export is the raw capture export — as a task under Operations › Tasks. The offline reading view is <code class="mono">mem viewer</code>, a file to take along.')}`,
+    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('A project package export is not built into the product yet. The existing export is the raw capture export — below, under Sources › Raw capture and as a task under Operations › Tasks. The offline reading view is <code class="mono">mem viewer</code>, a file to take along.')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
 
   // --- Operations -------------------------------------------------------------
   shards: () => {
@@ -883,7 +897,7 @@ let probeLast = null;
 let paletteRun = 0;
 function probeResultHtml(r) {
   if (!r) return '';
-  if (r.state !== 'ok') return note('Probe failed: ' + esc(r.reason || 'unknown'), 'bad');
+  if (r.state !== 'ok') return note('Probe failed: ' + esc(reasonPlain(r.reason)), 'bad');
   const head = r.shown
     ? `<div class="label" style="margin:15px 0 6px">Would answer with ${num(r.hits.length)} claim(s)${r.excluded ? ` · ${num(r.excluded)} excluded` : ''}</div>`
     : `<div class="label" style="margin:15px 0 6px">Would answer with NOTHING${r.excluded ? ` · ${num(r.excluded)} excluded` : ''}</div>`;
@@ -1160,6 +1174,58 @@ function rawRows() {
     limitNote(Math.min(50, rs.length), rs.length)
   );
 }
+// --- Raw capture export (dash-fix4) ----------------------------------------
+// Before: the export studio held only two silently disabled buttons and a
+// "read only" hint; a click did NOTHING, no message. Now the button starts
+// the real task `export` (a child process of `mem raw export --into <dir>
+// --json`, the same route as Operations › Tasks) and ALWAYS ends in a
+// result: started/refused with a reason, then written/missing and the
+// target folder on the server. There is deliberately no browser download:
+// raw captures are unredacted and never leave the server.
+function rawExportPanel() {
+  return panel(
+    'Raw capture export',
+    `<p class="small muted">Decompresses every capture the record names into a new folder <strong>on the server</strong> (<code class="mono">tasks/&lt;id&gt;/export</code>). No download to the browser: raw captures are unredacted and never leave the server.</p><div class="drawer-actions">${btn('Export raw captures', 'raw-export', state.readonly ? 'aria-disabled="true"' : '', 'primary')}</div><div class="raw-export-state" role="status" aria-live="polite"></div>${state.readonly ? `<p style="margin-top:12px">${readonlyMark('mem raw export --into <dir>')}</p>` : ''}`,
+    'Task "export" · child process of mem raw export',
+  );
+}
+function rawExportShow(html) {
+  $$('.raw-export-state').forEach((el) => { el.innerHTML = html; });
+}
+async function rawExport(el) {
+  if (state.readonly) {
+    const t = 'Raw capture export not started: read only is active. On the server: mem raw export --into <dir>';
+    rawExportShow(note(esc(t), 'bad'));
+    return toast(t);
+  }
+  if (el) el.disabled = true;
+  rawExportShow('<p class="small muted">Starting …</p>');
+  let s;
+  try { s = await taskStart({ kind: 'export' }); } catch (e) { s = { ok: false, state: 'error', reason: 'network: ' + (e?.message || e) }; }
+  if (!s.ok) {
+    if (el) el.disabled = false;
+    const why = reasonPlain(s.reason || s.state);
+    rawExportShow(note('Raw capture export not started: ' + esc(why), 'bad'));
+    return toast('Raw capture export not started: ' + why);
+  }
+  toast('Raw capture export started.');
+  rawExportShow('<p class="small muted">Running … (no percentage measurable)</p>');
+  let e;
+  try { e = await waitForTask(s.id); } catch (x) { e = { state: 'unknown', reason: 'state not readable: ' + (x?.message || x) }; }
+  if (el) el.disabled = false;
+  const c = e.command || [];
+  const target = c.includes('--into') ? c[c.indexOf('--into') + 1] : null;
+  const written = Array.isArray(e.result?.written) ? e.result.written.length : null;
+  const missing = Array.isArray(e.result?.missing) ? e.result.missing.length : null;
+  const rows = [
+    `<div class="row"><span class="small">State</span>${badge(e.state || 'unknown')}</div>`,
+    `<div class="row"><span class="small">Written</span><span class="small">${written == null ? 'unknown' : num(written) + ' captures'}</span></div>`,
+    `<div class="row"><span class="small">Missing</span><span class="small">${missing == null ? 'unknown' : num(missing) + ' captures'}</span></div>`,
+    `<div class="row"><span class="small">Target folder (server)</span><span class="small mono" style="overflow-wrap:anywhere;min-width:0;text-align:right">${esc(target || 'unknown')}</span></div>`,
+  ].join('');
+  rawExportShow(rows + (e.reason ? note(esc(e.reason), e.state === 'ok' ? 'good' : e.state === 'warning' ? '' : 'bad') : ''));
+  toast(`Raw capture export: ${e.state || 'unknown'}${written != null ? ` · ${written} written` : ''}${missing ? ` · ${missing} missing` : ''}${e.reason && e.state !== 'ok' ? ' · ' + e.reason : ''}`);
+}
 function rawPage() {
   const rf = D.raw || {};
   if (!rf.readable) return panel('Raw capture review', note('Raw capture not readable: ' + esc(rf.error || 'unknown') + ' — an empty list would be a false statement here.', 'bad'));
@@ -1169,7 +1235,7 @@ function rawPage() {
     ['Present', num(rf.counts?.present), 'bytes on this machine'],
     ['Other machine', num(rf.counts?.elsewhere), 'in another machine\'s store'],
     ['Deleted', num(rf.counts?.deleted), 'the tombstone stays in the register'],
-  ])}${panel(
+  ])}${rawExportPanel()}<div style="height:18px"></div>${panel(
     'Raw capture review',
     `<div class="toolbar"><input class="field" id="rawQuery" value="${esc(rawFilter.query)}" placeholder="Topic or project" aria-label="Filter raw captures"><label class="small quiet">from <input class="field" type="date" id="rawSince" value="${esc(rawFilter.since)}" aria-label="Raw captures from date"></label><label class="small quiet">to <input class="field" type="date" id="rawUntil" value="${esc(rawFilter.until)}" aria-label="Raw captures to date"></label><select class="field" id="rawProject" aria-label="Raw capture project"><option value="all">All projects</option>${projects.map((p) => `<option ${rawFilter.project === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select><select class="field" id="rawState" aria-label="Raw capture state"><option value="all">All states</option>${['present', 'elsewhere', 'unreachable', 'deleted'].map((s) => `<option value="${s}" ${rawFilter.state === s ? 'selected' : ''}>${esc(rawWord[s])}</option>`).join('')}</select>${btn('Select hits', 'raw-select-all', state.readonly ? 'disabled' : '', 'ghost')}${btn('Delete selection …', 'raw-delete-preview', state.readonly ? 'disabled' : '', 'ghost danger')}</div><div id="rawRows">${rawRows()}</div>${note('Four states from the capture contract (mem raw review). A capture\'s topic is the tags of the entries digested from it. No automatic deletion date: deleting happens deliberately after review, with a reason, through "mem raw delete" — the tombstone stays in the register. Unreachable means recorded here with its bytes missing: a defect, not a decision.')}${state.readonly ? `<p>${readonlyMark('mem raw delete <path> --reason "…" --yes')}</p>` : ''}`,
     `${mb(rf.bytes)} in the register · by project: ${(rf.projects || []).map((p) => `${esc(p.project ?? 'none')} ${num(p.count)}`).join(' · ') || '—'}`,
@@ -3113,6 +3179,9 @@ document.addEventListener('click', async (ev) => {
       }
       break;
     }
+    case 'raw-export':
+      await rawExport(el);
+      break;
     case 'export-json':
     case 'export-html':
       toast('A project package export is not built into the product yet.');
@@ -3180,7 +3249,7 @@ document.addEventListener('click', async (ev) => {
       const s = await taskStart({ kind: d.value });
       if (!s.ok) {
         el.disabled = false;
-        return toast('Not started: ' + (s.reason || s.state));
+        return toast('Not started: ' + reasonPlain(s.reason || s.state));
       }
       toast('Task started: ' + (D.tasks.kinds[d.value]?.title || d.value));
       const u = await taskOverview();
@@ -3461,17 +3530,28 @@ function decoratePage() {
   if (state.area === 'ops' && state.tab === 'shards') $('.screen-enter').insertAdjacentHTML('beforeend', shardStage());
   if ($('#brain')) $('#graphGroups').insertAdjacentHTML('afterend', edgeInventory());
   premiumObserver?.disconnect();
-  premiumObserver = new IntersectionObserver(
-    (es) =>
-      es.forEach((e) => {
-        if (e.isIntersecting) {
-          e.target.classList.add('revealed');
-          premiumObserver.unobserve(e.target);
-        }
-      }),
-    { threshold: 0.07 },
-  );
+  // **Threshold 0, not 0.07 (dash-fix4, 2026-09-28).** `.reveal` holds a
+  // panel at opacity 0 until it is revealed. With `threshold: 0.07` a
+  // panel must show 7 % of ITS OWN area — a long one (60 duties = 32 000
+  // px on a phone, 40 learnings = 15 000 px, the Today card = 21 000 px)
+  // never gets there in an 844 px window and stayed invisible forever:
+  // heading and tabs, then nothing, no message. Threshold 0 fires as
+  // soon as any pixel is on screen, whatever the height. Without
+  // IntersectionObserver (old browsers) nothing is hidden at all.
+  premiumObserver = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver(
+      (es) =>
+        es.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add('revealed');
+            premiumObserver.unobserve(e.target);
+          }
+        }),
+      { threshold: 0 },
+    )
+    : null;
   $$('#screen .panel,#screen .metrics,#screen .fabric-stage').forEach((el, i) => {
+    if (!premiumObserver) return;
     el.style.setProperty('--reveal-delay', Math.min(i, 5) * 55 + 'ms');
     el.classList.add('reveal');
     premiumObserver.observe(el);
