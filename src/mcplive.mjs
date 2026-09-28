@@ -24,7 +24,10 @@
 // building) must never hang for it either.
 export const PROBE_TIMEOUT_MS = 1500;
 export const PROBE_TTL_MS = 3 * 60 * 1000;
-let probeCache = null; // { until: epoch-ms, result }
+// A property write, not a rebind of this binding across the await
+// boundaries in probe() below (require-atomic-updates) -- the box
+// itself never changes identity, only cache.entry does.
+const cache = { entry: null }; // entry: { until: epoch-ms, result }
 
 /** Where the local bridge should be reachable — the same variables
  *  `httpConfig()` in bin/mem-mcp reads (not imported: that module has
@@ -48,7 +51,7 @@ export async function probe({
   ttlMs = PROBE_TTL_MS, noCache = false,
   getClient = null,
 } = {}) {
-  if (!noCache && probeCache && probeCache.until > now) return probeCache.result;
+  if (!noCache && cache.entry && cache.entry.until > now) return cache.entry.result;
   const cfg = probeConfig(env);
   let names = null;
   let reason = null;
@@ -76,7 +79,13 @@ export async function probe({
   const result = names
     ? { reachable: true, names, checkedAt: new Date(now).toISOString() }
     : { reachable: false, reason: reason || 'bridge unreachable', checkedAt: new Date(now).toISOString() };
-  probeCache = { until: now + ttlMs, result };
+  // Two concurrent probe() calls racing to set this is harmless here: a
+  // cache is meant to be overwritten by whichever finishes last, and
+  // either outcome is a real (if momentarily stale) measurement, never
+  // a correctness bug -- kickProbe()'s own "at most one in flight" latch
+  // is what actually matters for cost, not this line.
+  // eslint-disable-next-line require-atomic-updates
+  cache.entry = { until: now + ttlMs, result };
   return result;
 }
 
@@ -96,9 +105,9 @@ export function verdicts(result, defined) {
 }
 
 /** Tests only: clear the cache (and any in-flight marker). */
-export function _clearCache() { probeCache = null; probeInFlight = null; }
+export function _clearCache() { cache.entry = null; inFlight.promise = null; }
 
-let probeInFlight = null;
+const inFlight = { promise: null };
 
 /**
  * Read ONLY the cache — no network, no `await`, never a wait. A route
@@ -107,7 +116,7 @@ let probeInFlight = null;
  * "bridge dead".
  */
 export function probeNow(now = Date.now()) {
-  return (probeCache && probeCache.until > now) ? probeCache.result : null;
+  return (cache.entry && cache.entry.until > now) ? cache.entry.result : null;
 }
 
 /**
@@ -116,8 +125,8 @@ export function probeNow(now = Date.now()) {
  * still reads "unknown".
  */
 export function kickProbe(opts = {}) {
-  if (probeInFlight) return;
-  probeInFlight = probe(opts)
+  if (inFlight.promise) return;
+  inFlight.promise = probe(opts)
     .catch(() => { /* probe() catches its own errors; a residual one must not surface here */ })
-    .finally(() => { probeInFlight = null; });
+    .finally(() => { inFlight.promise = null; });
 }

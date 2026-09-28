@@ -31,6 +31,7 @@ export default [
         TextEncoder: 'readonly',
         TextDecoder: 'readonly',
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
         fetch: 'readonly',
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
