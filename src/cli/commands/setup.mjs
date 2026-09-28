@@ -478,10 +478,49 @@ export const COMMANDS = {
     out(`Bridge reported: ${row.version} (${row.seen_at})`);
   },
 
-  serve: async ({ args }) => {
+  serve: async ({ rest = [], args }) => {
+    // The password in front of the dashboard (src/login.mjs): two purely
+    // local subcommands. Whoever can run them is on the machine — exactly
+    // the proof the first setup asks for.
+    if (rest[0] === 'setup-code' || rest[0] === 'reset-password') {
+      if (isHelp(args)) {
+        out([
+          'mem serve setup-code',
+          '  Shows the one-time code for setting the dashboard password the first',
+          '  time (creates it when none exists). Local only, never over the network.',
+          '',
+          'mem serve reset-password',
+          '  The way out: deletes the password hash and every session. The next',
+          '  visit to the dashboard asks for the setup again (with a code).',
+        ].join('\n'));
+        return;
+      }
+      checkFlags(args, ['root'], 'serve');
+      const root = findRoot(args);
+      const login = await import(pathToFileURL(path.join(PKG_ROOT, 'src', 'login.mjs')).href);
+      const dir = login.dirFor(root);
+      if (rest[0] === 'reset-password') {
+        const was = login.reset(dir);
+        out(was ? 'Password reset: hash and every session deleted.' : 'No password was set; every session deleted.');
+        const e = login.ensureSetupCode(dir);
+        out(`A new setup code is in ${e.file} — show it with: mem serve setup-code`);
+        return;
+      }
+      const e = login.ensureSetupCode(dir);
+      if (!e.needed) {
+        out('The password is already set — no setup code needed.');
+        out('Forgotten? mem serve reset-password');
+        process.exitCode = 1;
+        return;
+      }
+      out(`Setup code: ${login.readSetupCode(dir)}`);
+      out(`  (file ${e.file}, valid until the setup)`);
+      return;
+    }
     if (isHelp(args)) {
       out([
         'mem serve [--port N] [--host H] [--readonly] [--allow-writes]',
+        'mem serve setup-code | reset-password   (dashboard password, local only)',
         '',
         '  The dashboard at one fixed link, instead of a one-off HTML',
         '  file. This is the only place where anything can be SET',
@@ -509,6 +548,8 @@ export const COMMANDS = {
         '  CHEAP_MEM_SERVE_PORT      port (default 8847)',
         '  CHEAP_MEM_SERVE_READONLY  1 = show everything, set nothing',
         '  CHEAP_MEM_SERVE_ORIGINS   extra origins allowed to POST',
+        '  CHEAP_MEM_SERVE_LOGIN     off = no password in front of the dashboard',
+        '                            (tests, local use; default on)',
       ].join('\n'));
       return;
     }
@@ -556,6 +597,9 @@ export const COMMANDS = {
     const gate = (await import(pathToFileURL(path.join(PKG_ROOT, 'src', 'writegate.mjs')).href))
       .read(root, mod.gateOpts(started.cfg));
     out(`  writing from the page: ${gate.state} — ${gate.reason}`);
+    out(started.cfg.login
+      ? '  password: on (CHEAP_MEM_SERVE_LOGIN). First setup: mem serve setup-code'
+      : '  password: OFF (CHEAP_MEM_SERVE_LOGIN=off)');
     out('  Ctrl-C to stop.');
   },
 
