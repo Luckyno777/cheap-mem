@@ -80,7 +80,7 @@ black page, one field, one button (`src/login.mjs`). Without a valid
 session every page goes to `/login`, every data and writing route
 answers `401` JSON. Tools keep the existing way:
 `Authorization: Bearer <CHEAP_MEM_SERVE_TOKEN>` needs no password (the
-`mem_k` cookie alone does — otherwise the password would do nothing in
+door cookie (named mem\_k) alone does — otherwise the password would do nothing in
 the owner's own browser). `CHEAP_MEM_SERVE_LOGIN=off` switches it off
 (tests, local use); the default is on.
 
@@ -95,7 +95,7 @@ arrives from 127.0.0.1.
 (compared with `timingSafeEqual`), mode 600, gitignored. The sessions
 file keeps only SHA-256 of the session tokens.
 
-**Session.** Cookie `mem_session`: `HttpOnly; SameSite=Strict; Path=/`,
+**Session.** The session cookie (named mem\_session): `HttpOnly; SameSite=Strict; Path=/`,
 `Secure` behind https or a tunnel, 30 days, sliding. After an
 identity-provider round trip the page reloads once same-site (no script)
 so the strict cookie comes along.
