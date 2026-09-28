@@ -28,7 +28,6 @@
 // when a 53rd week arrives the oldest line goes — rewritten through a
 // temporary file and a rename, so a crash never leaves half a file.
 //
-// invariant: kein-rueckfall-auf-erfundene-daten
 import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';

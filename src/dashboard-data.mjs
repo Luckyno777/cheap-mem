@@ -38,11 +38,11 @@
 // `NOT_AVAILABLE` below.
 //
 // invariant: drei-zustaende-nie-zwei
-// invariant: kein-rueckfall-auf-erfundene-daten
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import * as writegate from './writegate.mjs';
 import * as dashboard from './dashboard.mjs';
 import * as memory from './memory.mjs';
 import * as question from './question.mjs';
@@ -639,7 +639,9 @@ export function collectDashboard(root, {
     meta: {
       title,
       writesAllowed,
-      writes: d.writes,
+      // The switch, and — whenever it is not on — the two ways to turn it
+      // on, in words (the old console said them; the dashboard does too).
+      writes: d.writes ? { ...d.writes, howTo: d.writes.state === 'on' || d.writes.source === 'readonly' ? null : writegate.HOW_TO } : d.writes,
       git: d.git,
       code: versions.code,
       inventory: d.inventory,

@@ -19,7 +19,6 @@
 // layer still calls. Two files of one name would be two truths waiting
 // to be confused (port spec §5, package F).
 //
-// invariant: kein-rueckfall-auf-erfundene-daten
 import * as icon from './icon.mjs';
 
 /** The paths of this page — ONE list, read by the server. */
