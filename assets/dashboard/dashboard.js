@@ -1482,7 +1482,7 @@ function brainBlock(large = false) {
   const emptyHint = es.length ? '' : `<div class="graph-empty" role="note"><strong>Your first entries will appear here.</strong><span>One calm core is waiting. Every entry you log becomes an energy core around it — <code class="mono">mem log learning "…"</code></span></div>`;
   return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">CHEAP MEM / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · one shared knowledge structure</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Brain network">${['storage', 'topics', 'relations', 'structure']
     .map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`)
-    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">cheap-mem / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial brain network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; dashed branches = the storage hierarchy. The fine brain folds are a decorative orientation hull, not entries. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
+    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">cheap-mem / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial brain network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; dashed branches = the storage hierarchy. The fine cloud is a decorative orientation hull around all nodes, not entries. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
 }
 
 // The energy-core shader. One point per node; `aBright` < 0 means "not
@@ -1584,87 +1584,229 @@ precision mediump float;
 varying vec3 vColor; varying float vAlpha; varying float vFog;
 void main(){ gl_FragColor = vec4(mix(vColor, vec3(0.031, 0.086, 0.098), vFog), vAlpha); }`;
 
-// The folded brain hull — orientation, never data. Kept as a function of
-// its own so a reshaped hull (the sibling is reworking its geometry) can
-// be mirrored by replacing exactly this function.
-function buildHull(T, cortex, own, v) {
-  function folded(side, u, theta) {
-    const f = 1 + 0.045 * Math.sin(13 * u + 5 * theta) + 0.025 * Math.sin(21 * theta - 3 * u);
-    return v(side * 0.6 + Math.cos(u) * Math.sin(theta) * 0.69 * f, Math.cos(theta) * 0.99 * f + 0.055 * Math.sin(u) * Math.sin(theta), Math.sin(u) * Math.sin(theta) * 0.87 * f);
-  }
-  // The hull's contour lines: the mockup's lines, but bundled per colour/
-  // opacity into ONE line set (122 draw calls -> 5).
-  const bundles = new Map();
-  function hullLine(pts, color, opacity) {
-    const k = color + ':' + opacity;
-    if (!bundles.has(k)) bundles.set(k, { color, opacity, p: [] });
-    const b = bundles.get(k).p;
-    for (let i = 0; i < pts.length - 1; i++) b.push(pts[i].x, pts[i].y, pts[i].z, pts[i + 1].x, pts[i + 1].y, pts[i + 1].z);
-  }
-  [-1, 1].forEach((side) => {
-    const col = side < 0 ? 0x5baca3 : 0x6c96b4,
-      geo = own(new T.SphereGeometry(1, 90, 64)),
-      arr = geo.attributes.position;
+// --- The network hull: ONE cloud (huelle-wolke, 2026-09-28) ----------------
+// The owner: "I don't like the brain after all; let's make a stylish cloud
+// that encloses everything". Before: first an oval of two lobes, then a
+// brain (hemispheres, fissure, cerebellum, brain stem). Now: ONE connected
+// shape without anatomy, without a fissure, without a waist — a soft,
+// glowing wireframe with a nebula inside, in the style of the old oval
+// (colours 0x5baca3 -> 0x6c96b4, fresnel rim, dust, latitude rings), which
+// adapts to the actual extent of the nodes and encloses ALL of them with a
+// margin.
+//
+// Shape: an axis-aligned ellipsoid around the support spheres of the nodes
+// (groups, cells, cores), rounded towards a sphere, then stretched until
+// every support sphere plus margin lies inside. On top, a noise deformation
+// with a fixed seed that acts ONLY outwards (factor 1..1+CLOUD_SWELL) — so
+// the nodes stay inside (measured: test/hull-cloud.test.mjs). The breathing
+// in the shader also acts only outwards (factor >= 1).
+//
+// Performance: 5 draw calls (skin + halo, 1 Points, 2 LineSegments), down
+// from 9 for the brain; see test/hull-cloud.test.mjs.
+const CLOUD_SEED = 41.17;
+const CLOUD_MARGIN = 0.12; // air between the outermost node and the hull
+const CLOUD_MIN = 0.62; // minimum semi-axis: a calm sphere even when empty or with 1 node
+const CLOUD_SWELL = 0.1; // noise deformation, outwards only
+const CLOUD_BREATH = [0.014, 0.018]; // overall breath / travelling wave, outwards only
+function cloudHash(x, y, z) {
+  const s = Math.sin(x * 127.1 + y * 311.7 + z * 74.7 + CLOUD_SEED) * 43758.5453123;
+  return s - Math.floor(s);
+}
+// Deterministic 3D value noise (no Math.random()), range -1..1.
+function cloudNoise(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z),
+    f = (t) => t * t * (3 - 2 * t),
+    l = (a, b, t) => a + (b - a) * t,
+    u = f(x - xi), w = f(y - yi), s = f(z - zi),
+    h = (a, b, c) => cloudHash(xi + a, yi + b, zi + c);
+  return l(
+    l(l(h(0, 0, 0), h(1, 0, 0), u), l(h(0, 1, 0), h(1, 1, 0), u), w),
+    l(l(h(0, 0, 1), h(1, 0, 1), u), l(h(0, 1, 1), h(1, 1, 1), u), w),
+    s,
+  ) * 2 - 1;
+}
+// Support spheres: where anything in the network can lie at all. Follows
+// the layout in graphModel/initGraph (a group's nodes lie within g.radius
+// of g.center, cells within c.radius of c.center, the evidence trail
+// within ~0.8 of the middle, the cores with their rings).
+function cloudSupports(model) {
+  const st = [{ x: 0, y: -0.03, z: 0.02, r: 0.24 }];
+  (model?.shards || []).forEach((s) => s.center && st.push({ ...s.center, r: 0.16 }));
+  const addCells = (cells) => (cells || []).forEach((c) => (st.push({ ...c.center, r: c.radius }), addCells(c.cells)));
+  (model?.groups || []).forEach((g) => {
+    if (!g.center) return;
+    st.push({ ...g.center, r: g.trail ? 0.8 : g.radius || 0 });
+    addCells(g.cells);
+  });
+  return st;
+}
+function cloudShape(model) {
+  const st = cloudSupports(model),
+    ax = ['x', 'y', 'z'],
+    lo = {}, hi = {}, center = {}, axes = {};
+  ax.forEach((k) => {
+    lo[k] = Math.min(...st.map((p) => p[k] - p.r));
+    hi[k] = Math.max(...st.map((p) => p[k] + p.r));
+    center[k] = (lo[k] + hi[k]) / 2;
+  });
+  const hmax = Math.max(...ax.map((k) => (hi[k] - lo[k]) / 2));
+  // Round slightly towards a sphere: a cloud, not an egg and not a cigar.
+  ax.forEach((k) => (axes[k] = Math.max(CLOUD_MIN, 0.7 * ((hi[k] - lo[k]) / 2) + 0.3 * hmax)));
+  // Then stretch evenly until every support sphere plus margin lies
+  // inside (26 rim points per sphere, plus 2 % safety).
+  const R = [];
+  for (const a of [-1, 0, 1]) for (const b of [-1, 0, 1]) for (const c of [-1, 0, 1]) if (a || b || c) R.push([a, b, c].map((x) => x / Math.hypot(a, b, c)));
+  let s = 0;
+  for (const p of st)
+    for (const [a, b, c] of R) {
+      const r = p.r + CLOUD_MARGIN;
+      s = Math.max(s, Math.hypot((p.x + a * r - center.x) / axes.x, (p.y + b * r - center.y) / axes.y, (p.z + c * r - center.z) / axes.z));
+    }
+  ax.forEach((k) => (axes[k] *= Math.max(1, s * 1.02)));
+  // Surface point for the unit direction d: ellipsoid * (1 .. 1+SWELL).
+  const swell = (dx, dy, dz) => {
+    const n = 0.75 * cloudNoise(dx * 1.35 + 3, dy * 1.35, dz * 1.35) + 0.25 * cloudNoise(dx * 2.9 + 7, dy * 2.9 + 7, dz * 2.9 + 7);
+    return 1 + CLOUD_SWELL * (0.5 + 0.5 * Math.max(-1, Math.min(1, n * 1.6)));
+  };
+  const point = (dx, dy, dz, depth = 1) => {
+    const f = swell(dx, dy, dz) * depth;
+    return { x: center.x + axes.x * dx * f, y: center.y + axes.y * dy * f, z: center.z + axes.z * dz * f };
+  };
+  // Farthest possible distance from the origin (camera frame), incl. swell and breath.
+  const frame = Math.hypot(center.x, center.y, center.z) + Math.max(axes.x, axes.y, axes.z) * (1 + CLOUD_SWELL) * (1 + CLOUD_BREATH[0] + CLOUD_BREATH[1]);
+  return { center, axes, swell, point, frame, supports: st };
+}
+// Breathing in the vertex shader: outwards only (1 + a*[0..1] + b*[0..1]).
+const CLOUD_BREATH_GLSL = `uniform float uTime; uniform vec3 uCloudCenter;
+vec3 cloudBreath(vec3 p){ vec3 d = p - uCloudCenter;
+  float g = 0.5 + 0.5 * sin(uTime * 0.31);
+  float w = 0.5 + 0.5 * sin(uTime * 0.53 + dot(normalize(d + 1e-4), vec3(2.3, 1.4, -1.8)));
+  return uCloudCenter + d * (1.0 + ${CLOUD_BREATH[0].toFixed(3)} * g + ${CLOUD_BREATH[1].toFixed(3)} * w); }`;
+function buildHull(T, cortex, own, v, model, clock) {
+  const shape = cloudShape(model),
+    uCenter = { value: v(shape.center.x, shape.center.y, shape.center.z) },
+    P = (d, depth) => shape.point(d.x, d.y, d.z, depth),
+    direction = (u, theta) => ({ x: Math.cos(u) * Math.sin(theta), y: Math.cos(theta), z: Math.sin(u) * Math.sin(theta) }),
+    TEAL = new T.Color(0x5baca3), BLUE = new T.Color(0x6c96b4), LIGHT = new T.Color(0xbfe7da),
+    colour = (d) => {
+      // Gradient as in the old oval (teal on the left, blue on the right), a touch lighter on top.
+      const c = TEAL.clone().lerp(BLUE, 0.5 + 0.5 * d.x);
+      return c.lerp(LIGHT, 0.18 * Math.max(0, d.y));
+    };
+  const breathe = (mat) => {
+    mat.onBeforeCompile = (sh) => {
+      sh.uniforms.uTime = clock.uTime;
+      sh.uniforms.uCloudCenter = uCenter;
+      sh.vertexShader = sh.vertexShader
+        .replace('#include <common>', '#include <common>\n' + CLOUD_BREATH_GLSL)
+        .replace('#include <begin_vertex>', 'vec3 transformed = cloudBreath(vec3(position));');
+    };
+    return mat;
+  };
+  // 1) The skin: fresnel rim as in the oval, gradient across the width;
+  //    behind it a soft halo (slightly larger, back side only) that makes
+  //    the outline glow. Both around the same centre: ONE shape.
+  const SKIN_VS = CLOUD_BREATH_GLSL + '\nuniform float uWidth;uniform float uHalo;varying vec3 n;varying vec3 vv;varying float t;void main(){vec3 q=uCloudCenter+(cloudBreath(position)-uCloudCenter)*uHalo;vec4 p=modelViewMatrix*vec4(q,1.);n=normalize(normalMatrix*normal);vv=normalize(-p.xyz);t=clamp(.5+.5*(position.x-uCloudCenter.x)/uWidth,0.,1.);gl_Position=projectionMatrix*p;}';
+  const SKIN_FS = 'uniform vec3 tintA;uniform vec3 tintB;uniform float alpha;varying vec3 n;varying vec3 vv;varying float t;void main(){float f=1.-abs(dot(normalize(n),normalize(vv)));float rim=pow(f,2.4);gl_FragColor=vec4(mix(tintA,tintB,t)*(1.+.5*rim),alpha*(.07+1.1*rim));}';
+  const HALO_FS = 'uniform vec3 tintA;uniform vec3 tintB;uniform float alpha;varying vec3 n;varying vec3 vv;varying float t;void main(){float f=abs(dot(normalize(n),normalize(vv)));float halo=smoothstep(0.,.34,f)*(1.-smoothstep(.34,.62,f));gl_FragColor=vec4(mix(tintA,tintB,t)*1.25,alpha*.6*halo);}';
+  {
+    const geo = own(new T.SphereGeometry(1, 96, 64)),
+      arr = geo.attributes.position,
+      p = v();
     for (let i = 0; i < arr.count; i++) {
-      const p = v().fromBufferAttribute(arr, i),
-        theta = Math.acos(Math.max(-1, Math.min(1, p.y))),
-        u = Math.atan2(p.z, p.x),
-        q = folded(side, u, theta);
+      p.fromBufferAttribute(arr, i);
+      const q = P(p);
       arr.setXYZ(i, q.x, q.y, q.z);
     }
     geo.computeVertexNormals();
-    const mat = own(
-      new T.ShaderMaterial({
-        transparent: true, depthWrite: false, side: T.DoubleSide,
-        uniforms: { tint: { value: new T.Color(col) }, alpha: { value: 0.15 } },
-        vertexShader: 'varying vec3 n;varying vec3 vv;void main(){vec4 p=modelViewMatrix*vec4(position,1.);n=normalize(normalMatrix*normal);vv=normalize(-p.xyz);gl_Position=projectionMatrix*p;}',
-        fragmentShader: 'uniform vec3 tint;uniform float alpha;varying vec3 n;varying vec3 vv;void main(){float rim=pow(1.-abs(dot(normalize(n),normalize(vv))),2.6);gl_FragColor=vec4(tint,alpha*(.09+rim));}',
-      }),
-    );
-    cortex.add(new T.Mesh(geo, mat));
-    for (let j = 0; j < 43; j++) {
-      const pts = [];
-      for (let k = 0; k <= 110; k++) {
-        const a = (k / 110) * Math.PI * 2,
-          theta = 0.11 + (j / 42) * (Math.PI - 0.22) + 0.044 * Math.sin(a * 7 + j * 1.618);
-        pts.push(folded(side, a, theta));
-      }
-      hullLine(pts, col, j % 4 === 0 ? 0.2 : 0.095);
-    }
-    for (let j = 0; j < 18; j++) {
-      const pts = [];
-      for (let k = 1; k < 65; k++) {
-        const theta = (k / 65) * Math.PI,
-          u = (j / 18) * Math.PI * 2 + 0.065 * Math.sin(theta * 14 + j);
-        pts.push(folded(side, u, theta));
-      }
-      hullLine(pts, col, 0.1);
-    }
-    const dust = [];
-    for (let i = 0; i < 950; i++) {
-      const y = 1 - (2 * (i + 0.5)) / 950,
-        u = i * 2.399963,
-        p = folded(side, u, Math.acos(y));
-      dust.push(p.x, p.y, p.z);
-    }
-    const dg = own(new T.BufferGeometry());
-    dg.setAttribute('position', new T.Float32BufferAttribute(dust, 3));
-    cortex.add(new T.Points(dg, own(new T.PointsMaterial({ color: col, size: 0.008, transparent: true, opacity: 0.4, depthWrite: false }))));
-  });
-  for (let i = 0; i < 13; i++) {
-    const pts = [];
-    for (let j = 0; j < 45; j++) {
-      const q = j / 44;
-      pts.push(v((i - 6) * 0.012 * (1 - q), -0.78 - q * 0.48, 0.04 - 0.28 * q + 0.025 * Math.sin(q * 8 + i)));
-    }
-    hullLine(pts, 0x73988b, 0.15);
+    const skin = (halo) =>
+      own(
+        new T.ShaderMaterial({
+          transparent: true, depthWrite: false, side: halo ? T.BackSide : T.DoubleSide,
+          uniforms: { tintA: { value: TEAL }, tintB: { value: BLUE }, alpha: { value: 0.15 }, uTime: clock.uTime, uCloudCenter: uCenter, uWidth: { value: shape.axes.x }, uHalo: { value: halo ? 1.07 : 1 } },
+          vertexShader: SKIN_VS,
+          fragmentShader: halo ? HALO_FS : SKIN_FS,
+        }),
+      );
+    cortex.add(new T.Mesh(geo, skin(true)));
+    cortex.add(new T.Mesh(geo, skin(false)));
   }
-  for (const b of bundles.values()) {
+  // 2) The wireframe: latitude rings (every fourth brighter) and meridians,
+  //    ONE line set per opacity with a colour per vertex.
+  const sets = [{ opacity: 0.2, p: [], c: [] }, { opacity: 0.095, p: [], c: [] }];
+  // Fade out towards the poles (darker = invisible on the dark stage): no
+  // star patterns where rings and meridians converge.
+  const line = (set, dirs, pole) => {
+    for (let i = 0; i < dirs.length - 1; i++)
+      for (const d of [dirs[i], dirs[i + 1]]) {
+        const q = P(d), c = colour(d).multiplyScalar(Math.pow(Math.max(0, 1 - d.y * d.y), pole));
+        set.p.push(q.x, q.y, q.z);
+        set.c.push(c.r, c.g, c.b);
+      }
+  };
+  for (let j = 0; j < 36; j++) {
+    const dirs = [];
+    for (let k = 0; k <= 128; k++) {
+      const a = (k / 128) * Math.PI * 2;
+      dirs.push(direction(a, 0.22 + (j / 35) * (Math.PI - 0.44) + 0.028 * Math.sin(a * 3 + j * 1.618)));
+    }
+    line(sets[j % 4 === 0 ? 0 : 1], dirs, 0.6);
+  }
+  for (let j = 0; j < 16; j++) {
+    const dirs = [];
+    for (let k = 1; k < 64; k++) {
+      const theta = (k / 64) * Math.PI;
+      dirs.push(direction((j / 16) * Math.PI * 2 + 0.05 * Math.sin(theta * 4 + j), theta));
+    }
+    line(sets[1], dirs, 1.6);
+  }
+  for (const s of sets) {
     const geo = own(new T.BufferGeometry());
-    geo.setAttribute('position', new T.Float32BufferAttribute(b.p, 3));
-    cortex.add(new T.LineSegments(geo, own(new T.LineBasicMaterial({ color: b.color, transparent: true, opacity: b.opacity, depthWrite: false }))));
+    geo.setAttribute('position', new T.Float32BufferAttribute(s.p, 3));
+    geo.setAttribute('color', new T.Float32BufferAttribute(s.c, 3));
+    cortex.add(new T.LineSegments(geo, own(breathe(new T.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: s.opacity, depthWrite: false })))));
   }
+  // 3) Dust and nebula: fine dust on the skin plus soft, large nebula
+  //    flakes (gaussian sprites, additive), mostly in the outer shell —
+  //    that turns the wireframe into a cloud. Fixed seed, ONE draw call.
+  //    `alpha` follows cortexAlpha (0.15 normal, 0.055 in focus).
+  const pos = [], col = [], size = [], opacity = [];
+  const DUST = 1400, NEBULA = 560;
+  for (let i = 0; i < DUST + NEBULA; i++) {
+    const nebula = i >= DUST, m = nebula ? NEBULA : DUST, j = nebula ? i - DUST : i,
+      y = 1 - (2 * (j + 0.5)) / m,
+      r = Math.sqrt(Math.max(0, 1 - y * y)),
+      a = j * 2.399963 + (nebula ? 1.1 : 0),
+      d = { x: Math.cos(a) * r, y, z: Math.sin(a) * r },
+      rnd = cloudHash(j, nebula ? 3.1 : 5.3, 7.7),
+      depth = nebula ? 0.5 + 0.47 * Math.sqrt(rnd) : 1,
+      q = P(d, depth), c = colour(d);
+    pos.push(q.x, q.y, q.z);
+    col.push(c.r, c.g, c.b);
+    size.push(nebula ? 0.1 + 0.26 * cloudHash(j, 9.2, 1.3) : 0.012);
+    opacity.push(nebula ? 0.06 + 0.06 * rnd : 0.5);
+  }
+  const geo = own(new T.BufferGeometry());
+  geo.setAttribute('position', new T.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aColor', new T.Float32BufferAttribute(col, 3));
+  geo.setAttribute('aSize', new T.Float32BufferAttribute(size, 1));
+  geo.setAttribute('aOpacity', new T.Float32BufferAttribute(opacity, 1));
+  const points = new T.Points(
+    geo,
+    own(
+      new T.ShaderMaterial({
+        transparent: true, depthWrite: false, blending: T.AdditiveBlending,
+        uniforms: { uTime: clock.uTime, uCloudCenter: uCenter, uScale: clock.uScale || { value: 400 }, alpha: { value: 0.15 } },
+        vertexShader: CLOUD_BREATH_GLSL + '\nuniform float uScale;attribute vec3 aColor;attribute float aSize;attribute float aOpacity;varying vec3 vC;varying float vA;void main(){vec4 mv=modelViewMatrix*vec4(cloudBreath(position),1.);gl_Position=projectionMatrix*mv;float px=aSize*uScale/max(.0001,-mv.z);gl_PointSize=clamp(px,1.,90.);float nebula=exp(-.004225*mv.z*mv.z);vC=aColor;vA=aOpacity*nebula*min(1.,px/1.5);}',
+        fragmentShader: 'uniform float alpha;varying vec3 vC;varying float vA;void main(){vec2 u=gl_PointCoord-.5;float r=dot(u,u)*4.;if(r>1.)discard;gl_FragColor=vec4(vC,vA*(alpha/.15)*exp(-r*3.));}',
+      }),
+    ),
+  );
+  points.frustumCulled = false;
+  cortex.add(points);
+  return shape;
 }
+
 
 function initGraph() {
   const T = window.MemThree,
@@ -1747,8 +1889,8 @@ function initGraph() {
     parent.add(line);
     return line;
   }
-  // The mockup's folded hull, unchanged: orientation, no data.
-  buildHull(T, cortex, own, v);
+  // The network hull: ONE cloud around all nodes (orientation, not data).
+  const cloud = buildHull(T, cortex, own, v, model, coreUniforms);
 
   // --- Brightness from real measurement ---------------------------------------
   const maxSessions = Math.max(1, ...es.map((e) => e.recall?.sessions || 0));
@@ -2428,7 +2570,7 @@ function initGraph() {
     cam.updateProjectionMatrix();
     coreUniforms.uScale.value = (h * renderer.getPixelRatio()) / (2 * Math.tan((cam.fov * Math.PI) / 360));
     const old = baseDistance;
-    baseDistance = Math.max(3.8, 1.39 / (Math.tan((cam.fov * Math.PI) / 360) * Math.min(1, cam.aspect)));
+    baseDistance = Math.max(3.8, Math.max(1.39, cloud.frame * 0.96) / (Math.tan((cam.fov * Math.PI) / 360) * Math.min(1, cam.aspect)));
     if (!camera.focus && !transition) distance *= baseDistance / old;
     updateUI();
     redraw();
