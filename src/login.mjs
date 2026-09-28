@@ -462,7 +462,10 @@ function sendPage(res, ctx, code, opts) {
     if (e.fresh) ctx.log(`serve: no password set. The setup code is in ${e.file} (mem serve setup-code)`);
     codeAt = path.relative(ctx.root ?? path.dirname(ctx.dir), e.file) || e.file;
   }
-  res.writeHead(code, { ...ctx.head, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': ctx.csp })
+  // `same-origin`, not the house's `no-referrer`: under `no-referrer` a
+  // browser sends `Origin: null` on a form POST, and the Origin check would
+  // refuse our own sign-in form (the sibling met exactly that on 2026-09-26).
+  res.writeHead(code, { ...ctx.head, 'referrer-policy': 'same-origin', 'content-type': 'text/html; charset=utf-8', 'content-security-policy': ctx.csp })
     .end(pageHtml({ mode, codeAt, ...ctx.page, ...opts }));
 }
 

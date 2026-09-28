@@ -370,6 +370,8 @@ test('sign-in page: black, no script, nothing from outside, CSP header', async (
     assert.equal(r.status, 200);
     assert.ok(r.headers.get('content-security-policy')?.includes("script-src 'self'"));
     assert.equal(r.headers.get('cache-control'), 'no-store');
+    // no-referrer would make the browser send `Origin: null` on the form POST (found by the browser run).
+    assert.equal(r.headers.get('referrer-policy'), 'same-origin');
     const t = await r.text();
     assert.ok(!/<script/i.test(t));
     assert.ok(!/https?:\/\//.test(t.replace(/http:\/\/www\.w3\.org\/2000\/svg/g, '')));
