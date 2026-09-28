@@ -46,6 +46,17 @@ UNIT_DIR="$HOME/.config/systemd/user"
 UNIT="$UNIT_DIR/cheap-mem-watch.service"
 mkdir -p "$UNIT_DIR"
 
+# What was there before this run (dash-fix4, 2026-09-28): a watcher that
+# is ALREADY running keeps its old unit — and its old CHEAP_MEM_ROOT /
+# MEM_WATCH_WHO — through `enable --now`, which starts only what is
+# stopped. The sibling house saw exactly that: the installer said all was
+# running while the service ran without its new environment. So the old
+# content and the running state are taken now, and a changed unit gets a
+# restart below, with the reason.
+OLD_UNIT=""
+[ -f "$UNIT" ] && OLD_UNIT="$(cat "$UNIT")"
+WAS_ACTIVE="$(systemctl --user is-active cheap-mem-watch.service 2> /dev/null || true)"
+
 # One-line ExecStart — multi-line with backslashes is fragile in
 # systemd unit files.
 cat > "$UNIT" <<UNIT_EOF
@@ -72,6 +83,18 @@ echo "wrote $UNIT"
 
 systemctl --user daemon-reload
 systemctl --user enable --now cheap-mem-watch.service
+
+if [ -n "$OLD_UNIT" ] && [ "$OLD_UNIT" != "$(cat "$UNIT")" ] && [ "$WAS_ACTIVE" = "active" ]; then
+  if systemctl --user try-restart cheap-mem-watch.service; then
+    echo "restarted cheap-mem-watch.service: unit changed"
+  else
+    echo "NOT RESTARTED cheap-mem-watch.service (unit changed) — it keeps running with the old unit" >&2
+    echo "  by hand: systemctl --user restart cheap-mem-watch" >&2
+    exit 1
+  fi
+elif [ -n "$OLD_UNIT" ] && [ "$WAS_ACTIVE" = "active" ]; then
+  echo "unchanged cheap-mem-watch.service — no restart needed"
+fi
 
 echo ""
 echo "=== done ==="
