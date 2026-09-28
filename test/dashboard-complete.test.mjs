@@ -360,7 +360,7 @@ test('complete (server): /dashboard.json delivers the same real data, and the da
   for (const p of ['/console.json', '/pult.json', '/entry.json', '/entries.json', '/task.json']) {
     assert.ok(mod.PATHS.includes(p), `${p} was dropped from PATHS`);
   }
-  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const res = await fetch(`${base}/dashboard.json`);

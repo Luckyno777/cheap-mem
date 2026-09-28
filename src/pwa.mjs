@@ -94,7 +94,7 @@ self.addEventListener('fetch', (e) => {
       // Only a real page is stored: never a redirect (e.g. to /login for
       // lack of a session) nor the sign-in page itself — otherwise someone
       // offline later gets a page that was not meant for them.
-      if (answer && answer.ok && !answer.redirected && !new URL(answer.url).pathname.startsWith('/login')) {
+      if (answer && answer.ok && !answer.redirected && !answer.url.replace(/^[a-z]+:\\/\\/[^\\/]+/, '').startsWith('/login')) {
         const copy = answer.clone();
         caches.open(BUCKET).then((c) => c.put('/', copy));
       }
