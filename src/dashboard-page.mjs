@@ -19,7 +19,13 @@
 // layer still calls. Two files of one name would be two truths waiting
 // to be confused (port spec §5, package F).
 //
+import fs from 'node:fs';
+import path from 'node:path';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import * as icon from './icon.mjs';
+
+const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The paths of this page — ONE list, read by the server. */
 export const PATHS = Object.freeze({
@@ -33,6 +39,10 @@ export const PATHS = Object.freeze({
   // The bitemporal comparison (knowledge/facts) — read-only GET,
   // ?known=YYYY-MM-DD&valid=YYYY-MM-DD.
   factsAt: '/dashboard/facts-at.json',
+  // tempo (2026-09-28): heavy lists the overview does not need arrive on
+  // their own (?part=raw|inbox) — from the SAME build as /dashboard.json
+  // (bin/mem-serve, `DEFERRED_PARTS`).
+  part: '/dashboard/part.json',
   css: '/dashboard/app.css',
   script: '/dashboard/app.js',
   three: '/dashboard/three.js',
@@ -63,6 +73,39 @@ export const FONTS = Object.freeze([
       + 'U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF',
   }),
 ]);
+
+/**
+ * **The version mark of a shipped file (tempo, 2026-09-28).** The first
+ * 12 hex digits of the sha256 of its content. The page appends it as
+ * `?v=` to the stylesheet and the scripts; the server answers a request
+ * with the MATCHING mark as `immutable` (a year), every other with
+ * `no-cache` and an ETag. A browser thus fetches a file again only when
+ * its content really changed — before, `no-cache` came WITHOUT an ETag,
+ * so every load paid the full script and stylesheet. Remembered per
+ * size+mtime so not every page hashes the files again. `null` when the
+ * file is missing.
+ */
+const versionMemo = new Map(); // path -> { key, version }
+export function version(p) {
+  const f = FILES[p];
+  if (!f) return null;
+  const full = path.join(PACKAGE_ROOT, f.file);
+  let st;
+  try { st = fs.statSync(full); } catch { return null; }
+  const key = `${st.size}:${st.mtimeMs}`;
+  const old = versionMemo.get(p);
+  if (old?.key === key) return old.version;
+  let v;
+  try { v = createHash('sha256').update(fs.readFileSync(full)).digest('hex').slice(0, 12); } catch { return null; }
+  versionMemo.set(p, { key, version: v });
+  return v;
+}
+
+/** The path of a file WITH its version mark (without, when it is unreadable). */
+export function pathWithVersion(p) {
+  const v = version(p);
+  return v ? `${p}?v=${v}` : p;
+}
 
 /** The page title — one per house. */
 export const TITLE = 'cheap-mem · Your knowledge, connected.';
@@ -110,13 +153,13 @@ ${markLink}
 <style>
 ${fontCss()}
 </style>
-<link rel="stylesheet" href="${PATHS.css}">
+<link rel="stylesheet" href="${h(pathWithVersion(PATHS.css))}">
 </head><body data-writes="${writesAllowed ? '1' : '0'}" data-title="${h(title)}">
 <div class="shell"><aside class="sidebar"><div class="brand">${icon.markSvg()}<div>cheap<span style="font-weight:350">mem</span><small>YOUR KNOWLEDGE. CONNECTED.</small></div></div><div class="workspace"><span class="logo">${h(initials(space))}</span><div><strong>${h(space)}</strong><div class="small quiet">Personal memory</div></div></div><div class="label" style="padding-left:12px">Workspace</div><nav id="nav" class="nav"></nav><div class="side-note">Memories become<br>connections.</div><footer><nav class="sidebar-nav" aria-label="Other pages"><span class="label">Other pages</span><a href="#work/inbox" title="every recipient's messages, read and acknowledge"><span class="sidebar-glyph" aria-hidden="true">✉</span>Inbox</a></nav><div class="person"><span class="avatar">${h(person ? initials(person) : '··')}</span><div><strong class="small">${h(person || 'No human configured')}</strong><small>Dashboard server</small></div></div><div style="margin-top:18px" class="demo live" id="liveMark">○ CONNECTING …</div></footer></aside>
 <div class="content"><header class="topbar"><button class="iconbtn mobile-toggle" id="mobileMenu" aria-label="Open navigation" aria-expanded="false">☰</button><div class="crumb"><span>Workspace</span><span>/</span><span id="crumb">Overview</span></div><div class="top-actions"><span class="demo live" id="dataMark">LIVE DATA</span><button class="btn ghost" data-action="search" aria-label="Global search"><span class="searchhint">Find knowledge</span><span>⌕</span><kbd class="kbd">Ctrl K</kbd></button><button class="iconbtn global-motion" data-action="motion" aria-label="Toggle all animations" title="Pause / resume all animations">Ⅱ</button><button class="iconbtn" data-action="theme" aria-label="Light or dark colour scheme">◐</button><button class="btn primary" data-action="new">+ Entry</button></div></header>
 <main><div class="scopebar"><select id="memoryScope" aria-label="Memory"><option value="local">cheap-mem</option></select><select id="projectScope" aria-label="Project"><option value="all">All projects</option></select><span class="badge" id="stateMark"><span class="dot"></span> Loading state</span><span class="right small quiet" id="versionMark">—</span></div><div id="screen"><div class="loading"><span class="loading-core" aria-hidden="true"></span><p>Reading the memory …</p></div></div><footer class="footnote"><span id="footLeft">cheap-mem · content live from this memory.</span><span id="footRight">Reading changes nothing. Writing only through the existing routes and their gates.</span></footer></main></div></div>
 <dialog id="detail" class="drawer" aria-labelledby="detailTitle"></dialog><dialog id="editor" class="modal" aria-labelledby="editorTitle"></dialog><dialog id="command" class="modal" aria-labelledby="commandTitle"><header><h2 id="commandTitle">Find knowledge &amp; routes</h2><button class="iconbtn" data-close="command" aria-label="Close search">✕</button></header><input class="field" id="commandInput" placeholder="Entry, message, capture or view …" aria-label="Search term"><div class="small quiet" style="margin-top:10px">Searches the chosen memory and project.</div><div id="commandResults" class="commandresults"></div></dialog><dialog id="info" class="modal" aria-labelledby="infoTitle"></dialog><div class="toast" id="toast" role="status" hidden></div>
-<script src="${PATHS.three}"></script>
-<script src="${PATHS.script}"></script>
+<script src="${h(pathWithVersion(PATHS.three))}"></script>
+<script src="${h(pathWithVersion(PATHS.script))}"></script>
 </body></html>`;
 }
