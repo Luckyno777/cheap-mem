@@ -103,6 +103,16 @@ export const NOT_AVAILABLE = Object.freeze({
       + 'rejected, cleaned or dropped by a write guard) and no knowledge-gap register. What '
       + 'IS measured is the doctor\'s digest-yield finding, shown beside this note.',
   },
+  restore: {
+    title: 'Restore',
+    reason: 'Not available in cheap-mem: no command lifts a tombstone. A correction (`mem '
+      + 'correction`) writes the entry anew, with a replaces link to the retired one.',
+  },
+  merge: {
+    title: 'Merge',
+    reason: 'Not available in cheap-mem: there is no merge command. Linking the entries '
+      + '(`mem log link --kind generalizes`) keeps both and says how they belong together.',
+  },
   liveInjection: {
     title: 'Live injection preview',
     reason: 'Not available in cheap-mem: the recall hook cannot be run dry from a browser. '
