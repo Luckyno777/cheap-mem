@@ -70,7 +70,7 @@ async function withServer(run) {
       memory.logEntry(root, type, d, { project: ['payments', 'infra', null][i % 3], now: new Date(Date.parse('2026-09-01T09:00:00Z') + i * 3600e3) });
     }
     const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?visible=${Math.random()}`);
-    const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+    const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
     try {
       return await run(`http://127.0.0.1:${server.address().port}`);
     } finally {
