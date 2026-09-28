@@ -200,7 +200,7 @@ Status vocabulary matches the task's: **available** (wire it up),
 |---|---|---|---|
 | Home / overview | `dashboard.collect()` → Desk tiles | **available** | Same four metrics already computed (`src/astra/desk.mjs`); only the presentation changes |
 | Knowledge → Entries (`knowledge/entries`) | `pages.page()` (`/entries.json`), `dashboard.getEntryFast()` (`/entry.json`) | **available** | Already server-paginated (cursor `after`), unlike lucky-mem's own client-paginated Astra-equivalent — no server change needed here, only the browser app |
-| Knowledge → Network (3-D graph) | `net.build()` (boxes/pairs/dangling) for the aggregate view; `d.entries[].links` for a focused entry's trail (same data `astra/space.mjs` already draws in 2-D) | **available, rebuild needed** | Merge cheap-mem's own two existing spatial views (`space` canvas + `net` matrix) into one 3-D graph — the exact merge lucky-mem's own `DASHBOARD-MUSTER-3.md` §2.4 recommends for itself. Node cap: reuse `LIST_MAX = 400` (`src/astra/shared.mjs`); group cap: none exists yet in cheap-mem — needs a `NET_BOX_CAP`-style constant analogous to lucky-mem's `HIRNNETZ_KNOTEN_DECKEL` |
+| Knowledge → Network (3-D graph) | `net.build()` (boxes/pairs/dangling) for the aggregate view; `d.entries[].links` for a focused entry's trail (same data `astra/space.mjs` already draws in 2-D) | **available, rebuild needed** | Merge cheap-mem's own two existing spatial views (`space` canvas + `net` matrix) into one 3-D graph — the exact merge lucky-mem's own `DASHBOARD-MUSTER-3.md` §2.4 recommends for itself. Node cap: reuse `LIST_MAX = 400` (`src/astra/shared.mjs`); group cap: none exists yet in cheap-mem — needs a `NET_BOX_CAP`-style constant analogous to lucky-mem's `HIRNNETZ_KNOTEN_DECKEL`. **Node/edge count on THIS repo: not measurable — none exists.** Checked 2026-09-28: no `.mem/` with real entries exists anywhere in this repo (`/.mem/` is blanket-`.gitignore`d, `find` turns up only test-scratch dirs under `/tmp/*/`, which are throwaway fixtures, not a corpus). `bench/heaps-corpus.mjs`'s own header states this explicitly: *"cheap-mem is a tool, not a populated personal memory — there is no real English corpus here."* The only fixtures that exercise `net.build()` are `test/net.test.mjs`'s 11 unit tests (measured: `node --test test/net.test.mjs` → 11/11 pass), each hand-built with 2-5 entries for correctness, not scale (e.g. the "pairs carry the kinds" test: 3 entries, 1 pair, 2 kinds) — citing a node/edge count from these would misrepresent a unit fixture as a corpus measurement. Contrast: lucky-mem's own `net.mjs` header cites a REAL number from ITS sibling memory (2544 tag-based edges, 2026-09-11, the exact case that justified switching to declared-links-only). cheap-mem has no equivalent to cite. Flagged to owner (§6): before this view can be demoed with real numbers, someone must either dogfood cheap-mem on a real project long enough to accumulate declared links, or extend `bench/heaps-corpus.mjs` (currently vocabulary-growth only, no link generation) to produce a synthetic linked corpus — and any resulting number must be labelled synthetic, not real, in the demo itself |
 | Knowledge → Topics | tags on every entry (`e.tags`) | **available** | Pure aggregation, no new source (same conclusion lucky-mem reached for itself) |
 | Knowledge → Facts (bitemporal compare) | `timeline.jsonl` entries + `timesearch.mjs`/`timeexpr.mjs` | **must be built** | Same gap lucky-mem found in itself (§3.1 of its own doc): the computation exists, no HTTP facade does |
 | Knowledge → Learnings | entries of type `learning` | **available** | Filter on `memory.TYPES.learning` |
@@ -219,9 +219,9 @@ Status vocabulary matches the task's: **available** (wire it up),
 | Ops → Shards | no "shard" concept in cheap-mem; nearest is drawer (`project/type` path, same as lucky-mem's own "reinterpret as Kasten" conclusion) | **not applicable, reinterpret** | Use drawer (project × type) as the grouping, exactly as lucky-mem itself decided for its "Kasten" |
 | Ops → Doctor | `doctor.mjs` — **states already match exactly**: `good`/`warn`/`error`/`unknown` | **available** | No dedicated HTTP route yet (`/entry.json` etc. exist, `/doctor.json` does not) — small, well-scoped addition |
 | Ops → Performance | `gauges.mjs`, `bench/atlas.mjs` | **must be built** | No time-series history persisted anywhere; same conclusion as lucky-mem's own "So würden Messreihen aussehen" caveat — do not fabricate a chart from one point |
-| Ops → Integrity | `integrity.mjs`, `tasks.mjs`'s `integrity` kind (already a task button in `/console`) | **available** | Encryption/shredder-style rows from the mockup are **not applicable**: cheap-mem is deliberately append-only plaintext JSONL (traceability over encryption is a named architecture choice, `docs/design.md` — confirm exact citation before publishing further) |
-| Ops → Versions | `component.mjs` (`mem component <path>` bauteil-style ownership check does not exist in English form — verify), git state | **available, verify exact source** | |
-| Ops → MCP | `mcpprofile.mjs` (`LESEND`/`SCHREIBEND`??? — **verify: check whether cheap-mem's `mcpprofile.mjs` uses English names**, `mcptuer.mjs`-equivalent) | **available, verify naming** | Tool list is static; whether a specific client sees it is unknowable from the server, same as lucky-mem's own honest "unbekannt bleibt es" |
+| Ops → Integrity | `integrity.mjs`, `tasks.mjs`'s `integrity` kind (already a task button in `/console`) | **available** | Encryption/shredder-style rows from the mockup are **not applicable**: cheap-mem is deliberately append-only plaintext JSONL. Exact citation (`docs/design.md:76-81`, "Why there's no encryption"): *"Because your memory belongs on a private git remote and git has no mainstream encryption story... the honest advice is: use a private repo, don't put secrets in."* A stated design choice, not an oversight — no fake encryption toggle to match the mockup's row |
+| Ops → Versions | `component.mjs` (`mem component <path>`, wired at `src/cli/commands/setup.mjs:939`) — English throughout, no German name to translate; its own header cites a real measurement ("805 path mentions: 312 distinct components, 70 of them (22%) occur…"), git state | **available** | Verified 2026-09-28: `grep -n "german\|bauteil" src/component.mjs` returns no hits — this row's earlier "verify" is resolved, nothing to translate |
+| Ops → MCP | `mcpprofile.mjs` — verified 2026-09-28: exports `READING`/`WRITING` (English, `src/mcpprofile.mjs:52,68`), never German `LESEND`/`SCHREIBEND` — this house's naming was already English before this document's first draft raised the question | **available** | Tool list is static; whether a specific client sees it is unknowable from the server, same as lucky-mem's own honest "unbekannt bleibt es" |
 | Settings → Appearance | client-side only (theme/motion/print) | **available** | No data source needed |
 | Settings → System | `console.mjs`'s `raw-archive` + `error-window` | **available, near-exact match** | `quiet-hours` is a third cheap-mem setting with **no** Dashboard-Muster-3 counterpart — needs its own settings row, not a silent drop |
 | Settings → Catalog | 66 CLI commands (`docs/CAPABILITIES.md`, verified count §1 of this document via direct grep), MCP tool profile | **available** | Real count, not the mockup's own unverified claim |
@@ -295,10 +295,14 @@ Project Authors). Both license texts already exist verbatim in
 lucky-mem's mockup and can be copied into cheap-mem's `NOTICE` (which
 today only names cheap-mem's own MIT terms) and into a header comment
 on the vendored files, mirroring lucky-mem's own recommendation
-(`DASHBOARD-MUSTER-3.md` §4.1–4.2). Size: three.js alone roughly doubles
-cheap-mem's total shipped `assets`-equivalent footprint versus today's
-zero (cheap-mem currently ships no `assets/` directory of this kind at
-all — verified: no `assets/` folder exists in this repo).
+(`DASHBOARD-MUSTER-3.md` §4.1–4.2). Size, measured directly on lucky-mem's
+own vendored files (`ls -la`, 2026-09-28), not cited secondhand:
+`assets/three/three-r180.min.js` = 520,601 bytes (≈508 KiB, matching the
+"~520 KB" figure in `DASHBOARD-MUSTER-3.md` §4.1 exactly);
+`assets/schrift/dm-sans-latin.woff2` = 62,724 bytes +
+`dm-sans-latin-ext.woff2` = 31,292 bytes (≈92 KiB together). Total new
+weight if both are vendored as-is: ≈600 KiB, versus cheap-mem's current
+zero (verified: no `assets/` folder exists in this repo at all).
 
 ### 4.2 English-only ratchet
 
@@ -555,12 +559,21 @@ landed and the owner has signed off per the task's own precondition.
    Google-Fonts exception already made 2026-09-16. Approve vendoring
    (recommended, matches lucky-mem's own choice and keeps both houses
    visually identical) or specify a lighter substitute?
-2. **Route names.** Should the new page live at `/dashboard` (matching
-   lucky-mem's own path exactly, so the two houses' URLs mirror each
-   other) or somewhere else, given `/dashboard.json` is already taken
-   by the OLD Astra page today (`bin/mem-serve`'s existing route).
-   Resolving this collision is a prerequisite for Package B, not a
-   detail to decide mid-build.
+2. **Route names — confirmed collision, not just a risk.** Checked
+   2026-09-28 directly against lucky-mem's source: `src/dashboard.mjs`'s
+   `WEGE` (paths) object hardcodes `seite: '/dashboard'` and
+   `daten: '/dashboard.json'` (lines 28-29) — so mirroring lucky-mem's
+   own path exactly is not optional if the two houses' URLs are meant to
+   line up, but `/dashboard.json` is ALREADY cheap-mem's existing route
+   for the OLD Astra page (`bin/mem-serve`'s `PATHS`, verified above) and
+   `/dashboard` is free (Astra sits at `/`). Recommendation: the new page
+   takes `/dashboard` + `/dashboard.json` exactly as named, and the OLD
+   Astra page's `/dashboard.json` route is renamed (e.g. `/pult.json` —
+   `/pult` already exists as an alias per `PATHS`, so extending it costs
+   nothing new) BEFORE Package B lands, not after — a mid-build rename
+   of a live route is exactly the kind of two-truths risk this document
+   flags elsewhere (§4.1 "console.mjs's own header comment"). This is a
+   sequencing decision for the owner, not a detail Package B can infer.
 3. **Raw-capture delete over HTTP.** Today this is CLI-only, with a
    `--reason`/`--by`/`--yes` guard. Exposing it over HTTP is the single
    largest new write surface this port introduces (§2, §5 Package B).
