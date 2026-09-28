@@ -174,6 +174,29 @@ function notAvailable(key) {
   const n = D?.notAvailable?.[key];
   return `<div class="row"><div><strong>${esc(n?.title || key)}</strong><p>${esc(n?.reason || 'Not available in cheap-mem.')}</p></div>${badge('not available', 'not available in cheap-mem')}</div>`;
 }
+// Release rail (Bauplan P1, src/release.mjs) — four real states, never
+// "not available": a fresh install reads `unknown` with "unknown — no
+// release yet", the same phrasing the check-record row below uses.
+function releaseRow(r) {
+  if (!r || !r.readable) {
+    return `<div class="row"><div><strong>Release state</strong><p>${esc(r?.reason || 'unknown')}</p></div>${badge(r?.state || 'unknown', levelWord[r?.state] || 'unknown')}</div>`;
+  }
+  const bits = [r.kurzhash ? `commit ${esc(r.kurzhash)}` : null, r.createdAt ? `created ${esc(whenTime(r.createdAt))}` : null,
+    r.proven ? 'proven by a checked.jsonl row' : 'forced (--allow-unproven)'];
+  const text = bits.filter(Boolean).join(' · ') + (r.reason ? ` — ${r.reason}` : '');
+  return `<div class="row"><div><strong>Release state</strong><p>${esc(text)}</p></div>${badge(r.state, levelWord[r.state] || r.state)}</div>`;
+}
+// The last recorded green suite run (Bauplan P1, src/checkrecord.mjs,
+// checked.jsonl) — same four-state shape as releaseRow above.
+function checkRecordRow(c) {
+  if (!c || !c.readable) {
+    return `<div class="row"><div><strong>Last test receipt</strong><p>${esc(c?.reason || 'unknown')}</p></div>${badge(c?.state || 'unknown', levelWord[c?.state] || 'unknown')}</div>`;
+  }
+  const bits = [Number.isFinite(c.passed) ? `${num(c.passed)} passed` : null, c.ts ? esc(whenTime(c.ts)) : null,
+    c.machine ? `machine ${esc(c.machine)}` : null];
+  const text = bits.filter(Boolean).join(' · ') + (c.reason ? ` — ${c.reason}` : '');
+  return `<div class="row"><div><strong>Last test receipt</strong><p>${esc(text)}</p></div>${badge(c.state, levelWord[c.state] || c.state)}</div>`;
+}
 // "Read only": visible, but with the route that really does it.
 function readonlyMark(cli) {
   return `<span class="badge unknown read-only"><i class="dot"></i>read only</span>${cli ? ` <span class="small quiet">CLI: <code class="mono">${esc(cli)}</code></span>` : ''}`;
@@ -764,7 +787,7 @@ const pages = {
       `<div class="row"><div><strong>This surface</strong><p>The dashboard · served by mem serve</p></div>${badge('present')}</div><div class="row"><div><strong>cheap-mem on disk</strong><p>version ${esc(c.version || '—')} · ${esc(c.headNow || 'not a git checkout')}</p></div>${c.version ? badge('present') : badge('unknown')}</div><div class="row"><div><strong>Running process</strong><p>Loaded: ${esc(c.headAtStart || '—')}. A commit on disk proves no loaded process version.${c.stale ? ' A restart is due so the process loads what is on disk.' : ''}</p></div>${c.headAtStart ? (c.stale ? badge('stale') : badge('good', 'current')) : badge('unknown')}</div><div class="row"><div><strong>Memory repository</strong><p>${esc(g.branch || '—')} · ${esc(g.head || '—')} · state ${esc(g.at || '—')}${g.changed ? ` · ${num(g.changed)} changed files` : ''}${g.remote ? ' · ' + esc(g.remote) : ''}</p></div>${g.head ? badge('present') : badge('unknown')}</div><div class="row"><div><strong>Data state</strong><p>${esc(whenTime(D.at))} · ${num(D.meta?.inventory?.total)} lines in ${num(D.meta?.inventory?.projects)} projects</p></div><span class="mono">${entriesTotalText()}</span></div>${(D.connections || []).map((r) => `<div class="row"><div><strong>${esc(r.title)}</strong><p>${esc(r.address)} · ${esc(r.door)}${r.note ? ' · ' + esc(r.note) : ''}</p></div>${badge(r.open ? 'open' : 'present', r.open ? 'no token' : 'door set')}</div>`).join('')}`,
     )}${panel(
       'Hook state and release rail',
-      `<div class="row"><div><strong>Stop hook</strong><p>${esc(hook?.text || 'The doctor\'s "stop-hook" finding was not read.')}</p></div>${badge(hook ? levelWord[hook.level] || hook.level : 'unknown')}</div><div class="row"><div><strong>Release state</strong><p>${esc(v.release?.reason || 'unknown')}</p></div>${badge('not available', 'not available in cheap-mem')}</div><div class="row"><div><strong>Last test receipt</strong><p>${esc(v.checkRecord?.reason || 'unknown')}</p></div>${badge('not available', 'not available in cheap-mem')}</div>${note('The hook state comes from the same doctor run as "Operations › Diagnosis".')}`,
+      `<div class="row"><div><strong>Stop hook</strong><p>${esc(hook?.text || 'The doctor\'s "stop-hook" finding was not read.')}</p></div>${badge(hook ? levelWord[hook.level] || hook.level : 'unknown')}</div>${releaseRow(v.release)}${checkRecordRow(v.checkRecord)}${note('The hook state comes from the same doctor run as "Operations › Diagnosis". Release state and the last test receipt come from src/release.mjs and src/checkrecord.mjs (Bauplan P1) — checked.jsonl and <cheap-mem>-release/current, read straight off disk.')}`,
     )}`;
   },
   mcp: () => mcpPage(),
