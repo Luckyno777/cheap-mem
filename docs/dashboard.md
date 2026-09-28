@@ -73,6 +73,46 @@ the page.
 - The page sends a Content-Security-Policy and never a CORS header.
 - The service worker stores nothing unless `CHEAP_MEM_SERVE_OFFLINE=1`.
 
+## The password (sign-in, since 2026-09-28)
+
+Behind the token door and in front of all content sits a password — a
+black page, one field, one button (`src/login.mjs`). Without a valid
+session every page goes to `/login`, every data and writing route
+answers `401` JSON. Tools keep the existing way:
+`Authorization: Bearer <CHEAP_MEM_SERVE_TOKEN>` needs no password (the
+`mem_k` cookie alone does — otherwise the password would do nothing in
+the owner's own browser). `CHEAP_MEM_SERVE_LOGIN=off` switches it off
+(tests, local use); the default is on.
+
+**First setup: the code, not loopback.** With no password set, the
+server keeps a one-time code in `.pipeline/serve-setup-code` (mode 600)
+and logs only WHERE it is; `mem serve setup-code` prints it. Setting the
+first password needs that code (or the bearer). Loopback does not count:
+behind a tunnel whose client runs on the same machine, every request
+arrives from 127.0.0.1.
+
+**Storage.** `.pipeline/serve-password.json`: only a salted scrypt hash
+(compared with `timingSafeEqual`), mode 600, gitignored. The sessions
+file keeps only SHA-256 of the session tokens.
+
+**Session.** Cookie `mem_session`: `HttpOnly; SameSite=Strict; Path=/`,
+`Secure` behind https or a tunnel, 30 days, sliding. After an
+identity-provider round trip the page reloads once same-site (no script)
+so the strict cookie comes along.
+
+**Failed attempts.** Every refusal waits 0.4 s; from the 3rd failure per
+source (behind the tunnel `CF-Connecting-IP`) an exponential lock of
+1 s, 2 s, 4 s … up to 15 min; 20 failures overall lock everyone for a
+while. Logged with source and counters, never with a password.
+
+**Change / sign out:** Settings › Access (current password, new one
+twice, at least 10 characters). A change ends every other session.
+Changing the password is NOT behind the write switch: it touches no
+memory, and the owner must be able to change it with writes off.
+
+**Forgotten:** `mem serve reset-password` on the machine, then
+`mem serve setup-code`; the next visit asks for the setup again.
+
 ## Every file from this server
 
 three.js r180 (MIT) and DM Sans (SIL OFL 1.1) are vendored under
