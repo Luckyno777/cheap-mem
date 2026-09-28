@@ -62,6 +62,8 @@ import * as retrieval from './retrieval.mjs';
 import * as capability from './capability.mjs';
 import * as viewer from './viewer.mjs';
 import * as raw from './raw.mjs';
+import * as modelcost from './modelcost.mjs';
+import * as effect from './effect.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The cheap-mem package itself — where the code, not the memory, lives. */
@@ -249,6 +251,81 @@ export function usageFromJournal(root, { read = injection.read } = {}) {
     searched: { measured: searchedMeasured },
     recent,
   };
+}
+
+/**
+ * dash-fix3 parity (part 2a): "Model cost" for Work & Agents -> Usage.
+ * Reads ONLY src/modelcost.mjs (the journal rows bin/mem-digest appends
+ * on an `--output-format json` run) — nothing is recomputed. With no
+ * row at all (a fresh clone, a CLI without the field) this stays
+ * explicitly `measurable:false` with a reason — "not measured yet",
+ * never the old invented dash.
+ */
+export function modelCostOverview(root, {
+  now = new Date(), sumByCaller = modelcost.sumByCaller,
+} = {}) {
+  let last7; let last30;
+  try {
+    last7 = sumByCaller(root, { sinceDays: 7, now });
+    last30 = sumByCaller(root, { sinceDays: 30, now });
+  } catch (e) {
+    return { measurable: false, reason: e?.message || String(e) };
+  }
+  if (!last7.length && !last30.length) {
+    return { measurable: false, reason: `no row in the cost journal yet (${modelcost.LOG})` };
+  }
+  // Estimate, not a bill (dash-fix3 wording, part 2a): total_cost_usd
+  // from the CLI is a model-side estimate for the account's plan.
+  return { measurable: true, last7, last30, costLabel: 'estimate, not a bill' };
+}
+
+// dash-fix3 parity (part 2b): effect.measure() reads the WHOLE search
+// index once per call (loadIndex) — not cheap, and /dashboard.json is
+// polled often. A few minutes of cache, per root, exactly like the MCP
+// live probe (src/mcplive.mjs) for the same reason.
+const EFFECT_TTL_MS = 5 * 60 * 1000;
+const effectCache = new Map(); // root -> { until, result }
+
+/** Tests only: clear the effect cache. */
+export function _clearEffectCache() { effectCache.clear(); }
+
+/**
+ * dash-fix3 parity (part 2b): "Application" for Work & Agents -> Usage.
+ * Previously always "unknown" — not measured, only written that way.
+ * `effect.measure()` (M5) really asks whether an injected place was
+ * named again afterwards — but ONLY when the injection journal itself
+ * is readable (`journalMeasurable`, the SAME precondition
+ * `usage.measurable` on this page already needs: without a journal
+ * there is no shown-place to ask about at all). A machine with no
+ * processed capture yet is explicitly "not measurable HERE" (sounds
+ * like: elsewhere it would be), never "no such telemetry" (sounds
+ * like: does not exist at all).
+ */
+export function effectOverview(root, {
+  now = new Date(), measure = effect.measure, journalMeasurable, ttlMs = EFFECT_TTL_MS,
+} = {}) {
+  if (!journalMeasurable) {
+    return { measurable: false, reason: 'not measurable here — no injection journal on this machine' };
+  }
+  const nowMs = new Date(now).getTime();
+  const cached = effectCache.get(root);
+  if (cached && cached.until > nowMs) return cached.result;
+  let result;
+  try {
+    const r = measure(root);
+    result = r.state === effect.STATE.MEASURED
+      ? { measurable: true, state: r.state, n: r.n, used: r.used, rate: r.rate, wilson: r.wilson, minPairs: r.minPairs }
+      : {
+        measurable: false, state: r.state, n: r.n, minPairs: r.minPairs,
+        reason: r.state === effect.STATE.NO_DATA
+          ? 'no injection on record yet'
+          : `not enough measurable pairs yet (${r.n} of ${r.minPairs} needed)`,
+      };
+  } catch (e) {
+    result = { measurable: false, reason: e?.message || String(e) };
+  }
+  effectCache.set(root, { until: nowMs + ttlMs, result });
+  return result;
 }
 
 /** The commands the CLI dispatches, read from the group modules themselves. */
@@ -631,6 +708,11 @@ export function collectDashboard(root, {
     : { checkable: false, reason: d.humanInbox?.reason ?? 'no human participant configured' };
 
   const usage = usageFromJournal(root, { read: readJournal });
+  // dash-fix3 parity: these are their OWN sources (the cost journal /
+  // effect.measure()), only laid BESIDE the injection-journal usage
+  // figures above — not recomputed from them.
+  usage.modelCost = modelCostOverview(root, { now });
+  usage.effect = effectOverview(root, { now, journalMeasurable: usage.measurable });
 
   return {
     state: reasons.length ? 'warning' : 'ok',

@@ -863,6 +863,31 @@ function contextPage() {
   )}</div>`;
 }
 
+// dash-fix3 parity, part 2b: "did an injected place get named again?"
+// (src/effect.mjs, wired through dashboard-data.mjs's usage.effect).
+function effectSummary(ef) {
+  if (!ef) return { text: 'Unknown', sub: 'not measured' };
+  if (ef.measurable) {
+    const pct = (x) => (x * 100).toFixed(1) + '%';
+    return { text: `${pct(ef.rate)} used again`, sub: `95% CI [${pct(ef.wilson.lo)}, ${pct(ef.wilson.hi)}] · ${num(ef.n)} pairs` };
+  }
+  if (ef.state === 'no-data') return { text: 'No data', sub: 'no injection on record yet' };
+  if (ef.state === 'not-measurable') return { text: 'Not enough data', sub: `${num(ef.n)} of ${num(ef.minPairs)} pairs needed` };
+  return { text: 'Unknown', sub: ef.reason || 'not measurable here' };
+}
+// dash-fix3 parity, part 2a: the cost journal (src/modelcost.mjs), read
+// through dashboard-data.mjs's usage.modelCost. `costUsd` is an
+// ESTIMATE from the CLI, never a bill — labelled as such below.
+function modelCostSummary(mc) {
+  if (!mc?.measurable) return { text: 'Not measured yet', sub: mc?.reason || 'no row in the cost journal yet' };
+  const runs = mc.last7.reduce((n, s) => n + s.runs, 0);
+  const costed = mc.last7.filter((s) => s.costUsd != null);
+  const cost = costed.length ? costed.reduce((n, s) => n + s.costUsd, 0) : null;
+  return {
+    text: cost != null ? `$${cost.toFixed(4)}` : `${num(runs)} run(s)`,
+    sub: cost != null ? `${num(runs)} run(s), 7d · ${mc.costLabel}` : `${num(runs)} run(s), 7d · cost not reported by this CLI`,
+  };
+}
 // work/usage — kept as its own function so the sibling's cost journal
 // and effect wiring can be mirrored here cleanly once they land.
 function usagePage() {
@@ -870,11 +895,13 @@ function usagePage() {
   const g = n.reasons || {};
   const ok = n.measurable;
   const cnt = (k) => (ok ? num(g[k] || 0) : '—');
+  const eff = effectSummary(n.effect);
+  const cost = modelCostSummary(n.modelCost);
   return `${metrics([
     ['Context occupancy', ok && n.bytes?.measured ? num(Math.round(n.bytes.sum / n.bytes.measured)) + ' B' : '—', ok ? (n.bytes?.measured ? 'mean per injection, from the journal' : 'size not recorded by the hook') : 'journal not readable'],
     ['Injections delivered', ok ? num(n.shown) : '—', ok ? `of ${num(n.rows)} recalls` : 'not measurable'],
-    ['Application', 'Unknown', 'no agent telemetry about effect'],
-    ['Model costs', '—', 'not measured · cheap-mem keeps no billing'],
+    ['Application', eff.text, eff.sub],
+    ['Model costs', cost.text, cost.sub],
   ])}<div class="grid two">${panel(
     'Narrowly missed',
     `<div class="number">${cnt('too-weak')}</div><p class="muted">Recalls where hits were there, but all below the threshold ("too-weak"). ${ok ? num(g.empty || 0) + ' more found nothing in the index at all.' : ''}</p>${btn('Open the search', 'search', '', 'ghost')}`,
