@@ -203,7 +203,8 @@ for (const [name, n, projects, mode] of CASES) {
     const out = outside(hull.vertices, points);
     const w = waist(hull.vertices), g = groove(hull.vertices);
     console.log(`   ${name}: ${points.length} nodes, ${out.length} outside, waist ${w.toFixed(2)}, groove ${g.toFixed(2)}, ${hull.drawCalls} draw calls`);
-    assert.ok(hull.meshes.length >= 1 && hull.meshes.length <= 2, 'skin and at most one halo');
+    // Since sphaere (2026-09-28): one fog volume, no skin — at most three surfaces on the SAME geometry.
+    assert.ok(hull.meshes.length >= 1 && hull.meshes.length <= 3, 'fog volume, nothing more');
     assert.ok(hull.spread < 1e-6, `all hull surfaces around ONE centre (spread ${hull.spread})`);
     assert.deepEqual(out, [], 'all nodes lie inside the cloud');
     assert.ok(w >= 0.8, `waist along the mid plane (waist ${w.toFixed(2)})`);
@@ -222,14 +223,9 @@ test('GREEN: the cloud grows with the store and stays a calm sphere when empty',
   assert.ok(Math.max(...ax(empty)) / Math.min(...ax(empty)) < 1.001, 'empty: a sphere');
   assert.ok(Math.min(...ax(full)) > Math.max(...ax(empty)), 'with a store: larger than empty');
   assert.ok(Math.max(...ax(full)) / Math.min(...ax(full)) < 1.6, 'round: no cigar');
-  // Fixed seed: built twice, identical.
+  // Fixed: built twice, identical.
   assert.deepEqual(cloudShape(graphModel([], 'storage')).point(0.3, 0.8, 0.52), empty.point(0.3, 0.8, 0.52));
-  // Swell and breathing act outwards only (enclosure survives the motion).
-  for (let i = 0; i < 200; i++) {
-    const s = full.swell(Math.sin(i), Math.cos(i * 1.3), Math.sin(i * 0.7));
-    assert.ok(s >= 1 && s <= 1.1 + 1e-9, `swell ${s} outside 1..1.1`);
-  }
-  assert.match(src, /CLOUD_BREATH = \[0\.\d+, 0\.\d+\]/, 'breath amplitudes are positive constants');
-  assert.match(src, /d \* \(1\.0 \+ \$\{CLOUD_BREATH\[0\]/, 'breathing scales outwards only (1 + a*[0..1] + b*[0..1])');
-  assert.match(src, /uHalo: \{ value: halo \? 1\.\d+ : 1 \}/, 'the halo lies outside (factor > 1), the skin at 1');
+  // Since sphaere (2026-09-28) the hull is light fog without a surface
+  // (test/sphere-hull.test.mjs); it reaches beyond the nodes.
+  assert.match(src, /const CLOUD_REACH = 1\.\d+;/, 'the fog reaches beyond the node ellipsoid (factor > 1)');
 });
