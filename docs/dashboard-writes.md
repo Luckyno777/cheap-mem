@@ -50,6 +50,7 @@ gate calls:
 | `POST /task/cancel` | ends one |
 | `POST /inbox/reply` | one new message in `inbox/`, answering a message in the human participant's tray — the same `inbox.write()` `mem inbox write` calls (P1b) |
 | `POST /inbox/state` | acknowledges one message addressed to the human participant — nobody else's |
+| `POST /dashboard/verify-verdict` | a human's verdict on one Today-card "to verify" candidate — one line appended OUTSIDE the memory root (`src/verifylog.mjs`, `CHEAP_MEM_VERIFY_FILE` or `~/.cheap-mem-verify/facts-verdict.jsonl`), never a write inside this repository (N9 parity) |
 
 Every other path (`/`, `/dashboard`, `/pult`, the `.json` routes, the
 retrieval probe) only reads. `/console` and `/viewer` only redirect.

@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 66 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 68 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2260 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2258 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -96,8 +96,11 @@ directory. The section number in brackets is where it is explained.
 | `language.mjs` | stemming and stop words, per language |
 | `langbridge.mjs` | optional starter dictionaries from the language a person asks in to the language the agents wrote in, as files (`src/langbridge/*.tsv`), off by default (`languageBridges` in `.mem/config.json`, M18b) |
 | `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active (10.27) |
+| `mcplive.mjs` | a real `tools/list` probe of the local MCP bridge — cached, run in the background, never awaited by `/dashboard.json` (7.5) |
 | `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing (10.26) |
+| `mcpvisibility.mjs` | which MCP client saw or called which tool, and when — name, client, time only, never call content, machine-local under `.pipeline/` (7.5) |
 | `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
+| `modelcost.mjs` | reads the token/cost fields a headless `claude -p --output-format json` run already returns; machine-local, never a second model call (7.5) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
 | `net.mjs` | what points at what — from declared links, not from similarity (10.20) |
 | `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking (10.28) |
@@ -130,10 +133,12 @@ directory. The section number in brackets is where it is explained.
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections (10.25) |
+| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this (7) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
+| `verifylog.mjs` | a human's verdict on an uncertain fact, appended OUTSIDE the memory root — never a correction, never inside the repo (7.5) |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
 | `webauth.mjs` | the door in front of any HTTP service (7.4) |
 | `workflow.mjs` | a named SEQUENCE for all — same authority question as `procedure`, same answer: only a human issues one, the bridge never writes it (10.26) |
@@ -504,7 +509,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 66 commands
+### 7.1 CLI — 68 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -514,7 +519,7 @@ viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
-asked-learn effect
+asked-learn effect today modelcost
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,

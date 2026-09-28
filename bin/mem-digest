@@ -271,8 +271,15 @@ condensing enough. Stop after the push."
   # stands down on the lock.
   # shellcheck disable=SC2086
   BEFORE_BYTES="$(wc -c < "$LOG" 2> /dev/null || echo 0)"
-  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" ) >>"$LOG" 2>&1
-  MODEL_EXIT=$?
+  # dash-fix3 parity (part 2a): `--output-format json`, STDOUT through
+  # src/modelcost.mjs (appends a row to the machine-local cost journal
+  # on valid JSON, otherwise passes the text through unchanged), STDERR
+  # stays directly on $LOG (mem_never_started/anmeldung detection reads
+  # that file). `PIPESTATUS[0]`, not the pipeline's own exit value —
+  # without that this would read node's exit code, not $CMD's.
+  ( cd "$ROOT" && MEM_HEADLESS=digest capped "$TIMEOUT" $CMD "$PROMPT" --output-format json ) 2>>"$LOG" \
+    | node "$HERE/../src/modelcost.mjs" "$ROOT" digest digest-run >>"$LOG"
+  MODEL_EXIT=${PIPESTATUS[0]}
 
   # The CLI may sit on a mount flagged `noexec`, where execve() refuses
   # it whatever its permission bits say. Then the call comes back 126

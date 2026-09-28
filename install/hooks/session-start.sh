@@ -140,6 +140,30 @@ if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
   fi
 fi
 
+# --- "Today" (N8/N21 parity: one source, three surfaces) --------------
+#
+# `mem today --line` (src/today.mjs, `today()`/`line()`) — the SAME
+# function `mem today` and the dashboard's Today card read, not a
+# separate calculation here. `line()` returns nothing at all when there
+# is nothing notable ("only when there is something", same rule the
+# habit line above already follows) — so there is no bare `echo` outside
+# the `if`.
+#
+# Own time cap, same shape as the alarm above: today() reads
+# doctor.checkAll() and every open duty, and a session start must never
+# hang waiting on either.
+if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+  if command -v timeout >/dev/null 2>&1; then
+    MEM_TODAY="$(timeout "${MEM_TODAY_SECONDS:-5}" node "$CHEAP_MEM_ROOT/bin/mem" today --line 2>/dev/null)"
+  else
+    MEM_TODAY="$(node "$CHEAP_MEM_ROOT/bin/mem" today --line 2>/dev/null)"
+  fi
+  if [ -n "$MEM_TODAY" ]; then
+    echo "$MEM_TODAY"
+    echo ""
+  fi
+fi
+
 cat <<HINTS
 === how to use this memory this session ===
 

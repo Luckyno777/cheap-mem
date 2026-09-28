@@ -334,6 +334,64 @@ function pageDesc() {
 function openWork(es) {
   return es.filter((e) => ['duty', 'question'].includes(e.type) && statusOf(e.id) === 'open');
 }
+
+// --- Today (N8/N21 parity: one source, three surfaces — src/today.mjs) -------
+function todayOperationsPart(notable) {
+  if (!notable.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">Operations</div>${notable
+    .map((f) => `<div class="row"><div><strong>${esc(f.name)}</strong><p>${esc(f.text)}</p>${f.advice ? `<p class="small quiet">${esc(f.advice)}</p>` : ''}</div>${badge(f.level)}</div>`)
+    .join('')}`;
+}
+function todayDecisionsPart(list) {
+  if (!list.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">Decisions for you</div>${list
+    .map((dt) => `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(when(dt.due)) : ''}</p></div><span class="arrow">↗</span></button>`)
+    .join('')}`;
+}
+// N9 parity: a candidate is NEVER written here, only shown (the value
+// comes from this memory's own timeline facts, src/today.mjs part c —
+// never a fabricated question) and rated through POST
+// /dashboard/verify-verdict, the same gate as every other write route.
+function todayVerifyRow(v, i) {
+  const attr = (verdict) => `data-verdict="${esc(verdict)}" data-key="${esc(v.key)}" `
+    + `data-project="${esc(v.project || '')}" data-age-days="${v.ageDays != null ? v.ageDays : ''}" `
+    + `data-conflict="${v.conflict ? '1' : '0'}"`;
+  return `<div class="row today-verify-row" data-verify-row="${i}"><div>`
+    + `<strong>${esc(v.key)}</strong>${v.project ? ` <span class="small quiet">(${esc(v.project)})</span>` : ''}`
+    + `<p class="detailtext" style="margin:6px 0">${v.value != null ? esc(String(v.value)) : '<span class="quiet">(no current value)</span>'}</p>`
+    + `<p class="small quiet">${v.conflict ? 'conflicting versions on record' : `${v.ageDays != null ? num(v.ageDays) + ' day(s) old' : 'stale'}`}${v.source ? ` · <code class="mono">${esc(v.source)}</code>` : ''}</p>`
+    + `</div><div class="drawer-actions" data-verify-actions>`
+    + `${btn('still current', 'today-verify-verdict', attr('still-current'), 'small ghost')}`
+    + `${btn('outdated', 'today-verify-verdict', attr('outdated'), 'small ghost')}`
+    + `${btn('can’t tell', 'today-verify-verdict', attr('cannot-tell'), 'small ghost')}`
+    + `</div></div>`;
+}
+function todayVerifyPart(list) {
+  if (!list.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">To verify</div>${list.map((v, i) => todayVerifyRow(v, i)).join('')}`
+    + '<p class="small quiet" style="margin-top:8px">A verdict appends ONE line to a file OUTSIDE this memory — never a change here, never the entry itself.</p>';
+}
+// Honest "unknown, no source yet" — this house never had a persisted
+// weekly review report or an open word-pair-suggestion queue to read
+// (see src/today.mjs for why), and an unmeasured state is shown, never
+// hidden as if it were calm.
+function todayUnknownPart(title, info) {
+  return `<div class="label" style="margin:16px 0 6px">${esc(title)}</div><div class="row"><div><p class="small quiet">${esc(info?.reason || 'unknown')}</p></div>${badge('unknown')}</div>`;
+}
+function todayCard() {
+  const t = D.today;
+  if (!t) return '';
+  const ops = t.operations?.notable || [];
+  const decisions = t.decisions?.list || [];
+  const verify = t.verify?.list || [];
+  const nothingPressing = !ops.length && !decisions.length && !verify.length;
+  const body = (nothingPressing
+    ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify.')
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify))
+    + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions and facts to verify — the same source as `mem today`.')}</div>`;
+}
+
 function home() {
   const es = scoped(),
     todo = openWork(es),
@@ -347,6 +405,7 @@ function home() {
       'One place for memories, decisions and the people and agents who work with them.',
       `<div class="hero-actions">${btn('Drawers in the network ↗', 'show-shards', '', 'ghost')}${btn('Project package ↗', 'goto-export', '', 'ghost')}</div>`,
     ) +
+    todayCard() +
     metrics([
       ['Knowledge in view', num(es.length), 'entries in the chosen scope'],
       ['Open work', num(todo.length), 'duties & unanswered questions'],
@@ -724,12 +783,33 @@ const pages = {
 
 // ops/mcp — kept as its own function so the sibling's live tools/list
 // probe can be mirrored here cleanly once it lands.
+// "Client sees it" (src/mcpvisibility.mjs — a client's own tools/list and
+// tools/call traffic against the bridge) and "Checked live" (src/mcplive.mjs
+// — this server's own tools/list probe of the local bridge) are two
+// DIFFERENT measurements: the first needs a real client to have connected
+// at all, the second only needs the bridge itself to be reachable. Neither
+// stands in for the other — dash-fix3 parity.
 function mcpPage() {
   const k = D.catalog?.mcp || { reading: [], writing: [] };
   const all = [...k.reading.map((n) => [n, 'reading']), ...k.writing.map((n) => [n, 'writing'])];
+  const live = k.live || {};
+  const seen = k.clientVisible || {};
+  const liveWord = { good: 'present', error: 'missing live' };
   return panel(
     'Tool availability',
-    `<div class="tablewrap"><table class="table"><thead><tr><th>Tool</th><th>Definition</th><th>Client sees it</th><th>Checked live</th></tr></thead><tbody>${all.map(([n, kind]) => `<tr><td class="mono">${esc(n)}</td><td><span class="badge">${kind}</span></td><td>${badge('unknown')}</td><td>${badge('unknown')}</td></tr>`).join('')}</tbody></table></div>${note(`${all.length} tool names from src/mcpprofile.mjs (${k.reading.length} reading, ${k.writing.length} writing). Whether a concrete client sees them is not measurable without its session.`)}`,
+    `<div class="tablewrap"><table class="table"><thead><tr><th>Tool</th><th>Definition</th><th>Client sees it</th><th>Checked live</th></tr></thead><tbody>${all
+      .map(([n, kind]) => {
+        const s = seen[n];
+        const l = live[n];
+        const seenCell = s ? badge('good', `${s.client} · ${whenTime(s.ts)}`) : badge('unknown', 'not seen yet');
+        const liveCell = l ? badge(l.state, liveWord[l.state] || l.reason || l.state) : badge('unknown');
+        return `<tr><td class="mono">${esc(n)}</td><td><span class="badge">${kind}</span></td><td>${seenCell}</td><td>${liveCell}</td></tr>`;
+      })
+      .join('')}</tbody></table></div>${note(
+      `${all.length} tool names from src/mcpprofile.mjs (${k.reading.length} reading, ${k.writing.length} writing). `
+      + `${k.liveCheckedAt ? `Live-checked ${whenTime(k.liveCheckedAt)}.` : k.liveReason ? esc(k.liveReason) + '.' : ''} `
+      + '"Client sees it" comes from the bridge\'s own client-visibility journal (real MCP traffic on this machine, never simulated).',
+    )}`,
   );
 }
 
@@ -842,6 +922,31 @@ function contextPage() {
   )}</div>`;
 }
 
+// dash-fix3 parity, part 2b: "did an injected place get named again?"
+// (src/effect.mjs, wired through dashboard-data.mjs's usage.effect).
+function effectSummary(ef) {
+  if (!ef) return { text: 'Unknown', sub: 'not measured' };
+  if (ef.measurable) {
+    const pct = (x) => (x * 100).toFixed(1) + '%';
+    return { text: `${pct(ef.rate)} used again`, sub: `95% CI [${pct(ef.wilson.lo)}, ${pct(ef.wilson.hi)}] · ${num(ef.n)} pairs` };
+  }
+  if (ef.state === 'no-data') return { text: 'No data', sub: 'no injection on record yet' };
+  if (ef.state === 'not-measurable') return { text: 'Not enough data', sub: `${num(ef.n)} of ${num(ef.minPairs)} pairs needed` };
+  return { text: 'Unknown', sub: ef.reason || 'not measurable here' };
+}
+// dash-fix3 parity, part 2a: the cost journal (src/modelcost.mjs), read
+// through dashboard-data.mjs's usage.modelCost. `costUsd` is an
+// ESTIMATE from the CLI, never a bill — labelled as such below.
+function modelCostSummary(mc) {
+  if (!mc?.measurable) return { text: 'Not measured yet', sub: mc?.reason || 'no row in the cost journal yet' };
+  const runs = mc.last7.reduce((n, s) => n + s.runs, 0);
+  const costed = mc.last7.filter((s) => s.costUsd != null);
+  const cost = costed.length ? costed.reduce((n, s) => n + s.costUsd, 0) : null;
+  return {
+    text: cost != null ? `$${cost.toFixed(4)}` : `${num(runs)} run(s)`,
+    sub: cost != null ? `${num(runs)} run(s), 7d · ${mc.costLabel}` : `${num(runs)} run(s), 7d · cost not reported by this CLI`,
+  };
+}
 // work/usage — kept as its own function so the sibling's cost journal
 // and effect wiring can be mirrored here cleanly once they land.
 function usagePage() {
@@ -849,11 +954,13 @@ function usagePage() {
   const g = n.reasons || {};
   const ok = n.measurable;
   const cnt = (k) => (ok ? num(g[k] || 0) : '—');
+  const eff = effectSummary(n.effect);
+  const cost = modelCostSummary(n.modelCost);
   return `${metrics([
     ['Context occupancy', ok && n.bytes?.measured ? num(Math.round(n.bytes.sum / n.bytes.measured)) + ' B' : '—', ok ? (n.bytes?.measured ? 'mean per injection, from the journal' : 'size not recorded by the hook') : 'journal not readable'],
     ['Injections delivered', ok ? num(n.shown) : '—', ok ? `of ${num(n.rows)} recalls` : 'not measurable'],
-    ['Application', 'Unknown', 'no agent telemetry about effect'],
-    ['Model costs', '—', 'not measured · cheap-mem keeps no billing'],
+    ['Application', eff.text, eff.sub],
+    ['Model costs', cost.text, cost.sub],
   ])}<div class="grid two">${panel(
     'Narrowly missed',
     `<div class="number">${cnt('too-weak')}</div><p class="muted">Recalls where hits were there, but all below the threshold ("too-weak"). ${ok ? num(g.empty || 0) + ' more found nothing in the index at all.' : ''}</p>${btn('Open the search', 'search', '', 'ghost')}`,
@@ -984,6 +1091,16 @@ async function taskCancel(kind) {
 async function taskRead(id) {
   const r = await fetch('/task.json?id=' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' });
   try { return await r.json(); } catch { return { state: 'error', reason: 'answer ' + r.status }; }
+}
+// N9 parity: a verdict on ONE Today-card "to verify" candidate. The
+// only effect (bin/mem-serve, POST /dashboard/verify-verdict,
+// src/verifylog.mjs): one line appended OUTSIDE this memory. Never a
+// write to the entry, never a write inside this repository.
+async function verifyVerdictWrite(fields) {
+  const r = await fetch('/dashboard/verify-verdict', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams(fields), headers: { accept: 'application/json' } });
+  let b = null;
+  try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
+  return { ok: r.status === 201, ...b };
 }
 async function taskOverview() {
   const r = await fetch('/task.json', { credentials: 'same-origin', cache: 'no-store' });
@@ -3038,6 +3155,23 @@ document.addEventListener('click', async (ev) => {
       el.disabled = false;
       probeLast = r;
       $('#probeResult').innerHTML = probeResultHtml(r);
+      break;
+    }
+    case 'today-verify-verdict': {
+      if (state.readonly) return toast('Read only is active.');
+      const rowEl = el.closest('[data-verify-row]');
+      const buttons = rowEl?.querySelectorAll('button');
+      buttons?.forEach((b) => { b.disabled = true; });
+      const r = await verifyVerdictWrite({
+        key: d.key, project: d.project || '', verdict: d.verdict,
+        ageDays: d.ageDays || '', conflict: d.conflict || '0',
+      });
+      if (!r.ok) {
+        buttons?.forEach((b) => { b.disabled = false; });
+        return toast('Not recorded: ' + (r.reason || r.state));
+      }
+      toast('Recorded (' + d.verdict + ') — appended outside this memory.');
+      if (rowEl) rowEl.innerHTML = `<div><span class="small quiet">Recorded: ${esc(d.verdict)} — thank you.</span></div>`;
       break;
     }
     case 'operation-step': {
