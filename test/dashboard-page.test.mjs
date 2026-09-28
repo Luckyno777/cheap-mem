@@ -102,7 +102,8 @@ test('the page reaches nothing outside: scripts and styles are this server\'s ow
 
 test('every fetch() in the script goes to a closed list of this server\'s routes', () => {
   const allowed = new Set(['/dashboard.json', '/dashboard/entry.json', '/dashboard/message.json', '/dashboard/probe.json',
-    '/dashboard/facts-at.json', '/entries.json', '/task', '/task/cancel', '/task.json', '/setting', '/inbox/reply', '/inbox/state']);
+    '/dashboard/facts-at.json', '/entries.json', '/task', '/task/cancel', '/task.json', '/setting', '/inbox/reply', '/inbox/state',
+    '/dashboard/verify-verdict']);
   const calls = [...JS.matchAll(/fetch\(\s*([`'])([^`'?$]*)/g)].map((m) => m[2]);
   // formPost(path, …) is the one wrapper for form writes.
   const posts = [...JS.matchAll(/formPost\('([^']+)'/g)].map((m) => m[1]);

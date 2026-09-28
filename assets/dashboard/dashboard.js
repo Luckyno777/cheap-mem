@@ -334,6 +334,64 @@ function pageDesc() {
 function openWork(es) {
   return es.filter((e) => ['duty', 'question'].includes(e.type) && statusOf(e.id) === 'open');
 }
+
+// --- Today (N8/N21 parity: one source, three surfaces — src/today.mjs) -------
+function todayOperationsPart(notable) {
+  if (!notable.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">Operations</div>${notable
+    .map((f) => `<div class="row"><div><strong>${esc(f.name)}</strong><p>${esc(f.text)}</p>${f.advice ? `<p class="small quiet">${esc(f.advice)}</p>` : ''}</div>${badge(f.level)}</div>`)
+    .join('')}`;
+}
+function todayDecisionsPart(list) {
+  if (!list.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">Decisions for you</div>${list
+    .map((dt) => `<button class="attention" data-entry="${esc(dt.id)}"><span class="sym">↗</span><div><strong>${esc(dt.title)}</strong><p>Duty${dt.due ? ' · due ' + esc(when(dt.due)) : ''}</p></div><span class="arrow">↗</span></button>`)
+    .join('')}`;
+}
+// N9 parity: a candidate is NEVER written here, only shown (the value
+// comes from this memory's own timeline facts, src/today.mjs part c —
+// never a fabricated question) and rated through POST
+// /dashboard/verify-verdict, the same gate as every other write route.
+function todayVerifyRow(v, i) {
+  const attr = (verdict) => `data-verdict="${esc(verdict)}" data-key="${esc(v.key)}" `
+    + `data-project="${esc(v.project || '')}" data-age-days="${v.ageDays != null ? v.ageDays : ''}" `
+    + `data-conflict="${v.conflict ? '1' : '0'}"`;
+  return `<div class="row today-verify-row" data-verify-row="${i}"><div>`
+    + `<strong>${esc(v.key)}</strong>${v.project ? ` <span class="small quiet">(${esc(v.project)})</span>` : ''}`
+    + `<p class="detailtext" style="margin:6px 0">${v.value != null ? esc(String(v.value)) : '<span class="quiet">(no current value)</span>'}</p>`
+    + `<p class="small quiet">${v.conflict ? 'conflicting versions on record' : `${v.ageDays != null ? num(v.ageDays) + ' day(s) old' : 'stale'}`}${v.source ? ` · <code class="mono">${esc(v.source)}</code>` : ''}</p>`
+    + `</div><div class="drawer-actions" data-verify-actions>`
+    + `${btn('still current', 'today-verify-verdict', attr('still-current'), 'small ghost')}`
+    + `${btn('outdated', 'today-verify-verdict', attr('outdated'), 'small ghost')}`
+    + `${btn('can’t tell', 'today-verify-verdict', attr('cannot-tell'), 'small ghost')}`
+    + `</div></div>`;
+}
+function todayVerifyPart(list) {
+  if (!list.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">To verify</div>${list.map((v, i) => todayVerifyRow(v, i)).join('')}`
+    + '<p class="small quiet" style="margin-top:8px">A verdict appends ONE line to a file OUTSIDE this memory — never a change here, never the entry itself.</p>';
+}
+// Honest "unknown, no source yet" — this house never had a persisted
+// weekly review report or an open word-pair-suggestion queue to read
+// (see src/today.mjs for why), and an unmeasured state is shown, never
+// hidden as if it were calm.
+function todayUnknownPart(title, info) {
+  return `<div class="label" style="margin:16px 0 6px">${esc(title)}</div><div class="row"><div><p class="small quiet">${esc(info?.reason || 'unknown')}</p></div>${badge('unknown')}</div>`;
+}
+function todayCard() {
+  const t = D.today;
+  if (!t) return '';
+  const ops = t.operations?.notable || [];
+  const decisions = t.decisions?.list || [];
+  const verify = t.verify?.list || [];
+  const nothingPressing = !ops.length && !decisions.length && !verify.length;
+  const body = (nothingPressing
+    ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify.')
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify))
+    + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions and facts to verify — the same source as `mem today`.')}</div>`;
+}
+
 function home() {
   const es = scoped(),
     todo = openWork(es),
@@ -347,6 +405,7 @@ function home() {
       'One place for memories, decisions and the people and agents who work with them.',
       `<div class="hero-actions">${btn('Drawers in the network ↗', 'show-shards', '', 'ghost')}${btn('Project package ↗', 'goto-export', '', 'ghost')}</div>`,
     ) +
+    todayCard() +
     metrics([
       ['Knowledge in view', num(es.length), 'entries in the chosen scope'],
       ['Open work', num(todo.length), 'duties & unanswered questions'],
@@ -1032,6 +1091,16 @@ async function taskCancel(kind) {
 async function taskRead(id) {
   const r = await fetch('/task.json?id=' + encodeURIComponent(id), { credentials: 'same-origin', cache: 'no-store' });
   try { return await r.json(); } catch { return { state: 'error', reason: 'answer ' + r.status }; }
+}
+// N9 parity: a verdict on ONE Today-card "to verify" candidate. The
+// only effect (bin/mem-serve, POST /dashboard/verify-verdict,
+// src/verifylog.mjs): one line appended OUTSIDE this memory. Never a
+// write to the entry, never a write inside this repository.
+async function verifyVerdictWrite(fields) {
+  const r = await fetch('/dashboard/verify-verdict', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams(fields), headers: { accept: 'application/json' } });
+  let b = null;
+  try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
+  return { ok: r.status === 201, ...b };
 }
 async function taskOverview() {
   const r = await fetch('/task.json', { credentials: 'same-origin', cache: 'no-store' });
@@ -2944,6 +3013,23 @@ document.addEventListener('click', async (ev) => {
       el.disabled = false;
       probeLast = r;
       $('#probeResult').innerHTML = probeResultHtml(r);
+      break;
+    }
+    case 'today-verify-verdict': {
+      if (state.readonly) return toast('Read only is active.');
+      const rowEl = el.closest('[data-verify-row]');
+      const buttons = rowEl?.querySelectorAll('button');
+      buttons?.forEach((b) => { b.disabled = true; });
+      const r = await verifyVerdictWrite({
+        key: d.key, project: d.project || '', verdict: d.verdict,
+        ageDays: d.ageDays || '', conflict: d.conflict || '0',
+      });
+      if (!r.ok) {
+        buttons?.forEach((b) => { b.disabled = false; });
+        return toast('Not recorded: ' + (r.reason || r.state));
+      }
+      toast('Recorded (' + d.verdict + ') — appended outside this memory.');
+      if (rowEl) rowEl.innerHTML = `<div><span class="small quiet">Recorded: ${esc(d.verdict)} — thank you.</span></div>`;
       break;
     }
     case 'operation-step': {
