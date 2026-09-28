@@ -97,6 +97,21 @@ export const TYPES = Object.freeze({
                                  // src/source.mjs.
   update: 'updates.jsonl',       // a version, a dependency, a config change
   link: 'links.jsonl',           // a typed relation between two entries
+  workflow: 'workflows.jsonl',   // a named SEQUENCE for all — "this is how a
+                                 // task like this goes". Same authority
+                                 // question as `procedure` (its steps ARE an
+                                 // instruction) and the same answer: only a
+                                 // human issues one, and the MCP bridge does
+                                 // not write it at all. See src/workflow.mjs.
+  snippet: 'snippets.jsonl',     // a reusable code/script/text building
+                                 // block WITH PLACEHOLDERS, not real data.
+                                 // Not an authority problem the way
+                                 // `workflow`/`procedure` are — the MCP
+                                 // bridge may write it — but a `text`,
+                                 // `mail` or `letter` snippet must pass the
+                                 // redaction check before it is written; a
+                                 // real-data hit aborts the write. See
+                                 // src/snippet.mjs.
 });
 
 /**

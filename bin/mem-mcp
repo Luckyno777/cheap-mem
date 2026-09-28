@@ -76,6 +76,8 @@ import * as cfgmod from '../src/config.mjs';
 import * as mcpprofile from '../src/mcpprofile.mjs';
 import * as store from '../src/store.mjs';
 import * as procedure from '../src/procedure.mjs';
+import * as workflow from '../src/workflow.mjs';
+import * as snippet from '../src/snippet.mjs';
 import * as broadcast from '../src/broadcast.mjs';
 import * as errorcontext from '../src/errorcontext.mjs';
 import * as heartbeat from '../src/heartbeat.mjs';
@@ -889,13 +891,36 @@ async function handleCall(name, args) {
           + 'one at the CLI: mem log procedure --issued-by owner. To propose one: '
           + 'mem_log with type thought, or a message to the owner.');
       }
+      // **Workflows: the identical refusal, the identical reason.** A
+      // workflow's `steps` ARE an instruction exactly the way a
+      // procedure's `rule` is — same `if`, same door, kept next to it
+      // on purpose so the two cannot drift apart.
+      if (args.type === workflow.TYPE) {
+        throw new Error(
+          `'${workflow.TYPE}' is not written over the bridge. A workflow is a sequence `
+          + 'for ALL agents and therefore cannot come from one of them. A human creates '
+          + 'one at the CLI: mem log workflow --issued-by owner. To propose one: '
+          + 'mem_log with type thought, or a message to the owner.');
+      }
       // Identity is not a parameter. Fields that determine origin cannot
       // be set by the caller, or `agent` would be a claim instead of a
       // fact — and a foreign agent could file its work under somebody
       // else's name.
       const { type, project = null, tags, agent: _ignored, id: _no, ts: _neither, ...fields } = args;
-      const data = { ...fields, agent: resolveAgent() };
+      let data = { ...fields, agent: resolveAgent() };
       if (Array.isArray(tags)) data.tags = tags;
+      // **Snippets: the redaction gate applies here too.** The bridge MAY
+      // write this type — unlike `procedure`/`workflow` it is not an
+      // authority question — but a `text`/`mail`/`letter` snippet whose
+      // body still carries something the redaction check catches is
+      // refused, the same `snippet.check()` the CLI runs (`src/cli/
+      // commands/write.mjs`), so there is exactly one place this rule
+      // can drift.
+      if (type === snippet.TYPE) {
+        const sr = snippet.check(data);
+        if (!sr.ok) throw new Error(`log ${snippet.TYPE}:\n  ${sr.errors.join('\n  ')}`);
+        data = snippet.complete(data);
+      }
       const { path: p, entry } = memory.logEntry(root, type, data, { project });
       const lines = [
         `Appended: ${path.relative(root, p)}`,

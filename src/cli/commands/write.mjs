@@ -19,6 +19,8 @@ import * as guard from '../../guard.mjs';
 import * as probescaffold from '../../probescaffold.mjs';
 import * as broadcast from '../../broadcast.mjs';
 import * as procedure from '../../procedure.mjs';
+import * as workflow from '../../workflow.mjs';
+import * as snippet from '../../snippet.mjs';
 import * as question from '../../question.mjs';
 import * as neighbours from '../../neighbours.mjs';
 import * as errorclass from '../../errorclass.mjs';
@@ -225,6 +227,44 @@ export const COMMANDS = {
           + '  mem log procedure --title "..." --rule "..." --issued-by owner');
       }
       data = procedure.complete(data, { agent: me });
+    }
+
+    // **Workflows: the same latch, before the write, for the same
+    // reason.** A workflow's `steps` ARE an instruction exactly the way
+    // a procedure's `rule` is — see `src/workflow.mjs`'s head comment.
+    // The bridge does not write this type at all (bin/mem-mcp, the same
+    // `if` that already refuses `procedure.TYPE`); here, where a human
+    // CAN be at the keyboard, the same `issued_by`/`agent`/
+    // `on_instruction` bookkeeping applies, reusing `procedure.complete`
+    // unchanged rather than a second copy of it.
+    if (type === workflow.TYPE) {
+      const me = data.agent ?? memory.agentDefault();
+      if (Object.hasOwn(data, 'issued-by')) {
+        const { 'issued-by': v, ...restFields } = data;
+        data = { ...restFields, issued_by: data.issued_by ?? v };
+      }
+      const wr = workflow.check(data);
+      if (!wr.ok) {
+        die(`log ${workflow.TYPE}:\n  ${wr.errors.join('\n  ')}\n\n`
+          + '  mem log workflow --title "..." --steps "..." --issued-by owner');
+      }
+      data = workflow.complete(data, { agent: me });
+    }
+
+    // **Snippets: not an authority question, a redaction one.** Unlike
+    // `procedure`/`workflow`, the MCP bridge MAY write this type — see
+    // `bin/mem-mcp`. What stands here instead: a `text`/`mail`/`letter`
+    // snippet whose body still holds something the redaction check
+    // catches is not written at all. This is the one check shared
+    // between the CLI and the bridge (`src/snippet.mjs`'s `check()`),
+    // so there is exactly one place the rule can drift.
+    if (type === snippet.TYPE) {
+      const sr = snippet.check(data);
+      if (!sr.ok) {
+        die(`log ${snippet.TYPE}:\n  ${sr.errors.join('\n  ')}\n\n`
+          + '  mem log snippet --title "..." --kind text --body "..."');
+      }
+      data = snippet.complete(data);
     }
 
     // A question without text is not one. Warnings stay warnings: a

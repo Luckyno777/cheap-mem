@@ -96,6 +96,18 @@ export const PATTERNS = Object.freeze([
     // bare `token=...` in a URL slip through.
     new RegExp(`\\b([A-Za-z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]{0,64})${SP}*${SEP}${SP}*["']?([^\\s"'\`,;&]{8,})["']?`, 'gi')],
 
+  // CLI flag form with a space instead of `=`: `--token ey...`,
+  // `--api-key sk-...`, `cloudflared tunnel run --token <blob>`. The
+  // assignment pattern above demands `:`/`=` and let the flag form
+  // through — measured against lucky-mem's redaktion.mjs, which closed
+  // this the same day for the same reason (a Cloudflare tunnel token
+  // passed as `--token`). Type stays `env-secret`, so the same
+  // harmless-value/placeholder/$VAR exceptions apply; value >=12, or it
+  // would catch short example words. The flag name itself is left in
+  // place.
+  ['env-secret',
+    /(--?(?:token|api[-_]?key|apikey|secret|password|passwd|passphrase|auth[-_]?token|access[-_]?token|refresh[-_]?token|client[-_]?secret|private[-_]?key))\s+["']?([^\s"'`,;&]{12,})["']?/gi],
+
   // Lowercase in JSON/YAML: "password": "...", secret: ...
   //
   // **The keyword may sit anywhere in the key, not only as the whole key
@@ -125,6 +137,23 @@ export const PATTERNS = Object.freeze([
   // characters before the keyword is no longer caught by THIS rule.
   ['json-secret',
     new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{8,})["']`, 'gi')],
+
+  // --- The keyword-free pair: address, then a credential ------------
+  //
+  // Measured against lucky-mem's redaktion.mjs (its `zugangspaar`
+  // pattern): a person handing over an access in prose writes an
+  // address, a separator, a secret — with NO keyword at all
+  // ("admin: someone@example.com / aB3xY9kQ7mZ2pL5wQ1"). None of the
+  // patterns above fire, because none of them look for this without a
+  // TOKEN/SECRET/PASSWORD-shaped name nearby.
+  //
+  // Deliberately narrow so it does not redact every email address that
+  // happens to sit near a slash: the local part is bounded, the value
+  // must mix letters with a digit or punctuation (a plain word after
+  // the separator is not flagged), and it starts at a boundary (the
+  // same over-eager-backtracking fix `url-credentials` already needed).
+  ['credential-pair',
+    /(?<![A-Za-z0-9._%+-])([A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,})(\s*[/|:]\s*)((?=[^\s]*[0-9!#$%&*+?@^_-])[^\s"'`,;]{6,})/g],
 ]);
 
 /**
@@ -139,6 +168,15 @@ const HARMLESS = [
   /^(null|undefined|none|nil|true|false|empty)$/i,
   /^REDACTED/,
   /^\.\.\./,
+  // The three values `fetch`'s `credentials` option accepts. Measured
+  // against lucky-mem's redaktion.mjs, which added this same exception
+  // after `credentials: 'same-origin'` (CREDENTIAL is one of the
+  // env-secret keywords) was flagged as a finding — the three values are
+  // fetch-standard vocabulary, published on every site on the web, never
+  // a secret. Anchored (^...$), not a prefix: a rule that reports
+  // innocent code gets switched off, and then it also stops catching the
+  // real thing.
+  /^(same-origin|include|omit)$/,
 ];
 
 /**
@@ -328,6 +366,15 @@ export function redact(text) {
       if (type === 'url-credentials' && real.length >= 1) {
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return `${real[0]}://[REDACTED:${type}]@`;
+      }
+      // The pair form keeps the address and the separator — it is not
+      // itself a secret, and whoever reads the finding should know WHOSE
+      // access is meant, or the report is not actionable.
+      if (type === 'credential-pair' && real.length >= 3) {
+        const [who, sep, value] = real;
+        if (isHarmless(value)) return match;
+        counter.set(type, (counter.get(type) ?? 0) + 1);
+        return `${who}${sep}[REDACTED:${type}]`;
       }
 
       if (isHarmless(match)) return match;
