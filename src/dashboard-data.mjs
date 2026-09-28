@@ -1,0 +1,821 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
+// dashboard-data.mjs — the data for the dashboard, the one UI.
+//
+// **What happens here, and what does not.** The dashboard
+// (`src/dashboard-page.mjs`, `assets/dashboard/dashboard.js`) is the
+// sibling house's Dashboard-Muster-3, ported: the same views, the same
+// shapes, English field names, fed by cheap-mem's own sources. This
+// module computes NOTHING another module already computes. It calls
+// `dashboard.collect()` (the old desk's one pass: board tiles, agents
+// with their two liveness signals, the human's tray, the net, the raw
+// review, settings, tasks) and lays beside it only what the old desk did
+// not carry but the dashboard shows:
+//
+//   1. a short excerpt per entry, its capture (`origin.raw`) and its
+//      validity window, read from the SAME pass (`dashboard.readPass`),
+//   2. how often each entry was injected into a session (the injection
+//      journal, `src/injection.mjs`) — it carries the brightness of the
+//      energy cores in the 3D network,
+//   3. the whole inbox as a list without bodies (a body comes one at a
+//      time through `/dashboard/message.json`, the same rule the sibling
+//      follows: an overview carries no letters),
+//   4. the doctor (cached for a minute), the weekly measurement series,
+//      the injection usage, the store, the user habits, the job ledger,
+//      the invariants, and the command catalogue.
+//
+// **Not measurable is not null's cousin zero.** Every value that could
+// not be read travels as `null` with a reason, never as 0. `recall` on an
+// entry stays `null` when the journal is unreadable (unknown) and is
+// `{ sessions: 0 }` when it was read and the entry was never injected
+// (measured: never).
+//
+// **Not available in cheap-mem is said out loud.** Three views of the
+// sibling have no counterpart here — books (a stored digest volume),
+// the digester's per-run yield counters, and a live preview of what the
+// hook would inject. The owner decided (2026-09-28) that they are SHOWN
+// as "not available in cheap-mem", never as an empty list — see
+// `NOT_AVAILABLE` below.
+//
+// invariant: drei-zustaende-nie-zwei
+// invariant: kein-rueckfall-auf-erfundene-daten
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import * as dashboard from './dashboard.mjs';
+import * as memory from './memory.mjs';
+import * as question from './question.mjs';
+import * as inbox from './inbox.mjs';
+import * as injection from './injection.mjs';
+import * as tasks from './tasks.mjs';
+import * as doctor from './doctor.mjs';
+import * as measurements from './measurements.mjs';
+import * as mcpprofile from './mcpprofile.mjs';
+import * as clihelp from './clihelp.mjs';
+import * as cfgmod from './config.mjs';
+import * as integrity from './integrity.mjs';
+import * as agentledger from './agentledger.mjs';
+import * as userhabits from './userhabits.mjs';
+import * as freshness from './freshness.mjs';
+import * as retrieval from './retrieval.mjs';
+import * as capability from './capability.mjs';
+import * as viewer from './viewer.mjs';
+import * as raw from './raw.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+/** The cheap-mem package itself — where the code, not the memory, lives. */
+export const PACKAGE_ROOT = path.join(HERE, '..');
+
+/** The longest excerpt per entry (characters). */
+export const EXCERPT_MAX = 220;
+
+/** The singular names of the types, keyed by `memory.TYPES`. */
+export const TYPE_NAME = Object.freeze({
+  decision: 'Decision',
+  error: 'Error',
+  event: 'Event',
+  timeline: 'Fact',
+  thought: 'Thought',
+  learning: 'Learning',
+  duty: 'Duty',
+  question: 'Question',
+  skill: 'Skill',
+  procedure: 'Procedure',
+  source: 'Source',
+  update: 'Update',
+  link: 'Link',
+});
+
+/**
+ * The three sibling views with no counterpart here — shown, not hidden
+ * (owner decision 2026-09-28, port spec §2 and §6.5).
+ */
+export const NOT_AVAILABLE = Object.freeze({
+  books: {
+    title: 'Books',
+    reason: 'Not available in cheap-mem: there is no stored "book" (a digest volume over many '
+      + 'entries). `mem digest` prints a session-start summary to stdout and keeps nothing.',
+  },
+  digesterYield: {
+    title: 'Digester yield per run',
+    reason: 'Not available in cheap-mem: the digest keeps no per-run counters (entries '
+      + 'rejected, cleaned or dropped by a write guard) and no knowledge-gap register. What '
+      + 'IS measured is the doctor\'s digest-yield finding, shown beside this note.',
+  },
+  liveInjection: {
+    title: 'Live injection preview',
+    reason: 'Not available in cheap-mem: the recall hook cannot be run dry from a browser. '
+      + 'The probe here asks `mem retrieve` (the same gateway, read-only) — what the hook '
+      + 'really injected is in the injection journal below.',
+  },
+});
+
+function excerpt(s, max = EXCERPT_MAX) {
+  const t = String(s ?? '').replace(/\s+/g, ' ').trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
+/**
+ * Leave empty fields out — a list of thousands of entries otherwise
+ * carries a half megabyte of `null`. `keep` names the fields whose
+ * `null` IS a statement (not measurable) and must travel.
+ */
+function withoutEmpty(o, keep = []) {
+  const out = {};
+  for (const [k, v] of Object.entries(o)) {
+    if (keep.includes(k)) { out[k] = v; continue; }
+    if (v === null || v === undefined || v === false || v === '') continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (k === 'cited' && v === 0) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/** The field that carries an entry's content, in the order a person would read it. */
+export function textOf(e) {
+  if (!e || typeof e !== 'object') return '';
+  for (const k of ['text', 'choice', 'fact', 'rule', 'question', 'learning', 'excerpt', 'summary',
+    'why', 'value', 'title', 'topic', 'class']) {
+    if (typeof e[k] === 'string' && e[k].trim()) return e[k];
+  }
+  return '';
+}
+
+/** The entry's own validity window, if it declares one. */
+function validFromOf(e) { return e?.valid_from ?? null; }
+function validUntilOf(e) { return e?.valid_until ?? null; }
+
+/**
+ * How often (in how many sessions) each place was injected.
+ *
+ * The journal names places as `source:line` (the ranked lane and the
+ * time lane both write that shape). Counted like the sibling counts its
+ * own journal: only lines that really showed something (`reason ===
+ * null`), sessions rather than mentions.
+ */
+export function recallCount(root, { read = injection.read } = {}) {
+  let got;
+  try { got = read(root); } catch (e) {
+    return { measurable: false, reason: `injection journal not readable: ${e?.message || e}`, byPlace: new Map() };
+  }
+  if (!got?.present) {
+    return { measurable: false, absent: true, reason: 'no injection journal on this machine', byPlace: new Map() };
+  }
+  const byPlace = new Map();
+  let since = null;
+  let until = null;
+  let shown = 0;
+  for (const l of got.lines) {
+    const ts = String(l?.ts ?? '');
+    if (ts && (!since || ts < since)) since = ts;
+    if (ts && (!until || ts > until)) until = ts;
+    if (l?.reason != null) continue;
+    const places = Array.isArray(l?.sources) ? l.sources : [];
+    if (!places.length) continue;
+    shown += 1;
+    for (const p of places) {
+      if (typeof p !== 'string' || !p) continue;
+      let s = byPlace.get(p);
+      if (!s) { s = { sessions: new Set(), mentions: 0, last: null }; byPlace.set(p, s); }
+      s.mentions += 1;
+      if (l?.session) s.sessions.add(l.session);
+      if (ts && (!s.last || ts > s.last)) s.last = ts;
+    }
+  }
+  return { measurable: true, reason: null, byPlace, since, until, rows: got.lines.length, shown, broken: got.broken ?? 0 };
+}
+
+/**
+ * Usage figures from the same journal: why nothing was injected, by
+ * occasion, the bytes, and the last injections that really showed
+ * something. `null` where a field was never measured — the journal's
+ * `bytes` is `null` for lines booked before the hook rendered its text.
+ */
+export function usageFromJournal(root, { read = injection.read } = {}) {
+  let got;
+  try { got = read(root); } catch (e) {
+    return { measurable: false, reason: `injection journal not readable: ${e?.message || e}` };
+  }
+  if (!got?.present) return { measurable: false, reason: 'no injection journal on this machine' };
+  const reasons = {};
+  const occasions = {};
+  const reasonsByOccasion = {};
+  let shown = 0;
+  let bytesMeasured = 0;
+  let bytesSum = 0;
+  let searchedMeasured = 0;
+  for (const l of got.lines) {
+    const r = l?.reason ?? null;
+    const o = l?.occasion ?? 'unknown';
+    occasions[o] = (occasions[o] ?? 0) + 1;
+    if (r === null) {
+      shown += 1;
+      if (Number.isFinite(l?.bytes)) { bytesMeasured += 1; bytesSum += l.bytes; }
+    } else {
+      reasons[r] = (reasons[r] ?? 0) + 1;
+      if (!reasonsByOccasion[o]) reasonsByOccasion[o] = {};
+      reasonsByOccasion[o][r] = (reasonsByOccasion[o][r] ?? 0) + 1;
+    }
+    if (Number.isFinite(l?.searched)) searchedMeasured += 1;
+  }
+  const recent = got.lines.filter((l) => l?.reason == null && Array.isArray(l?.sources) && l.sources.length)
+    .slice(-40).reverse()
+    .map((l) => ({ ts: l.ts ?? null, session: l.session ?? null, occasion: l.occasion ?? null,
+      bytes: Number.isFinite(l.bytes) ? l.bytes : null, sources: l.sources.slice(0, 12) }));
+  return {
+    measurable: true,
+    rows: got.lines.length,
+    shown,
+    broken: got.broken ?? 0,
+    bytes: { measured: bytesMeasured, sum: bytesSum },
+    reasons,
+    reasonsByOccasion,
+    occasions,
+    // The journal carries no duration: the hook's own time is not
+    // measured in this house. Said as such, never as 0 ms.
+    hookTime: { measured: 0, reason: 'the injection journal records no duration in cheap-mem' },
+    searched: { measured: searchedMeasured },
+    recent,
+  };
+}
+
+/** The commands the CLI dispatches, read from the group modules themselves. */
+export function cliCommands(pkgRoot = PACKAGE_ROOT) {
+  try {
+    const names = clihelp.allTableCommands((rel) => fs.readFileSync(path.join(pkgRoot, rel), 'utf8'));
+    return names.length ? names : null;
+  } catch { return null; }
+}
+
+// ---------------------------------------------------------------------
+// The doctor, cached for a minute — the sibling's `doctorState` shape.
+// ---------------------------------------------------------------------
+
+export const DOCTOR_TTL_MS = 60 * 1000;
+const DOCTOR_CACHE = new Map();
+
+/** `{ result, computedAt, ageMin, fromCache }`, or `{ result:null, reason }`. */
+export function doctorState(root, { now = new Date(), check = doctor.checkAll, ttlMs = DOCTOR_TTL_MS } = {}) {
+  const key = path.resolve(root);
+  const hit = DOCTOR_CACHE.get(key);
+  if (hit && now.getTime() - hit.at < ttlMs) {
+    return { result: hit.result, computedAt: new Date(hit.at).toISOString(), ageMin: (now.getTime() - hit.at) / 60000, fromCache: true };
+  }
+  let result;
+  try { result = check(root); } catch (e) {
+    return { result: null, reason: `doctor could not run: ${e?.message || e}`, computedAt: null, ageMin: null, fromCache: false };
+  }
+  DOCTOR_CACHE.set(key, { at: now.getTime(), result });
+  return { result, computedAt: now.toISOString(), ageMin: 0, fromCache: false };
+}
+
+/** One doctor finding by name, or `null` when the doctor did not report it. */
+function findingNamed(state, name) {
+  const list = state?.result?.findings;
+  if (!Array.isArray(list)) return null;
+  return list.find((f) => f?.name === name) ?? null;
+}
+
+// ---------------------------------------------------------------------
+// Pieces the old desk did not carry
+// ---------------------------------------------------------------------
+
+/** The whole inbox, every recipient, without bodies. */
+function inboxList(root, now) {
+  let participants = null;
+  let cfgReason = null;
+  try { participants = cfgmod.readConfig(root).participants ?? null; } catch (e) { cfgReason = e?.message || String(e); }
+  let got;
+  try { got = inbox.read(root, participants ?? {}, {}); } catch (e) {
+    return { readable: false, reason: `inbox not readable: ${e?.message || e}`, messages: [], participants: [], broken: [] };
+  }
+  const nowMs = now.getTime();
+  const messages = got.messages.map((m) => {
+    const t = Date.parse(m.time ?? '');
+    const ageMin = Number.isFinite(t) ? (nowMs - t) / 60000 : null;
+    const done = inbox.isDone(m.state);
+    // Three situations: done, waiting too long (older than 48 h and not
+    // done), open. The same line the sibling draws.
+    const situation = done ? 'done' : (ageMin ?? 0) >= 48 * 60 ? 'waiting' : 'open';
+    return {
+      name: m.name, from: m.from ?? null, to: m.to ?? null, subject: m.subject || '(no subject)',
+      state: m.state ?? inbox.STATE.OPEN, time: Number.isFinite(t) ? new Date(t).toISOString() : null,
+      ageMin, situation, requestId: m.requestId ?? null,
+    };
+  }).sort((a, b) => String(b.time ?? '').localeCompare(String(a.time ?? '')));
+  const names = participants && typeof participants === 'object' ? Object.keys(participants).sort() : [];
+  let human = null;
+  let humanReason = null;
+  try {
+    const hp = cfgmod.humanParticipant(participants);
+    human = hp.name ?? null;
+    humanReason = hp.reason ?? null;
+  } catch (e) { humanReason = e?.message || String(e); }
+  let me = null;
+  try { me = inbox.whoAmI(root); } catch { me = null; }
+  return {
+    readable: true,
+    present: got.dir !== null,
+    reason: cfgReason,
+    me,
+    human,
+    humanReason,
+    participants: names.map((name) => ({ name })),
+    states: Object.values(inbox.STATE),
+    messages,
+    broken: got.broken.map((b) => ({ name: b.name, reason: b.reason })),
+  };
+}
+
+/** One message, whole, and the replies that point at it by subject. Read-only. */
+export function messageWhole(root, name) {
+  let participants = {};
+  try { participants = cfgmod.readConfig(root).participants ?? {}; } catch { participants = {}; }
+  const text = inbox.readMessage(root, name);
+  const m = inbox.parse(text);
+  const all = inbox.read(root, participants, {}).messages;
+  const replySubject = inbox.replySubject(m.subject);
+  const replies = all.filter((x) => x.name !== name && x.subject === replySubject
+    && x.from === m.to && x.to === m.from)
+    .map((x) => ({ name: x.name, from: x.from, to: x.to, subject: x.subject, state: x.state, time: x.time, text: x.text }));
+  let human = null;
+  try { human = cfgmod.humanParticipant(participants).name ?? null; } catch { human = null; }
+  return { state: 'ok', message: { name, ...m, done: inbox.isDone(m.state) }, replies, human };
+}
+
+/** Per project: which drawers are filled, empty, missing — and its companion files. */
+function projectShelf(root) {
+  const types = Object.keys(memory.TYPES);
+  const out = [];
+  for (const project of memory.listProjects(root)) {
+    let filled = 0; let empty = 0; let missing = 0;
+    for (const t of types) {
+      const file = memory.logPath(root, t, project);
+      let st = null;
+      try { st = fs.statSync(file); } catch { st = null; }
+      if (!st) missing += 1; else if (st.size === 0) empty += 1; else filled += 1;
+    }
+    const dir = path.dirname(memory.logPath(root, 'decision', project));
+    let files = [];
+    try {
+      files = fs.readdirSync(dir, { withFileTypes: true })
+        .filter((d) => d.isFile() && !d.name.endsWith('.jsonl'))
+        .map((d) => ({ name: d.name, where: 'present' }));
+    } catch { files = []; }
+    out.push({ name: project, filled, empty, missing, drawersTotal: types.length, files });
+  }
+  return { projects: out };
+}
+
+/** The measured git state of the CODE (the package), at start and now. */
+const CODE_HEAD_AT_START = gitHead(PACKAGE_ROOT);
+function gitHead(dir) {
+  try {
+    const r = spawnSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 4000 });
+    return r.status === 0 ? String(r.stdout).trim() || null : null;
+  } catch { return null; }
+}
+function codeState() {
+  let version = null;
+  try { version = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version ?? null; } catch { version = null; }
+  const headNow = gitHead(PACKAGE_ROOT);
+  return {
+    version,
+    headAtStart: CODE_HEAD_AT_START,
+    headNow,
+    // Only a stated difference is "stale"; two unknowns are not.
+    stale: Boolean(CODE_HEAD_AT_START && headNow && CODE_HEAD_AT_START !== headNow),
+  };
+}
+
+/** The invariants this house keeps with its sibling, and the doctor's parity finding. */
+function invariantsState(doc) {
+  const file = path.join(PACKAGE_ROOT, 'shared', 'invariants.jsonl');
+  let text;
+  try { text = fs.readFileSync(file, 'utf8'); } catch (e) {
+    return { measurable: false, reason: `shared/invariants.jsonl not readable: ${e?.message || e}` };
+  }
+  const ids = [];
+  let broken = 0;
+  for (const l of text.split('\n')) {
+    if (!l.trim()) continue;
+    try { const o = JSON.parse(l); if (o?.id) ids.push(o.id); } catch { broken += 1; }
+  }
+  return {
+    measurable: true,
+    count: ids.length,
+    broken,
+    ids,
+    parity: findingNamed(doc, 'finding-parity'),
+  };
+}
+
+function safe(fn, what) {
+  try { return { readable: true, ...fn() }; } catch (e) {
+    return { readable: false, reason: `${what} not measurable: ${e?.message || e}` };
+  }
+}
+
+/**
+ * Everything for `/dashboard.json`.
+ *
+ * `collect` is injectable so a probe can run without the full desk pass;
+ * in service it is `dashboard.collect`.
+ */
+export function collectDashboard(root, {
+  env = process.env, now = new Date(), cfg = {}, title = 'cheap-mem', writesAllowed = false,
+  collect = dashboard.collect, readPass = dashboard.readPass, readJournal = injection.read,
+  doctorCheck = doctor.checkAll,
+} = {}) {
+  const d = collect(root, { env, now, cfg });
+  const reasons = [];
+
+  // --- 1. excerpt, capture and validity per entry, from one pass ---------
+  const rawById = new Map();
+  let pass = { rows: [], broken: 0 };
+  try { pass = readPass(root); } catch (e) { reasons.push(`drawers not readable: ${e?.message || e}`); }
+  for (const { entry } of pass.rows) if (entry?.id && !rawById.has(entry.id)) rawById.set(entry.id, entry);
+
+  // --- 2. the injection journal ------------------------------------------
+  // An ABSENT journal (nothing was ever injected on this machine — a
+  // fresh install) is not an unreadable one: the brightness stays "not
+  // measurable", but completeness of the drawers is not in doubt. Only a
+  // journal that exists and cannot be read joins `reasons`.
+  const recall = recallCount(root, { read: readJournal });
+  if (!recall.measurable && !recall.absent) reasons.push(recall.reason);
+
+  const topicsByCapture = new Map();
+  const entriesByCapture = new Map();
+
+  const entries = d.entries.map((z) => {
+    const e = rawById.get(z.id) ?? null;
+    let count = null;
+    if (recall.measurable) {
+      const place = z.source && z.line ? recall.byPlace.get(`${z.source}:${z.line}`) : null;
+      count = { sessions: place ? place.sessions.size : 0, mentions: place ? place.mentions : 0, last: place ? place.last : null };
+    }
+    const capture = typeof e?.origin?.raw === 'string' ? e.origin.raw : null;
+    if (capture) {
+      if (!topicsByCapture.has(capture)) topicsByCapture.set(capture, new Set());
+      for (const t of z.tags ?? []) topicsByCapture.get(capture).add(t);
+      if (e?.topic) topicsByCapture.get(capture).add(String(e.topic));
+      entriesByCapture.set(capture, [...(entriesByCapture.get(capture) ?? []), z.id]);
+    }
+    return withoutEmpty({
+      id: z.id,
+      type: z.type,
+      title: z.headline || z.id,
+      project: z.project || 'global',
+      tags: z.tags ?? [],
+      ts: z.ts ?? null,
+      agent: z.author ?? (e?.agent ?? null),
+      state: z.retired?.state ?? 'active',
+      why: z.retired?.why ?? null,
+      out: (z.links ?? []).map((l) => [l.kind, l.id, l.known ? 1 : 0]),
+      text: e ? excerpt(textOf(e)) : null,
+      source: z.source ?? null,
+      line: z.line ?? null,
+      readable: Boolean(z.readable),
+      cited: z.cited ?? 0,
+      contested: Boolean(z.contested),
+      replaces: z.replaces ?? null,
+      capture,
+      validFrom: validFromOf(e),
+      validUntil: validUntilOf(e),
+      fact: e && (e.value != null || e.fact != null) ? excerpt(String(e.value ?? e.fact), 240) : null,
+      key: e?.key ?? null,
+      basis: z.basis ?? null,
+      authority: z.authority ?? null,
+      scope: z.scope ?? null,
+      derivedFrom: z.derivedFrom ?? [],
+      // `recall` ALWAYS travels, `null` included: missing would read as
+      // "never shown" and "not measurable" at once.
+      recall: count,
+    }, ['recall']);
+  });
+
+  // --- 3. work: what is open is decided by memory/question, not here ----
+  const openDuties = [];
+  const openQuestions = [];
+  try {
+    for (const p of memory.openDuties(root).open) {
+      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: p.due ?? p.by ?? null });
+    }
+  } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
+  try {
+    for (const q of question.open(root)) if (q?.id) openQuestions.push({ id: q.id });
+  } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
+
+  // --- 4. the raw capture: the old desk's four-state review + topics ------
+  const rawCounts = d.raw.counts;
+  const rawOut = d.raw.readable
+    ? {
+      readable: true,
+      error: null,
+      counts: rawCounts,
+      bytes: d.raw.captures.reduce((n, r) => n + (r.bytes ?? 0), 0),
+      projects: [...d.raw.captures.reduce((m, r) => m.set(r.project ?? null, (m.get(r.project ?? null) ?? 0) + 1), new Map())]
+        .map(([project, count]) => ({ project, count })),
+      captures: d.raw.captures.map((r) => ({
+        path: r.path, state: r.state, at: r.at ?? null, project: r.project ?? null,
+        surface: r.surface ?? null, session: r.session ?? null, lines: r.lines ?? null,
+        bytes: r.bytes ?? null, deleted: r.deleted ?? null,
+        topics: [...(topicsByCapture.get(r.path) ?? [])].slice(0, 12),
+        entries: entriesByCapture.get(r.path) ?? [],
+      })),
+    }
+    : { readable: false, error: d.raw.error, counts: rawCounts, captures: [] };
+
+  // --- 5. the doctor, cached --------------------------------------------
+  const doc = doctorState(root, { now, check: doctorCheck });
+  if (!doc.result) reasons.push(doc.reason);
+
+  // --- 6. tasks: kinds and what runs --------------------------------------
+  const kinds = {};
+  for (const [k, spec] of Object.entries(tasks.KINDS)) {
+    kinds[k] = { title: spec.title, description: spec.description, resume: spec.resume, params: spec.params ? Object.keys(spec.params) : [] };
+  }
+  let running = {};
+  try { running = tasks.overview(root); } catch (e) { reasons.push(`tasks not readable: ${e?.message || e}`); }
+
+  // --- 7. the catalogue, from living counters -----------------------------
+  const cli = cliCommands();
+
+  // --- 8. store, user habits, job ledger — each unknown-capable -----------
+  const lenses = d.lenses ?? {};
+  const st = lenses.storeState;
+  const store = st
+    ? {
+      readable: true,
+      entries: (lenses.store ?? []).slice(0, 40).map((z) => ({
+        name: z.name ?? null, ts: z.ts ?? null, size: z.size ?? null, purpose: z.purpose ?? null,
+        agent: z.agent ?? null, deleted: z.deleted_at ?? null, reason: z.delete_reason ?? null,
+        checked: z.checked ?? null, sha: String(z.sha256 ?? '').slice(0, 12),
+      })),
+      registered: st.registered, deleted: st.deleted, bytes: st.bytes, unchecked: st.unchecked,
+      missing: (st.missing ?? []).length, changed: (st.changed ?? []).length, orphans: (st.orphans ?? []).length,
+    }
+    : { readable: false, reason: 'store register not readable' };
+  const user = safe(() => {
+    const a = userhabits.analyze(root, { timeCapMs: 400 });
+    return {
+      capturesReadable: a.capturesReadable, capturesUnreadable: a.capturesUnreadable,
+      total: a.total, reason: a.reason ?? null,
+      observations: a.observations.map((o) => ({ id: o.id, title: o.title, state: o.state, count: o.count ?? null })),
+    };
+  }, 'user habits');
+  const ledger = safe(() => {
+    const l = agentledger.ledger(root);
+    return { rows: l.rows, totalJobs: l.totalJobs, unassigned: l.unassigned, agentsWithEvidence: l.agentsWithEvidence };
+  }, 'job ledger');
+
+  // --- 9. versions, integrity, performance --------------------------------
+  const versions = {
+    code: codeState(),
+    hookState: findingNamed(doc, 'stop-hook'),
+    release: { readable: false, reason: 'not available in cheap-mem — there is no release rail that records a stamped release' },
+    checkRecord: { readable: false, reason: 'not available in cheap-mem — there is no recorded test-run receipt' },
+  };
+  const integrityState = safe(() => {
+    const s = integrity.scanIntegrity(root);
+    return {
+      lines: s.lines, entries: s.entries, broken: s.broken.length, badTimestamp: s.badTimestamp.length,
+      duplicateIds: s.duplicateIds.length, replacement: {
+        missing: s.replacement.missing.length, cycles: s.replacement.cycles.length,
+        forks: s.replacement.forks.length, maxDepth: s.replacement.maxDepth,
+      },
+      chain: { state: s.chain.state, filesChecked: s.chain.filesChecked, sealsFound: s.chain.sealsFound,
+        tampered: s.chain.tampered.length, unsealed: s.chain.unsealed.length },
+    };
+  }, 'integrity scan');
+  const performance = {
+    weeks: measurements.read(root),
+    metrics: measurements.METRICS,
+    gate: { readable: false, reason: 'not available in cheap-mem — there is no scale gate (1M/5M/10M) in this house' },
+  };
+
+  // --- 10. workspace: names come from the config, never from code --------
+  let cfgName = null;
+  let human = null;
+  try {
+    const c = cfgmod.readConfig(root);
+    cfgName = c.name ?? null;
+    human = cfgmod.humanParticipant(c.participants).name ?? null;
+  } catch { /* stays null: shown as "not configured" */ }
+  const workspace = { name: cfgName || lenses.name || path.basename(path.resolve(root)), human };
+
+  // --- 11. the digest bell and the human's tray, for the agents view -----
+  let bell;
+  try {
+    const b = raw.bellState(root);
+    bell = { checkable: true, rung: Boolean(b), last: b?.last ?? null, reason: b?.reason ?? null };
+  } catch (e) { bell = { checkable: false, reason: e?.message || String(e) }; }
+  const tray = d.humanInbox?.readable
+    ? (() => {
+      const open = d.humanInbox.messages.filter((m) => !inbox.isDone(m.state));
+      const oldest = open.map((m) => Date.parse(m.time)).filter(Number.isFinite).sort((a, b) => a - b)[0];
+      return { checkable: true, who: d.humanInbox.who, count: open.length, oldestMin: oldest ? (now.getTime() - oldest) / 60000 : null };
+    })()
+    : { checkable: false, reason: d.humanInbox?.reason ?? 'no human participant configured' };
+
+  const usage = usageFromJournal(root, { read: readJournal });
+
+  return {
+    state: reasons.length ? 'warning' : 'ok',
+    reasons,
+    at: now.toISOString(),
+    meta: {
+      title,
+      writesAllowed,
+      writes: d.writes,
+      git: d.git,
+      code: versions.code,
+      inventory: d.inventory,
+      // **The canonical "entries total"** — `console.inventory()`, the
+      // same number the old desk and `mem board` show. NOT the same as
+      // `entries.length` below, which is the full history list for the
+      // view (retired ones included, marked).
+      entriesTotal: Number.isFinite(d.inventory?.total) ? d.inventory.total : null,
+      workspace,
+      root: d.root,
+    },
+    types: Object.keys(memory.TYPES).map((type) => ({ type, name: TYPE_NAME[type] ?? type, label: viewer.TYPE_LABEL[type] ?? type })),
+    entries,
+    brokenLines: pass.broken,
+    recall: recall.measurable
+      ? { measurable: true, since: recall.since, until: recall.until, rows: recall.rows, shown: recall.shown }
+      : { measurable: false, reason: recall.reason },
+    net: {
+      boxes: d.net.boxes, pairs: d.net.pairs, links: d.net.links, dangling: d.net.dangling,
+      layers: d.net.layers,
+    },
+    work: d.work,
+    openDuties,
+    openQuestions,
+    agents: d.agents,
+    bell,
+    humanTray: tray,
+    humanInbox: d.humanInbox,
+    inbox: inboxList(root, now),
+    projects: d.projects,
+    projectShelf: projectShelf(root),
+    raw: rawOut,
+    digester: { ...NOT_AVAILABLE.digesterYield, available: false, yieldFinding: findingNamed(doc, 'digest-yield') },
+    notAvailable: NOT_AVAILABLE,
+    versions,
+    integrity: integrityState,
+    performance,
+    doctor: doc,
+    system: d.system,
+    attention: d.attention,
+    invariants: invariantsState(doc),
+    settings: d.settings,
+    log: d.log,
+    connections: d.connections,
+    setup: d.setup,
+    stores: d.stores,
+    facts: d.facts,
+    tasks: { kinds, running },
+    usage,
+    store,
+    user,
+    ledger,
+    topics: { list: lenses.topics ?? [], areas: lenses.areas ?? [], quality: lenses.quality ?? null },
+    experiences: lenses.experiences ?? [],
+    links: lenses.links ?? [],
+    catalog: {
+      cli: cli ?? null,
+      cliReason: cli ? null : 'the CLI group modules were not readable',
+      mcp: { reading: [...mcpprofile.READING], writing: [...mcpprofile.WRITING] },
+      findings: Array.isArray(doc.result?.findings) ? doc.result.findings.length : null,
+    },
+  };
+}
+
+/**
+ * One entry whole, for the dashboard's detail drawer: the card from
+ * `dashboard.getEntryFast()` (state, backlink index — the same path as
+ * `/entry.json`) plus the RAW line, so the full text and the raw fields
+ * are visible. Read-only.
+ */
+export function entryWhole(root, id, { getCard = dashboard.getEntryFast } = {}) {
+  const card = getCard(root, id);
+  if (card.state === 'unknown' || card.state === 'error') return card;
+  let rawLine = null;
+  try { rawLine = memory.getEntry(root, id) ?? null; } catch { rawLine = null; }
+  return { ...card, raw: rawLine, text: rawLine ? textOf(rawLine) : null };
+}
+
+// ---------------------------------------------------------------------
+// knowledge/facts: "what did the memory know on day X about day Y".
+// Real bitemporality over the `timeline` drawer: `valid_from` (when a
+// version holds) and `ts` (when the line was written — "known on").
+// ---------------------------------------------------------------------
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function factsAt(root, { known, valid } = {}, { readAll = null } = {}) {
+  const knownDay = String(known ?? '').trim();
+  const validDay = String(valid ?? '').trim();
+  if (!DAY.test(knownDay) || !DAY.test(validDay)) {
+    return { state: 'error', reason: 'known/valid missing or not a date (YYYY-MM-DD)' };
+  }
+  const knownUntilMs = Date.parse(`${knownDay}T23:59:59.999Z`);
+  const validUntilMs = Date.parse(`${validDay}T23:59:59.999Z`);
+
+  let rows;
+  try {
+    rows = readAll ? readAll() : (() => {
+      const out = [];
+      for (const project of [null, ...memory.listProjects(root)]) {
+        let res;
+        try { res = memory.readLog(root, 'timeline', { project }); } catch { continue; }
+        res.entries.forEach((e, i) => {
+          if (e.__broken) return;
+          out.push({ ...e, _source: memory.asSource(root, memory.logPath(root, 'timeline', project)), _line: i + 1 });
+        });
+      }
+      return out;
+    })();
+  } catch (e) {
+    return { state: 'error', reason: `timeline not readable: ${e?.message || e}` };
+  }
+
+  const knownMs = (e) => (e?.ts ? Date.parse(e.ts) : NaN);
+  const validMs = (e) => Date.parse(e?.valid_from ?? e?.ts ?? '') || NaN;
+  const untilMs = (e) => (e?.valid_until ? Date.parse(e.valid_until) : null);
+
+  const knownThen = rows.filter((e) => Number.isFinite(knownMs(e)) && knownMs(e) <= knownUntilMs);
+  // Ids a correction already known by `known` had replaced.
+  const replaced = new Set(knownThen.map((e) => e.replaces_id).filter(Boolean));
+
+  const groups = new Map();
+  const single = [];
+  for (const e of knownThen) {
+    if (e.id && replaced.has(e.id)) continue;
+    if (e.closes_id || e.retires_id) continue;
+    const wms = validMs(e);
+    if (!Number.isFinite(wms) || wms > validUntilMs) continue;
+    const until = untilMs(e);
+    if (Number.isFinite(until) && until <= validUntilMs) continue;
+    const k = freshness.subjectKey(e);
+    if (!k) { single.push(e); continue; }
+    const before = groups.get(k);
+    if (!before || wms > before.wms) groups.set(k, { e, wms });
+  }
+  const holds = [...single, ...[...groups.values()].map((g) => g.e)]
+    .sort((a, b) => validMs(b) - validMs(a));
+
+  return {
+    state: 'ok',
+    known: knownDay,
+    valid: validDay,
+    factsTotal: rows.length,
+    writtenByThen: knownThen.length,
+    withoutOwnValidity: holds.filter((e) => e.valid_from == null).length,
+    holds: holds.map((e) => ({
+      id: e.id ?? null,
+      key: freshness.subjectKey(e) ?? null,
+      title: excerpt(e.title || `${e.key ?? ''}${e.key ? ' = ' : ''}${e.value ?? e.fact ?? textOf(e)}`, 160) || e.id,
+      value: e.value ?? e.fact ?? null,
+      validFrom: e.valid_from ?? null,
+      ts: e.ts ?? null,
+      source: e._source ?? null,
+      line: e._line ?? null,
+    })),
+  };
+}
+
+// ---------------------------------------------------------------------
+// The retrieval probe: what `mem retrieve` answers for a question, now.
+// Read-only: the question is not stored, not journaled, not observed
+// (`observations.record` is deliberately NOT called, unlike the CLI).
+// ---------------------------------------------------------------------
+
+export function retrievalProbe(root, questionText, { top = 10, retrieve = retrieval.retrieve } = {}) {
+  const q = String(questionText ?? '').trim();
+  if (!q) return { state: 'error', reason: 'no question' };
+  let r;
+  try {
+    r = retrieve(root, q, capability.grantAll('dashboard-probe'), { top });
+  } catch (e) {
+    return { state: 'error', reason: e?.message || String(e) };
+  }
+  return {
+    state: 'ok',
+    shown: r.claims.length > 0,
+    hits: r.claims.map((c, i) => ({
+      rank: i + 1, id: c.id, authority: c.authority ?? null, author: c.author ?? null,
+      scope: c.scope ?? null, ts: c.ts ?? null,
+      score: Number.isFinite(c.score) ? c.score : null,
+      body: excerpt(c.body ?? '', 300),
+    })),
+    excluded: r.excluded.length,
+    excludedByKind: r.excluded.reduce((m, x) => { m[x.kind ?? 'eligibility'] = (m[x.kind ?? 'eligibility'] ?? 0) + 1; return m; }, {}),
+    hasMore: Boolean(r.hasMore),
+    coverage: r.coverage ?? { state: 'unknown_coverage', reasons: [] },
+    liveInjection: NOT_AVAILABLE.liveInjection,
+  };
+}

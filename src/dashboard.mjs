@@ -609,6 +609,22 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     tasks: collectTasks(root),
     views: VIEWS,
     raw: { captures: rawCaptures, counts: rawCounts, readable: rawReadable, error: rawError },
+    // **Additive, 2026-09-28 (the dashboard port).** The lenses the old
+    // viewer page showed beside the entries — topics and their tree,
+    // experiences, hand-drawn links, the store register — were computed
+    // above by `viewer.collectMemory()` and then dropped. The new
+    // dashboard (`src/dashboard-data.mjs`) shows every one of them, so
+    // they travel on from the SAME pass instead of being read twice.
+    lenses: {
+      topics: mem.topics,
+      areas: mem.areas,
+      quality: mem.quality,
+      experiences: mem.experiences,
+      links: mem.links,
+      store: mem.store,
+      storeState: mem.storeState,
+      name: mem.name,
+    },
   };
 }
 
