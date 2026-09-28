@@ -40,6 +40,9 @@ const WRITES = [
   ['/inbox/reply', 'name=none.md&text=hello&from=%2F'],
   // Acknowledging a message from the dashboard (2026-09-28).
   ['/inbox/state', 'name=none.md&state=done'],
+  // A Today-card fact verdict (N9 parity, 2026-09-28) — appends outside
+  // the memory root, see src/verifylog.mjs.
+  ['/dashboard/verify-verdict', 'key=test.key&verdict=still-current'],
 ];
 
 function memory() {

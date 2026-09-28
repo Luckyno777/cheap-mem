@@ -56,6 +56,7 @@ import * as icon from '../src/icon.mjs';
 import * as measurements from '../src/measurements.mjs';
 import * as mcplive from '../src/mcplive.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
+import * as verifylog from '../src/verifylog.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
 const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -110,6 +111,9 @@ function tokenFrom(req, url) {
  * The probe now reads THIS list, so a sixth path is covered the moment
  * it is added.
  */
+/** N9 parity: where a Today-card fact verdict is POSTed. */
+export const VERIFY_VERDICT_PATH = '/dashboard/verify-verdict';
+
 export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/pult.json',
   '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel', '/inbox/reply',
@@ -121,14 +125,18 @@ export const PATHS = Object.freeze([
   ...dashboardPage.FONTS.map((f) => f.path),
   '/manifest.webmanifest', '/sw.js', '/favicon.ico',
   '/inbox/state',
+  // N9 parity (2026-09-28): a human's verdict on an uncertain fact
+  // from the Today card — appends OUTSIDE the memory, see
+  // src/verifylog.mjs and the route below.
+  VERIFY_VERDICT_PATH,
 ]);
 
 /**
  * The paths that WRITE. Every one of them runs `writegate.refusal()`
- * first; the probes read this list, so a fifth writing route is
+ * first; the probes read this list, so a sixth writing route is
  * covered the moment it is named here.
  */
-export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply', '/inbox/state']);
+export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply', '/inbox/state', VERIFY_VERDICT_PATH]);
 
 /**
  * The routes that hand out memory content as JSON to a script. Each one
@@ -548,6 +556,73 @@ export function buildHandler(root, cfg, env = process.env) {
         // never the submitted value — an open redirect target is how a
         // form field becomes a way to send someone somewhere else).
         res.writeHead(303, { location: '/' }).end();
+      });
+      return;
+    }
+
+    // --- Verify verdict (N9 parity, 2026-09-28) --------------------------
+    //
+    // A human's judgement on ONE "to verify" candidate from the Today
+    // card (src/today.mjs part c: a timeline fact flagged stale or in
+    // conflict — never a fabricated gold question, cheap-mem has no
+    // such source, see today.mjs's own header). The ONLY effect: ONE
+    // line appended to src/verifylog.mjs's target file OUTSIDE this
+    // memory (`CHEAP_MEM_VERIFY_FILE`, else `~/.cheap-mem-verify/
+    // facts-verdict.jsonl`) — append-only, never a correction on the
+    // entry, never a write inside this repository. Same gate as every
+    // other writing route (`writegate.refusal()`) plus the outside-root
+    // check `verifylog.append()` runs before touching the filesystem.
+    if (url.pathname === VERIFY_VERDICT_PATH) {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' })
+          .end('POST only');
+        return;
+      }
+      const no = writegate.refusal(root, cfg, req);
+      if (no) {
+        res.writeHead(no.code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'error', reason: no.text }));
+        return;
+      }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        // A verdict is a key, a verdict word and a couple of small
+        // fields — nowhere near a kilobyte.
+        if (body.length > 4096) { tooBig = true; return; }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooBig) {
+          res.writeHead(413, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: 'Too much.' }));
+          return;
+        }
+        const p = new URLSearchParams(body);
+        const row = verifylog.buildRow({
+          key: p.get('key') || null,
+          project: p.get('project') || null,
+          verdict: p.get('verdict') || null,
+          ageDays: p.get('ageDays') ? Number(p.get('ageDays')) : null,
+          conflict: p.get('conflict') === '1',
+          note: p.get('note') || null,
+        });
+        const target = verifylog.targetPath(env);
+        let result;
+        try {
+          result = verifylog.append(target, root, row);
+        } catch (e) {
+          res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+          return;
+        }
+        if (!result.written) {
+          res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: result.defects.join('; ') }));
+          return;
+        }
+        res.writeHead(201, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'ok', written: true, id: result.row.id }));
       });
       return;
     }

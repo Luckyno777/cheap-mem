@@ -29,9 +29,10 @@ import * as embedHook from '../../embed-hook.mjs';
 import * as maintenance from '../../maintenance.mjs';
 import * as observations from '../../observations.mjs';
 import * as agentledger from '../../agentledger.mjs';
+import * as today from '../../today.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
-/** 9 commands. */
+/** 10 commands. */
 export const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
@@ -674,6 +675,37 @@ export const COMMANDS = {
     const result = agentledger.ledger(root);
     if (args.json) out(JSON.stringify(result, null, 2));
     else out(agentledger.reportText(result));
+  },
+
+  today: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem today [--json]',
+        '',
+        '  What does the owner need TODAY? One source for this command, the',
+        '  dashboard\'s "Today" card and the session-start line — read',
+        '  src/today.mjs, never recomputed three separate ways.',
+        '',
+        '  Operations not calm (doctor.checkAll(), WARN/ERROR only), open',
+        '  duties addressed to the configured human participant, and',
+        '  uncertain facts to verify (timeline facts flagged stale or in',
+        '  conflict by src/freshness.mjs, up to 3).',
+        '',
+        '  Review suggestions and word-pair suggestions are honestly',
+        '  "unknown — no source yet": this house has no persisted weekly',
+        '  review report and no open word-pair-suggestion queue to read',
+        '  (see src/today.mjs for what each would need).',
+        '',
+        '  Read-only.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'root'], 'today');
+    const root = findRoot(args);
+    requireConfig(root);
+    const r = today.today(root);
+    if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+    out(today.asText(r));
   },
 
 };

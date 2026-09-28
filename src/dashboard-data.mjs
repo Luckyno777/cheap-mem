@@ -64,6 +64,7 @@ import * as viewer from './viewer.mjs';
 import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
+import * as today from './today.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The cheap-mem package itself — where the code, not the memory, lives. */
@@ -619,6 +620,15 @@ export function collectDashboard(root, {
   const doc = doctorState(root, { now, check: doctorCheck });
   if (!doc.result) reasons.push(doc.reason);
 
+  // N8/N21 parity: "Today" — one source, read here (dashboard card),
+  // by `mem today`, and by the session-start line — see src/today.mjs.
+  // Reuses the doctor result already computed above instead of running
+  // doctor.checkAll() a second time.
+  let todayResult;
+  try { todayResult = today.today(root, { env, now, doctorResult: doc.result }); } catch (e) {
+    todayResult = { state: 'unknown', reasons: [`today() failed: ${e?.message || e}`] };
+  }
+
   // --- 6. tasks: kinds and what runs --------------------------------------
   const kinds = {};
   for (const [k, spec] of Object.entries(tasks.KINDS)) {
@@ -736,6 +746,7 @@ export function collectDashboard(root, {
       root: d.root,
     },
     types: Object.keys(memory.TYPES).map((type) => ({ type, name: TYPE_NAME[type] ?? type, label: viewer.TYPE_LABEL[type] ?? type })),
+    today: todayResult,
     entries,
     brokenLines: pass.broken,
     recall: recall.measurable
