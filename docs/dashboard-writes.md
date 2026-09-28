@@ -76,7 +76,7 @@ are unchanged.
 Only `on` lets a write through, but the page and the 403 say WHICH of
 the other three it is: a config that cannot be read is shown as "could
 not be read", never as a plain "off". `/console.json` and
-`/dashboard.json` carry the same object as `writes`; `mem serve` prints
+`/pult.json` carry the same object as `writes`; `mem serve` prints
 it on start.
 
 ## On the pages

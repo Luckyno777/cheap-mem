@@ -606,7 +606,7 @@ typing a long command is, in practice, not changeable.
 | `/pult` | the desk — five views over the same memory (7.5) |
 | `/viewer` | the viewer, with a way back |
 | `/console.json` | the same numbers, for tools |
-| `/dashboard.json` | the desk's numbers, for tools |
+| `/pult.json` | the desk's numbers, for tools (was `/dashboard.json` until 2026-09-28) |
 | `/task`, `/task/cancel` | start/cancel a long CLI work item as a task (E1.7, `src/tasks.mjs`) |
 | `/task.json` | a task's progress/result, or the two-kind overview |
 | `/inbox/reply` | answer one message in the human participant's tray — same write as `mem inbox write` (P1b) |

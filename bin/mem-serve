@@ -89,7 +89,7 @@ function tokenFrom(req, url) {
  * it is added.
  */
 export const PATHS = Object.freeze([
-  '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
+  '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/pult.json',
   '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel', '/inbox/reply',
 ]);
 
@@ -307,7 +307,7 @@ export function buildHandler(root, cfg, env = process.env) {
     // --- One entry, without building the desk (D1, 2026-09-27) -------
     //
     // Until this route existed, the only way to look up ONE entry over
-    // this server was `/dashboard.json`, which builds every view,
+    // this server was `/dashboard.json` (now `/pult.json`), which builds every view,
     // every drawer, every project — to hand back one row. This route
     // resolves the id directly through `dashboard.getEntryFast()` (see
     // its header comment in `src/dashboard.mjs` for the full contract
@@ -477,10 +477,17 @@ export function buildHandler(root, cfg, env = process.env) {
     // this one the other way round.
     // `/pult` still answers beside `/` so a bookmark from before the
     // move keeps working.
-    if (url.pathname === '/' || url.pathname === '/pult' || url.pathname === '/dashboard.json') {
+    //
+    // **`/pult.json`, not `/dashboard.json` (2026-09-28).** The desk's
+    // numbers used to answer at `/dashboard.json`. The new dashboard
+    // (lucky-mem's Dashboard-Muster-3, ported) owns `/dashboard` and
+    // `/dashboard.json` in both houses, so the old route was renamed
+    // BEFORE the new page was built — never two meanings for one address,
+    // not even for one commit (owner decision 2026-09-28, port spec §6.2).
+    if (url.pathname === '/' || url.pathname === '/pult' || url.pathname === '/pult.json') {
       let built;
       try {
-        built = url.pathname === '/dashboard.json'
+        built = url.pathname === '/pult.json'
           ? { data: dashboard.collect(root, { env, cfg }) }
           : astra.build(root, { title: cfg.title, env, cfg, writable: writegate.read(root, gateOpts(cfg)).allowed });
       } catch (e) {
@@ -488,7 +495,7 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(`desk could not be built: ${e?.message || e}`);
         return;
       }
-      if (url.pathname === '/dashboard.json') {
+      if (url.pathname === '/pult.json') {
         res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify(built.data));
         return;

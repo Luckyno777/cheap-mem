@@ -573,10 +573,10 @@ test('memory content is escaped in the markup and caged in the script', async ()
 
 // --- the routes --------------------------------------------------------
 
-test('/pult and /dashboard.json are served, and both are in the path list', async () => {
+test('/pult and /pult.json are served, and both are in the path list', async () => {
   const mod = await import(`${pathToFileURL(SERVE).href}?desk=${Math.random()}`);
   assert.ok(mod.PATHS.includes('/pult'));
-  assert.ok(mod.PATHS.includes('/dashboard.json'));
+  assert.ok(mod.PATHS.includes('/pult.json'));
 
   const { root } = filled();
   const { server } = await mod.serve(root, {
@@ -591,7 +591,7 @@ test('/pult and /dashboard.json are served, and both are in the path list', asyn
     assert.ok(html.includes(MINE.learning), 'the served page shows no memory content');
     assert.match(html, /class="mem-nav"/, 'the desk has no way back to the console');
 
-    const json = await fetch(`${base}/dashboard.json`);
+    const json = await fetch(`${base}/pult.json`);
     assert.equal(json.status, 200);
     assert.match(json.headers.get('content-type'), /application\/json/);
     const d = await json.json();
