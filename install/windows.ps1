@@ -309,6 +309,36 @@ if (Test-Path `$mem) {
   } catch { }
 }
 
+# --- "Today" (N8/N21 parity: one source, three surfaces) --------------
+#
+# Same reasoning as install/hooks/session-start.sh: `mem today --line`
+# (src/today.mjs) is the SAME function `mem today` and the dashboard's
+# Today card read, and it prints nothing at all when there is nothing
+# notable, so there is no unconditional Write-Host outside the check
+# below. Own time-cap job, same shape as the alarm above.
+if (Test-Path `$mem) {
+  try {
+    `$todaySeconds = 5
+    if (`$env:MEM_TODAY_SECONDS) { `$todaySeconds = [int]`$env:MEM_TODAY_SECONDS }
+    `$todayJob = Start-Job -ScriptBlock {
+      param(`$m)
+      & node `$m today --line 2>`$null
+    } -ArgumentList `$mem
+    `$todayDone = Wait-Job -Job `$todayJob -Timeout `$todaySeconds
+    if (-not `$todayDone) {
+      Stop-Job -Job `$todayJob -ErrorAction SilentlyContinue
+      Remove-Job -Job `$todayJob -Force -ErrorAction SilentlyContinue
+    } else {
+      `$todayOut = Receive-Job -Job `$todayJob -ErrorAction SilentlyContinue
+      Remove-Job -Job `$todayJob -Force -ErrorAction SilentlyContinue
+      if (`$todayOut) {
+        `$todayOut | ForEach-Object { Write-Host `$_ }
+        Write-Host ''
+      }
+    }
+  } catch { }
+}
+
 Write-Host '=== how to use this memory this session ==='
 Write-Host ''
 Write-Host 'Log substantial things as they happen:'

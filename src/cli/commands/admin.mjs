@@ -680,7 +680,7 @@ export const COMMANDS = {
   today: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem today [--json]',
+        'mem today [--json] [--line]',
         '',
         '  What does the owner need TODAY? One source for this command, the',
         '  dashboard\'s "Today" card and the session-start line — read',
@@ -696,14 +696,19 @@ export const COMMANDS = {
         '  review report and no open word-pair-suggestion queue to read',
         '  (see src/today.mjs for what each would need).',
         '',
+        '  --line   ONE line ("Today: 2 decisions open · …"), or nothing',
+        '           at all when there is nothing notable — meant for a',
+        '           session-start hook, never a banner nobody reads.',
+        '',
         '  Read-only.',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['json', 'root'], 'today');
+    checkFlags(args, ['json', 'line', 'root'], 'today');
     const root = findRoot(args);
     requireConfig(root);
     const r = today.today(root);
+    if (args.line) { const l = today.line(r); if (l) out(l); return; }
     if (args.json) { out(JSON.stringify(r, null, 2)); return; }
     out(today.asText(r));
   },
