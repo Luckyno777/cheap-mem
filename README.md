@@ -50,7 +50,7 @@ code.
 | tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search, median | **0.027 ms** over the index | `node bench/retrieval.mjs` |
-| what you download | **831 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+| what you download | **1190 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
@@ -317,8 +317,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **66 CLI commands, 30 MCP tools, 87 modules, 2240
-tests**; as of 2026-09-20, about 37697 lines in `bin/` and `src/`, at
+As of 2026-09-26: **66 CLI commands, 30 MCP tools, 90 modules, 2212
+tests**; as of 2026-09-20, about 38371 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -450,7 +450,7 @@ mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
 
-mem serve [--port N]           console, desk and viewer at ONE fixed link.
+mem serve [--port N]           the dashboard at ONE fixed link.
           [--allow-writes]     The console is the only place anything can
                                be SET without a shell -- and only once you
                                allow it: writing from the page is OFF by

@@ -4,7 +4,7 @@
 // lucky-mem's own D3 latch for its knowledge view: plan D3, one truth
 // for the type list.
 //
-// **The defect this replaces.** Before this task, `astra/knowledge.mjs`
+// **The defect this replaces.** Before this task, the old desk's knowledge view
 // built its chip list with `[...new Set(d.entries.map(e => e.type))]` —
 // derived from whichever types happened to have at least one entry. A
 // type nobody has written to yet, or one whose every entry got retired
@@ -29,8 +29,9 @@ import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as dashboard from '../src/dashboard.mjs';
-import * as astra from '../src/astra.mjs';
-import { knowledgeView } from '../src/astra/knowledge.mjs';
+import * as dashboardData from '../src/dashboard-data.mjs';
+
+const SCRIPT = fs.readFileSync(new URL('../assets/dashboard/dashboard.js', import.meta.url), 'utf8');
 
 function empty() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-d3-types-'));
@@ -41,10 +42,17 @@ function empty() {
 }
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
-/** The chip types the page actually renders, minus the hand-written "all" one. */
-function renderedChipTypes(html) {
-  return [...html.matchAll(/class="chip" data-type="([^"]*)"/g)]
-    .map((m) => m[1]).filter((t) => t !== '');
+/**
+ * The type filter the dashboard renders: since 2026-09-28 the page is
+ * built in the browser, and its type options are `D.types` — the list
+ * `/dashboard.json` carries — never the types that happen to appear in
+ * the entries. So the rendered filter IS `collectDashboard().types`, as
+ * long as the script builds it from `d.types` (checked below).
+ */
+function renderedChipTypes(root) {
+  assert.match(SCRIPT, /types = Object\.fromEntries\(\(d\.types \|\| \[\]\)\.map/, 'the script no longer takes its types from the data');
+  assert.match(SCRIPT, /Object\.entries\(types\)\s*\n?\s*\.map\(\(\[k, n\]\) => `<option value="\$\{k\}"/, 'the type filter is not built from the types list');
+  return dashboardData.collectDashboard(root).types.map((t) => t.type);
 }
 
 test('an EMPTY memory still carries every known type — nothing is derived from entries', () => {
@@ -54,8 +62,7 @@ test('an EMPTY memory still carries every known type — nothing is derived from
     assert.equal(d.entries.length, 0, 'this probe is vacuous if the fixture has entries');
     assert.deepEqual(d.types.map((t) => t.type), Object.keys(memory.TYPES),
       'an empty memory reported fewer types than memory.TYPES knows about');
-    const { html } = astra.build(r, { title: 'd3' });
-    assert.deepEqual(renderedChipTypes(html).sort(), Object.keys(memory.TYPES).sort(),
+    assert.deepEqual(renderedChipTypes(r).sort(), Object.keys(memory.TYPES).sort(),
       'the rendered page is missing a chip for a type with zero entries');
   } finally { away(r); }
 });
@@ -74,8 +81,7 @@ test('a memory with entries of only SOME types still shows a chip for every type
     const d = dashboard.collect(r);
     assert.deepEqual(d.types.map((t) => t.type), Object.keys(memory.TYPES));
 
-    const { html } = astra.build(r, { title: 'd3' });
-    const chips = new Set(renderedChipTypes(html));
+    const chips = new Set(renderedChipTypes(r));
     for (const t of missing) {
       assert.ok(chips.has(t), `type '${t}' has zero entries and lost its chip`);
     }
@@ -100,8 +106,7 @@ test('LATCH: the entries-derived rule this task removed would fail the same fixt
       'the old, entries-derived rule no longer under-counts on this fixture — '
         + 'the fixture needs a wider gap between "written" and "known" types');
     // And the CURRENT view does not repeat that mistake on the same data.
-    assert.equal(knowledgeView(d).match(/class="chip" data-type="[a-z]/g).length,
-      Object.keys(memory.TYPES).length);
+    assert.equal(renderedChipTypes(r).length, Object.keys(memory.TYPES).length);
   } finally { away(r); }
 });
 

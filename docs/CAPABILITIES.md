@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 66 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2240 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2212 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -66,8 +66,11 @@ directory. The section number in brackets is where it is explained.
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
-| `dashboard.mjs` | the workspace's DATA layer: one pass, seven views' worth of numbers (7.5) |
-| `astra.mjs` | the workspace's PAGE: sidebar, knowledge space, no second data source (7.5) |
+| `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
+| `dashboard-data.mjs` | the dashboard's DATA layer: `/dashboard.json`, one entry, one message, the read-only retrieval probe, facts at a date (7.5) |
+| `dashboard-page.mjs` | the dashboard's page shell; the views are drawn in the browser from `assets/dashboard/` (7.5) |
+| `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |
+| `pwa.mjs` | the dashboard's manifest and service worker, which stores nothing unless asked to (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
@@ -606,7 +609,7 @@ typing a long command is, in practice, not changeable.
 | `/pult` | the desk — five views over the same memory (7.5) |
 | `/viewer` | the viewer, with a way back |
 | `/console.json` | the same numbers, for tools |
-| `/dashboard.json` | the desk's numbers, for tools |
+| `/pult.json` | the desk's numbers, for tools (was `/dashboard.json` until 2026-09-28) |
 | `/task`, `/task/cancel` | start/cancel a long CLI work item as a task (E1.7, `src/tasks.mjs`) |
 | `/task.json` | a task's progress/result, or the two-kind overview |
 | `/inbox/reply` | answer one message in the human participant's tray — same write as `mem inbox write` (P1b) |
@@ -677,59 +680,45 @@ printed the link with the token in it, so you could conveniently copy
 it, would have put that token into every screenshot and every browser
 history.
 
-### 7.5 Workspace — `/`, `src/dashboard.mjs` (data) + `src/astra.mjs` (page)
+### 7.5 Dashboard — `/`, `src/dashboard-data.mjs` (data) + `src/dashboard-page.mjs` and `assets/dashboard/` (page)
 
-Five views over one memory: **Desk** (system state, attention, active
-work), **Knowledge** (every entry, master–detail), **Projects**,
-**Agents**, **Net**. The console answers "how are things and what can I
-change"; the desk answers "what is in here and how does it hang
-together". Its Settings tab carries the console's forms and the Long-jobs buttons;
-like every writing route they are off until the write switch is on
-(`docs/dashboard-writes.md`).
+Since 2026-09-28 the dashboard is cheap-mem's only UI (`docs/dashboard.md`).
+It is the sibling house's dashboard, functionally and visually the same,
+in English, with cheap-mem's own mark (the C) and an empty store on a
+fresh install. Five areas — **Overview**, **Knowledge**, **Work**,
+**Sources**, **Operations** — plus **Settings**, and a 3D network of every
+declared link. `/pult` and `/dashboard` serve the same page; `/console`
+and `/viewer` lead into it (303). `/console.json` and `/pult.json` stay
+for tools; `mem board` and `mem viewer` stay on the CLI.
 
-**It has no fallback, and that is the feature.** The page is rendered
-from collected data and the data is embedded in it: no fetch, no CDN,
-no second file. There is therefore no failed request to fall back from.
-A memory that cannot be collected produces a 500 naming the reason —
-never a page that renders something else under the same heading.
-
-That rule is not abstract. The UI export this view's shape came from
-fetched `/console.json` and gated the board behind
-`Array.isArray(x.board)`, which is false — `console.collect` returns an
-object. Every tile fell back to a hardcoded demo constant while the
-page's own status pill read "Daten: /console.json". Measured against a
-running server on 2026-09-16, not inferred.
+**It has no fallback, and that is the feature.** Every view is drawn
+from `/dashboard.json`, collected live from this memory. A source that
+cannot be read is named on the page; the completeness mark then reads
+"unknown", never a number nobody counted.
 
 **Nothing is derived twice.** The board states come from
 `console.collect`, the entries and agents from `viewer.collectMemory`,
-the matrix from `net.build`, the work counts from `memory.openDuties`
-and `question.all`. `src/dashboard.mjs` assembles; it owns no truth of
-its own, so it cannot disagree with the CLI about an edge or a state.
+the network from `net.build`, the doctor from `doctor.run`. The data
+layer assembles; it owns no truth of its own, so it cannot disagree
+with the CLI about an edge or a state.
 
-**Four states on every count.** A drawer nobody has ever written to
-reports `not measured`, never `0 open`; a drawer with entries and none
-open reports calm. `word()` and the colour lookup both REFUSE a state
-outside `calm / watch / alarm / unknown` rather than rendering it as a
-bare uncoloured word — the arriving export's five-word vocabulary had
-no entry for `calm` or `alarm`, the two that matter most.
+**Four states on every count** — `calm / watch / alarm / unknown` on the
+board, `good / warning / error / unknown` from the doctor — each with its
+own colour. Unknown is never drawn as 0.
 
-**Registered and observed are shown side by side**, on the Agents view
-and in the desk's agent tile: an agent with a folder and no entries has
-never worked, and one with entries and no folder writes without anyone
-knowing its instructions. The second is the more uncomfortable gap and
-the one nobody notices otherwise.
+**What cheap-mem does not have is shown as such.** Books, the digester's
+yield, restore, merge and the live injection view are marked "not
+available in cheap-mem" rather than hidden or faked.
 
-**The net draws declared links only** — `derived_from`, `replaces`,
-`closes`, `causes`, `generalises`, `resolves`, `contradicts` — and
-counts the ones that point at an entry which is not here rather than
-dropping them. Nothing is inferred from similarity. Only drawers that
-carry an edge get a row, and how many were left out is stated.
+**Writing** goes only through the existing routes (`/setting`, `/task`,
+`/task/cancel`, `/inbox/reply`, `/inbox/state`) and their gates, and is
+off until the write switch is on (`docs/dashboard-writes.md`). Deleting a
+raw capture works as on the CLI: preview, mandatory reason, confirmation.
 
-The page uses the same design tokens as the viewer
-(`docs/viewer-design-tokens.json`), dark-first: the complete palette on
-the bare `:root`, every token redefined under
-`@media (prefers-color-scheme: light)`. No shadow, no webfont, no pill
-radius — the three absences the token file names.
+**Every file comes from this server.** three.js and DM Sans are vendored
+under `assets/` (MIT and OFL, see `NOTICE`) — the one named exception to
+"no dependencies". The page sends a CSP header, never a CORS header, and
+every data route checks the Host header against DNS rebinding.
 
 ---
 

@@ -49,24 +49,26 @@
 // — not the raw bytes spelled out in every failure message.
 //
 // **What actually carries a mark today — measured, not assumed (order
-// point 3).** Checked by calling the real render functions against a
+// point 3; re-measured 2026-09-28 when the dashboard became the only
+// UI).** Checked by calling the real render functions against a
 // fixture memory:
 //   - `viewer.mjs` (`viewer.build()`): the PNG favicon, via
-//     `markLink()` — this is the ONLY page in this repository that
-//     embeds any brand mark at all.
-//   - `astra.mjs` (`/`, the dashboard), `console.mjs` (`/console`),
-//     `board.mjs` (`mem board --html`): NO `<link rel="icon">`, no
-//     embedded PNG, nothing — confirmed below. That mirrors the
-//     sibling: `lucky-mem/src/brett.mjs` (Brett) carries no mark
-//     either. This is not a defect this task is asked to fix (nothing
-//     here shows the WRONG mark); it means these three pages are held
-//     to "never the foreign mark", not "must carry the own one".
-//   - `bin/mem-serve`: serves no manifest, no service worker, no
-//     `/favicon.ico` route at all today (grepped and confirmed below,
-//     as a fact about the running server, not the source text of a
-//     page). The only PWA-shaped surface lucky-mem has
-//     (`bin/mem-ansicht-server.mjs` with a real manifest/favicon/
-//     service-worker) has no counterpart here yet.
+//     `markLink()`.
+//   - `dashboard-page.mjs` (`/`, `/dashboard`, `/pult`): the PNG
+//     favicon via `markLink()` and the inline C in the sidebar
+//     (`markSvg()`) — both from `icon.GEOMETRY`.
+//   - `board.mjs` (`mem board --html`): NO `<link rel="icon">`, no
+//     embedded PNG — held to "never the foreign mark", not "must carry
+//     the own one".
+//   - `bin/mem-serve`: `/favicon.ico` and the manifest's icons are
+//     `icon.mark()` — the own mark, checked below against the running
+//     server's answers, not its source text.
+//
+// **The graph is shared, the letter is not.** The owner's rule of
+// 2026-09-27: "we only turn the mark from a C into an L". Both houses
+// draw the same three-node graph at the same coordinates; what tells
+// them apart is the letter. So the foreign SIGNATURE is the sibling's L
+// path, and the graph path alone proves nothing either way.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -77,8 +79,8 @@ import { fileURLToPath } from 'node:url';
 import * as icon from '../src/icon.mjs';
 import * as viewer from '../src/viewer.mjs';
 import * as board from '../src/board.mjs';
-import * as consolePage from '../src/console.mjs';
-import * as astra from '../src/astra.mjs';
+import * as dashboardPage from '../src/dashboard-page.mjs';
+import * as pwa from '../src/pwa.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
@@ -153,7 +155,8 @@ function pngsFromHtml(html) {
  */
 const FOREIGN_PATHS = Object.freeze([
   'M300 230 V1010 H1010', encodeURIComponent('M300 230 V1010 H1010'),        // the L
-  'M470 730 L690 545 L910 730', encodeURIComponent('M470 730 L690 545 L910 730'), // the graph
+  // Not the graph (`M470 730 L690 545 L910 730`): both houses draw it
+  // (see the file header, "The graph is shared, the letter is not").
 ]);
 
 /**
@@ -197,29 +200,43 @@ test('POSITIVE CONTROL: the viewer carries its own mark, never the foreign one',
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test("TODAY'S STATE, PINNED: dashboard, console and board carry no mark at all", () => {
+test('the dashboard carries its own mark: the PNG favicon and the inline C', () => {
+  const html = dashboardPage.asHtml({ title: 'cheap-mem' });
+  assert.equal(guardVerdict(html, { must: true }), null);
+  assert.ok(html.includes(icon.cPath()), 'the sidebar no longer draws the own C');
+  assert.ok(pwa.insertHead(html).includes('apple-touch-icon'), 'the served head lost its touch icon');
+});
+
+test("TODAY'S STATE, PINNED: board carries no mark at all", () => {
   const r = root();
   try {
-    const dashHtml = astra.build(r, { title: 'cheap-mem', env: {}, cfg: {}, writable: true }).html;
-    const consoleHtml = consolePage.asHtml(consolePage.collect(r, { env: {}, cfg: {} }));
     const boardHtml = board.asHtml(board.board(r, { now: new Date() }));
-    for (const [name, html] of [['dashboard', dashHtml], ['console', consoleHtml], ['board', boardHtml]]) {
-      assert.ok(!html.includes('<link rel="icon"'), `${name} now carries a <link rel="icon"> — this comment is stale, please update it`);
-      assert.equal(pngsFromHtml(html).length, 0, `${name} now embeds a PNG — this comment is stale, please update it`);
-    }
+    assert.ok(!boardHtml.includes('<link rel="icon"'), 'board now carries a <link rel="icon"> — this comment is stale, please update it');
+    assert.equal(pngsFromHtml(boardHtml).length, 0, 'board now embeds a PNG — this comment is stale, please update it');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('bin/mem-serve serves no manifest, service worker or favicon route today', () => {
-  // A fact about the running server, checked against its own route
-  // table rather than grepped as text — `PATHS`/`AUTH_PATHS` style
-  // literals drift, so this reads the same constant the server's own
-  // auth exemption list (`server.mjs`) reads.
-  const serveFile = path.join(HERE, '..', 'bin', 'mem-serve');
-  const src = fs.readFileSync(serveFile, 'utf8');
-  for (const needle of ['manifest.webmanifest', 'sw.js', 'favicon.ico', 'service-worker']) {
-    assert.ok(!src.includes(needle),
-      `bin/mem-serve now mentions '${needle}' — a PWA surface exists; this file's tests and header comment need updating to guard it too`);
+test('bin/mem-serve: favicon and manifest icons are the own mark, never the foreign one', async () => {
+  const r = root();
+  const { serve } = await import('../bin/mem-serve');
+  const { server } = await serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const fav = Buffer.from(await (await fetch(base + '/favicon.ico')).arrayBuffer());
+    assert.equal(pngHash(fav), pngHash(icon.mark(32, { dark: true })), '/favicon.ico is not icon.mark()');
+    const foreign = pngHash(Buffer.from(FOREIGN_PNG_B64, 'base64'));
+    assert.notEqual(pngHash(fav), foreign);
+    const man = await (await fetch(base + '/manifest.webmanifest')).json();
+    assert.ok(man.icons.length >= 2, 'the manifest lists no icons');
+    for (const i of man.icons) {
+      const png = Buffer.from(i.src.replace(/^data:image\/png;base64,/, ''), 'base64');
+      assert.notEqual(pngHash(png), foreign, `manifest icon ${i.sizes} is the foreign mark`);
+      assert.equal(png.subarray(1, 4).toString('latin1'), 'PNG', `manifest icon ${i.sizes} is not a PNG`);
+    }
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((res) => server.close(res));
+    fs.rmSync(r, { recursive: true, force: true });
   }
 });
 
@@ -228,10 +245,10 @@ test('SABOTAGE: the foreign mark (lucky-mem) spliced into the dashboard turns th
 
   const r = root();
   try {
-    const html = astra.build(r, { title: 'cheap-mem', env: {}, cfg: {}, writable: true }).html;
+    const html = dashboardPage.asHtml({ title: 'cheap-mem' });
     // Before: green — the same positive control, right next to the
     // sabotage, so the difference is visible in one test run.
-    assert.equal(guardVerdict(html, { must: false }), null);
+    assert.equal(guardVerdict(html, { must: true }), null);
 
     // The sabotage itself: the foreign <link> spliced into the head —
     // exactly the pattern a copy-pasted header line from the wrong

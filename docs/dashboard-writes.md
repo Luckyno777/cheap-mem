@@ -1,7 +1,7 @@
 # Dashboard writes — off until you turn them on
 
-`mem serve` shows the console, the desk and the viewer at one link. A
-few things on those pages can also CHANGE something: a setting, or a
+`mem serve` shows the dashboard at one link (`docs/dashboard.md`). A
+few things on it can also CHANGE something: a setting, or a
 long job started or cancelled. Since 2026-09-27 **all of them are off by
 default.** An open-source dashboard writes nothing before its owner
 allows it.
@@ -46,12 +46,13 @@ gate calls:
 | Route | What it writes |
 |---|---|
 | `POST /setting` | one knob from `SETTINGS` (raw archive location, error window, agent quiet limit) plus a line in `.mem/console-log.jsonl` |
-| `POST /task` | starts a long CLI job (`raw export`, `chain`) as a child process; state under `.mem/` |
+| `POST /task` | starts a long CLI job (`raw export`, `chain`, `raw delete`, `done`) as a child process, with a closed list of parameters per kind; state under `.mem/` |
 | `POST /task/cancel` | ends one |
 | `POST /inbox/reply` | one new message in `inbox/`, answering a message in the human participant's tray — the same `inbox.write()` `mem inbox write` calls (P1b) |
+| `POST /inbox/state` | acknowledges one message addressed to the human participant — nobody else's |
 
-Every other path (`/`, `/console`, `/viewer`, the `.json` routes) only
-reads.
+Every other path (`/`, `/dashboard`, `/pult`, the `.json` routes, the
+retrieval probe) only reads. `/console` and `/viewer` only redirect.
 
 With the switch off each of them answers **403**, names the reason and
 says how to turn it on. Nothing is written — the probe snapshots every
@@ -76,7 +77,7 @@ are unchanged.
 Only `on` lets a write through, but the page and the 403 say WHICH of
 the other three it is: a config that cannot be read is shown as "could
 not be read", never as a plain "off". `/console.json` and
-`/dashboard.json` carry the same object as `writes`; `mem serve` prints
+`/pult.json` carry the same object as `writes`; `mem serve` prints
 it on start.
 
 ## On the pages

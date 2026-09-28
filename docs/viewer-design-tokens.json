@@ -476,9 +476,9 @@
     "$description": "Split by DIRECTION — coming in and going out are not the same movement."
   },
   "$workspace": {
-    "$description": "AS OF 2026-09-16: the workspace under / (src/astra.mjs) follows Lucky's study and deliberately departs from three rules in this file. That is a DECISION, not an oversight and not a silent rebuild — Lucky made it on that day, after the alternative ('close, but not the same') was explicitly on the table. A rule that quietly stops applying is worse than one that has visibly moved.",
+    "$description": "SUPERSEDED 2026-09-28: the Astra desk is gone; / now serves the dashboard (src/dashboard-page.mjs, assets/dashboard/, see docs/dashboard.md), which vendors DM Sans under assets/fonts instead of fetching it and has a light and a dark theme. The deviations below are kept as the record of the desk. AS OF 2026-09-16: the workspace under / (then src/astra.mjs) followed Lucky's study and deliberately departs from three rules in this file. That is a DECISION, not an oversight and not a silent rebuild — Lucky made it on that day, after the alternative ('close, but not the same') was explicitly on the table. A rule that quietly stops applying is worse than one that has visibly moved.",
     "effective_from": "2026-09-16",
-    "applies_to": "src/astra.mjs — the page under / and /pult",
+    "applies_to": "the removed Astra desk (src/astra.mjs, until 2026-09-28)",
     "does_not_apply_to": "src/viewer.mjs and src/console.mjs. All rules below remain unchanged there.",
     "deviations": [
       {

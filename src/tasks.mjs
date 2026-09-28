@@ -42,7 +42,9 @@
  * (`better-sqlite3`, `sqlite-vec`) and, for most providers, an API key —
  * naming it "the" index rebuild would suggest it covers the everyday
  * BM25 search index, which it does not. None of the three is a fit;
- * `KINDS` below stays at two, not three, on purpose. See
+ * The long-running kinds in `KINDS` below stay at two, not three, on purpose
+ * (the two parameterised kinds added on 2026-09-28 — `raw-delete`, `done` —
+ * are short, one-shot CLI calls the dashboard runs, not index work). See
  * `docs/dashboard-tasks.md` for the same finding written out.
  *
  * **Progress only where the command really reports one.** Neither
@@ -202,7 +204,86 @@ export const KINDS = Object.freeze({
       return { state: 'ok', reason: null };
     },
   },
+  // **Two kinds that TAKE PARAMETERS (2026-09-28, the dashboard port).**
+  // The sibling house deletes a raw capture and marks an entry done from
+  // its dashboard exactly this way: as a task — a child process of the
+  // existing CLI command, behind the same write gate as every task. No
+  // new write route, no second deletion code path. The parameters are a
+  // CLOSED list per kind (`params`), each validated before anything is
+  // spawned; an unknown or malformed field is refused with
+  // `INVALID_PARAMS`, never passed through to a command line.
+  'raw-delete': {
+    title: 'Delete one raw capture',
+    description: 'mem raw delete <path> --reason "..." --by dashboard --yes --json — removes the '
+      + 'BYTES of one capture from the archive (irreversible) and appends a tombstone to the '
+      + 'register. The dashboard runs it once per capture, after a preview and a confirmation.',
+    resume: 'restart',
+    params: {
+      path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/'),
+        why: 'a relative capture path as `mem raw review` lists it' },
+      reason: { required: true, check: (v) => v.trim().length >= 3 && v.length <= 500 && !/[\u0000-\u001f]/.test(v),
+        why: 'a reason of 3 to 500 characters, one line' },
+    },
+    command(root, id, p) {
+      return { file: MEM_BIN, args: ['raw', 'delete', p.path, '--reason', p.reason, '--by', 'dashboard', '--yes', '--json'] };
+    },
+    progressPattern: null,
+    classify(json) {
+      return Number.isFinite(json?.freed) || json?.path || json?.at
+        ? { state: 'ok', reason: null }
+        : { state: 'warning', reason: 'delete answered, but not with the expected shape' };
+    },
+  },
+  done: {
+    title: 'Mark an entry done',
+    description: 'mem done <id> --why "..." — appends a tombstone line with state done; the '
+      + 'original stays in the log (append-only).',
+    resume: 'restart',
+    params: {
+      id: { required: true, check: (v) => /^[A-Za-z0-9_-]{4,64}$/.test(v), why: 'an entry id' },
+      why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
+    },
+    command(root, id, p) {
+      return { file: MEM_BIN, args: ['done', p.id, ...(p.why ? ['--why', p.why] : [])] };
+    },
+    progressPattern: null,
+    // `mem done` prints one plain line ("done: <id> (...)"), no JSON.
+    plainOk: /^done: /m,
+    classify() { return { state: 'ok', reason: null }; },
+  },
 });
+
+/**
+ * Check a kind's parameters against its closed list. Throws
+ * `INVALID_PARAMS` naming the field — never passes an unknown field on.
+ */
+export function checkParams(kind, params = {}) {
+  const spec = KINDS[kind];
+  const allowed = spec?.params ?? {};
+  const out = {};
+  for (const [k, v] of Object.entries(params ?? {})) {
+    if (!Object.hasOwn(allowed, k)) {
+      const e = new Error(`task '${kind}' takes no parameter '${k}'. Known: ${Object.keys(allowed).join(', ') || 'none'}`);
+      e.code = 'INVALID_PARAMS';
+      throw e;
+    }
+    const val = String(v ?? '');
+    if (!allowed[k].check(val)) {
+      const e = new Error(`task '${kind}': parameter '${k}' must be ${allowed[k].why}`);
+      e.code = 'INVALID_PARAMS';
+      throw e;
+    }
+    out[k] = val;
+  }
+  for (const [k, def] of Object.entries(allowed)) {
+    if (def.required && !(k in out)) {
+      const e = new Error(`task '${kind}': parameter '${k}' is required (${def.why})`);
+      e.code = 'INVALID_PARAMS';
+      throw e;
+    }
+  }
+  return out;
+}
 
 /**
  * The last complete JSON value out of a child's stdout.
@@ -242,6 +323,9 @@ function classifyResult(kind, { code, stdout, stderrTail }) {
       return { state: 'warning', result: json, reason: `exit code ${code}` };
     }
     return { state: verdict.state, result: json, reason: verdict.reason };
+  }
+  if (code === 0 && spec.plainOk && spec.plainOk.test(String(stdout ?? ''))) {
+    return { state: 'ok', result: { output: String(stdout).trim().slice(0, 2000) }, reason: null };
   }
   // No JSON at all. Exit 0 without JSON is NOT automatically a failure
   // of this module — `raw export` returns `out('No captures in that
@@ -298,14 +382,16 @@ function spawnChild(file, args, root) {
  *  - 'UNKNOWN_KIND'   — `kind` is not in `KINDS`
  *  - 'LOCK_ACTIVE'     — the same kind is already running in this server
  *                         instance (`e.runningId` names the id)
+ *  - 'INVALID_PARAMS'  — a parameter is unknown, malformed or missing
  */
-export function start(root, kind) {
+export function start(root, kind, params = {}) {
   const spec = KINDS[kind];
   if (!spec) {
     const e = new Error(`unknown kind '${kind}'. Known: ${Object.keys(KINDS).join(', ')}`);
     e.code = 'UNKNOWN_KIND';
     throw e;
   }
+  const checked = checkParams(kind, params);
   const running = ACTIVE.get(kind);
   if (running && running.epoch === SERVER_EPOCH && !running.ended) {
     const e = new Error(`task '${kind}' is already running (id=${running.id}).`);
@@ -317,13 +403,13 @@ export function start(root, kind) {
   const id = newId();
   fs.mkdirSync(tasksDir(root), { recursive: true });
   const file = statePath(root, id);
-  const { file: prog, args } = spec.command(root, id);
+  const { file: prog, args } = spec.command(root, id, checked);
 
   const child = spawnChild(prog, args, root);
   const ts = nowIso();
   appendLine(file, `${JSON.stringify({
     event: 'started', ts, id, kind, pid: child.pid, serverEpoch: SERVER_EPOCH,
-    command: [prog, ...args],
+    command: [prog, ...args], params: checked,
   })}\n`);
 
   const entry = { id, child, epoch: SERVER_EPOCH, ended: false, cancelReason: null };
@@ -469,7 +555,7 @@ export function read(root, id) {
   const started = events.find((e) => e.event === 'started');
   if (!started) return { state: 'error', id, reason: 'state file has no started line' };
   const terminal = [...events].reverse().find((e) => e.event === 'result' || e.event === 'cancelled');
-  const base = { id, kind: started.kind, started: started.ts, command: started.command };
+  const base = { id, kind: started.kind, started: started.ts, command: started.command, params: started.params ?? null };
 
   if (terminal?.event === 'cancelled') {
     return { ...base, state: 'ok', running: false, cancelled: true, ended: terminal.ts, reason: terminal.reason };

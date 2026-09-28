@@ -483,9 +483,9 @@ export const COMMANDS = {
       out([
         'mem serve [--port N] [--host H] [--readonly] [--allow-writes]',
         '',
-        '  The console and the viewer at one fixed link, instead of a',
-        '  one-off HTML file. This is the only place where anything can',
-        '  be SET without a shell.',
+        '  The dashboard at one fixed link, instead of a one-off HTML',
+        '  file. This is the only place where anything can be SET',
+        '  without a shell.',
         '',
         '  It renders in RAM and writes nothing to disk. With no',
         '  CHEAP_MEM_SERVE_TOKEN it serves localhost ONLY — binding to a',
@@ -494,9 +494,9 @@ export const COMMANDS = {
         '  network unprotected, and a warning in a log has never once',
         '  prevented that.',
         '',
-        '  /               the console: state, settings, connections',
-        '  /viewer         the memory, searchable in the browser',
-        '  /console.json   the same numbers, for tools',
+        '  /               the dashboard: knowledge, work, sources, ops, settings',
+        '  /dashboard.json the same data, for tools',
+        '  /console.json   the console numbers, for tools',
         '  /health         no auth, reveals nothing — for supervisors',
         '',
         '  Writing from the page (settings, long jobs) is OFF by default.',
@@ -542,7 +542,7 @@ export const COMMANDS = {
     const allowWrites = aw !== undefined;
     let started;
     try {
-      started = await mod.serve(root, env, { allowWrites });
+      started = await mod.serve(root, env, { allowWrites, measure: true });
     } catch (e) {
       // The bind refusal is a decision, not a crash: say what to do.
       die(e?.message || String(e));

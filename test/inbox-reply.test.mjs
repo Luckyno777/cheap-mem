@@ -324,8 +324,9 @@ test('POSITIVE: a renamed human ("lucky", "human": true) gets a working tray and
   const name = send(r, { as: 'session', to: 'lucky', subject: 'ping', text: 'are you there?' });
   const s = await start(r);
   try {
-    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    assert.match(page, /lucky's inbox/, 'the tray does not name the renamed human');
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.equal(d.humanTray.who, 'lucky', 'the tray does not name the renamed human');
+    assert.equal(d.humanTray.count, 1);
     const before = inboxFiles(r);
     const res = await reply(s, { name, text: 'yes, renamed and still working' });
     assert.equal(res.status, 303, await res.text());
@@ -365,33 +366,41 @@ test('a memory with no participant marked "human": true refuses the reply honest
 // The page: a form under each message, disabled with a note when off
 // ---------------------------------------------------------------------------
 
+// The dashboard draws the reply form in the browser (message drawer);
+// what the server decides travels as <body data-writes> and the data.
+const SCRIPT = fs.readFileSync(path.join(HERE, '..', 'assets', 'dashboard', 'dashboard.js'), 'utf8');
+
 test('UI: switch off -> reply form is there but disabled, and the page says how to turn it on', async () => {
   const r = memory();
   send(r, { as: 'scribe', to: 'user', subject: 'ping', text: 'x' });
   const s = await start(r);
   try {
     const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    const form = /<form class="reply" method="post" action="\/inbox\/reply">[\s\S]*?<\/form>/.exec(page);
-    assert.ok(form, 'no reply form on the desk');
-    assert.match(form[0], /<textarea[^>]*disabled/);
-    assert.match(form[0], /<button type="submit" disabled>Reply<\/button>/);
-    assert.match(page, /data-reply="off"/);
-    assert.match(page, /mem serve --allow-writes/);
+    assert.match(page, /<body data-writes="0"/);
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.match(d.meta.writes.howTo, /mem serve --allow-writes/);
+    // The form: textarea and button carry `disabled` unless the reader
+    // may answer, and read-only (the switch off) forbids answering.
+    const form = /<form id="replyForm"[\s\S]*?<\/form>/.exec(SCRIPT);
+    assert.ok(form, 'no reply form in the message drawer');
+    assert.match(form[0], /<textarea name="text"[^>]*\$\{mayAnswer \? '' : 'disabled'\}/);
+    assert.match(form[0], /<button[^>]*type="submit" \$\{mayAnswer \? '' : 'disabled'\}/);
+    assert.match(SCRIPT, /const mayAnswer = !state\.readonly && /);
   } finally { await s.stop(); gone(r); }
 });
 
 test('UI POSITIVE: switch on -> the reply form is live and carries only the message name', async () => {
   const r = memory({ allowWrites: true });
-  const name = send(r, { as: 'scribe', to: 'user', subject: 'ping', text: 'x' });
+  send(r, { as: 'scribe', to: 'user', subject: 'ping', text: 'x' });
   const s = await start(r);
   try {
     const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    const form = /<form class="reply" method="post" action="\/inbox\/reply">[\s\S]*?<\/form>/.exec(page);
-    assert.ok(form);
-    assert.match(form[0], /<button type="submit">Reply<\/button>/);
-    assert.doesNotMatch(page, /data-reply="off"/);
-    const fields = [...form[0].matchAll(/name="([^"]+)"/g)].map((m) => m[1]).sort();
-    assert.deepEqual(fields, ['from', 'name', 'text'], 'a form field could pick sender or recipient');
-    assert.match(form[0], new RegExp(`value="${name.replace(/[.]/g, '\\.')}"`));
+    assert.match(page, /<body data-writes="1"/);
+    // What is sent: the message name and the text — never a sender or a
+    // recipient the form could choose.
+    const post = /formPost\('\/inbox\/reply', \{([^}]*)\}\)/.exec(SCRIPT);
+    assert.ok(post, 'the reply is not sent through formPost');
+    const fields = [...post[1].matchAll(/(\w+):/g)].map((m) => m[1]).sort();
+    assert.deepEqual(fields, ['name', 'text'], 'a form field could pick sender or recipient');
   } finally { await s.stop(); gone(r); }
 });

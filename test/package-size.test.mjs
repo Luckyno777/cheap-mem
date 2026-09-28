@@ -67,7 +67,14 @@ function packed() {
 }
 
 // Room for ordinary growth, nowhere near room for a factor of eight.
-const DECKEL = 1_200_000;
+//
+// **Raised from 1.2 MB to 1.5 MB on 2026-09-28, for ONE named reason:**
+// the dashboard's vendored three.js and DM Sans (≈230 kB packed, see
+// VENDORED in test/packaging.test.mjs and NOTICE) plus the dashboard's
+// own script and stylesheet. That is the owner's deliberate exception
+// (docs/dashboard-port-2026-09-28.md §6.1), not drift — and 4.8 MB (the
+// branding-kit accident below) still fails by a factor of three.
+const DECKEL = 1_500_000;
 
 test('POSITIVE: npm pack answers at all', () => {
   // A probe that silently returns zero passes forever. It happened to

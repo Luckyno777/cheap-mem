@@ -41,6 +41,7 @@
   "files": [
     "bin/",
     "src/",
+    "assets/",
     "install/",
     "HOUSE-RULES.md",
     "hooks/",

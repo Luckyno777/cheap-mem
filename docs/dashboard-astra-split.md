@@ -1,5 +1,9 @@
 # The desk's views, one module each
 
+**Superseded 2026-09-28.** `src/astra.mjs` and `src/astra/` were removed
+when the dashboard became cheap-mem's only UI (`docs/dashboard.md`). This
+page is kept as the record of the split.
+
 **As of 2026-09-27.** `src/astra.mjs` held all seven of the desk's
 views — `deskView`, `knowledgeView`, `spaceView`, `projectsView`,
 `agentsView`, `netView`, `setView` — plus the helpers they all leaned

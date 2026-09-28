@@ -38,6 +38,8 @@ const WRITES = [
   // P1b: replying from the inbox. The switch refuses before the body
   // is read, so the name need not exist for these probes.
   ['/inbox/reply', 'name=none.md&text=hello&from=%2F'],
+  // Acknowledging a message from the dashboard (2026-09-28).
+  ['/inbox/state', 'name=none.md&state=done'],
 ];
 
 function memory() {
@@ -245,18 +247,25 @@ test('the dashboard cannot flip its own switch: no /setting id reaches .mem/conf
 // The pages: buttons disabled, the way to turn it on said in words
 // ---------------------------------------------------------------------------
 
-test('UI: with the switch off, the desk and the console disable every control and say how to turn it on', async () => {
+// The dashboard draws its controls in the browser; what the server
+// decides is carried in /dashboard.json and on <body data-writes>.
+const SCRIPT = fs.readFileSync(path.join(HERE, '..', 'assets', 'dashboard', 'dashboard.js'), 'utf8');
+
+test('UI: with the switch off, the dashboard disables every control and says how to turn it on', async () => {
   const r = memory();
   const s = await start(r);
   try {
-    for (const route of ['/', '/console']) {
-      const page = await (await fetch(`${s.base}${route}`, { headers: WITH_DOOR })).text();
-      const buttons = page.match(/<button type="submit"[^>]*>/g) || [];
-      assert.ok(buttons.length >= 1, `${route}: no submit button found — the probe measures nothing`);
-      for (const b of buttons) assert.match(b, /disabled/, `${route}: enabled button ${b}`);
-      assert.match(page, /mem serve --allow-writes/, `${route}: the one-run way is not named`);
-      assert.match(page, /allowWrites/, `${route}: the config key is not named`);
-    }
+    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
+    assert.match(page, /<body data-writes="0"/);
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.equal(d.meta.writesAllowed, false);
+    assert.equal(d.meta.writes.state, 'off');
+    assert.match(d.meta.writes.howTo, /mem serve --allow-writes/, 'the one-run way is not named');
+    assert.match(d.meta.writes.howTo, /allowWrites/, 'the config key is not named');
+    // The script: no server switch -> read only, and the settings panel
+    // prints the how-to next to the reason.
+    assert.match(SCRIPT, /if \(!serverWrites\) state\.readonly = true;/);
+    assert.match(SCRIPT, /\$\{w\.howTo \? ' ' \+ esc\(w\.howTo\) : ''\}/);
   } finally { await s.stop(); gone(r); }
 });
 
@@ -265,10 +274,12 @@ test('UI POSITIVE: with the switch on, the controls are enabled', async () => {
   setSwitch(r, true);
   const s = await start(r);
   try {
-    for (const route of ['/', '/console']) {
-      const page = await (await fetch(`${s.base}${route}`, { headers: WITH_DOOR })).text();
-      assert.match(page, /<button type="submit">(Set|Start)<\/button>/, `${route}: no enabled button`);
-    }
+    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
+    assert.match(page, /<body data-writes="1"/);
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.equal(d.meta.writesAllowed, true);
+    assert.equal(d.meta.writes.state, 'on');
+    assert.equal(d.meta.writes.howTo, null);
   } finally { await s.stop(); gone(r); }
 });
 
@@ -277,9 +288,10 @@ test('UI: an unreadable switch is NOT shown as a plain "off"', async () => {
   setSwitch(r, 'yes');
   const s = await start(r);
   try {
-    const page = await (await fetch(`${s.base}/console`, { headers: WITH_DOOR })).text();
-    assert.match(page, /data-writes="unknown"/);
-    assert.match(page, /unrecognised value/);
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.equal(d.meta.writes.state, 'unknown');
+    assert.match(d.meta.writes.reason, /neither true nor false/);
+    assert.equal(d.meta.writesAllowed, false);
     const j = await (await fetch(`${s.base}/console.json`, { headers: WITH_DOOR })).json();
     assert.equal(j.writes.state, 'unknown');
     assert.equal(j.writes.allowed, false);
@@ -294,8 +306,19 @@ test('inventory: every body-reading route calls writegate.refusal(), and WRITE_P
   // Code lines only: the comments name the function too.
   const src = fs.readFileSync(SERVE, 'utf8').split('\n')
     .filter((l) => !/^\s*(\/\/|\*|\/\*\*)/.test(l)).join('\n');
-  const readers = (src.match(/req\.on\('data'/g) || []).length;
-  const gates = (src.match(/writegate\.refusal\(/g) || []).length;
+  // ONE named exception: the dashboard's retrieval probe reads a POST
+  // body (the question) and writes nothing — proven by
+  // test/dashboard-page.test.mjs ("the retrieval probe is read-only").
+  // It is cut out by its own handler, and it must hold exactly one reader.
+  const at = src.indexOf('url.pathname === dashboardPage.PATHS.probe');
+  assert.ok(at > 0, 'the probe handler moved — re-read this exception');
+  const end = src.indexOf('if (url.pathname ===', at + 10);
+  const probe = src.slice(at, end);
+  assert.equal((probe.match(/req\.on\('data'/g) || []).length, 1, 'the probe handler reads more than its question');
+  assert.equal((probe.match(/writegate\.refusal\(/g) || []).length, 0);
+  const rest = src.slice(0, at) + src.slice(end);
+  const readers = (rest.match(/req\.on\('data'/g) || []).length;
+  const gates = (rest.match(/writegate\.refusal\(/g) || []).length;
   assert.ok(readers >= 2, 'no body reader found — the probe measures nothing');
   assert.equal(gates, readers, `${readers} body readers, but ${gates} gate calls`);
   const mod = await import(`${pathToFileURL(SERVE).href}?inv=${Math.random()}`);

@@ -106,31 +106,23 @@ test('binding to a public address without a token is REFUSED', async () => {
   }
 });
 
-test('/ is the desk, /console is the console, /viewer is the viewer', async () => {
-  // On 2026-09-16 `/` changed hands: the desk took it, the console
-  // moved one door along. All three are checked, because a move where
-  // one address quietly serves another's page is the kind nobody
-  // notices.
+test('/ and /pult are the dashboard; /console and /viewer lead into it', async () => {
+  // Since 2026-09-28 the dashboard is the only UI (owner decision). Every
+  // old address is checked, because a move where one address quietly
+  // serves another's page is the kind nobody notices.
   const r = memory();
   const s = await start(r);
   try {
-    const d = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    assert.match(d, /<title>cheap-mem — workspace<\/title>/);
-    assert.match(d, /id="v-set"/, 'the desk has no Set tab — the forms were dropped');
-    assert.match(d, /class="mem-nav"/);
-
-    // The old bookmark still answers, and with the same page.
-    const alt = await (await fetch(`${s.base}/pult`, { headers: WITH_DOOR })).text();
-    assert.match(alt, /<title>cheap-mem — workspace<\/title>/);
-
-    const c = await (await fetch(`${s.base}/console`, { headers: WITH_DOOR })).text();
-    assert.match(c, /<title>cheap-mem — console<\/title>/);
-    assert.match(c, /Settings/);
-    assert.match(c, /class="mem-nav"/);
-
-    const v = await (await fetch(`${s.base}/viewer`, { headers: WITH_DOOR })).text();
-    assert.match(v, /class="mem-nav"/, 'the viewer has no way back to the desk');
-    assert.ok(!/<title>cheap-mem — console<\/title>/.test(v), 'the viewer shows the console');
+    for (const p of ['/', '/pult', '/dashboard']) {
+      const d = await (await fetch(`${s.base}${p}`, { headers: WITH_DOOR })).text();
+      assert.match(d, /<title>cheap-mem · Your knowledge, connected\.<\/title>/, `${p} is not the dashboard`);
+      assert.match(d, /<nav id="nav" class="nav">/);
+    }
+    for (const [p, to] of [['/console', '/#settings/system'], ['/viewer', '/#knowledge/entries']]) {
+      const res = await fetch(`${s.base}${p}`, { headers: WITH_DOOR, redirect: 'manual' });
+      assert.equal(res.status, 303, `${p} answered ${res.status}`);
+      assert.equal(res.headers.get('location'), to);
+    }
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -170,10 +162,8 @@ test('a POST from the same origin really changes something', async () => {
       body: new URLSearchParams({ id: 'raw-archive', value: target }).toString(),
     });
     assert.equal(res.status, 303, `no redirect: ${res.status}`);
-    // Back to the page the form lives on — which is the console, not
-    // the desk: a redirect to `/` after setting would show a page
-    // without the form the person just used.
-    assert.equal(res.headers.get('location'), '/console');
+    // Back to the dashboard — the only page there is.
+    assert.equal(res.headers.get('location'), '/');
 
     // The EFFECT, not the answer.
     const store = archive.readConfig({}, r);
@@ -234,11 +224,9 @@ test('an unknown field name is refused, not ignored', async () => {
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('setting sends you back to the page the form was on', async () => {
-  // The desk is the front door now, so a set from the desk must not
-  // land on the console. The target comes from a CLOSED list — the
-  // submitted value only chooses between two known pages, it never
-  // becomes one.
+test('setting always sends you back to the dashboard, never to a submitted target', async () => {
+  // The dashboard is the only page (2026-09-28). The target is FIXED —
+  // the submitted value never becomes one.
   const r = memory();
   const s = await start(r);
   const target = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-back-'));
@@ -251,11 +239,10 @@ test('setting sends you back to the page the form was on', async () => {
       body: new URLSearchParams({ id: 'raw-archive', value: target, ...from }).toString(),
     });
     assert.equal((await post({ from: '/' })).headers.get('location'), '/');
-    assert.equal((await post({ from: '/console' })).headers.get('location'), '/console');
-    assert.equal((await post({})).headers.get('location'), '/console',
-      'a form without the field lands nowhere sensible');
+    assert.equal((await post({ from: '/console' })).headers.get('location'), '/');
+    assert.equal((await post({})).headers.get('location'), '/');
     assert.equal((await post({ from: 'https://elsewhere.example/' })).headers.get('location'),
-      '/console', 'the submitted value became the redirect target');
+      '/', 'the submitted value became the redirect target');
   } finally {
     await s.stop();
     fs.rmSync(r, { recursive: true, force: true });
@@ -267,14 +254,15 @@ test('READONLY=1 turns setting off, and the page says so', async () => {
   const r = memory();
   const s = await start(r, { CHEAP_MEM_SERVE_READONLY: '1' });
   try {
-    // Both pages have to say it, each in its own words — one that only
-    // disables the fields looks like one that is still loading.
-    const con = await (await fetch(`${s.base}/console`, { headers: WITH_DOOR })).text();
-    assert.match(con, /Writing is off/);
-    assert.match(con, /disabled/);
+    // The page has to say it — one that only disables the fields looks
+    // like one that is still loading. The shell tells the script before
+    // any data arrives; the data carries the reason in words.
     const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    assert.match(page, /READ ONLY/);
-    assert.match(page, /disabled/);
+    assert.match(page, /data-writes="0"/);
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.equal(d.meta.writesAllowed, false);
+    assert.equal(d.meta.writes.source, 'readonly');
+    assert.match(d.meta.writes.reason, /read-only/);
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
       headers: { ...WITH_DOOR, origin: s.base,
@@ -303,7 +291,8 @@ test('no token is ever on the page', async () => {
   const r = memory();
   const s = await start(r, { CHEAP_MEM_ARCHIVE: '', SOME_OTHER_TOKEN: OTHER });
   try {
-    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
+    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text()
+      + await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).text();
     assert.ok(!page.includes(DOOR), 'the door token is on the page');
     assert.ok(!page.includes(OTHER), 'another secret is on the page');
     // But THAT one is set does appear — otherwise the tile is useless.
@@ -317,9 +306,14 @@ test('the page escapes what came out of the memory', async () => {
     `${JSON.stringify({ seen_at: new Date().toISOString(), version: '<script>alert(1)</script>' })}\n`);
   const s = await start(r);
   try {
+    // The page shell carries no memory content at all; the data travels
+    // as JSON and the script puts every tile line through esc().
     const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    assert.ok(!page.includes('<script>alert(1)</script>'), 'unescaped into the page');
-    assert.ok(page.includes('&lt;script&gt;'));
+    assert.ok(!page.includes('alert(1)'), 'memory content in the page shell');
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.ok(d.system.some((t) => t.line.includes('<script>alert(1)</script>')), 'the probe value never arrived');
+    const js = fs.readFileSync(path.join(path.dirname(SERVE), '..', 'assets', 'dashboard', 'dashboard.js'), 'utf8');
+    assert.match(js, /\$\{esc\(t\.line\)\}/, 'the tile line is not escaped by the script');
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -331,8 +325,9 @@ test('/console.json carries the same numbers as the page', async () => {
     assert.equal(j.board.tiles.length, 7);
     assert.equal(j.settings.length, Object.keys(consolePage.SETTINGS).length);
     assert.equal(j.setup.length, 5);
-    const page = await (await fetch(`${s.base}/`, { headers: WITH_DOOR })).text();
-    for (const s2 of j.settings) assert.ok(page.includes(s2.title), `${s2.title} missing`);
+    const d = await (await fetch(`${s.base}/dashboard.json`, { headers: WITH_DOOR })).json();
+    assert.deepEqual(d.settings.map((x) => x.title), j.settings.map((x) => x.title), 'the dashboard shows other settings');
+    assert.deepEqual(d.system.map((t) => t.id).sort(), j.board.tiles.map((t) => t.id).sort());
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -426,8 +421,3 @@ test('the store list names only what was FOUND', () => {
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
-test('insertNav does not guess when there is no body', () => {
-  assert.equal(consolePage.insertNav('no html here'), 'no html here');
-  assert.match(consolePage.insertNav('<html><body><p>x</p></body></html>'),
-    /<body><style>[\s\S]*<nav class="mem-nav">/);
-});
