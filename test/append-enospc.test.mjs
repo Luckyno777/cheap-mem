@@ -30,12 +30,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { appendLine, AppendError } from '../src/append.mjs';
+import { tempDir } from './temp-dir.mjs';
 
-function tempFile(name = 'journal.jsonl') {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-append-enospc-'));
+function tempFile(t, name = 'journal.jsonl') {
+  const dir = tempDir('cm-append-enospc-', t);
   return path.join(dir, name);
 }
 
@@ -70,8 +70,8 @@ function stubShortWrite({ upToBytes, mode = 'short' }) {
 // Positive control: the normal path is untouched
 // ---------------------------------------------------------------
 
-test('POSITIVE CONTROL: a normal append is still exactly one writeSync call', () => {
-  const p = tempFile();
+test('POSITIVE CONTROL: a normal append is still exactly one writeSync call', (t) => {
+  const p = tempFile(t);
   fs.writeFileSync(p, '{"a":1}\n', 'utf8');
   const real = fs.writeSync;
   let calls = 0;
@@ -89,8 +89,8 @@ test('POSITIVE CONTROL: a normal append is still exactly one writeSync call', ()
 // RED -> GREEN: short write, no throw (the common ENOSPC shape)
 // ---------------------------------------------------------------
 
-test('short write with no throw: the file is rolled back byte-identical to before the call', () => {
-  const p = tempFile();
+test('short write with no throw: the file is rolled back byte-identical to before the call', (t) => {
+  const p = tempFile(t);
   const before = '{"a":1}\n{"a":2}\n';
   fs.writeFileSync(p, before, 'utf8');
   const beforeBytes = fs.readFileSync(p);
@@ -115,8 +115,8 @@ test('short write with no throw: the file is rolled back byte-identical to befor
 // RED -> GREEN: throw AFTER a partial write landed
 // ---------------------------------------------------------------
 
-test('throw after a partial write: the same rollback, the same byte-identity', () => {
-  const p = tempFile();
+test('throw after a partial write: the same rollback, the same byte-identity', (t) => {
+  const p = tempFile(t);
   const before = '{"a":1}\n';
   fs.writeFileSync(p, before, 'utf8');
   const beforeBytes = fs.readFileSync(p);
@@ -141,8 +141,8 @@ test('throw after a partial write: the same rollback, the same byte-identity', (
 // Full failure, not a single byte written: nothing to truncate, still an error
 // ---------------------------------------------------------------
 
-test('total failure with zero bytes written: file unchanged, still throws', () => {
-  const p = tempFile();
+test('total failure with zero bytes written: file unchanged, still throws', (t) => {
+  const p = tempFile(t);
   fs.writeFileSync(p, '{"a":1}\n', 'utf8');
   const beforeBytes = fs.readFileSync(p);
   const restore = stubShortWrite({ upToBytes: 0, mode: 'throw' });
@@ -161,8 +161,8 @@ test('total failure with zero bytes written: file unchanged, still throws', () =
 // Concurrency: rolling back our own fragment must NEVER cut a foreign line
 // ---------------------------------------------------------------
 
-test('CONCURRENCY: a foreign writer between the short write and the truncate check — no truncation, tear reported, foreign line intact', () => {
-  const p = tempFile();
+test('CONCURRENCY: a foreign writer between the short write and the truncate check — no truncation, tear reported, foreign line intact', (t) => {
+  const p = tempFile(t);
   fs.writeFileSync(p, '{"a":1}\n', 'utf8');
   const beforeSize = fs.statSync(p).size;
 
@@ -225,8 +225,8 @@ test('CONCURRENCY: a foreign writer between the short write and the truncate che
 // The normal healing path (leading-newline repair) is unaffected
 // ---------------------------------------------------------------
 
-test('the missing-newline repair still works when the append itself succeeds', () => {
-  const p = tempFile();
+test('the missing-newline repair still works when the append itself succeeds', (t) => {
+  const p = tempFile(t);
   fs.writeFileSync(p, '{"a":1}', 'utf8'); // deliberately no trailing \n
   const { healed } = appendLine(p, '{"a":2}\n');
   assert.equal(healed, true);

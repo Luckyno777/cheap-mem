@@ -12,13 +12,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as inbox from '../src/inbox.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const PARTS = { user: 'H', session: 'AI', librarian: 'lib' };
 
-function tmpRoot() { return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-reqid-')); }
+function tmpRoot(t) { return tempDir('cheap-mem-reqid-', t); }
 
 test('build + parse round-trip carries Client-Request-Id', () => {
   const content = inbox.build(PARTS, {
@@ -49,16 +49,16 @@ test('a message without the field parses exactly as before (schema evolution)', 
   assert.equal(p.text, 'old body');
 });
 
-test('classifyRequest: no prior message with this id -> new', () => {
-  const root = tmpRoot();
+test('classifyRequest: no prior message with this id -> new', (t) => {
+  const root = tmpRoot(t);
   const r = inbox.classifyRequest(root, PARTS, {
     from: 'session', to: 'librarian', requestId: 'r1', text: 'do the thing',
   });
   assert.equal(r, inbox.REQUEST.NEW);
 });
 
-test('classifyRequest: same id, same body -> replay (idempotent resend)', () => {
-  const root = tmpRoot();
+test('classifyRequest: same id, same body -> replay (idempotent resend)', (t) => {
+  const root = tmpRoot(t);
   inbox.write(root, PARTS, {
     from: 'session', to: 'librarian', subject: 's', text: 'do the thing', requestId: 'r1',
   });
@@ -68,8 +68,8 @@ test('classifyRequest: same id, same body -> replay (idempotent resend)', () => 
   assert.equal(r, inbox.REQUEST.REPLAY);
 });
 
-test('classifyRequest: same id, different body -> conflict, never silent dedup', () => {
-  const root = tmpRoot();
+test('classifyRequest: same id, different body -> conflict, never silent dedup', (t) => {
+  const root = tmpRoot(t);
   inbox.write(root, PARTS, {
     from: 'session', to: 'librarian', subject: 's', text: 'do the thing', requestId: 'r1',
   });
@@ -79,8 +79,8 @@ test('classifyRequest: same id, different body -> conflict, never silent dedup',
   assert.equal(r, inbox.REQUEST.CONFLICT);
 });
 
-test('positive control: different id, identical text -> both are new (no text-based dedup)', () => {
-  const root = tmpRoot();
+test('positive control: different id, identical text -> both are new (no text-based dedup)', (t) => {
+  const root = tmpRoot(t);
   inbox.write(root, PARTS, {
     from: 'session', to: 'librarian', subject: 's1', text: 'ping', requestId: 'r1',
   });
@@ -92,8 +92,8 @@ test('positive control: different id, identical text -> both are new (no text-ba
   assert.equal(r, inbox.REQUEST.NEW);
 });
 
-test('a message with no Client-Request-Id behaves as before: always new', () => {
-  const root = tmpRoot();
+test('a message with no Client-Request-Id behaves as before: always new', (t) => {
+  const root = tmpRoot(t);
   inbox.write(root, PARTS, { from: 'session', to: 'librarian', subject: 's', text: 'no id here' });
   const r = inbox.classifyRequest(root, PARTS, {
     from: 'session', to: 'librarian', requestId: null, text: 'no id here',
@@ -101,8 +101,8 @@ test('a message with no Client-Request-Id behaves as before: always new', () => 
   assert.equal(r, inbox.REQUEST.NEW);
 });
 
-test('classifyRequest is scoped by sender: another sender reusing the id is still new', () => {
-  const root = tmpRoot();
+test('classifyRequest is scoped by sender: another sender reusing the id is still new', (t) => {
+  const root = tmpRoot(t);
   inbox.write(root, PARTS, {
     from: 'session', to: 'librarian', subject: 's', text: 'do the thing', requestId: 'r1',
   });

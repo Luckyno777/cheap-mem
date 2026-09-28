@@ -41,12 +41,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import { renameWithRetry } from '../src/search.mjs';
 import { renameWithRetry as renameWithRetryIC } from '../src/indexcache.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -163,13 +163,13 @@ async function hammer(target, mode, { reads }) {
   };
 }
 
-function scratch(name) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'atomic-cache-'));
+function scratch(t, name) {
+  const dir = tempDir('atomic-cache-', t);
   return path.join(dir, name);
 }
 
-test('P positive control: the naive write tears, here, on this machine', async () => {
-  const target = scratch('naive.json');
+test('P positive control: the naive write tears, here, on this machine', async (t) => {
+  const target = scratch(t, 'naive.json');
   const r = await hammer(target, 'naive', { reads: 2000 });
   assert.ok(r.torn > 0,
     'the naive write never tore in ' +
@@ -179,8 +179,8 @@ test('P positive control: the naive write tears, here, on this machine', async (
     '— make the payload bigger or the experiment longer.');
 });
 
-test('A the rename-based write never tears', async () => {
-  const target = scratch('renamed.json');
+test('A the rename-based write never tears', async (t) => {
+  const target = scratch(t, 'renamed.json');
   const r = await hammer(target, 'renamed', { reads: 2000 });
   assert.ok(!r.timedOut,
     `the experiment ran out of time at ${r.ok + r.torn} reads — no verdict`);

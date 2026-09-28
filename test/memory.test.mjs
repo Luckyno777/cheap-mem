@@ -1,19 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as capability from '../src/capability.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const FULL = capability.grantAll('test');
 
-function tmpRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-test-'));
-}
-
-test('logEntry writes JSONL with id + ts', () => {
-  const root = tmpRoot();
+test('logEntry writes JSONL with id + ts', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { path: p, entry } = memory.logEntry(root, 'event', { title: 'hi' });
   assert.equal(fs.existsSync(p), true);
   assert.ok(entry.id);
@@ -21,8 +16,8 @@ test('logEntry writes JSONL with id + ts', () => {
   assert.equal(entry.title, 'hi');
 });
 
-test('logEntry appends, never overwrites', () => {
-  const root = tmpRoot();
+test('logEntry appends, never overwrites', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'event', { title: 'a' });
   memory.logEntry(root, 'event', { title: 'b' });
   const { entries } = memory.readLog(root, 'event');
@@ -31,8 +26,8 @@ test('logEntry appends, never overwrites', () => {
   assert.equal(entries[1].title, 'b');
 });
 
-test('logEntry escapes newlines via JSON.stringify (stays one line)', () => {
-  const root = tmpRoot();
+test('logEntry escapes newlines via JSON.stringify (stays one line)', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'event', { text: 'line1\nline2' });
   const raw = fs.readFileSync(memory.logPath(root, 'event'), 'utf8');
   assert.equal(raw.split('\n').filter((l) => l.trim()).length, 1);
@@ -40,16 +35,16 @@ test('logEntry escapes newlines via JSON.stringify (stays one line)', () => {
   assert.equal(entries[0].text, 'line1\nline2');
 });
 
-test('find is case-insensitive substring', () => {
-  const root = tmpRoot();
+test('find is case-insensitive substring', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'event', { title: 'Auth flow shipped' });
   memory.logEntry(root, 'error', { class: 'timeout', text: 'auth check timed out' });
   const hits = memory.find(root, 'auth', FULL);
   assert.equal(hits.length, 2);
 });
 
-test('find respects --since', () => {
-  const root = tmpRoot();
+test('find respects --since', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'event', { title: 'old', ts: '2020-01-01T00:00:00Z' });
   memory.logEntry(root, 'event', { title: 'new' });
   const hits = memory.find(root, 'e', FULL, { since: new Date(Date.now() - 60_000) });
@@ -57,8 +52,8 @@ test('find respects --since', () => {
   assert.equal(hits[0].title, 'new');
 });
 
-test('projectInit creates skeleton idempotently', () => {
-  const root = tmpRoot();
+test('projectInit creates skeleton idempotently', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const first = memory.projectInit(root, 'my-app');
   assert.ok(first.created.includes('.'));
   assert.ok(first.created.includes('facts.yaml'));
@@ -69,23 +64,23 @@ test('projectInit creates skeleton idempotently', () => {
   assert.ok(second.existed.includes('facts.yaml'));
 });
 
-test('projectInit rejects bad names', () => {
-  const root = tmpRoot();
+test('projectInit rejects bad names', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   assert.throws(() => memory.projectInit(root, 'Bad Name'));
   assert.throws(() => memory.projectInit(root, '-leading-dash'));
   assert.throws(() => memory.projectInit(root, ''));
 });
 
-test('correctionEntry links to old id and rejects unknown', () => {
-  const root = tmpRoot();
+test('correctionEntry links to old id and rejects unknown', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry: old } = memory.logEntry(root, 'error', { title: 'wrong' });
   const { entry: corr } = memory.correctionEntry(root, 'error', old.id, { title: 'right' });
   assert.equal(corr.replaces_id, old.id);
   assert.throws(() => memory.correctionEntry(root, 'error', 'nope', { title: 'x' }));
 });
 
-test('context returns something even on empty root', () => {
-  const root = tmpRoot();
+test('context returns something even on empty root', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const out = memory.context(root);
   assert.ok(out.includes('cheap-mem context'));
   assert.ok(out.includes('(none)'));
@@ -94,8 +89,8 @@ test('context returns something even on empty root', () => {
 // --- core: the always-load block of settled facts (Engram-inspired) ------
 const CORE_NOW = new Date('2026-09-01T00:00:00Z');
 
-test('core holds current, non-stale, non-conflicting facts', () => {
-  const root = tmpRoot();
+test('core holds current, non-stale, non-conflicting facts', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'timeline', { key: 'server.users', value: '10', valid_from: '2026-08-01' });
   memory.logEntry(root, 'timeline', { key: 'server.users', value: '13', valid_from: '2026-08-20' });
   const { kept } = memory.coreFacts(root, { now: CORE_NOW });
@@ -107,8 +102,8 @@ test('core holds current, non-stale, non-conflicting facts', () => {
   assert.match(text, /always-load/);
 });
 
-test('core excludes stale and conflicting facts', () => {
-  const root = tmpRoot();
+test('core excludes stale and conflicting facts', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'timeline', { key: 'fresh.k', value: 'v', valid_from: '2026-08-20' });
   memory.logEntry(root, 'timeline', { key: 'old.k', value: 'x', valid_from: '2026-01-01' }); // > 120d stale
   memory.logEntry(root, 'timeline', { key: 'clash.k', value: 'a', valid_from: '2026-08-10' });
@@ -118,8 +113,8 @@ test('core excludes stale and conflicting facts', () => {
   assert.deepEqual(keys, ['fresh.k']); // old.k stale, clash.k conflict -> out
 });
 
-test('core is bounded: freshest survive, the rest are counted', () => {
-  const root = tmpRoot();
+test('core is bounded: freshest survive, the rest are counted', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'timeline', { key: 'a', value: '1', valid_from: '2026-08-01' });
   memory.logEntry(root, 'timeline', { key: 'b', value: '2', valid_from: '2026-08-10' });
   memory.logEntry(root, 'timeline', { key: 'c', value: '3', valid_from: '2026-08-20' });
@@ -133,16 +128,16 @@ test('core is bounded: freshest survive, the rest are counted', () => {
   assert.match(text, /1 more stable fact beyond the budget of 2/);
 });
 
-test('core on an empty memory says so, does not crash', () => {
-  const root = tmpRoot();
+test('core on an empty memory says so, does not crash', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const text = memory.core(root, { now: CORE_NOW });
   assert.match(text, /no stable facts yet/);
 });
 
 // --- topics: where a subject stands now (Gentleman/engram-inspired) ------
 
-test('topicState folds a subject onto its newest entry, trail behind it', () => {
-  const root = tmpRoot();
+test('topicState folds a subject onto its newest entry, trail behind it', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'decision', { topic: 'arch/auth', title: 'use sessions', ts: '2026-08-01T00:00:00Z' });
   memory.logEntry(root, 'error', { topic: 'arch/auth', title: 'sessions leak on restart', ts: '2026-08-10T00:00:00Z' });
   memory.logEntry(root, 'learning', { topic: 'arch/auth', title: 'tokens beat sessions here', ts: '2026-08-20T00:00:00Z' });
@@ -155,8 +150,8 @@ test('topicState folds a subject onto its newest entry, trail behind it', () => 
     ['sessions leak on restart', 'use sessions']);       // trail, newest first
 });
 
-test('topics spans every type and project, busiest/freshest first', () => {
-  const root = tmpRoot();
+test('topics spans every type and project, busiest/freshest first', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'decision', { topic: 'a', title: 'x', ts: '2026-08-01T00:00:00Z' });
   memory.logEntry(root, 'error', { topic: 'b', title: 'y', ts: '2026-08-05T00:00:00Z' });
   memory.logEntry(root, 'event', { topic: 'b', title: 'z', ts: '2026-08-09T00:00:00Z' });
@@ -166,8 +161,8 @@ test('topics spans every type and project, busiest/freshest first', () => {
   assert.deepEqual(list[0].types, ['error', 'event']);
 });
 
-test('a retired entry drops out of its topic', () => {
-  const root = tmpRoot();
+test('a retired entry drops out of its topic', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry } = memory.logEntry(root, 'thought', { topic: 't', title: 'half-baked', ts: '2026-08-02T00:00:00Z' });
   memory.logEntry(root, 'decision', { topic: 't', title: 'the real call', ts: '2026-08-01T00:00:00Z' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded', why: 'wrong turn' });
@@ -176,17 +171,17 @@ test('a retired entry drops out of its topic', () => {
   assert.match(st.current.title, /the real call/);
 });
 
-test('entries without a topic are not swept into one', () => {
-  const root = tmpRoot();
+test('entries without a topic are not swept into one', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'event', { title: 'no topic here' });
   memory.logEntry(root, 'event', { topic: '  ', title: 'blank topic' });
   assert.deepEqual(memory.topics(root), []);
 });
 
-test('same-second entries in one topic still order deterministically', () => {
+test('same-second entries in one topic still order deterministically', (t) => {
   // Second-resolution timestamps tie easily: three entries logged in one
   // second must not make "the current state" a coin flip.
-  const root = tmpRoot();
+  const root = tempDir('cheap-mem-test-', t);
   const ts = '2026-08-01T00:00:00Z';
   memory.logEntry(root, 'decision', { topic: 's', title: 'first', ts });
   memory.logEntry(root, 'decision', { topic: 's', title: 'second', ts });
@@ -200,8 +195,8 @@ test('same-second entries in one topic still order deterministically', () => {
 
 // --- links: the typed graph the digest earns while sorting --------------
 
-test('linksOf reads an edge from both ends', () => {
-  const root = tmpRoot();
+test('linksOf reads an edge from both ends', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry: dec } = memory.logEntry(root, 'decision', { title: 'ship on friday' });
   const { entry: err } = memory.logEntry(root, 'error', { title: 'weekend outage' });
   memory.logEntry(root, 'link', { from: dec.id, to: err.id, kind: 'causes' });
@@ -216,8 +211,8 @@ test('linksOf reads an edge from both ends', () => {
   assert.match(fromError.incoming[0].entry.title, /ship on friday/);
 });
 
-test('an edge into nothing is reported, not silently skipped', () => {
-  const root = tmpRoot();
+test('an edge into nothing is reported, not silently skipped', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry } = memory.logEntry(root, 'decision', { title: 'real one' });
   memory.logEntry(root, 'link', { from: entry.id, to: 'ghost-id-999', kind: 'causes' });
   const g = memory.linksOf(root, entry.id);
@@ -226,7 +221,7 @@ test('an edge into nothing is reported, not silently skipped', () => {
   assert.equal(g.dangling[0].to, 'ghost-id-999');
 });
 
-test('the link vocabulary stays closed', () => {
+test('the link vocabulary stays closed', (t) => {
   // An open vocabulary makes the graph untraversable by code.
   assert.deepEqual(Object.keys(memory.LINK_KINDS).sort(),
     ['causes', 'contradicts', 'generalizes', 'resolves']);
@@ -234,8 +229,8 @@ test('the link vocabulary stays closed', () => {
 
 // --- experience: a claim becomes experience by being leaned on ----------
 
-test('standing counts citations and link edges, not retrievals', () => {
-  const root = tmpRoot();
+test('standing counts citations and link edges, not retrievals', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry: lesson } = memory.logEntry(root, 'learning', { title: 'never deploy on friday' });
   const { entry: err } = memory.logEntry(root, 'error', {
     title: 'friday outage again', origin: { derived_from: [lesson.id] },
@@ -247,8 +242,8 @@ test('standing counts citations and link edges, not retrievals', () => {
   assert.equal(st.contested, false);
 });
 
-test('a contradicts edge marks an experience contested, never removes it', () => {
-  const root = tmpRoot();
+test('a contradicts edge marks an experience contested, never removes it', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry: lesson } = memory.logEntry(root, 'learning', { title: 'sessions are fine' });
   const { entry: proof } = memory.logEntry(root, 'error', { title: 'sessions leaked' });
   memory.logEntry(root, 'link', { from: proof.id, to: lesson.id, kind: 'contradicts' });
@@ -261,8 +256,8 @@ test('a contradicts edge marks an experience contested, never removes it', () =>
     'the contested experience must still be listed, flagged');
 });
 
-test('experiences rank by how much leans on them; uncited are held back', () => {
-  const root = tmpRoot();
+test('experiences rank by how much leans on them; uncited are held back', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   const { entry: weak } = memory.logEntry(root, 'learning', { title: 'weak claim' });
   const { entry: strong } = memory.logEntry(root, 'learning', { title: 'strong lesson' });
   for (let i = 0; i < 3; i += 1) {
@@ -276,8 +271,8 @@ test('experiences rank by how much leans on them; uncited are held back', () => 
   assert.ok(all.some((e) => e.id === weak.id));
 });
 
-test('the core carries backed experience alongside the facts', () => {
-  const root = tmpRoot();
+test('the core carries backed experience alongside the facts', (t) => {
+  const root = tempDir('cheap-mem-test-', t);
   memory.logEntry(root, 'timeline', { key: 'k', value: 'v', valid_from: '2026-08-20' });
   const { entry: lesson } = memory.logEntry(root, 'learning', { title: 'the backed lesson' });
   memory.logEntry(root, 'event', { title: 'cites it', origin: { derived_from: [lesson.id] } });
@@ -286,12 +281,12 @@ test('the core carries backed experience alongside the facts', () => {
   assert.match(text, /backed x1/);
 });
 
-test('origin passed as JSON is stored as a structure, not a string', () => {
+test('origin passed as JSON is stored as a structure, not a string', (t) => {
   // Regression: the CLI stored --origin flat, so origin.raw was undefined
   // (digest-yield measured no provenance at all) and origin.derived_from
   // was invisible (no learning could ever be backed) — while every doc
   // told the digest to pass exactly that JSON.
-  const root = tmpRoot();
+  const root = tempDir('cheap-mem-test-', t);
   const { entry } = memory.logEntry(root, 'event', {
     title: 'x', origin: { raw: 'raw/2026/09/a.jsonl.gz', derived_from: ['abc'] },
   });

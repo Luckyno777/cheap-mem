@@ -1,16 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
 import * as capability from '../src/capability.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const FULL = capability.grantAll('test');
 
-function tmp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-life-'));
+function tmp(t) {
+  return tempDir('cheap-mem-life-', t);
 }
 
 test('retiredMap covers retires_id, closes_id, replaces_id', () => {
@@ -35,8 +35,8 @@ test('isClosingLine: only pure tombstones, not corrections', () => {
   assert.equal(memory.isClosingLine({ text: 'content' }), false);
 });
 
-test('retireEntry appends a tombstone, original stays put', () => {
-  const root = tmp();
+test('retireEntry appends a tombstone, original stays put', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'thought', { text: 'idea X' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded', why: 'nope' });
   const { entries } = memory.readLog(root, 'thought');
@@ -46,22 +46,22 @@ test('retireEntry appends a tombstone, original stays put', () => {
   assert.equal(entries[1].state, 'discarded');
 });
 
-test('retireEntry rejects unknown id and bad state', () => {
-  const root = tmp();
+test('retireEntry rejects unknown id and bad state', (t) => {
+  const root = tmp(t);
   assert.throws(() => memory.retireEntry(root, 'thought', 'nope', {}));
   const { entry } = memory.logEntry(root, 'thought', { text: 'here' });
   assert.throws(() => memory.retireEntry(root, 'thought', entry.id, { state: 'bogus' }));
 });
 
-test('findEntryLocation finds the content entry, not the tombstone', () => {
-  const root = tmp();
+test('findEntryLocation finds the content entry, not the tombstone', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'error', { class: 'x', title: 'boom' });
   memory.retireEntry(root, 'error', entry.id, { state: 'done' });
   assert.deepEqual(memory.findEntryLocation(root, entry.id), { type: 'error', project: null });
 });
 
-test('memory.find hides retired by default', () => {
-  const root = tmp();
+test('memory.find hides retired by default', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'thought', { text: 'thesaurus as sqlite' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded' });
   assert.equal(memory.find(root, 'thesaurus', FULL).length, 0);
@@ -70,15 +70,15 @@ test('memory.find hides retired by default', () => {
   assert.equal(withR[0]._retired.state, 'discarded');
 });
 
-test('memory.find never returns tombstone lines', () => {
-  const root = tmp();
+test('memory.find never returns tombstone lines', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'thought', { text: 'whatever' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded', why: 'thesaurus-reason' });
   assert.equal(memory.find(root, 'thesaurus-reason', FULL, { withRetired: true }).length, 0);
 });
 
-test('BM25 search hides retired, --with-retired brings it back', () => {
-  const root = tmp();
+test('BM25 search hides retired, --with-retired brings it back', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'thought', { text: 'compressor experiment' });
   memory.logEntry(root, 'thought', { text: 'compressor stays important' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded' });
@@ -91,16 +91,16 @@ test('BM25 search hides retired, --with-retired brings it back', () => {
   assert.equal(hit.retired.state, 'discarded');
 });
 
-test('BM25 index never ingests tombstone lines', () => {
-  const root = tmp();
+test('BM25 index never ingests tombstone lines', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'thought', { text: 'content' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'done', why: 'tombstonetext unique' });
   const index = search.buildIndex(root);
   assert.equal(search.search(index, 'tombstonetext unique', { top: 10, withRetired: true }).length, 0);
 });
 
-test('getEntry: second stage — full text by id, null when missing', () => {
-  const root = tmp();
+test('getEntry: second stage — full text by id, null when missing', (t) => {
+  const root = tmp(t);
   const { entry } = memory.logEntry(root, 'decision', { topic: 't', choice: 'x', why: 'y' });
   const full = memory.getEntry(root, entry.id);
   assert.equal(full.choice, 'x');

@@ -17,28 +17,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as cfg from '../src/config.mjs';
 import * as raw from '../src/raw.mjs';
+import { tempDir } from './temp-dir.mjs';
 
-function tmpRoot() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-cap-'));
+function tmpRoot(t) {
+  const r = tempDir('cheap-mem-cap-', t);
   cfg.writeConfig(r, cfg.DEFAULT_CONFIG);
   return r;
 }
 
-test('an entry comfortably under the cap writes normally', () => {
-  const root = tmpRoot();
+test('an entry comfortably under the cap writes normally', (t) => {
+  const root = tmpRoot(t);
   const { entry } = memory.logEntry(root, 'decision', { topic: 't', choice: 'x', why: 'y' });
   assert.ok(entry.id);
   const { entries } = memory.readLog(root, 'decision');
   assert.equal(entries.length, 1);
 });
 
-test('POSITIVE CONTROL: an entry over the cap is refused, not truncated', () => {
-  const root = tmpRoot();
+test('POSITIVE CONTROL: an entry over the cap is refused, not truncated', (t) => {
+  const root = tmpRoot(t);
   const huge = 'x'.repeat(memory.MAX_ENTRY_BYTES + 1000);
   let err;
   try {
@@ -56,8 +56,8 @@ test('POSITIVE CONTROL: an entry over the cap is refused, not truncated', () => 
   assert.equal(entries.length, 0, 'a refused write must leave no line behind');
 });
 
-test('the cap is on the FINISHED line, not on any one field', () => {
-  const root = tmpRoot();
+test('the cap is on the FINISHED line, not on any one field', (t) => {
+  const root = tmpRoot(t);
   // The same total size as the single-field test above, spread across
   // three separate, individually-innocuous-looking fields. A cap that
   // only inspected one field would let this straight through.
@@ -69,7 +69,7 @@ test('the cap is on the FINISHED line, not on any one field', () => {
   assert.ok(err, 'splitting the payload across several fields must not evade the cap');
 });
 
-test('an entry exactly at the boundary is the last one accepted', () => {
+test('an entry exactly at the boundary is the last one accepted', (t) => {
   // Binary-search the exact byte where an entry crosses
   // MAX_ENTRY_BYTES, so the boundary itself — not just "way under" and
   // "way over" — is proven correct.
@@ -84,7 +84,7 @@ test('an entry exactly at the boundary is the last one accepted', () => {
   // `logEntry` either accepts a payload or throws, and that is the
   // property under test. Asking it directly cannot drift from it, and
   // the next field added to an entry needs no edit here.
-  const root = tmpRoot();
+  const root = tmpRoot(t);
   const accepts = (n) => {
     try { memory.logEntry(root, 'decision', { why: 'w'.repeat(n) }); return true; }
     catch { return false; }
@@ -97,7 +97,7 @@ test('an entry exactly at the boundary is the last one accepted', () => {
   // The search leaves the boundary at `lo`. Both sides are asserted
   // again on a FRESH root, so a pass cannot come from state the search
   // itself left behind.
-  const clean = tmpRoot();
+  const clean = tmpRoot(t);
   assert.doesNotThrow(() => memory.logEntry(clean, 'decision', { why: 'w'.repeat(lo) }),
     `the writer rejected ${lo} bytes of payload, which the search found acceptable`);
   assert.throws(() => memory.logEntry(clean, 'decision', { why: 'w'.repeat(lo + 1) }),
@@ -108,8 +108,8 @@ test('an entry exactly at the boundary is the last one accepted', () => {
   assert.ok(lo > 100, `the boundary came out at ${lo} bytes — the search found nothing`);
 });
 
-test('configurable via .mem/config.json "maxEntryBytes"', () => {
-  const root = tmpRoot();
+test('configurable via .mem/config.json "maxEntryBytes"', (t) => {
+  const root = tmpRoot(t);
   const c = cfg.readConfig(root);
   cfg.writeConfig(root, { ...c, maxEntryBytes: 200 });
   let err;
@@ -126,11 +126,11 @@ test('configurable via .mem/config.json "maxEntryBytes"', () => {
   }));
 });
 
-test('a memory with no config yet still enforces the floor', () => {
+test('a memory with no config yet still enforces the floor', (t) => {
   // A bare tmp dir mid `mem init` — config.readConfig throws ENOCONFIG.
   // The write path must fall back to MAX_ENTRY_BYTES, not skip the
   // check because reading its own limit failed.
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-cap-bare-'));
+  const root = tempDir('cheap-mem-cap-bare-', t);
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   assert.throws(() => memory.logEntry(root, 'decision', {
     why: 'z'.repeat(memory.MAX_ENTRY_BYTES + 10),
@@ -159,8 +159,8 @@ test('PATH EXEMPTION: raw.mjs (the capture path) never imports memory.mjs', () =
     + 'directly and must never be bounded by an entry-shaped cap');
 });
 
-test('PATH EXEMPTION, functionally: a capture far larger than MAX_ENTRY_BYTES is not rejected', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-cap-raw-'));
+test('PATH EXEMPTION, functionally: a capture far larger than MAX_ENTRY_BYTES is not rejected', (testCtx) => {
+  const root = tempDir('cheap-mem-cap-raw-', testCtx);
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   // One synthetic transcript line whose message content alone is bigger
   // than the entry cap. A real 7.6 MB paste is exactly this shape: one

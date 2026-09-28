@@ -21,6 +21,7 @@
 // red, and so that a filter which silently ate real content would also
 // turn them red.
 import test from 'node:test';
+import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -85,8 +86,8 @@ function transkript(dir) {
   return p;
 }
 
-function frischeWurzel() {
-  const w = fs.mkdtempSync(path.join(os.tmpdir(), 'capdrop-'));
+function frischeWurzel(testCtx) {
+  const w = tempDir('capdrop-', testCtx);
   fs.mkdirSync(path.join(w, '.mem'), { recursive: true });
   return w;
 }
@@ -95,13 +96,13 @@ function text(root, rel) {
   return zlib.gunzipSync(fs.readFileSync(captureFile(root, rel))).toString('utf8');
 }
 
-test('the filter cuts the stored size by more than half', () => {
-  const quelle = frischeWurzel();
+test('the filter cuts the stored size by more than half', (testCtx) => {
+  const quelle = frischeWurzel(testCtx);
   const t = transkript(quelle);
 
-  const a = frischeWurzel();
+  const a = frischeWurzel(testCtx);
   const ohne = raw.capture(a, t, { drop: false });
-  const b = frischeWurzel();
+  const b = frischeWurzel(testCtx);
   const mit = raw.capture(b, t, { drop: true });
 
   assert.equal(ohne.status, 'captured');
@@ -118,9 +119,9 @@ test('the filter cuts the stored size by more than half', () => {
     `filter saves only ${(ersparnis * 100).toFixed(1)}% — expected well over 40%`);
 });
 
-test('the noise is gone and the conversation is not', () => {
-  const quelle = frischeWurzel();
-  const w = frischeWurzel();
+test('the noise is gone and the conversation is not', (testCtx) => {
+  const quelle = frischeWurzel(testCtx);
+  const w = frischeWurzel(testCtx);
   const r = raw.capture(w, transkript(quelle));
   // The BODY, not the file. The header lists the dropped reasons BY
   // NAME, so searching the whole file for 'task_reminder' finds the
@@ -143,18 +144,18 @@ test('the noise is gone and the conversation is not', () => {
   assert.ok(inhalt.includes('ECHTER_DATEIINHALT'), 'a real file attachment was dropped');
 });
 
-test('an elided image leaves a visible marker, not a hole', () => {
-  const quelle = frischeWurzel();
-  const w = frischeWurzel();
+test('an elided image leaves a visible marker, not a hole', (testCtx) => {
+  const quelle = frischeWurzel(testCtx);
+  const w = frischeWurzel(testCtx);
   const r = raw.capture(w, transkript(quelle));
   const inhalt = text(w, r.path);
   assert.ok(!inhalt.includes('A'.repeat(200)), 'image payload was stored');
   assert.match(inhalt, /image elided by cheap-mem: \d+ bytes/);
 });
 
-test('NEVER SILENT: the header books what was left out', () => {
-  const quelle = frischeWurzel();
-  const w = frischeWurzel();
+test('NEVER SILENT: the header books what was left out', (testCtx) => {
+  const quelle = frischeWurzel(testCtx);
+  const w = frischeWurzel(testCtx);
   const r = raw.capture(w, transkript(quelle));
   const kopf = JSON.parse(text(w, r.path).split('\n')[0]);
 
@@ -171,7 +172,7 @@ test('NEVER SILENT: the header books what was left out', () => {
   assert.ok(r.droppedBytes > 0);
 });
 
-test('an unknown attachment subtype is dropped, a known one is kept', () => {
+test('an unknown attachment subtype is dropped, a known one is kept', (testCtx) => {
   // The safe default for a SIZE problem: drop what we do not recognise.
   // Stated as a test so the direction is a decision, not an accident.
   assert.equal(raw.dropReason({ type: 'attachment', attachment: { type: 'brand_new_harness_thing' } }),

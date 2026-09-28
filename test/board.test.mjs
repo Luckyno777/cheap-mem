@@ -16,6 +16,7 @@
 // were archived, then foreign captures reported as errors so the board
 // was permanently red on every second machine.
 import test from 'node:test';
+import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,8 +28,8 @@ import * as memory from '../src/memory.mjs';
 
 const ESC = String.fromCharCode(27);
 
-function root() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-board-'));
+function root(testCtx) {
+  const r = tempDir('cm-board-', testCtx);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.mkdirSync(path.join(r, 'global'), { recursive: true });
   return r;
@@ -36,12 +37,12 @@ function root() {
 
 const NOW = new Date('2026-09-08T12:00:00Z');
 
-test('a tile that could not be measured is UNKNOWN, never CALM', () => {
+test('a tile that could not be measured is UNKNOWN, never CALM', (testCtx) => {
   // The sabotage: a memory with nothing in it. Every lane is silent.
   // A board that scores silence as calm is the exact construction this
   // project exists to catch, so the probe is: is anything green that
   // was never looked at?
-  const r = root();
+  const r = root(testCtx);
   const b = board.board(r, { now: NOW });
 
   const errors = b.tiles.find((t) => t.id === 'errors');
@@ -59,8 +60,8 @@ test('a tile that could not be measured is UNKNOWN, never CALM', () => {
   assert.ok(b.unknown >= 3, 'the unmeasured count does not add them up');
 });
 
-test('UNKNOWN is not folded into the calm count', () => {
-  const r = root();
+test('UNKNOWN is not folded into the calm count', (testCtx) => {
+  const r = root(testCtx);
   const b = board.board(r, { now: NOW });
   const calm = b.tiles.filter((t) => t.state === board.STATE.CALM).length;
   assert.equal(calm + b.watch + b.alarm + b.unknown, b.tiles.length);
@@ -69,12 +70,12 @@ test('UNKNOWN is not folded into the calm count', () => {
   assert.match(board.asText(b), /unmeasured/);
 });
 
-test('a capture from another machine is not a loss', () => {
+test('a capture from another machine is not a loss', (testCtx) => {
   // The second of the two bugs the sibling shipped. A record travels
   // with the repository; the location it names belongs to whichever
   // machine wrote it. Counting a foreign record as MISSING made the
   // board permanently red everywhere but the one machine.
-  const r = root();
+  const r = root(testCtx);
   archive.writeRecord(r, {
     path: 'raw/2026-09-01T00-00-00Z.jsonl',
     bytes: 1024,
@@ -86,8 +87,8 @@ test('a capture from another machine is not a loss', () => {
   assert.equal(t.state, board.STATE.CALM);
 });
 
-test('a capture missing from THIS archive is an alarm', () => {
-  const r = root();
+test('a capture missing from THIS archive is an alarm', (testCtx) => {
+  const r = root(testCtx);
   const store = archive.readConfig({}, r);
   archive.writeRecord(r, {
     path: 'raw/2026-09-01T00-00-00Z.jsonl',
@@ -100,12 +101,12 @@ test('a capture missing from THIS archive is an alarm', () => {
     'a capture this machine promised to hold is gone, and the board is calm');
 });
 
-test('a capture still in the repository is a task, not a loss', () => {
+test('a capture still in the repository is a task, not a loss', (testCtx) => {
   // With an archive SET elsewhere, a capture left in the repo is work
   // that has not happened yet. Without one set, `raw/` IS the archive
   // and there is nothing to do — which is why this probe sets one.
-  const r = root();
-  archive.setLocation(r, fs.mkdtempSync(path.join(os.tmpdir(), 'cm-boardstore-')));
+  const r = root(testCtx);
+  archive.setLocation(r, tempDir('cm-boardstore-', testCtx));
   fs.mkdirSync(path.join(r, 'raw'), { recursive: true });
   fs.writeFileSync(path.join(r, 'raw', 'old.jsonl'), '{}\n');
   archive.writeRecord(r, { path: 'raw/old.jsonl', bytes: 3, location: path.join(r, 'raw') });
@@ -115,13 +116,13 @@ test('a capture still in the repository is a task, not a loss', () => {
   assert.equal(t.state, board.STATE.WATCH);
 });
 
-test('the agents tile reads a Map, not an object', () => {
+test('the agents tile reads a Map, not an object', (testCtx) => {
   // `heartbeat.latest()` returns a Map. Read with `Object.keys` it
   // yields an empty list and the tile reports "no heartbeat recorded"
   // while the file holds data — an empty result that looks like
   // "nothing there" instead of "read wrongly". That defect shipped in
   // the sibling's board, in the module whose job is to show it.
-  const r = root();
+  const r = root(testCtx);
   heartbeat.beat(r, 'session', { now: NOW });
   const t = board.tileAgents(r, { now: NOW });
   assert.notEqual(t.state, board.STATE.UNKNOWN, 'a written heartbeat read as none');
@@ -129,8 +130,8 @@ test('the agents tile reads a Map, not an object', () => {
   assert.equal(t.numbers.rows.length, 1);
 });
 
-test('a heartbeat older than the quiet limit is WATCH, not ALARM', () => {
-  const r = root();
+test('a heartbeat older than the quiet limit is WATCH, not ALARM', (testCtx) => {
+  const r = root(testCtx);
   heartbeat.beat(r, 'session', { now: new Date('2026-09-01T12:00:00Z') });
   const t = board.tileAgents(r, { now: NOW });
   // Silence is not proof of breakage — the agent may have had nothing
@@ -139,8 +140,8 @@ test('a heartbeat older than the quiet limit is WATCH, not ALARM', () => {
   assert.equal(t.numbers.quiet, 1);
 });
 
-test('the error tile counts a WINDOW and reports its own coverage', () => {
-  const r = root();
+test('the error tile counts a WINDOW and reports its own coverage', (testCtx) => {
+  const r = root(testCtx);
   for (let i = 0; i < 6; i += 1) {
     memory.logEntry(r, 'error', { title: `x${i}`, class: 'looks-right-does-nothing' },
       { now: new Date('2026-09-07T09:00:00Z') });
@@ -161,8 +162,8 @@ test('the error tile counts a WINDOW and reports its own coverage', () => {
   assert.equal(t.state, board.STATE.WATCH);
 });
 
-test('the setup tile reuses setup.check rather than reimplementing it', () => {
-  const r = root();
+test('the setup tile reuses setup.check rather than reimplementing it', (testCtx) => {
+  const r = root(testCtx);
   // No .mem/config.json => the memory step is OPEN, so the tile watches.
   const t = board.tileSetup(r, { env: {}, home: r });
   assert.equal(t.state, board.STATE.WATCH);
@@ -172,8 +173,8 @@ test('the setup tile reuses setup.check rather than reimplementing it', () => {
   assert.equal(broken.state, board.STATE.ALARM, 'an unreadable config is not an alarm');
 });
 
-test('the worst tile comes first', () => {
-  const r = root();
+test('the worst tile comes first', (testCtx) => {
+  const r = root(testCtx);
   const store = archive.readConfig({}, r);
   archive.writeRecord(r, { path: 'raw/gone.jsonl', bytes: 1, location: store.location });
   const b = board.board(r, { now: NOW });
@@ -186,10 +187,10 @@ test('the worst tile comes first', () => {
     ['agents', 'archive', 'bridge', 'digest', 'errors', 'questions', 'setup']);
 });
 
-test('the HTML escapes what came out of the memory', () => {
+test('the HTML escapes what came out of the memory', (testCtx) => {
   // Every tile line is memory content. The bridge tile is the easiest
   // one to steer from outside — anything can write that file.
-  const r = root();
+  const r = root(testCtx);
   fs.appendFileSync(path.join(r, '.mem', 'bridge-reports.jsonl'), `${JSON.stringify({
     seen_at: '2026-09-08T11:00:00Z',
     version: '<script>alert(1)</script>',
@@ -199,28 +200,28 @@ test('the HTML escapes what came out of the memory', () => {
   assert.ok(html.includes('&lt;script&gt;'), 'not escaped, just missing');
 });
 
-test('the HTML carries no script and fetches nothing', () => {
+test('the HTML carries no script and fetches nothing', (testCtx) => {
   // It gets read on a phone through a tunnel. Anything that has to load
   // is one more thing that can fail there — and a board that stays
   // empty because a script did not load reports calm by omission.
-  const r = root();
+  const r = root(testCtx);
   const html = board.asHtml(board.board(r, { now: NOW }));
   assert.ok(!/<script/i.test(html), 'the page runs code');
   assert.ok(!/https?:\/\//i.test(html), 'the page loads something from outside');
   assert.ok(html.includes('<!doctype html>'));
 });
 
-test('state is legible without colour', () => {
+test('state is legible without colour', (testCtx) => {
   // Colour alone is not a statement for every reader. Each tile also
   // carries a mark and a word.
-  const r = root();
+  const r = root(testCtx);
   const html = board.asHtml(board.board(r, { now: NOW }));
   assert.match(html, /unmeasured/);
   const text = board.asText(board.board(r, { now: NOW }));
   assert.ok(!text.includes(ESC), 'ANSI escapes in text meant for a phone');
 });
 
-test('since() distinguishes never from long ago', () => {
+test('since() distinguishes never from long ago', (testCtx) => {
   assert.equal(board.since(null), 'never');
   assert.equal(board.since(0), 'just now');
   assert.equal(board.since(30), '30 min ago');

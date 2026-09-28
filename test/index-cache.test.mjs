@@ -28,6 +28,7 @@
 //
 // invariant: leer-ist-kein-bestehen
 import test from 'node:test';
+import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -37,8 +38,8 @@ import * as search from '../src/search.mjs';
 import * as cfg from '../src/config.mjs';
 import * as ic from '../src/indexcache.mjs';
 
-function tmpRoot() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-indexcache-'));
+function tmpRoot(testCtx) {
+  const r = tempDir('cm-indexcache-', testCtx);
   cfg.writeConfig(r, cfg.DEFAULT_CONFIG);
   return r;
 }
@@ -84,8 +85,8 @@ function reconstructedEqual(a, b) {
   assert.equal(a.statsAvgLength, b.statsAvgLength);
 }
 
-test('round trip: write then read reproduces the built index exactly', () => {
-  const root = tmpRoot();
+test('round trip: write then read reproduces the built index exactly', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const index = seeded(root, 60);
   const dir = path.join(root, '.mem', 'search-index');
   const files = { 'learnings.jsonl': { bytes: 1, kind: 'log', docs: 60 } };
@@ -98,8 +99,8 @@ test('round trip: write then read reproduces the built index exactly', () => {
   reconstructedEqual(res.index, index);
 });
 
-test('a version or language mismatch is reported, not silently accepted', () => {
-  const root = tmpRoot();
+test('a version or language mismatch is reported, not silently accepted', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const index = seeded(root, 10);
   const dir = path.join(root, '.mem', 'search-index');
   ic.writeIndexCache(dir, { version: 9, language: 'en', files: {}, fullAt: index.N, index });
@@ -108,8 +109,8 @@ test('a version or language mismatch is reported, not silently accepted', () => 
   assert.equal(ic.readIndexCache(dir, { expectedVersion: 9, expectedLanguage: 'de' }).ok, false);
 });
 
-test('byte-identical rebuild: the same logs, built twice, are the same bytes', () => {
-  const root = tmpRoot();
+test('byte-identical rebuild: the same logs, built twice, are the same bytes', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const index1 = seeded(root, 120);
   const dirA = path.join(root, '.mem', 'search-index-a');
   const dirB = path.join(root, '.mem', 'search-index-b');
@@ -131,8 +132,8 @@ test('byte-identical rebuild: the same logs, built twice, are the same bytes', (
   }
 });
 
-test('truncation: a cache cut mid-record is detected, not half-loaded', () => {
-  const root = tmpRoot();
+test('truncation: a cache cut mid-record is detected, not half-loaded', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const index = seeded(root, 200); // enough lines that a cut lands mid-record
   const dir = path.join(root, '.mem', 'search-index');
   ic.writeIndexCache(dir, { version: 9, language: 'en', files: {}, fullAt: index.N, index });
@@ -150,8 +151,8 @@ test('truncation: a cache cut mid-record is detected, not half-loaded', () => {
   assert.equal(res.index, undefined, 'no partial index may be handed back');
 });
 
-test('POSITIVE CONTROL: the same cache, left intact, loads normally', () => {
-  const root = tmpRoot();
+test('POSITIVE CONTROL: the same cache, left intact, loads normally', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const index = seeded(root, 200);
   const dir = path.join(root, '.mem', 'search-index');
   ic.writeIndexCache(dir, { version: 9, language: 'en', files: {}, fullAt: index.N, index });
@@ -161,8 +162,8 @@ test('POSITIVE CONTROL: the same cache, left intact, loads normally', () => {
   assert.equal(res.index.documents.length, index.documents.length);
 });
 
-test('SABOTAGE: without the length/hash check, the same cut file is served as if intact', () => {
-  const root = tmpRoot();
+test('SABOTAGE: without the length/hash check, the same cut file is served as if intact', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const index = seeded(root, 200);
   const dir = path.join(root, '.mem', 'search-index');
   ic.writeIndexCache(dir, { version: 9, language: 'en', files: {}, fullAt: index.N, index });

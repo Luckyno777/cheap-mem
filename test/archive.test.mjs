@@ -17,6 +17,7 @@
 // The tests below are built around the mistakes this rebuild is likely
 // to make, not around the functions it adds.
 import test from 'node:test';
+import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -26,8 +27,8 @@ import * as archive from '../src/archive.mjs';
 import * as raw from '../src/raw.mjs';
 import * as search from '../src/search.mjs';
 
-function root() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-archive-'));
+function root(testCtx) {
+  const r = tempDir('cm-archive-', testCtx);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.mkdirSync(path.join(r, 'global'), { recursive: true });
   return r;
@@ -47,9 +48,9 @@ function root() {
  * The probes now say what they mean: not "somewhere else", but "at the
  * place this machine named".
  */
-function withArchive() {
-  const r = root();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-store-'));
+function withArchive(testCtx) {
+  const r = root(testCtx);
+  const store = tempDir('cm-store-', testCtx);
   archive.setLocation(r, store);
   return { r, store };
 }
@@ -68,8 +69,8 @@ function transcript(dir, word = 'zeppelinhall', n = 60, name = 'transcript.jsonl
   return p;
 }
 
-test('a capture lands in the SET archive and NOT in the repository', () => {
-  const { r } = withArchive();
+test('a capture lands in the SET archive and NOT in the repository', (testCtx) => {
+  const { r } = withArchive(testCtx);
   const e = raw.capture(r, transcript(r), { minBytes: 50 });
   assert.equal(e.status, 'captured');
 
@@ -80,8 +81,8 @@ test('a capture lands in the SET archive and NOT in the repository', () => {
     'in the repository anyway — then the whole rebuild was pointless');
 });
 
-test('the record stays in the repo: one line instead of a megabyte', () => {
-  const r = root();
+test('the record stays in the repo: one line instead of a megabyte', (testCtx) => {
+  const r = root(testCtx);
   const e = raw.capture(r, transcript(r), { minBytes: 50 });
   const rows = archive.records(r);
   assert.equal(rows.length, 1);
@@ -98,15 +99,15 @@ test('the record stays in the repo: one line instead of a megabyte', () => {
   assert.ok(size < 2000, `the record is ${size} bytes — that is not a record any more`);
 });
 
-test('the search finds the capture although it is not in the repo', () => {
-  const r = root();
+test('the search finds the capture although it is not in the repo', (testCtx) => {
+  const r = root(testCtx);
   raw.capture(r, transcript(r, 'zeppelinhall'), { minBytes: 50 });
   const hits = search.search(search.buildIndex(r), 'zeppelinhall', { top: 5, minScore: 0 });
   assert.ok(hits.length > 0,
     'the capture dropped out of the search — exactly the outage a move produces');
 });
 
-test('the index CACHE notices a new capture in the archive', () => {
+test('the index CACHE notices a new capture in the archive', (testCtx) => {
   // **Why this is separate from the test above.** That one exercises
   // `buildIndex`, and `buildIndex` reads through `listCaptures` /
   // `readCapture`, both already archive-aware. It stayed GREEN when the
@@ -119,7 +120,7 @@ test('the index CACHE notices a new capture in the archive', () => {
   // `continue` and no message. The cache would never have gone stale,
   // new captures would never have appeared, and the search would have
   // quietly served yesterday.
-  const r = root();
+  const r = root(testCtx);
   raw.capture(r, transcript(r, 'zeppelinhall'), { minBytes: 50 });
   const a = search.loadIndex(r);
   assert.ok(search.search(a, 'zeppelinhall', { top: 5, minScore: 0 }).length > 0);
@@ -134,11 +135,11 @@ test('the index CACHE notices a new capture in the archive', () => {
     'the second capture stayed behind the cache — the search serves yesterday');
 });
 
-test('NO FALLBACK: an unwritable archive makes the capture fail', () => {
+test('NO FALLBACK: an unwritable archive makes the capture fail', (testCtx) => {
   // The comfortable path would be "then back into raw/". That would undo
   // the whole rebuild, and nobody would notice, because it looks exactly
   // like before.
-  const r = root();
+  const r = root(testCtx);
   const t = transcript(r);
   const blocked = path.join(r, 'blocked');
   fs.writeFileSync(blocked, 'I am a file, not a directory');
@@ -159,11 +160,11 @@ test('NO FALLBACK: an unwritable archive makes the capture fail', () => {
   }
 });
 
-test('UNREACHABLE is not EMPTY', () => {
+test('UNREACHABLE is not EMPTY', (testCtx) => {
   // When the NAS is off, that has to arrive as an error. If readCapture
   // returned an empty result here, an unmounted drive would look exactly
   // like an empty memory — the most expensive mistake this project knows.
-  const r = root();
+  const r = root(testCtx);
   const e = raw.capture(r, transcript(r), { minBytes: 50 });
   const store = archive.readConfig(process.env, r);
   fs.rmSync(path.join(store.location, archive.pathInArchive(e.path)));
@@ -177,7 +178,7 @@ test('UNREACHABLE is not EMPTY', () => {
   assert.equal(archive.records(r).length, 1);
 });
 
-test('the identifier does NOT change during the move', () => {
+test('the identifier does NOT change during the move', (testCtx) => {
   // The digest ledger and every stored citation hang off the identifier.
   // If it changes, the entire existing corpus points at nothing.
   assert.equal(archive.pathInArchive('raw/2026/09/x.jsonl.gz'),
@@ -186,8 +187,8 @@ test('the identifier does NOT change during the move', () => {
     path.join('2026', '09', 'x.jsonl.gz'));
 });
 
-test('migrate copies, verifies, and only then removes', () => {
-  const r = root();
+test('migrate copies, verifies, and only then removes', (testCtx) => {
+  const r = root(testCtx);
   const rel = path.join('raw', '2026', '09', 'old.jsonl.gz');
   fs.mkdirSync(path.dirname(path.join(r, rel)), { recursive: true });
   fs.writeFileSync(path.join(r, rel), zlib.gzipSync(Buffer.from(
@@ -209,7 +210,7 @@ test('migrate copies, verifies, and only then removes', () => {
   assert.equal(archive.records(r).length, 1, 'record written twice');
 });
 
-test('range: from/to and the hour window clip independently', () => {
+test('range: from/to and the hour window clip independently', (testCtx) => {
   const rows = [
     { path: 'a', ts_to: '2026-09-01T08:30:00Z' },
     { path: 'b', ts_to: '2026-09-01T14:00:00Z' },
@@ -227,20 +228,20 @@ test('range: from/to and the hour window clip independently', () => {
   assert.equal(got({}).length, 4);
 });
 
-test('a row without a time drops out instead of widening the range', () => {
+test('a row without a time drops out instead of widening the range', (testCtx) => {
   assert.deepEqual(
     archive.inRange([{ path: 'x' }, { path: 'y', ts_to: '2026-09-01T10:00:00Z' }],
       { from: '2026-09-01' }).map((r) => r.path),
     ['y']);
 });
 
-test('the location for this machine lives in ONE file, not in four units', () => {
+test('the location for this machine lives in ONE file, not in four units', (testCtx) => {
   // **Why this file exists.** Capturing happens in several places: a
   // session's stop hook, the watcher, the digest. Naming the archive in
   // each of them would rebuild the bug found on the same day — an
   // absolute path baked into a hook, dead and silent on the second
   // machine. One place to set it, everywhere reads it.
-  const r = root();
+  const r = root(testCtx);
   const target = path.join(r, 'elsewhere');
 
   archive.setLocation(r, target);
@@ -256,8 +257,8 @@ test('the location for this machine lives in ONE file, not in four units', () =>
     'the location was recorded but not used');
 });
 
-test('the environment beats the file, the file beats the default', () => {
-  const r = root();
+test('the environment beats the file, the file beats the default', (testCtx) => {
+  const r = root(testCtx);
   assert.equal(archive.readConfig({}, r).source, 'default');
 
   archive.setLocation(r, path.join(r, 'from-file'));
@@ -268,8 +269,8 @@ test('the environment beats the file, the file beats the default', () => {
   assert.equal(fromEnv.location, path.join(r, 'from-env'));
 });
 
-test('setLocation refuses a target that is not a directory', () => {
-  const r = root();
+test('setLocation refuses a target that is not a directory', (testCtx) => {
+  const r = root(testCtx);
   const file = path.join(r, 'i-am-a-file');
   fs.writeFileSync(file, 'not a directory');
   assert.throws(() => archive.setLocation(r, file));
@@ -296,13 +297,13 @@ test('setLocation refuses a target that is not a directory', () => {
 // unjustified — but it belongs written down rather than left to look
 // like coverage.
 
-test('a record written under the old German name is carried across, not orphaned', () => {
+test('a record written under the old German name is carried across, not orphaned', (testCtx) => {
   // The archive was ported from a German-language sibling and its record
   // kept the name `raw-nachweis.jsonl` in a codebase whose every other
   // identifier is English. Renaming it outright would have started a
   // second, empty record on any memory that had already captured — and
   // the first one would have looked like it never existed.
-  const r = root();
+  const r = root(testCtx);
   fs.writeFileSync(path.join(r, archive.LEGACY_RECORD_FILE),
     `${JSON.stringify({ path: 'raw/old.jsonl', bytes: 7 })}\n`);
 
@@ -331,8 +332,8 @@ test('a record written under the old German name is carried across, not orphaned
 // `test/stop-persists.sh` had been red about it the whole time and was
 // on a list as an "outdated shell test". It was not outdated.
 
-test('the default points somewhere git takes along', () => {
-  const r = root();
+test('the default points somewhere git takes along', (testCtx) => {
+  const r = root(testCtx);
   const store = archive.readConfig({}, r);
   assert.equal(store.explicit, false);
   assert.equal(store.location, path.join(r, 'raw'));
@@ -340,11 +341,11 @@ test('the default points somewhere git takes along', () => {
     'the default is back in an ignored folder — captures die with the container');
 });
 
-test('with no archive set, the capture is IN the repository', () => {
+test('with no archive set, the capture is IN the repository', (testCtx) => {
   // The effect, not the constant. A probe on DEFAULT_LOCATION alone
   // would not have caught this: the stretch where it went wrong is the
   // path from the constant to the written file.
-  const r = root();
+  const r = root(testCtx);
   const e = raw.capture(r, transcript(r), { minBytes: 50 });
   assert.equal(e.status, 'captured');
   assert.ok(fs.existsSync(path.join(r, e.path)),
@@ -353,11 +354,11 @@ test('with no archive set, the capture is IN the repository', () => {
     'and yet also written into the ignored folder');
 });
 
-test('a set archive still beats the default', () => {
+test('a set archive still beats the default', (testCtx) => {
   // The counter-probe. If the default were hardwired, a machine with a
   // disk could no longer name it — and the rebuild would have been
   // reverted rather than corrected.
-  const { r, store } = withArchive();
+  const { r, store } = withArchive(testCtx);
   const e = raw.capture(r, transcript(r), { minBytes: 50 });
   assert.ok(fs.existsSync(path.join(store, archive.pathInArchive(e.path))));
   assert.equal(fs.existsSync(path.join(r, e.path)), false);

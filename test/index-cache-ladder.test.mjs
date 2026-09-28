@@ -121,14 +121,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import buffer from 'node:buffer';
 import * as ic from '../src/indexcache.mjs';
+import { tempDir } from './temp-dir.mjs';
 
-function tmpDir(prefix) {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+function tmpDir(prefix, t) {
+  return tempDir(prefix, t);
 }
 
 /**
@@ -210,7 +210,7 @@ test('the wall is real on THIS node, at the documented byte count', () => {
 // does instead. Nothing here is asserted on timing either way (see the
 // comment inside the test); this loop only reports numbers.
 for (const n of [5_000, 30_000, 120_000]) {
-  test(`ladder @ ${n.toLocaleString('en-US')}: new format loads faster and lighter than old`, () => {
+  test(`ladder @ ${n.toLocaleString('en-US')}: new format loads faster and lighter than old`, (t) => {
     const index = syntheticIndex(n);
 
     const t0 = process.hrtime.bigint();
@@ -220,7 +220,7 @@ for (const n of [5_000, 30_000, 120_000]) {
     const t2 = process.hrtime.bigint();
     assert.equal(legacyLoaded.documents.length, n);
 
-    const dir = tmpDir('cm-ladder-new-');
+    const dir = tmpDir('cm-ladder-new-', t);
     const t3 = process.hrtime.bigint();
     ic.writeIndexCache(dir, { version: 9, language: 'en', files: {}, fullAt: index.N, index });
     const t4 = process.hrtime.bigint();
@@ -250,7 +250,7 @@ for (const n of [5_000, 30_000, 120_000]) {
   });
 }
 
-test('structural guarantee: no shard ever approaches the wall, at any N', () => {
+test('structural guarantee: no shard ever approaches the wall, at any N', (t) => {
   // The proof, not the hope: build at a size well past a single old-
   // format cache's own capacity headroom locally (kept modest here for
   // test speed; `MAX_SHARD_DOCS`/`MAX_SHARD_BYTES` are absolute caps
@@ -258,7 +258,7 @@ test('structural guarantee: no shard ever approaches the wall, at any N', () => 
   // here — see `writeIndexCache`'s doc comment).
   const n = 150_000;
   const index = syntheticIndex(n);
-  const dir = tmpDir('cm-ladder-shardcap-');
+  const dir = tmpDir('cm-ladder-shardcap-', t);
   ic.writeIndexCache(dir, { version: 9, language: 'en', files: {}, fullAt: index.N, index });
 
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
