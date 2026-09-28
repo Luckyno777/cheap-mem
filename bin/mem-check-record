@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
+/**
+ * mem-check-record — cm's own test runner + proof-ledger writer
+ * (Bauplan P1). Runs the FULL suite (`node --test test/*.test.mjs`, the
+ * same command `npm test` uses — this repo has no separate
+ * `bin/mem-testlauf.mjs`-style wrapper of its own), and on a fully
+ * green run appends one row to `checked.jsonl` via
+ * `src/checkrecord.mjs: recordCheck()`.
+ *
+ * Usage:
+ *   node bin/mem-check-record [<repo>]
+ *
+ * `<repo>` defaults to this checkout's own root (two directories up
+ * from this file). Exit 0 with a row appended or already present;
+ * exit 1 when the run was red, partial, or nothing could be written —
+ * the reason is always printed to stderr, never silent.
+ */
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import * as checkrecord from '../src/checkrecord.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_DEFAULT = path.join(HERE, '..');
+
+const repo = path.resolve(process.argv[2] || REPO_DEFAULT);
+
+// Exactly `npm test`'s own command (see package.json: "test": "node
+// --test") — no glob argument, so node:test's own default discovery
+// (test/**/*.test.mjs) runs, the same set `npm test` runs.
+const run = spawnSync(process.execPath, ['--test'], {
+  cwd: repo, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
+});
+const output = `${run.stdout || ''}${run.stderr || ''}`;
+process.stdout.write(output);
+
+const { passed, failed } = checkrecord.fromTapOutput(output);
+if (passed == null || failed == null) {
+  process.stderr.write('mem-check-record: ABORT — no TAP summary line in the test output; nothing recorded.\n');
+  process.exitCode = 1;
+} else if (failed !== 0) {
+  process.stderr.write(`mem-check-record: suite is red (${failed} failed) — nothing recorded.\n`);
+  process.exitCode = 1;
+} else {
+  const result = checkrecord.recordCheck(repo, { passed, failed, full: true });
+  if (result.written) {
+    process.stderr.write(`mem-check-record: recorded tree ${result.row.tree.slice(0, 12)} `
+      + `(passed ${result.row.passed}, machine ${result.row.machine}).\n`);
+  } else if (result.reason === 'already-recorded') {
+    process.stderr.write(`mem-check-record: tree ${result.row?.tree?.slice(0, 12)} was already recorded — nothing to do.\n`);
+  } else {
+    process.stderr.write(`mem-check-record: ABORT — nothing recorded (${result.reason}`
+      + `${result.error ? `: ${result.error}` : ''}).\n`);
+    process.exitCode = 1;
+  }
+}

@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
+/**
+ * mem-release — the release rail's CLI (Bauplan P1). Ported from the
+ * sibling house's `betrieb/release.sh`; see `src/release.mjs` for the
+ * mechanics and the proof gate.
+ *
+ * Usage:
+ *   mem-release create [--ref <ref>] [--allow-unproven] [--repo <path>]
+ *   mem-release rollback [--repo <path>]
+ *   mem-release code-path [--repo <path>]
+ */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import * as release from '../src/release.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const REPO_DEFAULT = path.join(HERE, '..');
+
+function readFlags(argv) {
+  const flags = { repo: REPO_DEFAULT, ref: 'origin/main', allowUnproven: false };
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === '--repo') { flags.repo = path.resolve(argv[i += 1]); }
+    else if (a === '--ref') { flags.ref = argv[i += 1]; }
+    else if (a === '--allow-unproven') { flags.allowUnproven = true; }
+    else { process.stderr.write(`mem-release: unknown option '${a}'\n`); process.exit(2); }
+  }
+  return flags;
+}
+
+function usage() {
+  process.stderr.write([
+    'Usage:',
+    '  mem-release create [--ref <ref>] [--allow-unproven] [--repo <path>]',
+    '  mem-release rollback [--repo <path>]',
+    '  mem-release code-path [--repo <path>]',
+    '',
+  ].join('\n'));
+}
+
+const [action, ...rest] = process.argv.slice(2);
+
+if (action === 'create') {
+  const { repo, ref, allowUnproven } = readFlags(rest);
+  const r = release.createRelease(repo, { ref, allowUnproven });
+  if (r.created) {
+    process.stderr.write(`mem-release: current -> ${r.kurzhash} (${r.path})${r.proven ? '' : ' [UNPROVEN — forced]'}\n`);
+    process.exit(0);
+  }
+  if (r.reason === 'no-proof') {
+    process.stderr.write(`mem-release: ABORT — no checked.jsonl row proves ${(r.commit || '').slice(0, 12)} `
+      + '(tree ' + `${(r.tree || '').slice(0, 12)}).\n`
+      + '  Required (Bauplan P1): a full green `node bin/mem-check-record` on this tree, or '
+      + 'ancestor-plus-only-non-code-changes, or explicit --allow-unproven (a warning, never a silent pass).\n');
+  } else if (r.reason === 'busy') {
+    process.stderr.write('mem-release: ABORT — another `create` is already running (lock file present).\n');
+  } else {
+    process.stderr.write(`mem-release: ABORT — ${r.reason}${r.error ? `: ${r.error}` : ''}\n`);
+  }
+  process.exit(1);
+} else if (action === 'rollback') {
+  const { repo } = readFlags(rest);
+  const r = release.rollback(repo);
+  if (r.rolledBack) {
+    process.stderr.write(`mem-release: rolled back -> ${r.kurzhash} (${r.path})\n`);
+    process.exit(0);
+  }
+  process.stderr.write(`mem-release: ABORT — ${r.reason}\n`);
+  process.exit(1);
+} else if (action === 'code-path') {
+  const { repo } = readFlags(rest);
+  const r = release.codePath(repo);
+  if (r.reason) process.stderr.write(`release: ${r.reason}\n`);
+  process.stdout.write(`${r.path}\n`);
+  process.exit(0);
+} else {
+  usage();
+  process.exit(2);
+}
