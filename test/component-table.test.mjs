@@ -33,7 +33,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import * as ct from '../src/component-table.mjs';
-import * as memory from '../src/memory.mjs';
 
 // --- fixture: a small corpus WITH its own git history ---------------------
 //
