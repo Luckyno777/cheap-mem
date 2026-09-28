@@ -219,7 +219,7 @@ test('GREEN: glitter does not glow itself — colour only from the light of the 
   const { vertexShader: vs, fragmentShader: fsh, uniforms: u } = glitter.material;
   assert.match(vs, /vLight = vec3\(0\.0\);/, 'black without light');
   assert.equal((vs.match(/vLight \+?=/g) || []).length, 2, 'only the start value and the sum over the cores');
-  assert.match(vs, /vLight \+= uLightColour\[k\] \* \(gloss \* [\d.]+ \+ diffuse\)/, 'specular and diffuse light of the cores');
+  assert.match(vs, /vLight \+= uLightColour\[k\] \* \(gloss \* [\d.]+ \+ flash \* [\d.]+ \+ diffuse\)/, 'specular, flash and diffuse light of the cores');
   assert.match(fsh, /gl_FragColor = wOut\(vLight \* /, 'output = caught light, no glow of its own');
   const want = [[0, -0.03, 0.02], ...model.shards.map((s) => [s.center.x, s.center.y, s.center.z])];
   want.forEach((p, i) => assert.ok(u.uLight.value[i].distanceTo(new T.Vector3(...p)) < 1e-9, `light ${i} sits on the core`));
@@ -236,4 +236,20 @@ test('GREEN: the cores glow as in the cloud version, not harsher (CORE_GLOW dims
   assert.ok(glow >= 0.5 && glow <= 0.8, `CORE_GLOW ${glow}`);
   assert.match(between(SOURCE, 'const CORE_FS', 'const STRAND_VS'), /gl_FragColor = vec4\(c \* \$\{CORE_GLOW\.toFixed\(2\)\}, clamp\(a, 0\.0, 1\.0\) \* vDim\);/);
   assert.doesNotMatch(OLD_SOURCE(), /CORE_GLOW/, 'RED: the old state had no damping');
+});
+
+test('GREEN: glitter more visible (glimmer, 2026-09-28) — more, larger, a flash from the same mirror angle to the core', () => {
+  // The owner: "the glitter may become a little more visible". Measured (fixed demo
+  // store, 1440x900, no motion; pixels >12 levels brighter with glitter than
+  // without): before 67, now 315. Blown-out core pixels 0.37 -> 0.40 per mille
+  // (cores and fog unchanged; the rest is the glitter itself).
+  const OLD = '3eff43cbd10ad661a97a9bfc87627d6a5c66ff0d';
+  const old = execFileSync('git', ['show', `${OLD}:assets/dashboard/dashboard.js`], { cwd: ROOT, encoding: 'utf8' });
+  const count = (q) => Number(/const COUNT = (\d+);/.exec(between(q, ANCHOR, 'function initGraph() {'))[1]);
+  assert.equal(count(old), 70, 'RED: 70 particles before');
+  assert.doesNotMatch(old, /flash = pow\(mirror/, 'RED: no flash before');
+  assert.ok(count(SOURCE) >= 100 && count(SOURCE) <= 120, `now ${count(SOURCE)} particles — more visible, still few`);
+  assert.match(BLOCK, /float mirror = max\(0\.0, dot\(reflect\(-L, n\), V\)\);\n\s*float gloss = pow\(mirror, [\d.]+\), flash = pow\(mirror, [\d.]+\);/, 'gloss and flash from the mirror angle to the core — no glow of its own');
+  const h = hull(graphModel(store(64, ['a', 'b', 'c']), 'storage'));
+  assert.ok(h.drawCalls <= 2, `${h.drawCalls} draw calls`);
 });

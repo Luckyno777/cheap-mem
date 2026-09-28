@@ -1979,7 +1979,7 @@ void main(){
   //    Colour and brightness ONLY from the light of the cores: hardly any
   //    diffuse light, a specular glint towards the camera as a brief flash.
   const pos = [], normals = [], phase = [];
-  const COUNT = 70;
+  const COUNT = 110;
   for (let i = 0; i < COUNT; i++) {
     const y = 1 - (2 * (i + 0.5)) / COUNT, r = Math.sqrt(Math.max(0, 1 - y * y)), a = i * 2.399963,
       z1 = cloudHash(i, 3.1, 7.7), z2 = cloudHash(i, 9.2, 1.3), z3 = cloudHash(i, 4.4, 2.2),
@@ -2004,15 +2004,16 @@ void main(){ float w = uTime * 0.015 + aPhase;
   vec3 p = uCloudCenter + q * uFog;
   vec4 mv = viewMatrix * modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(0.016 * uScale / max(0.0001, -mv.z), 1.5, 5.0);
+  gl_PointSize = clamp(0.022 * uScale / max(0.0001, -mv.z), 2.0, 7.0);
   vec3 n = normalize(aNormal + 0.6 * vec3(sin(w * 3.0), cos(w * 2.3), sin(w * 1.9)));
   vec3 V = normalize(cameraPosition - p);
   vLight = vec3(0.0);
   for (int k = 0; k < ${CLOUD_LIGHTS}; k++) {
     vec3 toL = uLight[k] - p; float d2 = dot(toL, toL); vec3 L = toL * inversesqrt(max(1e-6, d2));
-    float gloss = pow(max(0.0, dot(reflect(-L, n), V)), 18.0);
+    float mirror = max(0.0, dot(reflect(-L, n), V));
+    float gloss = pow(mirror, 14.0), flash = pow(mirror, 60.0);
     float diffuse = 0.05 * max(0.0, dot(n, L));
-    vLight += uLightColour[k] * (gloss * 6.0 + diffuse) / (1.0 + d2 * 6.0);
+    vLight += uLightColour[k] * (gloss * 9.0 + flash * 14.0 + diffuse) / (1.0 + d2 * 4.5);
   } }`,
       fragmentShader: CLOUD_GLSL + `
 varying vec3 vLight;
