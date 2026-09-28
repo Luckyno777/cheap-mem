@@ -61,6 +61,7 @@ directory. The section number in brackets is where it is explained.
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
 | `chain.mjs` | a per-writer hash chain over the append-only logs — catches a rewrite that survives a commit, which a git-diff check alone cannot |
+| `checkrecord.mjs` | the tracked, append-only proof (`checked.jsonl`) that a full `node --test` run was green for a given tree — one tier, no local machine-only stamp (Bauplan P1) |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `component.mjs` | one file, across both spellings (10.14) |
@@ -115,6 +116,7 @@ directory. The section number in brackets is where it is explained.
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
+| `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |

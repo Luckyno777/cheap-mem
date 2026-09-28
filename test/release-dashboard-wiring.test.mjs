@@ -16,11 +16,19 @@ const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PRE_RELEASE_RAIL_COMMIT = '3eff43cbd10ad661a97a9bfc87627d6a5c66ff0d';
 const JS = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'), 'utf8');
 
+const dirs = [];
+process.on('exit', () => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }); });
+
 function tmpFile(name) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-dash-release-'));
+  dirs.push(dir);
   return path.join(dir, name);
 }
-function tmpDir() { return fs.mkdtempSync(path.join(os.tmpdir(), 'cm-dash-release-base-')); }
+function tmpDir() {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-dash-release-base-'));
+  dirs.push(d);
+  return d;
+}
 
 // ---------------------------------------------------------------------
 // Red proof

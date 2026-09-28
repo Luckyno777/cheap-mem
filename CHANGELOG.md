@@ -14,6 +14,23 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — release rail and proof ledger (Bauplan P1)
+
+- **`checked.jsonl`** (`src/checkrecord.mjs`, `bin/mem-check-record`):
+  a tracked, append-only proof that a full `node --test` run was green
+  for a given tree — one tier, not the sibling house's local-stamp +
+  tracked-ledger pair, since a single-install product has no machine
+  that runs a suite it never wrote itself.
+- **`bin/mem-release`** (`src/release.mjs`): a frozen `git archive`
+  copy under `<root>-release/<commit>`, an atomic `current` pointer, a
+  rollback to the state before, and `code-path` for a service install
+  (`install/linux.sh` and kin) to start its code from — gated on a
+  matching `checked.jsonl` row, `--allow-unproven` forces it through
+  with a loud warning.
+- The dashboard's "Release state" and "Last test receipt" rows (Ops ›
+  Versions) read these instead of "not available in cheap-mem": four
+  real states, "unknown — no release yet" on a fresh install.
+
 ### Changed — the dashboard is the only UI
 
 - **`/` serves the dashboard** (`src/dashboard-page.mjs`,
