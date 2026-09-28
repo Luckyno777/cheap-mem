@@ -26,6 +26,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { execFileSync } from 'node:child_process';
+import { performance } from 'node:perf_hooks';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as cache from '../src/dashboard-cache.mjs';

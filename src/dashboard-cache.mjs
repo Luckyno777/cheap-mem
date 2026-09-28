@@ -41,6 +41,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
+import { performance } from 'node:perf_hooks';
 import * as backlinks from './backlinks.mjs';
 
 /** Maximum age of a cached result, even without a detected change. */
