@@ -24,6 +24,74 @@ test('nothing heavy is installed just to search a memory', () => {
   }
 });
 
+/**
+ * **The named exception to "zero dependencies" (owner decision
+ * 2026-09-28, docs/dashboard-port-2026-09-28.md §6.1).**
+ *
+ * The dashboard — the one UI, identical to the sibling house's — needs
+ * three.js (its 3D energy-core network) and the DM Sans font. Pulling
+ * either from a CDN would make every page load a request to a third
+ * party; adding them as npm dependencies would make every install pay
+ * for a UI many never open. So they are VENDORED: copied into `assets/`,
+ * shipped as files, loaded only from this server. `dependencies` above
+ * stays empty.
+ *
+ * An exception is only an exception while it is NAMED. This list is the
+ * name: every third-party file under `assets/`, with its licence file
+ * and the reason. A file under `assets/` that is neither here nor
+ * cheap-mem's own dashboard code fails the test below — a third vendored
+ * library cannot slip in as "just another asset".
+ */
+export const VENDORED = Object.freeze([
+  {
+    path: 'assets/three/three-r180.min.js', license: 'assets/three/LICENSE', spdx: 'MIT',
+    reason: 'three.js r180 — the dashboard\'s 3D energy-core network (WebGL), identical to the sibling house',
+  },
+  {
+    path: 'assets/fonts/dm-sans-latin.woff2', license: 'assets/fonts/OFL.txt', spdx: 'OFL-1.1',
+    reason: 'DM Sans (latin) — the dashboard\'s typeface, served locally instead of from Google Fonts',
+  },
+  {
+    path: 'assets/fonts/dm-sans-latin-ext.woff2', license: 'assets/fonts/OFL.txt', spdx: 'OFL-1.1',
+    reason: 'DM Sans (latin-ext) — same typeface, extended Latin subset',
+  },
+]);
+
+/** cheap-mem's own files under assets/ — code and licence texts, not libraries. */
+const OWN_ASSETS = Object.freeze([
+  'assets/dashboard/dashboard.js', 'assets/dashboard/dashboard.css',
+  'assets/three/LICENSE', 'assets/fonts/OFL.txt',
+]);
+
+test('vendored files are the NAMED exception: each exists, carries its licence, and is in NOTICE', () => {
+  const notice = fs.readFileSync(path.join(PKG_ROOT, 'NOTICE'), 'utf8');
+  for (const v of VENDORED) {
+    assert.ok(fs.existsSync(path.join(PKG_ROOT, v.path)), `${v.path} is named but missing`);
+    assert.ok(fs.existsSync(path.join(PKG_ROOT, v.license)), `${v.path}: licence ${v.license} is missing`);
+    assert.ok(notice.includes(path.basename(v.path)), `${v.path} is vendored but NOTICE does not name it`);
+    assert.ok(v.reason && v.spdx, `${v.path}: an exception without a reason is not named`);
+  }
+  // The npm dependency list is untouched by the exception.
+  assert.deepEqual(pkg.dependencies ?? {}, {});
+  // And the files ship: an asset the server reads at runtime but npm
+  // leaves out is the ERR-at-a-stranger's-machine class again.
+  assert.ok(pkg.files.includes('assets/'), 'assets/ is not in package.json files');
+});
+
+test('nothing under assets/ is third-party without being named in VENDORED', () => {
+  const walk = (dir) => fs.readdirSync(path.join(PKG_ROOT, dir), { withFileTypes: true })
+    .flatMap((d) => (d.isDirectory() ? walk(`${dir}/${d.name}`) : [`${dir}/${d.name}`]));
+  const named = new Set([...VENDORED.map((v) => v.path), ...OWN_ASSETS]);
+  const stray = walk('assets').filter((f) => !named.has(f));
+  assert.deepEqual(stray, [], `unnamed files under assets/: ${stray.join(', ')}`);
+});
+
+test('POSITIVE: the unnamed-asset probe really fires on a stray file', () => {
+  const named = new Set([...VENDORED.map((v) => v.path), ...OWN_ASSETS]);
+  assert.equal(named.has('assets/lodash/lodash.min.js'), false,
+    'a made-up third library would be treated as named — the probe sees nothing');
+});
+
 test('npx cheap-mem finds a bin under that name', () => {
   // `npx <package>` runs the bin named after the package. Without this
   // alias the most obvious first command a reader types does nothing.
