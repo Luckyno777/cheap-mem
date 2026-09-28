@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// mem-serve — the console and the viewer at one fixed link.
+// mem-serve — the dashboard at one fixed link.
 //
 // `mem viewer` writes a ONE-OFF HTML file: a photograph, thrown away
 // when it goes stale. That is deliberately not a server. This is the
@@ -7,14 +7,24 @@
 // only place in this project where anything can be SET without a
 // shell.
 //
+// **Since 2026-09-28 the dashboard is the ONLY UI** (owner decision:
+// the sibling house's Dashboard-Muster-3, ported — src/dashboard-page.mjs,
+// src/dashboard-data.mjs, assets/dashboard/). `/`, `/dashboard` and
+// `/pult` serve the same page. The old Astra desk, the console page and
+// the viewer route are gone — switched off only after
+// test/dashboard-complete.test.mjs proved every feature has a place in
+// the dashboard. `/console` and `/viewer` answer with a redirect into
+// the dashboard so bookmarks still land; the data routes (`/console.json`,
+// `/pult.json`, `/entry.json`, `/entries.json`, `/task.json`) stay.
+//
 // The trade is worth naming out loud. The viewer file was "no daemon,
 // nothing that keeps running". This IS a daemon. So it carries the two
 // properties the file had, and one more, because a link is reachable
 // from outside:
 //
-//  1. It renders only through `viewer.build()` and `console.collect()`,
-//     which read the redacted drawers — never `raw/`. No un-redacted
-//     capture material leaves the process.
+//  1. It reads only through `dashboard-data.collectDashboard()` and
+//     `console.collect()`, which read the redacted drawers — never the
+//     bytes under `raw/`. No un-redacted capture material leaves the process.
 //  2. It never writes the rendered content to disk, commits nothing,
 //     publishes nothing. The HTML lives in RAM and goes to the browser
 //     that asked.
@@ -28,17 +38,25 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import * as viewer from '../src/viewer.mjs';
 import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
 import * as backlinkIndex from '../src/backlinks.mjs';
-import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as pages from '../src/pages.mjs';
 import * as tasks from '../src/tasks.mjs';
 import * as writegate from '../src/writegate.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as memConfig from '../src/config.mjs';
+import fs from 'node:fs';
+import zlib from 'node:zlib';
+import * as dashboardPage from '../src/dashboard-page.mjs';
+import * as dashboardData from '../src/dashboard-data.mjs';
+import * as pwa from '../src/pwa.mjs';
+import * as icon from '../src/icon.mjs';
+import * as measurements from '../src/measurements.mjs';
+
+/** The package root — where `assets/` lives, whatever the memory root is. */
+const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function readConfig(env = process.env) {
   return {
@@ -46,6 +64,8 @@ export function readConfig(env = process.env) {
     host: env.CHEAP_MEM_SERVE_HOST || '127.0.0.1',
     port: Number(env.CHEAP_MEM_SERVE_PORT || 8847),
     title: env.CHEAP_MEM_SERVE_TITLE || 'cheap-mem',
+    // The PWA worker stores nothing unless this is 1 — see src/pwa.mjs.
+    offline: env.CHEAP_MEM_SERVE_OFFLINE === '1',
     // **Writing is OFF by default** (decision 2026-09-27, reversing the
     // earlier "on by default"): an open-source dashboard writes nothing
     // before its owner allows it. The switch is `dashboard.allowWrites`
@@ -89,16 +109,64 @@ function tokenFrom(req, url) {
  * it is added.
  */
 export const PATHS = Object.freeze([
-  '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/dashboard.json',
+  '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/pult.json',
   '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel', '/inbox/reply',
+  // The dashboard (2026-09-28): the page, its data, one entry, one
+  // message, the retrieval probe, the bitemporal facts, its three files,
+  // the service-worker registration, the two fonts, and the PWA shell.
+  // All of them READ; writing stays on the routes in WRITE_PATHS.
+  ...Object.values(dashboardPage.PATHS),
+  ...dashboardPage.FONTS.map((f) => f.path),
+  '/manifest.webmanifest', '/sw.js', '/favicon.ico',
+  '/inbox/state',
 ]);
 
 /**
  * The paths that WRITE. Every one of them runs `writegate.refusal()`
- * first; the probes read this list, so a fourth writing route is
+ * first; the probes read this list, so a fifth writing route is
  * covered the moment it is named here.
  */
-export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply']);
+export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply', '/inbox/state']);
+
+/**
+ * The routes that hand out memory content as JSON to a script. Each one
+ * checks the Host header first (`hostOk`) — never a CORS header.
+ */
+export const HOST_GUARDED = Object.freeze([
+  dashboardPage.PATHS.data, dashboardPage.PATHS.entry, dashboardPage.PATHS.message,
+  dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt,
+]);
+
+/**
+ * The Host check against DNS rebinding, for every route that returns
+ * memory content to a script (the sibling's `hostPasstZurBindung`).
+ *
+ * An Origin check compares Origin AGAINST Host and needs an Origin; a
+ * plain GET from the page's own script often carries none, which is the
+ * normal case for a read, not a suspicion. What a rebinding attacker
+ * cannot forge is the NAME we agree to be reachable under — the Host
+ * header the browser takes from the URL. Loopback is ours; any other
+ * name must be listed in CHEAP_MEM_SERVE_HOSTS (or be the host of an
+ * origin in CHEAP_MEM_SERVE_ORIGINS — the list the write gate already
+ * uses behind a tunnel). And never a CORS header: no foreign page may
+ * read these answers, not even with a valid cookie.
+ */
+export function hostOk(host, cfg) {
+  const fromOrigins = (cfg.origins ?? []).map((o) => { try { return new URL(o).host; } catch { return null; } })
+    .filter(Boolean);
+  return webauth.hostAllowed(host, [...(cfg.hosts ?? []), ...fromOrigins]);
+}
+
+/**
+ * The content security policy of the dashboard page. Everything from
+ * this server, nothing inline that runs: scripts are files
+ * (`script-src 'self'`), the one inline block is the font-face CSS.
+ */
+export const CSP = [
+  "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:", "font-src 'self'", "connect-src 'self'", "manifest-src 'self'",
+  "worker-src 'self'", "frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'",
+].join('; ');
 
 /** The server config, as `writegate.read()` takes it. */
 export function gateOpts(cfg) {
@@ -172,8 +240,223 @@ export function buildHandler(root, cfg, env = process.env) {
       res.writeHead(302, {
         'set-cookie': `mem_k=${encodeURIComponent(url.searchParams.get('k'))}`
           + '; Path=/; Max-Age=34560000; HttpOnly; Secure; SameSite=Lax',
-        location: '/console',
+        location: '/',
       }).end();
+      return;
+    }
+
+    // --- The dashboard: its files, the fonts, the PWA shell ------------
+    //
+    // BEHIND the door like everything else: a `<script src>` carries the
+    // same cookies as the page, and whoever may not see the page needs
+    // neither its script nor its font. No memory content is in any of
+    // them — it is code; the data comes separately through
+    // `/dashboard.json`.
+    const shipped = dashboardPage.FILES[url.pathname]
+      ?? dashboardPage.FONTS.map((f) => ({ ...f, type: 'font/woff2' })).find((f) => f.path === url.pathname);
+    if (shipped) {
+      let bytes;
+      try { bytes = fs.readFileSync(path.join(PACKAGE_ROOT, shipped.file)); } catch (e) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+          .end(`file ${shipped.file} not readable: ${e?.message || e}`);
+        return;
+      }
+      res.writeHead(200, {
+        'content-type': shipped.type,
+        'x-content-type-options': 'nosniff',
+        // three.js and the fonts carry their version in the name and
+        // never change; the stylesheet and the script change with every
+        // commit and are asked for fresh on every load.
+        'cache-control': (url.pathname === dashboardPage.PATHS.three || url.pathname.startsWith('/fonts/'))
+          ? 'private, max-age=31536000, immutable' : 'no-cache',
+      }).end(bytes);
+      return;
+    }
+    if (url.pathname === dashboardPage.PATHS.swRegister) {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff', 'cache-control': 'no-cache' })
+        .end(pwa.REGISTER_SCRIPT);
+      return;
+    }
+    // `/favicon.ico` — the path every browser asks on its own. The mark
+    // is already a data: URI in the page's head; this answers the extra
+    // request from the SAME drawing (`icon.mark`), so the console does
+    // not carry a standing 404 that teaches people to ignore it.
+    if (url.pathname === '/favicon.ico') {
+      const png = icon.mark(32, { dark: true });
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400', 'content-length': png.length }).end(png);
+      return;
+    }
+    if (url.pathname === '/manifest.webmanifest') {
+      res.writeHead(200, { ...HEAD, 'content-type': 'application/manifest+json; charset=utf-8' })
+        .end(JSON.stringify(pwa.manifest({ title: cfg.title })));
+      return;
+    }
+    if (url.pathname === '/sw.js') {
+      // Not no-store: a worker the browser may not keep is fetched anew
+      // on every start. Short is enough, and script is not memory content.
+      res.writeHead(200, {
+        'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'max-age=0, must-revalidate',
+        'referrer-policy': 'no-referrer', 'x-content-type-options': 'nosniff',
+      }).end(pwa.serviceWorker({ offline: cfg.offline === true }));
+      return;
+    }
+
+    // --- The dashboard: the Host check for every data route ------------
+    if (HOST_GUARDED.includes(url.pathname) && !hostOk(req.headers.host, cfg)) {
+      res.writeHead(403, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify({ state: 'error', reason: 'foreign-host' }));
+      return;
+    }
+
+    // --- The dashboard: the page and its data ---------------------------
+    if (url.pathname === dashboardPage.PATHS.page || url.pathname === '/' || url.pathname === '/pult') {
+      let html;
+      try {
+        let workspace = {};
+        try {
+          const c = memConfig.readConfig(root);
+          workspace = { name: c.name || path.basename(path.resolve(root)), human: memConfig.humanParticipant(c.participants).name ?? null };
+        } catch { workspace = { name: path.basename(path.resolve(root)), human: null }; }
+        html = pwa.insertHead(dashboardPage.asHtml({
+          title: cfg.title, writesAllowed: writegate.read(root, gateOpts(cfg)).allowed, workspace,
+        }));
+      } catch (e) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+          .end(`dashboard could not be built: ${e?.message || e}`);
+        return;
+      }
+      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP }).end(html);
+      return;
+    }
+    if (url.pathname === dashboardPage.PATHS.data) {
+      let data;
+      try {
+        data = dashboardData.collectDashboard(root, {
+          env, cfg, title: cfg.title, writesAllowed: writegate.read(root, gateOpts(cfg)).allowed,
+        });
+      } catch (e) {
+        res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+        return;
+      }
+      // Packed only when the browser offers it — a script without gzip
+      // gets plain text.
+      const text = JSON.stringify(data);
+      if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8', 'content-encoding': 'gzip', vary: 'accept-encoding' })
+          .end(zlib.gzipSync(text));
+      } else {
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(text);
+      }
+      return;
+    }
+    // One entry whole (card + raw line) — for the dashboard's detail drawer.
+    if (url.pathname === dashboardPage.PATHS.entry) {
+      const id = url.searchParams.get('id') || '';
+      try { backlinkIndex.update(root); } catch { /* the reason comes through the card */ }
+      let found;
+      try { found = dashboardData.entryWhole(root, id); } catch (e) {
+        found = { state: 'error', id, reason: e?.message || String(e) };
+      }
+      const code = { ok: 200, warning: 200, unknown: 404, error: 500 }[found.state] ?? 500;
+      res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(found));
+      return;
+    }
+    // One message whole, with the replies to it — read-only: opening it
+    // acknowledges NOTHING (that stays a POST to /inbox/state).
+    if (url.pathname === dashboardPage.PATHS.message) {
+      const name = url.searchParams.get('name') || '';
+      let found;
+      try { found = dashboardData.messageWhole(root, name); } catch (e) {
+        found = { state: 'unknown', reason: e?.message || String(e) };
+      }
+      res.writeHead(found.state === 'ok' ? 200 : 404, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(found));
+      return;
+    }
+    // The retrieval probe: `mem retrieve`, read-only. The question is not
+    // logged — no console line, no journal, no observation.
+    if (url.pathname === dashboardPage.PATHS.probe) {
+      if (req.method !== 'GET' && req.method !== 'POST') {
+        res.writeHead(405, { allow: 'GET, POST', 'content-type': 'text/plain; charset=utf-8' }).end('GET/POST only');
+        return;
+      }
+      const answer = (q) => {
+        let found;
+        try { found = dashboardData.retrievalProbe(root, q); } catch (e) {
+          found = { state: 'error', reason: e?.message || String(e) };
+        }
+        res.writeHead(found.state === 'ok' ? 200 : 400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify(found));
+      };
+      if (req.method === 'GET') { answer(url.searchParams.get('question') || ''); return; }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => { if (body.length > 8192) { tooBig = true; return; } body += chunk; });
+      req.on('end', () => {
+        if (tooBig) {
+          res.writeHead(413, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: 'too-big' }));
+          return;
+        }
+        answer(new URLSearchParams(body).get('question') || '');
+      });
+      return;
+    }
+    // knowledge/facts: the bitemporal comparison. Read-only GET.
+    if (url.pathname === dashboardPage.PATHS.factsAt) {
+      if (req.method !== 'GET') {
+        res.writeHead(405, { allow: 'GET', 'content-type': 'text/plain; charset=utf-8' }).end('GET only');
+        return;
+      }
+      let found;
+      try {
+        found = dashboardData.factsAt(root, {
+          known: url.searchParams.get('known') || '', valid: url.searchParams.get('valid') || '',
+        });
+      } catch (e) { found = { state: 'error', reason: e?.message || String(e) }; }
+      const code = found.state === 'ok' ? 200 : 400;
+      res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(found));
+      return;
+    }
+
+    // --- Acknowledge one message (set its state) ------------------------
+    //
+    // The same write `mem inbox ack` makes (`inbox.setState`). Only a
+    // message addressed to the configured human participant can be
+    // acknowledged from here — the same rule as `/inbox/reply`: no form
+    // field decides who speaks. Behind `writegate.refusal()`.
+    if (url.pathname === '/inbox/state') {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' }).end('POST only');
+        return;
+      }
+      const no = writegate.refusal(root, cfg, req);
+      if (no) { short(res, no.code, no.text); return; }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => { if (body.length > 4096) { tooBig = true; return; } body += chunk; });
+      req.on('end', () => {
+        if (tooBig) { short(res, 413, 'Too much.'); return; }
+        const form = new URLSearchParams(body);
+        const name = form.get('name') ?? '';
+        const state = form.get('state') ?? '';
+        try {
+          const { participants } = memConfig.readConfig(root);
+          const { name: humanName, reason } = memConfig.humanParticipant(participants);
+          if (!humanName) { short(res, 400, reason); return; }
+          const original = inbox.parse(inbox.readMessage(root, name));
+          if (original.to !== humanName) {
+            short(res, 400, `'${name}' is addressed to '${original.to}', not to '${humanName}' — only its recipient can acknowledge it`);
+            return;
+          }
+          inbox.setState(root, participants, name, state);
+        } catch (e) {
+          short(res, 400, e?.message || String(e));
+          return;
+        }
+        res.writeHead(303, { location: '/' }).end();
+      });
       return;
     }
 
@@ -220,8 +503,10 @@ export function buildHandler(root, cfg, env = process.env) {
         // Back to the page the form was on. A CLOSED list, not the
         // submitted value: an open redirect target is how a form field
         // becomes a way to send someone somewhere else.
-        const back = p.get('from') === '/' ? '/' : '/console';
-        res.writeHead(303, { location: back }).end();
+        // Back to the dashboard: the only page there is (a CLOSED target,
+        // never the submitted value — an open redirect target is how a
+        // form field becomes a way to send someone somewhere else).
+        res.writeHead(303, { location: '/' }).end();
       });
       return;
     }
@@ -286,7 +571,7 @@ export function buildHandler(root, cfg, env = process.env) {
     // `/console.json` answers unchanged — probes and the setup check
     // read it, and changing a shape while changing a look turns two
     // separable mistakes into one indistinguishable one.
-    if (url.pathname === '/console' || url.pathname === '/console.json') {
+    if (url.pathname === '/console.json') {
       let data;
       try { data = consolePage.collect(root, { env, cfg }); }
       catch (e) {
@@ -294,25 +579,20 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(`console could not be built: ${e?.message || e}`);
         return;
       }
-      if (url.pathname === '/console.json') {
-        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-          .end(JSON.stringify(data));
-        return;
-      }
-      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
-        .end(consolePage.asHtml(data, { writable: data.writes.allowed }));
+      res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(data));
       return;
     }
 
     // --- One entry, without building the desk (D1, 2026-09-27) -------
     //
     // Until this route existed, the only way to look up ONE entry over
-    // this server was `/dashboard.json`, which builds every view,
+    // this server was `/dashboard.json` (now `/pult.json`), which builds every view,
     // every drawer, every project — to hand back one row. This route
     // resolves the id directly through `dashboard.getEntryFast()` (see
     // its header comment in `src/dashboard.mjs` for the full contract
     // and the one search it deliberately skips); it never touches
-    // `dashboard.collect()` or `astra.build()`.
+    // `dashboard.collect()` or `collectDashboard()`.
     //
     // Same four states dashboard.getEntryFast() returns, mapped to
     // HTTP the same way lucky-mem's `/eintrag.json` mirror maps
@@ -409,15 +689,16 @@ export function buildHandler(root, cfg, env = process.env) {
       let body = '';
       let tooBig = false;
       req.on('data', (chunk) => {
-        if (body.length > 4096) { tooBig = true; return; }
+        // A reason and a path are the largest parameters; 16 KB, URL-encoded.
+        if (body.length > 16384) { tooBig = true; return; }
         body += chunk;
       });
       req.on('end', () => {
         if (tooBig) { short(res, 413, 'Too much.'); return; }
         const form = new URLSearchParams(body);
         const kind = form.get('kind') ?? '';
-        // The desk's own no-JS forms (`src/astra/tasks.mjs`) send
-        // `from=/`: they get a 303 back to the desk on success and a
+        // No-JS forms send `from=/` (the old desk did; a bookmarked or
+        // hand-written form still may): they get a 303 back to `/` on success and a
         // short HTML page on refusal — never raw JSON in a browser tab.
         // A CLOSED list, like `/setting`'s: any other `from` is ignored
         // and the JSON contract below stays exactly as it was.
@@ -433,10 +714,20 @@ export function buildHandler(root, cfg, env = process.env) {
           }
         };
         if (url.pathname === '/task') {
+          // Everything but `kind` and `from` is a PARAMETER of the kind;
+          // `tasks.start` checks it against the kind's own closed list
+          // (an empty field counts as not given — a form sends hidden,
+          // empty fields too).
+          const params = {};
+          for (const [k, v] of form) if (k !== 'kind' && k !== 'from' && v !== '') params[k] = v;
           let began;
           try {
-            began = tasks.start(root, kind);
+            began = tasks.start(root, kind, params);
           } catch (e) {
+            if (e?.code === 'INVALID_PARAMS') {
+              answer(400, { state: 'error', reason: e.message });
+              return;
+            }
             if (e?.code === 'UNKNOWN_KIND') {
               answer(400, { state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) });
               return;
@@ -477,38 +768,34 @@ export function buildHandler(root, cfg, env = process.env) {
     // this one the other way round.
     // `/pult` still answers beside `/` so a bookmark from before the
     // move keeps working.
-    if (url.pathname === '/' || url.pathname === '/pult' || url.pathname === '/dashboard.json') {
-      let built;
-      try {
-        built = url.pathname === '/dashboard.json'
-          ? { data: dashboard.collect(root, { env, cfg }) }
-          : astra.build(root, { title: cfg.title, env, cfg, writable: writegate.read(root, gateOpts(cfg)).allowed });
-      } catch (e) {
+    //
+    // **`/pult.json`, not `/dashboard.json` (2026-09-28).** The desk's
+    // numbers used to answer at `/dashboard.json`. The new dashboard
+    // (lucky-mem's Dashboard-Muster-3, ported) owns `/dashboard` and
+    // `/dashboard.json` in both houses, so the old route was renamed
+    // BEFORE the new page was built — never two meanings for one address,
+    // not even for one commit (owner decision 2026-09-28, port spec §6.2).
+    if (url.pathname === '/pult.json') {
+      let data;
+      try { data = dashboard.collect(root, { env, cfg }); } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
-          .end(`desk could not be built: ${e?.message || e}`);
+          .end(`desk data could not be collected: ${e?.message || e}`);
         return;
       }
-      if (url.pathname === '/dashboard.json') {
-        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-          .end(JSON.stringify(built.data));
-        return;
-      }
-      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
-        .end(consolePage.insertNav(built.html, 'desk'));
+      res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(data));
       return;
     }
 
-    // --- The viewer ---------------------------------------------------
-    let html;
-    try {
-      ({ html } = viewer.build(root, { title: cfg.title }));
-      html = consolePage.insertNav(html, 'viewer');
-    } catch (e) {
-      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
-        .end(`viewer could not be built: ${e?.message || e}`);
+    // --- The old pages: a redirect into the dashboard -------------------
+    // `/console` and `/viewer` were pages of their own until 2026-09-28.
+    // Their features live in the dashboard now (settings, knowledge); a
+    // bookmark lands on the matching view instead of a 404.
+    if (url.pathname === '/console' || url.pathname === '/viewer') {
+      res.writeHead(303, { location: url.pathname === '/console' ? '/#settings/system' : '/#knowledge/entries' }).end();
       return;
     }
-    res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' }).end(html);
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
   };
 }
 
@@ -517,14 +804,32 @@ export function buildHandler(root, cfg, env = process.env) {
  *   (`mem serve --allow-writes`). Deliberately not an environment
  *   variable: an exported variable outlives the run it was meant for,
  *   and the switch then has a third, invisible home.
+ * @param opts.measure true = keep the weekly measurement series
+ *   (src/measurements.mjs) while running; `mem serve` sets it.
  */
-export function serve(root, env = process.env, { allowWrites = false } = {}) {
+export function serve(root, env = process.env, { allowWrites = false, measure: measureWeekly = false } = {}) {
   const cfg = { ...readConfig(env), allowWrites: allowWrites === true };
   const allowed = bindAllowed(cfg);
   if (!allowed.ok) throw new Error(allowed.reason);
   const server = http.createServer(buildHandler(root, cfg, env));
+  // The weekly measurement series (src/measurements.mjs): one line per
+  // ISO week, written by THIS process on its own clock — never by a page
+  // read. `unref` so a measurement timer never keeps a stopped server alive.
+  // Only a REAL server measures (`mem serve`, or this file run
+  // directly): a probe that starts a server to test a route must not
+  // find a measurement line appearing in its fixture memory.
+  const measure = () => { measurements.recordIfDue(root); };
+  let timer = null;
+  if (measureWeekly) {
+    timer = setInterval(measure, 6 * 60 * 60 * 1000);
+    timer.unref?.();
+    server.on('close', () => clearInterval(timer));
+  }
   return new Promise((resolve) => {
-    server.listen(cfg.port, cfg.host, () => resolve({ server, cfg }));
+    server.listen(cfg.port, cfg.host, () => {
+      if (measureWeekly) setImmediate(measure);
+      resolve({ server, cfg });
+    });
   });
 }
 
@@ -532,7 +837,7 @@ export function serve(root, env = process.env, { allowWrites = false } = {}) {
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const root = process.env.CHEAP_MEM_ROOT || process.cwd();
   const flags = process.argv.slice(2);
-  serve(root, process.env, { allowWrites: flags.includes('--allow-writes') }).then(({ server, cfg }) => {
+  serve(root, process.env, { allowWrites: flags.includes('--allow-writes'), measure: true }).then(({ server, cfg }) => {
     const bound = server.address();
     process.stderr.write(
       `cheap-mem console on http://${cfg.host}:${bound.port}/ `

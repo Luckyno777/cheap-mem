@@ -76,6 +76,10 @@ rebuilds only when the corpus changed. Probe:
 
 ## The desk's UI
 
+**Superseded 2026-09-28.** The desk is gone. The dashboard's detail
+drawer fetches one entry through `/dashboard/entry.json`
+(`docs/dashboard.md`). The paragraph below is the record of the desk.
+
 The desk's knowledge view already has a detail pane (`#detail` in
 `src/astra.mjs`), but it is filled entirely from data embedded in the
 page at build time, cut at `LIST_MAX` — by the same file's own stated

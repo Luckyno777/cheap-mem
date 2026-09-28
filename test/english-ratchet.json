@@ -117,6 +117,7 @@
     "test/atlas-real-guard-origin.test.mjs": 3,
     "test/audit-messgeraete.test.mjs": 2,
     "test/calculations.test.mjs": 1,
+    "test/dashboard-page.test.mjs": 1,
     "test/consumption-funnel.test.mjs": 1,
     "test/coverage-state.test.mjs": 3,
     "test/dashboard.test.mjs": 1,

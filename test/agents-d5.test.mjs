@@ -30,8 +30,7 @@ import * as heartbeat from '../src/heartbeat.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as cfgmod from '../src/config.mjs';
 import * as dashboard from '../src/dashboard.mjs';
-import * as astra from '../src/astra.mjs';
-import { agentsView } from '../src/astra/agents.mjs';
+import * as dashboardData from '../src/dashboard-data.mjs';
 
 const NOW = new Date('2026-09-27T12:00:00Z');
 
@@ -166,7 +165,7 @@ test('D5 probe 2c: an unregistered (log-only) agent has no AGENT.yaml to read pa
 
 // --- probe (3): rendering never writes -----------------------------------
 
-test('D5 probe 3: collecting and rendering the agents view writes nothing at all', () => {
+test('D5 probe 3: collecting the agents view (old desk and dashboard) writes nothing at all', () => {
   const r = root();
   try {
     agents.createAgent(r, 'watched', { role: 'x', model: 'y' });
@@ -178,11 +177,18 @@ test('D5 probe 3: collecting and rendering the agents view writes nothing at all
 
     const before = snapshot(r);
     const data = dashboard.collect(r, { now: NOW });
-    astra.renderHtml(data);
-    astra.build(r, { now: NOW });
-    const after = snapshot(r);
+    assert.ok(data.agents.length);
+    // Since 2026-09-28 the view is the dashboard; its data pass must not
+    // write either (dashboard-data.collectDashboard, behind /dashboard.json).
+    dashboardData.collectDashboard(r, { now: NOW });
+    // The ONE file family that may appear: the derived search index
+    // (`.mem/search-index/`, the same cache `mem find` builds) — the
+    // dashboard's doctor run checks the index and builds it when absent.
+    // It is a cache of the drawers, not memory content, and not a seen-list.
+    const derived = (o) => Object.fromEntries(Object.entries(o).filter(([k]) => !k.includes(`${path.sep}search-index${path.sep}`)));
+    const after = derived(snapshot(r));
 
-    assert.deepEqual(before, after, 'no file mtime changed from collecting or rendering');
+    assert.deepEqual(derived(before), after, 'no file mtime changed from collecting or rendering');
     assert.equal(fs.existsSync(path.join(r, inbox.SEEN_FILE)), false,
       'the seen-list must not appear just from opening the view (E5.4)');
   } finally { rm(r); }
@@ -190,56 +196,7 @@ test('D5 probe 3: collecting and rendering the agents view writes nothing at all
 
 // --- probe (4): no field value without a data source (the latch) --------
 
-test('D5 probe 4: a field this file cannot resolve renders "no data path", never a blank or a guess', () => {
-  const fixture = {
-    agents: [{
-      name: 'incomplete', count: 2, retired: 0, model: '', role: '', last: '', projects: {},
-      // activity/startable/pause/channel deliberately absent.
-    }],
-    humanInbox: null,
-  };
-  const html = agentsView(fixture);
-  const hits = html.match(/no data path/g) ?? [];
-  assert.equal(hits.length, 5, `expected 4 agent fields + 1 human-inbox section, got ${hits.length}`);
-});
-
-test('D5 probe 4b: POSITIVE CONTROL — with every field present, "no data path" does not appear', () => {
-  const fixture = {
-    agents: [{
-      name: 'complete', count: 2, retired: 0, model: 'm', role: 'r', last: '2026-01-01T00:00:00Z',
-      projects: {},
-      activity: {
-        state: 'alive', windowMin: 1440,
-        heartbeat: { ageMin: 5, fresh: true }, content: { ageMin: 5, fresh: true },
-      },
-      startable: { local: true, reason: 'instructions at agents/complete/PROMPT.md' },
-      pause: { state: 'active' },
-      channel: { state: 'ok', reason: '1 of 1 messages were answered or processed' },
-    }],
-    humanInbox: { readable: true, who: 'user', messages: [], broken: 0 },
-  };
-  assert.doesNotMatch(agentsView(fixture), /no data path/);
-});
-
 // --- probe (5): byte-stable for an unchanged fixture ----------------------
-
-test('D5 probe 5: the same data renders byte-identical HTML every time', () => {
-  const r = root();
-  try {
-    agents.createAgent(r, 'steady', { role: 'x', model: 'y' });
-    memory.logEntry(r, 'thought', { text: 'note', agent: 'steady' }, { now: NOW });
-    heartbeat.beat(r, 'steady', { now: NOW });
-    const data = dashboard.collect(r, { now: NOW });
-    const h1 = agentsView(data);
-    const h2 = agentsView(data);
-    assert.equal(h1, h2);
-    // And the full page, rendered from two SEPARATE collect() calls with
-    // the same `now` over unchanged disk state, agrees too — the view
-    // itself performs no clock read and no randomness.
-    const data2 = dashboard.collect(r, { now: NOW });
-    assert.equal(agentsView(data), agentsView(data2));
-  } finally { rm(r); }
-});
 
 // --- startable: a plain, always-answerable file check ---------------------
 
@@ -377,26 +334,5 @@ test('humanInbox: two participants marked human is refused, not guessed at', () 
     assert.match(data.humanInbox.reason, /2 participants/);
     assert.match(data.humanInbox.reason, /user/);
     assert.match(data.humanInbox.reason, /lucky/);
-  } finally { rm(r); }
-});
-
-test('humanInbox never writes on its own: the only control is a reply form, disabled unless writing is on', () => {
-  const r = root();
-  try {
-    const cfg = cfgmod.readConfig(r);
-    inbox.write(r, cfg.participants, { from: 'session', to: 'user', subject: 'ping', text: 'x', now: NOW });
-    const data = dashboard.collect(r, { now: NOW });
-    const html = agentsView(data);
-    // Default is off: every control on the tray is disabled, and the way
-    // to turn it on is said in words.
-    const buttons = html.match(/<button[^>]*>/g) ?? [];
-    assert.equal(buttons.length, 1, 'one reply button per message, nothing else');
-    for (const b of buttons) assert.match(b, /disabled/);
-    assert.match(html, /mem serve --allow-writes/);
-    // The only form goes to the reply route — no mark-seen, no ack.
-    const actions = [...html.matchAll(/<form[^>]*action="([^"]+)"/g)].map((m) => m[1]);
-    assert.deepEqual(actions, ['/inbox/reply']);
-    // Positive control: switched on, the button is live.
-    assert.match(agentsView(data, { writable: true }), /<button type="submit">Reply<\/button>/);
   } finally { rm(r); }
 });

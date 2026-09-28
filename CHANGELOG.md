@@ -14,6 +14,26 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — the dashboard is the only UI
+
+- **`/` serves the dashboard** (`src/dashboard-page.mjs`,
+  `src/dashboard-data.mjs`, `assets/dashboard/`; `docs/dashboard.md`). It
+  is the sibling house's dashboard, the same in function and look, in
+  English, with cheap-mem's own mark. `/dashboard` and `/pult` serve the
+  same page. `/console` and `/viewer` redirect into it. The Astra desk
+  (`src/astra.mjs`, `src/astra/`) and the console's HTML page are
+  removed; `/console.json`, `mem board` and `mem viewer` stay.
+- **The old `/dashboard.json` is now `/pult.json`.** `/dashboard.json`
+  is the new page's data. A tool that read the old route must switch.
+- New: a read-only retrieval probe, facts at a date, a weekly measurement
+  series (`.mem/measurements.jsonl`, 52 weeks), a PWA shell, raw-capture
+  delete from the browser (preview, reason, confirmation), and
+  acknowledging a message (`POST /inbox/state`, behind the write switch).
+- three.js r180 (MIT) and DM Sans (OFL) are vendored under `assets/`.
+  This is the one named exception to "no dependencies" (`NOTICE`).
+- Every data route checks the Host header; the page sends a CSP and never
+  a CORS header.
+
 ### Changed — migration needed if you set things from the dashboard
 
 - **Writing from the dashboard is now OFF by default** (`src/writegate.mjs`,

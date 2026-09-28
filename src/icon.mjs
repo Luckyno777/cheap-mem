@@ -13,9 +13,8 @@
 // **Where the rest of the PWA lives.** A manifest and a service worker need
 // a real origin — a service worker cannot even be registered from file:// —
 // so the installable shell belongs with a HOST, not with the generated
-// file. cheap-mem does not ship one yet (lucky-mem does, in
-// bin/mem-ansicht-server.mjs). Until it does, only the mark lives here, and
-// the viewer uses it for the browser tab.
+// file: `src/pwa.mjs`, served by `bin/mem-serve` (since 2026-09-28). The
+// mark itself lives here, in both renderings (PNG and inline SVG).
 
 import zlib from 'node:zlib';
 
@@ -64,31 +63,96 @@ const rgb = (hex) => [
 ];
 
 /**
- * The mark.
+ * The geometry of the mark, in a 1240 × 1240 field — ONE place, read by
+ * both the PNG below and the inline SVG the dashboard draws
+ * (`markSvg()`), so the two can never become two drawings.
  *
- * Not invented — lifted from the page. The vertical stroke is the trail
- * spine (`.trail`, 2px of --rule), which in the viewer stands wherever
- * something has a history. Beside it, three lines getting shorter: an entry
- * and what came before it. At 48px exactly that survives — a spine and
- * three lines.
+ * The C (a stroke with round caps: a top bar, a half circle, a bottom
+ * bar) holding a three-node graph. The graph's three nodes and two
+ * edges sit exactly where the sibling house puts them beside its L —
+ * the owner's rule of 2026-09-27: "we only turn the mark from a C into
+ * an L". The C is this house's; the graph is the shared idea.
+ */
+export const GEOMETRY = Object.freeze({
+  field: 1240,
+  c: Object.freeze({ x0: 975, x1: 550, yTop: 290, yBottom: 966, r: 338, width: 160 }),
+  edges: Object.freeze([[470, 730, 690, 545], [690, 545, 910, 730]]),
+  edgeWidth: 78,
+  nodes: Object.freeze([[690, 545, 104], [470, 730, 88], [910, 730, 88]]),
+});
+
+/** The C's path, for SVG. */
+export function cPath() {
+  const { x0, x1, yTop, yBottom, r } = GEOMETRY.c;
+  return `M${x0} ${yTop} H${x1} A${r} ${r} 0 0 0 ${x1} ${yBottom} H${x0}`;
+}
+
+/**
+ * The mark as inline SVG, coloured by the page's own tokens
+ * (`var(--text)` for the C, `var(--accent)` for the graph) — the
+ * dashboard's sidebar draws it this way, like the sibling draws its L.
+ */
+export function markSvg({ cls = 'mark', label = 'cheap-mem' } = {}) {
+  const g = GEOMETRY;
+  const edges = `M${g.edges[0][0]} ${g.edges[0][1]} L${g.edges[0][2]} ${g.edges[0][3]} L${g.edges[1][2]} ${g.edges[1][3]}`;
+  return `<svg class="${cls}" viewBox="0 0 ${g.field} ${g.field}" aria-label="${label}" role="img" fill="none">`
+    + `<path d="${cPath()}" stroke="var(--text)" stroke-width="${g.c.width}" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<path d="${edges}" stroke="var(--accent)" stroke-width="${g.edgeWidth}" stroke-linecap="round" stroke-linejoin="round"/>`
+    + g.nodes.map(([cx, cy, r]) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="var(--accent)"/>`).join('')
+    + '</svg>';
+}
+
+/** Distance from (px,py) to the segment (ax,ay)-(bx,by). */
+function segDist(px, py, ax, ay, bx, by) {
+  const dx = bx - ax; const dy = by - ay;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy || 1)));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/** Distance from a point to the C's centre line (two bars and the left half circle). */
+function cDist(px, py) {
+  const { x0, x1, yTop, yBottom, r } = GEOMETRY.c;
+  const cy = (yTop + yBottom) / 2;
+  const top = segDist(px, py, x1, yTop, x0, yTop);
+  const bottom = segDist(px, py, x1, yBottom, x0, yBottom);
+  // The arc is the LEFT half of the circle around (x1, cy).
+  const arc = px <= x1
+    ? Math.abs(Math.hypot(px - x1, py - cy) - r)
+    : Math.min(Math.hypot(px - x1, py - yTop), Math.hypot(px - x1, py - yBottom));
+  return Math.min(top, bottom, arc);
+}
+
+/**
+ * The mark as a PNG — the same C and graph as `markSvg()`, in pixels.
  *
- * `maskable` fills the whole canvas (Android cuts its own shape out of it)
- * and pulls the content into the safe zone; otherwise a rounded square with
- * transparent corners is drawn.
+ * **Why this second rendering exists at all.** The manifest, the
+ * apple-touch-icon and `/favicon.ico` cannot be an SVG with CSS
+ * variables: a phone stores the image long before any page with a
+ * palette is loaded. So the colours are burnt in here — from the brand's
+ * two palettes (docs/assets/brand/logo-for-*-background.png).
+ *
+ * `maskable` fills the whole canvas (Android cuts its own shape out of
+ * it) and pulls the content into the safe zone; otherwise a rounded
+ * square with transparent corners is drawn. Every edge is anti-aliased
+ * over one pixel from the exact distance, so the mark stays a C at 48 px.
  */
 export function mark(size, { maskable = false, dark = false } = {}) {
   const n = size;
   const rgba = Buffer.alloc(n * n * 4);
-  const ground = rgb(dark ? '#141716' : '#FAF9F6');
-  const ink = rgb(dark ? '#E7EAE6' : '#1A1C1B');
-  const accent = rgb(dark ? '#7FC3D4' : '#1F5E70');
+  const ground = rgb(dark ? '#101917' : '#FAF9F6');
+  const ink = rgb(dark ? '#F3F0E8' : '#192A2B');
+  const accent = rgb(dark ? '#4EDBA6' : '#2FB888');
   const radius = maskable ? 0 : n * 0.22;
+  const s = maskable ? 0.74 : 0.86;              // content scale inside the tile
+  const unit = GEOMETRY.field / (n * s);         // field units per pixel
+  const off = (GEOMETRY.field - GEOMETRY.field / s) / 2;
 
-  const put = (x, y, c) => {
-    if (x < 0 || y < 0 || x >= n || y >= n) return;
-    const i = (y * n + x) * 4;
-    rgba[i] = c[0]; rgba[i + 1] = c[1]; rgba[i + 2] = c[2]; rgba[i + 3] = 255;
+  const blend = (i, c, a) => {
+    rgba[i] = Math.round(rgba[i] * (1 - a) + c[0] * a);
+    rgba[i + 1] = Math.round(rgba[i + 1] * (1 - a) + c[1] * a);
+    rgba[i + 2] = Math.round(rgba[i + 2] * (1 - a) + c[2] * a);
   };
+  const cover = (dist, half) => Math.max(0, Math.min(1, (half - dist) / unit + 0.5));
 
   for (let y = 0; y < n; y += 1) {
     for (let x = 0; x < n; x += 1) {
@@ -97,22 +161,19 @@ export function mark(size, { maskable = false, dark = false } = {}) {
         const dy = Math.max(radius - y - 0.5, y + 0.5 - (n - radius), 0);
         if (dx * dx + dy * dy > radius * radius) continue;
       }
-      put(x, y, ground);
+      const i = (y * n + x) * 4;
+      rgba[i] = ground[0]; rgba[i + 1] = ground[1]; rgba[i + 2] = ground[2]; rgba[i + 3] = 255;
+      const fx = off + (x + 0.5) * unit;
+      const fy = off + (y + 0.5) * unit;
+      const aC = cover(cDist(fx, fy), GEOMETRY.c.width / 2);
+      if (aC > 0) blend(i, ink, aC);
+      let dG = Infinity;
+      for (const [ax, ay, bx, by] of GEOMETRY.edges) dG = Math.min(dG, segDist(fx, fy, ax, ay, bx, by) - GEOMETRY.edgeWidth / 2);
+      for (const [cx, cy, r] of GEOMETRY.nodes) dG = Math.min(dG, Math.hypot(fx - cx, fy - cy) - r);
+      const aG = cover(dG, 0);
+      if (aG > 0) blend(i, accent, aG);
     }
   }
-
-  // Content sits tighter in the maskable version, so nothing is lost when
-  // the shape is cropped.
-  const s = maskable ? 0.74 : 1;
-  const m = (v) => Math.round(n / 2 + (v - 0.5) * n * s);
-  const bar = (x0, y0, x1, y1, c) => {
-    for (let y = m(y0); y < m(y1); y += 1) for (let x = m(x0); x < m(x1); x += 1) put(x, y, c);
-  };
-
-  bar(0.255, 0.27, 0.305, 0.73, accent);   // the trail spine
-  bar(0.37, 0.30, 0.76, 0.365, ink);       // the current entry
-  bar(0.37, 0.4675, 0.68, 0.5325, ink);    // what came before
-  bar(0.37, 0.635, 0.60, 0.70, ink);       // and before that
   return pngFromRgba(rgba, n, n);
 }
 
