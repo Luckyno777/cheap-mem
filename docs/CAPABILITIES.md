@@ -63,6 +63,7 @@ directory. The section number in brackets is where it is explained.
 | `chain.mjs` | a per-writer hash chain over the append-only logs — catches a rewrite that survives a commit, which a git-diff check alone cannot |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
+| `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
