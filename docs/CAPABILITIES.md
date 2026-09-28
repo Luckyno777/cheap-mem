@@ -71,6 +71,7 @@ directory. The section number in brackets is where it is explained.
 | `dashboard-page.mjs` | the dashboard's page shell; the views are drawn in the browser from `assets/dashboard/` (7.5) |
 | `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |
 | `pwa.mjs` | the dashboard's manifest and service worker, which stores nothing unless asked to (7.5) |
+| `login.mjs` | the password in front of the dashboard: first setup only with a machine-local code, scrypt hash, server-side sessions, lock after failed attempts (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |

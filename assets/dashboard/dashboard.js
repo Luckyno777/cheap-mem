@@ -59,7 +59,7 @@ const sections = {
   },
   settings: {
     name: 'Settings',
-    tabs: [['appearance', 'Appearance'], ['system', 'System settings'], ['catalog', 'Function catalogue'], ['projectstate', 'Project state']],
+    tabs: [['appearance', 'Appearance'], ['access', 'Access'], ['system', 'System settings'], ['catalog', 'Function catalogue'], ['projectstate', 'Project state']],
   },
 };
 // The names of the 13 types (singular) — keys from memory.TYPES; the
@@ -83,6 +83,10 @@ let entryIndex = new Map();
 let incomingIndex = new Map();
 let loadError = null;
 const serverWrites = document.body.dataset.writes === '1';
+// The password in front of the dashboard (src/login.mjs) — display only;
+// the server decides on its own.
+const loginEnabled = document.body.dataset.login === '1';
+const PW_MIN = 10; // = login.MIN_LENGTH; the server checks for itself
 
 const state = {
   area: 'home', tab: '', memory: 'local', project: 'all', query: '', type: 'all', status: 'all', sort: 'new', page: 1,
@@ -248,6 +252,9 @@ function prepare(d) {
 async function loadData({ quiet = false } = {}) {
   try {
     const r = await fetch('/dashboard.json', { credentials: 'same-origin', cache: 'no-store' });
+    // Session expired or ended (another device, a password change): go to
+    // the sign-in instead of an error over empty data.
+    if (r.status === 401) { location.href = '/login'; return false; }
     if (!r.ok) throw new Error('answer ' + r.status);
     prepare(await r.json());
     loadError = null;
@@ -320,7 +327,7 @@ function pageTitle() {
       projects: 'A place for every project.', files: 'The sources behind it.', raw: 'Back to the original.', digest: 'From transcript to knowledge.',
       export: 'Your project. To take along.', shards: 'Many parts. One memory.', operations: 'Work that visibly moves forward.',
       doctor: 'Nothing stays invisible.', performance: 'Performance needs evidence.', integrity: 'Trust can be checked.',
-      versions: 'Which state is answering?', mcp: 'Capabilities that arrive.', appearance: 'Your workspace.', system: 'Set deliberately.',
+      versions: 'Which state is answering?', mcp: 'Capabilities that arrive.', appearance: 'Your workspace.', access: 'Only for you.', system: 'Set deliberately.',
       catalog: 'No function forgotten.', projectstate: 'Aligned with the current state.',
     }[state.tab] || ''
   );
@@ -338,6 +345,7 @@ function pageDesc() {
       operations: 'Tasks with a provable end, result and confirmed cancel — child processes of the CLI.',
       understanding: 'Measured habits and job ledgers – no ascribed traits.',
       projectstate: 'Where every view reads from, and which code is answering right now.',
+      access: 'Change the password in front of this dashboard, or sign out this device.',
       catalog: cli ? `All ${cli.length} commands from the CLI's own tables, sorted into their work areas.` : 'The CLI tables were not readable — command count unknown.',
       raw: 'Review and delete by period, topic and project — through "mem raw review" and "mem raw delete".',
     }[state.tab] || 'Live from this memory. What is not measurable says unknown.'
@@ -775,6 +783,20 @@ const pages = {
       'Calm, readable, personal',
       `<div class="row"><div><strong>Colour scheme</strong><p>All surfaces switch together; the knowledge space stays a dark stage.</p></div>${btn(state.light ? 'Switch to dark' : 'Switch to light', 'theme', '', 'ghost')}</div><div class="row"><div><strong>Motion</strong><p>Stops rotation, pulses, energy cores and wandering points of light completely.</p></div>${btn(state.motion ? 'Pause' : 'Resume', 'motion', '', 'ghost')}</div><div class="row"><div><strong>Read only</strong><p>${serverWrites ? 'Locks every button that writes in this tab. The server checks on its own regardless.' : 'Set by the server (writing is off) — not switchable here.'}</p></div><label class="check"><input type="checkbox" id="readOnly" ${state.readonly ? 'checked' : ''} ${serverWrites ? '' : 'disabled'}> Active</label></div><div class="row"><div><strong>Print</strong><p>A clean printout of the current view.</p></div>${btn('Print / PDF', 'print', '', 'ghost')}</div>`,
     ),
+  // Access: change the password (current + new twice) and sign out.
+  access: () => {
+    if (!loginEnabled) return panel('Password', note('The password login is switched off on this server (CHEAP_MEM_SERVE_LOGIN=off). Access is then governed only by the tunnel and the token.'));
+    const f = (id, label, ac, extra = '') => `<label class="formfield">${label}<input class="field" type="password" id="${id}" name="${id}" autocomplete="${ac}" required ${extra}></label>`;
+    return `<div class="grid two">${panel(
+      'Change password',
+      `<form id="passwordForm" autocomplete="on"><input type="text" name="username" value="cheap-mem" autocomplete="username" hidden>${f('pwAlt', 'Current password', 'current-password')}${f('pwNeu', `New password (at least ${PW_MIN} characters)`, 'new-password', `minlength="${PW_MIN}"`)}${f('pwNeu2', 'Repeat the new password', 'new-password', `minlength="${PW_MIN}"`)}<div id="pwMeldung" role="status" aria-live="polite"></div><button class="btn primary" type="submit">Change password</button></form>${note('After the change every other signed-in device is signed out. Forgotten? On the machine: <span class="mono">mem serve reset-password</span>.')}`,
+      'Current password, new one twice.',
+    )}${panel(
+      'Sign out',
+      `<div class="row"><div><strong>Sign out this device</strong><p>Ends the session in this browser. The next visit asks for the password again.</p></div>${btn('Sign out', 'sign-out', '', 'ghost')}</div>`,
+      'Sessions last 30 days and extend with use.',
+    )}</div>`;
+  },
   system: () => systemPage(),
   catalog: () => {
     const cli = D.catalog?.cli;
@@ -3238,6 +3260,14 @@ document.addEventListener('click', async (ev) => {
     case 'print':
       window.print();
       break;
+    case 'sign-out': {
+      el.disabled = true;
+      try { await fetch('/login/logout', { method: 'POST', credentials: 'same-origin', headers: { accept: 'application/json' } }); } catch { /* on to the sign-in */ }
+      // Leave nothing protected on the device (the server also sends Clear-Site-Data).
+      try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* no cache access */ }
+      location.href = '/login?signedout=1';
+      break;
+    }
     case 'save-config': {
       if (state.readonly) return;
       const current = Object.fromEntries((D.settings || []).map((x) => [x.id, x]));
@@ -3407,6 +3437,34 @@ document.addEventListener('toggle', (e) => {
     }
   }
 }, true);
+// Change the password: /login/password (src/login.mjs). The checks here
+// are only for quick feedback — the server checks everything itself.
+document.addEventListener('submit', async (e) => {
+  const f = e.target;
+  if (f.id !== 'passwordForm') return;
+  e.preventDefault();
+  const say = (t, kind) => { $('#pwMeldung').innerHTML = note(esc(t), kind); };
+  const current = $('#pwAlt').value, next = $('#pwNeu').value, next2 = $('#pwNeu2').value;
+  if (!current) return say('Please enter the current password.', 'bad');
+  if (next.length < PW_MIN) return say(`The new password needs at least ${PW_MIN} characters.`, 'bad');
+  if (next !== next2) return say('The two entries of the new password do not match.', 'bad');
+  const knob = f.querySelector('button[type=submit]');
+  knob.disabled = true;
+  let r, j = {};
+  try {
+    r = await fetch('/login/password', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ current, next, next2 }) });
+    j = await r.json().catch(() => ({}));
+  } catch (err) {
+    knob.disabled = false;
+    return say('No connection: ' + (err?.message || err), 'bad');
+  }
+  knob.disabled = false;
+  if (r.status === 401 && j.reason === 'login-required') { location.href = '/login'; return; }
+  if (!r.ok) return say(j.reason || `Not changed (answer ${r.status}).`, 'bad');
+  f.reset();
+  say('Password changed. Every other device is signed out.', 'good');
+  toast('Password changed.');
+});
 document.addEventListener('submit', async (e) => {
   const f = e.target;
   if (!['entryForm', 'statusForm', 'messageForm', 'replyForm', 'rawDeleteForm'].includes(f.id)) return;

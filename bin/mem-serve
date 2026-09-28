@@ -57,6 +57,7 @@ import * as measurements from '../src/measurements.mjs';
 import * as mcplive from '../src/mcplive.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as verifylog from '../src/verifylog.mjs';
+import * as login from '../src/login.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
 const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -81,6 +82,9 @@ export function readConfig(env = process.env) {
       .split(',').map((x) => x.trim()).filter(Boolean),
     origins: String(env.CHEAP_MEM_SERVE_ORIGINS ?? '')
       .split(',').map((x) => x.trim()).filter(Boolean),
+    // The password in front of the dashboard (src/login.mjs). ON by
+    // default; only CHEAP_MEM_SERVE_LOGIN=off (tests, local use) turns it off.
+    login: login.enabled(env),
   };
 }
 
@@ -129,6 +133,9 @@ export const PATHS = Object.freeze([
   // from the Today card — appends OUTSIDE the memory, see
   // src/verifylog.mjs and the route below.
   VERIFY_VERDICT_PATH,
+  // The password in front of the dashboard (src/login.mjs), behind the
+  // token door like everything else; 404 under CHEAP_MEM_SERVE_LOGIN=off.
+  ...login.ALL_PATHS,
 ]);
 
 /**
@@ -206,6 +213,25 @@ function short(res, code, text) {
  * connections belonging to a different server than the one serving it.
  */
 export function buildHandler(root, cfg, env = process.env) {
+  // Login (src/login.mjs): ONE context per handler — the limiter counts
+  // failures in this process's memory. A `cfg` without a `login` field
+  // (built by hand) counts as ON: the default is the lock, not the open door.
+  const loginOn = cfg.login !== false;
+  const loginCtx = {
+    root,
+    dir: login.dirFor(root, env),
+    token: cfg.token,
+    pagePaths: [dashboardPage.PATHS.page, '/', '/pult', '/console', '/viewer'],
+    hostOk: (host) => hostOk(host, cfg),
+    originOk: (req) => webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins),
+    head: HEAD,
+    csp: CSP,
+    limiter: login.newLimiter(),
+    page: { fontCss: dashboardPage.fontCss(), mark: icon.markSvg() },
+    log: (line) => process.stderr.write(line + '\n'),
+    equal: webauth.constantEqual,
+  };
+  const loginFree = ['/favicon.ico', '/sw.js', ...dashboardPage.FONTS.map((f) => f.path)];
   return function handler(req, res) {
     let url;
     try { url = new URL(req.url, 'http://x'); }
@@ -252,6 +278,29 @@ export function buildHandler(root, cfg, env = process.env) {
           + '; Path=/; Max-Age=34560000; HttpOnly; Secure; SameSite=Lax',
         location: '/',
       }).end();
+      return;
+    }
+
+    // --- The password (src/login.mjs) ---------------------------------
+    //
+    // Behind the token door, in front of all content. Without a valid
+    // session (or a valid bearer CHEAP_MEM_SERVE_TOKEN for tools/tests):
+    // every page -> /login, every data and writing route -> 401 JSON.
+    // Only the mark, the worker and the fonts stay free (no memory
+    // content; the worker must update for signed-out browsers too).
+    if (loginOn) {
+      if (!loginFree.includes(url.pathname)) {
+        let answered;
+        try { answered = login.gate(req, res, url, { ...loginCtx, bearer: webauth.bearerFrom(req) }); } catch (e) {
+          res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: 'login-broken' }));
+          process.stderr.write(`serve: login gate threw: ${e?.message || e}\n`);
+          return;
+        }
+        if (answered) return;
+      }
+    } else if (login.ALL_PATHS.includes(url.pathname)) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
       return;
     }
 
@@ -328,7 +377,7 @@ export function buildHandler(root, cfg, env = process.env) {
           workspace = { name: c.name || path.basename(path.resolve(root)), human: memConfig.humanParticipant(c.participants).name ?? null };
         } catch { workspace = { name: path.basename(path.resolve(root)), human: null }; }
         html = pwa.insertHead(dashboardPage.asHtml({
-          title: cfg.title, writesAllowed: writegate.read(root, gateOpts(cfg)).allowed, workspace,
+          title: cfg.title, writesAllowed: writegate.read(root, gateOpts(cfg)).allowed, workspace, loginEnabled: loginOn,
         }));
       } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
@@ -927,6 +976,16 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
   const cfg = { ...readConfig(env), allowWrites: allowWrites === true };
   const allowed = bindAllowed(cfg);
   if (!allowed.ok) throw new Error(allowed.reason);
+  // No password yet: keep a setup code ONLY on this machine and say in
+  // the log WHERE it is — never the code itself.
+  if (cfg.login) {
+    try {
+      const e = login.ensureSetupCode(login.dirFor(root, env));
+      if (e.needed) process.stderr.write(`serve: no password set. The setup code is in ${e.file} (mem serve setup-code)\n`);
+    } catch (e) {
+      process.stderr.write(`serve: setup code could not be created: ${e?.message || e}\n`);
+    }
+  }
   const server = http.createServer(buildHandler(root, cfg, env));
   // The weekly measurement series (src/measurements.mjs): one line per
   // ISO week, written by THIS process on its own clock — never by a page
