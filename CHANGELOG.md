@@ -52,6 +52,51 @@ are the day the work landed on `main`.
 
 ### Added
 
+- **The "Today" card** (N8/N21 parity with lucky-mem's `heute.mjs`;
+  `src/today.mjs`, `mem today [--json] [--line]`, the dashboard's
+  overview, and the session-start hook's own time-capped line): one
+  source for operations not calm (`doctor.checkAll()`, WARN/ERROR
+  only), open duties addressed to the configured human participant,
+  and uncertain facts to verify (timeline facts flagged stale or in
+  conflict by `src/freshness.mjs`, capped at 3 — the honest equivalent
+  of the sibling's gold-question queue: this house has no raw-capture-
+  to-question pipeline, so real fact uncertainty is surfaced instead
+  of a fabricated quiz). A verdict on a candidate
+  (`POST /dashboard/verify-verdict`, `src/verifylog.mjs`) appends ONE
+  line OUTSIDE the memory root — never a correction on the entry,
+  never a write inside this repository. Review suggestions and word-
+  pair suggestions are honestly "unknown — no source yet": neither a
+  persisted weekly review report nor an open word-pair-suggestion
+  queue exists here. Probes: `test/today.test.mjs`,
+  `test/verify-verdict.test.mjs`, `test/verifylog.test.mjs`,
+  `test/today-session-start.test.mjs`.
+- **MCP client-visibility journal and live probe** (dash-fix3 parity;
+  `src/mcpvisibility.mjs`, `src/mcplive.mjs`, wired into `bin/mem-mcp`
+  and `bin/mem-serve`'s `catalog.mcp`): the Operations → MCP tools
+  table now shows which client actually saw or called each tool
+  (name, client, time — never call content, machine-local under
+  `.pipeline/`, already gitignored) and whether the LOCAL bridge
+  (`bin/mem-mcp --http`) really answers `tools/list` with it — a
+  cached, backgrounded probe that never makes `/dashboard.json` await
+  a network call. Probes: `test/mcp-visibility-journal.test.mjs`,
+  `test/mcp-visibility-local.test.mjs`, `test/mcplive.test.mjs`,
+  `test/dashboard-mcp-live-wiring.test.mjs`.
+- **Model-cost journal and `mem effect` on the dashboard** (dash-fix3
+  parity; `src/modelcost.mjs`, `mem modelcost [--days N] [--json]`,
+  wired into `bin/mem-digest`'s one model call and into the Usage
+  tab's "Application"/"Model costs" metrics): reads the
+  usage/`total_cost_usd` fields a headless `claude -p --output-format
+  json` run already returns — no second model call, no estimate from
+  character counts, and every line is labelled "estimate, not a
+  bill". Machine-local (`.pipeline/model-cost.jsonl`) rather than
+  lucky-mem's committed `betrieb/modellkosten.jsonl`, since this is a
+  personal single-install memory and a machine's own headless-caller
+  telemetry should not travel between clones. `src/effect.mjs` (built
+  earlier, never surfaced) is now wired into `dashboard-data.mjs`'s
+  `usage.effect`, 5-minute cache. Probes:
+  `test/modelcost-digest-wiring.test.mjs`,
+  `test/usage-modelcost-effect-wiring.test.mjs`,
+  `test/modelcost-cli.test.mjs`.
 - **Freshness for state questions** (`src/statequestion.mjs`, wired into
   `search()`): a question carrying a state signal word ("current",
   "still", "latest", "status", ...; English defaults in
