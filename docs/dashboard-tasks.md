@@ -225,6 +225,11 @@ be READ.
 
 ## On the desk: the "Long jobs" panel
 
+**Superseded 2026-09-28.** The desk is gone; the dashboard (`/`) shows
+the same kinds under Work and Settings, from `/dashboard.json`'s `tasks`
+field, and starts them through the same `/task` route (`docs/dashboard.md`).
+The paragraphs below are the record of the desk.
+
 The Settings tab of the desk (`/`) carries a **Long jobs** section
 (`src/astra/tasks.mjs`, drawn inside `setView`): one card per kind with
 its title, the command it runs, the latest task's state (`never

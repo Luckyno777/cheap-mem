@@ -180,7 +180,7 @@ export const agentKey = (project) => (project === 'global' ? '(global)' : projec
 //                 has proven working does not get to be green.
 //
 // This resolution happens HERE, at collection time, not in the view:
-// `astra/agents.mjs` stays a pure function of what this file hands it —
+// the view stays a pure function of what this file hands it —
 // same contract `renderHtml` already promises the whole page ("no I/O,
 // so a test can hand it a fixture").
 const ACTIVITY_WINDOW_MIN = 60 * 24;
@@ -403,7 +403,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   // entries (or every one of them retired away later) would silently
   // lose its chip, and nobody filtering by it could tell "this type does
   // not exist" apart from "this type happens to be empty right now".
-  // `astra/knowledge.mjs` reads this list and hand-types no type of its
+  // the dashboard reads this list and hand-types no type of its
   // own — a type this file forgets to add here is a type the view never
   // learns about either, which is the point: one truth, one place that
   // can be wrong.
@@ -904,16 +904,17 @@ export function getEntryFast(root, id) {
 }
 
 // ---------------------------------------------------------------------
-// The page lives in `astra.mjs`
+// The page lives elsewhere
 // ---------------------------------------------------------------------
 //
 // Until 2026-09-16 the markup, the stylesheet and the browser script
-// stood right here. They moved to `src/astra.mjs` when the workspace
-// was rebuilt to Lucky's study — not for tidiness, but because two
-// renderers is two answers: a selector renamed in one and not the
-// other fails silently, and the copy nobody routes to is the copy
-// nobody notices is wrong.
+// stood right here; then they moved to the Astra desk, and on
+// 2026-09-28 the desk was replaced by the dashboard
+// (`src/dashboard-page.mjs`, `assets/dashboard/`) — not for tidiness,
+// but because two renderers is two answers: a selector renamed in one
+// and not the other fails silently, and the copy nobody routes to is
+// the copy nobody notices is wrong.
 //
-// So this file is the DATA layer, and it has no opinion about markup.
-// `astra.build(root)` collects through `collect()` here and renders
-// there. Anything that used `dashboard.build` calls `astra.build`.
+// So this file is a DATA layer, and it has no opinion about markup.
+// `src/dashboard-data.mjs` collects through `collect()` here and hands
+// the result to the browser as `/dashboard.json`.

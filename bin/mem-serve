@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// mem-serve — the console and the viewer at one fixed link.
+// mem-serve — the dashboard at one fixed link.
 //
 // `mem viewer` writes a ONE-OFF HTML file: a photograph, thrown away
 // when it goes stale. That is deliberately not a server. This is the
@@ -7,14 +7,24 @@
 // only place in this project where anything can be SET without a
 // shell.
 //
+// **Since 2026-09-28 the dashboard is the ONLY UI** (owner decision:
+// the sibling house's Dashboard-Muster-3, ported — src/dashboard-page.mjs,
+// src/dashboard-data.mjs, assets/dashboard/). `/`, `/dashboard` and
+// `/pult` serve the same page. The old Astra desk, the console page and
+// the viewer route are gone — switched off only after
+// test/dashboard-complete.test.mjs proved every feature has a place in
+// the dashboard. `/console` and `/viewer` answer with a redirect into
+// the dashboard so bookmarks still land; the data routes (`/console.json`,
+// `/pult.json`, `/entry.json`, `/entries.json`, `/task.json`) stay.
+//
 // The trade is worth naming out loud. The viewer file was "no daemon,
 // nothing that keeps running". This IS a daemon. So it carries the two
 // properties the file had, and one more, because a link is reachable
 // from outside:
 //
-//  1. It renders only through `viewer.build()` and `console.collect()`,
-//     which read the redacted drawers — never `raw/`. No un-redacted
-//     capture material leaves the process.
+//  1. It reads only through `dashboard-data.collectDashboard()` and
+//     `console.collect()`, which read the redacted drawers — never the
+//     bytes under `raw/`. No un-redacted capture material leaves the process.
 //  2. It never writes the rendered content to disk, commits nothing,
 //     publishes nothing. The HTML lives in RAM and goes to the browser
 //     that asked.
@@ -28,11 +38,9 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import * as viewer from '../src/viewer.mjs';
 import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
 import * as backlinkIndex from '../src/backlinks.mjs';
-import * as astra from '../src/astra.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as pages from '../src/pages.mjs';
 import * as tasks from '../src/tasks.mjs';
@@ -232,7 +240,7 @@ export function buildHandler(root, cfg, env = process.env) {
       res.writeHead(302, {
         'set-cookie': `mem_k=${encodeURIComponent(url.searchParams.get('k'))}`
           + '; Path=/; Max-Age=34560000; HttpOnly; Secure; SameSite=Lax',
-        location: '/console',
+        location: '/',
       }).end();
       return;
     }
@@ -301,7 +309,7 @@ export function buildHandler(root, cfg, env = process.env) {
     }
 
     // --- The dashboard: the page and its data ---------------------------
-    if (url.pathname === dashboardPage.PATHS.page) {
+    if (url.pathname === dashboardPage.PATHS.page || url.pathname === '/' || url.pathname === '/pult') {
       let html;
       try {
         let workspace = {};
@@ -495,8 +503,10 @@ export function buildHandler(root, cfg, env = process.env) {
         // Back to the page the form was on. A CLOSED list, not the
         // submitted value: an open redirect target is how a form field
         // becomes a way to send someone somewhere else.
-        const back = p.get('from') === '/' ? '/' : '/console';
-        res.writeHead(303, { location: back }).end();
+        // Back to the dashboard: the only page there is (a CLOSED target,
+        // never the submitted value — an open redirect target is how a
+        // form field becomes a way to send someone somewhere else).
+        res.writeHead(303, { location: '/' }).end();
       });
       return;
     }
@@ -561,7 +571,7 @@ export function buildHandler(root, cfg, env = process.env) {
     // `/console.json` answers unchanged — probes and the setup check
     // read it, and changing a shape while changing a look turns two
     // separable mistakes into one indistinguishable one.
-    if (url.pathname === '/console' || url.pathname === '/console.json') {
+    if (url.pathname === '/console.json') {
       let data;
       try { data = consolePage.collect(root, { env, cfg }); }
       catch (e) {
@@ -569,13 +579,8 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(`console could not be built: ${e?.message || e}`);
         return;
       }
-      if (url.pathname === '/console.json') {
-        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-          .end(JSON.stringify(data));
-        return;
-      }
-      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
-        .end(consolePage.asHtml(data, { writable: data.writes.allowed }));
+      res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(data));
       return;
     }
 
@@ -587,7 +592,7 @@ export function buildHandler(root, cfg, env = process.env) {
     // resolves the id directly through `dashboard.getEntryFast()` (see
     // its header comment in `src/dashboard.mjs` for the full contract
     // and the one search it deliberately skips); it never touches
-    // `dashboard.collect()` or `astra.build()`.
+    // `dashboard.collect()` or `collectDashboard()`.
     //
     // Same four states dashboard.getEntryFast() returns, mapped to
     // HTTP the same way lucky-mem's `/eintrag.json` mirror maps
@@ -692,8 +697,8 @@ export function buildHandler(root, cfg, env = process.env) {
         if (tooBig) { short(res, 413, 'Too much.'); return; }
         const form = new URLSearchParams(body);
         const kind = form.get('kind') ?? '';
-        // The desk's own no-JS forms (`src/astra/tasks.mjs`) send
-        // `from=/`: they get a 303 back to the desk on success and a
+        // No-JS forms send `from=/` (the old desk did; a bookmarked or
+        // hand-written form still may): they get a 303 back to `/` on success and a
         // short HTML page on refusal — never raw JSON in a browser tab.
         // A CLOSED list, like `/setting`'s: any other `from` is ignored
         // and the JSON contract below stays exactly as it was.
@@ -770,38 +775,27 @@ export function buildHandler(root, cfg, env = process.env) {
     // `/dashboard.json` in both houses, so the old route was renamed
     // BEFORE the new page was built — never two meanings for one address,
     // not even for one commit (owner decision 2026-09-28, port spec §6.2).
-    if (url.pathname === '/' || url.pathname === '/pult' || url.pathname === '/pult.json') {
-      let built;
-      try {
-        built = url.pathname === '/pult.json'
-          ? { data: dashboard.collect(root, { env, cfg }) }
-          : astra.build(root, { title: cfg.title, env, cfg, writable: writegate.read(root, gateOpts(cfg)).allowed });
-      } catch (e) {
+    if (url.pathname === '/pult.json') {
+      let data;
+      try { data = dashboard.collect(root, { env, cfg }); } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
-          .end(`desk could not be built: ${e?.message || e}`);
+          .end(`desk data could not be collected: ${e?.message || e}`);
         return;
       }
-      if (url.pathname === '/pult.json') {
-        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-          .end(JSON.stringify(built.data));
-        return;
-      }
-      res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' })
-        .end(consolePage.insertNav(built.html, 'desk'));
+      res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(data));
       return;
     }
 
-    // --- The viewer ---------------------------------------------------
-    let html;
-    try {
-      ({ html } = viewer.build(root, { title: cfg.title }));
-      html = consolePage.insertNav(html, 'viewer');
-    } catch (e) {
-      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
-        .end(`viewer could not be built: ${e?.message || e}`);
+    // --- The old pages: a redirect into the dashboard -------------------
+    // `/console` and `/viewer` were pages of their own until 2026-09-28.
+    // Their features live in the dashboard now (settings, knowledge); a
+    // bookmark lands on the matching view instead of a 404.
+    if (url.pathname === '/console' || url.pathname === '/viewer') {
+      res.writeHead(303, { location: url.pathname === '/console' ? '/#settings/system' : '/#knowledge/entries' }).end();
       return;
     }
-    res.writeHead(200, { ...HEAD, 'content-type': 'text/html; charset=utf-8' }).end(html);
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
   };
 }
 

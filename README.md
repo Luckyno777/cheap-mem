@@ -446,7 +446,7 @@ mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
 
-mem serve [--port N]           console, desk and viewer at ONE fixed link.
+mem serve [--port N]           the dashboard at ONE fixed link.
           [--allow-writes]     The console is the only place anything can
                                be SET without a shell -- and only once you
                                allow it: writing from the page is OFF by

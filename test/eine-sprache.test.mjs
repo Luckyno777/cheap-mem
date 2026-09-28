@@ -6,8 +6,10 @@
 // not have to hunt for them. They are kept, and this file is the reason
 // they are a decision rather than an opinion:
 //
-//   1. The navigation reads Desk / Knowledge / Projects / Agents / Net,
-//      not Pult / Wissen / Projekte / Agenten / Netz. cheap-mem is the
+//   1. The navigation reads Overview / Knowledge / Work / Sources /
+//      Operations / Settings, not Übersicht / Wissen / Arbeit / … (the
+//      desk's tabs were Desk / Knowledge / Projects / Agents / Net; since
+//      2026-09-28 the dashboard is the only UI, and the rule carries over). cheap-mem is the
 //      public tool and is English throughout — docs say so explicitly,
 //      the console, the viewer, the CLI help and the entry type names
 //      are English. German tabs over an English console would be the two
@@ -30,9 +32,12 @@ import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as config from '../src/config.mjs';
 import * as dashboard from '../src/dashboard.mjs';
-import * as desk from '../src/astra.mjs';
+import * as dashboardPage from '../src/dashboard-page.mjs';
 import * as viewer from '../src/viewer.mjs';
-import * as consolePage from '../src/console.mjs';
+
+// The dashboard's words live in its script: the page shell plus the
+// script the browser runs are what a user reads.
+const SCRIPT = fs.readFileSync(new URL('../assets/dashboard/dashboard.js', import.meta.url), 'utf8');
 
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
@@ -68,9 +73,8 @@ const seiten = () => {
   const root = welt();
   try {
     return {
-      desk: desk.build(root, { title: 'x' }).html,
+      desk: dashboardPage.asHtml({ title: 'x' }) + SCRIPT,
       viewer: viewer.build([root], { title: 'x' }).html,
-      nav: consolePage.insertNav('<body><main></main></body>', 'viewer'),
     };
   } finally { away(root); }
 };
@@ -80,7 +84,7 @@ test('POSITIVE: the probe really reads pages with navigation in them', () => {
   const s = seiten();
   assert.ok(s.desk.length > 5000, `desk page only ${s.desk.length} characters`);
   assert.ok(s.viewer.length > 5000, `viewer page only ${s.viewer.length} characters`);
-  for (const wort of ['Knowledge', 'Projects', 'Agents']) {
+  for (const wort of ['Knowledge', 'Projects', 'Agents', 'Overview']) {
     assert.ok(s.desk.includes(wort), `the desk has no '${wort}' tab — wrong page?`);
   }
 });
@@ -103,9 +107,9 @@ test('the detail label is "built on", and deliberately not "Provenance"', () => 
   // per-entry thing shown here is `origin.derived_from`. One word for
   // both would be the same defect one level down.
   const html = seiten().desk;
-  assert.match(html, /<dt>built on<\/dt>/,
+  assert.match(html, /built on<\/span>/,
     'the "built on" label is gone — if it was renamed, the reason above has to be re-read');
-  assert.equal(/<dt>\s*Provenance\s*<\/dt>/i.test(html), false,
+  assert.equal(/<span>[^<]*Provenance[^<]*<\/span>/i.test(html), false,
     'the per-entry field is now called Provenance, which is what the whole-memory '
     + 'freshness state in src/provenance.mjs is called');
 });

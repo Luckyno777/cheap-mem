@@ -28,7 +28,11 @@ import * as archive from '../src/archive.mjs';
 import * as raw from '../src/raw.mjs';
 import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
-import * as astra from '../src/astra.mjs';
+import { collectDashboard } from '../src/dashboard-data.mjs';
+
+// The dashboard draws the raw review in the browser from
+// `/dashboard.json`; its sentences live in the client script.
+const SCRIPT = fs.readFileSync(new URL('../assets/dashboard/dashboard.js', import.meta.url), 'utf8');
 
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 const PKG_ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -418,17 +422,23 @@ test('the desk collects the raw review as its own data, with real counts', () =>
   } finally { away(root); }
 });
 
-test('the desk page shows the raw review, deleted ones included', () => {
+test('the dashboard carries the raw review, deleted ones included', () => {
   const { root, cfg, paths } = world({ captures: 2 });
   try {
     archive.remove(cfg, root, paths[0], { reason: 'aus Platzgruenden', by: 'lucky' });
-    const { html } = astra.build(root, { title: 'desk test' });
-    assert.match(html, /Raw captures/);
-    // The path really is on the page — not just the word "deleted"
-    // somewhere unrelated to it.
-    assert.ok(html.includes(paths[0]), 'the deleted capture is not shown at all');
-    assert.ok(html.includes(paths[1]), 'the present capture is not shown at all');
-    assert.match(html, /aus Platzgruenden/);
+    const d = collectDashboard(root, { env: {}, cfg: {} });
+    assert.equal(d.raw.readable, true);
+    // The path really is in the page's data — not just the word
+    // "deleted" somewhere unrelated to it.
+    const gone = d.raw.captures.find((r) => r.path === paths[0]);
+    const here = d.raw.captures.find((r) => r.path === paths[1]);
+    assert.ok(gone, 'the deleted capture is not shown at all');
+    assert.ok(here, 'the present capture is not shown at all');
+    assert.equal(gone.state, 'deleted');
+    assert.equal(here.state, 'present');
+    assert.match(JSON.stringify(gone.deleted), /aus Platzgruenden/);
+    // And the view really draws the reason next to a deleted row.
+    assert.match(SCRIPT, /deleted: \$\{esc\(r\.deleted\.reason/);
   } finally { away(root); }
 });
 
@@ -477,17 +487,15 @@ test('a register that cannot be read is NOT "no captures"', () => {
       assert.equal(d.raw.counts[k], null, `${k} reports a number nobody counted`);
     }
 
-    const html = astra.build(w.root, { title: 'review' }).html;
-    // The NOTE where the table would be, not just the heading. The first
-    // version of this line matched anywhere on the page — and the
-    // heading says the same thing, so rewriting the note to claim the
-    // register was "empty" left this probe green. Found by sabotage.
-    assert.match(html, /class="none unmeasured"[\s\S]{0,120}could not be read/,
-      'the note in place of the table does not say the register was unreadable');
-    assert.match(html, /not measured — the register could not be read/,
-      'the heading reports counts that were never taken');
-    assert.equal(/No raw capture has been recorded yet/.test(html), false,
-      'the page claims there are no captures — that is the bug this probe exists for');
+    const dd = collectDashboard(w.root, { env: {}, cfg: {} });
+    assert.equal(dd.raw.readable, false, 'the dashboard payload claims a readable register');
+    assert.ok(dd.raw.error, 'the dashboard payload drops the reason');
+    for (const k of raw.CAPTURE_STATES) assert.equal(dd.raw.counts[k], null, `dashboard: ${k} reports a number nobody counted`);
+    // The view: an unreadable register returns the note BEFORE any list
+    // or empty-state sentence can be drawn.
+    const page = SCRIPT.slice(SCRIPT.indexOf('function rawPage()'));
+    assert.match(page.slice(0, 400), /if \(!rf\.readable\) return panel\([^\n]*not readable[^\n]*false statement/,
+      'the raw view no longer refuses to draw a list for an unreadable register');
   } finally { away(w.root); }
 });
 
@@ -502,8 +510,10 @@ test('POSITIVE: with the register intact the same page does say "none yet"', () 
     assert.equal(d.raw.readable, true, 'an empty memory counts as unreadable');
     assert.deepEqual(d.raw.counts,
       Object.fromEntries(raw.CAPTURE_STATES.map((k) => [k, 0])));
-    assert.match(astra.build(root, { title: 'review' }).html,
-      /No raw capture has been recorded yet/, 'the empty-state sentence is gone');
+    const dd = collectDashboard(root, { env: {}, cfg: {} });
+    assert.equal(dd.raw.readable, true);
+    assert.equal(dd.raw.captures.length, 0);
+    assert.match(SCRIPT, /No raw capture recorded yet/, 'the empty-state sentence is gone');
   } finally { away(root); }
 });
 
