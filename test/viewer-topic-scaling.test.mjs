@@ -242,8 +242,50 @@ test('nothing lost: topic grouping, current/trail and links match a hand-checked
 // 3. The guarantee — growth exponent stays under the bound
 // ---------------------------------------------------------------------
 
-test('the guarantee: viewer build time grows sub-quadratically with corpus size', () => {
-  const { points, exponent: e } = measureGrowth((root) => viewer.collectMemory(root));
+// P8 (2026-09-28): both checks below time `collectMemory()` with
+// `performance.now()` (see the section-5 comment further down, written
+// for the SAME reason: "noisy on a machine shared with other work").
+// `betrieb/volle-suite.sh` no longer serialises this house's full suite
+// against the other one's (I8), so that sharing is now routine, not an
+// edge case — gate on the same quiet-machine signal
+// `test/p16-append-exponent.test.mjs`'s `measureUnderLoadGate` already
+// uses (`bench/atlas/core.mjs`, imported here as `corpus`), rather than
+// leaving checks 3-4 as the two un-gated wall-clock probes in this file.
+// Check 5 (counting, below) already never needed this — it stays as is.
+function messungUnterLastGate(work) {
+  const calibBaseline = corpus.captureQuietCalibrationBaseline();
+  const before = corpus.captureForeignLoad(calibBaseline);
+  const result = work();
+  const after = corpus.captureForeignLoad(calibBaseline);
+  const load = corpus.foreignLoadDelta(before, after, calibBaseline);
+  if (!calibBaseline.trustworthy) {
+    return {
+      result,
+      notMeasuredReason: `this run's own quiet-calibration baseline never stabilised in `
+        + `${calibBaseline.attempts} attempt(s) — the machine cannot be shown quiet here.`,
+    };
+  }
+  const stealCgroupOver = load.deniedMsPerSec !== null && load.deniedMsPerSec > corpus.FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec > corpus.FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  if (stealCgroupOver || psiOver) {
+    return {
+      result,
+      notMeasuredReason: `foreign load was measured during this window (deniedMsPerSec=${load.deniedMsPerSec}, `
+        + `psiMsPerSec=${load.psiMsPerSec}, threshold ${corpus.FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s) — this `
+        + 'window\'s timings cannot be trusted to reflect the real cost being measured.',
+    };
+  }
+  return { result, notMeasuredReason: null };
+}
+
+test('the guarantee: viewer build time grows sub-quadratically with corpus size', (t) => {
+  const gate = messungUnterLastGate(() => measureGrowth((root) => viewer.collectMemory(root)));
+  if (gate.notMeasuredReason) {
+    t.skip(`not measured: ${gate.notMeasuredReason} points: ${JSON.stringify(gate.result.points)} `
+      + '(the load-immune counting probe below still covers this guarantee unconditionally)');
+    return;
+  }
+  const { points, exponent: e } = gate.result;
   const report = points.map((p) => `${p.entries} entries, ${p.topics} topics: ${p.ms.toFixed(1)} ms`).join(' | ');
   assert.ok(e !== null, `could not compute an exponent — ${report}`);
   assert.ok(e < EXPONENT_BOUND,
@@ -256,10 +298,17 @@ test('the guarantee: viewer build time grows sub-quadratically with corpus size'
 //    red, then confirm the checked-in file is green.
 // ---------------------------------------------------------------------
 
-test('sabotage: reintroducing per-topic topicState() makes the exponent check fail', async () => {
+test('sabotage: reintroducing per-topic topicState() makes the exponent check fail', async (t) => {
   const { module: sabotagedModule, cleanup } = await loadSabotagedViewer();
 
-  const before = measureGrowth((root) => sabotagedModule.collectMemory(root));
+  const redGate = messungUnterLastGate(() => measureGrowth((root) => sabotagedModule.collectMemory(root)));
+  if (redGate.notMeasuredReason) {
+    cleanup();
+    t.skip(`not measured (RED half): ${redGate.notMeasuredReason} `
+      + `points: ${JSON.stringify(redGate.result.points)}`);
+    return;
+  }
+  const before = redGate.result;
   const beforeReport = before.points
     .map((p) => `${p.entries} entries, ${p.topics} topics: ${p.ms.toFixed(1)} ms`).join(' | ');
   assert.ok(before.exponent !== null, `sabotage: could not compute an exponent — ${beforeReport}`);
@@ -270,7 +319,14 @@ test('sabotage: reintroducing per-topic topicState() makes the exponent check fa
   // Restore: the real, checked-in module (never modified on disk) is
   // green again. No git command involved anywhere in this test — the
   // "restore" is simply using the untouched file.
-  const after = measureGrowth((root) => viewer.collectMemory(root));
+  const greenGate = messungUnterLastGate(() => measureGrowth((root) => viewer.collectMemory(root)));
+  if (greenGate.notMeasuredReason) {
+    cleanup();
+    t.skip(`not measured (GREEN half): ${greenGate.notMeasuredReason} `
+      + `points: ${JSON.stringify(greenGate.result.points)}`);
+    return;
+  }
+  const after = greenGate.result;
   const afterReport = after.points
     .map((p) => `${p.entries} entries, ${p.topics} topics: ${p.ms.toFixed(1)} ms`).join(' | ');
   assert.ok(after.exponent !== null, `restore: could not compute an exponent — ${afterReport}`);
