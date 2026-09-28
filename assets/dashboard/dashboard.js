@@ -3,7 +3,7 @@
  *
  * cheap-mem · Dashboard — the script of the one UI.
  *
- * The sibling house's dashboard (lucky-mem, Dashboard-Muster-3), ported
+ * The sibling house's dashboard (Dashboard-Muster-3), ported
  * view for view: the same areas, tabs, ids, click delegation, keyboard,
  * dialogs, animations and the 3D energy-core network. Owner decision
  * 2026-09-28: the two houses are functionally and visually identical —

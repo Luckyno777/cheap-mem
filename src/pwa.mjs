@@ -123,13 +123,23 @@ export function insertHead(html) {
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="mem">
 <link rel="apple-touch-icon" href="data:image/png;base64,${icon.mark(180, { dark: true }).toString('base64')}">
+<meta name="theme-color" content="${THEME_LIGHT}" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="${THEME_DARK}" media="(prefers-color-scheme: dark)">
 <style>
   /* As an installed app the page runs under the notch and over the
-     swipe bar. Without this the top bar sticks under the clock. */
+     swipe bar. Without this the header sticks under the clock. The
+     same rules as the sibling's shell, value for value — they also set
+     the page's side padding, so the two houses line up to the pixel. */
   @supports (padding:max(0px)){
-    .topbar{ padding-left:max(35px,env(safe-area-inset-left)); padding-right:max(35px,env(safe-area-inset-right)) }
+    header .bar{ padding-left:max(20px,env(safe-area-inset-left));
+                 padding-right:max(20px,env(safe-area-inset-right)) }
+    main{ padding-left:max(20px,env(safe-area-inset-left));
+          padding-right:max(20px,env(safe-area-inset-right));
+          padding-bottom:max(80px,calc(60px + env(safe-area-inset-bottom))) }
   }
-  @media (display-mode:standalone){ .topbar{ padding-top:env(safe-area-inset-top) } }
+  @media (display-mode:standalone){
+    header{ padding-top:env(safe-area-inset-top) }
+  }
 </style>
 <script src="/dashboard/sw-register.js"></script>`;
   // viewport-fit=cover is the condition for env(safe-area-*) to be
