@@ -30,9 +30,10 @@ import * as maintenance from '../../maintenance.mjs';
 import * as observations from '../../observations.mjs';
 import * as agentledger from '../../agentledger.mjs';
 import * as today from '../../today.mjs';
+import * as modelcost from '../../modelcost.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
-/** 10 commands. */
+/** 11 commands. */
 export const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
@@ -711,6 +712,49 @@ export const COMMANDS = {
     if (args.line) { const l = today.line(r); if (l) out(l); return; }
     if (args.json) { out(JSON.stringify(r, null, 2)); return; }
     out(today.asText(r));
+  },
+
+  modelcost: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem modelcost [--days N] [--json]',
+        '',
+        '  The token/cost journal from a real headless `claude -p',
+        '  --output-format json` run (src/modelcost.mjs, dash-fix3',
+        '  parity) — bin/mem-digest is wired to it. Machine-local',
+        '  (.pipeline/model-cost.jsonl, gitignored): a caller\'s',
+        '  telemetry describes this machine, not the memory\'s content,',
+        '  so it never travels between clones.',
+        '',
+        '  Nothing here is a bill. `total_cost_usd` is the CLI\'s own',
+        '  cost ESTIMATE for the account\'s plan — labelled as such.',
+        '',
+        '  --days   window in days, summed per caller (default 7)',
+        '  --json   the raw per-caller summary',
+        '',
+        '  With no row yet (a fresh clone, a CLI without the field) this',
+        '  says so honestly — never a dash, never an invented 0.',
+        '',
+        '  Read-only.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['days', 'json', 'root'], 'modelcost');
+    const root = findRoot(args);
+    requireConfig(root);
+    const days = args.days && args.days !== true ? Number(args.days) : 7;
+    const summary = modelcost.sumByCaller(root, { sinceDays: days });
+    if (args.json) { out(JSON.stringify(summary, null, 2)); return; }
+    if (!summary.length) {
+      out(`Not measured yet — no row in the cost journal (${modelcost.LOG}).`);
+      return;
+    }
+    const lines = [`MODEL COST — last ${days} day(s), estimate (not a bill):`, ''];
+    for (const s of summary) {
+      const cost = s.costUsd != null ? `$${s.costUsd.toFixed(4)}` : 'cost not reported by this CLI';
+      lines.push(`  ${s.who}: ${s.runs} run(s), ${s.inputTokens} in / ${s.outputTokens} out tokens, ${cost}`);
+    }
+    out(lines.join('\n'));
   },
 
 };
