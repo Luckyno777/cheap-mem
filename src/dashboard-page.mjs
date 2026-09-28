@@ -99,7 +99,7 @@ export function initials(name) {
  * `workspace` comes from `.mem/config.json` (its `name`, and the
  * participant marked human) — never a name written into this code.
  */
-export function asHtml({ title = 'cheap-mem', writesAllowed = false, workspace = {} } = {}) {
+export function asHtml({ title = 'cheap-mem', writesAllowed = false, workspace = {}, loginEnabled = false } = {}) {
   const space = workspace.name || 'this memory';
   const person = workspace.human || null;
   const markLink = icon.markLink(64);
@@ -111,7 +111,7 @@ ${markLink}
 ${fontCss()}
 </style>
 <link rel="stylesheet" href="${PATHS.css}">
-</head><body data-writes="${writesAllowed ? '1' : '0'}" data-title="${h(title)}">
+</head><body data-writes="${writesAllowed ? '1' : '0'}" data-login="${loginEnabled ? '1' : '0'}" data-title="${h(title)}">
 <div class="shell"><aside class="sidebar"><div class="brand">${icon.markSvg()}<div>cheap<span style="font-weight:350">mem</span><small>YOUR KNOWLEDGE. CONNECTED.</small></div></div><div class="workspace"><span class="logo">${h(initials(space))}</span><div><strong>${h(space)}</strong><div class="small quiet">Personal memory</div></div></div><div class="label" style="padding-left:12px">Workspace</div><nav id="nav" class="nav"></nav><div class="side-note">Memories become<br>connections.</div><footer><nav class="sidebar-nav" aria-label="Other pages"><span class="label">Other pages</span><a href="#work/inbox" title="every recipient's messages, read and acknowledge"><span class="sidebar-glyph" aria-hidden="true">✉</span>Inbox</a></nav><div class="person"><span class="avatar">${h(person ? initials(person) : '··')}</span><div><strong class="small">${h(person || 'No human configured')}</strong><small>Dashboard server</small></div></div><div style="margin-top:18px" class="demo live" id="liveMark">○ CONNECTING …</div></footer></aside>
 <div class="content"><header class="topbar"><button class="iconbtn mobile-toggle" id="mobileMenu" aria-label="Open navigation" aria-expanded="false">☰</button><div class="crumb"><span>Workspace</span><span>/</span><span id="crumb">Overview</span></div><div class="top-actions"><span class="demo live" id="dataMark">LIVE DATA</span><button class="btn ghost" data-action="search" aria-label="Global search"><span class="searchhint">Find knowledge</span><span>⌕</span><kbd class="kbd">Ctrl K</kbd></button><button class="iconbtn global-motion" data-action="motion" aria-label="Toggle all animations" title="Pause / resume all animations">Ⅱ</button><button class="iconbtn" data-action="theme" aria-label="Light or dark colour scheme">◐</button><button class="btn primary" data-action="new">+ Entry</button></div></header>
 <main><div class="scopebar"><select id="memoryScope" aria-label="Memory"><option value="local">cheap-mem</option></select><select id="projectScope" aria-label="Project"><option value="all">All projects</option></select><span class="badge" id="stateMark"><span class="dot"></span> Loading state</span><span class="right small quiet" id="versionMark">—</span></div><div id="screen"><div class="loading"><span class="loading-core" aria-hidden="true"></span><p>Reading the memory …</p></div></div><footer class="footnote"><span id="footLeft">cheap-mem · Dashboard · content live from this memory.</span><span id="footRight">Reading changes nothing. Writing only through the existing routes and their gates.</span></footer></main></div></div>
