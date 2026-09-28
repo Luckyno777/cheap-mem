@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as viewer from '../src/viewer.mjs';
+import { tempDir } from './temp-dir.mjs';
 
-function tmpRoot() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-viewer-'));
+function tmpRoot(t) {
+  return tempDir('cheap-mem-viewer-', t);
 }
 
 // A small memory with one of several shapes: a global decision + error,
@@ -26,8 +26,8 @@ function seed(root) {
     { project: 'webapp', now: new Date('2026-01-03T00:00:00Z') });
 }
 
-test('collect gathers every entry, newest first', () => {
-  const root = tmpRoot();
+test('collect gathers every entry, newest first', (t) => {
+  const root = tmpRoot(t);
   seed(root);
   const rows = viewer.collect(root);
   assert.equal(rows.length, 3);
@@ -35,8 +35,8 @@ test('collect gathers every entry, newest first', () => {
   assert.equal(rows[2].details.choice, 'sqlite');               // 01-01 last
 });
 
-test('collect maps type and project from the source path', () => {
-  const root = tmpRoot();
+test('collect maps type and project from the source path', (t) => {
+  const root = tmpRoot(t);
   seed(root);
   const rows = viewer.collect(root);
   const ev = rows.find((r) => r.headline.includes('launched v1'));
@@ -47,15 +47,15 @@ test('collect maps type and project from the source path', () => {
   assert.equal(err.typeLabel, 'Errors');
 });
 
-test('headline prefers meaningful fields', () => {
-  const root = tmpRoot();
+test('headline prefers meaningful fields', (t) => {
+  const root = tmpRoot(t);
   memory.logEntry(root, 'decision', { topic: 'x', choice: 'y', why: 'z' });
   const rows = viewer.collect(root);
   assert.equal(rows[0].headline.includes('y'), true); // choice is a headline field
 });
 
-test('renderHtml embeds content and is one self-contained file', () => {
-  const root = tmpRoot();
+test('renderHtml embeds content and is one self-contained file', (t) => {
+  const root = tmpRoot(t);
   seed(root);
   const { html, count } = viewer.build(root, { title: 'demo' });
   assert.equal(count, 3);
@@ -67,8 +67,8 @@ test('renderHtml embeds content and is one self-contained file', () => {
   assert.equal(/<link[^>]+href=["']https?:/i.test(html), false);
 });
 
-test('the embedded JSON payload parses and escapes </script>', () => {
-  const root = tmpRoot();
+test('the embedded JSON payload parses and escapes </script>', (t) => {
+  const root = tmpRoot(t);
   memory.logEntry(root, 'event', { title: 'break </script> out', text: '<!-- x -->' });
   const { html } = viewer.build(root, { title: 't' });
   // The raw close-tag must not appear inside the payload verbatim.
@@ -79,8 +79,8 @@ test('the embedded JSON payload parses and escapes </script>', () => {
   assert.equal(json.memories[0].entries[0].headline.includes('break </script> out'), true);
 });
 
-test('the viewer never reads raw/ (redaction stays upstream)', () => {
-  const root = tmpRoot();
+test('the viewer never reads raw/ (redaction stays upstream)', (t) => {
+  const root = tmpRoot(t);
   seed(root);
   fs.mkdirSync(path.join(root, 'raw'), { recursive: true });
   fs.writeFileSync(path.join(root, 'raw', 'canary.txt'), 'RAW-CANARY-DO-NOT-LEAK', 'utf8');
@@ -88,8 +88,8 @@ test('the viewer never reads raw/ (redaction stays upstream)', () => {
   assert.equal(html.includes('RAW-CANARY-DO-NOT-LEAK'), false);
 });
 
-test('an empty memory renders a valid, zero-row page', () => {
-  const root = tmpRoot();
+test('an empty memory renders a valid, zero-row page', (t) => {
+  const root = tmpRoot(t);
   // no entries at all
   const { html, count } = viewer.build(root, { title: 'empty' });
   assert.equal(count, 0);
@@ -104,8 +104,8 @@ test('an empty memory renders a valid, zero-row page', () => {
   assert.equal(json.memories[0].counts.total, 0);
 });
 
-test('retired entries are shown in the viewer, marked', () => {
-  const root = tmpRoot();
+test('retired entries are shown in the viewer, marked', (t) => {
+  const root = tmpRoot(t);
   const { entry } = memory.logEntry(root, 'thought', { text: 'discarded idea zebra' });
   memory.retireEntry(root, 'thought', entry.id, { state: 'discarded' });
   const rows = viewer.collect(root);
@@ -119,8 +119,8 @@ test('retired entries are shown in the viewer, marked', () => {
   assert.equal(html.includes('only live'), true);
 });
 
-test('a broken (non-JSON) log line does not crash the viewer', () => {
-  const root = tmpRoot();
+test('a broken (non-JSON) log line does not crash the viewer', (t) => {
+  const root = tmpRoot(t);
   seed(root);
   fs.appendFileSync(memory.logPath(root, 'event'), 'this is not json\n', 'utf8');
   const { html } = viewer.build(root, {});
@@ -143,14 +143,14 @@ test('a broken (non-JSON) log line does not crash the viewer', () => {
 // catch-block could reach for.
 //
 // invariant: kein-rueckfall-auf-erfundene-daten
-test('an empty memory renders an empty page, not a sample one', () => {
-  const root = tmpRoot();
+test('an empty memory renders an empty page, not a sample one', (t) => {
+  const root = tmpRoot(t);
   const leer = viewer.build([root], { title: 'probe' });
 
   // POSITIVE CONTROL first: with entries, the page really does carry
   // them. Without this the assertion below passes on a broken builder
   // that renders nothing at all, ever.
-  const full = tmpRoot();
+  const full = tmpRoot(t);
   seed(full);
   const voll = viewer.build([full], { title: 'probe' });
   assert.ok(voll.count > 0 && voll.html.includes('sqlite'),

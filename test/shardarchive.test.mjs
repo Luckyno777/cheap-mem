@@ -15,6 +15,7 @@
 //   4. SIZE — a fresh clone's size with and without the archived
 //      shards, both numbers reported.
 import test from 'node:test';
+import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -27,8 +28,8 @@ import * as capability from '../src/capability.mjs';
 import * as shardarchive from '../src/shardarchive.mjs';
 import { buildCorpus } from '../bench/atlas/core.mjs';
 
-function tmpRoot() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-'));
+function tmpRoot(testCtx) {
+  const r = tempDir('cm-shardarchive-', testCtx);
   cfg.writeConfig(r, cfg.DEFAULT_CONFIG);
   return r;
 }
@@ -47,8 +48,8 @@ function seedLearnings(root, n) {
 // 1. POSITIVE CONTROL
 // ---------------------------------------------------------------------
 
-test('POSITIVE CONTROL: an entry never archived resolves exactly as memory.getEntry would', () => {
-  const root = tmpRoot();
+test('POSITIVE CONTROL: an entry never archived resolves exactly as memory.getEntry would', (testCtx) => {
+  const root = tmpRoot(testCtx);
   const ids = seedLearnings(root, 5);
   const direct = memory.getEntry(root, ids[2]);
   const wrapped = shardarchive.resolveEntry(root, ids[2]);
@@ -57,9 +58,9 @@ test('POSITIVE CONTROL: an entry never archived resolves exactly as memory.getEn
   assert.deepEqual(wrapped.entry, direct);
 });
 
-test('POSITIVE CONTROL: a full clone (archive present and reachable) answers an archived id with the real entry', () => {
-  const root = tmpRoot();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-store-'));
+test('POSITIVE CONTROL: a full clone (archive present and reachable) answers an archived id with the real entry', (testCtx) => {
+  const root = tmpRoot(testCtx);
+  const store = tempDir('cm-shardarchive-store-', testCtx);
   archive.setLocation(root, store);
   const ids = seedLearnings(root, 6);
 
@@ -84,9 +85,9 @@ test('POSITIVE CONTROL: a full clone (archive present and reachable) answers an 
   assert.equal(stillLive.source, 'live');
 });
 
-test('POSITIVE CONTROL: findWithArchiveNotice matches memory.find with no notice when the archive is fully reachable', () => {
-  const root = tmpRoot();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-store-'));
+test('POSITIVE CONTROL: findWithArchiveNotice matches memory.find with no notice when the archive is fully reachable', (testCtx) => {
+  const root = tmpRoot(testCtx);
+  const store = tempDir('cm-shardarchive-store-', testCtx);
   archive.setLocation(root, store);
   seedLearnings(root, 5);
   shardarchive.archiveOldest(root, 'learning', { count: 3 });
@@ -105,9 +106,9 @@ test('POSITIVE CONTROL: findWithArchiveNotice matches memory.find with no notice
 // 2. THE REAL PROBE: archive absent
 // ---------------------------------------------------------------------
 
-test('THE REAL PROBE: archive absent -> resolveEntry redirects, naming where the material is and how to reach it', () => {
-  const root = tmpRoot();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-store-'));
+test('THE REAL PROBE: archive absent -> resolveEntry redirects, naming where the material is and how to reach it', (testCtx) => {
+  const root = tmpRoot(testCtx);
+  const store = tempDir('cm-shardarchive-store-', testCtx);
   archive.setLocation(root, store);
   const ids = seedLearnings(root, 4);
   // The exact raw line, byte for byte, before it gets moved — used
@@ -148,9 +149,9 @@ test('THE REAL PROBE: archive absent -> resolveEntry redirects, naming where the
   assert.equal(again.entry.id, ids[0]);
 });
 
-test('THE REAL PROBE: archive absent -> findWithArchiveNotice keeps live hits and names the gap explicitly', () => {
-  const root = tmpRoot();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-store-'));
+test('THE REAL PROBE: archive absent -> findWithArchiveNotice keeps live hits and names the gap explicitly', (testCtx) => {
+  const root = tmpRoot(testCtx);
+  const store = tempDir('cm-shardarchive-store-', testCtx);
   archive.setLocation(root, store);
   seedLearnings(root, 5);
   shardarchive.archiveOldest(root, 'learning', { count: 3 });
@@ -169,9 +170,9 @@ test('THE REAL PROBE: archive absent -> findWithArchiveNotice keeps live hits an
 // 3. SABOTAGE, verified by hand: a silent "not found" must turn this RED
 // ---------------------------------------------------------------------
 
-test('SABOTAGE: an unreachable archived shard must report NOT_MEASURED, never a silent "not found"', () => {
-  const root = tmpRoot();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-store-'));
+test('SABOTAGE: an unreachable archived shard must report NOT_MEASURED, never a silent "not found"', (testCtx) => {
+  const root = tmpRoot(testCtx);
+  const store = tempDir('cm-shardarchive-store-', testCtx);
   archive.setLocation(root, store);
   const ids = seedLearnings(root, 3);
   shardarchive.archiveOldest(root, 'learning', { count: 3 });
@@ -225,9 +226,9 @@ test('SABOTAGE: an unreachable archived shard must report NOT_MEASURED, never a 
   assert.equal(green.redirect.shard, row.shard);
 });
 
-test('SABOTAGE: archiveStatus tells "some unreachable" (DEGRADED) apart from "all unreachable" (NOT_MEASURED)', () => {
-  const root = tmpRoot();
-  const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-store-'));
+test('SABOTAGE: archiveStatus tells "some unreachable" (DEGRADED) apart from "all unreachable" (NOT_MEASURED)', (testCtx) => {
+  const root = tmpRoot(testCtx);
+  const store = tempDir('cm-shardarchive-store-', testCtx);
   archive.setLocation(root, store);
   seedLearnings(root, 6);
   const first = shardarchive.archiveOldest(root, 'learning', { count: 2 });
@@ -290,7 +291,7 @@ function freshRepoGitSize(buildFn) {
   return size;
 }
 
-test('SIZE: a fresh clone of the steady state is smaller with archiving than without, and both numbers are reported', () => {
+test('SIZE: a fresh clone of the steady state is smaller with archiving than without, and both numbers are reported', (testCtx) => {
   // Realistically-sized entries, not the tiny fixed-shape entries
   // `seedLearnings` uses elsewhere in this file. This module's own
   // header explains why that distinction matters: a synthetic corpus of
@@ -324,7 +325,7 @@ test('SIZE: a fresh clone of the steady state is smaller with archiving than wit
   let shardBytesOutsideGit = 0;
   const withArchiving = freshRepoGitSize((repo) => {
     cfg.writeConfig(repo, cfg.DEFAULT_CONFIG);
-    const store = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-clonesize-store-'));
+    const store = tempDir('cm-shardarchive-clonesize-store-', testCtx);
     archive.setLocation(repo, store);
     buildCorpus(repo, N, { seed: 42, anchors: 0 });
     const toMove = Math.floor(learningEntries * 0.8);

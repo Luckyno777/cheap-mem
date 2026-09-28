@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as inbox from '../src/inbox.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const PARTS = { user: 'H', session: 'AI', librarian: 'lib' };
 
-function tmpRoot() { return fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-inbox-')); }
+function tmpRoot(t) { return tempDir('cheap-mem-inbox-', t); }
 
 test('build + parse round-trip', () => {
   const content = inbox.build(PARTS, {
@@ -46,8 +46,8 @@ test('build rejects control chars', () => {
   }));
 });
 
-test('write + read + newFor', () => {
-  const root = tmpRoot();
+test('write + read + newFor', (t) => {
+  const root = tmpRoot(t);
   inbox.write(root, PARTS, { from: 'session', to: 'librarian', subject: 's1', text: 't1' });
   inbox.write(root, PARTS, { from: 'session', to: 'librarian', subject: 's2', text: 't2', now: new Date(Date.now() + 1000) });
   const r = inbox.read(root, PARTS, { to: 'librarian' });
@@ -60,8 +60,8 @@ test('write + read + newFor', () => {
   assert.equal(nf2.known, 2);
 });
 
-test('setState changes state without touching body', () => {
-  const root = tmpRoot();
+test('setState changes state without touching body', (t) => {
+  const root = tmpRoot(t);
   const { name } = inbox.write(root, PARTS, {
     from: 'session', to: 'librarian', subject: 's', text: 'the body\nof two lines',
   });
@@ -71,8 +71,8 @@ test('setState changes state without touching body', () => {
   assert.equal(p.text, 'the body\nof two lines');
 });
 
-test('remoteNew filters by "to" and flags unreadable', () => {
-  const root = tmpRoot();
+test('remoteNew filters by "to" and flags unreadable', (t) => {
+  const root = tmpRoot(t);
   const names = [
     'inbox/2026-01-01T00-00-00Z--session-to-librarian.md',
     'inbox/2026-01-01T00-00-01Z--librarian-to-session.md',
@@ -83,8 +83,8 @@ test('remoteNew filters by "to" and flags unreadable', () => {
   assert.equal(r.unreadable.length, 1);
 });
 
-test('watch returns broken on git failure', () => {
-  const root = tmpRoot();
+test('watch returns broken on git failure', (t) => {
+  const root = tmpRoot(t);
   const r = inbox.watch(root, PARTS, {
     to: 'librarian',
     exec: () => { throw new Error('mock: no remote'); },
@@ -93,8 +93,8 @@ test('watch returns broken on git failure', () => {
   assert.equal(r.reason, 'remote-unreachable');
 });
 
-test('watch returns nothing when remote has no new', () => {
-  const root = tmpRoot();
+test('watch returns nothing when remote has no new', (t) => {
+  const root = tmpRoot(t);
   const r = inbox.watch(root, PARTS, {
     to: 'librarian',
     exec: (cmd, args) => {
@@ -106,8 +106,8 @@ test('watch returns nothing when remote has no new', () => {
   assert.equal(r.status, 'nothing');
 });
 
-test('watch returns new list when remote has new mail', () => {
-  const root = tmpRoot();
+test('watch returns new list when remote has new mail', (t) => {
+  const root = tmpRoot(t);
   const r = inbox.watch(root, PARTS, {
     to: 'librarian',
     exec: (cmd, args) => {

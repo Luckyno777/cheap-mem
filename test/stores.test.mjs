@@ -17,18 +17,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as stores from '../src/stores.mjs';
+import { tempDir } from './temp-dir.mjs';
 
-function fakeHome(bauen = []) {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
+function fakeHome(t, bauen = []) {
+  const home = tempDir('cm-home-', t);
   for (const rel of bauen) fs.mkdirSync(path.join(home, rel), { recursive: true });
   return home;
 }
 
-test('a store that is not installed is reported as such, not omitted', () => {
-  const home = fakeHome();
+test('a store that is not installed is reported as such, not omitted', (t) => {
+  const home = fakeHome(t);
   const found = stores.discover({ platform: 'darwin', home });
 
   // Every known store appears, with an empty list. "Not installed" and
@@ -39,10 +39,10 @@ test('a store that is not installed is reported as such, not omitted', () => {
   for (const s of found) assert.deepEqual(s.found, []);
 });
 
-test('Google Drive is found although the account is in the folder name', () => {
+test('Google Drive is found although the account is in the folder name', (t) => {
   // This is the case that makes a lookup necessary in the first place:
   // the path cannot be written down in advance.
-  const home = fakeHome(['Library/CloudStorage/GoogleDrive-someone@example.com/My Drive']);
+  const home = fakeHome(t, ['Library/CloudStorage/GoogleDrive-someone@example.com/My Drive']);
   const r = stores.resolve('gdrive', { platform: 'darwin', home });
   assert.equal(r.ok, true);
   assert.equal(r.path,
@@ -50,8 +50,8 @@ test('Google Drive is found although the account is in the folder name', () => {
       stores.SUBFOLDER));
 });
 
-test('iCloud on macOS, OneDrive with a company suffix, Dropbox', () => {
-  const home = fakeHome([
+test('iCloud on macOS, OneDrive with a company suffix, Dropbox', (t) => {
+  const home = fakeHome(t, [
     'Library/Mobile Documents/com~apple~CloudDocs',
     'Library/CloudStorage/OneDrive-SomeCompany',
     'Dropbox',
@@ -62,10 +62,10 @@ test('iCloud on macOS, OneDrive with a company suffix, Dropbox', () => {
   assert.equal(stores.resolve('dropbox', opts).ok, true);
 });
 
-test('two candidates are AMBIGUOUS, not silently the first one', () => {
+test('two candidates are AMBIGUOUS, not silently the first one', (t) => {
   // "It went somewhere" is the exact failure this archive was built to
   // avoid. Two Google accounts on one machine is ordinary, not exotic.
-  const home = fakeHome([
+  const home = fakeHome(t, [
     'Library/CloudStorage/GoogleDrive-work@example.com/My Drive',
     'Library/CloudStorage/GoogleDrive-home@example.com/My Drive',
   ]);
@@ -75,8 +75,8 @@ test('two candidates are AMBIGUOUS, not silently the first one', () => {
   assert.equal(r.found.length, 2);
 });
 
-test('a store not installed here says so, and an unknown id lists the known ones', () => {
-  const home = fakeHome();
+test('a store not installed here says so, and an unknown id lists the known ones', (t) => {
+  const home = fakeHome(t);
   const nicht = stores.resolve('dropbox', { platform: 'linux', home });
   assert.equal(nicht.ok, false);
   assert.equal(nicht.reason, 'not-installed');
@@ -87,17 +87,17 @@ test('a store not installed here says so, and an unknown id lists the known ones
   assert.ok(quatsch.known.includes('dropbox'), 'the error does not say what IS known');
 });
 
-test('a plain folder is not a cloud and asks for a path', () => {
-  const r = stores.resolve('local', { platform: 'linux', home: fakeHome() });
+test('a plain folder is not a cloud and asks for a path', (t) => {
+  const r = stores.resolve('local', { platform: 'linux', home: fakeHome(t) });
   assert.equal(r.ok, false);
   assert.equal(r.reason, 'needs-path');
 });
 
-test('the sync warning belongs to the PATH, not to the command', () => {
+test('the sync warning belongs to the PATH, not to the command', (t) => {
   // Someone who types the Dropbox path by hand must get the same
   // warning as someone who says `--set dropbox`. Otherwise the warning
   // is a property of how you phrased it, which is no property at all.
-  const home = fakeHome(['Dropbox']);
+  const home = fakeHome(t, ['Dropbox']);
   const opts = { platform: 'linux', home };
   const drin = path.join(home, 'Dropbox', 'cheap-mem-archive');
   const draussen = path.join(home, 'ganz-normal');
@@ -106,16 +106,16 @@ test('the sync warning belongs to the PATH, not to the command', () => {
   assert.equal(stores.syncingStoreFor(draussen, opts), null);
 });
 
-test('a sibling folder is not "inside" the store', () => {
+test('a sibling folder is not "inside" the store', (t) => {
   // `startsWith` on a bare string would call `~/Dropbox-backup` part of
   // `~/Dropbox`. It is not, and warning about it would train people to
   // ignore the warning.
-  const home = fakeHome(['Dropbox', 'Dropbox-backup']);
+  const home = fakeHome(t, ['Dropbox', 'Dropbox-backup']);
   const opts = { platform: 'linux', home };
   assert.equal(stores.syncingStoreFor(path.join(home, 'Dropbox-backup'), opts), null);
 });
 
-test('the warning names all three consequences', () => {
+test('the warning names all three consequences', (t) => {
   // A warning that only says "this is a cloud folder" is decoration.
   // The three facts are what the user actually has to weigh.
   const text = stores.SYNC_WARNING.join(' ');

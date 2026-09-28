@@ -24,6 +24,7 @@
 // construction as test/portability.test.mjs, which finds its own
 // scripts.
 import test from 'node:test';
+import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -79,7 +80,7 @@ function homeFromEnv(text) {
     .filter(({ line }) => /process\.env\.HOME\b/.test(line));
 }
 
-test('no shipped module resolves a home directory through process.env.HOME', () => {
+test('no shipped module resolves a home directory through process.env.HOME', (testCtx) => {
   const offenders = [];
   for (const { rel, text } of shippedSources()) {
     for (const { line, nr } of homeFromEnv(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
@@ -91,7 +92,7 @@ test('no shipped module resolves a home directory through process.env.HOME', () 
     + 'reads $HOME on POSIX and USERPROFILE on Windows.');
 });
 
-test('POSITIVE CONTROL: the probe really reads these files', () => {
+test('POSITIVE CONTROL: the probe really reads these files', (testCtx) => {
   // Without this the guard above passes by walking an empty tree, which
   // is how a vacuous check looks from the outside.
   const files = shippedSources();
@@ -106,12 +107,12 @@ test('POSITIVE CONTROL: the probe really reads these files', () => {
     'the pattern catches CLAUDE_HOME, which is a different variable');
 });
 
-test('the stop-hook check follows the home directory, not the current one', () => {
+test('the stop-hook check follows the home directory, not the current one', (testCtx) => {
   // The behavioural half: point the home directory at a tree that holds
   // a wired-up settings.json, and the finding has to come back GOOD
   // whatever the current directory contains.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-hroot-'));
+  const home = tempDir('cm-home-', testCtx);
+  const root = tempDir('cm-hroot-', testCtx);
   // BOTH variables, because os.homedir() reads USERPROFILE on Windows
   // and $HOME on POSIX. Setting only HOME made this test red on the
   // windows-latest runner (run 232, 2026-09-19) against a doctor that
@@ -146,7 +147,7 @@ test('the stop-hook check follows the home directory, not the current one', () =
   }
 });
 
-test('with HOME unset — the Windows condition — the home directory is still found', () => {
+test('with HOME unset — the Windows condition — the home directory is still found', (testCtx) => {
   // This is the closest a Linux machine gets to the real failure, and
   // it is close enough to be a measurement rather than a reading.
   //
@@ -170,11 +171,11 @@ test('with HOME unset — the Windows condition — the home directory is still 
   }
 });
 
-test('POSITIVE CONTROL: with nothing wired up the finding is not GOOD', () => {
+test('POSITIVE CONTROL: with nothing wired up the finding is not GOOD', (testCtx) => {
   // A check that says GOOD whatever it is shown is not a check. This is
   // the counter-case to the test above — same code path, empty home.
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-empty-'));
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-hroot-empty-'));
+  const home = tempDir('cm-home-empty-', testCtx);
+  const root = tempDir('cm-hroot-empty-', testCtx);
   const before = process.env.HOME;
   try {
     process.env.HOME = home;

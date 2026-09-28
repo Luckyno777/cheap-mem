@@ -39,14 +39,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { tempDir } from './temp-dir.mjs';
 
 import { evaluate, CUTOFF, DEFAULT_ROOT } from '../bench/parity.mjs';
 
-function repo() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-parity-'));
+function repo(testCtx) {
+  const r = tempDir('cm-parity-', testCtx);
   const git = (...a) => execFileSync('git', a, { cwd: r, encoding: 'utf8' });
   git('init', '-q');
   git('config', 'user.email', 't@t');
@@ -73,8 +73,8 @@ test('real history: no code commit since the cutoff is missing the parity line',
   );
 });
 
-test('sabotage: a code commit without the trailer counts as a violation (red)', () => {
-  const { r, git, cutoff } = repo();
+test('sabotage: a code commit without the trailer counts as a violation (red)', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
   fs.writeFileSync(path.join(r, 'src', 'start.mjs'), 'export const a = 1;\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'touch src, no line');
@@ -83,8 +83,8 @@ test('sabotage: a code commit without the trailer counts as a violation (red)', 
   assert.equal(result.violations.length, 1);
 });
 
-test('positive control: the same commit WITH a valid trailer is not a violation (green)', () => {
-  const { r, git, cutoff } = repo();
+test('positive control: the same commit WITH a valid trailer is not a violation (green)', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
   fs.writeFileSync(path.join(r, 'src', 'start.mjs'), 'export const a = 1;\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'touch src\n\nParity: lm=open');
@@ -94,8 +94,8 @@ test('positive control: the same commit WITH a valid trailer is not a violation 
   assert.equal(result.counts.open, 1);
 });
 
-test('positive control: all three trailer values are recognised and counted', () => {
-  const { r, git, cutoff } = repo();
+test('positive control: all three trailer values are recognised and counted', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
   for (const value of ['yes', 'no', 'open']) {
     fs.appendFileSync(path.join(r, 'src', 'start.mjs'), `export const ${value} = 1;\n`);
     git('add', '-A');
@@ -106,8 +106,8 @@ test('positive control: all three trailer values are recognised and counted', ()
   assert.deepEqual(result.counts, { yes: 1, no: 1, open: 1 });
 });
 
-test('exception: a pure doc commit without the trailer is not a violation (green)', () => {
-  const { r, git, cutoff } = repo();
+test('exception: a pure doc commit without the trailer is not a violation (green)', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
   fs.writeFileSync(path.join(r, 'README.md'), '# Test repo\n\nmore text.\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'doc only, no line');
@@ -117,8 +117,8 @@ test('exception: a pure doc commit without the trailer is not a violation (green
   assert.deepEqual(result.violations, []);
 });
 
-test('exception: a merge commit touching src without its own trailer is not a violation (--no-merges)', () => {
-  const { r, git, cutoff } = repo();
+test('exception: a merge commit touching src without its own trailer is not a violation (--no-merges)', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
   git('checkout', '-q', '-b', 'branch');
   fs.writeFileSync(path.join(r, 'src', 'branch.mjs'), 'export const z = 1;\n');
   git('add', '-A');
@@ -135,13 +135,13 @@ test('exception: a merge commit touching src without its own trailer is not a vi
   assert.deepEqual(result.violations, []);
 });
 
-test('shallow: a shallow clone reports "not measurable", not red, not green', () => {
-  const { r, git, cutoff } = repo();
+test('shallow: a shallow clone reports "not measurable", not red, not green', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
   fs.writeFileSync(path.join(r, 'src', 'second.mjs'), 'export const b = 1;\n');
   git('add', '-A');
   git('commit', '-q', '-m', 'second commit, so there is history at all');
 
-  const shallow = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-parity-shallow-'));
+  const shallow = tempDir('cm-parity-shallow-', testCtx);
   fs.rmdirSync(shallow);
   execFileSync('git', ['clone', '-q', '--depth', '1', `file://${r}`, shallow], { encoding: 'utf8' });
 
@@ -150,9 +150,9 @@ test('shallow: a shallow clone reports "not measurable", not red, not green', ()
   assert.match(result.reason, /shallow|reachable/i);
 });
 
-test('merge coverage: a merge WITH the line covers the commits it brings in, without it does not', () => {
+test('merge coverage: a merge WITH the line covers the commits it brings in, without it does not', (testCtx) => {
   for (const [withLine, expected] of [[true, 0], [false, 1]]) {
-    const { r, git, cutoff } = repo();
+    const { r, git, cutoff } = repo(testCtx);
     const main = git('rev-parse', '--abbrev-ref', 'HEAD').trim();
     git('checkout', '-q', '-b', 'side');
     fs.writeFileSync(path.join(r, 'src', 'main.mjs'), 'export const a = 2;\n');

@@ -16,17 +16,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import * as setup from '../src/setup.mjs';
 import * as clihelp from '../src/clihelp.mjs';
+import { tempDir } from './temp-dir.mjs';
 
 const MEM = path.join(import.meta.dirname, '..', 'bin', 'mem');
 const REPO = path.join(import.meta.dirname, '..');
 
-function fresh() {
-  const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
+function fresh(t) {
+  const r = tempDir('cm-status-', t);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), '{}');
   return r;
@@ -55,24 +55,24 @@ test('every step has three possible states, not two', () => {
   assert.deepEqual(Object.values(setup.STATE).sort(), ['broken', 'ok', 'open']);
 });
 
-test('an unreadable config.json is BROKEN, a missing one is OPEN', () => {
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
+test('an unreadable config.json is BROKEN, a missing one is OPEN', (t) => {
+  const empty = tempDir('cm-status-', t);
   const missing = setup.check(empty).steps.find((s) => s.id === 'memory');
   assert.equal(missing.state, setup.STATE.OPEN);
 
-  const broken = fresh();
+  const broken = fresh(t);
   fs.writeFileSync(path.join(broken, '.mem', 'config.json'), '{ this is not JSON');
   const b = setup.check(broken).steps.find((s) => s.id === 'memory');
   assert.equal(b.state, setup.STATE.BROKEN,
     'an unreadable configuration counts as "not set up yet"');
 });
 
-test('THE WINDOWS FINDING: a hook pointing at a dead path is BROKEN', () => {
+test('THE WINDOWS FINDING: a hook pointing at a dead path is BROKEN', (t) => {
   // This is the case the command exists for. A hook naming a path that
   // does not exist here is worse than no hook at all: it runs, finds
   // nothing, and exits quietly.
-  const r = fresh();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
+  const r = fresh(t);
+  const home = tempDir('cm-home-', t);
   const hooks = path.join(home, '.claude', 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
   fs.writeFileSync(path.join(hooks, 'cheap-mem-session-start.sh'),
@@ -84,10 +84,10 @@ test('THE WINDOWS FINDING: a hook pointing at a dead path is BROKEN', () => {
   assert.ok(s.fix, 'no way out given');
 });
 
-test('a hook with a path that DOES exist is ok', () => {
+test('a hook with a path that DOES exist is ok', (t) => {
   // Counter-check: otherwise the rule would be "every hook is broken".
-  const r = fresh();
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-home-'));
+  const r = fresh(t);
+  const home = tempDir('cm-home-', t);
   const hooks = path.join(home, '.claude', 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
   fs.writeFileSync(path.join(hooks, 'cheap-mem-session-start.sh'),
@@ -97,20 +97,20 @@ test('a hook with a path that DOES exist is ok', () => {
   assert.equal(s.state, setup.STATE.OK);
 });
 
-test('all steps run even when the first one fails', () => {
+test('all steps run even when the first one fails', (t) => {
   // A run that stops at the first problem hides the other four — and
   // then somebody fixes one thing per session.
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-status-'));
+  const empty = tempDir('cm-status-', t);
   const res = setup.check(empty, { env: {}, home: empty });
   assert.equal(res.steps.length, 5);
   assert.equal(res.steps.filter((s) => s.state).length, 5);
 });
 
-test('OPEN exits 0, BROKEN does not', () => {
+test('OPEN exits 0, BROKEN does not', (t) => {
   // Open is a to-do list. If that turns the exit code red, it breaks
   // every script calling the command — and then nobody puts it in a
   // script any more.
-  const r = fresh();
+  const r = fresh(t);
   const a = spawnSync(process.execPath, [MEM, 'status'], { cwd: r, encoding: 'utf8' });
   assert.equal(a.status, 0, `open steps made the run red:\n${a.stdout}${a.stderr}`);
   assert.match(a.stdout, /of 5 in place/);
