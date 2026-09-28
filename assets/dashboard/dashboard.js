@@ -1651,7 +1651,7 @@ function cloudShape(model) {
   });
   const hmax = Math.max(...ax.map((k) => (hi[k] - lo[k]) / 2));
   // Round slightly towards a sphere: a cloud, not an egg and not a cigar.
-  ax.forEach((k) => (axes[k] = Math.max(CLOUD_MIN, 0.7 * ((hi[k] - lo[k]) / 2) + 0.3 * hmax)));
+  ax.forEach((k) => (axes[k] = Math.max(CLOUD_MIN, 0.5 * ((hi[k] - lo[k]) / 2) + 0.5 * hmax)));
   // Then stretch evenly until every support sphere plus margin lies
   // inside (26 rim points per sphere, plus 2 % safety).
   const R = [];
