@@ -42,15 +42,18 @@
  *
  * **What "the redaction check" actually catches, said honestly.**
  * `src/redaction.mjs` is this codebase's one redaction module, and its
- * `PATTERNS` are CREDENTIAL-shaped (API keys, tokens, passwords, PEM
- * blocks, bearer/basic auth, JWTs). It has no pattern for free-text
- * personal data — a name, a street address, a customer number typed
- * as prose would NOT be caught. That is a real gap against the
- * design's literal example ("Name, Adresse, Kundennummer"), not
- * papered over here: this module calls the one redaction check this
- * house has, and that check's actual reach is credential-shaped data.
- * Widening `redaction.mjs` itself is a separate, bigger change outside
- * this package's file ownership.
+ * `PATTERNS` are CREDENTIAL-shaped: API keys, tokens, passwords, PEM
+ * blocks, bearer/basic auth, JWTs, a `--token <value>`-style CLI flag,
+ * and a keyword-free "address / secret" pair written the way a human
+ * hands over an access (measured against lucky-mem's `redaktion.mjs`,
+ * which detects the identical classes — see that module's own PATTERNS
+ * comment for the parity accounting). It still has no pattern for
+ * free-text personal data — a name, a street address, a customer
+ * number typed as prose would NOT be caught. That remains a real gap
+ * against the design's literal example ("Name, Adresse,
+ * Kundennummer"), not papered over here: this module calls the one
+ * redaction check this house has, and that check's reach stops at
+ * credential-shaped data, however it is written down.
  */
 
 import * as redaction from './redaction.mjs';
@@ -134,7 +137,28 @@ export function check(fields = {}) {
     if (!(Number.isInteger(v) && v >= 1)) problems.push('version must be a positive integer when given');
   }
 
+  if (fields.placeholders !== undefined && !isArrayOfStrings(fields.placeholders)) {
+    problems.push('placeholders must, when set, be an array of non-empty strings');
+  }
+  if (fields.language !== undefined && typeof fields.language !== 'string') {
+    problems.push('language must, when set, be a string');
+  }
+  if (fields.origin !== undefined && typeof fields.origin !== 'string') {
+    problems.push('origin must, when set, be a string');
+  }
+  if (fields.test !== undefined && typeof fields.test !== 'string') {
+    problems.push('test must, when set, be a path (string)');
+  }
+  if (fields.used_by !== undefined && !isArrayOfStrings(fields.used_by)) {
+    problems.push('used_by must, when set, be an array of ids (strings) — upkeep lives at '
+      + 'workflow.references.snippet, this is only the back-reference');
+  }
+
   return { ok: problems.length === 0, errors: problems };
+}
+
+function isArrayOfStrings(x) {
+  return Array.isArray(x) && x.every((s) => typeof s === 'string' && s.trim());
 }
 
 /**
@@ -147,10 +171,16 @@ export function check(fields = {}) {
  * the entry it replaces" is the caller's job (it has the predecessor
  * in hand at that point); this function only supplies the default for
  * a brand new title.
+ *
+ * `placeholders` defaults to whatever `placeholdersOf(body)` finds, the
+ * same way `baustein.ergaenze` always stamps a (possibly empty) array
+ * so a later dashboard preview never has to tell "no placeholders"
+ * apart from "field missing".
  */
 export function complete(fields = {}) {
   const out = { ...fields };
   if (out.version === undefined) out.version = 1;
+  if (out.placeholders === undefined) out.placeholders = placeholdersOf(out.body);
   return out;
 }
 

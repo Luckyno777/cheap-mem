@@ -31,6 +31,25 @@
  * truth in one place" rule `sammelband`/(cheap-mem's `duty`-adjacent
  * compendium idea) already leans on: whoever needs the full text of a
  * referenced entry reads it at its own id.
+ *
+ * **`references` accepts only the four known kinds — an unknown one is
+ * REFUSED, not dropped.** An earlier draft of this file dropped a
+ * key `check()` did not recognise, reasoning that an older/newer build
+ * should not make an entry unwritable over a key it does not know
+ * about yet. That is the wrong side of the trade for a field whose
+ * whole job is "point at something real": a silently dropped kind
+ * looks, to whoever wrote it, like it was recorded — and it was not.
+ * `check()` reports it instead, the same way `pruefeVerweise` in the
+ * German house always has.
+ *
+ * **Optional fields, wrong TYPE is an error, MISSING is not.**
+ * `triggers`/`path_patterns`/`tool_patterns`/`tools` (when set) must be
+ * arrays of non-empty strings, `source_proposal` (when set) must be a
+ * string naming the id of the `thought`/proposal this workflow was
+ * promoted from, and `scope` (when set) must be a string. None of the
+ * four arrays is required — a later doctor finding judges whether a
+ * workflow has ENOUGH of them to ever fire; this file only checks that
+ * what is there is well-formed.
  */
 
 import * as errorclass from './errorclass.mjs';
@@ -71,17 +90,17 @@ const REFERENCE_MAX_CHARS = 200;
 /**
  * Normalise `references` into `{ procedure: [...], skill: [...],
  * errorclass: [...], snippet: [...] }`, or `null` if the shape itself
- * is wrong (not an object, or an array).
+ * is wrong (not an object, an array, or carrying an unknown kind).
  *
- * Unknown keys are dropped rather than rejected: a workflow entry
- * written by an older or newer build of this file should not become
- * unwritable over a key this version does not know about yet — the
- * conservative reading errs towards keeping the write, the same stance
- * `mem log`'s class-name warning takes.
+ * An unknown key makes the WHOLE shape invalid — `check()` needs to
+ * report it, and a partial normalisation that silently drops it would
+ * leave `check()` with nothing left to complain about. See the head
+ * comment for why this is a refusal now, not a drop.
  */
 export function normaliseReferences(raw) {
   if (raw == null) return {};
   if (typeof raw !== 'object' || Array.isArray(raw)) return null;
+  if (Object.keys(raw).some((k) => !REFERENCE_KINDS.includes(k))) return null;
   const out = {};
   for (const kind of REFERENCE_KINDS) {
     if (!Object.hasOwn(raw, kind)) continue;
@@ -93,11 +112,18 @@ export function normaliseReferences(raw) {
 }
 
 /**
- * Check `references` for the one thing that matters here: nothing in
- * it looks like copied text. Returns a list of problem strings — empty
- * means clean.
+ * Check `references` for two things: every key is one of the four
+ * known kinds, and nothing in it looks like copied text. Returns a
+ * list of problem strings — empty means clean.
  */
 export function checkReferences(raw) {
+  if (raw != null && typeof raw === 'object' && !Array.isArray(raw)) {
+    const unknown = Object.keys(raw).filter((k) => !REFERENCE_KINDS.includes(k));
+    if (unknown.length) {
+      return unknown.map((k) => `references.${k} is not a known kind `
+        + `(allowed: ${REFERENCE_KINDS.join(', ')})`);
+    }
+  }
   const norm = normaliseReferences(raw);
   if (norm === null) {
     return ['references must be an object like '
@@ -124,6 +150,17 @@ export function stepsOf(fields = {}) {
   return s ? [s] : [];
 }
 
+function isArrayOfStrings(x) {
+  return Array.isArray(x) && x.every((s) => typeof s === 'string' && s.trim());
+}
+
+/**
+ * The four optional match fields a later doctor finding reads to judge
+ * whether a workflow has enough of them to ever fire — `check()` only
+ * verifies their SHAPE, not their sufficiency. See the head comment.
+ */
+export const OPTIONAL_ARRAY_FIELDS = Object.freeze(['triggers', 'path_patterns', 'tool_patterns', 'tools']);
+
 /**
  * Check the fields before anything is written.
  *
@@ -143,6 +180,17 @@ export function check(fields = {}) {
   } else if (!isHuman(by)) {
     problems.push(`issued_by '${by}' is not a human. A sequence for all agents cannot come `
       + 'from one of them (allowed: owner, human:<name>).');
+  }
+  for (const field of OPTIONAL_ARRAY_FIELDS) {
+    if (fields[field] !== undefined && !isArrayOfStrings(fields[field])) {
+      problems.push(`${field} must, when set, be an array of non-empty strings`);
+    }
+  }
+  if (fields.source_proposal !== undefined && typeof fields.source_proposal !== 'string') {
+    problems.push('source_proposal must, when set, be a string (an id)');
+  }
+  if (fields.scope !== undefined && typeof fields.scope !== 'string') {
+    problems.push('scope must, when set, be a string');
   }
   if (Object.hasOwn(fields, 'references')) {
     problems.push(...checkReferences(fields.references));
