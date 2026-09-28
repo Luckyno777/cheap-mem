@@ -84,6 +84,30 @@ no server, no network, no model:
 Every entry carries the file and line it lives on, because the files are
 the product — the page is only a way to look at them.
 
+`mem serve` — the same memory as a live dashboard, one fixed link, no
+build step:
+
+![The cheap-mem dashboard overview: a 3D knowledge network with a soft fog hull, a "Today" card listing open decisions, and metrics for entries, open work and skills.](docs/images/01-overview.png)
+
+*The overview on a sample memory (synthetic data, not a real user's
+memory). The network on the left groups entries by project; the panel
+on the right lists the next open duties and questions.*
+
+![The Knowledge space tab: the same 3D network shown larger, with a group strip below the canvas and a breadcrumb above it.](docs/images/02-knowledge-space.webp)
+
+*`Knowledge -> Knowledge space`: the same network, full size, with the
+four grouping modes (drawers, topics, relations, entry type).*
+
+![Operations -> Diagnosis in the dashboard: mem-doctor findings, each with its own state instead of a silent zero.](docs/images/04-operations-health.png)
+
+*`Operations -> Diagnosis`: the same `mem doctor` findings as the CLI,
+read live from the dashboard.*
+
+![The dashboard overview on a phone, 390x844: the same network and duties list, reflowed for a narrow screen.](docs/images/06-mobile-overview.png)
+
+*The dashboard is responsive — same routes, same data, no separate
+mobile build.*
+
 ## Try it in two minutes
 
 Nothing to install, nothing to build, no npm dependencies to resolve:
@@ -167,6 +191,12 @@ is therefore not opt-in at all. Now neither is fetched until you ask, and
 the two commands that need them say exactly what to run.
 
 ## Does it actually find things?
+
+![The dashboard's retrieval probe: a question typed into a text field, and a result panel below it showing what the recall gateway returns, read-only.](docs/images/03-retrieval-probe.png)
+
+*`Work -> Agent context -> Retrieval probe`, in the dashboard: type a
+question, see exactly what `mem retrieve` answers right now. Nothing
+typed here is stored or logged.*
 
 The honest answer, with the hard case on its own line rather than hidden
 inside an average (`node bench/retrieval.mjs`, 67 entries, 42 queries):

@@ -48,6 +48,8 @@
     "docs/",
     "!docs/assets/brand/*.png",
     "!docs/assets/brand/*.jpg",
+    "!docs/images/*.png",
+    "!docs/images/*.webp",
     "DIGEST.md",
     "README.md",
     "LICENSE",
