@@ -221,6 +221,10 @@ sides: trust the ratio, not the absolutes.
 
 Run it against your own memory and send the numbers if they differ.
 
+A dated snapshot of these and other measured numbers — install size,
+the full Atlas run, and what it still does not measure — lives in
+[`docs/benchmarks-2026-09-28.md`](docs/benchmarks-2026-09-28.md).
+
 ## For teams and companies
 
 A memory that only one person can read is a notebook. What makes this one
