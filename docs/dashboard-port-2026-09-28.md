@@ -1,5 +1,13 @@
 # Dashboard port — cheap-mem onto lucky-mem's Dashboard-Muster-3
 
+**Correction, same day:** the paragraph below says lucky-mem's
+Dashboard-Muster-3 "sits beside the older `schreibtisch` … unremoved".
+That was true against the commit this document was written from; a
+same-day merge (`dash-einzig`, lucky-mem commit `e5ba483c`) removed
+`schreibtisch.mjs` and made the Dashboard the sole UI at `/`. The rest
+of this analysis (cheap-mem's own state, the mapping work) is
+unaffected — only the "beside, unremoved" clause is stale.
+
 Status: analysis only, no code changed. Written 2026-09-28 against
 `cheap-mem` branch `agent/cm-dash-spec` (base commit `cedce0c`) and
 `lm-post` (worktree at `/home/user/lm-post`, same date). Numbers below
