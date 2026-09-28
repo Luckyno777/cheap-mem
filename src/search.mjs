@@ -858,13 +858,41 @@ function idf(index, term) {
   return Math.log(1 + (N - n + 0.5) / (n + 0.5));
 }
 
+/**
+ * A RARE, literally typed word counts in full inside a raw capture, not at
+ * RAW_WEIGHT (mirrored from lucky-mem P9, 2026-09-28).
+ *
+ * **The case.** A question whose only content word stands in exactly ONE
+ * document — a capture in which the person wrote the sentence themselves.
+ * With a single word, idf is already at its ceiling; RAW_WEIGHT (0.35)
+ * then squeezes the saturation to about a third, and the score tops out
+ * just under the injection threshold (measured there: 4.72 against 5.0).
+ * No capture with a single rare word could ever be injected, however
+ * exactly the question matched.
+ *
+ * **Why RAW_WEIGHT protects nothing here.** It exists so a long capture
+ * cannot displace a curated entry. For a word in at most RARE_DF
+ * documents there is nothing to displace: a curated entry carrying it
+ * has full term frequency anyway. So no bonus — only the damping is
+ * lifted for exactly this term (f raised to 1, one literal occurrence,
+ * as in an entry). Length normalisation, coverage and freshness stay.
+ *
+ * **3 = the answer's slots**, the same bound as the exact-identifier
+ * lane: a word in more documents than the answer has places identifies
+ * nothing. `0` switches it off. Only the typed words' own forms
+ * qualify — never a thesaurus, graph or bridge expansion.
+ */
+export const RARE_DF = 3;
+
 /** BM25's contribution from one term against one document, IDF x the
  *  length-normalised term frequency. Pulled out so the P28 per-pack
  *  scoring below (see `search`) can call it once per candidate spelling
  *  instead of duplicating the formula. */
-function bm25Term(index, doc, term) {
-  const f = doc.weights.get(term);
+function bm25Term(index, doc, term, rare = null) {
+  let f = doc.weights.get(term);
   if (!f) return 0;
+  // A rare typed word counts in full inside a capture — see RARE_DF.
+  if (f < 1 && rare?.has(term)) f = 1;
   const avg = index.statsAvgLength ?? index.avgLength;
   const norm = f * (K1 + 1) / (f + K1 * (1 - B + B * doc.length / avg));
   return idf(index, term) * norm;
@@ -1276,6 +1304,17 @@ export function search(index, query, {
 
   const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired, capability };
 
+  // Typed forms that stand in at most RARE_DF documents of the WHOLE
+  // index (captures included — a word in many captures is not rare, even
+  // if no curated entry carries it). See RARE_DF.
+  const rare = new Set();
+  if (RARE_DF > 0 && index.docFreq) {
+    for (const t of ownSet) {
+      const n = index.docFreq.get(t) ?? 0;
+      if (n > 0 && n <= RARE_DF) rare.add(t);
+    }
+  }
+
   const hits = [];
   for (const doc of index.documents) {
     // The tier filter that used to stand here is part of `admits` now.
@@ -1303,7 +1342,7 @@ export function search(index, query, {
       let best = 0;
       for (const forms of packVariants) {
         let sub = 0;
-        for (const t of forms) sub += bm25Term(index, doc, t);
+        for (const t of forms) sub += bm25Term(index, doc, t, rare);
         if (sub > best) best = sub;
       }
       score += best;
