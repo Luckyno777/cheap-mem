@@ -85,6 +85,7 @@ import * as source from '../src/source.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
+import * as mcpvisibility from '../src/mcpvisibility.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -1329,9 +1330,26 @@ function createServer(pkg) {
     { capabilities: { tools: {} }, instructions: houseRules(fs) },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema,
-    async () => ({ tools: mcpprofile.visible(TOOLS, PROFILE) }));
+  // dash-fix3 parity: the client-visibility journal (src/mcpvisibility.mjs).
+  // The client comes from `getClientVersion()` — set by the SDK from the
+  // `initialize` handshake's `clientInfo`, never from any env var this
+  // bridge writes UNDER (that would let any connection log itself as
+  // whichever name it likes). A logging failure must never touch a tool
+  // call, so this stays its own try/catch, silent.
+  const recordVisibility = (method, tool) => {
+    try {
+      const client = server.getClientVersion()?.name || null;
+      if (client) mcpvisibility.record(resolveRoot(), { method, tool, client });
+    } catch { /* the journal is an observation, never a gate */ }
+  };
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const visible = mcpprofile.visible(TOOLS, PROFILE);
+    for (const t of visible) recordVisibility(mcpvisibility.METHOD.LIST, t.name);
+    return { tools: visible };
+  });
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    recordVisibility(mcpvisibility.METHOD.CALL, req.params.name);
     try {
       return await handleCall(req.params.name, req.params.arguments ?? {});
     } catch (e) {

@@ -724,12 +724,33 @@ const pages = {
 
 // ops/mcp — kept as its own function so the sibling's live tools/list
 // probe can be mirrored here cleanly once it lands.
+// "Client sees it" (src/mcpvisibility.mjs — a client's own tools/list and
+// tools/call traffic against the bridge) and "Checked live" (src/mcplive.mjs
+// — this server's own tools/list probe of the local bridge) are two
+// DIFFERENT measurements: the first needs a real client to have connected
+// at all, the second only needs the bridge itself to be reachable. Neither
+// stands in for the other — dash-fix3 parity.
 function mcpPage() {
   const k = D.catalog?.mcp || { reading: [], writing: [] };
   const all = [...k.reading.map((n) => [n, 'reading']), ...k.writing.map((n) => [n, 'writing'])];
+  const live = k.live || {};
+  const seen = k.clientVisible || {};
+  const liveWord = { good: 'present', error: 'missing live' };
   return panel(
     'Tool availability',
-    `<div class="tablewrap"><table class="table"><thead><tr><th>Tool</th><th>Definition</th><th>Client sees it</th><th>Checked live</th></tr></thead><tbody>${all.map(([n, kind]) => `<tr><td class="mono">${esc(n)}</td><td><span class="badge">${kind}</span></td><td>${badge('unknown')}</td><td>${badge('unknown')}</td></tr>`).join('')}</tbody></table></div>${note(`${all.length} tool names from src/mcpprofile.mjs (${k.reading.length} reading, ${k.writing.length} writing). Whether a concrete client sees them is not measurable without its session.`)}`,
+    `<div class="tablewrap"><table class="table"><thead><tr><th>Tool</th><th>Definition</th><th>Client sees it</th><th>Checked live</th></tr></thead><tbody>${all
+      .map(([n, kind]) => {
+        const s = seen[n];
+        const l = live[n];
+        const seenCell = s ? badge('good', `${s.client} · ${whenTime(s.ts)}`) : badge('unknown', 'not seen yet');
+        const liveCell = l ? badge(l.state, liveWord[l.state] || l.reason || l.state) : badge('unknown');
+        return `<tr><td class="mono">${esc(n)}</td><td><span class="badge">${kind}</span></td><td>${seenCell}</td><td>${liveCell}</td></tr>`;
+      })
+      .join('')}</tbody></table></div>${note(
+      `${all.length} tool names from src/mcpprofile.mjs (${k.reading.length} reading, ${k.writing.length} writing). `
+      + `${k.liveCheckedAt ? `Live-checked ${whenTime(k.liveCheckedAt)}.` : k.liveReason ? esc(k.liveReason) + '.' : ''} `
+      + '"Client sees it" comes from the bridge\'s own client-visibility journal (real MCP traffic on this machine, never simulated).',
+    )}`,
   );
 }
 

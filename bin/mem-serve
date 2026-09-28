@@ -54,6 +54,8 @@ import * as dashboardData from '../src/dashboard-data.mjs';
 import * as pwa from '../src/pwa.mjs';
 import * as icon from '../src/icon.mjs';
 import * as measurements from '../src/measurements.mjs';
+import * as mcplive from '../src/mcplive.mjs';
+import * as mcpvisibility from '../src/mcpvisibility.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
 const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -338,6 +340,45 @@ export function buildHandler(root, cfg, env = process.env) {
         res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
         return;
+      }
+      // dash-fix3 parity: append "live checked" (mcplive.mjs) and "client
+      // visible" (mcpvisibility.mjs) to catalog.mcp. Both only ADD to what
+      // catalog.mcp already carries from src/mcpprofile.mjs — nothing here
+      // is invented.
+      //
+      // **Strictly synchronous, on purpose.** This route never had to
+      // wait on anything before this probe — an `await` here would
+      // regress that. `mcplive.probe()` itself stays async (it speaks
+      // HTTP to the bridge); it runs in the BACKGROUND
+      // (`mcplive.kickProbe`, fire-and-forget, at most one at a time) and
+      // this response only reads what is already cached
+      // (`mcplive.probeNow`, no network). Right after start that is
+      // nothing yet — then "unknown" with a reason, like any other
+      // not-yet-measured value; the NEXT call sees the result that
+      // arrived meanwhile.
+      try {
+        const mcp = data.catalog?.mcp;
+        if (mcp) {
+          const defined = [...(mcp.reading || []), ...(mcp.writing || [])];
+          const result = mcplive.probeNow();
+          if (result) {
+            mcp.live = mcplive.verdicts(result, defined);
+            mcp.liveCheckedAt = result.checkedAt;
+            mcp.liveReason = result.reachable ? null : result.reason;
+          } else {
+            mcp.live = mcplive.verdicts({ reachable: false, reason: 'not checked yet' }, defined);
+            mcp.liveCheckedAt = null;
+            mcp.liveReason = 'not checked yet';
+            mcplive.kickProbe({ env });
+          }
+          const seen = mcpvisibility.latestPerTool(root);
+          mcp.clientVisible = Object.fromEntries(defined.map((n) => {
+            const s = seen.get(n);
+            return [n, s ? { client: s.client, ts: s.ts } : null];
+          }));
+        }
+      } catch (e) {
+        if (data.catalog?.mcp) data.catalog.mcp.liveReason = e?.message || String(e);
       }
       // Packed only when the browser offers it — a script without gzip
       // gets plain text.
