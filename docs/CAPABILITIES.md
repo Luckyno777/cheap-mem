@@ -19,7 +19,7 @@ the verification commands at the end.
 
 | Area | What exists | Section |
 |---|---|---|
-| **Data model** | 13 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
+| **Data model** | 15 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
 | **Provenance** | `author`, `authority` tiers, `origin.derived_from`, `origin.raw`, git history | [1.3](#13-provenance) |
 | **Retrieval** | BM25 over weighted fields, curated thesaurus, learned tag graph, compound splitting, exact-identifier lane, MMR diversity, raw-capture reserve lane, recency bonus, optional embeddings fused by RRF, time-window search | [2](#2-retrieval) |
 | **Truth over time** | `valid_from` / `valid_until`, `key`-tracked changing facts, `as_of` historical queries, staleness flagging, supersession via `replaces_id`, contradiction marking | [3](#3-truth-over-time) |
@@ -120,6 +120,7 @@ directory. The section number in brackets is where it is explained.
 | `shardarchive.mjs` | P17: splits the raw-capture body across shards so git never has to carry one multi-GB blob |
 | `shred.mjs` | per-entry body encryption plus a small, NOT append-only keyring — a real deletion without rewriting history |
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
+| `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
 | `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
@@ -135,6 +136,7 @@ directory. The section number in brackets is where it is explained.
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
 | `webauth.mjs` | the door in front of any HTTP service (7.4) |
+| `workflow.mjs` | a named SEQUENCE for all — same authority question as `procedure`, same answer: only a human issues one, the bridge never writes it (10.26) |
 | `writegate.mjs` | the dashboard write switch: off by default, one check in front of every writing route (7.4) |
 
 Plus `src/embed/` — the optional embedding lane (provider, store,
@@ -176,8 +178,8 @@ where to check.
 
 ### 1.1 Entry types
 
-Ten drawers. The split is not episodic/semantic — it is **what you will
-need it for later**, which is the more useful axis in practice.
+Fifteen drawers. The split is not episodic/semantic — it is **what you
+will need it for later**, which is the more useful axis in practice.
 
 | Type | File | Holds |
 |---|---|---|
@@ -188,9 +190,14 @@ need it for later**, which is the more useful axis in practice.
 | `thought` | `thoughts.jsonl` | reasoning worth keeping, not yet a decision |
 | `learning` | `learnings.jsonl` | what to do differently next time |
 | `duty` | `duties.jsonl` | something owed to someone |
+| `question` | `questions.jsonl` | something we do NOT know — no debtor, closes over an existing `resolves` edge (see [10.7](#107-open-questions--srcquestionmjs-mem-questions)) |
 | `skill` | `skills.jsonl` | a capability acquired, with evidence |
+| `procedure` | `procedures.jsonl` | a norm for ALL — only a human can issue one (see [10.6](#106-procedures--srcproceduremjs-mem-procedures)) |
+| `source` | `sources.jsonl` | a pointer at knowledge that already exists — indexed, not copied (see [10.10](#1010-sources--srcsourcemjs-mem-sources)) |
 | `update` | `updates.jsonl` | a version, a dependency, a config change |
 | `link` | `links.jsonl` | a typed relation between two entries |
+| `workflow` | `workflows.jsonl` | a named SEQUENCE for all — the same authority question as `procedure`, same answer (see [10.26](#1026-workflows--srcworkflowmjs-mem-log-workflow)) |
+| `snippet` | `snippets.jsonl` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS, never real data (see [10.27](#1027-snippets--srcsnippetmjs-mem-log-snippet)) |
 
 One JSON object per line. Files are append-only: nothing is ever
 rewritten in place. A correction is a **new line** carrying
@@ -1683,3 +1690,50 @@ Both surfaces are read-only: `mem ledger [--json]` at the CLI,
 `mem_ledger` at the bridge (`src/mcpprofile.mjs`'s `READING` list). An
 empty journal reports "no jobs recorded" — not a silent, misleadingly
 green zero.
+
+### 10.26 Workflows — `src/workflow.mjs`, `mem log workflow`
+
+A `workflow` names a SEQUENCE for a recurring task — "this is how a
+release like this goes" — the way a `procedure` names a single rule.
+Its `steps` ARE an instruction exactly the way a procedure's `rule` is
+one, so it takes the identical authority answer rather than a second,
+possibly-drifting copy of it: `workflow.isHuman`/`workflow.complete`
+are `procedure.isHuman`/`procedure.complete` themselves, re-exported,
+not reimplemented. Only a human issues one (`issued_by` must be
+`owner` or `human:<name>`), and **the bridge does not write this type
+at all** — the same `if` in `bin/mem-mcp` that already refuses
+`procedure.TYPE`, right next to it.
+
+Fields: `title`, `steps` (a non-empty array of non-empty strings),
+`issued_by`, and — all optional, checked for shape but never required
+— `scope`, `triggers`/`path_patterns`/`tool_patterns`/`tools` (arrays
+of strings a later doctor finding reads to judge whether a workflow
+has enough of them to ever fire), `source_proposal` (the id of the
+`thought` it was promoted from), and `references`. `references` points
+at the `procedure`/`skill`/`errorclass`/`snippet` entries a workflow
+relies on by id/name only — an unknown kind, or anything shaped like
+copied text rather than an id, is refused, not silently dropped.
+
+### 10.27 Snippets — `src/snippet.mjs`, `mem log snippet`
+
+A `snippet` is a reusable code/script/text/mail/letter building block
+carrying `{{PLACEHOLDER}}`s instead of real data. Unlike `workflow`, it
+is not an authority problem — the MCP bridge MAY write this type — but
+a `text`/`mail`/`letter` body MUST clear `src/redaction.mjs`'s
+`redact()` before it is written, in both the CLI and the bridge; a hit
+is an ABORT, not a warning, because the entire point of a snippet is
+reuse by other agents. `code`/`script` bodies are deliberately not
+redaction-gated — a credential-shaped example in a docstring is normal
+there and must stay writable.
+
+Fields: `title`, `kind` (the closed list `code`/`script`/`text`/`mail`/
+`letter`), `body`, and — optional — `language`, `placeholders` (an
+array, defaulted from `{{NAME}}`-shaped identifiers actually found in
+`body` when not given explicitly), `origin`, `test` (a path to the
+test that exercises it), `used_by` (ids of workflows that reference
+it — upkeep lives at `workflow.references.snippet`, this is only the
+back-reference), and `version` (a positive integer, defaulting to 1). A
+later version is never an edit of the same line: it is a new entry
+carrying `replaces_id`, via `memory.correctionEntry()`, the same
+append-only correction mechanism every corrected entry in this house
+already uses.
