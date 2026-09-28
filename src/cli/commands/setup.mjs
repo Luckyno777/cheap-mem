@@ -542,7 +542,7 @@ export const COMMANDS = {
     const allowWrites = aw !== undefined;
     let started;
     try {
-      started = await mod.serve(root, env, { allowWrites });
+      started = await mod.serve(root, env, { allowWrites, measure: true });
     } catch (e) {
       // The bind refusal is a decision, not a crash: say what to do.
       die(e?.message || String(e));
