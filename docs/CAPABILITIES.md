@@ -87,6 +87,7 @@ directory. The section number in brackets is where it is explained.
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
+| `gap.mjs` | N18 parity: a retrieval miss the injection journal recorded, later matched by content-word overlap with a NEW entry, is a closed knowledge gap — produces `kind:'gap'` candidates for `goldlog.mjs`'s file, shown first on the "Rate today" card |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
@@ -122,6 +123,7 @@ directory. The section number in brackets is where it is explained.
 | `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
+| `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
 | `setup.mjs` | the five steps between installed and working (10.12) |

@@ -32,6 +32,7 @@ import * as agentledger from '../../agentledger.mjs';
 import * as today from '../../today.mjs';
 import * as modelcost from '../../modelcost.mjs';
 import * as goldlog from '../../goldlog.mjs';
+import * as gap from '../../gap.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /** 12 commands. */
@@ -725,12 +726,15 @@ export const COMMANDS = {
         '  selection (src/today.mjs goldQuestions/pickDaily) as the',
         '  dashboard\'s "Rate today" card: deterministic by calendar day,',
         '  prefers a mixed set of outcomes (hit/near-miss/no-hit), only',
-        '  unrated candidates.',
+        '  unrated candidates. N18 parity: a closed knowledge gap',
+        '  (src/gap.mjs — a miss the journal recorded, later matched by',
+        '  a NEW entry) is shown FIRST, ahead of the mixed pick.',
         '',
         '  --draw   first draw NEW candidates from the injection journal',
         '           + real messages into the gold file (src/goldlog.mjs',
-        '           draw()) — append-only, idempotent, run this before',
-        '           the first `mem gold today` on a fresh memory.',
+        '           draw()), AND new closed-gap candidates (src/gap.mjs',
+        '           draw()) — both append-only, idempotent; run this',
+        '           before the first `mem gold today` on a fresh memory.',
         '',
         'mem gold rate <id> <verdict> [hit-id]',
         '  Appends ONE verdict line to the gold file OUTSIDE this memory',
@@ -740,11 +744,6 @@ export const COMMANDS = {
         '  gold today`. [hit-id]: which id counts as the hit — optional',
         '  for correct/wrong (defaults to the candidate\'s own `expected`',
         '  ids); required has no default for empty-correct (always []).',
-        '',
-        '  N18 parity: NOT built — this house has no gap-tracking module',
-        '  (the sibling\'s R1/src/luecken.mjs) to promote a closed miss',
-        '  into a candidate automatically; `kind` in the gold file',
-        '  reserves the vocabulary for when one exists.',
       ].join('\n'));
       return;
     }
@@ -754,21 +753,27 @@ export const COMMANDS = {
     if (sub === 'today') {
       checkFlags(args, ['json', 'draw', 'root'], 'gold today');
       let drawReport = null;
+      let gapReport = null;
       if (args.draw) {
         drawReport = goldlog.draw(root);
+        gapReport = gap.draw(root);
         if (!args.json) {
           out(drawReport.readable
             ? `Drawn: ${drawReport.drawn} new candidate(s) (${drawReport.withQuestion} with a question text), ${drawReport.written ? 'written' : 'nothing new'} to ${drawReport.target}.`
             : `Not drawn: ${drawReport.reason}`);
+          out(gapReport.readable
+            ? `Gap candidates (N18): ${gapReport.drawn} new closed gap(s) (of ${gapReport.closed} closed, ${gapReport.open} still open, ${gapReport.unknown} not measurable), ${gapReport.written ? 'written' : 'nothing new'}.`
+            : `Gap candidates (N18): not measurable — ${gapReport.reason}`);
         }
       }
       const r = today.goldQuestions(root);
-      if (args.json) { out(JSON.stringify({ draw: drawReport, ...r }, null, 2)); return; }
+      if (args.json) { out(JSON.stringify({ draw: drawReport, gapDraw: gapReport, ...r }, null, 2)); return; }
       out(`Gold questions today: ${r.drawn.readable ? r.candidates.length : 'unknown'} (of ${r.candidatesTotal} open)`);
       out(`rated: ${r.rated.total} total, ${r.rated.thisWeek} this week`);
       if (!r.drawn.readable) out(r.drawn.reason);
       for (const c of r.candidates) {
-        out(`  [${c.source?.split(':')[1] ?? '?'}] ${c.id}  ${c.question ?? '(no question text known)'}`);
+        const label = c.kind === 'gap' ? 'gap' : (c.source?.split(':')[1] ?? '?');
+        out(`  [${label}] ${c.id}  ${c.question ?? '(no question text known)'}`);
       }
       return;
     }

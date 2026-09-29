@@ -191,9 +191,25 @@ function seedNumber(text) {
  * if a bucket holds more than one candidate), preferring a MIXED set
  * of outcomes (one hit, one near-miss, one no-hit) over simply the
  * three most recent. Mirrors the sibling's `waehleTaeglich`.
+ *
+ * **N18 parity: gap candidates go first.** `kind: 'gap'` rows
+ * (`src/gap.mjs` — a closed knowledge gap, R1) are a stronger signal
+ * than a drawn hit/near-miss/no-hit: a human already, structurally,
+ * wrote the answer, so confirming it is the cheapest gold this house
+ * can collect. They are picked deterministically (same seed, sorted by
+ * `source`) BEFORE the mixed-outcome pass below runs on whatever slots
+ * remain.
  */
 export function pickDaily(candidates, { max = GOLD_MAX, now = new Date() } = {}) {
   const seed = seedNumber(dayKey(now));
+  const gaps = candidates.filter((c) => c.kind === 'gap').sort((a, b) => String(a.source).localeCompare(String(b.source)));
+  const rest0 = candidates.filter((c) => c.kind !== 'gap');
+  const picked0 = gaps.slice(0, max);
+  if (picked0.length >= max) return picked0;
+  return picked0.concat(pickDailyDrawn(rest0, { max: max - picked0.length, now, seed }));
+}
+
+function pickDailyDrawn(candidates, { max, seed }) {
   const buckets = new Map();
   for (const c of candidates) {
     const outcome = c.source?.startsWith('raw-capture:hit:') ? 'hit'

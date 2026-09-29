@@ -44,6 +44,8 @@ import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
 import * as errorcontext from './errorcontext.mjs';
 import { debtList } from '../bench/parity.mjs';
+import * as runningmark from './runningmark.mjs';
+import * as release from './release.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -197,6 +199,90 @@ export function checkParityDebt(root, { now = Date.now(), warnDays, cutoff, sibl
 }
 
 /**
+ * W1 parity: which long-running services report a start marker under
+ * `root/.pipeline/running/<service>.json` — see `src/runningmark.mjs`.
+ * `mcp-http` only applies while `mem-mcp --http` is the way this
+ * deployment runs the bridge; `serve` covers `mem serve`.
+ */
+export const RUNNING_SERVICES = Object.freeze(['serve', 'mcp-http']);
+
+/** Is `pid` alive? `null` = not measurable (no pid recorded, or a
+ *  permission error that says nothing about whether it runs). */
+function pidAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return null;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return e && e.code === 'ESRCH' ? false : null; }
+}
+
+/**
+ * One service's verdict: missing marker -> UNKNOWN; a dead pid ->
+ * WARN (stale marker); no commit recorded -> UNKNOWN, with why; the
+ * code path unresolvable -> UNKNOWN; unchanged commit, or changed but
+ * only DATA paths since start -> GOOD; a real code path changed since
+ * start -> WARN ("runs old code, restart"). The code-path rule
+ * (`release.isCodePath`/`release.changedPaths`) is the SAME function
+ * `src/release.mjs`'s own proof gate (`checkProof`) uses for the
+ * release rail — V9: one truth for "is this a code path", not two that
+ * can drift apart and produce a false alarm.
+ */
+export function checkRunningCodeFor(root, service) {
+  const marker = runningmark.readMarker(root, service);
+  if (!marker) {
+    return { level: LEVEL.UNKNOWN, text: `'${service}': no start marker — not running under W1 tracking, or not started since this build` };
+  }
+  const alive = pidAlive(marker.pid);
+  if (alive === false) {
+    return {
+      level: LEVEL.WARN,
+      text: `'${service}': marker names pid ${marker.pid}, which is not running (stale marker) — restart it`,
+    };
+  }
+  if (marker.commit === null) {
+    return { level: LEVEL.UNKNOWN, text: `'${service}': marker has no commit (${marker.reason || 'unknown reason'})` };
+  }
+  const currentCommit = release.resolveCommit(marker.code_path, 'HEAD');
+  if (!currentCommit) {
+    return { level: LEVEL.UNKNOWN, text: `'${service}': ${marker.code_path} is not a readable git checkout — cannot compare` };
+  }
+  if (currentCommit === marker.commit) {
+    return { level: LEVEL.GOOD, text: `'${service}': runs the code it started with (${marker.commit.slice(0, 12)})` };
+  }
+  const changed = release.changedPaths(marker.code_path, marker.commit, currentCommit);
+  if (changed == null) {
+    return {
+      level: LEVEL.UNKNOWN,
+      text: `'${service}': cannot resolve the diff ${marker.commit.slice(0, 12)}..${currentCommit.slice(0, 12)} at ${marker.code_path}`,
+    };
+  }
+  const codeChanges = changed.filter((p) => release.isCodePath(p));
+  if (!codeChanges.length) {
+    return {
+      level: LEVEL.GOOD,
+      text: `'${service}': ${changed.length} file(s) changed since start, none are code paths`,
+    };
+  }
+  return {
+    level: LEVEL.WARN,
+    text: `'${service}': runs old code — ${codeChanges.length} code path(s) changed since start `
+      + `(${marker.commit.slice(0, 12)}..${currentCommit.slice(0, 12)}), e.g. ${codeChanges[0]}`,
+  };
+}
+
+/** One combined finding across every tracked service (see {@link
+ *  RUNNING_SERVICES}) — worst level wins, UNKNOWN ranked below GOOD
+ *  (same ranking `checkAll` uses), so an all-unmeasured deployment
+ *  never masquerades as either healthy or broken. */
+export function checkRunningCode(root, { services = RUNNING_SERVICES } = {}) {
+  const rank = { error: 3, warn: 2, good: 1, unknown: 0 };
+  const parts = services.map((s) => ({ service: s, ...checkRunningCodeFor(root, s) }));
+  const worst = parts.reduce((max, p) => (rank[p.level] > rank[max] ? p.level : max), LEVEL.GOOD);
+  const text = parts.map((p) => p.text).join(' | ');
+  if (worst === LEVEL.GOOD) return finding('running-code', LEVEL.GOOD, text);
+  if (worst === LEVEL.UNKNOWN) return finding('running-code', LEVEL.UNKNOWN, text);
+  return finding('running-code', worst, text, 'Restart the named service(s) so a fresh start marker is written.');
+}
+
+/**
  * Findings allowed to report `ok` over a count of zero — with the reason.
  *
  * **Why this lives in the product and not in a test.** Three places ask
@@ -268,6 +354,7 @@ export function checkAll(root) {
   f.push(checkAppendOnlyGit(root));
   f.push(checkFindingParity(root));
   f.push(checkParityDebt(root));
+  f.push(checkRunningCode(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
