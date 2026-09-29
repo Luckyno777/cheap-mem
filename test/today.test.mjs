@@ -122,10 +122,12 @@ test('reviewSuggestions() and wordPairSuggestions() are honest "unknown", never 
 
 test('line(): null when nothing is notable, one line when something is', () => {
   assert.equal(today.line({
-    decisions: { list: [] }, operations: { readable: true, worst: 'good' }, verify: { list: [] },
+    decisions: { readable: true, list: [] }, operations: { readable: true, worst: 'good', notable: [] },
+    verify: { readable: true, list: [] }, gold: { drawn: { readable: true }, candidates: [] },
   }), null);
   const l = today.line({
-    decisions: { list: [{ id: 'd1' }] }, operations: { readable: true, worst: 'warn' }, verify: { list: [{ key: 'x' }] },
+    decisions: { readable: true, list: [{ id: 'd1' }] }, operations: { readable: true, worst: 'warn', notable: [{}] },
+    verify: { readable: true, list: [{ key: 'x' }] }, gold: { drawn: { readable: true }, candidates: [] },
   });
   assert.match(l, /^Today: /);
   assert.match(l, /1 decision open/);

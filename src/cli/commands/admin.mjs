@@ -712,7 +712,7 @@ export const COMMANDS = {
     const root = findRoot(args);
     requireConfig(root);
     const r = today.today(root);
-    if (args.line) { const l = today.line(r); if (l) out(l); return; }
+    if (args.line) { if (r.line) out(r.line); return; }
     if (args.json) { out(JSON.stringify(r, null, 2)); return; }
     out(today.asText(r));
   },
