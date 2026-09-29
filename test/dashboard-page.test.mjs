@@ -201,7 +201,7 @@ test('a fresh install: no entry, state ok, and an intentional empty network', ()
     const d = data.collectDashboard(r);
     assert.equal(d.entries.length, 0);
     assert.equal(d.state, 'ok');
-    for (const k of ['books', 'digesterYield', 'liveInjection']) assert.ok(d.notAvailable[k].reason.includes('Not available in cheap-mem'));
+    for (const k of ['books', 'digesterYield', 'scaleGate']) assert.ok(d.notAvailable[k].reason.includes('Not available in cheap-mem'));
     assert.match(JS, /Your first entries will appear here/);
     assert.match(CSS, /\.graph-empty\{/);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }

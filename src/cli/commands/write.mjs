@@ -27,10 +27,11 @@ import * as neighbours from '../../neighbours.mjs';
 import * as errorclass from '../../errorclass.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as doctor from '../../doctor.mjs';
+import * as entryops from '../../entryops.mjs';
 import { out, die, warn, checkFlags, isHelp, fieldsFrom, findRoot, requireConfig } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
-/** 10 commands. */
+/** 12 commands. */
 export const COMMANDS = {
   log: async ({ rest, args }) => {
     if (isHelp(args)) {
@@ -615,6 +616,52 @@ export const COMMANDS = {
 
   discard: async ({ rest, args }) => retireCmd('discarded', rest, args),
   done: async ({ rest, args }) => retireCmd('done', rest, args),
+
+  // Bauplan P3: restore and merge, append-only (src/entryops.mjs).
+  restore: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem restore <id> [--why "..."]',
+        '',
+        '  Takes a closed entry (done / discarded / obsolete) up again as a NEW',
+        '  line carrying its content and `restored_from: <id>`. The original and',
+        '  its tombstone stay exactly where they are. Refused when the entry is',
+        '  not closed, is superseded by a correction (use the newer version),',
+        '  or is already restored and still holds.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['why'], 'restore');
+    const root = findRoot(args);
+    requireConfig(root);
+    if (!rest[0]) die('restore: which id? Example: mem restore a1b2c3 --why "still needed"');
+    try {
+      const r = entryops.restore(root, rest[0], { why: args.why ?? null });
+      out(`restored: ${r.id} -> ${r.created} (${r.type}${r.project ? `/${r.project}` : ''}, was ${r.was})`);
+    } catch (e) { die(`restore: ${e.message}`); }
+  },
+  merge: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem merge <id> <id> [<id> ...] [--title "..."] [--text "..."] [--why "..."]',
+        '',
+        '  Merges entries of ONE drawer: a correction of the first id carries the',
+        '  joined content and `merged_from: [ids]`; every other id gets an',
+        '  `obsolete` tombstone "merged into <new id>". Nothing is deleted or',
+        '  rewritten; the originals stay readable. Max 20 ids. Refused across',
+        '  drawers and for entries that no longer hold.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['title', 'text', 'why'], 'merge');
+    const root = findRoot(args);
+    requireConfig(root);
+    if (rest.length < 2) die('merge: at least two ids. Example: mem merge a1b2c3 d4e5f6 --why "same fact"');
+    try {
+      const r = entryops.merge(root, rest, { title: args.title ?? null, text: args.text ?? null, why: args.why ?? null });
+      out(`merged: ${r.ids.join(', ')} -> ${r.created} (${r.type}${r.project ? `/${r.project}` : ''}); tombstones: ${r.tombstones.join(', ')}`);
+    } catch (e) { die(`merge: ${e.message}`); }
+  },
 
   links: async ({ rest, args }) => {
     if (isHelp(args) || !rest[0]) {

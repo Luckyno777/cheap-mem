@@ -87,6 +87,7 @@ export function buildLine({
   searched = null,
   sources = [],
   questionBytes = null,
+  durationMs = null,
 } = {}) {
   return {
     ts,
@@ -106,6 +107,12 @@ export function buildLine({
     // injected hit was actually touched afterwards.
     sources: Array.isArray(sources) ? sources.slice(0, 20).map(String) : [],
     question_bytes: Number.isFinite(questionBytes) ? questionBytes : null,
+    // Wall time of the process that booked the line, from its start to
+    // the booking (Bauplan P2; the latency budget reads this). `null`
+    // means "not measured" — deliberately not 0: a line written before
+    // this field existed, or by a writer that cannot time itself, must
+    // not read as an instant hook.
+    duration_ms: Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : null,
   };
 }
 

@@ -32,10 +32,12 @@
 //
 // **Not available in cheap-mem is said out loud.** Three views of the
 // sibling have no counterpart here — books (a stored digest volume),
-// the digester's per-run yield counters, and a live preview of what the
-// hook would inject. The owner decided (2026-09-28) that they are SHOWN
-// as "not available in cheap-mem", never as an empty list — see
-// `NOT_AVAILABLE` below.
+// the digester's per-run yield counters, and the 1M/5M/10M scale gate
+// (VM tooling). The owner decided (2026-09-28) that they are SHOWN
+// as "not available in cheap-mem", never as an empty list — and, since
+// Bauplan Block P (2026-09-29), each WITH the reason it is a difference
+// of design, not a gap — see `NOT_AVAILABLE` below. Restore, merge, hook
+// time and the live injection view are built (P2-P4).
 //
 // invariant: drei-zustaende-nie-zwei
 import fs from 'node:fs';
@@ -68,6 +70,7 @@ import * as effect from './effect.mjs';
 import * as today from './today.mjs';
 import * as release from './release.mjs';
 import * as checkrecord from './checkrecord.mjs';
+import * as latencybudget from './latencybudget.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The cheap-mem package itself — where the code, not the memory, lives. */
@@ -98,32 +101,31 @@ export const TYPE_NAME = Object.freeze({
  * (owner decision 2026-09-28, port spec §2 and §6.5).
  */
 export const NOT_AVAILABLE = Object.freeze({
+  // Explained differences (Bauplan Block P): each says WHY, never just
+  // "missing". The built ones (restore, merge, hook time, live injection
+  // view) are not in this list any more — they are real functions.
   books: {
     title: 'Books',
-    reason: 'Not available in cheap-mem: there is no stored "book" (a digest volume over many '
-      + 'entries). `mem digest` prints a session-start summary to stdout and keeps nothing.',
+    reason: 'Not available in cheap-mem, by design: a book is the sibling\'s stored condensation '
+      + 'over many entries, written by a model (its background digest service). Here the recall path uses no model and '
+      + 'the logs are the only store — a condensed volume beside them would be a second truth that '
+      + 'drifts from the entries. `mem digest` prints a session-start summary and keeps nothing; '
+      + 'every entry stays reachable by topic and project.',
   },
   digesterYield: {
     title: 'Digester yield per run',
-    reason: 'Not available in cheap-mem: the digest keeps no per-run counters (entries '
-      + 'rejected, cleaned or dropped by a write guard) and no knowledge-gap register. What '
-      + 'IS measured is the doctor\'s digest-yield finding, shown beside this note.',
+    reason: 'Not available in cheap-mem, by design: there is no background digest service here — the digest '
+      + 'runs by hand or from CI (`mem digest`), so nothing keeps per-run counters (entries '
+      + 'rejected, cleaned or dropped by a write guard) or a knowledge-gap register. What IS '
+      + 'measured is the doctor\'s digest-yield finding: digested captures that produced no entry.',
   },
-  restore: {
-    title: 'Restore',
-    reason: 'Not available in cheap-mem: no command lifts a tombstone. A correction (`mem '
-      + 'correction`) writes the entry anew, with a replaces link to the retired one.',
-  },
-  merge: {
-    title: 'Merge',
-    reason: 'Not available in cheap-mem: there is no merge command. Linking the entries '
-      + '(`mem log link --kind generalizes`) keeps both and says how they belong together.',
-  },
-  liveInjection: {
-    title: 'Live injection preview',
-    reason: 'Not available in cheap-mem: the recall hook cannot be run dry from a browser. '
-      + 'The probe here asks `mem retrieve` (the same gateway, read-only) — what the hook '
-      + 'really injected is in the injection journal below.',
+  scaleGate: {
+    title: 'Scale gate 1M / 5M / 10M',
+    reason: 'Not available in cheap-mem, by design: the gate is the sibling\'s VM tooling — a service '
+      + 'that builds synthetic memories of 1M/5M/10M entries on one server and times recall. '
+      + 'cheap-mem ships empty and never measures a memory that is not yours. Its equivalents: '
+      + 'the doctor\'s corpus-size finding (warns at the 50,000-entry sharding line, docs/scale.md), '
+      + 'the hook-time finding and the weekly series below, which run on YOUR memory.',
   },
 });
 
@@ -240,6 +242,20 @@ export function usageFromJournal(root, { read = injection.read } = {}) {
     .slice(-40).reverse()
     .map((l) => ({ ts: l.ts ?? null, session: l.session ?? null, occasion: l.occasion ?? null,
       bytes: Number.isFinite(l.bytes) ? l.bytes : null, sources: l.sources.slice(0, 12) }));
+  // Live injection view (Bauplan P4): the newest booked lines of EVERY
+  // kind — what was injected AND why nothing was — so a quiet hook is
+  // told apart from a hook that never ran. Same journal, same lines as
+  // above; nothing is recomputed or simulated.
+  const live = got.lines.filter((l) => l && typeof l === 'object').slice(-30).reverse()
+    .map((l) => ({
+      ts: l.ts ?? null, session: typeof l.session === 'string' ? l.session.slice(0, 8) : null,
+      occasion: l.occasion ?? null, reason: l.reason ?? null,
+      hits: Number.isFinite(l.hits) ? l.hits : null,
+      bytes: Number.isFinite(l.bytes) ? l.bytes : null,
+      durationMs: Number.isFinite(l.duration_ms) ? l.duration_ms : null,
+      searched: Number.isFinite(l.searched) ? l.searched : null,
+      sources: Array.isArray(l.sources) ? l.sources.slice(0, 5) : [],
+    }));
   return {
     measurable: true,
     rows: got.lines.length,
@@ -249,11 +265,39 @@ export function usageFromJournal(root, { read = injection.read } = {}) {
     reasons,
     reasonsByOccasion,
     occasions,
-    // The journal carries no duration: the hook's own time is not
-    // measured in this house. Said as such, never as 0 ms.
-    hookTime: { measured: 0, reason: 'the injection journal records no duration in cheap-mem' },
+    // Hook time (Bauplan P2): from the timed lines only (`duration_ms`).
+    // A line without a duration is not counted as fast — `measured` says
+    // how many lines carry one, `null` p50/p95 says "not measurable".
+    hookTime: hookTimeOf(got.lines),
     searched: { measured: searchedMeasured },
     recent,
+    live,
+  };
+}
+
+/** Timed-line figures over the whole journal (the judged window is latencybudget's). */
+function usageFromJournalHook(root, read, now) {
+  try {
+    const got = read(root);
+    if (!got?.present) return { measured: 0, reason: 'no injection journal on this machine', perDay: [], budget: [], level: 'unknown' };
+    return hookTimeOf(got.lines, now);
+  } catch (e) {
+    return { measured: 0, reason: `injection journal not readable: ${e?.message || e}`, perDay: [], budget: [], level: 'unknown' };
+  }
+}
+
+function hookTimeOf(lines, now = new Date()) {
+  const timed = lines.filter((l) => l && Number.isFinite(l.duration_ms));
+  const judged = latencybudget.judgeAll(lines, now);
+  const all = timed.map((l) => l.duration_ms);
+  return {
+    measured: timed.length,
+    p50: all.length >= latencybudget.MIN_LINES ? latencybudget.percentile(all, 50) : null,
+    p95: all.length >= latencybudget.MIN_LINES ? latencybudget.percentile(all, 95) : null,
+    reason: timed.length ? null : 'no journal line carries a duration yet (duration_ms is written by `mem find --journal-session`)',
+    perDay: latencybudget.perDay(lines, { now }),
+    budget: judged,
+    level: latencybudget.worstLevel(judged),
   };
 }
 
@@ -780,7 +824,8 @@ export function collectDashboard(root, {
   const performance = {
     weeks: measurements.read(root),
     metrics: measurements.METRICS,
-    gate: { readable: false, reason: 'not available in cheap-mem — there is no scale gate (1M/5M/10M) in this house' },
+    hook: { ...usageFromJournalHook(root, readJournal, now), finding: findingNamed(doc, 'hook-latency') },
+    gate: { readable: false, reason: NOT_AVAILABLE.scaleGate.reason },
   };
 
   // --- 10. workspace: names come from the config, never from code --------
@@ -1030,6 +1075,5 @@ export function retrievalProbe(root, questionText, {
     excludedByKind: r.excluded.reduce((m, x) => { m[x.kind ?? 'eligibility'] = (m[x.kind ?? 'eligibility'] ?? 0) + 1; return m; }, {}),
     hasMore: Boolean(r.hasMore),
     coverage: r.coverage ?? { state: 'unknown_coverage', reasons: [] },
-    liveInjection: NOT_AVAILABLE.liveInjection,
   };
 }
