@@ -51,6 +51,7 @@ import fs from 'node:fs';
 import zlib from 'node:zlib';
 import * as dashboardPage from '../src/dashboard-page.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
+import * as dashboardCache from '../src/dashboard-cache.mjs';
 import * as pwa from '../src/pwa.mjs';
 import * as icon from '../src/icon.mjs';
 import * as measurements from '../src/measurements.mjs';
@@ -151,7 +152,7 @@ export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '
  */
 export const HOST_GUARDED = Object.freeze([
   dashboardPage.PATHS.data, dashboardPage.PATHS.entry, dashboardPage.PATHS.message,
-  dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt,
+  dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part,
 ]);
 
 /**
@@ -208,6 +209,19 @@ function short(res, code, text) {
 }
 
 /**
+ * **The deferred parts of /dashboard.json (tempo, 2026-09-28).** Per part:
+ * where the list sits in the full result of `collectDashboard()`. The
+ * overview does not show them; /dashboard.json carries only
+ * `parts.<name> = { path, count }` instead of the list, and the tab fetches
+ * it through `/dashboard/part.json?part=<name>` — from the SAME cached
+ * build (one truth, delivered twice).
+ */
+export const DEFERRED_PARTS = Object.freeze({
+  raw: { section: 'raw', field: 'captures', readable: (d) => d.raw?.readable === true },
+  inbox: { section: 'inbox', field: 'messages', readable: (d) => d.inbox?.readable === true },
+});
+
+/**
  * @param env the environment `cfg` was BUILT from — not `process.env`.
  * The sibling project shipped that mistake: the page then reports
  * connections belonging to a different server than the one serving it.
@@ -232,6 +246,90 @@ export function buildHandler(root, cfg, env = process.env) {
     equal: webauth.constantEqual,
   };
   const loginFree = ['/favicon.ico', '/sw.js', ...dashboardPage.FONTS.map((f) => f.path)];
+  // --- tempo: /dashboard.json from the cache --------------------------------
+  // ONE cache per handler (not per module): a probe that builds its own
+  // handler never sees another one's result.
+  const writesAllowed = () => writegate.read(root, gateOpts(cfg)).allowed;
+  const dashOptions = (w) => ({ env, cfg, title: cfg.title, writesAllowed: w });
+  const dashCache = dashboardCache.createCache({
+    build: () => dashboardData.collectDashboard(root, dashOptions(writesAllowed())),
+    buildInBackground: () => dashboardCache.buildInWorker(root, { ...dashOptions(writesAllowed()), env: { ...env } }),
+    // The write gate is part of the data (`writesAllowed`) — part of the stamp too.
+    stamp: () => `${dashboardCache.generationStamp(root)}|w=${writesAllowed()}`,
+    // Serialize and pack the new state right away — otherwise the first
+    // request afterwards would pay for packing.
+    afterBackgroundBuild: () => { dashboardAnswerText(dashCache.get()).gzip(); },
+  });
+  let dashText = null; // { key, plain, gzip() } — the last serialized text
+  const packedPerVersion = new Map(); // 'path:version' -> gzip of a page file (tempo)
+  function dashboardAnswerText(st) {
+    // dash-fix3 parity: append "live checked" (mcplive.mjs) and "client
+    // visible" (mcpvisibility.mjs) to catalog.mcp. Both only ADD to what
+    // catalog.mcp already carries from src/mcpprofile.mjs — nothing here
+    // is invented.
+    //
+    // **Strictly synchronous, on purpose.** This route never had to
+    // wait on anything before this probe — an `await` here would
+    // regress that. `mcplive.probe()` itself stays async (it speaks
+    // HTTP to the bridge); it runs in the BACKGROUND
+    // (`mcplive.kickProbe`, fire-and-forget, at most one at a time) and
+    // this response only reads what is already cached
+    // (`mcplive.probeNow`, no network). Right after start that is
+    // nothing yet — then "unknown" with a reason, like any other
+    // not-yet-measured value; the NEXT call sees the result that
+    // arrived meanwhile.
+    //
+    // tempo: the cached data is NOT modified (it serves many answers) —
+    // the live fields go into a copy of `catalog.mcp`.
+    const { data } = st;
+    let mcpNew = null;
+    try {
+      const mcp = data.catalog?.mcp;
+      if (mcp) {
+        mcpNew = { ...mcp };
+        const defined = [...(mcp.reading || []), ...(mcp.writing || [])];
+        const result = mcplive.probeNow();
+        if (result) {
+          mcpNew.live = mcplive.verdicts(result, defined);
+          mcpNew.liveCheckedAt = result.checkedAt;
+          mcpNew.liveReason = result.reachable ? null : result.reason;
+        } else {
+          mcpNew.live = mcplive.verdicts({ reachable: false, reason: 'not checked yet' }, defined);
+          mcpNew.liveCheckedAt = null;
+          mcpNew.liveReason = 'not checked yet';
+          mcplive.kickProbe({ env });
+        }
+        const seen = mcpvisibility.latestPerTool(root);
+        mcpNew.clientVisible = Object.fromEntries(defined.map((n) => {
+          const x = seen.get(n);
+          return [n, x ? { client: x.client, ts: x.ts } : null];
+        }));
+      }
+    } catch (e) {
+      if (data.catalog?.mcp) mcpNew = { ...data.catalog.mcp, liveReason: e?.message || String(e) };
+    }
+    const key = JSON.stringify([st.id, mcpNew && {
+      live: mcpNew.live, at: mcpNew.liveCheckedAt, reason: mcpNew.liveReason, seen: mcpNew.clientVisible,
+    }, st.meta]);
+    if (dashText?.key === key) return dashText;
+    const whole = mcpNew ? { ...data, catalog: { ...data.catalog, mcp: mcpNew } } : { ...data };
+    // The deferred parts: list out, path and count in (readable ones only —
+    // an unreadable section keeps its reason and has no list).
+    whole.parts = {};
+    for (const [name, p] of Object.entries(DEFERRED_PARTS)) {
+      const list = data[p.section]?.[p.field];
+      if (!p.readable(data) || !Array.isArray(list)) continue;
+      const { [p.field]: _gone, ...rest } = data[p.section];
+      whole[p.section] = rest;
+      whole.parts[name] = { path: `${dashboardPage.PATHS.part}?part=${name}`, count: list.length };
+    }
+    whole.cache = st.meta;
+    const plain = JSON.stringify(whole);
+    let packed = null;
+    dashText = { key, plain, gzip: () => (packed ??= zlib.gzipSync(plain)) };
+    return dashText;
+  }
+
   return function handler(req, res) {
     let url;
     try { url = new URL(req.url, 'http://x'); }
@@ -320,15 +418,42 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(`file ${shipped.file} not readable: ${e?.message || e}`);
         return;
       }
-      res.writeHead(200, {
+      // The fonts carry their version in the name and never change.
+      if (url.pathname.startsWith('/fonts/')) {
+        res.writeHead(200, {
+          'content-type': shipped.type, 'x-content-type-options': 'nosniff',
+          'cache-control': 'private, max-age=31536000, immutable',
+        }).end(bytes);
+        return;
+      }
+      // **tempo (2026-09-28): a version mark instead of reloading.** The
+      // page asks `?v=<sha256 prefix>` (`dashboardPage.version()`). When
+      // the mark matches the content the browser may keep the file for a
+      // year (`immutable`) — a new version has a new mark, so a new
+      // address. Without a mark or with a foreign one: `no-cache` WITH an
+      // ETag, so a cheap 304 instead of the whole file. Packed when the
+      // browser offers it, once per version (`packedPerVersion`).
+      const v = dashboardPage.version(url.pathname);
+      const etag = v ? `"${v}"` : null;
+      const head = {
         'content-type': shipped.type,
         'x-content-type-options': 'nosniff',
-        // three.js and the fonts carry their version in the name and
-        // never change; the stylesheet and the script change with every
-        // commit and are asked for fresh on every load.
-        'cache-control': (url.pathname === dashboardPage.PATHS.three || url.pathname.startsWith('/fonts/'))
-          ? 'private, max-age=31536000, immutable' : 'no-cache',
-      }).end(bytes);
+        'cache-control': v && url.searchParams.get('v') === v ? 'private, max-age=31536000, immutable' : 'no-cache',
+        vary: 'accept-encoding',
+      };
+      if (etag) head.etag = etag;
+      if (etag && String(req.headers['if-none-match'] ?? '').split(/\s*,\s*/).includes(etag)) {
+        res.writeHead(304, head).end();
+        return;
+      }
+      if (v && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+        const k = `${url.pathname}:${v}`;
+        let gz = packedPerVersion.get(k);
+        if (!gz) { gz = zlib.gzipSync(bytes); packedPerVersion.set(k, gz); }
+        res.writeHead(200, { ...head, 'content-encoding': 'gzip' }).end(gz);
+        return;
+      }
+      res.writeHead(200, head).end(bytes);
       return;
     }
     if (url.pathname === dashboardPage.PATHS.swRegister) {
@@ -388,63 +513,56 @@ export function buildHandler(root, cfg, env = process.env) {
       return;
     }
     if (url.pathname === dashboardPage.PATHS.data) {
-      let data;
+      // **tempo (2026-09-28): from the cache.** Built only on the first
+      // request (synchronously, as before) and afterwards when the store
+      // changed — for a large store in the background
+      // (src/dashboard-cache.mjs). The answer says itself how old it is and
+      // whether a rebuild is running (`cache`).
+      let text;
       try {
-        data = dashboardData.collectDashboard(root, {
-          env, cfg, title: cfg.title, writesAllowed: writegate.read(root, gateOpts(cfg)).allowed,
-        });
+        text = dashboardAnswerText(dashCache.get());
       } catch (e) {
         res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
         return;
       }
-      // dash-fix3 parity: append "live checked" (mcplive.mjs) and "client
-      // visible" (mcpvisibility.mjs) to catalog.mcp. Both only ADD to what
-      // catalog.mcp already carries from src/mcpprofile.mjs — nothing here
-      // is invented.
-      //
-      // **Strictly synchronous, on purpose.** This route never had to
-      // wait on anything before this probe — an `await` here would
-      // regress that. `mcplive.probe()` itself stays async (it speaks
-      // HTTP to the bridge); it runs in the BACKGROUND
-      // (`mcplive.kickProbe`, fire-and-forget, at most one at a time) and
-      // this response only reads what is already cached
-      // (`mcplive.probeNow`, no network). Right after start that is
-      // nothing yet — then "unknown" with a reason, like any other
-      // not-yet-measured value; the NEXT call sees the result that
-      // arrived meanwhile.
-      try {
-        const mcp = data.catalog?.mcp;
-        if (mcp) {
-          const defined = [...(mcp.reading || []), ...(mcp.writing || [])];
-          const result = mcplive.probeNow();
-          if (result) {
-            mcp.live = mcplive.verdicts(result, defined);
-            mcp.liveCheckedAt = result.checkedAt;
-            mcp.liveReason = result.reachable ? null : result.reason;
-          } else {
-            mcp.live = mcplive.verdicts({ reachable: false, reason: 'not checked yet' }, defined);
-            mcp.liveCheckedAt = null;
-            mcp.liveReason = 'not checked yet';
-            mcplive.kickProbe({ env });
-          }
-          const seen = mcpvisibility.latestPerTool(root);
-          mcp.clientVisible = Object.fromEntries(defined.map((n) => {
-            const s = seen.get(n);
-            return [n, s ? { client: s.client, ts: s.ts } : null];
-          }));
-        }
-      } catch (e) {
-        if (data.catalog?.mcp) data.catalog.mcp.liveReason = e?.message || String(e);
-      }
       // Packed only when the browser offers it — a script without gzip
-      // gets plain text.
-      const text = JSON.stringify(data);
+      // gets plain text. Packed once per version of the text, not per request.
       if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
         res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8', 'content-encoding': 'gzip', vary: 'accept-encoding' })
-          .end(zlib.gzipSync(text));
+          .end(text.gzip());
       } else {
-        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(text);
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(text.plain);
+      }
+      return;
+    }
+    // tempo: one deferred part — the same gates as /dashboard.json (the
+    // token door above, the Host check in HOST_GUARDED, no CORS header),
+    // the same source (the cached build), the same freshness statement.
+    if (url.pathname === dashboardPage.PATHS.part) {
+      const name = url.searchParams.get('part') || '';
+      const p = Object.hasOwn(DEFERRED_PARTS, name) ? DEFERRED_PARTS[name] : null;
+      if (!p) {
+        res.writeHead(404, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'unknown', reason: `no deferred part '${name}' (known: ${Object.keys(DEFERRED_PARTS).join(', ')})` }));
+        return;
+      }
+      let st;
+      try { st = dashCache.get(); } catch (e) {
+        res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+        return;
+      }
+      const list = st.data[p.section]?.[p.field];
+      const found = p.readable(st.data) && Array.isArray(list)
+        ? { state: 'ok', part: name, data: list, cache: st.meta }
+        : { state: 'unknown', part: name, data: null, reason: st.data[p.section]?.reason || `${p.section} not readable`, cache: st.meta };
+      const body = JSON.stringify(found);
+      if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8', 'content-encoding': 'gzip', vary: 'accept-encoding' })
+          .end(zlib.gzipSync(body));
+      } else {
+        res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(body);
       }
       return;
     }

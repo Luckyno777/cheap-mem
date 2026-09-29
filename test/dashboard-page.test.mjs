@@ -107,7 +107,9 @@ test('every fetch() in the script goes to a closed list of this server\'s routes
     // login (2026-09-28): change the password and sign out (Settings >
     // Access) — Host + Origin checks in src/login.mjs; writes only the
     // password hash / sessions under .pipeline/, never memory.
-    '/login/password', '/login/logout']);
+    '/login/password', '/login/logout',
+    // tempo (2026-09-28): deferred parts of /dashboard.json — read-only, the same cached build, the same gates.
+    '/dashboard/part.json']);
   const calls = [...JS.matchAll(/fetch\(\s*([`'])([^`'?$]*)/g)].map((m) => m[2]);
   // formPost(path, …) is the one wrapper for form writes.
   const posts = [...JS.matchAll(/formPost\('([^']+)'/g)].map((m) => m[1]);

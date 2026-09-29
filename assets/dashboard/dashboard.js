@@ -95,6 +95,8 @@ const state = {
   inboxTo: null, inboxAll: false, inboxQuery: '',
 };
 let raf = 0, graphCleanup = () => {}, toastTimer;
+let graphRun = 0; // tempo: counter for the deferred initGraph() in render()
+let refetchTimer = 0; // tempo: quiet refetch while the server rebuilds
 const byId = (id) => entryIndex.get(id);
 const when = (t) => {
   const d = new Date(t);
@@ -230,8 +232,10 @@ function prepare(d) {
     incomingIndex.get(id).push({ kind, id: e.id });
   }
   for (const e of entries) e._s = (e.id + ' ' + e.title + ' ' + e.text + ' ' + e.tags.join(' ') + ' ' + e.agent + ' ' + e.project + ' ' + (types[e.type] || '')).toLowerCase();
-  messages = (d.inbox?.messages || []).map((m) => ({ ...m, id: m.name, title: m.subject }));
-  rawSamples = d.raw?.readable ? d.raw.captures || [] : [];
+  // tempo: messages and captures arrive deferred (`d.parts`, loadParts()) —
+  // if they are in the answer after all (older server), they count as before.
+  if (!d.parts?.inbox) setMessages(d.inbox?.messages || []);
+  if (!d.parts?.raw) setCaptures(d.raw?.readable ? d.raw.captures || [] : []);
   // A drawer that was not readable makes the coverage unclear — then
   // every view shows the mockup's note, this time with the real reason.
   state.missing = d.state !== 'ok' || entries.some((e) => !e.readable);
@@ -242,12 +246,53 @@ function prepare(d) {
   for (const p of d.projects || []) if (!known.has(p.name)) ps.insertAdjacentHTML('beforeend', `<option value="${esc(p.name)}">${esc(p.name)}</option>`);
   const g = d.meta?.git || {};
   const c = d.meta?.code || {};
-  $('#stateMark').innerHTML = `<span class="dot"></span> State ${esc(whenTime(d.at))}`;
-  $('#stateMark').className = 'badge ' + (d.state === 'ok' ? 'good' : 'warn');
+  // tempo: /dashboard.json comes from the server's cache and says itself
+  // whether it is fresh. Not fresh is never shown as fresh.
+  const ca = d.cache || null;
+  const caText = !ca || ca.fresh ? ''
+    : ca.refreshing ? ` · refreshing (built ${whenTime(ca.built_at)})`
+      : ` · not fresh: ${ca.reason || 'unknown'}`;
+  $('#stateMark').innerHTML = `<span class="dot"></span> State ${esc(whenTime(d.at))}${esc(caText)}`;
+  $('#stateMark').className = 'badge ' + (d.state === 'ok' && (!ca || ca.fresh) ? 'good' : 'warn');
   $('#versionMark').textContent = `${g.branch || '—'} ${g.head || ''} · cheap-mem ${c.version || '—'}${c.headAtStart ? ' · process ' + c.headAtStart : ''}${c.stale ? ' · process stale' : ''}`;
   $('#liveMark').textContent = '● LIVE · ' + (d.meta?.title || 'cheap-mem');
   $('#dataMark').textContent = serverWrites ? 'LIVE DATA' : 'LIVE · READ ONLY';
   $('#footLeft').textContent = `cheap-mem · ${entriesTotalText()} · state ${whenTime(d.at)} · memory ${g.head || '—'}.`;
+}
+// --- tempo: deferred parts ---------------------------------------------------
+// What the start page does not need (messages, captures) the page fetches
+// after the first draw through /dashboard/part.json. Until it is there the
+// tab says "loading" — an empty list would be a false statement.
+const partState = {}; // name -> 'loading' | 'ok' | 'error'
+const partReason = {};
+function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
+function setCaptures(list) { rawSamples = list || []; }
+const PART_TAB = { inbox: 'inbox', raw: 'raw' };
+async function loadParts() {
+  const parts = Object.keys(D?.parts || {});
+  await Promise.all(parts.map(async (name) => {
+    if (partState[name] !== 'ok') partState[name] = 'loading';
+    try {
+      // Literal, not a computed path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
+      const r = await fetch('/dashboard/part.json?part=' + encodeURIComponent(name), { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error('answer ' + r.status);
+      const b = await r.json();
+      if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
+      if (name === 'inbox') setMessages(b.data);
+      else if (name === 'raw') setCaptures(b.data);
+      partState[name] = 'ok';
+      partReason[name] = null;
+    } catch (e) {
+      partReason[name] = e?.message || String(e);
+      if (partState[name] !== 'ok') partState[name] = 'error';
+    }
+  }));
+  if (parts.some((name) => PART_TAB[name] === state.tab)) render();
+}
+function partNotice(name, title) {
+  if (!D?.parts?.[name] || partState[name] === 'ok') return null;
+  if (partState[name] === 'error') return panel(title, note('Not loaded: ' + esc(partReason[name] || 'unknown') + ' — an empty list would be a false statement here.', 'bad') + `<p style="margin-top:12px">${btn('Load again', 'reload', '', 'primary')}</p>`);
+  return panel(title, note(`Loading … (${num(D.parts[name].count)} items)`));
 }
 async function loadData({ quiet = false } = {}) {
   try {
@@ -258,6 +303,16 @@ async function loadData({ quiet = false } = {}) {
     if (!r.ok) throw new Error('answer ' + r.status);
     prepare(await r.json());
     loadError = null;
+    loadParts();
+    // tempo: when the answer is not fresh, ask again quietly until it is —
+    // soon when the server already rebuilds, otherwise less often (it
+    // rebuilds at most every 20 s). At most one refetch waits.
+    if (D?.cache && !D.cache.fresh && !refetchTimer) {
+      refetchTimer = setTimeout(async () => {
+        refetchTimer = 0;
+        if (await loadData({ quiet: true })) render();
+      }, D.cache.refreshing ? 5000 : 20000);
+    }
   } catch (e) {
     loadError = e?.message || String(e);
     if (!D) {
@@ -312,7 +367,19 @@ function render() {
     }
   }
   $('#screen').innerHTML = `<div class="screen-enter">${state.missing ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
-  if ($('#brain')) initGraph();
+  // tempo (2026-09-28): draw the overview FIRST, the 3-D network one frame
+  // later. `initGraph()` compiles the shaders (measured in the sibling's
+  // Chromium profile: ~4–6 s with software GL under load) — synchronous
+  // here, it kept the already finished numbers of the start page invisible
+  // that long. `graphRun` drops a deferred build when a newer render came
+  // in between (it would otherwise build onto a replaced <canvas>).
+  const run = ++graphRun;
+  if ($('#brain')) {
+    const canvas = $('#brain');
+    requestAnimationFrame(() => setTimeout(() => {
+      if (run === graphRun && document.contains(canvas)) initGraph();
+    }, 0));
+  }
   if ($('#exportPreview')) updateExportPreview();
   if ($('#timeResult')) factsAtLoad($('#validDate').value, $('#knownDate').value);
   decoratePage();
@@ -652,7 +719,7 @@ const pages = {
       `<div class="tablewrap"><table class="table"><thead><tr><th>Signal</th><th>Source</th><th>Here</th></tr></thead><tbody><tr><td>Own heartbeat</td><td>heartbeat.jsonl (mem heartbeat)</td><td>per agent, see the cards</td></tr><tr><td>Observed activity</td><td>the drawers and the inbox</td><td>per agent, see the cards</td></tr><tr><td>Deliberate pause</td><td>silent_until in AGENT.yaml</td><td>${num(as.filter((a) => a.pause?.state === 'paused').length)} paused</td></tr><tr><td>Locally startable</td><td>agents/&lt;name&gt;/PROMPT.md or START.md</td><td>${num(as.filter((a) => a.startable?.local).length)} of ${num(as.length)}</td></tr><tr><td>Digest bell</td><td>.mem/digest-bell.json</td><td>${bell.checkable ? (bell.rung ? 'rung · ' + esc(whenTime(bell.last)) : 'not rung') : badge('unknown')}</td></tr><tr><td>The human's tray (show only)</td><td>inbox/ addressed to the human participant</td><td>${tray.checkable === false ? badge('unknown', esc(tray.reason || 'unknown')) : `${num(tray.count)} open${tray.count ? ' · oldest ' + age(tray.oldestMin) : ''}`}</td></tr></tbody></table></div>${note('Two confirming sources: alive. One source: unknown. No observable signal: not seen. An announced pause is not an outage. The bell only reads ok once a message was actually answered.')}`,
     )}`;
   },
-  inbox: () => inboxPage(),
+  inbox: () => partNotice('inbox', 'Inbox') ?? inboxPage(),
   context: () => contextPage(),
   usage: () => usagePage(),
   understanding: () => {
@@ -699,7 +766,7 @@ const pages = {
       'Source pointers, register entries and available bytes stay distinguishable.',
     );
   },
-  raw: () => rawPage(),
+  raw: () => partNotice('raw', 'Raw capture review') ?? rawPage(),
   digest: () => {
     const tile = (D.system || []).find((k) => k.id === 'digest');
     const withCapture = scoped().filter((e) => e.capture).length;
