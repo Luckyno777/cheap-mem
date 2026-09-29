@@ -97,6 +97,55 @@ const state = {
 let raf = 0, graphCleanup = () => {}, toastTimer;
 let graphRun = 0; // tempo: counter for the deferred initGraph() in render()
 let refetchTimer = 0; // tempo: quiet refetch while the server rebuilds
+// no-jump (2026-09-29): a background refetch must never draw — that
+// replaces #screen entirely and throws away scroll, open <details>,
+// inputs and selection. Background calls only remember WHETHER the
+// content really changed (lastContentKey), and show a quiet marker when
+// it did; render() (every navigation, every user action) shows the
+// newest state anyway and hides the marker in the same pass — a
+// showNewDataMark() followed by a render() in the same tick never
+// visibly flickers.
+let lastContentKey = null;
+let newDataReady = false;
+// Test-only: shortens the intervals below so a probe does not have to
+// wait the real 5000/20000 ms. Without the data attribute in the page
+// head (normal operation) this stays null. See src/switches.mjs
+// CHEAP_MEM_SERVE_TEMPO_TEST_MS.
+const TEMPO_TEST_MS = Number(document.body.dataset.tempoTestMs || 0) || null;
+// Fields in the /dashboard.json answer that do NOT count when asking
+// "did the content really change" — they change on EVERY fetch, even
+// without a real change in the memory (the build timestamp, the MCP
+// live probe, the bridge tile's relative "reported X ago" line), and
+// would otherwise show the marker on every quiet refetch.
+function contentKey(d) {
+  try {
+    const copy = JSON.parse(JSON.stringify(d));
+    delete copy.cache; // the cache's own build metadata, not content
+    delete copy.at; // the timestamp of THIS build, not content
+    if (copy.catalog?.mcp) {
+      // MCP live probe: its own cadence (every few minutes), independent
+      // of real memory changes — its verdict and reason too, not only the
+      // time. `clientVisible` (real MCP client sightings) stays content.
+      delete copy.catalog.mcp.liveCheckedAt;
+      delete copy.catalog.mcp.live;
+      delete copy.catalog.mcp.liveReason;
+    }
+    if (Array.isArray(copy.system)) for (const t of copy.system) if (t?.id === 'bridge') delete t.line; // "reported X ago"
+    return JSON.stringify(copy);
+  } catch {
+    return null; // not comparable -> rather nothing than something wrong (house rule)
+  }
+}
+function showNewDataMark() {
+  newDataReady = true;
+  const el = $('#newDataMark');
+  if (el) el.hidden = false;
+}
+function hideNewDataMark() {
+  newDataReady = false;
+  const el = $('#newDataMark');
+  if (el) el.hidden = true;
+}
 const byId = (id) => entryIndex.get(id);
 const when = (t) => {
   const d = new Date(t);
@@ -288,29 +337,44 @@ function prepare(d) {
 // tab says "loading" — an empty list would be a false statement.
 const partState = {}; // name -> 'loading' | 'ok' | 'error'
 const partReason = {};
+const partContentKey = {}; // name -> last JSON.stringify(b.data) (no-jump)
 function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
 function setCaptures(list) { rawSamples = list || []; }
 const PART_TAB = { inbox: 'inbox', raw: 'raw' };
+// no-jump point 3: render() only when a part turns 'ok' for the FIRST
+// time and its tab is currently open (before that it said "loading" —
+// that MUST be shown). Every later refetch of the same part is a quiet
+// background sync like loadData() — a marker on a real change, never its
+// own render().
 async function loadParts() {
   const parts = Object.keys(D?.parts || {});
+  const firstOk = [];
+  let otherChanged = false;
   await Promise.all(parts.map(async (name) => {
-    if (partState[name] !== 'ok') partState[name] = 'loading';
+    const wasOk = partState[name] === 'ok';
+    if (!wasOk) partState[name] = 'loading';
     try {
       // Literal, not a computed path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
       const r = await fetch('/dashboard/part.json?part=' + encodeURIComponent(name), { credentials: 'same-origin', cache: 'no-store' });
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
+      const key = JSON.stringify(b.data);
+      const changed = partContentKey[name] !== undefined && partContentKey[name] !== key;
+      partContentKey[name] = key;
       if (name === 'inbox') setMessages(b.data);
       else if (name === 'raw') setCaptures(b.data);
       partState[name] = 'ok';
       partReason[name] = null;
+      if (!wasOk) firstOk.push(name);
+      else if (changed) otherChanged = true;
     } catch (e) {
       partReason[name] = e?.message || String(e);
       if (partState[name] !== 'ok') partState[name] = 'error';
     }
   }));
-  if (parts.some((name) => PART_TAB[name] === state.tab)) render();
+  if (firstOk.some((name) => PART_TAB[name] === state.tab)) render();
+  else if (otherChanged) showNewDataMark();
 }
 function partNotice(name, title) {
   if (!D?.parts?.[name] || partState[name] === 'ok') return null;
@@ -324,17 +388,33 @@ async function loadData({ quiet = false } = {}) {
     // the sign-in instead of an error over empty data.
     if (r.status === 401) { location.href = '/login'; return false; }
     if (!r.ok) throw new Error('answer ' + r.status);
-    prepare(await r.json());
+    const body = await r.json();
+    // no-jump: build the content key BEFORE prepare() (that mutates fields
+    // onto `d` itself) and only flag a real change once there is already
+    // a baseline to compare against (not on the very first load).
+    const newKey = contentKey(body);
+    const changed = lastContentKey !== null && newKey !== null && newKey !== lastContentKey;
+    if (newKey !== null) lastContentKey = newKey;
+    prepare(body);
     loadError = null;
     loadParts();
+    // Whether THIS call gets drawn is always the caller's decision (a user
+    // action calls render() right after — rahmen/task point 5). A real
+    // change here shows the quiet marker — if a render() follows right
+    // away (any user action), render() hides it again in the same pass,
+    // so it never visibly flickers.
+    if (changed) showNewDataMark();
     // tempo: when the answer is not fresh, ask again quietly until it is —
     // soon when the server already rebuilds, otherwise less often (it
     // rebuilds at most every 20 s). At most one refetch waits.
-    if (D?.cache && !D.cache.fresh && !refetchTimer) {
+    // no-jump: this refetch no longer draws by itself — it would replace
+    // #screen no matter where the human is reading/typing/scrolling.
+    // Paused while the tab is not visible (point 4).
+    if (D?.cache && !D.cache.fresh && !refetchTimer && !document.hidden) {
       refetchTimer = setTimeout(async () => {
         refetchTimer = 0;
-        if (await loadData({ quiet: true })) render();
-      }, D.cache.refreshing ? 5000 : 20000);
+        await loadData({ quiet: true });
+      }, TEMPO_TEST_MS ?? (D.cache.refreshing ? 5000 : 20000));
     }
   } catch (e) {
     loadError = e?.message || String(e);
@@ -348,6 +428,18 @@ async function loadData({ quiet = false } = {}) {
   }
   return true;
 }
+// no-jump point 4: no quiet refetch while the tab is not visible (nothing
+// to gain, only load) — and EXACTLY ONE quiet refetch once it is visible
+// again (no render(), marker only on a real change, like any background
+// call).
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    clearTimeout(refetchTimer);
+    refetchTimer = 0;
+  } else {
+    loadData({ quiet: true });
+  }
+});
 
 // --- Page frame ---------------------------------------------------------------
 function route(path) {
@@ -364,6 +456,11 @@ function route(path) {
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 function render() {
+  // no-jump point 2: every render() shows the newest D anyway (the
+  // background keeps it current) — the marker would be wrong from here
+  // on, whether this is a navigation, a user action, or the click on the
+  // marker itself.
+  hideNewDataMark();
   graphCleanup();
   cancelAnimationFrame(raf);
   $('#crumb').textContent = sections[state.area].name;
@@ -1409,30 +1506,64 @@ function taskState(v) {
   if (v.cancelled) return 'cancelled';
   return v.state === 'ok' ? 'finished' : v.state;
 }
+const TASK_STARTABLE = ['export', 'integrity'];
+// no-jump point 6: the pieces per task kind, computed once — used by
+// operationsPage() for the first draw AND by taskUpdate() for the quiet
+// 2 s repatch, without redrawing the whole page.
+function taskPieces(k, a) {
+  const running = D.tasks?.running || {};
+  const v = running[k];
+  const z = taskState(v);
+  const text =
+    z === 'running' ? esc(v.progress || 'Running · no progress measurable')
+      : z === 'cancelled' ? 'End of process confirmed · ' + esc(whenTime(v.ended))
+        : z === 'unknown' ? esc(v.reason || 'Run state no longer known')
+          : z === 'ready' ? 'Never started.'
+            : `${esc(whenTime(v.ended || v.started))}${v.reason ? ' · ' + esc(v.reason) : ''}`;
+  const button = TASK_STARTABLE.includes(k)
+    ? btn(z === 'running' ? 'Running …' : 'Start', 'operation-step', `data-value="${k}" ${state.readonly || z === 'running' ? 'disabled' : ''}`, 'primary')
+    : `<span class="small quiet">${k === 'raw-delete' ? 'Started in Raw capture, per capture' : 'Started at the entry (detail)'}</span>`;
+  return {
+    z, orbitRunning: z === 'running', orbitGlyph: z === 'running' ? '↻' : z === 'finished' ? '✓' : '◇', text,
+    actions: `${button}${z === 'running' ? btn('Cancel', 'operation-stop', `data-value="${k}" ${state.readonly ? 'disabled' : ''}`, 'ghost') : ''}`,
+  };
+}
 function operationsPage() {
   const kinds = D.tasks?.kinds || {};
-  const running = D.tasks?.running || {};
-  const startable = ['export', 'integrity'];
   return `<div class="grid three">${Object.entries(kinds)
     .map(([k, a]) => {
-      const v = running[k];
-      const z = taskState(v);
-      const text =
-        z === 'running' ? esc(v.progress || 'Running · no progress measurable')
-          : z === 'cancelled' ? 'End of process confirmed · ' + esc(whenTime(v.ended))
-            : z === 'unknown' ? esc(v.reason || 'Run state no longer known')
-              : z === 'ready' ? 'Never started.'
-                : `${esc(whenTime(v.ended || v.started))}${v.reason ? ' · ' + esc(v.reason) : ''}`;
-      const button = startable.includes(k)
-        ? btn(z === 'running' ? 'Running …' : 'Start', 'operation-step', `data-value="${k}" ${state.readonly || z === 'running' ? 'disabled' : ''}`, 'primary')
-        : `<span class="small quiet">${k === 'raw-delete' ? 'Started in Raw capture, per capture' : 'Started at the entry (detail)'}</span>`;
+      const t = taskPieces(k, a);
       return panel(
         esc(a.title),
-        `${badge(z)}<div class="operation-orbit ${z === 'running' ? 'running' : ''}"><i></i><b>${z === 'running' ? '↻' : z === 'finished' ? '✓' : '◇'}</b></div><p class="small muted" style="min-height:48px">${text}</p><div class="drawer-actions">${button}${z === 'running' ? btn('Cancel', 'operation-stop', `data-value="${k}" ${state.readonly ? 'disabled' : ''}`, 'ghost') : ''}</div>`,
+        `<span id="task-mark-${k}">${badge(t.z)}</span><div id="task-orbit-${k}" class="operation-orbit ${t.orbitRunning ? 'running' : ''}"><i></i><b>${t.orbitGlyph}</b></div><p id="task-text-${k}" class="small muted" style="min-height:48px">${t.text}</p><div id="task-actions-${k}" class="drawer-actions">${t.actions}</div>`,
         esc(a.description),
       );
     })
     .join('')}</div>${note('Every task is a child process of the existing CLI command. None of them reports phases, so no percentage is invented. Resume means: start again from the beginning.')}<div class="toolbar">${btn('Read the state again', 'operation-refresh', '', 'ghost')}${btn('Task log', 'audit', '', 'ghost')}</div>`;
+}
+// no-jump: patches ONLY the status pieces per task kind (mark, orbit,
+// text, button row) — no render(), so no jump, while a running task is
+// polled every 2 s. If the "Tasks" tab is not open, these elements don't
+// exist (id not found) — nothing happens then either, which is correct:
+// nothing to patch.
+function taskUpdate() {
+  const kinds = D.tasks?.kinds || {};
+  for (const [k, a] of Object.entries(kinds)) {
+    const markEl = document.getElementById('task-mark-' + k);
+    if (!markEl) continue;
+    const t = taskPieces(k, a);
+    markEl.innerHTML = badge(t.z);
+    const orbitEl = document.getElementById('task-orbit-' + k);
+    if (orbitEl) {
+      orbitEl.className = 'operation-orbit' + (t.orbitRunning ? ' running' : '');
+      const b = orbitEl.querySelector('b');
+      if (b) b.textContent = t.orbitGlyph;
+    }
+    const textEl = document.getElementById('task-text-' + k);
+    if (textEl) textEl.innerHTML = t.text;
+    const actionsEl = document.getElementById('task-actions-' + k);
+    if (actionsEl) actionsEl.innerHTML = t.actions;
+  }
 }
 function taskPolling() {
   clearTimeout(taskTimer);
@@ -1442,7 +1573,9 @@ function taskPolling() {
     const u = await taskOverview();
     if (u?.running && D) {
       D.tasks.running = u.running;
-      if (state.tab === 'operations') render();
+      // no-jump point 6: patch the status pieces only, never render() —
+      // otherwise the whole page would jump every 2 s while a task runs.
+      taskUpdate();
     }
     taskPolling();
   }, 2000);
@@ -3183,6 +3316,11 @@ document.addEventListener('click', async (ev) => {
   switch (a) {
     case 'reload':
       if (await loadData()) render();
+      break;
+    case 'new-data':
+      // no-jump: D is already current (the background keeps it that
+      // way) — just draw here, no refetch needed.
+      render();
       break;
     case 'search':
       search();

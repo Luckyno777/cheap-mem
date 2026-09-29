@@ -251,11 +251,21 @@ export function buildHandler(root, cfg, env = process.env) {
   // handler never sees another one's result.
   const writesAllowed = () => writegate.read(root, gateOpts(cfg)).allowed;
   const dashOptions = (w) => ({ env, cfg, title: cfg.title, writesAllowed: w });
+  // no-jump: TEST ONLY — with a tiny test store the cache always builds
+  // synchronously and is therefore immediately fresh on every answer
+  // (see the "small store" positive control in
+  // test/tempo-dashboard-cache.test.mjs); a probe needs real "not fresh"
+  // answers to trigger the quiet refetch at all. Set forces the
+  // background path (syncUpToMs=0) and lifts the minimum gap between two
+  // background builds (otherwise 20 s). Without this variable (normal
+  // operation) unchanged.
+  const syncUpToMsTest = env.CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS;
   const dashCache = dashboardCache.createCache({
     build: () => dashboardData.collectDashboard(root, dashOptions(writesAllowed())),
     buildInBackground: () => dashboardCache.buildInWorker(root, { ...dashOptions(writesAllowed()), env: { ...env } }),
     // The write gate is part of the data (`writesAllowed`) — part of the stamp too.
     stamp: () => `${dashboardCache.generationStamp(root)}|w=${writesAllowed()}`,
+    ...(syncUpToMsTest !== undefined ? { syncUpToMs: Number(syncUpToMsTest), minGapMs: 0 } : {}),
     // Serialize and pack the new state right away — otherwise the first
     // request afterwards would pay for packing.
     afterBackgroundBuild: () => { dashboardAnswerText(dashCache.get()).gzip(); },
@@ -503,6 +513,10 @@ export function buildHandler(root, cfg, env = process.env) {
         } catch { workspace = { name: path.basename(path.resolve(root)), human: null }; }
         html = pwa.insertHead(dashboardPage.asHtml({
           title: cfg.title, writesAllowed: writegate.read(root, gateOpts(cfg)).allowed, workspace, loginEnabled: loginOn,
+          // no-jump: TEST ONLY — shortens the dashboard script's quiet
+          // refetch intervals (otherwise 5000/20000 ms). Unchanged in
+          // normal operation.
+          tempoTestMs: Number(env.CHEAP_MEM_SERVE_TEMPO_TEST_MS || 0) || null,
         }));
       } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
