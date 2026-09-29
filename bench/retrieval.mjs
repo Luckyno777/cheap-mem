@@ -283,14 +283,25 @@ export function runBenchmark({ repeats = 200, opts = {} } = {}) {
     const index = buildIndex(root, { language: 'en' });
     const buildMs = performance.now() - tBuild0;
 
+    // P11: expand every `gold` id list with its correction successors —
+    // ported from lucky-mem so a gold case never fails just because a
+    // correction (`replaces_id`) moved its answer to a new id. DOCS above
+    // never corrects anything today, so this is a no-op in practice; it
+    // is here so the corpus can grow a correction case later without a
+    // second wiring pass (see memory.expandExpectedIds).
+    const correctionMap = memory.correctionSuccessorMap(
+      index.documents.map((d) => d.entry).filter(Boolean));
+
     const perQuery = [];
     const latencies = [];
     for (const { q, gold, kind } of QUERIES) {
-      // rank of the first gold id in the top-10, or Infinity if missed
+      const expectedIds = memory.expandExpectedIds(gold, correctionMap);
+      // rank of the first gold id (or correction successor) in the top-10,
+      // or Infinity if missed
       const hits = search(index, q, searchOpts);
       let rank = Infinity;
       for (let i = 0; i < hits.length; i += 1) {
-        if (gold.includes(hits[i].entry.id)) { rank = i + 1; break; }
+        if (expectedIds.includes(hits[i].entry.id)) { rank = i + 1; break; }
       }
       // time only the search call, many times, to get a stable figure
       for (let r = 0; r < repeats; r += 1) {

@@ -2372,7 +2372,13 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
   if (newData && newData.closes_id) {
     evidenceOrThrow(root, type, newData.state, old, { origin: 'correction' });
   }
-  return logEntry(root, type, { ...newData, replaces_id: oldId }, { project });
+  const closing = isClosingCorrection({ ...newData, replaces_id: oldId });
+  // P11: hand back `old` and `closing` too — a caller applying the
+  // content-loss check (search.lostCorrectionContent(), doctor's
+  // `checkCorrectionContentLoss`) needs both and would otherwise have to
+  // look the predecessor up and recompute the same closing-question a
+  // second time.
+  return { ...logEntry(root, type, { ...newData, replaces_id: oldId }, { project }), old, closing };
 }
 
 
@@ -2461,6 +2467,74 @@ export function openDuties(root, { project = undefined } = {}) {
   open.sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
   done.sort((a, b) => (b._closed.ts ?? '').localeCompare(a._closed.ts ?? ''));
   return { open, done };
+}
+
+// --- P11: correction chains for gold benchmarks -------------------------
+//
+// Ported from lucky-mem (BAUPLAN-mem-admin_02.md, 2026-09-28, case
+// czorxreppel -> 1rjpook3vead): a correction (`replaces_id`) hangs a NEW
+// id off an old one. A gold case that names the OLD id as `gold` counts
+// as MISSED once that id is superseded — even though the valid successor
+// is right there in the results — because `memory.holds()` (mirrors
+// lucky-mem's `gilt()`) stops counting the superseded line the moment a
+// correction exists.
+//
+// Same fold shape as `predecessor`/`closedForChain` directly above in
+// `openDuties()`, just FORWARD: from the (often older) expected id to
+// whatever stage currently holds, instead of from an id back to its
+// predecessor. A cycle stops the walk instead of spinning it — same
+// discipline as `closedForChain`.
+
+/**
+ * Build the FORWARD correction chain from parsed entries: old id
+ * (`replaces_id`) -> next stage (`id`). Pure, no I/O — `entries` are
+ * already-parsed lines (e.g. `index.documents.map(d => d.entry)`, which
+ * carries every stage including superseded ones — `search.buildIndex()`
+ * only leaves out closing/digest-marker lines, never a correction).
+ */
+export function correctionSuccessorMap(entries) {
+  const map = new Map();
+  for (const e of entries) {
+    if (e && e.replaces_id && e.id) map.set(e.replaces_id, e.id);
+  }
+  return map;
+}
+
+/**
+ * Every id in the correction chain STARTING at `id`, forward, `id`
+ * itself included. Stops at a cycle instead of spinning (same as
+ * `closedForChain` above).
+ */
+export function correctionChainFrom(id, map) {
+  const out = [id];
+  let cur = id;
+  const seen = new Set([id]);
+  while (map.has(cur)) {
+    cur = map.get(cur);
+    if (seen.has(cur)) break;
+    seen.add(cur);
+    out.push(cur);
+  }
+  return out;
+}
+
+/**
+ * Expand a gold-set `gold` id list with every correction successor:
+ * a named id OR any successor in its `replaces_id` chain (transitive)
+ * counts as the same expected answer. Used by every benchmark that
+ * checks fixed ids against a live corpus (`bench/retrieval.mjs`, if it
+ * ever grows a correction case) so that a correction like
+ * `1rjpook3vead` (replaces `czorxreppel`) does not fail a gold case that
+ * still names the old id. The map is built ONCE and reused across every
+ * case, instead of walking the whole corpus again per case.
+ */
+export function expandExpectedIds(expectedIds, map) {
+  if (!Array.isArray(expectedIds) || expectedIds.length === 0) return expectedIds ?? [];
+  const out = new Set();
+  for (const start of expectedIds) {
+    for (const id of correctionChainFrom(start, map)) out.add(id);
+  }
+  return [...out];
 }
 
 /**
@@ -2694,6 +2768,28 @@ export function retiredMapFromFiles(absPaths) {
  */
 export function isClosingLine(e) {
   return Boolean(e && (e.retires_id || e.closes_id));
+}
+
+/**
+ * Is a CORRECTION line (one carrying `replaces_id`) itself a closure —
+ * does it rightly carry no content of its own?
+ *
+ * **Not the same question as `isClosingLine()`.** That one does not
+ * check `replaces_id` at all (every correction has it — a plain,
+ * fully-fledged correction included), so it correctly says "no" for an
+ * ordinary content-carrying correction. This function asks the NARROWER
+ * question a content-loss check needs: "does this correction close
+ * something (retire/closes_id/a RETIRE_STATE) and so get to skip having
+ * its own content".
+ *
+ * `checkCorrectionContentLoss` (src/doctor.mjs, P11, mirrors lucky-mem's
+ * `korrektur-verliert-inhalt`) needs exactly this — a closing correction
+ * never "loses" content, it never promised any.
+ */
+export function isClosingCorrection(e) {
+  if (!e || typeof e !== 'object') return false;
+  return RETIRE_STATE.includes(String(e.state ?? ''))
+    || ['closes_id', 'retires_id'].some((f) => e[f]);
 }
 
 /**
