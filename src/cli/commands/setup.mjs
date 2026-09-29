@@ -26,6 +26,7 @@ import * as guard from '../../guard.mjs';
 import * as probescaffold from '../../probescaffold.mjs';
 import * as source from '../../source.mjs';
 import * as component from '../../component.mjs';
+import * as componentTable from '../../component-table.mjs';
 import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
@@ -950,9 +951,10 @@ export const COMMANDS = {
   },
 
   component: async ({ rest, args }) => {
-    if (isHelp(args) || !rest.length) {
+    if (isHelp(args) || (!rest.length && !args.rebuild)) {
       out([
         'mem component <path> [--top 8] [--project <name>|global] [--json]',
+        'mem component --rebuild             (component table: rebuild from scratch, print stats)',
         '',
         '  Everything about ONE file — literal, but over both spellings.',
         '',
@@ -975,14 +977,91 @@ export const COMMANDS = {
         '             calls this, unscoped) read across every project with',
         '             no way to ask it not to. Omit it and behaviour is',
         '             unchanged: every project, as before.',
+        '  --table    look up over the cached component table',
+        '             (path/symbol -> entries with role mentioned/guarded/',
+        '             fixed) instead of the live search — faster, but only',
+        '             as fresh as the last build. Rebuilds first if stale',
+        '             (this flag is for interactive/maintenance use, not',
+        '             latency-bound — the hook flag below never rebuilds).',
+        '  --hook     what `mem-before-edit` calls: reads the table',
+        '             read-only (never rebuilds inline), kicks off a',
+        '             background rebuild on a stale/broken table, and',
+        '             falls back to the live search when the table has',
+        '             nothing fresh to say.',
       ].join('\n'));
       return;
     }
     const root = findRoot(args);
     requireConfig(root);
-    checkFlags(args, ['top', 'json', 'root', 'project'], 'component');
+    checkFlags(args, ['top', 'json', 'root', 'project', 'table', 'rebuild', 'hook'], 'component');
+    if (args.rebuild) {
+      const t0 = Date.now();
+      const built = componentTable.rebuild(root);
+      const ms = Date.now() - t0;
+      const paths = Object.keys(built.paths).length;
+      const symbols = Object.keys(built.symbols).length;
+      if (args.json) {
+        out(JSON.stringify({ ms, paths, symbols, incomplete: built.incomplete, builtAt: built.builtAt }));
+      } else {
+        out(`Component table rebuilt in ${ms} ms: ${paths} paths, ${symbols} symbols`
+          + `${built.incomplete ? ' (incomplete — at least one source unreadable)' : ''}.`);
+      }
+      return;
+    }
     const p = rest.join(' ').trim();
     const top = args.top ? Number(args.top) : 8;
+    if (args.table) {
+      componentTable.update(root);
+      const looked = componentTable.lookupPath(root, p);
+      if (args.json) { out(JSON.stringify(looked)); return; }
+      if (looked.state === 'error' || looked.state === 'unknown' || !looked.entries.length) {
+        out(`${looked.state}: ${looked.reason ?? `nothing about '${p}'`}`);
+        return;
+      }
+      out(`${looked.state}${looked.reason ? ` (${looked.reason})` : ''} — ${looked.entries.length} `
+        + `entries about '${p}' (as of ${looked.asOf}):`);
+      for (const e of looked.entries.slice(0, top)) {
+        out(`  ${e.role.padEnd(9)} ${e.type.padEnd(11)} ${e.id}  (${e.path})`);
+      }
+      return;
+    }
+    if (args.hook) {
+      const cap = args.project
+        ? capability.grantProject(String(args.project), { subject: 'cli' })
+        : capability.grantAll('cli');
+      const res = componentTable.beforeEditHits(root, p, { cap: top });
+      const usedTable = res.hits !== null;
+      const hits = res.hits ?? component.find(root, p, cap);
+      if (args.json) {
+        out(JSON.stringify({
+          path: p,
+          forms: component.forms(p),
+          n: hits.length,
+          table: { state: res.tableState, usedTable, backgroundRebuild: res.backgroundRebuild },
+          hits: hits.slice(0, top).map((h) => ({
+            score: null,
+            form: h._form,
+            source: h._source,
+            line: h._line,
+            ts: h.ts ?? null,
+            raw: false,
+            label: compactLine(h) || '',
+          })),
+        }));
+        return;
+      }
+      if (!hits.length) {
+        out(`Nothing about '${p}'. Asked for: ${component.forms(p).join(', ')}`);
+        return;
+      }
+      out(`${hits.length} entries about '${p}' (${component.forms(p).join(' | ')}), `
+        + `table: ${res.tableState}${usedTable ? ' (used)' : ' (fell back to live search)'}:`);
+      for (const h of hits.slice(0, top)) {
+        out(`  ${String(h._form).padEnd(9)} ${h._source}:${h._line}  ${String(h.ts ?? '').slice(0, 10)}`);
+        out(`         ${compactLine(h).slice(0, 120)}`);
+      }
+      return;
+    }
     // issue #136: `component.find` -> `memory.find` now takes a real
     // Capability instead of a hand-built drawer list. `--project X`
     // mints exactly the capability `mem retrieve --project X` already
