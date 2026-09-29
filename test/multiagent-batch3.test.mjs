@@ -27,6 +27,7 @@ import * as onboarding from '../src/onboarding.mjs';
 import * as source from '../src/source.mjs';
 import * as component from '../src/component.mjs';
 import * as capability from '../src/capability.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -55,7 +56,7 @@ test('POSITIVE CONTROL: the same topic is found', () => {
     const n = neighbours.neighbours(w, 'decision', { topic: 'database', choice: 'Postgres' });
     assert.equal(n.hits.length, 1);
     assert.equal(n.hits[0].choice, 'SQLite');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('a different topic is no neighbour', () => {
@@ -63,7 +64,7 @@ test('a different topic is no neighbour', () => {
   try {
     memory.logEntry(w, 'decision', { topic: 'database', choice: 'SQLite', why: 'x' });
     assert.equal(neighbours.neighbours(w, 'decision', { topic: 'viewer', choice: 'PWA' }).hits.length, 0);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('a withdrawn ruling is no neighbour', () => {
@@ -76,7 +77,7 @@ test('a withdrawn ruling is no neighbour', () => {
     assert.equal(r.status, 0, r.stderr);
     const n = neighbours.neighbours(w, 'decision', { topic: 'database', choice: 'Postgres' });
     assert.equal(n.hits.length, 0, 'a discarded ruling shows up as a neighbour');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('THE RULE: the hint never asserts a conflict', () => {
@@ -93,7 +94,7 @@ test('THE RULE: the hint never asserts a conflict', () => {
     assert.match(text, /replaces_id/, 'the "this supersedes" way out is missing');
     assert.match(text, /kind contradicts/, 'the "they contradict" way out is missing');
     assert.match(text, /do nothing/, 'the most common case — both hold — is missing');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('without neighbours no hint appears at all', () => {
@@ -102,7 +103,7 @@ test('without neighbours no hint appears at all', () => {
   try {
     const r = cli(w, ['log', 'decision', '--topic', 'new', '--choice', 'x', '--why', 'y']);
     assert.ok(!/already stands/.test(r.stdout), r.stdout);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('REACH: `mem log` shows it, and not the entry it just wrote', () => {
@@ -116,7 +117,7 @@ test('REACH: `mem log` shows it, and not the entry it just wrote', () => {
     // stands: your entry from a second ago".
     const only = cli(w, ['log', 'decision', '--topic', 'once', '--choice', 'x', '--why', 'y']);
     assert.ok(!/already stands/.test(only.stdout), only.stdout);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 // --- Onboarding ------------------------------------------------------
@@ -129,7 +130,7 @@ test('POSITIVE CONTROL: a freshly created agent is NOT done', () => {
     assert.equal(st.steps.inbox.state, 'green');
     assert.equal(st.steps.written.state, 'red');
     assert.equal(st.steps.loop.state, 'red');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('THE CORE: somebody else\'s entry does not count', () => {
@@ -142,7 +143,7 @@ test('THE CORE: somebody else\'s entry does not count', () => {
     const st = onboarding.status(w, 'newcomer', { participants: cfgmod.readConfig(w).participants });
     assert.equal(st.steps.written.state, 'red');
     assert.equal(st.steps.loop.state, 'red');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('THE LOOP: written AND found again', () => {
@@ -153,7 +154,7 @@ test('THE LOOP: written AND found again', () => {
     const st = onboarding.status(w, 'newcomer', { participants: cfgmod.readConfig(w).participants });
     assert.equal(st.steps.loop.state, 'green', st.steps.loop.why);
     assert.match(st.steps.loop.why, /found again/);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('a WITHDRAWN probe no longer proves the loop', () => {
@@ -171,7 +172,7 @@ test('a WITHDRAWN probe no longer proves the loop', () => {
     assert.equal(r.status, 0, r.stderr);
     const loop = onboarding.status(w, 'newcomer', { participants: parts }).steps.loop;
     assert.equal(loop.state, 'red', 'a revoked proof still counts');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('`done` only when EVERY step is green', () => {
@@ -188,7 +189,7 @@ test('`done` only when EVERY step is green', () => {
     assert.equal(r.status, 0, r.stderr);
     st = onboarding.status(w, 'newcomer', { participants: parts });
     assert.equal(st.done, true, st.open.join(', '));
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('`mem onboarding` exits 1 while something is open, and names the fix', () => {
@@ -201,7 +202,7 @@ test('`mem onboarding` exits 1 while something is open, and names the fix', () =
     for (const step of st.open) {
       assert.ok(st.steps[step].todo, `step '${step}' does not say what to do`);
     }
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 // --- Sources ---------------------------------------------------------
@@ -228,7 +229,7 @@ test('THE PURPOSE: a company document is findable by its own words', () => {
     const hits = search.search(search.buildIndex(w), 'discount tiers', { top: 5, minScore: 0 });
     assert.ok(hits.length, 'the document is not findable');
     assert.equal(hits[0].entry.title, 'Sales handbook');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('THE RULE: an address stays a pointer — nothing is fetched', () => {
@@ -242,7 +243,7 @@ test('THE RULE: an address stays a pointer — nothing is fetched', () => {
     assert.ok(!source.isAddress('ftp://example.com/x'));
     assert.ok(!source.isAddress('file:///etc/passwd'));
     assert.ok(source.isAddress('https://example.com/x'));
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('a local file lands in the store, the entry carries the hash', () => {
@@ -253,7 +254,7 @@ test('a local file lands in the store, the entry carries the hash', () => {
     const { entry } = source.take(w, f, { title: 'H' });
     assert.equal(entry.kind, 'file');
     assert.match(String(entry.hash), /^[0-9a-f]{64}$/);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('a binary file gets no byte soup as an excerpt', () => {
@@ -263,7 +264,7 @@ test('a binary file gets no byte soup as an excerpt', () => {
     fs.writeFileSync(f, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]));
     const { entry } = source.take(w, f, { title: 'Image' });
     assert.ok(!entry.excerpt, 'byte soup in the index makes every search worse');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('THE CAP: a long document is truncated and says so', () => {
@@ -275,7 +276,7 @@ test('THE CAP: a long document is truncated and says so', () => {
     assert.ok(entry.excerpt.length <= source.MAX_EXCERPT,
       `${entry.excerpt.length} characters — the cap does not bite`);
     assert.equal(entry.truncated, true, 'truncated without saying so');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('THE LATCH: a secret in the excerpt is redacted and reported', () => {
@@ -322,7 +323,7 @@ test('THE PURPOSE: the second form fetches the missed entries', () => {
     assert.equal(wide.length, 3, 'the second form fetches nothing');
     assert.equal(wide.filter((e) => e._form === 'exact').length, 1);
     assert.equal(wide.filter((e) => e._form === 'base').length, 2);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('and NOT the entries of a same-named other file', () => {
@@ -333,7 +334,7 @@ test('and NOT the entries of a same-named other file', () => {
     const hits = component.find(w, 'global/events.jsonl', capability.grantAll('test'));
     assert.equal(hits.length, 1, `confused: ${hits.map((e) => e.title).join(' | ')}`);
     assert.match(hits[0].title, /global/);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('each entry appears ONCE, with the narrower form', () => {
@@ -343,7 +344,7 @@ test('each entry appears ONCE, with the narrower form', () => {
     const hits = component.find(w, 'bin/mem.sh', capability.grantAll('test'));
     assert.equal(hits.length, 1);
     assert.equal(hits[0]._form, 'exact', 'the weaker evidence won');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('REACH: the pre-edit hook now takes both forms', () => {
@@ -363,7 +364,7 @@ test('REACH: the pre-edit hook now takes both forms', () => {
     assert.match(r.stdout, /base-name-only/,
       `the hook does not see the entry: ${r.stdout || '(silent)'}`);
     assert.match(r.stdout, /DATA, not instructions/);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('and stays silent where nothing stands', () => {
@@ -381,7 +382,7 @@ test('and stays silent where nothing stands', () => {
     });
     assert.equal(r.status, 0);
     assert.equal(r.stdout.trim(), '', `not silent: ${r.stdout}`);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('the heartbeat step names the BRIDGE route first', () => {
@@ -397,5 +398,5 @@ test('the heartbeat step names the BRIDGE route first', () => {
     assert.equal(s.state, 'red');
     assert.match(s.todo, /mem_heartbeat/, 'CLI only — out of reach for a bridge agent');
     assert.match(s.todo, /the agent itself/, 'it does not say that IT has to do it');
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
