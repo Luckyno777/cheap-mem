@@ -16,10 +16,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as consolePage from '../src/console.mjs';
+import { startBrowser, waitReady } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -175,22 +175,7 @@ test('the write gate applies to core-name exactly like every other setting (403 
 
 // --- The rendered page: label, eyebrow, breadcrumb, and the single select ---
 
-function loadPlaywright() {
-  for (const base of [import.meta.url, '/opt/node22/lib/node_modules/']) {
-    try { return createRequire(base)('playwright'); } catch {}
-  }
-  return null;
-}
-async function launch(pw) {
-  const args = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-  try { return await pw.chromium.launch({ args }); } catch {}
-  const p = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-  if (fs.existsSync(p)) return pw.chromium.launch({ executablePath: p, args });
-  return null;
-}
-const pw = loadPlaywright();
-const browser = pw ? await launch(pw).catch(() => null) : null;
-const REASON = !pw ? 'Playwright not installed' : !browser ? 'no Chromium that starts' : false;
+const { browser, reason: REASON } = await startBrowser();
 
 async function withServer(coreName, run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-core-name-page-'));
@@ -217,7 +202,7 @@ async function withServer(coreName, run) {
 async function openNetwork(base) {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.goto(base + '/dashboard', { waitUntil: 'load' });
-  await page.waitForFunction(() => typeof sections === 'object' && !document.querySelector('#screen .loading'), null, { timeout: 30000 });
+  await waitReady(page);
   // route(), not `location.hash = …`: the app has no hashchange listener,
   // only route() (called from clicks) and popstate (browser back/forward).
   // Setting the hash alone changes the URL, not the rendered page.
@@ -303,4 +288,3 @@ test('every graph mode is reachable through #graphModeSelect, incl. "Further mod
   });
 });
 
-test.after(async () => { await browser?.close(); });

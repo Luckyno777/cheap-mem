@@ -36,29 +36,21 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
+import { startBrowser } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = '6154cd0a';
 
-function loadPlaywright() {
-  const places = [REPO + '/', '/opt/node22/lib/node_modules/', ...(process.env.NODE_PATH || '').split(':').filter(Boolean).map((p) => p + '/')];
-  for (const p of places) {
-    try { return createRequire(p)('playwright'); } catch { /* next place */ }
-  }
-  return null;
-}
-const pw = loadPlaywright();
-let browser = null;
-let why = pw ? null : 'playwright not installed';
-if (pw) {
-  try { browser = await pw.chromium.launch(); } catch (e) { why = 'Chromium does not start: ' + String(e.message).split('\n')[0]; }
-}
+// No args (2026-09-29, orchestrator finding): this file launched with
+// no arguments before W3 -- the fixture's default swiftshader args
+// measurably change when the IntersectionObserver fires (red probe,
+// see test/fixture/browser.mjs).
+const { browser, reason: why } = await startBrowser({ args: [] });
 const NEEDS = why ? { skip: why } : {};
 
 const roots = [];
@@ -149,8 +141,6 @@ function oldScript(t) {
     return null;
   }
 }
-
-test.after(async () => { await browser?.close(); });
 
 for (const [name, viewport] of [['phone', { width: 390, height: 844 }], ['desktop', { width: 1440, height: 900 }]]) {
   test(`${name}: every tab shows visible content or an explicit message`, NEEDS, async () => {

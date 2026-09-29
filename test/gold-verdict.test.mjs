@@ -12,17 +12,17 @@
 //
 // Red proof pinned to this worktree's starting commit
 // (1d8adccfbc3d62f4a3a51edfdc2da3ab9b793de6, never `git merge-base`).
-import test, { after } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { createRequire } from 'node:module';
 import * as goldlog from '../src/goldlog.mjs';
 import * as today from '../src/today.mjs';
 import { isoWeek } from '../src/measurements.mjs';
+import { startBrowser, waitReady } from './fixture/browser.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD_COMMIT = '1d8adccfbc3d62f4a3a51edfdc2da3ab9b793de6';
@@ -350,26 +350,7 @@ test('GET is refused (405)', { timeout: 20000 }, async () => {
 // a click writes (login off in tests — same setup as test/no-jump.test.mjs).
 // =========================================================================
 
-function loadPlaywright() {
-  for (const base of [import.meta.url, '/opt/node22/lib/node_modules/']) {
-    try { return createRequire(base)('playwright'); } catch { /* next */ }
-  }
-  return null;
-}
-async function launchBrowser(pw) {
-  const args = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-  try { return await pw.chromium.launch({ args }); } catch { /* next */ }
-  const p = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-  if (fs.existsSync(p)) return pw.chromium.launch({ executablePath: p, args });
-  return null;
-}
-const pw = loadPlaywright();
-const browser = pw ? await launchBrowser(pw).catch(() => null) : null;
-// The browser starts at module level -- without after() it keeps the
-// process alive: every probe green and the file never ends (2026-09-29:
-// hung a targeted run >10 min).
-after(async () => { await browser?.close(); });
-const SKIP_REASON = !pw ? 'Playwright not installed' : !browser ? 'no Chromium that starts' : false;
+const { browser, reason: SKIP_REASON } = await startBrowser();
 
 test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gold file, and a click writes', { skip: SKIP_REASON, timeout: 30000 }, async () => {
   const root = memoryRoot();
@@ -392,7 +373,7 @@ test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gol
   const page = await context.newPage();
   try {
     await page.goto(`${base}/dashboard`, { waitUntil: 'load' });
-    await page.waitForFunction(() => !document.querySelector('#screen .loading'), null, { timeout: 30000 }).catch(() => {});
+    await waitReady(page).catch(() => {});
     await page.waitForSelector('.today-gold-row', { timeout: 30000 });
     const gotRows = await page.$$('.today-gold-row');
     assert.equal(gotRows.length, 3, 'all three fixture candidates should be in the card (up to GOLD_MAX)');

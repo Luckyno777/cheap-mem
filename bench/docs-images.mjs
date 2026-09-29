@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
+import { waitReady } from '../test/fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -236,7 +237,7 @@ async function startServer(root, { loginOff = true } = {}) {
  */
 async function go(page, base, hash) {
   await page.goto(base + '/dashboard#' + hash, { waitUntil: 'load', timeout: 60000 });
-  await page.waitForFunction(() => typeof sections === 'object' && !document.querySelector('#screen .loading'), null, { timeout: 60000 });
+  await waitReady(page);
   await page.evaluate((h) => { location.hash = '#' + h; }, hash);
   await page.waitForTimeout(300);
   // Every capture starts at scrollY=0 -- the only place that moves the
