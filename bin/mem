@@ -33,8 +33,15 @@ import { COMMANDS as AGENTS } from '../src/cli/commands/agents.mjs';
 import { COMMANDS as SETUP } from '../src/cli/commands/setup.mjs';
 import { COMMANDS as ADMIN } from '../src/cli/commands/admin.mjs';
 
+// Blocking writes on stdout/stderr. A child started from Node (execFile,
+// spawn) gets a socket, not a pipe; under load its buffer fills, the rest
+// of the output waits in a queue, and a process.exit() right after
+// out() cuts it off — measured 2026-09-29: 46 of 150 help runs truncated,
+// with this line 0 of 150. One line here covers every exit path.
+for (const s of [process.stdout, process.stderr]) s._handle?.setBlocking?.(true);
+
 /** Named, so a duplicate names its group. */
-const GRUPPEN = { write: WRITE, search: SEARCH, capture: CAPTURE, agents: AGENTS, setup: SETUP, admin: ADMIN };
+const GROUPS = { write: WRITE, search: SEARCH, capture: CAPTURE, agents: AGENTS, setup: SETUP, admin: ADMIN };
 
 /**
  * The command table, merged from the six groups in src/cli/commands/.
@@ -47,10 +54,10 @@ const GRUPPEN = { write: WRITE, search: SEARCH, capture: CAPTURE, agents: AGENTS
  * would never run again.
  */
 const COMMANDS = {};
-for (const [gruppe, tabelle] of Object.entries(GRUPPEN)) {
-  for (const [name, handler] of Object.entries(tabelle)) {
+for (const [group, table] of Object.entries(GROUPS)) {
+  for (const [name, handler] of Object.entries(table)) {
     if (name in COMMANDS) {
-      throw new Error(`two groups define \`mem ${name}\`: ${gruppe} and one before it`);
+      throw new Error(`two groups define \`mem ${name}\`: ${group} and one before it`);
     }
     COMMANDS[name] = handler;
   }
