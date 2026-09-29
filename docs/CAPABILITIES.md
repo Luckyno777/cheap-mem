@@ -111,6 +111,7 @@ directory. The section number in brackets is where it is explained.
 | `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking (10.28) |
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
 | `pages.mjs` | filtered, cursor-paged lists over the drawers — never the whole desk (`/entries.json`, E1.3) |
+| `parity.mjs` | the parity core (mem-admin_02 L5/W9): the cutoff, the `Parity:` trailer shape, merge coverage, addenda, and the W9 debt list against the sibling house — `bench/parity.mjs` is the thin CLI over this |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree (10.21) |
 | `pointer.mjs` | a pointer instead of silence when something was already shown (10.22) |
 | `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
@@ -130,6 +131,7 @@ directory. The section number in brackets is where it is explained.
 | `shardarchive.mjs` | P17: splits the raw-capture body across shards so git never has to carry one multi-GB blob |
 | `shred.mjs` | per-entry body encryption plus a small, NOT append-only keyring — a real deletion without rewriting history |
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
+| `sibling.mjs` | where the sister house's clone lives, if it sits beside us at all — dependency-free so nothing that needs it has to import `doctor.mjs` |
 | `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |

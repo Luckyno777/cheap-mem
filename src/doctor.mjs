@@ -43,7 +43,8 @@ import { pack } from './language.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
 import * as errorcontext from './errorcontext.mjs';
-import { debtList } from '../bench/parity.mjs';
+import { debtList } from './parity.mjs';
+import { siblingClone } from './sibling.mjs';
 import * as runningmark from './runningmark.mjs';
 import * as release from './release.mjs';
 
@@ -73,25 +74,12 @@ function quietRun(cmd, args) {
   } catch { return null; }
 }
 
-/**
- * Where does the sibling house's clone live — if it sits beside us at all?
- *
- * Returns the root path or `null`. `null` means "not here", not "does
- * not exist": the cross-house check then stays quiet instead of raising
- * a warning that would fire without cause on every CI machine. A
- * warning that keeps coming for no reason teaches people to skip the
- * output.
- *
- * No configuration: a path you have to enter is a path nobody enters.
- */
-export function siblingClone(root, given = null) {
-  const places = given ? [given] : [
-    path.join(path.dirname(root), 'lucky-mem'),
-    '/home/user/lucky-mem',
-    '/work/lucky-mem',
-  ];
-  return places.find((p) => { try { return fs.existsSync(p); } catch { return false; } }) ?? null;
-}
+// `siblingClone` moved to `src/sibling.mjs` (agent/parity-to-src,
+// 2026-09-29): a dependency-free lookup so `src/parity.mjs` can use it
+// without importing this file, and this file can use it without
+// importing `bench/`. Re-exported here so anyone already importing it
+// from `doctor.mjs` (e.g. tests) keeps working unchanged.
+export { siblingClone } from './sibling.mjs';
 
 /**
  * Do both houses know the same doctor findings — and where they do not,
@@ -172,7 +160,7 @@ export const PARITY_DEBT_WARN_DAYS_DEFAULT = 14;
  * this was built, 7 open items already sat in the history; a warning
  * over their age could never clear (the oldest only gets older) and
  * would be pure noise. Items with a commit date before `W9_BASELINE`
- * (`debtList`, bench/parity.mjs) count as legacy: they are counted and
+ * (`debtList`, src/parity.mjs) count as legacy: they are counted and
  * fully listed by `--debt` — hiding them is not allowed — but they do
  * not drive the WARN threshold. Only an item FROM `W9_BASELINE` on,
  * older than the threshold, triggers WARN.
