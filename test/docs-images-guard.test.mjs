@@ -84,5 +84,5 @@ test('docs/images/ is excluded from the npm package (files field)', () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
   const files = pkg.files || [];
   const excluded = files.some((f) => /^!docs\/images\//.test(f));
-  assert.ok(excluded, 'package.json "files" must exclude docs/images/* (see the docs/assets/brand/* pattern already there)');
+  assert.ok(excluded, 'package.json "files" must exclude the docs/images pictures (same pattern as docs/assets/brand already uses)');
 });
