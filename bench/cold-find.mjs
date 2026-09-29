@@ -70,11 +70,15 @@ export function measureSize(n, { runs = 30, maxMs = 10 * 60 * 1000 } = {}) {
       cold.push(r.ms);
     }
     const index = loadIndex(root, { language: 'en' });
-    for (let i = 0; i < 3; i += 1) search(index, QUERY, { top: 10 });
+    // The same options `mem find` passes by default (src/cli/commands/search.mjs:
+    // top = wanted * 3 with wanted 10, MMR on, lambda 0.7) — so "warm" measures
+    // the real path, and it matches the sibling house's warm definition.
+    const options = { top: 30, mmr: true, mmrLambda: 0.7 };
+    for (let i = 0; i < 3; i += 1) search(index, QUERY, options);
     const warm = [];
     for (let i = 0; i < runs; i += 1) {
       const s = performance.now();
-      search(index, QUERY, { top: 10 });
+      search(index, QUERY, options);
       warm.push(performance.now() - s);
     }
     return [
