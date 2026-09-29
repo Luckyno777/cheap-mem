@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 /**
  * integrationcontract — the integration contract as DATA, in exactly
  * this place (X2).
