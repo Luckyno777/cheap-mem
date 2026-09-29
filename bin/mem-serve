@@ -56,6 +56,7 @@ import * as pwa from '../src/pwa.mjs';
 import * as icon from '../src/icon.mjs';
 import * as measurements from '../src/measurements.mjs';
 import * as mcplive from '../src/mcplive.mjs';
+import * as runningmark from '../src/runningmark.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as verifylog from '../src/verifylog.mjs';
 import * as goldlog from '../src/goldlog.mjs';
@@ -1219,6 +1220,12 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
   }
   return new Promise((resolve) => {
     server.listen(cfg.port, cfg.host, () => {
+      // W1 parity: a start marker so `doctor.checkRunningCode` can tell
+      // whether this process still runs the code it started with.
+      // Never fatal — a marker that cannot be written degrades to
+      // UNKNOWN on the doctor side, not a server that refuses to start.
+      try { runningmark.writeMarker(root, { service: 'serve', codePath: PACKAGE_ROOT }); }
+      catch (e) { process.stderr.write(`serve: could not write the W1 start marker: ${e?.message || e}\n`); }
       if (measureWeekly) setImmediate(measure);
       resolve({ server, cfg });
     });
