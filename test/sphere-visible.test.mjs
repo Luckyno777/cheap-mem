@@ -30,7 +30,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
-const FORBIDDEN = /Muster|pattern|demo|template|mockup|brain/i;
+// lucky (2026-09-29, Lucky): the sibling's name must never show here —
+// not on the core of the knowledge space, not anywhere (the C, not the L).
+const FORBIDDEN = /Muster|pattern|demo|template|mockup|brain|lucky/i;
 
 function loadPlaywright() {
   for (const base of [import.meta.url, '/opt/node22/lib/node_modules/']) {
@@ -132,7 +134,7 @@ test('POSITIVE CONTROL: the probe finds an injected visible text, not a hidden o
   });
 });
 
-test('GREEN: no visible text on any screen names a pattern, demo, template, mockup or brain', { skip: REASON }, async () => {
+test('GREEN: no visible text on any screen names a pattern, demo, template, mockup, brain or the sibling (lucky)', { skip: REASON }, async () => {
   await withServer(async (base) => {
     const { texts, targets, errors } = await everyScreen(base);
     const h = hits(texts);
