@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "tool": "cheap-mem cold-find",
+  "startedAt": "2026-09-29T19:52:26.641Z",
+  "finishedAt": "2026-09-29T19:52:30.377Z",
+  "query": "rate limiter latency",
+  "runsPerCell": 5,
+  "corpus": "bench/scale.mjs buildCorpus, seed 42",
+  "environment": {
+    "node": "v22.22.2",
+    "platform": "linux 6.18.44-fc-v37",
+    "arch": "x64",
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.80GHz",
+    "cpuCount": 4,
+    "totalMemMB": 16096,
+    "freeMemMB": 14625,
+    "loadAvg1": 9.01,
+    "gitCommit": "5081616",
+    "workingTreeDirty": true,
+    "packageVersion": "0.1.0",
+    "nodeStartupMsP50": 50.57
+  },
+  "results": [
+    {
+      "entries": 1000,
+      "state": "cold",
+      "what": "fresh `mem find` process, index read from cache",
+      "n": 5,
+      "medianMs": 366.17,
+      "p95Ms": 407.96,
+      "minMs": 267.75,
+      "maxMs": 407.96
+    },
+    {
+      "entries": 1000,
+      "state": "warm",
+      "what": "search() on an already loaded index",
+      "n": 5,
+      "medianMs": 1.559,
+      "p95Ms": 32.175,
+      "minMs": 1.369,
+      "maxMs": 32.175
+    }
+  ]
+}

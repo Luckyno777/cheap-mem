@@ -17,7 +17,8 @@ somebody else's server.
 
 cheap-mem is the third option. Your memory is a directory of small text
 files in a git repo **you** own. Reading it costs **no model call, no
-network, and about three milliseconds**. Writing it is an append to a
+network**, and what it does take is measured and
+labelled cold or warm in the [Latency](#latency) table. Writing it is an append to a
 file. Sync is `git pull`.
 
 Works with **Claude Code**, **Claude Desktop**, **Cursor**, **ChatGPT**,
@@ -36,9 +37,9 @@ adds latency, and stops working on a plane. cheap-mem puts the model in
 exactly one place — a timer, far from anything you wait for.
 
 ```
-LANE 1  CAPTURE   every session    no model    ~50 ms   0 cost
-LANE 2  DIGEST    when ripe        ONE call    ~30 s
-LANE 3  SEARCH    every query      no model    ~3 ms    0 cost
+LANE 1  CAPTURE   every session    no model    0 cost
+LANE 2  DIGEST    when ripe        ONE call
+LANE 3  SEARCH    every query      no model    0 cost   (timings: see Latency)
 ```
 
 Storing is cheap, thinking is expensive. So store everything at once and
@@ -49,7 +50,7 @@ code.
 |---|---|---|
 | tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
-| search, median | **0.027 ms** over the index | `node bench/retrieval.mjs` |
+| search latency | cold and warm, median and P95, per corpus size: see [Latency](#latency) | `node bench/cold-find.mjs` |
 | what you download | **1190 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
@@ -64,6 +65,11 @@ That distinction is not pedantry. This README has been wrong six times,
 and the section
 [Why you should not take our word for it](#why-you-should-not-take-our-word-for-it)
 lists each one with the guard that now stands where the error was.
+
+### Latency
+
+<!-- perf:begin -->
+<!-- perf:end -->
 
 ## What it looks like
 
@@ -221,7 +227,7 @@ inside an average (`node bench/retrieval.mjs`, 67 entries, 42 queries):
 
 Search is BM25 over weighted fields, widened by a curated thesaurus and by
 two graphs the tool learns from your own entries — a tag graph and a term
-co-occurrence graph. No model, no network, median **0.027 ms**.
+co-occurrence graph. No model, no network.
 
 Paraphrase is where pure lexical search honestly struggles, and there are
 two answers. The cheap one is `--asked`: when you log an entry you can
@@ -303,9 +309,9 @@ strategy for conflicts.
 <!-- cheap-mem-brand:history:end -->
 
 **How big can one memory get.** Keep one under about **50,000 entries**,
-then split per team or product. Measured, not estimated: at 50k a search
-costs 61 ms and loading the index 430 ms; at 200k that is 247 ms and
-1.7 s, and the recall hook stops being invisible. At 500–1000 entries a
+then split per team or product. Measured, not estimated: past that size loading the index
+in every fresh process, not the search, is what costs time, and the recall
+hook stops being invisible. At 500–1000 entries a
 day that point arrives in a few months, so decide the boundary early —
 [docs/scale.md](docs/scale.md) has the numbers and the reasoning, and
 [docs/benchmark-atlas.md](docs/benchmark-atlas.md) the full-surface run

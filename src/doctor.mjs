@@ -417,8 +417,9 @@ export function checkHookLatency(root, { now = new Date() } = {}) {
   const text = 'hook time p95 vs budget: ' + results.map((r) => (r.level === 'unknown'
     ? `${r.occasion} unknown (${r.n}/${latencybudget.MIN_LINES} timed lines)`
     : `${r.occasion} ${r.p95} ms of ${r.budget} (n=${r.n})`)).join('; ');
-  if (level === LEVEL.GOOD || level === LEVEL.UNKNOWN) return finding('hook-latency', level, text);
-  return finding('hook-latency', level, text,
+  const withMeasured = `${text}; the limits are design limits — ${latencybudget.measuredNote()}`;
+  if (level === LEVEL.GOOD || level === LEVEL.UNKNOWN) return finding('hook-latency', level, withMeasured);
+  return finding('hook-latency', level, withMeasured,
     'The recall hook is slower than its budget. Cold index rebuilds are the usual cause (`mem find --fresh` once to warm it); '
     + 'past 5 s the hook is capped and its answer is lost.');
 }

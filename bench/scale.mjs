@@ -56,6 +56,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { buildIndex, search } from '../src/search.mjs';
 
@@ -84,7 +85,7 @@ function rng(seed) {
   };
 }
 
-function buildCorpus(n, seed = 42) {
+export function buildCorpus(n, seed = 42) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `cm-scale-${n}-`));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'),
@@ -132,7 +133,7 @@ function buildCorpus(n, seed = 42) {
   return { root, bytes };
 }
 
-const QUERIES = [
+export const QUERIES = [
   'connection pool blocked the event loop',
   'billing',
   'why did we revert the migration',
@@ -185,36 +186,39 @@ export function measure(n) {
   }
 }
 
-const sizes = process.argv.includes('--million')
-  ? [1000, 10000, 100000, 1000000]
-  : [1000, 10000, 100000];
+// Import-safe: bench/cold-find.mjs reuses buildCorpus() and QUERIES.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const sizes = process.argv.includes('--million')
+    ? [1000, 10000, 100000, 1000000]
+    : [1000, 10000, 100000];
 
-const rows = [];
-for (const n of sizes) {
-  process.stderr.write(`measuring ${n} ...\n`);
-  rows.push(measure(n));
-}
-
-if (process.argv.includes('--json')) {
-  console.log(JSON.stringify(rows, null, 2));
-} else {
-  console.log('cheap-mem scale benchmark');
-  console.log('='.repeat(78));
-  console.log(
-    'entries'.padStart(9), 'corpus'.padStart(8), 'build'.padStart(9),
-    'heap'.padStart(8), 'search p50'.padStart(11), 'p95'.padStart(8),
-    'vocab'.padStart(9));
-  for (const r of rows) {
-    console.log(
-      String(r.entries).padStart(9),
-      `${r.corpusMB} MB`.padStart(8),
-      `${r.buildIndexMs} ms`.padStart(9),
-      `${r.indexHeapMB} MB`.padStart(8),
-      `${r.searchMedianMs} ms`.padStart(11),
-      `${r.searchP95Ms} ms`.padStart(8),
-      String(r.vocabulary).padStart(9));
+  const rows = [];
+  for (const n of sizes) {
+    process.stderr.write(`measuring ${n} ...\n`);
+    rows.push(measure(n));
   }
-  console.log('');
-  console.log('Index build is a cold start; normal runs read .mem/search-index.json.');
-  console.log('Search is the number that matters — it runs on every prompt.');
+
+  if (process.argv.includes('--json')) {
+    console.log(JSON.stringify(rows, null, 2));
+  } else {
+    console.log('cheap-mem scale benchmark');
+    console.log('='.repeat(78));
+    console.log(
+      'entries'.padStart(9), 'corpus'.padStart(8), 'build'.padStart(9),
+      'heap'.padStart(8), 'search p50'.padStart(11), 'p95'.padStart(8),
+      'vocab'.padStart(9));
+    for (const r of rows) {
+      console.log(
+        String(r.entries).padStart(9),
+        `${r.corpusMB} MB`.padStart(8),
+        `${r.buildIndexMs} ms`.padStart(9),
+        `${r.indexHeapMB} MB`.padStart(8),
+        `${r.searchMedianMs} ms`.padStart(11),
+        `${r.searchP95Ms} ms`.padStart(8),
+        String(r.vocabulary).padStart(9));
+    }
+    console.log('');
+    console.log('Index build is a cold start; normal runs read .mem/search-index.json.');
+    console.log('Search is the number that matters — it runs on every prompt.');
+  }
 }

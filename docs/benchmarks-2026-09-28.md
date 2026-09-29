@@ -30,8 +30,13 @@ overall       42    76%   90%   93%   95%   0.83
 ```
 
 Unchanged from the README's own quote (no drift since the last
-measurement referenced there). Pure search latency at this corpus size:
-median 0.048 ms, p95 0.199 ms over 8400 samples (same run).
+measurement referenced there). Pure search latency at this corpus size
+(**historical: 2026-09-28, commit `ddb741f`, WARM — index already loaded in
+the process, search alone, not a fresh `mem find`**): median 0.048 ms, p95
+0.199 ms over 8400 samples (same run). It differs from the 0.027 ms the
+README used to quote for the same thing (another run, same warm state). Current
+figures, cold and warm, with commit and hardware, are in
+`bench/cold-find.json` and the README's Latency table.
 
 **Not measured here, and why:** a real, grown, human-labelled corpus —
 the equivalent of lucky-mem's `bench/nl-gold.mjs` (German, against
