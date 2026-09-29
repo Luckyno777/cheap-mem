@@ -55,6 +55,23 @@ export const EXEMPT = new Map([
 
 export const TRAILER_PATTERN = /^Parity:\s*lm=(yes|no|open)\s*$/m;
 
+/**
+ * Addendum (2026-09-29, mirror of lucky-mem's Paritaet-Nachtrag): a later
+ * commit supplies the line for an earlier, already pushed one —
+ * `Parity-Addendum: <hash> lm=yes|no|open`, one commit per line. History is
+ * never rewritten; this is append-only like a correction line. The hash
+ * needs at least 7 characters.
+ */
+export const ADDENDUM_PATTERN = /^Parity-Addendum:\s*([0-9a-f]{7,40})\s+lm=(yes|no|open)\s*$/gm;
+
+export function addenda(commits) {
+  const list = [];
+  for (const c of commits) {
+    for (const m of c.body.matchAll(ADDENDUM_PATTERN)) list.push({ prefix: m[1], value: m[2], from: c.hash });
+  }
+  return list;
+}
+
 function git(args, root) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
 }
@@ -169,10 +186,12 @@ export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   const commits = commitsSince(root, cutoff);
   const codeCommits = commits.filter(needsLine);
   const covered = coveredByMerge(root, cutoff);
+  const added = addenda(commits);
   const counts = { yes: 0, no: 0, open: 0 };
   const violations = [];
   for (const c of codeCommits) {
-    const m = c.body.match(TRAILER_PATTERN) ?? covered.get(c.hash);
+    const a = added.filter((x) => c.hash.startsWith(x.prefix));
+    const m = c.body.match(TRAILER_PATTERN) ?? covered.get(c.hash) ?? (a.length ? [null, a[a.length - 1].value] : null);
     if (m) counts[m[1]] += 1;
     else if (EXEMPT.has(c.hash.slice(0, 12))) continue;
     else violations.push({ hash: c.hash.slice(0, 12), subject: c.body.split('\n')[0] });

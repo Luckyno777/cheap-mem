@@ -168,3 +168,18 @@ test('merge coverage: a merge WITH the line covers the commits it brings in, wit
     assert.equal(result.violations.length, expected, withLine ? 'merge with the line does not cover' : 'merge without the line wrongly covers');
   }
 });
+
+test('addendum: a line with trailing text does not count — a later Parity-Addendum covers it (append-only, 2026-09-29)', (testCtx) => {
+  const { r, git, cutoff } = repo(testCtx);
+  fs.writeFileSync(path.join(r, 'src', 'start.mjs'), 'export const a = 1;\n');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'touch src\n\nParity: lm=open -- lm needs this later');
+  const broken = git('rev-parse', 'HEAD').trim();
+  assert.equal(evaluate(r, cutoff).violations.length, 1, 'RED before: trailing text invalidates the line');
+  git('commit', '-q', '--allow-empty', '-m', 'wrong addendum\n\nParity-Addendum: 0000000 lm=open');
+  assert.equal(evaluate(r, cutoff).violations.length, 1, 'a foreign hash covers nothing');
+  git('commit', '-q', '--allow-empty', '-m', `addendum\n\nParity-Addendum: ${broken.slice(0, 12)} lm=open`);
+  const result = evaluate(r, cutoff);
+  assert.deepEqual(result.violations, [], 'GREEN after: the addendum covers the commit');
+  assert.equal(result.counts.open, 1);
+});
