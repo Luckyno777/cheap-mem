@@ -345,6 +345,14 @@ export function retrieve(root, query, capability, {
   // retrieval is gone.
   dropEcho = true,
   rawReserve = true,
+  // OPTIONAL (wildcard operator, MANUAL callers only — e.g. the
+  // dashboard's retrieval probe, which resolves `word*` tokens with
+  // `search.resolveWildcards()` before calling in here). Threaded
+  // straight through to `search()`'s own `extraTerms` — see that
+  // parameter's doc comment. `null` (every other caller, including
+  // `bin/mem-retrieve`, the automatic hook) leaves `retrieve()`
+  // byte-identical to before this parameter existed.
+  extraTerms = null,
 } = {}) {
   // **Two reasons to be excluded — and they are not the same.**
   //
@@ -494,7 +502,7 @@ export function retrieve(root, query, capability, {
     // tiers.
     for (const hit of search(idx, useQuery, {
       top: perTier, withRetired: true, authority: tier,
-      mmr, mmrLambda,
+      mmr, mmrLambda, extraTerms,
     })) {
       const id = hit.entry?.id;
       if (id && seenIds.has(id)) continue;

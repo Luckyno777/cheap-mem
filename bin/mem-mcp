@@ -1141,10 +1141,21 @@ async function handleCall(name, args) {
       // to `search.search()` instead of a bare string. With no `project`
       // this stays null and `search()` is byte-identical to before.
       const findCapability = project ? capability.grantProject(project, { subject: 'mcp' }) : null;
-      const ranked = search.search(index, q, {
+      // The `word*` prefix operator (MANUAL search paths only — see
+      // `search.resolveWildcards()`'s doc comment). `mem_find` passes
+      // free text a caller typed, same status as `mem find`; `mem_retrieve`
+      // (the automatic-hook-shaped tool) is untouched.
+      let mq = q;
+      let extraTerms = null;
+      if (String(q).includes('*')) {
+        const resolved = search.resolveWildcards(index, q);
+        mq = resolved.query;
+        extraTerms = resolved.extraTerms;
+      }
+      const ranked = search.search(index, mq, {
         top: top ?? 10, type: type ?? null, project: project ?? null,
         capability: findCapability,
-        since: s, language: cfg.language,
+        since: s, language: cfg.language, extraTerms,
       });
       if (!ranked.length) {
         return textResult(`No hits for '${q}' (${index.N} entries). Try literal:true.`);

@@ -64,13 +64,20 @@ export const COMMANDS = {
         '             (.pipeline/injections.jsonl) for session ID: what cleared',
         '             --journal-min, or why nothing did. The recall hooks pass it;',
         '             `mem asked-learn` learns from the misses it books.',
+        '  --wildcard  turn `word*` into a prefix operator: matches every',
+        '             indexed term starting with `word` (min 3 chars after',
+        '             normalization, capped, scored below an exact hit).',
+        '             OFF by default — the automatic retrieval hook calls',
+        '             this same command with a raw chat message, where a',
+        "             typed `*` must stay an ordinary character, not an",
+        '             operator someone can trigger by accident.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
       ].join('\n'));
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'with-echo', 'journal-session', 'journal-min'], 'find');
+      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -216,6 +223,20 @@ export const COMMANDS = {
     const t0 = Date.now();
     const index = search.loadIndex(root, { fresh: Boolean(args.fresh), language: cfg.language });
     if (index.bridgeError) process.stderr.write(`mem find: language bridge off: ${index.bridgeError}\n`);
+    // The `word*` prefix operator (Windows-search style). OPT-IN via
+    // `--wildcard`, deliberately not merely "a `*` appears in the query":
+    // `bin/mem-retrieve` (the automatic hook) shells out to this exact
+    // command with the user's raw chat message and never passes
+    // `--wildcard` — see that script. Without the flag this command is
+    // byte-identical to before the operator existed, for every query,
+    // starred or not. Skipped under `--literal`, which already ran and
+    // returned above.
+    let wildcard = { query, extraTerms: null, notes: [] };
+    if (args.wildcard && query.includes('*')) {
+      wildcard = search.resolveWildcards(index, query);
+      query = wildcard.query;
+      for (const note of wildcard.notes) process.stderr.write(`mem find: ${note}\n`);
+    }
     const wanted = args.top ? Number(args.top) : 10;
     const withRetiredFlag = Boolean(args['with-retired']);
     // `--as-of` needs superseded candidates to survive to `heldThen`
@@ -242,6 +263,7 @@ export const COMMANDS = {
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
       withRetired: withRetiredForFetch,
+      extraTerms: wildcard.extraTerms,
       // Deliberately NOT `language: cfg.language`. `cfg.language` is the
       // memory's configured DEFAULT (src/config.mjs, 'en' unless set), not
       // a per-query "the user asked for one language" signal — `find` has

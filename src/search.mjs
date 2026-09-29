@@ -242,6 +242,111 @@ export function splitCompound(word, lexicon, lang, minPart = 4) {
 }
 
 /**
+ * The `word*` wildcard operator — MANUAL search paths only.
+ *
+ * Windows-search-style: a token ending in a literal `*` matches every
+ * indexed term that starts with the (normalized) prefix. This is opt-in
+ * plumbing, not a change to `search()`'s default behaviour: nothing here
+ * runs unless a caller explicitly asks for it by calling
+ * `resolveWildcards()` and passing its `extraTerms` into `search()`. The
+ * automatic retrieval hook (`retrievalQuery()` above, `retrieval.mjs`)
+ * never calls this — a `*` a user happens to type in a chat message is
+ * not an operator there, it is just a character the existing tokenizer
+ * already treats as a word-boundary (see `tokenizeGroupsMulti`'s split
+ * regex) and silently drops. Proven in
+ * `test/wildcard-hook-unaffected.test.mjs`.
+ *
+ * Minimum prefix length 3 (after normalization): shorter is refused —
+ * `"ab*"` would match a meaningful slice of any real vocabulary, so it is
+ * treated literally instead (the star is dropped, the bare word is
+ * searched, exactly as `search()` already does with punctuation). Every
+ * refusal and every cap is reported back in `notes` so a caller can show
+ * the person why.
+ */
+export const WILDCARD_MIN_PREFIX = 3;
+export const WILDCARD_CAP = 50;
+// Expanded (prefix-matched) terms score like any other term BM25 already
+// knows how to score — same `bm25Term()`, same field weights, same IDF —
+// but at a discount versus a literal, exactly-typed word: a prefix is a
+// guess about what someone meant, an exact token is what they actually
+// wrote. Chosen, not measured: half again as weak as the thesaurus's own
+// synonym discount (0.6), because a stemmed-vocabulary prefix match casts
+// a wider, less certain net than a curated synonym pair does.
+export const WILDCARD_EXPANSION_WEIGHT = 0.45;
+
+/**
+ * Every indexed (stemmed, normalized) term starting with `prefix`, by
+ * document frequency, capped at `cap`. `prefix` must already be
+ * normalized the same way the index's own terms are (see
+ * `resolveWildcards()`, which does that before calling this).
+ */
+export function expandWildcardPrefix(index, prefix, { cap = WILDCARD_CAP } = {}) {
+  const df = index.docFreq;
+  const matches = [];
+  if (df) {
+    for (const [term, n] of df) {
+      if (term.startsWith(prefix)) matches.push([term, n]);
+    }
+  }
+  matches.sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1));
+  const capped = matches.length > cap;
+  return { terms: matches.slice(0, cap).map(([term]) => term), capped, total: matches.length };
+}
+
+const WILDCARD_TOKEN = /^([\p{L}\p{N}_-]+)\*$/u;
+
+/**
+ * Parse `word*` operators out of a raw, manually-typed query. Returns the
+ * query with every wildcard token replaced by its bare prefix (so the
+ * ordinary tokenizer still sees a normal word and `search()`'s coverage
+ * bookkeeping still counts it once), plus the extra terms to hand
+ * `search()` as `extraTerms`, plus human-readable notes about what
+ * happened (too-short prefixes, capped expansions).
+ */
+export function resolveWildcards(index, query, {
+  minPrefix = WILDCARD_MIN_PREFIX,
+  cap = WILDCARD_CAP,
+  weight = WILDCARD_EXPANSION_WEIGHT,
+} = {}) {
+  const words = String(query ?? '').split(/(\s+)/);
+  const extraTerms = new Map();
+  const notes = [];
+  let any = false;
+  const out = words.map((w) => {
+    const m = WILDCARD_TOKEN.exec(w);
+    if (!m) return w;
+    const rawPrefix = m[1];
+    any = true;
+    // Normalize the same way the index's own terms were: try every
+    // detectable pack (the query's language is not pinned any more here
+    // than it is anywhere else in `search()` — see `queryPacks` there)
+    // and union the matches. Deliberately NOT stemmed: stemming only
+    // strips endings, so a true prefix of the unstemmed word is already
+    // a prefix of the stemmed form, and stemming a PARTIAL word (the
+    // typed prefix itself) would risk cutting into it.
+    const normalized = new Set(DETECTABLE_PACKS.map((p) => p.normalize(rawPrefix.toLowerCase())));
+    const shortest = [...normalized].reduce((a, b) => (a.length <= b.length ? a : b));
+    if (shortest.length < minPrefix) {
+      notes.push(`"${rawPrefix}*": prefix shorter than ${minPrefix} chars after normalization — treated literally, not expanded`);
+      return rawPrefix;
+    }
+    let cappedAny = false;
+    for (const norm of normalized) {
+      const { terms, capped } = expandWildcardPrefix(index, norm, { cap });
+      if (capped) cappedAny = true;
+      for (const t of terms) {
+        if (!extraTerms.has(t) || extraTerms.get(t) < weight) extraTerms.set(t, weight);
+      }
+    }
+    if (cappedAny) {
+      notes.push(`"${rawPrefix}*": expansion capped at ${cap} terms (by document frequency)`);
+    }
+    return rawPrefix;
+  });
+  return { query: out.join(''), extraTerms, notes, hadWildcard: any };
+}
+
+/**
  * Text to tokens. Returns base forms, plus — when a lexicon is given —
  * the parts of compounds.
  */
@@ -1281,6 +1386,14 @@ export function search(index, query, {
   // `statequestion.mjs`); `null` switches the whole mechanism off for
   // this one call. Same convention as `bridge` just above.
   stateWords = undefined,
+  // OPTIONAL (wildcard operator, MANUAL search paths only). A
+  // `Map<term, weight>` of already-normalized terms to add into the
+  // scoring exactly like a thesaurus expansion — see the scoring loop
+  // below. Built by `resolveWildcards()`; `null`/omitted (every caller
+  // in this codebase except the wildcard-aware ones, including the
+  // automatic retrieval hook) leaves `search()` byte-identical to
+  // before this parameter existed.
+  extraTerms = null,
 } = {}) {
   // The raw question, before the bridge strips its OWN question words
   // below — a state signal word ("still", "current", ...) is neither.
@@ -1386,6 +1499,17 @@ export function search(index, query, {
       for (const t of over) {
         if ((terms.get(t) ?? 0) < langbridge.BRIDGE_WEIGHT) terms.set(t, langbridge.BRIDGE_WEIGHT);
       }
+    }
+  }
+
+  // Wildcard expansion terms (MANUAL search paths only — see
+  // `extraTerms`'s own doc comment above). Same additive stacking rule
+  // as the thesaurus/bridge loops just above: an exact typed word always
+  // wins, an expansion never overrides one.
+  if (extraTerms) {
+    for (const [t, w] of extraTerms) {
+      if (ownSet.has(t)) continue;
+      if ((terms.get(t) ?? 0) < w) terms.set(t, w);
     }
   }
 
