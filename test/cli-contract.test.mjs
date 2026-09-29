@@ -72,7 +72,7 @@ function freshRoot() {
 
 test('POSITIVE: the command list itself is not empty (vacuity check)', async () => {
   const names = await allCommands();
-  assert.equal(names.length, 69, `expected 69 commands, found ${names.length}: ${names.join(',')}`);
+  assert.equal(names.length, 70, `expected 70 commands, found ${names.length}: ${names.join(',')}`);
 });
 
 test('every command: --help exits 0, prints something, and leaves no file behind', async () => {

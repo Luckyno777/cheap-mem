@@ -33,9 +33,10 @@ import * as today from '../../today.mjs';
 import * as modelcost from '../../modelcost.mjs';
 import * as goldlog from '../../goldlog.mjs';
 import * as gap from '../../gap.mjs';
+import * as skillusage from '../../skillusage.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
-/** 12 commands. */
+/** 13 commands. */
 export const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
@@ -807,6 +808,30 @@ export const COMMANDS = {
     }
 
     die(`gold: unknown subcommand '${sub}'. Known: today, rate`);
+  },
+
+  skills: async ({ rest, args }) => {
+    if (isHelp(args) || rest[0] === undefined) {
+      out([
+        'mem skills usage [--json]',
+        '',
+        '  W10: how often was which skill invoked (Skill tool and /command),',
+        '  last use, in how many sessions — measured from the raw-capture',
+        '  archive. Every output states its coverage; subagents are not',
+        '  captured (handover 5.2). House skills without a hit are "not',
+        '  observed", never "unused". No model, nothing is written or',
+        '  removed; merging is only a proposal. Time cap',
+        '  MEM_SKILLUSAGE_TIME_MS: beyond it the state is unknown',
+        '  ("partially read").',
+      ].join('\n'));
+      return;
+    }
+    if (rest[0] !== 'usage') die(`skills: unknown subcommand '${rest[0]}'. Known: usage`);
+    checkFlags(args, ['json', 'root'], 'skills usage');
+    const root = findRoot(args);
+    requireConfig(root);
+    const r = skillusage.measure(root);
+    out(args.json ? JSON.stringify(skillusage.asJson(r), null, 2) : skillusage.asText(r));
   },
 
   modelcost: async ({ args }) => {

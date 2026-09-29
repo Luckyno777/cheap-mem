@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 69 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 70 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2561 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -133,6 +133,7 @@ directory. The section number in brackets is where it is explained.
 | `shred.mjs` | per-entry body encryption plus a small, NOT append-only keyring — a real deletion without rewriting history |
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
 | `sibling.mjs` | where the sister house's clone lives, if it sits beside us at all — dependency-free so nothing that needs it has to import `doctor.mjs` |
+| `skillusage.mjs` | W10: which skills get used — Skill tool calls and /command marks counted from the raw-capture archive, always with coverage; a skill without a hit is "not observed", never "unused"; names and counts only, never removes anything (`mem skills usage`, finding `skill-usage`) |
 | `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
@@ -520,7 +521,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 69 commands
+### 7.1 CLI — 70 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -530,7 +531,7 @@ viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
-asked-learn effect today modelcost gold
+asked-learn effect today modelcost gold skills
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,
