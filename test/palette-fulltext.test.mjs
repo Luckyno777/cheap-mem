@@ -8,6 +8,8 @@
 // RED proof against the FIXED commit 0accc86 (agent frame 12): the client from there
 // (served via page.route) does NOT find the why word in the palette, the current one does.
 // Positive control: a title word is found in both states. Visibility only via getComputedStyle.
+// The search is a fragment from the middle of a word: the old palette finds the entry neither in the
+// excerpt nor via the ranked search (word search), the full text finds it as a substring.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -65,9 +67,13 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
     if (route) await page.route('**/api/fulltext*', route);
     await page.goto(base + '/dashboard', { waitUntil: 'load' }); // never networkidle
     await waitReady(page);
-    await page.keyboard.press('Control+k');
-    await page.waitForSelector('#commandInput');
-    await page.click('#commandInput');
+    // Unter Last kann der Tastendruck vor dem Handler ankommen: erneut druecken, bis das Feld den Fokus hat.
+    let offen = false;
+    for (let i = 0; i < 6 && !offen; i++) {
+      await page.keyboard.press('Control+k');
+      offen = await page.waitForFunction(() => document.activeElement?.id === 'commandInput', null, { timeout: 5000 }).then(() => true, () => false);
+    }
+    assert.ok(offen, 'die Palette oeffnet sich');
     await page.keyboard.type(typed, { delay });
     await page.waitForTimeout(900);
     return await page.evaluate(() => ({
@@ -89,13 +95,13 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
 test('palette-fulltext: browser — why word GREEN with the new client, RED with 0accc86; title word in both', { skip: REASON }, async () => {
   const r = world();
   await withServer(r, {}, async (base) => {
-    const fresh = await paletteSearch(base, 'zebrafinchcouncil');
+    const fresh = await paletteSearch(base, 'brafinchcounc');
     assert.equal(fresh.hits.filter((z) => /First choice/.test(z)).length, 1, 'new: palette finds the why entry');
     assert.equal(fresh.focus, 'commandInput');
-    assert.equal(fresh.value, 'zebrafinchcouncil');
+    assert.equal(fresh.value, 'brafinchcounc');
     assert.equal(fresh.notice, null);
     const oldClient = old('assets/dashboard/dashboard.js');
-    const red = await paletteSearch(base, 'zebrafinchcouncil', { client: oldClient });
+    const red = await paletteSearch(base, 'brafinchcounc', { client: oldClient });
     assert.equal(red.hits.filter((z) => /First choice/.test(z)).length, 0, 'RED: the old client does not find it in the palette');
     for (const [name, opt] of [['new', {}], ['old', { client: oldClient }]]) {
       const x = await paletteSearch(base, 'penguinpath', opt);
@@ -112,7 +118,7 @@ test('palette-fulltext: browser — route not measurable: title word still found
     assert.equal(t.hits.filter((z) => /Penguinpath/.test(z)).length, 1);
     assert.equal(t.notice?.visible, true);
     assert.match(t.notice.text, /Full text unavailable/);
-    const z = await paletteSearch(base, 'zebrafinchcouncil', { route: fail });
+    const z = await paletteSearch(base, 'brafinchcounc', { route: fail });
     assert.equal(z.hits.filter((x) => /First choice/.test(x)).length, 0, 'in fallback only the excerpt counts');
   });
 });
@@ -121,7 +127,7 @@ test('palette-fulltext: browser — a stale answer is dropped', { skip: REASON }
   const r = world();
   await withServer(r, {}, async (base) => {
     let n = 0;
-    const x = await paletteSearch(base, 'zebrafinchcouncil', {
+    const x = await paletteSearch(base, 'brafinchcounc', {
       delay: 200,
       route: async (rt) => {
         n += 1;

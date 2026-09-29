@@ -3334,7 +3334,14 @@ function redrawPalette() {
   if (!input || !$('#command').open) return;
   const old = $('#commandMemory')?.innerHTML;
   renderSearch(input.value, { redrawOnly: true });
-  if (old && $('#commandMemory')) $('#commandMemory').innerHTML = old;
+  const target = $('#commandMemory');
+  if (old && target) {
+    target.innerHTML = old;
+    // What the full-text answer now shows above is not repeated in the ranked search.
+    const above = new Set([...$('#commandResults').querySelectorAll(':scope > [data-search-entry]')].map((x) => x.dataset.searchEntry));
+    target.querySelectorAll('[data-search-entry]').forEach((x) => { if (above.has(x.dataset.searchEntry)) x.remove(); });
+    if (!target.querySelector('[data-search-entry]')) target.innerHTML = '';
+  }
 }
 function renderSearch(q, { redrawOnly = false } = {}) {
   q = q.toLowerCase().trim();
@@ -3364,7 +3371,7 @@ async function paletteMemorySearch(q, localHits) {
     if (r.ok && b && Array.isArray(b.entries)) hits = b.entries;
   } catch { /* the ranked search stays empty — the substring hits above stay */ }
   if (mine !== paletteRun || !target()) return; // a newer input overtook this answer
-  const already = new Set((localHits || []).map((e) => e.id));
+  const already = new Set([...(localHits || []).map((e) => e.id), ...$('#commandResults').querySelectorAll(':scope > [data-search-entry]')].map((e) => e.id || e.dataset.searchEntry));
   const extra = hits.filter((t) => !already.has(t.id)).slice(0, 8);
   target().innerHTML = extra.length
     ? `<div class="label" style="margin:14px 0 4px">Ranked search in the memory (like "mem find")</div>${extra
