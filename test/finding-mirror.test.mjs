@@ -249,7 +249,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'behauptung-ohne-beleg', 'bestand', 'briefkasten', 'bruecke',
     'dispatcher', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
-    'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'git',
+    'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
     'hook-kopie', 'hook-stand', 'index', 'kennzahlen-gleich',
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'modell-start', 'nachher-haken',
@@ -257,7 +257,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'sicherung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
     'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',
-    'wiederholung', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
+    'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
     'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),
 });
