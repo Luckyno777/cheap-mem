@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "tool": "cheap-mem cold-find",
-  "startedAt": "2026-09-29T19:53:41.001Z",
-  "finishedAt": "2026-09-29T20:01:07.869Z",
+  "startedAt": "2026-09-29T23:51:43.962Z",
+  "finishedAt": "2026-09-29T23:55:53.488Z",
   "query": "rate limiter latency",
   "runsPerCell": 30,
   "corpus": "bench/scale.mjs buildCorpus, seed 42",
@@ -13,12 +13,12 @@
     "cpuModel": "Intel(R) Xeon(R) Processor @ 2.80GHz",
     "cpuCount": 4,
     "totalMemMB": 16096,
-    "freeMemMB": 14986,
-    "loadAvg1": 9.87,
-    "gitCommit": "c574d17",
-    "workingTreeDirty": false,
+    "freeMemMB": 15540,
+    "loadAvg1": 0.38,
+    "gitCommit": "f32107a",
+    "workingTreeDirty": true,
     "packageVersion": "0.1.0",
-    "nodeStartupMsP50": 36.99
+    "nodeStartupMsP50": 39.17
   },
   "results": [
     {
@@ -26,60 +26,60 @@
       "state": "cold",
       "what": "fresh `mem find` process, index read from cache",
       "n": 30,
-      "medianMs": 266.6,
-      "p95Ms": 324.84,
-      "minMs": 223.03,
-      "maxMs": 383.19
+      "medianMs": 247.52,
+      "p95Ms": 316.15,
+      "minMs": 232.28,
+      "maxMs": 512.62
     },
     {
       "entries": 1000,
       "state": "warm",
       "what": "search() on an already loaded index",
       "n": 30,
-      "medianMs": 1.219,
-      "p95Ms": 9.647,
-      "minMs": 1.032,
-      "maxMs": 18.023
+      "medianMs": 12.997,
+      "p95Ms": 17.826,
+      "minMs": 12.024,
+      "maxMs": 21.836
     },
     {
       "entries": 20000,
       "state": "cold",
       "what": "fresh `mem find` process, index read from cache",
       "n": 30,
-      "medianMs": 1303.84,
-      "p95Ms": 1499.03,
-      "minMs": 1107.84,
-      "maxMs": 1529.53
+      "medianMs": 802.77,
+      "p95Ms": 860.89,
+      "minMs": 747.56,
+      "maxMs": 866.12
     },
     {
       "entries": 20000,
       "state": "warm",
       "what": "search() on an already loaded index",
       "n": 30,
-      "medianMs": 42.793,
-      "p95Ms": 56.759,
-      "minMs": 39.34,
-      "maxMs": 60.802
+      "medianMs": 58.549,
+      "p95Ms": 78.346,
+      "minMs": 55.98,
+      "maxMs": 79.985
     },
     {
       "entries": 200000,
       "state": "cold",
       "what": "fresh `mem find` process, index read from cache",
       "n": 30,
-      "medianMs": 10934.2,
-      "p95Ms": 12246.22,
-      "minMs": 10068.04,
-      "maxMs": 12782.49
+      "medianMs": 5082.37,
+      "p95Ms": 5281.96,
+      "minMs": 4903.08,
+      "maxMs": 5443.04
     },
     {
       "entries": 200000,
       "state": "warm",
       "what": "search() on an already loaded index",
       "n": 30,
-      "medianMs": 620.147,
-      "p95Ms": 671.507,
-      "minMs": 540.429,
-      "maxMs": 703.049
+      "medianMs": 579.49,
+      "p95Ms": 697.022,
+      "minMs": 546.24,
+      "maxMs": 712.215
     }
   ]
 }
