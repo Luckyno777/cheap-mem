@@ -59,6 +59,7 @@ import * as agentledger from './agentledger.mjs';
 import * as userhabits from './userhabits.mjs';
 import * as freshness from './freshness.mjs';
 import * as retrieval from './retrieval.mjs';
+import * as search from './search.mjs';
 import * as capability from './capability.mjs';
 import * as viewer from './viewer.mjs';
 import * as raw from './raw.mjs';
@@ -988,18 +989,37 @@ export function factsAt(root, { known, valid } = {}, { readAll = null } = {}) {
 // (`observations.record` is deliberately NOT called, unlike the CLI).
 // ---------------------------------------------------------------------
 
-export function retrievalProbe(root, questionText, { top = 10, retrieve = retrieval.retrieve } = {}) {
+export function retrievalProbe(root, questionText, {
+  top = 10, retrieve = retrieval.retrieve, loadIndex = search.loadIndex,
+} = {}) {
   const q = String(questionText ?? '').trim();
   if (!q) return { state: 'error', reason: 'no question' };
   let r;
+  let wildcardNotes = [];
   try {
-    r = retrieve(root, q, capability.grantAll('dashboard-probe'), { top });
+    // The `word*` prefix operator: a MANUAL feature of this probe, not
+    // of the gateway it calls. This is the person at the dashboard
+    // typing a question by hand — same status as `mem find` — not the
+    // automatic retrieval hook, which calls `retrieval.retrieve()`
+    // directly and never resolves a `*` at all. See
+    // `search.resolveWildcards()`'s doc comment.
+    let query = q;
+    let extraTerms = null;
+    if (q.includes('*')) {
+      const idx = loadIndex(root);
+      const resolved = search.resolveWildcards(idx, q);
+      query = resolved.query;
+      extraTerms = resolved.extraTerms;
+      wildcardNotes = resolved.notes;
+    }
+    r = retrieve(root, query, capability.grantAll('dashboard-probe'), { top, extraTerms });
   } catch (e) {
     return { state: 'error', reason: e?.message || String(e) };
   }
   return {
     state: 'ok',
     shown: r.claims.length > 0,
+    ...(wildcardNotes.length ? { wildcardNotes } : {}),
     hits: r.claims.map((c, i) => ({
       rank: i + 1, id: c.id, authority: c.authority ?? null, author: c.author ?? null,
       scope: c.scope ?? null, ts: c.ts ?? null,
