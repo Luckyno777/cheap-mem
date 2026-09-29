@@ -33,6 +33,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { siblingClone } from '../src/doctor.mjs';
 
 export const DEFAULT_ROOT = path.join(path.dirname(path.dirname(fileURLToPath(import.meta.url))));
 
@@ -73,7 +74,10 @@ export function addenda(commits) {
 }
 
 function git(args, root) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  // maxBuffer raised (default 1 MB): readDoneLines (W9) scans the WHOLE
+  // history with full commit bodies, no cutoff — lucky-mem alone is
+  // past 5000 commits and blew the default (ENOBUFS, 2026-09-29).
+  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
 /**
@@ -107,7 +111,7 @@ export function cutoffMeasurable(root, cutoff) {
  */
 export function commitsSince(root, cutoff) {
   const raw = git(
-    ['log', `${cutoff}..HEAD`, '--no-merges', '--name-only', `--format=${STX}%H${US}%B${ETX}`],
+    ['log', `${cutoff}..HEAD`, '--no-merges', '--name-only', `--format=${STX}%H${US}%cI${US}%B${ETX}`],
     root,
   );
   const commits = [];
@@ -118,13 +122,15 @@ export function commitsSince(root, cutoff) {
     const head = chunk.slice(0, etxAt);
     const fileTail = chunk.slice(etxAt + 1);
     const usAt = head.indexOf(US);
+    const usAt2 = head.indexOf(US, usAt + 1);
     const hash = head.slice(0, usAt);
-    const body = head.slice(usAt + 1);
+    const date = head.slice(usAt + 1, usAt2);
+    const body = head.slice(usAt2 + 1);
     const files = fileTail
       .split('\n')
       .map((l) => l.trim())
       .filter(Boolean);
-    commits.push({ hash, body, files });
+    commits.push({ hash, date, body, files });
   }
   return commits;
 }
@@ -175,6 +181,18 @@ export function coveredByMerge(root, cutoff) {
   return map;
 }
 
+/**
+ * Resolves the value (yes/no/open) for ONE code commit — direct line,
+ * merge coverage, or addendum, in that order. `null` when none apply
+ * (a violation). Factored out of `evaluate()` so `openItems()` (W9)
+ * shares the same resolution instead of writing it twice.
+ */
+export function resolveValue(commit, covered, added) {
+  const a = added.filter((x) => commit.hash.startsWith(x.prefix));
+  const suppliedByAddendum = a.length ? [null, a[a.length - 1].value] : null;
+  return commit.body.match(TRAILER_PATTERN) ?? covered.get(commit.hash) ?? suppliedByAddendum ?? null;
+}
+
 /** Core evaluation, shared by the counter and the gate test. */
 export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   if (!cutoffMeasurable(root, cutoff)) {
@@ -190,8 +208,7 @@ export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   const counts = { yes: 0, no: 0, open: 0 };
   const violations = [];
   for (const c of codeCommits) {
-    const a = added.filter((x) => c.hash.startsWith(x.prefix));
-    const m = c.body.match(TRAILER_PATTERN) ?? covered.get(c.hash) ?? (a.length ? [null, a[a.length - 1].value] : null);
+    const m = resolveValue(c, covered, added);
     if (m) counts[m[1]] += 1;
     else if (EXEMPT.has(c.hash.slice(0, 12))) continue;
     else violations.push({ hash: c.hash.slice(0, 12), subject: c.body.split('\n')[0] });
@@ -205,10 +222,137 @@ export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   };
 }
 
+/**
+ * W9 — parity debt: every code commit since the cutoff whose resolved
+ * value is `open` (directly, via merge coverage, or via an addendum —
+ * same resolution as `evaluate()`) is an open item. Plain list, no
+ * closing check — `debtList()` checks closure against lucky-mem.
+ */
+export function openItems(root = DEFAULT_ROOT, cutoff = CUTOFF) {
+  if (!cutoffMeasurable(root, cutoff)) {
+    return { measurable: false, reason: `cutoff ${cutoff.slice(0, 12)} not reachable in local history (shallow?)` };
+  }
+  const commits = commitsSince(root, cutoff);
+  const codeCommits = commits.filter(needsLine);
+  const covered = coveredByMerge(root, cutoff);
+  const added = addenda(commits);
+  const items = [];
+  for (const c of codeCommits) {
+    const m = resolveValue(c, covered, added);
+    if (m && m[1] === 'open') items.push({ cm_hash: c.hash, subject: c.body.split('\n')[0], date: c.date });
+  }
+  return { measurable: true, items };
+}
+
+// The closing counter-line on the lm side: `Paritaet-Erledigt: <cm-hash>`,
+// one hash per line, at least 7 hex characters.
+export const DONE_PATTERN = /^Paritaet-Erledigt:\s*([0-9a-f]{7,40})\s*$/gm;
+
+/**
+ * Reads ALL `Paritaet-Erledigt: <hash>` lines from the given repo's
+ * history (here: the lucky-mem clone). No cutoff — closing can happen
+ * at any time, even for an old open item. `null` when that repo is not
+ * readable there.
+ */
+export function readDoneLines(root) {
+  let raw;
+  try {
+    raw = git(['log', `--format=${STX}%H${US}%B${ETX}`], root);
+  } catch {
+    return null;
+  }
+  const hits = [];
+  for (const chunk of raw.split(STX)) {
+    if (!chunk.trim()) continue;
+    const etxAt = chunk.indexOf(ETX);
+    if (etxAt === -1) continue;
+    const head = chunk.slice(0, etxAt);
+    const usAt = head.indexOf(US);
+    const hash = head.slice(0, usAt);
+    const body = head.slice(usAt + 1);
+    for (const m of body.matchAll(DONE_PATTERN)) {
+      hits.push({ prefix: m[1].toLowerCase(), from: hash });
+    }
+  }
+  return hits;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * W9 baseline date (coordinator, 2026-09-29): from when an open item
+ * counts as NEW debt instead of backlog.
+ *
+ * **Why this exists.** On the day this was built, 7 open `lm=open`
+ * items already sat in the history — a warning over their age could
+ * never clear (the oldest only gets older), which would be pure noise.
+ * An item whose commit date is BEFORE this instant is legacy: still
+ * counted and fully listed by `--debt` (hiding it is not allowed), but
+ * it does not drive the WARN threshold in `checkParityDebt()`. An item
+ * FROM this instant on is new and counts against the age threshold.
+ */
+export const W9_BASELINE = '2026-09-29T00:00:00Z';
+
+/**
+ * W9 — the parity debt list: every open `lm=open` item since the cutoff
+ * that is NOT closed by a `Paritaet-Erledigt: <cm-hash>` line on the
+ * lucky-mem side. Reads lucky-mem through the sibling clone
+ * (`siblingClone`, the same lookup the `finding-parity` doctor check
+ * uses) — no separate config path.
+ *
+ * If the sibling clone is absent or unreadable: "not measurable:
+ * sibling not readable", NEVER an empty list.
+ *
+ * Each item also carries `legacy` (commit date before `W9_BASELINE`) —
+ * the list itself stays complete, legacy items are never filtered out,
+ * only marked.
+ */
+export function debtList(root = DEFAULT_ROOT, cutoff = CUTOFF, { sibling = null, now = Date.now() } = {}) {
+  const open = openItems(root, cutoff);
+  if (!open.measurable) return { measurable: false, reason: open.reason };
+  const lmRoot = sibling ?? siblingClone(root);
+  if (!lmRoot) return { measurable: false, reason: 'not measurable: sibling not readable' };
+  const done = readDoneLines(lmRoot);
+  if (done === null) return { measurable: false, reason: 'not measurable: sibling not readable' };
+  const baseline = Date.parse(W9_BASELINE);
+  const remaining = open.items
+    .filter((it) => !done.some((d) => it.cm_hash.startsWith(d.prefix)))
+    .map((it) => ({
+      ...it,
+      ageDays: Math.floor((now - Date.parse(it.date)) / DAY_MS),
+      legacy: Date.parse(it.date) < baseline,
+    }))
+    .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  return { measurable: true, items: remaining };
+}
+
+function debtMain(cutoff) {
+  const r = debtList(DEFAULT_ROOT, cutoff);
+  if (!r.measurable) {
+    console.log(`Parity debt: ${r.reason}`);
+    return;
+  }
+  if (!r.items.length) {
+    console.log('Parity debt: 0 open items');
+    return;
+  }
+  const newCount = r.items.filter((it) => !it.legacy).length;
+  const legacyCount = r.items.length - newCount;
+  console.log(`Parity debt: ${r.items.length} open items (${newCount} new, `
+    + `${legacyCount} legacy before ${W9_BASELINE.slice(0, 10)}; oldest first)`);
+  for (const it of r.items) {
+    console.log(`  ${it.cm_hash.slice(0, 12)} (${it.ageDays}d${it.legacy ? ', legacy' : ''}) ${it.subject}`);
+  }
+}
+
 function main() {
   const argv = process.argv.slice(2);
   const i = argv.indexOf('--cutoff');
   const cutoff = i === -1 ? CUTOFF : argv[i + 1];
+  if (argv.includes('--debt')) {
+    debtMain(cutoff);
+    return;
+  }
   const r = evaluate(DEFAULT_ROOT, cutoff);
   if (!r.measurable) {
     console.log(`Parity: not measurable (${r.reason})`);

@@ -239,6 +239,9 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // 'baustein-ohne-redaktion' added on the lucky-mem side — mapped as
   // gaps (luecke:true, with why) in shared/finding-map.jsonl until
   // cheap-mem gets hook recognition / the after-the-fact snippet check.
+  // W9 (2026-09-29): 'paritaetsschuld' added on the lucky-mem side, paired
+  // here with this house's own 'parity-debt' — refreshed as its own
+  // reviewed change, per the instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -250,7 +253,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
     'hook-kopie', 'hook-stand', 'index', 'kennzahlen-gleich',
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'modell-start', 'nachher-haken',
-    'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-anfragen',
+    'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'sicherung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
     'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',

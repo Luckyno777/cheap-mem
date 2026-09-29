@@ -43,6 +43,7 @@ import { pack } from './language.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
 import * as errorcontext from './errorcontext.mjs';
+import { debtList } from '../bench/parity.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -152,6 +153,49 @@ export function checkFindingParity(root, { sibling = null } = {}) {
     + 'to be missing — but somebody has to have looked at it once.');
 }
 
+// W9: from how many days does an open parity-debt item count as a
+// warning. A plain module constant, tunable through an env override —
+// cheap-mem has no N20-style env register, so no extra registration
+// step applies here (unlike lucky-mem's schalterregister.mjs). Named
+// CHEAP_MEM_* (not LUCKY_MEM_*, coordinator 2026-09-29): cheap-mem is a
+// public, brand-separate project — its own env vars carry its own name.
+export const PARITY_DEBT_WARN_DAYS_DEFAULT = 14;
+
+/**
+ * W9 — parity debt as a finding: every `Parity: lm=open` commit since
+ * the cutoff not yet closed by a `Paritaet-Erledigt: <cm-hash>` line on
+ * the lucky-mem side is an open item.
+ *
+ * **Legacy items never warn (coordinator, 2026-09-29).** On the day
+ * this was built, 7 open items already sat in the history; a warning
+ * over their age could never clear (the oldest only gets older) and
+ * would be pure noise. Items with a commit date before `W9_BASELINE`
+ * (`debtList`, bench/parity.mjs) count as legacy: they are counted and
+ * fully listed by `--debt` — hiding them is not allowed — but they do
+ * not drive the WARN threshold. Only an item FROM `W9_BASELINE` on,
+ * older than the threshold, triggers WARN.
+ *
+ * UNKNOWN when the cutoff or the sibling clone is not readable (never a
+ * guessed "0 open").
+ */
+export function checkParityDebt(root, { now = Date.now(), warnDays, cutoff, sibling } = {}) {
+  const threshold = warnDays
+    ?? (Number(process.env.CHEAP_MEM_PARITY_DEBT_WARN_DAYS) || PARITY_DEBT_WARN_DAYS_DEFAULT);
+  const r = debtList(root, cutoff, { now, sibling });
+  if (!r.measurable) return finding('parity-debt', LEVEL.UNKNOWN, r.reason);
+  if (!r.items.length) return finding('parity-debt', LEVEL.GOOD, '0 open items');
+  const fresh = r.items.filter((it) => !it.legacy);
+  const legacy = r.items.filter((it) => it.legacy);
+  const warning = fresh.filter((it) => it.ageDays > threshold);
+  const text = `${fresh.length} new open, of which ${warning.length} over ${threshold} days; `
+    + `legacy ${legacy.length}`;
+  if (warning.length) {
+    return finding('parity-debt', LEVEL.WARN, text,
+      'close on the lucky-mem side: a commit with `Paritaet-Erledigt: <cm-hash>`');
+  }
+  return finding('parity-debt', LEVEL.GOOD, text);
+}
+
 /**
  * Findings allowed to report `ok` over a count of zero — with the reason.
  *
@@ -223,6 +267,7 @@ export function checkAll(root) {
   f.push(checkCorpusSize(root));
   f.push(checkAppendOnlyGit(root));
   f.push(checkFindingParity(root));
+  f.push(checkParityDebt(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
