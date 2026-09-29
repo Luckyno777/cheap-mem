@@ -278,11 +278,17 @@ test('no-jump: no quiet refetch timer while the tab is not visible; exactly one 
       // Let one cycle get going, then simulate "not visible".
       memory.logEntry(r, 'learning', { agent: 'builder', title: 'Before hidden', text: 'a' }, {});
       await page.waitForTimeout(400);
-      const fetchesBeforePause = dashboardFetches;
       await page.evaluate(() => {
         Object.defineProperty(document, 'hidden', { value: true, configurable: true });
         document.dispatchEvent(new Event('visibilitychange'));
       });
+      // Hide first, then count: a tick that started BEFORE hiding (150 ms
+      // test interval) is allowed and must not count as "fetch while
+      // hidden" (cm suite red 2026-09-29, 5 instead of 4). If the product
+      // keeps scheduling after that answer, the 700 ms check below still
+      // catches it.
+      await page.waitForTimeout(300);
+      const fetchesBeforePause = dashboardFetches;
       memory.logEntry(r, 'learning', { agent: 'builder', title: 'While hidden', text: 'b' }, {});
       await page.waitForTimeout(700); // well beyond the test interval (150 ms)
       assert.equal(dashboardFetches, fetchesBeforePause, 'no fetch while the tab is not visible');
