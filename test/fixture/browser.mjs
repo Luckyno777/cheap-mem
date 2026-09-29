@@ -13,9 +13,22 @@
 // live probe) and polls regularly; the network never goes quiet for 30 s
 // (see test/sphere-visible.test.mjs, the same reasoning repeated several
 // times).
+//
+// `args` (2026-09-29, orchestrator finding): the fixture must NOT change
+// rendering versus the pre-W3 state. Four of the five migrated cm test
+// files (+ bench/docs-images.mjs) already launched with exactly the
+// swiftshader args below before this change -- that stays the default.
+// test/dash-fix4-tabs-visible.test.mjs launched with NO args before
+// (`pw.chromium.launch()`), and with the unified swiftshader args the
+// IntersectionObserver fired measurably differently: the probe went red
+// (2 of 9, reproducible, orchestrator-confirmed). So: whoever calls the
+// fixture picks the args -- `startBrowser({ args: [] })` for dash-fix4,
+// every other caller unchanged (no argument = default).
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import { after } from 'node:test';
+
+const DEFAULT_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 
 function loadPlaywright() {
   for (const base of [import.meta.url, '/opt/node22/lib/node_modules/']) {
@@ -29,11 +42,15 @@ function loadPlaywright() {
  * /opt/pw-browsers. Returns `{ browser: null, reason }` when no instance
  * starts — never an exception that would turn the file red instead of
  * skipped. On success, registers `after(() => browser.close())` itself.
+ *
+ * `args` (optional): launch WITHOUT the default swiftshader args when a
+ * file launched with none before W3 (see file header) -- default
+ * `undefined` means "as before", an empty array `[]` means "like
+ * dash-fix4 before W3: chromium.launch() with no arguments at all".
  */
-export async function startBrowser() {
+export async function startBrowser({ args = DEFAULT_ARGS } = {}) {
   const pw = loadPlaywright();
   if (!pw) return { browser: null, reason: 'playwright not installed' };
-  const args = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
   let browser = null;
   try { browser = await pw.chromium.launch({ args }); } catch { /* fall through */ }
   if (!browser) {

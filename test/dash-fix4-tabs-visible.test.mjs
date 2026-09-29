@@ -46,7 +46,11 @@ const REPO = path.join(HERE, '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = '6154cd0a';
 
-const { browser, reason: why } = await startBrowser();
+// No args (2026-09-29, orchestrator finding): this file launched with
+// no arguments before W3 -- the fixture's default swiftshader args
+// measurably change when the IntersectionObserver fires (red probe,
+// see test/fixture/browser.mjs).
+const { browser, reason: why } = await startBrowser({ args: [] });
 const NEEDS = why ? { skip: why } : {};
 
 const roots = [];
@@ -90,18 +94,7 @@ async function visibility(page, route) {
   const n = await page.evaluate(() => document.querySelectorAll('#screen .panel, #screen .metrics').length);
   for (let i = 0; i < n; i += 1) {
     await page.evaluate((k) => document.querySelectorAll('#screen .panel, #screen .metrics')[k]?.scrollIntoView({ block: 'start', behavior: 'instant' }), i);
-    // Poll instead of a fixed sleep (browser fixture, 2026-09-29): the
-    // shared Chromium launch now uses --use-angle=swiftshader (software
-    // GL, see test/fixture/browser.mjs), whose IntersectionObserver
-    // timing varies with machine load (measured flaky at fixed 200ms and
-    // 350ms waits under a busy shared host). Up to 3s per panel for
-    // opacity 1 or a running reveal animation; a genuinely PAUSED panel
-    // (never revealed) times out here and is caught below regardless.
-    await page.waitForFunction((k) => {
-      const el = document.querySelectorAll('#screen .panel, #screen .metrics')[k];
-      if (!el) return true;
-      return Number(getComputedStyle(el).opacity) >= 0.999 || document.getAnimations().some((a) => a.playState === 'running');
-    }, i, { timeout: 3000 }).catch(() => {});
+    await page.waitForTimeout(60);
   }
   // Wait for running reveal animations (0.7 s + at most 275 ms delay). A
   // PAUSED one (never revealed) never finishes and stays at opacity 0 —
@@ -110,11 +103,6 @@ async function visibility(page, route) {
     Promise.all(document.getAnimations().filter((a) => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming?.().endTime)).map((a) => a.finished.catch(() => null))),
     new Promise((res) => setTimeout(res, 2000)),
   ]));
-  // Extra settle time (browser fixture, 2026-09-29): under the shared
-  // software GL (swiftshader) the final opacity otherwise sometimes reads
-  // e.g. 0.9699 instead of 1 -- a snapshot mid-transition, not a real
-  // "never revealed".
-  await page.waitForTimeout(400);
   return page.evaluate(() => {
     const scr = document.querySelector('#screen');
     const tabs = scr.querySelector('nav.tabs');
