@@ -45,12 +45,25 @@ function walk(dir) {
 // point of a static scan is to see the string whether or not it is ever
 // executed on this platform.
 const BENCH_IMPORT = /(?:from\s*|import\()\s*['"](?:\.\.\/)+bench\//;
+// Built-path form (2026-09-29, mirror of lucky-mem's guard): a bench path
+// assembled via import()/pathToFileURL()/require()/join()/resolve() is the
+// same import — the static pattern above cannot see it. Checked on code
+// with comments blanked, so prose about bench/ never counts.
+const BENCH_BUILT = /(?:\bimport\s*\(|\bpathToFileURL\s*\(|\brequire\s*\(|\b(?:join|resolve)\s*\()[^;]*?['"`](?:[^'"`\n]*\/)?bench(?:\/[^'"`\n]*)?['"`]|(?:\bimport\s*\(|\bpathToFileURL\s*\(|\b(?:join|resolve)\s*\()[^;]*?['"`][^'"`\n]*\bbench\/[^'"`\n]*['"`]/;
+
+function withoutComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
+    .replace(/^\s*\/\/.*$/gm, '')
+    .replace(/(\s)\/\/\s.*$/gm, '$1');
+}
 
 function violations(root) {
   const found = [];
   for (const file of [...walk(path.join(root, 'src')), ...walk(path.join(root, 'bin'))]) {
     const text = fs.readFileSync(file, 'utf8');
-    if (BENCH_IMPORT.test(text)) found.push(path.relative(root, file));
+    const code = withoutComments(text);
+    if (BENCH_IMPORT.test(code) || BENCH_BUILT.test(code)) found.push(path.relative(root, file));
   }
   return found;
 }
@@ -72,4 +85,12 @@ test('no file under src/ or bin/ imports from ../bench/', () => {
   assert.deepEqual(found, [],
     `these import from bench/, which ships in no published package: ${found.join(', ')} — `
     + 'move the code bench/ and src/ both need into src/, and have bench/ import FROM src/, never the reverse.');
+});
+
+test('POSITIVE: the built-path form is caught; prose, comments and string literals are not', () => {
+  assert.match(withoutComments("const m = await import(pathToFileURL(path.join(root, 'bench', 'x.mjs')).href);"), BENCH_BUILT);
+  assert.match(withoutComments("const p = path.resolve(here, '../bench/x.mjs'); await import(p);"), BENCH_BUILT);
+  assert.doesNotMatch(withoutComments("// see bench/x.mjs via path.join(root, 'bench')"), BENCH_BUILT);
+  assert.doesNotMatch(withoutComments("/* import(path.join('bench','x')) */"), BENCH_BUILT);
+  assert.doesNotMatch(withoutComments("const note = 'run bench/x.mjs by hand';"), BENCH_BUILT);
 });
