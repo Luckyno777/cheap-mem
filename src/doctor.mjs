@@ -43,6 +43,7 @@ import { pack } from './language.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
 import * as errorcontext from './errorcontext.mjs';
+import { debtList } from '../bench/parity.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -152,6 +153,38 @@ export function checkFindingParity(root, { sibling = null } = {}) {
     + 'to be missing — but somebody has to have looked at it once.');
 }
 
+// W9: from how many days does an open parity-debt item count as a
+// warning. A plain module constant, tunable through an env override —
+// cheap-mem has no N20-style env register, so no extra registration
+// step applies here (unlike lucky-mem's schalterregister.mjs).
+export const PARITY_DEBT_WARN_DAYS_DEFAULT = 14;
+
+/**
+ * W9 — parity debt as a finding: every `Parity: lm=open` commit since
+ * the cutoff not yet closed by a `Paritaet-Erledigt: <cm-hash>` line on
+ * the lucky-mem side is an open item. GOOD with none, WARN once the
+ * oldest item exceeds the threshold, otherwise GOOD naming the plain
+ * count (young debt is not itself a warning — closing takes time on the
+ * other side). UNKNOWN when the cutoff or the sibling clone is not
+ * readable (never a guessed "0 open").
+ */
+export function checkParityDebt(root, { now = Date.now(), warnDays, cutoff, sibling } = {}) {
+  const threshold = warnDays
+    ?? (Number(process.env.LUCKY_MEM_PARITY_DEBT_WARN_DAYS) || PARITY_DEBT_WARN_DAYS_DEFAULT);
+  const r = debtList(root, cutoff, { now, sibling });
+  if (!r.measurable) return finding('parity-debt', LEVEL.UNKNOWN, r.reason);
+  if (!r.items.length) return finding('parity-debt', LEVEL.GOOD, '0 open items');
+  const oldest = r.items[0];
+  if (oldest.ageDays > threshold) {
+    return finding('parity-debt', LEVEL.WARN,
+      `${r.items.length} open items, oldest ${oldest.cm_hash.slice(0, 12)} `
+      + `for ${oldest.ageDays} days (threshold ${threshold})`,
+      'close on the lucky-mem side: a commit with `Paritaet-Erledigt: <cm-hash>`');
+  }
+  return finding('parity-debt', LEVEL.GOOD,
+    `${r.items.length} open items, oldest ${oldest.ageDays} days (under threshold ${threshold})`);
+}
+
 /**
  * Findings allowed to report `ok` over a count of zero — with the reason.
  *
@@ -223,6 +256,7 @@ export function checkAll(root) {
   f.push(checkCorpusSize(root));
   f.push(checkAppendOnlyGit(root));
   f.push(checkFindingParity(root));
+  f.push(checkParityDebt(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
