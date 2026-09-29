@@ -656,7 +656,7 @@ function todayCard() {
     + todayUnknownPart('Login', t.login)
     + (nothingPressing
     ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
-    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify) + todayGoldPart(t.gold)))
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify) + todayGoldPart(t.gold))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
   return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
 }
