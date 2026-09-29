@@ -162,7 +162,9 @@ test('the finding wraps the verdict, and checkAll runs it', () => {
   assert.equal(f.level, 'unknown');
   const p = settingsWith(dir, claudeHooks());
   assert.equal(checkIntegrationContract(dir, { settingsPaths: [p] }).level, 'warn');
-  const src = fs.readFileSync(path.join(REPO, 'src', 'doctor.mjs'), 'utf8');
+  // comments removed first: a commented-out call must not count as a proof
+  const src = fs.readFileSync(path.join(REPO, 'src', 'doctor.mjs'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   assert.match(src, /f\.push\(checkIntegrationContract\(root\)\)/, 'checkAll does not run the finding');
 });
 
