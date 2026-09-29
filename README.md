@@ -87,7 +87,7 @@ the product — the page is only a way to look at them.
 `mem serve` — the same memory as a live dashboard, one fixed link, no
 build step:
 
-![The cheap-mem dashboard overview: a 3D knowledge network with a soft fog hull, a "Today" card listing open decisions, and metrics for entries, open work and skills.](docs/images/01-overview.png)
+![The cheap-mem dashboard overview: a 3D knowledge network with a soft fog hull, a "Today" card listing open decisions, and metrics for entries, open work and skills.](docs/images/01-overview.webp)
 
 *The overview on a sample memory (synthetic data, not a real user's
 memory). The network on the left groups entries by project; the panel
@@ -95,9 +95,10 @@ on the right lists the next open duties and questions.*
 
 ![The Knowledge space tab: the same 3D network shown larger, with a group strip below the canvas and a breadcrumb above it.](docs/images/02-knowledge-space.webp)
 
-*`Knowledge -> Knowledge space`: the same network, full size, with the
-four grouping modes (drawers, topics, relations, entry type). A thin fog
-hull with a scattering of glitter surrounds the nodes -- pure
+*`Knowledge -> Knowledge space`: the same network, full size, with 50
+stored relations (`link` drawer) between entries across projects, and
+the four grouping modes (drawers, topics, relations, entry type). A thin
+fog hull with a scattering of glitter surrounds the nodes -- pure
 orientation, no data of its own; it parts to the sides as you zoom in.*
 
 `mem serve` sits behind a password by default (`src/login.mjs`) -- a
@@ -109,7 +110,7 @@ black sign-in page, one field, before any content renders:
 password is set, the same route shows only the password field. Turn it
 off with `CHEAP_MEM_SERVE_LOGIN=off` (tests, local use only).*
 
-![Operations -> Diagnosis in the dashboard: mem-doctor findings, each with its own state instead of a silent zero.](docs/images/04-operations-health.png)
+![Operations -> Diagnosis in the dashboard: mem-doctor findings, each with its own state instead of a silent zero.](docs/images/04-operations-health.webp)
 
 *`Operations -> Diagnosis`: the same `mem doctor` findings as the CLI,
 read live from the dashboard.*
