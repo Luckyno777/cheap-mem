@@ -102,7 +102,7 @@ export function renderPerfBlock(a) {
     else L.push(`| ${r.entries} | ${r.state} | ${fmt(r.medianMs)} ms | ${fmt(r.p95Ms)} ms | ${r.n} | ${commit} |`);
   }
   L.push('');
-  L.push(`Measured ${a.finishedAt.slice(0, 10)} on ${e.cpuModel ?? 'unknown CPU'} × ${e.cpuCount}, Node ${e.node}`
+  L.push(`Measured ${a.finishedAt.slice(0, 10)} on ${e.cpuModel ?? 'unknown CPU'} × ${e.cpuCount}, Node ${e.node}, load average at start ${e.loadAvg1 == null ? 'unknown' : e.loadAvg1.toFixed(2)}`
     + `${e.workingTreeDirty ? ', working tree dirty' : ''}; a bare Node start is ${fmt(e.nodeStartupMsP50)} ms of every cold figure.`);
   L.push('Capture and digest durations are not measured and therefore not stated here.');
   L.push('Re-measure: `node bench/cold-find.mjs`. Source: `bench/cold-find.json`.');

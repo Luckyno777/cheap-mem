@@ -69,6 +69,24 @@ lists each one with the guard that now stands where the error was.
 ### Latency
 
 <!-- perf:begin -->
+
+Latency of one `mem find`, measured, not estimated. Each figure names its state
+(**cold** = a fresh process, index read from the cache on disk; **warm** = index
+already loaded, the search alone), its corpus size and the commit it was measured at (`c574d17`).
+
+| entries | state | median | P95 | runs | commit |
+|---:|---|---:|---:|---:|---|
+| 1000 | cold | 267 ms | 325 ms | 30 | c574d17 |
+| 1000 | warm | 1.219 ms | 9.647 ms | 30 | c574d17 |
+| 20000 | cold | 1304 ms | 1499 ms | 30 | c574d17 |
+| 20000 | warm | 42.8 ms | 56.8 ms | 30 | c574d17 |
+| 200000 | cold | 10934 ms | 12246 ms | 30 | c574d17 |
+| 200000 | warm | 620 ms | 672 ms | 30 | c574d17 |
+
+Measured 2026-09-29 on Intel(R) Xeon(R) Processor @ 2.80GHz × 4, Node v22.22.2, load average at start 9.87; a bare Node start is 37.0 ms of every cold figure.
+Capture and digest durations are not measured and therefore not stated here.
+Re-measure: `node bench/cold-find.mjs`. Source: `bench/cold-find.json`.
+
 <!-- perf:end -->
 
 ## What it looks like
