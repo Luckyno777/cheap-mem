@@ -38,6 +38,9 @@ import * as memory from './memory.mjs';
 import * as doctorMod from './doctor.mjs';
 import * as cfgmod from './config.mjs';
 import * as verifylog from './verifylog.mjs';
+import * as goldlog from './goldlog.mjs';
+import * as injection from './injection.mjs';
+import { isoWeek } from './measurements.mjs';
 
 /** At most this many verify candidates shown at once (N9 parity: "up to 3"). */
 export const VERIFY_MAX = 3;
@@ -158,6 +161,127 @@ export function verifyCandidates(root, { now = new Date(), max = VERIFY_MAX, cur
 }
 
 // =========================================================================
+// (f) "Rate today" — N9 parity, the sibling's REAL gold-question queue
+// (not to be confused with (c) verify above, which grades a different
+// thing — see src/goldlog.mjs header for the full reasoning).
+// =========================================================================
+
+/** At most this many gold questions shown per day (N9 parity: "up to 3"). */
+export const GOLD_MAX = 3;
+
+/** UTC calendar day (`YYYY-MM-DD`) — the seed for {@link pickDaily}. */
+export function dayKey(now = new Date()) {
+  return now.toISOString().slice(0, 10);
+}
+
+/** Small, deterministic unsigned 32-bit hash (FNV-1a-ish) — no
+ *  randomness, only a reproducible spread for the daily rotation. */
+function seedNumber(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Up to `max` candidates for TODAY — deterministic by calendar day
+ * (same day + same pool -> same picks, always; a later day rotates on
+ * if a bucket holds more than one candidate), preferring a MIXED set
+ * of outcomes (one hit, one near-miss, one no-hit) over simply the
+ * three most recent. Mirrors the sibling's `waehleTaeglich`.
+ */
+export function pickDaily(candidates, { max = GOLD_MAX, now = new Date() } = {}) {
+  const seed = seedNumber(dayKey(now));
+  const buckets = new Map();
+  for (const c of candidates) {
+    const outcome = c.source?.startsWith('raw-capture:hit:') ? 'hit'
+      : c.source?.startsWith('raw-capture:near-miss:') ? 'near-miss'
+        : c.source?.startsWith('raw-capture:no-hit:') ? 'no-hit' : 'other';
+    if (!buckets.has(outcome)) buckets.set(outcome, []);
+    buckets.get(outcome).push(c);
+  }
+  for (const list of buckets.values()) list.sort((a, b) => String(a.source).localeCompare(String(b.source)));
+
+  const picked = [];
+  const pickedSources = new Set();
+  for (const outcome of ['hit', 'near-miss', 'no-hit']) {
+    const list = buckets.get(outcome);
+    if (!list || !list.length) continue;
+    const c = list[seed % list.length];
+    picked.push(c);
+    pickedSources.add(c.source);
+    if (picked.length >= max) break;
+  }
+  if (picked.length < max) {
+    const rest = candidates.filter((c) => !pickedSources.has(c.source))
+      .sort((a, b) => String(a.source).localeCompare(String(b.source)));
+    const start = rest.length ? seed % rest.length : 0;
+    for (let i = 0; i < rest.length && picked.length < max; i += 1) {
+      picked.push(rest[(start + i) % rest.length]);
+    }
+  }
+  return picked;
+}
+
+/** "rated: N total, M this week" — counted at the external gold file,
+ *  only rows with a set `verdict`, after {@link goldlog.resolved} (a
+ *  correction never counts twice). "this week" = the same ISO week key
+ *  as `now` (measurements.isoWeek — one truth for the week concept). */
+export function ratedCounts(rowsResolved, { now = new Date(), isoWeek } = {}) {
+  const thisWeek = isoWeek(now);
+  let total = 0;
+  let week = 0;
+  for (const r of rowsResolved) {
+    if (!r || r.verdict === null || r.verdict === undefined) continue;
+    total += 1;
+    if (thisWeek && isoWeek(new Date(r.ts)) === thisWeek) week += 1;
+  }
+  return { total, thisWeek: week };
+}
+
+/**
+ * Up to {@link GOLD_MAX} UNRATED gold candidates for today, drawn from
+ * `src/goldlog.mjs`'s external file (populated by `mem gold today
+ * --draw` / `goldlog.draw()`). Read-only — writing is `mem gold rate` /
+ * POST /dashboard/gold-verdict.
+ *
+ * **"not measured: no injection journal" — only when there is truly
+ * nothing to draw from** (neither a live journal NOR an already-drawn
+ * gold file): an existing gold file stays usable even if the LIVE
+ * journal on this machine is not readable right now (archived,
+ * different root) — same reasoning as the sibling's goldFragen().
+ */
+export function goldQuestions(root, { env = process.env, max = GOLD_MAX, now = new Date() } = {}) {
+  const filePath = goldlog.targetPath(env);
+  let read;
+  try { read = goldlog.read(filePath); } catch (e) {
+    read = { rows: [], broken: 0, present: false, error: e?.message || String(e) };
+  }
+  let journalPresent;
+  try { journalPresent = injection.read(root).present; } catch { journalPresent = false; }
+
+  let drawn;
+  if (!read.present) {
+    drawn = !journalPresent
+      ? { readable: false, reason: 'not measured: no injection journal' }
+      : { readable: false, reason: `no gold file yet at ${filePath} — run \`mem gold today --draw\` (or goldlog.draw()) first` };
+  } else {
+    drawn = { readable: true, reason: null };
+  }
+
+  const resolvedRows = goldlog.resolved(read.rows);
+  const unrated = resolvedRows.filter((r) => r.verdict === null);
+  const picked = drawn.readable ? pickDaily(unrated, { max, now }) : [];
+  const rated = ratedCounts(resolvedRows, { now, isoWeek });
+
+  return {
+    filePath, drawn, candidatesTotal: unrated.length, candidates: picked, rated,
+  };
+}
+
+// =========================================================================
 // (d) Review suggestions — NOT BUILT
 // =========================================================================
 
@@ -224,11 +348,13 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
   const verify = verifyCandidates(root, { now });
   const review = reviewSuggestions();
   const wordPairs = wordPairSuggestions();
+  const gold = goldQuestions(root, { env, now });
 
   const reasons = [
     ...(ops.readable ? [] : [ops.reason]),
     ...(decisions.readable ? [] : [decisions.reason]),
     ...(verify.readable ? [] : [verify.reason]),
+    ...(gold.drawn.readable ? [] : [gold.drawn.reason]),
   ];
 
   return {
@@ -241,6 +367,7 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
     operations: ops,
     decisions,
     verify,
+    gold,
     review,
     wordPairs,
     verifyTarget: verifylog.targetPath(env),
@@ -267,7 +394,10 @@ export function line(result) {
   const nVerify = result.verify?.list?.length ?? 0;
   if (nVerify > 0) parts.push(`${nVerify} to verify`);
 
-  const notable = nDec > 0 || opsNotable || nVerify > 0;
+  const nGold = result.gold?.candidates?.length ?? 0;
+  if (nGold > 0) parts.push(`${nGold} gold question${nGold === 1 ? '' : 's'}`);
+
+  const notable = nDec > 0 || opsNotable || nVerify > 0 || nGold > 0;
   if (!notable || !parts.length) return null;
   return `Today: ${parts.join(' · ')}`;
 }
@@ -294,6 +424,14 @@ export function asText(result) {
   for (const v of result.verify.list ?? []) {
     lines.push(`  [${v.conflict ? 'conflict' : 'stale'}] ${v.key}${v.project ? ` (${v.project})` : ''} = ${v.value ?? '(no current value)'}`
       + `${v.ageDays != null ? `  ${v.ageDays}d old` : ''}`);
+  }
+  lines.push('');
+
+  lines.push(`GOLD QUESTIONS TO RATE: ${result.gold.drawn.readable ? result.gold.candidates.length : 'unknown'} (of ${result.gold.candidatesTotal} open)`);
+  lines.push(`  rated: ${result.gold.rated.total} total, ${result.gold.rated.thisWeek} this week`);
+  if (!result.gold.drawn.readable) lines.push(`  ${result.gold.drawn.reason}`);
+  for (const c of result.gold.candidates) {
+    lines.push(`  [${c.source?.split(':')[1] ?? '?'}] ${c.id}  ${c.question ?? '(no question text known)'}`);
   }
   lines.push('');
 

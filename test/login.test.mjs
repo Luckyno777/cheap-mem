@@ -91,6 +91,10 @@ test('without a session: page -> /login, data and writing routes -> 401 JSON (co
       ['/setting', { method: 'POST', body: form({ id: 'x', value: '1' }), headers: { origin: s.base } }],
       ['/task', { method: 'POST', body: form({ kind: 'x' }), headers: { origin: s.base } }],
       ['/inbox/reply', { method: 'POST', body: form({ to: 'x' }), headers: { origin: s.base } }],
+      // N9 parity ("gold nebenbei"/"Rate today"): a gold verdict is a
+      // writing route like /setting/ /task — the same lock (see
+      // test/gold-verdict.test.mjs for the "nothing written" effect).
+      ['/dashboard/gold-verdict', { method: 'POST', body: form({ verdict: 'empty-correct', expected: '[]' }), headers: { origin: s.base } }],
     ]) {
       const r = await fetch(s.base + route, { redirect: 'manual', ...init });
       assert.equal(r.status, 401, `${route} without a session`);

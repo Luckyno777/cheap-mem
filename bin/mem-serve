@@ -58,6 +58,7 @@ import * as measurements from '../src/measurements.mjs';
 import * as mcplive from '../src/mcplive.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as verifylog from '../src/verifylog.mjs';
+import * as goldlog from '../src/goldlog.mjs';
 import * as login from '../src/login.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
@@ -118,6 +119,11 @@ function tokenFrom(req, url) {
  */
 /** N9 parity: where a Today-card fact verdict is POSTed. */
 export const VERIFY_VERDICT_PATH = '/dashboard/verify-verdict';
+/** N9 parity ("gold nebenbei"/"Rate today"): where a verdict on a REAL
+ *  retrieval question (src/goldlog.mjs) is POSTed. Separate from
+ *  VERIFY_VERDICT_PATH — a different judgement on a different source,
+ *  see src/goldlog.mjs's header. */
+export const GOLD_VERDICT_PATH = '/dashboard/gold-verdict';
 
 export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/pult.json',
@@ -134,6 +140,7 @@ export const PATHS = Object.freeze([
   // from the Today card — appends OUTSIDE the memory, see
   // src/verifylog.mjs and the route below.
   VERIFY_VERDICT_PATH,
+  GOLD_VERDICT_PATH,
   // The password in front of the dashboard (src/login.mjs), behind the
   // token door like everything else; 404 under CHEAP_MEM_SERVE_LOGIN=off.
   ...login.ALL_PATHS,
@@ -144,7 +151,7 @@ export const PATHS = Object.freeze([
  * first; the probes read this list, so a sixth writing route is
  * covered the moment it is named here.
  */
-export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply', '/inbox/state', VERIFY_VERDICT_PATH]);
+export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply', '/inbox/state', VERIFY_VERDICT_PATH, GOLD_VERDICT_PATH]);
 
 /**
  * The routes that hand out memory content as JSON to a script. Each one
@@ -792,6 +799,84 @@ export function buildHandler(root, cfg, env = process.env) {
         let result;
         try {
           result = verifylog.append(target, root, row);
+        } catch (e) {
+          res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
+          return;
+        }
+        if (!result.written) {
+          res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: result.defects.join('; ') }));
+          return;
+        }
+        res.writeHead(201, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'ok', written: true, id: result.row.id }));
+      });
+      return;
+    }
+
+    // --- Gold verdict (N9 parity, "gold nebenbei"/"Rate today") ----------
+    //
+    // A human's judgement on ONE real retrieval-question candidate drawn
+    // by `src/goldlog.mjs` (a hit/near-miss/no-hit outcome from the
+    // injection journal, correlated with a real user message). The ONLY
+    // effect: ONE line appended to goldlog's target file OUTSIDE this
+    // memory (`CHEAP_MEM_GOLD_FILE`, else `~/.cheap-mem-gold/
+    // retrieval-gold.jsonl`) — append-only, never a change in this repo,
+    // never the question text echoed back. Same gate as every other
+    // writing route, plus the outside-root check `goldlog.append()` runs.
+    if (url.pathname === GOLD_VERDICT_PATH) {
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' })
+          .end('POST only');
+        return;
+      }
+      const no = writegate.refusal(root, cfg, req);
+      if (no) {
+        res.writeHead(no.code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify({ state: 'error', reason: no.text }));
+        return;
+      }
+      let body = '';
+      let tooBig = false;
+      req.on('data', (chunk) => {
+        if (body.length > 4096) { tooBig = true; return; }
+        body += chunk;
+      });
+      req.on('end', () => {
+        if (tooBig) {
+          res.writeHead(413, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: 'Too much.' }));
+          return;
+        }
+        const p = new URLSearchParams(body);
+        const verdict = p.get('verdict') || null;
+        const occasion = p.get('occasion') || null;
+        const source = p.get('source') || null;
+        const candidateId = p.get('id') || null;
+        let expected;
+        try { expected = JSON.parse(p.get('expected') ?? '[]'); } catch { expected = null; }
+        if (!Array.isArray(expected) || !expected.every((x) => typeof x === 'string')) {
+          res.writeHead(400, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+            .end(JSON.stringify({ state: 'error', reason: 'expected is not a JSON array of strings' }));
+          return;
+        }
+        // A row we are CORRECTING (it already has an id from a previous
+        // draw) gets `replaces_id`, never a rewrite (append-only).
+        const row = goldlog.buildRow({
+          question: null,
+          share: 'no',
+          expected,
+          occasion,
+          source,
+          kind: 'drawn',
+          verdict,
+          replacesId: candidateId || undefined,
+        });
+        const target = goldlog.targetPath(env);
+        let result;
+        try {
+          result = goldlog.append(target, root, row);
         } catch (e) {
           res.writeHead(500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
             .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));

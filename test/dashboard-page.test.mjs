@@ -109,7 +109,9 @@ test('every fetch() in the script goes to a closed list of this server\'s routes
     // password hash / sessions under .pipeline/, never memory.
     '/login/password', '/login/logout',
     // tempo (2026-09-28): deferred parts of /dashboard.json — read-only, the same cached build, the same gates.
-    '/dashboard/part.json']);
+    '/dashboard/part.json',
+    // gold (2026-09-29, N9): one rating of today's retrieval questions — write gate + Origin/Host + login, off-git file.
+    '/dashboard/gold-verdict']);
   const calls = [...JS.matchAll(/fetch\(\s*([`'])([^`'?$]*)/g)].map((m) => m[2]);
   // formPost(path, …) is the one wrapper for form writes.
   const posts = [...JS.matchAll(/formPost\('([^']+)'/g)].map((m) => m[1]);

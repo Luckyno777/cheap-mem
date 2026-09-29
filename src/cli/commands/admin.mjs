@@ -31,9 +31,10 @@ import * as observations from '../../observations.mjs';
 import * as agentledger from '../../agentledger.mjs';
 import * as today from '../../today.mjs';
 import * as modelcost from '../../modelcost.mjs';
+import * as goldlog from '../../goldlog.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
-/** 11 commands. */
+/** 12 commands. */
 export const COMMANDS = {
   doctor: async ({ args }) => {
     if (isHelp(args)) {
@@ -712,6 +713,95 @@ export const COMMANDS = {
     if (args.line) { const l = today.line(r); if (l) out(l); return; }
     if (args.json) { out(JSON.stringify(r, null, 2)); return; }
     out(today.asText(r));
+  },
+
+  gold: async ({ args, rest }) => {
+    const sub = rest[0];
+    if (isHelp(args) || !sub || sub === 'help') {
+      out([
+        'mem gold today [--json] [--draw]',
+        '  N9 parity ("gold nebenbei"/"Rate today"): up to three REAL',
+        '  retrieval-question candidates for today — same source and',
+        '  selection (src/today.mjs goldQuestions/pickDaily) as the',
+        '  dashboard\'s "Rate today" card: deterministic by calendar day,',
+        '  prefers a mixed set of outcomes (hit/near-miss/no-hit), only',
+        '  unrated candidates.',
+        '',
+        '  --draw   first draw NEW candidates from the injection journal',
+        '           + real messages into the gold file (src/goldlog.mjs',
+        '           draw()) — append-only, idempotent, run this before',
+        '           the first `mem gold today` on a fresh memory.',
+        '',
+        'mem gold rate <id> <verdict> [hit-id]',
+        '  Appends ONE verdict line to the gold file OUTSIDE this memory',
+        '  (same function as POST /dashboard/gold-verdict:',
+        '  src/goldlog.mjs append/buildRow — one truth for both). verdict:',
+        '  correct/wrong/empty-correct. <id>: a candidate id from `mem',
+        '  gold today`. [hit-id]: which id counts as the hit — optional',
+        '  for correct/wrong (defaults to the candidate\'s own `expected`',
+        '  ids); required has no default for empty-correct (always []).',
+        '',
+        '  N18 parity: NOT built — this house has no gap-tracking module',
+        '  (the sibling\'s R1/src/luecken.mjs) to promote a closed miss',
+        '  into a candidate automatically; `kind` in the gold file',
+        '  reserves the vocabulary for when one exists.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (sub === 'today') {
+      checkFlags(args, ['json', 'draw', 'root'], 'gold today');
+      let drawReport = null;
+      if (args.draw) {
+        drawReport = goldlog.draw(root);
+        if (!args.json) {
+          out(drawReport.readable
+            ? `Drawn: ${drawReport.drawn} new candidate(s) (${drawReport.withQuestion} with a question text), ${drawReport.written ? 'written' : 'nothing new'} to ${drawReport.target}.`
+            : `Not drawn: ${drawReport.reason}`);
+        }
+      }
+      const r = today.goldQuestions(root);
+      if (args.json) { out(JSON.stringify({ draw: drawReport, ...r }, null, 2)); return; }
+      out(`Gold questions today: ${r.drawn.readable ? r.candidates.length : 'unknown'} (of ${r.candidatesTotal} open)`);
+      out(`rated: ${r.rated.total} total, ${r.rated.thisWeek} this week`);
+      if (!r.drawn.readable) out(r.drawn.reason);
+      for (const c of r.candidates) {
+        out(`  [${c.source?.split(':')[1] ?? '?'}] ${c.id}  ${c.question ?? '(no question text known)'}`);
+      }
+      return;
+    }
+
+    if (sub === 'rate') {
+      checkFlags(args, ['json', 'root'], 'gold rate');
+      const id = rest[1];
+      const verdict = rest[2];
+      const hitId = rest[3] || null;
+      if (!id || !verdict) die('gold rate: mem gold rate <id> <verdict> [hit-id]');
+      if (!goldlog.VERDICT.includes(verdict)) die(`gold rate: verdict must be one of ${goldlog.VERDICT.join(', ')}`);
+      const r = today.goldQuestions(root);
+      const candidate = r.candidates.find((c) => c.id === id)
+        // Reachable even outside today's three, by id — same file, just
+        // not in today's pick.
+        || goldlog.resolved(goldlog.read(goldlog.targetPath(process.env)).rows)
+          .find((row) => row.id === id && row.verdict === null);
+      if (!candidate) die(`gold rate: no open candidate with id '${id}'`);
+      const expected = verdict === 'empty-correct' ? [] : (hitId ? [hitId] : (candidate.expected ?? []));
+      const target = goldlog.targetPath(process.env);
+      try { goldlog.checkTargetOutsideRoot(target, root); } catch (e) { die(`gold rate: ${e?.message || e}`); }
+      const row = goldlog.buildRow({
+        question: null, share: 'no', expected, occasion: candidate.occasion,
+        source: candidate.source, kind: 'drawn', verdict, replacesId: id,
+      });
+      const result = goldlog.append(target, root, row);
+      if (!result.written) die(`gold rate: ${result.defects.join('; ')}`);
+      if (args.json) { out(JSON.stringify(result, null, 2)); return; }
+      out(`Rated: ${result.row.id} (${verdict}) — appended to ${target}.`);
+      return;
+    }
+
+    die(`gold: unknown subcommand '${sub}'. Known: today, rate`);
   },
 
   modelcost: async ({ args }) => {

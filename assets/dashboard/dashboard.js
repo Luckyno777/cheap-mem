@@ -602,18 +602,52 @@ function todayVerifyPart(list) {
 function todayUnknownPart(title, info) {
   return `<div class="label" style="margin:16px 0 6px">${esc(title)}</div><div class="row"><div><p class="small quiet">${esc(info?.reason || 'unknown')}</p></div>${badge('unknown')}</div>`;
 }
+// N9 parity ("gold nebenbei"/"Rate today"): a REAL retrieval question,
+// never written here — only shown (src/goldlog.mjs draws it from the
+// injection journal + a real message) — rated through POST
+// /dashboard/gold-verdict, the same gate as every other write route.
+function todayGoldRow(c, i) {
+  const outcome = c.source?.split(':')[1] || 'unknown';
+  const canHitMiss = (c.expected || []).length > 0;
+  const attr = (verdict) => `data-verdict="${esc(verdict)}" data-id="${esc(c.id || '')}" `
+    + `data-occasion="${esc(c.occasion)}" data-source="${esc(c.source)}" `
+    + `data-expected="${esc(JSON.stringify(verdict === 'empty-correct' ? [] : (c.expected || [])))}"`;
+  return `<div class="row today-gold-row" data-gold-row="${i}"><div>`
+    + `<span class="small quiet">${esc(outcome)} · ${esc(whenTime(c.ts))}</span>`
+    + `<p class="detailtext" style="margin:6px 0">${c.question ? esc(c.question) : '<span class="quiet">(no question text known)</span>'}</p>`
+    + `${c.expected?.length ? `<p class="small mono quiet">expected: ${c.expected.map(esc).join(', ')}</p>` : ''}`
+    + `</div><div class="drawer-actions" data-gold-actions>`
+    + `${btn('correct', 'today-gold-verdict', attr('correct') + (canHitMiss ? '' : ' disabled'), 'small ghost')}`
+    + `${btn('wrong', 'today-gold-verdict', attr('wrong') + (canHitMiss ? '' : ' disabled'), 'small ghost')}`
+    + `${btn('should be empty', 'today-gold-verdict', attr('empty-correct'), 'small ghost')}`
+    + `</div></div>`;
+}
+function todayGoldPart(gold) {
+  const list = gold?.candidates || [];
+  if (!gold?.drawn?.readable && !list.length) {
+    return `<div class="label" style="margin:16px 0 6px">Rate today</div>`
+      + note(esc(gold?.drawn?.reason || 'not measured: no injection journal'), 'warn');
+  }
+  if (!list.length) return '';
+  const r = gold?.rated || { total: 0, thisWeek: 0 };
+  return `<div class="label" style="margin:16px 0 6px">Rate today</div>`
+    + `<p class="small quiet">rated: ${num(r.total)} total, ${num(r.thisWeek)} this week</p>`
+    + list.map((c, i) => todayGoldRow(c, i)).join('')
+    + '<p class="small quiet" style="margin-top:8px">A verdict appends ONE line to a file OUTSIDE this memory — never a change here, never the question text.</p>';
+}
 function todayCard() {
   const t = D.today;
   if (!t) return '';
   const ops = t.operations?.notable || [];
   const decisions = t.decisions?.list || [];
   const verify = t.verify?.list || [];
-  const nothingPressing = !ops.length && !decisions.length && !verify.length;
+  const gold = t.gold?.candidates || [];
+  const nothingPressing = !ops.length && !decisions.length && !verify.length && !gold.length;
   const body = (nothingPressing
-    ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify.')
-    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify))
+    ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify) + todayGoldPart(t.gold))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
-  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions and facts to verify — the same source as `mem today`.')}</div>`;
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
 }
 
 function home() {
@@ -1338,6 +1372,17 @@ async function taskRead(id) {
 // write to the entry, never a write inside this repository.
 async function verifyVerdictWrite(fields) {
   const r = await fetch('/dashboard/verify-verdict', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams(fields), headers: { accept: 'application/json' } });
+  let b = null;
+  try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
+  return { ok: r.status === 201, ...b };
+}
+// N9 parity ("gold nebenbei"/"Rate today"): a verdict on ONE Today-card
+// gold-question candidate. The only effect (bin/mem-serve, POST
+// /dashboard/gold-verdict, src/goldlog.mjs): one line appended OUTSIDE
+// this memory. Never a write to this repository, never the question
+// text sent back.
+async function goldVerdictWrite(fields) {
+  const r = await fetch('/dashboard/gold-verdict', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams(fields), headers: { accept: 'application/json' } });
   let b = null;
   try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
   return { ok: r.status === 201, ...b };
@@ -3551,6 +3596,22 @@ document.addEventListener('click', async (ev) => {
       const r = await verifyVerdictWrite({
         key: d.key, project: d.project || '', verdict: d.verdict,
         ageDays: d.ageDays || '', conflict: d.conflict || '0',
+      });
+      if (!r.ok) {
+        buttons?.forEach((b) => { b.disabled = false; });
+        return toast('Not recorded: ' + (r.reason || r.state));
+      }
+      toast('Recorded (' + d.verdict + ') — appended outside this memory.');
+      if (rowEl) rowEl.innerHTML = `<div><span class="small quiet">Recorded: ${esc(d.verdict)} — thank you.</span></div>`;
+      break;
+    }
+    case 'today-gold-verdict': {
+      if (state.readonly) return toast('Read only is active.');
+      const rowEl = el.closest('[data-gold-row]');
+      const buttons = rowEl?.querySelectorAll('button');
+      buttons?.forEach((b) => { b.disabled = true; });
+      const r = await goldVerdictWrite({
+        id: d.id || '', occasion: d.occasion, source: d.source, verdict: d.verdict, expected: d.expected || '[]',
       });
       if (!r.ok) {
         buttons?.forEach((b) => { b.disabled = false; });
