@@ -82,6 +82,8 @@ test('without a session: page -> /login, data and writing routes -> 401 JSON (co
     }
     for (const [route, init] of [
       ['/dashboard.json', {}],
+      // tempo (2026-09-28): the deferred parts are data too — the same lock.
+      ['/dashboard/part.json?part=raw', {}],
       ['/entries.json?q=x', {}],
       ['/console.json', {}],
       ['/manifest.webmanifest', {}],
