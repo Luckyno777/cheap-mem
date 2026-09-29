@@ -47,6 +47,10 @@ import { Worker } from 'node:worker_threads';
 import { renameWithRetry } from '../src/search.mjs';
 import { renameWithRetry as renameWithRetryIC } from '../src/indexcache.mjs';
 import { tempDir } from './temp-dir.mjs';
+import {
+  captureQuietCalibrationBaseline, captureForeignLoad, foreignLoadDelta,
+  FOREIGN_LOAD_DENIED_MS_PER_SEC,
+} from '../bench/atlas/core.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -181,9 +185,29 @@ test('P positive control: the naive write tears, here, on this machine', async (
 
 test('A the rename-based write never tears', async (t) => {
   const target = scratch(t, 'renamed.json');
+  // P8 (2026-09-28): `hammer()` runs against a fixed 60 s wall-clock
+  // `DEADLINE` (see above), not a fixed number of writer/reader
+  // iterations — so how many of the 2000 requested reads land in that
+  // window is real THROUGHPUT, and throughput is exactly as
+  // load-sensitive as any other timed measurement. Measured here: under
+  // a sibling full-suite load (the OTHER house's tests, no longer
+  // serialised against this one's own full suite since I8) the run hit
+  // `timedOut` at 1595 reads — `error: 'the experiment ran out of time
+  // at 1595 reads — no verdict'`, nothing to do with tearing. The
+  // CORRECTNESS assertions (torn/missing/other below) are never gated:
+  // a torn read is a real bug at any speed, and contention can only
+  // make tearing MORE likely to show up, never less real. Only the
+  // THROUGHPUT assertions (timedOut / r.ok / writes-refused) skip when
+  // the window was measurably not quiet.
+  const calibBaseline = captureQuietCalibrationBaseline();
+  const before = captureForeignLoad(calibBaseline);
   const r = await hammer(target, 'renamed', { reads: 2000 });
-  assert.ok(!r.timedOut,
-    `the experiment ran out of time at ${r.ok + r.torn} reads — no verdict`);
+  const after = captureForeignLoad(calibBaseline);
+  const load = foreignLoadDelta(before, after, calibBaseline);
+  const stealCgroupOver = load.deniedMsPerSec !== null && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  const lastNichtRuhig = !calibBaseline.trustworthy || stealCgroupOver || psiOver;
+
   assert.equal(r.torn, 0,
     `${r.torn} torn reads out of ${r.ok + r.torn + r.missing + r.other} — rename is ` +
     'not doing what this whole change rests on');
@@ -191,6 +215,17 @@ test('A the rename-based write never tears', async (t) => {
     `${r.missing} reads found no file at all — rename never unlinks the ` +
     'target, so a reader must never see a gap either');
   assert.equal(r.other, 0, `${r.other} reads parsed but held neither payload`);
+
+  if ((r.timedOut || r.ok < 2000 || r.writes - r.refused <= 0) && lastNichtRuhig) {
+    t.skip(`throughput not measurable under load: timedOut=${r.timedOut}, ok=${r.ok}/2000, `
+      + `writes=${r.writes}, refused=${r.refused} (deniedMsPerSec=${load.deniedMsPerSec}, `
+      + `psiMsPerSec=${load.psiMsPerSec}, calibTrustworthy=${calibBaseline.trustworthy}) — `
+      + 'correctness (torn/missing/other) above was still checked unconditionally and was clean.');
+    return;
+  }
+
+  assert.ok(!r.timedOut,
+    `the experiment ran out of time at ${r.ok + r.torn} reads — no verdict`);
   assert.ok(r.ok >= 2000, `only ${r.ok} clean reads, expected the full budget`);
 
   // **Three states, not two.** A rename Windows refused is neither a

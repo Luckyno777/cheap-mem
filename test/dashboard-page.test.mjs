@@ -58,7 +58,7 @@ function memoryRoot({ writes = false } = {}) {
 }
 async function start(root, env = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?page=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '', ...env });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '', ...env });
   const port = server.address().port;
   return {
     mod, port, base: `http://127.0.0.1:${port}`,
@@ -103,7 +103,13 @@ test('the page reaches nothing outside: scripts and styles are this server\'s ow
 test('every fetch() in the script goes to a closed list of this server\'s routes', () => {
   const allowed = new Set(['/dashboard.json', '/dashboard/entry.json', '/dashboard/message.json', '/dashboard/probe.json',
     '/dashboard/facts-at.json', '/entries.json', '/task', '/task/cancel', '/task.json', '/setting', '/inbox/reply', '/inbox/state',
-    '/dashboard/verify-verdict']);
+    '/dashboard/verify-verdict',
+    // login (2026-09-28): change the password and sign out (Settings >
+    // Access) — Host + Origin checks in src/login.mjs; writes only the
+    // password hash / sessions under .pipeline/, never memory.
+    '/login/password', '/login/logout',
+    // tempo (2026-09-28): deferred parts of /dashboard.json — read-only, the same cached build, the same gates.
+    '/dashboard/part.json']);
   const calls = [...JS.matchAll(/fetch\(\s*([`'])([^`'?$]*)/g)].map((m) => m[2]);
   // formPost(path, …) is the one wrapper for form writes.
   const posts = [...JS.matchAll(/formPost\('([^']+)'/g)].map((m) => m[1]);

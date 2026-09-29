@@ -65,6 +65,8 @@ import * as raw from './raw.mjs';
 import * as modelcost from './modelcost.mjs';
 import * as effect from './effect.mjs';
 import * as today from './today.mjs';
+import * as release from './release.mjs';
+import * as checkrecord from './checkrecord.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The cheap-mem package itself — where the code, not the memory, lives. */
@@ -478,6 +480,93 @@ function codeState() {
   };
 }
 
+/**
+ * The release rail's own state (Bauplan P1, `src/release.mjs`) — real
+ * reads, four states, never the old "not available in cheap-mem": a
+ * fresh install (nobody ever ran `mem-release create`) reads `unknown`
+ * with "unknown — no release yet", not an empty panel.
+ */
+export function releaseState(env = process.env) {
+  let cur;
+  try { cur = release.currentState(PACKAGE_ROOT, { env }); }
+  catch (e) { return { state: 'unknown', readable: false, reason: `release state not readable: ${e?.message || e}` }; }
+  if (!cur.readable) {
+    return {
+      state: cur.reason === 'unknown — no release yet' ? 'unknown' : 'error',
+      readable: false,
+      reason: cur.reason,
+    };
+  }
+  const headNow = gitHead(PACKAGE_ROOT); // short hash of the LIVE checkout, same measurement as versions.code
+  const commit = typeof cur.commit === 'string' ? cur.commit : null;
+  const stale = Boolean(headNow && commit && !commit.startsWith(headNow));
+  const state = !cur.proven ? 'warn' : (stale ? 'warn' : 'good');
+  return {
+    state,
+    readable: true,
+    commit,
+    kurzhash: cur.kurzhash ?? null,
+    tree: cur.tree ?? null,
+    createdAt: cur.createdAt ?? null,
+    proven: Boolean(cur.proven),
+    proofKind: cur.proofKind ?? null,
+    path: cur.path ?? null,
+    stale,
+    reason: !cur.proven
+      ? 'this release was created with --allow-unproven — forced, unverified.'
+      : stale
+        ? `the code on disk has moved past this release (now ${headNow ?? 'unknown'}) — run \`mem-release create\` to refresh it.`
+        : null,
+  };
+}
+
+/**
+ * The last recorded green suite run (Bauplan P1, `src/checkrecord.mjs`,
+ * `checked.jsonl`) — real reads, four states. A fresh install (nobody
+ * ever ran `bin/mem-check-record`) reads `unknown` with the same
+ * "unknown — no release yet" phrase the release panel uses: a check
+ * record is what makes a release possible in the first place, so an
+ * absent one IS "no release yet" from this reader's point of view too.
+ */
+export function checkRecordState(env = process.env) {
+  const target = checkrecord.recordPath(PACKAGE_ROOT, env);
+  let text;
+  try { text = fs.readFileSync(target, 'utf8'); } catch {
+    return { state: 'unknown', readable: false, reason: 'unknown — no release yet' };
+  }
+  const rawLines = text.split('\n').filter((l) => l.trim()).length;
+  const rows = checkrecord.parseRecords(text);
+  if (!rows.length) {
+    return {
+      state: rawLines ? 'error' : 'unknown',
+      readable: false,
+      reason: rawLines ? `checked.jsonl has ${rawLines} line(s) but none parse` : 'unknown — no release yet',
+    };
+  }
+  const last = rows[rows.length - 1];
+  const broken = Math.max(0, rawLines - rows.length);
+  let headTree = null;
+  try { headTree = checkrecord.treeHash(PACKAGE_ROOT); } catch { headTree = null; }
+  const matches = headTree != null && last.tree === headTree;
+  return {
+    state: matches ? 'good' : 'warn',
+    readable: true,
+    tree: last.tree ?? null,
+    commit: last.commit ?? null,
+    tests: last.tests ?? null,
+    passed: last.passed ?? null,
+    failed: last.failed ?? 0,
+    ts: last.ts ?? null,
+    machine: last.machine ?? null,
+    house: last.house ?? null,
+    broken,
+    matchesCurrentTree: matches,
+    reason: matches
+      ? (broken ? `${broken} broken line(s) elsewhere in the ledger` : null)
+      : 'the last recorded check does not match the current code tree — run `bin/mem-check-record` again.',
+  };
+}
+
 /** The invariants this house keeps with its sibling, and the doctor's parity finding. */
 function invariantsState(doc) {
   const file = path.join(PACKAGE_ROOT, 'shared', 'invariants.jsonl');
@@ -672,8 +761,8 @@ export function collectDashboard(root, {
   const versions = {
     code: codeState(),
     hookState: findingNamed(doc, 'stop-hook'),
-    release: { readable: false, reason: 'not available in cheap-mem — there is no release rail that records a stamped release' },
-    checkRecord: { readable: false, reason: 'not available in cheap-mem — there is no recorded test-run receipt' },
+    release: releaseState(env),
+    checkRecord: checkRecordState(env),
   };
   const integrityState = safe(() => {
     const s = integrity.scanIntegrity(root);

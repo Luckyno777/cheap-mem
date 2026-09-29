@@ -238,8 +238,10 @@ if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
   exit 0
 fi
 
-# `component` instead of `find --literal`: the same literal strictness,
-# but across BOTH spellings of a file.
+# `component --hook` instead of `find --literal`: the same literal
+# strictness, but across BOTH spellings of a file, and over the CACHED
+# component table first (src/component-table.mjs — R-Tab port) rather
+# than a full-corpus scan on every single edit.
 #
 # Measured on 2026-09-08 across 805 path mentions in the reference
 # corpus: 22 % of components appear in more than one form, almost always
@@ -255,7 +257,16 @@ fi
 # without a prefix or with the same one (src/component.mjs);
 # `projects/x/events.jsonl` answers no question about
 # `global/events.jsonl`.
-HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --json 2>/dev/null)" || { trace "search-failed"; exit 0; }
+#
+# `--hook` (unlike plain `--json`) reads the component table READ-ONLY:
+# on a fresh table it ranks guard/fix marks above a bare mention (for
+# errors) and hands back the table's rows — including a `// error: <id>`
+# guard mark in a test file, which a literal text scan of the ERROR
+# entry itself can never see (the mark lives in the TEST file, not the
+# entry's own text). On a stale/missing table it falls back to the
+# unchanged live search AND kicks off a background rebuild — it never
+# rebuilds inline, a full build is far too slow for this hook's budget.
+HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --hook --json 2>/dev/null)" || { trace "search-failed"; exit 0; }
 [ -z "$HITS" ] && { trace "no-hits"; exit 0; }
 
 PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '

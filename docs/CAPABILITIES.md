@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 68 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2337 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2447 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -61,16 +61,20 @@ directory. The section number in brackets is where it is explained.
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
 | `chain.mjs` | a per-writer hash chain over the append-only logs — catches a rewrite that survives a commit, which a git-diff check alone cannot |
+| `checkrecord.mjs` | the tracked, append-only proof (`checked.jsonl`) that a full `node --test` run was green for a given tree — one tier, no local machine-only stamp (Bauplan P1) |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
+| `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
+| `dashboard-cache.mjs` | `/dashboard.json` from a cache: generation stamp (drawers, git reflog, local sources), background rebuild in a worker thread, never stale as fresh (`cache.fresh`/`refreshing`/`reason`) (7.5) |
 | `dashboard-data.mjs` | the dashboard's DATA layer: `/dashboard.json`, one entry, one message, the read-only retrieval probe, facts at a date (7.5) |
 | `dashboard-page.mjs` | the dashboard's page shell; the views are drawn in the browser from `assets/dashboard/` (7.5) |
 | `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |
 | `pwa.mjs` | the dashboard's manifest and service worker, which stores nothing unless asked to (7.5) |
+| `login.mjs` | the password in front of the dashboard: first setup only with a machine-local code, scrypt hash, server-side sessions, lock after failed attempts (7.5) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
@@ -115,6 +119,7 @@ directory. The section number in brackets is where it is explained.
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
+| `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |

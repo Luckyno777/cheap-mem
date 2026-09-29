@@ -219,7 +219,7 @@ test("TODAY'S STATE, PINNED: board carries no mark at all", () => {
 test('bin/mem-serve: favicon and manifest icons are the own mark, never the foreign one', async () => {
   const r = root();
   const { serve } = await import('../bin/mem-serve');
-  const { server } = await serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
   try {
     const base = `http://127.0.0.1:${server.address().port}`;
     const fav = Buffer.from(await (await fetch(base + '/favicon.ico')).arrayBuffer());

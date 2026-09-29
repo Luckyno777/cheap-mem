@@ -37,7 +37,7 @@ function memoryRoot() {
 
 async function start(scriptPath, root, env = {}) {
   const mod = await import(`${pathToFileURL(scriptPath).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '', ...env });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '', ...env });
   const port = server.address().port;
   return {
     port, base: `http://127.0.0.1:${port}`,

@@ -50,7 +50,7 @@ test('/pult.json is in PATHS and answers the old desk shape', async () => {
   assert.ok(mod.PATHS.includes('/pult.json'));
   const root = bare();
   const { server } = await mod.serve(root, {
-    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '',
+    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
   });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {

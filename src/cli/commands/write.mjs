@@ -15,6 +15,7 @@
 
 import path from 'node:path';
 import * as memory from '../../memory.mjs';
+import * as search from '../../search.mjs';
 import * as guard from '../../guard.mjs';
 import * as probescaffold from '../../probescaffold.mjs';
 import * as broadcast from '../../broadcast.mjs';
@@ -521,11 +522,40 @@ export const COMMANDS = {
       data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'correction');
     }
     if (Object.keys(data).length === 0) die("correction: no fields");
-    const { path: p, entry } = memory.correctionEntry(
+    const { path: p, entry, old, closing } = memory.correctionEntry(
       root, type, oldId, data, { project: args.project ?? null });
     out(`Correction: ${path.relative(root, p)}`);
     out(`  new id:     ${entry.id}`);
     out(`  replaces:   ${entry.replaces_id}`);
+
+    // P11 guard: warns, never blocks — a correction with content is
+    // allowed through, but if it drops notable words of its predecessor
+    // (Lucky's own quotes, rare content words) it warns on stderr so a
+    // human/agent decides on purpose (see search.lostCorrectionContent,
+    // case czorxreppel -> 1rjpook3vead). A closing correction (retiring/
+    // closing) rightly carries no content of its own — exempt.
+    if (!closing && process.env.MEM_CORRECTION_WARN_OFF !== '1') {
+      try {
+        const idx = search.buildIndex(root);
+        const lost = search.lostCorrectionContent(old, entry, {
+          docFreq: idx.docFreq,
+          rareDf: Number(process.env.MEM_CORRECTION_RARE_DF) || search.RARE_DF,
+        });
+        if (lost.lost) {
+          const parts = [
+            ...lost.quotes.map((q) => `quote "${q}"`),
+            ...lost.rareWords.map((w) => `word "${w}"`),
+          ];
+          warn(`Correction ${oldId} -> ${entry.id} loses notable ${parts.join(', ')} of its `
+            + 'predecessor. Intentional (dropping something wrong), or an accident? '
+            + 'See `mem doctor` (finding correction-content-loss).');
+        }
+      } catch (e) {
+        // Not a hard failure: the guard warns, it does not block — a
+        // broken index must not stop the correction itself.
+        warn(`Could not check for content loss: ${e.message}`);
+      }
+    }
   },
 
   discard: async ({ rest, args }) => retireCmd('discarded', rest, args),

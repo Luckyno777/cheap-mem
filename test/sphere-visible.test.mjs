@@ -70,7 +70,7 @@ async function withServer(run) {
       memory.logEntry(root, type, d, { project: ['payments', 'infra', null][i % 3], now: new Date(Date.parse('2026-09-01T09:00:00Z') + i * 3600e3) });
     }
     const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?visible=${Math.random()}`);
-    const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+    const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
     try {
       return await run(`http://127.0.0.1:${server.address().port}`);
     } finally {
@@ -94,8 +94,11 @@ async function everyScreen(base, before) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   try {
-    await page.goto(base + '/dashboard', { waitUntil: 'networkidle' });
-    await page.waitForTimeout(800);
+    // 'load' + loading marker gone, NOT 'networkidle': since tempo the page
+    // fetches deferred parts and polls the MCP probe — under full load the
+    // network never went quiet for 30 s (cm suite 2026-09-29, navigation timeout).
+    await page.goto(base + '/dashboard', { waitUntil: 'load' });
+    await page.waitForFunction(() => typeof sections === 'object' && !document.querySelector('#screen .loading'), null, { timeout: 30000 });
     if (before) await page.evaluate(before);
     const targets = await page.evaluate('Object.entries(sections).flatMap(([a, s]) => s.tabs.length ? s.tabs.map(([t]) => a + "/" + t) : [a])');
     const texts = [];

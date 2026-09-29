@@ -360,14 +360,20 @@ test('complete (server): /dashboard.json delivers the same real data, and the da
   for (const p of ['/console.json', '/pult.json', '/entry.json', '/entries.json', '/task.json']) {
     assert.ok(mod.PATHS.includes(p), `${p} was dropped from PATHS`);
   }
-  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const res = await fetch(`${base}/dashboard.json`);
     assert.equal(res.status, 200);
     const d = await res.json();
     assert.ok(d.entries.some((e) => e.title.includes('Two tasks at once')));
-    assert.ok(d.inbox.messages.some((m) => m.name === messageName));
+    // tempo (2026-09-28): messages and captures are deferred parts of the
+    // same build — still reachable, only through /dashboard/part.json.
+    const inboxPart = await (await fetch(`${base}${d.parts.inbox.path}`)).json();
+    assert.ok(inboxPart.data.some((m) => m.name === messageName));
+    const rawPart = await (await fetch(`${base}${d.parts.raw.path}`)).json();
+    assert.equal(rawPart.state, 'ok');
+    assert.ok(Array.isArray(rawPart.data), 'raw.captures through the deferred route is not a list');
     assert.ok(d.agents.some((a) => a.name === 'probeagent'));
     assert.ok(d.projects.some((p) => p.name === 'demo'));
     for (const p of ['/console.json', '/pult.json', '/task.json', '/health']) {

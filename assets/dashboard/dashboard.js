@@ -59,7 +59,7 @@ const sections = {
   },
   settings: {
     name: 'Settings',
-    tabs: [['appearance', 'Appearance'], ['system', 'System settings'], ['catalog', 'Function catalogue'], ['projectstate', 'Project state']],
+    tabs: [['appearance', 'Appearance'], ['access', 'Access'], ['system', 'System settings'], ['catalog', 'Function catalogue'], ['projectstate', 'Project state']],
   },
 };
 // The names of the 13 types (singular) — keys from memory.TYPES; the
@@ -83,6 +83,10 @@ let entryIndex = new Map();
 let incomingIndex = new Map();
 let loadError = null;
 const serverWrites = document.body.dataset.writes === '1';
+// The password in front of the dashboard (src/login.mjs) — display only;
+// the server decides on its own.
+const loginEnabled = document.body.dataset.login === '1';
+const PW_MIN = 10; // = login.MIN_LENGTH; the server checks for itself
 
 const state = {
   area: 'home', tab: '', memory: 'local', project: 'all', query: '', type: 'all', status: 'all', sort: 'new', page: 1,
@@ -91,6 +95,8 @@ const state = {
   inboxTo: null, inboxAll: false, inboxQuery: '',
 };
 let raf = 0, graphCleanup = () => {}, toastTimer;
+let graphRun = 0; // tempo: counter for the deferred initGraph() in render()
+let refetchTimer = 0; // tempo: quiet refetch while the server rebuilds
 const byId = (id) => entryIndex.get(id);
 const when = (t) => {
   const d = new Date(t);
@@ -174,6 +180,29 @@ function notAvailable(key) {
   const n = D?.notAvailable?.[key];
   return `<div class="row"><div><strong>${esc(n?.title || key)}</strong><p>${esc(n?.reason || 'Not available in cheap-mem.')}</p></div>${badge('not available', 'not available in cheap-mem')}</div>`;
 }
+// Release rail (Bauplan P1, src/release.mjs) — four real states, never
+// "not available": a fresh install reads `unknown` with "unknown — no
+// release yet", the same phrasing the check-record row below uses.
+function releaseRow(r) {
+  if (!r || !r.readable) {
+    return `<div class="row"><div><strong>Release state</strong><p>${esc(r?.reason || 'unknown')}</p></div>${badge(r?.state || 'unknown', levelWord[r?.state] || 'unknown')}</div>`;
+  }
+  const bits = [r.kurzhash ? `commit ${esc(r.kurzhash)}` : null, r.createdAt ? `created ${esc(whenTime(r.createdAt))}` : null,
+    r.proven ? 'proven by a checked.jsonl row' : 'forced (--allow-unproven)'];
+  const text = bits.filter(Boolean).join(' · ') + (r.reason ? ` — ${r.reason}` : '');
+  return `<div class="row"><div><strong>Release state</strong><p>${esc(text)}</p></div>${badge(r.state, levelWord[r.state] || r.state)}</div>`;
+}
+// The last recorded green suite run (Bauplan P1, src/checkrecord.mjs,
+// checked.jsonl) — same four-state shape as releaseRow above.
+function checkRecordRow(c) {
+  if (!c || !c.readable) {
+    return `<div class="row"><div><strong>Last test receipt</strong><p>${esc(c?.reason || 'unknown')}</p></div>${badge(c?.state || 'unknown', levelWord[c?.state] || 'unknown')}</div>`;
+  }
+  const bits = [Number.isFinite(c.passed) ? `${num(c.passed)} passed` : null, c.ts ? esc(whenTime(c.ts)) : null,
+    c.machine ? `machine ${esc(c.machine)}` : null];
+  const text = bits.filter(Boolean).join(' · ') + (c.reason ? ` — ${c.reason}` : '');
+  return `<div class="row"><div><strong>Last test receipt</strong><p>${esc(text)}</p></div>${badge(c.state, levelWord[c.state] || c.state)}</div>`;
+}
 // "Read only": visible, but with the route that really does it.
 function readonlyMark(cli) {
   return `<span class="badge unknown read-only"><i class="dot"></i>read only</span>${cli ? ` <span class="small quiet">CLI: <code class="mono">${esc(cli)}</code></span>` : ''}`;
@@ -226,8 +255,10 @@ function prepare(d) {
     incomingIndex.get(id).push({ kind, id: e.id });
   }
   for (const e of entries) e._s = (e.id + ' ' + e.title + ' ' + e.text + ' ' + e.tags.join(' ') + ' ' + e.agent + ' ' + e.project + ' ' + (types[e.type] || '')).toLowerCase();
-  messages = (d.inbox?.messages || []).map((m) => ({ ...m, id: m.name, title: m.subject }));
-  rawSamples = d.raw?.readable ? d.raw.captures || [] : [];
+  // tempo: messages and captures arrive deferred (`d.parts`, loadParts()) —
+  // if they are in the answer after all (older server), they count as before.
+  if (!d.parts?.inbox) setMessages(d.inbox?.messages || []);
+  if (!d.parts?.raw) setCaptures(d.raw?.readable ? d.raw.captures || [] : []);
   // A drawer that was not readable makes the coverage unclear — then
   // every view shows the mockup's note, this time with the real reason.
   state.missing = d.state !== 'ok' || entries.some((e) => !e.readable);
@@ -238,19 +269,73 @@ function prepare(d) {
   for (const p of d.projects || []) if (!known.has(p.name)) ps.insertAdjacentHTML('beforeend', `<option value="${esc(p.name)}">${esc(p.name)}</option>`);
   const g = d.meta?.git || {};
   const c = d.meta?.code || {};
-  $('#stateMark').innerHTML = `<span class="dot"></span> State ${esc(whenTime(d.at))}`;
-  $('#stateMark').className = 'badge ' + (d.state === 'ok' ? 'good' : 'warn');
+  // tempo: /dashboard.json comes from the server's cache and says itself
+  // whether it is fresh. Not fresh is never shown as fresh.
+  const ca = d.cache || null;
+  const caText = !ca || ca.fresh ? ''
+    : ca.refreshing ? ` · refreshing (built ${whenTime(ca.built_at)})`
+      : ` · not fresh: ${ca.reason || 'unknown'}`;
+  $('#stateMark').innerHTML = `<span class="dot"></span> State ${esc(whenTime(d.at))}${esc(caText)}`;
+  $('#stateMark').className = 'badge ' + (d.state === 'ok' && (!ca || ca.fresh) ? 'good' : 'warn');
   $('#versionMark').textContent = `${g.branch || '—'} ${g.head || ''} · cheap-mem ${c.version || '—'}${c.headAtStart ? ' · process ' + c.headAtStart : ''}${c.stale ? ' · process stale' : ''}`;
   $('#liveMark').textContent = '● LIVE · ' + (d.meta?.title || 'cheap-mem');
   $('#dataMark').textContent = serverWrites ? 'LIVE DATA' : 'LIVE · READ ONLY';
   $('#footLeft').textContent = `cheap-mem · ${entriesTotalText()} · state ${whenTime(d.at)} · memory ${g.head || '—'}.`;
 }
+// --- tempo: deferred parts ---------------------------------------------------
+// What the start page does not need (messages, captures) the page fetches
+// after the first draw through /dashboard/part.json. Until it is there the
+// tab says "loading" — an empty list would be a false statement.
+const partState = {}; // name -> 'loading' | 'ok' | 'error'
+const partReason = {};
+function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
+function setCaptures(list) { rawSamples = list || []; }
+const PART_TAB = { inbox: 'inbox', raw: 'raw' };
+async function loadParts() {
+  const parts = Object.keys(D?.parts || {});
+  await Promise.all(parts.map(async (name) => {
+    if (partState[name] !== 'ok') partState[name] = 'loading';
+    try {
+      // Literal, not a computed path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
+      const r = await fetch('/dashboard/part.json?part=' + encodeURIComponent(name), { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error('answer ' + r.status);
+      const b = await r.json();
+      if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
+      if (name === 'inbox') setMessages(b.data);
+      else if (name === 'raw') setCaptures(b.data);
+      partState[name] = 'ok';
+      partReason[name] = null;
+    } catch (e) {
+      partReason[name] = e?.message || String(e);
+      if (partState[name] !== 'ok') partState[name] = 'error';
+    }
+  }));
+  if (parts.some((name) => PART_TAB[name] === state.tab)) render();
+}
+function partNotice(name, title) {
+  if (!D?.parts?.[name] || partState[name] === 'ok') return null;
+  if (partState[name] === 'error') return panel(title, note('Not loaded: ' + esc(partReason[name] || 'unknown') + ' — an empty list would be a false statement here.', 'bad') + `<p style="margin-top:12px">${btn('Load again', 'reload', '', 'primary')}</p>`);
+  return panel(title, note(`Loading … (${num(D.parts[name].count)} items)`));
+}
 async function loadData({ quiet = false } = {}) {
   try {
     const r = await fetch('/dashboard.json', { credentials: 'same-origin', cache: 'no-store' });
+    // Session expired or ended (another device, a password change): go to
+    // the sign-in instead of an error over empty data.
+    if (r.status === 401) { location.href = '/login'; return false; }
     if (!r.ok) throw new Error('answer ' + r.status);
     prepare(await r.json());
     loadError = null;
+    loadParts();
+    // tempo: when the answer is not fresh, ask again quietly until it is —
+    // soon when the server already rebuilds, otherwise less often (it
+    // rebuilds at most every 20 s). At most one refetch waits.
+    if (D?.cache && !D.cache.fresh && !refetchTimer) {
+      refetchTimer = setTimeout(async () => {
+        refetchTimer = 0;
+        if (await loadData({ quiet: true })) render();
+      }, D.cache.refreshing ? 5000 : 20000);
+    }
   } catch (e) {
     loadError = e?.message || String(e);
     if (!D) {
@@ -305,7 +390,19 @@ function render() {
     }
   }
   $('#screen').innerHTML = `<div class="screen-enter">${state.missing ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
-  if ($('#brain')) initGraph();
+  // tempo (2026-09-28): draw the overview FIRST, the 3-D network one frame
+  // later. `initGraph()` compiles the shaders (measured in the sibling's
+  // Chromium profile: ~4–6 s with software GL under load) — synchronous
+  // here, it kept the already finished numbers of the start page invisible
+  // that long. `graphRun` drops a deferred build when a newer render came
+  // in between (it would otherwise build onto a replaced <canvas>).
+  const run = ++graphRun;
+  if ($('#brain')) {
+    const canvas = $('#brain');
+    requestAnimationFrame(() => setTimeout(() => {
+      if (run === graphRun && document.contains(canvas)) initGraph();
+    }, 0));
+  }
   if ($('#exportPreview')) updateExportPreview();
   if ($('#timeResult')) factsAtLoad($('#validDate').value, $('#knownDate').value);
   decoratePage();
@@ -320,7 +417,7 @@ function pageTitle() {
       projects: 'A place for every project.', files: 'The sources behind it.', raw: 'Back to the original.', digest: 'From transcript to knowledge.',
       export: 'Your project. To take along.', shards: 'Many parts. One memory.', operations: 'Work that visibly moves forward.',
       doctor: 'Nothing stays invisible.', performance: 'Performance needs evidence.', integrity: 'Trust can be checked.',
-      versions: 'Which state is answering?', mcp: 'Capabilities that arrive.', appearance: 'Your workspace.', system: 'Set deliberately.',
+      versions: 'Which state is answering?', mcp: 'Capabilities that arrive.', appearance: 'Your workspace.', access: 'Only for you.', system: 'Set deliberately.',
       catalog: 'No function forgotten.', projectstate: 'Aligned with the current state.',
     }[state.tab] || ''
   );
@@ -338,6 +435,7 @@ function pageDesc() {
       operations: 'Tasks with a provable end, result and confirmed cancel — child processes of the CLI.',
       understanding: 'Measured habits and job ledgers – no ascribed traits.',
       projectstate: 'Where every view reads from, and which code is answering right now.',
+      access: 'Change the password in front of this dashboard, or sign out this device.',
       catalog: cli ? `All ${cli.length} commands from the CLI's own tables, sorted into their work areas.` : 'The CLI tables were not readable — command count unknown.',
       raw: 'Review and delete by period, topic and project — through "mem raw review" and "mem raw delete".',
     }[state.tab] || 'Live from this memory. What is not measurable says unknown.'
@@ -644,7 +742,7 @@ const pages = {
       `<div class="tablewrap"><table class="table"><thead><tr><th>Signal</th><th>Source</th><th>Here</th></tr></thead><tbody><tr><td>Own heartbeat</td><td>heartbeat.jsonl (mem heartbeat)</td><td>per agent, see the cards</td></tr><tr><td>Observed activity</td><td>the drawers and the inbox</td><td>per agent, see the cards</td></tr><tr><td>Deliberate pause</td><td>silent_until in AGENT.yaml</td><td>${num(as.filter((a) => a.pause?.state === 'paused').length)} paused</td></tr><tr><td>Locally startable</td><td>agents/&lt;name&gt;/PROMPT.md or START.md</td><td>${num(as.filter((a) => a.startable?.local).length)} of ${num(as.length)}</td></tr><tr><td>Digest bell</td><td>.mem/digest-bell.json</td><td>${bell.checkable ? (bell.rung ? 'rung · ' + esc(whenTime(bell.last)) : 'not rung') : badge('unknown')}</td></tr><tr><td>The human's tray (show only)</td><td>inbox/ addressed to the human participant</td><td>${tray.checkable === false ? badge('unknown', esc(tray.reason || 'unknown')) : `${num(tray.count)} open${tray.count ? ' · oldest ' + age(tray.oldestMin) : ''}`}</td></tr></tbody></table></div>${note('Two confirming sources: alive. One source: unknown. No observable signal: not seen. An announced pause is not an outage. The bell only reads ok once a message was actually answered.')}`,
     )}`;
   },
-  inbox: () => inboxPage(),
+  inbox: () => partNotice('inbox', 'Inbox') ?? inboxPage(),
   context: () => contextPage(),
   usage: () => usagePage(),
   understanding: () => {
@@ -691,7 +789,7 @@ const pages = {
       'Source pointers, register entries and available bytes stay distinguishable.',
     );
   },
-  raw: () => rawPage(),
+  raw: () => partNotice('raw', 'Raw capture review') ?? rawPage(),
   digest: () => {
     const tile = (D.system || []).find((k) => k.id === 'digest');
     const withCapture = scoped().filter((e) => e.capture).length;
@@ -764,7 +862,7 @@ const pages = {
       `<div class="row"><div><strong>This surface</strong><p>The dashboard · served by mem serve</p></div>${badge('present')}</div><div class="row"><div><strong>cheap-mem on disk</strong><p>version ${esc(c.version || '—')} · ${esc(c.headNow || 'not a git checkout')}</p></div>${c.version ? badge('present') : badge('unknown')}</div><div class="row"><div><strong>Running process</strong><p>Loaded: ${esc(c.headAtStart || '—')}. A commit on disk proves no loaded process version.${c.stale ? ' A restart is due so the process loads what is on disk.' : ''}</p></div>${c.headAtStart ? (c.stale ? badge('stale') : badge('good', 'current')) : badge('unknown')}</div><div class="row"><div><strong>Memory repository</strong><p>${esc(g.branch || '—')} · ${esc(g.head || '—')} · state ${esc(g.at || '—')}${g.changed ? ` · ${num(g.changed)} changed files` : ''}${g.remote ? ' · ' + esc(g.remote) : ''}</p></div>${g.head ? badge('present') : badge('unknown')}</div><div class="row"><div><strong>Data state</strong><p>${esc(whenTime(D.at))} · ${num(D.meta?.inventory?.total)} lines in ${num(D.meta?.inventory?.projects)} projects</p></div><span class="mono">${entriesTotalText()}</span></div>${(D.connections || []).map((r) => `<div class="row"><div><strong>${esc(r.title)}</strong><p>${esc(r.address)} · ${esc(r.door)}${r.note ? ' · ' + esc(r.note) : ''}</p></div>${badge(r.open ? 'open' : 'present', r.open ? 'no token' : 'door set')}</div>`).join('')}`,
     )}${panel(
       'Hook state and release rail',
-      `<div class="row"><div><strong>Stop hook</strong><p>${esc(hook?.text || 'The doctor\'s "stop-hook" finding was not read.')}</p></div>${badge(hook ? levelWord[hook.level] || hook.level : 'unknown')}</div><div class="row"><div><strong>Release state</strong><p>${esc(v.release?.reason || 'unknown')}</p></div>${badge('not available', 'not available in cheap-mem')}</div><div class="row"><div><strong>Last test receipt</strong><p>${esc(v.checkRecord?.reason || 'unknown')}</p></div>${badge('not available', 'not available in cheap-mem')}</div>${note('The hook state comes from the same doctor run as "Operations › Diagnosis".')}`,
+      `<div class="row"><div><strong>Stop hook</strong><p>${esc(hook?.text || 'The doctor\'s "stop-hook" finding was not read.')}</p></div>${badge(hook ? levelWord[hook.level] || hook.level : 'unknown')}</div>${releaseRow(v.release)}${checkRecordRow(v.checkRecord)}${note('The hook state comes from the same doctor run as "Operations › Diagnosis". Release state and the last test receipt come from src/release.mjs and src/checkrecord.mjs (Bauplan P1) — checked.jsonl and <cheap-mem>-release/current, read straight off disk.')}`,
     )}`;
   },
   mcp: () => mcpPage(),
@@ -775,6 +873,20 @@ const pages = {
       'Calm, readable, personal',
       `<div class="row"><div><strong>Colour scheme</strong><p>All surfaces switch together; the knowledge space stays a dark stage.</p></div>${btn(state.light ? 'Switch to dark' : 'Switch to light', 'theme', '', 'ghost')}</div><div class="row"><div><strong>Motion</strong><p>Stops rotation, pulses, energy cores and wandering points of light completely.</p></div>${btn(state.motion ? 'Pause' : 'Resume', 'motion', '', 'ghost')}</div><div class="row"><div><strong>Read only</strong><p>${serverWrites ? 'Locks every button that writes in this tab. The server checks on its own regardless.' : 'Set by the server (writing is off) — not switchable here.'}</p></div><label class="check"><input type="checkbox" id="readOnly" ${state.readonly ? 'checked' : ''} ${serverWrites ? '' : 'disabled'}> Active</label></div><div class="row"><div><strong>Print</strong><p>A clean printout of the current view.</p></div>${btn('Print / PDF', 'print', '', 'ghost')}</div>`,
     ),
+  // Access: change the password (current + new twice) and sign out.
+  access: () => {
+    if (!loginEnabled) return panel('Password', note('The password login is switched off on this server (CHEAP_MEM_SERVE_LOGIN=off). Access is then governed only by the tunnel and the token.'));
+    const f = (id, label, ac, extra = '') => `<label class="formfield">${label}<input class="field" type="password" id="${id}" name="${id}" autocomplete="${ac}" required ${extra}></label>`;
+    return `<div class="grid two">${panel(
+      'Change password',
+      `<form id="passwordForm" autocomplete="on"><input type="text" name="username" value="cheap-mem" autocomplete="username" hidden>${f('pwAlt', 'Current password', 'current-password')}${f('pwNeu', `New password (at least ${PW_MIN} characters)`, 'new-password', `minlength="${PW_MIN}"`)}${f('pwNeu2', 'Repeat the new password', 'new-password', `minlength="${PW_MIN}"`)}<div id="pwMeldung" role="status" aria-live="polite"></div><button class="btn primary" type="submit">Change password</button></form>${note('After the change every other signed-in device is signed out. Forgotten? On the machine: <span class="mono">mem serve reset-password</span>.')}`,
+      'Current password, new one twice.',
+    )}${panel(
+      'Sign out',
+      `<div class="row"><div><strong>Sign out this device</strong><p>Ends the session in this browser. The next visit asks for the password again.</p></div>${btn('Sign out', 'sign-out', '', 'ghost')}</div>`,
+      'Sessions last 30 days and extend with use.',
+    )}</div>`;
+  },
   system: () => systemPage(),
   catalog: () => {
     const cli = D.catalog?.cli;
@@ -1979,7 +2091,7 @@ void main(){
   //    Colour and brightness ONLY from the light of the cores: hardly any
   //    diffuse light, a specular glint towards the camera as a brief flash.
   const pos = [], normals = [], phase = [];
-  const COUNT = 70;
+  const COUNT = 110;
   for (let i = 0; i < COUNT; i++) {
     const y = 1 - (2 * (i + 0.5)) / COUNT, r = Math.sqrt(Math.max(0, 1 - y * y)), a = i * 2.399963,
       z1 = cloudHash(i, 3.1, 7.7), z2 = cloudHash(i, 9.2, 1.3), z3 = cloudHash(i, 4.4, 2.2),
@@ -2004,15 +2116,16 @@ void main(){ float w = uTime * 0.015 + aPhase;
   vec3 p = uCloudCenter + q * uFog;
   vec4 mv = viewMatrix * modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * mv;
-  gl_PointSize = clamp(0.016 * uScale / max(0.0001, -mv.z), 1.5, 5.0);
+  gl_PointSize = clamp(0.022 * uScale / max(0.0001, -mv.z), 2.0, 7.0);
   vec3 n = normalize(aNormal + 0.6 * vec3(sin(w * 3.0), cos(w * 2.3), sin(w * 1.9)));
   vec3 V = normalize(cameraPosition - p);
   vLight = vec3(0.0);
   for (int k = 0; k < ${CLOUD_LIGHTS}; k++) {
     vec3 toL = uLight[k] - p; float d2 = dot(toL, toL); vec3 L = toL * inversesqrt(max(1e-6, d2));
-    float gloss = pow(max(0.0, dot(reflect(-L, n), V)), 18.0);
+    float mirror = max(0.0, dot(reflect(-L, n), V));
+    float gloss = pow(mirror, 14.0), flash = pow(mirror, 60.0);
     float diffuse = 0.05 * max(0.0, dot(n, L));
-    vLight += uLightColour[k] * (gloss * 6.0 + diffuse) / (1.0 + d2 * 6.0);
+    vLight += uLightColour[k] * (gloss * 9.0 + flash * 14.0 + diffuse) / (1.0 + d2 * 4.5);
   } }`,
       fragmentShader: CLOUD_GLSL + `
 varying vec3 vLight;
@@ -3238,6 +3351,14 @@ document.addEventListener('click', async (ev) => {
     case 'print':
       window.print();
       break;
+    case 'sign-out': {
+      el.disabled = true;
+      try { await fetch('/login/logout', { method: 'POST', credentials: 'same-origin', headers: { accept: 'application/json' } }); } catch { /* on to the sign-in */ }
+      // Leave nothing protected on the device (the server also sends Clear-Site-Data).
+      try { if (window.caches) for (const k of await caches.keys()) await caches.delete(k); } catch { /* no cache access */ }
+      location.href = '/login?signedout=1';
+      break;
+    }
     case 'save-config': {
       if (state.readonly) return;
       const current = Object.fromEntries((D.settings || []).map((x) => [x.id, x]));
@@ -3407,6 +3528,34 @@ document.addEventListener('toggle', (e) => {
     }
   }
 }, true);
+// Change the password: /login/password (src/login.mjs). The checks here
+// are only for quick feedback — the server checks everything itself.
+document.addEventListener('submit', async (e) => {
+  const f = e.target;
+  if (f.id !== 'passwordForm') return;
+  e.preventDefault();
+  const say = (t, kind) => { $('#pwMeldung').innerHTML = note(esc(t), kind); };
+  const current = $('#pwAlt').value, next = $('#pwNeu').value, next2 = $('#pwNeu2').value;
+  if (!current) return say('Please enter the current password.', 'bad');
+  if (next.length < PW_MIN) return say(`The new password needs at least ${PW_MIN} characters.`, 'bad');
+  if (next !== next2) return say('The two entries of the new password do not match.', 'bad');
+  const knob = f.querySelector('button[type=submit]');
+  knob.disabled = true;
+  let r, j = {};
+  try {
+    r = await fetch('/login/password', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify({ current, next, next2 }) });
+    j = await r.json().catch(() => ({}));
+  } catch (err) {
+    knob.disabled = false;
+    return say('No connection: ' + (err?.message || err), 'bad');
+  }
+  knob.disabled = false;
+  if (r.status === 401 && j.reason === 'login-required') { location.href = '/login'; return; }
+  if (!r.ok) return say(j.reason || `Not changed (answer ${r.status}).`, 'bad');
+  f.reset();
+  say('Password changed. Every other device is signed out.', 'good');
+  toast('Password changed.');
+});
 document.addEventListener('submit', async (e) => {
   const f = e.target;
   if (!['entryForm', 'statusForm', 'messageForm', 'replyForm', 'rawDeleteForm'].includes(f.id)) return;
