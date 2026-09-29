@@ -134,7 +134,7 @@ async function open(base, viewport, { oldScript } = {}) {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error' && /Content Security Policy/.test(m.text())) errors.push('CSP: ' + m.text().slice(0, 160)); });
   if (oldScript) {
-    await page.route('**/dashboard/app.js', (r) => r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: oldScript }));
+    await page.route(/\/dashboard\/app\.js(\?|$)/, (r) => r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: oldScript }));
   }
   await page.goto(base + '/dashboard', { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction(() => typeof D !== 'undefined' && D !== null, null, { timeout: 60000 });

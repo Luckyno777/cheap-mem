@@ -67,6 +67,7 @@ directory. The section number in brackets is where it is explained.
 | `config.mjs` | participants, defaults, the memory's own settings |
 | `console.mjs` | the console: state, settings, connections (7.4) |
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
+| `dashboard-cache.mjs` | `/dashboard.json` from a cache: generation stamp (drawers, git reflog, local sources), background rebuild in a worker thread, never stale as fresh (`cache.fresh`/`refreshing`/`reason`) (7.5) |
 | `dashboard-data.mjs` | the dashboard's DATA layer: `/dashboard.json`, one entry, one message, the read-only retrieval probe, facts at a date (7.5) |
 | `dashboard-page.mjs` | the dashboard's page shell; the views are drawn in the browser from `assets/dashboard/` (7.5) |
 | `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |
