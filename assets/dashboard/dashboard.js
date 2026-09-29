@@ -78,6 +78,21 @@ const edgeLabels = {
 let D = null; // the answer of /dashboard.json
 let entries = [];
 let messages = [];
+
+// The renameable core label (setting 'core-name'; default = today's fixed
+// text, so nothing changes visually until someone sets it). Read from
+// D.settings, the same closed list dashboard-page.mjs and console.mjs
+// serve for every other setting.
+function coreName() {
+  const s = (D?.settings || []).find((x) => x.id === 'core-name');
+  const v = s && s.value != null ? String(s.value).trim() : '';
+  return v || 'CHEAP MEM';
+}
+// Same name, in the breadcrumb's lowercase-hyphenated house style. For the
+// unchanged default this reduces to exactly the old hardcoded 'cheap-mem'.
+function coreSlug() {
+  return coreName().toLowerCase().replace(/\s+/g, '-');
+}
 let rawSamples = [];
 let entryIndex = new Map();
 let incomingIndex = new Map();
@@ -753,9 +768,11 @@ const pages = {
   },
   network: () => {
     const focus = graphListEntries();
-    return `<div class="toolbar">${Object.entries(graphModes)
-      .map(([k, n]) => btn(n, 'graph-mode', `data-value="${k}"`, state.graphMode === k ? 'primary' : 'ghost'))
-      .join('')}${btn('Reset view', 'graph-reset', '', 'ghost')}</div>${brainBlock(true)}<div class="grid two">${panel(
+    // The old button row here duplicated #graphModeSelect inside the atlas
+    // panel (same modes, incl. the "Further modes" optgroup) and the ↺
+    // reset control in the zoom toolbar — removed 2026-09-29, select stays
+    // the single control (see brainBlock()).
+    return `${brainBlock(true)}<div class="grid two">${panel(
       'Open nodes directly',
       '<div class="graph-entry-list">' + entryRows(focus.slice(0, 80), 'Your first entries will appear here.') + '</div>' + limitNote(Math.min(80, focus.length), focus.length, 'knowledge/entries'),
       'An alternative to spatial navigation',
@@ -1036,7 +1053,7 @@ function mcpPage() {
   );
 }
 
-// settings/system — the three console settings (not the sibling's two:
+// settings/system — the four console settings (not the sibling's three:
 // cheap-mem's "quiet-hours" has no counterpart there and gets its own
 // row), the write switch in four states, the setup steps, the stores
 // found on this machine, and the console's change log.
@@ -1660,7 +1677,7 @@ function projectstatePage() {
     ['Raw capture', 'raw.capturesWithState · task raw-delete', 'src/raw.mjs', 'review and delete'],
     ['Diagnosis', 'doctor.checkAll (cached a minute) · board · invariants', 'src/doctor.mjs', 'findings with age and cache'],
     ['Tasks', '/task · /task.json · /task/cancel', 'src/tasks.mjs', 'child processes of the CLI'],
-    ['Settings', 'POST /setting · console.SETTINGS', 'src/console.mjs', 'raw-archive, error-window, quiet-hours'],
+    ['Settings', 'POST /setting · console.SETTINGS', 'src/console.mjs', 'raw-archive, error-window, quiet-hours, core-name'],
     ['Weekly series', '.mem/measurements.jsonl', 'src/measurements.mjs', 'one line per ISO week, capped at 52'],
   ];
   return `${metrics([
@@ -1908,9 +1925,9 @@ function brainBlock(large = false) {
   const es = scoped();
   const ks = new Set(es.map((e) => drawerOf(e))).size;
   const emptyHint = es.length ? '' : `<div class="graph-empty" role="note"><strong>Your first entries will appear here.</strong><span>One calm core is waiting. Every entry you log becomes an energy core around it — <code class="mono">mem log learning "…"</code></span></div>`;
-  return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">CHEAP MEM / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · one shared knowledge structure</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Knowledge network">${['storage', 'topics', 'relations', 'structure']
+  return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">${esc(coreName())} / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · one shared knowledge structure</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Knowledge network">${['storage', 'topics', 'relations', 'structure']
     .map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`)
-    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">cheap-mem / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; dashed branches = the storage hierarchy. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
+    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; dashed branches = the storage hierarchy. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
 }
 
 // The energy-core shader. One point per node; `aBright` < 0 means "not
@@ -2433,7 +2450,7 @@ function initGraph() {
     labelLayer.append(el);
     return el;
   }
-  const rootLabel = label('CHEAP MEM', es.length ? 'Shared core' : 'Shared core · empty', '#d9f3cf', 'root', 'root-label');
+  const rootLabel = label(coreName(), es.length ? 'Shared core' : 'Shared core · empty', '#d9f3cf', 'root', 'root-label');
   const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(s.members.length), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key }));
 
   const positions = new Map();
@@ -2739,7 +2756,7 @@ function initGraph() {
     camera.zoom = baseDistance / distance;
     $('#graphZoom').value = Math.round(camera.zoom * 100) + '%';
     const g = model.groups.find((g) => g.key === camera.focus), c = currentCell();
-    $('#graphBreadcrumb').textContent = 'cheap-mem / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
+    $('#graphBreadcrumb').textContent = coreSlug() + ' / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
     $('.atlas-back').hidden = !camera.focus;
     $$('#graphGroups button').forEach((el) => el.setAttribute('aria-pressed', el.dataset.value === camera.focus));
     const n = state.graphMode === 'overview' ? edgeVisuals.reduce((k, e) => k + e.count, 0) : model.edges.length;
