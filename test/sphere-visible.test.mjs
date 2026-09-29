@@ -25,8 +25,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { startBrowser, waitReady } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -34,27 +34,7 @@ const REPO = path.join(HERE, '..');
 // not on the core of the knowledge space, not anywhere (the C, not the L).
 const FORBIDDEN = /Muster|pattern|demo|template|mockup|brain|lucky/i;
 
-function loadPlaywright() {
-  for (const base of [import.meta.url, '/opt/node22/lib/node_modules/']) {
-    try {
-      return createRequire(base)('playwright');
-    } catch {}
-  }
-  return null;
-}
-async function launch(pw) {
-  const args = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-  try {
-    return await pw.chromium.launch({ args });
-  } catch {}
-  const p = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-  if (fs.existsSync(p)) return pw.chromium.launch({ executablePath: p, args });
-  return null;
-}
-
-const pw = loadPlaywright();
-const browser = pw ? await launch(pw).catch(() => null) : null;
-const REASON = !pw ? 'Playwright not installed' : !browser ? 'no Chromium that starts' : false;
+const { browser, reason: REASON } = await startBrowser();
 
 async function withServer(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-sphere-visible-'));
@@ -100,7 +80,7 @@ async function everyScreen(base, before) {
     // fetches deferred parts and polls the MCP probe — under full load the
     // network never went quiet for 30 s (cm suite 2026-09-29, navigation timeout).
     await page.goto(base + '/dashboard', { waitUntil: 'load' });
-    await page.waitForFunction(() => typeof sections === 'object' && !document.querySelector('#screen .loading'), null, { timeout: 30000 });
+    await waitReady(page);
     if (before) await page.evaluate(before);
     const targets = await page.evaluate('Object.entries(sections).flatMap(([a, s]) => s.tabs.length ? s.tabs.map(([t]) => a + "/" + t) : [a])');
     const texts = [];
@@ -146,4 +126,3 @@ test('GREEN: no visible text on any screen names a pattern, demo, template, mock
   });
 });
 
-test.after(async () => { await browser?.close(); });

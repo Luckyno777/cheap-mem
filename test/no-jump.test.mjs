@@ -44,30 +44,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { startBrowser, waitReady } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
 const OLD_STATE = 'dc155d0';
 
-function loadPlaywright() {
-  for (const base of [import.meta.url, '/opt/node22/lib/node_modules/']) {
-    try { return createRequire(base)('playwright'); } catch {}
-  }
-  return null;
-}
-async function launch(pw) {
-  const args = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-  try { return await pw.chromium.launch({ args }); } catch {}
-  const p = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
-  if (fs.existsSync(p)) return pw.chromium.launch({ executablePath: p, args });
-  return null;
-}
-const pw = loadPlaywright();
-const browser = pw ? await launch(pw).catch(() => null) : null;
-const REASON = !pw ? 'Playwright not installed' : !browser ? 'no Chromium that starts' : false;
+const { browser, reason: REASON } = await startBrowser();
 
 let memory;
 async function root(prefix) {
@@ -98,7 +83,7 @@ async function pageReady(page, base) {
   // 'load' + the loading marker gone, NOT 'networkidle' (same reasoning as
   // test/sphere-visible.test.mjs: deferred parts and the quiet probe keep
   // the network busy otherwise).
-  await page.waitForFunction(() => typeof sections === 'object' && !document.querySelector('#screen .loading'), null, { timeout: 30000 });
+  await waitReady(page);
 }
 // The VERY FIRST call to the cache is always synchronous and therefore
 // always fresh (there is no prior state yet to compare a stamp against) —
@@ -359,4 +344,3 @@ test('RED behaviour, run directly: exactly the old line (reconstructed) throws a
   });
 });
 
-test.after(async () => { await browser?.close(); });
