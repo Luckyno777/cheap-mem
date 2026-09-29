@@ -1,0 +1,12 @@
+{
+  "erzeugt_am": "2026-09-29T13:36:22.530Z",
+  "oberflaeche": {
+    "assets/dashboard/dashboard.css": "bb80977f898ab012b3d856f9d1dbe50a175aee8221d264e9340c5b2fdd239e6c",
+    "assets/dashboard/dashboard.js": "476a5154bffcded9c8f53beb3487fd1342a2f1b4bea87d3afc9c6ba69812bf06",
+    "assets/fonts/dm-sans-latin-ext.woff2": "5d18d31d23ada61ebee1d589b11d5da30db9e158f589d5e35221ba2b1a45de54",
+    "assets/fonts/dm-sans-latin.woff2": "ca72d2bcea8f4daa783dbdfa2d9b46068c3ce38168e05918fb867aa453b4f890",
+    "assets/three/three-r180.min.js": "b5afad481e89ad3866eb45896739a05d54aaead1f93395fff53d3efc9397776b",
+    "src/dashboard-page.mjs": "e4ea1be414e000590dec439af67fbaea72f8d301f9eccee683eee54071ab95e1",
+    "src/login.mjs": "84047e6276a461d70ef5adce6c1b1cd9d1dd0abaf1fe17c65db3ec7ed3fc9647"
+  }
+}
