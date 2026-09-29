@@ -11,6 +11,56 @@ import {
   checkMergeDriver, checkPreCommitHook, checkClock, checkAppendAtomicity,
   checkEnvironment, environmentOk, LAYER,
 } from '../src/environment.mjs';
+import {
+  captureQuietCalibrationBaseline, captureForeignLoad, foreignLoadDelta,
+  FOREIGN_LOAD_DENIED_MS_PER_SEC,
+} from '../bench/atlas/core.mjs';
+
+// P8 (2026-09-28): `checkAppendAtomicity`'s allow-list branch does not
+// just trust the filesystem's name — it also runs a REAL, timed,
+// 6-worker concurrent-write probe (`runAppendAtomicityProbe`, fixed
+// `timeoutMs: 400`) and only reports `ok: true` if all workers finish
+// inside that budget. That budget is real CPU/IO time, so it is exactly
+// as load-sensitive as any other timed probe in this house — measured
+// here (P8): under a sibling full-suite load (the OTHER house's tests,
+// which `betrieb/volle-suite.sh` no longer serialises against this one's
+// own full suite since I8) the probe missed its deadline and the check
+// correctly reported `ok: null` ("could not measure"), which is the
+// RIGHT production answer (house rule: not measurable is not zero) but
+// made this test's blind `ok === true` assertion red for a reason that
+// has nothing to do with the guarantee itself. `measureUnderLoadGate`
+// below is the same load-gate pattern `test/p16-append-exponent.test.mjs`
+// already uses (`captureQuietCalibrationBaseline`/`captureForeignLoad`/
+// `foreignLoadDelta` from `bench/atlas/core.mjs`) — captured once here
+// rather than imported from there, to keep this file's only dependency
+// on `bench/atlas/core.mjs` the same handful of already-exported,
+// generic primitives, not a second file's test-local helper.
+function measureUnderLoadGate(work) {
+  const calibBaseline = captureQuietCalibrationBaseline();
+  const before = captureForeignLoad(calibBaseline);
+  const result = work();
+  const after = captureForeignLoad(calibBaseline);
+  const load = foreignLoadDelta(before, after, calibBaseline);
+  if (!calibBaseline.trustworthy) {
+    return {
+      result,
+      notMeasuredReason: `this run's own quiet-calibration baseline never stabilised in `
+        + `${calibBaseline.attempts} attempt(s) — the machine cannot be shown quiet here, so `
+        + 'nothing downstream of it can be trusted either.',
+    };
+  }
+  const stealCgroupOver = load.deniedMsPerSec !== null && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
+  if (stealCgroupOver || psiOver) {
+    return {
+      result,
+      notMeasuredReason: `foreign load was measured during this window (deniedMsPerSec=${load.deniedMsPerSec}, `
+        + `psiMsPerSec=${load.psiMsPerSec}, threshold ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s) — this window's `
+        + 'timings cannot be trusted to reflect the real cost being measured.',
+    };
+  }
+  return { result, notMeasuredReason: null };
+}
 
 // The git-layer checks are about repository CONFIGURATION, so a fixture
 // that is not a repository tests nothing about them — it exercises the
@@ -197,14 +247,24 @@ test('outside a git repository the git-layer checks are unknown, not failed', ()
 // stay green either way — which is exactly why the deny-list looked
 // fine for so long.
 
-test('append-atomicity: filesystems with a documented locking guarantee report OK', () => {
+test('append-atomicity: filesystems with a documented locking guarantee report OK', (t) => {
   const root = tmp();
-  for (const t of ['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs']) {
-    const c = withFakeStat(t, () => checkAppendAtomicity(root));
-    assert.equal(c.ok, true, `${t} should be reported as atomic`);
+  const gate = measureUnderLoadGate(() => {
+    const out = {};
+    for (const fsType of ['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs']) {
+      out[fsType] = withFakeStat(fsType, () => checkAppendAtomicity(root));
+    }
+    return out;
+  });
+  fs.rmSync(root, { recursive: true, force: true });
+  if (gate.notMeasuredReason) {
+    t.skip(`not measured: ${gate.notMeasuredReason} results: ${JSON.stringify(gate.result)}`);
+    return;
+  }
+  for (const [fsType, c] of Object.entries(gate.result)) {
+    assert.equal(c.ok, true, `${fsType} should be reported as atomic — ${c.detail}`);
     assert.equal(c.layer, LAYER.OS);
   }
-  fs.rmSync(root, { recursive: true, force: true });
 });
 
 test('append-atomicity: filesystems with a documented failure mode report FAIL', () => {
@@ -238,28 +298,49 @@ test('append-atomicity: overlay and every unverified name is UNKNOWN, never OK',
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test('append-atomicity: undeterminable stays unknown, not ok', () => {
+test('append-atomicity: undeterminable stays unknown, not ok', (t) => {
   // With no name the probe still runs — but a short clean run does not
   // establish the guarantee, it merely fails to contradict it. So the
   // third state stands, and the text has to say why.
-  const c = withFakeStat('', () => checkAppendAtomicity(tmp()));
-  assert.equal(c.ok, null);
-  assert.match(c.detail, /can falsify the guarantee, never establish it/);
+  //
+  // P8 (2026-09-28): an empty fsType is not on the unsafe deny-list
+  // either, so `checkAppendAtomicity` still runs the real timed probe
+  // here — same `measureUnderLoadGate` reasoning as the OK test above:
+  // under load the probe can time out BEFORE reaching the
+  // "can falsify ... never establish it" branch this test pins, which
+  // fails the MESSAGE assertion even though `c.ok` stays `null` either way.
+  const root = tmp();
+  const gate = measureUnderLoadGate(() => withFakeStat('', () => checkAppendAtomicity(root)));
+  fs.rmSync(root, { recursive: true, force: true });
+  if (gate.notMeasuredReason) {
+    t.skip(`not measured: ${gate.notMeasuredReason} result: ${JSON.stringify(gate.result)}`);
+    return;
+  }
+  assert.equal(gate.result.ok, null);
+  assert.match(gate.result.detail, /can falsify the guarantee, never establish it/);
 });
 
-test('append-atomicity: this machine — not faked, cross-checked against the real `stat`', () => {
+test('append-atomicity: this machine — not faked, cross-checked against the real `stat`', (t) => {
   // Exercises the real `stat -f -c %T` rather than the fake — on the
   // machine this was written on, `mount` shows `/` as ext4 while
   // `stat -f -c %T` names it `ext2/ext3` (ext2/ext3/ext4 share statfs
   // magic 0xEF53), and the check reports OK because `ext2/ext3` is on
   // the allow-list. Read the real type independently so the assertion
   // holds wherever this runs, not only on that one machine.
+  //
+  // P8 (2026-09-28): same load-sensitive probe as the OK test above —
+  // gated the same way, only for the allow-listed branch (the detail
+  // match does not depend on the timed probe and stays ungated).
   const root = tmp();
   const realType = execFileSync('stat', ['-f', '-c', '%T', root], { encoding: 'utf8' }).trim();
-  const c = checkAppendAtomicity(root);
-  assert.match(c.detail, new RegExp(realType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-  if (['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs'].includes(realType)) {
-    assert.equal(c.ok, true, `${realType} is on the allow-list and should report OK`);
-  }
+  const allowListed = ['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs'].includes(realType);
+  const gate = measureUnderLoadGate(() => checkAppendAtomicity(root));
   fs.rmSync(root, { recursive: true, force: true });
+  assert.match(gate.result.detail, new RegExp(realType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  if (!allowListed) return;
+  if (gate.notMeasuredReason) {
+    t.skip(`not measured: ${gate.notMeasuredReason} result: ${JSON.stringify(gate.result)}`);
+    return;
+  }
+  assert.equal(gate.result.ok, true, `${realType} is on the allow-list and should report OK`);
 });

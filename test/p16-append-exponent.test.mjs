@@ -215,6 +215,58 @@ function neighboursMedianAt(n, reps = NEIGHBOURS_MEDIAN_REPS, opts = {}) {
   }
 }
 
+/** How many independent, real calls to `memory.logEntry()` are medianed
+ * per rung below (P8, 2026-09-28) -- same rep count as
+ * `NEIGHBOURS_MEDIAN_REPS`, same reasoning: not tuned separately without
+ * a reason to. */
+const LOG_ENTRY_MEDIAN_REPS = 9;
+
+/**
+ * `memory.logEntry()`'s own cost at corpus size `n`, as the MEDIAN of
+ * `LOG_ENTRY_MEDIAN_REPS` independent real calls against ONE freshly
+ * built root (P8, 2026-09-28) -- the single-sample-per-rung version
+ * below (`measureAt(n).logEntryMs`) was this file's one remaining
+ * un-gated AND un-medianed timing probe, and the one the P8 measurement
+ * run actually turned red under real sibling-suite load
+ * (`bench/atlas/core.mjs`-style gating was deliberately rejected for
+ * this exact probe in the comment above `measureUnderLoadGate` -- this
+ * takes the OTHER established fix from the same file instead, the one
+ * `neighboursMedianAt` already uses for the identical single-digit-ms
+ * noise problem).
+ *
+ * Unlike `neighbours()`, `logEntry()` is not read-only -- each rep
+ * appends one more line to the SAME root. That is not a confound: this
+ * whole file's claim is that `logEntry()`'s cost does NOT depend on
+ * corpus size, so `LOG_ENTRY_MEDIAN_REPS` extra lines on top of `n`
+ * (at most 9 on top of 1000-60000) cannot itself explain a real
+ * regression — and if it somehow did, that would BE the regression this
+ * probe exists to catch, not a measurement artifact to paper over.
+ *
+ * `opts` is forwarded to `measureAt`'s `sabotageExtraReads`, unchanged —
+ * used by the sabotage test below for its RED half.
+ */
+function logEntryMedianAt(n, reps = LOG_ENTRY_MEDIAN_REPS, { sabotageExtraReads = 0 } = {}) {
+  const r = rootWith(n);
+  try {
+    const drawer = path.join(r, 'global', 'learnings.jsonl');
+    const samples = [];
+    for (let i = 0; i < reps; i += 1) {
+      for (let s = 0; s < sabotageExtraReads; s += 1) fs.readFileSync(drawer, 'utf8');
+      const t0 = performance.now();
+      memory.logEntry(r, 'learning', { title: 'probe', text: 'measuring logEntry cost alone' });
+      samples.push(performance.now() - t0);
+    }
+    const sorted = [...samples].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    const medianMs = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    return {
+      n, medianMs, minMs: sorted[0], maxMs: sorted[sorted.length - 1], samples: samples.map((s) => +s.toFixed(3)),
+    };
+  } finally {
+    away(r);
+  }
+}
+
 /**
  * Runs `work()` once, bracketed by `bench/atlas/core.mjs`'s own
  * quiet-calibration baseline and before/after foreign-load snapshots —
@@ -304,7 +356,12 @@ function measureUnderLoadGate(work) {
 }
 
 test('memory.logEntry: per-write cost does not grow with corpus size (append exponent ~0)', () => {
-  const points = RUNGS.map((n) => ({ n, ms: measureAt(n).logEntryMs }));
+  // P8 (2026-09-28): `logEntryMedianAt` (median of `LOG_ENTRY_MEDIAN_REPS`
+  // real calls per rung), not the single-sample `measureAt(n).logEntryMs`
+  // this test used before -- see that function's doc comment for why
+  // gating (`calibOverThreshold`) was rejected for this exact probe and
+  // median-of-N is the fix reused from `neighboursMedianAt` instead.
+  const points = RUNGS.map((n) => ({ n, ms: logEntryMedianAt(n).medianMs }));
   const exponent = fitExponent(points);
   // Generous threshold: neighbours()/countLines() below sit at ~1.0 for
   // the SAME corpus, so anything under 0.4 is unambiguously a different
@@ -347,7 +404,7 @@ test('sabotage: the exponent fit actually catches an O(n) write path, restored e
   // whenever the window is quiet — proven by the plain, ungated runs
   // above going green on every one of five parallel repeats.
   const red = measureUnderLoadGate(
-    () => RUNGS.map((n) => ({ n, ms: measureAt(n, { sabotageExtraReads: 1 }).logEntryMs })),
+    () => RUNGS.map((n) => ({ n, ms: logEntryMedianAt(n, LOG_ENTRY_MEDIAN_REPS, { sabotageExtraReads: 1 }).medianMs })),
   );
   if (red.notMeasuredReason) {
     t.skip(`not measured (RED half): ${red.notMeasuredReason} points: ${JSON.stringify(red.result)}`);
@@ -362,7 +419,7 @@ test('sabotage: the exponent fit actually catches an O(n) write path, restored e
 
   // GREEN: restored exactly — sabotageExtraReads defaults to 0, no file
   // was touched, this is the same call as the test above.
-  const green = measureUnderLoadGate(() => RUNGS.map((n) => ({ n, ms: measureAt(n).logEntryMs })));
+  const green = measureUnderLoadGate(() => RUNGS.map((n) => ({ n, ms: logEntryMedianAt(n).medianMs })));
   if (green.notMeasuredReason) {
     t.skip(`not measured (GREEN half): ${green.notMeasuredReason} points: ${JSON.stringify(green.result)}`);
     return;
