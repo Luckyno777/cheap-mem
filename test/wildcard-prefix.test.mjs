@@ -28,7 +28,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import {
   search, loadIndex, resolveWildcards, expandWildcardPrefix,
@@ -178,7 +178,7 @@ test('the automatic retrieval hook: ranking for a query containing "*" is identi
   fs.writeFileSync(baselinePath, oldSrc);
   let before;
   try {
-    const old = await import(`${pathToFileUrl(baselinePath)}?bust=${Date.now()}`);
+    const old = await import(`${pathToFileURL(baselinePath).href}?bust=${Date.now()}`);
     const oldIndex = old.loadIndex(root, { fresh: true });
     before = old.search(oldIndex, hookQuery, { top: 10, mmr: true });
   } finally {
@@ -192,7 +192,3 @@ test('the automatic retrieval hook: ranking for a query containing "*" is identi
     assert.equal(after[i].score, before[i].score, `hit ${i} score must match exactly`);
   }
 });
-
-function pathToFileUrl(p) {
-  return `file://${p.split(path.sep).map(encodeURIComponent).join('/')}`;
-}
