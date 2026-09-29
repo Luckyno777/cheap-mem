@@ -124,25 +124,46 @@ async function launchBrowser(pw) {
   throw new Error('No startable Chromium found.');
 }
 
-async function startServer(root) {
+/**
+ * Starts the real dashboard server. For the actual documentation images
+ * (01-07) the password login (src/login.mjs) must be OFF -- otherwise
+ * every screenshot shows only the black sign-in page instead of the
+ * dashboard. Exactly ONE image (08-login) wants the sign-in page: main()
+ * calls this a second time with `{ loginOff: false }` on a fresh, empty
+ * temp root (no password set -> the setup page).
+ */
+async function startServer(root, { loginOff = true } = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?docs=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: true });
+  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' };
+  if (loginOff) env.CHEAP_MEM_SERVE_LOGIN = 'off';
+  const { server } = await mod.serve(root, env, { allowWrites: true });
   return { base: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((res) => server.close(res)) };
 }
 
+/**
+ * Waits for 'load' and then for the dashboard script to have actually
+ * drawn: `sections` (the tab list) exists and the loading tile
+ * (`#screen .loading`) is gone. NOT 'networkidle' -- since tempo the
+ * page loads parts in the background (raw catches/mail) and polls the
+ * MCP probe; the network is never quiet for 30s (same reasoning as
+ * test/sphere-visible.test.mjs).
+ */
 async function go(page, base, hash) {
   await page.goto(base + '/dashboard#' + hash, { waitUntil: 'load', timeout: 60000 });
-  await page.waitForFunction(() => typeof D !== 'undefined' && D !== null, null, { timeout: 60000 });
+  await page.waitForFunction(() => typeof sections === 'object' && !document.querySelector('#screen .loading'), null, { timeout: 60000 });
   await page.evaluate((h) => { location.hash = '#' + h; }, hash);
   await page.waitForTimeout(300);
 }
 
 /** Waits for the 3D network (canvas #brain) to actually draw points,
- * then freezes the animation so the screenshot is crisp, not blurred. */
-async function prepareNetwork(page) {
+ * then freezes the animation so the screenshot is crisp, not blurred.
+ * `fogWait` gives the fog hull plus glitter (sphere, 2026-09-28) time to
+ * visibly build up before the shot -- otherwise the image shows little
+ * more than an empty scene. */
+async function prepareNetwork(page, { fogWait = 1600 } = {}) {
   await page.waitForSelector('#brain', { timeout: 15000 }).catch(() => null);
   await page.evaluate(() => document.querySelector('.brain-panel')?.scrollIntoView({ block: 'center', behavior: 'instant' }));
-  await page.waitForTimeout(1600); // camera fly-in + fog build-up
+  await page.waitForTimeout(fogWait); // camera fly-in + fog/glitter build-up
   await page.evaluate(() => {
     if (typeof state !== 'undefined') state.motion = false;
     document.body.classList.add('reduce-motion');
@@ -164,11 +185,11 @@ async function shot(page, file) {
  * fourth navigation in a row, regardless which page it was. A new page
  * per shot reliably frees the WebGL context.
  */
-async function capture(context, base, hash, filename, { network = false, prepare } = {}) {
+async function capture(context, base, hash, filename, { network = false, fogWait, prepare } = {}) {
   const page = await context.newPage();
   try {
     await go(page, base, hash);
-    if (network) await prepareNetwork(page);
+    if (network) await prepareNetwork(page, fogWait ? { fogWait } : {});
     if (prepare) await prepare(page);
     return await shot(page, path.join(TARGET_DIR, filename));
   } finally {
@@ -188,7 +209,9 @@ async function main() {
     const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
 
     rawList.push(['01-overview.png', await capture(desktop, server.base, 'home', '01-overview', { network: true })]);
-    rawList.push(['02-knowledge-space.png', await capture(desktop, server.base, 'knowledge/network', '02-knowledge-space', { network: true })]);
+    // Knowledge space (network large) -- give the fog hull plus glitter
+    // (sphere, 2026-09-28) 2.5s to visibly build up.
+    rawList.push(['02-knowledge-space.png', await capture(desktop, server.base, 'knowledge/network', '02-knowledge-space', { network: true, fogWait: 2500 })]);
     rawList.push(['03-retrieval-probe.png', await capture(desktop, server.base, 'work/context', '03-retrieval-probe', {
       prepare: async (page) => {
         await page.fill('#probeQuestion', 'why did lighthouse go with option B');
@@ -214,6 +237,30 @@ async function main() {
       prepare: (page) => page.waitForTimeout(300),
     })]);
     await mobile.close();
+
+    // 8) Sign-in page (login on, task `login`): its own, fresh temp
+    // root with no password set -> the setup page, black, one form.
+    // NEVER the same root as above (login is explicitly off there) and
+    // NEVER started in parallel with the main run.
+    const loginRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-docs-images-login-'));
+    assertRootIsTemp(loginRoot);
+    const loginServer = await startServer(loginRoot, { loginOff: false });
+    try {
+      const loginContext = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+      const page = await loginContext.newPage();
+      try {
+        await page.goto(loginServer.base + '/', { waitUntil: 'load', timeout: 60000 });
+        await page.waitForSelector('form', { timeout: 15000 });
+        await page.waitForTimeout(200);
+        rawList.push(['08-login.png', await shot(page, path.join(TARGET_DIR, '08-login'))]);
+      } finally {
+        await page.close();
+        await loginContext.close();
+      }
+    } finally {
+      await loginServer.stop();
+      fs.rmSync(loginRoot, { recursive: true, force: true });
+    }
   } finally {
     await browser.close();
     await server.stop();

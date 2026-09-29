@@ -96,7 +96,18 @@ on the right lists the next open duties and questions.*
 ![The Knowledge space tab: the same 3D network shown larger, with a group strip below the canvas and a breadcrumb above it.](docs/images/02-knowledge-space.webp)
 
 *`Knowledge -> Knowledge space`: the same network, full size, with the
-four grouping modes (drawers, topics, relations, entry type).*
+four grouping modes (drawers, topics, relations, entry type). A thin fog
+hull with a scattering of glitter surrounds the nodes -- pure
+orientation, no data of its own; it parts to the sides as you zoom in.*
+
+`mem serve` sits behind a password by default (`src/login.mjs`) -- a
+black sign-in page, one field, before any content renders:
+
+![The cheap-mem sign-in page in front of the dashboard: a black background and a password field.](docs/images/08-login.png)
+
+*Shown here in its setup state (no password set yet) -- after the first
+password is set, the same route shows only the password field. Turn it
+off with `CHEAP_MEM_SERVE_LOGIN=off` (tests, local use only).*
 
 ![Operations -> Diagnosis in the dashboard: mem-doctor findings, each with its own state instead of a silent zero.](docs/images/04-operations-health.png)
 
