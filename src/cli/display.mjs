@@ -158,6 +158,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
         searched: all.length,
         sources: hits.map((h) => `${h.source}:${h.line}`),
         questionBytes: Buffer.byteLength(String(query)),
+        durationMs: Math.round(process.uptime() * 1000),
       });
     }
     out(JSON.stringify(sanitizeForDisplay({ query, ms, window: wj, asOf, hits }), null, 2));

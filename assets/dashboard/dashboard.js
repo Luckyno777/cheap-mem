@@ -19,7 +19,9 @@
  *    shows "—" or "unknown" with a reason, never 0;
  *  - "not available in cheap-mem" is shown, never an empty list, for the
  *    three sibling views with no counterpart here (books, digester yield
- *    per run, live injection preview);
+ *    per run, scale gate) — each with the reason it is a difference of
+ *    design; restore, merge, hook time and the live injection view are
+ *    built and read the injection journal / the append-only logs;
  *  - writing happens ONLY through the existing routes and their gate:
  *    POST /inbox/reply, POST /inbox/state, POST /setting, POST /task.
  *    Everything else is visibly "read only" and names the CLI route.
@@ -972,7 +974,7 @@ const pages = {
       ['Logical entries', num(scoped().length), 'originals and states stay apart'],
       ['Drawers', num(ks.length), 'project × type, counted from the store'],
       ['Required sources', state.missing ? 'Incomplete' : 'Available', state.missing ? 'not every drawer was readable' : 'every drawer readable'],
-      ['Scale gate', 'Not available', 'no 1M/5M/10M gate in cheap-mem'],
+      ['Scale gate', 'Not available', 'VM tooling of the sibling — see Performance'],
     ])}<div class="grid two">${panel(
       'Storage landscape',
       `<div class="panelhead"><span class="small muted">Every drawer is a JSONL file · append-only</span></div><div class="shards">${ks
@@ -1169,7 +1171,7 @@ function probeResultHtml(r) {
   const hits = r.hits?.length
     ? `<div class="tablewrap"><table class="table"><thead><tr><th>Rank</th><th>Claim</th><th>Authority / scope</th><th>Score</th></tr></thead><tbody>${r.hits.map((t) => `<tr><td>${t.rank}</td><td>${t.id && byId(t.id) ? open(t.id, t.body || t.id, 'textlink') : esc(t.body || t.id)}</td><td class="small">${esc(t.authority || '—')} · ${esc(t.scope || '—')}</td><td class="mono small">${t.score != null ? t.score.toFixed(2) : '—'}</td></tr>`).join('')}</tbody></table></div>`
     : '';
-  return head + `<div style="margin-top:10px">${cov}</div>` + hits + notAvailable('liveInjection');
+  return head + `<div style="margin-top:10px">${cov}</div>` + hits;
 }
 function contextEntries() {
   const all = D.usage?.recent || [];
@@ -1183,6 +1185,19 @@ function contextContent() {
   if (!line) return empty(D.recall?.measurable ? 'No injection for this occasion in the journal.' : 'Injection journal not measurable: ' + esc(D.recall?.reason || ''));
   return `<div class="label" style="margin:15px 0">${esc(occasionName(line.occasion))} · ${esc(whenTime(line.ts))} · session ${esc(line.session || 'without id')}</div>${entryRows(es)}<div class="smallstats"><span>Injected: ${num(line.sources.length)} places · ${line.bytes != null ? num(line.bytes) + ' bytes' : 'size not measured'}${foreign ? ` · ${num(foreign)} outside the selection` : ''}</span><span>From the injection journal · no model call</span></div>`;
 }
+// Live injection view (Bauplan P4): the newest journal lines of EVERY
+// kind — injected, and why nothing was — with size and hook time. Read
+// from the same journal as everything else, refreshed with the data.
+function liveInjectionPanel() {
+  const live = D.usage?.live;
+  if (!D.usage?.measurable) return `<div style="margin-top:18px">${panel('Live injection view', empty('Injection journal not measurable: ' + esc(D.usage?.reason || 'unknown')), 'What the recall hook did, line by line')}</div>`;
+  const rows = (live || []).map((l) => `<tr><td class="mono small">${esc(whenTime(l.ts))}</td><td>${esc(occasionName(l.occasion))}</td><td>${l.reason ? badge('unknown', reasonWord[l.reason] || l.reason) : badge('good', 'injected')}</td><td>${l.hits != null ? num(l.hits) : '—'}</td><td>${l.bytes != null ? num(l.bytes) + ' B' : 'not measured'}</td><td>${l.durationMs != null ? num(l.durationMs) + ' ms' : 'not measured'}</td><td class="small mono">${esc((l.sources || []).slice(0, 2).join(', ')) || '—'}</td></tr>`).join('');
+  return `<div style="margin-top:18px">${panel(
+    'Live injection view',
+    rows ? `<div class="tablewrap"><table class="table"><thead><tr><th>When</th><th>Occasion</th><th>Result</th><th>Hits</th><th>Size</th><th>Time</th><th>Places</th></tr></thead><tbody>${rows}</tbody></table></div>${btn('Load again', 'reload', '', 'ghost')}` : empty('The journal is present but holds no line yet.'),
+    'The newest 30 recalls, straight from the journal — read, never simulated',
+  )}</div>`;
+}
 function contextPage() {
   const all = D.usage?.recent || [];
   const occ = [...new Set(all.map((z) => z.occasion).filter(Boolean))];
@@ -1194,7 +1209,7 @@ function contextPage() {
     'Look up an injection',
     `<div class="toolbar"><select class="field" id="contextCase" aria-label="Occasion"><option value="all" ${state.context === 'all' ? 'selected' : ''}>Every occasion</option>${occ.map((a) => `<option value="${esc(a)}" ${state.context === a ? 'selected' : ''}>${esc(occasionName(a))}</option>`).join('')}</select>${D.recall?.measurable ? badge('measured', 'injection journal') : badge('unknown')}</div><div class="flow"><span>01 · Occasion</span><i>→</i><span>02 · Context</span><i>→</i><span>03 · Next step</span></div><div id="contextContent">${contextContent()}</div>`,
     'The places really injected last — read, not simulated.',
-  )}<div class="grid two" style="margin-top:18px">${panel('Always present: core knowledge', entryRows(scoped().filter((e) => e.type === 'procedure' && statusOf(e.id) === 'active').slice(0, 3), 'No procedure issued yet — procedures are the knowledge every session carries.'))}${panel(
+  )}${liveInjectionPanel()}<div class="grid two" style="margin-top:18px">${panel('Always present: core knowledge', entryRows(scoped().filter((e) => e.type === 'procedure' && statusOf(e.id) === 'active').slice(0, 3), 'No procedure issued yet — procedures are the knowledge every session carries.'))}${panel(
     'What the context does not prove',
     `<div class="row"><span class="small">Provided</span>${D.recall?.measurable ? badge('present') : badge('unknown')}</div><div class="row"><span class="small">Read by the agent</span>${badge('unknown')}</div><div class="row"><span class="small">Answer quality improved</span>${badge('unknown')}</div><p class="muted small" style="margin-top:13px">The journal knows what was injected — not whether it helped.</p>`,
   )}</div>`;
@@ -1676,15 +1691,29 @@ function doctorPage() {
 }
 
 // --- Performance ------------------------------------------------------------------
+function hookTimeBadge(h) {
+  if (!h || !h.measured || h.p50 == null) return badge('unknown', h?.reason || (h?.measured ? `only ${num(h.measured)} timed line(s) — too few for a percentile` : 'no timed line yet'));
+  return `<span class="small mono">${num(h.p50)} / ${num(h.p95)} ms</span>`;
+}
+function hookTimePanel() {
+  const h = D.performance?.hook || {};
+  const lf = h.finding;
+  const budget = (h.budget || []).map((r) => `<div class="row"><span>${esc(occasionName(r.occasion))}</span><span class="small">${r.level === 'unknown' ? `${num(r.n)} of 20 timed lines needed` : `p50 ${num(r.p50)} · p95 ${num(r.p95)} ms of ${num(r.budget)} ms budget (n=${num(r.n)})`}</span>${badge(levelWord[r.level] || r.level)}</div>`).join('');
+  const days = (h.perDay || []).length
+    ? `<div class="tablewrap"><table class="table"><thead><tr><th>Day</th><th>Timed recalls</th><th>p50 ms</th><th>p95 ms</th><th>max ms</th></tr></thead><tbody>${h.perDay.map((d) => `<tr><td class="mono">${esc(d.day)}</td><td>${num(d.n)}</td><td>${num(d.p50)}</td><td>${num(d.p95)}</td><td>${num(d.max)}</td></tr>`).join('')}</tbody></table></div>`
+    : empty(esc(h.reason || 'No timed recall in the last 14 days.') + ' A day without a measurement is not 0 ms.');
+  return panel(
+    'Hook time per day',
+    `${days}<div style="margin-top:14px">${budget}</div>${lf ? `<div class="row"><div><strong>Doctor: hook-latency</strong><p>${esc(lf.text)}</p></div>${badge(levelWord[lf.level] || lf.level)}</div>` : ''}${note('Wall time of the process that booked each line (mem find --journal-session), from the injection journal. The budget lives in src/latencybudget.mjs; under 20 timed lines an occasion reads unknown, never good.')}`,
+    'How long the recall hook really takes',
+  );
+}
 function performancePage() {
   const p = D.performance || {};
-  return `${panel(
-    'Hook time per day',
-    empty('Not measured in cheap-mem: the injection journal records no duration. A day without a measurement is not 0 ms.'),
-    'How long the recall hook really takes',
-  )}<div class="grid three" style="margin-top:18px">${['1 million', '5 million', '10 million']
-    .map((m) => panel(m, `${badge('not available', 'not available in cheap-mem')}<p class="small muted" style="margin-top:15px">${esc(p.gate?.reason || '')} Scale is measured by bench/atlas.mjs at build time.</p>`))
-    .join('')}</div>${weeklyPanel()}`;
+  return `${hookTimePanel()}<div style="margin-top:18px">${panel(
+    'Scale gate · 1M / 5M / 10M',
+    `<div class="row"><span>Gate</span>${badge('not available', 'not available in cheap-mem, by design')}</div><p class="small muted" style="margin-top:12px">${esc(p.gate?.reason || '')}</p>`,
+  )}</div>${weeklyPanel()}`;
 }
 // The weekly measurement series (src/measurements.mjs): one line per ISO
 // week, capped at 52, written by the running server — never a curve
@@ -1700,7 +1729,7 @@ function weeklyPanel() {
     `one line per ISO week, at most ${num(wm.cap || 52)} · never an invented curve`,
   )}${panel(
     'Scale gate · 1M/5M/10M',
-    `<div class="row"><span>Gate watcher</span>${badge('not available', 'not available in cheap-mem')}</div><p class="small quiet">${esc(p.gate?.reason || '')}</p>`,
+    `<div class="row"><span>Gate watcher</span>${badge('not available', 'not available in cheap-mem, by design')}</div><p class="small quiet">${esc(p.gate?.reason || '')}</p>`,
   )}</div>`;
 }
 function weeklyHtml(weeks, defs) {
@@ -3230,7 +3259,9 @@ function statusDialog(id, kind) {
   if (kind === 'restore' || kind === 'merge') {
     showInfo(
       kind === 'restore' ? 'Restore an entry' : 'Merge entries',
-      `<p class="muted small">${esc(e.title)}</p>${notAvailable(kind === 'restore' ? 'restore' : 'merge')}${note(kind === 'restore' ? 'Not available in cheap-mem: there is no command that lifts a tombstone. A correction (mem correction) writes the entry anew with a replaces link.' : 'Not available in cheap-mem: there is no merge command. Link the entries instead (mem log link --from … --to … --kind generalizes).')}`,
+      kind === 'restore'
+        ? `<p class="muted small">${esc(e.title)}</p><p class="small">Takes a closed entry up again as a NEW line with <code class="mono">restored_from</code>; the original and its tombstone stay untouched.</p><p>${readonlyMark(`mem restore ${id} --why "…"`)}</p>${note('Command line only, like discarding: the browser has no write route for it. Refused when the entry is not closed, is superseded (use the newer version) or is already restored.')}`
+        : `<p class="muted small">${esc(e.title)}</p><p class="small">Merges entries of ONE drawer: a correction of the first carries the joined content and <code class="mono">merged_from</code>; the others get an obsolete tombstone. Nothing is deleted.</p><p>${readonlyMark(`mem merge ${id} <other-id> --why "…"`)}</p>${note('Command line only: the browser has no write route for it. Both entries stay readable in the log.')}`,
     );
     return;
   }

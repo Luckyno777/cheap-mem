@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 70 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 72 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2577 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -80,6 +80,7 @@ directory. The section number in brackets is where it is explained.
 | `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
+| `entryops.mjs` | restore and merge as append-only operations: `mem restore` (a closed entry taken up again as a NEW line with `restored_from`) and `mem merge` (a correction of the first entry carrying `merged_from`, obsolete tombstones for the rest) — no line is ever rewritten (Bauplan P3) |
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
 | `epoch.mjs` | noticing that the memory went backwards (4) |
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
@@ -101,6 +102,7 @@ directory. The section number in brackets is where it is explained.
 | `langdetect.mjs` | cheap, deterministic per-entry language detection — one memory can hold German and English text without a mismatched stemmer |
 | `language.mjs` | stemming and stop words, per language |
 | `langbridge.mjs` | optional starter dictionaries from the language a person asks in to the language the agents wrote in, as files (`src/langbridge/*.tsv`), off by default (`languageBridges` in `.mem/config.json`, M18b) |
+| `latencybudget.mjs` | ONE latency budget per recall-hook occasion over the injection journal's `duration_ms`: p50/p95, four states, under 20 timed lines unknown — the doctor's `hook-latency` finding and the dashboard's hook-time panel read only this (Bauplan P2) |
 | `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active (10.27) |
 | `mcplive.mjs` | a real `tools/list` probe of the local MCP bridge — cached, run in the background, never awaited by `/dashboard.json` (7.5) |
 | `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing (10.26) |
@@ -521,7 +523,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 70 commands
+### 7.1 CLI — 72 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -531,7 +533,7 @@ viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
-asked-learn effect today modelcost gold skills
+asked-learn effect today modelcost gold skills restore merge
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,

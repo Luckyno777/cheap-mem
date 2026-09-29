@@ -46,9 +46,20 @@ alarm, unknown. The doctor uses good, warning, error, unknown.
 **Unknown is never drawn as 0.** A source that cannot be read is named
 on the page, and completeness then reads "unknown".
 
-**What cheap-mem does not have is shown, not hidden.** Books, the
-digester's yield, restore, merge and the live injection view are marked
-"not available in cheap-mem".
+**What cheap-mem does not have is shown, with the reason.** Three areas
+read "not available in cheap-mem, by design", each saying why: Books (a
+stored, model-written condensation would be a second truth beside the
+logs), the digester's yield per run (no background digest service here;
+the doctor's digest-yield finding is what is measured) and the
+1M/5M/10M scale gate (VM tooling; the corpus-size finding, the hook-time
+finding and the weekly series run on your own memory instead).
+
+**Built, and reading only the journal or the append-only logs:** hook time
+per day and per occasion against one budget (`src/latencybudget.mjs`,
+doctor finding `hook-latency`), the live injection view (newest 30 recalls,
+including why nothing was injected), and `mem restore` / `mem merge`
+(new lines only; the browser shows the command, it has no write route
+for them).
 
 **Raw capture delete** works like `mem raw delete`. You get a preview
 first, then must give a reason, then confirm. The tombstone stays in the

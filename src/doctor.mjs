@@ -49,6 +49,8 @@ import { siblingClone } from './sibling.mjs';
 import * as runningmark from './runningmark.mjs';
 import * as docimages from './docimages-state.mjs';
 import * as release from './release.mjs';
+import * as latencybudget from './latencybudget.mjs';
+import * as injection from './injection.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -384,6 +386,7 @@ export function checkAll(root) {
   f.push(checkSkillUsage(root));
   f.push(checkRunningCode(root));
   f.push(checkDocsImagesFresh());
+  f.push(checkHookLatency(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
@@ -396,6 +399,28 @@ export function checkAll(root) {
   const count = { good: 0, warn: 0, error: 0, unknown: 0 };
   for (const x of f) count[x.level] += 1;
   return { findings: f, worst, summary: count };
+}
+
+/**
+ * Hook latency (Bauplan P2): p50/p95 of the recall hook per occasion
+ * against ONE budget (src/latencybudget.mjs). `unknown` while the
+ * journal holds too few timed lines — never `good` for lack of data.
+ */
+export function checkHookLatency(root, { now = new Date() } = {}) {
+  let j;
+  try { j = injection.read(root); } catch (e) {
+    return finding('hook-latency', LEVEL.UNKNOWN, `injection journal not readable: ${e?.message || e}`);
+  }
+  if (!j.present) return finding('hook-latency', LEVEL.UNKNOWN, 'no injection journal yet — the hook has not been timed');
+  const results = latencybudget.judgeAll(j.lines, now);
+  const level = latencybudget.worstLevel(results);
+  const text = 'hook time p95 vs budget: ' + results.map((r) => (r.level === 'unknown'
+    ? `${r.occasion} unknown (${r.n}/${latencybudget.MIN_LINES} timed lines)`
+    : `${r.occasion} ${r.p95} ms of ${r.budget} (n=${r.n})`)).join('; ');
+  if (level === LEVEL.GOOD || level === LEVEL.UNKNOWN) return finding('hook-latency', level, text);
+  return finding('hook-latency', level, text,
+    'The recall hook is slower than its budget. Cold index rebuilds are the usual cause (`mem find --fresh` once to warm it); '
+    + 'past 5 s the hook is capped and its answer is lost.');
 }
 
 // Digest yield: makes the silent loss measurable. The digest (lane 2)
