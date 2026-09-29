@@ -46,6 +46,7 @@ import * as errorcontext from './errorcontext.mjs';
 import { debtList } from './parity.mjs';
 import { siblingClone } from './sibling.mjs';
 import * as runningmark from './runningmark.mjs';
+import * as docimages from './docimages-state.mjs';
 import * as release from './release.mjs';
 
 export const LEVEL = Object.freeze({
@@ -343,6 +344,7 @@ export function checkAll(root) {
   f.push(checkFindingParity(root));
   f.push(checkParityDebt(root));
   f.push(checkRunningCode(root));
+  f.push(checkDocsImagesFresh());
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
@@ -2379,4 +2381,21 @@ export function checkAppendOnlyGit(root) {
   return finding('append-only-git', LEVEL.GOOD,
     `${checked} append-only log(s) hold everything git already has, only appended`
     + `${untrackedNote}${cappedNote}`);
+}
+
+/**
+ * Finding `docs-images-fresh` (W7, parity with lucky-mem
+ * `doku-bilder-frische`): were the docs images shot from today's UI?
+ * The file list and the comparison live ONLY in
+ * `src/docimages-state.mjs` (the writer uses the same constant). No
+ * state -> unknown; equal hashes -> good; any difference -> warn with the
+ * one command. Never reshoots itself.
+ */
+export function checkDocsImagesFresh(codeRoot = docimages.CODE_ROOT) {
+  const r = docimages.checkState(codeRoot);
+  const level = { good: LEVEL.GOOD, warn: LEVEL.WARN }[r.state] ?? LEVEL.UNKNOWN;
+  const advice = level === LEVEL.WARN
+    ? `Reshoot (a deliberate step: look at the images, then commit): ${docimages.RESHOOT_COMMAND}`
+    : null;
+  return finding('docs-images-fresh', level, r.text, advice);
 }

@@ -75,6 +75,7 @@ directory. The section number in brackets is where it is explained.
 | `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |
 | `pwa.mjs` | the dashboard's manifest and service worker, which stores nothing unless asked to (7.5) |
 | `login.mjs` | the password in front of the dashboard: first setup only with a machine-local code, scrypt hash, server-side sessions, lock after failed attempts (7.5) |
+| `docimages-state.mjs` | W7: the ONE list of UI files the docs screenshots depend on, the writer `bench/docs-images.mjs` calls after shooting (`docs/images/.state.json`, sha256 per file) and the check behind doctor finding `docs-images-fresh` (no state -> unknown; older than the UI -> warn with the one reshoot command; never reshoots itself) |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |

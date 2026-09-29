@@ -16,6 +16,7 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
 import { waitReady } from '../test/fixture/browser.mjs';
+import { writeState, hashUi } from '../src/docimages-state.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -315,6 +316,7 @@ async function capture(context, base, hash, filename, { network = false, fogWait
 }
 
 async function main() {
+  const surfaceAtStart = hashUi(REPO);
   const root = world();
   const pw = loadPlaywright();
   if (!pw) throw new Error('Playwright is not installed.');
@@ -415,6 +417,8 @@ async function main() {
   const script = path.join(HERE, 'docs-images-optimize.py');
   execFileSync('python3', [script, TARGET_DIR, ...rawList.map(([, raw]) => raw)], { stdio: 'inherit' });
 
+  // W7: only AFTER a successful run; doctor finding `docs-images-fresh`.
+  writeState(REPO, new Date(), surfaceAtStart);
   console.log('Done. Images under', TARGET_DIR);
 }
 

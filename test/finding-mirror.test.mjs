@@ -242,12 +242,15 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // W9 (2026-09-29): 'paritaetsschuld' added on the lucky-mem side, paired
   // here with this house's own 'parity-debt' — refreshed as its own
   // reviewed change, per the instructions above.
+  // W7 (2026-09-29): 'doku-bilder-frische' added on the lucky-mem side,
+  // paired here with this house's own 'docs-images-fresh' — refreshed as
+  // its own reviewed change, per the instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise', 'befund-gleichstand',
     'behauptung-ohne-beleg', 'bestand', 'briefkasten', 'bruecke',
-    'dispatcher', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
+    'dispatcher', 'doku-bilder-frische', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
