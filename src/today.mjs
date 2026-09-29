@@ -358,6 +358,29 @@ export function wordPairSuggestions() {
 // Everything together, and the one-line summary
 // =========================================================================
 
+/**
+ * THE numbers of the day, computed in ONE place. The CLI text, the
+ * dashboard card (`result.counts` / `result.line`) and the session-start
+ * line all read this object — no surface counts on its own. `null` =
+ * not measurable (never 0). `login` is always `null` here: unlike the
+ * sibling (`betrieb/betriebs-stand.json` -> `anmeldung`), cheap-mem has
+ * no login-state source, and inventing one would be a made-up finding.
+ */
+export function counts(result) {
+  const ops = result.operations;
+  return {
+    decisions: result.decisions?.readable ? result.decisions.list.length : null,
+    login: null,
+    operations: ops?.readable ? ops.notable.length : null,
+    operationsWorst: ops?.readable ? ops.worst : null,
+    verify: result.verify?.readable ? result.verify.list.length : null,
+    goldQuestions: (result.gold?.candidates?.length ?? 0) > 0 ? result.gold.candidates.length
+      : (result.gold?.drawn?.readable ? 0 : null),
+    review: null,
+    wordPairs: null,
+  };
+}
+
 export function today(root, { env = process.env, now = new Date(), doctorResult = null } = {}) {
   const ops = operations(root, { doctorResult });
   const decisions = decisionsForHuman(root);
@@ -373,13 +396,14 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
     ...(gold.drawn.readable ? [] : [gold.drawn.reason]),
   ];
 
-  return {
+  const result = {
     at: now.toISOString(),
     // "warning" only for what could not be READ — reviewSuggestions()/
     // wordPairSuggestions() being honestly not-built is a documented
     // gap, not a read failure, so it never lowers this state.
     state: reasons.length ? 'warning' : 'ok',
     reasons,
+    login: { readable: false, reason: 'unknown — no login-state source in this house' },
     operations: ops,
     decisions,
     verify,
@@ -388,34 +412,39 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
     wordPairs,
     verifyTarget: verifylog.targetPath(env),
   };
+  result.counts = counts(result);
+  result.line = line(result);
+  return result;
 }
 
+/** Longest allowed session-start line (characters) — one line stays one line. */
+export const LINE_MAX = 120;
+
 /**
- * "Today: 2 decisions open · operations warn · 1 to verify" — ONE line,
- * `null` when there is nothing worth a line (same rule as the
- * sibling's `zeile()`: silence beats a banner nobody reads).
+ * "Today: 2 decisions open · operations warn · 1 to verify" — ONE line
+ * from {@link counts}, counts only (never entry content). What could not
+ * be measured says "unknown", never 0. `null` only when everything is
+ * measured AND calm. Capped at {@link LINE_MAX}.
  */
 export function line(result) {
+  const c = result.counts ?? counts(result);
   const parts = [];
-  const nDec = result.decisions?.list?.length ?? 0;
-  if (nDec > 0) parts.push(`${nDec} decision${nDec === 1 ? '' : 's'} open`);
+  let notable = false;
+  if (c.decisions === null) { parts.push('decisions unknown'); notable = true; }
+  else if (c.decisions > 0) { parts.push(`${c.decisions} decision${c.decisions === 1 ? '' : 's'} open`); notable = true; }
 
-  const worst = result.operations?.readable ? result.operations.worst : null;
-  let opsNotable = false;
-  if (worst === 'error' || worst === 'warn') {
-    parts.push(`operations ${worst}`);
-    opsNotable = true;
-  }
+  if (c.operationsWorst === null) { parts.push('operations unknown'); notable = true; }
+  else if (c.operationsWorst === 'error' || c.operationsWorst === 'warn') { parts.push(`operations ${c.operationsWorst}`); notable = true; }
 
-  const nVerify = result.verify?.list?.length ?? 0;
-  if (nVerify > 0) parts.push(`${nVerify} to verify`);
+  if (c.verify === null) { parts.push('verify unknown'); notable = true; }
+  else if (c.verify > 0) { parts.push(`${c.verify} to verify`); notable = true; }
 
-  const nGold = result.gold?.candidates?.length ?? 0;
-  if (nGold > 0) parts.push(`${nGold} gold question${nGold === 1 ? '' : 's'}`);
+  if (c.goldQuestions === null) { parts.push('gold questions unknown'); notable = true; }
+  else if (c.goldQuestions > 0) { parts.push(`${c.goldQuestions} gold question${c.goldQuestions === 1 ? '' : 's'}`); notable = true; }
 
-  const notable = nDec > 0 || opsNotable || nVerify > 0 || nGold > 0;
   if (!notable || !parts.length) return null;
-  return `Today: ${parts.join(' · ')}`;
+  const text = `Today: ${parts.join(' · ')}`;
+  return text.length > LINE_MAX ? `${text.slice(0, LINE_MAX - 1)}…` : text;
 }
 
 // --- CLI text -----------------------------------------------------------
@@ -429,6 +458,9 @@ export function asText(result) {
   } else {
     lines.push(`OPERATIONS: unknown — ${result.operations.reason}`);
   }
+  lines.push('');
+
+  lines.push(`LOGIN: ${result.login.reason}`);
   lines.push('');
 
   lines.push(`DECISIONS FOR THE HUMAN: ${result.decisions.readable ? result.decisions.list.length : 'unknown'}`);

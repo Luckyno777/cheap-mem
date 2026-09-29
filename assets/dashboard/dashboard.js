@@ -646,10 +646,17 @@ function todayCard() {
   const decisions = t.decisions?.list || [];
   const verify = t.verify?.list || [];
   const gold = t.gold?.candidates || [];
-  const nothingPressing = !ops.length && !decisions.length && !verify.length && !gold.length;
-  const body = (nothingPressing
+  const c = t.counts || {};
+  const anyUnknown = c.decisions === null || c.operations === null || c.verify === null || c.goldQuestions === null;
+  const nothingPressing = !anyUnknown && !ops.length && !decisions.length && !verify.length && !gold.length;
+  const unknownNote = [['decisions', 'Decisions'], ['operations', 'Operations'], ['verify', 'Verify'], ['goldQuestions', 'Gold questions']]
+    .filter(([k]) => c[k] === null).map(([, n]) => n);
+  const body = (t.line ? `<p class="small mono" data-today-line>${esc(t.line)}</p>` : '')
+    + (unknownNote.length ? `<p class="small quiet">unknown: ${unknownNote.map(esc).join(', ')}</p>` : '')
+    + todayUnknownPart('Login', t.login)
+    + (nothingPressing
     ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
-    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify) + todayGoldPart(t.gold))
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify) + todayGoldPart(t.gold)))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
   return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
 }
