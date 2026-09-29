@@ -84,6 +84,7 @@ export const INSTALLER = 'install/claude-code.sh';
 export const MEASURED = Object.freeze({
   YES: 'measured',
   APPROX: 'approximate',
+  PARTLY: 'partly measured',
   NO: 'not measured',
 });
 
