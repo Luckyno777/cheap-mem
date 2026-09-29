@@ -156,33 +156,44 @@ export function checkFindingParity(root, { sibling = null } = {}) {
 // W9: from how many days does an open parity-debt item count as a
 // warning. A plain module constant, tunable through an env override —
 // cheap-mem has no N20-style env register, so no extra registration
-// step applies here (unlike lucky-mem's schalterregister.mjs).
+// step applies here (unlike lucky-mem's schalterregister.mjs). Named
+// CHEAP_MEM_* (not LUCKY_MEM_*, coordinator 2026-09-29): cheap-mem is a
+// public, brand-separate project — its own env vars carry its own name.
 export const PARITY_DEBT_WARN_DAYS_DEFAULT = 14;
 
 /**
  * W9 — parity debt as a finding: every `Parity: lm=open` commit since
  * the cutoff not yet closed by a `Paritaet-Erledigt: <cm-hash>` line on
- * the lucky-mem side is an open item. GOOD with none, WARN once the
- * oldest item exceeds the threshold, otherwise GOOD naming the plain
- * count (young debt is not itself a warning — closing takes time on the
- * other side). UNKNOWN when the cutoff or the sibling clone is not
- * readable (never a guessed "0 open").
+ * the lucky-mem side is an open item.
+ *
+ * **Legacy items never warn (coordinator, 2026-09-29).** On the day
+ * this was built, 7 open items already sat in the history; a warning
+ * over their age could never clear (the oldest only gets older) and
+ * would be pure noise. Items with a commit date before `W9_BASELINE`
+ * (`debtList`, bench/parity.mjs) count as legacy: they are counted and
+ * fully listed by `--debt` — hiding them is not allowed — but they do
+ * not drive the WARN threshold. Only an item FROM `W9_BASELINE` on,
+ * older than the threshold, triggers WARN.
+ *
+ * UNKNOWN when the cutoff or the sibling clone is not readable (never a
+ * guessed "0 open").
  */
 export function checkParityDebt(root, { now = Date.now(), warnDays, cutoff, sibling } = {}) {
   const threshold = warnDays
-    ?? (Number(process.env.LUCKY_MEM_PARITY_DEBT_WARN_DAYS) || PARITY_DEBT_WARN_DAYS_DEFAULT);
+    ?? (Number(process.env.CHEAP_MEM_PARITY_DEBT_WARN_DAYS) || PARITY_DEBT_WARN_DAYS_DEFAULT);
   const r = debtList(root, cutoff, { now, sibling });
   if (!r.measurable) return finding('parity-debt', LEVEL.UNKNOWN, r.reason);
   if (!r.items.length) return finding('parity-debt', LEVEL.GOOD, '0 open items');
-  const oldest = r.items[0];
-  if (oldest.ageDays > threshold) {
-    return finding('parity-debt', LEVEL.WARN,
-      `${r.items.length} open items, oldest ${oldest.cm_hash.slice(0, 12)} `
-      + `for ${oldest.ageDays} days (threshold ${threshold})`,
+  const fresh = r.items.filter((it) => !it.legacy);
+  const legacy = r.items.filter((it) => it.legacy);
+  const warning = fresh.filter((it) => it.ageDays > threshold);
+  const text = `${fresh.length} new open, of which ${warning.length} over ${threshold} days; `
+    + `legacy ${legacy.length}`;
+  if (warning.length) {
+    return finding('parity-debt', LEVEL.WARN, text,
       'close on the lucky-mem side: a commit with `Paritaet-Erledigt: <cm-hash>`');
   }
-  return finding('parity-debt', LEVEL.GOOD,
-    `${r.items.length} open items, oldest ${oldest.ageDays} days (under threshold ${threshold})`);
+  return finding('parity-debt', LEVEL.GOOD, text);
 }
 
 /**

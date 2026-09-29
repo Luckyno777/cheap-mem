@@ -15,7 +15,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { tempDir } from './temp-dir.mjs';
 
-import { debtList } from '../bench/parity.mjs';
+import { debtList, W9_BASELINE } from '../bench/parity.mjs';
 import { checkParityDebt, LEVEL } from '../src/doctor.mjs';
 
 function repo(prefix, t) {
@@ -30,6 +30,21 @@ function repo(prefix, t) {
   git('commit', '-q', '-m', 'start');
   const cutoff = git('rev-parse', 'HEAD').trim();
   return { r, git, cutoff };
+}
+
+// A commit that touches src/ (so it needs the line) whose COMMITTER date
+// (what `%cI`/debtList reads) is BEFORE W9_BASELINE — simulates a legacy
+// item independent of the real clock.
+function legacyCommit(r, message) {
+  const beforeBaseline = new Date(Date.parse(W9_BASELINE) - 5 * 24 * 60 * 60 * 1000).toISOString();
+  fs.appendFileSync(path.join(r, 'src', 'start.mjs'), `// ${message}\n`);
+  execFileSync('git', ['add', '-A'], { cwd: r, encoding: 'utf8' });
+  execFileSync('git', ['commit', '-q', '-m', message, '--date', beforeBaseline], {
+    cwd: r,
+    encoding: 'utf8',
+    env: { ...process.env, GIT_AUTHOR_DATE: beforeBaseline, GIT_COMMITTER_DATE: beforeBaseline },
+  });
+  return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: r, encoding: 'utf8' }).trim();
 }
 
 test('W9 open item: an lm=open commit shows up in the list', (t) => {
@@ -111,7 +126,7 @@ test('W9 doctor finding: GOOD with no items', (t) => {
   assert.equal(f.level, LEVEL.GOOD);
 });
 
-test('W9 doctor finding: WARN once the oldest item exceeds the threshold', (t) => {
+test('W9 doctor finding: WARN once a NEW item exceeds the threshold', (t) => {
   const { r, git, cutoff } = repo('cm-debt-finding-warn-', t);
   fs.writeFileSync(path.join(r, 'src', 'start.mjs'), 'export const a = 1;\n');
   git('add', '-A');
@@ -120,6 +135,22 @@ test('W9 doctor finding: WARN once the oldest item exceeds the threshold', (t) =
   const future = Date.now() + 30 * 24 * 60 * 60 * 1000; // measured 30 days "in the future"
   const f = checkParityDebt(r, { cutoff, sibling: lm.r, now: future, warnDays: 14 });
   assert.equal(f.level, LEVEL.WARN);
+  assert.match(f.text, /1 new open, of which 1 over 14 days; legacy 0/);
+});
+
+test('W9 doctor finding: legacy-only is GOOD, with the legacy count in the text (never a forever-warning)', (t) => {
+  const { r, cutoff } = repo('cm-debt-finding-legacy-', t);
+  const hash = legacyCommit(r, 'old src change\n\nParity: lm=open');
+  const lm = repo('lm-debt-finding-legacy-empty-', t);
+  // Measured far in the future: if the item were NEW, this would warn.
+  const farFuture = Date.parse(W9_BASELINE) + 400 * 24 * 60 * 60 * 1000;
+  const r2 = debtList(r, cutoff, { sibling: lm.r, now: farFuture });
+  assert.equal(r2.items.length, 1);
+  assert.equal(r2.items[0].cm_hash, hash);
+  assert.equal(r2.items[0].legacy, true);
+  const f = checkParityDebt(r, { cutoff, sibling: lm.r, now: farFuture, warnDays: 14 });
+  assert.equal(f.level, LEVEL.GOOD, 'legacy items must never warn, however old');
+  assert.match(f.text, /0 new open, of which 0 over 14 days; legacy 1/);
 });
 
 test('W9 doctor finding: UNKNOWN with no sibling (never guessing GOOD/0 open)', (t) => {

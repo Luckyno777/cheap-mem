@@ -280,6 +280,20 @@ export function readDoneLines(root) {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
+ * W9 baseline date (coordinator, 2026-09-29): from when an open item
+ * counts as NEW debt instead of backlog.
+ *
+ * **Why this exists.** On the day this was built, 7 open `lm=open`
+ * items already sat in the history — a warning over their age could
+ * never clear (the oldest only gets older), which would be pure noise.
+ * An item whose commit date is BEFORE this instant is legacy: still
+ * counted and fully listed by `--debt` (hiding it is not allowed), but
+ * it does not drive the WARN threshold in `checkParityDebt()`. An item
+ * FROM this instant on is new and counts against the age threshold.
+ */
+export const W9_BASELINE = '2026-09-29T00:00:00Z';
+
+/**
  * W9 — the parity debt list: every open `lm=open` item since the cutoff
  * that is NOT closed by a `Paritaet-Erledigt: <cm-hash>` line on the
  * lucky-mem side. Reads lucky-mem through the sibling clone
@@ -288,6 +302,10 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *
  * If the sibling clone is absent or unreadable: "not measurable:
  * sibling not readable", NEVER an empty list.
+ *
+ * Each item also carries `legacy` (commit date before `W9_BASELINE`) —
+ * the list itself stays complete, legacy items are never filtered out,
+ * only marked.
  */
 export function debtList(root = DEFAULT_ROOT, cutoff = CUTOFF, { sibling = null, now = Date.now() } = {}) {
   const open = openItems(root, cutoff);
@@ -296,9 +314,14 @@ export function debtList(root = DEFAULT_ROOT, cutoff = CUTOFF, { sibling = null,
   if (!lmRoot) return { measurable: false, reason: 'not measurable: sibling not readable' };
   const done = readDoneLines(lmRoot);
   if (done === null) return { measurable: false, reason: 'not measurable: sibling not readable' };
+  const baseline = Date.parse(W9_BASELINE);
   const remaining = open.items
     .filter((it) => !done.some((d) => it.cm_hash.startsWith(d.prefix)))
-    .map((it) => ({ ...it, ageDays: Math.floor((now - Date.parse(it.date)) / DAY_MS) }))
+    .map((it) => ({
+      ...it,
+      ageDays: Math.floor((now - Date.parse(it.date)) / DAY_MS),
+      legacy: Date.parse(it.date) < baseline,
+    }))
     .sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
   return { measurable: true, items: remaining };
 }
@@ -313,9 +336,12 @@ function debtMain(cutoff) {
     console.log('Parity debt: 0 open items');
     return;
   }
-  console.log(`Parity debt: ${r.items.length} open items (oldest first)`);
+  const newCount = r.items.filter((it) => !it.legacy).length;
+  const legacyCount = r.items.length - newCount;
+  console.log(`Parity debt: ${r.items.length} open items (${newCount} new, `
+    + `${legacyCount} legacy before ${W9_BASELINE.slice(0, 10)}; oldest first)`);
   for (const it of r.items) {
-    console.log(`  ${it.cm_hash.slice(0, 12)} (${it.ageDays}d) ${it.subject}`);
+    console.log(`  ${it.cm_hash.slice(0, 12)} (${it.ageDays}d${it.legacy ? ', legacy' : ''}) ${it.subject}`);
   }
 }
 
