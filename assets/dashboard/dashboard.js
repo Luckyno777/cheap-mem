@@ -111,6 +111,12 @@ const state = {
   readonly: !serverWrites, missing: false, drawerTab: 'content', selected: null, context: 'all', trail: null,
   inboxTo: null, inboxAll: false, inboxQuery: '',
 };
+// Full-text search (src/fulltext.mjs): the server's answer always belongs to ONE
+// query (`q`). Only an answer to the CURRENT input counts; anything else is dropped.
+//   ids: Set of hit ids; measurable:false = the server could not search
+const fulltext = { q: null, ids: null, measurable: null, reason: null };
+let fulltextTimer = 0, fulltextRun = 0;
+const FULLTEXT_DEBOUNCE_MS = 150;
 let raf = 0, graphCleanup = () => {}, toastTimer;
 let graphRun = 0; // tempo: counter for the deferred initGraph() in render()
 let refetchTimer = 0; // tempo: quiet refetch while the server rebuilds
@@ -709,10 +715,42 @@ function boardPanel() {
 }
 
 // --- Knowledge ----------------------------------------------------------------
+// Hits of the server for the CURRENT input. If the answer is missing or was not
+// measurable, only the local filter (the excerpt) applies — never "nothing found".
+function fulltextHits(id) {
+  return fulltext.q === state.query && fulltext.measurable === true && fulltext.ids.has(id);
+}
+// Show only when the answer to the current input is here AND was not measurable.
+function fulltextNotice() {
+  return Boolean(state.query.trim()) && fulltext.q === state.query && fulltext.measurable === false;
+}
+function fulltextAsk() {
+  clearTimeout(fulltextTimer);
+  const q = state.query;
+  if (!q.trim()) { fulltext.q = null; fulltext.ids = null; fulltext.measurable = null; fulltext.reason = null; return; }
+  const run = ++fulltextRun;
+  fulltextTimer = setTimeout(async () => {
+    let answer;
+    try {
+      const r = await fetch('/api/fulltext?q=' + encodeURIComponent(q), { credentials: 'same-origin', cache: 'no-store' });
+      if (r.status === 401) { location.href = '/login'; return; }
+      const b = await r.json().catch(() => null);
+      answer = b && b.measurable === true && Array.isArray(b.ids)
+        ? { measurable: true, ids: new Set(b.ids), reason: null }
+        : { measurable: false, ids: null, reason: (b && b.reason) || 'answer ' + r.status };
+    } catch (e) {
+      answer = { measurable: false, ids: null, reason: e?.message || String(e) };
+    }
+    // Stale: typing went on since the question (or a newer one was asked).
+    if (run !== fulltextRun || q !== state.query) return;
+    fulltext.q = q; fulltext.ids = answer.ids; fulltext.measurable = answer.measurable; fulltext.reason = answer.reason;
+    if ($('#entrySearch')) redrawSearchField();
+  }, FULLTEXT_DEBOUNCE_MS);
+}
 function filtered() {
   const q = state.query.toLocaleLowerCase();
   const es = scoped().filter(
-    (e) => (state.type === 'all' || e.type === state.type) && (state.status === 'all' || statusOf(e.id) === state.status) && (!q || e._s.includes(q)),
+    (e) => (state.type === 'all' || e.type === state.type) && (state.status === 'all' || statusOf(e.id) === state.status) && (!q || e._s.includes(q) || fulltextHits(e.id)),
   );
   return es.sort((a, b) => (state.sort === 'title' ? a.title.localeCompare(b.title, 'en') : state.sort === 'old' ? a.ts.localeCompare(b.ts) : b.ts.localeCompare(a.ts)));
 }
@@ -799,7 +837,7 @@ const pages = {
       n = 8,
       pg = Math.min(state.page, Math.max(1, Math.ceil(es.length / n)));
     state.page = pg;
-    return `<div class="toolbar"><input class="field searchfield" id="entrySearch" placeholder="Content, ID, agent or tag …" value="${esc(state.query)}" aria-label="Search entries"><select class="field" id="typeFilter" aria-label="Entry type"><option value="all">All types</option>${Object.entries(types)
+    return `<div class="toolbar"><input class="field searchfield" id="entrySearch" placeholder="Content, ID, agent or tag …" value="${esc(state.query)}" aria-label="Search entries">${fulltextNotice() ? `<span class="small quiet" id="fulltextNotice" role="status" title="${esc(fulltext.reason || '')}">Full text unavailable – searching excerpts only</span>` : ''}<select class="field" id="typeFilter" aria-label="Entry type"><option value="all">All types</option>${Object.entries(types)
       .map(([k, n]) => `<option value="${k}" ${state.type === k ? 'selected' : ''}>${n}</option>`)
       .join('')}</select><select class="field" id="statusFilter" aria-label="Entry state">${['all', 'active', 'open', 'superseded', 'done', 'discarded', 'answered']
       .map((x) => `<option value="${x}" ${state.status === x ? 'selected' : ''}>${x === 'all' ? 'All states' : x}</option>`)
@@ -3371,6 +3409,19 @@ function refreshSearch() {
     el.setSelectionRange(pos, pos);
   }
 }
+// The server's answer came later: redraw, but give focus and selection back
+// only if the field had focus before.
+function redrawSearchField() {
+  const old = $('#entrySearch');
+  const hadFocus = old && document.activeElement === old;
+  const from = old?.selectionStart, to = old?.selectionEnd, dir = old?.selectionDirection;
+  render();
+  const el = $('#entrySearch');
+  if (el && hadFocus) {
+    el.focus();
+    try { el.setSelectionRange(from, to, dir || 'none'); } catch { /* field without a selection */ }
+  }
+}
 function auditHtml() {
   const runs = Object.values(D?.tasks?.running || {}).filter(Boolean).sort((a, b) => String(b.started).localeCompare(String(a.started)));
   return runs.length
@@ -3510,18 +3561,18 @@ document.addEventListener('click', async (ev) => {
       render();
       break;
     case 'reset-filters':
-      state.query = '';
+      state.query = ''; fulltextAsk();
       state.type = state.status = 'all';
       state.page = 1;
       render();
       break;
     case 'topic':
-      state.query = d.value;
+      state.query = d.value; fulltextAsk();
       state.type = state.status = 'all';
       route('knowledge/entries');
       break;
     case 'agent-entries':
-      state.query = d.value;
+      state.query = d.value; fulltextAsk();
       route('knowledge/entries');
       break;
     case 'time-compare':
@@ -3714,6 +3765,7 @@ document.addEventListener('input', (e) => {
   if (e.target.id === 'entrySearch') {
     state.query = e.target.value;
     state.page = 1;
+    fulltextAsk();
     refreshSearch();
   }
   if (e.target.id === 'catalogSearch') $('#catalogList').innerHTML = catalogHtml(e.target.value);

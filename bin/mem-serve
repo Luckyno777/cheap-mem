@@ -52,6 +52,7 @@ import zlib from 'node:zlib';
 import * as dashboardPage from '../src/dashboard-page.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
+import * as fulltext from '../src/fulltext.mjs';
 import * as pwa from '../src/pwa.mjs';
 import * as icon from '../src/icon.mjs';
 import * as measurements from '../src/measurements.mjs';
@@ -137,6 +138,8 @@ export const PATHS = Object.freeze([
   ...dashboardPage.FONTS.map((f) => f.path),
   '/manifest.webmanifest', '/sw.js', '/favicon.ico',
   '/inbox/state',
+  // Full-text search of the knowledge view (src/fulltext.mjs): READ only.
+  fulltext.PATH,
   // N9 parity (2026-09-28): a human's verdict on an uncertain fact
   // from the Today card — appends OUTSIDE the memory, see
   // src/verifylog.mjs and the route below.
@@ -160,7 +163,7 @@ export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '
  */
 export const HOST_GUARDED = Object.freeze([
   dashboardPage.PATHS.data, dashboardPage.PATHS.entry, dashboardPage.PATHS.message,
-  dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part,
+  dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part, fulltext.PATH,
 ]);
 
 /**
@@ -556,6 +559,18 @@ export function buildHandler(root, cfg, env = process.env) {
       } else {
         res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(text.plain);
       }
+      return;
+    }
+    // Full-text search for the search field of the knowledge view
+    // (src/fulltext.mjs): the same gates as /dashboard.json (token door
+    // above, Host check in HOST_GUARDED, no CORS header). GET ?q=... ->
+    // { ids, measurable:true } or, on a failure, { measurable:false,
+    // reason } — never an empty list for "not read". Empty query: ids:null.
+    // The index hangs on the same generation stamp as the dashboard cache.
+    if (url.pathname === fulltext.PATH) {
+      const found = fulltext.answer(root, url.searchParams.get('q') || '');
+      res.writeHead(found.measurable ? 200 : 500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+        .end(JSON.stringify(found));
       return;
     }
     // tempo: one deferred part — the same gates as /dashboard.json (the
