@@ -235,10 +235,14 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // lucky-mem side (paired in shared/finding-map.jsonl with this
   // house's 'correction-content-loss') — refreshed here as its own
   // reviewed change, per the instructions above.
+  // Workflow B/C (2026-09-29): 'workflow-ohne-ausloeser' and
+  // 'baustein-ohne-redaktion' added on the lucky-mem side — mapped as
+  // gaps (luecke:true, with why) in shared/finding-map.jsonl until
+  // cheap-mem gets hook recognition / the after-the-fact snippet check.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
-    'auto-pflichten-alter', 'bauweise', 'befund-gleichstand',
+    'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise', 'befund-gleichstand',
     'behauptung-ohne-beleg', 'bestand', 'briefkasten', 'bruecke',
     'dispatcher', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
@@ -250,7 +254,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
     'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',
-    'wiederholung', 'wirksamkeit', 'wurzel', 'zeilenzugriff',
+    'wiederholung', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
     'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),
 });
