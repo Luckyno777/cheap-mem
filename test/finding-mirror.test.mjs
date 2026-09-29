@@ -229,8 +229,12 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-09-27',
+  capturedAt: '2026-09-29',
   source: 'lucky-mem/src/doktor.mjs',
+  // P11 (2026-09-28/29): 'korrektur-verliert-inhalt' added on the
+  // lucky-mem side (paired in shared/finding-map.jsonl with this
+  // house's 'correction-content-loss') — refreshed here as its own
+  // reviewed change, per the instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -240,7 +244,8 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
-    'hook-kopie', 'hook-stand', 'index', 'kennzahlen-gleich', 'klingel', 'latenz', 'modell-start', 'nachher-haken',
+    'hook-kopie', 'hook-stand', 'index', 'kennzahlen-gleich',
+    'klingel', 'korrektur-verliert-inhalt', 'latenz', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'startlast', 'stop-hook', 'tagform', 'themen-guete',

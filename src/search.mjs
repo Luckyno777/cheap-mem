@@ -884,6 +884,93 @@ function idf(index, term) {
  */
 export const RARE_DF = 3;
 
+// --- P11 guard: "correction loses content" (warns, never blocks) -------
+//
+// Ported from lucky-mem (finding `korrektur-verliert-inhalt`, case
+// czorxreppel -> 1rjpook3vead, 2026-09-28). `memory.correctionEntry()`
+// REPLACES its predecessor wholesale (that is the design — corrections
+// are allowed to drop something wrong). But dropping something BY
+// ACCIDENT looks identical from the outside: the correction dropped
+// the literal quote "2 Hoden", and after that no valid entry carried
+// the word at all — Lucky's own recall probe found nothing.
+//
+// Two sources count as "notable", neither of them blocks anything —
+// they are only REPORTED (a stderr warning when writing, the doctor
+// finding `correction-content-loss` for the whole corpus):
+//
+//   1. Literal QUOTES in the OLD entry (straight `"..."` or curly
+//      `“...”`) — always notable, regardless of rarity: a quote is by
+//      definition somebody's own words, not an interchangeable term.
+//   2. Rare CONTENT WORDS: the same tokenizer retrieval itself uses
+//      (`tokenize()`, no second one built beside it), with a document
+//      frequency <= `rareDf` in the corpus — the same size
+//      `RARE_DF`/`bench/retrieval.mjs`-style benchmarks already use for
+//      "rare", reused rather than reinvented.
+
+const QUOTE_PATTERNS = [/"([^"\n]{2,200})"/g, /“([^”\n]{2,200})”/g];
+
+/**
+ * Literal quotes in a text — raw, as a whole PHRASE (not tokenized): a
+ * quote should survive as a phrase, not just as a bag of words, or "the
+ * project is too dependent on one vendor" would count as kept the
+ * moment any single word of it turns up somewhere else.
+ */
+export function quotedPhrases(text) {
+  const t = String(text ?? '');
+  const out = new Set();
+  for (const pattern of QUOTE_PATTERNS) {
+    pattern.lastIndex = 0;
+    let m;
+    while ((m = pattern.exec(t))) {
+      const q = m[1].trim();
+      if (q) out.add(q);
+    }
+  }
+  return [...out];
+}
+
+/** Every non-machine string field of an entry, joined — the same
+ * definition of "content" `memory.hasContent()` already uses, so this
+ * never disagrees with it about what counts. */
+function contentText(entry) {
+  if (!entry || typeof entry !== 'object') return '';
+  return Object.entries(entry)
+    .filter(([k, v]) => !memory.MACHINE_FIELDS.has(k) && typeof v === 'string')
+    .map(([, v]) => v)
+    .join('\n');
+}
+
+/**
+ * Notable content/quotes that `updated` loses relative to `original`.
+ *
+ * `docFreq` is the corpus's document-frequency map (e.g.
+ * `search.buildIndex(root).docFreq`) — most honestly measured BEFORE the
+ * new correction, though a corpus that already includes it only shifts
+ * "rare" by the one entry itself and practically never changes the
+ * verdict.
+ *
+ * Pure measurement, blocks nothing: the caller decides what to do with
+ * `lost` (print a warning, raise a doctor finding).
+ */
+export function lostCorrectionContent(original, updated, { docFreq = new Map(), rareDf = RARE_DF } = {}) {
+  const oldText = contentText(original);
+  const newText = contentText(updated);
+  const newLower = newText.toLowerCase();
+
+  const quotes = quotedPhrases(oldText).filter((q) => !newLower.includes(q.toLowerCase()));
+
+  const newTokens = new Set(tokenize(newText));
+  const rareWords = [...new Set(tokenize(oldText))]
+    .filter((t) => !newTokens.has(t))
+    .filter((t) => {
+      const df = docFreq.get(t) ?? 0;
+      return df > 0 && df <= rareDf;
+    })
+    .sort();
+
+  return { quotes, rareWords, lost: quotes.length > 0 || rareWords.length > 0 };
+}
+
 /** BM25's contribution from one term against one document, IDF x the
  *  length-normalised term frequency. Pulled out so the P28 per-pack
  *  scoring below (see `search`) can call it once per candidate spelling

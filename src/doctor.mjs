@@ -208,6 +208,7 @@ export function checkAll(root) {
   f.push(checkAutoDutyAge(root));
   f.push(checkDelivery(root));
   f.push(checkIndex(root));
+  f.push(checkCorrectionContentLoss(root));
   f.push(checkSynonyms(root));
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
@@ -1010,6 +1011,69 @@ function checkIndex(root) {
   } catch (e) {
     return finding('index', LEVEL.ERROR, e.message, '`mem find --fresh` forces a rebuild.');
   }
+}
+
+/**
+ * P11 · does a correction (`replaces_id`) lose notable content of its
+ * predecessor?
+ *
+ * Ported from lucky-mem's finding `korrektur-verliert-inhalt` (paired in
+ * shared/finding-map.jsonl as `correction-content-loss`). The write-time
+ * half (`mem correction`) only warns about the correction being written
+ * right then; this is the corpus-wide half — it also catches cases
+ * written before this check existed (the actual trigger: czorxreppel ->
+ * 1rjpook3vead, 2026-09-28), and stays visible on every `mem doctor` run
+ * until a human decides.
+ *
+ * WARN, never ERROR: this finding does not judge whether the loss was
+ * intended (a correction is allowed to drop something wrong) — it only
+ * makes it visible (the system proposes, the human decides).
+ */
+function checkCorrectionContentLoss(root) {
+  const rareDf = Number(process.env.MEM_CORRECTION_RARE_DF) || search.RARE_DF;
+  let idx;
+  try {
+    const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
+    idx = search.loadIndex(root, { language: cfg.language });
+  } catch (e) {
+    return finding('correction-content-loss', LEVEL.UNKNOWN,
+      `could not build the index (${e.message})`, 'Retry once `mem find --fresh` works again.');
+  }
+
+  const byId = new Map();
+  for (const d of idx.documents) {
+    if (d?.entry?.id) byId.set(d.entry.id, d.entry);
+  }
+
+  let checked = 0;
+  const hits = [];
+  for (const entry of byId.values()) {
+    if (!entry.replaces_id) continue;
+    const original = byId.get(entry.replaces_id);
+    // Predecessor not (or no longer) in the corpus — a different finding
+    // (orphans) covers that; nothing to compare here.
+    if (!original) continue;
+    if (memory.isClosingCorrection(entry)) continue;
+    checked += 1;
+    const lost = search.lostCorrectionContent(original, entry, { docFreq: idx.docFreq, rareDf });
+    if (lost.lost) hits.push({ from: original.id, to: entry.id, ...lost });
+  }
+
+  if (hits.length === 0) {
+    return finding('correction-content-loss', LEVEL.GOOD,
+      `${checked} correction(s) checked, none lose notable words of their predecessor (RARE_DF=${rareDf})`);
+  }
+  const line = (h) => {
+    const parts = [...h.quotes.map((q) => `quote "${q}"`), ...h.rareWords.map((w) => `word "${w}"`)];
+    return `${h.from}->${h.to} (${parts.slice(0, 4).join(', ')}${parts.length > 4 ? ', ...' : ''})`;
+  };
+  return finding('correction-content-loss', LEVEL.WARN,
+    `${hits.length} of ${checked} correction(s) lose notable words of their predecessor: `
+    + hits.slice(0, 12).map(line).join('; ') + (hits.length > 12 ? ` (+${hits.length - 12})` : ''),
+    'Look at the id pairs above: was the loss intentional (dropping something wrong) or an '
+    + 'accident? If an accident, write another correction that carries the full history '
+    + 'forward (mem correction) — the original stays (append-only), but search over the lost '
+    + 'word no longer finds anything valid.');
 }
 
 export function checkStopHook(root) {
