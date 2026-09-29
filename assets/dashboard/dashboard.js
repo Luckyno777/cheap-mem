@@ -607,7 +607,11 @@ function todayUnknownPart(title, info) {
 // injection journal + a real message) — rated through POST
 // /dashboard/gold-verdict, the same gate as every other write route.
 function todayGoldRow(c, i) {
-  const outcome = c.source?.split(':')[1] || 'unknown';
+  // N18 parity: a `kind:'gap'` row (src/gap.mjs — a closed knowledge
+  // gap) has its own source shape (`gap-closed:<session>:<ts>`), so the
+  // outcome label is read from `kind` first rather than guessing at a
+  // `raw-capture:<outcome>:...` split that does not apply to it.
+  const outcome = c.kind === 'gap' ? 'gap' : (c.source?.split(':')[1] || 'unknown');
   const canHitMiss = (c.expected || []).length > 0;
   const attr = (verdict) => `data-verdict="${esc(verdict)}" data-id="${esc(c.id || '')}" `
     + `data-occasion="${esc(c.occasion)}" data-source="${esc(c.source)}" `

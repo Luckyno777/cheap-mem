@@ -29,14 +29,15 @@
 // three real, recorded outcomes — not the sibling's exact three, but
 // the honest equivalent this house's own journal supports.
 //
-// **N18 parity: NOT built.** The sibling's N18 promotes a closed
-// knowledge gap (R1, `src/luecken.mjs`) into a gold candidate
-// automatically. cheap-mem has no R1 counterpart — no module that
-// tracks a miss, then notices a LATER entry closes it. Building that
-// here would be a second new feature, not a mirror; `kind` below
-// reserves the vocabulary (`'drawn'` vs `'gap'`) so a future gap-close
-// pipeline can slot in without a format change, but nothing produces
-// `kind: 'gap'` yet.
+// **N18 parity: built in `src/gap.mjs`.** The sibling's N18 promotes a
+// closed knowledge gap (R1, `src/luecken.mjs`) into a gold candidate
+// automatically. `src/gap.mjs` is the smallest real equivalent this
+// house's own retrieval journal supports (see its own header for why
+// it needs `userhabits.realMessages()` where the sibling reads
+// `worte_bekannt` straight off its journal) — it produces `kind: 'gap'`
+// rows into the SAME file this module owns, via its own `draw()`, kept
+// separate on purpose (own module, own tests, own privacy reasoning)
+// rather than folded into this file's `draw()`.
 //
 // invariant: not-measured-is-not-zero
 // invariant: append-only
@@ -60,7 +61,7 @@ export function newId() {
 export const SHARE = Object.freeze(['synthetic', 'yes', 'no']);
 /** A person's verdict on a candidate. */
 export const VERDICT = Object.freeze(['correct', 'wrong', 'empty-correct']);
-/** Where a candidate came from. `'gap'` is reserved, unused (see header). */
+/** Where a candidate came from. `'gap'` rows come from `src/gap.mjs` (N18). */
 export const KIND = Object.freeze(['drawn', 'gap']);
 
 export function defaultTarget() {

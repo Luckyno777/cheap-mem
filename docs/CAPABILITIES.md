@@ -87,6 +87,7 @@ directory. The section number in brackets is where it is explained.
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
+| `gap.mjs` | N18 parity: a retrieval miss the injection journal recorded, later matched by content-word overlap with a NEW entry, is a closed knowledge gap — produces `kind:'gap'` candidates for `goldlog.mjs`'s file, shown first on the "Rate today" card |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
