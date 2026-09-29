@@ -252,7 +252,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
-    'rueckstand', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
+    'rueckstand', 'sicherung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
     'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',
     'wiederholung', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
     'zustellnachweis', 'zustellschuld', 'zustellung',
