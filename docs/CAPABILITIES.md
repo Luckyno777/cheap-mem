@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 68 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 69 CLI commands, 30 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2505 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -143,6 +143,7 @@ directory. The section number in brackets is where it is explained.
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
+| `goldlog.mjs` | the owner's rating of a real retrieval question (hit / near miss / no hit, from the journal's recorded reason — no invented scores), appended OUTSIDE the memory root; `mem gold today`/`mem gold rate` and the dashboard's Rate-today card share it (7.5) |
 | `verifylog.mjs` | a human's verdict on an uncertain fact, appended OUTSIDE the memory root — never a correction, never inside the repo (7.5) |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
 | `webauth.mjs` | the door in front of any HTTP service (7.4) |
@@ -514,7 +515,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 68 commands
+### 7.1 CLI — 69 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -524,7 +525,7 @@ viewer project correction version guard heartbeat questions answer
 procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
-asked-learn effect today modelcost
+asked-learn effect today modelcost gold
 ```
 
 `mem board` is the operating state on one screen — raw archive, digest,

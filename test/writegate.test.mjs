@@ -43,6 +43,9 @@ const WRITES = [
   // A Today-card fact verdict (N9 parity, 2026-09-28) — appends outside
   // the memory root, see src/verifylog.mjs.
   ['/dashboard/verify-verdict', 'key=test.key&verdict=still-current'],
+  // A 'Rate today' retrieval-question verdict (N9, 2026-09-29) — appends
+  // outside the memory root, see src/goldlog.mjs.
+  ['/dashboard/gold-verdict', 'source=q&verdict=skip'],
 ];
 
 function memory() {
