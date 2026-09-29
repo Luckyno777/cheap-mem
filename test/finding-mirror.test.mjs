@@ -242,6 +242,9 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // W9 (2026-09-29): 'paritaetsschuld' added on the lucky-mem side, paired
   // here with this house's own 'parity-debt' — refreshed as its own
   // reviewed change, per the instructions above.
+  // W10 (2026-09-29): 'skill-nutzung' added on the lucky-mem side, paired
+  // here with this house's own 'skill-usage' — refreshed as its own
+  // reviewed change, per the instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -255,7 +258,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
-    'rueckstand', 'sicherung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
+    'rueckstand', 'sicherung', 'skill-nutzung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
     'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',
     'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
     'zustellnachweis', 'zustellschuld', 'zustellung',

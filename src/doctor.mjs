@@ -34,6 +34,7 @@ import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
 import * as raw from './raw.mjs';
+import * as skillusage from './skillusage.mjs';
 import * as archive from './archive.mjs';
 import * as search from './search.mjs';
 import * as redaction from './redaction.mjs';
@@ -80,6 +81,43 @@ function quietRun(cmd, args) {
 // importing `bench/`. Re-exported here so anyone already importing it
 // from `doctor.mjs` (e.g. tests) keeps working unchanged.
 export { siblingClone } from './sibling.mjs';
+
+/**
+ * W10: `skill-usage` — skills of the house inventory that were NEVER
+ * observed in the captured transcripts. At most WARNING, never ERROR,
+ * and never a suggestion to remove anything automatically: the
+ * measurement does not see subagents (handover 5.2), "not observed" is
+ * not "unused".
+ *
+ *   - archive unreadable / nothing readable / time cap
+ *     (MEM_SKILLUSAGE_TIME_MS, "partially read") / coverage shorter
+ *     than MEM_SKILLUSAGE_DAYS -> UNKNOWN.
+ *   - no raw-capture archive -> UNKNOWN (nothing measured is not zero use).
+ *   - no skill inventory -> GOOD (nothing to judge; the text names the coverage).
+ *   - coverage >= N days and at least one skill never observed -> WARNING.
+ *   - otherwise GOOD.
+ * The text carries counts only (it may travel); names sit in the advice.
+ */
+export function checkSkillUsage(root, { env = process.env, nowMs = null } = {}) {
+  const r = skillusage.measure(root, { env, nowMs });
+  const days = skillusage.daysThreshold(env);
+  if (r.state === 'empty') return finding('skill-usage', LEVEL.UNKNOWN, 'no raw-capture archive present — nothing measured (not "no use")');
+  if (r.state === 'unknown') return finding('skill-usage', LEVEL.UNKNOWN, `${r.reason}. ${r.coverage}`);
+  if (!r.inventory.length) {
+    return finding('skill-usage', LEVEL.GOOD, `no skill inventory shipped in the house (.claude/skills) — nothing to measure. ${r.coverage}`);
+  }
+  if (r.days < days) {
+    return finding('skill-usage', LEVEL.UNKNOWN,
+      `coverage ${r.days.toFixed(1)} days < ${days} days (MEM_SKILLUSAGE_DAYS) — too short for a verdict. ${r.coverage}`);
+  }
+  if (!r.notObserved.length) {
+    return finding('skill-usage', LEVEL.GOOD, `all ${r.inventory.length} skills of the house inventory appeared. ${r.coverage}`);
+  }
+  return finding('skill-usage', LEVEL.WARNING,
+    `${r.notObserved.length} of ${r.inventory.length} house skills not observed in ${r.days.toFixed(0)} days of coverage. ${r.coverage}`,
+    `Not observed (does NOT mean unused; subagents are not captured): ${r.notObserved.join(', ')}\n`
+    + 'Nothing is removed automatically; details: mem skills usage');
+}
 
 /**
  * Do both houses know the same doctor findings — and where they do not,
@@ -342,6 +380,7 @@ export function checkAll(root) {
   f.push(checkAppendOnlyGit(root));
   f.push(checkFindingParity(root));
   f.push(checkParityDebt(root));
+  f.push(checkSkillUsage(root));
   f.push(checkRunningCode(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
