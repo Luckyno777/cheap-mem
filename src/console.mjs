@@ -154,6 +154,29 @@ export const SETTINGS = Object.freeze({
       return { hours: Math.round(n) };
     },
   },
+  'core-name': {
+    title: 'Core name',
+    kind: 'text',
+    description: 'The name shown on the shared core in the knowledge space, and in '
+      + 'the atlas header and breadcrumb.',
+    effect: 'Display only — every value is escaped before it reaches the page. '
+      + 'Applies from the next dashboard reload.',
+    read(root) {
+      const s = readState(root);
+      const value = s.coreName != null ? s.coreName : 'CHEAP MEM';
+      return { value, source: s.coreName != null ? 'console' : 'default', set: s.coreName != null };
+    },
+    write(root, value) {
+      const v = String(value ?? '').trim();
+      // 1-32 printable characters, no control characters or line breaks —
+      // this text sits in a page header, not a log line.
+      if (!v || v.length > 32 || /[\x00-\x1F\x7F]/.test(v)) {
+        throw new Error('Core name must be 1–32 printable characters, with no line breaks or control characters.');
+      }
+      writeState(root, { coreName: v });
+      return { name: v };
+    },
+  },
 });
 
 /**

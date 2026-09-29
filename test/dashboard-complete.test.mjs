@@ -198,7 +198,7 @@ export const INVENTORY = [
     needs: ['settings'],
     js: [/function systemPage/, /formPost\('\/setting'/],
     check(d) {
-      assert.deepEqual(d.settings.map((s) => s.id).sort(), ['error-window', 'quiet-hours', 'raw-archive']);
+      assert.deepEqual(d.settings.map((s) => s.id).sort(), ['core-name', 'error-window', 'quiet-hours', 'raw-archive']);
       for (const s of d.settings) assert.ok(s.effect && s.source, `${s.id}: effect/source missing`);
     },
   },
