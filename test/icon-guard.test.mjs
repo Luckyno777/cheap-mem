@@ -240,6 +240,27 @@ test('bin/mem-serve: favicon and manifest icons are the own mark, never the fore
   }
 });
 
+test('bin/mem-serve: the sign-in page (login on, 2026-09-28) draws the own C, never the foreign L', async () => {
+  // The login page is the FIRST thing anyone sees since the login —
+  // before the dashboard. It draws the mark inline (icon.markSvg()),
+  // so the check is the own C path present, the foreign L absent.
+  const r = root();
+  const { serve } = await import('../bin/mem-serve');
+  const { server } = await serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' });
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const res = await fetch(base + '/login');
+    assert.equal(res.status, 200, '/login did not answer');
+    const html = await res.text();
+    assert.equal(guardVerdict(html, { must: false }), null);
+    assert.ok(html.includes(icon.cPath()), 'the sign-in page does not draw the own C');
+  } finally {
+    server.closeAllConnections?.();
+    await new Promise((res) => server.close(res));
+    fs.rmSync(r, { recursive: true, force: true });
+  }
+});
+
 test('SABOTAGE: the foreign mark (lucky-mem) spliced into the dashboard turns the guard RED', () => {
   const foreignLink = FOREIGN_LINK_SVG; // the fixed fixture, see file header
 
