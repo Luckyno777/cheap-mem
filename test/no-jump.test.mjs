@@ -227,8 +227,18 @@ test('no-jump: the "New data" marker appears ONLY when the content really change
       assert.equal(await page.evaluate(() => document.getElementById('newDataMark')?.hidden), true, 'without a change the marker stays hidden');
       // Now a real change -> the marker must show.
       memory.logEntry(r, 'learning', { agent: 'builder', title: 'Really new', text: 'y' }, {});
-      await page.evaluate(() => window.loadData({ quiet: true }));
-      assert.equal(await page.evaluate(() => document.getElementById('newDataMark')?.hidden), false, 'after a real change the marker appears');
+      // The server's dashboard cache may still answer with the previous
+      // build for a moment (it rebuilds in the background) — under a full
+      // suite that moment is long enough to fail a single refetch (seen
+      // 2026-09-29). The guarantee is "the marker appears once the served
+      // content changed", so refetch quietly until it does, bounded.
+      let shown = false;
+      for (const until = Date.now() + 20000; Date.now() < until && !shown;) {
+        await page.evaluate(() => window.loadData({ quiet: true }));
+        shown = await page.evaluate(() => document.getElementById('newDataMark')?.hidden === false);
+        if (!shown) await page.waitForTimeout(250);
+      }
+      assert.equal(shown, true, 'after a real change the marker appears');
     } finally {
       await page.close();
     }

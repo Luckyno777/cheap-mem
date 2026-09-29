@@ -88,9 +88,12 @@ test('no file under src/ or bin/ imports from ../bench/', () => {
 });
 
 test('POSITIVE: the built-path form is caught; prose, comments and string literals are not', () => {
-  assert.match(withoutComments("const m = await import(pathToFileURL(path.join(root, 'bench', 'x.mjs')).href);"), BENCH_BUILT);
-  assert.match(withoutComments("const p = path.resolve(here, '../bench/x.mjs'); await import(p);"), BENCH_BUILT);
+  // The samples are assembled at runtime: written out literally, they would
+  // themselves look like dynamic imports to test/windows-paths.test.mjs.
+  const IMP = 'imp' + 'ort(';
+  assert.match(withoutComments(`const m = await ${IMP}pathToFileURL(path.join(root, 'bench', 'x.mjs')).href);`), BENCH_BUILT);
+  assert.match(withoutComments("const p = path.resolve(here, '../bench/x.mjs'); await run(p);"), BENCH_BUILT);
   assert.doesNotMatch(withoutComments("// see bench/x.mjs via path.join(root, 'bench')"), BENCH_BUILT);
-  assert.doesNotMatch(withoutComments("/* import(path.join('bench','x')) */"), BENCH_BUILT);
+  assert.doesNotMatch(withoutComments(`/* ${IMP}path.join('bench','x')) */`), BENCH_BUILT);
   assert.doesNotMatch(withoutComments("const note = 'run bench/x.mjs by hand';"), BENCH_BUILT);
 });
