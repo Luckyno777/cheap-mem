@@ -96,3 +96,6 @@ fieldset.read-only-fields{border:0;padding:0;margin:0;min-width:0;opacity:.62}
 .graph-empty strong{font-size:13px;font-weight:500;color:#e2efdc;letter-spacing:-.2px}
 .graph-empty code.mono{pointer-events:auto}
 @media(max-width:720px){.graph-empty{bottom:48px;font-size:10px}}
+
+/* 2026-09-29: the hidden attribute always wins — .btn{display:inline-flex} had the same specificity as [hidden] and came later, so the "New data" marker was always visible. */
+[hidden]{display:none!important}

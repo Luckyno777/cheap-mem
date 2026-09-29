@@ -153,7 +153,7 @@ test('no-jump: scroll, an open <details> and the 3-D canvas survive several real
       assert.deepEqual(errors, [], 'no page errors');
       // There were real changes (the writer loop above) -> the quiet
       // marker must appear.
-      assert.equal(await page.evaluate(() => document.getElementById('newDataMark')?.hidden), false, 'the "New data" marker appears on a real change');
+      assert.equal(await page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark'))), true, 'the "New data" marker appears on a real change');
 
       // Stop the writer now: otherwise a background cycle between the
       // click and the check below could show a new (correct) marker
@@ -172,7 +172,7 @@ test('no-jump: scroll, an open <details> and the 3-D canvas survive several real
       // replaced #screen: the same test marker is gone).
       await page.click('#newDataMark');
       await page.waitForTimeout(50);
-      assert.equal(await page.evaluate(() => document.getElementById('newDataMark')?.hidden), true, 'a click on the marker hides it again');
+      assert.equal(await page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark'))), false, 'a click on the marker hides it again');
       assert.notEqual(await page.evaluate(() => document.querySelector('#brain')?.dataset.probeMark), 'unchanged', 'the click on the marker really draws (render()) — the old canvas is gone');
     } finally {
       running = false;
@@ -224,7 +224,7 @@ test('no-jump: the "New data" marker appears ONLY when the content really change
       assert.equal(await page.evaluate(() => typeof window.loadData), 'function', 'loadData is a global function name of a classic <script> — positive control that this setup even applies');
       // No write between the calls -> the same content -> no marker.
       await page.evaluate(() => window.loadData({ quiet: true }));
-      assert.equal(await page.evaluate(() => document.getElementById('newDataMark')?.hidden), true, 'without a change the marker stays hidden');
+      assert.equal(await page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark'))), false, 'without a change the marker stays hidden');
       // Now a real change -> the marker must show.
       memory.logEntry(r, 'learning', { agent: 'builder', title: 'Really new', text: 'y' }, {});
       // The server's dashboard cache may still answer with the previous
@@ -235,7 +235,7 @@ test('no-jump: the "New data" marker appears ONLY when the content really change
       let shown = false;
       for (const until = Date.now() + 20000; Date.now() < until && !shown;) {
         await page.evaluate(() => window.loadData({ quiet: true }));
-        shown = await page.evaluate(() => document.getElementById('newDataMark')?.hidden === false);
+        shown = await page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark')));
         if (!shown) await page.waitForTimeout(250);
       }
       assert.equal(shown, true, 'after a real change the marker appears');
