@@ -2980,6 +2980,69 @@ export function mergeTopics(root, from, to, { why = '', agent = null, now = new 
   return { target, written };
 }
 
+// --- V11: confirming a flagged content loss as intentional --------------
+//
+// `checkCorrectionContentLoss` (src/doctor.mjs, P11) never BLOCKS a
+// correction that drops notable content of its predecessor — it only
+// warns, because a correction is allowed to drop something wrong. But a
+// warning nothing can ever clear is not a warning, it is noise. A human
+// can confirm the loss was on purpose (`mem correction intended
+// <old-id> <new-id> --reason "..."`, src/cli/commands/write.mjs).
+//
+// Same shape as `ALIAS_LOG` above: a SECOND log, never a rewrite of the
+// correction chain itself. Confirming is applied on READ (the finding
+// folds it in as "resolved, reported separately"); the correction lines
+// stay exactly as written. Append-only, `global/` (not project-scoped —
+// a correction's ids are unique across the whole memory).
+
+export const CORRECTION_INTENT_LOG = 'global/correction-intent.jsonl';
+
+/** Every confirmation ever written, oldest first. Broken lines are skipped. */
+export function correctionIntentConfirmations(root) {
+  const p = path.join(root, CORRECTION_INTENT_LOG);
+  const out = [];
+  if (fs.existsSync(p)) {
+    for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+      if (!line.trim()) continue;
+      try {
+        const e = JSON.parse(line);
+        if (typeof e.old_id === 'string' && typeof e.new_id === 'string') out.push(e);
+      } catch { /* skip a broken line */ }
+    }
+  }
+  return out;
+}
+
+/** Is this exact old-id/new-id pair already confirmed? */
+export function isCorrectionIntentConfirmed(root, oldId, newId) {
+  return correctionIntentConfirmations(root).some((e) => e.old_id === oldId && e.new_id === newId);
+}
+
+/**
+ * Append a confirmation. Pure write — the CALLER (write.mjs) is where
+ * the flagged-pair check and the human-writer refusal live, because
+ * both need `doctor.correctionLossHits()`/`procedure.isHuman()`, and
+ * this module must not import doctor.mjs (doctor.mjs already imports
+ * this one).
+ */
+export function confirmCorrectionIntent(root, oldId, newId, {
+  reason = '', confirmedBy, now = new Date(),
+} = {}) {
+  const old_id = String(oldId ?? '').trim();
+  const new_id = String(newId ?? '').trim();
+  if (!old_id || !new_id) throw new Error('confirmCorrectionIntent: old_id/new_id required.');
+  const by = String(confirmedBy ?? '').trim();
+  if (!by) throw new Error('confirmCorrectionIntent: confirmed_by required.');
+  const p = path.join(root, CORRECTION_INTENT_LOG);
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  const line = {
+    ts: now.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+    old_id, new_id, confirmed_by: by, reason: String(reason || ''),
+  };
+  appendLine(p, `${JSON.stringify(line)}\n`);
+  return line;
+}
+
 /** A topic is at most this long. Past it, it is a title. */
 export const TOPIC_MAX = 40;
 

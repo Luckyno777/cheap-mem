@@ -518,6 +518,10 @@ mem explain "<q>" <claim-id>   why a claim did (not) come back
 mem epoch [show|record]        did the memory go backwards?
 mem project init <name>        idempotent project skeleton
 mem correction <type> <id> ... append a correction linked to the old entry
+mem correction intended <old> <new> [--reason ...]   a human confirms a
+                               flagged correction-content-loss pair was
+                               intentional (mem doctor); refused for an
+                               unflagged pair or a non-human writer
 mem version
 
 mem inbox new|all [--as N]     what is new for me / everything to me

@@ -14,6 +14,22 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — P11/V10/V11: chain-head content-loss finding, human confirmation
+
+- **`correction-content-loss` follows the correction chain's HEAD**
+  (`src/doctor.mjs`'s `correctionLossHits`), not only the direct
+  successor — ported from lucky-mem (commit `b4c84379`). A warning a
+  LATER correction already restores no longer sits forever.
+- **`mem correction intended <old-id> <new-id> [--reason "..."]`**: a
+  human confirms a flagged loss was intentional. Append-only
+  (`global/correction-intent.jsonl`, `memory.confirmCorrectionIntent`),
+  never rewrites the correction chain. Refused for a pair that is not
+  currently flagged, one already confirmed, or a non-human writer (an
+  MCP-bridged agent, stamped via `CHEAP_MEM_AGENT`, cannot confirm for
+  itself — see `procedure.isHuman`). The finding now reports confirmed
+  pairs separately ("N confirmed as intentional") instead of folding
+  them silently into "good".
+
 ### Added — release rail and proof ledger (Bauplan P1)
 
 - **`checked.jsonl`** (`src/checkrecord.mjs`, `bin/mem-check-record`):

@@ -1029,21 +1029,45 @@ function checkIndex(root) {
  * intended (a correction is allowed to drop something wrong) — it only
  * makes it visible (the system proposes, the human decides).
  */
-function checkCorrectionContentLoss(root) {
-  const rareDf = Number(process.env.MEM_CORRECTION_RARE_DF) || search.RARE_DF;
-  let idx;
-  try {
-    const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
-    idx = search.loadIndex(root, { language: cfg.language });
-  } catch (e) {
-    return finding('correction-content-loss', LEVEL.UNKNOWN,
-      `could not build the index (${e.message})`, 'Retry once `mem find --fresh` works again.');
-  }
+/**
+ * The pure corpus-wide scan behind `checkCorrectionContentLoss` — split
+ * out so `mem correction intended` (src/cli/commands/write.mjs) can ask
+ * "is this exact old-id/new-id pair CURRENTLY flagged?" without a second
+ * copy of the chain-walk below. Throws on an index build failure; the
+ * finding turns that into LEVEL.UNKNOWN, the CLI into a refusal.
+ *
+ * **Chain head (2026-09-29, ported from lucky-mem b4c84379).** Compares
+ * a correction not only against its direct predecessor but against the
+ * predecessor and the HEAD of the correction chain — the entry that
+ * holds TODAY. Without this, a warning survives forever even once a
+ * LATER link in the same chain restores the lost content (Lucky: "alle
+ * wiederherstellen" restored 34 of them on lucky-mem; the direct-
+ * successor-only comparison could never clear). A closing correction
+ * does not extend the chain for this purpose (`memory.isClosingCorrection`)
+ * — it carries no content of its own, so the walk stops at the last
+ * content-carrying link, same as `checkCorrectionContentLoss` already
+ * exempts it from being CHECKED at all.
+ */
+export function correctionLossHits(root, opts = {}) {
+  const rareDf = opts.rareDf ?? (Number(process.env.MEM_CORRECTION_RARE_DF) || search.RARE_DF);
+  const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
+  const idx = search.loadIndex(root, { language: cfg.language });
 
   const byId = new Map();
   for (const d of idx.documents) {
     if (d?.entry?.id) byId.set(d.entry.id, d.entry);
   }
+
+  const successor = new Map(); // id -> the entry that supersedes it (content-carrying only)
+  for (const e of byId.values()) {
+    if (e.replaces_id && !memory.isClosingCorrection(e)) successor.set(e.replaces_id, e);
+  }
+  const headOf = (e) => {
+    let h = e;
+    const seen = new Set();
+    while (successor.has(h.id) && !seen.has(h.id)) { seen.add(h.id); h = successor.get(h.id); }
+    return h;
+  };
 
   let checked = 0;
   const hits = [];
@@ -1056,24 +1080,62 @@ function checkCorrectionContentLoss(root) {
     if (memory.isClosingCorrection(entry)) continue;
     checked += 1;
     const lost = search.lostCorrectionContent(original, entry, { docFreq: idx.docFreq, rareDf });
-    if (lost.lost) hits.push({ from: original.id, to: entry.id, ...lost });
+    if (!lost.lost) continue;
+    const head = headOf(entry);
+    if (head.id !== entry.id
+      && !search.lostCorrectionContent(original, head, { docFreq: idx.docFreq, rareDf }).lost) {
+      // A later link in the chain already restored it — the head holds
+      // the content today, so this is no longer a live warning.
+      continue;
+    }
+    hits.push({ from: original.id, to: entry.id, ...lost });
   }
+  return { checked, hits, rareDf };
+}
 
-  if (hits.length === 0) {
+function checkCorrectionContentLoss(root) {
+  let result;
+  try {
+    result = correctionLossHits(root);
+  } catch (e) {
+    return finding('correction-content-loss', LEVEL.UNKNOWN,
+      `could not build the index (${e.message})`, 'Retry once `mem find --fresh` works again.');
+  }
+  const { checked, hits, rareDf } = result;
+
+  // A human can confirm a flagged loss as intentional (`mem correction
+  // intended <old-id> <new-id> --reason "..."`, V11) — append-only,
+  // global/correction-intent.jsonl, never touches the correction chain
+  // itself. A confirmed pair still gets its rare-word/quote loss
+  // computed above (nothing here is skipped) but counts as RESOLVED,
+  // reported separately, not folded silently into "good".
+  const confirmations = memory.correctionIntentConfirmations(root);
+  const confirmedKeys = new Set(confirmations.map((c) => `${c.old_id}\u0000${c.new_id}`));
+  const isConfirmed = (h) => confirmedKeys.has(`${h.from}\u0000${h.to}`);
+  const confirmed = hits.filter(isConfirmed);
+  const open = hits.filter((h) => !isConfirmed(h));
+  const confirmedNote = confirmed.length > 0
+    ? ` (${confirmed.length} confirmed as intentional)` : '';
+
+  if (open.length === 0) {
     return finding('correction-content-loss', LEVEL.GOOD,
-      `${checked} correction(s) checked, none lose notable words of their predecessor (RARE_DF=${rareDf})`);
+      `${checked} correction(s) checked, none lose notable words of their predecessor `
+      + `(RARE_DF=${rareDf})${confirmedNote}`);
   }
   const line = (h) => {
     const parts = [...h.quotes.map((q) => `quote "${q}"`), ...h.rareWords.map((w) => `word "${w}"`)];
     return `${h.from}->${h.to} (${parts.slice(0, 4).join(', ')}${parts.length > 4 ? ', ...' : ''})`;
   };
   return finding('correction-content-loss', LEVEL.WARN,
-    `${hits.length} of ${checked} correction(s) lose notable words of their predecessor: `
-    + hits.slice(0, 12).map(line).join('; ') + (hits.length > 12 ? ` (+${hits.length - 12})` : ''),
+    `${open.length} of ${checked} correction(s) lose notable words of their predecessor`
+    + `${confirmedNote}: `
+    + open.slice(0, 12).map(line).join('; ') + (open.length > 12 ? ` (+${open.length - 12})` : ''),
     'Look at the id pairs above: was the loss intentional (dropping something wrong) or an '
     + 'accident? If an accident, write another correction that carries the full history '
     + 'forward (mem correction) — the original stays (append-only), but search over the lost '
-    + 'word no longer finds anything valid.');
+    + 'word no longer finds anything valid. If intentional, a human confirms it with '
+    + '`mem correction intended <old-id> <new-id> --reason "..."` so it stops being reported '
+    + 'as open.');
 }
 
 export function checkStopHook(root) {

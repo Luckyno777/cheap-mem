@@ -26,6 +26,7 @@ import * as question from '../../question.mjs';
 import * as neighbours from '../../neighbours.mjs';
 import * as errorclass from '../../errorclass.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
+import * as doctor from '../../doctor.mjs';
 import { out, die, warn, checkFlags, isHelp, fieldsFrom, findRoot, requireConfig } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -505,7 +506,61 @@ export const COMMANDS = {
         '  --origin, --valid_from/--valid_until, the swallowed-value guard.',
         '',
         `  Types: ${Object.keys(memory.TYPES).join(', ')}`,
+        '',
+        'mem correction intended <old-id> <new-id> [--reason "..."]',
+        '',
+        '  Confirms a loss the correction-content-loss finding (`mem doctor`)',
+        '  flagged on this exact pair was INTENTIONAL — a human decision,',
+        '  never a rewrite: it appends one line to',
+        '  global/correction-intent.jsonl and leaves the correction chain',
+        '  untouched. Refused if the pair is not currently flagged, already',
+        '  confirmed, or the writer is not a human (see `mem whoami` /',
+        '  CHEAP_MEM_AGENT — an MCP-bridged agent cannot confirm).',
       ].join('\n'));
+      return;
+    }
+    if (rest[0] === 'intended') {
+      const oldId = rest[1];
+      const newId = rest[2];
+      if (!oldId || !newId) {
+        die([
+          'correction intended: old id and new id required.',
+          '  mem correction intended <old-id> <new-id> [--reason "..."]',
+        ].join('\n'));
+      }
+      checkFlags(args, ['reason', 'agent', 'project'], 'correction intended');
+      const root = findRoot(args);
+      requireConfig(root);
+      // Same identity the procedure/workflow latch uses (see
+      // src/procedure.mjs's isHuman doc comment): a human at a real
+      // shell gets `human:<os user>` from memory.agentDefault(); an
+      // MCP-bridged agent is stamped CHEAP_MEM_AGENT (bin/mem-mcp's
+      // resolveAgent(), never agentDefault()) and so fails isHuman().
+      const me = typeof args.agent === 'string' ? args.agent : memory.agentDefault();
+      if (!procedure.isHuman(me)) {
+        die(`correction intended: refused — '${me}' is not a human writer. Only 'owner' or `
+          + "'human:<name>' may confirm a loss as intentional (allowed: owner, human:<name>); "
+          + 'an agent cannot decide this for itself. Nothing was written.');
+      }
+      if (memory.isCorrectionIntentConfirmed(root, oldId, newId)) {
+        die(`correction intended: ${oldId} -> ${newId} is already confirmed. Nothing was written.`);
+      }
+      let hits;
+      try {
+        hits = doctor.correctionLossHits(root).hits;
+      } catch (e) {
+        die(`correction intended: could not check the finding (${e.message})`);
+      }
+      const match = hits.find((h) => h.from === oldId && h.to === newId);
+      if (!match) {
+        die(`correction intended: ${oldId} -> ${newId} is not currently flagged by `
+          + "'correction-content-loss' (mem doctor). Nothing was written.");
+      }
+      const reason = typeof args.reason === 'string' ? args.reason : '';
+      const line = memory.confirmCorrectionIntent(root, oldId, newId, { reason, confirmedBy: me });
+      out(`Confirmed as intentional: ${oldId} -> ${newId}`);
+      out(`  by:     ${line.confirmed_by}`);
+      if (line.reason) out(`  reason: ${line.reason}`);
       return;
     }
     const type = rest[0];
