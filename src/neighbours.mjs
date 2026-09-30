@@ -29,6 +29,7 @@
  */
 import fs from 'node:fs';
 import * as memory from './memory.mjs';
+import * as search from './search.mjs';
 
 /**
  * Which field makes two entries "about the same subject".
@@ -212,4 +213,105 @@ export function hint(found) {
     '    If both hold side by side: do nothing.',
     '    If they CONTRADICT:  mem log link --from <new> --to <id> --kind contradicts');
   return lines;
+}
+
+// ---------------------------------------------------------------------
+// G1b: similar decisions WITHOUT a shared topic
+//
+// **The gap (gold case time-08, 2026-09-30).** Two decisions about one
+// subject, the newer one written without `topic` and without
+// `replaces_id`: nothing links them, so retrieval has no rule by which
+// the newer one should win — and deliberately none is added there (a
+// ranking rule on word overlap would decide by guess which ruling holds).
+// The place the link CAN be made is the moment of writing: whoever
+// writes the second decision knows whether it replaces the first. So at
+// that moment — and only when there is no topic to find neighbours by —
+// the two lexically closest decisions of the same drawer are shown, with
+// the ready command to retire the old one.
+//
+// A note, not a verdict: "similar", never "contradicts". No model, no
+// effect on retrieval, nothing written. Output only.
+//
+// **The threshold is measured, not guessed** (2026-09-30, every decision
+// replayed in time order as if written without topic, corrections and
+// tombstones not counted as writes):
+//
+//     reference corpus, 304 decisions      8 notes   2.6 %
+//       (lucky-mem's real decision drawers, fields mapped to this shape)
+//     gold world (bench/gold/world.jsonl)  1 of 18   exactly time-08
+//
+// On the same corpus a Jaccard floor of 0.20 gave 4.9 %, 0.35 lost the
+// gold case itself. The brief's ceiling was ~5 %: a note on every tenth
+// write is skipped within a week (same reasoning as the topic hint above).
+
+/** At least this many shared content words... */
+export const SIMILAR_MIN_SHARED = 2;
+/** ...and at least this Jaccard overlap of the two word sets. */
+export const SIMILAR_MIN_JACCARD = 0.25;
+/** Two, not three: a note about "maybe this one", not a list. */
+export const SIMILAR_MAX = 2;
+
+/** The words a decision's SUBJECT is made of: title and choice, not the reasoning. */
+export function subjectWords(e) {
+  return new Set(search.contentWords([e?.title, e?.choice].filter(Boolean).join(' ')));
+}
+
+/** Shared words and Jaccard overlap of two word sets. */
+export function overlap(a, b) {
+  let shared = 0;
+  for (const w of a) if (b.has(w)) shared += 1;
+  const union = a.size + b.size - shared;
+  return { shared, jaccard: union ? shared / union : 0 };
+}
+
+/**
+ * The lexically closest standing decisions of the same drawer, for a
+ * decision that is about to be written WITHOUT a topic.
+ *
+ * Empty (and silent) when: not a decision; a topic is given (then the
+ * topic hint above is the one that speaks); a `replaces_id` is given
+ * (the writer already linked it); nothing passes the threshold.
+ */
+export function similarDecisions(root, type, data = {}, {
+  project = null, except = null, tailBytes = TAIL_BYTES,
+} = {}) {
+  const none = { hits: [] };
+  if (type !== 'decision') return none;
+  if (String(data?.topic ?? '').trim()) return none;
+  if (data?.replaces_id) return none;
+  const mine = subjectWords(data);
+  if (mine.size < SIMILAR_MIN_SHARED) return none;
+
+  const tail = readTail(memory.logPath(root, type, project), tailBytes);
+  if (!tail) return none;
+  const entries = [];
+  for (const zeile of tail.raw.split('\n')) {
+    if (!zeile.trim()) continue;
+    try { entries.push(JSON.parse(zeile)); } catch { /* a broken line is no neighbour */ }
+  }
+  const retired = memory.retiredMap(entries);
+  const scored = [];
+  for (const e of entries) {
+    if (!e?.id || (except && e.id === except)) continue;
+    if (!memory.holds(e, retired)) continue;
+    const o = overlap(mine, subjectWords(e));
+    if (o.shared >= SIMILAR_MIN_SHARED && o.jaccard >= SIMILAR_MIN_JACCARD) scored.push({ e, ...o });
+  }
+  // Closest first; on a tie the newer one, which is what the writer has
+  // to place themselves against first.
+  scored.sort((x, y) => y.jaccard - x.jaccard || String(y.e.ts).localeCompare(String(x.e.ts)));
+  return { hits: scored.slice(0, SIMILAR_MAX).map((s) => s.e) };
+}
+
+/** The note, as lines. `newId` is the entry just written. */
+export function similarHint(found, { newId = '<new-id>' } = {}) {
+  if (!found?.hits?.length) return [];
+  return [
+    '',
+    '  Similar decisions already stand (no topic given; word overlap only, not a verdict):',
+    ...found.hits.map((e) => `    ${line(e)}`),
+    '    If this one REPLACES it:',
+    ...found.hits.map((e) => `      mem discard ${e.id} --why "replaced by ${newId}"`),
+    '    If both hold side by side: do nothing. A shared --topic next time links them for recall.',
+  ];
 }

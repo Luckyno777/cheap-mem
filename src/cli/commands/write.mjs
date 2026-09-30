@@ -304,6 +304,9 @@ export const COMMANDS = {
     // of five. So no verdict, only the neighbours — and the commands
     // that resolve the case. See src/neighbours.mjs.
     const around = neighbours.neighbours(root, type, data, { project: args.project ?? null });
+    // G1b: no topic to find neighbours by -> the lexically closest
+    // decisions instead (a note, never a verdict; src/neighbours.mjs).
+    const alike = neighbours.similarDecisions(root, type, data, { project: args.project ?? null });
 
     // O1: content, the redaction self test and the redaction in ONE
     // function, the same one mem_log over the bridge uses. Until then
@@ -315,6 +318,7 @@ export const COMMANDS = {
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
+    for (const l of neighbours.similarHint(alike, { newId: entry.id })) out(l);
     if (startAs) {
       out(startAs === 'released'
         ? `  status: ${startAs} (issued by ${entry.issued_by})`
