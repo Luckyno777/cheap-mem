@@ -51,6 +51,10 @@
     {
       "pattern": "bench/lang-gold/*.tsv",
       "reason": "gold questions in the language the user asks in (M18b), the measurement input for bench/lang-bridge.mjs — translating them to English would remove the very thing measured"
+    },
+    {
+      "pattern": "bench/gold/*.jsonl",
+      "reason": "retrieval gold set (X5): the cross-language category needs German questions and German entries in the synthetic world — translating them would remove the very thing measured; data, not prose"
     }
   ],
   "filenameGermanWords": [
