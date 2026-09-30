@@ -206,26 +206,20 @@ export const IV_BYTES = 12;
  * about.
  */
 /**
- * **What encrypting `title` costs, measured 2026-09-20 and stated here
- * rather than discovered later.** `title` is in this list because it is
- * body: the sentence a person wrote. But it is also the field the
- * indexer weights most heavily. So an entry written with `shred: true`
- * is not merely "body hidden until decrypted" — it is UNFINDABLE:
+ * **What encrypting `title` cost, and what changed (2026-09-30).** `title`
+ * is in this list because it is body: the sentence a person wrote. It is
+ * also the field the indexer weights most, so until 2026-09-30 an entry
+ * written with `shred: true` was UNFINDABLE — no search lane, no viewer.
  *
- *     logEntry(root, 'decision', {title:'zzztitle', ..., shred:true})
- *     retrieve(root, 'zzztitle', grantAll(), {top:5})  ->  0 claims
- *
- * `readEntryBody` returns the whole body correctly (`state: 'ok'`, key
- * intact), so nothing is lost — but no search lane, and no viewer, can
- * reach the entry to ask. That is why this ships OFF: turning it on by
- * default would quietly remove entries from every answer this memory
- * gives, while every test that checks "is the body still readable"
- * stayed green.
- *
- * The fix is not to drop `title` from this list — that would leak the
- * one field most likely to name the person. It is a decrypt hook in
- * `search.mjs`'s indexer and `retrieval.mjs`'s body read, which is a
- * coordinated change across files this build point does not own.
+ * Decision 1fw996e7zo5c (owner, 2026-09-30; threat model: data theft at
+ * rest, i.e. a stolen laptop): a signed-in user and the agents see and
+ * search encrypted entries normally. `makeReveal` (below) decrypts IN
+ * MEMORY when the index is loaded (`search.loadIndex`) and when the
+ * dashboard reads the drawers; the persisted index carries such an entry
+ * only as a stub (its clear fields), and NOTHING on disk ever holds the
+ * decrypted words. Destroy the key and the body leaves search and display
+ * at once; an unreachable key store shows "not readable", never empty.
+ * The standard encryption itself is unchanged.
  */
 export const SHREDDABLE_FIELDS = Object.freeze([
   'choice', 'learning', 'duty', 'rule', 'question', 'skill',
@@ -496,7 +490,11 @@ export function readEntryBody(root, entry) {
   if (!entry.body_enc) {
     return { state: 'plain', reason: null, fields: plainBodyFields(entry) };
   }
-  const { present, keys } = loadKeyring(root);
+  return readWithKeyring(loadKeyring(root), entry);
+}
+
+/** `readEntryBody`'s key lookup and decryption, against an already-loaded keyring. */
+function readWithKeyring({ present, keys }, entry) {
   if (!present) {
     return { state: 'unreadable', reason: 'keyring-absent', fields: null };
   }
@@ -518,4 +516,55 @@ export function readEntryBody(root, entry) {
   } catch (e) {
     return { state: 'unreadable', reason: 'decrypt-failed', fields: null, error: e.message };
   }
+}
+
+/**
+ * How an encrypted entry that cannot be read is named on screen. Never
+ * empty and never silent: a shredded body and an unreachable key store
+ * are different facts and read differently.
+ */
+export function unreadableLabel(reason) {
+  if (reason === 'no-key') return '[encrypted entry: not readable - key destroyed (shredded) or never recorded]';
+  if (reason === 'keyring-absent') return '[encrypted entry: not readable - key store unreachable, state unknown]';
+  return `[encrypted entry: not readable - ${reason || 'unknown'}]`;
+}
+
+/**
+ * A reader for the display and search layers (decision 2026-09-30):
+ * `reveal(entry)` returns the entry with its encrypted body decrypted,
+ * IN MEMORY ONLY. The result is for showing and indexing; nothing that
+ * writes to disk may take it (a cache, a register, a journal, a log).
+ * The keyring is read once per reader, lazily, so one index load pays
+ * for one keyring read, not one per entry.
+ *
+ * Returns `{ entry, state, reason }`:
+ *   `plain`       not encrypted: the same object, untouched.
+ *   `ok`          decrypted: a COPY carrying the body fields plus
+ *                 `__body: { state: 'ok' }`.
+ *   `unreadable`  a COPY with `title` set to `unreadableLabel(reason)` and
+ *                 `__body: { state: 'unreadable', reason }` - the reason is
+ *                 shown, the entry is never quietly empty.
+ * A corrupt keyring is `unreadable` with reason `keyring-corrupt`, not a throw.
+ */
+export function makeReveal(root) {
+  let ring;
+  return function reveal(entry) {
+    if (!entry || typeof entry !== 'object' || !entry.body_enc) {
+      return { entry, state: 'plain', reason: null };
+    }
+    let res;
+    if (ring === undefined) {
+      try { ring = loadKeyring(root); } catch { ring = null; }
+    }
+    if (ring === null) res = { state: 'unreadable', reason: 'keyring-corrupt', fields: null };
+    else res = readWithKeyring(ring, entry);
+    if (res.state === 'ok') {
+      return { entry: { ...entry, ...res.fields, __body: { state: 'ok' } }, state: 'ok', reason: null };
+    }
+    return {
+      entry: { ...entry, title: unreadableLabel(res.reason), __body: { state: 'unreadable', reason: res.reason } },
+      state: 'unreadable',
+      reason: res.reason,
+    };
+  };
 }

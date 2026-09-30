@@ -1615,16 +1615,17 @@ encrypted), `unreadable` with a reason that distinguishes *the keyring
 is absent entirely* from *this one key is gone*, and `unknown` when
 there is no entry to inspect at all.
 
-**It ships OFF (`shred: true` per call), and here is why that is not
-timidity.** `title` is a body field — correctly, it is the field most
-likely to name a person — and it is also what the indexer weights most.
-So an entry written with shredding on is not "body hidden until
-decrypted", it is **unfindable**: `retrieve` returns zero claims for its
-own title, while `readEntryBody` returns the whole body correctly.
-Nothing is lost; nothing can reach it to ask. Turning this on by default
-would quietly remove entries from every answer the memory gives while
-every body-readability test stayed green. Closing it means a decrypt
-hook in `search.mjs` and `retrieval.mjs`, a coordinated change.
+**It ships OFF (`shred: true` per call).** Decision of 2026-09-30 (threat
+model: data theft at rest, i.e. a stolen laptop): encrypted entries are
+visible and searchable for the signed-in user and the agents. With the
+key present the body is decrypted **in memory only**, when the search index
+is loaded and when the dashboard reads the drawers (`shred.makeReveal`); the
+persisted index carries such an entry as a stub (its clear fields), and no
+file under the root, cache folders included, ever holds the decrypted
+words. With the key destroyed, the body leaves search and display at once;
+with the key store unreachable, search and display say "not readable", never
+empty. (Until 2026-09-30 such an entry was unfindable, because `title` is a
+body field; that limit is closed.)
 
 **Three more limits, measured rather than assumed:**
 
