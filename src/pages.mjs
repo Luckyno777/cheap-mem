@@ -125,6 +125,7 @@
 import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 import * as memory from './memory.mjs';
+import * as procedure from './procedure.mjs';
 import * as viewer from './viewer.mjs';
 import * as basis from './basis.mjs';
 import * as search from './search.mjs';
@@ -214,8 +215,10 @@ function corpusMark(root, types, projects, context) {
 }
 
 /** The narrow card fields for ONE row of a page. */
-function card(candidate) {
+function card(candidate, root = null) {
   const e = candidate.entry;
+  // X3b: status of a rule (only when not released) from procedure.mjs.
+  const ruleStatus = procedure.statusField(root, { ...e, _source: candidate.source });
   return {
     id: e.id,
     ts: e.ts,
@@ -227,6 +230,7 @@ function card(candidate) {
     basis: basis.markOf(e),
     tags: Array.isArray(e.tags) ? e.tags : [],
     source: candidate.source,
+    ...(ruleStatus ? { status: ruleStatus } : {}),
   };
 }
 
@@ -363,7 +367,7 @@ export function page(root, {
     }
   }
 
-  const entries = top.map(card);
+  const entries = top.map((k) => card(k, root));
   const next = seen > top.length
     ? encodeCursor({ ts: top[top.length - 1].ts, id: top[top.length - 1].id, stamp })
     : null;

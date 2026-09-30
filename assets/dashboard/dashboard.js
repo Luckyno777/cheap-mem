@@ -235,6 +235,11 @@ const boardWord = { calm: 'in order', watch: 'wants someone', alarm: 'broken', u
 const levelWord = { good: 'good', warn: 'warning', error: 'error', unknown: 'unknown' };
 const btn = (text, action, extra = '', cls = '') => `<button class="btn ${cls}" data-action="${action}" ${extra}>${text}</button>`;
 const link = (text, to) => `<button class="textlink" data-route="${to}">${text} ↗</button>`;
+// X3b: a rule that is not released (proposed/trial/withdrawn) carries a visible
+// label in EVERY entry display. The status comes from the server (field `status`,
+// the same function as in the CLI); released rules and legacy rules have no
+// field and get no mark.
+const ruleTag = (status) => (status ? `<span class="badge warn rule-status" data-rule-status="${esc(status)}" title="Not a rule in force: ${esc(status)}">${esc(status)}</span>` : '');
 const open = (id, text, cls = 'btn small') => `<button class="${cls}" data-entry="${esc(id)}">${esc(text || byId(id)?.title || id)}</button>`;
 const panel = (title, body, sub = '', extra = '') =>
   `<article class="panel pad ${extra}"><div class="panelhead"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>${body}</article>`;
@@ -301,7 +306,7 @@ function entryRows(list, emptyText) {
     list
       .map(
         (e) =>
-          `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}<p>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.agent)}</p></div></div>${badge(statusOf(e.id))}</div>`,
+          `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.agent)}</p></div></div>${badge(statusOf(e.id))}</div>`,
       )
       .join('') || empty(emptyText)
   );
@@ -322,7 +327,7 @@ function prepare(d) {
     why: e.why || null, source: e.source ? e.source + (e.line ? ':' + e.line : '') : '—', readable: !!e.readable, recall: e.recall ?? null,
     capture: e.capture || null, validFrom: e.validFrom || null, validUntil: e.validUntil || null, fact: e.fact || null, replaces: e.replaces || null,
     cited: e.cited || 0, contested: !!e.contested, basis: e.basis || null, authority: e.authority || null, scope: e.scope || null,
-    derivedFrom: e.derivedFrom || [], key: e.key || null,
+    derivedFrom: e.derivedFrom || [], key: e.key || null, ruleStatus: e.status || null,
   }));
   entries.sort((a, b) => b.ts.localeCompare(a.ts));
   entryIndex = new Map(entries.map((e) => [e.id, e]));
@@ -852,7 +857,7 @@ const pages = {
       .slice((pg - 1) * n, pg * n)
       .map(
         (e) =>
-          `<tr><td>${open(e.id, e.title, 'open-entry')}<span class="sub">${esc(e.id)} · ${esc(e.agent)} · ${esc(e.memory)} / ${esc(drawerOf(e))}</span></td><td><span class="type">${esc(types[e.type])}</span></td><td>${esc(e.project)}</td><td>${badge(statusOf(e.id))}</td><td class="quiet small">${when(e.ts)}</td></tr>`,
+          `<tr><td>${open(e.id, e.title, 'open-entry')}${ruleTag(e.ruleStatus)}<span class="sub">${esc(e.id)} · ${esc(e.agent)} · ${esc(e.memory)} / ${esc(drawerOf(e))}</span></td><td><span class="type">${esc(types[e.type])}</span></td><td>${esc(e.project)}</td><td>${badge(statusOf(e.id))}</td><td class="quiet small">${when(e.ts)}</td></tr>`,
       )
       .join('')}</tbody></table>${!es.length ? empty(entries.length ? undefined : 'This memory holds no entry yet. <code class="mono">mem log learning "…"</code> writes the first one; it appears here on the next load.') : ''}</div><div class="tablefoot"><span>${num(es.length)} hits · page ${pg} / ${Math.max(1, Math.ceil(es.length / n))}</span><div>${btn('←', 'prev', pg === 1 ? 'disabled' : '', 'small ghost')} ${btn('→', 'next', pg >= Math.ceil(es.length / n) ? 'disabled' : '', 'small ghost')}</div></div></article>`;
   },
@@ -900,7 +905,7 @@ const pages = {
     const ex = new Map((D.experiences || []).map((x) => [x.id, x]));
     const rows = es.slice(0, 40).map((e) => {
       const x = ex.get(e.id);
-      return `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}<p>${esc(e.project)} · ${esc(e.agent)}${x ? ` · cited ${num(x.cited)}×${(x.backedBy || []).length ? ` · backed by ${num(x.backedBy.length)}` : ''}` : ''}</p></div></div>${x?.contested ? badge('warning', 'contested') : badge(statusOf(e.id))}</div>`;
+      return `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(e.project)} · ${esc(e.agent)}${x ? ` · cited ${num(x.cited)}×${(x.backedBy || []).length ? ` · backed by ${num(x.backedBy.length)}` : ''}` : ''}</p></div></div>${x?.contested ? badge('warning', 'contested') : badge(statusOf(e.id))}</div>`;
     }).join('');
     return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.');
   },
@@ -910,7 +915,7 @@ const pages = {
       .map((e) =>
         panel(
           esc(e.title),
-          `<span class="badge">${esc(types[e.type])}</span><p class="muted" style="margin:16px 0">${esc(e.text)}</p><div class="row"><span class="small quiet">Author</span><span class="small">${esc(e.agent)}</span></div><div class="row"><span class="small quiet">Provision</span><span class="small">${e.type === 'skill' ? 'In context · through recall' : 'Procedure (issued by a human)'}</span></div><div class="row"><span class="small quiet">Injected</span><span class="small">${e.recall ? (e.recall.sessions ? `in ${num(e.recall.sessions)} sessions` : 'never') : 'not measurable'}</span></div><div style="margin-top:17px">${open(e.id, 'Content & history ↗')}</div>`,
+          `<span class="badge">${esc(types[e.type])}</span>${ruleTag(e.ruleStatus)}<p class="muted" style="margin:16px 0">${esc(e.text)}</p><div class="row"><span class="small quiet">Author</span><span class="small">${esc(e.agent)}</span></div><div class="row"><span class="small quiet">Provision</span><span class="small">${e.type === 'skill' ? 'In context · through recall' : 'Procedure (issued by a human)'}</span></div><div class="row"><span class="small quiet">Injected</span><span class="small">${e.recall ? (e.recall.sessions ? `in ${num(e.recall.sessions)} sessions` : 'never') : 'not measurable'}</span></div><div style="margin-top:17px">${open(e.id, 'Content & history ↗')}</div>`,
         ),
       )
       .join('') || empty('No skill and no procedure recorded yet. A skill is acquired (<code class="mono">mem log skill …</code>), a procedure is issued by a human (<code class="mono">mem log procedure …</code>).')}</div>${note('An injected skill does not count as applied. The usage view keeps delivery and observed effect apart.')}`,
@@ -3258,7 +3263,7 @@ async function showDetail(id, tab = 'content') {
   if (!e) return;
   state.selected = id;
   state.drawerTab = tab;
-  const head = `<div class="drawer-head"><div class="top"><span class="label">${esc(types[e.type])} / ${esc(id)}</span><button class="iconbtn" data-close="detail" aria-label="Close the detail">✕</button></div><h2 id="detailTitle">${esc(e.title)}</h2><div class="small quiet">${esc(e.project)} · ${esc(e.agent)} · ${esc(e.source)}</div></div><nav class="tabs" aria-label="Entry details">${[['content', 'Content'], ['evidence', 'Evidence trail'], ['history', 'History'], ['raw', 'Raw fields']]
+  const head = `<div class="drawer-head"><div class="top"><span class="label">${esc(types[e.type])} / ${esc(id)}</span><button class="iconbtn" data-close="detail" aria-label="Close the detail">✕</button></div><h2 id="detailTitle">${esc(e.title)}</h2>${ruleTag(e.ruleStatus)}<div class="small quiet">${esc(e.project)} · ${esc(e.agent)} · ${esc(e.source)}</div></div><nav class="tabs" aria-label="Entry details">${[['content', 'Content'], ['evidence', 'Evidence trail'], ['history', 'History'], ['raw', 'Raw fields']]
     .map(([k, n]) => `<button class="${tab === k ? 'active' : ''}" data-detail-tab="${k}" ${tab === k ? 'aria-current="page"' : ''}>${n}</button>`)
     .join('')}</nav>`;
   $('#detail').innerHTML = head + `<div class="drawer-body"><div class="loading compact"><span class="loading-core" aria-hidden="true"></span><p>Reading the entry …</p></div></div>`;
@@ -3351,7 +3356,7 @@ function renderSearch(q, { redrawOnly = false } = {}) {
       .filter((x) => q && x[1].toLowerCase().includes(q)),
     ms = q ? messages.filter((m) => (m.subject + ' ' + m.from + ' ' + m.to).toLowerCase().includes(q)).slice(0, 6) : [],
     rs = q ? rawSamples.filter((r) => (r.path + ' ' + (r.topics || []).join(' ')).toLowerCase().includes(q)).slice(0, 4) : [];
-  $('#commandResults').innerHTML = `${state.missing ? note('Not every source was readable. The hits are incomplete.', 'bad') : ''}${fulltextNotice(fulltextPalette) ? `<p class="small quiet" id="fulltextNoticePalette" role="status" title="${esc(fulltextPalette.reason || '')}">Full text unavailable – searching excerpts only</p>` : ''}${routes.map(([p, n]) => `<button class="result" data-search-route="${p}"><span>↗</span><div>${esc(n)}<small>Open the view</small></div></button>`).join('')}${ms.map((m) => `<button class="result" data-action="message" data-id="${esc(m.name)}"><span>⇄</span><div>${esc(m.subject)}<small>Message · ${esc(m.from)} → ${esc(m.to)} · ${esc(situationWord[m.situation] || m.situation)}</small></div></button>`).join('')}${rs.map((r) => `<button class="result" data-action="raw-review" data-id="${esc(r.path)}"><span>▧</span><div>${esc(r.session || r.path)}<small>Raw capture · ${esc((r.topics || []).slice(0, 3).join(', ') || 'no topic')}</small></div></button>`).join('')}${es.map((e) => `<button class="result" data-search-entry="${esc(e.id)}"><span class="entry-icon">${esc((types[e.type] || '?')[0])}</span><div>${esc(e.title)}<small>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.id)}</small></div></button>`).join('')}${!es.length && !routes.length && !ms.length && !rs.length ? empty(entries.length ? 'Nothing found.' : 'Nothing found — this memory holds no entry yet.') : ''}<div id="commandMemory"></div>`;
+  $('#commandResults').innerHTML = `${state.missing ? note('Not every source was readable. The hits are incomplete.', 'bad') : ''}${fulltextNotice(fulltextPalette) ? `<p class="small quiet" id="fulltextNoticePalette" role="status" title="${esc(fulltextPalette.reason || '')}">Full text unavailable – searching excerpts only</p>` : ''}${routes.map(([p, n]) => `<button class="result" data-search-route="${p}"><span>↗</span><div>${esc(n)}<small>Open the view</small></div></button>`).join('')}${ms.map((m) => `<button class="result" data-action="message" data-id="${esc(m.name)}"><span>⇄</span><div>${esc(m.subject)}<small>Message · ${esc(m.from)} → ${esc(m.to)} · ${esc(situationWord[m.situation] || m.situation)}</small></div></button>`).join('')}${rs.map((r) => `<button class="result" data-action="raw-review" data-id="${esc(r.path)}"><span>▧</span><div>${esc(r.session || r.path)}<small>Raw capture · ${esc((r.topics || []).slice(0, 3).join(', ') || 'no topic')}</small></div></button>`).join('')}${es.map((e) => `<button class="result" data-search-entry="${esc(e.id)}"><span class="entry-icon">${esc((types[e.type] || '?')[0])}</span><div>${esc(e.title)}${ruleTag(e.ruleStatus)}<small>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.id)}</small></div></button>`).join('')}${!es.length && !routes.length && !ms.length && !rs.length ? empty(entries.length ? 'Nothing found.' : 'Nothing found — this memory holds no entry yet.') : ''}<div id="commandMemory"></div>`;
   // The same search as "mem find" (BM25/synonyms), through the existing
   // read-only endpoint /entries.json — the palette searches the SAME
   // memory as the command line, in addition to the plain substring
@@ -3375,7 +3380,7 @@ async function paletteMemorySearch(q, localHits) {
   const extra = hits.filter((t) => !already.has(t.id)).slice(0, 8);
   target().innerHTML = extra.length
     ? `<div class="label" style="margin:14px 0 4px">Ranked search in the memory (like "mem find")</div>${extra
-      .map((t) => `<button class="result" data-search-entry="${esc(t.id)}"><span class="entry-icon">${esc((types[t.type] || '?')[0])}</span><div>${esc(t.headline)}<small>${esc(t.typeLabel)} · ${esc(t.project)} · ${esc(t.id)}</small></div></button>`)
+      .map((t) => `<button class="result" data-search-entry="${esc(t.id)}"><span class="entry-icon">${esc((types[t.type] || '?')[0])}</span><div>${esc(t.headline)}${ruleTag(t.status)}<small>${esc(t.typeLabel)} · ${esc(t.project)} · ${esc(t.id)}</small></div></button>`)
       .join('')}`
     : '';
 }

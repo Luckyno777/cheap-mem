@@ -16,6 +16,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import * as memory from '../../memory.mjs';
+import * as procedure from '../../procedure.mjs';
 import * as search from '../../search.mjs';
 import * as raw from '../../raw.mjs';
 import * as thesaurus from '../../thesaurus.mjs';
@@ -28,6 +29,12 @@ import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
+
+// X3b: `status` field for a hit that is a rule and not released; else nothing.
+const statusOf = (root, entry, source) => {
+  const st = procedure.statusField(root, source ? { ...entry, _source: source } : entry);
+  return st ? { status: st } : {};
+};
 
 /** 13 commands. */
 export const COMMANDS = {
@@ -196,7 +203,8 @@ export const COMMANDS = {
             line: h._line,
             ts: h.ts ?? null,
             state: h._retired?.state ?? null,
-            label: compactLine(h) || '',
+            label: compactLine(h, { root }) || '',
+            ...statusOf(root, h),
           })),
         }), null, 2));
         return;
@@ -214,7 +222,7 @@ export const COMMANDS = {
         asOf ? ` as of ${asOf} (${allHits.length - hits.length} not valid then)` : ''}:`);
       for (const h of hits) {
         const mark = h._retired ? `  [${h._retired.state}]` : '';
-        out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h)}${mark}`);
+        out(`  ${h._source}:${h._line}  [${h.ts ?? '?'}]  ${compactLine(h, { root })}${mark}`);
       }
       return;
     }
@@ -387,7 +395,8 @@ export const COMMANDS = {
           source: h.source,
           line: h.line,
           ts: h.entry.ts ?? null,
-          label: compactLine(h.entry),
+          label: compactLine(h.entry, { root }),
+          ...statusOf(root, h.entry, h.source),
           ...(h.retired ? { state: h.retired.state } : {}),
         }));
         out(JSON.stringify({ query, ms, asOf, hits: brief }, null, 2));
@@ -398,7 +407,7 @@ export const COMMANDS = {
       // "not filtered" and as "older version of the tool" at the same
       // time.
       out(JSON.stringify(sanitizeForDisplay({
-        query, ms, asOf, hits: hits.map((h) => ({ ...h, entry: markedEntry(h.entry) })),
+        query, ms, asOf, hits: hits.map((h) => ({ ...h, ...statusOf(root, h.entry, h.source), entry: markedEntry(h.entry, { root }) })),
       }), null, 2));
       return;
     }
@@ -420,7 +429,7 @@ export const COMMANDS = {
       // through compactLine at all, so it needs its own call here.
       const preview = h.raw
         ? sanitizeForDisplay(String(raw.snippet(root, h.source, query) || h.entry.text || ''))
-        : compactLine(h.entry);
+        : compactLine(h.entry, { root });
       out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
     }
   },
@@ -696,8 +705,11 @@ export const COMMANDS = {
     if (!id) die('show: which id? Example: mem show a1b2c3');
     const e = memory.getEntry(root, id);
     if (!e) die(`show: id '${id}' not found (or retired/tombstone).`);
-    if (args.json) { out(JSON.stringify(sanitizeForDisplay(markedEntry(e)))); return; }
-    out(`${e._source}  [${e.ts ?? '?'}]  id=${e.id}`);
+    if (args.json) { out(JSON.stringify(sanitizeForDisplay(markedEntry(e, { root })))); return; }
+    // X3b: a rule that is not released shows its status, from the same function as `mem procedures`.
+    const ruleStatus = procedure.statusField(root, e);
+    out(`${e._source}  [${e.ts ?? '?'}]  id=${e.id}${ruleStatus ? `  ${procedure.statusMark(ruleStatus)}` : ''}`);
+    if (ruleStatus) out(`  status: ${ruleStatus} (NOT a rule in force until a human has released it)`);
     for (const [k, v] of Object.entries(e)) {
       if (k.startsWith('_') || k === 'id' || k === 'ts') continue;
       out(`  ${k}: ${typeof v === 'string' ? sanitizeForDisplay(v) : JSON.stringify(sanitizeForDisplay(v))}`);

@@ -689,6 +689,8 @@ export function collectDashboard(root, {
       id: z.id,
       type: z.type,
       title: z.headline || z.id,
+      // X3b: rule status (proposed/trial/withdrawn); absent otherwise.
+      status: z.status ?? null,
       project: z.project || 'global',
       tags: z.tags ?? [],
       ts: z.ts ?? null,

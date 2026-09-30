@@ -51,6 +51,7 @@
  * claim becomes a forgeable but VISIBLE claim.
  */
 
+import fs from 'node:fs';
 import * as memory from './memory.mjs';
 import * as errorclass from './errorclass.mjs';
 import * as authority from './authority.mjs';
@@ -120,7 +121,7 @@ export function mark(entry = {}) {
   const how = entry.on_instruction ? `, written down by ${entry.agent ?? '?'}` : '';
   // A proposed or trial rule is never shown as a rule in force. The
   // marker is stamped on by the lanes and lists that know the status.
-  const tag = entry._status === 'proposed' || entry._status === 'trial' ? `[${entry._status}] ` : '';
+  const tag = statusMark(entry._status) ? `${statusMark(entry._status)} ` : '';
   return `${tag}Procedure, issued by ${by} on ${day}${how}`;
 }
 
@@ -558,4 +559,96 @@ export function effectLine(eff) {
       + `${eff.after} in the ${EFFECT_WINDOW_DAYS} days after (a count, not proof the rule caused it)`;
   }
   return `effect: unknown (${eff.reason})`;
+}
+
+// ---------------------------------------------------------------------
+// X3b — the status in EVERY display, from ONE function
+// ---------------------------------------------------------------------
+
+/**
+ * The mark for a status: `[proposed]`, `[trial]`, `[withdrawn]` — and
+ * `''` for `released` (also for "released (legacy)"), so the picture of
+ * a rule in force does not change. One place; every renderer asks it.
+ */
+export function statusMark(status) {
+  return STATUSES.includes(status) && status !== LEGACY_STATUS ? `[${status}]` : '';
+}
+
+/** The project whose drawer holds an entry (`null` = global, `undefined` = unknown). */
+function projectOf(e) {
+  if (e?._project) return String(e._project);
+  if (e?._project === null) return null;
+  const q = String(e?._source ?? '').replace(/\\/g, '/');
+  const a = q.match(/^projects\/([^/]+)\//);
+  if (a) return a[1];
+  const b = q.match(/^procedure\/([^/]+)$/);
+  if (b) return b[1];
+  return /(^|\/)procedures?(\.jsonl)?$/.test(q) ? null : undefined;
+}
+
+/** Is this a rule entry from the `procedure` drawer? */
+export function isRule(e) {
+  if (!e || typeof e !== 'object' || !e.rule || !e.id) return false;
+  const q = String(e._source ?? e._type ?? '');
+  // An entry that knows its drawer is decided by it; otherwise the field
+  // `rule` together with the author (`issued_by`), which only procedures carry.
+  return q ? /(^|\/)procedures?(\.jsonl|\/|$)/.test(q) : Boolean(e.issued_by);
+}
+
+const indexCache = new Map();
+function indexFor(root, project) {
+  let file;
+  try { file = memory.logPath(root, TYPE, project); } catch { return null; }
+  let sig = 'missing';
+  try { const st = fs.statSync(file); sig = `${st.size}:${st.mtimeMs}`; } catch { /* no drawer: empty index */ }
+  const hit = indexCache.get(file);
+  if (hit && hit.sig === sig) return hit.idx;
+  let entries = [];
+  try { entries = memory.readLog(root, TYPE, { project }).entries; } catch { return null; }
+  const idx = statusIndex(entries);
+  indexCache.set(file, { sig, idx });
+  return idx;
+}
+
+/**
+ * THE function every renderer asks: `{ status, legacy, mark }` for a
+ * rule entry, otherwise `null`. It computes nothing itself — it reads
+ * the status lines of the drawer and asks `statusOf()`. If the status
+ * cannot be read the answer is `null` (unknown), never "released".
+ */
+export function statusFor(root, entry) {
+  if (!root || !isRule(entry)) return null;
+  // A caller that does not know the drawer (the index search lane hands
+  // no `_source`) gets the id looked up in global and every project.
+  const p = projectOf(entry);
+  let candidates = [p];
+  if (p === undefined) {
+    try { candidates = [null, ...memory.listProjects(root)]; } catch { candidates = [null]; }
+  }
+  let idx = null;
+  for (const k of candidates) {
+    const i = indexFor(root, k);
+    if (i && (i.byId.has(entry.id) || candidates.length === 1)) { idx = i; break; }
+  }
+  if (!idx) return null;
+  const st = statusOf(entry, idx);
+  return { status: st.status, legacy: st.legacy, mark: statusMark(st.status) };
+}
+
+/** The entry with `_status` stamped on — unchanged when it is no rule. */
+export function stampStatus(root, entry) {
+  if (entry && entry._status !== undefined) return entry;
+  const st = statusFor(root, entry);
+  return st ? { ...entry, _status: st.status } : entry;
+}
+
+/**
+ * The `status` field for JSON output: the status when it is NOT
+ * released (proposed / trial / withdrawn), otherwise `undefined` — the
+ * field is then absent, and the picture of rules in force and legacy
+ * rules stays as it was.
+ */
+export function statusField(root, entry) {
+  const st = statusFor(root, entry);
+  return st && st.mark ? st.status : undefined;
 }

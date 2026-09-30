@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import * as consolePage from './console.mjs';
 import * as viewer from './viewer.mjs';
 import * as memory from './memory.mjs';
+import * as procedure from './procedure.mjs';
 import * as net from './net.mjs';
 import * as backlinkIndex from './backlinks.mjs';
 import * as question from './question.mjs';
@@ -425,6 +426,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
       project: r.project || 'global',
       tags: r.tags,
       headline: r.headline,
+      ...(r.status ? { status: r.status } : {}),
       source: r.source,
       line: r.line,
       // **Three states, and the first one is its own field.** `markOf`
@@ -853,7 +855,9 @@ export function getEntryFast(root, id) {
   try { asOf = fs.statSync(file).mtime.toISOString(); } catch { /* no evidence -> null */ }
 
   const source = memory.asSource(root, file);
+  const ruleStatus = procedure.statusField(root, { ...e, _source: source });
   const entry = {
+    ...(ruleStatus ? { status: ruleStatus } : {}),
     id,
     ts: e.ts,
     day: String(e.ts || '').slice(0, 10),

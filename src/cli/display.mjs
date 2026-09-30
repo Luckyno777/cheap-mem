@@ -172,7 +172,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
   out(`${entries.length} entries in window '${window.label}' (${wj.from} .. ${wj.to}${narrow}${asOfNote}, ${ms}ms):`);
   for (const e of entries) {
     out(`  [${e.ts}] ${e._source}:${e._line}`);
-    out(`         ${compactLine(e)}`);
+    out(`         ${compactLine(e, { root })}`);
   }
   if (entries.length === 0) {
     out('  (nothing digested in this window — try --raw for the raw transcript)');
@@ -187,7 +187,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
   }
 }
 
-export function compactLine(e) {
+export function compactLine(e, { root = null } = {}) {
   const parts = [];
   // **A procedure never comes out without its marking.**
   //
@@ -197,7 +197,9 @@ export function compactLine(e) {
   // DISPLAY, not in the caller: there are several display paths, and a
   // guarantee each of them has to keep on its own is only as strong as
   // the sloppiest one.
-  if (e.rule) parts.push(procedure.mark(e));
+  // The status is stamped by the ONE function in procedure.mjs (X3b); without
+  // a root it cannot be read, and the line stays as it was.
+  if (e.rule) parts.push(procedure.mark(procedure.stampStatus(root, e)));
   if (e.class) parts.push(`[${e.class}]`);
   if (e.topic) parts.push(`[${e.topic}]`);
   if (e.title) parts.push(e.title);
@@ -224,8 +226,10 @@ export function compactLine(e) {
  * instruction text with no author at all. The guarantee has to hold on
  * the machine-readable path too, or it holds where it is least needed.
  */
-export function markedEntry(e) {
-  return e && e.rule ? { ...e, marking: procedure.mark(e) } : e;
+export function markedEntry(e, { root = null } = {}) {
+  if (!(e && e.rule)) return e;
+  const status = procedure.statusField(root, e);
+  return { ...e, marking: procedure.mark(procedure.stampStatus(root, e)), ...(status ? { status } : {}) };
 }
 
 /**
