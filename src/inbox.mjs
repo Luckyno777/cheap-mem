@@ -21,6 +21,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import * as agents from './agents.mjs';
 import { bodyHash } from './retrieval.mjs';
 
@@ -284,8 +285,101 @@ export function readMessage(root, name) {
   return fs.readFileSync(p, 'utf8');
 }
 
+/**
+ * The reservation for one (from, to, request id): a marker file next to
+ * the messages, named after a hash of exactly that triple.
+ *
+ * **Why the marker and not the message name.** The message name carries
+ * the time and the clone mark, so two clones writing the same request
+ * make two different names — that is what keeps `git add/add` conflicts
+ * out of the drawer. The marker is the opposite on purpose: same triple,
+ * same name, and its content is EMPTY, so the same marker added in two
+ * clones merges cleanly (identical add on both sides). It carries no
+ * text, no time and no comparison data — anything that could differ
+ * between clones would turn the marker itself into a merge conflict.
+ * Whether the two requests agree is decided from the messages, on read.
+ *
+ * Not `.md`, so `read` never mistakes it for a message.
+ */
+export const REQUEST_MARKER_EXT = '.req';
+
+export function requestKey({ from, to, requestId }) {
+  return createHash('sha256').update(`${from}\0${to}\0${requestId}`).digest('hex').slice(0, 24);
+}
+
+function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
+
+/** Thrown when a Client-Request-Id is reused for a different message. */
+export class RequestConflictError extends Error {
+  constructor(message, { prior } = {}) {
+    super(message);
+    this.name = 'RequestConflictError';
+    this.code = 'REQUEST_CONFLICT';
+    this.prior = prior ?? null;
+  }
+}
+
+/**
+ * Send, at most once per (from, to, Client-Request-Id).
+ *
+ *   no id      — as it always was: every call writes a message.
+ *   new id     — reserve the marker exclusively (`wx`), then write.
+ *   same id, same text     — REPLAY: nothing is written; the earlier
+ *                            message is returned with `replay: true`.
+ *   same id, different text — CONFLICT: throws RequestConflictError. A
+ *                            reused id is a caller bug, never papered over.
+ *
+ * Two clones cannot see each other's reservation until they merge, so
+ * the read side (`read`) folds equal triples into ONE logical message
+ * and lists the rest as `duplicates` — see there.
+ */
 export function write(root, participants, {
   from, to, subject, text, now = new Date(), requestId = null,
+}) {
+  if (requestId === null || requestId === undefined) {
+    return writeMessage(root, participants, { from, to, subject, text, now, requestId: null });
+  }
+  // Validate before anything is reserved: a bad message must not leave a marker behind.
+  build(participants, { from, to, time: new Date(now).toISOString(), subject, text, requestId });
+  const seenPrior = () => {
+    const c = classifyRequest(root, participants, { from, to, requestId, text });
+    if (c === REQUEST.NEW) return null;
+    const { messages } = read(root, participants, { to });
+    const prior = messages.find((m) => m.from === from && m.requestId === requestId);
+    if (c === REQUEST.CONFLICT) {
+      throw new RequestConflictError(
+        `Client-Request-Id '${requestId}' from '${from}' to '${to}' was already used for a `
+        + `different message (${prior.name}) — nothing written. Use a new id for a new message.`,
+        { prior });
+    }
+    return { path: path.join(inboxDir(root), prior.name), name: prior.name, time: prior.time, replay: true };
+  };
+  const hit = seenPrior();
+  if (hit) return hit;
+
+  const dir = inboxDir(root);
+  fs.mkdirSync(dir, { recursive: true });
+  const marker = path.join(dir, `request-${requestKey({ from, to, requestId })}${REQUEST_MARKER_EXT}`);
+  try {
+    fs.writeFileSync(marker, '', { flag: 'wx' });
+  } catch (e) {
+    if (e.code !== 'EEXIST') throw e;
+    // Reserved by someone else: another process writing right now, an
+    // earlier call that died before writing, or the other clone's marker
+    // that came in with a merge. Give a live writer a moment to finish;
+    // if no message ever shows up, the reservation is an orphan and we
+    // write — a duplicate is folded on read, a lost message is not.
+    for (let i = 0; i < 20; i += 1) {
+      const again = seenPrior();
+      if (again) return again;
+      sleepMs(50);
+    }
+  }
+  return writeMessage(root, participants, { from, to, subject, text, now, requestId });
+}
+
+function writeMessage(root, participants, {
+  from, to, subject, text, now, requestId,
 }) {
   const time = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const content = build(participants, { from, to, time, subject, text, requestId });
@@ -382,9 +476,8 @@ export function reply(root, participants, { name, as, text, now = new Date() }) 
 export function read(root, participants, { to = null, state = null } = {}) {
   if (to !== null) checkParticipant(participants, to, 'To');
   const dir = inboxDir(root);
-  if (!fs.existsSync(dir)) return { dir: null, messages: [], broken: [] };
+  if (!fs.existsSync(dir)) return { dir: null, messages: [], broken: [], duplicates: [] };
 
-  const messages = [];
   // **One unreadable message must not take the drawer down (2026-09-19).**
   //
   // Until today there was no try here. The throw came out of the LOOP,
@@ -400,6 +493,7 @@ export function read(root, participants, { to = null, state = null } = {}) {
   // malformed JSONL lines — count broken lines instead of silently
   // skipping them.
   const broken = [];
+  const all = [];
   for (const name of fs.readdirSync(dir).sort()) {
     if (!name.endsWith('.md')) continue;
     let m;
@@ -410,10 +504,43 @@ export function read(root, participants, { to = null, state = null } = {}) {
       continue;
     }
     if (to !== null && m.to !== to) continue;
-    if (state !== null && m.state !== state) continue;
-    messages.push(m);
+    all.push(m);
   }
-  return { dir, messages, broken };
+
+  // **One logical message per (from, to, Client-Request-Id).**
+  //
+  // Two clones that send the same request cannot see each other's
+  // reservation until they merge, and the merge must not conflict, so
+  // both messages exist side by side. Every reader goes through here,
+  // so the fold happens here: the OLDEST by header time wins, ties by
+  // file name (a stable key both clones compute the same). The others
+  // are not dropped — they come back as `duplicates`, each pointing at
+  // the message it duplicates and saying whether its text agrees, so
+  // "delivered once" never means "one silently vanished". Messages
+  // without an id are never folded: two "ping"s are two requests.
+  const byKey = new Map();
+  for (const m of all) {
+    if (m.requestId === null) continue;
+    const k = `${m.from}\0${m.to}\0${m.requestId}`;
+    const cur = byKey.get(k);
+    if (!cur || m.time < cur.time || (m.time === cur.time && m.name < cur.name)) byKey.set(k, m);
+  }
+  const duplicates = [];
+  const logical = [];
+  for (const m of all) {
+    const winner = m.requestId === null ? null : byKey.get(`${m.from}\0${m.to}\0${m.requestId}`);
+    if (winner && winner !== m) {
+      duplicates.push({
+        ...m,
+        duplicateOf: winner.name,
+        sameText: bodyHash(m.text) === bodyHash(winner.text),
+      });
+    } else {
+      logical.push(m);
+    }
+  }
+  const messages = state === null ? logical : logical.filter((m) => m.state === state);
+  return { dir, messages, broken, duplicates };
 }
 
 /** Three states, never two: what a new send with the same id means. */
@@ -502,10 +629,11 @@ export function inboxMtime(root) {
  */
 export function newFor(root, participants, { to }) {
   checkParticipant(participants, to, 'To');
-  const { dir, messages } = read(root, participants, { to });
+  const { dir, messages, duplicates } = read(root, participants, { to });
   const seen = new Set(loadSeen(root)[to] ?? []);
   return {
     dir,
+    duplicates,
     new: messages.filter((m) => !seen.has(m.name)),
     known: messages.filter((m) => seen.has(m.name)).length,
     mtime: inboxMtime(root),
