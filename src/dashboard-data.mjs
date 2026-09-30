@@ -61,6 +61,7 @@ import * as agentledger from './agentledger.mjs';
 import * as userhabits from './userhabits.mjs';
 import * as freshness from './freshness.mjs';
 import * as retrieval from './retrieval.mjs';
+import * as bodyfields from './bodyfields.mjs';
 import * as search from './search.mjs';
 import * as capability from './capability.mjs';
 import * as viewer from './viewer.mjs';
@@ -151,11 +152,21 @@ function withoutEmpty(o, keep = []) {
   return out;
 }
 
-/** The field that carries an entry's content, in the order a person would read it. */
-export function textOf(e) {
+/**
+ * The field that carries an entry's content, in the order a person would read it.
+ *
+ * The body fields and their order per type come from ONE place,
+ * `src/bodyfields.mjs` (O2). Until 2026-09-30 this was a list of its own
+ * without `duty`, `skill`, `description`, `steps` and `body` — a duty
+ * without `text` showed as an empty card. What stays here is only the
+ * fallback for entries with no body field at all: `summary`/`value`
+ * (older shapes), then the handles.
+ */
+export function textOf(e, type = null) {
   if (!e || typeof e !== 'object') return '';
-  for (const k of ['text', 'choice', 'fact', 'rule', 'question', 'learning', 'excerpt', 'summary',
-    'why', 'value', 'title', 'topic', 'class']) {
+  const main = bodyfields.mainText(e, type);
+  if (main.trim()) return main;
+  for (const k of ['summary', 'value', 'title', 'topic', 'class']) {
     if (typeof e[k] === 'string' && e[k].trim()) return e[k];
   }
   return '';
@@ -701,7 +712,7 @@ export function collectDashboard(root, {
       state: z.retired?.state ?? 'active',
       why: z.retired?.why ?? null,
       out: (z.links ?? []).map((l) => [l.kind, l.id, l.known ? 1 : 0]),
-      text: e ? excerpt(textOf(e)) : null,
+      text: e ? excerpt(textOf(e, z.type)) : null,
       source: z.source ?? null,
       line: z.line ?? null,
       readable: Boolean(z.readable),
@@ -950,7 +961,7 @@ export function entryWhole(root, id, { getCard = dashboard.getEntryFast } = {}) 
   if (card.state === 'unknown' || card.state === 'error') return card;
   let rawLine = null;
   try { rawLine = memory.getEntry(root, id) ?? null; } catch { rawLine = null; }
-  return { ...card, raw: rawLine, text: rawLine ? textOf(rawLine) : null };
+  return { ...card, raw: rawLine, text: rawLine ? textOf(rawLine, card.type ?? null) : null };
 }
 
 // ---------------------------------------------------------------------
@@ -1023,7 +1034,7 @@ export function factsAt(root, { known, valid } = {}, { readAll = null } = {}) {
     holds: holds.map((e) => ({
       id: e.id ?? null,
       key: freshness.subjectKey(e) ?? null,
-      title: excerpt(e.title || `${e.key ?? ''}${e.key ? ' = ' : ''}${e.value ?? e.fact ?? textOf(e)}`, 160) || e.id,
+      title: excerpt(e.title || `${e.key ?? ''}${e.key ? ' = ' : ''}${e.value ?? e.fact ?? textOf(e, 'timeline')}`, 160) || e.id,
       value: e.value ?? e.fact ?? null,
       validFrom: e.valid_from ?? null,
       ts: e.ts ?? null,
