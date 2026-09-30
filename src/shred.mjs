@@ -180,6 +180,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { withLock } from './filelock.mjs';
 
 export const KEYRING_DIR = '.mem';
 export const KEYRING_FILE = 'keyring.json';
@@ -243,6 +244,14 @@ export function keyringPath(root) {
   return path.join(root, KEYRING_DIR, KEYRING_FILE);
 }
 
+/** The lock file beside the keyring. Every read-modify-write of the keyring runs under it. */
+export function keyringLockPath(root) {
+  return `${keyringPath(root)}.lock`;
+}
+
+/** Bound on waiting for the keyring lock (ms) and its stale age (s). A keyring write is milliseconds. */
+const KEYRING_LOCK = Object.freeze({ waitMs: 10000, staleS: 60 });
+
 /**
  * Read the keyring. Returns `{ present, keys }` — `keys` a
  * `Map<id, { key: base64, createdAt }>`.
@@ -302,9 +311,14 @@ function saveKeyring(root, keys) {
 /** Record a new key for `id`. Creates the keyring file if it did not
  *  exist yet — the first shreddable write in a fresh memory. */
 export function putKey(root, id, keyBuf, { now = new Date() } = {}) {
-  const { keys } = loadKeyring(root);
-  keys.set(id, { key: keyBuf.toString('base64'), createdAt: new Date(now).toISOString() });
-  saveKeyring(root, keys);
+  // Read, change, write under ONE lock, and read the newest state only
+  // inside it: two writers holding stale snapshots would otherwise lose
+  // a key (the second write overwrites the first).
+  withLock(keyringLockPath(root), () => {
+    const { keys } = loadKeyring(root);
+    keys.set(id, { key: keyBuf.toString('base64'), createdAt: new Date(now).toISOString() });
+    saveKeyring(root, keys);
+  }, KEYRING_LOCK);
 }
 
 /** Whether a decryptable key currently exists for `id`. `false` both
@@ -332,20 +346,25 @@ export function hasKey(root, id) {
  * not a failure the caller needs to handle specially.
  */
 export function destroyKey(root, id, { reason = null, now = new Date() } = {}) {
-  const { present, keys } = loadKeyring(root);
-  if (!present) {
-    throw new Error(
-      `No keyring at ${keyringPath(root)} — cannot destroy a key that was never recorded as `
-      + 'kept here. This is a different, worse fact than "already shredded": every entry ever '
-      + 'encrypted in this memory is currently unreadable (see readEntryBody\'s keyring-absent '
-      + 'state), not specifically this one id.');
-  }
-  if (!keys.has(id)) {
-    return { destroyed: false, reason: 'no-such-key' };
-  }
-  keys.delete(id);
-  saveKeyring(root, keys);
-  return { destroyed: true, reason, at: new Date(now).toISOString() };
+  // Under the keyring lock, newest state read inside it: a stale
+  // snapshot would write back a key another writer had just destroyed,
+  // undoing a shred.
+  return withLock(keyringLockPath(root), () => {
+    const { present, keys } = loadKeyring(root);
+    if (!present) {
+      throw new Error(
+        `No keyring at ${keyringPath(root)} — cannot destroy a key that was never recorded as `
+        + 'kept here. This is a different, worse fact than "already shredded": every entry ever '
+        + 'encrypted in this memory is currently unreadable (see readEntryBody\'s keyring-absent '
+        + 'state), not specifically this one id.');
+    }
+    if (!keys.has(id)) {
+      return { destroyed: false, reason: 'no-such-key' };
+    }
+    keys.delete(id);
+    saveKeyring(root, keys);
+    return { destroyed: true, reason, at: new Date(now).toISOString() };
+  }, KEYRING_LOCK);
 }
 
 // --- body encryption ---------------------------------------------------
