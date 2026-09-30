@@ -146,6 +146,10 @@ export function dedupe(root, { project = undefined, type = null, dryRun = false 
               why: `duplicate content of ${survivor.id} (hash ${hash.slice(0, 16)}) `
                 + '— merged by mem maintenance dedupe',
               project: p,
+              // Y4: the tombstone speaks FOR the survivor (the highest
+              // authority of the group), so it may never be judged as
+              // lower than the duplicate it retires.
+              authority: authority.tierOf(survivor),
             });
           }
           report.push({ type: t, project: p, hash, survivor: survivor.id, retired: loser.id });

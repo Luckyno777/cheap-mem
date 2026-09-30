@@ -96,6 +96,105 @@ export function maySupersede(claim, target) {
   return { ok: false, reason: `${ct} does not outrank ${tt}` };
 }
 
+// ---------------------------------------------------------------------
+// ONE rule for every factual state change (Y4, 2026-09-30).
+//
+// The measured hole (ChatGPT brief 2026-09-30, point 4): only `replaces_id`
+// went through `maySupersede`. `retires_id` and `closes_id` were applied
+// unchecked, so an entry with authority=inferred, agent=digest could put a
+// `user`-tier target to rest (state=obsolete) with ONE line. Same poisoning
+// primitive as 2026-09-05, one field over.
+//
+// The three fields are now ONE question — `mayChangeState(claim, target,
+// field)` — asked at replay (memory.applyRetirement, and the duty fold in
+// memory.openDuties), so a line that arrives by import or merge is judged
+// exactly like one written here. Write-time checks are only an early
+// warning; the log is append-only, the verdict is derived on read.
+//
+// THE DELIBERATE DIFFERENCES (each one is a decision, not an accident):
+//
+//   replaces_id  strict: `maySupersede` unchanged. A correction puts NEW
+//                content in place of the old claim, so "same tier,
+//                different author" is refused (two agents overwriting each
+//                other's claims is the poisoning case).
+//   retires_id   lateral-tolerant: a tombstone puts NOTHING in the place
+//   closes_id    of the old claim, and everyday housekeeping is lateral —
+//                any session closes an auto-duty, any human discards
+//                another's stale thought. So a claim may close a target
+//                of the SAME tier; it may not close one that strictly
+//                OUTRANKS it. This is exactly the reported case (inferred
+//                vs user) and it keeps legacy data (unknown vs unknown,
+//                different agents) working without a migration.
+//   debtor       an entry that names an owner/debtor (a duty: `owner`,
+//                `who`) may always be closed by that owner, whatever tier
+//                the owner writes at. A duty is somebody's job; the person
+//                it is assigned to must be able to say it is done.
+//                It is deliberately NOT extended to replaces_id.
+//   unknown tier stays LAST. An unstamped claim (no `authority`) is not
+//                given the benefit of the doubt: the digest may omit the
+//                field, and "absent" must not read as "trusted". It can
+//                still close unstamped targets (lateral) and its own.
+//   missing      a target that is not in the view is UNRESOLVED — neither
+//   target       authorised nor refused. Nothing is visible to hide for
+//                it in that view, the map records it as `unresolved` and
+//                `mem doctor` (orphans) reports the dangling pointer.
+//
+// Refused means what it already meant for replaces_id: the target stays
+// ACTIVE and the claim is marked `disputed` — never silently dropped,
+// never silently honoured.
+
+/** The three fields that change the state of another entry. */
+export const STATE_FIELDS = Object.freeze(['replaces_id', 'retires_id', 'closes_id']);
+
+/** Normalise a person/agent name for the debtor comparison. */
+function partyKey(v) {
+  const s = String(v ?? '').trim().toLowerCase().replace(/^@/, '').replace(/^human:/, '');
+  return s || null;
+}
+
+/** Who owes this entry, if it names anyone (`owner`, else `who`). */
+export function debtorOf(entry) {
+  return partyKey(entry?.owner ?? entry?.who);
+}
+
+/**
+ * May `claim` change the state of `target` through `field`?
+ *
+ * Returns `{ ok, status, reason }`, `status` one of
+ * `allowed` | `refused` | `unresolved`. `ok` is true ONLY for `allowed`:
+ * an unresolved target is not an authorisation.
+ */
+export function mayChangeState(claim, target, field) {
+  if (!STATE_FIELDS.includes(field)) {
+    return { ok: false, status: 'refused', reason: `unknown state field '${field}'` };
+  }
+  if (!target) {
+    return {
+      ok: false, status: 'unresolved',
+      reason: `${field} target not in this view — unresolved (mem doctor lists dangling pointers)`,
+    };
+  }
+  if (field === 'replaces_id') {
+    const v = maySupersede(claim, target);
+    return { ok: v.ok, status: v.ok ? 'allowed' : 'refused', reason: v.reason };
+  }
+  const ca = authorOf(claim);
+  const ta = authorOf(target);
+  const ct = tierOf(claim);
+  const tt = tierOf(target);
+  if (ca !== null && ta !== null && ca === ta) {
+    return { ok: true, status: 'allowed', reason: `same author (${ca})` };
+  }
+  const debtor = debtorOf(target);
+  if (debtor !== null && partyKey(ca) === debtor) {
+    return { ok: true, status: 'allowed', reason: `${ca} is the owner of the target` };
+  }
+  if (!outranks(tt, ct)) {
+    return { ok: true, status: 'allowed', reason: ct === tt ? `same tier (${ct})` : `${ct} outranks ${tt}` };
+  }
+  return { ok: false, status: 'refused', reason: `${ct} may not ${field.replace('_id', '').replace(/s$/, '')} a ${tt} claim` };
+}
+
 /**
  * The highest tier a writer is permitted to assert.
  *
