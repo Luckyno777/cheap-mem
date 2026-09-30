@@ -70,6 +70,7 @@
  * write, same rule as lucky-mem's generator.
  */
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { TYPES } from '../src/memory.mjs';
 
@@ -344,9 +345,39 @@ export function synthesizeCorpus({
 }
 
 /** Write a `synthesizeCorpus()` result to `<root>/global/*.jsonl`. */
+/** Written into every corpus this script builds: proof the directory is ours to wipe. */
+export const BENCH_MARKER = '.heaps-corpus-bench';
+
+/**
+ * May `build`/`check` wipe `root`? Only when losing it costs nothing:
+ * it does not exist, it is empty, it sits under the system temp
+ * directory, or it carries BENCH_MARKER from an earlier build. Anything
+ * else — `build ~/my-memory 1000` typed by mistake — is refused before
+ * a single byte is deleted (audit 2026-09-30, B27: the rmSync below had
+ * no guard at all).
+ */
+export function disposableRoot(root) {
+  let real;
+  try { real = fs.realpathSync(root); } catch (e) {
+    if (e.code === 'ENOENT') return { ok: true, why: 'does not exist' };
+    return { ok: false, why: `cannot inspect: ${e.message}` };
+  }
+  if (!fs.statSync(real).isDirectory()) return { ok: false, why: 'not a directory' };
+  if (fs.readdirSync(real).length === 0) return { ok: true, why: 'empty' };
+  if (fs.existsSync(path.join(real, BENCH_MARKER))) return { ok: true, why: 'bench marker' };
+  let tmp = os.tmpdir();
+  try { tmp = fs.realpathSync(tmp); } catch { /* no such temp dir: nothing lies under it */ }
+  const rel = path.relative(tmp, real);
+  if (fs.existsSync(tmp) && rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+    return { ok: true, why: 'under the temp directory' };
+  }
+  return { ok: false, why: `not empty, not under ${tmp}, no ${BENCH_MARKER} marker` };
+}
+
 export function writeCorpus(root, byFile) {
   const dir = path.join(root, 'global');
   fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(root, BENCH_MARKER), 'synthetic corpus from bench/heaps-corpus.mjs — safe to delete\n');
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   const cfgPath = path.join(root, '.mem', 'config.json');
   if (!fs.existsSync(cfgPath)) {
@@ -441,6 +472,11 @@ if (!isMain) {
       phase: 'check', targetCount, targetVocab, measuredVocab, deviation, band, verdict: band ? 'PASS' : 'FAIL',
     })}\n`);
     if (!band) process.exitCode = 1;
+  }
+  const wipe = disposableRoot(root);
+  if (!wipe.ok) {
+    process.stderr.write(`ABORT: refusing to delete ${root} (${wipe.why}) — pass an empty or temp directory.\n`);
+    process.exit(1);
   }
   fs.rmSync(root, { recursive: true, force: true });
   const { files, bytes } = writeCorpus(root, byFile);
