@@ -291,7 +291,8 @@ test('acknowledge: only a message addressed to the human, only behind the write 
     assert.equal((await post(sOff, { name: 'x.md', state: 'closed' })).status, 403, 'wrote with the switch off');
     assert.equal((await post(sOn, { name: toBot, state: 'closed' })).status, 400, 'acknowledged a message to someone else');
     assert.equal((await post(sOn, { name: toHuman, state: 'processed' })).status, 303);
-    assert.equal(inbox.parse(inbox.readMessage(on, toHuman)).state, 'processed');
+    // Z3/A8: the state is an event line now; read it through the projection.
+    assert.equal(inbox.stateOf(on, toHuman).state, 'processed');
   } finally {
     await sOff.stop(); await sOn.stop();
     fs.rmSync(off, { recursive: true, force: true }); fs.rmSync(on, { recursive: true, force: true });

@@ -255,6 +255,10 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // paired here with this house's own 'claim-orphaned' (expired claims
   // without done/failed) — refreshed as its own reviewed change, per the
   // instructions above.
+  // Z3/A10 (2026-09-30): 'post-ungepusht' added on the lucky-mem side,
+  // paired here with this house's own 'inbox-unpushed' (mail that lies only
+  // locally) — refreshed as its own reviewed change, per the instructions
+  // above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -267,7 +271,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kennzahlen-gleich',
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
-    'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
+    'post-liegt', 'post-stau', 'post-ungepusht', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'sicherung', 'skill-nutzung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
     'transkript-schema', 'uebernahme-verwaist', 'waechter', 'waechter-fassung', 'waisen',
     'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',

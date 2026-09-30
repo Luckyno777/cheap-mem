@@ -355,7 +355,7 @@ const TOOLS = [
   'mem_answer', 'mem_board', 'mem_bridge_report', 'mem_component',
   'mem_context', 'mem_duties', 'mem_duty_close', 'mem_experiences',
   'mem_explain', 'mem_facts', 'mem_find', 'mem_heartbeat',
-  'mem_inbox_ack', 'mem_inbox_claim', 'mem_inbox_done', 'mem_inbox_new',
+  'mem_inbox_ack', 'mem_inbox_claim', 'mem_inbox_claims', 'mem_inbox_done', 'mem_inbox_failed', 'mem_inbox_new',
   'mem_inbox_renew', 'mem_inbox_show', 'mem_inbox_write',
   'mem_ledger', 'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
   'mem_questions', 'mem_retrieve', 'mem_show', 'mem_source',

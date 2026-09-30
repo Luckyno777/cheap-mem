@@ -265,3 +265,38 @@ test('A10: without an upstream it is unknown, never good', (t) => {
   execFileSync('git', ['init', '-q', '-b', 'main', root]);
   assert.equal(doctor.checkInboxUnpushed(root).level, 'unknown');
 });
+
+// ---------------------------------------------------------------- A11
+
+const MCP = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'mem-mcp');
+function bridge(root, calls, agent) {
+  const lines = [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize',
+    params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } })];
+  let id = 10;
+  for (const [name, a] of calls) lines.push(JSON.stringify({ jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: a } }));
+  const r = spawnSync(process.execPath, [MCP], { input: `${lines.join('\n')}\n`, encoding: 'utf8', timeout: 40000,
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_AGENT: agent } });
+  const replies = String(r.stdout ?? '').split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z));
+  assert.ok(replies.length >= calls.length + 1, `bridge answered ${replies.length} times: ${String(r.stderr).slice(0, 400)}`);
+  return replies.slice(1).map((x) => x.result ?? { isError: true, content: [{ text: JSON.stringify(x.error) }] });
+}
+
+test('A11: over MCP the whole lifecycle — failed and claims, identity from the connection', (t) => {
+  const root = tempDir('cheap-mem-z3-mcp-', t);
+  execFileSync('node', [MEM, '--root', root, 'init'], { stdio: 'pipe' });
+  const w = inbox.write(root, PARTS, { from: 'session', to: 'librarian', subject: 'work', text: 'do it' });
+  const [cl] = bridge(root, [['mem_inbox_claim', { name: w.name }]], 'librarian');
+  assert.equal(cl.structuredContent.valid, true, 'positive control: the O1 tool works');
+  const id = cl.structuredContent.claim_id;
+  const [st, foreign, own] = bridge(root, [
+    ['mem_inbox_claims', { name: w.name, claim_id: id }],
+  ], 'librarian').concat(
+    bridge(root, [['mem_inbox_failed', { name: w.name, claim_id: id, reason: 'x' }]], 'session'),
+    bridge(root, [['mem_inbox_failed', { name: w.name, claim_id: id, reason: 'cannot' }]], 'librarian'),
+  );
+  assert.equal(st.structuredContent.mine_valid, true);
+  assert.equal(st.structuredContent.holder, 'librarian');
+  assert.equal(foreign.isError, true, 'a stranger cannot give up my claim');
+  assert.equal(own.structuredContent.valid, true);
+  assert.equal(c.status(root, w.name).status, c.STATUS.FREE, 'released at once');
+});

@@ -134,7 +134,7 @@ export const COMMANDS = {
       out(`${messages.length} messages for '${to}':`);
       for (const m of messages) {
         // Z3/A5: the effective state; where it comes from, if not the header.
-        const source = m.stateSource && m.stateSource !== 'header' ? ` (${m.stateSource})` : '';
+        const source = m.stateSource === 'claim' ? ' (claim done)' : '';
         const held = m.claim?.status === 'claimed' ? `, claimed by ${m.claim.holder}` : '';
         out(`  [${m.state}${source}${held}] ${m.name}`);
         if (m.inReplyTo) out(`         in reply to ${m.inReplyTo}`);

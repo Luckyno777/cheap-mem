@@ -114,10 +114,12 @@ test('the two lists do not overlap', () => {
 
 test('mem_inbox_ack is on the writing list, despite the name', () => {
   // It acknowledges, so it reads like a read. It calls inbox.setState,
-  // which rewrites the message file.
+  // which (since Z3/A8, 2026-09-30) appends an event line to
+  // inbox/states.jsonl instead of rewriting the message file — still a
+  // write other agents read.
   assert.ok(WRITING.includes('mem_inbox_ack'));
   const src = fs.readFileSync(path.join(ROOT, 'src', 'inbox.mjs'), 'utf8');
-  assert.match(src, /export function setState[\s\S]{0,600}?fs\.writeFileSync/);
+  assert.match(src, /export function setState[\s\S]{0,2500}?appendLine\(statesPath/);
 });
 
 test('SOURCE PROBE: the classification comes from the code, not from memory', () => {
