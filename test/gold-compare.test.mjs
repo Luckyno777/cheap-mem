@@ -9,8 +9,8 @@
 //      expected/forbidden id exists in the world (the guard against dead
 //      ids) — with a positive control that the guard actually fires.
 //   2. Positive control for the runner: a deliberately broken ranker
-//      (a copy of this checkout whose `search()` returns its hits in
-//      reverse) is reported as WORSE against this checkout, on the same
+//      (a copy of this checkout whose `search()` returns its weakest
+//      hits first) is reported as WORSE against this checkout, on the same
 //      world, through the same CLI path the real comparison uses.
 //   3. A code state that does not start is UNKNOWN, never pass or fail.
 import test from 'node:test';
@@ -63,7 +63,9 @@ test('gold set: the world is synthetic (config says so; only the invented projec
 });
 
 // A copy of this checkout's runtime code with one sabotage appended to
-// src/search.mjs. `search` is a function declaration, so reassigning it
+// src/search.mjs (fetch wider, reverse, cut back to the asked width — a
+// bare reverse would leave the top-k SET unchanged whenever a caller asks
+// for exactly k). `search` is a function declaration, so reassigning it
 // inside the module changes the live binding every importer sees.
 function brokenCopy() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cheap-mem-gold-broken-'));
@@ -72,8 +74,11 @@ function brokenCopy() {
     if (fs.existsSync(from)) fs.cpSync(from, path.join(dir, part), { recursive: true });
   }
   const file = path.join(dir, 'src', 'search.mjs');
-  fs.appendFileSync(file, '\n// gold probe sabotage: best hit last\n'
-    + 'search = ((orig) => function sabotaged(...a) { return orig(...a).reverse(); })(search);\n');
+  fs.appendFileSync(file, '\n// gold probe sabotage: fetch ten times as wide, best hit last\n'
+    + 'search = ((orig) => function sabotaged(index, query, o = {}) {\n'
+    + '  const top = o.top ?? 10;\n'
+    + '  return orig(index, query, { ...o, top: top * 10 }).reverse().slice(0, top);\n'
+    + '})(search);\n');
   return dir;
 }
 
