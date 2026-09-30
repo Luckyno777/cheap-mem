@@ -369,6 +369,7 @@ export function checkAll(root) {
   f.push(checkAutoDutyAge(root));
   f.push(checkDelivery(root));
   f.push(checkOrphanedClaims(root));
+  f.push(checkInboxUnpushed(root));
   f.push(checkIndex(root));
   f.push(checkCorrectionContentLoss(root));
   f.push(checkSynonyms(root));
@@ -749,6 +750,12 @@ export function checkDelivery(root) {
     const drawer = inbox.read(root, {});
     messages = drawer.messages ?? [];
     broken = drawer.broken ?? [];
+    // Z3/A8+A9: unreadable lines in states.jsonl — a state change in them
+    // counts nowhere (a closed message may show as open again). The claims
+    // file is reported by `claim-orphaned`, not here.
+    broken = broken.concat((drawer.eventsBroken ?? [])
+      .filter((b) => b.log === inbox.STATES_FILE)
+      .map((b) => ({ name: `${inbox.STATES_FILE}:${b.line}`, reason: b.reason })));
   } catch (e) {
     // Still reachable: the DIRECTORY itself can be unreadable
     // (permissions, a dangling symlink). That is genuinely "we cannot
@@ -2531,4 +2538,93 @@ export function checkOrphanedClaims(root, { now = new Date() } = {}) {
     `Nothing was run. To take over again: mem inbox claim ${oldest.message} --as <you> — but check FIRST `
     + 'whether the effect already happened (reply written, files changed, commit); '
     + `if it did, close it: mem inbox done ${oldest.message} --claim-id ${oldest.id} --as ${oldest.holder}.`);
+}
+
+/**
+ * Finding `inbox-unpushed` (Z3/A10, parity with lucky-mem
+ * `post-ungepusht`): is mail lying only locally — written but not
+ * committed, or committed but not pushed?
+ *
+ * **Why.** Writing locally is not delivery (ChatGPT letter
+ * 2026-09-30T04:26Z, point 10): `mem inbox write` creates a file; it is
+ * delivered only after add/commit/push. If the push fails (network,
+ * conflict, secret scanner), the message sits silently in this clone —
+ * and its sender thinks it was sent. Counted are messages (`*.md`) and
+ * the two event logs in the inbox (`states.jsonl`, `claims.jsonl`): an
+ * unpushed acknowledgement is as lost as an unpushed message.
+ *
+ *   good     nothing unpushed in the inbox
+ *   warn     something is waiting, younger than INBOX_UNPUSHED_MIN (60
+ *            min): the normal way to the next commit and push
+ *   error    the oldest has waited at least 60 min — delivery is stuck,
+ *            not just one round
+ *   unknown  no git or no known upstream (@{u}/origin/<branch>) — not
+ *            measurable is not good
+ *
+ * Read-only, no network: `status` and `log` against the already fetched
+ * upstream. Never runs anything; it only names the command.
+ */
+export const INBOX_UNPUSHED_MIN = 60;
+
+function gitQuiet(root, args) {
+  try {
+    const r = spawnSync('git', ['-C', root, ...args], { encoding: 'utf8', timeout: 5000 });
+    return r.status === 0 ? r.stdout : null;
+  } catch { return null; }
+}
+
+function isInboxPath(p) {
+  const rel = String(p ?? '');
+  if (!rel.startsWith(`${inbox.INBOX_DIR}/`)) return false;
+  const name = rel.slice(inbox.INBOX_DIR.length + 1);
+  if (name.includes('/')) return false;
+  return name.endsWith('.md') || name === inbox.STATES_FILE || name === claim.FILE;
+}
+
+export function checkInboxUnpushed(root, { now = new Date() } = {}) {
+  const branch = gitQuiet(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  if (branch === null) return finding('inbox-unpushed', LEVEL.UNKNOWN, 'git not runnable or not a repository');
+  let upstream = gitQuiet(root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}']);
+  upstream = upstream ? upstream.trim() : null;
+  if (!upstream && gitQuiet(root, ['rev-parse', '--verify', '-q', `origin/${branch.trim()}`]) !== null) {
+    upstream = `origin/${branch.trim()}`;
+  }
+  if (!upstream) {
+    return finding('inbox-unpushed', LEVEL.UNKNOWN,
+      `no upstream known for ${branch.trim()} — whether mail lies only locally is not measurable`,
+      'Set an upstream (git push -u origin <branch>) or fetch once (git fetch).');
+  }
+  const nowMs = new Date(now).getTime();
+  const status = gitQuiet(root, ['status', '--porcelain', '--untracked-files=all', '--', `${inbox.INBOX_DIR}/`]);
+  if (status === null) return finding('inbox-unpushed', LEVEL.UNKNOWN, 'git status not readable');
+  const local = [];
+  for (const z of status.split('\n')) {
+    if (!z.trim()) continue;
+    const p = z.slice(3).replace(/^"|"$/g, '');
+    if (!isInboxPath(p)) continue;
+    let ageMin = 0;
+    try { ageMin = (nowMs - fs.statSync(path.join(root, p)).mtimeMs) / 60000; } catch { ageMin = 0; }
+    local.push({ file: p, ageMin });
+  }
+  const log = gitQuiet(root, ['log', '--format=@%ct', '--name-only', `${upstream}..HEAD`, '--', `${inbox.INBOX_DIR}/`]);
+  if (log === null) return finding('inbox-unpushed', LEVEL.UNKNOWN, `git log ${upstream}..HEAD not readable`);
+  const unpushed = new Map();
+  let t = null;
+  for (const z of log.split('\n')) {
+    if (z.startsWith('@')) { t = Number(z.slice(1)) * 1000; continue; }
+    if (!z.trim() || !isInboxPath(z.trim())) continue;
+    const ageMin = (nowMs - t) / 60000;
+    const before = unpushed.get(z.trim());
+    if (before === undefined || ageMin > before) unpushed.set(z.trim(), ageMin);
+  }
+  const all = [...local, ...[...unpushed].map(([file, ageMin]) => ({ file, ageMin }))];
+  if (!all.length) return finding('inbox-unpushed', LEVEL.GOOD, `nothing unpushed in the inbox (against ${upstream})`);
+  const oldest = all.reduce((a, b) => (b.ageMin > a.ageMin ? b : a));
+  const text = `${local.length} not committed, ${unpushed.size} committed but not pushed (against ${upstream}); `
+    + `oldest: ${oldest.file} for ${Math.round(oldest.ageMin)} min`;
+  const advice = 'Written locally is not delivered. To deliver: '
+    + `git -C ${root} add ${inbox.INBOX_DIR} && git commit -m "inbox" && git push — `
+    + 'if the push fails, git pull --rebase first.';
+  if (oldest.ageMin >= INBOX_UNPUSHED_MIN) return finding('inbox-unpushed', LEVEL.ERROR, text, advice);
+  return finding('inbox-unpushed', LEVEL.WARN, text, advice);
 }

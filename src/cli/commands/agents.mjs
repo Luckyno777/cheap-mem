@@ -36,6 +36,19 @@ function duplicateLines(duplicates) {
       + `${d.sameText ? '' : ' - BUT DIFFERENT TEXT (id reused, check by hand)'}`);
   }
 }
+/**
+ * Z3/A9: unreadable messages and unreadable state/claim lines, named at
+ * EVERY listing. On stderr (warn), so a script reading stdout alone does
+ * not silently see a healthy inbox, and a human still sees it. The exit
+ * stays 0: healthy mail keeps being delivered.
+ */
+function brokenLines(broken, eventsBroken) {
+  for (const b of broken ?? []) warn(`unreadable message in the inbox: ${b.name} (${b.reason})`);
+  for (const b of eventsBroken ?? []) {
+    warn(`unreadable line in ${b.log}${b.line ? `:${b.line}` : ''} (${b.reason}) — `
+      + 'a state change or a claim may be missing from every count');
+  }
+}
 import { countLines } from '../display.mjs';
 
 /** 12 commands. */
@@ -54,8 +67,11 @@ export const COMMANDS = {
         'mem inbox write      [--as N] --to N --subject "..." [--request-id ID] [< text.md]',
         '                     with an id, the same send twice is ONE message (replay);',
         '                     the same id with other text is refused (exit 1)',
+        '                     --in-reply-to <name>: the message this answers (checked)',
         'mem inbox show <name> [--as N]',
-        'mem inbox ack <name> [state]               state -> replied (default)',
+        'mem inbox ack <name> [state] [--expected S] [--reason "..."]',
+        '                     state -> replied (default), as an event line in',
+        '                     inbox/states.jsonl; reopening needs --reason',
         'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
         '                     exit 0/1/3, for shell pollers',
         'mem inbox claim <name> [--as N] [--minutes 30]   take a message, with an expiry',
@@ -76,7 +92,7 @@ export const COMMANDS = {
     const cfg = requireConfig(root);
 
     if (sub === 'write') {
-      checkFlags(args, ['as', 'to', 'subject', 'text', 'request-id'], 'inbox write');
+      checkFlags(args, ['as', 'to', 'subject', 'text', 'request-id', 'in-reply-to'], 'inbox write');
       const from = whoAmIOrDie(root, args, cfg);
       if (!args.to) die("Missing --to");
       if (!args.subject) die("Missing --subject");
@@ -86,9 +102,12 @@ export const COMMANDS = {
       try {
         res = inbox.write(root, cfg.participants, {
           from, to: args.to, subject: args.subject, text, requestId: args['request-id'] ?? null,
+          // Z3/A7: the stable reference to the message answered.
+          inReplyTo: typeof args['in-reply-to'] === 'string' ? args['in-reply-to'] : null,
         });
       } catch (e) {
         if (e.code === 'REQUEST_CONFLICT') die(e.message);
+        if (/In-Reply-To|No message/.test(e.message)) die(e.message);
         throw e;
       }
       if (res.replay) {
@@ -108,12 +127,17 @@ export const COMMANDS = {
     if (sub === 'all') {
       checkFlags(args, ['as'], 'inbox all');
       const to = whoAmIOrDie(root, args, cfg);
-      const { dir, messages, duplicates } = inbox.read(root, cfg.participants, { to });
+      const { dir, messages, duplicates, broken, eventsBroken } = inbox.read(root, cfg.participants, { to });
       if (dir === null) { out(`No inbox dir yet under ${inbox.INBOX_DIR}.`); return; }
+      brokenLines(broken, eventsBroken);
       if (messages.length === 0) { out(`Empty inbox for '${to}'.`); return; }
       out(`${messages.length} messages for '${to}':`);
       for (const m of messages) {
-        out(`  [${m.state}] ${m.name}`);
+        // Z3/A5: the effective state; where it comes from, if not the header.
+        const source = m.stateSource === 'claim' ? ' (claim done)' : '';
+        const held = m.claim?.status === 'claimed' ? `, claimed by ${m.claim.holder}` : '';
+        out(`  [${m.state}${source}${held}] ${m.name}`);
+        if (m.inReplyTo) out(`         in reply to ${m.inReplyTo}`);
         out(`         ${m.subject} (from ${m.from})`);
       }
       duplicateLines(duplicates);
@@ -124,7 +148,11 @@ export const COMMANDS = {
     if (sub === 'new') {
       checkFlags(args, ['as', 'no-mark'], 'inbox new');
       const to = whoAmIOrDie(root, args, cfg);
-      const { new: fresh, known, duplicates } = inbox.newFor(root, cfg.participants, { to });
+      const { new: fresh, known, duplicates, broken, eventsBroken } = inbox.newFor(root, cfg.participants, { to });
+      // Z3/A9: ALWAYS name unreadable messages — especially when nothing
+      // else is new. An inbox with a broken message is not a healthy
+      // empty one.
+      brokenLines(broken, eventsBroken);
       if (fresh.length === 0) {
         out(`Nothing new for '${to}'. ${known} known.`);
         duplicateLines(duplicates);
@@ -153,17 +181,35 @@ export const COMMANDS = {
       const content = fs.readFileSync(p, 'utf8');
       const m = inbox.parse(content);
       if (m.to !== to) out(`(Warning: this message is to '${m.to}', not '${to}')`);
+      // Z3/A8: the header is only the start state. If the effective state
+      // differs (state event or claim), say so BEFORE the message.
+      try {
+        const e = inbox.stateOf(root, name);
+        if (e.state !== m.state) out(`(State now: ${e.state} — from ${e.stateSource}; the header below is the start state)`);
+        if (e.stateConflicts?.length) out(`(Warning: ${e.stateConflicts.length} state line(s) do not count: ${e.stateConflicts.map((c) => c.why).join('; ')})`);
+      } catch { /* the message itself was readable; the projection is extra */ }
       process.stdout.write(content);
       return;
     }
 
     if (sub === 'ack') {
-      checkFlags(args, [], 'inbox ack');
+      checkFlags(args, ['as', 'reason', 'expected'], 'inbox ack');
       const name = rest[1];
       const newState = rest[2] ?? 'replied';
       if (!name) die("Missing name (inbox ack <name> [state])");
-      const m = inbox.setState(root, cfg.participants, name, newState);
-      out(`${name}: state -> ${m.state}`);
+      // Z3/A8: one event line in inbox/states.jsonl; the message is left
+      // as it is. `--expected <state>`: only if it still is (compare-and-
+      // set); `--reason`: required to reopen.
+      let m;
+      try {
+        m = inbox.setState(root, cfg.participants, name, newState, {
+          by: (typeof args.as === 'string' ? args.as : null) ?? inbox.whoAmI(root),
+          reason: typeof args.reason === 'string' ? args.reason : null,
+          expected: typeof args.expected === 'string' ? args.expected : undefined,
+        });
+      } catch (e) { die(e.message); }
+      out(m.unchanged ? `${name}: already ${m.state} — nothing written`
+        : `${name}: state -> ${m.state} (event line in ${inbox.INBOX_DIR}/${inbox.STATES_FILE})`);
       return;
     }
 

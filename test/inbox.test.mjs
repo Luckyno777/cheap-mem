@@ -65,8 +65,13 @@ test('setState changes state without touching body', (t) => {
   const { name } = inbox.write(root, PARTS, {
     from: 'session', to: 'librarian', subject: 's', text: 'the body\nof two lines',
   });
+  const before = fs.readFileSync(path.join(inbox.inboxDir(root), name), 'utf8');
   inbox.setState(root, PARTS, name, 'processed');
-  const p = inbox.parse(fs.readFileSync(path.join(inbox.inboxDir(root), name), 'utf8'));
+  // Since Z3/A8 (2026-09-30) the state change is an event line in
+  // states.jsonl: the message file stays byte-identical, the effective
+  // state comes from the projection.
+  assert.equal(fs.readFileSync(path.join(inbox.inboxDir(root), name), 'utf8'), before);
+  const p = inbox.stateOf(root, name);
   assert.equal(p.state, 'processed');
   assert.equal(p.text, 'the body\nof two lines');
 });

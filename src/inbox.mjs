@@ -25,6 +25,12 @@ import { createHash } from 'node:crypto';
 import * as agents from './agents.mjs';
 import { bodyHash } from './retrieval.mjs';
 import * as redaction from './redaction.mjs';
+// Z3/A5: a deliberate cycle inbox <-> claim. Both import the namespace
+// and only call each other INSIDE functions, never at load time — ESM
+// resolves that without an ordering problem. The message+claim projection
+// belongs in `read()`, because every reader goes through it.
+import * as claim from './claim.mjs';
+import { appendLine } from './append.mjs';
 
 /** Where messages live under the memory root. */
 export const INBOX_DIR = path.join('inbox');
@@ -87,6 +93,7 @@ const CONTROL_CHARS = new RegExp(`[${
   [...Array(32).keys()].filter((c) => c !== 9 && c !== 10 && c !== 13)
     .concat(127).map((c) => `\\u${c.toString(16).padStart(4, '0')}`).join('')
 }]`);
+const CONTROL_CHARS_G = new RegExp(CONTROL_CHARS.source, 'g');
 
 function checkParticipant(participants, role, field) {
   if (typeof role !== 'string' || !Object.hasOwn(participants, role)) {
@@ -95,8 +102,18 @@ function checkParticipant(participants, role, field) {
   }
 }
 
+/**
+ * `In-Reply-To` — Z3/A7, OPTIONAL like Client-Request-Id: the FILE NAME
+ * of the message this one answers. A `Re:` subject is not a reference:
+ * two parallel threads with the same subject cannot be told apart by it
+ * (ChatGPT letter 2026-09-30T04:26Z, point 7). Ported from lucky-mem's
+ * `Antwort-Auf`, which that letter names as the model. Absent on every
+ * older message and read as `null`, never as an error.
+ */
+const IN_REPLY_TO_PATTERN = /^[0-9TZ-]+--[A-Za-z0-9._-]+-to-[A-Za-z0-9._-]+(?:~[a-z0-9]{1,12}(?:-[0-9]{1,3})?)?\.md$/;
+
 export function build(participants, {
-  from, to, time, subject, state = STATE.OPEN, text, requestId = null,
+  from, to, time, subject, state = STATE.OPEN, text, requestId = null, inReplyTo = null,
 }) {
   checkParticipant(participants, from, 'From');
   checkParticipant(participants, to, 'To');
@@ -116,10 +133,14 @@ export function build(participants, {
   if (requestId !== null && !REQUEST_ID_PATTERN.test(String(requestId))) {
     throw new Error(`Client-Request-Id is [A-Za-z0-9._:-], not: ${JSON.stringify(requestId)}`);
   }
+  if (inReplyTo !== null && !IN_REPLY_TO_PATTERN.test(String(inReplyTo))) {
+    throw new Error(`In-Reply-To is a message file name, not: ${JSON.stringify(inReplyTo)}`);
+  }
   const header = [
     `From: ${from}`, `To: ${to}`, `Time: ${time}`,
     `Subject: ${subject}`, `State: ${state}`,
     ...(requestId !== null ? [`Client-Request-Id: ${requestId}`] : []),
+    ...(inReplyTo !== null ? [`In-Reply-To: ${inReplyTo}`] : []),
   ].join('\n');
   return `${header}\n\n${text.replace(/\s+$/, '')}\n`;
 }
@@ -174,6 +195,7 @@ export function parse(content) {
     // reads as `null`, never as a thrown error that would make old mail
     // unreadable.
     requestId: Object.hasOwn(header, 'Client-Request-Id') ? header['Client-Request-Id'] : null,
+    inReplyTo: Object.hasOwn(header, 'In-Reply-To') ? header['In-Reply-To'] : null,
   };
 }
 
@@ -335,8 +357,19 @@ export class RequestConflictError extends Error {
  * and lists the rest as `duplicates` — see there.
  */
 export function write(root, participants, {
-  from, to, subject: rawSubject, text: rawText, now = new Date(), requestId = null,
+  from, to, subject: rawSubject, text: rawText, now = new Date(), requestId = null, inReplyTo = null,
 }) {
+  // Z3/A7: a reference must point at a real message, in the right
+  // direction — the original went TO the one answering and FROM the one
+  // being answered. Checked before redaction and before anything is
+  // reserved, so a bad reference writes nothing.
+  if (inReplyTo !== null && inReplyTo !== undefined) {
+    const original = parse(readMessage(root, String(inReplyTo)));
+    if (original.to !== from || original.from !== to) {
+      throw new Error(`In-Reply-To '${inReplyTo}' went from '${original.from}' to '${original.to}' — `
+        + `a reply to it goes from '${original.to}' to '${original.from}', not from '${from}' to '${to}'`);
+    }
+  }
   // **O1: redaction HERE, not in the caller.** Neither `mem inbox write`
   // nor `mem_inbox_write` redacted a message before the disk; both
   // leaned on the commit scan. One place for every write path — a
@@ -356,16 +389,18 @@ export function write(root, participants, {
   const subject = clean(rawSubject);
   const text = clean(rawText);
   const findings = [...counts].map(([type, count]) => ({ type, count }));
-  const res = writeUnredacted(root, participants, { from, to, subject, text, now, requestId });
+  const res = writeUnredacted(root, participants, {
+    from, to, subject, text, now, requestId, inReplyTo: inReplyTo ?? null,
+  });
   return { ...res, findings };
 }
 
-function writeUnredacted(root, participants, { from, to, subject, text, now, requestId }) {
+function writeUnredacted(root, participants, { from, to, subject, text, now, requestId, inReplyTo }) {
   if (requestId === null || requestId === undefined) {
-    return writeMessage(root, participants, { from, to, subject, text, now, requestId: null });
+    return writeMessage(root, participants, { from, to, subject, text, now, requestId: null, inReplyTo });
   }
   // Validate before anything is reserved: a bad message must not leave a marker behind.
-  build(participants, { from, to, time: new Date(now).toISOString(), subject, text, requestId });
+  build(participants, { from, to, time: new Date(now).toISOString(), subject, text, requestId, inReplyTo });
   const seenPrior = () => {
     const c = classifyRequest(root, participants, { from, to, requestId, text });
     if (c === REQUEST.NEW) return null;
@@ -400,14 +435,14 @@ function writeUnredacted(root, participants, { from, to, subject, text, now, req
       sleepMs(50);
     }
   }
-  return writeMessage(root, participants, { from, to, subject, text, now, requestId });
+  return writeMessage(root, participants, { from, to, subject, text, now, requestId, inReplyTo });
 }
 
 function writeMessage(root, participants, {
-  from, to, subject, text, now, requestId,
+  from, to, subject, text, now, requestId, inReplyTo = null,
 }) {
   const time = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const content = build(participants, { from, to, time, subject, text, requestId });
+  const content = build(participants, { from, to, time, subject, text, requestId, inReplyTo });
   const mark = cloneMark(root);
   const base = fileName(participants, { time, from, to, mark });
   const dir = inboxDir(root);
@@ -484,6 +519,8 @@ export function reply(root, participants, { name, as, text, now = new Date() }) 
   return {
     ...write(root, participants, {
       from: original.to, to: original.from, subject: replySubject(original.subject), text, now,
+      // Z3/A7: the stable reference, not only the `Re:` subject.
+      inReplyTo: name,
     }),
     to: original.from,
   };
@@ -501,7 +538,12 @@ export function reply(root, participants, { name, as, text, now = new Date() }) 
 export function read(root, participants, { to = null, state = null } = {}) {
   if (to !== null) checkParticipant(participants, to, 'To');
   const dir = inboxDir(root);
-  if (!fs.existsSync(dir)) return { dir: null, messages: [], broken: [], duplicates: [] };
+  if (!fs.existsSync(dir)) return { dir: null, messages: [], broken: [], duplicates: [], eventsBroken: [] };
+
+  // Z3/A5+A8: ONE projection per message — header state, then the state
+  // events (states.jsonl), then the claim. Read once per call, not per
+  // message. See `project()`.
+  const proj = projectionData(root);
 
   // **One unreadable message must not take the drawer down (2026-09-19).**
   //
@@ -529,7 +571,7 @@ export function read(root, participants, { to = null, state = null } = {}) {
       continue;
     }
     if (to !== null && m.to !== to) continue;
-    all.push(m);
+    all.push(project(m, proj));
   }
 
   // **One logical message per (from, to, Client-Request-Id).**
@@ -565,7 +607,7 @@ export function read(root, participants, { to = null, state = null } = {}) {
     }
   }
   const messages = state === null ? logical : logical.filter((m) => m.state === state);
-  return { dir, messages, broken, duplicates };
+  return { dir, messages, broken, duplicates, eventsBroken: proj.broken };
 }
 
 /** Three states, never two: what a new send with the same id means. */
@@ -612,7 +654,164 @@ export function classifyRequest(root, participants, { from, to, requestId, text 
   return bodyHash(prior.text) === bodyHash(text) ? REQUEST.REPLAY : REQUEST.CONFLICT;
 }
 
-export function setState(root, participants, name, newState) {
+/**
+ * Z3/A8: a state change is an EVENT LINE, the message is never rewritten.
+ *
+ * Until 2026-09-30 `setState()` rewrote the message file with a new
+ * `State:` header (ChatGPT letter 2026-09-30T04:26Z, point 8: "closed->open
+ * accepted, setState overwrites the file without a version check"). Two
+ * consequences: (a) a stale writer could silently reset a close — last
+ * writer wins; (b) the history was gone.
+ *
+ * Now the message stays as written. Every change is one line in
+ * `states.jsonl` in the inbox, carrying the state the writer saw BEFORE
+ * (`prior`). Reading goes through `foldState()`: header state as the
+ * start, then the lines in (time, file order); a line whose `prior` does
+ * not match the folded state does NOT count and shows up as a conflict
+ * (distributed conflicts after a merge: two clones, both from `open` —
+ * the earlier counts, the other is a named conflict, never silent
+ * last-writer-wins).
+ *
+ * **Transition.** Old messages carry their state in the header (that is
+ * how they were acknowledged until now) — the header is the start of the
+ * fold, so they stay readable exactly as before, without a migration.
+ *
+ * **Reopening** (a done state back to `open`) needs a `reason` — a
+ * deliberate, explained event of its own.
+ *
+ * `expected`: whoever saw the state before deciding passes it along; if
+ * it no longer matches, NOTHING is written (local compare-and-set,
+ * StateConflictError).
+ */
+export const STATES_FILE = 'states.jsonl';
+export function statesPath(root) { return path.join(inboxDir(root), STATES_FILE); }
+
+export class StateConflictError extends Error {
+  constructor(message, { current = null } = {}) {
+    super(message);
+    this.name = 'StateConflictError';
+    this.code = 'STATE_CONFLICT';
+    this.current = current;
+  }
+}
+
+/**
+ * All state lines. Broken ones are counted and named, never skipped silently.
+ * Keyed `log` (the event log they came from), not `file`: this is not a
+ * memory-drawer walk — that question has one owner (shared/calculations.jsonl,
+ * log-drawer-walk -> integrity.scanIntegrity).
+ */
+export function readStateLines(root) {
+  const p = statesPath(root);
+  if (!fs.existsSync(p)) return { lines: [], broken: [] };
+  const lines = [];
+  const broken = [];
+  fs.readFileSync(p, 'utf8').split('\n').forEach((raw, i) => {
+    if (!raw.trim()) return;
+    try {
+      const z = JSON.parse(raw);
+      const ok = z && typeof z === 'object' && z.kind === 'state'
+        && typeof z.message === 'string' && typeof z.id === 'string'
+        && typeof z.state === 'string' && typeof z.prior === 'string'
+        && Number.isFinite(Date.parse(z.time));
+      if (!ok) throw new Error('fields missing or unreadable');
+      lines.push(z);
+    } catch (e) { broken.push({ log: STATES_FILE, line: i + 1, reason: e.message }); }
+  });
+  return { lines, broken };
+}
+
+/** The fold, pure. `headerState` = the header's state, `lines` = this message's state lines. */
+export function foldState(headerState, lines = []) {
+  let state = headerState;
+  let source = 'header';
+  let changes = 0;
+  const conflicts = [];
+  // Order: time, ties by file order. NOT the id (random): two changes in
+  // the same millisecond (acknowledge, then re-acknowledge) sit in their
+  // real order within one clone. After merge=union the file is the same
+  // on every clone, so the order is the same everywhere.
+  const sorted = lines.map((z, i) => [z, i]).sort(([a, ia], [b, ib]) =>
+    (Date.parse(a.time) - Date.parse(b.time)) || (ia - ib)).map(([z]) => z);
+  for (const z of sorted) {
+    if (z.prior !== state) {
+      conflicts.push({ ...z, why: `saw '${z.prior}', but '${state}' held — stale writer, does not count` });
+      continue;
+    }
+    if (isDone(state) && z.state === STATE.OPEN && !(typeof z.reason === 'string' && z.reason.trim())) {
+      conflicts.push({ ...z, why: 'reopening without a reason does not count' });
+      continue;
+    }
+    state = z.state;
+    source = 'event';
+    changes += 1;
+  }
+  return { state, source, changes, conflicts };
+}
+
+function projectionData(root) {
+  const broken = [];
+  const st = readStateLines(root);
+  broken.push(...st.broken);
+  const stateBy = new Map();
+  for (const z of st.lines) {
+    if (!stateBy.has(z.message)) stateBy.set(z.message, []);
+    stateBy.get(z.message).push(z);
+  }
+  const claimBy = new Map();
+  try {
+    const c = claim.readLines(root);
+    for (const b of c.broken) broken.push({ log: claim.FILE, line: b.line, reason: b.reason });
+    for (const z of c.lines) {
+      if (!claimBy.has(z.message)) claimBy.set(z.message, []);
+      claimBy.get(z.message).push(z);
+    }
+  } catch (e) {
+    broken.push({ log: claim.FILE, line: null, reason: `unreadable: ${e.message}` });
+  }
+  return { stateBy, claimBy, broken };
+}
+
+/**
+ * Z3/A5: ONE state view per message — every reader (CLI, MCP, dashboard,
+ * watcher, doctor) goes through `read()` and therefore through here.
+ *
+ *   state        the effective state
+ *   headerState  what the header says (the start value)
+ *   stateSource  'header' | 'event' | 'claim'
+ *   claim        {status, holder} when there are claim lines
+ *
+ * **A `done` claim makes an open message `processed`.** That is the
+ * contradiction of point 5 ("claim done leaves the header open; newFor
+ * keeps reporting it new"). `processed` and not `replied`: the work is
+ * done, but that says nothing about whether a REPLY was sent — transport,
+ * claim, result and answer stay separate words. No fifth state.
+ */
+function project(m, proj) {
+  const f = foldState(m.state, proj.stateBy.get(m.name) ?? []);
+  const out = { ...m, headerState: m.state, state: f.state, stateSource: f.source };
+  if (f.conflicts.length) out.stateConflicts = f.conflicts;
+  const cl = proj.claimBy.get(m.name);
+  if (cl && cl.length) {
+    const c = claim.fold(cl);
+    out.claim = { status: c.status, holder: c.holder?.claimed_by ?? null };
+    if (out.state === STATE.OPEN && c.status === claim.STATUS.DONE) {
+      out.state = STATE.PROCESSED;
+      out.stateSource = 'claim';
+    }
+  }
+  return out;
+}
+
+/** The effective state of ONE message, through the same projection as `read()`. */
+export function stateOf(root, name) {
+  const m = parse(readMessage(root, name));
+  return project({ name, ...m }, projectionData(root));
+}
+
+export function setState(root, participants, name, newState, {
+  by = null, reason = null, expected = undefined, now = new Date(),
+} = {}) {
   if (!Object.values(STATE).includes(newState)) {
     throw new Error(`Unknown state '${newState}'. Known: ${Object.values(STATE).join(', ')}`);
   }
@@ -620,8 +819,30 @@ export function setState(root, participants, name, newState) {
   const p = path.join(inboxDir(root), name);
   if (!fs.existsSync(p)) throw new Error(`No message '${name}'`);
   const old = parse(fs.readFileSync(p, 'utf8'));
-  fs.writeFileSync(p, build(participants, { ...old, state: newState }), 'utf8');
-  return { ...old, state: newState, name };
+  // The comparison value is header + events — NOT the claim projection:
+  // `foldState()` sees only state lines, and `prior` must match exactly that.
+  const current = foldState(old.state, readStateLines(root).lines.filter((z) => z.message === name)).state;
+  if (expected !== undefined && expected !== current) {
+    throw new StateConflictError(
+      `'${name}' is '${current}', not '${expected}' — someone was faster. Nothing written.`, { current });
+  }
+  if (current === newState) return { ...old, state: current, name, unchanged: true };
+  const r = reason === null || reason === undefined ? null : String(reason).replace(CONTROL_CHARS_G, '').trim();
+  if (r !== null && r.includes('\n')) throw new Error('reason is one line');
+  if (isDone(current) && newState === STATE.OPEN && !r) {
+    throw new Error(`'${name}' is '${current}' — reopening needs a reason (--reason).`);
+  }
+  fs.mkdirSync(inboxDir(root), { recursive: true });
+  const line = {
+    kind: 'state', message: name, prior: current, state: newState,
+    by: typeof by === 'string' && by ? by : null,
+    reason: r || null,
+    time: new Date(now).toISOString(),
+    id: createHash('sha256').update(`${name}\0${current}\0${newState}\0${Date.now()}\0${Math.random()}`)
+      .digest('hex').slice(0, 12),
+  };
+  appendLine(statesPath(root), `${JSON.stringify(line)}\n`);
+  return { ...old, state: newState, name, stateLine: line.id };
 }
 
 export const SEEN_FILE = path.join('.mem', 'inbox-seen.json');
@@ -638,6 +859,43 @@ function loadSeen(root) {
   }
 }
 
+/**
+ * Z3/A6: one recipient's delivery attempts as `{name: {tries, last}}`.
+ *
+ * Until 2026-09-30 this file was a list of names, and a name on it was a
+ * TOMBSTONE: `inbox new` put every listed message on it the moment it
+ * printed the header lines — before anyone read a body or did the work.
+ * A crash right after the listing made the message vanish from `new`
+ * for good (ChatGPT letter 2026-09-30T04:26Z, point 6). Now an entry is
+ * an ATTEMPT with a time: while the message is still open (effective
+ * state, see `project()`), it comes back after a back-off. Ported from
+ * lucky-mem (sitzungspost.mjs `nochFaellig`), where the same tombstone
+ * held a letter for 43 hours on 2026-08-30.
+ *
+ * An old name list stays readable: every name counts as one attempt with
+ * no time, so it is due once more, and counted properly from then on.
+ */
+function attempts(all, to) {
+  const raw = all[to];
+  if (Array.isArray(raw)) return Object.fromEntries(raw.map((n) => [n, { tries: 1, last: null }]));
+  return raw && typeof raw === 'object' ? raw : {};
+}
+
+/** Back-off before a listed but still open message is offered again. Grows per try, capped. */
+export const RETRY_MIN = 15;
+export const RETRY_MAX_MIN = 240;
+function waitMin(tries, base = RETRY_MIN) {
+  const n = Math.max(1, Number(tries) || 1);
+  return Math.min(base * (2 ** (n - 1)), RETRY_MAX_MIN);
+}
+
+function dueAgain(m, entry, now, base) {
+  if (m.state !== STATE.OPEN) return false; // done is done (effective state)
+  const last = entry?.last ? new Date(entry.last) : null;
+  if (!last || Number.isNaN(last.getTime())) return true;
+  return (new Date(now) - last) / 60000 >= waitMin(entry.tries, base);
+}
+
 export function inboxMtime(root) {
   const dir = inboxDir(root);
   if (!fs.existsSync(dir)) return null;
@@ -652,26 +910,52 @@ export function inboxMtime(root) {
 /**
  * What has arrived since the last look. "New" = "not in the seen list".
  */
-export function newFor(root, participants, { to }) {
+export function newFor(root, participants, { to, now = new Date(), retryAfterMin = RETRY_MIN }) {
   checkParticipant(participants, to, 'To');
-  const { dir, messages, duplicates } = read(root, participants, { to });
-  const seen = new Set(loadSeen(root)[to] ?? []);
+  const { dir, messages, duplicates, broken, eventsBroken } = read(root, participants, { to });
+  const tried = attempts(loadSeen(root), to);
+  // Z3/A5: a message that is already through by the projection (header,
+  // state event or claim done) is not new even at first sight — else
+  // newFor offers a finished task as runnable (point 5).
+  // Z3/A6: a listed message that is still open comes back after the
+  // back-off; listing records an attempt, it never consumes.
+  const due = (m) => (Object.hasOwn(tried, m.name)
+    ? dueAgain(m, tried[m.name], now, retryAfterMin)
+    : !isDone(m.state));
+  const fresh = messages.filter(due);
   return {
     dir,
     duplicates,
-    new: messages.filter((m) => !seen.has(m.name)),
-    known: messages.filter((m) => seen.has(m.name)).length,
+    new: fresh,
+    known: messages.length - fresh.length,
+    // Z3/A9: unreadable messages travel along instead of vanishing here.
+    // `read()` counted them; newFor threw the list away, and every surface
+    // above it (CLI, MCP) showed a healthy empty inbox. Not filtered by
+    // `to`: whom an unreadable message is for is exactly the unreadable
+    // part. `eventsBroken` = unreadable lines in states.jsonl/claims.jsonl.
+    broken: broken ?? [],
+    eventsBroken: eventsBroken ?? [],
     mtime: inboxMtime(root),
   };
 }
 
-export function markSeen(root, { to, names }) {
+/**
+ * Record a delivery ATTEMPT (Z3/A6) — union, never replace. Not "this
+ * message is done": only its effective state says that. Counts how often
+ * and when, so the back-off does not send the same message every round.
+ */
+export function markSeen(root, { to, names, now = new Date() }) {
   const all = loadSeen(root);
-  all[to] = [...new Set([...(all[to] ?? []), ...names])].sort();
+  const tried = attempts(all, to);
+  const stamp = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
+  for (const name of names) {
+    tried[name] = { tries: (Number(tried[name]?.tries) || 0) + 1, last: stamp };
+  }
+  all[to] = Object.fromEntries(Object.entries(tried).sort(([a], [b]) => a.localeCompare(b)));
   const p = path.join(root, SEEN_FILE);
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, `${JSON.stringify(all, null, 2)}\n`, 'utf8');
-  return all[to].length;
+  return Object.keys(tried).length;
 }
 
 export function whoAmI(root) {
@@ -710,7 +994,8 @@ export function fromFileName(participants, name) {
  * Never touches the working tree — `git ls-tree` on the remote branch.
  */
 export function remoteNew(root, participants, { to, names }) {
-  const seen = new Set(loadSeen(root)[to] ?? []);
+  // Both formats (Z3/A6): the old name list and the attempt map.
+  const seen = new Set(Object.keys(attempts(loadSeen(root), to)));
   const fresh = [];
   const unreadable = [];
   let known = 0;

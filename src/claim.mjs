@@ -193,7 +193,7 @@ function doesNotCount(z, holder, done) {
   if (z.claim_id === undefined) return 'unproven: no claim_id, does not count';
   if (z.by !== holder.claimed_by) return 'done by someone who is not the holder';
   if (z.claim_id !== holder.id) {
-    return `claim_id ${z.claim_id} is not the valid claim (${holder.id}) — old or foreign, does not count`;
+    return `claim_id ${z.claim_id} is not the valid claim ${holder.id} — old or foreign, does not count`;
   }
   return null;
 }
@@ -209,7 +209,7 @@ function renewDoesNotCount(z, holder, done) {
   if (z.claim_id === undefined) return 'unproven: no claim_id, does not count';
   if (z.by !== holder.claimed_by) return 'renew by someone who is not the holder';
   if (z.claim_id !== holder.id) {
-    return `claim_id ${z.claim_id} is not the valid claim (${holder.id}) — old or replaced, cannot be revived`;
+    return `claim_id ${z.claim_id} is not the valid claim ${holder.id} — old or replaced, cannot be revived`;
   }
   if (Date.parse(z.time) >= Date.parse(holder.until)) {
     return `expired at ${holder.until} — an expired claim cannot be revived, claim again`;

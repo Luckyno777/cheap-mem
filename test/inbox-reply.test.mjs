@@ -60,8 +60,9 @@ function memory({ allowWrites } = {}) {
 function gone(r) { fs.rmSync(r, { recursive: true, force: true }); }
 
 /** Send a message through the CLI and return its file name. */
-function send(r, { as, to, subject, text }) {
-  const w = mem(['--root', r, 'inbox', 'write', '--as', as, '--to', to, '--subject', subject, '--text', text]);
+function send(r, { as, to, subject, text, inReplyTo = null }) {
+  const w = mem(['--root', r, 'inbox', 'write', '--as', as, '--to', to, '--subject', subject, '--text', text,
+    ...(inReplyTo ? ['--in-reply-to', inReplyTo] : [])]);
   assert.equal(w.status, 0, w.stderr);
   const m = /Written: inbox\/(\S+)/.exec(w.stdout);
   assert.ok(m, `CLI did not name the written file: ${w.stdout}`);
@@ -226,11 +227,12 @@ test('POSITIVE: switched on, a reply lands in inbox/ exactly as `mem inbox write
     const viaDesk = fs.readFileSync(path.join(r, 'inbox', added[0]), 'utf8');
 
     // The same reply through the CLI, in the same memory.
-    const cliName = send(r, { as: 'user', to: 'scribe', subject: 'Re: ping', text: 'Yes, here.\nSecond line.' });
+    // Z3/A7: the desk writes In-Reply-To; the CLI does the same with --in-reply-to.
+    const cliName = send(r, { as: 'user', to: 'scribe', subject: 'Re: ping', text: 'Yes, here.\nSecond line.', inReplyTo: name });
     const viaCli = fs.readFileSync(path.join(r, 'inbox', cliName), 'utf8');
 
     assert.equal(withoutTime(viaDesk), withoutTime(viaCli), 'desk and CLI wrote different messages');
-    assert.match(viaDesk, /^From: user\nTo: scribe\nTime: \S+\nSubject: Re: ping\nState: open\n\nYes, here\.\nSecond line\.\n$/);
+    assert.match(viaDesk, /^From: user\nTo: scribe\nTime: \S+\nSubject: Re: ping\nState: open\nIn-Reply-To: \S+\.md\n\nYes, here\.\nSecond line\.\n$/);
     // Same file-name scheme: <time>--<from>-to-<to>~<clone mark>[.-n].md
     const scheme = /^[0-9TZ-]+--user-to-scribe~[a-z0-9]{1,12}(?:-[0-9]{1,3})?\.md$/;
     assert.match(added[0], scheme);
