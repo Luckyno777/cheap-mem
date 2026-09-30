@@ -107,7 +107,7 @@ test('the generated block of the document equals the code', () => {
 test('RED PROBE: a changed cell makes the block differ (the comparison sees something)', () => {
   const doc = fs.readFileSync(DOC, 'utf8');
   const changed = structuredClone(c.MATRIX);
-  changed[c.CLIENT.CLAUDE_CODE][c.OCCASION.AFTER_ERROR].status = c.STATUS.FULL;
+  changed[c.CLIENT.CLAUDE_CODE][c.OCCASION.AFTER_ERROR].status = c.STATUS.PARTIAL;
   assert.notEqual(c.extractBlock(doc), c.renderBlock(changed));
 });
 
@@ -129,13 +129,23 @@ test('doctor: unknown when no client can be told (never good)', () => {
   assert.equal(c.judge({ codeRoot: REPO, settingsPaths: [path.join(dir, 'other.json')] }).level, 'unknown');
 });
 
-test('doctor: warn on partial support when Claude Code is installed', () => {
+test('doctor: warn stays honest when an occasion of the installed client is only partial', () => {
   const dir = temp();
   const p = settingsWith(dir, claudeHooks());
-  const r = c.judge({ codeRoot: REPO, settingsPaths: [p] });
+  const gap = structuredClone(c.MATRIX);
+  gap[c.CLIENT.CLAUDE_CODE][c.OCCASION.AFTER_ERROR].status = c.STATUS.PARTIAL;
+  gap[c.CLIENT.CLAUDE_CODE][c.OCCASION.TASK_END].status = c.STATUS.PARTIAL;
+  const r = c.judge({ codeRoot: REPO, settingsPaths: [p], matrix: gap });
   assert.equal(r.level, 'warn');
   assert.match(r.text, /after-error partial/);
   assert.match(r.text, /task-end partial/);
+});
+
+test('X2b: on a complete Claude Code install all five occasions are full and the doctor says good', () => {
+  for (const o of c.OCCASIONS) assert.equal(c.MATRIX[c.CLIENT.CLAUDE_CODE][o].status, c.STATUS.FULL, o);
+  const p = settingsWith(temp(), claudeHooks());
+  const r = c.judge({ codeRoot: REPO, settingsPaths: [p] });
+  assert.equal(r.level, 'good', r.text);
 });
 
 test('doctor: warn when a full hook is not registered on this machine', () => {
@@ -161,7 +171,7 @@ test('the finding wraps the verdict, and checkAll runs it', () => {
   assert.equal(f.name, 'integration-contract');
   assert.equal(f.level, 'unknown');
   const p = settingsWith(dir, claudeHooks());
-  assert.equal(checkIntegrationContract(dir, { settingsPaths: [p] }).level, 'warn');
+  assert.equal(checkIntegrationContract(dir, { settingsPaths: [p] }).level, 'good');
   // comments removed first: a commented-out call must not count as a proof
   const src = fs.readFileSync(path.join(REPO, 'src', 'doctor.mjs'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');

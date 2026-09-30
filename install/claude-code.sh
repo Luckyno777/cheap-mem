@@ -37,6 +37,7 @@ if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
 fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
+CODE_ROOT="$(dirname "$HERE")"
 CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 HOOKS_DIR="$CLAUDE_HOME/hooks"
 SETTINGS="$CLAUDE_HOME/settings.json"
@@ -79,11 +80,13 @@ fi
 {
   echo "#!/usr/bin/env bash"
   echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  # Where the code lives — the start hook books its journal line through
+  # src/injection.mjs, which a memory without the tool does not carry.
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
   tail -n +2 "$HERE/hooks/session-start.sh"
 } > "$HOOKS_DIR/cheap-mem-session-start.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-session-start.sh"
 
-CODE_ROOT="$(dirname "$HERE")"
 {
   echo "#!/usr/bin/env bash"
   echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
@@ -118,15 +121,32 @@ chmod +x "$HOOKS_DIR/cheap-mem-pre-edit.sh"
 # output carries a failure signature (`npm test | tail`, `... || true`,
 # a suite that prints `# fail 3` and still exits clean) runs past
 # PostToolUseFailure entirely, so this hook catches it from the other
-# side. `bin/mem-catch-fail` is copied straight through, not templated
-# with CODE_ROOT this time — the script resolves its own tool root the
-# same way mem-retrieve does (two shapes, see its own header).
+# side. A shim like pre-edit's (X2b): until then the script itself was
+# copied here, and an installed copy has no bin/_portable.sh next to it,
+# which the script sources — `capped` was undefined, so the installed
+# hook never delivered anything. The real script resolves its own tool
+# root the same way mem-retrieve does.
 {
   echo "#!/usr/bin/env bash"
   echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
-  tail -n +2 "$CODE_ROOT/bin/mem-catch-fail"
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  tail -n +2 "$HERE/hooks/catch-fail.sh"
 } > "$HOOKS_DIR/cheap-mem-catch-fail.sh"
 chmod +x "$HOOKS_DIR/cheap-mem-catch-fail.sh"
+
+# The failure the exit code REPORTED (X2b): PostToolUseFailure, matcher
+# Bash|Edit|Write. The catch-fail hook above is a different event and
+# catches the opposite case (exit 0, failure in the output); before this
+# hook a command that really exited nonzero got no recall at all. A
+# shim like pre-edit's: the real script sources bin/_portable.sh, which
+# does not exist next to an installed copy.
+{
+  echo "#!/usr/bin/env bash"
+  echo "export CHEAP_MEM_ROOT='${CHEAP_MEM_ROOT}'"
+  echo "export CHEAP_MEM_CODE='${CODE_ROOT}'"
+  tail -n +2 "$HERE/hooks/after-failure.sh"
+} > "$HOOKS_DIR/cheap-mem-after-failure.sh"
+chmod +x "$HOOKS_DIR/cheap-mem-after-failure.sh"
 # A subagent is its own thread — it gets neither SessionStart nor
 # UserPromptSubmit, so without this it starts knowing nothing this
 # memory holds (see src/subagentstart.mjs).
@@ -183,6 +203,10 @@ upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit');
 // both are needed (PostToolUseFailure only fires on a real nonzero
 // exit, and misses a failure the exit code itself hid).
 upsertHook('PostToolUse', 'catch-fail', 'Bash');
+// PostToolUseFailure (X2b): the failure that really exited nonzero, and
+// an Edit/Write that was refused while running. Another event than the
+// line above, so the two can never register as duplicates of each other.
+upsertHook('PostToolUseFailure', 'after-failure', 'Bash|Edit|Write');
 // No matcher: every subagent type gets the same tagged procedures plus
 // context recap (src/subagentstart.mjs) — there is no agent-type axis
 // to filter on here, unlike PreToolUse above.
@@ -219,7 +243,7 @@ NODE_MERGE
 
 echo ""
 echo "=== done ==="
-echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,subagent-start}.sh"
+echo "hooks:    $HOOKS_DIR/cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start}.sh"
 echo "settings: $SETTINGS"
 echo ""
 echo "Next Claude Code session on this machine:"
@@ -229,6 +253,8 @@ echo "  - PreToolUse hook warns before editing a file the memory knows about"
 echo "  - Stop hook triggers mem-reflect (byte-delta throttled)"
 echo "  - PostToolUse hook (Bash only) does the same when a Bash call exits 0 but its"
 echo "    own output carries a failure signature (# fail N>0, not ok, Error:, FAIL, fatal:)"
+echo "  - PostToolUseFailure hook (Bash|Edit|Write) recalls known errors and learnings"
+echo "    after a tool call that really failed, before the second attempt"
 echo "  - Stop hook captures the transcript and checks the last answer"
 echo "    against any patterns tied to a logged error (see mem-stop --help)"
 echo "  - SubagentStart hook shows any procedure tagged 'subagent-start',"

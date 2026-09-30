@@ -198,6 +198,9 @@ if (-not $SkipClaudeCode) {
   # The failure the exit code hid (M19 port from lucky-mem): PostToolUse,
   # matcher Bash only. See bin/mem-catch-fail.ps1's own header.
   $catchFailHookDst = Join-Path $HooksDir 'cheap-mem-catch-fail.ps1'
+  # The failure the exit code REPORTED (X2b): PostToolUseFailure, matcher
+  # Bash|Edit|Write. See bin/mem-after-failure.ps1's own header.
+  $afterFailureHookDst = Join-Path $HooksDir 'cheap-mem-after-failure.ps1'
   # A subagent is its own thread and gets neither SessionStart nor
   # UserPromptSubmit (see src/subagentstart.mjs) - without this lane it
   # starts on Windows knowing nothing this memory holds, same class of
@@ -213,6 +216,11 @@ if (-not $SkipClaudeCode) {
 # the memory up and SAYS SO when it cannot find one.
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+# Hook time starts here - the journal line at the bottom carries it.
+`$hookStartMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+# The hook JSON (session id) - read for the journal line only.
+`$hookIn = ''
+try { if ([Console]::IsInputRedirected) { `$hookIn = [Console]::In.ReadToEnd() } } catch { }
 
 `$memRoot = `$null
 foreach (`$kandidat in @(
@@ -339,6 +347,39 @@ if (Test-Path `$mem) {
   } catch { }
 }
 
+# --- The journal line (X2b) -------------------------------------------
+#
+# The session-start occasion had no journal line: every other hook booked
+# what it delivered, this one printed into the context and left no trace.
+# One line, occasion `session-start`, reason null (delivered); bytes and
+# hits are not counted here (the block is printed in several pieces - not
+# measured is not 0). Same as install/hooks/session-start.sh. Best-effort
+# and silent.
+try {
+  `$injection = Join-Path `$env:CHEAP_MEM_ROOT 'src\injection.mjs'
+  if (-not (Test-Path `$injection) -and `$env:CHEAP_MEM_CODE) {
+    `$injection = Join-Path `$env:CHEAP_MEM_CODE 'src\injection.mjs'
+  }
+  if (Test-Path `$injection) {
+    `$env:MEM_SS_SRC = ([System.Uri]::new([System.IO.Path]::GetFullPath(`$injection))).AbsoluteUri
+    `$env:MEM_SS_INPUT = `$hookIn
+    `$env:MEM_SS_START_MS = [string]`$hookStartMs
+    `$bookScript = @'
+      import(process.env.MEM_SS_SRC).then((m) => {
+        let session = null;
+        try { session = String(JSON.parse(process.env.MEM_SS_INPUT).session_id || "") || null; } catch { }
+        const start = Number(process.env.MEM_SS_START_MS);
+        m.book(process.env.CHEAP_MEM_ROOT, {
+          session, occasion: m.OCCASION.SESSION_START, reason: null,
+          bytes: null, hits: 0, searched: null,
+          durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
+        });
+      }).catch(() => {});
+'@
+    & node -e `$bookScript 2>`$null | Out-Null
+  }
+} catch { }
+
 Write-Host '=== how to use this memory this session ==='
 Write-Host ''
 Write-Host 'Log substantial things as they happen:'
@@ -459,6 +500,51 @@ if (-not (Test-Path `$before)) { exit 0 }
 # mem-catch-fail.ps1. Catches a Bash call that exits 0 while its own
 # output carries a failure signature - PostToolUseFailure never fires
 # for that case at all. Model-free.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
+if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
+`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-catch-fail.ps1'
+if (-not (Test-Path `$catchFail)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
+"@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
+
+  @"
+# cheap-mem PostToolUseFailure hook (Windows), matcher Bash|Edit|Write.
+# Delegates to mem-after-failure.ps1 (X2b). The opposite case of the
+# catch-fail hook above: a tool call that REALLY failed. PostToolUse
+# never fires on a failure, so before this hook a command that exited
+# nonzero got no recall at all. Model-free.
+`$hint = '$($env:CHEAP_MEM_ROOT)'
+if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
+`$memRoot = `$null
+foreach (`$kandidat in @(
+    `$env:CHEAP_MEM_ROOT,
+    `$hint,
+    (Join-Path `$env:USERPROFILE 'cheap-mem'),
+    (Join-Path `$env:USERPROFILE 'my-memory'),
+    (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
+  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
+  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+}
+if (-not `$memRoot) { exit 0 }
+`$env:CHEAP_MEM_ROOT = `$memRoot
+`$afterFailure = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-after-failure.ps1'
+if (-not (Test-Path `$afterFailure)) { exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File `$afterFailure
+"@ | Set-Content -LiteralPath $afterFailureHookDst -Encoding UTF8
+
+  @"
 # cheap-mem SubagentStart hook (Windows). Delegates to mem-subagent-start.ps1.
 # A subagent gets neither SessionStart nor UserPromptSubmit (its own
 # thread - src/gauges.mjs), so this shows it any procedure tagged
@@ -478,10 +564,6 @@ foreach (`$kandidat in @(
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
-`$catchFail = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-catch-fail.ps1'
-if (-not (Test-Path `$catchFail)) { exit 0 }
-& powershell -NoProfile -ExecutionPolicy Bypass -File `$catchFail
-"@ | Set-Content -LiteralPath $catchFailHookDst -Encoding UTF8
 `$subagent = Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem-subagent-start.ps1'
 if (-not (Test-Path `$subagent)) { exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File `$subagent
@@ -540,6 +622,9 @@ if (-not (Test-Path `$subagent)) { exit 0 }
     Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
     # Same matcher as the POSIX side (Bash only) - the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PostToolUse' 'cheap-mem-catch-fail.ps1' "$ps `"$catchFailHookDst`"" 'Bash'
+    # PostToolUseFailure (X2b): a tool call that really failed - another
+    # event than the line above, so the two never register as duplicates.
+    Upsert-Hook $cfg['hooks'] 'PostToolUseFailure' 'cheap-mem-after-failure.ps1' "$ps `"$afterFailureHookDst`"" 'Bash|Edit|Write'
     # No matcher: every subagent type gets the same tagged procedures
     # plus context recap - there is no agent-type axis to filter on here,
     # unlike PreToolUse above.
@@ -564,7 +649,7 @@ if (-not (Test-Path `$subagent)) { exit 0 }
     $cfg['permissions']['deny']  = @($cfg['permissions']['deny']  + $denyNeeded  | Select-Object -Unique)
 
     ($cfg | ConvertTo-Json -Depth 20) | Set-Content -LiteralPath $Settings -Encoding UTF8
-    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,subagent-start}.ps1"
+    Write-Host "  Claude Code hooks:    $HooksDir\cheap-mem-{session-start,session-stop,user-prompt,pre-edit,catch-fail,after-failure,subagent-start}.ps1"
     Write-Host "  Claude Code settings: $Settings"
   }
   Write-Host ""

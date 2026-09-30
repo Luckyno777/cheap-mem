@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: 2026 Lucky H.
+# SPDX-License-Identifier: MIT
+# mem-after-failure — recall AFTER a tool call really failed, before the
+# second attempt (X2b; port of the sibling house's `mem-nachher.sh`).
+#
+# **The gap.** `mem-before-edit` fires before an edit and knows only the
+# PATH; it never sees that something just went wrong. `mem-catch-fail`
+# hangs on PostToolUse, which fires only after SUCCESS: it catches the
+# failure the exit code hid. A command that really exits nonzero — and an
+# Edit or Write that is refused while running — got no recall at all,
+# although that is the moment an earlier error of the same class helps
+# most. That event is PostToolUseFailure, matcher `Bash|Edit|Write`
+# (documented in the official hooks reference; PostToolUse, by contrast,
+# never fires on a failure).
+#
+# The question is the error message (plus the first word of a Bash
+# command); only the `errors` and `learnings` lanes answer. The logic
+# lives in `src/afterfailure.mjs` so this script and its PowerShell twin
+# decide with the SAME program. What stays here: finding the memory and
+# the code, the once-per-session-per-failure claim, and a time cap on the
+# whole call. Every failure of THIS script is silent — a hook after a
+# tool that just failed must never get in the way of the second attempt —
+# but the nothing is booked: the injection journal gets one line per run,
+# with its reason (occasion `after-error`).
+#
+# Env:
+#   CHEAP_MEM_ROOT             absolute path to the memory
+#   MEM_AFTER_FAILURE_OFF=1    turn this hook off
+#   MEM_HOOK_OFF=1             turn ALL cheap-mem hooks off
+#   MEM_AFTER_FAILURE_TOP      at most this many hits (default 3)
+#   MEM_AFTER_FAILURE_MIN      minimum BM25 score to show (default 2.0)
+#   MEM_AFTER_FAILURE_TURNS    where the once-per-session marks live
+#   MEM_RETRIEVE_ROOTS         space-separated fallback roots to probe
+
+set -u
+
+entrutscht() { printf '%s' "${1//\\//}"; }
+[ "${MEM_AFTER_FAILURE_OFF:-}" = "1" ] && exit 0
+[ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
+
+# Hook time starts here (the journal's `duration_ms`).
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+  MEM_AF_START_MS="${_s}${_f:0:3}"
+  unset _s _f
+else
+  MEM_AF_START_MS="$(( $(date +%s) * 1000 ))"
+fi
+export MEM_AF_START_MS
+
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+ROOT=""
+# shellcheck disable=SC2086
+for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
+  [ -z "$k" ] && continue
+  k="$(entrutscht "$k")"
+  [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
+done
+[ -z "$ROOT" ] && exit 0
+
+# Two shapes, same as the other hooks: the memory may carry the tool
+# itself, or the tool lives in a separate checkout next to this script.
+HOOK_DIR="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+if [ -f "$ROOT/bin/mem" ]; then
+  RUN_MEM=(node "$ROOT/bin/mem")
+  TOOL_ROOT="$ROOT"
+elif [ -f "$HOOK_DIR/mem" ]; then
+  RUN_MEM=(node "$HOOK_DIR/mem" --root "$ROOT")
+  TOOL_ROOT="$(dirname "$HOOK_DIR")"
+else
+  exit 0
+fi
+AF="$TOOL_ROOT/src/afterfailure.mjs"
+[ -f "$AF" ] || exit 0
+# The module runs as a script: a plain path is fine for `node <file>`.
+export CHEAP_MEM_ROOT="$ROOT"
+
+# shellcheck source=bin/_portable.sh
+. "$HOOK_DIR/_portable.sh"
+
+# One `node` call for everything that is not the search itself.
+af() { capped 5 node "$AF" "$@" 2>/dev/null; }
+# A plain string field out of the parse result (no jq on a bare machine).
+field() { printf '%s' "$PARSED" | node -e "let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>process.stdout.write(String(JSON.parse(d).$1 ?? \"\")))" 2>/dev/null; }
+
+{ IN="$(</dev/stdin)"; } 2>/dev/null || IN="$(cat)"
+[ -z "$IN" ] && exit 0
+
+PARSED="$(printf '%s' "$IN" | af parse)"
+[ -z "$PARSED" ] && exit 0
+KIND="$(field kind)"
+SESSION="$(field session)"
+export MEM_AF_SESSION="$SESSION"
+
+# Aborted is not failed; a failure with no text is the outage. Each gets
+# its own reason in the journal, and neither searches.
+case "$KIND" in
+  interrupt) MEM_AF_REASON=interrupt af book </dev/null; exit 0 ;;
+  no-input)  MEM_AF_REASON=no-input af book </dev/null; exit 0 ;;
+  failure) ;;
+  *) exit 0 ;;
+esac
+QUERY="$(field query)"
+[ -z "$QUERY" ] && exit 0
+
+# --- Once per session per failure text ---------------------------------
+#
+# `mkdir` as the claim (atomic). The claim is taken BEFORE the search and
+# handed back when nothing went out: a failure that found nothing must
+# not count as handled for an hour, because while one sits on an error,
+# an entry about it gets WRITTEN — and the second and third attempt
+# should see it.
+CLAIM=""
+if [ -n "$SESSION" ]; then
+  TURNS="${MEM_AFTER_FAILURE_TURNS:-$ROOT/.mem/after-failure-turns}"
+  mkdir -p "$TURNS" 2>/dev/null || true
+  find "$TURNS" -maxdepth 1 -mmin +60 -type d -exec rm -rf {} + 2>/dev/null || true
+  SAFE="$(printf '%s' "${SESSION}__${QUERY}" | cksum | tr -d ' ')"
+  if mkdir "$TURNS/$SAFE" 2>/dev/null; then
+    CLAIM="$TURNS/$SAFE"
+  else
+    MEM_AF_REASON=already-shown af book </dev/null
+    exit 0
+  fi
+fi
+
+TOP="${MEM_AFTER_FAILURE_TOP:-3}"
+# A generous `--top`: the two lanes are picked out of the result, and a
+# hit in another lane would otherwise use up the room.
+HITS="$(capped 5 "${RUN_MEM[@]}" find "$QUERY" --content-words --top "$((TOP * 4))" --json 2>/dev/null)" || HITS=""
+if [ -z "$HITS" ]; then
+  [ -n "$CLAIM" ] && rmdir "$CLAIM" 2>/dev/null
+  MEM_AF_REASON=empty af book </dev/null
+  exit 0
+fi
+
+BLOCK="$(printf '%s' "$HITS" | af finish)"
+if [ -z "$BLOCK" ]; then
+  [ -n "$CLAIM" ] && rmdir "$CLAIM" 2>/dev/null
+  exit 0
+fi
+printf '%s' "$BLOCK"
+exit 0

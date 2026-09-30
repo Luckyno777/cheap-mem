@@ -112,11 +112,12 @@ export const MATRIX = Object.freeze({
       entries: [
         registered('SessionStart', 'cheap-mem-session-start.sh'),
         file('install/hooks/session-start.sh'),
+        contains('install/hooks/session-start.sh', 'OCCASION.SESSION_START'),
         registered('SubagentStart', 'cheap-mem-subagent-start.sh'),
         file('install/hooks/subagent-start.sh'),
         file('bin/mem-subagent-start'),
       ],
-      note: 'Core facts and recent context at every start; a subagent gets its own block.',
+      note: 'Core facts and recent context at every start, one journal line per start; a subagent gets its own block.',
     },
     [OCCASION.TASK_START]: {
       status: STATUS.FULL,
@@ -133,26 +134,34 @@ export const MATRIX = Object.freeze({
         registered('PreToolUse', 'cheap-mem-pre-edit.sh', 'Edit|Write|NotebookEdit'),
         file('install/hooks/pre-edit.sh'),
         file('bin/mem-before-edit'),
+        contains('bin/mem-before-edit', 'OCCASION.BEFORE_EDIT'),
       ],
-      note: 'Literal path lookup before Edit, Write and NotebookEdit; once per file per session. Reading a file or a shell command does not trigger it.',
+      note: 'Literal path lookup before Edit, Write and NotebookEdit, one journal line per lookup; once per file per session. Reading a file or a shell command does not trigger it.',
     },
     [OCCASION.AFTER_ERROR]: {
-      status: STATUS.PARTIAL,
+      status: STATUS.FULL,
       entries: [
+        registered('PostToolUseFailure', 'cheap-mem-after-failure.sh', 'Bash|Edit|Write'),
+        contains(INSTALLER, "upsertHook('PostToolUseFailure', 'after-failure'"),
+        file('install/hooks/after-failure.sh'),
+        file('bin/mem-after-failure'),
+        file('src/afterfailure.mjs'),
         registered('PostToolUse', 'cheap-mem-catch-fail.sh', 'Bash'),
         file('bin/mem-catch-fail'),
       ],
-      note: 'Only failures the exit code hid (exit 0, failure in the output). There is NO hook on PostToolUseFailure: a command that really exits nonzero gets no recall. The error-log hint (src/errorcontext.mjs) fires on writing an error, not on having one.',
+      note: 'Search for known errors and learnings after a Bash, Edit or Write call that really failed (PostToolUseFailure), one journal line per run, and after a failure the exit code hid (exit 0, failure in the output).',
     },
     [OCCASION.TASK_END]: {
-      status: STATUS.PARTIAL,
+      status: STATUS.FULL,
       entries: [
         registered('Stop', 'cheap-mem-session-stop.sh'),
         file('install/hooks/session-stop.sh'),
         file('bin/mem-stop'),
         file('src/answercheck.mjs'),
+        file('src/closingreport.mjs'),
+        contains('bin/mem-stop', 'stopReport'),
       ],
-      note: 'Captures and persists the session and checks the last answer against logged error patterns. Nothing checks open duties or asks for a log entry at the end.',
+      note: 'Captures and persists the session, checks the last answer against logged error patterns, and reports the open duties of this session (short, capped, once per duty, report only, never blocks).',
     },
   },
   [CLIENT.MCP]: {
@@ -218,24 +227,24 @@ export const MATRIX = Object.freeze({
  */
 export const MEASURE = Object.freeze({
   [OCCASION.SESSION_START]: {
-    delivered: MEASURED.NO, retrieved: MEASURED.NO, considered: MEASURED.NO,
-    where: 'the start hook prints straight to the context; it books no journal line',
+    delivered: MEASURED.YES, retrieved: MEASURED.NO, considered: MEASURED.NO,
+    where: 'src/injection.mjs (occasion session-start, one line per start, reason null = delivered; bytes and hits are not counted, nothing is searched)',
   },
   [OCCASION.TASK_START]: {
     delivered: MEASURED.YES, retrieved: MEASURED.YES, considered: MEASURED.APPROX,
     where: 'src/injection.mjs (occasion question, reason null = delivered, any reason = retrieved); src/effect.mjs (30-minute window, floor of pairs)',
   },
   [OCCASION.BEFORE_CHANGE]: {
-    delivered: MEASURED.NO, retrieved: MEASURED.NO, considered: MEASURED.NO,
-    where: 'the journal vocabulary has occasion before-edit (and a latency budget), but no writer books it',
+    delivered: MEASURED.YES, retrieved: MEASURED.YES, considered: MEASURED.NO,
+    where: 'src/injection.mjs (occasion before-edit); the line carries no sources, so src/effect.mjs cannot say which shown entry was touched afterwards',
   },
   [OCCASION.AFTER_ERROR]: {
-    delivered: MEASURED.NO, retrieved: MEASURED.NO, considered: MEASURED.NO,
-    where: 'the catch-fail hook books no journal line',
+    delivered: MEASURED.YES, retrieved: MEASURED.YES, considered: MEASURED.NO,
+    where: 'src/injection.mjs (occasion after-error, real failures only); the swallowed-failure hook (catch-fail) books no line; src/effect.mjs reads question lines only',
   },
   [OCCASION.TASK_END]: {
     delivered: MEASURED.NO, retrieved: MEASURED.NO, considered: MEASURED.NO,
-    where: 'the stop hook writes the raw capture (that is the record), not a delivery line',
+    where: 'the stop hook writes the raw capture (that is the record); the closing report books no delivery line',
   },
 });
 
@@ -254,12 +263,12 @@ export const BUDGET = Object.freeze({
     budget: 'MEM_BEFORE_EDIT_TOP=3, once per file per session; 1000 ms latency budget',
   },
   [OCCASION.AFTER_ERROR]: {
-    delivers: 'up to 3 entries matching the failure signature',
-    budget: 'MEM_CATCH_FAIL_TOP=3, MEM_CATCH_FAIL_MIN=2.0, once per session per signature; capped at 5 s',
+    delivers: 'up to 3 error or learning entries matching the failure (real failure), or the failure the exit code hid',
+    budget: 'MEM_AFTER_FAILURE_TOP=3, MEM_AFTER_FAILURE_MIN=2.0, once per session per failure text, capped at 5 s; MEM_CATCH_FAIL_TOP=3 for the swallowed failure; 2500 ms latency budget',
   },
   [OCCASION.TASK_END]: {
-    delivers: 'nothing is retrieved; the answer check may block once, the capture is written and pushed',
-    budget: 'capture about 50 ms; push best-effort',
+    delivers: 'nothing is retrieved; the open duties of this session as one short report (systemMessage, never block); the answer check may block once, the capture is written and pushed',
+    budget: 'report at most 3 names, 3 lines, 400 characters, once per duty per session, capped at 10 s (MEM_CLOSING_REPORT=0 turns it off); capture about 50 ms; push best-effort',
   },
 });
 
