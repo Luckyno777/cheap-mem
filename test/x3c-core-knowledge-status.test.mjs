@@ -49,7 +49,7 @@ function world() {
   return r;
 }
 function rule(r, title, fields, now = AFTER_CUTOFF) {
-  memory.logEntry(r, 'procedure', { title, rule: `Rule text of ${title}.`, issued_by: 'alex', agent: 'alex', ...fields }, { now });
+  memory.logEntry(r, 'procedure', { title, rule: `Rule text of ${title}.`, issued_by: 'owner', agent: 'owner', ...fields }, { now });
 }
 /** Three rules that do NOT hold or are only on trial. */
 function worldUnfinished() {
@@ -91,7 +91,14 @@ async function panelView(base, { oldScript } = {}) {
       const h = [...document.querySelectorAll('#screen .panel h2')].find((x) => /Always present: core knowledge/.test(x.textContent));
       h.closest('.panel').scrollIntoView({ block: 'center', behavior: 'instant' });
     });
-    await page.waitForTimeout(1200); // reveal animation (.reveal)
+    // Wait for the running reveal animations (0.7 s + at most 275 ms delay); a
+    // PAUSED one never ends and stays invisible -- that is what must show up.
+    await page.waitForTimeout(300);
+    await page.evaluate(() => Promise.race([
+      Promise.all(document.getAnimations().filter((a) => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming?.().endTime)).map((a) => a.finished.catch(() => null))),
+      new Promise((res) => setTimeout(res, 3000)),
+    ]));
+    await page.waitForTimeout(150);
     return await page.evaluate(() => {
       const visible = (el) => {
         for (let n = el; n && n !== document.documentElement; n = n.parentElement) {
@@ -114,7 +121,9 @@ async function panelView(base, { oldScript } = {}) {
     });
   } finally { await ctx.close(); }
 }
-const titles = (v) => v.rows.map((z) => z.title).sort();
+// The row title reads "Procedure, issued by <who> on <date> — <title>"; compare the tail.
+const short = (t) => t.split(' — ').pop();
+const titles = (v) => v.rows.map((z) => short(z.title)).sort();
 
 test('RED on the fixed old state: a proposed rule stands in the panel (positive control)', NEEDS, async (t) => {
   let old;
@@ -150,8 +159,8 @@ test('GREEN: released and legacy stay without a label, trial with one, proposed 
     const v = await panelView(s.base);
     assert.deepEqual(titles(v), ['Rule Legacy', 'Rule Released', 'Rule Trial']);
     for (const z of v.rows) {
-      assert.ok(z.visible, `${z.title} visible`);
-      assert.deepEqual(z.label, z.title === 'Rule Trial' ? ['trial'] : [], `${z.title}: label`);
+      assert.ok(z.visible, `${short(z.title)} visible`);
+      assert.deepEqual(z.label, short(z.title) === 'Rule Trial' ? ['trial'] : [], `${short(z.title)}: label`);
     }
   } finally { await s.stop(); }
 });
