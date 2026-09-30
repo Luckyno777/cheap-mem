@@ -15,9 +15,9 @@
  * inbox directory, three line kinds, each per message (`message` = file
  * name):
  *
- *   claim   {claimed_by, until}   "I take it, until then"
- *   done    {by}                  finished
- *   failed  {by, reason}          gave up, released at once
+ *   claim   {claimed_by, until}        "I take it, until then"
+ *   done    {by, claim_id}             finished
+ *   failed  {by, claim_id, reason}     gave up, released at once
  *
  * Nothing is rewritten (house rule: append-only). The `State:` header of
  * the message itself is untouched — a message with no line here behaves
@@ -32,12 +32,26 @@
  *     read as "second, not valid". It stays visible (`invalid`), never
  *     silently dropped.
  *   - After expiry a different agent may claim. That is the resumption.
- *   - `done` counts only from the valid holder; then the message is
- *     through and later claims are invalid.
- *   - `failed` counts only from the valid holder and releases the
- *     message IMMEDIATELY (even before `until`).
- *   - Lines from non-holders (a foreign `done`) appear in `invalid`
- *     with a reason.
+ *   - `done` counts only from the valid holder AND only with the `claim_id`
+ *     of the valid claim; then the message is through and later claims
+ *     are invalid.
+ *   - `failed` counts only from the valid holder with the valid
+ *     `claim_id` and releases the message IMMEDIATELY (even before
+ *     `until`).
+ *   - Lines from non-holders (a foreign `done`), with a foreign or old
+ *     `claim_id`, appear in `invalid` with a reason — never silently.
+ *   - A done/failed line with NO `claim_id` is read as "unproven": it
+ *     does NOT count and stands in `invalid` with that
+ *     reason.
+ *
+ * **Why the claim id (y0, 2026-09-30).** The actor name alone is not an
+ * identity: an old process of the same agent that was resumed after
+ * expiry would close the NEW claim of that agent with its late `done`.
+ * `claim()` already returns an id; `done()`/`failed()` now require it, and
+ * the fold checks that the message belongs to the currently valid claim.
+ * Why "no id" is not read leniently: claims exist only since 2026-09-30,
+ * so there is no real legacy data that a lenient reading would protect;
+ * a lenient rule would keep exactly the hole this closes.
  *
  * **Git is not a lock.** Across hosts there is no shared write access:
  * two hosts that claim at the same moment see each other only after push
@@ -127,6 +141,7 @@ export function readLines(root) {
           ? typeof z.by === 'string'
           : typeof z.claimed_by === 'string' && Number.isFinite(Date.parse(z.until)));
       if (!ok) throw new Error('fields missing or unreadable');
+      if ('claim_id' in z && typeof z.claim_id !== 'string') throw new Error('claim_id is not a string');
       lines.push(z);
     } catch (e) { broken.push({ line: i + 1, reason: e.message }); }
   });
@@ -138,6 +153,21 @@ function key(z) { return `${z.claimed_by ?? z.by}\u0000${z.id}`; }
 function order(lines) {
   return [...lines].sort((a, b) => (Date.parse(a.time) - Date.parse(b.time))
     || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+}
+
+/**
+ * Why a done/failed line does NOT count, or null when it does. Holder,
+ * name AND claim id must all match the currently valid claim.
+ */
+function doesNotCount(z, holder, done) {
+  if (done) return 'already done';
+  if (!holder) return 'no valid claim to close';
+  if (z.claim_id === undefined) return 'unproven: no claim_id, does not count';
+  if (z.by !== holder.claimed_by) return 'done by someone who is not the holder';
+  if (z.claim_id !== holder.id) {
+    return `claim_id ${z.claim_id} is not the valid claim (${holder.id}) — old or foreign, does not count`;
+  }
+  return null;
 }
 
 /**
@@ -165,14 +195,16 @@ export function fold(lines, { now = new Date() } = {}) {
         holder = z;
       }
     } else if (z.kind === KIND.DONE) {
-      if (!done && holder && z.by === holder.claimed_by) done = z;
-      else invalid.push({ ...z, reason: done ? 'already done' : 'done by someone who is not the holder' });
+      const why = doesNotCount(z, holder, done);
+      if (!why) done = z;
+      else invalid.push({ ...z, reason: why });
     } else if (z.kind === KIND.FAILED) {
-      if (!done && holder && z.by === holder.claimed_by) {
+      const why = doesNotCount(z, holder, done);
+      if (!why) {
         failures.push({ ...z, claim: holder.id });
         holder = null;
       } else {
-        invalid.push({ ...z, reason: 'failed by someone who is not the holder' });
+        invalid.push({ ...z, reason: why.replace(/^done /, 'failed ') });
       }
     }
   }
@@ -224,26 +256,41 @@ export function check(root, message, id, { now = new Date() } = {}) {
   };
 }
 
-export function done(root, message, { by, now = new Date() } = {}) {
-  checkMessage(root, message);
-  checkWho(by);
-  const line = writeLine(root, {
-    kind: KIND.DONE, message, by, time: iso(now), id: crypto.randomBytes(6).toString('hex'),
-  });
-  return { id: line.id, ...status(root, message, { now }) };
+function checkClaimId(claimId, what) {
+  if (typeof claimId !== 'string' || !/^[0-9a-f]{12}$/.test(claimId)) {
+    throw new Error(`${what} needs the claim_id of your claim (12 hex characters, from claim()), not: ${JSON.stringify(claimId)}`);
+  }
 }
 
-export function failed(root, message, { by, reason, now = new Date() } = {}) {
+export function done(root, message, { by, claimId, now = new Date() } = {}) {
   checkMessage(root, message);
   checkWho(by);
+  checkClaimId(claimId, 'done');
+  const line = writeLine(root, {
+    kind: KIND.DONE, message, by, claim_id: claimId, time: iso(now), id: crypto.randomBytes(6).toString('hex'),
+  });
+  return closing(root, message, line, now);
+}
+
+export function failed(root, message, { by, claimId, reason, now = new Date() } = {}) {
+  checkMessage(root, message);
+  checkWho(by);
+  checkClaimId(claimId, 'failed');
   if (typeof reason !== 'string' || !reason.trim() || reason.includes('\n')) {
     throw new Error('failed needs a reason, one line');
   }
   const line = writeLine(root, {
-    kind: KIND.FAILED, message, by, reason: reason.trim(), time: iso(now),
+    kind: KIND.FAILED, message, by, claim_id: claimId, reason: reason.trim(), time: iso(now),
     id: crypto.randomBytes(6).toString('hex'),
   });
-  return { id: line.id, ...status(root, message, { now }) };
+  return closing(root, message, line, now);
+}
+
+/** Result of done/failed: the state, plus whether THIS line counts (and if not, why). */
+function closing(root, message, line, now) {
+  const st = status(root, message, { now });
+  const mine = st.invalid.find((u) => u.id === line.id);
+  return { id: line.id, ...st, valid: !mine, reason: mine ? mine.reason : null };
 }
 
 /**
