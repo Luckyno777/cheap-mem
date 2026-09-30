@@ -86,6 +86,7 @@ directory. The section number in brackets is where it is explained.
 | `embed-hook.mjs` | embedding on write, without blocking the write |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
 | `entryops.mjs` | restore and merge as append-only operations: `mem restore` (a closed entry taken up again as a NEW line with `restored_from`) and `mem merge` (a correction of the first entry carrying `merged_from`, obsolete tombstones for the rest) — no line is ever rewritten (Bauplan P3) |
+| `entries-page.mjs` | `GET /entries`: the paged entry list rendered as a server page (same filters, cursor and `pages.page()` as `/entries.json`), a plain GET filter form and a next-page link, no script, nothing loaded from outside (D3b) |
 | `environment.mjs` | the guarantees cheap-mem does NOT provide itself |
 | `epoch.mjs` | noticing that the memory went backwards (4) |
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
