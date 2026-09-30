@@ -40,7 +40,7 @@ export const MUTANTS=[
 
  { name:'retrieval: drop the disputed filter',
    file:'src/retrieval.mjs',
-   from:"    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }",
+   from:"    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); return null; }",
    to:"    // MUTANT: filter removed",
    tests:['test/retrieval.test.mjs','test/authority.test.mjs'] },
 
@@ -183,8 +183,8 @@ export const MUTANTS=[
 
  { name:'SEM disputed becomes included by default',
    file:'src/retrieval.mjs',
-   from:"    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }",
-   to:"    if (c.status === 'disputed' && withDisputed) { note(c.id, 'MUTANT'); continue; }",
+   from:"    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); return null; }",
+   to:"    if (c.status === 'disputed' && withDisputed) { note(c.id, 'MUTANT'); return null; }",
    tests:['test/retrieval.test.mjs','test/authority.test.mjs'] },
 
  { name:'SEM status read from the RESULT SET, not the log',
@@ -195,7 +195,7 @@ export const MUTANTS=[
 
  { name:'SEM author share becomes a flat cap of one',
    file:'src/retrieval.mjs',
-   from:'  const cap = Math.max(1, Math.floor(claims.length * limits.perAuthorShare));',
+   from:'  const cap = Math.max(2, Math.floor(sizeBasis * limits.perAuthorShare));',
    to:'  const cap = 1;  // MUTANT',
    tests:['test/retrieval.test.mjs'] },
 
@@ -311,7 +311,7 @@ export const MUTANTS=[
 
  { name:'ARCH scope applied AFTER the result is assembled',
    file:'src/retrieval.mjs',
-   from:'    if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); continue; }',
+   from:'    if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); return null; }',
    to:'    // MUTANT: scope checked nowhere',
    tests:['test/retrieval.test.mjs'] },
 
@@ -409,7 +409,7 @@ export const MUTANTS=[
 
  { name:'ARCH the gateway drops the exact lane',
    file:'src/retrieval.mjs',
-   from:'  const exactMatches = exactHits(idx, useQuery, want, { withRetired: true });',
+   from:'  const exactMatches = exactHits(idx, useQuery, want, { withRetired: true, ...(cap ? { capability: cap } : {}) });',
    to:'  const exactMatches = [];  // MUTANT: exact hits fall back under the threshold',
    tests:['test/exact-lane.test.mjs'] },
 
