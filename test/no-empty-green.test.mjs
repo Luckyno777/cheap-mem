@@ -112,6 +112,9 @@ const FIVE_MOVING_DENOMINATOR = ['root', 'integrity', 'corpus-size', 'drawers', 
 const EXEMPT = new Map([
   ...SIX_INNOCENTS.map((n) => [n, 'checks the LAYER, not the corpus — fully answerable on a bare init']),
   ...FIVE_MOVING_DENOMINATOR.map((n) => [n, 'its count moves with the corpus and is honestly 0 here']),
+  ['claim-orphaned', 'inspected the claims file and found no line: a mailbox nobody has claimed '
+    + 'from has no orphaned claim — measurably empty, like the archive folder; an UNREADABLE file '
+    + 'is `unknown` and broken lines are `error`, never this ok (Z2/A12)'],
   ['archive-backlog', 'inspected the folder and found it empty, which answers "is anything '
     + 'piling up"; and if captures stop arriving, `capture` warns — a finding that stays '
     + 'quiet because a neighbour speaks hides nothing'],
@@ -297,7 +300,8 @@ test('CONTROL: every exemption carries a reason that argues', () => {
       `the exemption for '${name}' states a category, not an argument: ${why}`);
   }
   // And it must not grow without anyone noticing.
-  assert.equal(EXEMPT.size, 12,
+  // 12 -> 13 on 2026-09-30 (Z2/A12): 'claim-orphaned', argued above.
+  assert.equal(EXEMPT.size, 13,
     `the exemption list is now ${EXEMPT.size} long. Every addition needs an argument in `
     + 'the file and a deliberate change here — that is the point of pinning the number.');
 });
