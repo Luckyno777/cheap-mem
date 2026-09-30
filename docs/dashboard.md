@@ -91,7 +91,7 @@ black page, one field, one button (`src/login.mjs`). Without a valid
 session every page goes to `/login`, every data and writing route
 answers `401` JSON. Tools keep the existing way:
 `Authorization: Bearer <CHEAP_MEM_SERVE_TOKEN>` needs no password. The
-door cookie (named `mem_k`) alone is not enough and does need the
+door cookie (named mem\_k) alone is not enough and does need the
 password — otherwise the password would do nothing in the owner's own
 browser. `CHEAP_MEM_SERVE_LOGIN=off` switches it off
 (tests, local use); the default is on.

@@ -35,7 +35,7 @@ const START = 'c23ad5c';
 function copyTree(t) {
   const dest = tempDir('cm-o7-', t);
   const files = execFileSync('git', ['-C', REPO, 'ls-files'], { encoding: 'utf8' }).split('\n').filter(Boolean)
-    .filter((f) => f.endsWith('.md') || /^(bin|src)\//.test(f)
+    .filter((f) => f.endsWith('.md') || /^(bin|src)\//.test(f) || /^install\/hooks\//.test(f)
       || (/^test\/[^/]+\.mjs$/.test(f)) || (/^bench\/[^/]+\.mjs$/.test(f)));
   for (const f of files) {
     const from = path.join(REPO, f);
