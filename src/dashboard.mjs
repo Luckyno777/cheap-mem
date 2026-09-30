@@ -365,7 +365,10 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   try {
     const ib = inboxModule.read(root, participants ?? {}, {});
     inboxMessages = ib.messages;
-    inboxBroken = ib.broken;
+    // Z3/A9: unreadable state/claim lines count as broken mail too — a
+    // state change in them may be missing from every number on the page.
+    inboxBroken = [...ib.broken,
+      ...(ib.eventsBroken ?? []).map((b) => ({ name: `${b.file}${b.line ? `:${b.line}` : ''}`, reason: b.reason }))];
   } catch { /* stays empty: an unreadable inbox has no messages to show */ }
   const agentCtx = { now, participants, inboxMessages };
   const agentsOut = mem.agents.map((a) => ({ ...a, ...agentSignals(root, a, agentCtx) }));

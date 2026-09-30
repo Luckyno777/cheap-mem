@@ -621,7 +621,9 @@ const TOOLS = [
   {
     name: 'mem_inbox_new',
     description:
-      'List new inbox messages addressed to `to`. Marks them seen unless no_mark is true.',
+      'List new inbox messages addressed to `to`. Records a delivery attempt unless no_mark '
+      + 'is true; a message that is still open comes back after a back-off (listing never '
+      + 'consumes). Unreadable messages are always named.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -652,18 +654,21 @@ const TOOLS = [
         subject: { type: 'string' },
         text: { type: 'string' },
         request_id: { type: 'string', description: 'Optional idempotency id: the same id sent twice is ONE message; the same id with other text is refused' },
+        in_reply_to: { type: 'string', description: 'Optional: file name of the message this answers (must exist and go the other way)' },
       },
       required: ['to', 'subject', 'text'],
     },
   },
   {
     name: 'mem_inbox_ack',
-    description: 'Change the state of a message (open|replied|processed|closed).',
+    description: 'Change the state of a message (open|replied|processed|closed). Written as an '
+      + 'event line in inbox/states.jsonl; the message file is never rewritten. Reopening needs a reason.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string' },
         state: { type: 'string', enum: ['open', 'replied', 'processed', 'closed'] },
+        reason: { type: 'string', description: 'Required to reopen (a done state back to open)' },
       },
       required: ['name', 'state'],
     },
@@ -1310,12 +1315,21 @@ async function handleCall(name, args) {
     case 'mem_inbox_new': {
       const to = args?.to ?? inbox.whoAmI(root);
       if (!to) throw new Error("no 'to' and whoami not set");
-      const { new: fresh, known, duplicates: dupes } = inbox.newFor(root, cfg.participants, { to });
+      const { new: fresh, known, duplicates: dupes, broken = [], eventsBroken = [] } = inbox.newFor(root, cfg.participants, { to });
+      // Z3/A6: this records an ATTEMPT, it does not consume: a message
+      // that is still open comes back after the back-off.
       if (!args?.no_mark && fresh.length) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
       }
-      if (!fresh.length) return textResult(`Nothing new for '${to}'. ${known} known.`);
+      // Z3/A9: unreadable messages/lines are ALWAYS in the reply text — a
+      // client that shows only `content` must not see a healthy empty inbox.
+      const warnings = [
+        ...broken.map((b) => `WARNING unreadable message in the inbox: ${b.name} (${b.reason})\n`),
+        ...eventsBroken.map((b) => `WARNING unreadable line in ${b.file}${b.line ? `:${b.line}` : ''} (${b.reason})\n`),
+      ].join('');
+      if (!fresh.length) return textResult(`${warnings}Nothing new for '${to}'. ${known} known.`);
       return textResult(
+        warnings +
         `${fresh.length} new for '${to}': (${known} known)\n` +
         fresh.map((m) => `  [${m.state}] ${m.name}\n         ${m.subject} (from ${m.from})`).join('\n') +
         dupes.map((d) => `\n  [duplicate, not delivered] ${d.name} (same request id as ${d.duplicateOf})`).join(''));
@@ -1325,7 +1339,15 @@ async function handleCall(name, args) {
       // join args.name onto the inbox directory itself, so a client
       // could ask for '../../../../etc/passwd' and get it back as tool
       // output — while setState, right next to it, had the guard.
-      return textResult(inbox.readMessage(root, args.name));
+      const raw = inbox.readMessage(root, args.name);
+      // Z3/A8: the header is only the start state; say the effective one
+      // when it differs, the same projection every reader uses.
+      let pre = '';
+      try {
+        const e = inbox.stateOf(root, args.name);
+        if (e.state !== e.headerState) pre = `(State now: ${e.state} — from ${e.stateSource}; the header below is the start state)\n`;
+      } catch { /* the message itself was readable; the projection is extra */ }
+      return textResult(pre + raw);
     }
     case 'mem_inbox_write': {
       const from = args.from ?? inbox.whoAmI(root);
@@ -1333,6 +1355,8 @@ async function handleCall(name, args) {
       const res = inbox.write(root, cfg.participants, {
         from, to: args.to, subject: args.subject, text: args.text,
         requestId: args.request_id ?? null,
+        // Z3/A7: the stable reference to the message answered (checked).
+        inReplyTo: args.in_reply_to ?? null,
       });
       if (res.replay) {
         return textResult(`Already sent (replay of request id '${args.request_id}'): ${res.name}\nNothing written.`);
@@ -1345,8 +1369,13 @@ async function handleCall(name, args) {
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'inbox: ${args.subject}' && git -C ${root} push`);
     }
     case 'mem_inbox_ack': {
-      const m = inbox.setState(root, cfg.participants, args.name, args.state);
-      return textResult(`${args.name}: state -> ${m.state}`);
+      // Z3/A8: an event line (states.jsonl), the message is left as it is.
+      const m = inbox.setState(root, cfg.participants, args.name, args.state, {
+        by: String(process.env.CHEAP_MEM_AGENT ?? '').trim() || inbox.whoAmI(root),
+        reason: typeof args.reason === 'string' ? args.reason : null,
+      });
+      return textResult(m.unchanged ? `${args.name}: already ${m.state} — nothing written`
+        : `${args.name}: state -> ${m.state}`);
     }
     // O1: thin adapters, see claimContext()/claimReply() above.
     case 'mem_inbox_claim': {

@@ -703,7 +703,8 @@ export function buildHandler(root, cfg, env = process.env) {
             short(res, 400, `'${name}' is addressed to '${original.to}', not to '${humanName}' — only its recipient can acknowledge it`);
             return;
           }
-          inbox.setState(root, participants, name, state);
+          // Z3/A8: an event line; `by` is the human participant, never a form field.
+          inbox.setState(root, participants, name, state, { by: humanName });
         } catch (e) {
           short(res, 400, e?.message || String(e));
           return;
