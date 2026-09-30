@@ -395,8 +395,8 @@ const TOOLS = [
   {
     name: 'mem_log',
     description:
-      'Append an entry to the memory log. Nine types: decision, error, event, timeline, ' +
-      'thought, learning, duty, skill, update. ' +
+      'Append an entry to the memory log. The `type` enum lists every type (for example ' +
+      'decision, error, event, timeline, thought, learning, duty, skill, update). ' +
       'Provide `type`, optionally `project`, and any string fields (title, text, topic, choice, why, class). ' +
       '`tags` can be an array. Use this whenever the user makes a decision, hits an error, ' +
       'completes something notable, or a fact about them changes. ' +
