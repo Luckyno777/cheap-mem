@@ -95,7 +95,9 @@ test('time cap -> unknown with "partially read", no not-observed list', () => {
 test('finding: WARNING at >= N days of coverage, never ERROR; names only in the advice', () => {
   const f = doctor.checkSkillUsage(build(40), { env: { MEM_SKILLUSAGE_DAYS: '30' } });
   assert.equal(f.name, 'skill-usage');
-  assert.equal(f.level, doctor.LEVEL.WARNING, JSON.stringify(f));
+  // LEVEL has no WARNING: comparing against it compared undefined with undefined (audit 2026-09-30, B1).
+  assert.equal(f.level, doctor.LEVEL.WARN, JSON.stringify(f));
+  assert.ok(Object.values(doctor.LEVEL).includes(f.level), `level outside LEVEL: ${f.level}`);
   assert.match(f.text, /subagents not captured/);
   assert.doesNotMatch(f.text, /never-pulled/);
   assert.match(f.advice, /never-pulled/);
