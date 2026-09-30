@@ -845,8 +845,10 @@ async function handleCall(name, args) {
       const project = args.project && args.project !== 'global' ? String(args.project) : null;
       const { entries } = memory.readLog(root, procedure.TYPE, { project });
       const retired = memory.retiredMap(entries);
+      const idx = procedure.statusIndex(entries);
       const live = entries.filter((e) => e.rule && e.id
-        && !retired.has(e.id) && !memory.isClosingLine(e));
+        && !retired.has(e.id) && !memory.isClosingLine(e))
+        .map((e) => ({ ...e, _status: procedure.statusOf(e, idx).status }));
       if (!live.length) {
         return textResult('No procedures. Without them, whatever each agent takes to be usual applies.');
       }
