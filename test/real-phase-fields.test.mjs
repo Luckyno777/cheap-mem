@@ -112,7 +112,11 @@ test('the German mirror still matches what lucky-mem actually ranks on', (t) => 
     return;
   }
   const src = fs.readFileSync(suche, 'utf8');
-  const start = src.indexOf('FELDGEWICHT = Object.freeze({');
+  // Since O2 (2026-09-30) lucky-mem keeps the weights in GEWICHT_JE_FELD
+  // and builds FELDGEWICHT from its single content-field source; the
+  // older literal is still accepted so an older sister checkout parses.
+  let start = src.indexOf('GEWICHT_JE_FELD = Object.freeze({');
+  if (start < 0) start = src.indexOf('FELDGEWICHT = Object.freeze({');
   assert.ok(start >= 0, 'the sister checkout still declares its field weights the way we parse them');
   const body = src.slice(start, src.indexOf('});', start));
   const keys = [...body.matchAll(/^\s{2}([a-z_][a-z0-9_]*):\s*[\d.]+\s*,/gmi)].map((m) => m[1]);

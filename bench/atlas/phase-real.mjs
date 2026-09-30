@@ -140,6 +140,9 @@ export const WEIGHTED_FIELDS_DE = [
   // a copy of someone else's schema goes stale silently, and the only
   // thing that makes it not silent is something that reads the original.
   'abrufbegriffe',
+  // `schritte` (workflow steps) became indexed there with O2 on
+  // 2026-09-30 — caught by the same drift check.
+  'schritte',
 ];
 
 // The cheap-mem side, imported rather than mirrored: this IS our house,
