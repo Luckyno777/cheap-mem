@@ -87,7 +87,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out('  find "<query>"   [--type T] [--project P|global] [--since 7d|24h|ISO]');
   out("                    ranked, no model. --literal for substring, --fresh to rebuild");
   out("                    retired (done/discarded/superseded) hidden; --with-retired shows them");
-  out("  discard <id>     [--why \"...\"]        retire a discarded thought (replaced instead: supersede <old> --by <new>)");
+  out("  discard <id> / supersede <old> --by <new>  retire a discarded thought / one replaced by an entry already written");
   out("  done <id>        [--why \"...\"]        retire a finished entry");
   out("  restore <id>     [--why \"...\"]        take a closed entry up again (new line)");
   out("  merge <id> <id>..  [--title T] [--text T]  merge entries of one drawer (append-only)");
