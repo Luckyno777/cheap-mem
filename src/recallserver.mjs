@@ -20,10 +20,10 @@
  * it through `search.loadIndex()` on every question, and that compares
  * the file state of every source with the cache: new state -> top up or
  * rebuild, exactly as in the direct path, because it is the same call.
- * What a server must check on top is its OWN code: if the code root
- * holds another state than at start (new commit, changed file in
- * `src/`), it answers `stale`, and the client falls back to the direct
- * path, which loads the new code.
+ * What a server must check on top is its OWN code: if `src/` holds
+ * another state than at start, it answers `stale`, the client falls back
+ * to the direct path (which loads the new code), and the server stops
+ * listening until `mem serve` restarts.
  *
  * **Read only, local only.** The endpoint can do exactly what the hook
  * can: answer one search. Unix socket in a 0700 directory, key file
@@ -40,25 +40,16 @@ import * as place from './recallserver-place.mjs';
 
 const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-function gitHead(codeRoot) {
-  try {
-    let gitdir = path.join(codeRoot, '.git');
-    const st = fs.statSync(gitdir);
-    if (!st.isDirectory()) {
-      const m = /^gitdir:\s*(.+)\s*$/m.exec(fs.readFileSync(gitdir, 'utf8'));
-      if (!m) return null;
-      gitdir = path.resolve(codeRoot, m[1]);
-    }
-    return fs.readFileSync(path.join(gitdir, 'HEAD'), 'utf8').trim();
-  } catch { return null; }
-}
-
 /**
- * The state of the code this process loaded: HEAD plus a print over
- * `src/` (count, newest mtime, total size, recursively one level into
- * `src/cli/commands`). HEAD alone is not enough: in a working tree code
- * changes without a commit, and a server that misses that answers with
- * old code without knowing it.
+ * The state of the code this process loaded: a print over `src/` (count,
+ * newest mtime, total size, recursively).
+ *
+ * **Deliberately WITHOUT the commit.** A memory that carries its own
+ * tool commits DATA into the same clone all the time (journal, captures);
+ * a print that included HEAD would make the server `stale` after the
+ * first such commit, forever, without a line of code having changed. The
+ * server only loaded `src/`; a pull that changes something there changes
+ * mtime and usually size.
  */
 export function codeState(codeRoot = CODE_ROOT) {
   let n = 0; let newest = 0; let total = 0;
@@ -76,7 +67,7 @@ export function codeState(codeRoot = CODE_ROOT) {
     }
   };
   walk(path.join(codeRoot, 'src'), 0);
-  return `${gitHead(codeRoot) ?? '?'}|${n}|${newest}|${total}`;
+  return `${n}|${newest}|${total}`;
 }
 
 function safeDir(dir) {
@@ -141,6 +132,7 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
   const shell = await import('./cli/shell.mjs');
   const startState = codeState(codeRoot);
   const myRoot = realRoot(root);
+  let close = null;
 
   const key = crypto.randomBytes(32).toString('hex');
   const tmp = `${where.key}.${process.pid}.${crypto.randomBytes(4).toString('hex')}`;
@@ -156,7 +148,16 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
     if (!req || req.v !== place.VERSION) return { ok: false, reason: 'refused' };
     if (!same(req.key, key)) return { ok: false, reason: 'refused' };
     if (realRoot(req.root) !== myRoot) return { ok: false, reason: 'refused' };
-    if (codeState(codeRoot) !== startState) return { ok: false, reason: 'stale' };
+    if (codeState(codeRoot) !== startState) {
+      // New code on disk: this question goes to the direct path (which
+      // loads the new code), and the server stops listening. Without a
+      // socket every later turn runs with no server attempt at all,
+      // instead of hearing `stale` once per turn. Restarting `mem serve`
+      // brings it back with the new code.
+      say('code under src/ changed since the start — recall server stopped (restart mem serve to bring it back)');
+      setImmediate(() => { if (close) close(); });
+      return { ok: false, reason: 'stale' };
+    }
     const query = String(req.query ?? '');
     const top = Number(req.top);
     const args = { json: true, root };
@@ -209,7 +210,7 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
   say(`listening on ${where.socket}`);
 
   let closed = false;
-  const close = () => new Promise((resolve) => {
+  close = () => new Promise((resolve) => {
     if (closed) { resolve(); return; }
     closed = true;
     server.close(() => resolve());

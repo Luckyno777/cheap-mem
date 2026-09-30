@@ -183,6 +183,10 @@ test('M10-5: code changed -> the server answers stale, the client delivers nothi
     const old = await clientAsync(root);
     assert.equal(old.code, place.CLIENT_RC.STALE);
     assert.equal(old.out, '', 'stale means: NOTHING delivered, never old results');
+    // And afterwards it no longer listens: without a socket the hook never asks it again.
+    const until = Date.now() + 2000;
+    while (fs.existsSync(s.where.socket) && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(fs.existsSync(s.where.socket), false, 'a stale server removes its socket');
   } finally { await s.close(); }
 });
 
