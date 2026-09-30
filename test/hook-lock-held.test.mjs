@@ -81,7 +81,7 @@ for (const [name, [script, input]] of Object.entries(HOOKS)) {
       const r = bash(script, input, root);
       assert.equal(r.status, 0, r.stderr);
       assert.ok(Date.now() - t0 < 9000, 'the hook waited on a lock');
-      const norm = (o, rt) => o.split(rt).join('ROOT');
+      const norm = (o, rt) => o.split(rt).join('ROOT').replace(/\d{4}-\d\d-\d\dT[\d:]+Z/g, 'TS');
       assert.equal(norm(r.stdout, root), norm(free.stdout, rootFree), 'output differs when the locks are held');
       assert.doesNotMatch(r.stderr, /LockTimeout|ELOCKTIMEOUT/);
       for (const h of held) assert.ok(fs.existsSync(h), 'a hook removed a lock it does not own');
