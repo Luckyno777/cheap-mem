@@ -248,6 +248,9 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // W10 (2026-09-29): 'skill-nutzung' added on the lucky-mem side, paired
   // here with this house's own 'skill-usage' — refreshed as its own
   // reviewed change, per the instructions above.
+  // X2 (2026-09-29): 'integrationsvertrag' added on the lucky-mem side, paired
+  // here with this house's own 'integration-contract' — refreshed as its own
+  // reviewed change, per the instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -257,7 +260,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
-    'hook-kopie', 'hook-stand', 'index', 'kennzahlen-gleich',
+    'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kennzahlen-gleich',
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',

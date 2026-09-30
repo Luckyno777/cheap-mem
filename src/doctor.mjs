@@ -51,6 +51,7 @@ import * as docimages from './docimages-state.mjs';
 import * as release from './release.mjs';
 import * as latencybudget from './latencybudget.mjs';
 import * as injection from './injection.mjs';
+import * as contract from './integrationcontract.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -386,6 +387,7 @@ export function checkAll(root) {
   f.push(checkSkillUsage(root));
   f.push(checkRunningCode(root));
   f.push(checkDocsImagesFresh());
+  f.push(checkIntegrationContract(root));
   f.push(checkHookLatency(root));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
@@ -2462,4 +2464,25 @@ export function checkDocsImagesFresh(codeRoot = docimages.CODE_ROOT) {
     ? `Reshoot (a deliberate step: look at the images, then commit): ${docimages.RESHOOT_COMMAND}`
     : null;
   return finding('docs-images-fresh', level, r.text, advice);
+}
+
+/**
+ * Finding `integration-contract` (X2, parity with lucky-mem
+ * `integrationsvertrag`): does the memory reach the client at the five
+ * occasions, and does the written contract match the tree? The matrix
+ * and the verdict live ONLY in `src/integrationcontract.mjs`.
+ *
+ *   error    a cell declared full without its hook file / entry
+ *   unknown  cannot tell which client is installed
+ *   warn     partial support (a missing hook is written down as partial)
+ *   good     every occasion of the installed client is full
+ *
+ * Reads settings files, never writes them.
+ */
+export function checkIntegrationContract(root, { settingsPaths = null, codeRoot = contract.CODE_ROOT } = {}) {
+  const home = process.env.CLAUDE_HOME || path.join(os.homedir(), '.claude');
+  const paths = settingsPaths ?? [path.join(home, 'settings.json'), path.join(root, '.claude', 'settings.json')];
+  const r = contract.judge({ codeRoot, settingsPaths: paths });
+  const level = { good: LEVEL.GOOD, warn: LEVEL.WARN, error: LEVEL.ERROR }[r.level] ?? LEVEL.UNKNOWN;
+  return finding('integration-contract', level, r.text, r.advice);
 }
