@@ -62,7 +62,7 @@ test('CLI: a similar decision without topic gets the note and the ready command'
     '--choice', 'plain CSS', '--why', 'class lists became unreadable');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, NOTE, `no note for a near-duplicate subject:\n${r.stdout}`);
-  assert.ok(r.stdout.includes(`mem discard ${old.id} --why "replaced by ${idOf(r.stdout)}"`),
+  assert.ok(r.stdout.includes(`mem supersede ${old.id} --by ${idOf(r.stdout)}`),
     `the ready command is missing or wrong:\n${r.stdout}`);
   assert.doesNotMatch(r.stdout, /contradict/i, 'the note judged — it must only say "similar"');
   // Output only: the entry carries nothing of it.
@@ -90,7 +90,7 @@ test('MCP: mem_log shows the same note as the CLI', (t) => {
   ]);
   assert.ok(!res.isError, textOf(res));
   assert.match(textOf(res), NOTE, `the bridge wrote without the note:\n${textOf(res)}`);
-  assert.match(textOf(res), /mem discard \S+ --why "replaced by \S+"/);
+  assert.match(textOf(res), /mem supersede \S+ --by \S+/);
   assert.doesNotMatch(textOf(ctl), NOTE, 'control: unrelated decision over the bridge got a note');
 });
 

@@ -89,6 +89,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("                    retired (done/discarded/superseded) hidden; --with-retired shows them");
   out("  discard <id>     [--why \"...\"]        retire a discarded thought");
   out("  done <id>        [--why \"...\"]        retire a finished entry");
+  out("  supersede <old> --by <new>            old one replaced by one already written");
   out("  restore <id>     [--why \"...\"]        take a closed entry up again (new line)");
   out("  merge <id> <id>..  [--title T] [--text T]  merge entries of one drawer (append-only)");
   out("  find --brief / show <id>       two-stage recall: scan labels, pull one full");

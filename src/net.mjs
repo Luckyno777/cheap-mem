@@ -77,6 +77,8 @@ export function linksOf(e) {
   if (e.replaces_id) out.push({ kind: 'replaces', from: e.id, to: String(e.replaces_id) });
   if (e.closes_id) out.push({ kind: 'closes', from: e.id, to: String(e.closes_id) });
   if (e.retires_id) out.push({ kind: 'closes', from: e.id, to: String(e.retires_id) });
+  // G1b: a late supersession is the successor replacing its target.
+  if (e.retires_id && e.state === 'superseded' && e.by_id) out.push({ kind: 'replaces', from: String(e.by_id), to: String(e.retires_id) });
   // Links from the links book carry kind/from/to themselves.
   if (e.kind && e.from && e.to && LINK_KINDS.includes(e.kind)) {
     out.push({ kind: e.kind, from: String(e.from), to: String(e.to) });

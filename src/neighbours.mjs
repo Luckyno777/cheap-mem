@@ -227,7 +227,7 @@ export function hint(found) {
 // writes the second decision knows whether it replaces the first. So at
 // that moment — and only when there is no topic to find neighbours by —
 // the two lexically closest decisions of the same drawer are shown, with
-// the ready command to retire the old one.
+// the ready command to mark the old one superseded by it.
 //
 // A note, not a verdict: "similar", never "contradicts". No model, no
 // effect on retrieval, nothing written. Output only.
@@ -310,8 +310,10 @@ export function similarHint(found, { newId = '<new-id>' } = {}) {
     '',
     '  Similar decisions already stand (no topic given; word overlap only, not a verdict):',
     ...found.hits.map((e) => `    ${line(e)}`),
-    '    If this one REPLACES it:',
-    ...found.hits.map((e) => `      mem discard ${e.id} --why "replaced by ${newId}"`),
+    // `supersede`, not `discard`: the old ruling held until this one —
+    // discard would stamp it "discarded" and cut its --as-of history.
+    '    If this one REPLACES it (bridge: mem_log with retires_id, state "superseded", by_id):',
+    ...found.hits.map((e) => `      mem supersede ${e.id} --by ${newId}`),
     '    If both hold side by side: do nothing. A shared --topic next time links them for recall.',
   ];
 }

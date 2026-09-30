@@ -395,6 +395,9 @@ const TOOLS = [
         why: { type: 'string' },
         class: { type: 'string' },
         tags: { type: 'array', items: { type: 'string' } },
+        retires_id: { type: 'string', description: 'With state "superseded" and by_id: mark this entry superseded by an existing one (same as mem supersede)' },
+        state: { type: 'string' },
+        by_id: { type: 'string', description: 'The successor for state "superseded"' },
       },
       required: ['type'],
     },
@@ -1059,9 +1062,19 @@ async function handleCall(name, args) {
       }
       // O1: content check, redaction self test and redaction live in
       // memory.logCheckedEntry — the same path `mem log` takes.
-      // G1b: the same note `mem log` prints — a decision without topic
-      // gets its lexically closest standing decisions shown (output only,
-      // never part of the entry). Read BEFORE the write, as at the CLI.
+      // G1b: "superseded by", said after both were written — the same
+      // door `mem supersede` takes (memory.supersedeEntry: both ids must
+      // exist in this drawer, the strict replacement rule applies on read).
+      if (data.retires_id && data.state === 'superseded') {
+        const r = memory.supersedeEntry(root, type, String(data.retires_id), {
+          by: data.by_id ? String(data.by_id) : null, project, agent: data.agent, why: data.why ?? null,
+        });
+        return textResult(`superseded: ${data.retires_id} by ${data.by_id} (line ${r.entry.id})`);
+      }
+      // What already stands under the same topic, and — without a topic —
+      // the lexically closest decisions: the same two notes `mem log`
+      // prints (O1: CLI = bridge). Read BEFORE the write, as at the CLI.
+      const around = neighbours.neighbours(root, type, data, { project });
       const alike = neighbours.similarDecisions(root, type, data, { project });
       const { path: p, entry, findings } = memory.logCheckedEntry(root, type, data, { project });
       const lines = [
@@ -1069,6 +1082,7 @@ async function handleCall(name, args) {
         `  id: ${entry.id}   agent: ${entry.agent}`,
       ];
       if (findings.length) lines.push(`  ${memory.findingsLine(findings)}`);
+      lines.push(...neighbours.hint(around));
       lines.push(...neighbours.similarHint(alike, { newId: entry.id }));
 
       // **F1/F4 belong HERE too, not only in bin/mem.** Same reasoning
