@@ -266,13 +266,16 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // S4 (2026-09-30): 'post-wartet-erlaubnis' added on the lucky-mem side
   // (letters asking for an answer that wait for the user's permission),
   // mapped as a gap: this house has no send permission yet (S6).
+  // L2a (2026-09-30): 'fehler-verknuepft' added on the lucky-mem side
+  // (share of errors with a fix edge and a learning edge), mapped as a gap:
+  // this house has no Behebt trailer or edge wiring yet.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise', 'befund-gleichstand',
     'behauptung-ohne-beleg', 'bestand', 'bestritten', 'briefkasten', 'bruecke',
     'dispatcher', 'doku-bilder-frische', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
-    'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
+    'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt', 'fehler-verknuepft',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
     'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kennzahlen-gleich',
