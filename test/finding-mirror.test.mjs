@@ -259,11 +259,15 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // paired here with this house's own 'inbox-unpushed' (mail that lies only
   // locally) — refreshed as its own reviewed change, per the instructions
   // above.
+  // Y4c/Y4b (2026-09-30): 'bestritten' added on the lucky-mem side, paired
+  // here with this house's own 'contested-claims' (state pointers the rank
+  // rule refuses) — refreshed as its own reviewed change, per the
+  // instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise', 'befund-gleichstand',
-    'behauptung-ohne-beleg', 'bestand', 'briefkasten', 'bruecke',
+    'behauptung-ohne-beleg', 'bestand', 'bestritten', 'briefkasten', 'bruecke',
     'dispatcher', 'doku-bilder-frische', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
