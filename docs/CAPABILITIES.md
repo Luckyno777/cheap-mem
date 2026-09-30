@@ -91,6 +91,7 @@ directory. The section number in brackets is where it is explained.
 | `errorcontext.mjs` | `mem log error`'s file history (max 3) and the auto-duty it opens on a real repetition, one per file+class |
 | `errorfile.mjs` | which file an error concerns: an explicit field first, else the path pattern |
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
+| `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, stale lock taken over by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `fulltext.mjs` | full-text search behind the knowledge view's search field: `GET /api/fulltext?q=` returns the ids whose WHOLE entry (every string field, tags, nested) contains the query; index kept per store state under the dashboard cache's generation stamp; a failure is `measurable:false`, never an empty list (7.5) |
 | `freshness.mjs` | living facts, deterministic, no model (3) |

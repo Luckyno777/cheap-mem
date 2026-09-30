@@ -84,6 +84,7 @@ import * as component from './component.mjs';
 import * as probescaffold from './probescaffold.mjs';
 import { stamp as memoryStamp } from './backlinks.mjs';
 import { renameWithRetry } from './indexcache.mjs';
+import { lockAgeS, tryLock, releaseLock, takeOverIfStale } from './filelock.mjs';
 
 /** Where the table lives, relative to the memory root. */
 export const TABLE_PATH = path.join('.mem', 'component-table.json');
@@ -675,37 +676,12 @@ export const REBUILD_LOG_PATH = path.join('.mem', 'component-table-rebuild.log')
  */
 export const REBUILD_LOCK_MAX_AGE_S = 300;
 
-/** Age of the lock file in seconds, or `Infinity` if it is missing/unreadable. Never throws. */
-function lockAgeS(lockPath) {
-  let st;
-  try { st = fs.statSync(lockPath); } catch { return Infinity; }
-  return (Date.now() - st.mtimeMs) / 1000;
-}
+// lockAgeS / tryLock / releaseLock live in src/filelock.mjs — the one
+// place for the O_EXCL + age logic (shared with the keyring and drawer locks).
 
 /** Is a background rebuild running (going by the lock file)? Never throws. */
 export function rebuildRunning(root) {
   return lockAgeS(path.join(root, REBUILD_LOCK_PATH)) <= REBUILD_LOCK_MAX_AGE_S;
-}
-
-/**
- * Create the lock file atomically (PID+time as content). `true` means
- * THIS call got it. `false` means it was already there — the normal
- * case, not an error.
- */
-function tryLock(lockPath) {
-  try { fs.mkdirSync(path.dirname(lockPath), { recursive: true }); } catch { return false; }
-  try {
-    fs.writeFileSync(lockPath, `${process.pid} ${new Date().toISOString()}\n`,
-      { encoding: 'utf8', flag: 'wx' });
-    return true;
-  } catch {
-    return false; // already exists (EEXIST) — or some other error, conservatively: do not build
-  }
-}
-
-/** Release the lock file. Never throws — it would otherwise expire on its own after {@link REBUILD_LOCK_MAX_AGE_S}. */
-function releaseLock(lockPath) {
-  try { fs.rmSync(lockPath, { force: true }); } catch { /* expires anyway */ }
 }
 
 /**
@@ -729,11 +705,10 @@ export function triggerBackgroundRebuild(root, env = process.env) {
   const lockPath = path.join(root, REBUILD_LOCK_PATH);
 
   if (!tryLock(lockPath)) {
-    if (lockAgeS(lockPath) <= REBUILD_LOCK_MAX_AGE_S) return 'running';
-    // Expired (a child died without cleaning up): drop the dead lock
-    // (best effort) and try once more — same leniency as this table's
-    // lucky-mem original.
-    releaseLock(lockPath);
+    // Expired (a child died without cleaning up): take it over BY AGE
+    // only (renamed away and re-checked, never blindly deleted), then
+    // try once more.
+    if (!takeOverIfStale(lockPath, REBUILD_LOCK_MAX_AGE_S)) return 'running';
     if (!tryLock(lockPath)) return 'running'; // someone else was faster
   }
 

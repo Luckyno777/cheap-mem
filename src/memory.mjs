@@ -24,6 +24,7 @@ import * as authority from './authority.mjs';
 import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
 import { appendLine } from './append.mjs';
+import { withLock } from './filelock.mjs';
 import * as capabilityMod from './capability.mjs';
 import * as probescaffold from './probescaffold.mjs';
 
@@ -284,6 +285,22 @@ export function logPath(root, type, project = null) {
     ? path.join(root, 'projects', project, file)
     : path.join(root, 'global', file);
 }
+
+/**
+ * The lock file that guards ONE drawer file. Lives under `<root>/.mem/locks/`
+ * (ignored runtime data), named after the drawer, so no lock file ever
+ * sits next to the log. Held by `logEntry` around its append and by
+ * `shardarchive.archiveOldest` around its whole read-replace-manifest
+ * run — the two must exclude each other, because archiving rewrites the
+ * file and an append landing inside that window would be overwritten.
+ */
+export function drawerLockPath(root, type, project = null) {
+  logPath(root, type, project); // validates type and project name
+  return path.join(root, '.mem', 'locks', `drawer-${type}${project ? `__${project}` : ''}.lock`);
+}
+
+/** Bound on waiting for a drawer lock (ms), and its stale age (s). A drawer rewrite is short. */
+export const DRAWER_LOCK = Object.freeze({ waitMs: 10000, staleS: 120 });
 
 /**
  * Append a line to a JSONL log. Never modifies an existing line.
@@ -650,7 +667,9 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   // `test/p16-durability-promise.test.mjs` proves the claim made in this
   // comment (`fsyncSync`/`fsync` is never called on this path) rather
   // than trusting the prose.
-  appendLine(p, `${line}\n`);
+  // Under the drawer lock: `archiveOldest` rewrites this file, and an
+  // append landing inside its read-to-replace window would be lost.
+  withLock(drawerLockPath(root, type, project), () => appendLine(p, `${line}\n`), DRAWER_LOCK);
 
   // Chain sealing (src/chain.mjs), best-effort and OPT-IN — see
   // `chainSealCadenceFor` for why this is not on by default, and

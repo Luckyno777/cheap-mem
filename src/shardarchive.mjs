@@ -75,6 +75,7 @@ import * as archive from './archive.mjs';
 import * as capability from './capability.mjs';
 import { LEVEL } from './doctor.mjs';
 import { appendLine } from './append.mjs';
+import { withLock } from './filelock.mjs';
 
 /** Four states, never two — reusing this house's own vocabulary. */
 export const PASS = LEVEL.GOOD;
@@ -132,16 +133,49 @@ function manifestById(root, id) {
  * rule out.
  */
 export function archiveOldest(root, type, { project = null, count } = {}) {
+  // The WHOLE run — read, decide, write the shard, replace the drawer,
+  // manifest rows — happens under the drawer lock, the same lock
+  // `memory.logEntry` takes around its append. Without it a line
+  // appended between the read and the replace was overwritten with the
+  // old `staying` (reproduced 2026-09-30: `resolveEntry` then found it
+  // neither live nor archived).
+  return withLock(memory.drawerLockPath(root, type, project),
+    () => archiveOldestLocked(root, type, { project, count }), memory.DRAWER_LOCK);
+}
+
+/**
+ * Lines that RETIRE something (`retires_id` / `closes_id` / `replaces_id`)
+ * never move to the archive: they stay in the live drawer.
+ *
+ * Why: `deriveState` / `memory.retiredMapFromFiles` decide "is this
+ * claim still active?" from the live log files only. If only the line
+ * that retires a claim were archived, its target would read as "active"
+ * again (reproduced 2026-09-30). Keeping these lines live is the simple
+ * way to keep that answer right — there is no second, archive-reading
+ * path for state to maintain. These lines are few (a retirement is one
+ * short line), so the drawer stays small either way.
+ */
+function retiresSomething(line) {
+  let e;
+  try { e = JSON.parse(line); } catch { return false; } // unparseable: archived as before
+  return Boolean(e && (e.retires_id || e.closes_id || e.replaces_id));
+}
+
+function archiveOldestLocked(root, type, { project, count }) {
   const { path: drawerFile, missing, entries } = memory.readLog(root, type, { project });
   if (missing || entries.length === 0) {
     return { archived: 0, reason: 'drawer is empty or missing' };
   }
-  const n = Math.min(Number(count) || 0, entries.length);
-  if (n <= 0) return { archived: 0, reason: 'count is 0 or not given' };
-
   const rawLines = fs.readFileSync(drawerFile, 'utf8').split('\n').filter((l) => l.trim());
-  const moving = rawLines.slice(0, n);
-  const staying = rawLines.slice(n);
+  const eligible = [];
+  rawLines.forEach((l, i) => { if (!retiresSomething(l)) eligible.push(i); });
+  const n = Math.min(Number(count) || 0, eligible.length);
+  if (n <= 0) {
+    return { archived: 0, reason: Number(count) > 0 ? 'only retiring lines left (kept live)' : 'count is 0 or not given' };
+  }
+  const movingIdx = new Set(eligible.slice(0, n));
+  const moving = rawLines.filter((_, i) => movingIdx.has(i));
+  const staying = rawLines.filter((_, i) => !movingIdx.has(i));
 
   const cfg = archive.readConfig(process.env, root);
   const shardDir = path.join(cfg.location, SHARD_SUBDIR);
