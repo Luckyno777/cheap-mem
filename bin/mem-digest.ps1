@@ -128,6 +128,10 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
   $env:MAX = $MaxBytes
   $env:ROOT = $Root
   $Chosen = ($PendingJson | & node -e $SelectScript) -split "`n" | Where-Object { $_ }
+  # The selection stage's exit code is a verdict: a failure (unreadable
+  # JSON, no rawSizes) leaves $Chosen empty and must not be reported as
+  # "nothing to do".
+  if ($LASTEXITCODE -ne 0) { Note "selection failed (exit $LASTEXITCODE)"; exit 1 }
   if (-not $Chosen) { Note 'nothing selected - nothing to do'; exit 0 }
 
   $Listing = ($Chosen | ForEach-Object { "  $_" }) -join "`n"

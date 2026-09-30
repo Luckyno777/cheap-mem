@@ -1041,8 +1041,8 @@ jobs:
             exit 1
           fi
 
-  # The README calls its benchmark numbers (96.6 % tokens saved, 0.027 ms
-  # median search, R@1 100 / 50 / 67 %) "a weaker promise" than the counts
+  # The README calls its benchmark numbers (96.6 % tokens saved,
+  # R@1 100 / 50 / 67 %) "a weaker promise" than the counts
   # `coverage` and test/readme-zahlen.test.mjs re-derive, and says so —
   # then guards none of them. This job is the same idea as `coverage`
   # above, aimed at the benchmark numbers instead of the coverage figure:
@@ -1066,19 +1066,6 @@ jobs:
   #     benchmark's corpus while still catching a real regression (e.g.
   #     the on-demand path rendering whole entries instead of top-K hits
   #     would cost several times the tokens, moving this by 10+ pp).
-  #
-  #   search median   a factor-of-5 band (measured/claimed must land
-  #     between claimed÷5 and claimed×5), not a percentage-point band —
-  #     sub-millisecond timings are the one number here that is genuinely
-  #     MACHINE-dependent, not just corpus-dependent, and the gap can be
-  #     large: measured 2026-09-19 in the container this job was written
-  #     in, 0.05-0.055 ms against the README's own 0.027 ms — roughly 2x,
-  #     on ordinary hardware, with no code at fault. 5x gives real
-  #     headroom beyond that observed gap so a slower or faster CI runner
-  #     does not cry wolf, while still catching the kind of regression
-  #     that actually matters here — the index silently falling back to a
-  #     linear scan, which would not cost 2x, it would cost one or two
-  #     orders of magnitude.
   #
   #   R@1 per query kind   derived from the sample size `n` printed next
   #     to each row, not a fixed number, because "lexical" (n=20),
@@ -1135,24 +1122,14 @@ jobs:
             }
           }
 
-          // 2. search median latency (bench/retrieval.mjs)
-          {
-            const m = bench.match(/search median\s*([\d.]+)\s*ms/);
-            const r = readme.match(/\| search, median \| \*\*([\d.]+) ms\*\*/);
-            if (!m) fail('retrieval benchmark: no "search median N ms" — cannot verify, not silently passed');
-            else if (!r) fail('README: no "search, median ... ms" row found — cannot verify');
-            else {
-              const measured = Number(m[1]); const claimed = Number(r[1]); const FACTOR = 5;
-              console.log(`search median: measured ${measured} ms · README claims ${claimed} ms · `
-                + `band ${(claimed / FACTOR).toFixed(4)}-${(claimed * FACTOR).toFixed(4)} ms`);
-              if (measured > claimed * FACTOR || measured < claimed / FACTOR) {
-                fail(`search median out of band: measured ${measured} ms vs README's ${claimed} ms `
-                  + `(allowed ${(claimed / FACTOR).toFixed(4)}-${(claimed * FACTOR).toFixed(4)} ms)`);
-              }
-            }
-          }
+          // (No search-latency check. The README no longer states a
+          // median: its latency figures come only from the measurement
+          // artifact `bench/cold-find.json`, per corpus size and state —
+          // see the README's Latency block. This step used to look for a
+          // `| search, median |` row that does not exist any more, so it
+          // could only ever report "cannot verify" and keep the job red.)
 
-          // 3. R@1 per query kind (bench/retrieval.mjs table)
+          // 2. R@1 per query kind (bench/retrieval.mjs table)
           {
             const rows = [
               { kind: 'lexical', benchRe: /^lexical\s+(\d+)\s+(\d+)%/m,

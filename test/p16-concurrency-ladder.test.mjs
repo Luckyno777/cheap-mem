@@ -42,8 +42,8 @@
 // this build point's actual bottleneck (see p16-append-exponent.test.mjs)
 // and, for the write.mjs half, out of this build's file scope.
 //
-// The numbers in the comment above are ONE run on one machine; the
-// invariant this file actually enforces is torn === 0 && missing === 0 &&
+// The numbers in the comment above are ONE run on one machine; what this
+// file actually enforces is torn === 0 && missing === 0 &&
 // duplicates === 0 at every rung, plus the positive control below, which
 // exists so a probe that always reports "clean" cannot pass unnoticed.
 //

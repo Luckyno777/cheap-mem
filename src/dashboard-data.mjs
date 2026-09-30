@@ -43,6 +43,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { isMainThread, workerData } from 'node:worker_threads';
 import { fileURLToPath } from 'node:url';
 import * as writegate from './writegate.mjs';
 import * as dashboard from './dashboard.mjs';
@@ -519,7 +520,16 @@ function projectShelf(root) {
 }
 
 /** The measured git state of the CODE (the package), at start and now. */
-const CODE_HEAD_AT_START = gitHead(PACKAGE_ROOT);
+// A background build runs in a worker that imports this module FRESH, so
+// evaluating the head here would give the worker's own start, never the
+// server's: `stale` could then never be true on that path. The server
+// hands its start head over through `workerData`; only a process that
+// was given none measures its own.
+const CODE_HEAD_AT_START = (!isMainThread && workerData && 'codeHeadAtStart' in workerData)
+  ? workerData.codeHeadAtStart
+  : gitHead(PACKAGE_ROOT);
+/** The code's git head when THIS server process started (handed to workers). */
+export function codeHeadAtStart() { return CODE_HEAD_AT_START; }
 function gitHead(dir) {
   try {
     const r = spawnSync('git', ['-C', dir, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8', timeout: 4000 });

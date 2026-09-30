@@ -188,7 +188,12 @@ coverage/
 # machine is invented. The clone mark lives here too: if it travelled,
 # two clones would produce an add/add conflict on the mark instead of
 # on the messages, which is the same outage under a new name.
-.pipeline/
+#
+# `.pipeline/*` and not `.pipeline/`: git cannot re-include a file whose
+# parent DIRECTORY is excluded, so with the directory form the exception
+# below matched nothing. The file was only still tracked because it was
+# already in the index; a fresh clone-and-regenerate could not add it.
+.pipeline/*
 
 # The one deliberate exception. This baseline records the byte size of
 # files that are COMMITTED, so it is a fact about the repository, not

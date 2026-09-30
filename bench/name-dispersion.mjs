@@ -41,11 +41,21 @@ import { pathToFileURL } from 'node:url';
 const argv = process.argv.slice(2);
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 
+/**
+ * Strip suffixes until none is left. One pass is not enough: "releases"
+ * lost its "s" and stopped at "release" while "release" lost its "e" and
+ * stopped at "releas", so the two never met.
+ */
+function stem(w) {
+  let prev;
+  let cur = w;
+  do { prev = cur; cur = cur.replace(/(en|er|e|s|n)$/, ''); } while (cur !== prev);
+  return cur;
+}
+
 /** Suffixes off, umlaut transcription unified, separators removed. */
 export function normalise(s) {
-  return String(s).toLowerCase()
-    .replace(/[-_.]/g, '')
-    .replace(/(en|er|e|s|n)$/, '')
+  return stem(String(s).toLowerCase().replace(/[-_.]/g, ''))
     .replace(/ae/g, 'a').replace(/oe/g, 'o').replace(/ue/g, 'u')
     .replace(/ss/g, 's');
 }
@@ -53,7 +63,7 @@ export function normalise(s) {
 /** The same, but independent of word order inside a compound. */
 export function wordSet(s) {
   return String(s).toLowerCase().split(/[-_.]/).filter(Boolean)
-    .map((w) => w.replace(/(en|er|e|s|n)$/, ''))
+    .map(stem)
     .sort()
     .join(' ');
 }

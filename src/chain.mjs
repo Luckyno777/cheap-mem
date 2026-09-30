@@ -507,15 +507,17 @@ export function recoverWriterTail(absPath, writer, { chunkSize = DEFAULT_REVERSE
 function forwardHashTail(writer, { predecessorHash, tailLines }) {
   let hash = predecessorHash;
   let throughId = null;
+  let count = 0;
   for (const rawLine of tailLines) {
     let entry;
     try { entry = JSON.parse(rawLine); } catch { continue; }
     if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
     if (writerOf(entry) !== writer) continue;
     hash = chainHash(hash, rawLine);
+    count += 1;
     if (typeof entry.id === 'string' && entry.id) throughId = entry.id;
   }
-  return { hash, throughId };
+  return { hash, throughId, count };
 }
 
 /**
@@ -572,8 +574,11 @@ export function maybeSeal(absPath, writer, {
     throw new Error('maybeSeal: cadence must be a positive number of lines');
   }
   const recovered = recoverWriterTail(absPath, writer, { chunkSize });
-  if (recovered.tailLines.length < cadence) return null;
-  const { hash, throughId } = forwardHashTail(writer, recovered);
+  // Count THIS writer's lines, not every line in the tail: with several
+  // writers interleaved, the raw tail length reaches the cadence long
+  // before any one writer has written that many.
+  const { hash, throughId, count } = forwardHashTail(writer, recovered);
+  if (count < cadence) return null;
   const entry = {
     id: randomSealId(),
     ts: isoNow(now),

@@ -251,7 +251,10 @@ if ($Ahead -match '"action":"pointer"') {
 # more than one form, almost always only with or without a path prefix -
 # so two segments alone ran the hook at a third of its reach, and this
 # is the hook that fires DURING THE WORK.
-$Hits = (& node @MemArgv component $Query --json 2>$null) -join "`n"
+# `--hook` as in the POSIX hook: it reads the component table read-only
+# and never rebuilds inline. Without it this call took the slow path -
+# a full scan on every edit - while the comment above claimed otherwise.
+$Hits = (& node @MemArgv component $Query --hook --json 2>$null) -join "`n"
 # A search that failed books as `rebuild` (the index did not answer) -
 # the closest reason in the closed vocabulary; see bin/mem-before-edit.
 if ($LASTEXITCODE -ne 0) { Add-JournalLine 'rebuild' 0 0; Write-Trace 'search-failed'; exit 0 }

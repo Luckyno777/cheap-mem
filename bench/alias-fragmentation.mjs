@@ -92,9 +92,14 @@ if (!sets.length) {
 console.log(`${lines.length} entries under ${ROOT}\n`);
 console.log('set                                   | hits | dominant spelling covers');
 console.log('--------------------------------------|-----:|-------------------------');
+// A spelling counts only as a whole name. `includes` also matched inside
+// a longer one, so "checkout-service" was counted under "checkout" as
+// well and every share came out too flattering to the dominant spelling.
+const esc = (v) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const asName = (v) => new RegExp(`(?<![a-z0-9_-])${esc(v)}(?![a-z0-9_-])`);
 for (const variants of sets) {
   const counts = variants
-    .map((v) => [v, lines.filter((l) => l.includes(v)).length])
+    .map((v) => { const re = asName(v); return [v, lines.filter((l) => re.test(l)).length]; })
     .sort((a, b) => b[1] - a[1]);
   const total = counts.reduce((s, [, n]) => s + n, 0);
   const share = total ? (counts[0][1] / total) * 100 : 0;

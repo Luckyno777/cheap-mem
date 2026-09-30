@@ -166,16 +166,26 @@ export const COMMANDS = {
         return;
       }
       const store = archive.readConfig(process.env, root);
-      const rows = archive.records(root);
-      let here = 0; let missing = 0; let bytes = 0;
+      // The register also holds tombstones (rows that say "deleted") and
+      // captures recorded into ANOTHER machine's store. Neither is a gap
+      // in THIS archive: counting them as `missing` made `mem raw
+      // archive` abort ("recorded but not reachable") right after any
+      // `mem raw delete`. Only a capture that belongs here, is not
+      // deleted and has no bytes is missing.
+      const registered = new Set(archive.records(root).filter((r) => r?.path).map((r) => r.path));
+      const rows = raw.capturesWithState(root).filter((r) => registered.has(r.path));
+      let here = 0; let missing = 0; let bytes = 0; let deleted = 0; let elsewhere = 0;
       for (const r of rows) {
-        if (archive.reachable(store, root, r.path)) { here += 1; bytes += r.bytes ?? 0; }
-        else missing += 1;
+        if (r.state === 'present') { here += 1; bytes += r.bytes ?? 0; }
+        else if (r.state === 'unreachable') missing += 1;
+        else if (r.state === 'deleted') deleted += 1;
+        else elsewhere += 1;
       }
-      const legacy = raw.listCaptures(root).filter((p) => !rows.some((r) => r.path === p)).length;
+      // Legacy = on disk in the repo, never entered in the register.
+      const legacy = raw.listCaptures(root).filter((p) => !registered.has(p)).length;
       if (args.json) {
         out(JSON.stringify({ location: store.location, explicit: store.explicit,
-          records: rows.length, reachable: here, missing, bytes, legacy }));
+          records: rows.length, reachable: here, missing, deleted, elsewhere, bytes, legacy }));
         return;
       }
       out(`Archive: ${store.location}`);
@@ -187,7 +197,9 @@ export const COMMANDS = {
         file: `${archive.LOCATION_FILE} (this machine)`,
         default: 'default (tracked raw/)',
       }[store.source]}`);
-      out(`  ${rows.length} records, ${here} reachable, ${missing} NOT reachable`);
+      out(`  ${rows.length} records, ${here} reachable, ${missing} NOT reachable`
+        + (deleted ? `, ${deleted} deleted` : '')
+        + (elsewhere ? `, ${elsewhere} in another machine's store` : ''));
       out(`  ${(bytes / 1048576).toFixed(2)} MB in the archive`);
       if (legacy > 0) out(`  ${legacy} captures still in the repo — pull them with: mem raw migrate`);
       // A missing capture is not cosmetic: the digest then works across
@@ -225,16 +237,26 @@ export const COMMANDS = {
       });
       if (!hit.length) { out('No captures in that range.'); return; }
       fs.mkdirSync(args.into, { recursive: true });
-      const written = []; const missing = [];
+      // A deleted capture (tombstone) and one recorded into another
+      // machine's store have no bytes HERE by design. They are named
+      // apart and do not fail the export; only a capture that belongs to
+      // this store and has lost its bytes is `missing`.
+      const states = new Map(raw.capturesWithState(root).map((c) => [c.path, c.state]));
+      const written = []; const missing = []; const deleted = []; const elsewhere = [];
       for (const r of hit) {
+        const st = states.get(r.path);
+        if (st === 'deleted') { deleted.push(r.path); continue; }
+        if (st === 'elsewhere') { elsewhere.push(r.path); continue; }
         const data = archive.get(store, root, r.path);
         if (!data) { missing.push(r.path); continue; }
         const target = path.join(args.into, r.path.split(/[/\\]/).join('__').replace(/\.gz$/, ''));
         fs.writeFileSync(target, zlib.gunzipSync(data));
         written.push(target);
       }
-      if (args.json) { out(JSON.stringify({ written, missing })); return; }
+      if (args.json) { out(JSON.stringify({ written, missing, deleted, elsewhere })); return; }
       out(`${written.length} captures written to ${args.into}.`);
+      if (deleted.length) out(`  ${deleted.length} skipped: deleted (tombstone in the register).`);
+      if (elsewhere.length) out(`  ${elsewhere.length} skipped: recorded into another machine's store.`);
       // Do NOT swallow the missing ones: an export that quietly delivers
       // less than it should is the kind of gap later mistaken for
       // "there was never anything there".
@@ -374,15 +396,19 @@ export const COMMANDS = {
 
       if (args.json) { out(JSON.stringify(rows)); return; }
 
-      const counts = { present: 0, deleted: 0, unreachable: 0 };
+      // One entry per state in `raw.CAPTURE_STATES`: `capturesWithState`
+      // yields four, and a count or a mark table that knows only three
+      // prints `[undefined]` for the fourth.
+      const counts = Object.fromEntries(raw.CAPTURE_STATES.map((st) => [st, 0]));
       for (const r of rows) counts[r.state] = (counts[r.state] ?? 0) + 1;
       out(`${rows.length} captures — ${counts.present} present, `
-        + `${counts.deleted} deleted, ${counts.unreachable} unreachable`);
+        + `${counts.deleted} deleted, ${counts.unreachable} unreachable, `
+        + `${counts.elsewhere} elsewhere`);
       if (!rows.length) { out('(nothing matches the filter)'); return; }
       out('');
-      const MARK = { present: ' ', deleted: 'D', unreachable: '!' };
+      const MARK = { present: ' ', deleted: 'D', unreachable: '!', elsewhere: '>' };
       for (const r of rows) {
-        out(`  [${MARK[r.state]}] ${r.path}`);
+        out(`  [${MARK[r.state] ?? '?'}] ${r.path}`);
         out(`        ${r.at ?? 'no timestamp recorded'}  `
           + `project=${r.project ?? '(none)'}  bytes=${r.bytes ?? 'unknown'}`);
         if (r.state === 'deleted') {
@@ -390,6 +416,9 @@ export const COMMANDS = {
         }
         if (r.state === 'unreachable') {
           out('        recorded, but the bytes are not there — and nobody said so');
+        }
+        if (r.state === 'elsewhere') {
+          out("        recorded into another machine's store — not readable from here");
         }
       }
       return;

@@ -84,6 +84,11 @@ export const COMMANDS = {
     const withoutScaffold = Boolean(data['without-scaffold']);
     delete data['without-scaffold'];
 
+    // The same for `--no-broadcast`: it is read from `args` further down,
+    // but unless it is taken out of `data` here it is ALSO written into
+    // the entry as a field `"no-broadcast": true`.
+    delete data['no-broadcast'];
+
     // **A class outside the vocabulary is warned about, never refused.**
     //
     // Counted in the sibling project on 2026-09-08: 303 error entries in

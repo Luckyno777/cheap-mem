@@ -78,11 +78,17 @@ jobs:
           # nobody can read the diff of. `Unreleased` is fine while
           # nothing is being published; it is not fine at the moment of
           # publishing, because it means the section was never named.
+          # The dots of a version are literal dots: unescaped, `1.2.3`
+          # would also accept a section titled `1x2y3`. The boundary is
+          # whitespace or the end of the line (the old `( |$|\s)` said
+          # the same thing three ways), so `0.1.0` no longer accepts
+          # `0.1.01` either.
+          VERSION_RE="$(printf '%s' "$VERSION" | sed 's/[.[\*^$()+?{|]/\\&/g')"
           if [ "${{ steps.v.outputs.publish }}" = "true" ]; then
-            grep -qE "^## \[?${VERSION}\]?( |$|\s)" CHANGELOG.md \
+            grep -qE "^## \[?${VERSION_RE}\]?(\s|$)" CHANGELOG.md \
               || { echo "::error::CHANGELOG.md has no '## $VERSION' section"; exit 1; }
           else
-            grep -qE "^## (\[?${VERSION}\]?|Unreleased)" CHANGELOG.md \
+            grep -qE "^## (\[?${VERSION_RE}\]?(\s|$)|Unreleased)" CHANGELOG.md \
               || { echo "::error::CHANGELOG.md has neither $VERSION nor Unreleased"; exit 1; }
           fi
 

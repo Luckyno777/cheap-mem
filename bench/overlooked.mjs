@@ -78,7 +78,7 @@ const R=(n,t,b)=>console.log(`\n[${n}] ${t}\n     ${b}`);
 { const red=await import('../src/redaction.mjs');
   const name='AWS_SECRET'+'_ACCESS_KEY'; const value='wJalrXUtnFEMI'+'K7MDENGbPxRfiCYEXAMPLEKEY';
   const plain=`export ${name}=${value}`;
-  const withNBSP=`export ${name} =${value}`;        // non-breaking space
+  const withNBSP=`export ${name}\u00a0=${value}`;        // non-breaking space
   const withFullwidth=`export ${name}＝${value}`;        // fullwidth equals sign
   const zwsp=`export ${name}=${value.slice(0,5)}​${value.slice(5)}`; // zero width inside the value
   const f=(s)=>red.redact(s).found.length;

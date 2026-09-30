@@ -42,13 +42,16 @@ if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
   echo "error: env CHEAP_MEM_ROOT missing" >&2
   exit 2
 fi
+
+# Normalise BEFORE the first use as a path: a native Windows root
+# (`C:\mem`) makes `[ -d "$ROOT/.git" ]` false in bash, and the clone
+# check would reject a perfectly good clone.
+CHEAP_MEM_ROOT="$(entrutscht "${CHEAP_MEM_ROOT:-}")"
+export CHEAP_MEM_ROOT
 if [ ! -d "$CHEAP_MEM_ROOT/.git" ]; then
   echo "error: CHEAP_MEM_ROOT='$CHEAP_MEM_ROOT' is not a git clone" >&2
   exit 2
 fi
-
-CHEAP_MEM_ROOT="$(entrutscht "${CHEAP_MEM_ROOT:-}")"
-export CHEAP_MEM_ROOT
 if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
   echo "error: no .mem/config.json under CHEAP_MEM_ROOT — run 'mem init' first" >&2
   exit 2

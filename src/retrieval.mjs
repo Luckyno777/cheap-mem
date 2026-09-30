@@ -831,7 +831,11 @@ export function retrieve(root, query, capability, {
   if (hasMore) {
     coverageReasons.push({ kind: 'partial', why: 'more claims match than fit on this page' });
   }
-  if (fair.length > limits.maxResults) {
+  // `fair` is cut at `selectWant`, which is already capped at
+  // `maxResults`, so comparing `fair.length` to the ceiling could never
+  // be true. The ceiling bounds the answer exactly when it clipped the
+  // REQUEST: the caller asked for more than it allows and got the cap.
+  if ((Number(top) || 1) > limits.maxResults && fair.length >= limits.maxResults) {
     // The hard ceiling has been reached. How many more would fit beyond
     // it, this run does not know — and must therefore not imply either.
     coverageReasons.push({
