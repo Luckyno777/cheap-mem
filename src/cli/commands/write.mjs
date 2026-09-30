@@ -304,6 +304,9 @@ export const COMMANDS = {
     // of five. So no verdict, only the neighbours — and the commands
     // that resolve the case. See src/neighbours.mjs.
     const around = neighbours.neighbours(root, type, data, { project: args.project ?? null });
+    // G1b: no topic to find neighbours by -> the lexically closest
+    // decisions instead (a note, never a verdict; src/neighbours.mjs).
+    const alike = neighbours.similarDecisions(root, type, data, { project: args.project ?? null });
 
     // O1: content, the redaction self test and the redaction in ONE
     // function, the same one mem_log over the bridge uses. Until then
@@ -315,6 +318,7 @@ export const COMMANDS = {
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
+    for (const l of neighbours.similarHint(alike, { newId: entry.id })) out(l);
     if (startAs) {
       out(startAs === 'released'
         ? `  status: ${startAs} (issued by ${entry.issued_by})`
@@ -643,6 +647,37 @@ export const COMMANDS = {
 
   discard: async ({ rest, args }) => retireCmd('discarded', rest, args),
   done: async ({ rest, args }) => retireCmd('done', rest, args),
+
+  // G1b: "<old> was superseded by <new>", said AFTER both were written.
+  // Not discard (that says "wrong", and loses the old claim's history
+  // under --as-of) and not correction (that writes a third entry). See
+  // memory.supersedeEntry.
+  supersede: async ({ rest, args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem supersede <old-id> --by <new-id> [--why "..."] [--type <type>] [--project <name>]',
+        '',
+        '  Marks <old-id> as superseded by <new-id>, both already written, same drawer.',
+        '  One appended line; the old entry stays readable, recall shows the new one,',
+        '  and `--as-of` shows the old one up to the moment the new one started.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['by', 'why', 'type', 'project'], 'supersede');
+    const root = findRoot(args);
+    requireConfig(root);
+    const id = rest[0];
+    const by = args.by && args.by !== true ? String(args.by) : null;
+    if (!id || !by) die('supersede: which ids? Example: mem supersede a1b2c3 --by d4e5f6');
+    const loc = args.type
+      ? { type: args.type, project: args.project ? (args.project === 'global' ? null : args.project) : null }
+      : memory.findEntryLocation(root, id);
+    if (!loc) die(`supersede: id '${id}' not found in any log.`);
+    try {
+      memory.supersedeEntry(root, loc.type, id, { by, why: args.why ?? null, project: loc.project });
+    } catch (e) { die(`supersede: ${e.message}`); }
+    out(`superseded: ${id} by ${by} (${loc.type}${loc.project ? `/${loc.project}` : ''})`);
+  },
 
   // Bauplan P3: restore and merge, append-only (src/entryops.mjs).
   restore: async ({ rest, args }) => {

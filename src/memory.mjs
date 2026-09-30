@@ -1057,7 +1057,7 @@ export function sameClass(root, className, { except = null, max = 3 } = {}) {
  */
 export const MACHINE_FIELDS = Object.freeze(new Set([
   'id', 'ts', 'v', 'agent', 'project', 'state', 'status',
-  'replaces_id', 'closes_id', 'retires_id',
+  'replaces_id', 'closes_id', 'retires_id', 'by_id',
   'authority', 'authority_clamped_from', 'guard_at_creation',
 ]));
 export const CONTENT_MIN_CHARS = 1;
@@ -2740,7 +2740,13 @@ function applyRetirement(map, byId, e) {
     // every caller had before the rule existed, but flagged
     // `unresolved` — nothing in this view is hidden by it, and the
     // GLOBAL check, where every entry is visible, is `mem doctor`.
-    const verdict = authority.mayChangeState(e, byId.get(targetId), field);
+    // G1b: a tombstone that says "superseded BY <id>" (see
+    // `supersedeEntry`) is a replacement, not housekeeping — it puts the
+    // successor in the old claim's place, so it is judged by the STRICT
+    // replacement rule, and it ends the old claim where a correction
+    // would have: at the successor's `valid_from ?? ts`.
+    const lateSupersede = field === 'retires_id' && e.state === 'superseded' && e.by_id;
+    const verdict = authority.mayChangeState(e, byId.get(targetId), lateSupersede ? 'replaces_id' : field);
 
     if (verdict.status === 'refused') {
       if (e.id) {
@@ -2760,7 +2766,17 @@ function applyRetirement(map, byId, e) {
       continue;
     }
 
-    const rec = field === 'replaces_id'
+    const successor = lateSupersede ? byId.get(e.by_id) : null;
+    const rec = lateSupersede
+      ? {
+        state: 'superseded', why: e.why ?? null, by: String(e.by_id), ts: e.ts ?? null,
+        // The successor's own start, not the moment the link was typed:
+        // the old claim held until the new one did. A successor that is
+        // not in this view falls back to the tombstone's `ts` — later,
+        // never earlier, than the truth.
+        supersededAt: successor?.valid_from ?? successor?.ts ?? e.ts ?? null,
+      }
+      : field === 'replaces_id'
       ? {
         state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
         // `supersededAt` — the moment the OLD claim stopped being true,
@@ -2821,6 +2837,8 @@ function authorityProjection(e) {
   return {
     id: e.id, author: e.author, agent: e.agent, origin: e.origin, authority: e.authority,
     owner: e.owner, who: e.who,
+    // G1b: a late supersession ends its target at the SUCCESSOR's start.
+    ts: e.ts, valid_from: e.valid_from,
   };
 }
 
@@ -2878,6 +2896,7 @@ export function retiredMapFromFiles(absPaths) {
       if (!e) continue;
       // Y4: every field `authority.mayChangeState` judges needs its target.
       for (const f of authority.STATE_FIELDS) if (e[f]) wanted.add(e[f]);
+      if (e.retires_id && e.state === 'superseded' && e.by_id) wanted.add(e.by_id);
     }
   }
 
@@ -2988,6 +3007,55 @@ export function retireEntry(root, type, id, {
   if (tier) data.authority = tier;
   const written = logEntry(root, type, data, { project });
   return { ...written, verdict: warnIfRefused(written.entry, target, 'retires_id') };
+}
+
+/**
+ * G1b: "<old> was superseded by <new>" — AFTER both were written.
+ *
+ * The case: a decision was logged without `replaces_id` (and without a
+ * shared topic), and only afterwards does anyone say it replaced an
+ * older one. The existing doors all say something else:
+ *
+ *   mem discard / done   state discarded/done — "it was wrong / finished",
+ *                        not "it held until X"; no `supersededAt`, so
+ *                        `--as-of` loses the old claim's history
+ *   mem correction       writes a THIRD entry (new content replacing old),
+ *                        duplicating the successor that already exists
+ *   link --kind replaces a graph edge only; retirement never reads it
+ *
+ * So one appended tombstone in the SAME drawer: `{retires_id: <old>,
+ * state: 'superseded', by_id: <new>}`. Replay (`applyRetirement`) judges
+ * it by the strict replacement rule and ends the old claim at the
+ * successor's `valid_from ?? ts` — exactly what `replaces_id` would have
+ * done had it been set at write time. Status reads `superseded`.
+ *
+ * Both ids must be content entries of the same drawer (type + project),
+ * and different. CLI (`mem supersede`) and bridge (`mem_log` with these
+ * three fields) both go through here.
+ */
+export function supersedeEntry(root, type, oldId, {
+  by, project = null, agent = null, authority: tier = null, why = null,
+} = {}) {
+  if (typeof oldId !== 'string' || !oldId) throw new Error('Superseding needs the old id');
+  if (typeof by !== 'string' || !by) throw new Error('Superseding needs the successor: --by <new-id>');
+  if (by === oldId) throw new Error('An entry cannot supersede itself');
+  let target = null;
+  let successor = null;
+  for (const e of iterLog(root, type, { project })) {
+    if (isClosingLine(e)) continue;
+    if (!target && e.id === oldId) target = e;
+    if (!successor && e.id === by) successor = e;
+    if (target && successor) break;
+  }
+  const where = `${type}${project ? ` (project ${project})` : ''}`;
+  if (!target) throw new Error(`id '${oldId}' not found in ${where}.`);
+  if (!successor) throw new Error(`successor '${by}' not found in ${where} — both must live in the same drawer.`);
+  const data = { retires_id: oldId, state: 'superseded', by_id: by };
+  if (why) data.why = why;
+  if (agent) data.agent = agent;
+  if (tier) data.authority = tier;
+  const written = logEntry(root, type, data, { project });
+  return { ...written, verdict: warnIfRefused(written.entry, target, 'replaces_id') };
 }
 
 /**
