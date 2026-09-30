@@ -96,6 +96,7 @@ directory. The section number in brackets is where it is explained.
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `fulltext.mjs` | full-text search behind the knowledge view's search field: `GET /api/fulltext?q=` returns the ids whose WHOLE entry (every string field, tags, nested) contains the query; index kept per store state under the dashboard cache's generation stamp; a failure is `measurable:false`, never an empty list (7.5) |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
+| `frozenset.mjs` | a really immutable set (`has`/`size`/`values`, no `add`): `Object.freeze(new Set())` freezes only the wrapper object, not the contents |
 | `gap.mjs` | N18 parity: a retrieval miss the injection journal recorded, later matched by content-word overlap with a NEW entry, is a closed knowledge gap — produces `kind:'gap'` candidates for `goldlog.mjs`'s file, shown first on the "Rate today" card |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
