@@ -28,7 +28,7 @@ import * as errorclass from '../../errorclass.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
-import { out, die, warn, checkFlags, isHelp, fieldsFrom, findRoot, requireConfig } from '../shell.mjs';
+import { out, die, warn, checkFlags, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
 /** 12 commands. */
@@ -536,6 +536,9 @@ export const COMMANDS = {
         `  standing in the log, but memory.holds() no longer counts it.`,
         '  Same field rules as `mem log` (see `mem log --help`) — --tags,',
         '  --origin, --valid_from/--valid_until, the swallowed-value guard.',
+        '  --authority <tier> stamps the correction (default: agent). A correction',
+        '  the authority rule refuses is still written, warned about on stderr,',
+        '  read as disputed, and the original keeps holding.',
         '',
         `  Types: ${Object.keys(memory.TYPES).join(', ')}`,
         '',
@@ -605,6 +608,10 @@ export const COMMANDS = {
     // here and had already drifted: no JSON form, no guard against a
     // swallowed value.
     const data = fieldsFrom('correction', args);
+    // Y4b: `--authority` is a field like any other here, but a checked
+    // one — a name that is no tier would otherwise become `unknown` on
+    // the write path without a word.
+    if (Object.hasOwn(data, 'authority')) data.authority = authorityArg(args, 'correction');
     if (Object.hasOwn(data, 'valid_until')) {
       data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'correction');
     }
@@ -655,15 +662,18 @@ export const COMMANDS = {
   supersede: async ({ rest, args }) => {
     if (isHelp(args)) {
       out([
-        'mem supersede <old-id> --by <new-id> [--why "..."] [--type <type>] [--project <name>]',
+        'mem supersede <old-id> --by <new-id> [--why "..."] [--type <type>] [--project <name>] [--authority <tier>]',
         '',
         '  Marks <old-id> as superseded by <new-id>, both already written, same drawer.',
         '  One appended line; the old entry stays readable, recall shows the new one,',
         '  and `--as-of` shows the old one up to the moment the new one started.',
+        '  --authority stamps the line (default: agent); the strict replacement rule',
+        '  applies — a refused line is written, warned about, and read as disputed.',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['by', 'why', 'type', 'project'], 'supersede');
+    checkFlags(args, ['by', 'why', 'type', 'project', 'authority'], 'supersede');
+    const tier = authorityArg(args, 'supersede');
     const root = findRoot(args);
     requireConfig(root);
     const id = rest[0];
@@ -674,7 +684,7 @@ export const COMMANDS = {
       : memory.findEntryLocation(root, id);
     if (!loc) die(`supersede: id '${id}' not found in any log.`);
     try {
-      memory.supersedeEntry(root, loc.type, id, { by, why: args.why ?? null, project: loc.project });
+      memory.supersedeEntry(root, loc.type, id, { by, why: args.why ?? null, project: loc.project, authority: tier });
     } catch (e) { die(`supersede: ${e.message}`); }
     out(`superseded: ${id} by ${by} (${loc.type}${loc.project ? `/${loc.project}` : ''})`);
   },
@@ -874,7 +884,7 @@ export const COMMANDS = {
     if (isHelp(args)) {
       out([
         'mem duties [--project <name>|global] [--all]',
-        'mem duties close <id> [--why "..."] [--state done|dropped]',
+        'mem duties close <id> [--why "..."] [--state done|dropped] [--authority <tier>]',
         '',
         '  Duty is the only type with a lifecycle. Closing appends a',
         '  new line; the original is never touched.',
@@ -885,13 +895,15 @@ export const COMMANDS = {
     requireConfig(root);
 
     if (rest[0] === 'close') {
-      checkFlags(args, ['why', 'state', 'project'], 'duties close');
+      checkFlags(args, ['why', 'state', 'project', 'authority'], 'duties close');
+      const tier = authorityArg(args, 'duties close');
       const id = rest[1];
       if (!id) die('duties close: which id? (mem duties lists them)');
       const { entry } = memory.closeDuty(root, id, {
         state: args.state ?? memory.DUTY_STATE.DONE,
         why: args.why ?? null,
         project: args.project ?? null,
+        authority: tier,
       });
       out(`Closed ${id} (${entry.state}). New line: ${entry.id}`);
       return;

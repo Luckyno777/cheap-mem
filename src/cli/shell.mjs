@@ -20,6 +20,7 @@ import { fileURLToPath } from 'node:url';
 import * as cfgmod from '../config.mjs';
 import * as inbox from '../inbox.mjs';
 import * as switches from '../switches.mjs';
+import * as authority from '../authority.mjs';
 import * as onboarding from '../onboarding.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -122,6 +123,26 @@ export function refuseNearReserved(command, k) {
  * `command` only appears in error messages, so someone running
  * `mem correction` is not told what `log` disliked.
  */
+/**
+ * Y4b: `--authority <tier>` on a state-changing command (done, discard,
+ * supersede, duties close, correction) — the tier the new line is
+ * stamped with. `null` when not given (the write path then stamps its
+ * default, `agent`, or the process ceiling). A name that is not a tier
+ * is refused here: the write path would otherwise normalise it to
+ * `unknown` without a word, and the writer would believe they had
+ * asserted something. `user` is only ever set this way — explicitly —
+ * and CHEAP_MEM_MAX_AUTHORITY still lowers it on the write path.
+ */
+export function authorityArg(args, command) {
+  const v = args.authority;
+  if (v === undefined) return null;
+  const t = v === true ? '' : String(v).toLowerCase().trim();
+  if (!authority.TIERS.includes(t)) {
+    die(`${command}: --authority takes one of ${authority.TIERS.join(', ')} (got '${v === true ? '' : v}').`);
+  }
+  return t;
+}
+
 export function fieldsFrom(command, args, except = []) {
   const data = {};
   // `help` is the parser's, the rest are `src/switches.mjs`'s — the same

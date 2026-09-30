@@ -34,6 +34,21 @@ export const TIERS = Object.freeze([
 
 export const DEFAULT_TIER = 'unknown';
 
+/**
+ * Y4b (2026-09-30): the tier the WRITE path stamps on a new line that
+ * names none. `DEFAULT_TIER` stays `unknown` for READING — an old line
+ * without the field is still of unknown provenance — but a line written
+ * by this code now is written by an agent, which is true without
+ * inventing anything. Before this, every new session line carried no
+ * `authority`, read as `unknown` (the lowest tier) and was therefore
+ * open to the digest (`inferred`) closing or retiring it.
+ *
+ * Never `user`: that tier is only ever set explicitly (`--authority
+ * user`, or the dashboard behind a password session). Under
+ * CHEAP_MEM_MAX_AUTHORITY the ceiling wins (`writeTierDefault`).
+ */
+export const WRITE_DEFAULT_TIER = 'agent';
+
 /** Rank of a tier: lower is more entitled. Unrecognised names rank last. */
 export function rank(tier) {
   const i = TIERS.indexOf(String(tier ?? '').toLowerCase());
@@ -217,6 +232,16 @@ export const CEILING_ENV = 'CHEAP_MEM_MAX_AUTHORITY';
 export function ceilingFromEnv(env = process.env) {
   const raw = String(env[CEILING_ENV] ?? '').toLowerCase().trim();
   return TIERS.includes(raw) ? raw : null;
+}
+
+/**
+ * Y4b: the tier `memory.logEntry` stamps when the caller names none —
+ * `WRITE_DEFAULT_TIER`, lowered to the process ceiling when one is set.
+ * ONE place, so the early warnings judge with the same tier the write
+ * path will actually write.
+ */
+export function writeTierDefault(env = process.env) {
+  return clampTier(WRITE_DEFAULT_TIER, ceilingFromEnv(env)).tier;
 }
 
 /**

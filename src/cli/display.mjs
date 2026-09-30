@@ -22,7 +22,7 @@ import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
 import * as injection from '../injection.mjs';
-import { out, die, checkFlags, isHelp, findRoot, requireConfig } from './shell.mjs';
+import { out, die, checkFlags, isHelp, findRoot, requireConfig, authorityArg } from './shell.mjs';
 
 /**
  * Parse `--as-of`, and REFUSE what cannot be parsed.
@@ -313,15 +313,19 @@ export function retireCmd(state, rest, args) {
   const verb = state === 'discarded' ? 'discard' : 'done';
   if (isHelp(args)) {
     out([
-      `mem ${verb} <id> [--why "..."] [--type <type>] [--project <name>]`,
+      `mem ${verb} <id> [--why "..."] [--type <type>] [--project <name>] [--authority <tier>]`,
       "",
       `  Marks entry <id> as ${state} without deleting it. Recall stops`,
       "  showing it; the viewer keeps it (struck through). --type/--project",
       "  are only needed when the id is not uniquely locatable.",
+      "  --authority stamps the line (default: agent, or the process ceiling);",
+      "  `user` only when the person said so. A line the authority rule refuses",
+      "  is still written, warned about, and read as disputed.",
     ].join('\n'));
     return;
   }
-  checkFlags(args, ['why', 'type', 'project'], verb);
+  checkFlags(args, ['why', 'type', 'project', 'authority'], verb);
+  const tier = authorityArg(args, verb);
   const root = findRoot(args);
   requireConfig(root);
   const id = rest[0];
@@ -330,6 +334,6 @@ export function retireCmd(state, rest, args) {
     ? { type: args.type, project: args.project ? (args.project === 'global' ? null : args.project) : null }
     : memory.findEntryLocation(root, id);
   if (!loc) die(`${verb}: id '${id}' not found in any log. (a tombstone? already retired?)`);
-  memory.retireEntry(root, loc.type, id, { state, why: args.why ?? null, project: loc.project });
+  memory.retireEntry(root, loc.type, id, { state, why: args.why ?? null, project: loc.project, authority: tier });
   out(`${state}: ${id} (${loc.type}${loc.project ? `/${loc.project}` : ''})`);
 }
