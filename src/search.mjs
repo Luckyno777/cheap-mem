@@ -1758,6 +1758,11 @@ export function search(index, query, {
  * wrong tail and index a line twice while missing another. Hashing the
  * end of the indexed prefix catches exactly that, with one positioned
  * read of at most 4 KB instead of a pass over the file.
+ *
+ * The tail hash cannot see an equal-length rewrite EARLIER in the file
+ * (y0, 2026-09-30). So each file's mtimeMs and ctimeMs are part of the
+ * state too: same size with a different mtime/ctime means a full rebuild.
+ * An append changes size AND mtime and stays on the incremental path.
  */
 const TAIL_BYTES = 4096;
 
@@ -1813,7 +1818,7 @@ export function indexedFiles(root, { types = null } = {}) {
       try { p = memory.logPath(root, type, project); } catch { continue; }
       let st;
       try { st = fs.statSync(p); } catch { continue; }
-      out.set(path.relative(root, p), { bytes: st.size, kind: 'log', type, project });
+      out.set(path.relative(root, p), { bytes: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, kind: 'log', type, project });
     }
   }
   let captures = [];
@@ -1821,7 +1826,7 @@ export function indexedFiles(root, { types = null } = {}) {
   for (const rel of captures) {
     let st;
     try { st = fs.statSync(piecePath(root, rel)); } catch { continue; }
-    out.set(rel, { bytes: st.size, kind: 'raw' });
+    out.set(rel, { bytes: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, kind: 'raw' });
   }
   return out;
 }
@@ -1928,6 +1933,12 @@ function appendToIndex(root, index, before, now) {
       continue;                       // new captures are handled below
     }
     if (cur.bytes === old.bytes) {
+      // Same size but a different mtime/ctime (or none recorded, as in a
+      // cache from before this check): an in-place rewrite of equal length
+      // can hide anywhere in the file, not only in the last 4 KiB the tail
+      // hash covers. A real append changes the size and takes the branch
+      // below, so it stays incremental; only this case is rebuilt.
+      if (old.mtimeMs !== cur.mtimeMs || old.ctimeMs !== cur.ctimeMs) return null;
       if (tailHash(piecePath(root, rel), cur.bytes) !== old.tail) return null;
       continue;                       // untouched
     }
@@ -2278,6 +2289,8 @@ function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
     for (const [rel, info] of files) {
       out[rel] = {
         bytes: info.bytes,
+        mtimeMs: info.mtimeMs,
+        ctimeMs: info.ctimeMs,
         kind: info.kind,
         type: info.type,
         project: info.project,

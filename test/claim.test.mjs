@@ -89,20 +89,20 @@ test('after expiry the next one counts (resumption)', (t) => {
 
 test('failed releases at once, with a reason', (t) => {
   const { root, name } = message(t);
-  c.claim(root, name, { by: 'a', now: T0 });
-  const f = c.failed(root, name, { by: 'a', reason: 'network gone', now: min(1) });
+  const ca = c.claim(root, name, { by: 'a', now: T0 });
+  const f = c.failed(root, name, { by: 'a', claimId: ca.id, reason: 'network gone', now: min(1) });
   assert.equal(f.status, c.STATUS.FREE);
   assert.equal(f.failures[0].reason, 'network gone');
   assert.equal(c.claim(root, name, { by: 'b', now: min(2) }).valid, true, 'before a expired, but released');
-  assert.throws(() => c.failed(root, name, { by: 'b', reason: '  ', now: min(3) }), /reason/);
+  assert.throws(() => c.failed(root, name, { by: 'b', claimId: 'bbbbbbbbbbbb', reason: '  ', now: min(3) }), /reason/);
 });
 
 test('done ends it; later claims and a foreign done are visibly invalid', (t) => {
   const { root, name } = message(t);
-  c.claim(root, name, { by: 'a', now: T0 });
-  c.done(root, name, { by: 'x', now: min(1) });
+  const ca = c.claim(root, name, { by: 'a', now: T0 });
+  c.done(root, name, { by: 'x', claimId: ca.id, now: min(1) });
   assert.equal(c.status(root, name, { now: min(2) }).status, c.STATUS.CLAIMED, 'a stranger cannot finish it');
-  c.done(root, name, { by: 'a', now: min(3) });
+  c.done(root, name, { by: 'a', claimId: ca.id, now: min(3) });
   assert.equal(c.claim(root, name, { by: 'b', now: min(60) }).valid, false);
   const s = c.status(root, name, { now: min(61) });
   assert.equal(s.status, c.STATUS.DONE);
@@ -143,10 +143,10 @@ test('broken lines are counted, not silently skipped; the file only grows', (t) 
 
 test('orphaned: expired with neither done nor failed', (t) => {
   const { root, name } = message(t);
-  c.claim(root, name, { by: 'a', minutes: 5, now: T0 });
+  const ca = c.claim(root, name, { by: 'a', minutes: 5, now: T0 });
   assert.deepEqual(c.orphaned(root, { now: min(4) }), []);
   assert.equal(c.orphaned(root, { now: min(6) })[0].holder, 'a');
-  c.failed(root, name, { by: 'a', reason: 'crash reported', now: min(7) });
+  c.failed(root, name, { by: 'a', claimId: ca.id, reason: 'crash reported', now: min(7) });
   assert.deepEqual(c.orphaned(root, { now: min(8) }), []);
 });
 

@@ -115,11 +115,10 @@ test('short write with no throw: the file is rolled back byte-identical to befor
 // RED -> GREEN: throw AFTER a partial write landed
 // ---------------------------------------------------------------
 
-test('throw after a partial write: the same rollback, the same byte-identity', (t) => {
+test('throw after a partial write: never truncated (a throw cannot be told apart from a foreign line), reported as a tear', (t) => {
   const p = tempFile(t);
   const before = '{"a":1}\n';
   fs.writeFileSync(p, before, 'utf8');
-  const beforeBytes = fs.readFileSync(p);
 
   const line = `${JSON.stringify({ a: 2, text: 'y'.repeat(500) })}\n`;
   const restore = stubShortWrite({ upToBytes: 47, mode: 'throw' });
@@ -132,9 +131,25 @@ test('throw after a partial write: the same rollback, the same byte-identity', (
 
   assert.ok(error instanceof AppendError);
   assert.match(error.message, /ENOSPC/);
-  assert.equal(error.torn, false);
-  assert.deepEqual(fs.readFileSync(p), beforeBytes,
-    'a throw WITH a preceding partial write must still be rolled back');
+  assert.equal(error.torn, true, 'growth after a throw is ambiguous: named as a tear, never cut');
+  assert.equal(fs.readFileSync(p, 'utf8'), before + line.slice(0, 47));
+});
+
+// y0 (2026-09-30): a THROW wrote nothing (POSIX). A foreign line that lands
+// between the size reading and our failing write must survive.
+test('y0 REGRESSION: foreign line between size reading and a failing own write survives', (t) => {
+  const p = tempFile(t);
+  fs.writeFileSync(p, 'original\n', 'utf8');
+  const real = fs.writeSync;
+  let n = 0;
+  fs.writeSync = function () {
+    if (n++ === 0) fs.appendFileSync(p, 'FREMD\n');
+    const e = new Error('ENOSPC: no space left'); e.code = 'ENOSPC'; throw e;
+  };
+  let error;
+  try { try { appendLine(p, 'mine\n'); } catch (e) { error = e; } } finally { fs.writeSync = real; }
+  assert.ok(error instanceof AppendError);
+  assert.equal(fs.readFileSync(p, 'utf8'), 'original\nFREMD\n', 'the foreign line must still be there');
 });
 
 // ---------------------------------------------------------------

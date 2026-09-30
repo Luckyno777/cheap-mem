@@ -48,8 +48,8 @@ export const COMMANDS = {
         'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
         '                     exit 0/1/3, for shell pollers',
         'mem inbox claim <name> [--as N] [--minutes 30]   take a message, with an expiry',
-        'mem inbox done <name> [--as N]                   finished (holder only)',
-        'mem inbox failed <name> --reason "..." [--as N]  gave up, released at once',
+        'mem inbox done <name> --claim-id ID [--as N]     finished (holder only, with the id claim printed)',
+        'mem inbox failed <name> --claim-id ID --reason "..." [--as N]  gave up, released at once',
         'mem inbox claims <name>                          who holds it, who does not count',
         '                     git is not a lock: two hosts can both claim; the read',
         '                     rule picks one and the other one stays visible.',
@@ -169,7 +169,7 @@ export const COMMANDS = {
     }
 
     if (sub === 'claim' || sub === 'done' || sub === 'failed' || sub === 'claims') {
-      checkFlags(args, sub === 'claim' ? ['as', 'minutes'] : sub === 'failed' ? ['as', 'reason'] : sub === 'done' ? ['as'] : [],
+      checkFlags(args, sub === 'claim' ? ['as', 'minutes'] : sub === 'failed' ? ['as', 'claim-id', 'reason'] : sub === 'done' ? ['as', 'claim-id'] : [],
         `inbox ${sub}`);
       const name = rest[1];
       if (!name) die(`Missing name (inbox ${sub} <name>)`);
@@ -186,18 +186,28 @@ export const COMMANDS = {
         const r = claim.claim(root, name, {
           by, minutes: args.minutes ? Number(args.minutes) : undefined,
         });
-        out(r.valid ? `${name}: claimed by '${by}' (id ${r.id})`
+        out(r.valid ? `${name}: claimed by '${by}' (claim-id ${r.id} — done/failed need it)`
           : `${name}: claim written but does NOT count — ${r.reason}`);
         if (!r.valid) process.exit(1);
         return;
       }
+      if (!args['claim-id'] || args['claim-id'] === true) die(`Missing --claim-id (the id 'inbox claim' printed)`);
+      const claimId = String(args['claim-id']);
       if (sub === 'done') {
-        const r = claim.done(root, name, { by });
+        const r = claim.done(root, name, { by, claimId });
+        if (!r.valid) {
+          out(`${name}: done written but does NOT count — ${r.reason}`);
+          process.exit(1);
+        }
         out(`${name}: ${r.status}`);
         return;
       }
       if (!args.reason || args.reason === true) die('Missing --reason');
-      const r = claim.failed(root, name, { by, reason: String(args.reason) });
+      const r = claim.failed(root, name, { by, claimId, reason: String(args.reason) });
+      if (!r.valid) {
+        out(`${name}: failed written but does NOT count — ${r.reason}`);
+        process.exit(1);
+      }
       out(`${name}: ${r.status} (released)`);
       return;
     }

@@ -124,6 +124,13 @@
  * truncate only ever removes exactly the bytes this one failed call
  * itself just added, nothing that arrived before or after it.
  *
+ * **A throw never truncates (y0, 2026-09-30).** A `writeSync` that throws
+ * wrote nothing (POSIX); size growth measured afterwards may be a foreign
+ * line that landed in the gap, so measuring "our" bytes by size difference
+ * would truncate someone else's line. Only a SHORT write (a real return
+ * value) is rolled back, under the sizeNow === ownEnd guard above. Growth
+ * after a throw is reported as `torn: true` and left alone.
+ *
  * **Considered and dropped: checking free space first
  * (`fs.statfsSync`).** Cheap (single-digit microseconds), but useless as
  * a guard: between the check and this call's own `writeSync`, any other
@@ -207,25 +214,30 @@ function writeAtomicAppend(filePath, buffer) {
       return; // full success — the common case, one write, done.
     }
 
-    // Short write or hard error: how much actually reached the disk?
-    // The return value is not trustworthy after a throw (Node does not
-    // hand one back then) — measure instead of guessing.
+    // A THROW means, per POSIX, that nothing was written (write() failed
+    // with -1). Any growth we see afterwards cannot be told apart from a
+    // foreign writer's line that landed in the gap, so a throw NEVER
+    // truncates: cutting to `sizeBefore` could erase someone else's line.
+    // Only a SHORT write (a real return value, `written` < length) is
+    // rolled back, and only under the guard sizeNow === ownEnd.
     let bytesOnDisk = written;
+    let torn;
     if (writeError) {
-      try { bytesOnDisk = Math.max(0, fs.fstatSync(fd).size - sizeBefore); }
-      catch { bytesOnDisk = written; }
-    }
-
-    const ownEnd = sizeBefore + bytesOnDisk;
-    let sizeNow;
-    try { sizeNow = fs.fstatSync(fd).size; } catch { sizeNow = null; }
-
-    let torn = true;
-    if (sizeNow === ownEnd) {
-      try {
-        fs.ftruncateSync(fd, sizeBefore);
-        torn = false;
-      } catch { /* the truncate itself failed: the tear stands */ }
+      let grew = 0;
+      try { grew = Math.max(0, fs.fstatSync(fd).size - sizeBefore); } catch { grew = 0; }
+      bytesOnDisk = 0;
+      torn = grew > 0; // ambiguous growth: name it, never cut it
+    } else {
+      const ownEnd = sizeBefore + bytesOnDisk;
+      let sizeNow;
+      try { sizeNow = fs.fstatSync(fd).size; } catch { sizeNow = null; }
+      torn = true;
+      if (sizeNow === ownEnd) {
+        try {
+          fs.ftruncateSync(fd, sizeBefore);
+          torn = false;
+        } catch { /* the truncate itself failed: the tear stands */ }
+      }
     }
 
     const reason = writeError
@@ -233,11 +245,14 @@ function writeAtomicAppend(filePath, buffer) {
       : `only ${bytesOnDisk} of ${buffer.length} bytes were written`;
     throw new AppendError(
       torn
-        ? `appendLine: write to '${filePath}' aborted (${reason}) — another writer was already `
-          + `ahead of us, so our own fragment (${bytesOnDisk} bytes) is left untruncated. Nothing `
-          + 'was committed; the fragment must be named as a tear.'
-        : `appendLine: write to '${filePath}' aborted (${reason}) — truncated back to ${sizeBefore} `
-          + 'bytes, the file is byte-identical to before this call. Nothing was committed.',
+        ? `appendLine: write to '${filePath}' aborted (${reason}) — the file grew during the `
+          + 'attempt (another writer was ahead of us, or a fragment landed), so nothing is '
+          + 'truncated. Nothing was committed; the growth must be named as a tear.'
+        : (writeError
+          ? `appendLine: write to '${filePath}' failed (${reason}) — a failed write wrote nothing, `
+            + 'the file is untouched. Nothing was committed.'
+          : `appendLine: write to '${filePath}' aborted (${reason}) — truncated back to ${sizeBefore} `
+            + 'bytes, the file is byte-identical to before this call. Nothing was committed.'),
       { filePath, torn, cause: writeError },
     );
   } finally {
