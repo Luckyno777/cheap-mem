@@ -139,3 +139,22 @@ per state, the page-size cap, cursor encode/decode as inverses
 known gap above. Red on the pre-E1.3 state in a separate, detached
 `git worktree add`, removed afterward (the new test file fails with
 `ERR_MODULE_NOT_FOUND` — the module does not exist yet).
+
+## The list as a page (D3b, 2026-09-30)
+
+`GET /entries?type=&project=&q=&after=<cursor>&n=` (`src/entries-page.mjs`)
+answers with the SAME list as `/entries.json`, rendered by the server as
+a page in the dashboard's look — this is what the "Full list page" link
+in Knowledge → Entries opens in a new tab, instead of the raw JSON.
+
+- Same filters, same cursor, same `pages.page()`; there is one list.
+- A plain GET form (type, project, text) and a "Next page" link that
+  carries the cursor. No script, nothing loaded from outside.
+- The four states are visible: `ok` (good), `warning` (with its reason,
+  the readable rows still shown), `unknown` (a filter that names
+  something that does not exist, HTTP 400, its own dashed tone), `error`
+  (HTTP 500). A valid filter without matches is `ok` and says so: an
+  empty list is not an error.
+- Host check (`HOST_GUARDED`, now also on `/entries.json`), no CORS
+  header, the dashboard's content security policy, behind the token door
+  like every route.

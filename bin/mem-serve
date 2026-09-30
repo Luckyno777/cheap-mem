@@ -50,6 +50,7 @@ import * as memConfig from '../src/config.mjs';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
 import * as dashboardPage from '../src/dashboard-page.mjs';
+import * as entriesPage from '../src/entries-page.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
 import * as fulltext from '../src/fulltext.mjs';
@@ -129,7 +130,7 @@ export const GOLD_VERDICT_PATH = '/dashboard/gold-verdict';
 
 export const PATHS = Object.freeze([
   '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/pult.json',
-  '/entry.json', '/entries.json', '/task', '/task.json', '/task/cancel', '/inbox/reply',
+  '/entry.json', '/entries.json', entriesPage.PATH, '/task', '/task.json', '/task/cancel', '/inbox/reply',
   // The dashboard (2026-09-28): the page, its data, one entry, one
   // message, the retrieval probe, the bitemporal facts, its three files,
   // the service-worker registration, the two fonts, and the PWA shell.
@@ -164,6 +165,8 @@ export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '
 export const HOST_GUARDED = Object.freeze([
   dashboardPage.PATHS.data, dashboardPage.PATHS.entry, dashboardPage.PATHS.message,
   dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part, fulltext.PATH,
+  // D3b: the list as a page, and its JSON twin, read the same memory.
+  entriesPage.PATH, '/entries.json',
 ]);
 
 /**
@@ -1031,6 +1034,15 @@ export function buildHandler(root, cfg, env = process.env) {
       if (!code) throw new Error(`getEntryFast() answered an unknown state '${found.state}'`);
       res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
         .end(JSON.stringify(found));
+      return;
+    }
+
+    // --- D3b: the same list as a page the server renders ---------------
+    // (src/entries-page.mjs). Same filters, same cursor, same
+    // `pages.page()`; Host check in HOST_GUARDED, no CORS header, no script.
+    if (url.pathname === entriesPage.PATH) {
+      const { status, html } = entriesPage.render(root, url.searchParams);
+      res.writeHead(status, { ...HEAD, 'content-type': 'text/html; charset=utf-8', 'content-security-policy': CSP }).end(html);
       return;
     }
 
