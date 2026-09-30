@@ -44,7 +44,6 @@ test('empty journal: no jobs, no rows, git ran', () => {
     const r = ledger.ledger(w, { git: NO_GIT });
     assert.equal(r.totalJobs, 0);
     assert.deepEqual(r.rows, []);
-    assert.equal(r.agentsWithEvidence, 0);
     assert.equal(r.git, true);
   } finally { wipe(w); }
 });
@@ -64,64 +63,94 @@ test('synthetic journal -> ledger grouped by agent kind/model', () => {
     const sonnet = r.rows.find((z) => z.model === 'Sonnet 5');
     assert.equal(sonnet.agent_kind, 'package-agent');
     assert.equal(sonnet.jobs, 3);
-    assert.equal(sonnet.firstTryOk, 2);
-    assert.equal(sonnet.followUps, 1);
+    assert.equal(sonnet.confirmed, 2);
+    assert.equal(sonnet.rework, 1);
     assert.equal(sonnet.packagesReverted, 0);
 
     const opus = r.rows.find((z) => z.model === 'Opus 5.5');
     assert.equal(opus.jobs, 1);
-    assert.equal(opus.firstTryOk, 1);
+    assert.equal(opus.confirmed, 1);
   } finally { wipe(w); }
 });
 
-test('under 20 jobs: verdict is always "unknown (n<20)", never a strength', () => {
-  const w = build();
-  try {
-    for (let i = 0; i < 19; i += 1) {
-      logStructured(w, { pkg: `Z${i}`, model: 'Sonnet 5', firstTry: true });
-    }
-    const r = ledger.ledger(w, { git: NO_GIT });
-    const row = r.rows[0];
-    assert.equal(row.jobs, 19);
-    assert.equal(row.verdict, ledger.VERDICT.UNKNOWN_N20);
-    assert.equal(r.agentsWithEvidence, 0);
-  } finally { wipe(w); }
-});
-
-test('at 20 jobs with a high first-try share: notably strong, backed by a count', () => {
+test('no verdict word and no thresholds any more: numbers only (Z1a, E5a)', () => {
   const w = build();
   try {
     for (let i = 0; i < 20; i += 1) {
-      logStructured(w, { pkg: `G${i}`, model: 'Sonnet 5', firstTry: i < 19 });
+      logStructured(w, { pkg: `G${i}`, model: 'Sonnet 5', firstTry: true });
     }
     const r = ledger.ledger(w, { git: NO_GIT });
     const row = r.rows[0];
     assert.equal(row.jobs, 20);
-    assert.equal(row.firstTryOk, 19);
-    assert.equal(row.verdict, ledger.VERDICT.NOTABLY_STRONG);
-    assert.equal(r.agentsWithEvidence, 1);
+    assert.equal(row.confirmed, 20);
+    assert.equal('verdict' in row, false, 'there is no verdict column any more');
+    assert.equal('agentsWithEvidence' in r, false);
+    const text = ledger.reportText(r);
+    assert.doesNotMatch(text, /notably|unremarkable|n<20/i);
+    assert.match(text, /20 confirmed/);
+    assert.equal(ledger.VERDICT, undefined);
   } finally { wipe(w); }
 });
 
-test('at 20 jobs with a low first-try share: notably weak', () => {
+test('Z1a B13: 20 jobs with follow_ups:3 and no first_try -> NO first-try success', () => {
   const w = build();
   try {
     for (let i = 0; i < 20; i += 1) {
-      logStructured(w, { pkg: `S${i}`, model: 'Haiku', firstTry: i < 8 });
+      memory.logEntry(w, 'event', {
+        title: `job ${i}`, text: 'done', tags: ['job'],
+        package: `P${i}`, agent_kind: 'k', model: 'm', follow_ups: 3,
+      });
     }
     const r = ledger.ledger(w, { git: NO_GIT });
-    assert.equal(r.rows[0].verdict, ledger.VERDICT.NOTABLY_WEAK);
+    const row = r.rows[0];
+    assert.equal(row.jobs, 20);
+    assert.equal(row.confirmed, 0, 'a missing first_try is not a success');
+    assert.equal(row.rework, 20, 'follow_ups:3 evidences rework');
+    assert.equal(row.unknown, 0);
+    assert.equal(row.followUpsSum, 60, 'the field is read and summed');
+    assert.equal(r.confirmed, 0);
   } finally { wipe(w); }
 });
 
-test('at 20 jobs in the middle: unremarkable', () => {
+test('Z1a: a job without any signal is unknown — never success — with share and denominator', () => {
   const w = build();
   try {
-    for (let i = 0; i < 20; i += 1) {
-      logStructured(w, { pkg: `M${i}`, model: 'Haiku', firstTry: i < 14 });
-    }
+    logStructured(w, { pkg: 'A1', model: 'Sonnet 5', firstTry: true });
+    memory.logEntry(w, 'event', {
+      title: 'job', text: 'done', tags: ['job'], package: 'B1', model: 'Sonnet 5', agent_kind: 'k',
+    });
+    memory.logEntry(w, 'event', {
+      title: 'job', text: 'done', tags: ['job'], package: 'C1', model: 'Sonnet 5', agent_kind: 'k',
+      follow_ups: 0, // a 0 alone is no proof of success
+    });
     const r = ledger.ledger(w, { git: NO_GIT });
-    assert.equal(r.rows[0].verdict, ledger.VERDICT.UNREMARKABLE);
+    assert.equal(r.totalJobs, 3);
+    assert.equal(r.confirmed, 1, 'only the job with first_try=yes');
+    assert.equal(r.unknown, 2);
+    assert.deepEqual({ u: r.unknownShare.unknown, of: r.unknownShare.of }, { u: 2, of: 3 });
+    assert.match(ledger.reportText(r), /2 of 3/);
+    // Positive control: the same job WITH a positive evidence is confirmed.
+    const w2 = build();
+    try {
+      memory.logEntry(w2, 'event', {
+        title: 'job', text: 'done', tags: ['job'], package: 'C1', model: 'Sonnet 5', agent_kind: 'k',
+        follow_ups: 0, first_try: 'yes',
+      });
+      assert.equal(ledger.ledger(w2, { git: NO_GIT }).confirmed, 1);
+    } finally { wipe(w2); }
+  } finally { wipe(w); }
+});
+
+test('Z1a: a counter-evidence beats first_try=yes', () => {
+  const w = build();
+  try {
+    memory.logEntry(w, 'event', {
+      title: 'job', text: 'done', tags: ['job'], package: 'C1', model: 'm', agent_kind: 'k',
+      first_try: 'yes', follow_ups: 2,
+    });
+    const r = ledger.ledger(w, { git: NO_GIT });
+    assert.equal(r.rows[0].rework, 1);
+    assert.equal(r.rows[0].confirmed, 0);
   } finally { wipe(w); }
 });
 
@@ -150,7 +179,7 @@ test('missing agent_kind -> "unknown"', () => {
     assert.equal(r.rows.length, 1);
     assert.equal(r.rows[0].agent_kind, 'unknown');
     assert.equal(r.rows[0].model, 'Sonnet 5');
-    assert.equal(r.rows[0].firstTryOk, 1);
+    assert.equal(r.rows[0].confirmed, 1);
   } finally { wipe(w); }
 });
 
@@ -189,8 +218,8 @@ test('"follow-up" in free text counts as a follow-up, even without the structure
       package: 'Q1', model: 'Sonnet 5', first_try: 'yes',
     });
     const r = ledger.ledger(w, { git: NO_GIT });
-    assert.equal(r.rows[0].followUps, 1);
-    assert.equal(r.rows[0].firstTryOk, 0);
+    assert.equal(r.rows[0].rework, 1);
+    assert.equal(r.rows[0].confirmed, 0);
   } finally { wipe(w); }
 });
 
@@ -206,8 +235,8 @@ test('commit signal "<package>-followup" on an open branch counts as a follow-up
       ].join('\n');
     };
     const r = ledger.ledger(w, { git: gitStub });
-    assert.equal(r.rows[0].followUps, 1);
-    assert.equal(r.rows[0].firstTryOk, 0);
+    assert.equal(r.rows[0].rework, 1);
+    assert.equal(r.rows[0].confirmed, 0);
   } finally { wipe(w); }
 });
 
@@ -221,7 +250,7 @@ test('a bundled package ("S6+L6+F3") matches a commit signal on ONE part-package
     });
     const gitStub = () => 'ccc3333|S6-followup: Read only gets the OPEN head';
     const r = ledger.ledger(w, { git: gitStub });
-    assert.equal(r.rows[0].followUps, 1);
+    assert.equal(r.rows[0].rework, 1);
   } finally { wipe(w); }
 });
 
@@ -247,7 +276,7 @@ test('a real "Revert" commit marks the package as reverted', () => {
     assert.equal(r.rows[0].packagesReverted, 1);
     // A revert is not by itself evidence of a follow-up — the two
     // counts stay separate (see module head).
-    assert.equal(r.rows[0].firstTryOk, 1);
+    assert.equal(r.rows[0].confirmed, 1);
   } finally { wipe(w); }
 });
 
@@ -284,19 +313,6 @@ test('buildJobFields: missing agent_kind/model become the string "unknown", not 
   assert.equal(fields.model, 'unknown');
   assert.equal(fields.first_try, 'no');
   assert.equal(fields.follow_ups, 0);
-});
-
-test('reportText names the count with every verdict — never a claim without one', () => {
-  const w = build();
-  try {
-    for (let i = 0; i < 20; i += 1) {
-      logStructured(w, { pkg: `T${i}`, model: 'Sonnet 5', firstTry: true });
-    }
-    const r = ledger.ledger(w, { git: NO_GIT });
-    const text = ledger.reportText(r);
-    assert.match(text, /20/);
-    assert.match(text, /notably strong/);
-  } finally { wipe(w); }
 });
 
 test('an empty journal reports "no jobs recorded", not a silent green zero', () => {
@@ -353,7 +369,7 @@ test('REAL GIT: a real `git revert` commit is picked up with no stub at all', ()
     assert.equal(r.rows[0].jobs, 1);
     assert.equal(r.rows[0].packagesReverted, 1);
     // The revert alone is not evidence of a follow-up.
-    assert.equal(r.rows[0].firstTryOk, 1);
+    assert.equal(r.rows[0].confirmed, 1);
   } finally { fs.rmSync(w, { recursive: true, force: true }); }
 });
 
@@ -371,7 +387,7 @@ test('REAL GIT: a followup commit on an OPEN branch (never merged) is still seen
 
     const r = ledger.ledger(w);
     assert.equal(r.git, true);
-    assert.equal(r.rows[0].followUps, 1);
-    assert.equal(r.rows[0].firstTryOk, 0);
+    assert.equal(r.rows[0].rework, 1);
+    assert.equal(r.rows[0].confirmed, 0);
   } finally { fs.rmSync(w, { recursive: true, force: true }); }
 });

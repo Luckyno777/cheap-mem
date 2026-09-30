@@ -11,7 +11,9 @@
 #   CHEAP_MEM_ROOT       absolute path to the memory
 #
 # Optional:
-#   MEM_DIGEST_MAX_BYTES  most raw material per run (default 2000000)
+#   MEM_DIGEST_MAX_BYTES  most raw material per run, in bytes BEFORE packing
+#                         (default 16000000; until 2026-09-30 it was 2000000
+#                         GZIPPED bytes, equivalent at ~8:1)
 #   MEM_DIGEST_VOLUME_NOW_KB  dueness threshold: volume that is due at once
 #   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
 #   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
@@ -45,7 +47,7 @@ MEM="$HERE/mem"
 TIMEOUT="${MEM_DIGEST_TIMEOUT:-600}"
 CMD="${MEM_DIGEST_CMD:-claude -p}"
 LOG="${MEM_DIGEST_LOG:-$ROOT/.mem/digest.log}"
-MAX_BYTES="${MEM_DIGEST_MAX_BYTES:-2000000}"
+MAX_BYTES="${MEM_DIGEST_MAX_BYTES:-16000000}"
 
 # Authority ceiling for everything this run writes.
 #
@@ -161,10 +163,17 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
       // useless without anyone noticing.
       // Smallest first, so one huge capture that no session can finish
       // does not block everything behind it forever.
+      // B19 (2026-09-30): the budget counts bytes BEFORE packing
+      // (`rawSizes` from `raw pending --json`, the record
+      // field source_bytes). Until then it counted gzipped bytes read off the
+      // disk: a capture with 50 MiB of plain text weighed like one with
+      // 50 KiB, and it also failed for every capture moved to the archive.
+      if(!o.rawSizes){process.stderr.write("selection: raw pending --json has no rawSizes - mem too old?\n");process.exit(2)}
       const sized=(o.open||[]).map(f=>{
         let s=Infinity;
-        try{s=fs.statSync(path.join(root,f)).size}
-        catch(e){process.stderr.write("selection: "+f+" unreadable\n")}
+        const g=o.rawSizes[f];
+        if(typeof g==="number") s=g;
+        else process.stderr.write("selection: "+f+" has no known size - counts as large\n");
         return {f,s};
       }).sort((a,b)=>a.s-b.s);
       const chosen=[];let sum=0;

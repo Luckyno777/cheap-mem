@@ -7,9 +7,9 @@
  * strength ("the Sonnet agent is strong at design" — plausible and
  * unproven) is assumption dressed as measurement. This module counts
  * the opposite: per agent kind/model, only what the job journal can
- * show — jobs, jobs usable on the first try, follow-up jobs, packages
- * with a real revert. Below 20 jobs for a group the verdict is always
- * `unknown (n<20)`, never a claimed strength.
+ * show — jobs in three stages (confirmed / rework or error evidenced /
+ * unknown), the share of unknown with its denominator, and packages
+ * with a real revert. There is no verdict word at all.
  *
  * **The data source is not a new file.** There is no separate ledger
  * on disk — it is the set of `event` entries tagged `job`, in
@@ -40,57 +40,41 @@
  * `agent_kind` or `model` is recorded as the string `'unknown'`, never
  * left null and never inferred.
  *
- * ## "usable on the first try" is a lower bound, not a measurement
+ * ## Three stages, no verdict (Z1a, 2026-09-30, decision E5a)
  *
- * Nothing about a job entry reliably says, AT WRITE TIME, whether a
- * follow-up will be needed later — that would need a second, later
- * entry. So the question is inverted: a job counts as usable on the
- * first try unless there is EVIDENCE of a follow-up. Evidence comes
- * from three places, OR-combined — any one is enough, none can cancel
- * another out:
+ * Every job is exactly one of:
  *
- *   a) the field `first_try === 'no'` (structured),
- *   b) the entry's own text/title names a follow-up ("follow-up",
- *      "rework", "redo"),
- *   c) a commit on `git log --all` (every branch, not just the
- *      default — an open branch is not invisible here) whose subject
- *      starts `<package>-followup` or `<package>-rework`.
+ *   confirmed  — a POSITIVE evidence (`first_try=yes` in the entry) and
+ *                NO counter-evidence;
+ *   rework     — rework or error EVIDENCED: `first_try=no`, `follow_ups`
+ *                greater than 0, a follow-up word in the entry's own
+ *                text/title, or a commit on `git log --all` (every branch)
+ *                whose subject starts `<package>-followup` or
+ *                `<package>-rework`. A counter-evidence always beats a
+ *                "yes". (A real revert stays its OWN count, as before,
+ *                and is not a stage evidence.)
+ *   unknown    — no signal. NEVER success: not measurable is not "yes".
  *
- * Without any of the three a job counts as first-try-usable. That is a
- * floor on "needed a follow-up", not a ceiling — it can only
- * undercount, never overcount.
+ * Before, a job without any follow-up evidence counted as first-try
+ * usable ("a floor"); 20 jobs with `follow_ups: 3` and no `first_try`
+ * came out as 20 successes, 0 follow-ups and "notably strong", and
+ * `follow_ups` was never read. The ledger now reports only numbers and
+ * the share of "unknown" with its denominator (all attributed jobs of
+ * the group) — no verdict vocabulary, no thresholds.
  *
  * **A revert** counts only a real `git revert` commit (subject
  * `Revert "..."`), across all branches, deduplicated by commit hash (the
  * same commit can appear on several branches through shared ancestry).
- *
- * ## Four states, not more
- *
- * `VERDICT` is a closed vocabulary, the same shape as `TYPES` in
- * memory.mjs or `LEVEL` in doctor.mjs — a verdict outside the four
- * named ones does not exist, and `UNKNOWN_N20` is the ordinary answer
- * until a group actually reaches the threshold.
  */
 
 import { execFileSync } from 'node:child_process';
 import * as memory from './memory.mjs';
 
-/** How many jobs a group needs before any verdict beyond "unknown" may stand. */
-export const THRESHOLD_N = 20;
-
-// Below this first-try-usable share (n >= THRESHOLD_N) a group counts as
-// notably weak, above it as notably strong. Both are set, not measured —
-// they only become meaningful once some group actually reaches
-// THRESHOLD_N.
-export const THRESHOLD_WEAK = 0.5;
-export const THRESHOLD_STRONG = 0.85;
-
-/** The closed verdict vocabulary — four states, never a fifth. */
-export const VERDICT = Object.freeze({
-  UNKNOWN_N20: 'unknown (n<20)',
-  NOTABLY_WEAK: 'notably weak',
-  UNREMARKABLE: 'unremarkable',
-  NOTABLY_STRONG: 'notably strong',
+/** The three stages per job (Z1a, E5a). A word not listed here does not exist. */
+export const STAGE = Object.freeze({
+  CONFIRMED: 'confirmed',
+  REWORK: 'rework',
+  UNKNOWN: 'unknown',
 });
 
 const UNKNOWN = 'unknown';
@@ -100,6 +84,13 @@ const FOLLOW_UP_TEXT_RE = /follow-?up\w*|rework\w*|reworked|redo(?:ne|s)?\b/i;
 
 /** Package prefix of a commit subject ("Q1-followup: ..." -> "q1"). */
 const COMMIT_PACKAGE_PREFIX_RE = /^([A-Za-z][A-Za-z0-9]*(?:\s*\+\s*[A-Za-z0-9]+)*)[\s-]+/;
+
+/** A number >= 0 or null — never guessed, never 0 for "not there". */
+function numberOrNull(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
 
 function normalizePackage(p) {
   return String(p ?? '').trim().replace(/\s*\+\s*/g, '+').replace(/\s+and\s+/gi, '+');
@@ -216,6 +207,7 @@ export function jobFromEntry(e) {
     agent_kind: typeof e.agent_kind === 'string' && e.agent_kind.trim() ? e.agent_kind.trim() : UNKNOWN,
     model: typeof e.model === 'string' && e.model.trim() ? e.model.trim() : UNKNOWN,
     firstTryEvidence: structuredFirstTry,
+    followUpsField: numberOrNull(e.follow_ups),
     textFollowUp: FOLLOW_UP_TEXT_RE.test(text) || FOLLOW_UP_TEXT_RE.test(title),
   };
 }
@@ -245,19 +237,26 @@ export function extractJobs(root, { git = null } = {}) {
     const commitHits = parts.flatMap((t) => signals.followUp.get(t) ?? []);
     const revertHits = parts.flatMap((t) => signals.revert.get(t) ?? []);
 
-    // OR-combination of the three evidence sources (see module head) —
-    // any one is enough, none of them cancels another.
-    const followUpEvidenced = j.firstTryEvidence === false
+    // Stage per job (see module head): a COUNTER-evidence always wins, a
+    // positive evidence is the only way to become "confirmed", and
+    // without any signal it stays "unknown".
+    const followUpsField = j.followUpsField ?? null;
+    const counterEvidence = j.firstTryEvidence === false
+      || (followUpsField !== null && followUpsField > 0)
       || j.textFollowUp === true
       || commitHits.length > 0;
-    const firstTry = !followUpEvidenced;
+    let stage;
+    if (counterEvidence) stage = STAGE.REWORK;
+    else if (j.firstTryEvidence === true) stage = STAGE.CONFIRMED;
+    else stage = STAGE.UNKNOWN;
 
     let evidence;
     if (j.firstTryEvidence === false) evidence = 'structured field first_try=no';
+    else if (followUpsField !== null && followUpsField > 0) evidence = `structured field follow_ups=${followUpsField}`;
     else if (j.textFollowUp) evidence = 'follow-up word in the event text';
     else if (commitHits.length) evidence = `commit: ${commitHits[0].subject}`;
     else if (j.firstTryEvidence === true) evidence = 'structured field first_try=yes';
-    else evidence = 'no follow-up evidence found (a lower bound, see module head)';
+    else evidence = 'no signal in the entry (neither confirmation nor rework evidenced)';
 
     jobs.push({
       id: e.id ?? null,
@@ -266,7 +265,8 @@ export function extractJobs(root, { git = null } = {}) {
       package: j.package,
       agent_kind: j.agent_kind,
       model: j.model,
-      firstTry,
+      stage,
+      followUps: followUpsField,
       evidence,
       reverted: revertHits.length > 0,
     });
@@ -274,36 +274,37 @@ export function extractJobs(root, { git = null } = {}) {
   return { jobs, unassigned, git: signals.git };
 }
 
-/** Verdict from jobs + first-try-usable count — the four states, nothing else. */
-export function verdictFor(jobs, firstTryOk) {
-  if (jobs < THRESHOLD_N) return VERDICT.UNKNOWN_N20;
-  const share = jobs > 0 ? firstTryOk / jobs : 0;
-  if (share <= THRESHOLD_WEAK) return VERDICT.NOTABLY_WEAK;
-  if (share >= THRESHOLD_STRONG) return VERDICT.NOTABLY_STRONG;
-  return VERDICT.UNREMARKABLE;
-}
-
 /**
- * The ledger: grouped by agent kind/model, with the four counts from
- * the job (jobs, first-try usable, follow-ups, packages with a revert)
- * and the verdict.
+ * The ledger: grouped by agent kind/model. Numbers only: jobs, the three
+ * stages (confirmed / rework / unknown), the share of "unknown" with its
+ * denominator (all attributed jobs), the sum of evidenced follow-ups
+ * (the `follow_ups` field) and packages with a revert. No verdict word
+ * (Z1a, E5a).
  */
 export function ledger(root, { git = null } = {}) {
   const { jobs, unassigned, git: gitRan } = extractJobs(root, { git });
+  const blank = () => ({
+    jobs: 0, confirmed: 0, rework: 0, unknown: 0, followUpsSum: 0, packagesReverted: new Set(),
+  });
+  const count = (g, j) => {
+    g.jobs += 1;
+    if (j.stage === STAGE.CONFIRMED) g.confirmed += 1;
+    else if (j.stage === STAGE.REWORK) g.rework += 1;
+    else g.unknown += 1;
+    if (typeof j.followUps === 'number') g.followUpsSum += j.followUps;
+  };
+  const share = (g) => ({
+    unknown: g.unknown, of: g.jobs,
+    share: g.jobs > 0 ? g.unknown / g.jobs : null,
+  });
   const groups = new Map();
+  const total = blank();
   for (const j of jobs) {
     const key = `${j.agent_kind}\u0000${j.model}`;
-    if (!groups.has(key)) {
-      groups.set(key, {
-        agent_kind: j.agent_kind, model: j.model,
-        jobs: 0, firstTryOk: 0, followUps: 0,
-        packagesReverted: new Set(), packages: new Set(),
-      });
-    }
+    if (!groups.has(key)) groups.set(key, { agent_kind: j.agent_kind, model: j.model, ...blank() });
     const g = groups.get(key);
-    g.jobs += 1;
-    g.packages.add(j.package);
-    if (j.firstTry) g.firstTryOk += 1; else g.followUps += 1;
+    count(g, j);
+    count(total, j);
     if (j.reverted) g.packagesReverted.add(j.package);
   }
 
@@ -311,40 +312,57 @@ export function ledger(root, { git = null } = {}) {
     agent_kind: g.agent_kind,
     model: g.model,
     jobs: g.jobs,
-    firstTryOk: g.firstTryOk,
-    followUps: g.followUps,
+    confirmed: g.confirmed,
+    rework: g.rework,
+    unknown: g.unknown,
+    unknownShare: share(g),
+    followUpsSum: g.followUpsSum,
     packagesReverted: g.packagesReverted.size,
-    verdict: verdictFor(g.jobs, g.firstTryOk),
   })).sort((x, y) => y.jobs - x.jobs
     || x.agent_kind.localeCompare(y.agent_kind) || x.model.localeCompare(y.model));
 
   return {
     rows,
     unassigned,
-    totalJobs: jobs.length,
-    agentsWithEvidence: rows.filter((r) => r.jobs >= THRESHOLD_N).length,
+    totalJobs: total.jobs,
+    confirmed: total.confirmed,
+    rework: total.rework,
+    unknown: total.unknown,
+    // With no attributed job the share is not 0/0 but null (not
+    // measurable is not zero).
+    unknownShare: share(total),
     git: gitRan,
   };
 }
 
-/** Text report — a table, never a prose claim. */
+/** The share of "unknown" as text, with its denominator — never '0/0'. */
+export function unknownShareText(s) {
+  if (!s || s.of === 0) return 'unknown (no job attributed in the journal)';
+  return `${s.unknown} of ${s.of} (${(s.share * 100).toFixed(1)} %)`;
+}
+
+/** Text report — a table, never a prose claim, no verdict word. */
 export function reportText(result) {
   const head = [
     'Agent ledger by job (journal: tag "job").',
     `${result.totalJobs} job(s) attributed, ${result.unassigned} unassigned (no package recognisable).`,
     result.git ? '' : 'git could not run — follow-up/revert signals from commits are missing.',
+    'Stages: confirmed = positive evidence and no counter-evidence; rework = rework or error evidenced;',
+    'unknown = no signal (never success).',
   ].filter((l) => l !== '');
   if (!result.rows.length) {
     return [...head, '', '(no jobs recorded)'].join('\n');
   }
   const body = [
     '',
-    'Agent kind      Model             Jobs  First-try ok  Follow-ups  Reverted  Verdict',
+    'Agent kind      Model             Jobs  Confirmed  Rework  Unknown (share of jobs)           Follow-ups  Reverted',
     ...result.rows.map((r) => `${r.agent_kind.padEnd(15)} ${r.model.padEnd(17)} ${String(r.jobs).padStart(4)}  `
-      + `${String(r.firstTryOk).padStart(12)}  ${String(r.followUps).padStart(10)}  `
-      + `${String(r.packagesReverted).padStart(8)}  ${r.verdict}`),
+      + `${String(r.confirmed).padStart(9)}  ${String(r.rework).padStart(6)}  `
+      + `${unknownShareText(r.unknownShare).padEnd(32)}  `
+      + `${String(r.followUpsSum).padStart(10)}  ${String(r.packagesReverted).padStart(8)}`),
     '',
-    `Agents with evidenced ledger (n>=${THRESHOLD_N}): ${result.agentsWithEvidence} of ${result.rows.length}.`,
+    `Total: ${result.confirmed} confirmed, ${result.rework} rework evidenced, ${result.unknown} unknown — `
+      + `share unknown: ${unknownShareText(result.unknownShare)}.`,
   ];
   return [...head, ...body].join('\n');
 }

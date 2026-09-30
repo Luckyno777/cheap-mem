@@ -630,14 +630,25 @@ export function readCapture(root, relPath) {
   const text = zlib.gunzipSync(data).toString('utf8');
   const lines = [];
   let header = null;
+  // Broken lines are COUNTED, never skipped silently (B21, 2026-09-30):
+  // a capture with one shot-up line used to look exactly like an intact
+  // one — the digest read the rest and reported nothing. Three states:
+  // 'ok' (no broken line), 'partial' (broken AND readable lines),
+  // 'broken' (lines present, not one readable). Callers that only take
+  // `{header, lines}` are unaffected; whoever wants to know reads
+  // `state` / `broken`.
+  let broken = 0;
+  let readable = 0;
   for (const l of text.split('\n')) {
     if (!l.trim()) continue;
     let o;
-    try { o = JSON.parse(l); } catch { continue; }
+    try { o = JSON.parse(l); } catch { broken += 1; continue; }
+    readable += 1;
     if (o.__stamp && header === null) { header = o; continue; }
     lines.push(o);
   }
-  return { header, lines };
+  const state = broken === 0 ? 'ok' : (readable > 0 ? 'partial' : 'broken');
+  return { header, lines, broken, state };
 }
 
 /**
@@ -661,20 +672,76 @@ export function pending(root) {
   // that never fires again because a drive was unmounted is a silent
   // failure of the most expensive kind.
   const fromRecord = new Map();
+  // B19 (2026-09-30): `bytes` are GZIPPED bytes. A capture with 50 MiB
+  // of plain text weighs 50 KiB gzipped — as a budget for "how much can
+  // one session read" it counted like a 50 KiB capture. The record also
+  // knows `source_bytes` (the amount before packing); `rawSizes` comes
+  // from that and is what the digest uses for its selection. Where it is
+  // missing it is `null` — not measurable is not zero, and not the gzip
+  // number as a stand-in.
+  const rawFromRecord = new Map();
   for (const rec of archive.records(root)) {
     if (rec?.path && typeof rec.bytes === 'number') fromRecord.set(rec.path, rec.bytes);
+    if (rec?.path && typeof rec.source_bytes === 'number') rawFromRecord.set(rec.path, rec.source_bytes);
   }
   let bytes = 0;
+  const sizes = {};
+  const rawSizes = {};
+  let rawBytes = 0;
+  let rawUnknown = 0;
   for (const f of open) {
-    if (fromRecord.has(f)) { bytes += fromRecord.get(f); continue; }
+    let gz = null;
+    if (fromRecord.has(f)) gz = fromRecord.get(f);
     // Not migrated yet: then from the disk.
-    try { bytes += fs.statSync(path.join(root, f)).size; } catch { /* gone */ }
+    else { try { gz = fs.statSync(path.join(root, f)).size; } catch { gz = null; /* gone */ } }
+    sizes[f] = gz;
+    if (gz !== null) bytes += gz;
+    const rs = rawFromRecord.has(f) ? rawFromRecord.get(f) : null;
+    rawSizes[f] = rs;
+    if (rs !== null) rawBytes += rs; else rawUnknown += 1;
   }
-  return { open, bytes, done: done.size, last: wm.last ?? null };
+  return { open, bytes, sizes, rawSizes, rawBytes, rawUnknown, done: done.size, last: wm.last ?? null };
 }
 
-/** Mark captures as digested. Union, never replacement. */
-export function markDigested(root, paths) {
+/**
+ * Mark captures as digested. Union, never replacement.
+ *
+ * B16 (2026-09-30, decision E6a): every path MUST exist (archive or
+ * working tree). Before, a typo was accepted, written to the ledger and
+ * the bell was cleared — real material stayed behind and nothing said
+ * so. An unknown path throws `CAPTURE_MISSING` BEFORE anything is
+ * written. And every marked capture carries its yield (entries naming
+ * it) in the ledger — 0 allowed, but visible.
+ *
+ * B17: the bell is reset only when NOTHING is left open afterwards. If a
+ * rest remains, the bell stays — otherwise the rest had no bell and
+ * never became due.
+ */
+export function markDigestedWithYield(root, paths, { yield: yieldMap } = {}) {
+  const store = archive.readConfig(process.env, root);
+  const missing = paths.filter((f) => !archive.reachable(store, root, f));
+  if (missing.length > 0) {
+    const e = new Error(`capture does not exist: ${missing.join(', ')} — nothing marked`);
+    e.code = 'CAPTURE_MISSING';
+    e.missing = missing;
+    throw e;
+  }
+  // The CALLER counts the yield (`mem raw digested` reads the logs; this
+  // module deliberately does not import memory.mjs — the capture path
+  // stays free of it, see test/entry-size-cap.test.mjs). If none is
+  // passed it is UNKNOWN (null in the ledger), never 0. If one is passed
+  // it must be a number >= 0 for every capture.
+  const yields = {};
+  for (const f of paths) {
+    if (yieldMap === undefined) { yields[f] = null; continue; }
+    if (!Number.isInteger(yieldMap[f]) || yieldMap[f] < 0) {
+      const e = new Error(`yield for ${f} is missing or not a number >= 0 — nothing marked`);
+      e.code = 'YIELD_MISSING';
+      throw e;
+    }
+    yields[f] = yieldMap[f];
+  }
+
   const p = path.join(root, WATERMARK_FILE);
   const wm = loadJson(p, { digested: [] });
   const before = new Set(wm.digested ?? []);
@@ -689,13 +756,33 @@ export function markDigested(root, paths) {
   }
 
   const added = paths.filter((f) => !before.has(f));
-  appendLedger(root, added, { entries: added.length });
+  const yieldAdded = {};
+  for (const f of added) yieldAdded[f] = yields[f];
+  appendLedger(root, added, {
+    entries: added.reduce((a, f) => a + (yields[f] ?? 0), 0),
+    yield: yieldAdded,
+  });
 
   wm.digested = [...new Set([...before, ...paths])].sort();
   wm.last = isoSeconds(new Date());
   saveJson(p, wm);
-  clearBell(root);   // pile cleared, reset the bell
-  return wm.digested.length;
+  // Pile cleared -> reset the bell. A rest keeps it (B17).
+  let rest = 0;
+  try { rest = pending(root).open.length; } catch { rest = 0; }
+  if (rest === 0) clearBell(root);
+  return {
+    total: wm.digested.length,
+    yield: yields,
+    entries: paths.reduce((a, f) => a + (yields[f] ?? 0), 0),
+    withoutEntry: paths.filter((f) => yields[f] === 0),
+    unknown: paths.filter((f) => yields[f] === null),
+    rest,
+  };
+}
+
+/** Like {@link markDigestedWithYield}, returns only the total. */
+export function markDigested(root, paths, opt = {}) {
+  return markDigestedWithYield(root, paths, opt).total;
 }
 
 // --- The bell --------------------------------------------------------
@@ -784,14 +871,22 @@ export function due(root, { now = new Date(), thresholds = {} } = {}) {
   //    oversized pile gets skimmed instead of read.
   if (state.bytes >= s.volumeNow) return { due: true, reason: 'volume', ...common };
 
+  // 2. Ceiling: a long working day must not postpone digesting forever.
+  //    Deliberately BEFORE the volume floor (B18, 2026-09-30; lm has had
+  //    this since 2026-08-31, src/roh.mjs faelligkeit()). With
+  //    'too-little' up here a pile under volumeMin was NEVER due, not
+  //    even after a month: once the material stopped growing it lay
+  //    there without limit. A capture only exists from a minimum size
+  //    (minBytes), so a starvation pile cannot occur, and the ceiling
+  //    fires at most once per bell cycle — the cost is capped by
+  //    ceilingMs, not by the volume.
+  if (waiting >= s.ceilingMs) return { due: true, reason: 'ceiling', ...common };
+
   if (state.bytes < s.volumeMin) return { due: false, reason: 'too-little', ...common };
 
-  // 2. The burst is over — quiet since the LAST bell, not the first.
+  // 3. The burst is over — quiet since the LAST bell, not the first.
   //    Otherwise the digest fires in the middle of the working day.
   if (quiet >= s.quietMs) return { due: true, reason: 'quiet', ...common };
-
-  // 3. Ceiling: a long working day must not postpone digesting forever.
-  if (waiting >= s.ceilingMs) return { due: true, reason: 'ceiling', ...common };
 
   return { due: false, reason: 'waiting', ...common };
 }

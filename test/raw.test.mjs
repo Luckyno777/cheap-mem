@@ -165,6 +165,9 @@ test('marking digested clears the pile and the bell', () => {
 test('marking digested is a union, never a replacement', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-raw-union-'));
   try {
+    // Since B16 the captures must exist.
+    fs.writeFileSync(path.join(root, 'a.gz'), 'x');
+    fs.writeFileSync(path.join(root, 'b.gz'), 'x');
     raw.markDigested(root, ['a.gz']);
     raw.markDigested(root, ['b.gz']);
     const wm = JSON.parse(fs.readFileSync(path.join(root, raw.WATERMARK_FILE), 'utf8'));
