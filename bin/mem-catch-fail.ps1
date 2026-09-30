@@ -141,7 +141,7 @@ if (-not $Hits) { exit 0 }
 # A lower bar than mem-retrieve.ps1's default - see bin/mem-catch-fail's
 # own comment on MIN for the measurement behind this number.
 $RecallJs = Join-Path $ToolRoot 'src/recallhook.mjs'
-if (-not (Test-Path -LiteralPath $RecallJs)) { exit 0 }
+if (-not ((Test-Path -LiteralPath $RecallJs) -and (Test-Path -LiteralPath (Join-Path $ToolRoot 'src/recallrender.mjs')))) { exit 0 }
 $env:MEM_RH_MIN = if ($env:MEM_CATCH_FAIL_MIN) { $env:MEM_CATCH_FAIL_MIN } else { '2.0' }
 $Block = ($Hits | & node $RecallJs catch 2>$null) -join ''
 if (-not $Block) { exit 0 }

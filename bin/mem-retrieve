@@ -272,7 +272,9 @@ fi
 # on session + the BLOCK that would be injected; a retrieval that yields
 # nothing claims nothing. Bare stdout is NOT the contract for this
 # event; the documented UserPromptSubmit envelope is.
-[ -f "$RECALL_JS" ] || exit 0
+# The program and the renderer it prints with must both be there: a
+# half-updated checkout stays silent instead of printing half a line.
+[ -f "$RECALL_JS" ] && [ -f "$TOOL_ROOT/src/recallrender.mjs" ] || exit 0
 # Node writes to the hook's OWN stdout and books the journal line in the
 # callback of that write: the line follows the output, it does not
 # precede it. (Captured into a variable and printed afterwards, the line

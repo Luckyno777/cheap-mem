@@ -265,7 +265,7 @@ if (-not $Hits) { exit 0 }
 # taken on Windows too; a second registration books `already-shown`.
 # Node writes to the hook's own stdout and books the journal line after
 # that write, so the line follows the output. No trailing newline.
-if (-not (Test-Path -LiteralPath $RecallJs)) { exit 0 }
+if (-not ((Test-Path -LiteralPath $RecallJs) -and (Test-Path -LiteralPath (Join-Path $ToolRoot 'src/recallrender.mjs')))) { exit 0 }
 $env:CHEAP_MEM_ROOT = $Root
 $env:MEM_RH_MIN = $Min
 $env:MEM_RH_SESSION = $SessionId
