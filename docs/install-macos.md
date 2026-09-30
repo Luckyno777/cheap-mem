@@ -87,3 +87,18 @@ launchctl kickstart -k gui/$(id -u)/com.cheap-mem.watch
 ```
 
 Or edit the plist directly.
+
+
+## Optional: `mem serve` as a service (dashboard + warm recall)
+
+`install/macos.sh` asks at the end whether to also run `mem serve` as a
+user service; the default is **no** (a non-interactive run never installs
+it; `CHEAP_MEM_SERVE_SERVICE=yes|no` answers without a prompt). By hand:
+
+```bash
+CHEAP_MEM_ROOT=~/my-memory bash install/serve-service.sh install    # ~/Library/LaunchAgents/com.cheap-mem.serve.plist
+bash install/serve-service.sh uninstall                             # boots it out and removes the agent
+```
+
+Recall works without it; the service only makes it warm (see
+`docs/dashboard.md`, "Warm recall").

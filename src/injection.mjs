@@ -104,7 +104,38 @@ export const REASON = Object.freeze({
   ERROR: 'error',
 });
 
+/**
+ * Which way a recall ran (M10, 2026-09-30). Closed, like OCCASION and
+ * REASON: a new path is a decision and belongs in the diff.
+ */
+export const PATH = Object.freeze({
+  /** The warm recall server (src/recallserver.mjs, started by `mem serve`) answered. */
+  SERVER: 'server',
+  /** One `mem find` process for this turn — the way before M10. */
+  DIRECT: 'direct',
+});
+
+/**
+ * Why the recall ran DIRECT although a server socket was there. `null`
+ * on a recall line means: no server was asked (no socket, or
+ * MEM_RECALL_SERVER=0) — the normal case without a server, not a fault.
+ */
+export const PATH_REASON = Object.freeze({
+  /** A socket file, but nobody listening (server died) or no permission. */
+  SERVER_GONE: 'server-gone',
+  /** The server did not answer within its wait. */
+  SERVER_TIMEOUT: 'server-timeout',
+  /** The server refused: key, root or protocol version did not match. */
+  SERVER_REFUSED: 'server-refused',
+  /** The server runs other code than what is on disk now. */
+  SERVER_STALE: 'server-stale',
+  /** Anything else: a broken answer, an exception in the server. */
+  SERVER_ERROR: 'server-error',
+});
+
 const REASONS = new Set(Object.values(REASON));
+const PATHS = new Set(Object.values(PATH));
+const PATH_REASONS = new Set(Object.values(PATH_REASON));
 const OCCASIONS = new Set(Object.values(OCCASION));
 
 /**
@@ -128,6 +159,8 @@ export function buildLine({
   sources = [],
   questionBytes = null,
   durationMs = null,
+  recallPath = undefined,
+  pathReason = undefined,
 } = {}) {
   return {
     ts,
@@ -153,6 +186,15 @@ export function buildLine({
     // this field existed, or by a writer that cannot time itself, must
     // not read as an instant hook.
     duration_ms: Number.isFinite(durationMs) ? Math.max(0, Math.round(durationMs)) : null,
+    // M10: the way the recall ran. Only recall lines carry it; every
+    // other writer leaves it out and its line stays byte-identical.
+    // An unknown value becomes `unknown`, never passes through quietly.
+    path: recallPath == null || recallPath === ''
+      ? undefined : (PATHS.has(recallPath) ? recallPath : 'unknown'),
+    path_reason: recallPath == null || recallPath === ''
+      ? undefined
+      : (pathReason == null || pathReason === '' ? null
+        : (PATH_REASONS.has(pathReason) ? pathReason : 'unknown')),
   };
 }
 

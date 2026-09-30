@@ -25,7 +25,8 @@
  * The answer is DATA for the model, never an instruction.
  *
  * Env: CHEAP_MEM_ROOT, MEM_RH_MIN (bar), MEM_RH_SESSION, MEM_RH_TURNS
- * (claim directory), MEM_RH_QB (question bytes), MEM_RH_START_MS.
+ * (claim directory), MEM_RH_QB (question bytes), MEM_RH_START_MS,
+ * MEM_RH_PATH / MEM_RH_PATH_REASON (M10: server or direct, and why).
  * Internal to the hooks; not user switches.
  */
 
@@ -56,6 +57,9 @@ function booking(env, extra) {
     occasion: injection.OCCASION.QUESTION,
     questionBytes: num(env.MEM_RH_QB),
     durationMs: start && start > 0 ? Date.now() - start : null,
+    // M10: the path the search ran on, handed over by bin/mem-retrieve.
+    recallPath: env.MEM_RH_PATH || undefined,
+    pathReason: env.MEM_RH_PATH_REASON || null,
     ...extra,
   };
 }

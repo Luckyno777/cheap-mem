@@ -1218,7 +1218,7 @@ export function buildHandler(root, cfg, env = process.env) {
  * @param opts.measure true = keep the weekly measurement series
  *   (src/measurements.mjs) while running; `mem serve` sets it.
  */
-export function serve(root, env = process.env, { allowWrites = false, measure: measureWeekly = false } = {}) {
+export function serve(root, env = process.env, { allowWrites = false, measure: measureWeekly = false, recall = false } = {}) {
   const cfg = { ...readConfig(env), allowWrites: allowWrites === true };
   const allowed = bindAllowed(cfg);
   if (!allowed.ok) throw new Error(allowed.reason);
@@ -1255,6 +1255,19 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
       try { runningmark.writeMarker(root, { service: 'serve', codePath: PACKAGE_ROOT }); }
       catch (e) { process.stderr.write(`serve: could not write the W1 start marker: ${e?.message || e}\n`); }
       if (measureWeekly) setImmediate(measure);
+      // M10: the warm recall server (src/recallserver.mjs), same process,
+      // a Unix socket under .pipeline/recall/. Only a REAL server starts
+      // it (`mem serve`, `recall: true`) — the same rule as `measure`: a
+      // probe that starts this server to test a route must not find a
+      // socket appearing in its fixture memory. MEM_RECALL_SERVER=0 turns
+      // it off. A failed start leaves the console running; the hook then
+      // simply finds no socket and runs direct.
+      if (recall && env.MEM_RECALL_SERVER !== '0') {
+        import('../src/recallserver.mjs')
+          .then((r) => r.start(root, { env }))
+          .then((r) => { if (r?.running) server.once('close', () => { r.close(); }); })
+          .catch((e) => process.stderr.write(`serve: recall server not started: ${e?.message || e}\n`));
+      }
       resolve({ server, cfg });
     });
   });
@@ -1264,7 +1277,7 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
   const root = process.env.CHEAP_MEM_ROOT || process.cwd();
   const flags = process.argv.slice(2);
-  serve(root, process.env, { allowWrites: flags.includes('--allow-writes'), measure: true }).then(({ server, cfg }) => {
+  serve(root, process.env, { allowWrites: flags.includes('--allow-writes'), measure: true, recall: true }).then(({ server, cfg }) => {
     const bound = server.address();
     process.stderr.write(
       `cheap-mem console on http://${cfg.host}:${bound.port}/ `
