@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { startBrowser, waitReady } from './fixture/browser.mjs';
 import * as procedure from '../src/procedure.mjs';
+import * as memoryApi from '../src/memory.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -45,7 +46,11 @@ function fill(r, bin) {
   ids.released = log('Emu released', ['--start-as', 'proposed']);
   const o = mem(bin, r, 'procedures', 'status', ids.released, 'released', '--issued-by', 'owner');
   assert.equal(o.status, 0, o.stderr);
-  ids.legacy = log('Dingo legacy');
+  // E4: only a rule filed BEFORE the cut-off without a status is legacy
+  // (released); a rule filed today without one would be unknown.
+  ids.legacy = memoryApi.logEntry(r, 'procedure', {
+    title: 'Dingo legacy', rule: 'Rule text for Dingo legacy hummingbird', issued_by: 'owner', agent: 'owner',
+  }, { now: new Date('2026-09-01T10:00:00Z') }).entry.id;
   return ids;
 }
 
@@ -90,7 +95,9 @@ function checkPositive(bin, r, ids) {
     assert.ok(j.length >= 1 && j.every((h) => !('status' in h)), `${title}: no field status`);
   }
   for (const id of [ids.released, ids.legacy]) {
-    assert.ok(!/status:|\[(proposed|trial)\]/.test(mem(bin, r, 'show', id).stdout), `show ${id}: unchanged`);
+    // E4: the raw field `start_status:` now sits in the entry, so match the
+    // display line `status:` at the line start, not the field name.
+    assert.ok(!/^\s*status:|\[(proposed|trial)\]/m.test(mem(bin, r, 'show', id).stdout), `show ${id}: unchanged`);
     assert.ok(!('status' in JSON.parse(mem(bin, r, 'show', id, '--json').stdout)));
   }
 }

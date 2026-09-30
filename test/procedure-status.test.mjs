@@ -28,6 +28,14 @@ const run = (r, ...a) =>
 const RULE = (...extra) => ['log', 'procedure', '--title', 'Falsify first',
   '--rule', 'Build the probe that goes red when it does NOT work.',
   '--issued-by', 'owner', '--on-class', 'looks-right-does-nothing', ...extra];
+// E4: a rule WITHOUT any status counts as released (legacy) only when it
+// was filed before the cut-off; today's rules without a status are unknown.
+// So the legacy fixtures are written with an old timestamp.
+const OLD = new Date('2026-09-01T10:00:00Z');
+const legacyRule = (r) => memory.logEntry(r, 'procedure', {
+  title: 'Falsify first', rule: 'Build the probe that goes red when it does NOT work.',
+  issued_by: 'owner', on_class: 'looks-right-does-nothing', agent: 'owner',
+}, { now: OLD }).entry;
 const idOf = (out) => /id:\s+(\S+)/.exec(out)[1];
 const lines = (r) => fs.readFileSync(path.join(r, 'global', 'procedures.jsonl'), 'utf8')
   .trim().split('\n').map((l) => JSON.parse(l));
@@ -35,7 +43,7 @@ const lines = (r) => fs.readFileSync(path.join(r, 'global', 'procedures.jsonl'),
 test('POSITIVE CONTROL: a rule without a status line is released (legacy) and is shown as before', () => {
   const r = house();
   try {
-    const id = idOf(run(r, ...RULE()).stdout);
+    const id = legacyRule(r).id;
     const list = run(r, 'procedures').stdout;
     assert.match(list, /Falsify first/);
     assert.match(list, /status: released \(legacy\)/);
@@ -72,7 +80,9 @@ test('nothing moves by itself: repetition, an error of the class, a lane — no 
     for (let i = 0; i < 4; i++) run(r, 'log', 'error', '--title', `again ${i}`, '--class', 'looks-right-does-nothing');
     run(r, 'procedures'); run(r, 'procedures', '--match', 'falsify');
     assert.equal(lines(r).length, n);
-    assert.equal(lines(r).filter((l) => l.status).length, 1);
+    // E4: the start status lives in the rule itself; no status LINE was added.
+    assert.equal(lines(r).filter((l) => l.status_of).length, 0);
+    assert.equal(lines(r).filter((l) => l.start_status === 'trial').length, 1);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -133,7 +143,7 @@ test('effect: "unknown", not 0, while the 14-day window after the release is not
     // a legacy rule has no release moment at all
     const r2 = house();
     try {
-      run(r2, ...RULE());
+      legacyRule(r2);
       assert.match(run(r2, 'procedures').stdout, /effect: unknown \(no release moment/);
     } finally { fs.rmSync(r2, { recursive: true, force: true }); }
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
