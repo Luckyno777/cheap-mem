@@ -551,6 +551,9 @@ export const COMMANDS = {
         '  CHEAP_MEM_SERVE_ORIGINS   extra origins allowed to POST',
         '  CHEAP_MEM_SERVE_LOGIN     off = no password in front of the dashboard',
         '                            (tests, local use; default on)',
+        '  MEM_RECALL_SERVER         0 = do not start the warm recall server',
+        '                            (default: started; a Unix socket under',
+        '                            .pipeline/recall/, no port, read only)',
       ].join('\n'));
       return;
     }
@@ -584,7 +587,8 @@ export const COMMANDS = {
     const allowWrites = aw !== undefined;
     let started;
     try {
-      started = await mod.serve(root, env, { allowWrites, measure: true });
+      // M10: `mem serve` also starts the warm recall server (see bin/mem-serve).
+      started = await mod.serve(root, env, { allowWrites, measure: true, recall: true });
     } catch (e) {
       // The bind refusal is a decision, not a crash: say what to do.
       die(e?.message || String(e));

@@ -103,3 +103,18 @@ sudo loginctl enable-linger $USER
 Or install as a system service instead (write the unit to
 `/etc/systemd/system/cheap-mem-watch.service`, run it as your user via
 `User=`). Left as an exercise.
+
+
+## Optional: `mem serve` as a service (dashboard + warm recall)
+
+`install/linux.sh` asks at the end whether to also run `mem serve` as a
+user service; the default is **no** (a non-interactive run never installs
+it; `CHEAP_MEM_SERVE_SERVICE=yes|no` answers without a prompt). By hand:
+
+```bash
+CHEAP_MEM_ROOT=~/my-memory bash install/serve-service.sh install    # ~/.config/systemd/user/cheap-mem-serve.service
+bash install/serve-service.sh uninstall                             # stops it and removes the unit
+```
+
+Recall works without it; the service only makes it warm (see
+`docs/dashboard.md`, "Warm recall").

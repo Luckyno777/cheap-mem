@@ -1793,6 +1793,9 @@ async function startHttp(pkg) {
 }
 
 async function main() {
+  // A long-lived process: keep the search index in memory between calls
+  // (src/search.mjs, the in-process memo; default off for the CLI).
+  search.setProcessMemo(true);
   const pkg = JSON.parse(fs.readFileSync(path.join(PKG_ROOT, 'package.json'), 'utf8'));
   if (HTTP_MODE) {
     await startHttp(pkg);

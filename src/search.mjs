@@ -2344,8 +2344,9 @@ function reconcileRetired(root, index) {
  * Not touched: `termGraph`/`tagGraph` (learned from the persisted
  * corpus, so they never see encrypted words).
  */
-function revealEncrypted(root, index) {
+function revealEncrypted(root, index, { cow = false } = {}) {
   const docs = index.documents;
+  const clonedSets = cow ? new Set() : null;
   let reveal = null;
   let lengthSum = index.avgLength * index.N;
   let statsN = index.statsN ?? index.N;
@@ -2401,7 +2402,12 @@ function revealEncrypted(root, index) {
     });
     for (const b of entity.identifiers(entityText(doc))) {
       let set = index.entityIndex.get(b);
-      if (!set) { set = new Set(); index.entityIndex.set(b, set); }
+      if (!set) { set = new Set(); index.entityIndex.set(b, set); clonedSets?.add(b); }
+      else if (clonedSets && !clonedSets.has(b)) {
+        // Copy on write: on a memo copy the Set is shared with the
+        // still-encrypted original and must not learn a decrypted word.
+        set = new Set(set); index.entityIndex.set(b, set); clonedSets.add(b);
+      }
       set.add(i);
     }
   }
@@ -2413,8 +2419,193 @@ function revealEncrypted(root, index) {
   return index;
 }
 
+
+// ---------------------------------------------------------------------
+// The in-process index memo (cold path, 2026-09-30)
+//
+// **The finding.** Every `mem find` loads the whole index cache: 418 ms
+// at 1k entries, 940 ms at 20k, 4.4-5.1 s at 200k (bench/cold-find.mjs),
+// and the M10 recall server gained nothing at 200k because it called
+// `loadIndex` per question and so re-read the cache per question. The
+// reason it could not simply keep the index: `revealEncrypted` changes
+// the loaded index in place (decrypted text, re-weighted documents,
+// corrected statistics) - an index kept across questions would keep
+// plaintext after the key was destroyed.
+//
+// **The memo.** Only for long-lived processes (`mem serve` with its recall
+// server, the MCP server), switched on by them with `setProcessMemo(true)`.
+// DEFAULT OFF: a CLI process loads once and exits, a memo there would be
+// a cost (the state hashes) with no benefit. It keeps TWO things per
+// (root, language):
+//
+//   base      the index exactly as the cache holds it, encrypted entries
+//             still STUBS. Never decrypted, never handed out.
+//   revealed  a COPY of `base` with the encrypted entries decrypted
+//             (`revealEncrypted` with copy-on-write for the shared
+//             structures), valid only for the key state it was made under.
+//
+// **Freshness, every question.** (1) The file state of every source is
+// compared with the state the base was built from - the same
+// `appendToIndex` the cache path uses (size, mtime, ctime, tail hash, and
+// on growth the O3 whole-range hash): untouched -> serve as is; grown ->
+// append in memory (then `reconcileRetired`, as the cache path does);
+// anything else (shrunk, rewritten, deleted) or more than
+// REBUILD_AFTER_FRACTION new -> drop the memo and load the normal way
+// (cache, append or rebuild). (2) The KEY state: a sha256 over the
+// keyring file's bytes (or `absent`), checked on every question whenever
+// the base holds an encrypted entry. A different state -> the old
+// `revealed` is dropped BEFORE anything else happens and a new copy is
+// made from `base`: a destroyed or rotated key takes effect on the very
+// next question, never decrypted text after the key is gone. (What the
+// process's heap still holds until the next GC cannot be reached from a
+// result.)
+//
+// **Not done on purpose.** The memo never writes the on-disk cache (a
+// CLI that runs beside it tops the cache up itself, exactly as before),
+// and it does not share anything between roots.
+let processMemoOn = false;
+const memo = new Map();
+const memoStats = { hits: 0, appends: 0, builds: 0, revealBuilds: 0 };
+const MEMO_MAX_ENTRIES = 4;
+
+/** Switch the in-process memo on (long-lived processes only) or off (drops it). */
+export function setProcessMemo(on) {
+  processMemoOn = Boolean(on);
+  if (!processMemoOn) memo.clear();
+}
+
+/** What the memo did so far, for probes and `mem doctor`-style readers. */
+export function processMemoInfo() {
+  return { on: processMemoOn, entries: memo.size, ...memoStats };
+}
+
+function memoKey(root, language) {
+  let real = root;
+  try { real = fs.realpathSync(path.resolve(root)); } catch { real = path.resolve(root); }
+  return `${real}\0${pack(language).name}`;
+}
+
+/** The key state: a hash over the keyring file's bytes, `absent`, or `unreadable`. */
+function keyStamp(root) {
+  let buf;
+  try { buf = fs.readFileSync(path.join(root, '.mem', 'keyring.json')); }
+  catch (e) { return e?.code === 'ENOENT' ? 'absent' : 'unreadable'; }
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+/** A copy of the stub index whose shared structures `revealEncrypted` may change. */
+function cloneForReveal(base) {
+  const copy = {
+    ...base,
+    documents: base.documents.slice(),
+    docFreq: new Map(base.docFreq),
+    entityIndex: new Map(base.entityIndex),
+  };
+  copy.statsDocFreq = base.statsDocFreq === base.docFreq ? copy.docFreq : new Map(base.statsDocFreq);
+  for (let i = 0; i < copy.documents.length; i += 1) {
+    if (copy.documents[i].enc) copy.documents[i] = { ...copy.documents[i] };
+  }
+  return copy;
+}
+
+function memoFilesUpdate(m, now, grown) {
+  // Untouched files keep their recorded state; only files that moved are
+  // re-read (line count, tail, whole-file hash), as a cache write would.
+  const moved = new Map();
+  for (const [rel, info] of now) {
+    const old = m.files[rel];
+    if (!old || old.bytes !== info.bytes || old.mtimeMs !== info.mtimeMs || old.ctimeMs !== info.ctimeMs) moved.set(rel, info);
+  }
+  const counts = sourceDocCounts(m.base.documents);
+  const next = {};
+  for (const [rel, info] of now) {
+    let rec;
+    if (moved.has(rel)) {
+      rec = {
+        bytes: info.bytes, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs, kind: info.kind, type: info.type,
+        project: info.project,
+        lines: grown.lastLines.has(rel) ? grown.lastLines.get(rel) : (m.files[rel]?.lines ?? countLines(m.root, rel)),
+        tail: tailHash(piecePath(m.root, rel), info.bytes),
+        full: info.kind === 'log' ? fullHash(piecePath(m.root, rel), info.bytes) : null,
+      };
+    } else rec = { ...m.files[rel] };
+    rec.docs = counts.get(rel) ?? 0;
+    next[rel] = rec;
+  }
+  m.files = next;
+}
+
+function loadMemoized(root, opts) {
+  const language = opts.language ?? 'en';
+  const key = memoKey(root, language);
+  let m = memo.get(key) ?? null;
+  let appended = 0;
+  let graphsStale = false;
+
+  if (m) {
+    const now = indexedFiles(root);
+    let grown = null;
+    try { grown = appendToIndex(root, m.base, m.files, now); } catch { grown = null; }
+    const tooBig = grown && m.base.N > m.fullAt * (1 + REBUILD_AFTER_FRACTION);
+    if (!grown || tooBig) {
+      memo.delete(key);   // rewritten, shrunk, deleted, or too far behind: the normal way
+      m = null;
+    } else if (grown.added > 0) {
+      reconcileRetired(root, m.base);
+      memoFilesUpdate(m, now, grown);
+      m.gen += 1;
+      m.revealed = null;
+      m.hasEnc = m.base.documents.some((d) => d.enc);
+      appended = grown.added;
+      graphsStale = true;
+      memoStats.appends += 1;
+    } else memoStats.hits += 1;
+  }
+
+  if (!m) {
+    const r = loadIndexCached(root, { language, wantState: true });
+    const { state, ...base } = r;
+    m = {
+      root, base, files: state.files, fullAt: state.fullAt, gen: 0,
+      hasEnc: base.documents.some((d) => d.enc),
+      revealed: null, revealedGen: -1, revealedKey: null,
+    };
+    if (memo.size >= MEMO_MAX_ENTRIES) memo.delete(memo.keys().next().value);
+    memo.set(key, m);
+    memoStats.builds += 1;
+    appended = r.appended ?? 0;
+    graphsStale = r.graphsStale ?? false;
+  }
+
+  let served = m.base;
+  if (m.hasEnc) {
+    const ks = keyStamp(root);
+    if (!m.revealed || m.revealedGen !== m.gen || m.revealedKey !== ks || ks === 'unreadable') {
+      m.revealed = null;   // first: nothing decrypted under the old key state stays reachable
+      const copy = revealEncrypted(root, cloneForReveal(m.base), { cow: true });
+      m.revealed = copy;
+      m.revealedGen = m.gen;
+      m.revealedKey = ks;
+      memoStats.revealBuilds += 1;
+    }
+    served = m.revealed;
+  }
+  // A top-level copy per question: the attachments `loadIndex` adds
+  // (bridge, state words) belong to this call, the heavy parts are shared.
+  return { ...served, fromCache: true, appended, graphsStale, cacheStatus: 'hit' };
+}
+
 export function loadIndex(root, opts = {}) {
-  const index = revealEncrypted(root, loadIndexCached(root, opts));
+  let index;
+  if (processMemoOn && !opts.fresh) {
+    index = loadMemoized(root, opts);
+  } else {
+    // `fresh: true` (or a one-shot CLI process, the default): the path
+    // from before the memo, untouched. A fresh rebuild also drops the
+    // memo entry, so the next memoized question starts from that build.
+    if (processMemoOn) memo.delete(memoKey(root, opts.language ?? 'en'));
+    index = revealEncrypted(root, loadIndexCached(root, opts));
+  }
   // M18b: the memory's switched-on language bridges ride on the loaded
   // index — read fresh from the config on every load, never written to
   // the cache, so switching a pair on or off needs no rebuild. An
@@ -2443,7 +2634,7 @@ export function loadIndex(root, opts = {}) {
   return index;
 }
 
-function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
+function loadIndexCached(root, { fresh = false, language = 'en', wantState = false } = {}) {
   const cacheDir = path.join(root, CACHE_DIR);
   const legacyCachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);
@@ -2544,18 +2735,21 @@ function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
           return {
             ...reconcileRetired(root, index),
             fromCache: true, appended: 0, graphsStale: false, cacheStatus: 'hit',
+            ...(wantState ? { state: { files: res.files, fullAt } } : {}),
           };
         }
         // Rebuild rather than append once enough of the corpus is new that
         // the lexicon and the learned graphs would be measurably behind.
         if (grown && index.N <= fullAt * (1 + REBUILD_AFTER_FRACTION)) {
-          if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) {
+          let grownState = null;
+          if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES || wantState) {
             const files = stateOf(now, grown.lastLines, sourceDocCounts(index.documents));
             // Line counts for untouched files carry over unchanged.
             for (const [rel, old] of Object.entries(res.files)) {
               if (files[rel] && !grown.lastLines.has(rel)) files[rel].lines = old.lines ?? files[rel].lines;
             }
-            writeCache(index, files, fullAt);
+            grownState = { files, fullAt };
+            if (grown.newBytes >= CACHE_WRITE_AFTER_BYTES) writeCache(index, files, fullAt);
           }
           // The learned graphs are NOT extended by an append — see
           // appendToIndex. They are exactly the ones the last full build
@@ -2569,6 +2763,7 @@ function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
             appended: grown.added,
             graphsStale: grown.added > 0,
             cacheStatus: 'hit',
+            ...(wantState ? { state: grownState } : {}),
           };
         }
         // Neither branch returned: too much of the corpus is new relative
@@ -2623,8 +2818,12 @@ function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
   // present — is the "half old, half new" shape this round was told to
   // rule out, so it does not get to exist even briefly on disk.
   try { fs.rmSync(legacyCachePath, { force: true }); } catch { /* nothing to remove */ }
-  writeCache(index, stateOf(now, null, sourceDocCounts(index.documents)), index.N);
-  return { ...index, fromCache: false, appended: 0, graphsStale: false, cacheStatus };
+  const builtFiles = stateOf(now, null, sourceDocCounts(index.documents));
+  writeCache(index, builtFiles, index.N);
+  return {
+    ...index, fromCache: false, appended: 0, graphsStale: false, cacheStatus,
+    ...(wantState ? { state: { files: builtFiles, fullAt: index.N } } : {}),
+  };
 }
 
 /** Lines in a file — only ever called on a full build. */

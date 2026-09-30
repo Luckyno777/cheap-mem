@@ -14,6 +14,18 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — cold path: the long-lived processes keep the index in memory
+
+- **In-process index memo** (`src/search.mjs` `setProcessMemo`): the recall
+  server (`mem serve`) and the MCP server load the index once and check the
+  file state (size, mtime, ctime, tail hash, O3 whole-range hash on growth)
+  on every question; appended lines are added in memory. Encrypted entries
+  are decrypted on a COPY; the memo key carries the key state (a hash of the
+  keyring), so a destroyed or rotated key takes effect on the next question.
+  Default OFF for the CLI. Recall server, 200k entries (synthetic, 4 cores,
+  load ~8): p50 4076 ms -> 377 ms, p95 4262 -> 479 ms; 20k: 424 -> 38 ms;
+  2k: 57 -> 10 ms (`bench/warm-recall.mjs`). Probe: `test/kalt-index-memo.test.mjs`.
+
 ### Added — P11/V10/V11: chain-head content-loss finding, human confirmation
 
 - **`correction-content-loss` follows the correction chain's HEAD**

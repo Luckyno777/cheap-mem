@@ -143,3 +143,18 @@ Start-ScheduledTask -TaskName cheap-mem-watch
   as Linux, Windows Claude Desktop can still reach it over `\\wsl$\`.
 - You don't want WSL2 or need everything native → **Path B**. Fully
   native, no cross-boundary calls, uses Windows Task Scheduler.
+
+
+## Optional: `mem serve` at logon (dashboard + warm recall)
+
+`install\windows.ps1` asks once in an interactive run whether to register
+a scheduled task `cheap-mem-serve` that runs `mem serve` at logon; the
+default is **no**. `-ServeService` installs it without asking,
+`-NoServeService` skips the question, and
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File install\windows.ps1 -UninstallServeService
+```
+
+removes it again. Recall works without it; the task only makes it warm
+(see `docs/dashboard.md`, "Warm recall").
