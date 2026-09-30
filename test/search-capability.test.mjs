@@ -104,15 +104,27 @@ const FIXED_NOW = new Date('2026-01-01T00:00:00Z');
  */
 function buildCorpus() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-p13-search-'));
-  memory.logEntry(root, 'decision', {
+  // The recorded corpus had no `authority` field: it was written before
+  // the write path stamped a default tier (Y4b, 2026-09-30). The lines
+  // are appended as recorded — same bytes the fixture came from —
+  // instead of through `logEntry`, which would now add `authority:
+  // 'agent'` and make this a different corpus than the one recorded.
+  const logEntry = (r, type, data, { project, now }) => {
+    const p = memory.logPath(r, type, project);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    const { id, ...rest } = data;
+    const ts = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    fs.appendFileSync(p, `${JSON.stringify({ id, ts, v: memory.ENTRY_VERSION, ...rest })}\n`);
+  };
+  logEntry(root, 'decision', {
     id: 'gid00000001', title: 'global marker entry', choice: 'global-marker-alpha-beta',
     why: 'shared root fact', topic: 'shared/topic', agent: 'tester',
   }, { project: null, now: FIXED_NOW });
-  memory.logEntry(root, 'decision', {
+  logEntry(root, 'decision', {
     id: 'aid00000001', title: 'alpha project marker entry', choice: 'alpha-marker-alpha-beta',
     why: 'alpha reasons', topic: 'alpha/topic', agent: 'tester',
   }, { project: 'alpha', now: FIXED_NOW });
-  memory.logEntry(root, 'decision', {
+  logEntry(root, 'decision', {
     id: 'bid00000001', title: 'beta project marker entry', choice: 'beta-marker-alpha-beta',
     why: 'beta reasons', topic: 'beta/topic', agent: 'tester',
   }, { project: 'beta', now: FIXED_NOW });
