@@ -42,6 +42,36 @@ CLAUDE_HOME="${CLAUDE_HOME:-$HOME/.claude}"
 HOOKS_DIR="$CLAUDE_HOME/hooks"
 SETTINGS="$CLAUDE_HOME/settings.json"
 
+# **An unreadable settings.json stops the install; it is never replaced.**
+# The merge below used to fall back to `{}` when the file did not parse,
+# then wrote `{}` plus our hooks over it: one stray comma and every
+# permission, model choice and foreign hook of the user was gone
+# (audit 2026-09-30, B9). Checked HERE, before anything is copied, so a
+# refused run leaves ~/.claude exactly as it found it. A missing or
+# empty file is fine — there is nothing in it to lose.
+if ! node - "$SETTINGS" <<'NODE_CHECK'
+const fs = require('fs');
+const p = process.argv[2];
+let text;
+try { text = fs.readFileSync(p, 'utf8'); } catch (e) {
+  if (e.code === 'ENOENT') process.exit(0);
+  console.error(`error: cannot read ${p}: ${e.message}`); process.exit(1);
+}
+if (!text.trim()) process.exit(0);
+let v;
+try { v = JSON.parse(text); } catch (e) {
+  console.error(`error: ${p} is not valid JSON (${e.message}).`); process.exit(1);
+}
+if (!v || typeof v !== 'object' || Array.isArray(v)) {
+  console.error(`error: ${p} is not a JSON object.`); process.exit(1);
+}
+NODE_CHECK
+then
+  echo "error: refusing to touch $SETTINGS — fix or move it, then run this installer again." >&2
+  echo "       Nothing was changed." >&2
+  exit 1
+fi
+
 mkdir -p "$HOOKS_DIR"
 
 # **The hook command names its interpreter, and it is not optional.**
@@ -165,8 +195,23 @@ const path = require('path');
 const [, , hooksDir, memRoot, bashBin] = process.argv.slice(1);
 const settingsPath = process.argv[2];
 
+// Checked above already; a parse failure here still stops the run
+// rather than writing a fresh `{}` over the user's file.
 let cfg = {};
-try { cfg = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) } catch {}
+let text = null;
+try { text = fs.readFileSync(settingsPath, 'utf8'); } catch (e) {
+  if (e.code !== 'ENOENT') { console.error(`error: cannot read ${settingsPath}: ${e.message}`); process.exit(1); }
+}
+if (text !== null && text.trim()) {
+  try { cfg = JSON.parse(text); } catch (e) {
+    console.error(`error: ${settingsPath} is not valid JSON (${e.message}); nothing written.`);
+    process.exit(1);
+  }
+  if (!cfg || typeof cfg !== 'object' || Array.isArray(cfg)) {
+    console.error(`error: ${settingsPath} is not a JSON object; nothing written.`);
+    process.exit(1);
+  }
+}
 
 cfg.hooks = cfg.hooks || {};
 
