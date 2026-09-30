@@ -259,7 +259,9 @@ test('POSITIVE CONTROL: the reader really reads both sides', () => {
   // And the param reader must answer with the real block, not an empty
   // list, which would make the rule above pass on anything.
   const declared = declaredParams(fs.readFileSync(path.join(REPO, 'install/windows.ps1'), 'utf8'));
-  assert.deepEqual(declared, ['skiptask', 'skipclaudedesktop', 'skipclaudecode']);
+  assert.deepEqual(declared, ['skiptask', 'skipclaudedesktop', 'skipclaudecode',
+    // M10: the optional `mem serve` task.
+    'serveservice', 'noserveservice', 'uninstallserveservice']);
   // The detector must fire on the shape it exists for.
   assert.ok(!declared.includes('reporoot'));
 });
