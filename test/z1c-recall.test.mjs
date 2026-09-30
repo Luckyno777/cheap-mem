@@ -92,8 +92,8 @@ test('renderer: a cut falls on a boundary and is marked with the way to the full
   const r = renderHit({ entry: { id: 'idcut1', ts: '2026-09-30', learning: long }, source: 'a/learnings.jsonl', line: 1 });
   assert.equal(r.cut, true);
   assert.match(r.line, /… \[cut - full text: mem show idcut1\]$/);
-  const c = cutAtBoundary('One two three. Four five six seven eight nine ten eleven twelve.', 40);
-  assert.equal(c.text, 'One two three. …', 'not on the sentence boundary: ' + c.text);
+  const c = cutAtBoundary('One two three four five. Six seven eight nine ten eleven twelve.', 40);
+  assert.equal(c.text, 'One two three four five. …', 'not on the sentence boundary: ' + c.text);
   assert.equal(cutAtBoundary('short', 40).cut, false);
 });
 

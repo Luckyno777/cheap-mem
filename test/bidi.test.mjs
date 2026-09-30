@@ -199,29 +199,26 @@ test('MANDATORY: somebody actually calls bidi.visible() outside of a comment', (
   }
 });
 
-test('MANDATORY: bin/mem-retrieve — the per-turn hook — also calls visible() outside a bash comment', () => {
-  // A different comment syntax (bash `#`), and the call sits inside an
-  // embedded `node -e` script rather than an imported .mjs module, so
-  // it needs its own narrow check rather than reusing stripJsComments.
-  const src = fs.readFileSync(new URL('../bin/mem-retrieve', import.meta.url), 'utf8');
-  const withoutBashComments = src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
-  // The MODULE must be loaded — but deliberately NOT a particular way of
-  // loading it. The first version of this line demanded
-  // `require(process.env.MEM_BIDI)` literally, and that pinned a
-  // mechanism which only works from Node 22.12 on: on Node 20, inside
-  // this package's own `engines: >=18` and its own CI matrix, that
-  // `require` throws ERR_REQUIRE_ESM, the hook's catch swallows it, and
-  // the raw override characters go straight into an agent's context.
-  // The probe was green for that version (measured 2026-09-19) — it was
-  // checking the spelling, not the effect. `test/retrieve.sh` check 10
-  // now runs the hook under `--no-experimental-require-module` and
-  // measures the effect itself.
-  assert.match(withoutBashComments, /process\.env\.MEM_BIDI/,
-    'bin/mem-retrieve no longer loads src/bidi.mjs');
-  assert.match(withoutBashComments, /\bvisible\(/,
-    'bin/mem-retrieve loads bidi but never calls visible() — mem find returns the RAW '
-    + 'entry (not display.compactLine\'s already-sanitised label), so this is the one '
-    + 'place an automatic per-turn hook is protected at all');
+test('MANDATORY: the per-turn recall hooks neutralise through ONE module that calls visible() outside a comment', () => {
+  // Since Z1c the line building lives in src/recallhook.mjs (one renderer
+  // for bin/mem-retrieve, bin/mem-catch-fail and their PowerShell twins),
+  // so the guard is two-part: the bash hooks must hand their hits to that
+  // module, and the module must import bidi and call visible() on every
+  // answer it prints. mem find returns the RAW entry (not
+  // display.compactLine's already-sanitised label), so this is the one
+  // place an automatic per-turn hook is protected at all.
+  const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+  const noBash = (src) => src.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
+  for (const hookFile of ['../bin/mem-retrieve', '../bin/mem-catch-fail']) {
+    assert.match(noBash(read(hookFile)), /src\/recallhook\.mjs/,
+      `${hookFile} no longer hands its hits to src/recallhook.mjs`);
+  }
+  const mod = stripJsComments(read('../src/recallhook.mjs'));
+  assert.match(mod, /from ['"]\.\/bidi\.mjs['"]/, 'src/recallhook.mjs no longer imports src/bidi.mjs');
+  assert.ok((mod.match(/\bvisible\(/g) || []).length >= 2,
+    'src/recallhook.mjs must call visible() on both answers (recall and catch)');
+  // The Node 20 path (no require(esm)) is measured by test/retrieve.sh check 10:
+  // the import above is a static ESM import, so there is no require() to fail.
 });
 
 // --- integration: the real call sites actually neutralise it ------------

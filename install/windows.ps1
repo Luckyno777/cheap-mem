@@ -245,9 +245,9 @@ if (-not `$memRoot) {
 if (Test-Path (Join-Path `$env:CHEAP_MEM_ROOT 'bin\mem')) {
   Write-Host '=== cheap-mem attached ==='
 } else {
-  Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but bin\mem is missing ==="
+  Write-Host "=== cheap-mem NOT attached: memory found at `$env:CHEAP_MEM_ROOT, but the tool (bin\mem) is missing ==="
   Write-Host "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
-  Write-Host 'Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has bin\mem.'
+  Write-Host 'Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has it.'
 }
 Write-Host ''
 & git -C `$env:CHEAP_MEM_ROOT fetch origin main 2>&1 | Select-Object -Last 1

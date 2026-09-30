@@ -79,9 +79,9 @@ export CHEAP_MEM_ROOT
 if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
   echo "=== cheap-mem attached ==="
 else
-  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but $CHEAP_MEM_ROOT/bin/mem is missing ==="
+  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but the tool ($CHEAP_MEM_ROOT/bin/mem) is missing ==="
   echo "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
-  echo "Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has bin/mem."
+  echo "Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has it."
 fi
 echo ""
 
