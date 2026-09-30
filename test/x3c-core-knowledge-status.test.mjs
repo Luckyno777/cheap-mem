@@ -98,6 +98,13 @@ async function panelView(base, { oldScript } = {}) {
       Promise.all(document.getAnimations().filter((a) => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming?.().endTime)).map((a) => a.finished.catch(() => null))),
       new Promise((res) => setTimeout(res, 3000)),
     ]));
+    // Under load (parallel suite) the reveal can lag: poll the computed opacity
+    // up to 10 s instead of trusting one fixed wait. Never swallow the result --
+    // the assertion below still reads getComputedStyle.
+    await page.waitForFunction(() => {
+      const h = [...document.querySelectorAll('#screen .panel h2')].find((x) => /Always present: core knowledge/.test(x.textContent));
+      return h && Number(getComputedStyle(h.closest('.panel')).opacity) >= 0.99;
+    }, null, { timeout: 10000 }).catch(() => null);
     await page.waitForTimeout(150);
     return await page.evaluate(() => {
       const visible = (el) => {
