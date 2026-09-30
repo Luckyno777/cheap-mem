@@ -116,11 +116,16 @@ export function generationStamp(root, { places = PLACES } = {}) {
 }
 
 /** Run the build in a worker thread — the same call (`collectDashboard`), without blocking the server. */
-export function buildInWorker(root, options = {}) {
+export async function buildInWorker(root, options = {}) {
+  // The worker imports the data module fresh; without this it would
+  // measure ITS OWN start as "the code at start" and `stale` could never
+  // be true. This (server) process's start head goes along.
+  const { codeHeadAtStart } = await import('./dashboard-data.mjs');
+  const headAtStart = codeHeadAtStart();
   return new Promise((resolve, reject) => {
     // The worker runs THIS module (the branch at the end of the file) —
     // no second module, so nothing here is out of the CLI's reach.
-    const w = new Worker(new URL(import.meta.url), { workerData: { dashboardCacheBuild: true, root, options } });
+    const w = new Worker(new URL(import.meta.url), { workerData: { dashboardCacheBuild: true, root, options, codeHeadAtStart: headAtStart } });
     w.unref();
     let done = false;
     w.once('message', (m) => {

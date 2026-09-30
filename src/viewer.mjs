@@ -820,14 +820,24 @@ h2.area .n{
     return e._hay;
   }
   function mark(text, q) {
-    var out = esc(text);
-    if (!q) return out;
+    // Match on the RAW text and escape each piece on its own. Matching
+    // on already-escaped HTML lets a search for "amp", "lt" or "quot"
+    // hit the inside of an entity and wrap a fragment of it in <mark>.
+    var src = String(text == null ? '' : text);
+    if (!q) return esc(src);
     try {
       // The dollar-brace here is escaped because this whole page is built
       // inside a template literal: unescaped, the outer literal would eat
       // it and the module would not even parse.
-      return out.replace(new RegExp('(' + q.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'ig'), '<mark>$1</mark>');
-    } catch (err) { return out; }
+      var re = new RegExp(q.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&'), 'ig');
+      var out = ''; var last = 0; var m;
+      while ((m = re.exec(src)) !== null) {
+        if (m[0] === '') { re.lastIndex += 1; continue; }
+        out += esc(src.slice(last, m.index)) + '<mark>' + esc(m[0]) + '</mark>';
+        last = m.index + m[0].length;
+      }
+      return out + esc(src.slice(last));
+    } catch (err) { return esc(src); }
   }
   function when(ts) { return String(ts || '').slice(0, 10) || '\\u2014'; }
 
