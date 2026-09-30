@@ -52,7 +52,15 @@ export function keep(root, { env = process.env, log = null, now = () => Date.now
       const why = code === STALE_RC ? 'code under src/ changed' : `child exited with ${signal ?? code}`;
       const wait = Math.max(0, lastStart + gapMs - now());
       if (wait > 0) say(`${why} — restart in ${Math.ceil(wait / 1000)} s (at most one per ${Math.round(gapMs / 1000)} s); the hook runs direct until then`);
-      timer = setTimeout(() => launch(why), wait);
+      // A timer may fire up to 1 ms early against now() (the timer clock and
+      // Date.now are different clocks; seen in lucky-mem's chain run: 1999 ms
+      // for a 2000 ms gap). So check again on firing and wait out the rest.
+      const wake = () => {
+        const rest = lastStart + gapMs - now();
+        if (rest > 0) { timer = setTimeout(wake, rest); timer.unref?.(); return; }
+        launch(why);
+      };
+      timer = setTimeout(wake, wait);
       timer.unref?.();
     });
   };
