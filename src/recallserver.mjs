@@ -16,10 +16,14 @@
  * exactly as before (`recallhook.mjs recall`); only the journal line
  * learns the path (`path: server`).
  *
- * **Freshness (O3).** The server keeps NO index of its own. `find` loads
- * it through `search.loadIndex()` on every question, and that compares
- * the file state of every source with the cache: new state -> top up or
- * rebuild, exactly as in the direct path, because it is the same call.
+ * **Freshness (O3).** `find` loads the index through `search.loadIndex()`
+ * on every question. Since the cold-path work the server turns on the
+ * in-process memo there (`search.setProcessMemo`): the index is loaded
+ * once and kept, encrypted entries decrypted only on a COPY, and every
+ * question compares the file state of every source (and the key state)
+ * with what the memo was built from: new state -> top up in memory or
+ * rebuild, a changed key state -> decrypt anew, same answers as the
+ * direct path.
  * What a server must check on top is its OWN code: if `src/` holds
  * another state than at start, it answers `stale`, the client falls back
  * to the direct path (which loads the new code), and the server stops
@@ -130,6 +134,7 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
 
   const { COMMANDS } = await import('./cli/commands/search.mjs');
   const shell = await import('./cli/shell.mjs');
+  const searchMod = await import('./search.mjs');
   const startState = codeState(codeRoot);
   const myRoot = realRoot(root);
   let close = null;
@@ -213,12 +218,16 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
   if (process.platform !== 'win32') {
     try { fs.chmodSync(where.socket, 0o600); } catch { /* the 0700 directory still guards */ }
   }
+  // The in-process index memo (search.mjs `setProcessMemo`): only a
+  // long-lived process turns it on, and this is one. Off again on close.
+  searchMod.setProcessMemo(true);
   say(`listening on ${where.socket}`);
 
   let closed = false;
   close = () => new Promise((resolve) => {
     if (closed) { resolve(); return; }
     closed = true;
+    searchMod.setProcessMemo(false);
     server.close(() => resolve());
     // Only remove what is OURS: another key there belongs to a newer server.
     try { if (fs.readFileSync(where.key, 'utf8') === key) fs.rmSync(where.key, { force: true }); } catch { /* gone */ }
