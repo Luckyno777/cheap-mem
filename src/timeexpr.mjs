@@ -84,8 +84,8 @@ const win = (from, to, label) => ({ from, to, label });
 // --- Real time question vs. a bare date sitting in running text ------
 //
 // **Ported idea (lucky-mem BAUPLAN M16, 2026-09-27 — "the time lane
-// floods the same 20 entries").** `windowFor()` recognises an ISO or
-// slash date ANYWHERE in the text — right for a short, deliberate
+// floods the same 20 entries").** `windowFor()` recognises an ISO
+// date ANYWHERE in the text — right for a short, deliberate
 // question ("on 2026-08-29 from 3 to 8pm"), wrong for a long,
 // passed-through text (an agent report, a journal line, a session
 // timestamp) that only MENTIONS a date without ASKING about it. Found
@@ -108,9 +108,12 @@ const QUESTION_OR_RETROSPECT = new RegExp(
   + 'decided|discussed|researched|built|happened|shipped|'
   + 'what\\s+(?:was|is|did|were|have|has|had))\\b',
 );
+// ISO dates only. A slash date ("3/4/2026") is month-first in one
+// country and day-first in the next, and `windowFor()` does not read it
+// at all — so calling it an intent would switch the time lane on for a
+// question that then has NO window. Never guess: it is not a date here.
 const DATE_WITH_PREPOSITION = [
   /\b(?:on|since|from)\s+\d{4}-\d{2}-\d{2}\b/,
-  /\b(?:on|since|from)\s+\d{1,2}\/\d{1,2}\/\d{4}\b/,
 ];
 
 /**
@@ -144,7 +147,7 @@ export function hasTimeIntent(text) {
     if (new RegExp(`\\b${word}\\b`).test(s)) return true;
   }
 
-  const hasDate = /\b\d{4}-\d{2}-\d{2}\b/.test(s) || /\b\d{1,2}\/\d{1,2}\/\d{4}\b/.test(s);
+  const hasDate = /\b\d{4}-\d{2}-\d{2}\b/.test(s);
   if (!hasDate) return false; // no time word, no date -> not a time question
 
   if (DATE_WITH_PREPOSITION.some((re) => re.test(s))) return true;

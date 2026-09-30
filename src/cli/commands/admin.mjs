@@ -503,7 +503,7 @@ export const COMMANDS = {
     if (isHelp(args) || rest.length === 0) {
       out([
         'mem embed setup [--provider voyage|openai|ollama] [--model M]',
-        'mem embed backfill [--force]      embed entries written before setup',
+        'mem embed backfill [--force] [--project <name>]   embed entries written before setup',
         'mem embed status                  provider, model, how many are stored',
         'mem find-embed "<query>"          semantic search',
         '',
@@ -561,6 +561,21 @@ export const COMMANDS = {
 
     if (rest[0] === 'backfill') {
       checkFlags(args, ['force', 'project'], 'embed backfill');
+      // `--project` was accepted and never read: a run meant for one
+      // project embedded all of them. `global` names the unnamed one, as
+      // in `raw review --project`.
+      let only = null; // null = every project
+      if (args.project !== undefined) {
+        if (args.project === true || args.project === '') die('embed backfill: --project needs a name (or "global")');
+        const name = args.project === 'global' ? null : String(args.project);
+        if (name !== null && !memory.listProjects(root).includes(name)) {
+          die(`embed backfill: no project '${name}'. Known: ${memory.listProjects(root).join(', ') || '(none)'}`);
+        }
+        // --force deletes the WHOLE embedding store first; combined with
+        // one project it would silently drop every other project's vectors.
+        if (args.force) die('embed backfill: --force rebuilds the whole store; drop --project, or drop --force');
+        only = [name];
+      }
       const store = await import('../../embed/store.mjs');
       if (args.force) store.deleteDb(root);
       let fresh = 0; let skipped = 0; let broken = 0;
@@ -569,7 +584,7 @@ export const COMMANDS = {
       const dim = embedmod.dimensions(cfg.provider, cfg.model);
       const db = await store.open(root, dim);
       try {
-        for (const project of [null, ...memory.listProjects(root)]) {
+        for (const project of only ?? [null, ...memory.listProjects(root)]) {
           for (const type of Object.keys(memory.TYPES)) {
             const file = memory.logPath(root, type, project);
             if (!fs.existsSync(file)) continue;
