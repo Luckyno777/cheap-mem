@@ -86,10 +86,18 @@ fi
 #
 # What the diff no longer sees, the watcher sees across the whole history.
 # This layer has one job: let nothing NEW through.
-FINDINGS="$(git diff --cached --diff-filter=ACM -U0 | node -e "
+#
+# **Fail-closed, not fail-open.** The check below runs in an async
+# handler; until 2026-09-30 an exception in it (a bug in the redaction,
+# an import that failed) killed node with its stderr thrown away and
+# nothing on stdout — which read exactly like "no findings", and the
+# commit went through unchecked (audit 2026-09-30, B8). Now the handler
+# catches, says so, exits non-zero, and pipefail makes a failed
+# `git diff` count as well: any exit status but 0 refuses the commit.
+FINDINGS="$(set -o pipefail; git diff --cached --diff-filter=ACM -U0 | node -e "
 const {execFileSync}=require('child_process');
 const {pathToFileURL}=require('url');
-let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{
+let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{ try {
   const r=await import(pathToFileURL('$PKG/src/redaction.mjs').href);
   const secrets=r.envSecrets();
 
@@ -135,7 +143,19 @@ let d='';process.stdin.on('data',c=>d+=c).on('end',async()=>{
     for (const f of hits) found.push(name+': '+f.type+' x'+f.count);
   }
   process.stdout.write(found.join('\n'));
-});" 2>/dev/null)"
+} catch (e) {
+  process.stdout.write('check crashed: '+String(e && e.message || e).split('\n')[0]);
+  process.exit(2);
+} });" 2>/dev/null)"
+CHECK_STATUS=$?
+
+if [ "$CHECK_STATUS" -ne 0 ]; then
+  echo "pre-commit: the secret check did not finish (exit $CHECK_STATUS)." >&2
+  [ -n "$FINDINGS" ] && echo "  $FINDINGS" >&2
+  echo "  The commit is refused, because nothing was actually checked." >&2
+  echo "  Fix the cause, or bypass knowingly: git commit --no-verify" >&2
+  exit 1
+fi
 
 if [ -n "$FINDINGS" ]; then
   echo "" >&2
