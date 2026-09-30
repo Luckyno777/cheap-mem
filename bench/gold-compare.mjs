@@ -77,7 +77,33 @@ function readJsonl(file) {
   return out;
 }
 
-export function loadCases(file = CASES_FILE) { return readJsonl(file); }
+/**
+ * The cases, with their KNOWN GAPS attached.
+ *
+ * A known gap is a case that fails on purpose: the situation it
+ * describes has no ranking rule by design, and is addressed somewhere
+ * else (G1b: time-08, an unlinked newer decision without topic — word
+ * overlap cannot tell which of two rulings holds; the write path shows
+ * the writer the similar decision instead). Such a case stays in the set
+ * UNCHANGED — it still runs, and the day it passes is visible — but it is
+ * reported on its own line, not netted into its category: a category
+ * that is permanently one short hides every real regression behind "it
+ * was already red".
+ *
+ * The marking is its own appended line (`{"gap_of": <id>, "gap": <why>}`),
+ * not an edit of the case line: *.jsonl here is append-only too.
+ */
+export function loadCases(file = CASES_FILE) {
+  const rows = readJsonl(file);
+  const gaps = new Map(rows.filter((r) => r && r.gap_of).map((r) => [r.gap_of, r.gap]));
+  const cases = rows.filter((r) => !(r && r.gap_of));
+  for (const c of cases) if (c && gaps.has(c.id)) c.gap = gaps.get(c.id);
+  // A gap marker for a case that does not exist is a defect of the set —
+  // carried so `checkSet` can name it instead of silently dropping it.
+  const known = new Set(cases.map((c) => c?.id));
+  cases.orphanGaps = [...gaps.keys()].filter((id) => !known.has(id));
+  return cases;
+}
 
 /** `{ config, entries }` — the first line with a `config` key is the
  * memory's config, every other line is one entry to write. */
@@ -97,6 +123,7 @@ export function checkSet(cases, world) {
   const problems = [];
   const ids = new Set(world.entries.map((e) => e?.data?.id).filter(Boolean));
   const seen = new Set();
+  for (const id of cases.orphanGaps ?? []) problems.push(`gap marker for '${id}': no such case`);
   for (const c of cases) {
     const where = `case ${c?.id ?? '?'}`;
     if (!c || typeof c.id !== 'string' || !c.id) { problems.push(`${where}: id missing`); continue; }
@@ -113,6 +140,7 @@ export function checkSet(cases, world) {
       if ((c.forbidden ?? []).includes(id)) problems.push(`${where}: '${id}' is both expected and forbidden`);
     }
     if (c.k !== undefined && !(Number.isInteger(c.k) && c.k >= 1)) problems.push(`${where}: k must be a positive integer`);
+    if (c.gap !== undefined && !(typeof c.gap === 'string' && c.gap.trim())) problems.push(`${where}: gap needs a reason`);
   }
   return problems;
 }
@@ -193,7 +221,7 @@ export function askOne(codeDir, root, c, { k = DEFAULT_K, home = null } = {}) {
  * forbidden id there. */
 export function judge(c, answer) {
   if (!answer || answer.unknown !== undefined) {
-    return { id: c.id, category: c.category, state: 'unknown', why: answer?.unknown ?? 'no answer' };
+    return { id: c.id, category: c.category, state: 'unknown', why: answer?.unknown ?? 'no answer', ...(c.gap ? { gap: c.gap } : {}) };
   }
   const ids = answer.ids;
   const rank = ids.findIndex((id) => c.expected.includes(id));
@@ -203,6 +231,7 @@ export function judge(c, answer) {
   return {
     id: c.id, category: c.category, state: pass ? 'pass' : 'fail',
     rank: found ? rank + 1 : null, leaked, top: ids,
+    ...(c.gap ? { gap: c.gap } : {}),
   };
 }
 
@@ -223,11 +252,14 @@ export function summarise(results) {
   const by = {};
   for (const cat of CATEGORIES) by[cat] = { n: 0, pass: 0, fail: 0, unknown: 0 };
   const total = { n: 0, pass: 0, fail: 0, unknown: 0 };
+  const gaps = { n: 0, pass: 0, fail: 0, unknown: 0 };
   for (const r of results) {
+    // A known gap counts in neither its category nor the total.
+    if (r.gap) { gaps.n += 1; gaps[r.state] += 1; continue; }
     const b = by[r.category] ?? (by[r.category] = { n: 0, pass: 0, fail: 0, unknown: 0 });
     for (const t of [b, total]) { t.n += 1; t[r.state] += 1; }
   }
-  return { byCategory: by, total };
+  return { byCategory: by, total, gaps };
 }
 
 /**
@@ -239,8 +271,14 @@ export function compareSides(base, head) {
   const flips = [];
   const cat = {};
   const bump = (c) => (cat[c] ?? (cat[c] = { improved: 0, regressed: 0, unknown: 0, n: 0 }));
+  const gapFlips = [];
   for (const b of base) {
     const h = headById.get(b.id);
+    // Known gaps stay out of the verdict; a flip is still reported.
+    if (b.gap || h?.gap) {
+      if (h && b.state !== h.state) gapFlips.push({ id: b.id, category: b.category, from: b.state, to: h.state });
+      continue;
+    }
     const slot = bump(b.category);
     slot.n += 1;
     if (!h || b.state === 'unknown' || h.state === 'unknown') { slot.unknown += 1; continue; }
@@ -259,7 +297,7 @@ export function compareSides(base, head) {
   const all = Object.values(cat).reduce((a, s) => ({
     n: a.n + s.n, improved: a.improved + s.improved, regressed: a.regressed + s.regressed, unknown: a.unknown + s.unknown,
   }), { n: 0, improved: 0, regressed: 0, unknown: 0 });
-  return { byCategory, overall: verdict(all), flips };
+  return { byCategory, overall: verdict(all), flips, gapFlips };
 }
 
 // --- Report ------------------------------------------------------------
@@ -270,7 +308,12 @@ function tableFor(title, results) {
   for (const [c, b] of [...Object.entries(s.byCategory), ['TOTAL', s.total]]) {
     rows.push(`${c.padEnd(16)} ${String(b.pass).padStart(5)} ${String(b.fail).padStart(5)} ${String(b.unknown).padStart(8)} ${String(b.n).padStart(5)}`);
   }
-  const bad = results.filter((r) => r.state !== 'pass');
+  const g = results.filter((r) => r.gap);
+  if (g.length) {
+    rows.push(`${'known gaps'.padEnd(16)} ${String(s.gaps.pass).padStart(5)} ${String(s.gaps.fail).padStart(5)} ${String(s.gaps.unknown).padStart(8)} ${String(s.gaps.n).padStart(5)}   (not counted above)`);
+    for (const r of g) rows.push(`  ${r.id} (${r.category}) ${r.state}: ${r.gap}`);
+  }
+  const bad = results.filter((r) => r.state !== 'pass' && !r.gap);
   if (bad.length) {
     rows.push('not passing:');
     for (const r of bad) {
@@ -357,6 +400,7 @@ async function main() {
         for (const [c, v] of Object.entries(cmp.byCategory)) console.log(`${c.padEnd(16)} ${v}`);
         console.log(`${'OVERALL'.padEnd(16)} ${cmp.overall}`);
         for (const f of cmp.flips) console.log(`  ${f.id} (${f.category}): ${f.from} -> ${f.to}`);
+        for (const f of cmp.gapFlips) console.log(`  ${f.id} (known gap, ${f.category}): ${f.from} -> ${f.to}`);
       }
       if (o.keep && made.length) console.log(`\nworktrees kept: ${made.join(', ')}`);
     }
