@@ -182,7 +182,7 @@ export function mayChangeState(claim, target, field) {
   const ta = authorOf(target);
   const ct = tierOf(claim);
   const tt = tierOf(target);
-  if (ca !== null && ta !== null && ca === ta) {
+  if (ca !== null && ca === ta) {
     return { ok: true, status: 'allowed', reason: `same author (${ca})` };
   }
   const debtor = debtorOf(target);

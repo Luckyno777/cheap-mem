@@ -91,10 +91,18 @@ export const MUTANTS=[
    // lives in) sits at top-level indent now, not nested one level
    // deeper — the anchor's leading four spaces became two. Same line,
    // same guarantee, verified still caught by the tests below.
+   // Re-anchored 2026-09-30 (Y4): `applyRetirement` now loops over the
+   // three state fields; the same mutant skips the replaces_id pass.
    file:'src/memory.mjs',
-   from:'  if (e.replaces_id) {',
-   to:'  if (false && e.replaces_id) {  // MUTANT',
+   from:'    if (!targetId) continue;',
+   to:"    if (!targetId || field === 'replaces_id') continue;  // MUTANT",
    tests:['test/authority.test.mjs','test/properties.test.mjs'] },
+
+ { name:'authority: retires_id/closes_id from a lower tier are allowed again (Y4)',
+   file:'src/authority.mjs',
+   from:'  if (!outranks(tt, ct)) {',
+   to:'  if (true) {  // MUTANT: the target is never protected',
+   tests:['test/y4-state-authority.test.mjs'] },
 
  { name:'epoch: never report a rollback',
    file:'src/epoch.mjs',

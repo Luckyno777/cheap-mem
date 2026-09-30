@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as state from '../src/state.mjs';
 import * as maintenance from '../src/maintenance.mjs';
@@ -177,7 +177,7 @@ test('the write path answers early: verdict returned, warning emitted, line stil
 
 // --- Rot-Nachweis: the fixed pre-fix commit (Regel 12) ------------------
 const OLD = 'd0a305aaa819338c96727b55bb3a08883ab8b45b';
-const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let oldTree = null;
 try {
   execFileSync('git', ['-C', REPO, 'cat-file', '-e', `${OLD}^{commit}`], { stdio: 'ignore' });
