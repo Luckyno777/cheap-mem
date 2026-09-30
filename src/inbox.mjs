@@ -695,7 +695,12 @@ export class StateConflictError extends Error {
   }
 }
 
-/** All state lines. Broken ones are counted and named, never skipped silently. */
+/**
+ * All state lines. Broken ones are counted and named, never skipped silently.
+ * Keyed `log` (the event log they came from), not `file`: this is not a
+ * memory-drawer walk — that question has one owner (shared/calculations.jsonl,
+ * log-drawer-walk -> integrity.scanIntegrity).
+ */
 export function readStateLines(root) {
   const p = statesPath(root);
   if (!fs.existsSync(p)) return { lines: [], broken: [] };
@@ -711,7 +716,7 @@ export function readStateLines(root) {
         && Number.isFinite(Date.parse(z.time));
       if (!ok) throw new Error('fields missing or unreadable');
       lines.push(z);
-    } catch (e) { broken.push({ file: STATES_FILE, line: i + 1, reason: e.message }); }
+    } catch (e) { broken.push({ log: STATES_FILE, line: i + 1, reason: e.message }); }
   });
   return { lines, broken };
 }
@@ -756,13 +761,13 @@ function projectionData(root) {
   const claimBy = new Map();
   try {
     const c = claim.readLines(root);
-    for (const b of c.broken) broken.push({ file: claim.FILE, line: b.line, reason: b.reason });
+    for (const b of c.broken) broken.push({ log: claim.FILE, line: b.line, reason: b.reason });
     for (const z of c.lines) {
       if (!claimBy.has(z.message)) claimBy.set(z.message, []);
       claimBy.get(z.message).push(z);
     }
   } catch (e) {
-    broken.push({ file: claim.FILE, line: null, reason: `unreadable: ${e.message}` });
+    broken.push({ log: claim.FILE, line: null, reason: `unreadable: ${e.message}` });
   }
   return { stateBy, claimBy, broken };
 }

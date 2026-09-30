@@ -45,7 +45,7 @@ function duplicateLines(duplicates) {
 function brokenLines(broken, eventsBroken) {
   for (const b of broken ?? []) warn(`unreadable message in the inbox: ${b.name} (${b.reason})`);
   for (const b of eventsBroken ?? []) {
-    warn(`unreadable line in ${b.file}${b.line ? `:${b.line}` : ''} (${b.reason}) — `
+    warn(`unreadable line in ${b.log}${b.line ? `:${b.line}` : ''} (${b.reason}) — `
       + 'a state change or a claim may be missing from every count');
   }
 }

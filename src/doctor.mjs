@@ -754,7 +754,7 @@ export function checkDelivery(root) {
     // counts nowhere (a closed message may show as open again). The claims
     // file is reported by `claim-orphaned`, not here.
     broken = broken.concat((drawer.eventsBroken ?? [])
-      .filter((b) => b.file === inbox.STATES_FILE)
+      .filter((b) => b.log === inbox.STATES_FILE)
       .map((b) => ({ name: `${inbox.STATES_FILE}:${b.line}`, reason: b.reason })));
   } catch (e) {
     // Still reachable: the DIRECTORY itself can be unreadable

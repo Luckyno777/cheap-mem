@@ -198,7 +198,7 @@ test('A9: an unreadable state line is counted, not skipped silently', (t) => {
   fs.writeFileSync(inbox.statesPath(root), '{broken\n');
   const r = inbox.newFor(root, PARTS, { to: 'librarian', now: T0 });
   assert.equal(r.eventsBroken.length, 1);
-  assert.equal(r.eventsBroken[0].file, 'states.jsonl');
+  assert.equal(r.eventsBroken[0].log, 'states.jsonl');
   assert.equal(doctor.checkDelivery(root).level, 'error', 'the doctor says it too');
 });
 
