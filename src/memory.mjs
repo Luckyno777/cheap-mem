@@ -27,6 +27,7 @@ import { appendLine } from './append.mjs';
 import { withLock } from './filelock.mjs';
 import * as capabilityMod from './capability.mjs';
 import * as probescaffold from './probescaffold.mjs';
+import * as redaction from './redaction.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1065,6 +1066,71 @@ export function hasContent(e) {
   if (!e || typeof e !== 'object') return false;
   return Object.entries(e).some(([k, v]) => !MACHINE_FIELDS.has(k)
     && typeof v === 'string' && v.trim().length >= CONTENT_MIN_CHARS);
+}
+
+/**
+ * **O1 (BAUPLAN-mem-admin_02.md Block O, ported from lucky-mem's
+ * `logGeprueft`): the ONE write path for an entry from outside.** `mem
+ * log` (src/cli/commands/write.mjs) and `mem_log` (bin/mem-mcp) both
+ * call this, and whatever does NOT happen here happens on neither path.
+ *
+ * Until 2026-09-30 the content check stood only in the CLI handler (over
+ * the bridge `{tags: [...]}` went through as an entry), and neither path
+ * redacted before the disk — both leaned on the commit scan. Agents and
+ * the digest write through both paths at machine speed; a scan at commit
+ * time is too late for a file that other processes read in between.
+ *
+ * Order, each step fail-closed, none writes half:
+ *   1. content (`hasContent`) — on the INPUT, not after redaction: an
+ *      entry that consisted of a secret is still an entry (the marker
+ *      says something stood there).
+ *   2. the redaction self test — if it fails, NOTHING is written. A
+ *      silent failure would be worse than a refusal.
+ *   3. `redaction.redactEntry` over the content fields, exactly once.
+ *      Machine fields are stamps, not input: the env layer would
+ *      otherwise black out the agent's own name whenever it equals an
+ *      env value (found in lucky-mem, where `agent` came out as
+ *      `[REDACTED:env:...]`).
+ *   4. `logEntry` — authority clamp, id check and size cap stay there,
+ *      for EVERY caller.
+ *
+ * Returns `{path, entry, findings}`; what got redacted, the caller must
+ * SAY (a silent redaction is worse than none). `logEntry` itself stays
+ * unchecked: internal writers (links, journals) write machine fields
+ * and hashes that need neither text nor redaction.
+ */
+export const NO_CONTENT_MESSAGE = 'this entry would have no content. At least one '
+  + 'non-empty text field is required, e.g. title or text. An entry with no text '
+  + 'is never findable again. Nothing was written.';
+
+export function logCheckedEntry(root, type, data, options = {}) {
+  if (!hasContent(data)) {
+    const e = new Error(NO_CONTENT_MESSAGE);
+    e.code = 'NO_CONTENT';
+    throw e;
+  }
+  const test = redaction.selfTest();
+  if (!test.ok) {
+    const e = new Error(
+      `Redaction failed its self test (${(test.failed ?? []).map((x) => x.type).join(', ')}) `
+      + '— nothing is written.');
+    e.code = 'REDACTION_DOWN';
+    throw e;
+  }
+  const stamps = {};
+  const content = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (MACHINE_FIELDS.has(k)) stamps[k] = v;
+    else content[k] = v;
+  }
+  const { object, found } = redaction.redactEntry(content);
+  const { path: p, entry } = logEntry(root, type, { ...object, ...stamps }, options);
+  return { path: p, entry, findings: found };
+}
+
+/** A redaction's findings as one line, the same for the CLI and the bridge. */
+export function findingsLine(findings) {
+  return `redacted: ${findings.map((f) => `${f.type}x${f.count}`).join(', ')}`;
 }
 
 export function readLog(root, type, { project = null } = {}) {

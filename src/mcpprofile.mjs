@@ -68,6 +68,9 @@ export const READING = Object.freeze([
 export const WRITING = Object.freeze([
   'mem_answer', 'mem_log', 'mem_duty_close', 'mem_inbox_new',
   'mem_inbox_write', 'mem_inbox_ack', 'mem_project_init', 'mem_store_put',
+  // O1 (2026-09-30): claim lines in the inbox's claim file — state other
+  // agents read.
+  'mem_inbox_claim', 'mem_inbox_renew', 'mem_inbox_done',
   // These three sat in READING until 2026-09-20, and the probe in
   // test/mcpprofile.test.mjs was green the whole time, because it only
   // looked at the case body in bin/mem-mcp and each of them writes one

@@ -98,6 +98,8 @@ export const COMMANDS = {
       }
       const { path: p } = res;
       out(`Written: ${path.relative(root, p)}`);
+      // O1: the redaction runs in inbox.write(); it is SAID here, as on the bridge.
+      if (res.findings?.length) warn(memory.findingsLine(res.findings));
       out('');
       out(`Delivered only after:  git add . && git commit -m "inbox: ${args.subject}" && git push`);
       return;

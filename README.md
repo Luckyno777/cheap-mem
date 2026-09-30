@@ -383,8 +383,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **72 CLI commands, 30 MCP tools, 120 modules, 2817
-tests**; as of 2026-09-20, about 49025 lines in `bin/` and `src/`, at
+As of 2026-09-26: **72 CLI commands, 33 MCP tools, 120 modules, 2825
+tests**; as of 2026-09-20, about 49225 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -553,6 +553,9 @@ mem inbox write --to N --subject ...   send a message
 mem inbox show <name>          read one message
 mem inbox ack <name> [state]   set state (replied|processed|closed)
 mem inbox watch --as N         poll remote (exit 0/1/3 for shells)
+mem inbox claim <name> [--minutes M]            claim a message, with expiry
+mem inbox renew|done <name> --claim-id ID       renew / finish YOUR claim
+                               (bridge: mem_inbox_claim / _renew / _done)
 
 mem embed setup|backfill|status    optional: semantic escalation
 mem find-embed "<query>"           pure semantic search (needs embeddings)

@@ -83,6 +83,7 @@ import * as broadcast from '../src/broadcast.mjs';
 import * as errorcontext from '../src/errorcontext.mjs';
 import * as heartbeat from '../src/heartbeat.mjs';
 import * as question from '../src/question.mjs';
+import * as claim from '../src/claim.mjs';
 import * as component from '../src/component.mjs';
 import * as source from '../src/source.mjs';
 import * as board from '../src/board.mjs';
@@ -668,6 +669,52 @@ const TOOLS = [
     },
   },
   {
+    name: 'mem_inbox_claim',
+    description:
+      'CLAIM a message for work, with an expiry (default 30 min). Git is not a lock: the '
+      + 'claim tells the others you are on it. The reply names the claim_id — '
+      + 'mem_inbox_renew and mem_inbox_done need it. Same operation as `mem inbox claim`; '
+      + 'you always claim as the connected agent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The message file name (from mem_inbox_new)' },
+        minutes: { type: 'number', description: 'How long the claim holds (default 30)' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'mem_inbox_renew',
+    description:
+      'Renew YOUR claim on a message from now on. Counts only for the claimant and only '
+      + 'up to a ceiling. Same as `mem inbox renew`.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The message file name' },
+        claim_id: { type: 'string', description: 'The id from mem_inbox_claim (12 hex characters)' },
+        minutes: { type: 'number', description: 'New duration from now, in minutes (default 30)' },
+      },
+      required: ['name', 'claim_id'],
+    },
+  },
+  {
+    name: 'mem_inbox_done',
+    description:
+      'Report a claimed message as DONE. Counts only with YOUR claim_id; a late done counts '
+      + 'and is marked. Same as `mem inbox done`. The message state is still set with '
+      + 'mem_inbox_ack.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The message file name' },
+        claim_id: { type: 'string', description: 'The id from mem_inbox_claim (12 hex characters)' },
+      },
+      required: ['name', 'claim_id'],
+    },
+  },
+  {
     name: 'mem_project_init',
     description: 'Idempotently create projects/<name>/ with the standard skeleton.',
     inputSchema: {
@@ -764,6 +811,40 @@ const TOOLS = [
     },
   },
 ];
+
+// **O1: claim / renew / done — thin adapters.**
+//
+// The same functions as `mem inbox claim|renew|done` (src/claim.mjs);
+// the read rule there decides whether a line counts, unchanged. What
+// exists ONLY here: the claimant is the connected agent
+// (CHEAP_MEM_AGENT, else whoami), never a parameter — otherwise a
+// foreign agent could claim for somebody else or close their claim. A
+// line that does NOT count comes back as isError (the CLI exits 1).
+function claimContext(root, args) {
+  const msg = String(args.name ?? '');
+  if (!msg) throw new Error('No name — nothing to claim.');
+  const by = String(process.env.CHEAP_MEM_AGENT ?? '').trim() || inbox.whoAmI(root);
+  if (!by) throw new Error('No identity: set CHEAP_MEM_AGENT for this bridge, or mem whoami <name>.');
+  const minutes = args.minutes === undefined || args.minutes === null ? undefined : Number(args.minutes);
+  return { msg, by, minutes, claimId: String(args.claim_id ?? '') };
+}
+
+/** The reply for a claim line, worded as the CLI words it. */
+function claimReply(verb, { msg, by, claimId }, r) {
+  let line;
+  if (!r.valid) line = `${msg}: ${verb} written but does NOT count — ${r.reason}`;
+  else if (verb === 'claim') line = `${msg}: claimed by '${by}' (claim-id ${r.id} — done/renew need it)`;
+  else if (verb === 'renew') line = `${msg}: ${r.status} — ${r.holder.claimed_by} until ${r.holder.until} (renewed ${r.renewals}x)`;
+  else line = `${msg}: ${r.status}${r.late ? ' (LATE: written after the claim expired; counts, marked)' : ''}`;
+  return {
+    ...structuredResult({
+      name: msg, claim_id: verb === 'claim' ? r.id : claimId, valid: r.valid, status: r.status,
+      late: r.late ?? false, reason: r.reason ?? null,
+      until: (typeof r.holder === 'object' ? r.holder?.until : null) ?? null, renewals: r.renewals ?? 0,
+    }, [line]),
+    ...(r.valid ? {} : { isError: true }),
+  };
+}
 
 async function handleCall(name, args) {
   const root = resolveRoot();
@@ -968,11 +1049,21 @@ async function handleCall(name, args) {
         if (!sr.ok) throw new Error(`log ${snippet.TYPE}:\n  ${sr.errors.join('\n  ')}`);
         data = snippet.complete(data);
       }
-      const { path: p, entry } = memory.logEntry(root, type, data, { project });
+      // A question without text is not one — the same check `mem log
+      // question` runs (src/cli/commands/write.mjs). Before O1 only the
+      // CLI asked it.
+      if (type === question.TYPE) {
+        const qr = question.check(data);
+        if (!qr.ok) throw new Error(`log ${question.TYPE}:\n  ${qr.errors.join('\n  ')}`);
+      }
+      // O1: content check, redaction self test and redaction live in
+      // memory.logCheckedEntry — the same path `mem log` takes.
+      const { path: p, entry, findings } = memory.logCheckedEntry(root, type, data, { project });
       const lines = [
         `Appended: ${path.relative(root, p)}`,
         `  id: ${entry.id}   agent: ${entry.agent}`,
       ];
+      if (findings.length) lines.push(`  ${memory.findingsLine(findings)}`);
 
       // **F1/F4 belong HERE too, not only in bin/mem.** Same reasoning
       // as the broadcast right below: a foreign agent files errors over
@@ -1247,13 +1338,28 @@ async function handleCall(name, args) {
         return textResult(`Already sent (replay of request id '${args.request_id}'): ${res.name}\nNothing written.`);
       }
       const p = res.path;
+      // O1: inbox.write() redacted subject and text; say what.
       return textResult(
-        `Written: ${path.relative(root, p)}\n\n` +
+        `Written: ${path.relative(root, p)}\n` +
+        (res.findings?.length ? `  ${memory.findingsLine(res.findings)}\n` : '') + '\n' +
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'inbox: ${args.subject}' && git -C ${root} push`);
     }
     case 'mem_inbox_ack': {
       const m = inbox.setState(root, cfg.participants, args.name, args.state);
       return textResult(`${args.name}: state -> ${m.state}`);
+    }
+    // O1: thin adapters, see claimContext()/claimReply() above.
+    case 'mem_inbox_claim': {
+      const c = claimContext(root, args);
+      return claimReply('claim', c, claim.claim(root, c.msg, { by: c.by, minutes: c.minutes }));
+    }
+    case 'mem_inbox_renew': {
+      const c = claimContext(root, args);
+      return claimReply('renew', c, claim.renew(root, c.msg, { by: c.by, claimId: c.claimId, minutes: c.minutes }));
+    }
+    case 'mem_inbox_done': {
+      const c = claimContext(root, args);
+      return claimReply('done', c, claim.done(root, c.msg, { by: c.by, claimId: c.claimId }));
     }
     case 'mem_project_init': {
       const { dir, created, existed } = memory.projectInit(root, args.name, { title: args.title ?? null });

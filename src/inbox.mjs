@@ -24,6 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as agents from './agents.mjs';
 import { bodyHash } from './retrieval.mjs';
+import * as redaction from './redaction.mjs';
 
 /** Where messages live under the memory root. */
 export const INBOX_DIR = path.join('inbox');
@@ -334,8 +335,32 @@ export class RequestConflictError extends Error {
  * and lists the rest as `duplicates` — see there.
  */
 export function write(root, participants, {
-  from, to, subject, text, now = new Date(), requestId = null,
+  from, to, subject: rawSubject, text: rawText, now = new Date(), requestId = null,
 }) {
+  // **O1: redaction HERE, not in the caller.** Neither `mem inbox write`
+  // nor `mem_inbox_write` redacted a message before the disk; both
+  // leaned on the commit scan. One place for every write path — a
+  // guarantee each caller has to keep itself is only as strong as the
+  // sloppiest one. Self test fails -> nothing is written. Subject AND
+  // text, both land in the inbox. Before the request-id check, so a
+  // replay is compared against the already-redacted earlier message.
+  const test = redaction.selfTest();
+  if (!test.ok) throw new Error('Redaction failed its self test — nothing is written.');
+  const counts = new Map();
+  const clean = (v) => {
+    if (typeof v !== 'string' || !v) return v;
+    const r = redaction.redact(v);
+    for (const f of r.found) counts.set(f.type, (counts.get(f.type) ?? 0) + f.count);
+    return r.text;
+  };
+  const subject = clean(rawSubject);
+  const text = clean(rawText);
+  const findings = [...counts].map(([type, count]) => ({ type, count }));
+  const res = writeUnredacted(root, participants, { from, to, subject, text, now, requestId });
+  return { ...res, findings };
+}
+
+function writeUnredacted(root, participants, { from, to, subject, text, now, requestId }) {
   if (requestId === null || requestId === undefined) {
     return writeMessage(root, participants, { from, to, subject, text, now, requestId: null });
   }
