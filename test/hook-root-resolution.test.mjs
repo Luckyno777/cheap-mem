@@ -59,7 +59,11 @@ test('an unset CHEAP_MEM_ROOT is reported too', () => {
 
 test('a memory in a conventional place is found without CHEAP_MEM_ROOT', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'hookhome-'));
-  memoryAt(path.join(home, 'my-memory'));
+  const dir = memoryAt(path.join(home, 'my-memory'));
+  // "attached" needs the tool too (Z1c): a bare memory directory is
+  // reported as NOT attached, see test/z1c-recall.test.mjs.
+  fs.mkdirSync(path.join(dir, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'bin', 'mem'), '#!/usr/bin/env node\n');
   const r = spawnSync('sh', [HOOK], {
     env: { PATH: process.env.PATH, HOME: home }, encoding: 'utf8',
   });

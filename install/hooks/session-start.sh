@@ -68,7 +68,21 @@ fi
 CHEAP_MEM_ROOT="$mem_root"
 export CHEAP_MEM_ROOT
 
-echo "=== cheap-mem attached ==="
+# **"attached" only when the tool is reachable (Z1c, external brief
+# 2026-09-30).** The header used to be printed as soon as a memory
+# directory was found. With a memory that has no `bin/mem` (a checkout
+# apart from the tool, a partial clone) every `mem` call below is skipped
+# and the session got NO context, no alarm and no today line - under a
+# header that said it was attached. "Found the directory" and "can read
+# it" are two facts; the header states the one that is true, and says
+# what is unknown.
+if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
+  echo "=== cheap-mem attached ==="
+else
+  echo "=== cheap-mem NOT attached: memory found at $CHEAP_MEM_ROOT, but $CHEAP_MEM_ROOT/bin/mem is missing ==="
+  echo "Recent context, alarm state and today line: UNKNOWN (not loaded, not 'nothing')."
+  echo "Fix: check out the tool into that memory, or point CHEAP_MEM_ROOT at one that has bin/mem."
+fi
 echo ""
 
 # Best-effort: bring the memory up to date, and force main so a

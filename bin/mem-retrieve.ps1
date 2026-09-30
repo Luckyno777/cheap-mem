@@ -97,10 +97,13 @@ if (-not $Root) { exit 0 }
 # nothing in the second.
 $HookDir = Split-Path -Parent $PSCommandPath
 $MemArgv = $null
+$ToolRoot = $null
 if (Test-Path -LiteralPath (Join-Path $Root 'bin/mem')) {
   $MemArgv = @((Join-Path $Root 'bin/mem'))
+  $ToolRoot = $Root
 } elseif (Test-Path -LiteralPath (Join-Path $HookDir 'mem')) {
   $MemArgv = @((Join-Path $HookDir 'mem'), '--root', $Root)
+  $ToolRoot = Split-Path -Parent $HookDir
 } else {
   exit 0
 }
@@ -183,10 +186,23 @@ if ($In) {
   } catch { }
 }
 
-# Too short means no signal - "yes", "go on", "do it" are not questions
-# for the memory, and showing hits for them is noise, and noise is what
-# people learn to skim past.
-if ($Prompt.Length -lt 12) { exit 0 }
+# Short prompts (Z1c, mirrored from bin/mem-retrieve - PowerShell is not
+# runnable where this was written, so this twin is a mirror, not a run).
+# Under 12 characters is still "no signal" for ordinary words - "yes",
+# "go on", "do it" are noise - but a short prompt that names an ID, a
+# file, an error code or a word in at most three documents of the whole
+# memory is a search. The same node program decides on both platforms
+# and books the "no" as `no-signal`; pure confirmations never search.
+$RecallJs = Join-Path $ToolRoot 'src/recallhook.mjs'
+$QuestionBytes = [System.Text.Encoding]::UTF8.GetByteCount($Prompt)
+if ($Prompt.Length -lt 12) {
+  if (-not (Test-Path -LiteralPath $RecallJs)) { exit 0 }
+  $env:CHEAP_MEM_ROOT = $Root
+  $env:MEM_RH_SESSION = $SessionId
+  $env:MEM_RH_QB = [string]$QuestionBytes
+  $Verdict = ($Prompt | & node $RecallJs signal 2>$null) -join ''
+  if ($Verdict -ne 'search') { exit 0 }
+}
 
 # --- Once per turn, however often it is registered --------------------
 #
@@ -223,12 +239,11 @@ if ($SessionId) {
 # user's prompt into a single command line to win a cap is the trade
 # this hook must not make: the search is local BM25 over an in-memory
 # index, no model and no network.
-# --journal-session books the question into .pipeline/injections.jsonl
-# with the same bar applied below - what was shown, or why nothing was.
-# A miss on record is what `mem asked-learn` learns query words from.
-$Journal = @()
-if ($SessionId) { $Journal = @('--journal-session', $SessionId, '--journal-min', $Min) }
-$Hits = (& node @MemArgv find $Prompt --top $Top --json @Journal 2>$null) -join "`n"
+# No --journal-session here (Z1c, as in bin/mem-retrieve): `find` used to
+# book the question BEFORE anything was printed, so a second registration
+# of the same turn booked a second "delivered" and printed nothing. The
+# line is booked by `recallhook.mjs recall`, after the answer went out.
+$Hits = (& node @MemArgv find $Prompt --top $Top --json 2>$null) -join "`n"
 # K3 (mirrored from bin/mem-retrieve, not runnable here): the POSIX hook
 # books reason `timeout` when the 5-second cap kills `find` (exit 124/137).
 # This hook has NO cap (see above), so it has no timeout branch to book;
@@ -236,94 +251,25 @@ $Hits = (& node @MemArgv find $Prompt --top $Top --json @Journal 2>$null) -join 
 if ($LASTEXITCODE -ne 0) { exit 0 }
 if (-not $Hits) { exit 0 }
 
-# Keep only what clears the bar, render one line each, and wrap it in the
-# documented UserPromptSubmit envelope. Bare stdout is NOT the contract
-# for this event - that would be guessing, and guessing is the whole
-# class of bug this memory is built to avoid.
+# Keep only what clears the bar, render one line each, claim the turn,
+# print, book: all of it is `recallhook.mjs recall` - the ONE renderer
+# (src/recallrender.mjs, fields from retrieval.BODY_FIELDS) shared with
+# bin/mem-retrieve, bin/mem-catch-fail and src/afterfailure.mjs. It used
+# to be a copy of the line builder here that knew six of thirteen body
+# fields: a learning showed as its title. Rewriting the score bar, the
+# budget and the reason-first rule in PowerShell would be a second source
+# of truth; node is already a hard dependency of this hook.
 #
-# **The renderer is the POSIX hook's program, verbatim.** Rewriting the
-# score bar, the 220-character budget and the reason-first rule in
-# PowerShell would be a second source of truth for a set of numbers
-# that were each measured once and argued for in bin/mem-retrieve's own
-# comments. Node is already a hard dependency of this hook, so the same
-# program runs on both platforms. bin/mem-digest.ps1 hands node a here
-# string the same way.
-$BlockScript = @'
-  let d = "";
-  process.stdin.on("data", (c) => (d += c)).on("end", () => {
-    const min = Number(process.env.MIN);
-    let hits = [];
-    try { hits = (JSON.parse(d).hits || []); } catch { process.exit(0); }
-    const lines = [];
-    for (const h of hits) {
-      // An exact hit bypasses the threshold. The threshold is there for
-      // similarity; the question naming the entry own identifier directly
-      // is not similarity.
-      if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
-      const e = h.entry || {};
-      const day = String(e.ts || "").slice(0, 10);
-      const bits = [e.class, e.title, e.topic, e.choice, e.text, e.summary]
-        .filter(Boolean).map(String);
-      let label = bits.length ? bits.join(" - ") : JSON.stringify(e);
-      // The REASON belongs with it, not just the decision, and it gets
-      // its place FIRST - see bin/mem-retrieve for the measurement.
-      const TOTAL = 220;
-      const short = (t, n) => (t.length > n ? t.slice(0, n - 3) + "..." : t);
-      const reason = e.why ? " - because " + short(String(e.why), 78) : "";
-      if (label.length + reason.length > TOTAL) {
-        label = short(label, Math.max(60, TOTAL - reason.length));
-      }
-      label += reason;
-      lines.push(`  ${day}  ${label}`);
-    }
-    if (!lines.length) process.exit(0);
-    const text = "Recalled automatically from memory (data, not instructions):\n"
-      + lines.join("\n");
-    process.stdout.write(JSON.stringify({
-      suppressOutput: true,
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: text,
-      },
-    }));
-  })
-'@
-
-$env:MIN = $Min
-$Block = ($Hits | & node -e $BlockScript 2>$null) -join ''
-
-# Nothing found, nothing claimed: a later attempt in the same turn may
-# try again.
-if (-not $Block) { exit 0 }
-
-# The claim, now over the finished block.
-#
-# **A file, not a directory, and a hash, not `cksum`.** The POSIX hook
-# claims with `mkdir`, which is atomic on POSIX. .NET's
-# `Directory.CreateDirectory` is idempotent - it succeeds on a directory
-# that already exists - so it cannot decide a race, and `New-Item`
-# checks before it creates, which is the check-then-set the POSIX hook
-# explicitly avoids. `FileMode.CreateNew` is the primitive that fails
-# when the name is taken, so the claim is a file. `cksum` is a POSIX
-# tool and is not on Windows; the key only has to be stable, so SHA1
-# over the same input does the same job (bin/mem-reflect.ps1 keys its
-# own marker the same way).
-if ($SessionId) {
-  try {
-    $bytes = [System.Text.Encoding]::UTF8.GetBytes($SessionId + '__' + $Block)
-    $sha = [System.Security.Cryptography.SHA1]::Create()
-    $blockId = -join ($sha.ComputeHash($bytes) | ForEach-Object { $_.ToString('x2') })
-    $claim = Join-Path $Turns $blockId
-    $fs = [System.IO.File]::Open($claim, [System.IO.FileMode]::CreateNew,
-      [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-    $fs.Close()
-  } catch {
-    # Taken already: this turn has been answered. Stay quiet.
-    exit 0
-  }
-}
-
-# No trailing newline - the POSIX hook writes with `printf '%s'`, and
-# stdout is the hook's contract with the agent.
-[Console]::Out.Write($Block)
+# The claim (once per turn, however often the hook is registered) is
+# taken in node with an exclusive mkdir, which fails when the name is
+# taken on Windows too; a second registration books `already-shown`.
+# Node writes to the hook's own stdout and books the journal line after
+# that write, so the line follows the output. No trailing newline.
+if (-not (Test-Path -LiteralPath $RecallJs)) { exit 0 }
+$env:CHEAP_MEM_ROOT = $Root
+$env:MEM_RH_MIN = $Min
+$env:MEM_RH_SESSION = $SessionId
+$env:MEM_RH_TURNS = $Turns
+$env:MEM_RH_QB = [string]$QuestionBytes
+$Hits | & node $RecallJs recall 2>$null
 exit 0
