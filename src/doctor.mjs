@@ -1208,7 +1208,8 @@ function checkDigest(root) {
 /**
  * Do the curated synonyms engage for THIS memory?
  *
- * `THESAURUS` in thesaurus.mjs is English — 39 groups, 188 words.
+ * `THESAURUS` in thesaurus.mjs was English only when this check was
+ * written (39 groups, 188 words; German groups were added later).
  * Measured on 2026-09-06: a German-language memory gets zero synonyms
  * from it (0 hits from 198 query terms over 21 questions; English gets
  * 53 of 44). Retrieval still runs, only one of its three expansion

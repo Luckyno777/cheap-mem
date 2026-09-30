@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 // bench/atlas/phase-surface.mjs — every command, actually executed.
 //
-// **Why this phase exists.** cheap-mem has sixty top-level commands and,
+// **Why this phase exists.** cheap-mem has a long list of top-level commands and,
 // before this file, not one benchmark started the CLI as a PROCESS.
 // `bench/scale.mjs:58` and `bench/retrieval.mjs:77` import `buildIndex`
 // and `search` directly, which makes everything between process start and
@@ -1185,8 +1185,8 @@ function helpForEveryCommand(atlas) {
     // Three outcomes, not two. A command that refuses `--help` outright is
     // broken; one that exits 0 and prints its ordinary output instead of
     // help still ran, and still did not answer the question that was
-    // asked. Collapsing those two into one verdict would hide which of
-    // the sixty is actually unreachable behind `--help`.
+    // asked. Collapsing those two into one verdict would hide which
+    // command is actually unreachable behind `--help`.
     atlas.record({
       id: `surface.help.${name}`,
       title: `mem ${name} --help`,
@@ -1238,7 +1238,7 @@ function helpForEveryCommand(atlas) {
 
 export async function run(atlas, { quick = false } = {}) {
   atlas.phase('surface', 'Every command, actually executed',
-    'Sixty commands driven as real processes, their documented exit codes put '
+    'Every command driven as a real process, its documented exit codes put '
     + 'into the situations that are supposed to produce them, and the index '
     + 'cache measured in three defined states instead of whichever one the '
     + 'previous run left behind. Nothing here is imported: `bin/mem` is '

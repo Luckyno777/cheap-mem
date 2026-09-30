@@ -86,6 +86,16 @@ import * as clihelp from '../src/clihelp.mjs';
 
 export const DEFAULT_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/** Files below `dir` (recursive) that pass `filter`. */
+function countFiles(dir, filter) {
+  let n = 0;
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.isDirectory()) n += countFiles(path.join(dir, e.name), filter);
+    else if (e.isFile() && filter(e.name)) n += 1;
+  }
+  return n;
+}
+
 function lineCount(root, dir, filter = () => true) {
   let n = 0;
   for (const name of fs.readdirSync(path.join(root, dir))) {
@@ -108,7 +118,18 @@ export function buildCounters(root = DEFAULT_ROOT) {
     cli: () => clihelp.allTableCommands(read).length,
     mcp: () => new Set([...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)]
       .map((m) => m[1])).size,
-    modules: () => fs.readdirSync(path.join(root, 'src')).filter((n) => n.endsWith('.mjs')).length,
+    // Recursive (F4, 2026-09-30): `src/cli/commands/`, `src/embed/` and
+    // the other subdirectories hold modules too; a flat `readdir` said
+    // 122 while 136 existed. The guards count the same way.
+    modules: () => countFiles(path.join(root, 'src'), (n) => n.endsWith('.mjs')),
+    // The entry types — `memory.TYPES`, one drawer each. "ten", "nine",
+    // "13" in the prose all went stale while the map grew to 15.
+    types: async () => Object.keys((await import(pathToFileURL(path.join(root, 'src', 'memory.mjs')).href)).TYPES).length,
+    // The hook scripts `install/claude-code.sh` installs: one file per
+    // hook in `install/hooks/`.
+    hooks: () => fs.readdirSync(path.join(root, 'install', 'hooks')).filter((n) => n.endsWith('.sh')).length,
+    // The phases `bench/atlas.mjs` runs: one `[id, './atlas/phase-…']` row each.
+    atlasPhases: () => [...read('bench/atlas.mjs').matchAll(/^\s*\['[a-z]+', '\.\/atlas\/phase-[a-z]+\.mjs'/gm)].length,
     // Cannot be had exactly without running the suite, and a test that
     // starts the suite contains itself — so this counts `test(` call
     // sites, close enough (0.3 % apart, measured 2026-09-19 in
@@ -156,10 +177,27 @@ export const CLAIMS = [
     pattern: /\d+ benchmarks, an eval harness with a frozen reference run, ([\d,]+) tests\b/,
     fields: ['tests'],
   },
+  // F4 (2026-09-30): the counts the 2026-09-30 audit found stale in a
+  // dozen places ("ten types", "five hooks", "seven phases", "sixty
+  // handlers"). One list of places; each states its number as DIGITS so
+  // the writer can pull it forward. A prose mention that names no
+  // number needs no entry here.
+  { file: 'README.md', pattern: /every command executed as a process, (\d+) phases/, fields: ['atlasPhases'] },
+  { file: 'docs/scale.md', pattern: /every command executed as a process, (\d+) phases/, fields: ['atlasPhases'] },
+  { file: 'README.md', pattern: /append an entry \((\d+) types\)/, fields: ['types'] },
+  { file: 'README.md', pattern: /It drops (\d+) hooks into/, fields: ['hooks'] },
+  { file: 'docs/CAPABILITIES.md', pattern: /`link` is one of the (\d+) entry\s+types/, fields: ['types'] },
+  { file: 'docs/CAPABILITIES.md', pattern: /\*\*Automation\*\* \| (\d+) Claude Code hooks/, fields: ['hooks'] },
+  { file: 'docs/CAPABILITIES.md', pattern: /(\d+) Claude Code hooks, installed by/, fields: ['hooks'] },
+  { file: 'docs/CAPABILITIES.md', pattern: /\| (\d+) entry types, typed links/, fields: ['types'] },
+  { file: 'docs/architecture.md', pattern: /### The (\d+) drawers/, fields: ['types'] },
+  { file: 'docs/dashboard-single-entry.md', pattern: /Never all (\d+) types/, fields: ['types'] },
+  { file: 'docs/mcp-setup.md', pattern: /drops (\d+) hooks under/, fields: ['hooks'] },
+  { file: 'CLAUDE.md', pattern: /the (\d+) handlers, in six groups/, fields: ['cli'] },
 ];
 
 /** The exact, low-noise selection: safe to write on every run. */
-export const EXACT = ['cli', 'mcp', 'modules', 'guarantees'];
+export const EXACT = ['cli', 'mcp', 'modules', 'guarantees', 'types', 'hooks', 'atlasPhases'];
 
 /** Everything, including the numbers that move on nearly every commit. */
 export const ALL = [...EXACT, 'tests', 'lines', 'linesCli'];

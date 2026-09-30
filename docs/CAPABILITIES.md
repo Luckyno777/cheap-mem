@@ -26,7 +26,7 @@ the verification commands at the end.
 | **Conflict & authority** | authority tiers decide who may overrule whom, conflict detection and reporting, disputed claims kept visible rather than deleted, author-share limits against flooding | [3.4](#34-conflict-and-authority) |
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
-| **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
+| **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 73 CLI commands, 35 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2905 tests | [8](#8-how-to-verify-any-claim-here) |
@@ -178,7 +178,7 @@ index), which is off unless configured.
 These five claims are the ones evaluators have gotten wrong. Each names
 where to check.
 
-1. **"No relationship system."** Wrong. `link` is one of the ten entry
+1. **"No relationship system."** Wrong. `link` is one of the 15 entry
    types, with a closed vocabulary of four edge kinds
    (`causes`, `generalizes`, `contradicts`, `resolves`).
    `src/memory.mjs` → `LINK_KINDS`, `linksOf()`; CLI `mem links <id>`;
@@ -509,14 +509,17 @@ return, so a flood cannot become a denial of service or a context bill.
 
 ## 6. Automation
 
-Four Claude Code hooks, installed by `install/claude-code.sh`:
+7 Claude Code hooks, installed by `install/claude-code.sh`:
 
 | Hook | When | What |
 |---|---|---|
 | `SessionStart` | session begins | prints `FACTS.md` + recent context |
 | `UserPromptSubmit` | every message | recalls matching memory (no model, ~ms) and feeds it to the turn; refreshes the clone in the background, detached |
 | `PreToolUse` (Edit/Write/NotebookEdit) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it — once per file per session |
-| `Stop` | after a turn | triggers the digest, byte-delta throttled |
+| `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
+| `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
+| `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |
+| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start` and a context recap — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
 
 **Why the PreToolUse hook exists**, measured 2026-09-08: recall used to
 hang only on `UserPromptSubmit`, so it fired when the person typed and

@@ -7,12 +7,12 @@ installation — it is the tool that creates memories.
 
 - `bin/mem`            — the CLI's entry point (Node, ESM, no dependencies):
                          argument pre-scan, the merge of the six command
-                         groups, dispatch. About 180 lines, and it stays
+                         groups, dispatch. About 200 lines, and it stays
                          that way — a handler that lands back in here
                          belongs in its group. It was 4503 before the
                          split on 2026-09-18, the largest file here.
 - the CLI's own modules, under `src/cli/`:
-  - `commands/`        — the sixty handlers, in six groups cut by the
+  - `commands/`        — the 73 handlers, in six groups cut by the
                          QUESTION a command answers: write, search,
                          capture, agents, setup, admin
   - `shell.mjs`        — what holds across commands: arguments, output,
@@ -55,7 +55,7 @@ installation — it is the tool that creates memories.
 
 ## When you add a new subcommand
 
-1. Add the handler in `bin/mem`.
+1. Add the handler in the matching group under `src/cli/commands/`.
 2. Add the tool to `bin/mem-mcp` (`TOOLS` array + `handleCall` switch).
 3. Add tests.
 4. Update README.md commands table and `docs/quickstart.md` if user-facing.

@@ -16,7 +16,7 @@ mem inbox new                            # any messages for me?
 mem inbox write --to <name> --subject ... < body.md
 ```
 
-Types: `decision`, `error`, `event`, `timeline`.
+Types: `decision`, `error`, `event`, `timeline`, `thought`, `learning`, `duty`, `question`, `skill`, `procedure`, `source`, `update`, `link`, `workflow`, `snippet` (`mem log --help` lists them).
 
 ## System-prompt block you can drop in
 

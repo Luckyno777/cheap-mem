@@ -383,7 +383,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **73 CLI commands, 35 MCP tools, 122 modules, 2905
+As of 2026-09-26: **73 CLI commands, 35 MCP tools, 136 modules, 2905
 tests**; as of 2026-09-20, about 50330 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
@@ -428,7 +428,7 @@ enforced fails the build rather than waiting for someone to audit it.
 | `bench/cache-attack.mjs` | an unsigned local file changed what the memory means |
 | `bench/query-independence.mjs` | two queries disagreed about whether the same claim is active |
 | `bench/merge-driver.mjs` | the `*.jsonl merge=union` contract stopped holding |
-| `npm run atlas` | the full-surface run: every command executed as a process, seven phases, four verdicts — including `not-measured`, which is not a pass |
+| `npm run atlas` | the full-surface run: every command executed as a process, 8 phases, four verdicts — including `not-measured`, which is not a pass |
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
 green baseline and will not credit a mutant it could not apply, and every
@@ -472,7 +472,7 @@ worse than no memory.
 
 ```
 mem init                       one-time setup
-mem log <type> --<field> ...   append an entry (ten types)
+mem log <type> --<field> ...   append an entry (15 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
                                `error`: shows up to 3 earlier errors for the
@@ -602,7 +602,7 @@ claude mcp add cheap-mem -- node ~/cheap-mem/bin/mem-mcp
 ```
 
 Either way it is idempotent — run it again after moving the memory and
-it re-points. It drops five hooks into `~/.claude/hooks/` and merges
+it re-points. It drops 7 hooks into `~/.claude/hooks/` and merges
 the needed permissions into `~/.claude/settings.json`:
 
 - **SessionStart** — prints `FACTS.md` + context at the top of a session.
@@ -625,10 +625,17 @@ the needed permissions into `~/.claude/settings.json`:
   below); also checks the session's last answer against any patterns
   you have tied to a logged error, before that answer reaches you — see
   [docs/answer-check.md](docs/answer-check.md). Off until you arm it.
-- **SubagentStart** — every subagent gets its own thread and neither of
-  the two hooks above (`src/gauges.mjs`), so this shows it any procedure
+- **PostToolUse** (Bash only) — a command that exits 0 while its own
+  output says it failed (`npm test | tail`, a suite printing `# fail 3`)
+  runs past the failure hook below; this one recalls matching memory
+  for it.
+- **PostToolUseFailure** (Bash, Edit, Write) — after a tool call that
+  really failed, recalls earlier errors and learnings of the same class
+  before the second attempt.
+- **SubagentStart** — a subagent is its own thread and gets neither
+  `SessionStart` nor `UserPromptSubmit`, so this shows it any procedure
   tagged `subagent-start` (a norm only a human can issue — see
-  `mem log procedure --help`) plus a context recap.
+  `mem log procedure --help`; `src/gauges.mjs`) plus a context recap.
 
 Some things are missing on purpose — usage counters, a `confidence`
 field, decay-as-deletion, a graph store, an LLM per fact. Each was

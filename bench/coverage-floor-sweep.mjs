@@ -8,7 +8,7 @@
  *
  * **Background.** COVERAGE_FLOOR=0.6 (decision `34oxttv96z3u`,
  * 2026-09-20) was calibrated against `bench/atlas/core.mjs`'s
- * `buildCorpus`, whose vocabulary is either a fixed 24-word pool or
+ * `buildCorpus`, whose vocabulary is either a fixed small pool or
  * unbounded per-entry identifiers — proven distorted by lucky-mem's
  * finding `1czzbds7x7qy` (the same class of defect: a synthetic
  * vocabulary that does not grow the way a real one does). This file

@@ -8,10 +8,10 @@
  * **Why this exists.** cheap-mem's COVERAGE_FLOOR (`src/search.mjs`,
  * decision `34oxttv96z3u`, 2026-09-20) was calibrated against
  * `bench/atlas/core.mjs`'s `buildCorpus`. That generator picks its
- * filler vocabulary from a FIXED 24-word pool (`COMMON`) plus rare
+ * filler vocabulary from a FIXED small pool (`COMMON`) plus rare
  * per-entry identifiers that are effectively unbounded in cardinality
  * (`zipfWord`, keyed on the running index) — so the corpus's vocabulary
- * either never grows past 24 common words or grows without any bound at
+ * either never grows past that pool or grows without any bound at
  * all. Neither is what a real, used memory looks like: a real
  * vocabulary grows, but SUBLINEARLY, in the shape Heaps' law describes
  * — `V(n) = K * n^beta`. lucky-mem found and fixed the equivalent defect

@@ -88,10 +88,11 @@ otherwise the digest fires in the middle of your working day.
 The tick itself is cheap: it asks `mem digest due` and is back out in
 milliseconds with no lock, no git, no model.
 
-### Nine drawers
+### The 15 drawers
 
 `decision` · `error` · `event` · `timeline` · `thought` · `learning` ·
-`duty` · `skill` · `update` — all append-only.
+`duty` · `question` · `skill` · `procedure` · `source` · `update` ·
+`link` · `workflow` · `snippet` — all append-only.
 
 **Duty is the only one with a lifecycle.** Closing one appends a line
 with `closes_id`; `mem duties` folds the log into a current view. It is

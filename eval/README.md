@@ -474,8 +474,9 @@ expectation. It belongs pre-registered and tested on new tasks.
 | German | 21 | 198 | **0** | **0/21** |
 | English | 15 | 44 | 53 | 11/15 |
 
-`THESAURUS` in `src/thesaurus.mjs`: 39 groups, 188 words, not a single
-German one. For a German memory, this layer contributes **nothing**.
+`THESAURUS` in `src/thesaurus.mjs` on that day: 39 groups, 188 words, not
+a single German one (German groups were added later). For a German
+memory, this layer contributed **nothing**.
 The English measurement is the positive control: the mechanism works,
 it just does not engage.
 

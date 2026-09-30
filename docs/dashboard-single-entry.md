@@ -25,7 +25,7 @@ same order, stopping the instant the id turns up. It then reads:
 3. the `link` drawer, once per project (every hand-drawn edge touching
    `id`, in either direction).
 
-Never all ~13 types across every project, and never the desk's own
+Never all 15 types across every project, and never the desk's own
 markup.
 
 ## The contract
