@@ -14,7 +14,6 @@
  */
 
 import path from 'node:path';
-import fs from 'node:fs';
 import * as memory from '../../memory.mjs';
 import * as agents from '../../agents.mjs';
 import * as inbox from '../../inbox.mjs';
@@ -176,9 +175,11 @@ export const COMMANDS = {
       const to = whoAmIOrDie(root, args, cfg);
       const name = rest[1];
       if (!name) die("Missing name (inbox show <name>)");
-      const p = path.join(inbox.inboxDir(root), name);
-      if (!fs.existsSync(p)) die(`'${name}' is not in the inbox`);
-      const content = fs.readFileSync(p, 'utf8');
+      // Audit 2026-09-30, B4: joining the name ourselves let `../../x`
+      // read any file. readMessage() is the one guarded way in.
+      try { inbox.checkMessageName(name); } catch (e) { die(e.message); }
+      let content;
+      try { content = inbox.readMessage(root, name); } catch { die(`'${name}' is not in the inbox`); }
       const m = inbox.parse(content);
       if (m.to !== to) out(`(Warning: this message is to '${m.to}', not '${to}')`);
       // Z3/A8: the header is only the start state. If the effective state
