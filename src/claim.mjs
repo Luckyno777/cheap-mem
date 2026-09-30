@@ -35,6 +35,10 @@
  *   - `done` counts only from the valid holder AND only with the `claim_id`
  *     of the valid claim; then the message is through and later claims
  *     are invalid.
+ *   - A `done` whose `time` lies after the holder's `until` still counts
+ *     (E3) but carries `late: true`; `fold`/`status`/`check` report `late`
+ *     and the CLI prints it. A late `done` after someone else took over
+ *     stays invalid, as before.
  *   - `failed` counts only from the valid holder with the valid
  *     `claim_id` and releases the message IMMEDIATELY (even before
  *     `until`).
@@ -196,7 +200,11 @@ export function fold(lines, { now = new Date() } = {}) {
       }
     } else if (z.kind === KIND.DONE) {
       const why = doesNotCount(z, holder, done);
-      if (!why) done = z;
+      if (!why) {
+        // K1: a done written AFTER the holder's `until` still counts (E3:
+        // refusing it forces duplicate work) but is marked, never silent.
+        done = { ...z, late: Date.parse(z.time) > Date.parse(holder.until) };
+      }
       else invalid.push({ ...z, reason: why });
     } else if (z.kind === KIND.FAILED) {
       const why = doesNotCount(z, holder, done);
@@ -213,6 +221,8 @@ export function fold(lines, { now = new Date() } = {}) {
   else if (holder) status = nowMs < Date.parse(holder.until) ? STATUS.CLAIMED : STATUS.EXPIRED;
   return {
     status, holder, done, invalid, failures, resumptions,
+    /** K1: the counting `done` came after the holder's `until`. */
+    late: done?.late === true,
     /** May another agent claim now? Free or expired — never when done. */
     claimable: status === STATUS.FREE || status === STATUS.EXPIRED,
   };
@@ -250,6 +260,7 @@ export function check(root, message, id, { now = new Date() } = {}) {
   return {
     valid,
     status: s.status,
+    late: s.late,
     holder: s.holder?.claimed_by ?? null,
     reason: valid ? null : (mine?.reason
       ?? (s.status === STATUS.EXPIRED && s.holder?.id === id ? 'expired' : `does not count (${s.status})`)),

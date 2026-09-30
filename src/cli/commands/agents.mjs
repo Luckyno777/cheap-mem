@@ -175,7 +175,7 @@ export const COMMANDS = {
       if (!name) die(`Missing name (inbox ${sub} <name>)`);
       if (sub === 'claims') {
         const st = claim.status(root, name);
-        out(`${name}: ${st.status}${st.holder ? ` — ${st.holder.claimed_by} until ${st.holder.until}` : ''}`);
+        out(`${name}: ${st.status}${st.late ? ' (LATE: done came after the claim expired)' : ''}${st.holder ? ` — ${st.holder.claimed_by} until ${st.holder.until}` : ''}`);
         for (const u of st.invalid) out(`  does not count: ${u.claimed_by ?? u.by} (${u.kind}) — ${u.reason}`);
         for (const f of st.failures) out(`  failed: ${f.by} — ${f.reason}`);
         if (st.broken.length) warn(`${st.broken.length} unreadable line(s) in ${claim.FILE}`);
@@ -199,7 +199,7 @@ export const COMMANDS = {
           out(`${name}: done written but does NOT count — ${r.reason}`);
           process.exit(1);
         }
-        out(`${name}: ${r.status}`);
+        out(`${name}: ${r.status}${r.late ? ' (LATE: written after the claim expired; counts, marked)' : ''}`);
         return;
       }
       if (!args.reason || args.reason === true) die('Missing --reason');
