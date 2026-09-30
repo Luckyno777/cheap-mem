@@ -26,7 +26,6 @@
 // invariant: vier-zustaende-eigener-ton
 // invariant: kein-cors-kopf
 // invariant: host-riegel-lesewege
-// invariant: nicht-messbar-ist-nicht-null
 // invariant: leer-ist-kein-bestehen
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -48,7 +47,9 @@ const JS = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'
 const CSS = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.css'), 'utf8');
 
 /** The pin: the same hash stands in lucky-mem's test/dashboard-faelle.test.mjs. */
-const CASES_SHA256 = 'a03e54df99ea45a1c8bd02c1771cfd4fbd4b47a81fcea6ff32593cb13a51905a';
+const CASES_SHA256 = 'af8b9385f28c99cc46b398678a42e78f9b23c2c2984bbe5c2db1a0f086abb1ce';
+/** The neutral topic of a case -> the id of the shared invariant it serves (this house's register). */
+const INVARIANT_OF = { 'four-states': 'vier-zustaende-eigener-ton', 'no-cors': 'kein-cors-kopf', 'host-check': 'host-riegel-lesewege', 'unknown-not-zero': 'nicht-messbar-ist-nicht-null', 'empty-store': 'leer-ist-kein-bestehen' };
 const KINDS = ['tone', 'tone-distinct', 'tone-distinct-all', 'css-rule', 'no-cors', 'csp', 'host', 'journal', 'empty-store'];
 
 const cases = fs.readFileSync(CASES_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));
@@ -158,12 +159,13 @@ test('the shared cases are byte-identical with the sibling house (pinned sha256)
   assert.equal(sha, CASES_SHA256, 'shared/dashboard-cases.jsonl changed: update the pin here AND lucky-mem\'s copy and pin together');
 });
 
-test('the shared cases are not empty, every kind is used, every case names a real invariant', () => {
+test('the shared cases are not empty, every kind is used, every case topic leads to a real invariant', () => {
   assert.ok(cases.length >= 30, `only ${cases.length} cases`);
   for (const k of KINDS) assert.ok(cases.some((c) => c.kind === k), `kind '${k}' has no case`);
   assert.equal(new Set(cases.map((c) => c.id)).size, cases.length, 'duplicate case id');
   const invariants = new Set(fs.readFileSync(path.join(REPO, 'shared', 'invariants.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).id));
-  for (const c of cases) assert.ok(invariants.has(c.invariant), `${c.id} names an unknown invariant '${c.invariant}'`);
+  for (const c of cases) assert.ok(invariants.has(INVARIANT_OF[c.topic]), `${c.id}: topic '${c.topic}' does not lead to a known invariant`);
+  for (const id of Object.values(INVARIANT_OF)) assert.ok(invariants.has(id), `invariant '${id}' is missing from shared/invariants.jsonl`);
   for (const c of cases) assert.ok(KINDS.includes(c.kind), `${c.id}: kind '${c.kind}' has no runner`);
 });
 
