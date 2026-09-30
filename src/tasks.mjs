@@ -219,13 +219,16 @@ export const KINDS = Object.freeze({
       + 'register. The dashboard runs it once per capture, after a preview and a confirmation.',
     resume: 'restart',
     params: {
-      path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/'),
+      path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/') && !v.startsWith('-'),
         why: 'a relative capture path as `mem raw review` lists it' },
       reason: { required: true, check: (v) => v.trim().length >= 3 && v.length <= 500 && !/[\u0000-\u001f]/.test(v),
         why: 'a reason of 3 to 500 characters, one line' },
     },
     command(root, id, p) {
-      return { file: MEM_BIN, args: ['raw', 'delete', p.path, '--reason', p.reason, '--by', 'dashboard', '--yes', '--json'] };
+      // `--reason=<value>`, never `--reason <value>`: a reason that
+      // starts with `--` would otherwise be read as a flag of its own
+      // (see the note on `done` below for what that cost).
+      return { file: MEM_BIN, args: ['raw', 'delete', p.path, `--reason=${p.reason}`, '--by', 'dashboard', '--yes', '--json'] };
     },
     progressPattern: null,
     classify(json) {
@@ -240,11 +243,18 @@ export const KINDS = Object.freeze({
       + 'original stays in the log (append-only).',
     resume: 'restart',
     params: {
-      id: { required: true, check: (v) => /^[A-Za-z0-9_-]{4,64}$/.test(v), why: 'an entry id' },
+      id: { required: true, check: (v) => /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/.test(v), why: 'an entry id' },
       why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
     },
+    // **A parameter value must never become a flag** (audit 2026-09-30,
+    // B25). Until then this passed `--why <value>`; a `why` of
+    // `--authority=user` was parsed by the child as its own flag, and the
+    // retire line was stamped `authority: user` from a dashboard session
+    // WITHOUT the password — the exact thing Y4b gates. Values now travel
+    // as `--key=value` (the parser takes everything after the first `=`
+    // verbatim), and positional ids/paths may not start with `-`.
     command(root, id, p, context) {
-      return { file: MEM_BIN, args: ['done', p.id, ...(p.why ? ['--why', p.why] : []), ...authorityArgs(context)] };
+      return { file: MEM_BIN, args: ['done', p.id, ...(p.why ? [`--why=${p.why}`] : []), ...authorityArgs(context)] };
     },
     progressPattern: null,
     // `mem done` prints one plain line ("done: <id> (...)"), no JSON.
@@ -429,6 +439,11 @@ export function start(root, kind, params = {}, context = {}) {
   const entry = { id, child, epoch: SERVER_EPOCH, ended: false, cancelReason: null };
   ACTIVE.set(kind, entry);
 
+  // Decode as one UTF-8 stream: `+= chunk` on raw Buffers decoded each
+  // chunk alone, so a multibyte character split across two chunks came
+  // out as two U+FFFD (audit 2026-09-30, B24).
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
   let stdout = '';
   let stderrTail = '';
   const CAP = 4 * 1024 * 1024;
