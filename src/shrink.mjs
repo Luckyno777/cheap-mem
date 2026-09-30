@@ -116,6 +116,29 @@ export function readBaseline(root) {
 }
 
 /**
+ * Absent, broken or readable — the three answers `readBaseline` folds
+ * into one `null`.
+ *
+ * The fold was the hole (audit 2026-09-30, B7): a baseline that EXISTS
+ * but does not parse was read as "no baseline yet", reported FIRST_RUN,
+ * and `run` then wrote the current — possibly shrunken — sizes over it.
+ * One corrupted file laundered any shrink that came with it. Now a
+ * broken baseline is UNKNOWN and is never overwritten by a run; only the
+ * declared `setBaseline` replaces it.
+ */
+export function baselineStatus(root) {
+  const where = path.join(root, BASELINE_FILE);
+  try { fs.statSync(where); } catch (e) {
+    return e.code === 'ENOENT' ? { status: 'absent', baseline: null }
+      : { status: 'broken', baseline: null, reason: e.message };
+  }
+  const baseline = readBaseline(root);
+  return baseline === null
+    ? { status: 'broken', baseline: null, reason: `${BASELINE_FILE} exists but is not a baseline` }
+    : { status: 'ok', baseline };
+}
+
+/**
  * Form the finding — without writing, so it is testable without side
  * effects.
  *
@@ -200,7 +223,12 @@ export function save(root, state) {
 /** One run: measure, check, ratchet. */
 export function run(root, { write = true } = {}) {
   const now = bookSizes(root);
-  const baseline = readBaseline(root);
+  const st = baselineStatus(root);
+  if (st.status === 'broken') {
+    // Fail closed: no verdict, and the evidence stays on disk.
+    return { state: STATE.UNKNOWN, shrunk: [], vanished: [], grown: 0, reason: st.reason, books: Object.keys(now).length };
+  }
+  const { baseline } = st;
   const finding = check({ now, baseline });
   if (write) save(root, ratchet(baseline, now));
   return { ...finding, books: Object.keys(now).length };
@@ -213,7 +241,8 @@ export function asText(f) {
       + 'no baseline yet, so no verdict yet.';
   }
   if (f.state === STATE.UNKNOWN) {
-    return 'Shrink guard: baseline unreadable — UNKNOWN, not fine.';
+    return `Shrink guard: baseline unreadable — UNKNOWN, not fine${f.reason ? ` (${f.reason})` : ''}.\n`
+      + '  It was left as it is. Inspect it; to start over on purpose: mem shrink --new-baseline --why "..."';
   }
   if (f.state === STATE.CALM) {
     return `Shrink guard: calm (${f.books ?? 0} books, ${f.grown} grew).`;
