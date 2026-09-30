@@ -142,8 +142,8 @@ old UI had and where it lives now.
 
 ## Warm recall (M10, 2026-09-30)
 
-`mem serve` also starts a **recall server** in the same process
-(`src/recallserver.mjs`): a Unix socket at
+`mem serve` also starts a **recall server** as a child process
+(`src/recallserver.mjs`, `bin/mem-recall-server.mjs`): a Unix socket at
 `<memory>/.pipeline/recall/recall.sock` (Windows: a named pipe). The
 recall hook (`bin/mem-retrieve`, and `bin/mem-retrieve.ps1`) asks it
 first; with no socket it runs `mem find` itself, exactly as before.
@@ -158,7 +158,12 @@ first; with no socket it runs `mem find` itself, exactly as before.
 - **Fresh.** No index is kept in the server; every question loads it
   through `search.loadIndex()`, which checks the file state. If code
   under `src/` changes, the server answers `stale`, the hook runs
-  direct, and the server stops listening until `mem serve` restarts.
+  direct, and the server restarts itself: it runs as a child of
+  `mem serve` under `src/recallserver-keeper.mjs`, which starts it again
+  with a fresh import — at most once per 60 s
+  (`MEM_RECALL_SERVER_RESTART_MS`), with a log line
+  `recall server: restart (code under src/ changed)`. Until it listens
+  again there is no socket, and the hook runs direct.
 - **One budget.** `MEM_RETRIEVE_TIME` (5 s) covers the server attempt
   AND the direct fallback.
 - **Journal.** Every recall line in `.pipeline/injections.jsonl` carries
