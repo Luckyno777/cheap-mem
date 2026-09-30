@@ -348,7 +348,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
   if (argv.includes('--json')) {
     console.log(JSON.stringify({ root: ROOT, channels, finding: f }, null, 2));
-    process.exit(f.dead.length ? 1 : 0);
+    // Nothing measured is exit 2 here too, as in the text path below:
+    // the JSON consumer must not read an empty store as a pass.
+    process.exit(!f.measured ? 2 : (f.dead.length ? 1 : 0));
   }
 
   console.log(`Consumption funnel  ${ROOT}`);

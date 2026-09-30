@@ -200,6 +200,8 @@ export const MUTANTS=[
    from:'  const claimState = statusOf(state, e.id);',
    to:"  const claimState = hit.retired?.state ?? 'active';  // MUTANT: the exact bug of 2026-09-05, status back from the index",
    tests:['test/retrieval.test.mjs','test/state.test.mjs'] },
+ // (An ARCH-section twin of this mutant, same file/from/to, was removed: it
+ // was counted as a second guarantee and ran the same program twice.)
 
  { name:'SEM author share becomes a flat cap of one',
    file:'src/retrieval.mjs',
@@ -304,12 +306,6 @@ export const MUTANTS=[
    from:'export function deriveState(root) {',
    to:'export function deriveState(root, hits) {\n  if (hits) return memory.retiredMap(hits);  // MUTANT: the original bug',
    tests:['test/state.test.mjs'] },
-
- { name:'ARCH state read from the index instead of the log',
-   file:'src/retrieval.mjs',
-   from:'  const claimState = statusOf(state, e.id);',
-   to:"  const claimState = hit.retired?.state ?? 'active';  // MUTANT: cache is truth again",
-   tests:['test/state.test.mjs','test/retrieval.test.mjs'] },
 
  { name:'ARCH state derived once per HIT instead of once per call',
    file:'src/retrieval.mjs',
