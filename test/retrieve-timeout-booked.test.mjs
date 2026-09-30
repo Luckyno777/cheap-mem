@@ -1,6 +1,7 @@
 // K3: a search cut off by the hook's time cap is BOOKED as reason
 // `timeout` - not silent (silence reads as "nothing found"; not
-// measurable is not zero). Any other failure of `find` stays quiet.
+// measurable is not zero). Any other failure of `find` books reason
+// `error` (the sibling house books the same case) — never silence.
 // The cap is faked with a `timeout` in PATH that cuts `find` off with
 // 124 (no test brake exists in the hook, and none was added).
 // Red proof (rule 12): at the pinned start commit the hook has no such
@@ -71,13 +72,14 @@ test('K3: killed (137) books timeout as well', () => {
   } finally { fs.rmSync(b.root, { recursive: true, force: true }); }
 });
 
-test('K3: another failure of find (exit 1) is NOT booked as timeout', () => {
+test('K3: another failure of find (exit 1) is booked as error, not as timeout', () => {
   const b = build();
   try {
     const r = hook(b, 1);
     assert.equal(r.status, 0);
     assert.equal(r.stdout, '');
     assert.equal(lines(b.root).filter((x) => x.reason === 'timeout').length, 0);
+    assert.equal(lines(b.root).filter((x) => x.reason === 'error').length, 1, 'a failed search leaves a line — not measurable is not zero');
   } finally { fs.rmSync(b.root, { recursive: true, force: true }); }
 });
 

@@ -220,25 +220,28 @@ JOURNAL=()
 # journal line only when it finishes; killed by the cap it books nothing,
 # and "no line" reads as "nothing found" - not measurable is not zero.
 # So the exit code is told apart: 124 (timeout) / 137 (killed) books
-# reason `timeout`; any other failure stays quiet as before. The booking
+# reason `timeout`; any other failure books reason `error` (as the sibling
+# house does) — never silence. The booking
 # is its own short node call OUTSIDE the cap that just expired.
 HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json ${JOURNAL[@]+"${JOURNAL[@]}"} 2>/dev/null)"
 FIND_RC=$?
 if [ "$FIND_RC" -ne 0 ]; then
-  if [ "$FIND_RC" -eq 124 ] || [ "$FIND_RC" -eq 137 ]; then
+  MEM_J_REASON=ERROR
+  if [ "$FIND_RC" -eq 124 ] || [ "$FIND_RC" -eq 137 ]; then MEM_J_REASON=TIMEOUT; fi
+  {
     if [ -f "$TOOL_ROOT/src/injection.mjs" ]; then
       MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION_ID:-}" \
-        MEM_J_QB="${#PROMPT}" capped 3 node -e '
+        MEM_J_QB="${#PROMPT}" MEM_J_REASON="$MEM_J_REASON" capped 3 node -e '
           import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
             m.book(process.env.MEM_J_ROOT, {
               session: process.env.MEM_J_SESSION || null,
-              occasion: m.OCCASION.QUESTION, reason: m.REASON.TIMEOUT,
+              occasion: m.OCCASION.QUESTION, reason: m.REASON[process.env.MEM_J_REASON],
               bytes: null, hits: 0, searched: null, sources: [],
               questionBytes: Number(process.env.MEM_J_QB) || null,
             });
           }).catch(() => {});' >/dev/null 2>&1 || true
     fi
-  fi
+  }
   exit 0
 fi
 [ -z "$HITS" ] && exit 0

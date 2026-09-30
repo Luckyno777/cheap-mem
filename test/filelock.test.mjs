@@ -35,9 +35,31 @@ test('three processes, read-modify-write under the lock: nothing lost', async ()
   assert.equal(await race(true), 75);
 });
 
-test('positive control: the same race WITHOUT the lock does lose updates', async () => {
-  const n = await race(false);
-  assert.ok(n < 75, `expected lost updates without the lock, got ${n}/75 — the race no longer measures anything`);
+// The loss is FORCED, not hoped for: every child reads the counter, then
+// waits at a barrier until all three have read, then writes. Without a
+// lock all three write the same n+1 — the result is 1, on any load. The
+// earlier version raced 3 x 25 rounds and hoped for an interleaving; under
+// a full suite the children ran one after the other and it went red
+// (2026-09-30, K-branch full suite).
+const barrierScript = (file, dir, id) => `
+import fs from 'node:fs';
+import path from 'node:path';
+const n = Number(fs.readFileSync(${JSON.stringify(file)}, 'utf8'));
+fs.writeFileSync(path.join(${JSON.stringify(dir)}, 'read-' + ${JSON.stringify(String(id))}), '');
+const until = Date.now() + 20000;
+while (fs.readdirSync(${JSON.stringify(dir)}).filter((f) => f.startsWith('read-')).length < 3) {
+  if (Date.now() > until) process.exit(3);
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+}
+fs.writeFileSync(${JSON.stringify(file)}, String(n + 1));`;
+
+test('positive control: the same read-modify-write WITHOUT the lock loses updates (forced interleaving)', async () => {
+  const dir = mkTmp('fl-');
+  const file = path.join(dir, 'counter'); fs.writeFileSync(file, '0');
+  const runs = [1, 2, 3].map((id) => runChild(barrierScript(file, dir, id)));
+  const res = await Promise.all(runs.map((r) => r.done));
+  for (const r of res) assert.equal(r.code, 0, r.out);
+  assert.equal(Number(fs.readFileSync(file, 'utf8')), 1, 'three unlocked increments that all read 0 must end at 1 — the probe measures the lost update');
 });
 
 test('a held fresh lock: waiting is bounded, then LockTimeoutError', () => {
