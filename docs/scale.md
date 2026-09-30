@@ -26,6 +26,8 @@ for a memory that has deliberately decided to run larger.
 
 Not the search. The index.
 
+_Reading the table: "search itself" is WARM (in-process); "index load" and "after one new entry" are what a COLD fresh process pays. Older measurement, commit not recorded; current cold/warm figures with commit and hardware: `bench/cold-find.json`._
+
 | entries | search itself | index load (cached) | after one new entry | index file |
 |---:|---:|---:|---:|---:|
 | 20 000 | 25 ms | 171 ms | 108 ms | 9 MB |

@@ -41,6 +41,8 @@
  * it pass, because a gate that blocks on thin data would cause the
  * outage it guards against.
  */
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { OCCASION } from './injection.mjs';
 
 export const LEVEL = Object.freeze({ GOOD: 'good', WARN: 'warn', ERROR: 'error', UNKNOWN: 'unknown' });
@@ -54,6 +56,50 @@ export const BUDGET_MS = Object.freeze({
   [OCCASION.QUESTION]: 4000,
   [OCCASION.BEFORE_EDIT]: 1000,
 });
+
+/**
+ * **Measured P95 beside the design limit.** The limits above stay a
+ * design limit; next to them stands what `bench/cold-find.mjs` measured
+ * (artifact `bench/cold-find.json`: commit, hardware, corpus size,
+ * cold = a fresh `mem find` process — what the recall hook runs).
+ * Only `question` has such a measurement; `before-edit` is a different
+ * command and stays `unknown`. No artifact (it is a bench file and does
+ * not ship in the npm package), a broken one, or a size that was not
+ * measured is `unknown` — never 0.
+ */
+export const ARTIFACT_PATH = fileURLToPath(new URL('../bench/cold-find.json', import.meta.url));
+
+/** The parsed artifact, or `null` when it is missing or unreadable. */
+export function loadArtifact(file = ARTIFACT_PATH) {
+  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+
+/** Cold P95 rows of the artifact (`[{ entries, p95Ms, n }]`), empty when none. Pure. */
+export function measuredColdP95(artifact) {
+  const rows = Array.isArray(artifact?.results) ? artifact.results : [];
+  return rows.filter((r) => r && r.state === 'cold' && Number.isFinite(r.p95Ms))
+    .map((r) => ({ entries: r.entries, p95Ms: r.p95Ms, n: r.n }));
+}
+
+/** One row per budgeted occasion: the design limit and the measured P95 (or `unknown`). Pure. */
+export function budgetTable(artifact = loadArtifact()) {
+  const cold = measuredColdP95(artifact);
+  return Object.keys(BUDGET_MS).map((occasion) => {
+    const measured = occasion === OCCASION.QUESTION && cold.length ? cold : null;
+    return {
+      occasion, designLimitMs: BUDGET_MS[occasion],
+      measuredP95: measured ?? 'unknown',
+      commit: measured ? (artifact.environment?.gitCommit ?? 'unknown') : null,
+    };
+  });
+}
+
+/** Human line for the doctor: `question measured cold P95 …` or `… unknown`. */
+export function measuredNote(artifact = loadArtifact()) {
+  const q = budgetTable(artifact).find((r) => r.occasion === OCCASION.QUESTION);
+  if (q.measuredP95 === 'unknown') return 'measured cold find P95: unknown (no bench/cold-find.json)';
+  return `measured cold find P95 (commit ${q.commit}): ` + q.measuredP95.map((r) => `${r.entries} entries ${r.p95Ms} ms`).join(', ');
+}
 
 /** Percentile `p` (0-100), nearest rank; `null` for an empty list, never NaN. */
 export function percentile(values, p) {

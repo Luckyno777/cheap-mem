@@ -1161,6 +1161,25 @@ export function byScoreThenIdentity(a, b) {
  */
 const MMR_GLEICH = 1e-12;
 
+/**
+ * How many candidates the MMR pass gets: without MMR exactly `n`, with MMR
+ * ten times `n`, at least 50. Ported 2026-09-29 from the sibling house
+ * (its MMR cap, 2026-09-17). Before, `search()` handed EVERY hit above the
+ * floor to `mmrRerank` — O(hits x top) similarity calls. Measured with the
+ * options `mem find` uses (top 30, MMR 0.7), warm, load 0.95: 20k entries
+ * 465 ms median, 200k entries 5624 ms; without MMR 43 ms / 620 ms. A hit
+ * below rank 10 x top practically never wins an MMR round at lambda 0.7
+ * (relevance is normalised to the top score), so the pool changes cost,
+ * not the answer — test/mmr-pool.test.mjs holds both halves.
+ */
+export const MMR_POOL_FACTOR = 10;
+export const MMR_POOL_MIN = 50;
+export function mmrPoolFor(n, mmr) {
+  if (n <= 0) return 0;
+  if (!mmr) return n;
+  return Math.max(n * MMR_POOL_FACTOR, MMR_POOL_MIN);
+}
+
 export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
   if (candidates.length <= 1) return candidates.slice(0, top);
   const maxScore = candidates.reduce((m, c) => (c.score > m ? c.score : m), 0);
@@ -1705,8 +1724,9 @@ export function search(index, query, {
   hits.sort(byScoreThenIdentity);
   const maxScore = hits.length ? hits[0].score : 0;
   const kept = hits.filter((t) => maxScore === 0 || t.score / maxScore >= minScore);
+  // MMR sees a bounded pool, not every hit above the floor (mmrPoolFor).
   const out = (mmr && kept.length > 1)
-    ? mmrRerank(kept, { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w) })
+    ? mmrRerank(kept.slice(0, mmrPoolFor(top, true)), { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w) })
     : kept.slice(0, top);
   for (const t of out) delete t.__w;   // internal helper never leaves search()
   return out;
