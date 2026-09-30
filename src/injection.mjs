@@ -88,6 +88,20 @@ export const REASON = Object.freeze({
    * name — the one outage the after-error hook can have (X2b).
    */
   NO_INPUT: 'no-input',
+  /**
+   * The search ran into the hook's time cap (exit 124/137 of
+   * timeout/gtimeout) and was cut off (K3). Not "empty": whether
+   * anything was there is UNKNOWN. Never counted as a miss (gap.mjs,
+   * askedlearn.mjs read only too-weak/empty).
+   */
+  TIMEOUT: 'timeout',
+  /**
+   * The search failed for another reason (any exit code but 0, 124, 137):
+   * a crash, a broken index, a missing binary. Not "empty" either — the
+   * sibling house books the same case as its own reason. Never counted
+   * as a miss.
+   */
+  ERROR: 'error',
 });
 
 const REASONS = new Set(Object.values(REASON));

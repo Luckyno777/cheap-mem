@@ -229,6 +229,10 @@ if ($SessionId) {
 $Journal = @()
 if ($SessionId) { $Journal = @('--journal-session', $SessionId, '--journal-min', $Min) }
 $Hits = (& node @MemArgv find $Prompt --top $Top --json @Journal 2>$null) -join "`n"
+# K3 (mirrored from bin/mem-retrieve, not runnable here): the POSIX hook
+# books reason `timeout` when the 5-second cap kills `find` (exit 124/137).
+# This hook has NO cap (see above), so it has no timeout branch to book;
+# the day a cap is added here, that exit must book `timeout` too.
 if ($LASTEXITCODE -ne 0) { exit 0 }
 if (-not $Hits) { exit 0 }
 
