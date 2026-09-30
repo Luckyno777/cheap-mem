@@ -2428,6 +2428,8 @@ export function openDuties(root, { project = undefined } = {}) {
   const all = new Map();         // id -> entry
   const closed = new Map();      // id -> {state, by, ts}
   const predecessor = new Map(); // id -> replaces_id (the stage BEFORE it)
+  const closers = [];            // lines carrying closes_id, judged below
+  const refused = [];            // closings the authority rule turned down
 
   for (const p of targets) {
     const file = logPath(root, 'duty', p);
@@ -2438,12 +2440,7 @@ export function openDuties(root, { project = undefined } = {}) {
       let e;
       try { e = JSON.parse(lines[i]); } catch { continue; }
       if (e.closes_id) {
-        closed.set(e.closes_id, {
-          state: e.state ?? DUTY_STATE.DONE,
-          by: e.id,
-          ts: e.ts,
-          why: e.why ?? e.text ?? null,
-        });
+        closers.push(e);
         continue;
       }
       if (!e.id) continue;
@@ -2455,6 +2452,28 @@ export function openDuties(root, { project = undefined } = {}) {
         _project: p,
       });
     }
+  }
+
+  // Y4: a closing line is judged by the SAME rule as everywhere
+  // (`authority.mayChangeState`), against the duty it names — which is
+  // only known once every line is read (a closer may precede its target
+  // in file order). A refused close leaves the duty OPEN and is reported
+  // in `refused`, never dropped silently. A target that is not a duty in
+  // this view is UNRESOLVED: recorded as before (it can close nothing
+  // visible), flagged, and listed by `mem doctor`'s orphan check.
+  for (const e of closers) {
+    const verdict = authority.mayChangeState(e, all.get(e.closes_id), 'closes_id');
+    if (verdict.status === 'refused') {
+      refused.push({ by: e.id, target: e.closes_id, reason: verdict.reason, ts: e.ts });
+      continue;
+    }
+    closed.set(e.closes_id, {
+      state: e.state ?? DUTY_STATE.DONE,
+      by: e.id,
+      ts: e.ts,
+      why: e.why ?? e.text ?? null,
+      ...(verdict.status === 'unresolved' ? { unresolved: true } : {}),
+    });
   }
 
   // Whoever was later replaced is no longer "the" duty — only the
@@ -2485,7 +2504,7 @@ export function openDuties(root, { project = undefined } = {}) {
   }
   open.sort((a, b) => (a.ts ?? '').localeCompare(b.ts ?? ''));
   done.sort((a, b) => (b._closed.ts ?? '').localeCompare(a._closed.ts ?? ''));
-  return { open, done };
+  return { open, done, refused };
 }
 
 // --- P11: correction chains for gold benchmarks -------------------------
@@ -2562,7 +2581,9 @@ export function expandExpectedIds(expectedIds, map) {
  * opened means someone mistyped, and a memory that accepts that is
  * quietly wrong.
  */
-export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, project = null } = {}) {
+export function closeDuty(root, id, {
+  state = DUTY_STATE.DONE, why = null, project = null, agent = null, authority: tier = null,
+} = {}) {
   if (typeof id !== 'string' || !id) throw new Error('closeDuty needs an id');
   if (!Object.values(DUTY_STATE).includes(state)) {
     throw new Error(`Unknown duty state '${state}'. Known: ${Object.values(DUTY_STATE).join(', ')}`);
@@ -2578,7 +2599,32 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
   // check sits here once instead of twice, one of them eventually
   // drifting behind the other.
   evidenceOrThrow(root, 'duty', state, target, { origin: 'closeDuty' });
-  return logEntry(root, 'duty', { closes_id: id, state, why }, { project });
+  const written = logEntry(root, 'duty', {
+    closes_id: id, state, why,
+    ...(agent ? { agent } : {}),
+    ...(tier ? { authority: tier } : {}),
+  }, { project });
+  return { ...written, verdict: warnIfRefused(written.entry, target, 'closes_id') };
+}
+
+/**
+ * Early warning at the write path (Y4). The verdict that COUNTS is the
+ * one derived on read (`applyRetirement` / `openDuties`), so a refused
+ * line is still appended — append-only, and an import or merge would be
+ * judged the same way. What the writer gets here is the same answer
+ * BEFORE they wonder why the target is still open: returned as
+ * `verdict`, and announced once on stderr when it is a refusal.
+ */
+function warnIfRefused(entry, target, field) {
+  const verdict = authority.mayChangeState(entry, target, field);
+  if (verdict.status === 'refused') {
+    process.emitWarning(
+      `${field} ${target?.id ?? ''} not honoured: ${verdict.reason}. The target stays active and `
+      + `this line ${entry?.id ?? ''} is marked disputed. Write it with an authority that is not `
+      + 'lower than the target\'s (e.g. --authority user) if the change is meant.',
+      { code: 'CM_STATE_CHANGE_REFUSED' });
+  }
+  return verdict;
 }
 
 // --- Lifecycle: discarded / done / superseded ----------------------
@@ -2612,38 +2658,44 @@ export function closeDuty(root, id, { state = DUTY_STATE.DONE, why = null, proje
  * hold FULL entries (as `retiredMap` builds it) or the slim
  * {@link authorityProjection} (as `retiredMapFromFiles` builds it) —
  * this function only ever reads `byId.get(...)` and hands the result to
- * `authority.maySupersede`, which only reads the five projected fields,
+ * `authority.mayChangeState`, which only reads the projected fields,
  * so both inputs are correct.
  */
 function applyRetirement(map, byId, e) {
   if (!e) return;
-  if (e.retires_id) {
-    map.set(e.retires_id, {
-      state: e.state ?? DUTY_STATE.DONE,
-      why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
-    });
-  }
-  if (e.closes_id) {
-    map.set(e.closes_id, {
-      state: e.state ?? DUTY_STATE.DONE,
-      why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
-    });
-  }
-  if (e.replaces_id) {
-    const target = byId.get(e.replaces_id);
-
+  // Y4: ONE rule for all three fields — `authority.mayChangeState`. The
+  // order (retires, closes, replaces) is the one this function always had.
+  for (const field of ['retires_id', 'closes_id', 'replaces_id']) {
+    const targetId = e[field];
+    if (!targetId) continue;
     // Target not in this set: a drawer read in isolation cannot see a
-    // correction that lives elsewhere. Allowing it preserves the
-    // behaviour every caller had before the rule existed; the GLOBAL
-    // check, where every entry is visible, is `mem doctor` (integrity).
-    // Refusing here would break legitimate cross-drawer corrections to
-    // catch an attacker who can simply write in the same drawer anyway.
-    const verdict = target
-      ? authority.maySupersede(e, target)
-      : { ok: true, reason: 'target not in this view — checked globally by doctor' };
+    // correction that lives elsewhere. `mayChangeState` calls that
+    // UNRESOLVED (not authorised); the retirement is still recorded, as
+    // every caller had before the rule existed, but flagged
+    // `unresolved` — nothing in this view is hidden by it, and the
+    // GLOBAL check, where every entry is visible, is `mem doctor`.
+    const verdict = authority.mayChangeState(e, byId.get(targetId), field);
 
-    if (verdict.ok) {
-      map.set(e.replaces_id, {
+    if (verdict.status === 'refused') {
+      if (e.id) {
+        // Append-only: the attempt is NOT rejected and NOT removed. The
+        // target simply stays active, and the attempting claim is marked
+        // disputed — which keeps it out of retrieval while leaving it
+        // fully readable in the log, in `doctor`, and in the viewer.
+        //
+        // That asymmetry is the defence against flooding: writing
+        // disputed claims costs the attacker writes and the defender
+        // bytes, and buys no influence over any assembled context.
+        map.set(e.id, {
+          state: 'disputed', why: verdict.reason,
+          by: targetId, ts: e.ts ?? null,
+        });
+      }
+      continue;
+    }
+
+    const rec = field === 'replaces_id'
+      ? {
         state: 'superseded', why: null, by: e.id ?? null, ts: e.ts ?? null,
         // `supersededAt` — the moment the OLD claim stopped being true,
         // DERIVED, never stored twice. This is the fix for a defect
@@ -2667,21 +2719,13 @@ function applyRetirement(map, byId, e) {
         // true right up until the correction was recorded, which is
         // the least surprising reading of "there was no stated date".
         supersededAt: e.valid_from ?? e.ts ?? null,
-      });
-    } else if (e.id) {
-      // Append-only: the attempt is NOT rejected and NOT removed. The
-      // target simply stays active, and the attempting claim is marked
-      // disputed — which keeps it out of retrieval while leaving it
-      // fully readable in the log, in `doctor`, and in the viewer.
-      //
-      // That asymmetry is the defence against flooding: writing
-      // disputed claims costs the attacker writes and the defender
-      // bytes, and buys no influence over any assembled context.
-      map.set(e.id, {
-        state: 'disputed', why: verdict.reason,
-        by: e.replaces_id, ts: e.ts ?? null,
-      });
-    }
+      }
+      : {
+        state: e.state ?? DUTY_STATE.DONE,
+        why: e.why ?? e.text ?? null, by: e.id ?? null, ts: e.ts ?? null,
+      };
+    if (verdict.status === 'unresolved') rec.unresolved = true;
+    map.set(targetId, rec);
   }
 }
 
@@ -2707,7 +2751,11 @@ export function retiredMap(entries) {
  * what keeps that map small: the entry's own body — usually most of a
  * drawer's bytes — is never the reason a target is looked up. */
 function authorityProjection(e) {
-  return { id: e.id, author: e.author, agent: e.agent, origin: e.origin, authority: e.authority };
+  // `owner`/`who`: the debtor exception of `authority.mayChangeState`.
+  return {
+    id: e.id, author: e.author, agent: e.agent, origin: e.origin, authority: e.authority,
+    owner: e.owner, who: e.who,
+  };
 }
 
 /**
@@ -2733,7 +2781,8 @@ function authorityProjection(e) {
  * every entry at once. Splitting the same algorithm into three
  * sequential, disk-backed passes gets the same two things without that:
  *
- *   1. which ids are ever NAMED by a `replaces_id` — a `Set<string>`,
+ *   1. which ids are ever NAMED by a `replaces_id`/`retires_id`/`closes_id`
+ *      (Y4) — a `Set<string>`,
  *      not an array of entries.
  *   2. for exactly those ids, {@link authorityProjection} — never the
  *      entry's full body.
@@ -2760,7 +2809,9 @@ export function retiredMapFromFiles(absPaths) {
   const wanted = new Set();
   for (const abs of absPaths) {
     for (const e of iterLogFile(abs)) {
-      if (e && e.replaces_id) wanted.add(e.replaces_id);
+      if (!e) continue;
+      // Y4: every field `authority.mayChangeState` judges needs its target.
+      for (const f of authority.STATE_FIELDS) if (e[f]) wanted.add(e[f]);
     }
   }
 
@@ -2849,7 +2900,9 @@ export const RETIRE_STATE = Object.freeze(['done', 'discarded', 'obsolete']);
  * Appends a tombstone line into the SAME log:
  *   { id, ts, retires_id: <id>, state, why? }
  */
-export function retireEntry(root, type, id, { state = 'done', why = null, project = null } = {}) {
+export function retireEntry(root, type, id, {
+  state = 'done', why = null, project = null, agent = null, authority: tier = null,
+} = {}) {
   if (typeof id !== 'string' || !id) throw new Error('Retiring needs an id');
   if (!RETIRE_STATE.includes(state)) {
     throw new Error(`Unknown state '${state}'. Allowed: ${RETIRE_STATE.join(', ')}`);
@@ -2865,7 +2918,10 @@ export function retireEntry(root, type, id, { state = 'done', why = null, projec
   }
   const data = { retires_id: id, state };
   if (why) data.why = why;
-  return logEntry(root, type, data, { project });
+  if (agent) data.agent = agent;
+  if (tier) data.authority = tier;
+  const written = logEntry(root, type, data, { project });
+  return { ...written, verdict: warnIfRefused(written.entry, target, 'retires_id') };
 }
 
 /**

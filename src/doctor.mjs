@@ -829,6 +829,7 @@ export function checkOrphans(root) {
           ids.add(e.id);
           if (e.replaces_id) pointers.push({ field: 'replaces_id', to: e.replaces_id });
           if (e.closes_id) pointers.push({ field: 'closes_id', to: e.closes_id });
+          if (e.retires_id) pointers.push({ field: 'retires_id', to: e.retires_id });
           // A link is two pointers. An edge into nothing is exactly the same
           // defect as an orphaned correction: it resolves to no entry, so it
           // silently does nothing — and a graph is only worth walking if its
