@@ -10,7 +10,7 @@
 #   CHEAP_MEM_ROOT        absolute path to the memory
 #
 # Optional:
-#   MEM_DIGEST_MAX_BYTES  most raw material per run (default 2000000)
+#   MEM_DIGEST_MAX_BYTES  most raw material per run, bytes BEFORE packing (default 16000000)
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude)
 #   MEM_DIGEST_ARGS       arguments before the prompt (default: -p)
@@ -38,7 +38,7 @@ $Mem     = Join-Path $Here 'mem'
 $Timeout = if ($env:MEM_DIGEST_TIMEOUT) { [int]$env:MEM_DIGEST_TIMEOUT } else { 600 }
 $Cmd     = if ($env:MEM_DIGEST_CMD) { $env:MEM_DIGEST_CMD } else { 'claude' }
 $CmdArgs = if ($env:MEM_DIGEST_ARGS) { $env:MEM_DIGEST_ARGS -split ' ' } else { @('-p') }
-$MaxBytes = if ($env:MEM_DIGEST_MAX_BYTES) { [int]$env:MEM_DIGEST_MAX_BYTES } else { 2000000 }
+$MaxBytes = if ($env:MEM_DIGEST_MAX_BYTES) { [int]$env:MEM_DIGEST_MAX_BYTES } else { 16000000 }
 $LogPath = if ($env:MEM_DIGEST_LOG) { $env:MEM_DIGEST_LOG } else { Join-Path $Root '.mem\digest.log' }
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $LogPath) | Out-Null
 
@@ -110,10 +110,11 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
   // A file whose size we cannot read counts as LARGE. The other way
   // round lets a silent stat error eat the whole cap.
   // Smallest first, so one huge capture does not block the rest.
+  // B19 (2026-09-30): bytes BEFORE packing (`rawSizes`), not gzipped.
+  if(!o.rawSizes){process.stderr.write("selection: raw pending --json has no rawSizes\n");process.exit(2)}
   const sized=(o.open||[]).map(f=>{
-    let s=Infinity;
-    try{s=fs.statSync(path.join(root,f)).size}catch(e){}
-    return {f,s};
+    const g=o.rawSizes[f];
+    return {f,s:(typeof g==="number")?g:Infinity};
   }).sort((a,b)=>a.s-b.s);
   const chosen=[];let sum=0;
   for(const {f,s} of sized){

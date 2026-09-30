@@ -801,7 +801,7 @@ export function collectDashboard(root, {
   }, 'user habits');
   const ledger = safe(() => {
     const l = agentledger.ledger(root);
-    return { rows: l.rows, totalJobs: l.totalJobs, unassigned: l.unassigned, agentsWithEvidence: l.agentsWithEvidence };
+    return { rows: l.rows, totalJobs: l.totalJobs, unassigned: l.unassigned, confirmed: l.confirmed, rework: l.rework, unknown: l.unknown, unknownShare: l.unknownShare };
   }, 'job ledger');
 
   // --- 9. versions, integrity, performance --------------------------------

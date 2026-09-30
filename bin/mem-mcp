@@ -495,11 +495,12 @@ const TOOLS = [
   {
     name: 'mem_ledger',
     description:
-      'Counts jobs, not strengths: per agent kind/model, jobs, jobs usable on the '
-      + 'first try, follow-up jobs, and packages with a real git revert, from the job '
-      + 'journal (`event` entries tagged `job`). Below 20 jobs a group is always '
-      + '"unknown (n<20)" — call it before repeating a strength claim about an agent, '
-      + 'never to invent one. Read-only.',
+      'Counts jobs, not strengths: per agent kind/model, jobs in three stages '
+      + '(confirmed / rework or error evidenced / unknown — no signal is never success), '
+      + 'the share of unknown with its denominator, and packages with a real git revert, '
+      + 'from the job journal (`event` entries tagged `job`). Numbers only, no verdict '
+      + 'word — call it before repeating a strength claim about an agent, never to '
+      + 'invent one. Read-only.',
     inputSchema: {
       type: 'object',
       properties: { json: { type: 'boolean', description: 'Return the structured result instead of the table' } },

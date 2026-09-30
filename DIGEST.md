@@ -13,6 +13,10 @@ the right drawers. Nothing else.
 ```
 mem raw show <path> --head          how many lines is this?
 mem raw show <path> --from 0 --count 400
+                                    (the header names __state: ok, partial
+                                    with __broken_lines unreadable lines, or
+                                    broken; say partial/broken in your summary
+                                    and do not mark a broken capture digested)
 mem find "<keyword>" --since 7d     before writing: is this already here?
 mem log <type> --title ... --text ... --tags ... --origin '{...}'
 mem duties                          what is still owed?
@@ -184,6 +188,10 @@ When you are done, mark the captures:
 mem raw digested <path> <path> ...
 git add -A && git commit -m "digest: ..." && git push
 ```
+
+`mem raw digested` accepts only captures that exist, and prints the yield
+per run (entries naming the captures in their origin; 0 is allowed but is
+stated).
 
 That writes two records, and the difference matters:
 

@@ -24,6 +24,31 @@ import * as redaction from '../../redaction.mjs';
 import * as userhabits from '../../userhabits.mjs';
 import { out, die, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
+/**
+ * Yield per capture (B16, Z1a): how many logged entries name it in
+ * `origin.raw`? Same logs `mem doctor` (checkDigestYield) counts from —
+ * one count, not two. 0 is a valid value (the capture gave nothing) but
+ * it is counted and shown. Lives here and not in src/raw.mjs so the
+ * capture path does not import memory.mjs.
+ */
+export function yieldPerCapture(root, paths) {
+  const counts = {};
+  for (const p of paths) counts[p] = 0;
+  const wanted = new Set(paths);
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const type of Object.keys(memory.TYPES)) {
+      for (const e of memory.iterLog(root, type, { project })) {
+        const q = e && e.origin && e.origin.raw;
+        if (!q || q === 'unknown') continue;
+        for (const r of new Set(Array.isArray(q) ? q : [q])) {
+          if (wanted.has(r)) counts[r] += 1;
+        }
+      }
+    }
+  }
+  return counts;
+}
+
 /** 4 commands. */
 export const COMMANDS = {
   raw: async ({ rest, args }) => {
@@ -225,7 +250,8 @@ export const COMMANDS = {
     if (sub === 'pending') {
       const st = raw.pending(root);
       if (args.json) { out(JSON.stringify(st)); return; }
-      out(`${st.open.length} pending (${st.bytes} bytes), ${st.done} digested`);
+      out(`${st.open.length} pending (${st.bytes} bytes gzipped, ${st.rawBytes} bytes before packing`
+        + `${st.rawUnknown ? `, unknown for ${st.rawUnknown} captures` : ''}), ${st.done} digested`);
       if (st.last) out(`  last digest: ${st.last}`);
       for (const f of st.open) out(`  ${f}`);
       return;
@@ -235,14 +261,19 @@ export const COMMANDS = {
       checkFlags(args, ['head', 'from', 'count'], 'raw show');
       const rel = rest[1];
       if (!rel) die('raw show: which capture? (mem raw pending lists them)');
-      const { header, lines } = raw.readCapture(root, rel);
+      const { header, lines, broken, state } = raw.readCapture(root, rel);
       const from = args.from === undefined ? 0 : Math.max(0, Number(args.from));
       if (!Number.isFinite(from)) die('raw show: --from needs a number');
       const count = args.count === undefined ? null : Number(args.count);
       if (count !== null && (!Number.isFinite(count) || count <= 0)) {
         die('raw show: --count needs a positive number');
       }
-      out(JSON.stringify({ ...(header ?? {}), __lines: lines.length }, null, 2));
+      out(JSON.stringify({ ...(header ?? {}), __lines: lines.length, __state: state, __broken_lines: broken }, null, 2));
+      // B21: never silent. ok / partial / broken — on partial and broken
+      // the counter also goes to stderr so the digest sees it.
+      if (state !== 'ok') {
+        process.stderr.write(`-- ${state}: ${broken} line(s) of this capture unreadable (skipped, counted)\n`);
+      }
       if (args.head) return;
       const to = count === null ? lines.length : Math.min(lines.length, from + count);
       for (let i = from; i < to; i += 1) process.stdout.write(`${JSON.stringify(lines[i])}\n`);
@@ -297,8 +328,19 @@ export const COMMANDS = {
     if (sub === 'digested') {
       const paths = rest.slice(1);
       if (paths.length === 0) die('raw digested: name at least one capture');
-      const n = raw.markDigested(root, paths);
-      out(`${n} captures marked digested.`);
+      let res;
+      try { res = raw.markDigestedWithYield(root, paths, { yield: yieldPerCapture(root, paths) }); }
+      catch (e) {
+        if (e.code === 'CAPTURE_MISSING' || e.code === 'YIELD_MISSING') die(`raw digested: ${e.message}`);
+        throw e;
+      }
+      out(`${paths.length} marked, ${res.total} captures digested in total.`);
+      // Yield visible, the 0 included (E6a): how many entries name these
+      // captures in their origin.
+      out(`  Yield: ${res.entries} entries from ${paths.length} captures`
+        + (res.withoutEntry.length ? `, ${res.withoutEntry.length} without an entry (0)` : ''));
+      for (const w of res.withoutEntry) out(`    0 entries: ${w}`);
+      if (res.rest > 0) out(`  ${res.rest} captures stay pending, the bell stays.`);
       return;
     }
 
