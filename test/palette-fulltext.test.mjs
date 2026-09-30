@@ -82,6 +82,11 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
     await page.keyboard.type(typed, { delay });
     await answer;
     await page.waitForTimeout(300);
+    // With a failing route: wait for the VISIBLE notice (cap 5 s) — 300 ms
+    // after the 500 answer was not enough under a full suite (2026-09-30).
+    if (route) {
+      await page.waitForFunction(() => { const h = document.getElementById('fulltextNoticePalette'); if (!h) return false; const cs = getComputedStyle(h); return cs.display !== 'none' && cs.visibility !== 'hidden' && h.getClientRects().length > 0; }, null, { timeout: 5000 }).catch(() => null);
+    }
     return await page.evaluate(() => ({
       hits: [...document.querySelectorAll('#commandResults [data-search-entry]')].map((b) => b.textContent),
       focus: document.activeElement?.id,
