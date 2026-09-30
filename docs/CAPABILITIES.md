@@ -129,6 +129,9 @@ directory. The section number in brackets is where it is explained.
 | `provenance.mjs` | which clone answered, and how old it is (10.23) |
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
+| `recallhook.mjs` | Z1c: what `bin/mem-retrieve` and `bin/mem-catch-fail` (bash and PowerShell) hand their work to: decide short prompts, claim the turn, print the answer, book the journal line AFTER the write |
+| `recallrender.mjs` | Z1c: the one renderer of the recalled lines — real content from `retrieval.BODY_FIELDS`, the entry ID per hit, cuts on a sentence or clause boundary with a visible marker |
+| `recallsignal.mjs` | Z1c: does a short prompt carry a search signal? An ID, a file name, an error code or a rare word searches; confirmations never do; deterministic |
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
 | `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
