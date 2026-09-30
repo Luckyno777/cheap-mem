@@ -67,15 +67,21 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
     if (route) await page.route('**/api/fulltext*', route);
     await page.goto(base + '/dashboard', { waitUntil: 'load' }); // never networkidle
     await waitReady(page);
-    // Unter Last kann der Tastendruck vor dem Handler ankommen: erneut druecken, bis das Feld den Fokus hat.
-    let offen = false;
-    for (let i = 0; i < 6 && !offen; i++) {
+    // Under load the key press can arrive before the handler: press again until the field has focus.
+    let open = false;
+    for (let i = 0; i < 6 && !open; i++) {
       await page.keyboard.press('Control+k');
-      offen = await page.waitForFunction(() => document.activeElement?.id === 'commandInput', null, { timeout: 5000 }).then(() => true, () => false);
+      open = await page.waitForFunction(() => document.activeElement?.id === 'commandInput', null, { timeout: 5000 }).then(() => true, () => false);
     }
-    assert.ok(offen, 'die Palette oeffnet sich');
+    assert.ok(open, 'the palette opens');
+    // No fixed wait (900 ms was not enough under a full suite, chain red
+    // 2026-09-30): wait for the full-text answer to the LAST input, then
+    // one paint tick. The old client never asks — there the cap runs out,
+    // and the result is what it shows without full text.
+    const answer = page.waitForResponse((r) => r.url().includes('/api/fulltext') && new URL(r.url()).searchParams.get('q') === typed, { timeout: 8000 }).catch(() => null);
     await page.keyboard.type(typed, { delay });
-    await page.waitForTimeout(900);
+    await answer;
+    await page.waitForTimeout(300);
     return await page.evaluate(() => ({
       hits: [...document.querySelectorAll('#commandResults [data-search-entry]')].map((b) => b.textContent),
       focus: document.activeElement?.id,
