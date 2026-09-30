@@ -448,7 +448,19 @@ export function redactObject(o, found = new Map()) {
 // These names are harmless because they identify a MACHINE or an
 // ACCOUNT, not a credential. The value check below still applies to
 // everything not on this list.
-const ENV_HARMLESS = /^(PATH|HOME|PWD|OLDPWD|SHELL|TERM|LANG|LC_[A-Z]+|USER|LOGNAME|HOSTNAME|TMPDIR|EDITOR|PAGER|SHLVL|_|NODE_PATH|npm_.*|XDG_.*|LS_COLORS|MANPATH|INFOPATH|GIT_CONFIG_.*|GIT_(DIR|WORK_TREE|INDEX_FILE|AUTHOR_.*|COMMITTER_.*|EDITOR|PAGER|EXEC_PATH|PREFIX)|CI|GITHUB_(WORKSPACE|REPOSITORY|REF.*|SHA|ACTOR|WORKFLOW|RUN_.*|ACTION.*|EVENT_NAME|BASE_REF|HEAD_REF|SERVER_URL|API_URL|GRAPHQL_URL|JOB|PATH|ENV|STEP_SUMMARY|OUTPUT|STATE)|USERNAME|USERPROFILE|USERDOMAIN(_ROAMINGPROFILE)?|COMPUTERNAME|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|ALLUSERSPROFILE|PROGRAMDATA|PROGRAMFILES(\\(X86\\))?|PROGRAMW6432|COMMONPROGRAMFILES(\\(X86\\)|W6432)?|SYSTEMROOT|SYSTEMDRIVE|WINDIR|TEMP|TMP|COMSPEC|PATHEXT|PSMODULEPATH|PUBLIC|SESSIONNAME|OS|PROCESSOR_.*|NUMBER_OF_PROCESSORS|LOGONSERVER|DRIVERDATA|ONEDRIVE.*)$/i;
+const ENV_HARMLESS = /^(PATH|HOME|PWD|OLDPWD|SHELL|TERM|LANG|LC_[A-Z]+|USER|LOGNAME|HOSTNAME|TMPDIR|EDITOR|PAGER|SHLVL|_|NODE_PATH|npm_.*|XDG_.*|LS_COLORS|MANPATH|INFOPATH|GIT_CONFIG_.*|GIT_(DIR|WORK_TREE|INDEX_FILE|AUTHOR_.*|COMMITTER_.*|EDITOR|PAGER|EXEC_PATH|PREFIX)|CI|GITHUB_(WORKSPACE|REPOSITORY|REF.*|SHA|ACTOR|WORKFLOW|RUN_.*|ACTION.*|EVENT_NAME|BASE_REF|HEAD_REF|SERVER_URL|API_URL|GRAPHQL_URL|JOB|PATH|ENV|STEP_SUMMARY|OUTPUT|STATE)|USERNAME|USERPROFILE|USERDOMAIN(_ROAMINGPROFILE)?|COMPUTERNAME|HOMEDRIVE|HOMEPATH|APPDATA|LOCALAPPDATA|ALLUSERSPROFILE|PROGRAMDATA|PROGRAMFILES(\(X86\))?|PROGRAMW6432|COMMONPROGRAMFILES(\(X86\)|W6432)?|SYSTEMROOT|SYSTEMDRIVE|WINDIR|TEMP|TMP|COMSPEC|PATHEXT|PSMODULEPATH|PUBLIC|SESSIONNAME|OS|PROCESSOR_.*|NUMBER_OF_PROCESSORS|LOGONSERVER|DRIVERDATA|ONEDRIVE.*)$/i;
+
+// A harmless-looking NAME never outweighs a secret-looking one. The
+// list above is case-insensitive and has wildcards (`npm_.*`), so
+// without this check NPM_TOKEN or npm_config__authToken rode through as
+// "harmless" and their values were never matched (audit 2026-09-30,
+// B2). `_AUTH` only counts at a word end or before `_`, so
+// GIT_AUTHOR_NAME stays harmless.
+const ENV_SECRET_NAME = /(TOKEN|SECRET|PASSW(OR)?D|CREDENTIAL|API_?KEY|PRIVATE_?KEY|_AUTH($|_)|AUTHTOKEN)/i;
+
+function envNameHarmless(name) {
+  return ENV_HARMLESS.test(name) && !ENV_SECRET_NAME.test(name);
+}
 
 /** Values that look like a path, a URL without credentials, or a
  *  version — long, but not a secret. */
@@ -475,7 +487,7 @@ export function envSecrets(env = process.env) {
   const out = [];
   for (const [name, value] of Object.entries(env)) {
     if (typeof value !== 'string') continue;
-    if (ENV_HARMLESS.test(name)) continue;
+    if (envNameHarmless(name)) continue;
     if (envValueHarmless(value)) continue;
     out.push({ name, value });
   }
