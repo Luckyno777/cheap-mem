@@ -148,7 +148,10 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 //     are added in memory on every load and NEVER persisted (`revealEncrypted`).
 //     An older cache dropped such entries whenever their clear fields
 //     were empty, so it could not be topped up in memory.
-export const CACHE_VERSION = 11;
+// 12: O3 — every log's state carries `full`, a hash over the WHOLE file.
+//     A version-11 cache lacks it; without it an equal-length change near
+//     the front plus an append could not be detected.
+export const CACHE_VERSION = 12;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -1804,6 +1807,40 @@ function tailHash(file, upto) {
   return `${len}:${h.toString(36)}`;
 }
 
+/**
+ * O3 (2026-09-30): a hash over the WHOLE first `upto` bytes of a file.
+ *
+ * The tail hash above sees only the last 4 KiB of the old range, and the
+ * mtime check (y0) only fires at equal size. When the file has GROWN, an
+ * equal-length change further up (git merge, checkout, rebase) went
+ * unnoticed: the append path read only the new tail and the index kept
+ * serving the OLD text of the changed line. Measured red on 2026-09-30
+ * (test/o3-grow-front.test.mjs).
+ *
+ * So on growth the whole old range is hashed and compared with the hash
+ * recorded at build time. Correctness before speed: sha256 costs about
+ * 0.8 ms per MB here (see the O3 report for the 50 MB measurement); read
+ * in 1 MiB chunks so a large log is never held in memory as a whole.
+ */
+const FULL_CHUNK = 1024 * 1024;
+export function fullHash(file, upto) {
+  if (upto <= 0) return '0';
+  const h = createHash('sha256');
+  const buf = Buffer.allocUnsafe(Math.min(FULL_CHUNK, upto));
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    let pos = 0;
+    while (pos < upto) {
+      const n = fs.readSync(fd, buf, 0, Math.min(buf.length, upto - pos), pos);
+      if (n <= 0) return null; // shorter than expected: no hash, so no append
+      h.update(n === buf.length ? buf : buf.subarray(0, n));
+      pos += n;
+    }
+  } catch { return null; } finally { if (fd !== undefined) try { fs.closeSync(fd); } catch { /* fine */ } }
+  return `${upto}:${h.digest('hex').slice(0, 32)}`;
+}
+
 /** Every file the index is built from, with its current size. */
 /**
  * A cheap fingerprint of the corpus, for binding a cursor to a snapshot.
@@ -1963,6 +2000,11 @@ function appendToIndex(root, index, before, now) {
     if (cur.bytes < old.bytes) return null;              // shrunk: rewritten
     if (tailHash(piecePath(root, rel), old.bytes) !== old.tail) return null;  // prefix moved
     if (cur.kind !== 'log') return null;                 // a capture never grows
+    // O3: the tail hash sees only the last 4 KiB of the old range. An
+    // equal-length change further up plus an append would slip through —
+    // so check the WHOLE old range. A state without `full` (a cache from
+    // before O3) cannot prove that: better not append than guess.
+    if (!old.full || fullHash(piecePath(root, rel), old.bytes) !== old.full) return null;
     newBytes += cur.bytes - old.bytes;
     const parsed = parseLogTail(root, rel, { ...cur, linesBefore: old.lines ?? 0 }, old.bytes);
     if (!parsed) return null;
@@ -2409,6 +2451,9 @@ function loadIndexCached(root, { fresh = false, language = 'en' } = {}) {
         project: info.project,
         lines: lines ? (lines.get(rel) ?? 0) : countLines(root, rel),
         tail: tailHash(piecePath(root, rel), info.bytes),
+        // O3: whole-file hash, the only way to prove on growth that
+        // nothing further up was rewritten (see fullHash).
+        full: info.kind === 'log' ? fullHash(piecePath(root, rel), info.bytes) : null,
         docs: docCounts ? (docCounts.get(rel) ?? 0) : 0,
       };
     }
