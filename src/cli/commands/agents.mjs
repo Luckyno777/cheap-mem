@@ -59,6 +59,7 @@ export const COMMANDS = {
         'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
         '                     exit 0/1/3, for shell pollers',
         'mem inbox claim <name> [--as N] [--minutes 30]   take a message, with an expiry',
+        'mem inbox renew <name> --claim-id ID [--as N] [--minutes 30]  still working: new deadline (holder, before expiry, capped)',
         'mem inbox done <name> --claim-id ID [--as N]     finished (holder only, with the id claim printed)',
         'mem inbox failed <name> --claim-id ID --reason "..." [--as N]  gave up, released at once',
         'mem inbox claims <name>                          who holds it, who does not count',
@@ -194,14 +195,14 @@ export const COMMANDS = {
       process.exit(1);
     }
 
-    if (sub === 'claim' || sub === 'done' || sub === 'failed' || sub === 'claims') {
-      checkFlags(args, sub === 'claim' ? ['as', 'minutes'] : sub === 'failed' ? ['as', 'claim-id', 'reason'] : sub === 'done' ? ['as', 'claim-id'] : [],
+    if (sub === 'claim' || sub === 'renew' || sub === 'done' || sub === 'failed' || sub === 'claims') {
+      checkFlags(args, sub === 'claim' ? ['as', 'minutes'] : sub === 'renew' ? ['as', 'minutes', 'claim-id'] : sub === 'failed' ? ['as', 'claim-id', 'reason'] : sub === 'done' ? ['as', 'claim-id'] : [],
         `inbox ${sub}`);
       const name = rest[1];
       if (!name) die(`Missing name (inbox ${sub} <name>)`);
       if (sub === 'claims') {
         const st = claim.status(root, name);
-        out(`${name}: ${st.status}${st.late ? ' (LATE: done came after the claim expired)' : ''}${st.holder ? ` — ${st.holder.claimed_by} until ${st.holder.until}` : ''}`);
+        out(`${name}: ${st.status}${st.late ? ' (LATE: done came after the claim expired)' : ''}${st.holder ? ` — ${st.holder.claimed_by} until ${st.holder.until}${st.renewals ? ` (renewed ${st.renewals}x)` : ''}` : ''}`);
         for (const u of st.invalid) out(`  does not count: ${u.claimed_by ?? u.by} (${u.kind}) — ${u.reason}`);
         for (const f of st.failures) out(`  failed: ${f.by} — ${f.reason}`);
         if (st.broken.length) warn(`${st.broken.length} unreadable line(s) in ${claim.FILE}`);
@@ -219,6 +220,17 @@ export const COMMANDS = {
       }
       if (!args['claim-id'] || args['claim-id'] === true) die(`Missing --claim-id (the id 'inbox claim' printed)`);
       const claimId = String(args['claim-id']);
+      if (sub === 'renew') {
+        const r = claim.renew(root, name, {
+          by, claimId, minutes: args.minutes ? Number(args.minutes) : undefined,
+        });
+        if (!r.valid) {
+          out(`${name}: renew written but does NOT count — ${r.reason}`);
+          process.exit(1);
+        }
+        out(`${name}: ${r.status} — ${r.holder.claimed_by} until ${r.holder.until} (renewed ${r.renewals}x)`);
+        return;
+      }
       if (sub === 'done') {
         const r = claim.done(root, name, { by, claimId });
         if (!r.valid) {
@@ -240,7 +252,7 @@ export const COMMANDS = {
 
     die([
       `inbox: unknown subcommand '${sub}'`,
-      'Known: new (default), all, write, show, ack, watch, claim, done, failed, claims',
+      'Known: new (default), all, write, show, ack, watch, claim, renew, done, failed, claims',
     ].join('\n'));
   },
 

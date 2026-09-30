@@ -229,7 +229,7 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-09-29',
+  capturedAt: '2026-09-30',
   source: 'lucky-mem/src/doktor.mjs',
   // P11 (2026-09-28/29): 'korrektur-verliert-inhalt' added on the
   // lucky-mem side (paired in shared/finding-map.jsonl with this
@@ -251,6 +251,10 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // X2 (2026-09-29): 'integrationsvertrag' added on the lucky-mem side, paired
   // here with this house's own 'integration-contract' — refreshed as its own
   // reviewed change, per the instructions above.
+  // Z2/A12 (2026-09-30): 'uebernahme-verwaist' added on the lucky-mem side,
+  // paired here with this house's own 'claim-orphaned' (expired claims
+  // without done/failed) — refreshed as its own reviewed change, per the
+  // instructions above.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -265,7 +269,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'redaktion', 'regel-vorschlag', 'rohfang',
     'rueckstand', 'sicherung', 'skill-nutzung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
-    'transkript-schema', 'waechter', 'waechter-fassung', 'waisen',
+    'transkript-schema', 'uebernahme-verwaist', 'waechter', 'waechter-fassung', 'waisen',
     'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
     'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),

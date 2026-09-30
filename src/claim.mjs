@@ -12,10 +12,11 @@
  * who both saw the same open message both handled it, and nobody saw it.
  *
  * **What is built here.** One append-only file `claims.jsonl` in the
- * inbox directory, three line kinds, each per message (`message` = file
+ * inbox directory, four line kinds, each per message (`message` = file
  * name):
  *
  *   claim   {claimed_by, until}        "I take it, until then"
+ *   renew   {by, claim_id, until}      "still working, new deadline" (Z2/A4)
  *   done    {by, claim_id}             finished
  *   failed  {by, claim_id, reason}     gave up, released at once
  *
@@ -42,6 +43,14 @@
  *   - `failed` counts only from the valid holder with the valid
  *     `claim_id` and releases the message IMMEDIATELY (even before
  *     `until`).
+ *   - Z2/A4 `renew` keeps a LONG task valid: it counts only from the
+ *     valid holder, with the `claim_id` of the currently valid claim,
+ *     while that claim's `until` has NOT yet passed (the line's `time` is
+ *     before it), with a new `until` that lies LATER, and only up to the
+ *     cap `MAX_EXTENSION_MIN` beyond the ORIGINAL `until`. An expired or
+ *     replaced claim cannot be revived after the fact: its renew stands
+ *     in `invalid` with the reason. Nothing is clamped silently — an
+ *     over-cap renew does not count at all and says so.
  *   - Lines from non-holders (a foreign `done`), with a foreign or old
  *     `claim_id`, appear in `invalid` with a reason — never silently.
  *   - A done/failed line with NO `claim_id` is read as "unproven": it
@@ -89,8 +98,23 @@ export const FILE = 'claims.jsonl';
 /** Default time limit in minutes. */
 export const DEFAULT_MINUTES = 30;
 
+/**
+ * Z2/A4: the most a claim may be extended beyond its original `until`,
+ * in total: 4 x the default duration (120 min). Why a cap at all: a
+ * lease that anyone can renew forever is no lease — a process that is
+ * alive but stuck would hold the message for good, and the orphan
+ * finding would never see it. Why 4 x: long enough for a real long
+ * task (the default is one work unit, four of them is a work half-day),
+ * short enough that a stuck holder still surfaces the same day. It is a
+ * preset, not a measurement (limit (c) below); a task that needs more
+ * says so with a fresh claim after expiry — visible, not silent.
+ */
+export const MAX_EXTENSION_FACTOR = 4;
+export const MAX_EXTENSION_MIN = MAX_EXTENSION_FACTOR * DEFAULT_MINUTES;
+
 export const KIND = Object.freeze({
   CLAIM: 'claim',
+  RENEW: 'renew',
   DONE: 'done',
   FAILED: 'failed',
 });
@@ -142,7 +166,7 @@ export function readLines(root) {
         && typeof z.message === 'string' && typeof z.id === 'string'
         && Number.isFinite(Date.parse(z.time))
         && (z.kind !== KIND.CLAIM
-          ? typeof z.by === 'string'
+          ? typeof z.by === 'string' && (z.kind !== KIND.RENEW || Number.isFinite(Date.parse(z.until)))
           : typeof z.claimed_by === 'string' && Number.isFinite(Date.parse(z.until)));
       if (!ok) throw new Error('fields missing or unreadable');
       if ('claim_id' in z && typeof z.claim_id !== 'string') throw new Error('claim_id is not a string');
@@ -175,6 +199,32 @@ function doesNotCount(z, holder, done) {
 }
 
 /**
+ * Why a renew line does NOT count, or null when it does. The holder, the
+ * claim id, the clock (`time` before the current `until`), a real
+ * extension and the cap must all fit.
+ */
+function renewDoesNotCount(z, holder, done) {
+  if (done) return 'already done';
+  if (!holder) return 'no valid claim to renew';
+  if (z.claim_id === undefined) return 'unproven: no claim_id, does not count';
+  if (z.by !== holder.claimed_by) return 'renew by someone who is not the holder';
+  if (z.claim_id !== holder.id) {
+    return `claim_id ${z.claim_id} is not the valid claim (${holder.id}) — old or replaced, cannot be revived`;
+  }
+  if (Date.parse(z.time) >= Date.parse(holder.until)) {
+    return `expired at ${holder.until} — an expired claim cannot be revived, claim again`;
+  }
+  if (Date.parse(z.until) <= Date.parse(holder.until)) {
+    return `no extension: until ${z.until} is not later than ${holder.until}`;
+  }
+  const cap = Date.parse(holder.until_original ?? holder.until) + MAX_EXTENSION_MIN * 60_000;
+  if (Date.parse(z.until) > cap) {
+    return `over the cap: at most ${MAX_EXTENSION_MIN} min beyond the original until (${iso(cap)})`;
+  }
+  return null;
+}
+
+/**
  * The read rule, pure, no file access. `lines` = all lines of ONE
  * message. Returns status, holder and the visibly invalid ones.
  */
@@ -198,6 +248,14 @@ export function fold(lines, { now = new Date() } = {}) {
         if (holder) resumptions += 1;
         holder = z;
       }
+    } else if (z.kind === KIND.RENEW) {
+      const why = renewDoesNotCount(z, holder, done);
+      if (!why) {
+        holder = {
+          ...holder, until: z.until, until_original: holder.until_original ?? holder.until,
+          renewals: (holder.renewals ?? 0) + 1,
+        };
+      } else invalid.push({ ...z, reason: why });
     } else if (z.kind === KIND.DONE) {
       const why = doesNotCount(z, holder, done);
       if (!why) {
@@ -221,6 +279,8 @@ export function fold(lines, { now = new Date() } = {}) {
   else if (holder) status = nowMs < Date.parse(holder.until) ? STATUS.CLAIMED : STATUS.EXPIRED;
   return {
     status, holder, done, invalid, failures, resumptions,
+    /** Z2/A4: how many renews of the valid claim counted. */
+    renewals: holder?.renewals ?? 0,
     /** K1: the counting `done` came after the holder's `until`. */
     late: done?.late === true,
     /** May another agent claim now? Free or expired — never when done. */
@@ -273,6 +333,24 @@ function checkClaimId(claimId, what) {
   }
 }
 
+/**
+ * Z2/A4: extend MY claim (`claimId`) by `minutes` from now. The line is
+ * ALWAYS written; whether it counts is `valid`, with the reason when not.
+ */
+export function renew(root, message, { by, claimId, minutes = DEFAULT_MINUTES, now = new Date() } = {}) {
+  checkMessage(root, message);
+  checkWho(by);
+  checkClaimId(claimId, 'renew');
+  if (!Number.isFinite(minutes) || minutes <= 0) throw new Error('minutes must be > 0');
+  const time = new Date(now);
+  const line = writeLine(root, {
+    kind: KIND.RENEW, message, by, claim_id: claimId,
+    until: iso(time.getTime() + minutes * 60_000), time: iso(time),
+    id: crypto.randomBytes(6).toString('hex'),
+  });
+  return closing(root, message, line, now);
+}
+
 export function done(root, message, { by, claimId, now = new Date() } = {}) {
   checkMessage(root, message);
   checkWho(by);
@@ -305,9 +383,10 @@ function closing(root, message, line, now) {
 }
 
 /**
- * Expired claims with neither done nor failed — the material for a
- * doctor finding. Deliberately NO finding created yet: without users in
- * operation it would be a check without a subject.
+ * Expired claims with neither done nor failed — the subject of the
+ * doctor finding `claim-orphaned` (Z2/A12, src/doctor.mjs
+ * `checkOrphanedClaims`). Reads only; an unreadable file THROWS so the
+ * finding can say "unknown" instead of a false "none".
  */
 export function orphaned(root, { now = new Date() } = {}) {
   const { lines } = readLines(root);
@@ -315,7 +394,7 @@ export function orphaned(root, { now = new Date() } = {}) {
   const out = [];
   for (const message of messages) {
     const s = fold(lines.filter((z) => z.message === message), { now });
-    if (s.status === STATUS.EXPIRED) out.push({ message, holder: s.holder.claimed_by, until: s.holder.until });
+    if (s.status === STATUS.EXPIRED) out.push({ message, holder: s.holder.claimed_by, until: s.holder.until, id: s.holder.id });
   }
   return out;
 }

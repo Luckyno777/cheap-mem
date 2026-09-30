@@ -33,6 +33,7 @@ import * as clock from './clock.mjs';
 import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
+import * as claim from './claim.mjs';
 import * as raw from './raw.mjs';
 import * as skillusage from './skillusage.mjs';
 import * as archive from './archive.mjs';
@@ -367,6 +368,7 @@ export function checkAll(root) {
   f.push(checkClosedWithoutEvidence(root));
   f.push(checkAutoDutyAge(root));
   f.push(checkDelivery(root));
+  f.push(checkOrphanedClaims(root));
   f.push(checkIndex(root));
   f.push(checkCorrectionContentLoss(root));
   f.push(checkSynonyms(root));
@@ -2486,4 +2488,45 @@ export function checkIntegrationContract(root, { settingsPaths = null, codeRoot 
   const r = contract.judge({ codeRoot, settingsPaths: paths });
   const level = { good: LEVEL.GOOD, warn: LEVEL.WARN, error: LEVEL.ERROR }[r.level] ?? LEVEL.UNKNOWN;
   return finding('integration-contract', level, r.text, r.advice);
+}
+
+/**
+ * Finding `claim-orphaned` (Z2/A12, parity with lucky-mem
+ * `uebernahme-verwaist`): claims that ran out with neither `done` nor
+ * `failed` — somebody took a message, then vanished (crash, cancelled
+ * session). Until now `claim.orphaned()` had no caller, so the state
+ * existed but nobody saw it.
+ *
+ *   good     no expired claim without done/failed
+ *   warn     some exist: count and the oldest, with the way to take over
+ *   error    unreadable lines in claims.jsonl (a done/claim may be lost)
+ *   unknown  the inbox / claims file cannot be read (not measurable is
+ *            not good)
+ *
+ * SUGGESTS, never executes: it names the way to claim again, with the
+ * warning to check first whether the effect already happened.
+ */
+export function checkOrphanedClaims(root, { now = new Date() } = {}) {
+  let orphans;
+  let broken;
+  try {
+    broken = claim.readLines(root).broken;
+    orphans = claim.orphaned(root, { now });
+  } catch (e) {
+    return finding('claim-orphaned', LEVEL.UNKNOWN, `claims file unreadable: ${e.message}`);
+  }
+  if (broken.length) {
+    return finding('claim-orphaned', LEVEL.ERROR,
+      `${broken.length} unreadable line${broken.length === 1 ? '' : 's'} in ${claim.FILE} `
+      + `(${broken.map((b) => `line ${b.line}: ${b.reason}`).join('; ')})`,
+      'They count in no reading — a claim, renew or done may be missing from every count. Look at the file by hand.');
+  }
+  if (!orphans.length) return finding('claim-orphaned', LEVEL.GOOD, 'no expired claim without done/failed');
+  const oldest = orphans.reduce((a, b) => (Date.parse(a.until) <= Date.parse(b.until) ? a : b));
+  return finding('claim-orphaned', LEVEL.WARN,
+    `${orphans.length} claim${orphans.length === 1 ? '' : 's'} expired without done/failed; `
+    + `oldest: ${oldest.message} (${oldest.holder}, expired ${oldest.until})`,
+    `Nothing was run. To take over again: mem inbox claim ${oldest.message} --as <you> — but check FIRST `
+    + 'whether the effect already happened (reply written, files changed, commit); '
+    + `if it did, close it: mem inbox done ${oldest.message} --claim-id ${oldest.id} --as ${oldest.holder}.`);
 }
