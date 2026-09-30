@@ -35,8 +35,10 @@
  * changes its own line. Nothing moves a rule to the next status
  * automatically, and repetition confirms nothing: frequency is not
  * truth. A rule WITHOUT any status line counts as "released (legacy)"
- * — it is deliberately NOT treated as proposed after the fact, so that
- * everything filed before X3 behaves exactly as it did. `withdrawn`
+ * only when filed before `LEGACY_CUTOFF` (E4) — so that everything filed
+ * before X3 behaves exactly as it did; newer status-less rules are
+ * `unknown` (inactive). The start status travels IN the rule
+ * (`start_status`), never as a second write. `withdrawn`
  * also carries `retires_id`, so every generic reader (search, lists,
  * lanes) already drops the rule; `proposed` and `trial` rules come out
  * with a visible "[proposed]" / "[trial]" marking, never as a rule in
@@ -334,7 +336,12 @@ export function forSubagentStart(root, { project = null } = {}) {
       if (!e.rule || !e.id || !memory.holds(e, retired)) continue;
       const tags = Array.isArray(e.tags) ? e.tags : [];
       if (!tags.includes(SUBAGENT_START_TAG)) continue;
-      out.push(stamped(e, idx, p));
+      // E4: a `proposed` rule (and one whose status is unknown) is not
+      // shown to a subagent at all — not even marked. `trial` still
+      // comes out with its marking; `released` as before.
+      const st = stamped(e, idx, p);
+      if (st._status === 'proposed' || st._status === UNKNOWN_STATUS) continue;
+      out.push(st);
     }
   }
   // `ts` has one-SECOND resolution (see the entries this repo actually
@@ -359,8 +366,25 @@ export function forSubagentStart(root, { project = null } = {}) {
 /** The statuses, written in exactly one place. */
 export const STATUSES = Object.freeze(['proposed', 'trial', 'released', 'withdrawn']);
 
-/** What a rule without any status line counts as. Never `proposed`. */
+/** What an OLD rule (filed before `LEGACY_CUTOFF`) without any status counts as. */
 export const LEGACY_STATUS = 'released';
+
+/**
+ * E4 (2026-09-30): nothing unfinished becomes valid by accident.
+ *
+ * Only a rule whose timestamp lies BEFORE this moment and that has no
+ * status of any kind falls back to `released (legacy)` — that is the
+ * stock filed before X3, which must behave exactly as it did. A rule
+ * without a status filed ON OR AFTER this day is `unknown` (inactive):
+ * a write that lost its status (crash, error, a script that never knew
+ * about statuses) must not silently stand in force. The cut-off is a
+ * fixed date, not "now", so the answer for a given file never changes
+ * with the calendar.
+ */
+export const LEGACY_CUTOFF = '2026-09-30T00:00:00.000Z';
+
+/** A rule after the cut-off that carries no status at all: not in force. */
+export const UNKNOWN_STATUS = 'unknown';
 
 /**
  * Which transitions a human may write. `withdrawn` is final: a rule
@@ -369,8 +393,13 @@ export const LEGACY_STATUS = 'released';
  * only a withdrawal is possible — no retroactive downgrade.
  */
 export const TRANSITIONS = Object.freeze({
-  // `new` is the moment a rule is filed with `--start-as`.
-  new: ['proposed', 'trial'],
+  // `new` is the moment a rule is filed with `--start-as` (E4: the
+  // status is a FIELD of the rule, `start_status`, written atomically).
+  // `released` at birth is the explicit exception; it still needs a
+  // human `issued_by` (`check()` and `startStatusOf()` both insist).
+  new: ['proposed', 'trial', 'released'],
+  // A status-less rule from after the cut-off: a human decides.
+  unknown: ['proposed', 'trial', 'released', 'withdrawn'],
   proposed: ['trial', 'released', 'withdrawn'],
   trial: ['released', 'withdrawn'],
   released: ['withdrawn'],
@@ -408,27 +437,51 @@ export function statusIndex(entries = []) {
 /**
  * The status of a rule.
  *
- * Returns `{ status, legacy, since, inherited }`. `legacy` is true when
- * no status line exists anywhere on the rule's chain; then `status` is
- * `released` and `since` is null. A correction (`replaces_id`) inherits
+ * Returns `{ status, legacy, since, inherited }`. A status line wins
+ * over the rule's own `start_status`; with neither on the rule's chain,
+ * `legacy` is true (status `released`, `since` null) only for a rule
+ * filed before `LEGACY_CUTOFF` — later ones are `unknown` (E4). A correction (`replaces_id`) inherits
  * the status of its predecessor, so replacing a trial rule does not
  * quietly release it.
  */
 export function statusOf(entry, idx) {
   let cur = entry;
+  let oldest = entry;
   const seen = new Set();
   let inherited = false;
   while (cur && cur.id && !seen.has(cur.id)) {
     seen.add(cur.id);
+    oldest = cur;
     const ls = idx.lines.get(cur.id);
     if (ls && ls.length) {
       const last = ls[ls.length - 1];
       return { status: last.status, legacy: false, since: last.ts ?? null, inherited, line: last };
     }
+    // E4: the start status lives IN the rule (one write, one line).
+    const born = startStatusOf(cur);
+    if (born) return { status: born, legacy: false, since: cur.ts ?? null, inherited, line: null, birth: true };
     cur = cur.replaces_id ? idx.byId.get(cur.replaces_id) : null;
     inherited = true;
   }
-  return { status: LEGACY_STATUS, legacy: true, since: null, inherited: false, line: null };
+  // No status anywhere on the chain. Only stock from BEFORE the cut-off
+  // stays released (legacy); anything newer — or without a readable
+  // timestamp — is unknown, i.e. inactive. Not measurable is not released.
+  const t = Date.parse(oldest?.ts ?? '');
+  if (Number.isFinite(t) && t < Date.parse(LEGACY_CUTOFF)) {
+    return { status: LEGACY_STATUS, legacy: true, since: null, inherited: false, line: null };
+  }
+  return { status: UNKNOWN_STATUS, legacy: false, since: null, inherited: false, line: null };
+}
+
+/**
+ * The start status a rule was filed with (`start_status`), or `null`.
+ * `released` at birth only counts when a human issued the rule.
+ */
+export function startStatusOf(entry) {
+  const v = String(entry?.start_status ?? '').trim();
+  if (!['proposed', 'trial', 'released'].includes(v)) return null;
+  if (v === 'released' && !isHuman(entry.issued_by)) return null;
+  return v;
 }
 
 /** The entry with its status stamped on, for the marking and the lists. */
@@ -571,6 +624,7 @@ export function effectLine(eff) {
  * a rule in force does not change. One place; every renderer asks it.
  */
 export function statusMark(status) {
+  if (status === UNKNOWN_STATUS) return `[${UNKNOWN_STATUS}]`;
   return STATUSES.includes(status) && status !== LEGACY_STATUS ? `[${status}]` : '';
 }
 

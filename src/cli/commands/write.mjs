@@ -186,15 +186,19 @@ export const COMMANDS = {
     let startAs = null;
     if (type === procedure.TYPE) {
       const me = data.agent ?? memory.agentDefault();
-      // `--start-as proposed|trial` (X3): the rule is filed AND gets its
-      // first status line, so it never stands in force in between. Not a
-      // field of the rule itself.
+      // `--start-as proposed|trial|released` (X3, E4): the start status is
+      // a FIELD of the rule (`start_status`), so status and rule are ONE
+      // write — a crash between the two can no longer leave a rule
+      // standing in force. Default (E4, corrected): whoever files a rule
+      // WITH a human `--issued-by` has issued it, so it starts as
+      // `released`; without a human issuer it starts as `proposed` (an
+      // agent never releases its own rule). See below, after the latch.
       if (Object.hasOwn(data, 'start-as')) {
         startAs = String(data['start-as']);
         delete data['start-as'];
         if (!procedure.TRANSITIONS.new.includes(startAs)) {
           die(`log procedure: --start-as '${startAs}' unknown (allowed: ${procedure.TRANSITIONS.new.join(', ')}). `
-            + 'Without it a rule counts as released (legacy behaviour).');
+            + 'Without it a rule filed with a human --issued-by starts as released, any other as proposed.');
         }
       }
       // `--issued-by` arrives hyphenated, the entry stores the
@@ -242,6 +246,11 @@ export const COMMANDS = {
           + '  mem log procedure --title "..." --rule "..." --issued-by owner');
       }
       data = procedure.complete(data, { agent: me });
+      // E4: the status travels IN the entry. `released` only ever with a
+      // human issuer (`procedure.check` above already refused any other).
+      if (!startAs) startAs = procedure.isHuman(data.issued_by) ? 'released' : 'proposed';
+      if (startAs === 'released' && !procedure.isHuman(data.issued_by)) startAs = 'proposed';
+      data = { ...data, start_status: startAs };
     }
 
     // **Workflows: the same latch, before the write, for the same
@@ -306,15 +315,9 @@ export const COMMANDS = {
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
     if (startAs) {
-      try {
-        procedure.writeStatus(root, entry.id, startAs, {
-          issued_by: entry.issued_by, agent: entry.agent, project: args.project ?? null, birth: true,
-        });
-        out(`  status: ${startAs} (not a rule in force until a human releases it)`);
-      } catch (e) {
-        warn(`status ${startAs} NOT written: ${e.message}`);
-        warn(`  The rule stands as released (legacy) — withdraw it: mem procedures status ${entry.id} withdrawn --issued-by owner`);
-      }
+      out(startAs === 'released'
+        ? `  status: ${startAs} (issued by ${entry.issued_by})`
+        : `  status: ${startAs} (not a rule in force until a human releases it)`);
     }
 
     // **L4 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): `asked`

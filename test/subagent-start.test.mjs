@@ -40,7 +40,10 @@ const run = (r, ...a) =>
 const RULE = ['log', 'procedure',
   '--title', 'Own worktree, own branch',
   '--rule', 'Every agent assignment gets its own worktree and branch; never the main tree.',
-  '--issued-by', 'owner', '--tags', 'subagent-start'];
+  '--issued-by', 'owner', '--tags', 'subagent-start',
+  // E4: a new rule starts as proposed, which a subagent is never shown;
+  // these tests are about released rules, so say so explicitly.
+  '--start-as', 'released'];
 
 test('THE CASE: a procedure tagged subagent-start is offered, an untagged one is not', () => {
   const r = memory();
@@ -98,9 +101,9 @@ test('several tagged procedures come back oldest first', () => {
   const r = memory();
   try {
     run(r, 'log', 'procedure', '--title', 'First', '--rule', 'a',
-      '--issued-by', 'owner', '--tags', 'subagent-start');
+      '--issued-by', 'owner', '--tags', 'subagent-start', '--start-as', 'released');
     run(r, 'log', 'procedure', '--title', 'Second', '--rule', 'b',
-      '--issued-by', 'owner', '--tags', 'subagent-start');
+      '--issued-by', 'owner', '--tags', 'subagent-start', '--start-as', 'released');
     const hits = procedure.forSubagentStart(r);
     assert.deepEqual(hits.map((e) => e.title), ['First', 'Second']);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
@@ -131,7 +134,7 @@ test('buildContext: never exceeds its own cap, even with a very large procedures
   try {
     run(r, 'log', 'procedure', '--title', 'Huge',
       '--rule', 'x'.repeat(subagentstart.CAP_CHARS * 2), '--issued-by', 'owner',
-      '--tags', 'subagent-start');
+      '--tags', 'subagent-start', '--start-as', 'released');
     const text = subagentstart.buildContext(r);
     assert.ok(text.length <= subagentstart.CAP_CHARS * 2 + 500,
       // The procedures block itself is never cut (a human's rule is not
