@@ -51,7 +51,7 @@ code.
 | tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search latency | cold and warm, median and P95, per corpus size: see [Latency](#latency) | `node bench/cold-find.mjs` |
-| what you download | **1190 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+| what you download | **1372 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
