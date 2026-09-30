@@ -65,6 +65,7 @@ import { fileURLToPath } from 'node:url';
 import * as bidi from '../src/bidi.mjs';
 import { sanitizeForDisplay } from '../src/cli/display.mjs';
 import * as memory from '../src/memory.mjs';
+import * as authority from '../src/authority.mjs';
 import * as search from '../src/search.mjs';
 import * as retrieval from '../src/retrieval.mjs';
 import * as capability from '../src/capability.mjs';
@@ -107,6 +108,27 @@ const PKG_ROOT = path.dirname(HERE);
  * (`chatgpt`, `codex`, `cursor`). Unset, the honest answer is that we
  * only know it came over the bridge.
  */
+/**
+ * Y4b: the highest tier a bridge caller may assert. The bridge cannot
+ * tell a person from the agent driving it — `user` needs a person who
+ * said so (the CLI's `--authority user`, or the dashboard behind a
+ * password session), never a tool argument. So a claimed tier above
+ * `agent` is lowered to `agent` and the demotion recorded in
+ * `authority_clamped_from`, exactly as the process ceiling does on the
+ * write path (which still applies on top, when lower). A call that names
+ * no tier gets the write path's default, like the CLI (O1: one path).
+ */
+const BRIDGE_MAX_AUTHORITY = 'agent';
+
+function bridgeAuthority(data) {
+  if (data.authority === undefined || data.authority === null || String(data.authority).trim() === '') {
+    const { authority: _drop, ...rest } = data;
+    return rest;
+  }
+  const c = authority.clampTier(data.authority, BRIDGE_MAX_AUTHORITY);
+  return c.clamped ? { ...data, authority: c.tier, authority_clamped_from: c.from } : { ...data, authority: c.tier };
+}
+
 function resolveAgent() {
   const set = String(process.env.CHEAP_MEM_AGENT ?? '').trim();
   return set || 'mcp-client';
@@ -1039,7 +1061,7 @@ async function handleCall(name, args) {
       // fact — and a foreign agent could file its work under somebody
       // else's name.
       const { type, project = null, tags, agent: _ignored, id: _no, ts: _neither, ...fields } = args;
-      let data = { ...fields, agent: resolveAgent() };
+      let data = bridgeAuthority({ ...fields, agent: resolveAgent() });
       if (Array.isArray(tags)) data.tags = tags;
       // **Snippets: the redaction gate applies here too.** The bridge MAY
       // write this type — unlike `procedure`/`workflow` it is not an
@@ -1068,6 +1090,7 @@ async function handleCall(name, args) {
       if (data.retires_id && data.state === 'superseded') {
         const r = memory.supersedeEntry(root, type, String(data.retires_id), {
           by: data.by_id ? String(data.by_id) : null, project, agent: data.agent, why: data.why ?? null,
+          authority: data.authority ?? null,
         });
         return textResult(`superseded: ${data.retires_id} by ${data.by_id} (line ${r.entry.id})`);
       }
