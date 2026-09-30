@@ -123,6 +123,38 @@ process.stdin.on("end", () => {
   try { $AnswerJson = ($StdinJson | & node -e $CheckScript $CheckerUrl 2>$null) -join '' } catch { $AnswerJson = '' }
 }
 
+# --- 0c) Closing report (X2b) ----------------------------------------
+#
+# The task-end occasion of the integration contract: which duties from
+# THIS session are still open, said briefly (src/closingreport.mjs; the
+# count is the one behind the day's number - this only filters). Report
+# only, never block: the output is a systemMessage, never decision:block.
+# Only when step 0 blocks nothing (an answer correction wins and the
+# report is then not used up). Once per session per duty. Same as the
+# POSIX hook.
+$ReportJson = ''
+if (-not $AnswerJson -and $StdinJson) {
+  $Reporter = $null
+  foreach ($c in @((Join-Path $Root 'src/closingreport.mjs'), (Join-Path $Here '../src/closingreport.mjs'))) {
+    if (Test-Path -LiteralPath $c) { $Reporter = $c; break }
+  }
+  if ($Reporter) {
+    $ReporterUrl = ([System.Uri]::new($Reporter)).AbsoluteUri
+    $ReportScript = @'
+let raw = ""; process.stdin.on("data", (d) => { raw += d; });
+process.stdin.on("end", () => {
+  import(process.argv[1]).then((m) => {
+    let input = null; try { input = JSON.parse(raw); } catch { return; }
+    const r = m.stopReport(process.env.CHEAP_MEM_ROOT, input);
+    if (r) process.stdout.write(JSON.stringify(r));
+  }).catch(() => {});
+});
+'@
+    $env:CHEAP_MEM_ROOT = $Root
+    try { $ReportJson = ($StdinJson | & node -e $ReportScript $ReporterUrl 2>$null) -join '' } catch { $ReportJson = '' }
+  }
+}
+
 # Which PowerShell is running this hook? The sub-hooks below must be
 # started with the SAME host: install/windows.ps1 wires hooks up with
 # `powershell -NoProfile -File`, while a developer or CI may run them
@@ -263,7 +295,10 @@ if ($env:MEM_REFLECT -eq '1') {
 }
 
 # --- 0b) Emit the answer-check result (see step 0 above) ------------
-# The only stdout this hook ever produces.
+# The only stdout this hook ever produces: the answer check's block, or -
+# when there is none - the closing report's systemMessage.
 if ($AnswerJson) { [Console]::Out.Write("$AnswerJson`n") }
+# The closing report (0c) only when no answer correction went out.
+if (-not $AnswerJson -and $ReportJson) { [Console]::Out.Write("$ReportJson`n") }
 
 exit 0

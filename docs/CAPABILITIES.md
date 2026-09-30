@@ -47,6 +47,7 @@ directory. The section number in brackets is where it is explained.
 | Module | What it is |
 |---|---|
 | `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
+| `afterfailure.mjs` | X2b: the after-error occasion — what the PostToolUseFailure hook (`bin/mem-after-failure`, bash and PowerShell) asks and shows after a tool call really failed: parse the failure, pick the error and learning lanes, book the journal line with its reason |
 | `agents.mjs` | registered agents: who exists, what each is for |
 | `answercheck.mjs` | the Stop hook's last-answer check: patterns tied to a LOGGED error in this memory, never on suspicion, dropped once their own measured hit rate falls under 1 in 5 |
 | `append.mjs` | the one place a JSONL drawer is appended to — guards against a fused line when the file did not already end on a newline |
@@ -65,6 +66,7 @@ directory. The section number in brackets is where it is explained.
 | `claim.mjs` | taking over a message with an expiry: append-only claim/done/failed lines, first unexpired claim counts, a second one stays visibly invalid, resumption after expiry; git is not a lock (X4) |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
+| `closingreport.mjs` | X2b: the task-end occasion — the Stop hook reports the open duties written in this session (a systemMessage, never a block; capped, once per duty; filtered from `today.decisionsForHuman`, no second count) |
 | `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |

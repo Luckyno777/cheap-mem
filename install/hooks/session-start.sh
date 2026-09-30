@@ -13,6 +13,23 @@
 set -u
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 
+# Hook time starts here — the journal line at the bottom carries it.
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+  MEM_SS_START_MS="${_s}${_f:0:3}"
+  unset _s _f
+else
+  MEM_SS_START_MS="$(( $(date +%s) * 1000 ))"
+fi
+
+# The hook JSON (session id, source) — read for the journal line only.
+# Capped: a start hook must never wait on a stdin nobody closes.
+MEM_SS_IN=""
+if [ ! -t 0 ]; then
+  if command -v timeout >/dev/null 2>&1; then MEM_SS_IN="$(timeout 2 cat 2>/dev/null || true)"
+  else MEM_SS_IN="$(cat 2>/dev/null || true)"; fi
+fi
+
 # Resolve the memory instead of trusting a baked-in path.
 #
 # **The finding (2026-09-08, second machine.)** The installer wrote the
@@ -162,6 +179,34 @@ if [ -f "$CHEAP_MEM_ROOT/bin/mem" ]; then
     echo "$MEM_TODAY"
     echo ""
   fi
+fi
+
+# --- The journal line (X2b) -------------------------------------------
+#
+# The session-start occasion had no journal line: every other hook
+# booked what it delivered, this one printed straight into the context
+# and left no trace, so "did the start block arrive?" could not be
+# answered from the journal. One line, occasion `session-start`, reason
+# null (delivered); bytes and hits are not counted here (the block is
+# printed in several pieces — not measured is not 0). Best-effort and
+# silent: a measurement must not stop what it measures.
+for MEM_SS_CODE in "${CHEAP_MEM_CODE:-}" "$CHEAP_MEM_ROOT"; do
+  [ -n "$MEM_SS_CODE" ] && [ -f "$MEM_SS_CODE/src/injection.mjs" ] && break
+  MEM_SS_CODE=""
+done
+if [ -n "$MEM_SS_CODE" ]; then
+  MEM_SS_START_MS="$MEM_SS_START_MS" MEM_SS_INPUT="$MEM_SS_IN" MEM_SS_SRC="$MEM_SS_CODE/src/injection.mjs" \
+    node -e '
+      import(require("node:url").pathToFileURL(process.env.MEM_SS_SRC).href).then((m) => {
+        let session = null;
+        try { session = String(JSON.parse(process.env.MEM_SS_INPUT).session_id || "") || null; } catch { /* no JSON: no session id */ }
+        const start = Number(process.env.MEM_SS_START_MS);
+        m.book(process.env.CHEAP_MEM_ROOT, {
+          session, occasion: m.OCCASION.SESSION_START, reason: null,
+          bytes: null, hits: 0, searched: null,
+          durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
+        });
+      }).catch(() => {});' >/dev/null 2>&1 || true
 fi
 
 cat <<HINTS

@@ -55,6 +55,9 @@ export const ERROR_FACTOR = 2;
 export const BUDGET_MS = Object.freeze({
   [OCCASION.QUESTION]: 4000,
   [OCCASION.BEFORE_EDIT]: 1000,
+  // After a failed tool call (X2b): the hook runs one `mem find` under a
+  // 5 s cap plus a parse and a render; the sibling house budgets 2500 ms.
+  [OCCASION.AFTER_ERROR]: 2500,
 });
 
 /**

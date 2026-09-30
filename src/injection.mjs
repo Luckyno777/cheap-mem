@@ -42,6 +42,21 @@ export const OCCASION = Object.freeze({
   QUESTION: 'question',
   /** PreToolUse — before an edit/write, literal path lookup. */
   BEFORE_EDIT: 'before-edit',
+  /**
+   * PostToolUseFailure (matcher Bash|Edit|Write) — after a tool really
+   * failed, before the second attempt (X2b). `bin/mem-after-failure`
+   * books it. The swallowed failure (`mem-catch-fail`, PostToolUse) is
+   * NOT booked here: it runs after every successful Bash call and one
+   * line per run would be exactly the noise it was built against.
+   */
+  AFTER_ERROR: 'after-error',
+  /**
+   * SessionStart — the session began and the start hook put the core and
+   * the recent context into it (X2b). A line means "the block was
+   * delivered": `hits` is not counted for it and `bytes` stays `null`
+   * (the hook prints in several pieces; not measured is not 0).
+   */
+  SESSION_START: 'session-start',
 });
 
 /**
@@ -62,6 +77,17 @@ export const REASON = Object.freeze({
   ALREADY_SHOWN: 'already-shown',
   /** The retrieval did not run at all (switched off, no memory). */
   OFF: 'off',
+  /**
+   * The tool call was interrupted, not failed (`is_interrupt`): nobody
+   * learns from an abort, and it is not a fault of the hook either.
+   * Its own reason so it is not counted as `no-input` (X2b).
+   */
+  INTERRUPT: 'interrupt',
+  /**
+   * A failure arrived, but with no error text under any known field
+   * name — the one outage the after-error hook can have (X2b).
+   */
+  NO_INPUT: 'no-input',
 });
 
 const REASONS = new Set(Object.values(REASON));

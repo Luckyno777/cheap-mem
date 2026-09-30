@@ -23,6 +23,9 @@
 #                 `error_id` is not actually logged here is dropped
 #                 before it can match anything. No populated, matching
 #                 patterns file means this step is a no-op.
+#   0c. Closing    the open duties of THIS session, briefly (X2b,
+#      report     src/closingreport.mjs): a `systemMessage`, never a block,
+#                 once per session per duty; silent when there is none.
 #   1. Capture   model-free (~50ms), ALWAYS, every environment / repo.
 #   2. Persist   commit raw/ + push — SYNCHRONOUS, best-effort. Nothing
 #                else pushes captures, so this hook does. Synchronous
@@ -114,6 +117,39 @@ if [ -n "$CHECKER" ] && [ -n "$STDIN_JSON" ]; then
         if (r) process.stdout.write(JSON.stringify(r));
       }).catch(() => {});
     });' "$CHECKER_URL" 2>/dev/null)" || ANSWER_JSON=""
+fi
+
+# --- 0c) Closing report (X2b) ----------------------------------------
+# The task-end occasion of the integration contract: which duties from
+# THIS session are still open, said briefly (src/closingreport.mjs; the
+# count is the one behind the day's number — this only filters). Report
+# only, never block: the output is `{"systemMessage":...}`, never
+# `decision:block`. And only when step 0 blocks nothing: an answer
+# correction wins, and the report is then NOT used up (it comes at the
+# next end of turn). Once per session per duty.
+REPORT_JSON=""
+if [ -z "$ANSWER_JSON" ] && [ -n "$STDIN_JSON" ]; then
+  REPORTER=""
+  if   [ -f "$ROOT/src/closingreport.mjs" ]; then REPORTER="$ROOT/src/closingreport.mjs"
+  elif [ -f "$HERE/../src/closingreport.mjs" ]; then REPORTER="$HERE/../src/closingreport.mjs"
+  fi
+  if [ -n "$REPORTER" ]; then
+    REPORTER_FS="$REPORTER"
+    command -v cygpath >/dev/null 2>&1 && REPORTER_FS="$(cygpath -m "$REPORTER")"
+    case "$REPORTER_FS" in
+      /*) REPORTER_URL="file://$REPORTER_FS" ;;
+      *)  REPORTER_URL="file:///$REPORTER_FS" ;;
+    esac
+    REPORT_JSON="$(printf '%s' "$STDIN_JSON" | CHEAP_MEM_ROOT="$ROOT" cap 10 node -e '
+      let raw = ""; process.stdin.on("data", (d) => { raw += d; });
+      process.stdin.on("end", () => {
+        import(process.argv[1]).then((m) => {
+          let input = null; try { input = JSON.parse(raw); } catch { return; }
+          const r = m.stopReport(process.env.CHEAP_MEM_ROOT, input);
+          if (r) process.stdout.write(JSON.stringify(r));
+        }).catch(() => {});
+      });' "$REPORTER_URL" 2>/dev/null)" || REPORT_JSON=""
+  fi
 fi
 
 # --- 1) Capture (model-free, always) --------------------------------
@@ -210,7 +246,10 @@ if [ "${MEM_REFLECT:-}" = "1" ]; then
 fi
 
 # --- 0b) Emit the answer-check result (see step 0 above) ------------
-# The only stdout this hook ever produces.
+# The only stdout this hook ever produces: the answer check's block,
+# or — when there is none — the closing report's `systemMessage`.
 [ -n "$ANSWER_JSON" ] && printf '%s\n' "$ANSWER_JSON"
+# The closing report (0c) only when no answer correction went out.
+[ -z "$ANSWER_JSON" ] && [ -n "$REPORT_JSON" ] && printf '%s\n' "$REPORT_JSON"
 
 exit 0

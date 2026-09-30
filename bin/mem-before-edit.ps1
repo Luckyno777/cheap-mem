@@ -57,6 +57,8 @@ function Write-Note { param([string]$msg)
   if ($env:MEM_BEFORE_EDIT_TRACE -eq '1') { [Console]::Error.WriteLine("mem-before-edit: $msg") }
 }
 
+# Hook time starts here - the journal line carries it (`duration_ms`).
+$HookStartMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 if ($env:MEM_BEFORE_EDIT_OFF -eq '1') { Write-Trace 'off-switch'; exit 0 }
 if ($env:MEM_HOOK_OFF -eq '1') { Write-Trace 'hook-off'; exit 0 }
 
@@ -90,10 +92,13 @@ if (-not $Root) { Write-Trace "no-root (CHEAP_MEM_ROOT=$($env:CHEAP_MEM_ROOT))";
 # itself, or the tool lives in a separate checkout next to this script.
 $HookDir = Split-Path -Parent $PSCommandPath
 $MemArgv = $null
+$ToolRoot = $null
 if (Test-Path -LiteralPath (Join-Path $Root 'bin/mem')) {
   $MemArgv = @((Join-Path $Root 'bin/mem'))
+  $ToolRoot = $Root
 } elseif (Test-Path -LiteralPath (Join-Path $HookDir 'mem')) {
   $MemArgv = @((Join-Path $HookDir 'mem'), '--root', $Root)
+  $ToolRoot = Split-Path -Parent $HookDir
 } else {
   Write-Trace "no-tool (Root=$Root HookDir=$HookDir)"
   exit 0
@@ -101,6 +106,42 @@ if (Test-Path -LiteralPath (Join-Path $Root 'bin/mem')) {
 
 $In = ''
 if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
+
+# --- The journal line (X2b) ---------------------------------------------
+#
+# The before-edit occasion had a name in the journal vocabulary and no
+# writer. Every run that gets as far as a query now books ONE line: what
+# it showed, or why nothing (the nothing is booked too). Same reasons as
+# bin/mem-before-edit. No sources: this hook works on the rendered text,
+# not on entries. Best-effort and silent.
+$BookScript = @'
+  import(process.env.MEM_J_SRC).then((m) => {
+    const start = Number(process.env.MEM_J_START);
+    const reason = process.env.MEM_J_REASON;
+    const session = process.env.MEM_J_SESSION;
+    m.book(process.env.MEM_J_ROOT, {
+      session: session && session !== "none" ? session : null,
+      occasion: m.OCCASION.BEFORE_EDIT, reason: reason === "-" ? null : reason,
+      bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
+      searched: null, sources: [],
+      durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
+    });
+  }).catch(() => {});
+'@
+function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes) {
+  try {
+    $inj = Join-Path $ToolRoot 'src/injection.mjs'
+    if (-not (Test-Path -LiteralPath $inj)) { return }
+    $env:MEM_J_SRC = ([System.Uri]::new([System.IO.Path]::GetFullPath($inj))).AbsoluteUri
+    $env:MEM_J_ROOT = $Root
+    $env:MEM_J_SESSION = $Session
+    $env:MEM_J_REASON = $Reason
+    $env:MEM_J_HITS = [string]$Hits
+    $env:MEM_J_BYTES = [string]$Bytes
+    $env:MEM_J_START = [string]$HookStartMs
+    & node -e $BookScript 2>$null | Out-Null
+  } catch { }
+}
 
 # The query is the path, but not all of it: an absolute path never
 # appears in an entry (it belongs to one machine), the last two
@@ -199,6 +240,7 @@ $PointerScript = @'
 $env:MEM_Q = $Query
 
 if ($Ahead -match '"action":"pointer"') {
+  Add-JournalLine 'already-shown' 0 0
   [Console]::Out.Write((($Ahead | & node -e $PointerScript $PtrUrl 2>$null) -join ''))
   exit 0
 }
@@ -210,8 +252,10 @@ if ($Ahead -match '"action":"pointer"') {
 # so two segments alone ran the hook at a third of its reach, and this
 # is the hook that fires DURING THE WORK.
 $Hits = (& node @MemArgv component $Query --json 2>$null) -join "`n"
-if ($LASTEXITCODE -ne 0) { Write-Trace 'search-failed'; exit 0 }
-if (-not $Hits) { Write-Trace 'no-hits'; exit 0 }
+# A search that failed books as `rebuild` (the index did not answer) -
+# the closest reason in the closed vocabulary; see bin/mem-before-edit.
+if ($LASTEXITCODE -ne 0) { Add-JournalLine 'rebuild' 0 0; Write-Trace 'search-failed'; exit 0 }
+if (-not $Hits) { Add-JournalLine 'empty' 0 0; Write-Trace 'no-hits'; exit 0 }
 
 # The lane filter and the line rendering, verbatim from the POSIX hook.
 # The set of lanes that WARN is a decision with a reason behind it
@@ -239,7 +283,7 @@ $PickScript = @'
 if (-not $env:MEM_BEFORE_EDIT_TOP) { $env:MEM_BEFORE_EDIT_TOP = '3' }
 $Pick = ($Hits | & node -e $PickScript 2>$null) -join "`n"
 
-if (-not $Pick) { Write-Trace 'no-pick'; exit 0 }
+if (-not $Pick) { Add-JournalLine 'empty' 0 0; Write-Trace 'no-pick'; exit 0 }
 
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
@@ -285,6 +329,7 @@ Write-Note ("mark written: exists=" + $(if (Test-Path -LiteralPath $Mark) { 'yes
   " fp=$Fp count=$Count")
 
 if ($Verdict -match '"action":"pointer"') {
+  Add-JournalLine 'already-shown' 0 0
   [Console]::Out.Write((($Verdict | & node -e $PointerScript $PtrUrl 2>$null) -join ''))
   exit 0
 }
@@ -312,5 +357,6 @@ $FinalScript = @'
     }));
   }
 '@
+Add-JournalLine '-' $Count ([System.Text.Encoding]::UTF8.GetByteCount($Pick))
 [Console]::Out.Write(((& node -e $FinalScript 2>$null) -join ''))
 exit 0

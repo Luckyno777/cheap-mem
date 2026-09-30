@@ -73,6 +73,15 @@ note() { [ "${MEM_BEFORE_EDIT_TRACE:-}" = "1" ] && printf 'mem-before-edit: %s\n
 [ "${MEM_BEFORE_EDIT_OFF:-}" = "1" ] && { trace "off-switch"; exit 0; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && { trace "hook-off"; exit 0; }
 
+# Hook time starts here — the journal line carries it (`duration_ms`).
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+  MEM_BE_START_MS="${_s}${_f:0:3}"
+  unset _s _f
+else
+  MEM_BE_START_MS="$(( $(date +%s) * 1000 ))"
+fi
+
 PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
 
 # **Backslashes become slashes before anything is looked up.**
@@ -113,8 +122,10 @@ done
 HOOK_DIR="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
 if [ -f "$ROOT/bin/mem" ]; then
   RUN_MEM=(node "$ROOT/bin/mem")
+  TOOL_ROOT="$ROOT"
 elif [ -f "$HOOK_DIR/mem" ]; then
   RUN_MEM=(node "$HOOK_DIR/mem" --root "$ROOT")
+  TOOL_ROOT="$(dirname "$HOOK_DIR")"
 else
   trace "no-tool (ROOT=$ROOT HOOK_DIR=$HOOK_DIR)"
   exit 0
@@ -124,6 +135,37 @@ fi
 . "$HOOK_DIR/_portable.sh"
 
 IN="$(cat)"
+
+# --- The journal line (X2b) ----------------------------------------------
+#
+# The before-edit occasion had a name in the journal vocabulary
+# (`before-edit`, and a latency budget) and no writer: nothing booked it,
+# so "did the hook run, and what did it find?" had no answer. From here
+# every run that gets as far as a query books ONE line — what it showed,
+# or why nothing (the nothing is booked too). No sources: this hook works
+# on the rendered text, not on entries, so nothing downstream can say
+# which shown entry was touched afterwards (not measured, not 0).
+#
+#   journal_book <reason|-> <hits> <bytes>
+#
+# Best-effort and silent: a measurement must not stop what it measures.
+journal_book() {
+  [ -f "$TOOL_ROOT/src/injection.mjs" ] || return 0
+  MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION:-}" \
+    MEM_J_REASON="$1" MEM_J_HITS="$2" MEM_J_BYTES="$3" MEM_J_START="$MEM_BE_START_MS" \
+    node -e '
+      import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
+        const start = Number(process.env.MEM_J_START);
+        const reason = process.env.MEM_J_REASON;
+        m.book(process.env.MEM_J_ROOT, {
+          session: process.env.MEM_J_SESSION && process.env.MEM_J_SESSION !== "none" ? process.env.MEM_J_SESSION : null,
+          occasion: m.OCCASION.BEFORE_EDIT, reason: reason === "-" ? null : reason,
+          bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
+          searched: null, sources: [],
+          durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
+        });
+      }).catch(() => {});' >/dev/null 2>&1 || true
+}
 
 READING="$(printf '%s' "$IN" | node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
@@ -224,6 +266,7 @@ AHEAD="$(MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
 note "mark: PTR_URL=$PTR_URL MARK=$MARK exists=$([ -f "$MARK" ] && echo yes || echo no) level=$LEVEL ahead=$AHEAD"
 
 if printf '%s' "$AHEAD" | grep -q '"action":"pointer"'; then
+  journal_book already-shown 0 0
   printf '%s' "$AHEAD" | MEM_Q="$QUERY" node -e '
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
       import(process.argv[1]).then((p) => {
@@ -266,8 +309,10 @@ fi
 # entry's own text). On a stale/missing table it falls back to the
 # unchanged live search AND kicks off a background rebuild — it never
 # rebuilds inline, a full build is far too slow for this hook's budget.
-HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --hook --json 2>/dev/null)" || { trace "search-failed"; exit 0; }
-[ -z "$HITS" ] && { trace "no-hits"; exit 0; }
+# A search that failed or ran into its cap books as `rebuild` (the index
+# did not answer in time) — the closest reason in the closed vocabulary.
+HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --hook --json 2>/dev/null)" || { journal_book rebuild 0 0; trace "search-failed"; exit 0; }
+[ -z "$HITS" ] && { journal_book empty 0 0; trace "no-hits"; exit 0; }
 
 PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
@@ -292,7 +337,9 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
     process.stdout.write(out.join("\n"));
   })' 2>/dev/null)"
 
-[ -z "$PICK" ] && { trace "no-pick"; exit 0; }
+# Hits, but none in a lane that warns: the search ran and there was
+# nothing to say — `empty`, not silence.
+[ -z "$PICK" ] && { journal_book empty 0 0; trace "no-pick"; exit 0; }
 
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
@@ -317,6 +364,7 @@ MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" MEM_FP="$FP" MEM_COUNT="$COUNT" node -e '
 note "mark written: exists=$([ -f "$MARK" ] && echo yes || echo no) fp=$FP count=$COUNT"
 
 if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
+  journal_book already-shown 0 0
   printf '%s' "$VERDICT" | MEM_Q="$QUERY" node -e '
     let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
       import(process.argv[1]).then((p) => {
@@ -331,6 +379,7 @@ if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
   exit 0
 fi
 
+journal_book - "$COUNT" "$(printf '%s' "$PICK" | wc -c | tr -d ' ')"
 printf '%s' "$PICK" | MEM_Q="$QUERY" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
     const q = process.env.MEM_Q;
