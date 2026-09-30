@@ -44,8 +44,9 @@ function build() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-g1b-'));
   execFileSync('node', [MEM, '--root', r, 'init'], { stdio: 'ignore' });
   const old = mem(r, 'log', 'decision', '--topic', 'queue', '--choice', 'redis queue zebracorn',
-    '--why', 'fast enough', '--json').out;
-  const id = JSON.parse(old).id;
+    '--why', 'fast enough').out;
+  const id = /id: (\S+)/.exec(old)?.[1];
+  assert.ok(id, `fixture broken: no id in\n${old}`);
   mem(r, 'correction', 'decision', id, '--choice', 'postgres queue zebracorn', '--why', 'one store less');
   // Control: no correction edge, no valid_from — open start.
   mem(r, 'log', 'decision', '--topic', 'cache', '--choice', 'local cache zebracorn', '--why', 'simple');
