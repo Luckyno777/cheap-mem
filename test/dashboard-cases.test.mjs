@@ -18,6 +18,11 @@
 // on any route, the Host check on every read route, the content security
 // policy, and an empty store that is not a problem.
 //
+// Known difference, deliberately NOT in the cases: an absent retrieval
+// journal is 'ok' here (a fresh install), but 'warnung' in lucky-mem
+// ("no retrieval journal on this machine"). The empty-store case
+// therefore only rules out error and unknown.
+//
 // invariant: vier-zustaende-eigener-ton
 // invariant: kein-cors-kopf
 // invariant: host-riegel-lesewege
@@ -43,7 +48,7 @@ const JS = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'
 const CSS = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.css'), 'utf8');
 
 /** The pin: the same hash stands in lucky-mem's test/dashboard-faelle.test.mjs. */
-const CASES_SHA256 = '3b7e8194469463e3636bf02ea8d3f16b062e77f8aea04546ab0f75cff03a5ce6';
+const CASES_SHA256 = 'a03e54df99ea45a1c8bd02c1771cfd4fbd4b47a81fcea6ff32593cb13a51905a';
 const KINDS = ['tone', 'tone-distinct', 'tone-distinct-all', 'css-rule', 'no-cors', 'csp', 'host', 'journal', 'empty-store'];
 
 const cases = fs.readFileSync(CASES_FILE, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l));

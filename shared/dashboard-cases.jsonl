@@ -30,4 +30,4 @@
 {"id":"host-facts-at-loopback-control","invariant":"host-riegel-lesewege","kind":"host","route":"facts-at","host":"127.0.0.1:{port}","status":"not-403"}
 {"id":"unmeasurable-absent-journal-is-null","invariant":"nicht-messbar-ist-nicht-null","kind":"journal","journal":"absent","per_entry_metric":"null","measurable":false}
 {"id":"unmeasurable-read-empty-journal-is-zero","invariant":"nicht-messbar-ist-nicht-null","kind":"journal","journal":"read-empty","per_entry_metric":"zero","measurable":true}
-{"id":"empty-store-is-not-a-problem","invariant":"leer-ist-kein-bestehen","kind":"empty-store","state_not":["warning","error","unknown"]}
+{"id":"empty-store-is-not-a-problem","invariant":"leer-ist-kein-bestehen","kind":"empty-store","state_not":["error","unknown"]}
