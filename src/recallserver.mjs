@@ -27,7 +27,8 @@
  * What a server must check on top is its OWN code: if `src/` holds
  * another state than at start, it answers `stale`, the client falls back
  * to the direct path (which loads the new code), and the server stops
- * listening until `mem serve` restarts.
+ * listening; run as a child under src/recallserver-keeper.mjs (as
+ * `mem serve` does) it is started again with a fresh import.
  *
  * **Read only, local only.** The endpoint can do exactly what the hook
  * can: answer one search. Unix socket in a 0700 directory, key file
@@ -43,6 +44,9 @@ import { fileURLToPath } from 'node:url';
 import * as place from './recallserver-place.mjs';
 
 const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Exit code of the server child process on a detected code change (EX_TEMPFAIL). */
+export const STALE_RC = 75;
 
 /**
  * The state of the code this process loaded: a print over `src/` (count,
@@ -112,7 +116,9 @@ function realRoot(r) {
  * is not an error of the process that hosts it (`mem serve` runs on,
  * the hook falls back to the direct path when there is no socket).
  */
-export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log = null } = {}) {
+export async function start(root, {
+  env = process.env, codeRoot = CODE_ROOT, log = null, onStale = null,
+} = {}) {
   const say = log ?? ((t) => process.stderr.write(`recall server: ${t}\n`));
   const where = place.place(root, env);
   if (process.platform !== 'win32' && Buffer.byteLength(where.socket) > place.MAX_SOCKET_PATH) {
@@ -160,7 +166,12 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
       // instead of hearing `stale` once per turn. Restarting `mem serve`
       // brings it back with the new code.
       say('code under src/ changed since the start — recall server stopped (restart mem serve to bring it back)');
-      setImmediate(() => { if (close) close(); });
+      // `onStale`: the child process under src/recallserver-keeper.mjs then
+      // exits with STALE_RC, and the keeper starts it again with a fresh import.
+      setImmediate(() => {
+        if (!close) return;
+        close().then(() => { if (onStale) onStale(); });
+      });
       return { ok: false, reason: 'stale' };
     }
     // The client gives up at `deadline_ms`. A question still in the queue

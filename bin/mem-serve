@@ -1267,7 +1267,7 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
       try { runningmark.writeMarker(root, { service: 'serve', codePath: PACKAGE_ROOT }); }
       catch (e) { process.stderr.write(`serve: could not write the W1 start marker: ${e?.message || e}\n`); }
       if (measureWeekly) setImmediate(measure);
-      // M10: the warm recall server (src/recallserver.mjs), same process,
+      // M10: the warm recall server (src/recallserver.mjs), a child process,
       // a Unix socket under .pipeline/recall/. Only a REAL server starts
       // it (`mem serve`, `recall: true`) — the same rule as `measure`: a
       // probe that starts this server to test a route must not find a
@@ -1275,9 +1275,10 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
       // it off. A failed start leaves the console running; the hook then
       // simply finds no socket and runs direct.
       if (recall && env.MEM_RECALL_SERVER !== '0') {
-        import('../src/recallserver.mjs')
-          .then((r) => r.start(root, { env }))
-          .then((r) => { if (r?.running) server.once('close', () => { r.close(); }); })
+        // As a child process under a keeper (M10 follow-up): after a code
+        // change it restarts itself with a fresh import.
+        import('../src/recallserver-keeper.mjs')
+          .then((k) => { const kept = k.keep(root, { env }); server.once('close', () => { kept.stop(); }); })
           .catch((e) => process.stderr.write(`serve: recall server not started: ${e?.message || e}\n`));
       }
       resolve({ server, cfg });

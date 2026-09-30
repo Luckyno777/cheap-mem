@@ -136,6 +136,7 @@ directory. The section number in brackets is where it is explained.
 | `recallrender.mjs` | Z1c: the one renderer of the recalled lines — real content from `retrieval.BODY_FIELDS`, the entry ID per hit, cuts on a sentence or clause boundary with a visible marker |
 | `recallserver.mjs` | M10: the warm recall server `mem serve` starts — a Unix socket (Windows: named pipe) under `.pipeline/recall/`, key file 0600, that runs the SAME `find` handler as `mem find --json`; answers `stale` and stops listening when `src/` changed |
 | `recallserver-place.mjs` | M10: where the recall server listens and the client's exit codes — Node built-ins only, so the per-turn client (`bin/mem-retrieve-client.mjs`) never loads the search path |
+| `recallserver-keeper.mjs` | M10: runs the recall server as a child of `mem serve` and starts it again with a fresh import after a code change — at most once per 60 s, one log line per restart |
 | `recallsignal.mjs` | Z1c: does a short prompt carry a search signal? An ID, a file name, an error code or a rare word searches; confirmations never do; deterministic |
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
 | `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |

@@ -23,6 +23,7 @@ import { spawn, spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as place from '../src/recallserver-place.mjs';
 import * as recallserver from '../src/recallserver.mjs';
+import * as keeper from '../src/recallserver-keeper.mjs';
 import * as injection from '../src/injection.mjs';
 
 const START_COMMIT = 'e474505';
@@ -286,4 +287,66 @@ test('M10-9: a question whose client already gave up is skipped, not searched', 
     assert.equal(inTime.ok, true);
     assert.match(inTime.stdout, /"hits"/);
   } finally { await s.close(); }
+});
+
+function hookAsync(root, session, extra = {}) {
+  return new Promise((resolve) => {
+    const k = spawn('bash', [HOOK], {
+      env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_RETRIEVE_ROOTS: root, MEM_RETRIEVE_MIN: '0.1',
+        MEM_RETRIEVE_NO_PULL: '1', MEM_HOOK_OFF: '', ...extra },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let out = '';
+    k.stdout.on('data', (x) => { out += x; });
+    k.on('exit', (status) => resolve({ out, status }));
+    k.stdin.end(JSON.stringify({ session_id: session, prompt: PROMPT }));
+  });
+}
+
+test('M10-10: code change -> stale -> the server restarts itself, the rate limit holds', async () => {
+  const root = build();
+  const code = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-m10-code-'));
+  made.push(code);
+  fs.mkdirSync(path.join(code, 'src'), { recursive: true });
+  const file = path.join(code, 'src', 'a.mjs');
+  fs.writeFileSync(file, 'export const a = 1;\n');
+  const said = [];
+  const GAP = 2000;
+  const k = keeper.keep(root, {
+    env: { ...process.env, MEM_RECALL_SERVER_CODE_STATE: code, MEM_RECALL_SERVER_RESTART_MS: String(GAP) },
+    log: (t) => said.push(t),
+  });
+  const sock = place.place(root, {}).socket;
+  const waitSocket = async () => {
+    const until = Date.now() + 15000;
+    while (!fs.existsSync(sock) && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+    return fs.existsSync(sock);
+  };
+  const waitStarts = async (n) => {
+    const until = Date.now() + 15000;
+    while (k.starts.length < n && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
+  };
+  try {
+    assert.ok(await waitSocket(), 'the first start listens');
+    await hookAsync(root, 's-1');
+    assert.equal(lines(root).at(-1).path, 'server');
+
+    fs.writeFileSync(file, 'export const a = 22;\n');
+    const r2 = await hookAsync(root, 's-2');
+    assert.match(r2.out, /Recalled automatically/, 'the stale turn is answered direct');
+    assert.equal(lines(root).at(-1).path, 'direct');
+    assert.equal(lines(root).at(-1).path_reason, 'server-stale');
+    await waitStarts(2);
+    assert.ok(await waitSocket(), 'after the restart a server listens again');
+    await hookAsync(root, 's-3');
+    assert.equal(lines(root).at(-1).path, 'server', 'warm again, no manual step');
+
+    fs.writeFileSync(file, 'export const a = 333;\n');
+    await hookAsync(root, 's-4');
+    await waitStarts(3);
+    assert.equal(k.starts.length, 3, `third start missing: ${said.join(' | ')}`);
+    assert.ok(k.starts[2] - k.starts[1] >= GAP, `gap ${k.starts[2] - k.starts[1]} ms < ${GAP}`);
+    assert.ok(said.some((t) => /restart in \d+ s/.test(t)), `no rate-limit line: ${said.join(' | ')}`);
+    assert.ok(said.some((t) => /restart \(code under src\/ changed\)/.test(t)), 'a log line for the restart');
+  } finally { await k.stop(); }
 });
