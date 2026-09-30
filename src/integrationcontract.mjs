@@ -268,7 +268,7 @@ export const BUDGET = Object.freeze({
   },
   [OCCASION.TASK_END]: {
     delivers: 'nothing is retrieved; the open duties of this session as one short report (systemMessage, never block); the answer check may block once, the capture is written and pushed',
-    budget: 'report at most 3 names, 3 lines, 400 characters, once per duty per session, capped at 10 s (MEM_CLOSING_REPORT=0 turns it off); capture about 50 ms; push best-effort',
+    budget: 'report at most three names, three lines and 400 characters, once per duty per session, capped at 10 s (MEM_CLOSING_REPORT=0 turns it off); capture about 50 ms; push best-effort',
   },
 });
 
