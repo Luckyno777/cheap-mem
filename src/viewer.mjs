@@ -335,6 +335,8 @@ export function collect(root) {
   const rows = all.map((e) => {
     const type = typeOfEntry(e);
     const project = projectOfEntry(e);
+    // X3b: status of a rule (only when not released) — the one function.
+    const ruleStatus = procedure.statusField(root, e);
     const details = {};
     for (const [k, v] of Object.entries(e)) {
       if (META_KEYS.has(k) || k.startsWith('_')) continue;
@@ -351,6 +353,7 @@ export function collect(root) {
       source: e._source || '',
       line: e._line || 0,
       headline: headline(e),
+      ...(ruleStatus ? { status: ruleStatus } : {}),
       retired: e._retired ? { state: e._retired.state, why: e._retired.why || null } : null,
       details,
     };
