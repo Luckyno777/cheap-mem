@@ -239,6 +239,11 @@ const link = (text, to) => `<button class="textlink" data-route="${to}">${text} 
 // label in EVERY entry display. The status comes from the server (field `status`,
 // the same function as in the CLI); released rules and legacy rules have no
 // field and get no mark.
+// X3c: "Always present" sounds like "in force". The status arrives finished
+// from the server (procedure.statusFor -> `ruleStatus`, absent otherwise):
+// no mark = released/legacy -> stays; "trial" stays with a visible label
+// (entryRows adds ruleTag); proposed, withdrawn, unknown -> out.
+const coreRuleHolds = (e) => !e.ruleStatus || e.ruleStatus === 'trial';
 const ruleTag = (status) => (status ? `<span class="badge warn rule-status" data-rule-status="${esc(status)}" title="Not a rule in force: ${esc(status)}">${esc(status)}</span>` : '');
 const open = (id, text, cls = 'btn small') => `<button class="${cls}" data-entry="${esc(id)}">${esc(text || byId(id)?.title || id)}</button>`;
 const panel = (title, body, sub = '', extra = '') =>
@@ -1264,7 +1269,7 @@ function contextPage() {
     'Look up an injection',
     `<div class="toolbar"><select class="field" id="contextCase" aria-label="Occasion"><option value="all" ${state.context === 'all' ? 'selected' : ''}>Every occasion</option>${occ.map((a) => `<option value="${esc(a)}" ${state.context === a ? 'selected' : ''}>${esc(occasionName(a))}</option>`).join('')}</select>${D.recall?.measurable ? badge('measured', 'injection journal') : badge('unknown')}</div><div class="flow"><span>01 · Occasion</span><i>→</i><span>02 · Context</span><i>→</i><span>03 · Next step</span></div><div id="contextContent">${contextContent()}</div>`,
     'The places really injected last — read, not simulated.',
-  )}${liveInjectionPanel()}<div class="grid two" style="margin-top:18px">${panel('Always present: core knowledge', entryRows(scoped().filter((e) => e.type === 'procedure' && statusOf(e.id) === 'active').slice(0, 3), 'No procedure issued yet — procedures are the knowledge every session carries.'))}${panel(
+  )}${liveInjectionPanel()}<div class="grid two" style="margin-top:18px">${panel('Always present: core knowledge', entryRows(scoped().filter((e) => e.type === 'procedure' && statusOf(e.id) === 'active' && coreRuleHolds(e)).slice(0, 3), 'No procedure issued yet — procedures are the knowledge every session carries.'))}${panel(
     'What the context does not prove',
     `<div class="row"><span class="small">Provided</span>${D.recall?.measurable ? badge('present') : badge('unknown')}</div><div class="row"><span class="small">Read by the agent</span>${badge('unknown')}</div><div class="row"><span class="small">Answer quality improved</span>${badge('unknown')}</div><p class="muted small" style="margin-top:13px">The journal knows what was injected — not whether it helped.</p>`,
   )}</div>`;

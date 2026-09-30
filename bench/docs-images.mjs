@@ -15,6 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
+import * as injection from '../src/injection.mjs';
 import { waitReady } from '../test/fixture/browser.mjs';
 import { writeState, hashUi } from '../src/docimages-state.mjs';
 
@@ -194,8 +195,45 @@ function world() {
   }
 
   link(r, ids, projects);
+  bookDemoJournal(r, ids);
 
   return r;
+}
+
+/**
+ * X9 (2026-09-30): an injection journal for the demo world. Without one
+ * the recall is "not measurable" and the brightness of every core in the
+ * knowledge space stays matte. The lines are written through the SAME
+ * path as in operation (`injection.book`), not as a hand-built file.
+ * They are real demo lines (real entry ids of the demo world, real
+ * occasions and reasons), not a forgery: the demo IS synthetic. Same
+ * selection as the sibling house's demo script (parity).
+ */
+function bookDemoJournal(root, ids) {
+  const sessions = ['demo-session-1', 'demo-session-2', 'demo-session-3', 'demo-session-4'];
+  let k = 0;
+  const line = (source, extra = {}) => {
+    const ts = new Date(NOW.getTime() - (k * 5 + 1) * 3600_000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    const session = sessions[k % sessions.length];
+    k += 1;
+    return injection.book(root, {
+      ts, session, occasion: k % 5 === 0 ? injection.OCCASION.BEFORE_EDIT : injection.OCCASION.QUESTION,
+      bytes: 900 + (k % 7) * 140, hits: 1, searched: 120, sources: [source], ...extra,
+    });
+  };
+  for (const project of Object.keys(ids)) {
+    const e = ids[project];
+    for (const [i, id] of e.decision.entries()) {
+      if (i % 3 === 2) continue; // every third stays "never injected"
+      for (let m = 0; m <= (i < 2 ? 2 : 0); m += 1) line(id);
+    }
+    for (const [i, id] of e.error.entries()) if (i % 2 === 0) line(id);
+    for (const [i, id] of e.learning.entries()) if (i % 2 === 0) line(id);
+  }
+  // Turns without an injection, with the honest reason.
+  for (const reason of ['too-weak', 'too-weak', 'no-signal', 'empty']) {
+    line('', { reason, hits: 0, bytes: 0, sources: [] });
+  }
 }
 
 function loadPlaywright() {
