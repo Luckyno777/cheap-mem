@@ -132,6 +132,11 @@ function toClaim(hit, { bodyChars, state }) {
     ts: e.ts ?? null,
     valid_from: e.valid_from ?? null,
     valid_until: e.valid_until ?? null,
+    // Carried so `validAt` can apply the correction's start of validity
+    // (its own `ts` when no `valid_from` is stated) on the gateway path
+    // too — without it the rule would hold in `mem find` and silently
+    // not in `mem retrieve` (G1b).
+    replaces_id: e.replaces_id ?? null,
     // The derived end-of-validity a supersession implies (see
     // `memory.retiredMap`), carried alongside the STATED `valid_until`
     // rather than merged into it — `validAt` is the one place that
@@ -257,7 +262,20 @@ export function validAt(claim, asOf) {
   if (!asOf) return true;
   const t = Date.parse(asOf);
   if (!Number.isFinite(t)) return true;
-  const from = claim.valid_from ? Date.parse(claim.valid_from) : null;
+  // **Start of validity: one moment, one rule (G1b, 2026-09-30).** An
+  // entry without `valid_from` holds "since the beginning of time" — a
+  // note written today about last year must stay visible for last year
+  // (test/as-of-every-lane.test.mjs). A CORRECTION is different: its
+  // predecessor's end is derived from `valid_from ?? ts` of this very
+  // entry (`memory.retiredMap` -> `supersededAt`). Reading its start by
+  // any other rule let the correction appear, under `--as-of`, before it
+  // was written — side by side with the claim it replaced. So a
+  // correction without `valid_from` starts at its own `ts`, the same
+  // instant its predecessor stops. Deliberately NOT `valid_from ?? ts`
+  // for every entry: that would erase entries written after the fact
+  // about the past (test/g1b-as-of-correction.test.mjs, positive control).
+  const fromRaw = claim.valid_from ?? (claim.replaces_id ? claim.ts : null);
+  const from = fromRaw ? Date.parse(fromRaw) : null;
   const explicitUntil = claim.valid_until ? Date.parse(claim.valid_until) : null;
   // Read from wherever the caller's shape happens to carry it: the
   // gateway's claim (`toClaim`, top-level `supersededAt`), a raw
