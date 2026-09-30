@@ -26,6 +26,7 @@ import { deriveState, statusOf } from './state.mjs';
 import * as capabilityMod from './capability.mjs';
 import { loadIndex, search, isEchoHit, exactHits, corpusGeneration } from './search.mjs';
 import { floodGroups } from './memory.mjs';
+import { BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
 
 /**
  * Resource bounds (I13). Defaults, not laws — but never unbounded.
@@ -173,20 +174,14 @@ function toClaim(hit, { bodyChars, state }) {
  * neither. A field that is neither read nor deliberately excluded is
  * how this defect happened the first time.
  */
-export const BODY_FIELDS = Object.freeze([
-  'choice', 'learning', 'duty', 'rule', 'question', 'skill',
-  'why', 'title', 'text', 'fact', 'description', 'excerpt', 'rejected',
-]);
-
-/**
- * Indexed, on purpose not part of the body: access words, not prose.
- *
- * `tags`, `asked`, `symbols` and `class` are handles somebody attached
- * so the entry can be FOUND; repeating them in the body spends context
- * on words the reader did not ask for. `topic` is carried as its own
- * field on the claim already.
- */
-export const NON_BODY_FIELDS = Object.freeze(['topic', 'class', 'tags', 'asked', 'symbols']);
+//
+// O2 (2026-09-30): the list now lives in the leaf module
+// `src/bodyfields.mjs`, per type, as the ONE source for every display and
+// for the set of indexed fields (`search.FIELD_WEIGHTS` imports it; it
+// could not import it from here without a cycle). Re-exported so
+// `retrieval.BODY_FIELDS` keeps its meaning. `NON_BODY_FIELDS` moved with
+// it for the same reason.
+export { BODY_FIELDS, NON_BODY_FIELDS } from './bodyfields.mjs';
 
 /**
  * The text of an entry, assembled from its own fields in a fixed order.
@@ -196,8 +191,9 @@ export const NON_BODY_FIELDS = Object.freeze(['topic', 'class', 'tags', 'asked',
  * memory that can be made to say something.
  */
 function bodyOf(e) {
-  const parts = BODY_FIELDS.map((f) => e?.[f]).filter(
-    (x) => typeof x === 'string' && x.trim());
+  // `bodyAsText`: `steps` (a workflow) is an array; read as a string it
+  // was skipped, and a workflow's body was empty (O2).
+  const parts = BODY_FIELDS.map((f) => bodyAsText(e?.[f])).filter((x) => x.trim());
   return parts.join(' — ');
 }
 
