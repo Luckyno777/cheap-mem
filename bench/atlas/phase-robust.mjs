@@ -1336,7 +1336,7 @@ async function partConcurrency(atlas, quick) {
         totalMissing: rounds.reduce((a, r) => a + r.missing, 0),
         roundsMs: ms,
         note: 'A pass is a statement about this filesystem only — see '
-          + 'robust.concurrency.filesystem. docs/security-model.md:238-241 '
+          + 'robust.concurrency.filesystem. docs/security-model.md#7-environment-contract '
           + 'declares O_APPEND atomicity UNKNOWN where the filesystem cannot be determined.',
       },
       evidence: worst

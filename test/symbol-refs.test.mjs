@@ -88,3 +88,28 @@ test('RED on a wrong reference: the checker refuses a missing symbol, a missing 
   // the substring trap: `search` is a symbol, `searc` is not
   assert.equal(declared(path.join(REPO, 'src/search.mjs'), 'searc'), false);
 });
+
+// The old form must not come back. A line number in a comment or document
+// drifts with every edit above it; the converted places name a symbol now.
+// What stays is named here WITH the reason — never silently.
+const LINE_REF = /\b((?:src|bin|bench|eval|docs|hooks|install)\/[\w./-]*\.(?:mjs|js|sh|ps1|md)):\d+/g;
+const LINE_REF_EXCEPTIONS = {
+  'src/pathcheck.mjs': 'quotes an ENTRY text ("src/search.mjs:736 filters relatively") as the example of what the before-edit hook hangs on — a sample of user data, not a pointer of ours',
+  'test/symbol-refs.test.mjs': 'this file names the forbidden form',
+};
+
+test('no new file:NNN pointer in a living document or a code comment', () => {
+  const found = [];
+  for (const rel of trackedText()) {
+    if (rel.startsWith('test/') && rel !== 'test/symbol-refs.test.mjs') continue; // tests quote fixtures
+    if (rel in LINE_REF_EXCEPTIONS) continue;
+    const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
+    for (const m of text.matchAll(LINE_REF)) found.push(`${rel}:${text.slice(0, m.index).split('\n').length} ${m[0]}`);
+  }
+  assert.deepEqual(found, [], 'a file:NNN pointer drifts with every edit — name the symbol: file#symbol');
+});
+
+test('POSITIVE: the line-pointer scan sees the form it forbids', () => {
+  assert.equal([...'see src/search.mjs:525 here'.matchAll(LINE_REF)].length, 1);
+  assert.equal([...'see src/search.mjs#search here'.matchAll(LINE_REF)].length, 0);
+});

@@ -18,6 +18,7 @@ const F4 = ['types', 'hooks', 'atlasPhases', 'modules', 'cli'];
 
 test('every F4 place still exists and states the counted value', async () => {
   const claims = numbers.CLAIMS.filter((c) => c.fields.some((f) => F4.includes(f)));
+  assert.ok(claims.length >= 10, `only ${claims.length} F4 places in CLAIMS — the list was shortened`);
   const report = await numbers.checkNumbers({ claims, only: F4 });
   assert.deepEqual(report.missing, [], 'a claim sentence was reworded away — the place is no longer guarded');
   assert.deepEqual(report.mismatches, [], 'a count drifted: run `node bench/readme-numbers.mjs --write`');
