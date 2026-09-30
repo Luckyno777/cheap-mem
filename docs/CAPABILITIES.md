@@ -588,6 +588,7 @@ Desktop). `bin/mem-mcp`, stdio.
 | `mem_inbox_show` | one inbox message in full |
 | `mem_inbox_write` | write a message to another agent |
 | `mem_inbox_ack` | change a message's state (open / replied / processed / closed) |
+| `mem_inbox_claim` / `mem_inbox_renew` / `mem_inbox_done` | claim a message with an expiry, renew it, report it done — as the connected agent, same read rule as `mem inbox claim` |
 | `mem_project_init` | create a project skeleton |
 | `mem_store_put` | register a local file in the content-addressed store |
 | `mem_store_list` | what is held in the file store right now |

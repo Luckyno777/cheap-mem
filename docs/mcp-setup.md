@@ -1,7 +1,7 @@
 # MCP setup per client
 
 cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes 30 tools:
-`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`.
+`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_inbox_claim`, `mem_inbox_renew`, `mem_inbox_done`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`.
 
 Six of them — `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`,
 `mem_facts`, `mem_explain` — were added on 2026-09-08. They had existed
