@@ -22,8 +22,27 @@
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
 #   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
 #   MEM_RETRIEVE_ROOTS    space-separated fallback roots to probe
+#   MEM_RETRIEVE_TIME     seconds for the search, server AND fallback (default 5)
+#   MEM_RECALL_SERVER=0   never ask the warm recall server (M10), always direct
+#   MEM_RECALL_SERVER_DIR where the server's socket and key live
+#                         (default <root>/.pipeline/recall)
+#   MEM_RECALL_SERVER_WAIT_MS  longest wait for the server (default 2500,
+#                         never beyond the budget)
 
 set -u
+
+# **Hook start, in milliseconds (M10).** The one time budget below (the
+# server attempt AND the direct fallback share MEM_RETRIEVE_TIME) counts
+# from here, and the journal's duration_ms too. `$EPOCHREALTIME` is
+# bash's own (>= 5.0, no fork); `date` only where bash is older.
+if [ -n "${EPOCHREALTIME:-}" ]; then
+  _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+  MEM_HOOK_START_MS="${_s}${_f:0:3}"
+  unset _s _f
+else
+  MEM_HOOK_START_MS="$(( $(date +%s) * 1000 ))"
+fi
+export MEM_HOOK_START_MS
 
 # Backslashes become slashes before a path is used as a path.
 #
@@ -237,21 +256,85 @@ fi
 # reason `timeout`; any other failure books reason `error` (as the sibling
 # house does) — never silence. The booking
 # is its own short node call OUTSIDE the cap that just expired.
-HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)"
-FIND_RC=$?
+#
+# **M10 (2026-09-30): the warm server first, else direct.** When a
+# server socket is there (`mem serve` starts one, see src/recallserver.mjs),
+# a small client asks it: the client loads Node built-ins only, and the
+# server runs the SAME `find` handler this `mem find` call runs — one
+# search path, not two. No socket: exactly the path from before M10;
+# `[ -S ]` is a bash test, not a process, and costs nothing.
+#
+# **One budget, not two.** MEM_RETRIEVE_TIME (default 5 s, the cap this
+# call always had) covers the WHOLE search from MEM_HOOK_START_MS. The
+# client waits at most MEM_RECALL_SERVER_WAIT_MS and never so long that
+# the direct path has no reserve left; the fallback then gets only what
+# is LEFT. The path and, on a fallback, its reason go into the journal
+# (`path` / `path_reason`, src/injection.mjs).
+TIME="${MEM_RETRIEVE_TIME:-5}"
+RECALL_DIR="${MEM_RECALL_SERVER_DIR:-$ROOT/.pipeline/recall}"
+RECALL_PATH=direct
+RECALL_REASON=""
+FIND_RC=1
+HITS=""
+if [ "${MEM_RECALL_SERVER:-}" != "0" ] && [ -S "$RECALL_DIR/recall.sock" ] \
+  && [ -f "$TOOL_ROOT/bin/mem-retrieve-client.mjs" ]; then
+  RECALL_PATH=server
+  HITS="$(MEM_RETRIEVE_TIME="$TIME" capped "$TIME" node "$TOOL_ROOT/bin/mem-retrieve-client.mjs" "$ROOT" "$PROMPT" "$TOP" 2>/dev/null)"
+  FIND_RC=$?
+  case "$FIND_RC" in
+    0) ;;
+    3) RECALL_REASON=server-gone ;;
+    4|124) RECALL_REASON=server-timeout ;;
+    5) RECALL_REASON=server-refused ;;
+    6) RECALL_REASON=server-stale ;;
+    *) RECALL_REASON=server-error ;;
+  esac
+fi
+if [ "$RECALL_PATH" != server ] || [ "$FIND_RC" -ne 0 ]; then
+  LEFT="$TIME"
+  if [ "$RECALL_PATH" = server ]; then
+    # TIME may carry a fraction ("2.5"): whole milliseconds.
+    _t="${TIME%%.*}"; _tf="${TIME#*.}"; [ "$_tf" = "$TIME" ] && _tf=""
+    _tf="${_tf}000"
+    _time_ms=$(( ${_t:-0} * 1000 + 10#${_tf:0:3} ))
+    if [ -n "${EPOCHREALTIME:-}" ]; then
+      _s="${EPOCHREALTIME%.*}"; _f="${EPOCHREALTIME#*.}"
+      _left_ms=$(( _time_ms - (${_s}${_f:0:3} - MEM_HOOK_START_MS) ))
+    else
+      _left_ms=$(( _time_ms - ($(date +%s) * 1000 - MEM_HOOK_START_MS) ))
+    fi
+    if [ "$_left_ms" -le 0 ]; then
+      LEFT=0
+    else
+      RECALL_PATH=direct
+      LEFT="$(( _left_ms / 1000 )).$(printf '%03d' $(( _left_ms % 1000 )))"
+    fi
+    unset _s _f _t _tf _time_ms _left_ms
+  fi
+  if [ "$LEFT" = 0 ]; then
+    HITS=""
+    FIND_RC=124
+  else
+    HITS="$(capped "$LEFT" "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)"
+    FIND_RC=$?
+  fi
+fi
 if [ "$FIND_RC" -ne 0 ]; then
   MEM_J_REASON=ERROR
   if [ "$FIND_RC" -eq 124 ] || [ "$FIND_RC" -eq 137 ]; then MEM_J_REASON=TIMEOUT; fi
   {
     if [ -f "$TOOL_ROOT/src/injection.mjs" ]; then
       MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION_ID:-}" \
-        MEM_J_QB="${#PROMPT}" MEM_J_REASON="$MEM_J_REASON" capped 3 node -e '
+        MEM_J_QB="${#PROMPT}" MEM_J_REASON="$MEM_J_REASON" \
+        MEM_J_PATH="$RECALL_PATH" MEM_J_PATH_REASON="$RECALL_REASON" capped 3 node -e '
           import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
             m.book(process.env.MEM_J_ROOT, {
               session: process.env.MEM_J_SESSION || null,
               occasion: m.OCCASION.QUESTION, reason: m.REASON[process.env.MEM_J_REASON],
               bytes: null, hits: 0, searched: null, sources: [],
               questionBytes: Number(process.env.MEM_J_QB) || null,
+              durationMs: Date.now() - Number(process.env.MEM_HOOK_START_MS),
+              recallPath: process.env.MEM_J_PATH, pathReason: process.env.MEM_J_PATH_REASON || null,
             });
           }).catch(() => {});' >/dev/null 2>&1 || true
     fi
@@ -280,5 +363,6 @@ fi
 # precede it. (Captured into a variable and printed afterwards, the line
 # would have been booked before a byte left the hook.)
 printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_MIN="$MIN" MEM_RH_SESSION="${SESSION_ID:-}" \
-  MEM_RH_TURNS="$TURNS" MEM_RH_QB="$QB" node "$RECALL_JS" recall 2>/dev/null
+  MEM_RH_TURNS="$TURNS" MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" \
+  MEM_RH_PATH="$RECALL_PATH" MEM_RH_PATH_REASON="$RECALL_REASON" node "$RECALL_JS" recall 2>/dev/null
 exit 0

@@ -16,6 +16,7 @@
  * must not become the next one that grows too large.
  */
 import path from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { fileURLToPath } from 'node:url';
 import * as cfgmod from '../config.mjs';
 import * as inbox from '../inbox.mjs';
@@ -58,8 +59,36 @@ export function parseArgs(argv) {
   return { args, rest };
 }
 
-export function out(t) { process.stdout.write(`${t}\n`); }
-export function die(t) { process.stderr.write(`${t}\n`); process.exit(1); }
+// **Captured output (M10, 2026-09-30).** The warm recall server
+// (src/recallserver.mjs) runs the SAME `find` handler the hook runs as
+// `mem find --json` — one search path, not two (O1). Inside a
+// long-running server `out()` must not reach the server's own stdout and
+// `die()` must not end the server, so a run inside `captureOutput()`
+// collects `out()` lines and turns `die()` into a thrown `CapturedDie`.
+// Outside a capture both behave exactly as before.
+const CAPTURE = new AsyncLocalStorage();
+
+/** What `die()` throws inside `captureOutput()`: the message, and exit 1. */
+export class CapturedDie extends Error {
+  constructor(message) { super(message); this.name = 'CapturedDie'; this.exitCode = 1; }
+}
+
+/** Run `fn` with `out()` collected; resolves to the collected stdout text. */
+export async function captureOutput(fn) {
+  const buffer = [];
+  await CAPTURE.run(buffer, fn);
+  return buffer.join('');
+}
+
+export function out(t) {
+  const c = CAPTURE.getStore();
+  if (c) { c.push(`${t}\n`); return; }
+  process.stdout.write(`${t}\n`);
+}
+export function die(t) {
+  if (CAPTURE.getStore()) throw new CapturedDie(String(t));
+  process.stderr.write(`${t}\n`); process.exit(1);
+}
 // On stderr, so that --json callers and hooks parsing stdout see nothing
 // of it. A warning may disturb a write; it must never break a contract.
 export function warn(text) { process.stderr.write(`! ${text}\n`); }
