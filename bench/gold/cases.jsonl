@@ -40,3 +40,5 @@
 {"id": "lang-04", "category": "cross-language", "query": "how long do we keep invoices", "expected": ["g-de-invoice"], "forbidden": [], "note": "English question, German entry"}
 {"id": "lang-05", "category": "cross-language", "query": "warehouse printer server failed after the update", "expected": ["g-de-printer"], "forbidden": [], "note": "English question, German entry"}
 {"id": "lang-06", "category": "cross-language", "query": "handheld scanners in the warehouse keep losing the wireless connection", "expected": ["g-de-scanner"], "forbidden": [], "note": "English question, German entry"}
+{"id": "time-07", "category": "temporal", "query": "who is on call", "expected": ["g-oncall-new"], "forbidden": ["g-oncall-old"], "k": 1, "note": "timeline without a correction edge: the newer value must come first"}
+{"id": "time-08", "category": "temporal", "query": "what is the dashboard styled with", "expected": ["g-css-new"], "forbidden": ["g-css-old"], "k": 1, "note": "a newer decision without replaces_id must come before the older one"}
