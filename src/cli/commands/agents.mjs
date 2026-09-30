@@ -312,11 +312,21 @@ export const COMMANDS = {
     out(`${withId} resolves ${qid}  (link ${entry.id})`);
   },
 
-  procedures: async ({ args }) => {
+  procedures: async ({ rest = [], args }) => {
     if (isHelp(args)) {
       out([
         'mem procedures [--project <name>]',
         'mem procedures --match "<text>" [--project <name>]',
+        'mem procedures status <id> <proposed|trial|released|withdrawn> --issued-by owner [--why "..."]',
+        '',
+        '  Status (X3): an append-only line per change, written by a human',
+        '  only (--issued-by owner | human:<name>). Nothing changes status',
+        '  by itself and repetition confirms nothing. A rule with no status',
+        '  line counts as "released (legacy)". A withdrawn rule is no longer',
+        '  shown; a proposed or trial rule is shown marked [proposed] /',
+        '  [trial], never as a rule in force. The list prints, per rule, the',
+        '  errors of its class(es) 14 days before and after the release —',
+        '  "unknown" (not 0) while that window is not full.',
         '',
         '  The procedures in force — "this is how we do it here".',
         '',
@@ -342,7 +352,28 @@ export const COMMANDS = {
     }
     const root = findRoot(args);
     requireConfig(root);
-    checkFlags(args, ['project', 'match', 'root'], 'procedures');
+    checkFlags(args, ['project', 'match', 'root', 'issued-by', 'why', 'agent'], 'procedures');
+
+    if (rest[0] === 'status') {
+      const [, ruleId, next] = rest;
+      if (!ruleId || !next) {
+        die('procedures status: id and status required.\n'
+          + '  mem procedures status <id> <proposed|trial|released|withdrawn> --issued-by owner');
+      }
+      const project = args.project && args.project !== 'global' ? args.project : null;
+      const by = typeof args['issued-by'] === 'string' ? args['issued-by'] : '';
+      const me = typeof args.agent === 'string' ? args.agent : memory.agentDefault();
+      try {
+        const { entry } = procedure.writeStatus(root, ruleId, next, {
+          issued_by: by, agent: me, project,
+          why: typeof args.why === 'string' ? args.why : null,
+        });
+        out(`Status of ${ruleId}: ${next}  (line ${entry.id}, by ${entry.issued_by})`);
+      } catch (e) {
+        die(`procedures status: refused — ${e.message}\n  Nothing was written.`);
+      }
+      return;
+    }
 
     if (args.match && args.match !== true) {
       // The keyword lane. Deliberately a SEPARATE branch from the class
@@ -371,18 +402,27 @@ export const COMMANDS = {
     const project = args.project && args.project !== 'global' ? args.project : null;
     const { entries } = memory.readLog(root, procedure.TYPE, { project });
     const retired = memory.retiredMap(entries);
+    const idx = procedure.statusIndex(entries);
     const live = entries.filter((e) => e.rule && e.id && !retired.has(e.id)
       && !memory.isClosingLine(e));
     if (!live.length) {
       out('No procedures. Without them, whatever each agent takes to be usual applies.');
       return;
     }
-    for (const e of live) {
+    const errors = procedure.readErrors(root);
+    for (const e0 of live) {
+      const st = procedure.statusOf(e0, idx);
+      const e = { ...e0, _status: st.status };
       out('');
       out(`  ${e.id}  ${procedure.mark(e)}`);
       if (e.title) out(`    ${e.title}`);
       if (e.scope) out(`    (applies to: ${e.scope})`);
+      if (st.status === 'proposed' || st.status === 'trial') {
+        out(`    (${st.status}: NOT a rule in force — awaiting a human release)`);
+      }
       for (const l of String(e.rule).split('\n')) out(`    ${l}`);
+      out(`    status: ${st.legacy ? 'released (legacy)' : st.status}`);
+      out(`    ${procedure.effectLine(procedure.effectOf(e0, idx, errors))}`);
     }
     out('');
     out(`${live.length} procedure(s) in force. They are data with an author,`);

@@ -183,8 +183,20 @@ export const COMMANDS = {
     // not write this type at all (bin/mem-mcp); here, where a human CAN
     // be at the keyboard, it is made ATTRIBUTABLE instead who is
     // supposed to have issued it.
+    let startAs = null;
     if (type === procedure.TYPE) {
       const me = data.agent ?? memory.agentDefault();
+      // `--start-as proposed|trial` (X3): the rule is filed AND gets its
+      // first status line, so it never stands in force in between. Not a
+      // field of the rule itself.
+      if (Object.hasOwn(data, 'start-as')) {
+        startAs = String(data['start-as']);
+        delete data['start-as'];
+        if (!procedure.TRANSITIONS.new.includes(startAs)) {
+          die(`log procedure: --start-as '${startAs}' unknown (allowed: ${procedure.TRANSITIONS.new.join(', ')}). `
+            + 'Without it a rule counts as released (legacy behaviour).');
+        }
+      }
       // `--issued-by` arrives hyphenated, the entry stores the
       // underscore form. Accept both and write ONE — otherwise the latch
       // faces a field it does not know and lets a rule through with no
@@ -293,6 +305,17 @@ export const COMMANDS = {
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
+    if (startAs) {
+      try {
+        procedure.writeStatus(root, entry.id, startAs, {
+          issued_by: entry.issued_by, agent: entry.agent, project: args.project ?? null, birth: true,
+        });
+        out(`  status: ${startAs} (not a rule in force until a human releases it)`);
+      } catch (e) {
+        warn(`status ${startAs} NOT written: ${e.message}`);
+        warn(`  The rule stands as released (legacy) — withdraw it: mem procedures status ${entry.id} withdrawn --issued-by owner`);
+      }
+    }
 
     // **L4 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): `asked`
     // is missing almost always, because so far only the digest writes
