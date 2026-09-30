@@ -57,6 +57,8 @@
  * capture writes down anyway.
  */
 
+import { frozenSet } from './frozenset.mjs';
+
 /** How a shell command is classified. Closed list. */
 export const COMMAND_KIND = Object.freeze({
   READ: 'read',
@@ -82,10 +84,10 @@ export const BUCKET = Object.freeze({
 });
 
 /** Tools that are stepped over: bookkeeping, not a verdict. */
-export const BOOKKEEPING = Object.freeze(new Set([
+export const BOOKKEEPING = frozenSet([
   'TodoWrite', 'TaskCreate', 'TaskUpdate', 'TaskList', 'TaskGet',
   'ToolSearch', 'Skill',
-]));
+]);
 
 const READ_TOOLS = new Set(['Read', 'NotebookRead']);
 const SEARCH_TOOLS = new Set(['Grep', 'Glob']);
@@ -93,7 +95,25 @@ const WORK_TOOLS = new Set(['Edit', 'Write', 'NotebookEdit', 'MultiEdit']);
 
 const READ_CMDS = /(^|[|;&]\s*)(cat|bat|sed|head|tail|less|more|zcat|zless|jq|wc|nl|column)\b/;
 const SEARCH_CMDS = /(^|[|;&]\s*)(grep|rg|ag|ack|find|fd|ls|tree|locate)\b/;
-const WRITE_CHARS = /(>>?\s*\S|<<\s*['"]?[A-Za-z_])/;
+// Here-document: `<<EOF`, `<<'EOF'`.
+const HEREDOC = /<<\s*['"]?[A-Za-z_]/;
+// Redirect TO A FILE: `>`/`>>`/`N>`/`&>` with a target that is not an fd
+// duplicate (`2>&1`, `>&2`), not a pseudo device (`/dev/null`, `/dev/stderr`
+// ...), not a process substitution (`>(...)`); and the `>` is not part of an
+// arrow (`=>`, `->`) or of `>>`. Text inside quotes (`grep "a > b"`) does not
+// count; a QUOTED TARGET (`> "x y"`) does, so a quoted string is replaced by a
+// placeholder, not deleted. It used to be `>>?\s*\S`, which hit `2>&1`,
+// `2>/dev/null` and `=>` and turned every read command with an error
+// redirect into a "write" (audit A.5).
+const REDIRECT_TO_FILE = /(?:^|[^=>\-])(?:\d*|&)>>?(?!&)\s*(?!\/dev\/(?:null|stdout|stderr|tty)(?![\w/.-]))(?![(])\S/;
+const QUOTED_TEXT = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
+
+/** Does this shell command write to a file via redirection? */
+export function writesViaRedirect(command) {
+  const c = String(command ?? '');
+  if (HEREDOC.test(c)) return true;
+  return REDIRECT_TO_FILE.test(c.replace(QUOTED_TEXT, 'Q'));
+}
 const WRITE_CMDS = /(^|[|;&]\s*)(git\s+(commit|push|add)|npm|node\s|mkdir|rm|mv|cp|touch|tee|chmod)\b/;
 
 /**
@@ -106,7 +126,7 @@ const WRITE_CMDS = /(^|[|;&]\s*)(git\s+(commit|push|add)|npm|node\s|mkdir|rm|mv|
 export function classifyCommand(command) {
   const c = String(command || '');
   if (!c.trim()) return COMMAND_KIND.OTHER;
-  if (WRITE_CHARS.test(c) || WRITE_CMDS.test(c)) return COMMAND_KIND.WRITE;
+  if (writesViaRedirect(c) || WRITE_CMDS.test(c)) return COMMAND_KIND.WRITE;
   if (READ_CMDS.test(c)) return COMMAND_KIND.READ;
   if (SEARCH_CMDS.test(c)) return COMMAND_KIND.SEARCH;
   return COMMAND_KIND.OTHER;

@@ -19,8 +19,8 @@
 //   - Is this installation actually finished?
 //
 // **The rule this module carries: every tile says HOW OLD its answer is
-// and whether it could be measured at all.** Three states, never two. A
-// board that shows "all green" because it did not look is worse than no
+// and whether it could be measured at all.** Four states (`STATE`: calm, watch, alarm, unknown), never
+// two. A board that shows "all green" because it did not look is worse than no
 // board — it is precisely the construction this project spends its time
 // hunting.
 //

@@ -543,7 +543,8 @@ export function listCaptures(root, { withDeleted = false } = {}) {
 /**
  * Every capture with its state — the review, not the work list.
  *
- * Three states, and the third is the one worth building for:
+ * Four states (`CAPTURE_STATES`), and `unreachable` is the one worth
+ * building for:
  *
  *   present      the register knows it and the bytes are there
  *   deleted      somebody removed it, and the tombstone says who and why

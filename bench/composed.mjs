@@ -173,10 +173,12 @@ const claim = (id, x = {}) => ({ id, ts: '2026-01-01T00:00:00Z', author: 'alice'
   const f = path.join(root, 'projects', 'a', 'decisions.jsonl');
   fs.writeFileSync(f, z(claim('X', { choice: 'kolibri original' })));
   git('add', '-A'); git('commit', '-qm', 'base');
+  // The default branch is whatever init.defaultBranch made it: ask, do not assume `master`.
+  const base = execFileSync('git', ['-C', root, 'symbolic-ref', '--short', 'HEAD'], { encoding: 'utf8' }).trim();
   git('checkout', '-qb', 'A');
   fs.appendFileSync(f, z(claim('Y', { replaces_id: 'X', choice: 'kolibri from branch A' })));
   git('add', '-A'); git('commit', '-qm', 'A');
-  git('checkout', '-q', 'master'); git('checkout', '-qb', 'B');
+  git('checkout', '-q', base); git('checkout', '-qb', 'B');
   fs.appendFileSync(f, z(claim('Z', { replaces_id: 'X', choice: 'kolibri from branch B' })));
   git('add', '-A'); git('commit', '-qm', 'B');
   git('merge', 'A', '-m', 'merge');

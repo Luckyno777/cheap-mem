@@ -43,6 +43,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { pathToFileURL } from 'node:url';
 const argv = process.argv.slice(2);
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 
@@ -172,7 +173,7 @@ export function finding({ code, corpus }) {
 
 // --- as a command ------------------------------------------------------
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const WURZEL = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
   const CODE = (flag('code') ?? 'src,bin').split(',').map((d) => path.resolve(d));
   const code = decisionFields(CODE);

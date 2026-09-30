@@ -42,6 +42,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { frozenSet } from './frozenset.mjs';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { performance } from 'node:perf_hooks';
 import * as backlinks from './backlinks.mjs';
@@ -73,9 +74,9 @@ export const PLACES = Object.freeze(['.mem', 'inbox', 'agents']);
  * `collectDashboard()` creates the search index. If the stamp saw them,
  * every build would count as stale at once. `ttlMs` covers them.
  */
-export const DERIVED = Object.freeze(new Set([
+export const DERIVED = frozenSet([
   'search-index', 'search-index.json', 'backlinks.json', 'langbridge', 'console.json', 'answer-patterns.json',
-]));
+]);
 const isDerived = (name) => DERIVED.has(name) || /heartbeat/.test(name);
 
 function statPart(p, depth, acc) {

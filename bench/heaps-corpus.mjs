@@ -73,6 +73,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { TYPES } from '../src/memory.mjs';
 
+import { pathToFileURL } from 'node:url';
 // ---------------------------------------------------------------------
 // Deterministic RNG (mulberry32) — one seed, one output, forever. Kept
 // separate from `bench/atlas/core.mjs`'s own `rng()` (a different
@@ -400,7 +401,7 @@ const mode = process.argv[2];
 // Only run the CLI when this file is the entry point — otherwise an
 // import from another script (`bench/coverage-floor-sweep.mjs`) would
 // hit this block with argv meant for the OTHER script and exit early.
-const isMain = import.meta.url === `file://${process.argv[1]}` || import.meta.url === `file:///${process.argv[1]}`;
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (!isMain) {
   // imported as a module — nothing to do here.

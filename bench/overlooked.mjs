@@ -57,9 +57,11 @@ const R=(n,t,b)=>console.log(`\n[${n}] ${t}\n     ${b}`);
   const p=path.join(d,'projects','a','decisions.jsonl');
   fs.writeFileSync(p, j({id:'base',ts:'2026-01-01T00:00:00Z',choice:'shared'}));
   git(d,'add','-A'); git(d,'commit','-qm','base');
+  // The default branch is whatever init.defaultBranch made it: ask, do not assume `master`.
+  const base=git(d,'symbolic-ref','--short','HEAD').trim();
   git(d,'checkout','-qb','agentA'); fs.appendFileSync(p,j({id:'a1',ts:'2026-02-01T00:00:00Z',choice:'from A'}));
   git(d,'add','-A'); git(d,'commit','-qm','A');
-  git(d,'checkout','-q','master'); git(d,'checkout','-qb','agentB');
+  git(d,'checkout','-q',base); git(d,'checkout','-qb','agentB');
   fs.appendFileSync(p,j({id:'b1',ts:'2026-02-01T00:00:00Z',choice:'from B'}));
   git(d,'add','-A'); git(d,'commit','-qm','B');
   let outcome;
