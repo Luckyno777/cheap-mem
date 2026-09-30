@@ -91,7 +91,12 @@ export function tileArchive(root, { env = process.env } = {}) {
       line: `register unreadable: ${e.message}`, detail: store.location };
   }
   let inArchive = 0; let inRepo = 0; let foreign = 0; let missing = 0; let bytes = 0;
+  // A tombstone row carries no location, so it would count as "from
+  // other machines"; and the capture row it deleted would count as
+  // MISSING. A deleted capture is neither — it was removed on purpose.
+  const gone = archive.deletions(root);
   for (const r of rows) {
+    if (r?.record === archive.DELETED_MARK || gone.has(r?.path)) continue;
     const where = archive.filePath(store, root, r.path);
     if (where) {
       if (where.startsWith(store.location)) { inArchive += 1; bytes += r.bytes ?? 0; }
