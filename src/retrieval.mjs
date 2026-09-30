@@ -467,8 +467,6 @@ export function retrieve(root, query, capability, {
   // superseded and disputed claims itself, one layer down and without a
   // word — and then this gateway could not say WHY something is missing.
   const perTier = Math.min(selectWant * 6, limits.maxResults * 6);
-  const seenIds = new Set();
-  const byTier = [];
   // Every limit that actually bit, collected as it happens rather than
   // guessed at the end. A reason nobody recorded cannot be reported.
   const coverageReasons = [];
@@ -481,6 +479,15 @@ export function retrieve(root, query, capability, {
   // than were ever looked at, and no policy applied afterwards can
   // recover a claim that was never a candidate.
   const tiersAtCap = [];
+  // Candidate generation, as a function so it can run a second time —
+  // scoped to the capability — when the first (unscoped) pool was full
+  // and the permitted answer still came up short (Z1d). The first pass
+  // stays UNSCOPED on purpose: it keeps the ranking, and the explanation
+  // of what lies outside the capability (`excluded`, explainMissing),
+  // byte-identical to before; the scoped pass only ever ADDS candidates.
+  const gen = (cap) => {
+  const seenIds = new Set();
+  const byTier = [];
   for (const tier of authority.TIERS) {
     const hits = [];
     // MMR on, with the same lambda as `mem find`.
@@ -503,13 +510,17 @@ export function retrieve(root, query, capability, {
     for (const hit of search(idx, useQuery, {
       top: perTier, withRetired: true, authority: tier,
       mmr, mmrLambda, extraTerms,
+      // Scoped pass (Z1d): only candidates this caller may reach enter
+      // the pool. The `capability.admits` check in the selection loop
+      // stays as the second, independent gate.
+      ...(cap ? { capability: cap } : {}),
     })) {
       const id = hit.entry?.id;
       if (id && seenIds.has(id)) continue;
       if (id) seenIds.add(id);
       hits.push(hit);
     }
-    if (hits.length === perTier) tiersAtCap.push(tier);
+    if (hits.length === perTier && !cap) tiersAtCap.push(tier);
     if (hits.length) byTier.push(hits);
   }
 
@@ -557,13 +568,16 @@ export function retrieve(root, query, capability, {
   // all — which went unnoticed as long as the ranked lane happened to have
   // the same setting. Now it is stated explicitly, and a divergence would
   // show in the diff.
-  const exactMatches = exactHits(idx, useQuery, want, { withRetired: true });
+  const exactMatches = exactHits(idx, useQuery, want, { withRetired: true, ...(cap ? { capability: cap } : {}) });
   const exactIds = new Set(exactMatches.map((h) => h.entry?.id).filter(Boolean));
-  const raw = rawReserve
+  return rawReserve
     ? [...exactMatches,
        ...ranked.filter((h) => h.type !== 'raw' && !exactIds.has(h.entry?.id)),
        ...ranked.filter((h) => h.type === 'raw' && !exactIds.has(h.entry?.id))]
     : [...exactMatches, ...ranked.filter((h) => !exactIds.has(h.entry?.id))];
+  };
+  const raw = gen(null);
+
 
   // Raw capture is not an authority tier, it is the reserve lane.
   //
@@ -604,12 +618,15 @@ export function retrieve(root, query, capability, {
   let stoppedEarly = false;
   let budget = limits.contextChars;
 
-  for (const hit of raw) {
+  // One candidate through every eligibility gate. Returns the claim to
+  // take, or null (the reason is noted). Extracted so the refill pass
+  // below applies EXACTLY the same gates as the first pass.
+  const consider = (hit) => {
     const c = toClaim(hit, { bodyChars: limits.bodyChars, state });
 
-    if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); continue; }
-    if (type && c.type && c.type !== type) { note(c.id, `wrong type (${c.type})`); continue; }
-    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); continue; }
+    if (!capability.admits(c.scope)) { note(c.id, `outside capability (${c.scope})`); return null; }
+    if (type && c.type && c.type !== type) { note(c.id, `wrong type (${c.type})`); return null; }
+    if (c.status === 'disputed' && !withDisputed) { note(c.id, 'disputed supersession'); return null; }
     // `superseded` used to be excluded HERE, unconditionally — before
     // `validAt` ever got a say, and regardless of `asOf`. That is the
     // exact two-truths bug `validAt`'s docstring measures: at an `asOf`
@@ -619,11 +636,11 @@ export function retrieve(root, query, capability, {
     // the old, cheap, unconditional exclusion — asking no question about
     // time is answered "no", same as before; asking one is now answered
     // by `validAt`, which knows about `supersededAt` too.
-    if (!asOf && c.status === 'superseded') { note(c.id, 'superseded'); continue; }
+    if (!asOf && c.status === 'superseded') { note(c.id, 'superseded'); return null; }
     // Unreachable when `asOf` is falsy — `validAt` returns `true`
     // unconditionally in that case (see its docstring) — so this message
     // only ever names an ACTUAL `asOf` that an actual claim failed.
-    if (!validAt(c, asOf)) { note(c.id, `not valid at ${asOf}`); continue; }
+    if (!validAt(c, asOf)) { note(c.id, `not valid at ${asOf}`); return null; }
     // During selection, not after: filtering afterwards cannot recover
     // what the cutoff already discarded. The same bug lived in the first
     // version of body dedup.
@@ -640,7 +657,7 @@ export function retrieve(root, query, capability, {
     // it in production.
     if (dropEcho && isEchoHit(useQuery, hit)) {
       note(c.id, 'echo of the question — answers nothing');
-      continue;
+      return null;
     }
 
     // Deduplicate DURING selection, not after.
@@ -660,22 +677,89 @@ export function retrieve(root, query, capability, {
     // content is a finding of its own and travels as one.
     if (!c.body) {
       note(c.id, 'no readable content in any known field — entry or projection is wrong');
-      continue;
+      return null;
     }
     const h = bodyHash(c.body);
     const first = seenBody.get(h);
-    if (first) { note(c.id, `identical body to ${first}`); continue; }
+    if (first) { note(c.id, `identical body to ${first}`); return null; }
 
-    if (c.body.length > budget) { note(c.id, 'context budget exhausted', 'capacity'); continue; }
+    if (c.body.length > budget) { note(c.id, 'context budget exhausted', 'capacity'); return null; }
     seenBody.set(h, c.id);
-    claims.push(c);
-    budget -= c.body.length;
-    if (claims.length >= selectWant) { stoppedEarly = true; break; }
+    return c;
+  };
+
+  const quiet = () => {};
+  // The quota's denominator is the size of the PRIMARY selection and
+  // stays fixed. Letting refill candidates grow it would let a flooder
+  // buy back room by simply being numerous (cap = share of a growing pool).
+  let primary = 0;
+  let quotaBase = 0;
+  let capN = 2;
+  let fairSel = [];
+  let exhausted = false;
+
+  // One pass over a candidate list: fill the primary selection up to
+  // `want`, then, if the author quota cut it short, REFILL from the next
+  // eligible candidates of authors still under the cap (Z1d). The quota
+  // is computed on the selection, so cutting one flooding author used to
+  // leave the answer SHORTER than asked while other authors' eligible
+  // candidates sat unexamined (top=3 gave 1, top=6 gave 3). The quota
+  // itself is unchanged: if only one author is left, the answer stays
+  // short and says why (`quotaShort`).
+  const pass = (list) => {
+    let at = 0;
+    for (; at < list.length && primary < selectWant; at += 1) {
+      const c = consider(list[at]);
+      if (!c) continue;
+      claims.push(c);
+      primary += 1;
+      budget -= c.body.length;
+      if (primary >= selectWant) { stoppedEarly = true; at += 1; break; }
+    }
+    quotaBase = Math.max(quotaBase, primary);
+    capN = Math.max(2, Math.floor(quotaBase * limits.perAuthorShare));
+    fairSel = enforceAuthorShare(claims, limits, quiet, quotaBase);
+    while (fairSel.length < selectWant && at < list.length) {
+      const hit = list[at];
+      at += 1;
+      // Cheap pre-check: an author already at the cap cannot be refilled
+      // from; do not spend body dedup / budget on it.
+      const au = authority.authorOf(hit.entry) ?? null;
+      if (au && fairSel.filter((x) => x.author === au && x.authority !== 'user').length >= capN) continue;
+      budget = limits.contextChars - fairSel.reduce((n, x) => n + x.body.length, 0);
+      const c = consider(hit);
+      if (!c) continue;
+      if (c.authority !== 'user' && c.author
+        && fairSel.filter((x) => x.author === c.author).length >= capN) {
+        note(c.id, `author share exceeded (${c.author}, cap ${capN})`, 'capacity');
+        seenBody.delete(bodyHash(c.body));
+        continue;
+      }
+      claims.push(c);
+      fairSel = enforceAuthorShare(claims, limits, quiet, quotaBase);
+      stoppedEarly = true;
+    }
+    exhausted = at >= list.length;
+  };
+  pass(raw);
+
+  // Scoped reload (Z1d), bounded to ONE extra generation. The pool above
+  // is cut at `perTier` BEFORE scope is known; when it came back full and
+  // the permitted answer is still short, foreign-scope candidates may
+  // have filled it. Generate again from permitted scopes only and carry
+  // on with what was not yet looked at. Never a leak: the same
+  // `capability.admits` gate in `consider` applies to every candidate.
+  if (fairSel.length < selectWant && tiersAtCap.length) {
+    const looked = new Set(raw.map((h) => h.entry?.id).filter(Boolean));
+    pass(gen(capability).filter((h) => !h.entry?.id || !looked.has(h.entry.id)));
   }
+  const quotaCut = claims.length - fairSel.length;
+  const quotaShort = fairSel.length < selectWant && quotaCut > 0 && exhausted;
 
   // Relevance decides the ORDER of what was selected; the round-robin
   // above decided WHO got looked at.
-  const fair = enforceAuthorShare(claims, limits, note)
+  const fair = enforceAuthorShare(claims, limits, note, quotaBase)
+    .slice(0, selectWant)
     // By score, ties broken by id.
     //
     // **What the second key does NOT do**, though an earlier version of
@@ -716,6 +800,12 @@ export function retrieve(root, query, capability, {
     coverageReasons.push({
       kind: 'partial',
       why: `candidate pool full at ${perTier} for tier(s): ${tiersAtCap.join(', ')}`,
+    });
+  }
+  if (quotaShort) {
+    coverageReasons.push({
+      kind: 'partial',
+      why: `author share quota withheld ${quotaCut} claim(s) and no other author's eligible candidates remain to fill the answer`,
     });
   }
   if (fair.length < raw.length) {
@@ -785,6 +875,9 @@ export function retrieve(root, query, capability, {
     // which this design cannot carry.
     generation,
     hasMore,
+    // Z1d: true when the hard author quota, not a lack of matches, made
+    // the answer shorter than asked.
+    quotaShort,
     // Kept alongside `truncated`, not instead of it: `truncated` answers
     // "was this answer cut", `coverage` answers "what may I conclude
     // from what is missing". Two different questions, and the second one
@@ -853,9 +946,11 @@ export function bodyHash(text) {
  * author the most suppressed. `user` tier is exempt because the owner
  * cannot poison their own memory in the sense this defends against.
  */
-export function enforceAuthorShare(claims, limits = LIMITS, note = () => {}) {
+export function enforceAuthorShare(claims, limits = LIMITS, note = () => {}, sizeBasis = claims.length) {
   if (claims.length <= 2) return claims;
-  const cap = Math.max(1, Math.floor(claims.length * limits.perAuthorShare));
+  // Floor of 2 (Z1d): answers of <= 2 are exempt above, so without it
+  // top=3 could return fewer than top=2. The cap is monotone in size.
+  const cap = Math.max(2, Math.floor(sizeBasis * limits.perAuthorShare));
   const seen = new Map();
   const out = [];
   for (const c of claims) {
