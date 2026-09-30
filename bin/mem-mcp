@@ -629,6 +629,7 @@ const TOOLS = [
         why: { type: 'string' },
         state: { type: 'string', enum: ['done', 'dropped'] },
         project: { type: 'string' },
+        authority: { type: 'string', description: 'Optional tier of this closing line; over the bridge never above "agent" (a higher claim is lowered and recorded), like mem_log' },
       },
       required: ['id'],
     },
@@ -1373,10 +1374,15 @@ async function handleCall(name, args) {
     }
 
     case 'mem_duty_close': {
+      // Paket: same cap as mem_log (Y4b) — a claimed tier above `agent` is
+      // lowered and the demotion recorded; no tier gets the write default.
+      const capped = bridgeAuthority({ authority: args.authority });
       const { entry } = memory.closeDuty(root, args.id, {
         state: args.state ?? memory.DUTY_STATE.DONE,
         why: args.why ?? null,
         project: args.project ?? null,
+        authority: capped.authority ?? null,
+        authorityClampedFrom: capped.authority_clamped_from ?? null,
       });
       return textResult(`Closed ${args.id} (${entry.state}). New line: ${entry.id}`);
     }

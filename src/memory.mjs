@@ -2665,6 +2665,7 @@ export function expandExpectedIds(expectedIds, map) {
  */
 export function closeDuty(root, id, {
   state = DUTY_STATE.DONE, why = null, project = null, agent = null, authority: tier = null,
+  authorityClampedFrom = null,
 } = {}) {
   if (typeof id !== 'string' || !id) throw new Error('closeDuty needs an id');
   if (!Object.values(DUTY_STATE).includes(state)) {
@@ -2685,6 +2686,9 @@ export function closeDuty(root, id, {
     closes_id: id, state, why,
     ...(agent ? { agent } : {}),
     ...(tier ? { authority: tier } : {}),
+    // Paket: a caller that already lowered a claimed tier (the MCP bridge)
+    // records the demotion, as mem_log does.
+    ...(tier && authorityClampedFrom ? { authority_clamped_from: authorityClampedFrom } : {}),
   }, { project });
   return { ...written, verdict: warnIfRefused(written.entry, target, 'closes_id') };
 }
