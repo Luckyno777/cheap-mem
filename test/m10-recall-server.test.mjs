@@ -263,3 +263,27 @@ test('M10-8: the journal vocabulary is closed', () => {
   assert.equal('path' in other, false, 'writers other than the recall hook stay byte-identical');
   assert.equal('path_reason' in other, false);
 });
+
+test('M10-9: a question whose client already gave up is skipped, not searched', async () => {
+  const root = build();
+  const s = await recallserver.start(root, { env: {}, log: () => {} });
+  try {
+    const key = fs.readFileSync(s.where.key, 'utf8');
+    const ask = (deadline) => new Promise((resolve) => {
+      const c = net.connect(s.where.socket);
+      let a = '';
+      c.setEncoding('utf8');
+      c.on('connect', () => c.write(`${JSON.stringify({ v: place.VERSION, key, root, query: PROMPT, top: 3, deadline_ms: deadline })}\n`));
+      c.on('data', (x) => { a += x; });
+      c.on('end', () => resolve(JSON.parse(a)));
+    });
+    const late = await ask(Date.now() - 1);
+    assert.equal(late.ok, false);
+    assert.equal(late.reason, 'timeout');
+    assert.equal('stdout' in late, false, 'skipped: no search result');
+    // Positive control: the same question inside its deadline is answered.
+    const inTime = await ask(Date.now() + 10000);
+    assert.equal(inTime.ok, true);
+    assert.match(inTime.stdout, /"hits"/);
+  } finally { await s.close(); }
+});

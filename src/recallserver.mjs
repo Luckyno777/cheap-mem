@@ -158,6 +158,12 @@ export async function start(root, { env = process.env, codeRoot = CODE_ROOT, log
       setImmediate(() => { if (close) close(); });
       return { ok: false, reason: 'stale' };
     }
+    // The client gives up at `deadline_ms`. A question still in the queue
+    // after that has nobody waiting for it: skip it instead of spending
+    // seconds on it (measured at 200k entries: one search ~5 s, so a
+    // queue of abandoned questions would keep the server behind for good).
+    const deadline = Number(req.deadline_ms);
+    if (Number.isFinite(deadline) && Date.now() > deadline) return { ok: false, reason: 'timeout' };
     const query = String(req.query ?? '');
     const top = Number(req.top);
     const args = { json: true, root };

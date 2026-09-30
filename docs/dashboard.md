@@ -138,3 +138,37 @@ Parity is kept through shared invariants (`shared/invariants.jsonl`),
 not through shared code. Each house has its own tests. The completeness
 inventory (`test/dashboard-complete.test.mjs`) lists every feature the
 old UI had and where it lives now.
+
+
+## Warm recall (M10, 2026-09-30)
+
+`mem serve` also starts a **recall server** in the same process
+(`src/recallserver.mjs`): a Unix socket at
+`<memory>/.pipeline/recall/recall.sock` (Windows: a named pipe). The
+recall hook (`bin/mem-retrieve`, and `bin/mem-retrieve.ps1`) asks it
+first; with no socket it runs `mem find` itself, exactly as before.
+
+- **One search path.** The server runs the same `find` handler as
+  `mem find <prompt> --top N --json`; the hook renders and books as
+  before. Nothing new can be read or written through it.
+- **Local only.** No TCP, no port. Directory mode 0700, socket and key
+  file 0600, all under `.pipeline/` (gitignored); the key never reaches
+  a log. Another user reaches neither (probe
+  `test/m10-recall-server.test.mjs`, M10-6).
+- **Fresh.** No index is kept in the server; every question loads it
+  through `search.loadIndex()`, which checks the file state. If code
+  under `src/` changes, the server answers `stale`, the hook runs
+  direct, and the server stops listening until `mem serve` restarts.
+- **One budget.** `MEM_RETRIEVE_TIME` (5 s) covers the server attempt
+  AND the direct fallback.
+- **Journal.** Every recall line in `.pipeline/injections.jsonl` carries
+  `path` (`server` | `direct`) and `path_reason` (`null`, or why it ran
+  direct although a socket was there: `server-gone`, `server-timeout`,
+  `server-refused`, `server-stale`, `server-error`).
+- **Switches.** `MEM_RECALL_SERVER=0` (never asked, never started),
+  `MEM_RECALL_SERVER_DIR` (another place, e.g. when the socket path
+  would exceed 100 bytes), `MEM_RECALL_SERVER_WAIT_MS` (longest wait for
+  the server, default 2500, never beyond the budget).
+
+Running `mem serve` permanently is optional: the installers ask (default
+no), see `install/serve-service.sh` and `install/windows.ps1 -ServeService`.

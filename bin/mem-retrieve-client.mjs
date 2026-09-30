@@ -37,12 +37,13 @@ const RESERVE_MS = 1500;
 const wish = Number(env.MEM_RECALL_SERVER_WAIT_MS) > 0 ? Number(env.MEM_RECALL_SERVER_WAIT_MS) : 2500;
 const left = budgetMs - (Date.now() - startMs) - RESERVE_MS;
 const waitMs = Math.max(50, Math.min(wish, left));
+const giveUpAt = Date.now() + waitMs;
 
 const where = place.place(root, env);
 let key;
 try { key = fs.readFileSync(where.key, 'utf8').trim(); } catch { process.exit(RC.NO_SERVER); }
 
-const request = `${JSON.stringify({ v: place.VERSION, key, root, query: query ?? '', top: top ?? null })}\n`;
+const request = `${JSON.stringify({ v: place.VERSION, key, root, query: query ?? '', top: top ?? null, deadline_ms: giveUpAt })}\n`;
 
 let finished = false;
 const end = (rc, text = null) => {
@@ -55,7 +56,7 @@ const end = (rc, text = null) => {
 };
 
 const sock = net.connect(where.socket);
-const clock = setTimeout(() => end(RC.TIMEOUT), waitMs);
+const clock = setTimeout(() => end(RC.TIMEOUT), Math.max(1, giveUpAt - Date.now()));
 let reply = '';
 sock.setEncoding('utf8');
 sock.on('connect', () => sock.write(request));
@@ -71,5 +72,6 @@ sock.on('end', () => {
   if (a.ok) { end(RC.OK, typeof a.stdout === 'string' && a.stdout ? a.stdout : null); return; }
   if (a.reason === 'stale') { end(RC.STALE); return; }
   if (a.reason === 'refused') { end(RC.REFUSED); return; }
+  if (a.reason === 'timeout') { end(RC.TIMEOUT); return; }
   end(RC.ERROR);
 });
