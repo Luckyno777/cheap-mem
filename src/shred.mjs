@@ -28,10 +28,9 @@
 // ---------------------------------------------------------------------
 //
 // Encrypted: exactly the fields this codebase already calls "the body"
-// — `SHREDDABLE_FIELDS` below, copied from `retrieval.mjs`'s own
-// `BODY_FIELDS` (see the note at that constant for why it is copied,
-// not imported). Nothing outside that list is ever touched by
-// `shredWrite`.
+// — `SHREDDABLE_FIELDS` below, derived from `src/bodyfields.mjs`'s
+// `BODY_FIELDS` (see the note at that constant). Nothing outside that
+// list is ever touched by `shredWrite`.
 //
 // Never encrypted, and why — this list is the answer P14 explicitly
 // demands: what must not be encrypted has to be named explicitly.
@@ -181,6 +180,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { withLock } from './filelock.mjs';
+import { BODY_FIELDS } from './bodyfields.mjs';
 
 export const KEYRING_DIR = '.mem';
 export const KEYRING_FILE = 'keyring.json';
@@ -193,18 +193,26 @@ export const IV_BYTES = 12;
 /**
  * The body of an entry, in this module's own words.
  *
- * Copied from `retrieval.mjs`'s `BODY_FIELDS`, not imported: `memory.mjs`
- * already imports THIS module, and `retrieval.mjs` imports `memory.mjs`
- * — importing `retrieval.mjs` from here would close that cycle
- * (`memory.mjs` -> `shred.mjs` -> `retrieval.mjs` -> `memory.mjs`).
- * `chain.mjs` duplicates `writerOf` for the identical reason; this is
- * the same house rule applied a second time. `test/audit-koerper.test.mjs`
- * is the audited source of truth for this list on the `retrieval.mjs`
- * side — if that list ever changes, this one has to change with it by
- * hand, and a mismatch would show up as a body field this module leaves
- * in the clear (or tries to encrypt) that `retrieval.mjs` disagrees
- * about.
+ * **Derived, not copied (O2b, 2026-09-30).** Until then this was a hand
+ * copy of `retrieval.mjs`'s `BODY_FIELDS` (importing `retrieval.mjs`
+ * would close the cycle `memory.mjs` -> `shred.mjs` -> `retrieval.mjs`
+ * -> `memory.mjs`). When O2 added `steps` (workflow) and `body`
+ * (snippet) to the body list, the copy did not follow: a snippet or
+ * workflow written with `shred: true` kept its actual content in
+ * PLAINTEXT in the log and in the index cache. `src/bodyfields.mjs` is a
+ * leaf module (no imports), so importing it closes no cycle; the list is
+ * now its `BODY_FIELDS` plus every field the old copy carried
+ * (`LEGACY_SHREDDABLE`, a union: nothing that was encrypted before stops
+ * being encrypted). Probe: test/o2b-shred-body-fields.test.mjs (every
+ * content field of every type is shreddable, the red names the field).
+ *
+ * A value is encrypted when it is a non-empty string or a non-empty
+ * array (`steps`).
  */
+const LEGACY_SHREDDABLE = Object.freeze([
+  'choice', 'learning', 'duty', 'rule', 'question', 'skill',
+  'why', 'title', 'text', 'fact', 'description', 'excerpt', 'rejected',
+]);
 /**
  * **What encrypting `title` cost, and what changed (2026-09-30).** `title`
  * is in this list because it is body: the sentence a person wrote. It is
@@ -222,8 +230,7 @@ export const IV_BYTES = 12;
  * The standard encryption itself is unchanged.
  */
 export const SHREDDABLE_FIELDS = Object.freeze([
-  'choice', 'learning', 'duty', 'rule', 'question', 'skill',
-  'why', 'title', 'text', 'fact', 'description', 'excerpt', 'rejected',
+  ...new Set([...LEGACY_SHREDDABLE, ...BODY_FIELDS]),
 ]);
 
 /** The fields this module refuses to encrypt, with the reason recorded
@@ -363,13 +370,19 @@ export function destroyKey(root, id, { reason = null, now = new Date() } = {}) {
 
 // --- body encryption ---------------------------------------------------
 
+/** A body value worth encrypting: a non-empty string, or a non-empty
+ *  array (`steps`). */
+function hasBodyValue(v) {
+  return (typeof v === 'string' && v !== '') || (Array.isArray(v) && v.length > 0);
+}
+
 /** Which `SHREDDABLE_FIELDS` are present on `data` as non-empty
- *  strings, and the object built from exactly those. */
+ *  values, and the object built from exactly those. */
 export function extractBodyFields(data) {
   const present = {};
   let any = false;
   for (const f of SHREDDABLE_FIELDS) {
-    if (typeof data?.[f] === 'string' && data[f]) {
+    if (hasBodyValue(data?.[f])) {
       present[f] = data[f];
       any = true;
     }
@@ -441,7 +454,7 @@ export function shredWrite(data) {
 function plainBodyFields(entry) {
   const out = {};
   for (const f of SHREDDABLE_FIELDS) {
-    if (typeof entry?.[f] === 'string' && entry[f]) out[f] = entry[f];
+    if (hasBodyValue(entry?.[f])) out[f] = entry[f];
   }
   return out;
 }
