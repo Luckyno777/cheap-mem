@@ -12,6 +12,12 @@
 // Now `SHREDDABLE_FIELDS` is derived from `src/bodyfields.mjs` (one
 // truth) plus the free-text fields the old copy carried.
 //
+// Parity (lm origin/main 2bec45fc, read only): `schloss.versperreEintrag`
+// encrypts `memory.INHALT_FELDER`, which lacks `schritte` — a locked lm
+// workflow would keep its steps in the clear (`baustein` uses `text`,
+// covered). No lm write path locks automatically today (library only),
+// so the gap is latent there; open for lm.
+//
 // Red proof: on the start commit 26540a2 (origin/sicherung/agent/o2-cm)
 // the ratchet and the on-disk probes fail — `body` / `steps` are missing
 // from SHREDDABLE_FIELDS and the snippet's body word sits in
