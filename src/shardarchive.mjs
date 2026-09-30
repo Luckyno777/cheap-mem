@@ -105,6 +105,34 @@ export function readManifest(root) {
   return out;
 }
 
+/**
+ * Test seam for the crash-order probe: set `crashAt` to 'shard',
+ * 'manifest' or 'drawer' and archiveOldest throws right after that step,
+ * leaving the disk exactly as a process killed there would. Never set
+ * outside tests.
+ */
+export const _crashProbe = { crashAt: null };
+function stepDone(step) {
+  if (_crashProbe.crashAt === step) throw new Error(`simulated crash after ${step}`);
+}
+
+/** Flush one file's bytes to disk. */
+function fsyncPath(p) {
+  const fd = fs.openSync(p, 'r+');
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+
+/** Replace a file's content through temp + fsync + rename: old or new, never half. */
+function replaceFileAtomic(p, text) {
+  const tmp = `${p}.${process.pid}-${randomBytes(4).toString('hex')}.tmp`;
+  const fd = fs.openSync(tmp, 'w');
+  try {
+    fs.writeSync(fd, text);
+    fs.fsyncSync(fd);
+  } finally { fs.closeSync(fd); }
+  try { fs.renameSync(tmp, p); } catch (e) { try { fs.unlinkSync(tmp); } catch { /* already gone */ } throw e; }
+}
+
 function appendManifest(root, row) {
   appendLine(manifestPath(root), `${JSON.stringify(row)}\n`);
 }
@@ -122,15 +150,22 @@ function manifestById(root, id) {
  * Move the oldest `count` lines of one drawer into one archive shard
  * file, and shrink the tracked file by exactly those lines.
  *
- * Order of operations matters: the archive write happens FIRST and the
- * tracked file is only shrunk once it has succeeded. If the process
- * dies in between, the entries exist in BOTH places — recoverable by
- * re-running (the manifest write is what makes a line "archived", so a
- * duplicate that never got a manifest row is simply archived again,
- * harmlessly overwriting the same bytes at a fresh offset). The
- * opposite order — shrink first, archive after — can produce entries in
- * NEITHER place, which is the one outcome append-only memory exists to
- * rule out.
+ * Order of operations matters: shard, then manifest, then drawer.
+ *   1. the shard file is written and fsynced;
+ *   2. the manifest rows that point at it are appended and fsynced;
+ *   3. only then is the tracked drawer replaced — atomically, through a
+ *      temp file and a rename, never truncated in place.
+ * A crash after 1 leaves an orphan shard nobody points at: the entries
+ * are still live, a re-run archives them again. A crash after 2 leaves
+ * the entries in BOTH places: live wins on every read, and a re-run
+ * sees the manifest row with the same id and checksum and only drops
+ * the line from the drawer instead of archiving it twice. There is no
+ * point at which an entry is in NEITHER place, which is the one outcome
+ * append-only memory exists to rule out.
+ *
+ * Until 2026-09-30 step 3 ran before step 2 and truncated in place: a
+ * crash between them left entries only in a shard no manifest row
+ * named — resolveEntry answered "no entry" (audit 2026-09-30, B3).
  */
 export function archiveOldest(root, type, { project = null, count } = {}) {
   // The WHOLE run — read, decide, write the shard, replace the drawer,
@@ -188,31 +223,48 @@ function archiveOldestLocked(root, type, { project, count }) {
     + `${randomBytes(4).toString('hex')}.jsonl`;
   const shardFile = path.join(shardDir, shardName);
 
+  // Lines a crashed earlier run already archived (manifest row with the
+  // same id and checksum, see the doc comment above): drop them from the
+  // drawer, do not archive them a second time.
+  const known = new Set();
+  for (const row of readManifest(root)) {
+    if (row && !row.__broken && row.id != null) known.add(`${row.id}\u0000${row.checksum}`);
+  }
+
   let offset = 0;
   const manifestRows = [];
   const out = [];
+  let alreadyArchived = 0;
   for (const line of moving) {
     const bytes = Buffer.byteLength(line, 'utf8');
     let id = null;
     try { id = JSON.parse(line).id ?? null; } catch { /* keep null, still archived and addressable by offset */ }
+    const checksum = archive.checksum(Buffer.from(line, 'utf8'));
+    if (id != null && known.has(`${id}\u0000${checksum}`)) { alreadyArchived += 1; continue; }
     manifestRows.push({
       id, type, project, shard: shardName, offset, length: bytes,
-      checksum: archive.checksum(Buffer.from(line, 'utf8')),
+      checksum,
       archivedAt: new Date().toISOString(),
     });
     out.push(`${line}\n`);
     offset += bytes + 1; // the newline this format writes between lines
   }
-  appendLine(shardFile, out.join(''));
-
-  // The archive write above succeeded — only now shrink the tracked
-  // file. See the doc comment above for why this order, not the other.
-  fs.writeFileSync(drawerFile, staying.length ? `${staying.join('\n')}\n` : '', 'utf8');
+  if (out.length) {
+    appendLine(shardFile, out.join(''));
+    fsyncPath(shardFile);
+  }
+  stepDone('shard');
 
   for (const row of manifestRows) appendManifest(root, row);
+  if (manifestRows.length) fsyncPath(manifestPath(root));
+  stepDone('manifest');
+
+  // Shard and manifest are on disk — only now shrink the tracked file.
+  replaceFileAtomic(drawerFile, staying.length ? `${staying.join('\n')}\n` : '');
+  stepDone('drawer');
 
   return {
-    archived: manifestRows.length, shard: shardName, location: cfg.location,
+    archived: manifestRows.length, alreadyArchived, shard: out.length ? shardName : null, location: cfg.location,
     drawerBytesBefore: Buffer.byteLength(rawLines.join('\n'), 'utf8'),
     drawerBytesAfter: Buffer.byteLength(staying.join('\n'), 'utf8'),
   };
@@ -368,8 +420,12 @@ export function findWithArchiveNotice(root, pattern, opts = {}) {
     const cfg = archive.readConfig(process.env, root);
     const needle = String(pattern).toLowerCase();
     const archiveHits = [];
+    // An entry can be live AND archived for a moment (crash between the
+    // manifest and the drawer, see archiveOldest): the live copy wins.
+    const liveIds = new Set(liveHits.map((h) => h && h.id).filter(Boolean));
     for (const row of readManifest(root)) {
       if (row.__broken) continue;
+      if (row.id != null && liveIds.has(row.id)) continue;
       try {
         const raw = readArchivedBytes(cfg, row);
         if (raw.toLowerCase().includes(needle)) {

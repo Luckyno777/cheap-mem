@@ -511,7 +511,7 @@ export const COMMANDS = {
         '                  not guessed — with --why, so a declared digest',
         '                  can be told from silent damage afterwards.',
         '',
-        '  exit 0 calm or first run · 2 alarm',
+        '  exit 0 calm or first run · 2 alarm · 3 unknown (baseline unreadable)',
       ].join('\n'));
       return;
     }
@@ -532,6 +532,7 @@ export const COMMANDS = {
     if (args.json) out(JSON.stringify(f, null, 2));
     else out(shrink.asText(f));
     if (f.state === shrink.STATE.ALARM) process.exitCode = 2;
+    if (f.state === shrink.STATE.UNKNOWN) process.exitCode = 3;
   },
 
   // N4 (cheap-mem parity for lucky-mem's nutzerverstaendnis.mjs):

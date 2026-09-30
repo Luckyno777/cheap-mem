@@ -119,7 +119,7 @@ export function checkSkillUsage(root, { env = process.env, nowMs = null } = {}) 
   if (!r.notObserved.length) {
     return finding('skill-usage', LEVEL.GOOD, `all ${r.inventory.length} skills of the house inventory appeared. ${r.coverage}`);
   }
-  return finding('skill-usage', LEVEL.WARNING,
+  return finding('skill-usage', LEVEL.WARN,
     `${r.notObserved.length} of ${r.inventory.length} house skills not observed in ${r.days.toFixed(0)} days of coverage. ${r.coverage}`,
     `Not observed (does NOT mean unused; subagents are not captured): ${r.notObserved.join(', ')}\n`
     + 'Nothing is removed automatically; details: mem skills usage');
