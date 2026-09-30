@@ -20,6 +20,17 @@ TARGET_BYTES = 400 * 1024
 
 def optimize(raw_path, png_out_path):
     im = Image.open(raw_path).convert("RGBA")
+    # X9 (2026-09-30): if the image already exists as .webp in the folder
+    # (the README points at it), it stays WebP -- otherwise it flips
+    # between PNG and WebP from run to run and the link dangles.
+    webp_out = png_out_path[: -len(".png")] + ".webp"
+    if os.path.exists(webp_out):
+        for quality in (82, 72, 62, 52, 42):
+            im.convert("RGB").save(webp_out, format="WEBP", quality=quality, method=6)
+            size = os.path.getsize(webp_out)
+            if size <= TARGET_BYTES:
+                break
+        return webp_out, size, f"WebP quality {quality} (stayed WebP as in the existing set)"
     has_alpha = im.getchannel("A").getextrema() != (255, 255)
     base = im if has_alpha else im.convert("RGB")
     base.save(png_out_path, format="PNG", optimize=True)
