@@ -35,7 +35,8 @@ const README = read('README.md');
 
 function lineCount(dir, filter = () => true) {
   let n = 0;
-  for (const name of fs.readdirSync(path.join(REPO, dir))) {
+  // Recursive (F4, 2026-09-30): src/cli/commands/* and src/embed/* are code too.
+  for (const name of fs.readdirSync(path.join(REPO, dir), { recursive: true })) {
     if (!filter(name)) continue;
     const p = path.join(REPO, dir, name);
     if (!fs.statSync(p).isFile()) continue;
@@ -59,7 +60,7 @@ const counted = {
   mutanten: () => MUTANTS.length,
   cli: clihelp.allTableCommands(read).length,
   mcp: [...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].length,
-  modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
+  modules: fs.readdirSync(path.join(REPO, 'src'), { recursive: true }).filter((n) => String(n).endsWith('.mjs')).length, // recursive (F4): src/cli/commands, src/embed ... hold modules too
   // The test count cannot be had exactly without running the suite, and a
   // test that starts the suite is a test that contains itself. So: the
   // `test(` call sites, which on 2026-09-19 were 1247 against 1251 really

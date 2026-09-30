@@ -98,7 +98,8 @@ function countFiles(dir, filter) {
 
 function lineCount(root, dir, filter = () => true) {
   let n = 0;
-  for (const name of fs.readdirSync(path.join(root, dir))) {
+  // Recursive (F4, 2026-09-30), like `modules`: the subdirectories of src/ are code too.
+  for (const name of fs.readdirSync(path.join(root, dir), { recursive: true })) {
     if (!filter(name)) continue;
     const p = path.join(root, dir, name);
     if (!fs.statSync(p).isFile()) continue;

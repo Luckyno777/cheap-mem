@@ -262,7 +262,7 @@ jobs:
       # The same parse, by the shell the docs tell people to use.
       #
       # `shell: pwsh` above is PowerShell 7, which reads a script as
-      # UTF-8. README.md:613 and docs/install-windows.md:68 say
+      # UTF-8. The Windows section of README.md and docs/install-windows.md say
       # `powershell -File ...`, and on a default Windows box that is
       # Windows PowerShell 5.1, which reads a BOM-less script with the
       # machine's ANSI codepage instead.
@@ -728,7 +728,7 @@ jobs:
           }
 
           # `powershell`, not `pwsh`: 5.1 is what a default Windows box
-          # has and what README.md:613 tells people to run. The step
+          # has and what the README tells people to run. The step
           # above parses every script with it; this one runs one.
           #
           # -SkipTask because this step is about the Claude Code lanes.
@@ -1248,7 +1248,7 @@ jobs:
       # open"; three of those were wrong. The point of a gate is that the
       # fourth kind of finding arrives as a red build instead.
       #
-      #   mutation           48 mutants: break one guarantee, expect a
+      #   mutation           every mutant (count: README): break one guarantee, expect a
       #                      test to notice. Skipped and ambiguous
       #                      anchors fail too — a mutant that never ran
       #                      used to be counted as caught.

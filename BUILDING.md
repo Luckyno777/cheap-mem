@@ -3,7 +3,7 @@
 Short instructions to carry into other sessions. Not a manifesto —
 rules that have proven themselves on cheap-mem and lucky-mem, with the
 costs they actually caused. Ten on 2026-09-06, the eleventh added on
-2026-09-07.
+2026-09-07, more since: the numbered list below is the count.
 
 ## The rules
 
@@ -43,7 +43,7 @@ costs they actually caused. Ten on 2026-09-06, the eleventh added on
 6. **Measure paired, task as the unit of observation.** The same task
    twice, with and without. A sign test over the tasks that differ —
    no average over yes/no values, which fakes precision. Result was
-   12/63 -> 34/63, 22 better, 0 worse, p < 0,0001. And this belongs
+   12/63 -> 34/63, 22 better, 0 worse, p < 0.0001. And this belongs
    with it: the absolute number is a property of this task set, not a
    transferable rate.
 
@@ -69,8 +69,8 @@ costs they actually caused. Ten on 2026-09-06, the eleventh added on
    exact lane handed out its hits in index order, all with score 0 —
    whichever entry stood earlier in the file won. Measured on a
    question that named `1029` and hit seven entries: a thematically
-   unrelated note (BM25 2,26) at rank 2, the answer (19,96) at rank 5,
-   the lane's strongest hit (36,26) at rank 7. An excerpt that takes
+   unrelated note (BM25 2.26) at rank 2, the answer (19.96) at rank 5,
+   the lane's strongest hit (36.26) at rank 7. An excerpt that takes
    three hits per question thereby lost the answer — not because the
    search missed it, but because its own lane buried it.
 
@@ -168,18 +168,6 @@ costs they actually caused. Ten on 2026-09-06, the eleventh added on
     exempted stands in the guard with a reason. And it reports itself
     when its pattern no longer matches anything: a check that runs
     into a void otherwise stays green forever.
-
-## Costs for calibration (Sonnet 5, September 2026)
-
-| Measurement | Scope | Cost |
-|---|---|---|
-| Stateless baseline | 45 tasks | ~2,25 USD |
-| Catch-up of new classes | 24 tasks | ~1,20 USD |
-| One paired arm | 63 tasks | ~3,15 USD |
-| **whole workday** | everything above plus repeats | **~11 USD** |
-
-Roughly: **5 cents per task and arm.** That is the number you plan
-with beforehand.
 
 14. **A measuring instrument is done when someone calls it — not when
     it runs.** Every new tool gets its caller right at build time:
@@ -292,3 +280,15 @@ enough that code can walk it? Is the guarantee enforced, or only
 documented?
 
 Four yeses — build it. One no — it's a different system.
+
+## Costs for calibration (Sonnet 5, September 2026)
+
+| Measurement | Scope | Cost |
+|---|---|---|
+| Stateless baseline | 45 tasks | ~2.25 USD |
+| Catch-up of new classes | 24 tasks | ~1.20 USD |
+| One paired arm | 63 tasks | ~3.15 USD |
+| **whole workday** | everything above plus repeats | **~11 USD** |
+
+Roughly: **5 cents per task and arm.** That is the number you plan
+with beforehand.
