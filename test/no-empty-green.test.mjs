@@ -300,7 +300,8 @@ test('CONTROL: every exemption carries a reason that argues', () => {
       `the exemption for '${name}' states a category, not an argument: ${why}`);
   }
   // And it must not grow without anyone noticing.
-  assert.equal(EXEMPT.size, 12,
+  // 12 -> 13 on 2026-09-30 (Z2/A12): 'claim-orphaned', argued above.
+  assert.equal(EXEMPT.size, 13,
     `the exemption list is now ${EXEMPT.size} long. Every addition needs an argument in `
     + 'the file and a deliberate change here — that is the point of pinning the number.');
 });
