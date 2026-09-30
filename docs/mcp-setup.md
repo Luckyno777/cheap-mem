@@ -1,7 +1,7 @@
 # MCP setup per client
 
 cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes 35 tools:
-`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_inbox_claim`, `mem_inbox_renew`, `mem_inbox_done`, `mem_inbox_failed`, `mem_inbox_claims`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`.
+`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_inbox_claim`, `mem_inbox_renew`, `mem_inbox_done`, `mem_inbox_failed`, `mem_inbox_claims`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`, `mem_answer`, `mem_board`, `mem_bridge_report`, `mem_component`, `mem_heartbeat`, `mem_ledger`, `mem_procedures`, `mem_questions`, `mem_source`, `mem_user_habits`.
 
 Six of them — `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`,
 `mem_facts`, `mem_explain` — were added on 2026-09-08. They had existed
@@ -44,8 +44,8 @@ CHEAP_MEM_ROOT=/absolute/path/to/your-memory \
   bash /absolute/path/to/cheap-mem/install/claude-code.sh   # or: mem setup claude
 ```
 
-That merges into `~/.claude/settings.json` and drops SessionStart +
-Stop hooks under `~/.claude/hooks/`.
+That merges into `~/.claude/settings.json` and drops 7 hooks under
+`~/.claude/hooks/` (list: README, "Claude Code (hooks + MCP)").
 
 ## Claude Desktop (macOS / Windows)
 

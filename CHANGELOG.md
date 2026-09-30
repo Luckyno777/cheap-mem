@@ -258,7 +258,8 @@ are the day the work landed on `main`.
   fixed fixture, fixed `now`) against the pre-split commit in a detached
   worktree; `test/astra-modules.test.mjs` latches that each view stays
   in exactly one module and that `astra.mjs` declares none of them. See
-  `docs/dashboard-astra-split.md`.
+  `docs/dashboard-astra-split.md`. (Removed again with the Astra desk on
+  2026-09-28; `src/astra*` and this test no longer exist.)
 
 ### Fixed
 
@@ -283,7 +284,6 @@ are the day the work landed on `main`.
   reads across three runs; after the rename, 0 of 2000. The scratch file
   carries the process id and a random suffix, so two rebuilds at once
   cannot rename each other's half.
-
 
 - **An unreadable capture register no longer reads as an empty one.**
   The archive tile (`src/board.mjs`) let the register read throw, which

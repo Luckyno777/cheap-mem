@@ -37,7 +37,7 @@ wasted money.
 
 ## What has been measured so far
 
-- **Echo rate reproduced** (the `13/18` finding from `src/search.mjs:1031`):
+- **Echo rate reproduced** (the `13/18` finding from `src/search.mjs#isEcho`):
   81.2% (2056/2532, 95% 79.6-82.7) on verbatim repetition, 37.8% / 59.8%
   / 69.7% on rephrasing at 107 / 389 / 1141 documents. **The rate grows
   with memory size** — that is new and was not visible at n=18.
@@ -474,8 +474,9 @@ expectation. It belongs pre-registered and tested on new tasks.
 | German | 21 | 198 | **0** | **0/21** |
 | English | 15 | 44 | 53 | 11/15 |
 
-`THESAURUS` in `src/thesaurus.mjs`: 39 groups, 188 words, not a single
-German one. For a German memory, this layer contributes **nothing**.
+`THESAURUS` in `src/thesaurus.mjs` on that day: 39 groups, 188 words, not
+a single German one (German groups were added later). For a German
+memory, this layer contributed **nothing**.
 The English measurement is the positive control: the mechanism works,
 it just does not engage.
 

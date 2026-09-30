@@ -43,9 +43,10 @@ are not condensing enough** — you are copying, not digesting.
 
 ## `topic` — the rule that was missing until 2026-09-05
 
-The drawer table above lists `topic` as required. What a topic *is* was
-written down nowhere. Measured result on a real memory: **553 entries, 69
-with a `topic`, producing 69 distinct topics. Ratio 1.00.** Fifty-nine of
+The drawer entries carried a `topic` field (it is optional now, see
+"When in doubt" below), and what a topic *is* was written down nowhere. Measured result on a
+real memory: **553 entries, 69 with a `topic`, producing 69 distinct
+topics. Ratio 1.00.** Fifty-nine of
 them had no slash; several were whole sentences. That is not a model
 failure — given a required field and no definition, you fill it per entry.
 
@@ -195,7 +196,7 @@ stated).
 
 That writes two records, and the difference matters:
 
-- `.mem/raw-watermark.json` — a fast local cache. Gitignored.
+- `.mem/raw-watermark.json` — a fast local cache, per machine (it does not travel with the clone).
 - `digested.jsonl` — the **ledger**, append-only and **tracked**.
 
 Only the ledger travels. Before it existed, two things went wrong: a fresh

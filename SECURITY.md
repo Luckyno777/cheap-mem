@@ -11,7 +11,8 @@ a formality:
    git repository, and git keeps history — a secret committed once is
    not removed by deleting the file.
 3. **It can hold API keys.** The optional embedding providers
-   (Voyage, OpenAI, Ollama) read a key from the environment.
+   (Voyage, OpenAI) read a key from the environment; Ollama is local
+   and needs none.
 
 ## Reporting
 
@@ -33,8 +34,8 @@ Every claim below has a command. Run it rather than believe it.
 | Secrets redacted before anything is written | `src/redaction.mjs` | `node --test test/redaction*.test.mjs` |
 | Redaction self-test before every capture | `redaction.selfTest()` | a failing canary aborts the capture |
 | Values compared against the actual environment | `redactAgainstEnv` | `node --test test/redaction.test.mjs` |
-| A pre-commit hook scans staged content | `install/hooks/` | `mem doctor --strict` |
-| The memory root cannot be escaped | `src/memory.mjs` | `node --test test/path*.test.mjs` |
+| A pre-commit hook scans staged content | `hooks/pre-commit` | `mem doctor --strict` |
+| A project name cannot walk out of the memory root | `src/memory.mjs` (`logPath`) | `node --test test/guards.test.mjs` |
 
 **The canary matters more than the pattern list.** If the redaction
 stops doing what it claims, the capture does not happen — a gap in the

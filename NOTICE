@@ -22,12 +22,12 @@ Third-party components shipped with cheap-mem
 ---------------------------------------------
 
 cheap-mem has no runtime dependencies (package.json "dependencies" is
-empty, and stays empty). Its dashboard ships two third-party files
-VENDORED into assets/ instead — a deliberate, named exception decided by
+empty, and stays empty). Its dashboard ships three third-party files
+(three.js and two DM Sans font subsets) VENDORED into assets/ instead — a deliberate, named exception decided by
 the owner on 2026-09-28 (docs/dashboard-port-2026-09-28.md, section 6.1),
 so the one UI looks and moves exactly like its sibling's and nothing is
 ever loaded from a CDN. test/packaging.test.mjs (VENDORED) lists every
-vendored file by path; a third one cannot arrive without a line there.
+vendored file by path; a further one cannot arrive without a line there.
 
   three.js r180 (assets/three/three-r180.min.js)
     Copyright 2010-2025 three.js authors

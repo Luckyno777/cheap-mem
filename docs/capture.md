@@ -59,11 +59,11 @@ The tick is cheap on purpose. It asks `mem digest due` and is normally
 back out in milliseconds — no lock, no git, no model. The decision sits
 in the dueness check, not in the schedule:
 
-| trigger | default | env |
-|---|---|---|
-| volume | 500 KB pending | `--volume-now` |
-| quiet | 45 min since the **last** capture | `--quiet` |
-| ceiling | 8 h since the **first** | `--ceiling` |
+| trigger | default | `mem digest due` flag | env (`bin/mem-digest`) |
+|---|---|---|---|
+| volume | 500 KB pending | `--volume-now` | `MEM_DIGEST_VOLUME_NOW_KB` |
+| quiet | 45 min since the **last** capture | `--quiet` | `MEM_DIGEST_QUIET_MIN` |
+| ceiling | 8 h since the **first** | `--ceiling` | `MEM_DIGEST_CEILING_H` |
 
 **No capture means no bell, and no bell means no call.** A week away
 costs exactly zero.
@@ -74,7 +74,7 @@ material is still arriving.
 
 ### How much per run
 
-`MEM_DIGEST_MAX_BYTES` (default 2 MB) caps what one run is handed.
+`MEM_DIGEST_MAX_BYTES` (default 16 MB) caps what one run is handed.
 Files are chosen **smallest first**, so a single oversized capture that
 no session can finish does not block everything behind it forever. The
 rest stays pending and the next tick takes it — a backlog drains over

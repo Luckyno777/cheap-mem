@@ -26,10 +26,10 @@ the verification commands at the end.
 | **Conflict & authority** | authority tiers decide who may overrule whom, conflict detection and reporting, disputed claims kept visible rather than deleted, author-share limits against flooding | [3.4](#34-conflict-and-authority) |
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
-| **Automation** | 4 Claude Code hooks (session start, recall per message, recall per file edit, digest trigger), one model call per few hours, watcher, git as sync | [6](#6-automation) |
+| **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 73 CLI commands, 35 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 2979 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3024 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -54,8 +54,8 @@ directory. The section number in brackets is where it is explained.
 | `askedlearn.mjs` | query words learned from recall misses: a miss the same session then fetched by id teaches the entry the words it was asked with, in any language (`mem asked-learn`, M18b) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
-| `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); not yet wired into `getEntryFast()` |
-| `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number (10.18) |
+| `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); read by `getEntryFast()` and `mem-serve` |
+| `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
 | `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
@@ -99,37 +99,37 @@ directory. The section number in brackets is where it is explained.
 | `freshness.mjs` | living facts, deterministic, no model (3) |
 | `frozenset.mjs` | a really immutable set (`has`/`size`/`values`, no `add`): `Object.freeze(new Set())` freezes only the wrapper object, not the contents |
 | `gap.mjs` | N18 parity: a retrieval miss the injection journal recorded, later matched by content-word overlap with a NEW entry, is a closed knowledge gap — produces `kind:'gap'` candidates for `goldlog.mjs`'s file, shown first on the "Rate today" card |
-| `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation (10.19) |
+| `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
 | `inbox.mjs` | cross-session messages |
 | `indexcache.mjs` | the search index cache as shards, never as one JSON string — the old cache broke past ~978,000 entries |
-| `injection.mjs` | the journal of what the hook put into a turn, and what it did not (10.19) |
+| `injection.mjs` | the journal of what the hook put into a turn, and what it did not |
 | `integrity.mjs` | what is wrong with the log itself (4) |
 | `langdetect.mjs` | cheap, deterministic per-entry language detection — one memory can hold German and English text without a mismatched stemmer |
 | `language.mjs` | stemming and stop words, per language |
 | `langbridge.mjs` | optional starter dictionaries from the language a person asks in to the language the agents wrote in, as files (`src/langbridge/*.tsv`), off by default (`languageBridges` in `.mem/config.json`, M18b) |
 | `latencybudget.mjs` | ONE latency budget per recall-hook occasion over the injection journal's `duration_ms`: p50/p95, four states, under 20 timed lines unknown — the doctor's `hook-latency` finding and the dashboard's hook-time panel read only this (Bauplan P2) |
-| `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active (10.27) |
+| `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active |
 | `mcplive.mjs` | a real `tools/list` probe of the local MCP bridge — cached, run in the background, never awaited by `/dashboard.json` (7.5) |
-| `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing (10.26) |
+| `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing |
 | `mcpvisibility.mjs` | which MCP client saw or called which tool, and when — name, client, time only, never call content, machine-local under `.pipeline/` (7.5) |
 | `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
 | `modelcost.mjs` | reads the token/cost fields a headless `claude -p --output-format json` run already returns; machine-local, never a second model call (7.5) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
-| `net.mjs` | what points at what — from declared links, not from similarity (10.20) |
-| `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking (10.28) |
+| `net.mjs` | what points at what — from declared links, not from similarity |
+| `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking |
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
 | `pages.mjs` | filtered, cursor-paged lists over the drawers — never the whole desk (`/entries.json`, E1.3) |
 | `parity.mjs` | the parity core (mem-admin_02 L5/W9): the cutoff, the `Parity:` trailer shape, merge coverage, addenda, and the W9 debt list against the sibling house — `bench/parity.mjs` is the thin CLI over this |
-| `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree (10.21) |
-| `pointer.mjs` | a pointer instead of silence when something was already shown (10.22) |
+| `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree |
+| `pointer.mjs` | a pointer instead of silence when something was already shown |
 | `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |
 | `profile.mjs` | switchable measuring points that land in the ordinary log — finds where time went without a hand-written report script |
-| `provenance.mjs` | which clone answered, and how old it is (10.23) |
+| `provenance.mjs` | which clone answered, and how old it is |
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `recallhook.mjs` | Z1c: what `bin/mem-retrieve` and `bin/mem-catch-fail` (bash and PowerShell) hand their work to: decide short prompts, claim the turn, print the answer, book the journal line AFTER the write |
@@ -148,7 +148,7 @@ directory. The section number in brackets is where it is explained.
 | `shardarchive.mjs` | P17: splits the raw-capture body across shards so git never has to carry one multi-GB blob |
 | `shortline.mjs` | the one-line entry summary of the MCP tools (`mem_component`, `mem_links`, `mem_facts`, ...), procedure mark and bidi latch included, body fields from `bodyfields.mjs` |
 | `shred.mjs` | per-entry body encryption plus a small, NOT append-only keyring — a real deletion without rewriting history |
-| `shrink.mjs` | an append-only memory must not get smaller (10.24) |
+| `shrink.mjs` | an append-only memory must not get smaller |
 | `sibling.mjs` | where the sister house's clone lives, if it sits beside us at all — dependency-free so nothing that needs it has to import `doctor.mjs` |
 | `skillusage.mjs` | W10: which skills get used — Skill tool calls and /command marks counted from the raw-capture archive, always with coverage; a skill without a hit is "not observed", never "unused"; names and counts only, never removes anything (`mem skills usage`, finding `skill-usage`) |
 | `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
@@ -160,7 +160,7 @@ directory. The section number in brackets is where it is explained.
 | `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
-| `teach.mjs` | what the memory has to say to a newcomer, in five sections (10.25) |
+| `teach.mjs` | what the memory has to say to a newcomer, in five sections |
 | `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this (7) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
@@ -182,7 +182,7 @@ index), which is off unless configured.
 These five claims are the ones evaluators have gotten wrong. Each names
 where to check.
 
-1. **"No relationship system."** Wrong. `link` is one of the ten entry
+1. **"No relationship system."** Wrong. `link` is one of the 15 entry
    types, with a closed vocabulary of four edge kinds
    (`causes`, `generalizes`, `contradicts`, `resolves`).
    `src/memory.mjs` → `LINK_KINDS`, `linksOf()`; CLI `mem links <id>`;
@@ -306,7 +306,7 @@ milliseconds.
   entries**, so a query finds things worded differently without an
   embedding model.
 - **Compound splitting**, which matters in German and in identifiers.
-- **Recency bonus**, bounded: at most +15 %, halved after 90 days.
+- **Recency bonus**, bounded: at most +15 %, fading with `exp(-age/90 days)` (about a third left after 90 days).
   Deliberately weak — recency is a hint, not a truth claim.
 - **MMR diversity** by default, so the top-k does not fill with
   near-duplicates. `--no-mmr` restores pure BM25 order.
@@ -513,14 +513,17 @@ return, so a flood cannot become a denial of service or a context bill.
 
 ## 6. Automation
 
-Four Claude Code hooks, installed by `install/claude-code.sh`:
+7 Claude Code hooks, installed by `install/claude-code.sh`:
 
 | Hook | When | What |
 |---|---|---|
 | `SessionStart` | session begins | prints `FACTS.md` + recent context |
 | `UserPromptSubmit` | every message | recalls matching memory (no model, ~ms) and feeds it to the turn; refreshes the clone in the background, detached |
 | `PreToolUse` (Edit/Write/NotebookEdit) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it — once per file per session |
-| `Stop` | after a turn | triggers the digest, byte-delta throttled |
+| `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
+| `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
+| `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |
+| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start` and a context recap — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
 
 **Why the PreToolUse hook exists**, measured 2026-09-08: recall used to
 hang only on `UserPromptSubmit`, so it fired when the person typed and
@@ -566,7 +569,7 @@ unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 ### 7.2 MCP — 35 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
-Desktop). `bin/mem-mcp`, stdio.
+Desktop). `bin/mem-mcp`, stdio (or `--http`).
 
 | Tool | Purpose |
 |---|---|
@@ -648,11 +651,10 @@ typing a long command is, in practice, not changeable.
 
 | Path | What |
 |---|---|
-| `/` | state (the seven board tiles), settings, installation steps, connections, memory |
-| `/pult` | the desk — five views over the same memory (7.5) |
-| `/viewer` | the viewer, with a way back |
-| `/console.json` | the same numbers, for tools |
-| `/pult.json` | the desk's numbers, for tools (was `/dashboard.json` until 2026-09-28) |
+| `/`, `/pult` | the dashboard page (7.5) — since 2026-09-28 also home of the settings, installation steps and connections this section describes |
+| `/console`, `/viewer` | redirects (303) into the dashboard; the pages of their own are gone |
+| `/console.json` | the state numbers, for tools |
+| `/pult.json` | the dashboard's data, for tools (was `/dashboard.json` until 2026-09-28) |
 | `/task`, `/task/cancel` | start/cancel a long CLI work item as a task (E1.7, `src/tasks.mjs`) |
 | `/task.json` | a task's progress/result, or the two-kind overview |
 | `/inbox/reply` | answer one message in the human participant's tray — same write as `mem inbox write` (P1b) |
@@ -660,7 +662,7 @@ typing a long command is, in practice, not changeable.
 
 The list lives once, as `PATHS` in `bin/mem-serve`, and the auth probe
 reads it from there. A path list copied into a test is a list that goes
-on passing after a sixth path is added.
+on passing after another path is added.
 
 **It is a daemon, and the trade is worth naming.** The viewer file was
 "nothing that keeps running". This keeps running. So it carries the two
@@ -753,8 +755,10 @@ own colour. Unknown is never drawn as 0.
 yield, restore, merge and the live injection view are marked "not
 available in cheap-mem" rather than hidden or faked.
 
-**Writing** goes only through the existing routes (`/setting`, `/task`,
-`/task/cancel`, `/inbox/reply`, `/inbox/state`) and their gates, and is
+**Writing** goes only through the routes named in `WRITE_PATHS` in
+`bin/mem-serve` (`/setting`, `/task`, `/task/cancel`, `/inbox/reply`,
+`/inbox/state`, `/dashboard/verify-verdict`, `/dashboard/gold-verdict`)
+and their gates, and is
 off until the write switch is on (`docs/dashboard-writes.md`). Deleting a
 raw capture works as on the CLI: preview, mandatory reason, confirmation.
 
@@ -771,7 +775,7 @@ Do not take this document's word. Every claim above is checkable, and
 the commands are short.
 
 ```bash
-npm test                                    # the runner counts subtests; static count 1698
+npm test                                    # the runner counts subtests; count: Measurement row, section 0
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
@@ -824,7 +828,7 @@ entry saying two names are the same person — no lookup can act on it.
 
 ---
 
-## 10. The ten principles this is built against
+## The ten principles this is built against
 
 Any proposed change is weighed against these, and a change that breaks
 one needs to say so out loud:
@@ -1214,8 +1218,8 @@ single-digit:
 | exact duplicate lines across captures | 0.4 % |
 
 gzip already does that work. After it there is nothing left to squeeze,
-so the only levers are storing less (the drop filter, 10.13) and
-storing elsewhere — this.
+so the only levers are storing less (the capture drop filter,
+`src/raw.mjs` `dropReason`) and storing elsewhere — this.
 
 **An expiry date alone would not have helped: git deletes nothing.** A
 removed file is gone from the working tree and still in the pack.
@@ -1240,7 +1244,7 @@ why. `--reason` is required: a tombstone without one answers "was this
 deliberate?" with a shrug. Without `--yes` the command only prints what
 would happen and how many bytes — nothing is touched.
 
-That leaves three states for any capture, and the third is the point:
+That leaves four states for any capture, and the last two are the point:
 
 | state | means |
 |---|---|
@@ -1251,10 +1255,10 @@ That leaves three states for any capture, and the third is the point:
 
 One word for the last two would hide a broken NAS mount behind a
 deliberate cleanup. `mem raw review` and the workspace's Settings view
-read the same three states from the same function; the page draws them,
+read the same four states from the same function; the page draws them,
 it does not recompute them.
 
-And a fourth answer sits above those three: **a register that cannot be
+And one more answer sits above those four: **a register that cannot be
 read is not "no captures".** Both the archive tile and the review report
 that as unknown, with the read error, and their counters go to `null`
 rather than `0` — a number nobody took must not arrive looking like a
@@ -1364,6 +1368,37 @@ be worse than the gap, because it gives a hint the appearance of
 evidence. Every hit carries its form (`exact` / `base`) into the
 display: a base hit is weaker evidence and should look like it.
 
+### 10.15 Reach: the bridge carries all of it
+
+After the port, six of these capabilities existed only at the CLI. For
+an agent whose ONLY access is the bridge — a connected model over MCP —
+they therefore did not exist. The same measurement as for the store
+tools, one round later.
+
+The expensive one was the heartbeat. `mem onboarding` checks five
+steps, and one of them was fundamentally out of reach for a
+bridge-only agent: it could behave however well it liked and stay red.
+**A test bench that does not permit a result is not measuring the
+thing under test.**
+
+Two boundaries stay, and both have a reason rather than an oversight:
+
+- **`procedure` is read, never written**, over the bridge. A norm for
+  all agents cannot come from one of them.
+- **`mem_source` takes addresses, not local paths.** The content of a
+  source lands redacted in the searchable corpus that everybody reads
+  — a different exposure from `mem_store_put`, which holds bytes under
+  a hash and refuses outright on a redaction finding. Taking a local
+  file in as a source is a human's decision at the CLI. The refusal
+  names both ways out.
+
+`mem_heartbeat` takes its identity from the connected agent, never
+from a parameter: otherwise one agent could beat for another, and the
+lane would look alive where nobody is running any more.
+
+Not added: `broadcast` (fires by itself when an error is logged) and
+`guard run` (an operational handle, not a working tool).
+
 ### 10.16 Error classes — `src/errorclass.mjs`, `mem classes`
 
 A closed vocabulary of twelve, so that errors become countable at all.
@@ -1442,7 +1477,7 @@ needed.
 
 **Cheap here, expensive elsewhere.** Matching a rule to a situation by
 keyword is guessing; matching against twelve fixed names is a lookup.
-The closed vocabulary of [10.16](#1016-error-classes) pays a second
+The closed vocabulary of [10.16](#1016-error-classes--srcerrorclassmjs-mem-classes) pays a second
 time.
 
 An unknown class is **refused at write time**, which is the opposite of
@@ -1485,37 +1520,6 @@ which process is running out there, so it does not guess: it stays
 `unknown` until an agent reports with `mem bridge report <short-hash>`.
 A tile that inferred the running state from the repo state would have
 shown green for the whole day the bug lasted.
-
-### 10.15 Reach: the bridge carries all of it
-
-After the port, six of these capabilities existed only at the CLI. For
-an agent whose ONLY access is the bridge — a connected model over MCP —
-they therefore did not exist. The same measurement as for the store
-tools, one round later.
-
-The expensive one was the heartbeat. `mem onboarding` checks five
-steps, and one of them was fundamentally out of reach for a
-bridge-only agent: it could behave however well it liked and stay red.
-**A test bench that does not permit a result is not measuring the
-thing under test.**
-
-Two boundaries stay, and both have a reason rather than an oversight:
-
-- **`procedure` is read, never written**, over the bridge. A norm for
-  all agents cannot come from one of them.
-- **`mem_source` takes addresses, not local paths.** The content of a
-  source lands redacted in the searchable corpus that everybody reads
-  — a different exposure from `mem_store_put`, which holds bytes under
-  a hash and refuses outright on a redaction finding. Taking a local
-  file in as a source is a human's decision at the CLI. The refusal
-  names both ways out.
-
-`mem_heartbeat` takes its identity from the connected agent, never
-from a parameter: otherwise one agent could beat for another, and the
-lane would look alive where nobody is running any more.
-
-Not added: `broadcast` (fires by itself when an error is logged) and
-`guard run` (an operational handle, not a working tool).
 
 ### 10.18 Integrity of the log itself — `src/chain.mjs`, `mem chain`
 
@@ -1568,10 +1572,9 @@ approaches the limit. `test/index-cache-ladder.test.mjs` re-establishes
 the wall on whichever machine runs the test rather than trusting a
 number measured on another one.
 
-**Not yet wired into `loadIndex`.** Landing it is a coordinated change
-across roughly a dozen files (doctor, .gitignore, the git hook, four
-atlas phases, six tests and benches); it is validated in a sandbox and
-deliberately deferred rather than half-landed.
+**Wired into `loadIndex` since B8 (2026-09-20).** The cache is the
+directory `.mem/search-index/`; the single file `.mem/search-index.json`
+is the old name, kept in the memory's `.gitignore` for leftovers.
 
 ### 10.21 Language per entry, not per memory — `src/langdetect.mjs`
 
@@ -1591,7 +1594,8 @@ memory's configured language — a fallback, named as one.
 ### 10.22 Archiving shards — `src/shardarchive.mjs`
 
 Git does not carry a multi-gigabyte body. The build plan projected
-~166.2 B/entry and a ~4.8 GB body at 5,000,000 entries; re-running the
+~166.2 B/entry in `learnings.jsonl` (~792 MB per drawer type, ~4.8 GB
+in all at 5,000,000 entries); re-running the
 same generator on the current tree measures ~974 B/entry for
 `learnings.jsonl` and a ~1253 B/entry mean across every drawer type —
 6-7x the cited figure, and in line with the real corpus (p50 979 B over

@@ -937,7 +937,7 @@ export function bodyHash(text) {
  * CANDIDATES considered. Not of the answer — and the difference matters.
  *
  * The filtering shrinks its own denominator: 9 flood claims plus 1 genuine
- * one give cap 5, so 5 are dropped and the answer is 6, of which 5 are the
+ * one give cap 5, so 4 are dropped and the answer is 6, of which 5 are the
  * flood. A promised ceiling of 50% delivers 83%. Measured, not reasoned:
  * bench/byzantine.mjs, 2026-09-05.
  *

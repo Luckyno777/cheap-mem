@@ -22,7 +22,7 @@ import * as numbers from '../bench/readme-numbers.mjs';
  * NOT this repo's own tree: a test that writes the real README changes
  * the very thing it is checking.
  */
-function tree({ cli = 2, mcp = 2, modules = 2, tests = 2, line = null, capsLine = null }) {
+function tree({ cli = 2, mcp = 2, modules = 8, tests = 2, line = null, capsLine = null }) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'readme-numbers-'));
   fs.mkdirSync(path.join(root, 'src', 'cli', 'commands'), { recursive: true });
   fs.mkdirSync(path.join(root, 'test'), { recursive: true });
@@ -44,8 +44,10 @@ function tree({ cli = 2, mcp = 2, modules = 2, tests = 2, line = null, capsLine 
   const mcpBody = Array.from({ length: mcp }, (_, k) => `      name: 'mem_t${letters[k]}',`).join('\n');
   fs.writeFileSync(path.join(root, 'bin', 'mem-mcp'), `const TOOLS = [\n${mcpBody}\n];\n`);
 
-  // modules: files under src/.
-  for (let i = 0; i < modules; i += 1) fs.writeFileSync(path.join(root, 'src', `m${i}.mjs`), '// empty\n');
+  // modules: `.mjs` files under src/, RECURSIVELY (F4) — the six group
+  // files above count too, so `modules` must be at least 6.
+  assert.ok(modules >= groups.length, 'modules includes the six command-group files');
+  for (let i = 0; i < modules - groups.length; i += 1) fs.writeFileSync(path.join(root, 'src', `m${i}.mjs`), '// empty\n');
 
   // tests: `test(` call sites under test/.
   fs.writeFileSync(path.join(root, 'test', 'p.test.mjs'),
@@ -70,13 +72,13 @@ const CLAIM = (cli, mcp, modules, tests) => `As of 2026-01-01: **${cli} CLI comm
 const CAPS_CLAIM = (tests) => `17 benchmarks, an eval harness with a frozen reference run, ${tests} tests`;
 
 test('the write path pulls the exact numbers forward', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(1, 1, 1, 1) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: CLAIM(1, 1, 1, 1) });
   try {
     const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const report = await numbers.updateNumbers({ root, write: true });
     const after = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     assert.notEqual(after, before);
-    assert.match(after, /\*\*3 CLI commands, 4 MCP tools, 5 modules, 1\ntests\*\*/, after);
+    assert.match(after, /\*\*3 CLI commands, 4 MCP tools, 11 modules, 1\ntests\*\*/, after);
     assert.deepEqual(report.changes.map((c) => c.field).sort(), ['cli', 'mcp', 'modules']);
   } finally { rm(root); }
 });
@@ -86,17 +88,17 @@ test('THE BUG THAT MUST NOT COME BACK: several numbers in one claim, fixed by po
   // guaranteed to fail: fixing "1" -> "28" first plants a "2" in the
   // text, and the next search (for mcp's old value "2") would find that
   // "2" — inside "28" — before the real one.
-  const root = tree({ cli: 28, mcp: 15, modules: 6, tests: 2, line: CLAIM(1, 2, 3, 2) });
+  const root = tree({ cli: 28, mcp: 15, modules: 12, tests: 2, line: CLAIM(1, 2, 3, 2) });
   try {
     await numbers.updateNumbers({ root, write: true });
     const after = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
-    assert.match(after, /\*\*28 CLI commands, 15 MCP tools, 6 modules, 2\ntests\*\*/,
+    assert.match(after, /\*\*28 CLI commands, 15 MCP tools, 12 modules, 2\ntests\*\*/,
       `a digit of an earlier fix leaked into a later one: ${JSON.stringify(after)}`);
   } finally { rm(root); }
 });
 
 test('a dry run does not write, but reports the same changes', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(1, 1, 1, 1) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: CLAIM(1, 1, 1, 1) });
   try {
     const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const report = await numbers.updateNumbers({ root, write: false });
@@ -107,7 +109,7 @@ test('a dry run does not write, but reports the same changes', async () => {
 });
 
 test('a number that already matches is left alone — or every commit would touch the README', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(3, 4, 5, 6) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: CLAIM(3, 4, 11, 6) });
   try {
     const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const report = await numbers.updateNumbers({ root, all: true, write: true });
@@ -117,7 +119,7 @@ test('a number that already matches is left alone — or every commit would touc
 });
 
 test('a MISSING claim is reported, not silently passed over', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: 'CLI commands: three, MCP tools: four' });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: 'CLI commands: three, MCP tools: four' });
   try {
     const report = await numbers.updateNumbers({ root, write: true });
     assert.ok(report.missing.length > 0, 'the rewritten line was not reported missing');
@@ -126,7 +128,7 @@ test('a MISSING claim is reported, not silently passed over', async () => {
 });
 
 test('the default (EXACT) selection does not touch tests or lines — those move on every commit', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(3, 4, 5, 1) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: CLAIM(3, 4, 11, 1) });
   try {
     const report = await numbers.updateNumbers({ root, write: true }); // no `all`
     assert.deepEqual(report.changes, [], 'the default selection touched something');
@@ -136,7 +138,7 @@ test('the default (EXACT) selection does not touch tests or lines — those move
 });
 
 test('`--all` also pulls the noisy numbers forward', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 9, line: CLAIM(3, 4, 5, 1) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 9, line: CLAIM(3, 4, 11, 1) });
   try {
     const report = await numbers.updateNumbers({ root, all: true, write: true });
     assert.ok(report.changes.some((c) => c.field === 'tests'), 'tests was not pulled forward under --all');
@@ -146,7 +148,7 @@ test('`--all` also pulls the noisy numbers forward', async () => {
 });
 
 test('checkNumbers reports mismatches without writing anything', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(1, 4, 5, 6) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: CLAIM(1, 4, 11, 6) });
   try {
     const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');
     const report = await numbers.checkNumbers({ root, only: numbers.EXACT });
@@ -170,7 +172,7 @@ test('POSITIVE: EXACT and ALL are not accidentally empty', () => {
 // These tests are the fixture version of exactly that repair.
 
 test('a fixture with NO docs/ directory at all is untouched — the M14 target is opt-in', async () => {
-  const root = tree({ cli: 3, mcp: 4, modules: 5, tests: 6, line: CLAIM(3, 4, 5, 6) });
+  const root = tree({ cli: 3, mcp: 4, modules: 11, tests: 6, line: CLAIM(3, 4, 11, 6) });
   try {
     assert.ok(!fs.existsSync(path.join(root, 'docs')), 'precondition: no docs/ in this fixture');
     const report = await numbers.updateNumbers({ root, all: true, write: true });
@@ -189,8 +191,8 @@ test('THE FIX THAT MUST NOT REGRESS: one --all --write pulls `tests` forward in 
   // The artificial drift BAUPLAN M14 asks for: two files, two stale
   // numbers, ONE writer run.
   const root = tree({
-    cli: 3, mcp: 4, modules: 5, tests: 9,
-    line: CLAIM(3, 4, 5, 1), capsLine: CAPS_CLAIM(2),
+    cli: 3, mcp: 4, modules: 11, tests: 9,
+    line: CLAIM(3, 4, 11, 1), capsLine: CAPS_CLAIM(2),
   });
   try {
     const report = await numbers.updateNumbers({ root, all: true, write: true });
@@ -208,8 +210,8 @@ test('THE FIX THAT MUST NOT REGRESS: one --all --write pulls `tests` forward in 
 
 test('a stale docs/CAPABILITIES.md claim alone is reported by checkNumbers without touching README.md', async () => {
   const root = tree({
-    cli: 3, mcp: 4, modules: 5, tests: 6,
-    line: CLAIM(3, 4, 5, 6), capsLine: CAPS_CLAIM(1),
+    cli: 3, mcp: 4, modules: 11, tests: 6,
+    line: CLAIM(3, 4, 11, 6), capsLine: CAPS_CLAIM(1),
   });
   try {
     const before = fs.readFileSync(path.join(root, 'README.md'), 'utf8');

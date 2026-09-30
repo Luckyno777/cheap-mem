@@ -1,4 +1,4 @@
-// eval/echo.mjs — reproduces the finding from src/search.mjs:1031
+// eval/echo.mjs — reproduces the finding from src/search.mjs#isEcho
 // ("13 of 18 injected hits were such echoes") at large n.
 //
 // Set up like real operation: the stop hook files every message as raw

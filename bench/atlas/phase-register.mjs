@@ -25,7 +25,7 @@
 // honestly computed and answered the wrong question: a corpus whose
 // vocabulary dictates the answer measures itself. The fix is a
 // Zipf-distributed vocabulary of 20,000 terms, generated fresh here (not
-// `buildCorpus` in ./core.mjs, whose ~34-word COMMON list plus 6-16
+// `buildCorpus` in ./core.mjs, whose small fixed COMMON list plus 6-16
 // words/row is exactly that same shape) — and measuring selectivity
 // ALONGSIDE every timing, never separately, never assumed.
 //
@@ -143,7 +143,7 @@ function termOf(rank) { return `zt${rank}`; }
  * the ground truth every selectivity figure in this phase is drawn from.
  *
  * Deliberately not `buildCorpus` from ./core.mjs: that generator's
- * ~34-word COMMON vocabulary, at 6-16 words per row, is the exact shape
+ * small fixed COMMON vocabulary, at 6-16 words per row, is the exact shape
  * of the first attempt's mistake (see this file's header comment). This
  * one is built fresh, at the scale the fix requires.
  */
@@ -441,7 +441,7 @@ export async function run(atlas, { quick = false, sqliteLoader = loadSqlite } = 
     'A repeatable register benchmark: sqlite+FTS5 against today\'s linear scan',
     [
       `Ladder: ${stages.join(' / ')} rows, fixed seed 42, a fresh Zipf-distributed`,
-      `vocabulary of ${VOCAB_SIZE.toLocaleString('en-US')} terms — not the ~34-word COMMON`,
+      `vocabulary of ${VOCAB_SIZE.toLocaleString('en-US')} terms — not the small fixed COMMON`,
       'list ./core.mjs uses for other phases, whose short rows are exactly the shape',
       'that made the first attempt at this measurement wrong (see this file\'s header',
       'comment). Every latency record below carries the matched-row count and',

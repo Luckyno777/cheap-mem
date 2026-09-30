@@ -53,7 +53,8 @@ const read = (f) => fs.readFileSync(path.join(REPO, f), 'utf8');
 
 function lineCount(dir, filter = () => true) {
   let n = 0;
-  for (const name of fs.readdirSync(path.join(REPO, dir))) {
+  // Recursive (F4, 2026-09-30): src/cli/commands/* and src/embed/* are code too.
+  for (const name of fs.readdirSync(path.join(REPO, dir), { recursive: true })) {
     if (!filter(name)) continue;
     const p = path.join(REPO, dir, name);
     if (!fs.statSync(p).isFile()) continue;
@@ -67,7 +68,7 @@ const IST = {
   genau: {
     'MCP tools': new Set([...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1])).size,
     'CLI commands': clihelp.allTableCommands(read).length,
-    modules: fs.readdirSync(path.join(REPO, 'src')).filter((n) => n.endsWith('.mjs')).length,
+    modules: fs.readdirSync(path.join(REPO, 'src'), { recursive: true }).filter((n) => String(n).endsWith('.mjs')).length, // recursive (F4): src/cli/commands, src/embed ... hold modules too
   },
   /**
    * Things that move with every commit. A tolerance, and a narrow one.

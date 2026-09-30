@@ -56,9 +56,9 @@ const PHASES = [
 // `real` reads the sister house (lucky-mem), which holds someone's actual
 // memory. It measures distributions and never carries entry text into a
 // record — the phase enforces that itself. Skip it with
-// `--phase surface,load,doctor,defence,robust,ceiling` on a machine where
+// `--phase surface,load,doctor,defence,robust,ceiling,register` on a machine where
 // that house is not present; the runner then records it as a blind spot by
-// name, which is the honest outcome, rather than quietly running five
+// name, which is the honest outcome, rather than quietly running fewer
 // phases and calling the run complete.
 
 function parseArgs(argv) {

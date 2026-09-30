@@ -1,8 +1,8 @@
 # Integration contract
 
-A tool being available guarantees three things about the memory
-**nothing**: that it is searched in time, that anything is logged, that
-duties are honoured. That was the outside criticism of 2026-09-29, and
+A tool being available guarantees **nothing** about three things: that
+the memory is searched in time, that anything is logged, that duties
+are honoured. That was the outside criticism of 2026-09-29, and
 it is right about the wiring: some occasions are covered by a hook that
 fires on its own, others only by a tool somebody has to remember to call.
 This page says which is which, per occasion and per client, and the

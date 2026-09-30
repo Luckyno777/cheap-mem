@@ -947,7 +947,7 @@ export function entityText(doc) {
  * **Re-measured 2026-09-26 (Q1c), because the corpus that first
  * calibrated 0.6 is admittedly distorted.** `test/coverage-floor.test.mjs`
  * builds its fixtures from `bench/atlas/core.mjs`'s `buildCorpus`, whose
- * filler vocabulary is either a fixed 24-word pool or effectively
+ * filler vocabulary is either a fixed small pool or effectively
  * unbounded per-entry identifiers — the same class of defect lucky-mem
  * found and fixed on its own real corpus as error `1czzbds7x7qy` (a
  * synthetic vocabulary that does not GROW the way a real one does).

@@ -189,7 +189,7 @@ own memory in the sense this defends against.
 
 **The share is of the candidates, not of the answer, and the difference is
 not small.** The filter shrinks its own denominator: 9 flood claims plus 1
-genuine one give cap 5, five are dropped, and the answer is 6 — of which 5
+genuine one give cap 5, four are dropped, and the answer is 6 — of which 5
 are the flood. A promised 50% delivers 83%. Measured by
 `bench/byzantine.mjs`, 2026-09-05, after the docstring had claimed the
 stronger property for weeks.
@@ -377,7 +377,7 @@ Answered by breaking each mechanism on purpose and checking that a test
 notices (`node bench/mutation.mjs`). A mutant that SURVIVES marks a
 guarantee that lives in documentation and nowhere else.
 
-**16 mutants, 16 caught.** Including: supersession always allowed,
+**71 mutants, 71 caught.** Including: supersession always allowed,
 `admits()` always true, the disputed filter removed, deduplication removed,
 resource limits ignored, the redaction class narrowed back to ASCII, broken
 lines silently skipped again, cycles never reported, the merge driver

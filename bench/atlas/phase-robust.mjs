@@ -725,7 +725,7 @@ async function partBroken(atlas, quick) {
       measured: {
         hitsAfterTampering: hits(afterFind),
         note: 'search.buildIndex bakes `retired` into the cached document '
-          + '(src/search.mjs:412-421), and appendToIndex only re-applies retirement for '
+          + '(`src/search.mjs#buildIndex`), and appendToIndex only re-applies retirement for '
           + 'lines that are NEW since the cache was written. So this lane trusts the '
           + 'cache, while retrieve reads the log via state.mjs. The split in exposure is '
           + 'structural, not accidental.',
@@ -983,7 +983,7 @@ async function partBroken(atlas, quick) {
       severity: SEVERITY.MINOR,
     });
 
-    // The documented exemption: docs/security-model.md:173-180 says the
+    // The documented exemption: docs/security-model.md#6-resource-bounds says the
     // cap does NOT apply to raw/ captures. Measured, not assumed — an
     // admitted hole that is not checked is an admitted hole that may
     // have moved.
@@ -1014,7 +1014,7 @@ async function partBroken(atlas, quick) {
       title: 'the 1 MB cap does not apply to raw/ captures (documented, and still true)',
       verdict: biggestRawLine === null ? VERDICT.NOT_MEASURED
         : (biggestRawLine > 1024 * 1024 ? VERDICT.PASS : VERDICT.DEGRADED),
-      expected: 'docs/security-model.md:173-180 — raw/ is exempt; a >1 MB line lands',
+      expected: 'docs/security-model.md#6-resource-bounds — raw/ is exempt; a >1 MB line lands',
       actual: biggestRawLine === null
         ? `capture did not produce a file: ${JSON.stringify(capOut)} ${capRun.stderr.slice(0, 200)}`
         : `largest captured line ${biggestRawLine} bytes (${(biggestRawLine / 1048576).toFixed(2)} MB)`,
@@ -1257,7 +1257,7 @@ async function partConcurrency(atlas, quick) {
       statfsType: String(stat.stdout).trim() || null,
       tmpdir: path.dirname(fsClaimRoot),
       note: 'Every concurrency verdict below is a statement about THIS filesystem. '
-        + 'docs/security-model.md:238-241 declares O_APPEND atomicity UNKNOWN where the '
+        + 'docs/security-model.md#7-environment-contract declares O_APPEND atomicity UNKNOWN where the '
         + 'filesystem cannot be determined, and names NFS as the case that breaks it — '
         + 'which no run on a local disk can speak to.',
     },
@@ -1336,7 +1336,7 @@ async function partConcurrency(atlas, quick) {
         totalMissing: rounds.reduce((a, r) => a + r.missing, 0),
         roundsMs: ms,
         note: 'A pass is a statement about this filesystem only — see '
-          + 'robust.concurrency.filesystem. docs/security-model.md:238-241 '
+          + 'robust.concurrency.filesystem. docs/security-model.md#7-environment-contract '
           + 'declares O_APPEND atomicity UNKNOWN where the filesystem cannot be determined.',
       },
       evidence: worst
@@ -1563,7 +1563,7 @@ async function partResources(atlas, quick) {
 
   // --- the cache write threshold -------------------------------------
   //
-  // `search.CACHE_WRITE_AFTER_BYTES` (src/search.mjs:1041) is 4 MB of NEW
+  // `search.CACHE_WRITE_AFTER_BYTES` (`src/search.mjs#CACHE_WRITE_AFTER_BYTES`) is 4 MB of NEW
   // LOG BYTES, not 4 MB of cache. Reaching it with ordinary entries would
   // need a corpus far past the 20 % rebuild fraction, at which point a
   // different branch runs and the threshold is never consulted. So the
@@ -1607,7 +1607,7 @@ async function partResources(atlas, quick) {
       id: 'robust.resources.cache-threshold',
       title: 'above CACHE_WRITE_AFTER_BYTES (4 MB of new log) the cache is written again',
       verdict: over.rewritten ? VERDICT.PASS : VERDICT.FAIL,
-      expected: 'src/search.mjs:1041 — the cache file is rewritten once ~4 MB of new log accumulated',
+      expected: 'src/search.mjs#CACHE_WRITE_AFTER_BYTES — the cache file is rewritten once ~4 MB of new log accumulated',
       actual: `${(over.approxNewLogBytes / 1048576).toFixed(2)} MB of new log -> `
         + (over.rewritten
           ? `cache rewritten, ${(over.before.bytes / 1048576).toFixed(2)} -> ${(over.after.bytes / 1048576).toFixed(2)} MB`

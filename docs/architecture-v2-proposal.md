@@ -15,7 +15,7 @@ Stated before the new material, because a report that quietly fixes its own
 record is worth less than one that shows the fix.
 
 **Wrong: "a future timestamp buys ranking."** It does not. `search()` clamps
-the recency bonus at `ageDays >= 0` (src/search.mjs:525), so a 2099 entry
+the recency bonus at `ageDays >= 0` (`src/search.mjs#search`), so a 2099 entry
 gets nothing. Measured: top-3 unchanged. The vector I saw was a different
 one, isolated below.
 

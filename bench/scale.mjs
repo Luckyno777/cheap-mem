@@ -25,7 +25,7 @@
 //   1000000 251.2 MB  66442 ms 1524.7 MB   1766.904 ms   2.46 s
 //
 // Search is LINEAR in corpus size, because search() scans every document
-// (src/search.mjs:453) instead of walking posting lists. There is a
+// (`src/search.mjs#search`) instead of walking posting lists. There is a
 // docFreq map but no inverted index. That is the ceiling of this design.
 //
 // Before rewriting anything, two measurements that put it in proportion:

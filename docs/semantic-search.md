@@ -53,7 +53,7 @@ order would mean losing a memory because an optional feature was
 unavailable.
 
 For the same reason `better-sqlite3` and `sqlite-vec` are
-`optionalDependencies`. A native build is the most common way a Node
+optional peer dependencies. A native build is the most common way a Node
 tool fails to install, and nobody should lose the whole memory over a
 feature they never asked for.
 

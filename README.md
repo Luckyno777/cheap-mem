@@ -177,7 +177,7 @@ mem hooks install     # arms the secret check — it proves itself with a decoy 
 ```
 
 > **On npm:** not yet. The package builds and `npm pack` produces a
-> 581 kB tarball with zero runtime dependencies, and the release workflow
+> tarball (size: the "what you download" row at the top) with zero runtime dependencies, and the release workflow
 > installs that tarball outside a checkout and runs it before it would
 > publish — but it has not been published, so `npm install -g cheap-mem`
 > will not work today. Install from source as above. When it lands, the
@@ -220,7 +220,7 @@ on 2026-09-05 they cost far more than the tool itself:
 | the MCP server (`mem-mcp`) | `npm i -g @modelcontextprotocol/sdk` | 28 MB, 91 packages |
 | semantic search (`mem embed`) | `npm i -g better-sqlite3 sqlite-vec` | 14 MB, 40 packages |
 
-Together those are 43 MB around a 581 kB download. They used to be installed
+Together those are 43 MB around a download of a couple of MB (the row at the top). They used to be installed
 for everyone — the SDK as a hard dependency, the sqlite pair as
 `optionalDependencies`, which npm installs unless the *build* fails and
 is therefore not opt-in at all. Now neither is fetched until you ask, and
@@ -240,7 +240,7 @@ inside an average (`node bench/retrieval.mjs`, 67 entries, 42 queries):
 | query kind | R@1 | R@5 | MRR |
 |---|---:|---:|---:|
 | lexical (shares a word with the entry) | 100 % | 100 % | 1.00 |
-| **paraphrase (shares none)** | **50 %** | 88 % | 0.64 |
+| **paraphrase (shares none)** | **50 %** | 88 % | 0.65 |
 | concept (broad, indirect) | 67 % | 83 % | 0.77 |
 
 Search is BM25 over weighted fields, widened by a curated thesaurus and by
@@ -276,11 +276,11 @@ thrown away. Details: [docs/architecture.md](docs/architecture.md).
 
 | pattern | tokens | notes |
 |---|---:|---|
-| whole memory in every prompt | ~170,000 | always has the answer, pays for everything |
-| `mem context` once + `mem find` per question | ~5,800 | **96.6 % less** |
+| whole memory in every prompt | ~215,000 | always has the answer, pays for everything |
+| `mem context` once + `mem find` per question | ~6,800 | **96.8 % less** |
 
 The benchmark also reports how often the cheap path actually retrieved the
-entry holding the answer — **12 of 15**. A saving with a miss rate is not
+entry holding the answer — **11 of 15**. A saving with a miss rate is not
 a saving, so the number is printed next to the percentage and the miss is
 named. Tokens are estimated as characters/4, applied identically to both
 sides: trust the ratio, not the absolutes.
@@ -333,9 +333,9 @@ hook stops being invisible. At 500–1000 entries a
 day that point arrives in a few months, so decide the boundary early —
 [docs/scale.md](docs/scale.md) has the numbers and the reasoning, and
 [docs/benchmark-atlas.md](docs/benchmark-atlas.md) the full-surface run
-behind them — including the one hard wall this design has: at about
-978 000 entries the index cache exceeds V8's maximum string length and
-cannot be parsed at all.
+behind them — including the old index-cache wall (the whole cache as one
+JSON string, unreadable at about 978 000 entries), which the shard cache
+of 2026-09-20 removed on purpose.
 
 **Errors get a shared vocabulary.** `mem log error --class ...` refuses a
 category you invented and prints the twelve it knows, each with the
@@ -383,8 +383,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **73 CLI commands, 35 MCP tools, 126 modules, 2979
-tests**; as of 2026-09-20, about 51403 lines in `bin/` and `src/`, at
+As of 2026-09-26: **73 CLI commands, 35 MCP tools, 140 modules, 3024
+tests**; as of 2026-09-20, about 58416 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -421,14 +421,14 @@ enforced fails the build rather than waiting for someone to audit it.
 
 | check | what a red run means |
 |---|---|
-| `bench/mutation.mjs` | one of 72 guarantees was broken on purpose and no test noticed |
+| `bench/mutation.mjs` | one of 71 guarantees was broken on purpose and no test noticed |
 | `bench/fuzz.mjs` | a crash, hang, unbounded growth, or a bypass |
 | `bench/composed.mjs` | seven attacks that are only dangerous in combination |
 | `bench/byzantine.mjs` | a flood of rule-abiding liars buried the genuine claim, or the conflict went unreported |
 | `bench/cache-attack.mjs` | an unsigned local file changed what the memory means |
 | `bench/query-independence.mjs` | two queries disagreed about whether the same claim is active |
 | `bench/merge-driver.mjs` | the `*.jsonl merge=union` contract stopped holding |
-| `npm run atlas` | the full-surface run: every command executed as a process, seven phases, four verdicts — including `not-measured`, which is not a pass |
+| `npm run atlas` | the full-surface run: every command executed as a process, 8 phases, four verdicts — including `not-measured`, which is not a pass |
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
 green baseline and will not credit a mutant it could not apply, and every
@@ -472,7 +472,7 @@ worse than no memory.
 
 ```
 mem init                       one-time setup
-mem log <type> --<field> ...   append an entry (ten types)
+mem log <type> --<field> ...   append an entry (15 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
                                `error`: shows up to 3 earlier errors for the
@@ -602,7 +602,7 @@ claude mcp add cheap-mem -- node ~/cheap-mem/bin/mem-mcp
 ```
 
 Either way it is idempotent — run it again after moving the memory and
-it re-points. It drops five hooks into `~/.claude/hooks/` and merges
+it re-points. It drops 7 hooks into `~/.claude/hooks/` and merges
 the needed permissions into `~/.claude/settings.json`:
 
 - **SessionStart** — prints `FACTS.md` + context at the top of a session.
@@ -625,10 +625,17 @@ the needed permissions into `~/.claude/settings.json`:
   below); also checks the session's last answer against any patterns
   you have tied to a logged error, before that answer reaches you — see
   [docs/answer-check.md](docs/answer-check.md). Off until you arm it.
-- **SubagentStart** — every subagent gets its own thread and neither of
-  the two hooks above (`src/gauges.mjs`), so this shows it any procedure
+- **PostToolUse** (Bash only) — a command that exits 0 while its own
+  output says it failed (`npm test | tail`, a suite printing `# fail 3`)
+  runs past the failure hook below; this one recalls matching memory
+  for it.
+- **PostToolUseFailure** (Bash, Edit, Write) — after a tool call that
+  really failed, recalls earlier errors and learnings of the same class
+  before the second attempt.
+- **SubagentStart** — a subagent is its own thread and gets neither
+  `SessionStart` nor `UserPromptSubmit`, so this shows it any procedure
   tagged `subagent-start` (a norm only a human can issue — see
-  `mem log procedure --help`) plus a context recap.
+  `mem log procedure --help`; `src/gauges.mjs`) plus a context recap.
 
 Some things are missing on purpose — usage counters, a `confidence`
 field, decay-as-deletion, a graph store, an LLM per fact. Each was

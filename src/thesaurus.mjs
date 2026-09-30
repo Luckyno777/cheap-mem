@@ -485,8 +485,8 @@ export function expand(terms, tagGraph = null, lang = null, termGraph = null) {
 /**
  * Does the curated word list cover this memory's language at all?
  *
- * Measured on 2026-09-06: `THESAURUS` holds 39 groups and 188 words, all
- * English. A German-language memory gets ZERO synonyms from this layer
+ * Measured on 2026-09-06, when `THESAURUS` held 39 groups and 188 words, all
+ * English (German groups were added later). A German-language memory gets ZERO synonyms from this layer
  * — 0 hits from 198 query terms over 21 questions, against 53 from 44
  * terms in English. The mechanism works, it simply never engages, and
  * nothing says so.
