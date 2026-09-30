@@ -1,0 +1,42 @@
+{"id": "lex-01", "category": "lexical", "query": "postgresql orders", "expected": ["g-postgres"], "forbidden": []}
+{"id": "lex-02", "category": "lexical", "query": "csv import out of memory", "expected": ["g-oom"], "forbidden": []}
+{"id": "lex-03", "category": "lexical", "query": "tls certificate expired", "expected": ["g-tls"], "forbidden": []}
+{"id": "lex-04", "category": "lexical", "query": "kubernetes containers", "expected": ["g-k8s"], "forbidden": []}
+{"id": "lex-05", "category": "lexical", "query": "cors staging domain", "expected": ["g-cors"], "forbidden": []}
+{"id": "lex-06", "category": "lexical", "query": "missing index orders list", "expected": ["g-index"], "forbidden": []}
+{"id": "lex-07", "category": "lexical", "query": "connection pool exhaustion", "expected": ["g-pool"], "forbidden": []}
+{"id": "lex-08", "category": "lexical", "query": "daylight saving scheduled jobs", "expected": ["g-dst"], "forbidden": []}
+{"id": "para-01", "category": "paraphrase", "query": "we took money from somebody two times for one purchase", "expected": ["g-race"], "forbidden": [], "note": "plain question, technical entry"}
+{"id": "para-02", "category": "paraphrase", "query": "the website went dark because nobody renewed something", "expected": ["g-tls"], "forbidden": [], "note": "plain question, technical entry"}
+{"id": "para-03", "category": "paraphrase", "query": "the machine had no room left because of text files piling up", "expected": ["g-disk"], "forbidden": [], "note": "plain question, technical entry"}
+{"id": "para-04", "category": "paraphrase", "query": "nobody ever checked whether the saved copy could be brought back", "expected": ["g-backup"], "forbidden": [], "note": "plain question, technical entry"}
+{"id": "para-05", "category": "paraphrase", "query": "storefront latency regression from oversized images", "expected": ["g-c-slow"], "forbidden": [], "note": "technical question, plain entry"}
+{"id": "para-06", "category": "paraphrase", "query": "authentication outage with credential rejections", "expected": ["g-c-locked"], "forbidden": [], "note": "technical question, plain entry"}
+{"id": "para-07", "category": "paraphrase", "query": "order confirmation email delivery failure", "expected": ["g-c-mail"], "forbidden": [], "note": "technical question, plain entry"}
+{"id": "para-08", "category": "paraphrase", "query": "mobile client power drain from background polling", "expected": ["g-c-phone"], "forbidden": [], "note": "technical question, plain entry"}
+{"id": "scope-01", "category": "scope", "query": "checkout timed out under load", "expected": ["a-err"], "forbidden": ["b-err"], "project": "alpha"}
+{"id": "scope-02", "category": "scope", "query": "checkout timed out under load", "expected": ["b-err"], "forbidden": ["a-err"], "project": "beta"}
+{"id": "scope-03", "category": "scope", "query": "how do we deploy", "expected": ["a-deploy"], "forbidden": ["b-deploy"], "project": "alpha"}
+{"id": "scope-04", "category": "scope", "query": "how does login work", "expected": ["b-login"], "forbidden": ["a-login"], "project": "beta"}
+{"id": "scope-05", "category": "scope", "query": "where are sessions stored", "expected": ["a-session"], "forbidden": ["b-session"], "project": "alpha"}
+{"id": "scope-06", "category": "scope", "query": "where are sessions stored", "expected": ["b-session"], "forbidden": ["a-session"], "project": "beta"}
+{"id": "scope-07", "category": "scope", "query": "never store money as floating point", "expected": ["g-money"], "forbidden": ["b-err"], "project": "alpha", "note": "a global learning should still reach a project-scoped question"}
+{"id": "time-01", "category": "temporal", "query": "which port does the staging server listen on", "expected": ["g-port-new"], "forbidden": ["g-port-old"]}
+{"id": "time-02", "category": "temporal", "query": "which port does the staging server listen on", "expected": ["g-port-old"], "forbidden": ["g-port-new"], "asOf": "2026-02-01T00:00:00Z", "note": "before the correction existed only 8080 held"}
+{"id": "time-03", "category": "temporal", "query": "which node version do the services run on", "expected": ["g-node-new"], "forbidden": ["g-node-old"]}
+{"id": "time-04", "category": "temporal", "query": "which node version do the services run on", "expected": ["g-node-old"], "forbidden": ["g-node-new"], "asOf": "2026-02-15T00:00:00Z"}
+{"id": "time-05", "category": "temporal", "query": "card payment provider", "expected": ["g-vendor-new"], "forbidden": ["g-vendor-old"]}
+{"id": "time-06", "category": "temporal", "query": "card payment provider", "expected": ["g-vendor-old"], "forbidden": ["g-vendor-new"], "asOf": "2026-03-01T00:00:00Z", "note": "successor states valid_from, so as-of has a date to work with"}
+{"id": "status-01", "category": "status", "query": "can we deploy on fridays", "expected": ["g-rule-canary"], "forbidden": ["g-rule-freeze"]}
+{"id": "status-02", "category": "status", "query": "no deploys on fridays", "expected": ["g-rule-canary"], "forbidden": ["g-rule-freeze"], "note": "the exact words of the withdrawn rule"}
+{"id": "status-03", "category": "status", "query": "collect evidence for the soc 2 audit", "expected": ["g-soc2-passed"], "forbidden": ["g-duty-soc2"], "note": "exact words of a duty that is done"}
+{"id": "status-04", "category": "status", "query": "open duties for the security review", "expected": ["g-duty-pentest"], "forbidden": ["g-duty-soc2"]}
+{"id": "status-05", "category": "status", "query": "catalog cache fixed ttl", "expected": ["g-cache-key"], "forbidden": ["g-cache-ttl"], "note": "exact words of a discarded decision"}
+{"id": "status-06", "category": "status", "query": "how is the catalog cache invalidated", "expected": ["g-cache-key"], "forbidden": ["g-cache-ttl"]}
+{"id": "status-07", "category": "status", "query": "second reviewer for schema migrations", "expected": ["g-rule-review"], "forbidden": ["g-rule-freeze"]}
+{"id": "lang-01", "category": "cross-language", "query": "warum ist der csv import abgestürzt", "expected": ["g-oom"], "forbidden": [], "note": "German question, English entry"}
+{"id": "lang-02", "category": "cross-language", "query": "zertifikat abgelaufen seite nicht erreichbar", "expected": ["g-tls"], "forbidden": [], "note": "German question, English entry"}
+{"id": "lang-03", "category": "cross-language", "query": "kunde wurde doppelt belastet", "expected": ["g-race"], "forbidden": [], "note": "German question, English entry"}
+{"id": "lang-04", "category": "cross-language", "query": "how long do we keep invoices", "expected": ["g-de-invoice"], "forbidden": [], "note": "English question, German entry"}
+{"id": "lang-05", "category": "cross-language", "query": "warehouse printer server failed after the update", "expected": ["g-de-printer"], "forbidden": [], "note": "English question, German entry"}
+{"id": "lang-06", "category": "cross-language", "query": "handheld scanners in the warehouse keep losing the wireless connection", "expected": ["g-de-scanner"], "forbidden": [], "note": "English question, German entry"}
