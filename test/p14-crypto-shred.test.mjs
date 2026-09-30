@@ -643,16 +643,17 @@ test('probe: readEntryBody says `unknown` for no entry, not `plain`', () => {
   } finally { away(r); }
 });
 
-test('probe: an entry written with shred:true is UNFINDABLE, not merely body-hidden', () => {
+test('probe: an entry written with shred:true is findable through its decrypted body, and gone with its key', () => {
   const r = root();
   try {
-    // `title` is in SHREDDABLE_FIELDS — correctly, it is the field most
-    // likely to name a person. But it is also what the indexer weights
-    // most. The consequence is bigger than "the body is hidden", and it
-    // is the reason this feature ships OFF: turning it on by default
-    // would remove entries from every answer the memory gives, while
-    // every body-readability test stayed green.
-    const marker = `zzzunfindable${Date.now().toString(36)}`;
+    // Until 2026-09-30 this probe documented a LIMIT: `title` is body, so an
+    // entry written with `shred: true` was UNFINDABLE (0 claims), and the
+    // feature shipped off for that reason. Decision 1fw996e7zo5c (owner,
+    // 2026-09-30, threat model = theft at rest) reverses it: with the key
+    // present the body is decrypted IN MEMORY at index load and searched
+    // normally; nothing on disk holds it (test/y7-encrypted-search.test.mjs
+    // scans every file); with the key destroyed it is gone from search at once.
+    const marker = `zzzfindable${Date.now().toString(36)}`;
     const { entry } = memory.logEntry(r, 'decision',
       { topic: 't/x', title: marker, choice: 'secret', why: 'secret', shred: true });
 
@@ -661,13 +662,17 @@ test('probe: an entry written with shred:true is UNFINDABLE, not merely body-hid
     assert.equal(stored.fields.title, marker, 'sanity: the title is preserved, just not in the clear');
 
     const found = retrieval.retrieve(r, marker, caps.grantAll('test'), { top: 5 });
-    assert.equal(found.claims.length, 0,
-      'this assertion documents a LIMIT, not a guarantee: if it ever fails, a decrypt hook has been '
-      + 'wired into the search lanes and this test plus SHREDDABLE_FIELDS\' comment are stale');
+    assert.equal(found.claims.length, 1, 'the encrypted entry is found through its decrypted body');
+    assert.match(found.claims[0].body, new RegExp(marker));
+
+    // Key destroyed: gone from the search lanes at once.
+    memory.shredEntry(r, 'decision', entry.id, { reason: 'probe' });
+    const gone = retrieval.retrieve(r, marker, caps.grantAll('test'), { top: 5 });
+    assert.equal(gone.claims.length, 0, 'after the key is destroyed nothing of the body is searchable');
 
     // POSITIVE CONTROL: the same entry without `shred` IS findable, so
-    // the zero above is the encryption and not a broken query.
-    const plainMarker = `zzzfindable${Date.now().toString(36)}`;
+    // the zero above is the destroyed key and not a broken query.
+    const plainMarker = `zzzfindable${Date.now().toString(36)}b`;
     memory.logEntry(r, 'decision', { topic: 't/y', title: plainMarker, choice: 'c', why: 'w' });
     const plainFound = retrieval.retrieve(r, plainMarker, caps.grantAll('test'), { top: 5 });
     assert.ok(plainFound.claims.length > 0, 'the query lane itself is broken — the zero above proves nothing');

@@ -40,6 +40,12 @@ import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
 import * as statequestion from './statequestion.mjs';
 
+// Crypto-shredding reader (src/shred.mjs), loaded as tolerantly as
+// `memory.mjs` loads it: absent module -> encrypted entries read as
+// "not readable", never as empty.
+let shred = null;
+try { shred = await import('./shred.mjs'); } catch { /* sibling not present: encrypted bodies stay unreadable */ }
+
 /**
  * The file path of one indexed piece.
  *
@@ -137,7 +143,12 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 //     mistaken for the old shape) — bumped anyway so the changelog
 //     stays a complete history of every reason a cache stopped being
 //     trusted as-is, this being the most consequential one yet.
-export const CACHE_VERSION = 10;
+// 11: encrypted entries (`body_enc`) are carried as stubs (`enc: true`,
+//     clear fields only, a slot even when empty). Their decrypted words
+//     are added in memory on every load and NEVER persisted (`revealEncrypted`).
+//     An older cache dropped such entries whenever their clear fields
+//     were empty, so it could not be topped up in memory.
+export const CACHE_VERSION = 11;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -739,7 +750,13 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
   let curatedN = 0;
 
   const addDoc = (doc) => {
-    if (doc.weights.size === 0) return;
+    // An encrypted entry keeps a place in the index even when its clear
+    // fields say nothing: the decrypted words are added in memory at load
+    // (`revealEncrypted`), and that needs the slot to exist.
+    if (doc.weights.size === 0) {
+      if (doc.enc) documents.push({ ...doc, length: 0 });
+      return;
+    }
     let length = 0;
     for (const g of doc.weights.values()) length += g;
     lengthSum += length;
@@ -773,6 +790,7 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
       lang: langInfo.language,
       langCertain: langInfo.certain,
       weights: fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons }),
+      ...(r.entry.body_enc ? { enc: true } : {}),
       ...(info ? { retired: info } : {}),
     });
   }
@@ -1981,7 +1999,10 @@ function appendToIndex(root, index, before, now) {
   let statsLengthSum = (index.statsAvgLength ?? index.avgLength) * (index.statsN ?? index.N);
   let statsN = index.statsN ?? index.N;
   const push = (doc) => {
-    if (doc.weights.size === 0) return;
+    if (doc.weights.size === 0) {
+      if (doc.enc) index.documents.push({ ...doc, length: 0 });
+      return;
+    }
     let length = 0;
     for (const g of doc.weights.values()) length += g;
     lengthSum += length;
@@ -2014,6 +2035,7 @@ function appendToIndex(root, index, before, now) {
       lang: langInfo.language,
       langCertain: langInfo.certain,
       weights: fieldsOfEntry(d.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() }),
+      ...(d.entry.body_enc ? { enc: true } : {}),
       ...(info ? { retired: info } : {}),
     });
   }
@@ -2225,8 +2247,99 @@ function reconcileRetired(root, index) {
   return index;
 }
 
+/**
+ * Encrypted entries (`shred: true`) become searchable and showable for
+ * the signed-in user, IN MEMORY ONLY (decision 2026-09-30, bedrohungsmodell
+ * laptop theft at rest).
+ *
+ * The persisted index (the shards under `.mem/search-index`) carries an
+ * encrypted entry as a STUB: its clear fields and the ciphertext already
+ * in the log, `enc: true`, and weights from the clear fields only. This
+ * runs AFTER every cache write in `loadIndexCached`, on each load: it
+ * decrypts, re-weights the document, and corrects the corpus statistics
+ * and the exact-identifier index for it. Nothing here is ever written
+ * back. Cost: one keyring read plus one AES-GCM decryption per encrypted
+ * entry, per load (measured: see test/y7-verschluesselt-suche.test.mjs).
+ *
+ * Key gone (shredded) or key store unreachable: the document stays a
+ * stub with its `title` naming the state (`shred.unreadableLabel`) and
+ * `encState: 'unreadable'` — findable by its clear fields only, never
+ * shown empty, never carrying leftover plaintext.
+ *
+ * Not touched: `termGraph`/`tagGraph` (learned from the persisted
+ * corpus, so they never see encrypted words).
+ */
+function revealEncrypted(root, index) {
+  const docs = index.documents;
+  let reveal = null;
+  let lengthSum = index.avgLength * index.N;
+  let statsN = index.statsN ?? index.N;
+  let statsSum = (index.statsAvgLength ?? index.avgLength) * statsN;
+  let touched = false;
+  const sameStats = index.statsDocFreq === index.docFreq;
+  const dec = (map, t) => {
+    const n = (map.get(t) ?? 0) - 1;
+    if (n > 0) map.set(t, n); else map.delete(t);
+  };
+  for (let i = 0; i < docs.length; i += 1) {
+    const doc = docs[i];
+    if (!doc.enc) continue;
+    if (!shred) {
+      doc.encState = 'unreadable';
+      doc.entry = { ...doc.entry, title: '[encrypted entry: not readable - shred module absent]',
+        __body: { state: 'unreadable', reason: 'shred-module-absent' } };
+      continue;
+    }
+    reveal ??= shred.makeReveal(root);
+    const r = reveal(doc.entry);
+    if (r.state !== 'ok') {
+      doc.encState = 'unreadable';
+      doc.entry = r.entry;
+      continue;
+    }
+    touched = true;
+    if (doc.weights.size > 0) {
+      lengthSum -= doc.length;
+      statsN -= 1;
+      statsSum -= doc.length;
+      for (const t of doc.weights.keys()) {
+        dec(index.docFreq, t);
+        if (!sameStats) dec(index.statsDocFreq, t);
+      }
+    }
+    const langInfo = detectEntryLanguage(r.entry, { fieldWeights: FIELD_WEIGHTS });
+    const weights = fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() });
+    let length = 0;
+    for (const g of weights.values()) length += g;
+    if (weights.size > 0) {
+      lengthSum += length;
+      statsN += 1;
+      statsSum += length;
+      for (const t of weights.keys()) {
+        index.docFreq.set(t, (index.docFreq.get(t) ?? 0) + 1);
+        if (!sameStats) index.statsDocFreq.set(t, (index.statsDocFreq.get(t) ?? 0) + 1);
+      }
+    }
+    Object.assign(doc, {
+      entry: r.entry, weights, length, encState: 'ok',
+      lang: langInfo.language, langCertain: langInfo.certain,
+    });
+    for (const b of entity.identifiers(entityText(doc))) {
+      let set = index.entityIndex.get(b);
+      if (!set) { set = new Set(); index.entityIndex.set(b, set); }
+      set.add(i);
+    }
+  }
+  if (touched) {
+    index.avgLength = index.N ? lengthSum / index.N : 1;
+    index.statsN = statsN || index.N;
+    index.statsAvgLength = statsN ? statsSum / statsN : index.avgLength;
+  }
+  return index;
+}
+
 export function loadIndex(root, opts = {}) {
-  const index = loadIndexCached(root, opts);
+  const index = revealEncrypted(root, loadIndexCached(root, opts));
   // M18b: the memory's switched-on language bridges ride on the loaded
   // index — read fresh from the config on every load, never written to
   // the cache, so switching a pair on or off needs no rebuild. An

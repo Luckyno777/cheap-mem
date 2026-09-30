@@ -37,6 +37,7 @@ import fs from 'node:fs';
 import * as consolePage from './console.mjs';
 import * as viewer from './viewer.mjs';
 import * as memory from './memory.mjs';
+import * as shred from './shred.mjs';
 import * as procedure from './procedure.mjs';
 import * as net from './net.mjs';
 import * as backlinkIndex from './backlinks.mjs';
@@ -99,6 +100,10 @@ export function word(state) {
 export function readPass(root) {
   const rows = [];
   let broken = 0;
+  // Encrypted entries are shown decrypted to the signed-in user, IN MEMORY
+  // ONLY (decision 2026-09-30): every row here feeds an answer, never a
+  // file. Key gone or unreachable -> a title that says so, never empty.
+  const reveal = shred.makeReveal(root);
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const drawer of Object.keys(memory.TYPES)) {
       let res;
@@ -109,7 +114,7 @@ export function readPass(root) {
         rows.push({
           project: project ?? 'global',
           drawer,
-          entry: e,
+          entry: reveal(e).entry,
           held: memory.holds(e, retired),
         });
       }
@@ -776,7 +781,9 @@ export function getEntryFast(root, id) {
     // it used to hold.
     return { state: 'unknown', id };
   }
-  const { entry: e, line } = hit;
+  // Shown decrypted in memory only (decision 2026-09-30); see `readPass`.
+  const e = shred.makeReveal(root)(hit.entry).entry;
+  const { line } = hit;
   const retired = memory.retiredMap(rows.map((r) => r.entry)).get(id) ?? null;
 
   // --- (c) declared edges: this drawer's own fields, plus the `link`
