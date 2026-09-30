@@ -47,7 +47,10 @@ someone was, which is not.
 **One rule, no third case.** A supersession is honoured when the same
 author corrects their own claim, or when a strictly higher tier overrules a
 lower one. Otherwise the target stays active and the attempting claim reads
-as `disputed`.
+as `disputed`. Two `user`-tier lines count as the same author even when
+different sessions wrote them down: `user` is one person, the writer is only
+the scribe (aligned with lucky-mem, 2026-09-30). Agent against a different
+agent stays strict.
 
 **Legacy data still corrects.** An entry written before the rule has
 neither field: both authors null, both tiers `unknown` → same author, same

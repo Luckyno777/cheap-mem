@@ -74,9 +74,11 @@ export function outranks(a, b) {
 /**
  * May `claim` supersede `target`?
  *
- * Two ways, and no third:
+ * Two ways, plus one reading of "same author":
  *   - the same author corrects their own claim, or
- *   - a strictly higher tier overrules a lower one.
+ *   - a strictly higher tier overrules a lower one;
+ *   - two `user`-tier lines count as the same author (one person, the
+ *     writer is only the scribe) — as in lucky-mem rang.darfAendern.
  *
  * **Legacy data passes.** An entry written before this rule has neither
  * field, so both authors are null and both tiers are `unknown`: same
@@ -101,6 +103,15 @@ export function maySupersede(claim, target) {
   }
   if (outranks(ct, tt)) {
     return { ok: true, reason: `${ct} outranks ${tt}` };
+  }
+  // Paket (2026-09-30), aligned with lucky-mem Y4c (rang.darfAendern):
+  // `user` is ONE person. Two user-tier lines with different writers
+  // (session A recorded the rule, session B the correction) have the same
+  // author — the writer is only the scribe. Without this, every correction
+  // of a user rule by a different session was refused. Agent-vs-agent and
+  // every lower tier stay strict (test/paket-user-supersede.test.mjs).
+  if (ct === 'user' && tt === 'user') {
+    return { ok: true, reason: 'both user (one person, different scribes)' };
   }
   if (ct === tt) {
     return {
