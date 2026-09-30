@@ -114,8 +114,13 @@ const state = {
 // Full-text search (src/fulltext.mjs): the server's answer always belongs to ONE
 // query (`q`). Only an answer to the CURRENT input counts; anything else is dropped.
 //   ids: Set of hit ids; measurable:false = the server could not search
-const fulltext = { q: null, ids: null, measurable: null, reason: null };
-let fulltextTimer = 0, fulltextRun = 0;
+//   One path for every search input: each source (knowledge field, quick search) has its
+//   own state but asks through the same function fulltextAsk().
+function fulltextSource(current, redraw) {
+  return { q: null, ids: null, measurable: null, reason: null, timer: 0, run: 0, current, redraw };
+}
+const fulltext = fulltextSource(() => state.query, () => { if ($('#entrySearch')) redrawSearchField(); });
+const fulltextPalette = fulltextSource(() => $('#commandInput')?.value ?? '', () => redrawPalette());
 const FULLTEXT_DEBOUNCE_MS = 150;
 let raf = 0, graphCleanup = () => {}, toastTimer;
 let graphRun = 0; // tempo: counter for the deferred initGraph() in render()
@@ -717,19 +722,19 @@ function boardPanel() {
 // --- Knowledge ----------------------------------------------------------------
 // Hits of the server for the CURRENT input. If the answer is missing or was not
 // measurable, only the local filter (the excerpt) applies — never "nothing found".
-function fulltextHits(id) {
-  return fulltext.q === state.query && fulltext.measurable === true && fulltext.ids.has(id);
+function fulltextHits(id, source = fulltext) {
+  return source.q === source.current() && source.measurable === true && source.ids.has(id);
 }
 // Show only when the answer to the current input is here AND was not measurable.
-function fulltextNotice() {
-  return Boolean(state.query.trim()) && fulltext.q === state.query && fulltext.measurable === false;
+function fulltextNotice(source = fulltext) {
+  return Boolean(source.current().trim()) && source.q === source.current() && source.measurable === false;
 }
-function fulltextAsk() {
-  clearTimeout(fulltextTimer);
-  const q = state.query;
-  if (!q.trim()) { fulltext.q = null; fulltext.ids = null; fulltext.measurable = null; fulltext.reason = null; return; }
-  const run = ++fulltextRun;
-  fulltextTimer = setTimeout(async () => {
+function fulltextAsk(source = fulltext) {
+  clearTimeout(source.timer);
+  const q = source.current();
+  if (!q.trim()) { source.q = null; source.ids = null; source.measurable = null; source.reason = null; return; }
+  const run = ++source.run;
+  source.timer = setTimeout(async () => {
     let answer;
     try {
       const r = await fetch('/api/fulltext?q=' + encodeURIComponent(q), { credentials: 'same-origin', cache: 'no-store' });
@@ -742,9 +747,9 @@ function fulltextAsk() {
       answer = { measurable: false, ids: null, reason: e?.message || String(e) };
     }
     // Stale: typing went on since the question (or a newer one was asked).
-    if (run !== fulltextRun || q !== state.query) return;
-    fulltext.q = q; fulltext.ids = answer.ids; fulltext.measurable = answer.measurable; fulltext.reason = answer.reason;
-    if ($('#entrySearch')) redrawSearchField();
+    if (run !== source.run || q !== source.current()) return;
+    source.q = q; source.ids = answer.ids; source.measurable = answer.measurable; source.reason = answer.reason;
+    source.redraw();
   }, FULLTEXT_DEBOUNCE_MS);
 }
 function filtered() {
@@ -3319,22 +3324,39 @@ function statusDialog(id, kind) {
 function search() {
   if (!$('#command').open) $('#command').showModal();
   $('#commandInput').value = '';
+  fulltextAsk(fulltextPalette);
   renderSearch('');
   $('#commandInput').focus();
 }
-function renderSearch(q) {
+// The full-text answer for the quick search arrived: redraw only, do not ask again.
+function redrawPalette() {
+  const input = $('#commandInput');
+  if (!input || !$('#command').open) return;
+  const old = $('#commandMemory')?.innerHTML;
+  renderSearch(input.value, { redrawOnly: true });
+  const target = $('#commandMemory');
+  if (old && target) {
+    target.innerHTML = old;
+    // What the full-text answer now shows above is not repeated in the ranked search.
+    const above = new Set([...$('#commandResults').querySelectorAll(':scope > [data-search-entry]')].map((x) => x.dataset.searchEntry));
+    target.querySelectorAll('[data-search-entry]').forEach((x) => { if (above.has(x.dataset.searchEntry)) x.remove(); });
+    if (!target.querySelector('[data-search-entry]')) target.innerHTML = '';
+  }
+}
+function renderSearch(q, { redrawOnly = false } = {}) {
   q = q.toLowerCase().trim();
-  const es = (q ? scoped().filter((e) => e._s.includes(q)) : scoped()).slice(0, 12),
+  const es = (q ? scoped().filter((e) => e._s.includes(q) || fulltextHits(e.id, fulltextPalette)) : scoped()).slice(0, 12),
     routes = Object.entries(sections)
       .flatMap(([a, s]) => [[a, s.name], ...s.tabs.map(([t, n]) => [a + '/' + t, n])])
       .filter((x) => q && x[1].toLowerCase().includes(q)),
     ms = q ? messages.filter((m) => (m.subject + ' ' + m.from + ' ' + m.to).toLowerCase().includes(q)).slice(0, 6) : [],
     rs = q ? rawSamples.filter((r) => (r.path + ' ' + (r.topics || []).join(' ')).toLowerCase().includes(q)).slice(0, 4) : [];
-  $('#commandResults').innerHTML = `${state.missing ? note('Not every source was readable. The hits are incomplete.', 'bad') : ''}${routes.map(([p, n]) => `<button class="result" data-search-route="${p}"><span>↗</span><div>${esc(n)}<small>Open the view</small></div></button>`).join('')}${ms.map((m) => `<button class="result" data-action="message" data-id="${esc(m.name)}"><span>⇄</span><div>${esc(m.subject)}<small>Message · ${esc(m.from)} → ${esc(m.to)} · ${esc(situationWord[m.situation] || m.situation)}</small></div></button>`).join('')}${rs.map((r) => `<button class="result" data-action="raw-review" data-id="${esc(r.path)}"><span>▧</span><div>${esc(r.session || r.path)}<small>Raw capture · ${esc((r.topics || []).slice(0, 3).join(', ') || 'no topic')}</small></div></button>`).join('')}${es.map((e) => `<button class="result" data-search-entry="${esc(e.id)}"><span class="entry-icon">${esc((types[e.type] || '?')[0])}</span><div>${esc(e.title)}<small>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.id)}</small></div></button>`).join('')}${!es.length && !routes.length && !ms.length && !rs.length ? empty(entries.length ? 'Nothing found.' : 'Nothing found — this memory holds no entry yet.') : ''}<div id="commandMemory"></div>`;
+  $('#commandResults').innerHTML = `${state.missing ? note('Not every source was readable. The hits are incomplete.', 'bad') : ''}${fulltextNotice(fulltextPalette) ? `<p class="small quiet" id="fulltextNoticePalette" role="status" title="${esc(fulltextPalette.reason || '')}">Full text unavailable – searching excerpts only</p>` : ''}${routes.map(([p, n]) => `<button class="result" data-search-route="${p}"><span>↗</span><div>${esc(n)}<small>Open the view</small></div></button>`).join('')}${ms.map((m) => `<button class="result" data-action="message" data-id="${esc(m.name)}"><span>⇄</span><div>${esc(m.subject)}<small>Message · ${esc(m.from)} → ${esc(m.to)} · ${esc(situationWord[m.situation] || m.situation)}</small></div></button>`).join('')}${rs.map((r) => `<button class="result" data-action="raw-review" data-id="${esc(r.path)}"><span>▧</span><div>${esc(r.session || r.path)}<small>Raw capture · ${esc((r.topics || []).slice(0, 3).join(', ') || 'no topic')}</small></div></button>`).join('')}${es.map((e) => `<button class="result" data-search-entry="${esc(e.id)}"><span class="entry-icon">${esc((types[e.type] || '?')[0])}</span><div>${esc(e.title)}<small>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.id)}</small></div></button>`).join('')}${!es.length && !routes.length && !ms.length && !rs.length ? empty(entries.length ? 'Nothing found.' : 'Nothing found — this memory holds no entry yet.') : ''}<div id="commandMemory"></div>`;
   // The same search as "mem find" (BM25/synonyms), through the existing
   // read-only endpoint /entries.json — the palette searches the SAME
   // memory as the command line, in addition to the plain substring
   // search over the loaded slice above.
+  if (redrawOnly) return;
   paletteMemorySearch(q, es);
 }
 async function paletteMemorySearch(q, localHits) {
@@ -3349,7 +3371,7 @@ async function paletteMemorySearch(q, localHits) {
     if (r.ok && b && Array.isArray(b.entries)) hits = b.entries;
   } catch { /* the ranked search stays empty — the substring hits above stay */ }
   if (mine !== paletteRun || !target()) return; // a newer input overtook this answer
-  const already = new Set((localHits || []).map((e) => e.id));
+  const already = new Set([...(localHits || []).map((e) => e.id), ...$('#commandResults').querySelectorAll(':scope > [data-search-entry]')].map((e) => e.id || e.dataset.searchEntry));
   const extra = hits.filter((t) => !already.has(t.id)).slice(0, 8);
   target().innerHTML = extra.length
     ? `<div class="label" style="margin:14px 0 4px">Ranked search in the memory (like "mem find")</div>${extra
@@ -3761,7 +3783,7 @@ document.addEventListener('click', async (ev) => {
   }
 });
 document.addEventListener('input', (e) => {
-  if (e.target.id === 'commandInput') renderSearch(e.target.value);
+  if (e.target.id === 'commandInput') { fulltextAsk(fulltextPalette); renderSearch(e.target.value); }
   if (e.target.id === 'entrySearch') {
     state.query = e.target.value;
     state.page = 1;

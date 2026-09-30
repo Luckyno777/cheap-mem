@@ -241,6 +241,20 @@ async function go(page, base, hash) {
   await waitReady(page);
   await page.evaluate((h) => { location.hash = '#' + h; }, hash);
   await page.waitForTimeout(300);
+  // Settle before the shot: click the "New data" mark like a user would
+  // whenever it appears, until it stays away for 7 s (max 60 s). Only
+  // then build the network (the click re-renders #screen).
+  let calmSince = Date.now();
+  const until = Date.now() + 60000;
+  while (Date.now() < until && Date.now() - calmSince < 7000) {
+    if (await page.evaluate(() => (() => { const m = document.getElementById('newDataMark'); if (!m) return false; const cs = getComputedStyle(m); return cs.display !== 'none' && cs.visibility !== 'hidden' && m.getClientRects().length > 0; })())) {
+      await page.click('#newDataMark');
+      await page.waitForTimeout(500);
+      await waitReady(page);
+      calmSince = Date.now();
+    }
+    await page.waitForTimeout(500);
+  }
   // Every capture starts at scrollY=0 -- the only place that moves the
   // page afterwards is prepareNetwork() with an explicit anchor (see
   // there). No blind `scrollIntoView` anywhere else (polish pass,
@@ -273,9 +287,10 @@ async function prepareNetwork(page, { fogWait = 1600, anchor } = {}) {
       const el = document.querySelector(sel);
       if (!el) return;
       const topbar = document.querySelector('.topbar');
-      const offset = topbar ? topbar.getBoundingClientRect().height : 0;
+      const pos = topbar ? getComputedStyle(topbar).position : '';
+      const offset = topbar && (pos === 'sticky' || pos === 'fixed') ? topbar.getBoundingClientRect().height : 0;
       const rect = el.getBoundingClientRect();
-      window.scrollTo(0, window.scrollY + rect.top - offset);
+      window.scrollTo(0, window.scrollY + rect.top - offset - 16); // 16 px air: tile edge fully in frame
     }, anchor);
   }
   await page.waitForTimeout(fogWait); // camera fly-in + fog/glitter build-up
@@ -288,6 +303,9 @@ async function prepareNetwork(page, { fogWait = 1600, anchor } = {}) {
 
 async function shot(page, file) {
   const raw = file + '.raw.png';
+  if (await page.evaluate(() => (() => { const m = document.getElementById('newDataMark'); if (!m) return false; const cs = getComputedStyle(m); return cs.display !== 'none' && cs.visibility !== 'hidden' && m.getClientRects().length > 0; })())) {
+    console.error('WARNING: "New data" mark visible in image: ' + file);
+  }
   await page.screenshot({ path: raw, animations: 'disabled', timeout: 60000 });
   return raw;
 }
