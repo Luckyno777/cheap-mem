@@ -26,6 +26,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as memory from './memory.mjs';
+import * as authority from './authority.mjs';
 import * as integrity from './integrity.mjs';
 import * as mirror from './findingmirror.mjs';
 import * as environment from './environment.mjs';
@@ -363,6 +364,7 @@ export function checkAll(root) {
   f.push(checkDigestYield(root));
   f.push(checkFactConflicts(root));
   f.push(checkOrphans(root));
+  f.push(checkContestedClaims(root));
   f.push(checkTopicQuality(root));
   f.push(checkRepetition(root));
   f.push(checkClosedWithoutEvidence(root));
@@ -872,6 +874,69 @@ export function checkOrphans(root) {
     + `${one ? 'points' : 'point'} at a missing id: ${sample}`,
     'The target was never written or the id is mistyped, so the supersede/close does not take effect. '
     + 'Check the id, or write the correction against the real entry.');
+}
+
+/**
+ * Y4b: contested claims — lines carrying `retires_id`/`closes_id`/
+ * `replaces_id` (a late supersede included) that the authority rule
+ * (`authority.mayChangeState`, judged by `memory.retiredMap` exactly as
+ * recall judges them) REFUSES: e.g. a digest line trying to close a
+ * session duty, or to replace a `user` claim. Append-only: the line
+ * stays, is not obeyed, the target stays active and the claim reads as
+ * `disputed`. This finding makes visible THAT such lines exist, how many,
+ * and which came last — it writes nothing. Counterpart of lucky-mem's
+ * `bestritten`.
+ *
+ * Measured per drawer (a claim lives in its target's drawer), with the
+ * same map recall uses.
+ *   unknown  not a single state pointer in the store (empty is not a
+ *            pass), or no drawer readable
+ *   good     pointers exist, none refused
+ *   warning  at least one refused
+ */
+export function checkContestedClaims(root) {
+  let pointers = 0;
+  let read = 0;
+  const contested = []; // { id, ts, why, target, drawer }
+  let projects = [];
+  try { projects = memory.listProjects(root); } catch { projects = []; }
+  for (const project of [null, ...projects]) {
+    for (const type of Object.keys(memory.TYPES)) {
+      const entries = [];
+      try {
+        for (const e of memory.iterLog(root, type, { project })) {
+          if (!e || e.__broken) continue;
+          entries.push(e);
+          for (const f of authority.STATE_FIELDS) if (e[f]) pointers += 1;
+        }
+      } catch { continue; }
+      read += 1;
+      if (!entries.length) continue;
+      for (const [id, rec] of memory.retiredMap(entries)) {
+        if (rec.state !== 'disputed') continue;
+        contested.push({ id, ts: rec.ts ?? null, why: rec.why, target: rec.by,
+          drawer: `${project ?? 'global'}/${type}` });
+      }
+    }
+  }
+  if (!read) return finding('contested-claims', LEVEL.UNKNOWN, 'no drawer readable — not measurable');
+  if (!pointers) {
+    return finding('contested-claims', LEVEL.UNKNOWN,
+      'no retires_id/closes_id/replaces_id pointer in the store — whether one is contested '
+      + 'cannot be measured without a single pointer');
+  }
+  if (!contested.length) {
+    return finding('contested-claims', LEVEL.GOOD, `${pointers} state pointer(s), none contested`);
+  }
+  contested.sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')));
+  const y = contested[0];
+  const one = contested.length === 1;
+  return finding('contested-claims', LEVEL.WARN,
+    `${contested.length} contested claim${one ? '' : 's'} of ${pointers} state pointer(s); youngest: `
+    + `${y.id} (${y.drawer}, ${y.ts ?? 'no ts'}) against ${y.target}: ${y.why}`,
+    'The lines stay (append-only) and are not obeyed — the target keeps holding. If the change '
+    + 'was meant: write it again on the person\'s word (mem done <id> --authority user) or as the '
+    + 'target\'s author/owner; otherwise leave it.');
 }
 
 function checkRoot(root) {

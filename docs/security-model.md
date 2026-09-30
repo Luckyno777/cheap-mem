@@ -305,8 +305,20 @@ set to `inferred` by `bin/mem-digest`. Enforced rather than requested,
 because an instruction is a request and the process being constrained is
 precisely the one that may have been told otherwise. A demotion is
 recorded in `authority_clamped_from`, never silent. The ceiling only ever
-lowers: an unstamped write stays unstamped, since stamping it would raise
-an entry of genuinely unknown provenance.
+lowers: an explicit `unknown` stays `unknown`.
+
+**New lines read as the lowest tier (Y4b, 2026-09-30).** Until then a
+write that named no tier stayed unstamped and read as `unknown` — the
+lowest tier — so the digest (`inferred`) could still close or retire
+anything a session wrote. The write path now stamps `agent` when no tier
+is given (under a ceiling, the ceiling), never `user`. `user` is only set
+explicitly: `--authority user` on `mem done`, `discard`, `supersede`,
+`duties close` and `correction`, or the dashboard's done task when a
+PASSWORD session triggered it (not the bearer token, not a server with
+the sign-in off). The MCP bridge lowers any claimed tier above `agent`,
+and `bin/mem-reflect` sets the same ceiling as the digest. A line the
+rule refuses is still written, warned about on stderr and read as
+disputed; `mem doctor` counts those as `contested-claims`.
 
 ### Unsolved, explicitly
 

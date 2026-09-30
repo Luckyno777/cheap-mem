@@ -11,6 +11,8 @@
 // exemption and went red on a dated 2026-09-08 report the moment its
 // German "elf Werkzeuge" was translated to "eleven tools". Two guards
 // with two ideas of "archive" are two truths.
-export function isArchive(rel) {
-  return rel === 'CHANGELOG.md' || /-\d{4}-\d{2}-\d{2}/.test(rel);
-}
+//
+// Since O7 (2026-09-30) the rule itself lives in bench/readme-numbers.mjs,
+// next to the document list the number writer walks — the writer and
+// every guard use one definition of "archive".
+export { isArchive } from '../bench/readme-numbers.mjs';

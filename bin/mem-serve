@@ -257,6 +257,18 @@ export function buildHandler(root, cfg, env = process.env) {
     equal: webauth.constantEqual,
   };
   const loginFree = ['/favicon.ico', '/sw.js', ...dashboardPage.FONTS.map((f) => f.path)];
+  // **Y4b: did a signed-in PERSON trigger this action?** Only a valid
+  // PASSWORD session (cookie, src/login.mjs) shows that: only the owner
+  // knows the password. NOT counted as proof:
+  //   - the bearer token (CHEAP_MEM_SERVE_TOKEN) — tools, probes and
+  //     anyone handed the link carry it;
+  //   - a server with CHEAP_MEM_SERVE_LOGIN=off — there is no sign-in;
+  //   - the MCP bridge — it does not write through this server.
+  // Only then does `tasks.start` hand `--authority user` to the command.
+  const personSignedIn = (req) => {
+    if (!loginOn) return false;
+    try { return login.checkSession(loginCtx.dir, login.cookieFrom(req)).valid === true; } catch { return false; }
+  };
   // --- tempo: /dashboard.json from the cache --------------------------------
   // ONE cache per handler (not per module): a probe that builds its own
   // handler never sees another one's result.
@@ -1121,7 +1133,7 @@ export function buildHandler(root, cfg, env = process.env) {
           for (const [k, v] of form) if (k !== 'kind' && k !== 'from' && v !== '') params[k] = v;
           let began;
           try {
-            began = tasks.start(root, kind, params);
+            began = tasks.start(root, kind, params, { user: personSignedIn(req) });
           } catch (e) {
             if (e?.code === 'INVALID_PARAMS') {
               answer(400, { state: 'error', reason: e.message });

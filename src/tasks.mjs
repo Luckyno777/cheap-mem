@@ -243,8 +243,8 @@ export const KINDS = Object.freeze({
       id: { required: true, check: (v) => /^[A-Za-z0-9_-]{4,64}$/.test(v), why: 'an entry id' },
       why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
     },
-    command(root, id, p) {
-      return { file: MEM_BIN, args: ['done', p.id, ...(p.why ? ['--why', p.why] : [])] };
+    command(root, id, p, context) {
+      return { file: MEM_BIN, args: ['done', p.id, ...(p.why ? ['--why', p.why] : []), ...authorityArgs(context)] };
     },
     progressPattern: null,
     // `mem done` prints one plain line ("done: <id> (...)"), no JSON.
@@ -384,7 +384,20 @@ function spawnChild(file, args, root) {
  *                         instance (`e.runningId` names the id)
  *  - 'INVALID_PARAMS'  — a parameter is unknown, malformed or missing
  */
-export function start(root, kind, params = {}) {
+/**
+ * Y4b: `--authority user` for a kind that writes a state change (`done`),
+ * ONLY when the caller — the dashboard server — has established that a
+ * signed-in person triggered it (`context.user === true`: a valid
+ * PASSWORD session, see bin/mem-serve). Never from the form parameters:
+ * those are a closed list without `authority`, or anyone with a write
+ * path could make themselves the user. Without it the line gets the
+ * write path's default (`agent`).
+ */
+function authorityArgs(context) {
+  return context?.user === true ? ['--authority', 'user'] : [];
+}
+
+export function start(root, kind, params = {}, context = {}) {
   const spec = KINDS[kind];
   if (!spec) {
     const e = new Error(`unknown kind '${kind}'. Known: ${Object.keys(KINDS).join(', ')}`);
@@ -403,13 +416,14 @@ export function start(root, kind, params = {}) {
   const id = newId();
   fs.mkdirSync(tasksDir(root), { recursive: true });
   const file = statePath(root, id);
-  const { file: prog, args } = spec.command(root, id, checked);
+  const { file: prog, args } = spec.command(root, id, checked, context);
 
   const child = spawnChild(prog, args, root);
   const ts = nowIso();
   appendLine(file, `${JSON.stringify({
     event: 'started', ts, id, kind, pid: child.pid, serverEpoch: SERVER_EPOCH,
     command: [prog, ...args], params: checked,
+    ...(context?.user === true ? { user: true } : {}),
   })}\n`);
 
   const entry = { id, child, epoch: SERVER_EPOCH, ended: false, cancelReason: null };

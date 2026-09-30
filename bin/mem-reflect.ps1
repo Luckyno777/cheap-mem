@@ -97,6 +97,9 @@ $prompt = if ($env:MEM_REFLECT_PROMPT) { $env:MEM_REFLECT_PROMPT } else { $defau
 
 $env:TRANSCRIPT_PATH = $transcriptPath
 $env:MEM_HEADLESS    = 'reflector'
+# Authority ceiling (Y4b), as bin/mem-reflect sets it: the reflector is a
+# model writing claims, so `inferred` is the most it may claim.
+if (-not $env:CHEAP_MEM_MAX_AUTHORITY) { $env:CHEAP_MEM_MAX_AUTHORITY = 'inferred' }
 
 # Split CmdLine on whitespace into an exe + args array.
 $parts = $CmdLine -split '\s+' | Where-Object { $_ }
@@ -110,6 +113,7 @@ $job = Start-Job -ScriptBlock {
   $env:TRANSCRIPT_PATH = $tp
   $env:CHEAP_MEM_ROOT  = $root
   $env:MEM_HEADLESS    = $env_h
+  if (-not $env:CHEAP_MEM_MAX_AUTHORITY) { $env:CHEAP_MEM_MAX_AUTHORITY = 'inferred' }
   & $e @a
 } -ArgumentList $exe, $argList, $transcriptPath, $env:CHEAP_MEM_ROOT, 'reflector'
 

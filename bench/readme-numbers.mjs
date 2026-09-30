@@ -57,6 +57,22 @@
  * every file that has at least one claim — still ONE truth (the same
  * `buildCounters()`), just read into more than one document.
  *
+ * **One list of places, not two (O7, 2026-09-30).** M14 taught the
+ * writer a second FILE, but the guards check more places than the
+ * writer's `CLAIMS` knew: `test/doku-zahlen.test.mjs` sweeps every
+ * living document for "<n> MCP tools/CLI commands/commands/tools/
+ * modules/tests/lines", and `test/tool-count-doc.test.mjs` sweeps every
+ * document for "<n|word> tools". On 2026-09-30 docs/mcp-setup.md:3/:267
+ * and docs/CAPABILITIES.md:560 ("N tools") were red after a merge and
+ * `--write --all` fixed none of them — by hand again. The sweep (which
+ * documents, which pattern, which exemption marker, which band) now
+ * lives HERE, exported; both guards import it, and `updateNumbers`
+ * fixes every place the sweep checks that the guard would fail. The
+ * counters the guards grade with stay their own (a probe that imports
+ * the number it grades tests the import); the PLACES are one list.
+ * `CLAIMS` keep owning their exact spans — the sweep never touches a
+ * number inside a `CLAIMS` match, so nothing is written twice.
+ *
  * Usage:
  *   node bench/readme-numbers.mjs                 # report only
  *   node bench/readme-numbers.mjs --write          # pull forward
@@ -103,6 +119,9 @@ export function buildCounters(root = DEFAULT_ROOT) {
       .reduce((n, f) => n + (fs.readFileSync(path.join(root, 'test', f), 'utf8')
         .match(/^\s*test\(/gm) ?? []).length, 0),
     lines: () => lineCount(root, 'bin') + lineCount(root, 'src', (n) => n.endsWith('.mjs')),
+    // `bin/mem` alone — CLAUDE.md's "about N lines" (the sweep's
+    // `lines:cli`, see `linesTarget`).
+    linesCli: () => fs.readFileSync(path.join(root, 'bin', 'mem'), 'utf8').split('\n').length,
     // An ESM specifier is a URL, not a filesystem path — on Windows a bare
     // path.join(...) reads the drive letter as a scheme and Node refuses
     // with ERR_UNSUPPORTED_ESM_URL_SCHEME (test/windows-paths.test.mjs).
@@ -143,7 +162,224 @@ export const CLAIMS = [
 export const EXACT = ['cli', 'mcp', 'modules', 'guarantees'];
 
 /** Everything, including the numbers that move on nearly every commit. */
-export const ALL = [...EXACT, 'tests', 'lines'];
+export const ALL = [...EXACT, 'tests', 'lines', 'linesCli'];
+
+// ---------------------------------------------------------------------
+// The sweep — the places the guards check (O7). Everything below is
+// imported by test/doku-zahlen.test.mjs and test/tool-count-doc.test.mjs;
+// a change here changes what they check AND what this file writes.
+
+/**
+ * Which documents are living, and which are records. A file is an
+ * ARCHIVE if its name carries a date, or it is the changelog: a dated
+ * record states what was true that day and is never rewritten.
+ * (test/doc-archive.mjs re-exports this — one rule for every guard.)
+ */
+export function isArchive(rel) {
+  return rel === 'CHANGELOG.md' || /-\d{4}-\d{2}-\d{2}/.test(rel);
+}
+
+/** Living documents: `*.md` at the root and under `docs/`, archives out. */
+export function livingDocs(root = DEFAULT_ROOT) {
+  const out = [];
+  for (const rel of fs.readdirSync(root).filter((n) => n.endsWith('.md'))) out.push(rel);
+  const d = path.join(root, 'docs');
+  if (fs.existsSync(d)) for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) out.push(path.join('docs', n));
+  return out.filter((r) => !isArchive(r));
+}
+
+/** Every `*.md` below root (no .git, no node_modules), archives included. */
+export function allDocs(root = DEFAULT_ROOT) {
+  const out = [];
+  const walk = (d) => {
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      if (['.git', 'node_modules'].includes(e.name)) continue;
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith('.md')) out.push(path.relative(root, p));
+    }
+  };
+  walk(root);
+  return out;
+}
+
+/** `28 MCP tools`, `904 tests`, `about 18,900 lines`, `54 commands`. */
+export const SWEEP_PATTERN = /\b([\d][\d,]*)\s+(MCP tools|CLI commands|commands|tools|modules|tests|lines)\b/g;
+
+/** `tools` alone means MCP tools; `commands` alone means CLI commands. */
+export const SYNONYMS = Object.freeze({ tools: 'MCP tools', commands: 'CLI commands' });
+
+/**
+ * An exemption NAMES the number it exempts:
+ * `<!-- zahl-historisch: 500 lines (reason) -->` exempts `500 lines` and
+ * nothing else (see test/doku-zahlen.test.mjs for why it never guesses).
+ */
+export function markedExemptions(text) {
+  const out = new Set();
+  for (const m of text.matchAll(/<!--\s*zahl-historisch:\s*([\d][\d,]*)\s+([A-Za-z ]+?)\s*(?:\(|-->)/gi)) {
+    out.add(`${m[1].replace(/,/g, '')} ${m[2].trim()}`);
+  }
+  return out;
+}
+
+/**
+ * `lines` also means other things ("480 lines per hour"). Only a claim
+ * that names the code is about the code: `lines:cli` (bin/mem alone),
+ * `lines:all` (bin/ + src/), or null (a rate, a budget — skipped).
+ */
+export function linesTarget(text, index) {
+  const around = text.slice(Math.max(0, index - 200), index + 200);
+  if (/\bbin\/mem\b(?!-)/.test(around) && !/\bsrc\//.test(around)) return 'lines:cli';
+  if (/\bbin\/|\bsrc\/|codebase|of JS\b/.test(around)) return 'lines:all';
+  return null;
+}
+
+/**
+ * The allowed drift per approximate kind — ONE source for the guard
+ * (test/doku-zahlen.test.mjs, which explains each number) and for the
+ * writer's decision whether a sweep place needs rewriting at all.
+ */
+export const TOLERANCE = Object.freeze({ tests: 1.02, 'lines:all': 1.15, 'lines:cli': 1.15 });
+export const DEFAULT_BAND = 1.15;
+export const bandFor = (kind) => TOLERANCE[kind] ?? DEFAULT_BAND;
+
+/** The sweep's kind -> the writer's counter field. */
+export const KIND_FIELD = Object.freeze({
+  'MCP tools': 'mcp', 'CLI commands': 'cli', modules: 'modules',
+  tests: 'tests', 'lines:all': 'lines', 'lines:cli': 'linesCli',
+});
+/** Counted exactly (no band); the rest carry a tolerance. */
+export const EXACT_KINDS = Object.freeze(['MCP tools', 'CLI commands', 'modules']);
+
+/**
+ * The claims one document text makes, as the guard sorts them:
+ * `checked` (graded against the code), `dated` (exempted by a marker),
+ * `notCode` (a `lines` figure about something else). Each claim carries
+ * `index`/`start`/`end` of its NUMBER so a writer can replace exactly it.
+ */
+export function sweepText(rel, text) {
+  const checked = []; const dated = []; const notCode = [];
+  const exempt = markedExemptions(text);
+  for (const m of text.matchAll(SWEEP_PATTERN)) {
+    const number = Number(m[1].replace(/,/g, ''));
+    const word = m[2];
+    const claim = {
+      rel, number, raw: m[1], word, index: m.index, start: m.index, end: m.index + m[1].length,
+      line: text.slice(0, m.index).split('\n').length,
+    };
+    if (exempt.has(`${number} ${word}`)) { dated.push({ ...claim, kind: word }); continue; }
+    if (word === 'lines') {
+      const target = linesTarget(text, m.index);
+      if (!target) { notCode.push({ ...claim, kind: word }); continue; }
+      checked.push({ ...claim, kind: target });
+      continue;
+    }
+    checked.push({ ...claim, kind: SYNONYMS[word] ?? word });
+  }
+  return { checked, dated, notCode };
+}
+
+/** The sweep over every living document (what doku-zahlen checks). */
+export function sweepClaims(root = DEFAULT_ROOT) {
+  const checked = []; const dated = []; const notCode = [];
+  for (const rel of livingDocs(root)) {
+    const r = sweepText(rel, fs.readFileSync(path.join(root, rel), 'utf8'));
+    checked.push(...r.checked); dated.push(...r.dated); notCode.push(...r.notCode);
+  }
+  return { checked, dated, notCode };
+}
+
+/** Does the guard fail this claim against `real`? */
+export function sweepFails(kind, claimed, real) {
+  if (EXACT_KINDS.includes(kind)) return claimed !== real;
+  return Math.max(real, claimed) / Math.min(real, claimed) > bandFor(kind);
+}
+
+// "<n> tools" as a numeral or a number word (test/tool-count-doc.test.mjs).
+// Only as far as the docs actually count; more words would invite
+// routing around it.
+export const TOOL_WORDS = Object.freeze(['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+  'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen']);
+export const TOOL_CLAIM = new RegExp(`\\b(\\d{1,2}|${TOOL_WORDS.join('|')})\\s+tools\\b`, 'gi');
+
+/** The value a "<n|word> tools" claim states. */
+export const toolClaimValue = (raw) => (/^\d+$/.test(raw) ? Number(raw) : TOOL_WORDS.indexOf(raw.toLowerCase()));
+
+/** The tool-count claims of one text, with the span of the number. */
+export function toolClaimsIn(rel, text) {
+  return [...text.matchAll(TOOL_CLAIM)].map((m) => ({
+    rel, raw: m[1], said: toolClaimValue(m[1]), start: m.index, end: m.index + m[1].length,
+  }));
+}
+
+/** Every "<n|word> tools" claim in every non-archive document. */
+export function toolCountClaims(root = DEFAULT_ROOT) {
+  const out = [];
+  for (const rel of allDocs(root)) {
+    if (isArchive(rel)) continue;
+    out.push(...toolClaimsIn(rel, fs.readFileSync(path.join(root, rel), 'utf8')));
+  }
+  return out;
+}
+
+/** Keep the claim's own shape: thousands separators, a number word. */
+function formatLike(raw, real) {
+  if (/^\d[\d,]*$/.test(raw)) return raw.includes(',') ? real.toLocaleString('en-US') : String(real);
+  const word = real < TOOL_WORDS.length ? TOOL_WORDS[real] : String(real);
+  return /^[A-Z]/.test(raw) ? word[0].toUpperCase() + word.slice(1) : word;
+}
+
+/** Every file a sweep or a CLAIMS entry can write — for coverage probes. */
+export function coveredFiles(root = DEFAULT_ROOT, claims = CLAIMS) {
+  return new Set([
+    ...claims.map((c) => c.file ?? 'README.md'),
+    ...livingDocs(root),
+    ...allDocs(root).filter((r) => !isArchive(r)),
+  ]);
+}
+
+/**
+ * The sweep's verdict on one text, minus the spans `CLAIMS` own.
+ * Returns the places the GUARD would fail, each with the writer field,
+ * the stated value and the real one.
+ */
+async function sweepFailures(rel, text, counters, allowed, owned, living) {
+  const out = [];
+  const cache = new Map();
+  const real = async (field) => {
+    if (!cache.has(field)) cache.set(field, await counters[field]());
+    return cache.get(field);
+  };
+  const inOwned = (c) => owned.some(([a, b]) => c.start >= a && c.end <= b);
+  if (living) {
+    for (const c of sweepText(rel, text).checked) {
+      const field = KIND_FIELD[c.kind];
+      if (!field || !allowed.includes(field) || inOwned(c)) continue;
+      const r = await real(field);
+      if (sweepFails(c.kind, c.number, r)) out.push({ ...c, field, real: r });
+    }
+  }
+  return out;
+}
+
+async function toolFailures(rel, text, counters, allowed, owned) {
+  if (!allowed.includes('mcp') || isArchive(rel)) return [];
+  const n = await counters.mcp();
+  return toolClaimsIn(rel, text)
+    .filter((c) => !owned.some(([a, b]) => c.start >= a && c.end <= b))
+    .filter((c) => c.said !== n)
+    .map((c) => ({ ...c, field: 'mcp', kind: 'tools', number: c.said, real: n }));
+}
+
+/** [start, end) of every CLAIMS match in `text` — the spans CLAIMS own. */
+function ownedSpans(text, fileClaims) {
+  const spans = [];
+  for (const claim of fileClaims) {
+    const m = new RegExp(claim.pattern.source, claim.pattern.flags.replace(/g/g, '')).exec(text);
+    if (m) spans.push([m.index, m.index + m[0].length]);
+  }
+  return spans;
+}
 
 const stripCommas = (s) => Number(String(s).replace(/,/g, ''));
 
@@ -164,17 +400,34 @@ function byFile(claims) {
 }
 
 /**
+ * The files one run looks at, in a stable order: every file a `CLAIMS`
+ * entry names (in their first-seen order), then every other document the
+ * sweep checks. `living` marks the ones doku-zahlen's sweep covers.
+ */
+function filesToVisit(root, claims) {
+  const groups = byFile(claims);
+  const living = new Set(fs.existsSync(root) ? livingDocs(root) : []);
+  const tools = fs.existsSync(root) ? allDocs(root).filter((r) => !isArchive(r)) : [];
+  const order = [...groups.keys()];
+  for (const f of [...living, ...tools]) if (!order.includes(f)) order.push(f);
+  return order.map((file) => ({ file, claims: groups.get(file) ?? [], living: living.has(file) }));
+}
+
+/**
  * Compares the docs against the code. Never writes; `updateNumbers`
  * below does that and calls this for its report. A `file` a claim
  * names but that does not exist under `root` is skipped rather than
  * reported missing — a caller running this against a partial tree
  * (a test fixture, say) is not claiming that tree has every document.
+ * Besides the `CLAIMS`, every place the guards' sweep checks is
+ * compared (O7) — with the guards' own rule: exact kinds must match,
+ * approximate ones must stay inside their band.
  */
 export async function checkNumbers({ root = DEFAULT_ROOT, only = ALL, claims = CLAIMS } = {}) {
   const counters = buildCounters(root);
   const missing = [];
   const mismatches = [];
-  for (const [file, fileClaims] of byFile(claims)) {
+  for (const { file, claims: fileClaims, living } of filesToVisit(root, claims)) {
     const filePath = path.join(root, file);
     if (!fs.existsSync(filePath)) continue;
     const text = fs.readFileSync(filePath, 'utf8');
@@ -189,15 +442,37 @@ export async function checkNumbers({ root = DEFAULT_ROOT, only = ALL, claims = C
         if (claimed !== real) mismatches.push({ file, field, claimed, real });
       }
     }
+    const owned = ownedSpans(text, fileClaims);
+    const found = [
+      ...await sweepFailures(file, text, counters, only, owned, living),
+      ...await toolFailures(file, text, counters, only, owned),
+    ];
+    for (const f of found) mismatches.push({ file, field: f.field, claimed: f.number, real: f.real, line: text.slice(0, f.start).split('\n').length });
   }
   return { missing, mismatches };
 }
 
+/** Replace spans rightmost first, so an earlier span never moves. */
+function applySpans(text, pending) {
+  let out = text;
+  for (const p of [...pending].sort((x, y) => y.span[0] - x.span[0])) {
+    out = out.slice(0, p.span[0]) + p.to + out.slice(p.span[1]);
+  }
+  return out;
+}
+
 /**
- * Pulls the numbers forward, in every file a claim names. Returns what
- * it changed (or would change, dry-run) — always, even without
- * `--write`, so a caller can report without writing. Same skip rule as
- * `checkNumbers` for a file that does not exist under `root`.
+ * Pulls the numbers forward, in every file a claim names and at every
+ * place the guards' sweep checks (O7). Returns what it changed (or
+ * would change, dry-run) — always, even without `--write`, so a caller
+ * can report without writing. Same skip rule as `checkNumbers` for a
+ * file that does not exist under `root`.
+ *
+ * A sweep place is rewritten only where the GUARD would fail it: an
+ * exact kind that differs, an approximate kind outside its band. A
+ * "about 180 lines" that is still inside its band stays as written —
+ * rewriting it on every run would be the churn `--all` exists to keep
+ * out of ordinary commits.
  */
 export async function updateNumbers({
   root = DEFAULT_ROOT, only = null, all = false, write = false, claims = CLAIMS,
@@ -207,11 +482,11 @@ export async function updateNumbers({
   const missing = [];
   const changes = [];
 
-  for (const [file, fileClaims] of byFile(claims)) {
+  for (const { file, claims: fileClaims, living } of filesToVisit(root, claims)) {
     const filePath = path.join(root, file);
     if (!fs.existsSync(filePath)) continue;
-    let text = fs.readFileSync(filePath, 'utf8');
-    let touched = false;
+    const original = fs.readFileSync(filePath, 'utf8');
+    let text = original;
 
     for (const claim of fileClaims) {
       // The 'd' flag reports each group's [start, end) in the source text,
@@ -233,14 +508,26 @@ export async function updateNumbers({
       }
       // Rightmost first: replacing a later span never shifts an earlier
       // one's [start, end), because it lies entirely after it.
-      for (const p of [...pending].sort((a, b) => b.span[0] - a.span[0])) {
-        text = text.slice(0, p.span[0]) + p.to + text.slice(p.span[1]);
-      }
-      if (pending.length) touched = true;
+      text = applySpans(text, pending);
       changes.push(...pending.map(({ field, from, to }) => ({ file, field, from, to })));
     }
 
-    if (write && touched) fs.writeFileSync(filePath, text, 'utf8');
+    // The sweep places (doku-zahlen), then the tool-count places — the
+    // second scan runs on the text the first already fixed, so a "33
+    // tools" both guards see is written once.
+    for (const pass of ['sweep', 'tools']) {
+      const owned = ownedSpans(text, fileClaims);
+      const found = pass === 'sweep'
+        ? await sweepFailures(file, text, counters, allowed, owned, living)
+        : await toolFailures(file, text, counters, allowed, owned);
+      const pending = found.map((f) => ({
+        field: f.field, from: f.raw, to: formatLike(f.raw, f.real), span: [f.start, f.end],
+      })).filter((p) => p.from !== p.to);
+      text = applySpans(text, pending);
+      changes.push(...pending.map(({ field, from, to }) => ({ file, field, from, to })));
+    }
+
+    if (write && text !== original) fs.writeFileSync(filePath, text, 'utf8');
   }
 
   const wrote = write && changes.length > 0;
@@ -262,7 +549,7 @@ if (isMain) {
     process.stderr.write(`readme-numbers: claim not found in README: ${f}\n`);
   }
   for (const c of report.changes) {
-    process.stdout.write(`${c.field}: ${c.from} -> ${c.to}\n`);
+    process.stdout.write(`${c.file}: ${c.field}: ${c.from} -> ${c.to}\n`);
   }
   if (!report.changes.length) process.stdout.write('README numbers already match\n');
   else if (!report.wrote) process.stdout.write('(dry run — pass --write to pull forward)\n');

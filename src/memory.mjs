@@ -525,16 +525,26 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   // agents test, not by reading the code.
   if (!data.agent) data = { ...data, agent: agentDefault() };
 
-  // Authority: normalised if given, left ABSENT if not.
+  // Authority: normalised if given, and — Y4b, 2026-09-30 — stamped
+  // `agent` if not (`authority.writeTierDefault`, lowered to the
+  // ceiling below when one is set).
   //
-  // Deliberately not defaulted to a tier here. A CLI write could be the
-  // owner typing or an agent scripting, and this function cannot tell —
-  // guessing 'user' would hand every script the top tier, and stamping
-  // 'unknown' on everything would make legacy and new data
-  // indistinguishable. An absent field reads as `unknown` at comparison
-  // time, which is the same conservative answer without pretending the
-  // question was asked.
-  if (data.authority !== undefined) {
+  // Not `user`: a CLI write could be the owner typing or an agent
+  // scripting, and this function cannot tell — guessing 'user' would
+  // hand every script the top tier. `user` only ever comes in
+  // explicitly (`--authority user`). But not ABSENT either any more:
+  // an absent field reads as `unknown`, the lowest tier, and that left
+  // every new session line open to the digest (`inferred`) closing or
+  // retiring it — the Y4 rule protected nothing that was written after
+  // it. Whoever writes through this function is an agent; that is true
+  // without inventing anything. Old lines stay as they are
+  // (append-only) and keep reading as `unknown`; the store heals
+  // forward.
+  if (data.authority === undefined || data.authority === null || String(data.authority).trim() === '') {
+    // No `authority_clamped_from` for this: the line claimed nothing, so
+    // nothing was demoted.
+    data = { ...data, authority: authority.writeTierDefault() };
+  } else {
     const t = String(data.authority).toLowerCase().trim();
     data = { ...data, authority: authority.TIERS.includes(t) ? t : authority.DEFAULT_TIER };
   }
@@ -554,10 +564,10 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   const ceiling = authority.ceilingFromEnv();
   if (ceiling) {
     const c = authority.clampTier(data.authority ?? authority.DEFAULT_TIER, ceiling);
-    // Only ever LOWERS. An unstamped write stays unstamped — stamping it
-    // with the ceiling would turn a ceiling into a floor and raise an
-    // entry of genuinely unknown provenance above `unknown`, which is the
-    // opposite of what this is for.
+    // Only ever LOWERS. An explicit `unknown` stays `unknown` — stamping
+    // it with the ceiling would turn a ceiling into a floor. (The Y4b
+    // default above is already at or below the ceiling, so it is never
+    // recorded as a demotion.)
     if (c.clamped) {
       data = { ...data, authority: c.tier, authority_clamped_from: c.from };
     }
@@ -2463,7 +2473,13 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
   // `checkCorrectionContentLoss`) needs both and would otherwise have to
   // look the predecessor up and recompute the same closing-question a
   // second time.
-  return { ...logEntry(root, type, { ...newData, replaces_id: oldId }, { project }), old, closing };
+  const written = logEntry(root, type, { ...newData, replaces_id: oldId }, { project });
+  // Y4b: the same early warning `retireEntry`/`closeDuty` give — a
+  // correction the authority rule refuses is still written (append-only)
+  // but does NOT replace the original; the writer hears it now, not at
+  // the next recall. Judged on the line as WRITTEN (default tier and
+  // ceiling already applied), so the warning and the replay agree.
+  return { ...written, old, closing, verdict: warnIfRefused(written.entry, old, 'replaces_id') };
 }
 
 

@@ -172,6 +172,10 @@ condensing enough. Stop after the push.
   $ErrTmp = "$OutTmp.err"
 
   $env:MEM_HEADLESS = 'digest'
+  # Authority ceiling, as bin/mem-digest sets it: a model's output is an
+  # inference, so `inferred` is the most it may claim (Y4b: this port
+  # had lost it). src/memory.mjs enforces it on the write path.
+  if (-not $env:CHEAP_MEM_MAX_AUTHORITY) { $env:CHEAP_MEM_MAX_AUTHORITY = 'inferred' }
   try {
     $proc = Start-Process -FilePath $Cmd -ArgumentList ($CmdArgs + @($Prompt)) `
       -WorkingDirectory $Root -NoNewWindow -PassThru `

@@ -71,26 +71,37 @@ test('a write at or below the ceiling is untouched', () => {
   rm(r);
 });
 
-test('a ceiling never becomes a floor — an unstamped write stays unstamped', () => {
+test('a ceiling never becomes a floor — an explicit unknown stays unknown, the default is never a demotion', () => {
   // The first version of this test expected the ceiling to be stamped onto
   // an unstamped entry. That is backwards: `unknown` already ranks BELOW
   // every ceiling, so stamping would RAISE an entry of genuinely unknown
   // provenance. A ceiling only ever lowers.
+  //
+  // Y4b (2026-09-30): an entry that names NO tier is no longer left
+  // absent — the write path stamps its default, `agent`, lowered to the
+  // ceiling (test/y4b-authority-flags.test.mjs). That default is at or
+  // below the ceiling by construction, so it is never recorded as a
+  // demotion; an EXPLICIT `unknown` is still not raised.
   const r = root();
   withCeiling('inferred', () => {
     const { entry } = memory.logEntry(r, 'decision',
       { topic: 't', choice: 'c', why: 'w' }, { project: 'p' });
-    assert.ok(!('authority' in entry), 'the ceiling acted as a floor');
+    assert.equal(entry.authority, 'inferred', 'the default must not exceed the ceiling');
+    assert.ok(!('authority_clamped_from' in entry), 'a default claimed nothing and was demoted from nothing');
+    const low = memory.logEntry(r, 'decision',
+      { topic: 't', choice: 'c', why: 'w', authority: 'unknown' }, { project: 'p' }).entry;
+    assert.equal(low.authority, 'unknown', 'the ceiling acted as a floor');
   });
   rm(r);
 });
 
-test('without a ceiling nothing changes — this must not become a hidden default', () => {
+test('without a ceiling the default is agent — never user, never a hidden top tier', () => {
   const r = root();
   withCeiling(null, () => {
     const { entry } = memory.logEntry(r, 'decision',
       { topic: 't', choice: 'c', why: 'w' }, { project: 'p' });
-    assert.ok(!('authority' in entry), 'a ceiling-free write must stay unstamped');
+    assert.equal(entry.authority, 'agent', 'a ceiling-free write must be stamped agent (Y4b)');
+    assert.ok(!('authority_clamped_from' in entry));
   });
   rm(r);
 });

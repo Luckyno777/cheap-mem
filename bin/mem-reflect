@@ -129,6 +129,14 @@ PROMPT="${MEM_REFLECT_PROMPT:-$DEFAULT_PROMPT}"
 export TRANSCRIPT_PATH
 export CHEAP_MEM_ROOT
 export MEM_HEADLESS=reflector
+# Authority ceiling (Y4b, 2026-09-30) — the same one bin/mem-digest sets,
+# for the same reason: the reflector is a model writing claims from a
+# transcript, and text in that transcript can steer what it writes. A
+# model's output is an inference, so `inferred` is the most it may
+# claim; src/memory.mjs enforces it on the write path and records any
+# demotion in `authority_clamped_from`. Until today only the digest had
+# it, so a reflector line could stamp itself `user`.
+export CHEAP_MEM_MAX_AUTHORITY="${CHEAP_MEM_MAX_AUTHORITY:-inferred}"
 
 # Run the reflector CLI. CMD may contain flags (e.g. `claude -p`), so
 # split it on whitespace. The prompt is the final argument.
