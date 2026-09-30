@@ -102,6 +102,9 @@ function Invoke-Handler {
       $env:MEM_HEADLESS   = 'watcher'
       Set-Location $root
       & powershell -NoProfile -ExecutionPolicy Bypass -File $h 2>&1 | Out-File -Append -FilePath $log
+      # The job's own state is 'Completed' even when the handler failed.
+      # Hand the handler's exit code back as the job's only output.
+      $LASTEXITCODE
     } -ArgumentList $Handler, $env:CHEAP_MEM_ROOT, $LogPath
 
     $done = Wait-Job -Job $job -Timeout $HandlerTimeout
@@ -111,14 +114,19 @@ function Invoke-Handler {
       Remove-Job -Job $job -Force
       return $false
     }
-    Receive-Job -Job $job | Out-Null
-    $exit = $job.ChildJobs[0].JobStateInfo.State
+    $jobOut = @(Receive-Job -Job $job)
+    $state = $job.ChildJobs[0].JobStateInfo.State
     Remove-Job -Job $job
-    if ($exit -eq 'Completed') {
+    # Success is the handler's EXIT CODE, not the job state: a failed
+    # handler still leaves the job 'Completed', which would count as
+    # success and keep the loop-guard from ever firing. A missing code
+    # (job died before printing one) is a failure, not a success.
+    $handlerCode = if ($jobOut.Count -gt 0) { $jobOut[-1] } else { $null }
+    if ($state -eq 'Completed' -and $handlerCode -is [int] -and $handlerCode -eq 0) {
       Write-Note "handler: done"
       return $true
     }
-    Write-Note "handler: exited with state $exit"
+    Write-Note "handler: failed (job state $state, exit code $handlerCode)"
     return $false
   } finally {
     Remove-Item -LiteralPath $LockPath -ErrorAction SilentlyContinue

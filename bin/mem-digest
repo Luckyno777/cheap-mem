@@ -184,6 +184,15 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
       }
       console.log(JSON.stringify({chosen,sum,total:(o.open||[]).length}));
     })' 2>>"$LOG")"
+  # The selection stage's exit code is a verdict, not noise: exit 1/2
+  # there (unreadable JSON, no rawSizes, ROOT missing) leaves SELECTION
+  # empty, which would otherwise read as "nothing selected, nothing to
+  # do" and exit 0. A failure must not look like an empty backlog.
+  SEL_RC=$?
+  if [ "$SEL_RC" -ne 0 ]; then
+    note "selection failed (exit $SEL_RC) — see the lines above"
+    exit 1
+  fi
 
   CHOSEN="$(printf '%s' "$SELECTION" | node -e '
     let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
