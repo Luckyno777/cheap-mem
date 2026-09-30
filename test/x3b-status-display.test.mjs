@@ -95,7 +95,9 @@ function checkPositive(bin, r, ids) {
     assert.ok(j.length >= 1 && j.every((h) => !('status' in h)), `${title}: no field status`);
   }
   for (const id of [ids.released, ids.legacy]) {
-    assert.ok(!/status:|\[(proposed|trial)\]/.test(mem(bin, r, 'show', id).stdout), `show ${id}: unchanged`);
+    // E4: the raw field `start_status:` now sits in the entry, so match the
+    // display line `status:` at the line start, not the field name.
+    assert.ok(!/^\s*status:|\[(proposed|trial)\]/m.test(mem(bin, r, 'show', id).stdout), `show ${id}: unchanged`);
     assert.ok(!('status' in JSON.parse(mem(bin, r, 'show', id, '--json').stdout)));
   }
 }
