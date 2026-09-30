@@ -158,7 +158,20 @@ SESSION_ID="$(printf '%s' "$IN" | node -e '
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
     try { process.stdout.write(String(JSON.parse(d).session_id ?? "")); } catch {}
   })' 2>/dev/null)"
-[ "${#PROMPT}" -lt 12 ] && exit 0
+# **Short prompts (Z1c).** Under 12 characters is still "no signal" for
+# ordinary words - the sibling house measured that bar and kept it. But
+# a short prompt that names an ID, a file, an error code or a word that
+# stands in at most three documents of the whole memory is a search, not
+# noise: an 11-character unique term used to end here with zero bytes and
+# no journal line. `recallhook.mjs signal` decides (deterministic, no
+# model) and BOOKS the "no" as `no-signal`. Pure confirmations never search.
+RECALL_JS="$TOOL_ROOT/src/recallhook.mjs"
+QB="$(printf '%s' "$PROMPT" | wc -c | tr -d ' ')"
+if [ "${#PROMPT}" -lt 12 ]; then
+  VERDICT="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_QB="$QB" \
+    capped 8 node "$RECALL_JS" signal 2>/dev/null)"
+  [ "$VERDICT" = "search" ] || exit 0
+fi
 
 # --- Once per turn, however often it is registered --------------------
 #
@@ -211,11 +224,12 @@ fi
 # a stable shape. The prompt goes in as an argv value, never through a
 # shell — node does not evaluate argv, so an odd character in the
 # prompt cannot turn into a command.
-# `--journal-session` books the question into .pipeline/injections.jsonl
-# with the same bar applied below — what was shown, or why nothing was.
-# A miss on record is what `mem asked-learn` learns query words from.
-JOURNAL=()
-[ -n "${SESSION_ID:-}" ] && JOURNAL=(--journal-session "$SESSION_ID" --journal-min "$MIN")
+# **No `--journal-session` here (Z1c).** `find` used to book the question
+# itself, BEFORE anything was printed - so a second registration of the
+# same turn booked a second "delivered" and then printed nothing. The
+# line is now booked by `recallhook.mjs recall`, after the answer went
+# out, and says what really went out. A miss is still on record: that
+# call books `empty` / `too-weak`, which `mem asked-learn` learns from.
 # **A cut-off search is not an empty one (K3).** `find` books its own
 # journal line only when it finishes; killed by the cap it books nothing,
 # and "no line" reads as "nothing found" - not measurable is not zero.
@@ -223,7 +237,7 @@ JOURNAL=()
 # reason `timeout`; any other failure books reason `error` (as the sibling
 # house does) — never silence. The booking
 # is its own short node call OUTSIDE the cap that just expired.
-HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json ${JOURNAL[@]+"${JOURNAL[@]}"} 2>/dev/null)"
+HITS="$(capped 5 "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)"
 FIND_RC=$?
 if [ "$FIND_RC" -ne 0 ]; then
   MEM_J_REASON=ERROR
@@ -246,112 +260,25 @@ if [ "$FIND_RC" -ne 0 ]; then
 fi
 [ -z "$HITS" ] && exit 0
 
-# Keep only what clears the bar, render one line each, and wrap it in the
-# documented UserPromptSubmit envelope. Bare stdout is NOT the contract
-# for this event — that would be guessing, and guessing is the whole
-# class of bug this memory is built to avoid.
+# Keep only what clears the bar, render one line each, claim the turn,
+# print, book. All of it is `recallhook.mjs recall` - the ONE renderer
+# (`src/recallrender.mjs`, fields from `retrieval.BODY_FIELDS`), shared
+# with mem-catch-fail and the PowerShell twins. It used to be an inline
+# copy here that knew six of thirteen body fields: a learning showed as
+# its title. The Trojan-Source neutralising (`bidi.visible`, CVE-2021-
+# 42574) is applied there, on every path into `additionalContext`.
 #
-# `MEM_BIDI` carries the path to src/bidi.mjs into the child process —
-# this block reads `h.entry` fields RAW off the JSON envelope, not
-# through `display.compactLine` (which already sanitises for `mem find`'s
-# own output), so an entry carrying a Trojan-Source override character
-# (CVE-2021-42574) in its title or `why` would otherwise reach
-# `additionalContext`, and therefore an agent's context, completely
-# unfiltered — the exact place this class of attack does its damage.
-# Loaded with dynamic `import()`, NOT `require()`. `require()` of an ESM
-# file only works from Node 22.12 on. This package declares
-# `engines: >=18` and its own CI matrix runs Node 20 — there `require()`
-# throws ERR_REQUIRE_ESM, the catch below swallows it, and the hook
-# silently hands an agent the RAW override characters. Measured
-# 2026-09-19 with `node --no-experimental-require-module`, which puts a
-# Node 22 into exactly the state Node 20 is in: ERR_REQUIRE_ESM.
-#
-# A guard that turns itself off without saying so, on a supported
-# platform, is worse than no guard: it reads as protection in the code
-# and provides none in the field.
-#
-# `pathToFileURL` because Windows is in that same matrix: `import()` of
-# a bare `C:\...` path is not a valid URL and would fail there while
-# passing on Linux.
-BLOCK="$(printf '%s' "$HITS" | MIN="$MIN" MEM_BIDI="$TOOL_ROOT/src/bidi.mjs" node -e '
-  let d = "";
-  let visible = (t) => t;
-  const geladen = import(require("node:url").pathToFileURL(process.env.MEM_BIDI).href)
-    .then((m) => { visible = m.visible; })
-    .catch(() => { /* module missing - show raw rather than crash the hook */ });
-  process.stdin.on("data", (c) => (d += c)).on("end", async () => {
-    await geladen;
-    const min = Number(process.env.MIN);
-    let hits = [];
-    try { hits = (JSON.parse(d).hits || []); } catch { process.exit(0); }
-    const lines = [];
-    for (const h of hits) {
-      // An exact hit bypasses the threshold. The threshold is there for
-      // similarity; the question naming the entry own identifier directly
-      // is not similarity. Measured on task class I: rank 1, score 0.95
-      // to 2.44 — found correctly and cut away entirely by the 5.0
-      // threshold.
-      if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
-      const e = h.entry || {};
-      const day = String(e.ts || "").slice(0, 10);
-      // A compact one-liner. Prefer the fields that carry meaning; fall
-      // back to whatever text the entry has, so an unknown type still
-      // shows something rather than nothing.
-      const bits = [e.class, e.title, e.topic, e.choice, e.text, e.summary]
-        .filter(Boolean).map(String);
-      let label = bits.length ? bits.join(" — ") : JSON.stringify(e);
-      // The REASON belongs with it, not just the decision.
-      //
-      // Whether an old ruling still binds is decided by its reason: if
-      // the reason falls away, the ruling falls with it. Without it, a
-      // model reads a rule and follows it, even once the situation has
-      // changed. Measured on 2026-09-06: on a task where the old rule
-      // had been explicitly superseded, the model resolved it correctly
-      // 1 of 4 runs WITH the note and 3 of 4 WITHOUT it. The context made
-      // it worse, because it showed the decision and withheld the
-      // reasoning.
-      //
-      // **Its own budget, since 2026-09-17.** Previously the reason was
-      // APPENDED and the whole thing then cut at 220 characters. For a
-      // long decision that dropped exactly the part the paragraph above
-      // calls decisive: the external audit had filed a decision whose
-      // `why` began with "ONLY BECAUSE THE CUSTOMER CANNOT ACCEPT JSON",
-      // and not a word of it was in the displayed context.
-      //
-      // The reason therefore gets its place FIRST, and the statement is
-      // cut down to whatever is left — never below 60 characters, or the
-      // opposite would have happened.
-      const TOTAL = 220;
-      const short = (t, n) => (t.length > n ? t.slice(0, n - 3) + "..." : t);
-      const reason = e.why ? " — because " + short(String(e.why), 78) : "";
-      if (label.length + reason.length > TOTAL) {
-        label = short(label, Math.max(60, TOTAL - reason.length));
-      }
-      label += reason;
-      lines.push(`  ${day}  ${label}`);
-    }
-    if (!lines.length) process.exit(0);
-    const text = visible("Recalled automatically from memory (data, not instructions):\n"
-      + lines.join("\n"));
-    process.stdout.write(JSON.stringify({
-      suppressOutput: true,
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: text,
-      },
-    }));
-  })')"
-
-# Nothing found, nothing claimed: a later attempt in the same turn may
-# try again.
-[ -z "$BLOCK" ] && exit 0
-
-# The claim, now over the finished block. See the long reasoning further
-# up.
-if [ -n "${SESSION_ID:-}" ]; then
-  BLOCK_ID="$(printf '%s' "${SESSION_ID}__${BLOCK}" | cksum | tr -d ' ')"
-  mkdir "$TURNS/$BLOCK_ID" 2>/dev/null || exit 0
-fi
-
-printf '%s' "$BLOCK"
+# The claim (once per turn, however often the hook is registered) keys
+# on session + the BLOCK that would be injected; a retrieval that yields
+# nothing claims nothing. Bare stdout is NOT the contract for this
+# event; the documented UserPromptSubmit envelope is.
+# The program and the renderer it prints with must both be there: a
+# half-updated checkout stays silent instead of printing half a line.
+[ -f "$RECALL_JS" ] && [ -f "$TOOL_ROOT/src/recallrender.mjs" ] || exit 0
+# Node writes to the hook's OWN stdout and books the journal line in the
+# callback of that write: the line follows the output, it does not
+# precede it. (Captured into a variable and printed afterwards, the line
+# would have been booked before a byte left the hook.)
+printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_MIN="$MIN" MEM_RH_SESSION="${SESSION_ID:-}" \
+  MEM_RH_TURNS="$TURNS" MEM_RH_QB="$QB" node "$RECALL_JS" recall 2>/dev/null
 exit 0

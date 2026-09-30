@@ -42,6 +42,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as injection from './injection.mjs';
 import { visible } from './bidi.mjs';
+import { renderHits } from './recallrender.mjs';
 
 /** At most this many hits are shown (MEM_AFTER_FAILURE_TOP overrides). */
 export const TOP_DEFAULT = 3;
@@ -99,21 +100,10 @@ export function parseHook(raw) {
 export function pick(hitsJson, { min = MIN_DEFAULT, top = TOP_DEFAULT } = {}) {
   let hits = [];
   try { hits = JSON.parse(hitsJson).hits || []; } catch { return { lines: [], sources: [], seen: 0 }; }
-  const lines = [];
-  const sources = [];
-  let seen = 0;
-  for (const h of hits) {
-    if (!LANES.test(String(h.source ?? ''))) continue;
-    seen += 1;
-    if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
-    if (lines.length >= top) continue;
-    const e = h.entry || {};
-    const day = String(e.ts || '').slice(0, 10);
-    const bits = [e.class, e.title, e.topic, e.choice, e.text, e.summary].filter(Boolean).map(String);
-    const label = bits.length ? bits.join(' - ') : JSON.stringify(e);
-    lines.push(`  ${day}  ${label}`.slice(0, 300));
-    sources.push(`${h.source}:${h.line ?? 0}`);
-  }
+  // One renderer for every recall hook (Z1c): real content per type, the
+  // entry ID, a marked cut. The three copies of the short field list
+  // that used to live here and in the two bash hooks are gone.
+  const { lines, sources, seen } = renderHits(hits, { min, top, lanes: LANES });
   return { lines, sources, seen };
 }
 

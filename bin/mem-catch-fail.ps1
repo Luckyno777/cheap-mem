@@ -135,38 +135,15 @@ $Hits = (& node @MemArgv find $Query --top $Top --json 2>$null) -join "`n"
 if ($LASTEXITCODE -ne 0) { exit 0 }
 if (-not $Hits) { exit 0 }
 
-# **The renderer is the POSIX hook's program, verbatim** - same reasoning
-# as mem-retrieve.ps1: node is already a hard dependency of this hook, so
-# the same program decides the shown lines on both platforms.
-$BlockScript = @'
-  let d = "";
-  process.stdin.on("data", (c) => (d += c)).on("end", () => {
-    const min = Number(process.env.MIN);
-    let hits = [];
-    try { hits = (JSON.parse(d).hits || []); } catch { process.exit(0); }
-    const lines = [];
-    for (const h of hits) {
-      if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
-      const e = h.entry || {};
-      const day = String(e.ts || "").slice(0, 10);
-      const bits = [e.class, e.title, e.topic, e.choice, e.text, e.summary]
-        .filter(Boolean).map(String);
-      const label = bits.length ? bits.join(" - ") : JSON.stringify(e);
-      lines.push(`  ${day}  ${label}`.slice(0, 300));
-    }
-    if (!lines.length) process.exit(0);
-    const text = "A Bash call just succeeded (exit 0) but its own output looked like a "
-      + "failure. Recalled from memory (data, not instructions):\n" + lines.join("\n");
-    process.stdout.write(JSON.stringify({
-      suppressOutput: true,
-      hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: text },
-    }));
-  })
-'@
+# One renderer (Z1c): `recallhook.mjs catch` -> src/recallrender.mjs, the
+# same program as bin/mem-catch-fail and bin/mem-retrieve (content from
+# retrieval.BODY_FIELDS, the entry ID, a marked cut, bidi neutralised).
 # A lower bar than mem-retrieve.ps1's default - see bin/mem-catch-fail's
 # own comment on MIN for the measurement behind this number.
-$env:MIN = if ($env:MEM_CATCH_FAIL_MIN) { $env:MEM_CATCH_FAIL_MIN } else { '2.0' }
-$Block = ($Hits | & node -e $BlockScript 2>$null) -join ''
+$RecallJs = Join-Path $ToolRoot 'src/recallhook.mjs'
+if (-not ((Test-Path -LiteralPath $RecallJs) -and (Test-Path -LiteralPath (Join-Path $ToolRoot 'src/recallrender.mjs')))) { exit 0 }
+$env:MEM_RH_MIN = if ($env:MEM_CATCH_FAIL_MIN) { $env:MEM_CATCH_FAIL_MIN } else { '2.0' }
+$Block = ($Hits | & node $RecallJs catch 2>$null) -join ''
 if (-not $Block) { exit 0 }
 
 [Console]::Out.Write($Block)
