@@ -47,6 +47,8 @@ import { buildIndex, search, expandWildcardPrefix, WILDCARD_EXPANSION_WEIGHT }
 import * as memory from '../src/memory.mjs';
 import { DOCS, QUERIES, buildCorpus } from './retrieval.mjs';
 
+import { pathToFileURL } from 'node:url';
+import { resolve as resolvePath } from 'node:path';
 const KS = [1, 3, 5, 10];
 const IMPLICIT_MIN_LEN = 5;
 
@@ -168,7 +170,7 @@ function printReport(results) {
   console.log('English technical compounds) — see this file\'s header.');
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(resolvePath(process.argv[1])).href) {
   const asJson = process.argv.includes('--json');
   const results = runAll({});
   printReport(results);

@@ -39,6 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { pathToFileURL } from 'node:url';
 const argv = process.argv.slice(2);
 const flag = (n, d = null) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
 
@@ -183,7 +184,7 @@ export function readHouse(root) {
 
 // --- as a command ------------------------------------------------------
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const ROOT = path.resolve(flag('root') ?? process.cwd());
   const here = readHouse(ROOT);
 

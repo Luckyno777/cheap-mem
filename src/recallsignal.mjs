@@ -32,17 +32,19 @@
  * decides only whether a search is worth running.
  */
 
+import { frozenSet } from './frozenset.mjs';
+
 /** The bar for ordinary prompts, in characters. */
 export const MIN_CHARS = 12;
 
 /** Whole-prompt confirmations. Lower-case, punctuation stripped. */
-export const CONFIRMATION_WORDS = Object.freeze(new Set([
+export const CONFIRMATION_WORDS = frozenSet([
   'yes', 'yep', 'yeah', 'yup', 'no', 'nope', 'ok', 'okay', 'k', 'kk', 'sure', 'fine', 'good',
   'great', 'nice', 'right', 'correct', 'exactly', 'agreed', 'thanks', 'thx', 'thank', 'you',
   'please', 'go', 'on', 'ahead', 'continue', 'proceed', 'next', 'done', 'do', 'it', 'lgtm',
   'that', 'this', 'works', 'fits', 'is', 'so', 'all', 'of', 'the', 'and', 'then', 'now', 'again',
   'more', 'stop', 'wait', 'hmm', 'ah', 'oh', 'cool', 'perfect', 'alright',
-]));
+]);
 
 const ID_PREFIX = /(?<![A-Za-z0-9])(?=[a-z0-9]*\d)(?=[a-z0-9]*[a-z])[a-z0-9]{8,11}(?![A-Za-z0-9])/;
 const FILE_NAME = /(?:^|[\s/\\("'`])[\w.-]*[\w-]\.(?:mjs|cjs|js|jsx|ts|tsx|json|jsonl|md|sh|ps1|py|ya?ml|toml|txt|css|html|lock|log|env)(?![\w])/i;

@@ -16,6 +16,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { frozenSet } from './frozenset.mjs';
 import os from 'node:os';
 import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
@@ -1065,11 +1066,11 @@ export function sameClass(root, className, { except = null, max = 3 } = {}) {
  * for elsewhere in this file: two copies of one rule drift apart
  * without either one looking wrong.
  */
-export const MACHINE_FIELDS = Object.freeze(new Set([
+export const MACHINE_FIELDS = frozenSet([
   'id', 'ts', 'v', 'agent', 'project', 'state', 'status',
   'replaces_id', 'closes_id', 'retires_id', 'by_id',
   'authority', 'authority_clamped_from', 'guard_at_creation',
-]));
+]);
 export const CONTENT_MIN_CHARS = 1;
 
 export function hasContent(e) {
@@ -2001,9 +2002,17 @@ export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } 
     // fact, and printing the future value here would be exactly the
     // defect the audit found.
     .filter((f) => f.current && !f.stale && !f.conflict);
-  const when = (f) => Date.parse(f.current.valid_from ?? f.current.ts ?? 0) || 0;
+  // Unknown time is null, not 0 (Date.parse(0) is 2000-01-01): it ranks last.
+  const when = (f) => {
+    const t = Date.parse(f.current.valid_from ?? f.current.ts);
+    return Number.isFinite(t) ? t : null;
+  };
   // Rank by recency so the budget keeps the freshest truths ...
-  const byFresh = [...stable].sort((a, b) => when(b) - when(a));
+  const byFresh = [...stable].sort((a, b) => {
+    const x = when(a); const y = when(b);
+    if (x === null || y === null) return (x === null) - (y === null);
+    return y - x;
+  });
   const kept = byFresh.slice(0, Math.max(0, max));
   // ... but present in key order, so the block reads like a settled table.
   kept.sort((a, b) => a.key.localeCompare(b.key));

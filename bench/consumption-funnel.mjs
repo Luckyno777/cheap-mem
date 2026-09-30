@@ -335,7 +335,7 @@ const num = (v) => (v === null || v === undefined ? 'not measured' : String(v));
 
 // --- as a command ------------------------------------------------------
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const ROOT = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
   // As a file URL, not as a path: an ESM specifier is a URL, and on
   // Windows Node reads the drive letter of `D:\\…` as a scheme

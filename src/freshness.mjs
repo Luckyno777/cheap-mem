@@ -24,7 +24,19 @@ export function subjectKey(e) {
   return e.key ?? e.subject ?? null;
 }
 
-const whenMs = (e) => Date.parse(e.valid_from ?? e.ts ?? 0) || 0;
+// Without a readable date the time is UNKNOWN (null), not 0: `Date.parse(0)`
+// is 2000-01-01, and `|| 0` turned that into a seemingly measured epoch
+// (audit A.3). Unknown sorts last and has no age.
+const whenMs = (e) => {
+  const t = Date.parse(e.valid_from ?? e.ts);
+  return Number.isFinite(t) ? t : null;
+};
+/** Newest first; unknown time goes last. */
+const newestFirst = (a, b) => {
+  const x = whenMs(a); const y = whenMs(b);
+  if (x === null || y === null) return (x === null) - (y === null);
+  return y - x;
+};
 const valueOf = (e) => e.value ?? e.fact ?? e.text ?? '';
 
 /**
@@ -41,7 +53,8 @@ const untilMs = (e) => {
 
 /** Does this version hold AT `nowMs`? */
 const holdsNow = (e, nowMs) => {
-  if (whenMs(e) > nowMs) return false;
+  const from = whenMs(e);
+  if (from !== null && from > nowMs) return false;
   const until = untilMs(e);
   return until === null || nowMs < until;
 };
@@ -100,16 +113,18 @@ export function resolveFacts(entries, { now = new Date(), staleDays = 120, retir
   const nowMs = +now;
   const out = [];
   for (const [key, versions] of groups) {
-    versions.sort((a, b) => whenMs(b) - whenMs(a)); // newest first
-    const future = versions.filter((e) => whenMs(e) > nowMs);
+    versions.sort(newestFirst); // newest first, unknown last
+    const future = versions.filter((e) => whenMs(e) !== null && whenMs(e) > nowMs);
     const expired = versions.filter((e) => {
       const until = untilMs(e);
-      return whenMs(e) <= nowMs && until !== null && nowMs >= until;
+      return (whenMs(e) === null || whenMs(e) <= nowMs) && until !== null && nowMs >= until;
     });
     const valid = versions.filter((e) => holdsNow(e, nowMs));
     const current = valid[0] ?? null;
     const history = current ? versions.filter((e) => e !== current) : versions;
-    const ageDays = current ? Math.round((nowMs - whenMs(current)) / 86400000) : null;
+    // Unknown start = no measurable age (null), not 0 days and not stale.
+    const ageDays = current && whenMs(current) !== null
+      ? Math.round((nowMs - whenMs(current)) / 86400000) : null;
     const stale = ageDays !== null && Number.isFinite(ageDays) && ageDays > staleDays;
     // Every version sharing the newest valid timestamp, not just the
     // one that happened to sort second.

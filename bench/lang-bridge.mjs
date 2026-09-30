@@ -52,7 +52,7 @@
 // not guessable core terms; they come from the misses themselves.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCorpus, QUERIES } from './retrieval.mjs';
 import { buildIndex, search } from '../src/search.mjs';
 import * as lb from '../src/langbridge.mjs';
@@ -172,7 +172,7 @@ function print(r) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const r = run();
   print(r);
   if (process.argv.includes('--json')) console.log(JSON.stringify(r, null, 2));
