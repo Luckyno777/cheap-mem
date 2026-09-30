@@ -21,6 +21,7 @@ import * as timesearch from '../timesearch.mjs';
 import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
+import * as bodyfields from '../bodyfields.mjs';
 import * as injection from '../injection.mjs';
 import { out, die, checkFlags, isHelp, findRoot, requireConfig, authorityArg } from './shell.mjs';
 
@@ -187,6 +188,9 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
   }
 }
 
+/** Body fields `compactLine` renders in a form of its own; the rest comes from `bodyfields.restOfBody`. */
+export const OWN_FORM = Object.freeze(['title', 'choice', 'text', 'why', 'rule', 'question']);
+
 export function compactLine(e, { root = null } = {}) {
   const parts = [];
   // **A procedure never comes out without its marking.**
@@ -203,6 +207,10 @@ export function compactLine(e, { root = null } = {}) {
   if (e.class) parts.push(`[${e.class}]`);
   if (e.topic) parts.push(`[${e.topic}]`);
   if (e.title) parts.push(e.title);
+  // O2: every other body field from the ONE source (src/bodyfields.mjs).
+  // Until 2026-09-30 this line knew neither `learning` nor `fact` nor
+  // `duty`/`steps`: a learning with a title showed as its title alone.
+  parts.push(...bodyfields.restOfBody(e, OWN_FORM));
   if (e.choice) parts.push(`→ ${e.choice}`);
   if (e.text) parts.push(String(e.text).slice(0, 80).replace(/\s+/g, ' '));
   if (e.why) parts.push(`because ${String(e.why).slice(0, 60)}`);

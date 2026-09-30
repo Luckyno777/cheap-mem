@@ -58,6 +58,7 @@ directory. The section number in brackets is where it is explained.
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number (10.18) |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
+| `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
 | `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
@@ -141,6 +142,7 @@ directory. The section number in brackets is where it is explained.
 | `semantics.mjs` | which rules produced this state (4) |
 | `setup.mjs` | the five steps between installed and working (10.12) |
 | `shardarchive.mjs` | P17: splits the raw-capture body across shards so git never has to carry one multi-GB blob |
+| `shortline.mjs` | the one-line entry summary of the MCP tools (`mem_component`, `mem_links`, `mem_facts`, ...), procedure mark and bidi latch included, body fields from `bodyfields.mjs` |
 | `shred.mjs` | per-entry body encryption plus a small, NOT append-only keyring — a real deletion without rewriting history |
 | `shrink.mjs` | an append-only memory must not get smaller (10.24) |
 | `sibling.mjs` | where the sister house's clone lives, if it sits beside us at all — dependency-free so nothing that needs it has to import `doctor.mjs` |

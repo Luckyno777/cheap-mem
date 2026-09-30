@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as memory from './memory.mjs';
+import { BODY_FIELDS, NON_BODY_FIELDS } from './bodyfields.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import * as langbridge from './langbridge.mjs';
 import * as entity from './entity.mjs';
@@ -151,13 +152,24 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 // 12: O3 — every log's state carries `full`, a hash over the WHOLE file.
 //     A version-11 cache lacks it; without it an equal-length change near
 //     the front plus an append could not be detected.
-export const CACHE_VERSION = 12;
+// 13: O2 — `steps` (workflow) and `body` (snippet) are body fields and so
+//     indexed; the field set comes from src/bodyfields.mjs. A version-12
+//     cache knows neither.
+export const CACHE_VERSION = 13;
 
 /**
  * Field weights. The same word means more in a title than in a body:
  * a title is what someone chose to call the thing.
+ *
+ * **Only the WEIGHTS live here, not the SET (O2, 2026-09-30).** Which
+ * fields are indexed is `bodyfields.BODY_FIELDS` (derived from
+ * `BODY_FIELDS_BY_TYPE`, the same source every display reads) plus
+ * `bodyfields.NON_BODY_FIELDS` (access words, not prose). `FIELD_WEIGHTS`
+ * below is built from them; a field of that set without a weight stops
+ * this module from loading, with its name — a body field that is shown
+ * but never found fails at the first import instead of in production.
  */
-export const FIELD_WEIGHTS = Object.freeze({
+const WEIGHT_BY_FIELD = Object.freeze({
   title: 3.0,
   topic: 2.5,
   class: 2.0,
@@ -220,7 +232,28 @@ export const FIELD_WEIGHTS = Object.freeze({
   description: 1.0,
   text: 1.0,
   fact: 1.0,
+  // The actual sequence of a workflow, and the snippet itself (O2). Like
+  // `text`: each is its type's main text, not its condensed statement
+  // (that is the title).
+  steps: 1.0,
+  body: 1.0,
 });
+
+export const FIELD_WEIGHTS = (() => {
+  const set = new Set([...BODY_FIELDS, ...NON_BODY_FIELDS]);
+  const unweighted = [...set].filter((f) => !(f in WEIGHT_BY_FIELD));
+  if (unweighted.length) {
+    throw new Error(`search.FIELD_WEIGHTS: body/search field without a weight: ${unweighted.join(', ')} `
+      + '(bodyfields names it, WEIGHT_BY_FIELD does not)');
+  }
+  const orphan = Object.keys(WEIGHT_BY_FIELD).filter((f) => !set.has(f));
+  if (orphan.length) {
+    throw new Error(`search.FIELD_WEIGHTS: weight for a field that is neither body nor search field: ${orphan.join(', ')}`);
+  }
+  // In the weight table's order (unchanged from before): it decides the
+  // insertion order of an entry's tokens.
+  return Object.freeze(Object.fromEntries(Object.entries(WEIGHT_BY_FIELD).filter(([f]) => set.has(f))));
+})();
 
 /**
  * Compound splitting — for languages that glue nouns together.

@@ -34,7 +34,9 @@
  */
 
 import path from 'node:path';
-import { BODY_FIELDS, NON_BODY_FIELDS } from './retrieval.mjs';
+// O2: straight from the leaf module that is the ONE source for every
+// display and for the indexed field set (`retrieval.mjs` re-exports it).
+import { BODY_FIELDS, NON_BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
 
 /** Characters of text per hit (the line's prefix — day, id, lane — not counted). */
 export const LINE_BUDGET = 300;
@@ -101,7 +103,8 @@ export function renderHit(hit, { budget = LINE_BUDGET } = {}) {
   const bodyParts = [];
   for (const f of BODY_FIELDS) {
     if (f === 'title' || f === 'why') continue;
-    const t = text(e[f]);
+    // `bodyAsText`: `steps` (a workflow) is an array, numbered on one line.
+    const t = text(bodyAsText(e[f]));
     if (t && !bodyParts.includes(t)) bodyParts.push(t);
   }
   if (!bodyParts.length) {
