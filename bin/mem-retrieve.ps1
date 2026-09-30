@@ -243,7 +243,34 @@ if ($SessionId) {
 # book the question BEFORE anything was printed, so a second registration
 # of the same turn booked a second "delivered" and printed nothing. The
 # line is booked by `recallhook.mjs recall`, after the answer went out.
-$Hits = (& node @MemArgv find $Prompt --top $Top --json 2>$null) -join "`n"
+#
+# **M10: the warm recall server first, else direct** (as in
+# bin/mem-retrieve). `mem serve` writes a key file under
+# <root>\.pipeline\recall\ while its recall server listens (on Windows a
+# named pipe); no key file -> exactly the path from before M10. The
+# client waits at most MEM_RECALL_SERVER_WAIT_MS (default 2500 ms) and
+# prints nothing on any failure, so a dead or hung server costs that
+# wait once and the direct `find` below runs as before. The path and the
+# reason for a fallback go into the journal (MEM_RH_PATH/_PATH_REASON).
+$RecallPath = 'direct'
+$RecallReason = ''
+$Hits = $null
+$ClientJs = Join-Path $ToolRoot 'bin/mem-retrieve-client.mjs'
+$RecallKey = if ($env:MEM_RECALL_SERVER_DIR) { Join-Path $env:MEM_RECALL_SERVER_DIR 'key' } else { Join-Path $Root '.pipeline/recall/key' }
+if ($env:MEM_RECALL_SERVER -ne '0' -and (Test-Path -LiteralPath $RecallKey) -and (Test-Path -LiteralPath $ClientJs)) {
+  $Hits = (& node $ClientJs $Root $Prompt $Top 2>$null) -join "`n"
+  switch ($LASTEXITCODE) {
+    0 { $RecallPath = 'server' }
+    3 { $RecallReason = 'server-gone' }
+    4 { $RecallReason = 'server-timeout' }
+    5 { $RecallReason = 'server-refused' }
+    6 { $RecallReason = 'server-stale' }
+    default { $RecallReason = 'server-error' }
+  }
+}
+if ($RecallPath -ne 'server') {
+  $Hits = (& node @MemArgv find $Prompt --top $Top --json 2>$null) -join "`n"
+}
 # K3 (mirrored from bin/mem-retrieve, not runnable here): the POSIX hook
 # books reason `timeout` when the 5-second cap kills `find` (exit 124/137).
 # This hook has NO cap (see above), so it has no timeout branch to book;
@@ -271,5 +298,7 @@ $env:MEM_RH_MIN = $Min
 $env:MEM_RH_SESSION = $SessionId
 $env:MEM_RH_TURNS = $Turns
 $env:MEM_RH_QB = [string]$QuestionBytes
+$env:MEM_RH_PATH = $RecallPath
+$env:MEM_RH_PATH_REASON = $RecallReason
 $Hits | & node $RecallJs recall 2>$null
 exit 0

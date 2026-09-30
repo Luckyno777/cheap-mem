@@ -17,14 +17,32 @@
 # Uninstall:
 #   Unregister-ScheduledTask -TaskName 'cheap-mem-watch' -Confirm:$false
 #   Unregister-ScheduledTask -TaskName 'cheap-mem-digest' -Confirm:$false
+#   powershell -File install\windows.ps1 -UninstallServeService   (optional mem serve task)
 
 param(
   [switch]$SkipTask,
   [switch]$SkipClaudeDesktop,
-  [switch]$SkipClaudeCode
+  [switch]$SkipClaudeCode,
+  # M10: optional `mem serve` task (dashboard + warm recall server).
+  # Default OFF. -ServeService installs it without asking, -NoServeService
+  # skips the question, -UninstallServeService removes it and exits.
+  [switch]$ServeService,
+  [switch]$NoServeService,
+  [switch]$UninstallServeService
 )
 
 $ErrorActionPreference = 'Stop'
+
+# ---------- 0. Removing the optional `mem serve` task (M10) ----------
+#
+# First, and on its own: uninstalling must work without CHEAP_MEM_ROOT
+# and must touch nothing else.
+$ServeTaskName = 'cheap-mem-serve'
+if ($UninstallServeService) {
+  Unregister-ScheduledTask -TaskName $ServeTaskName -Confirm:$false -ErrorAction SilentlyContinue
+  Write-Host "removed scheduled task: $ServeTaskName"
+  exit 0
+}
 
 if (-not $env:CHEAP_MEM_ROOT) {
   Write-Error "env CHEAP_MEM_ROOT missing"
@@ -660,6 +678,54 @@ if (-not (Test-Path `$subagent)) { exit 0 }
   }
   Write-Host ""
 }
+
+# ---------- 4. Optional: `mem serve` at logon (M10) ----------
+#
+# The dashboard plus the warm recall server: a named pipe that
+# bin/mem-retrieve.ps1 asks (when the server's key file is there) before
+# it starts `mem find` itself. OFF unless asked for - an
+# interactive run is asked once, anything but "y" keeps it off, and a
+# non-interactive run never installs it. Removing it (see the top of this
+# file) never breaks recall; it only makes it cold again.
+$wantServe = $false
+if ($ServeService) { $wantServe = $true }
+elseif (-not $NoServeService -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+  $answer = Read-Host "Also run 'mem serve' (dashboard + warm recall) at logon? [y/N]"
+  if ($answer -match '^(y|yes)$') { $wantServe = $true }
+}
+if ($wantServe) {
+  $NodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+  if (-not $NodeExe) {
+    Write-Warning "node not on PATH - the mem serve task was NOT installed"
+  } else {
+    Unregister-ScheduledTask -TaskName $ServeTaskName -Confirm:$false -ErrorAction SilentlyContinue
+    $sAction = New-ScheduledTaskAction `
+      -Execute $NodeExe `
+      -Argument "`"$(Join-Path $RepoRoot 'bin\mem')`" --root `"$env:CHEAP_MEM_ROOT`" serve"
+    $sTrigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $sSettings = New-ScheduledTaskSettingsSet `
+      -AllowStartIfOnBatteries `
+      -DontStopIfGoingOnBatteries `
+      -StartWhenAvailable `
+      -RestartCount 999 `
+      -RestartInterval (New-TimeSpan -Minutes 1) `
+      -MultipleInstances IgnoreNew `
+      -ExecutionTimeLimit (New-TimeSpan -Days 3650)
+    $sPrincipal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    Register-ScheduledTask `
+      -TaskName $ServeTaskName `
+      -Action $sAction `
+      -Trigger $sTrigger `
+      -Settings $sSettings `
+      -Principal $sPrincipal `
+      -Description 'cheap-mem dashboard and warm recall server (mem serve)' | Out-Null
+    Start-ScheduledTask -TaskName $ServeTaskName
+    Write-Host "  scheduled task: $ServeTaskName (mem serve at logon; remove with -UninstallServeService)"
+  }
+} else {
+  Write-Host "  mem serve task: not installed (default). Later: install\windows.ps1 -ServeService -SkipTask -SkipClaudeDesktop -SkipClaudeCode"
+}
+Write-Host ""
 
 Write-Host "=== done ==="
 Write-Host ""

@@ -12,6 +12,7 @@
 # Uninstall:
 #   launchctl bootout gui/$UID ~/Library/LaunchAgents/com.cheap-mem.watch.plist
 #   rm ~/Library/LaunchAgents/com.cheap-mem.watch.plist
+#   bash install/serve-service.sh uninstall   (the optional `mem serve` service)
 
 set -euo pipefail
 
@@ -90,6 +91,30 @@ launchctl bootout "gui/$(id -u)/${LABEL}" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PLIST"
 launchctl enable "gui/$(id -u)/${LABEL}"
 launchctl kickstart -k "gui/$(id -u)/${LABEL}"
+
+# --- Optional: `mem serve` as a service (M10) -----------------------------
+#
+# The dashboard plus the warm recall server (recall answered by a running
+# process instead of a fresh `node` per turn). OFF unless asked for:
+# CHEAP_MEM_SERVE_SERVICE=yes|no answers without a prompt; otherwise an
+# interactive shell is asked, and anything but "y" keeps it off. A
+# non-interactive run (CI, a pipe) never installs it.
+want_serve=no
+case "${CHEAP_MEM_SERVE_SERVICE:-}" in
+  yes|1) want_serve=yes ;;
+  no|0) want_serve=no ;;
+  *)
+    if [ -t 0 ]; then
+      printf "Also run 'mem serve' (dashboard + warm recall) as a user service? [y/N] "
+      read -r answer || answer=""
+      case "$answer" in y|Y|yes|YES) want_serve=yes ;; esac
+    fi ;;
+esac
+if [ "$want_serve" = yes ]; then
+  bash "$HERE/install/serve-service.sh" install
+else
+  echo "mem serve service: not installed (default). Later: bash $HERE/install/serve-service.sh install"
+fi
 
 echo ""
 echo "=== done ==="
