@@ -858,7 +858,7 @@ const pages = {
       .map((x) => `<option value="${x}" ${state.status === x ? 'selected' : ''}>${x === 'all' ? 'All states' : x}</option>`)
       .join('')}</select><select class="field" id="sortFilter" aria-label="Sort">${[['new', 'Newest first'], ['old', 'Oldest first'], ['title', 'Title A–Z']]
       .map(([k, n]) => `<option value="${k}" ${state.sort === k ? 'selected' : ''}>${n}</option>`)
-      .join('')}</select>${btn('Reset filters', 'reset-filters', '', 'ghost')}</div><article class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>Entry / origin</th><th>Type</th><th>Project</th><th>State</th><th>Date</th></tr></thead><tbody>${es
+      .join('')}</select>${btn('Reset filters', 'reset-filters', '', 'ghost')}<a class="btn ghost" id="entriesPageLink" href="/entries${state.type && state.type !== 'all' ? '?type=' + encodeURIComponent(state.type) : ''}" target="_blank" rel="noopener" title="The same list, rendered by the server, in a new tab">Full list page ↗</a></div><article class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>Entry / origin</th><th>Type</th><th>Project</th><th>State</th><th>Date</th></tr></thead><tbody>${es
       .slice((pg - 1) * n, pg * n)
       .map(
         (e) =>
