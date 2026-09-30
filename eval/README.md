@@ -37,7 +37,7 @@ wasted money.
 
 ## What has been measured so far
 
-- **Echo rate reproduced** (the `13/18` finding from `src/search.mjs:1031`):
+- **Echo rate reproduced** (the `13/18` finding from `src/search.mjs#isEcho`):
   81.2% (2056/2532, 95% 79.6-82.7) on verbatim repetition, 37.8% / 59.8%
   / 69.7% on rephrasing at 107 / 389 / 1141 documents. **The rate grows
   with memory size** — that is new and was not visible at n=18.

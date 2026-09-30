@@ -119,13 +119,14 @@ verdicts, and one JSON a later run is diffed against.
 Its ceiling phase re-measures the ladder above and then does the thing
 that makes a projection worth anything: it fits on the smaller rungs,
 predicts the largest, and checks the prediction against what that rung
-actually measured. Four of five models fail that check — so the timings
+actually measured. Three of five models fail that check — so the timings
 here describe the sizes they were taken at, and not much beyond them.
-The one exception is the index cache, whose growth is linear and
-predictable to 0.0 %, and which therefore carries the one hard limit this
-design has: **at about 978 000 entries the cache exceeds V8's maximum
-string length and `JSON.parse` cannot read it at all.**
+The one clean exception is the index cache, whose growth is linear and
+predicted within 1.6 %. It used to carry a hard limit — at about 978 000
+entries the single-file cache exceeded V8's maximum string length and
+`JSON.parse` could not read it at all — until the shard cache of
+2026-09-20 (B8, `src/indexcache.mjs`) removed that wall on purpose.
 
 [docs/benchmark-atlas.md](benchmark-atlas.md) is the reading of that run,
-including the five walls, what is confirmed broken, and the 26 things it
-could not see.
+including the walls, what is confirmed broken, and the blind spots (28 in
+the run it reads) — the things it could not see.

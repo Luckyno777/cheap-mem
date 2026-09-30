@@ -55,7 +55,7 @@ typography:
     letterSpacing: 0.03em
 
 spacing:
-  base: 4px
+  base: 2px
   scale: [2, 4, 5, 6, 8, 10, 12, 14, 16, 20, 22, 56, 80]
 
 motion:
@@ -236,21 +236,22 @@ am I in, and what kind of thing is this entry. It never decorates.
 | `warn-soft` | `#F6EEDE` | Caution fill | warn chips, search highlight | ✅ high |
 | `gone` | `#8C3A34` | Retired / broken | retired chips, dead edges | ✅ high |
 | `gone-soft` | `#F6E6E4` | Retired fill | retired chip backgrounds | ✅ high |
-| `fresh` | `#2C6B4F` | Confirmed-recent | declared, currently unused | ⚠️ medium |
+| `fresh` | `#2C6B4F` | Confirmed-recent | `.chip.fresh` (`src/viewer.mjs`) | ⚠️ medium |
 
 ### 2.1b Colors — dark
 
-Same fourteen roles, redefined under both `prefers-color-scheme:dark` (guarded so an
+Same fifteen roles, redefined under both `prefers-color-scheme:dark` (guarded so an
 explicit light choice wins) and `[data-theme="dark"]`.
 
 | Token | Hex | Token | Hex |
 |---|---|---|---|
-| `paper` | `#141716` | `rule` | `#2C332F` |
-| `raised` | `#1B1F1D` | `rule-soft` | `#242A27` |
+| `paper` | `#141716` | `rule` | `#454E48` |
+| `raised` | `#1B1F1D` | `rule-soft` | `#2E3632` |
 | `sunk` | `#202523` | `accent` | `#7FC3D4` |
 | `ink` | `#E7EAE6` | `accent-soft` | `#172C32` |
 | `muted` | `#B4BBB5` | `warn` / `warn-soft` | `#D9A758` / `#2B2416` |
 | `faint` | `#8B9089` | `gone` / `gone-soft` | `#E08C85` / `#2E1D1C` |
+| `fresh` | `#6FBF97` | | |
 
 ### 2.2 Typography
 
@@ -519,7 +520,7 @@ stylesheet. Custom properties do the work a framework would.
 
 ### Quick wins
 
-- The fourteen colour tokens plus the three font stacks reproduce ~80% of the look
+- The fifteen colour tokens plus the three font stacks reproduce ~80% of the look
 - Hairline + `{rounded.md}` + `raised` on `paper` is the entire card recipe
 
 ### Tricky bits
@@ -598,19 +599,18 @@ stylesheet. Custom properties do the work a framework would.
 
 ## 7. Open Questions
 
-- **`fresh` (`#2C6B4F`) is declared but never used.** Either wire it to the
-   "confirmed recently" case on facts, or drop it. A token nothing references is a claim
-   the design does not keep.
+- **`fresh` (`#2C6B4F`, dark `#6FBF97`) was declared but unused when this was
+   written; it is used now** (`.chip.fresh` in `src/viewer.mjs`).
 - **Search field (37px) and selects (33px) are below the 44px touch floor** on mobile. The
    tabs were raised in this audit; these two were left alone because growing them changes
    the header's proportions on desktop too. Worth a decision.
-- **Dark-mode `rule` (`#2C332F`) on `paper` (`#141716`)** is roughly 1.4:1 — the card
-   outlines are nearly invisible and the cards read as floating on tone alone. Deliberate or
-   not, it is a different design from the light mode's ruled look.
-- **No print stylesheet.** The design is otherwise print-shaped (paper ground, serif prose,
-   no shadow). One `@media print` block would make `mem view > report.pdf` a real workflow.
-- **`chip.act` (hoverable chip) is styled but not currently emitted** by any lens. Same
-   question as `fresh`.
+- **Dark-mode `rule` (`#454E48`) on `paper` (`#141716`)** is 2.09:1. It was `#2C332F`
+   (1.39:1) when this was written, which left the card outlines nearly invisible; the
+   value was raised since.
+- **Print stylesheet:** one `@media print` block exists (`src/viewer.mjs`), so
+   `mem view > report.pdf` is a real workflow.
+- **`chip.act` (hoverable chip) is styled but not currently emitted** by any lens. Wire
+   it or drop it.
 - **cheap-mem has no host, so it has no installable shell.** A manifest and a service
    worker need a real origin — a service worker cannot be registered from `file://` — so
    the PWA parts live with lucky-mem's `bin/mem-ansicht-server.mjs`: manifest and worker

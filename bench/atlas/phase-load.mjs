@@ -750,7 +750,7 @@ export async function run(atlas, { quick = false } = {}) {
     actual: tieRows.map((r) => `${r.label}: ${r.tiedPairs}/${r.adjacentPairs} = ${r.tiedShare}`).join('; '),
     severity: SEVERITY.MAJOR,
     measured: { rows: tieRows, queries: tieQueries },
-    evidence: 'src/search.mjs:579,640 — byScoreThenIdentity falls back to '
+    evidence: 'src/search.mjs#byScoreThenIdentity falls back to '
       + 'stableKey(source:line) when scores agree to the last bit.',
   });
 
@@ -767,7 +767,7 @@ export async function run(atlas, { quick = false } = {}) {
     actual: tieRows.map((r) => `${r.label}: ${r.recencyContributedNothingShare} of pairs `
       + `(${r.futureStampedSlots}/${r.top10Slots} slots are future-stamped and get factor 1.0)`).join('; '),
     measured: { rows: tieRows },
-    evidence: 'src/search.mjs:865 — ageDays is floor(now/86400000) - floor(ts/86400000), '
+    evidence: 'src/search.mjs#search — ageDays is floor(now/86400000) - floor(ts/86400000), '
       + 'and the `ageDays >= 0` guard drops the bonus entirely for future stamps. '
       + 'buildCorpus spreads timestamps across all of 2026, so a large part of '
       + 'the corpus is future-dated relative to the run.',
@@ -1012,7 +1012,7 @@ export async function run(atlas, { quick = false } = {}) {
     + 'inside its time budget. bench/scale.mjs reaches 1M in-process; the '
     + 'process-level curve above is NOT extrapolated there.');
   atlas.blind('`mem experiences` and `mem core` double-scan',
-    'src/memory.mjs:756 calls standing() and then iterates entriesById() again, '
+    'src/memory.mjs#experiences calls standing() and then iterates entriesById() again, '
     + 'so the corpus is walked twice. The A ladder times both commands and the '
     + 'exponent is recorded — but the two scans cannot be told apart from '
     + 'outside the process, so the DOUBLE is inferred from the source, not measured.');

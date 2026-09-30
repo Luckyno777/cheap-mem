@@ -45,12 +45,13 @@ gate calls:
 
 | Route | What it writes |
 |---|---|
-| `POST /setting` | one knob from `SETTINGS` (raw archive location, error window, agent quiet limit) plus a line in `.mem/console-log.jsonl` |
+| `POST /setting` | one knob from `SETTINGS` (raw archive location, error window, agent quiet limit, core name) plus a line in `.mem/console-log.jsonl` |
 | `POST /task` | starts a long CLI job (`raw export`, `chain`, `raw delete`, `done`) as a child process, with a closed list of parameters per kind; state under `.mem/` |
 | `POST /task/cancel` | ends one |
 | `POST /inbox/reply` | one new message in `inbox/`, answering a message in the human participant's tray — the same `inbox.write()` `mem inbox write` calls (P1b) |
 | `POST /inbox/state` | acknowledges one message addressed to the human participant — nobody else's |
 | `POST /dashboard/verify-verdict` | a human's verdict on one Today-card "to verify" candidate — one line appended OUTSIDE the memory root (`src/verifylog.mjs`, `CHEAP_MEM_VERIFY_FILE` or `~/.cheap-mem-verify/facts-verdict.jsonl`), never a write inside this repository (N9 parity) |
+| `POST /dashboard/gold-verdict` | a human's verdict on one real retrieval question (hit / near miss / no hit) — one line appended OUTSIDE the memory root (`src/goldlog.mjs`, `CHEAP_MEM_GOLD_FILE` or `~/.cheap-mem-gold/retrieval-gold.jsonl`), never a write inside this repository (N9 parity) |
 
 Every other path (`/`, `/dashboard`, `/pult`, the `.json` routes, the
 retrieval probe) only reads. `/console` and `/viewer` only redirect.
@@ -83,9 +84,9 @@ it on start.
 
 ## On the pages
 
-With the switch not `on`, the console's and the desk's Settings forms and
-the Long-jobs Start/Cancel buttons and the reply form under each message
-in the Agents tab's inbox are rendered `disabled`, and a note names the
+With the switch not `on`, the dashboard's Settings forms and the
+Long-jobs Start/Cancel buttons and the reply form under each message
+in the inbox are rendered `disabled`, and a note names the
 way to turn writing on. No script is involved — the server
 decides what it renders.
 
@@ -119,7 +120,7 @@ and the text.
   the recipient. A message not addressed to the human participant, a
   path instead of a name, or an empty text answers 400 and writes
   nothing.
-- After a successful reply the server answers 303 back to the desk, so
+- After a successful reply the server answers 303 back to the dashboard, so
   a reload does not send it twice.
 
 ## Migrating

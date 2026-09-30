@@ -62,8 +62,8 @@
  * writer's `CLAIMS` knew: `test/doku-zahlen.test.mjs` sweeps every
  * living document for "<n> MCP tools/CLI commands/commands/tools/
  * modules/tests/lines", and `test/tool-count-doc.test.mjs` sweeps every
- * document for "<n|word> tools". On 2026-09-30 docs/mcp-setup.md:3/:267
- * and docs/CAPABILITIES.md:560 ("N tools") were red after a merge and
+ * document for "<n|word> tools". On 2026-09-30 docs/mcp-setup.md (twice)
+ * and docs/CAPABILITIES.md section 7.2 ("N tools") were red after a merge and
  * `--write --all` fixed none of them — by hand again. The sweep (which
  * documents, which pattern, which exemption marker, which band) now
  * lives HERE, exported; both guards import it, and `updateNumbers`
@@ -194,6 +194,7 @@ export const CLAIMS = [
   { file: 'docs/architecture.md', pattern: /### The (\d+) drawers/, fields: ['types'] },
   { file: 'docs/dashboard-single-entry.md', pattern: /Never all (\d+) types/, fields: ['types'] },
   { file: 'docs/mcp-setup.md', pattern: /drops (\d+) hooks under/, fields: ['hooks'] },
+  { file: 'docs/security-model.md', pattern: /\*\*(\d+) mutants, (\d+) caught\.\*\*/, fields: ['guarantees', 'guarantees'] },
   { file: 'CLAUDE.md', pattern: /the (\d+) handlers, in six groups/, fields: ['cli'] },
 ];
 

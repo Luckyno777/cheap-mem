@@ -269,7 +269,7 @@ export function markedEntry(e, { root = null } = {}) {
  * **Decision: `--json` gets the same marker as prose, deliberately.**
  * `mem show --json`/`mem retrieve --json` and the MCP bridge's
  * `structuredContent` hand a caller FIELDS instead of a paragraph
- * (`docs/security-model.md:116-120`), and that file is explicit that a
+ * (`docs/security-model.md#4-untrusted-memory`), and that file is explicit that a
  * client can still flatten those fields back into prose — MCP does not
  * fix that, it only moves where the flattening happens. Once a body
  * reaches a machine reader as UTF-8 text at all — a JSON field is not

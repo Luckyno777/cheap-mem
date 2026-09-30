@@ -111,8 +111,8 @@ and act on it (see [docs/install-linux.md](install-linux.md) or
 ## 8. Wire your AI
 
 See [docs/mcp-setup.md](mcp-setup.md) for per-model setup:
-- Claude Code / Claude Desktop / Cursor: MCP
-- Gemini CLI / Mistral CLI / OpenAI codex: shell integration
+- Claude Code / Claude Desktop / Cursor / OpenAI Codex CLI: MCP
+- Gemini CLI / Mistral CLI: shell integration
 
 ## Next steps
 

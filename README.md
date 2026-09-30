@@ -333,9 +333,9 @@ hook stops being invisible. At 500–1000 entries a
 day that point arrives in a few months, so decide the boundary early —
 [docs/scale.md](docs/scale.md) has the numbers and the reasoning, and
 [docs/benchmark-atlas.md](docs/benchmark-atlas.md) the full-surface run
-behind them — including the one hard wall this design has: at about
-978 000 entries the index cache exceeds V8's maximum string length and
-cannot be parsed at all.
+behind them — including the old index-cache wall (the whole cache as one
+JSON string, unreadable at about 978 000 entries), which the shard cache
+of 2026-09-20 removed on purpose.
 
 **Errors get a shared vocabulary.** `mem log error --class ...` refuses a
 category you invented and prints the twelve it knows, each with the

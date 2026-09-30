@@ -242,14 +242,14 @@ async function metricBidi(atlas) {
 
   // --- positive control: the character really is on disk, unmarked ---
   //
-  // docs/security-model.md:266 says exactly this, and the whole coverage
+  // docs/security-model.md#8-threat-model (T3, bidi row) says exactly this, and the whole coverage
   // number rests on it: if the write path had stripped the character,
   // every surface below would read "clean" for the wrong reason.
   atlas.record({
     id: 'defence.bidi.on-disk',
     title: 'positive control: U+202E survives the write path, unmarked on disk',
     verdict: onDisk.includes(RLO) && !onDisk.includes(NEUTRALISED) ? VERDICT.PASS : VERDICT.FAIL,
-    expected: 'raw U+202E present in the JSONL, no [U+202E] marker (security-model.md:266)',
+    expected: 'raw U+202E present in the JSONL, no [U+202E] marker (docs/security-model.md#8-threat-model)',
     actual: `raw on disk: ${onDisk.includes(RLO)}, marker on disk: ${onDisk.includes(NEUTRALISED)}`,
     measured: { bytes: onDisk.length },
     severity: SEVERITY.INFO,
@@ -504,7 +504,7 @@ function metricFlood(atlas) {
     title: 'smallest flood N at which the truth leaves the first three claims',
     verdict: failed.length ? VERDICT.NOT_MEASURED
       : Object.values(breakN).some((v) => v !== null) ? VERDICT.DEGRADED : VERDICT.PASS,
-    expected: 'security-model.md:187-202 states bounded domination is NOT offered; a '
+    expected: 'docs/security-model.md#6-resource-bounds states bounded domination is NOT offered; a '
       + 'promised 50% author share delivered a measured 83%. So a finite N is expected '
       + 'for every variant that survives the identical-body collapse.',
     actual: FLOOD_VARIANTS.map((v) => `${v}: ${breakN[v] ?? 'never within N<=50'}`).join('; '),
@@ -850,7 +850,7 @@ function metricTamper(atlas) {
     title: `tamper scenarios caught by at least one on-board tool: ${caught.length} of 5`,
     verdict: caught.length === 1 ? VERDICT.DEGRADED
       : caught.length > 1 ? VERDICT.PASS : VERDICT.FAIL,
-    // Straight from the record: security-model.md:265 concedes that
+    // Straight from the record: docs/security-model.md#8-threat-model concedes that
     // whoever edits AND commits, or force-pushes a rewritten history this
     // clone then pulls, is invisible; the 8 MB cap skips a file outright;
     // and .mem/epoch.json is gitignored and deletable by anyone who can

@@ -41,8 +41,10 @@ installation — it is the tool that creates memories.
    in `src/`. All names come from `.mem/config.json`.
 4. **No workspace-trust dependencies.** The Claude Code installer
    writes to `~/.claude/`, not repo-scoped settings.
-5. **The watcher never `git pull`s.** Only `git fetch` + `git ls-tree`
+5. **The watcher's poll never `git pull`s.** Only `git fetch` + `git ls-tree`
    against the remote. Otherwise it fights builders for the working tree.
+   Only the handler step after new mail runs `git pull --ff-only`
+   (`bin/mem-watch`).
 6. **Reflector has an anti-recursion env.** `MEM_HEADLESS=reflector` (or
    `watcher`) makes the Stop hook skip itself, else infinite loop.
 

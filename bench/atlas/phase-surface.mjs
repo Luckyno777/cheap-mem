@@ -4,7 +4,7 @@
 //
 // **Why this phase exists.** cheap-mem has a long list of top-level commands and,
 // before this file, not one benchmark started the CLI as a PROCESS.
-// `bench/scale.mjs:58` and `bench/retrieval.mjs:77` import `buildIndex`
+// `bench/scale.mjs` and `bench/retrieval.mjs` import `buildIndex`
 // and `search` directly, which makes everything between process start and
 // answer invisible: Node's own startup, `loadIndex` from the cache,
 // writing that cache back, `requireConfig`, `findRoot`. That latency is
@@ -643,7 +643,7 @@ function rawDeleteProbe(atlas, root) {
 // --- 2. the exit-code contracts -----------------------------------------
 
 function exitContracts(atlas) {
-  // `digest due` — 0 not due, 1 due, 3 cannot tell (search.mjs:772-778).
+  // `digest due` — 0 not due, 1 due, 3 cannot tell (`src/cli/commands/search.mjs#digest`).
   {
     const { root } = freshRoot('atlas-digest-', null);
     contract(atlas, { id: 'digest-due-0', root,
@@ -696,7 +696,7 @@ function exitContracts(atlas) {
     });
   }
 
-  // `inbox watch` — 0 nothing, 1 new mail, 3 broken (agents.mjs:127-138).
+  // `inbox watch` — 0 nothing, 1 new mail, 3 broken (`src/cli/commands/agents.mjs#inbox`).
   {
     const { root } = freshRoot('atlas-watch-', null);
     contract(atlas, { id: 'inbox-watch-3', root,
@@ -730,7 +730,7 @@ function exitContracts(atlas) {
       + 'performs no git write operations, so the state cannot be built here');
   }
 
-  // `doctor` — 0 fine, 1 warnings, 2 errors (admin.mjs:65).
+  // `doctor` — 0 fine, 1 warnings, 2 errors (`src/cli/commands/admin.mjs#doctor`).
   {
     const warnRoot = freshRoot('atlas-doctor-warn-', null).root;
     mem(['log', 'learning', '--title', 'atlas doctor probe',
@@ -788,7 +788,7 @@ function exitContracts(atlas) {
       + 'core.hooksPath, which needs a git repository; no git write operations here');
   }
 
-  // `epoch` — show 0/2, record 0/2 (admin.mjs:232, 239).
+  // `epoch` — show 0/2, record 0/2 (`src/cli/commands/admin.mjs#epoch`).
   {
     const { root } = freshRoot('atlas-epoch-', 300);
     contract(atlas, { id: 'epoch-record-0', root,
@@ -818,7 +818,7 @@ function exitContracts(atlas) {
       argv: ['epoch', 'record', '--force'], expect: 0 });
   }
 
-  // `shrink` — 0 calm, 2 alarm (capture.mjs:489).
+  // `shrink` — 0 calm, 2 alarm (`src/cli/commands/capture.mjs#shrink`).
   {
     const { root } = freshRoot('atlas-shrink-', 300);
     contract(atlas, { id: 'shrink-0', root,
@@ -834,7 +834,7 @@ function exitContracts(atlas) {
       argv: ['shrink'], expect: 2 });
   }
 
-  // `embed backfill` — 0 / 2 without a key (admin.mjs:378).
+  // `embed backfill` — 0 / 2 without a key (`src/cli/commands/admin.mjs#embed`).
   {
     const { root } = freshRoot('atlas-embed-', null);
     const r = mem(['embed', 'backfill'], { root, timeoutMs: CALL_TIMEOUT_MS });
@@ -855,7 +855,7 @@ function exitContracts(atlas) {
       + 'branch (exit 2) is ever reached. Installing them is a network operation');
   }
 
-  // `onboarding` — 0 / 1 (agents.mjs:450).
+  // `onboarding` — 0 / 1 (`src/cli/commands/agents.mjs#onboarding`).
   {
     const { root } = freshRoot('atlas-onboarding-', null);
     contract(atlas, { id: 'onboarding-1', root,
@@ -873,7 +873,7 @@ function exitContracts(atlas) {
       argv: ['onboarding', 'atlasprobe'], expect: 0 });
   }
 
-  // `hooks check` — 0 / 1 (setup.mjs:264).
+  // `hooks check` — 0 / 1 (`src/cli/commands/setup.mjs#hooks`).
   {
     const { root } = freshRoot('atlas-hooks-', null);
     contract(atlas, { id: 'hooks-check-1', root,
@@ -892,7 +892,7 @@ function exitContracts(atlas) {
       + 'no git write operations, so the armed state cannot be produced');
   }
 
-  // `guard run` — 0 / 1 (setup.mjs:368).
+  // `guard run` — 0 / 1 (`src/cli/commands/setup.mjs#guard`).
   {
     const { root } = freshRoot('atlas-guard-', null);
     contract(atlas, { id: 'guard-run-0-empty', root,
@@ -970,7 +970,7 @@ function statusJson(atlas) {
       jsonStatus: json.status,
       jsonParses: parsed.ok,
       brokenReportedInPayload: brokenInPayload,
-      where: 'src/cli/commands/admin.mjs:399 returns before the die() at the end',
+      where: 'src/cli/commands/admin.mjs#archive returns before the die() at the end',
     },
     evidence: divergent
       ? 'root: .mem/config.json replaced with `{ this is not json`\n'
@@ -1011,7 +1011,7 @@ function helpDispatch(atlas) {
     measured: {
       withoutIdentity: { status: a.status, showsHelp: showsHelp(a) },
       withIdentity: { status: b.status, showsHelp: showsHelp(b) },
-      where: 'src/cli/commands/agents.mjs:32 takes the subcommand before any isHelp check',
+      where: 'src/cli/commands/agents.mjs#inbox takes the subcommand before any isHelp check',
     },
     evidence: ok ? null
       : `mem inbox --help (no whoami) -> exit ${a.status}: ${firstLine(a)}\n`
@@ -1027,7 +1027,7 @@ function helpDispatch(atlas) {
  * Without this, a benchmark of `find` measures whichever of three
  * programs the previous run happened to leave behind: a cold start that
  * rebuilds the whole index, a warm load with an un-cached tail, or a warm
- * load of a cache that was just written. `bench/scale.mjs:40-45` names the
+ * load of a cache that was just written. `bench/scale.mjs` names the
  * cache as the thing that bites first and does not put a number on it.
  *
  * The state is verified before every single run, not assumed. A "cold"
@@ -1140,7 +1140,7 @@ function cacheStates(atlas, quick) {
   });
 
   atlas.blind('the cache at realistic scale',
-    `measured at ${corpus.count} entries. src/search.mjs:1024 quotes ~1.5 s to load and `
+    `measured at ${corpus.count} entries. src/search.mjs#CACHE_WRITE_AFTER_BYTES quotes ~1.5 s to load and `
     + '~2.6 s to write at 200k entries; those two numbers are still unmeasured here');
 }
 

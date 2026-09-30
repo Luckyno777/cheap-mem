@@ -10,7 +10,7 @@ on this page is an estimate unless it says so — and where something is an
 extrapolation, it says so in the same sentence as the number.
 
 ```
-npm run atlas              # every phase, ~13 min
+npm run atlas              # every phase, ~16 min
 npm run atlas:quick        # smaller corpora, ~2 min
 npm run atlas:baseline     # …and overwrite bench/atlas-baseline.json
 npm run atlas:compare      # this run against that baseline

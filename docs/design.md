@@ -2,16 +2,17 @@
 
 ## What cheap-mem is (and is not)
 
-cheap-mem is **a directory layout plus a git repo plus 500 lines of glue**.
+cheap-mem is **a directory layout plus a git repo plus a thin layer of glue code**.
 The design is the file structure and the append-only discipline. The
 JavaScript is thin — you could rewrite it in Python or Rust in an
 afternoon and nothing would change.
 
 It is *not* a database, a vector store, an embedding pipeline, or a
-"second brain" app. It is not designed to be searched semantically.
-Substring search + tags + human-edited YAML snapshots have carried a
-year of real use so far. If you need vectors, wire them alongside; the
-JSONL logs are trivial to index.
+"second brain" app. Its default search is lexical — BM25 with a curated
+thesaurus and a learned tag graph, no model in the path; semantic search
+(`mem embed`, `mem find-embed`, `mem find-hybrid`) is an optional add-on
+(docs/semantic-search.md). The JSONL logs stay trivial to index if you
+want to wire something else alongside.
 
 ## Why git, not SQLite
 
@@ -52,8 +53,9 @@ git fetch origin main --quiet
 git ls-tree -r --name-only origin/main inbox/
 ```
 
-Never `git pull`. The watcher lives outside the working tree so it
-cannot fight a builder for `HEAD`. Exit code 0/1/3 (nothing / new /
+The poll never `git pull`s. The watcher lives outside the working tree so
+it cannot fight a builder for `HEAD`; only the handler step after new
+mail runs `git pull --ff-only`. Exit code 0/1/3 (nothing / new /
 unreachable). Shell-friendly.
 
 ## The reflector (throttled Stop hook)
@@ -91,10 +93,9 @@ use a private repo, don't put secrets in.
 
 ## What we left out (yet)
 
-- Windows install script (contributions welcome)
 - The bibliothekar's "PROMPT.md" curator role (application-specific)
 - The `mem post ich` dedup memory (still there, but simplified)
-- Vector / embedding search (fine to add on top of the JSONL)
+- Vector / embedding search as a default (it is an optional add-on, see docs/semantic-search.md)
 - Multi-remote / conflict-avoidance mechanics (not needed at 1 user)
 
 ## Where the tokens go
