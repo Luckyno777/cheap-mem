@@ -22,14 +22,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isArchive } from './doc-archive.mjs';
+import * as places from '../bench/readme-numbers.mjs';
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-// Only as far as the docs actually count. More words would be an
-// invitation to route around this later.
-const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
-  'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen'];
 
 function toolNames() {
   const src = fs.readFileSync(path.join(ROOT, 'bin', 'mem-mcp'), 'utf8');
@@ -42,22 +37,16 @@ function toolNames() {
   return [...rest.slice(0, to).matchAll(/^\s+name: '(mem_[a-z_]+)'/gm)].map((m) => m[1]);
 }
 
-function docFiles() {
-  const out = [];
-  const walk = (d) => {
-    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-      if (['.git', 'node_modules'].includes(e.name)) continue;
-      const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith('.md')) out.push(p);
-    }
-  };
-  walk(ROOT);
-  return out;
-}
-
-// Every way the docs say "<n> tools": a numeral or a number word.
-const CLAIM = new RegExp(`\\b(\\d{1,2}|${WORDS.join('|')})\\s+tools\\b`, 'gi');
+// **One list of places (O7, 2026-09-30).** The document walk, the
+// number words and the claim pattern live in bench/readme-numbers.mjs;
+// this guard imports them, so every "<n> tools" it checks is a place
+// `node bench/readme-numbers.mjs --write --all` rewrites. On 2026-09-30
+// three of them (docs/mcp-setup.md:3/:267, docs/CAPABILITIES.md:560)
+// went red after a merge and were fixed by hand: the writer did not
+// know them. Only as far as the docs actually count — more words would
+// be an invitation to route around this later.
+const docFiles = () => places.allDocs(ROOT).map((r) => path.join(ROOT, r));
+const CLAIM = places.TOOL_CLAIM;
 
 test('POSITIV: the probe can see a wrong number', () => {
   // Without this control the search below could silently match nothing
@@ -72,16 +61,12 @@ test('every documented tool count matches the server', () => {
   assert.ok(n > 0, 'no tools found — the parser broke, not the docs');
   const wrong = [];
   let claimsChecked = 0;
-  for (const f of docFiles()) {
-    // A dated report records what was true that day; it is not a claim
-    // about today. Same rule as test/doku-zahlen.test.mjs.
-    if (isArchive(path.relative(ROOT, f))) continue;
-    const text = fs.readFileSync(f, 'utf8');
-    for (const [, claim] of text.matchAll(CLAIM)) {
-      claimsChecked += 1;
-      const said = /^\d+$/.test(claim) ? Number(claim) : WORDS.indexOf(claim.toLowerCase());
-      if (said !== n) wrong.push(`${path.relative(ROOT, f)}: says "${claim} tools", server serves ${n}`);
-    }
+  // A dated report records what was true that day; it is not a claim
+  // about today — `toolCountClaims` skips archives, same rule as
+  // test/doku-zahlen.test.mjs.
+  for (const c of places.toolCountClaims(ROOT)) {
+    claimsChecked += 1;
+    if (c.said !== n) wrong.push(`${c.rel}: says "${c.raw} tools", server serves ${n}`);
   }
 
   // The POSITIV test above proves the pattern CAN match — against a
@@ -164,8 +149,8 @@ test('POSITIVE: the archive rule exempts dated records and nothing living', () =
   // Both directions: a dated report is skipped, a living guide is not.
   // If the rule widened to "everything under docs/", the sweep above
   // would pass on nothing but the README.
-  assert.equal(isArchive('docs/analysis-2026-09-08-comparison-foreign-systems.md'), true);
-  assert.equal(isArchive('CHANGELOG.md'), true);
-  assert.equal(isArchive('docs/mcp-setup.md'), false);
-  assert.equal(isArchive('README.md'), false);
+  assert.equal(places.isArchive('docs/analysis-2026-09-08-comparison-foreign-systems.md'), true);
+  assert.equal(places.isArchive('CHANGELOG.md'), true);
+  assert.equal(places.isArchive('docs/mcp-setup.md'), false);
+  assert.equal(places.isArchive('README.md'), false);
 });

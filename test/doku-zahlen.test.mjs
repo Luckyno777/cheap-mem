@@ -38,7 +38,7 @@
 //
 // Every one of those exemptions is COUNTED and asserted to be small, so
 // that "skipped" can never quietly become "all of them".
-import { isArchive } from './doc-archive.mjs';
+import * as places from '../bench/readme-numbers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -122,93 +122,44 @@ IST.ungefaehr.tests = fs.readdirSync(path.join(REPO, 'test'))
  * are not drift, and the failure they exist to catch (500 against
  * ~23,000) is an order of magnitude away, not five percent.
  */
-const TOLERANZ = { tests: 1.02, 'lines:all': 1.15, 'lines:cli': 1.15 };
-const TOLERANZ_VORGABE = 1.15;
-const bandFuer = (was) => TOLERANZ[was] ?? TOLERANZ_VORGABE;
+// The bands live in bench/readme-numbers.mjs (O7): the writer decides
+// with the SAME band whether a place needs rewriting at all, so what it
+// writes and what this guard accepts cannot drift apart.
+const TOLERANZ = places.TOLERANCE;
+const TOLERANZ_VORGABE = places.DEFAULT_BAND;
+const bandFuer = places.bandFor;
 
 // --- Which documents are living, and which are records ---------------
 
-// The archive rule lives in test/doc-archive.mjs, shared with
-// test/tool-count-doc.test.mjs.
-const istArchiv = isArchive;
-
-function dokumente() {
-  const raus = [];
-  for (const rel of fs.readdirSync(REPO).filter((n) => n.endsWith('.md'))) raus.push(rel);
-  const d = path.join(REPO, 'docs');
-  if (fs.existsSync(d)) for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) raus.push(path.join('docs', n));
-  return raus.filter((r) => !istArchiv(r));
-}
+// The archive rule and the document list live in bench/readme-numbers.mjs
+// (O7): the writer walks exactly the documents this guard checks.
+const dokumente = () => places.livingDocs(REPO);
 
 // --- Finding claims ---------------------------------------------------
 
-/** `28 MCP tools`, `904 tests`, `about 18,900 lines`, `54 commands`. */
-const MUSTER = /\b([\d][\d,]*)\s+(MCP tools|CLI commands|commands|tools|modules|tests|lines)\b/g;
-
-/**
- * An exemption NAMES the number it exempts.
- *
- * The first draft inferred it: a date nearby meant "historical". That
- * was wrong twice over in one file. `As of 2026-09-13: 54 CLI
- * commands…` is a claim about NOW that happens to carry a date — the
- * guard skipped the single most important line in the README. And a
- * marker that covered a whole paragraph also covered the corrected
- * number standing two sentences later, so the freshly fixed figure
- * would have gone unguarded from the day it was fixed.
- *
- * Both failures have one cause: the exemption was guessing. Now it
- * says what it means — `<!-- zahl-historisch: 500 lines (reason) -->`
- * exempts `500 lines` and nothing else. Punctual, visible to the next
- * reader, and impossible to widen by accident.
- */
-function markierteAusnahmen(text) {
-  const raus = new Set();
-  for (const m of text.matchAll(/<!--\s*zahl-historisch:\s*([\d][\d,]*)\s+([A-Za-z ]+?)\s*(?:\(|-->)/gi)) {
-    raus.add(`${m[1].replace(/,/g, '')} ${m[2].trim()}`);
-  }
-  return raus;
-}
-
-/**
- * `lines` is the one word that also means something else.
- *
- * "480 lines per hour" is a rate, "800 lines" in an old audit is a
- * budget. Only a claim that names the code is a claim about the code.
- * Everything else is skipped — and counted, so the skip can be seen.
- */
-function zielDerZeilenzahl(text, index) {
-  const umfeld = text.slice(Math.max(0, index - 200), index + 200);
-  // `bin/mem` named on its own — and not as part of bin/mem-mcp or a
-  // sentence that also names src/ — is a claim about that one file.
-  if (/\bbin\/mem\b(?!-)/.test(umfeld) && !/\bsrc\//.test(umfeld)) return 'lines:cli';
-  if (/\bbin\/|\bsrc\/|codebase|of JS\b/.test(umfeld)) return 'lines:all';
-  return null;   // a rate, a budget, something else — not our business
-}
-
-function sammleBehauptungen() {
-  const geprueft = []; const datiert = []; const nichtCode = [];
-  for (const rel of dokumente()) {
-    const text = read(rel);
-    const ausgenommen = markierteAusnahmen(text);
-    for (const m of text.matchAll(MUSTER)) {
-      const zahl = Number(m[1].replace(/,/g, ''));
-      const was = m[2];
-      const satz = { rel, zahl, was, zeile: text.slice(0, m.index).split('\n').length };
-      if (ausgenommen.has(`${zahl} ${was}`)) { datiert.push(satz); continue; }
-      if (was === 'lines') {
-        const ziel = zielDerZeilenzahl(text, m.index);
-        if (!ziel) { nichtCode.push(satz); continue; }
-        geprueft.push({ ...satz, was: ziel });
-        continue;
-      }
-      geprueft.push(satz);
-    }
-  }
-  return { geprueft, datiert, nichtCode };
-}
-
-/** `tools` alone means MCP tools; `commands` alone means CLI commands. */
-const GLEICHBEDEUTEND = { tools: 'MCP tools', commands: 'CLI commands' };
+// **One list of places (O7, 2026-09-30).** The pattern, the exemption
+// marker, the `lines` classifier and the sweep itself live in
+// bench/readme-numbers.mjs, and THIS file imports them — so every place
+// this guard checks is a place `node bench/readme-numbers.mjs --write
+// --all` rewrites (test/o7-number-places.test.mjs proves it place by
+// place). Before, the writer knew three phrasings and this guard swept
+// every sentence; docs/mcp-setup.md and CAPABILITIES.md's "N tools" were
+// fixed by hand on 2026-09-30 because only one side knew them.
+//
+// What the pieces do, and why, is unchanged:
+//   - an exemption NAMES the number it exempts (`<!-- zahl-historisch:
+//     500 lines (reason) -->` exempts `500 lines` and nothing else);
+//     the first draft inferred it from a nearby date and skipped the
+//     single most important "As of <date>" line in the README;
+//   - `lines` is the one word that also means something else ("480
+//     lines per hour"); only a claim that names the code is graded.
+const MUSTER = places.SWEEP_PATTERN;
+const markierteAusnahmen = places.markedExemptions;
+const sammleBehauptungen = () => {
+  const r = places.sweepClaims(REPO);
+  const map = (c) => ({ rel: c.rel, zahl: c.number, was: c.kind, zeile: c.line });
+  return { geprueft: r.checked.map(map), datiert: r.dated.map(map), nichtCode: r.notCode.map(map) };
+};
 
 // --- The guards -------------------------------------------------------
 
@@ -263,7 +214,7 @@ test('the guard actually reaches the living documents', () => {
 test('every countable claim in every living document is right', () => {
   const falsch = [];
   for (const c of sammleBehauptungen().geprueft) {
-    const was = GLEICHBEDEUTEND[c.was] ?? c.was;
+    const was = c.was;
     if (was in IST.genau) {
       if (c.zahl !== IST.genau[was]) {
         falsch.push(`${c.rel}:${c.zeile} says ${c.zahl} ${c.was} — the code has ${IST.genau[was]}`);

@@ -56,36 +56,24 @@ function filesWithCheckableClaims() {
 }
 
 /**
- * A file named here is a checkable-looking claim that is deliberately
- * NOT this writer's business, with the reason why:
+ * A file named here would be a checkable-looking claim that is
+ * deliberately NOT this writer's business, with the reason why.
  *
- *   - `docs/mcp-setup.md` — its "N tools" claims are hand-counted in a
- *     WORD-OR-NUMERAL vocabulary ("eight tools") that is
- *     `test/tool-count-doc.test.mjs`'s own territory; that file already
- *     guards them directly against `bin/mem-mcp`. A second writer for
- *     the same claim would be a second truth, not a fix.
- *   - `CLAUDE.md`, `docs/dashboard-single-entry.md`, `docs/design.md` —
- *     each has a number next to one of `MUSTER`'s words, but not in any
- *     phrasing `readme-numbers.mjs`'s `CLAIMS` regexes match ("About
- *     180 lines" for one file alone, "4000 lines" as a fixture size in
- *     a benchmark, "500 lines of glue" as a size claim, not a count).
- *     None of these is the exact "As of ...: **N CLI commands...**" /
- *     "about N lines in `bin/` and `src/`," / "one of N guarantees"
- *     shape the writer knows how to find and replace.
+ * Empty since O7 (2026-09-30). It used to name docs/mcp-setup.md ("its
+ * 'N tools' claims are test/tool-count-doc.test.mjs's territory"),
+ * CLAUDE.md, docs/dashboard-single-entry.md and docs/design.md ("not in
+ * any phrasing CLAIMS match"). That was the gap, not a reason: the
+ * guards checked those places and nothing wrote them — docs/mcp-setup.md
+ * was fixed by hand on 2026-09-30. The writer now walks the guards' own
+ * sweep (bench/readme-numbers.mjs `sweepClaims`/`toolCountClaims`), so
+ * every file a guard reads is a file the writer covers.
  *
- * Every exemption is checked below: it must name a file that (a) still
- * exists and (b) the writer still does NOT claim — an exemption that
- * quietly stopped being true would hide a real gap instead of
- * explaining one.
+ * Every exemption is still checked below: it must name a file that (a)
+ * exists and (b) the writer does NOT cover.
  */
-const EXEMPT = new Set([
-  'docs/mcp-setup.md',
-  'CLAUDE.md',
-  'docs/dashboard-single-entry.md',
-  'docs/design.md',
-]);
+const EXEMPT = new Set([]);
 
-const writerFiles = () => new Set(numbers.CLAIMS.map((c) => c.file ?? 'README.md'));
+const writerFiles = () => numbers.coveredFiles(REPO);
 
 test('POSITIVE: the sweep finds a real checkable claim', () => {
   const claimed = filesWithCheckableClaims();
