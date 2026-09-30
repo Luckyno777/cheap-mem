@@ -269,6 +269,10 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // L2a (2026-09-30): 'fehler-verknuepft' added on the lucky-mem side
   // (share of errors with a fix edge and a learning edge), mapped as a gap:
   // this house has no Behebt trailer or edge wiring yet.
+  // L3 (2026-09-30): 'skill-nachschaerfen', 'riegel-prueft-das-falsche-verdacht'
+  // and 'verfahren-wirkung' added on the lucky-mem side (experience sharpens
+  // skills), mapped as gaps: this house has no registry scope, test marker or
+  // procedure status yet.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -281,9 +285,9 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kennzahlen-gleich',
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
-    'post-liegt', 'post-stau', 'post-ungepusht', 'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag', 'rohfang',
-    'rueckstand', 'sicherung', 'skill-nutzung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
-    'transkript-schema', 'uebernahme-verwaist', 'waechter', 'waechter-fassung', 'waisen',
+    'post-liegt', 'post-stau', 'post-ungepusht', 'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag', 'riegel-prueft-das-falsche-verdacht', 'rohfang',
+    'rueckstand', 'sicherung', 'skill-nachschaerfen', 'skill-nutzung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
+    'transkript-schema', 'uebernahme-verwaist', 'verfahren-wirkung', 'waechter', 'waechter-fassung', 'waisen',
     'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
     'zustellnachweis', 'zustellschuld', 'zustellung',
   ]),
