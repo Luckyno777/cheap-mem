@@ -649,6 +649,7 @@ const TOOLS = [
         to: { type: 'string' },
         subject: { type: 'string' },
         text: { type: 'string' },
+        request_id: { type: 'string', description: 'Optional idempotency id: the same id sent twice is ONE message; the same id with other text is refused' },
       },
       required: ['to', 'subject', 'text'],
     },
@@ -1217,14 +1218,15 @@ async function handleCall(name, args) {
     case 'mem_inbox_new': {
       const to = args?.to ?? inbox.whoAmI(root);
       if (!to) throw new Error("no 'to' and whoami not set");
-      const { new: fresh, known } = inbox.newFor(root, cfg.participants, { to });
+      const { new: fresh, known, duplicates: dupes } = inbox.newFor(root, cfg.participants, { to });
       if (!args?.no_mark && fresh.length) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
       }
       if (!fresh.length) return textResult(`Nothing new for '${to}'. ${known} known.`);
       return textResult(
         `${fresh.length} new for '${to}': (${known} known)\n` +
-        fresh.map((m) => `  [${m.state}] ${m.name}\n         ${m.subject} (from ${m.from})`).join('\n'));
+        fresh.map((m) => `  [${m.state}] ${m.name}\n         ${m.subject} (from ${m.from})`).join('\n') +
+        dupes.map((d) => `\n  [duplicate, not delivered] ${d.name} (same request id as ${d.duplicateOf})`).join(''));
     }
     case 'mem_inbox_show': {
       // Through inbox.readMessage, which guards the name. This used to
@@ -1236,9 +1238,14 @@ async function handleCall(name, args) {
     case 'mem_inbox_write': {
       const from = args.from ?? inbox.whoAmI(root);
       if (!from) throw new Error("no 'from' and whoami not set");
-      const { path: p } = inbox.write(root, cfg.participants, {
+      const res = inbox.write(root, cfg.participants, {
         from, to: args.to, subject: args.subject, text: args.text,
+        requestId: args.request_id ?? null,
       });
+      if (res.replay) {
+        return textResult(`Already sent (replay of request id '${args.request_id}'): ${res.name}\nNothing written.`);
+      }
+      const p = res.path;
       return textResult(
         `Written: ${path.relative(root, p)}\n\n` +
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'inbox: ${args.subject}' && git -C ${root} push`);

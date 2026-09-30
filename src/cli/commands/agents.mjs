@@ -27,6 +27,15 @@ import * as onboarding from '../../onboarding.mjs';
 import * as errorclass from '../../errorclass.mjs';
 import * as board from '../../board.mjs';
 import { out, die, warn, checkFlags, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding } from '../shell.mjs';
+
+/** Duplicates are shown, never dropped: same id sent twice, folded into the older message. */
+function duplicateLines(duplicates) {
+  for (const d of duplicates ?? []) {
+    out(`  [duplicate, not delivered] ${d.name}`);
+    out(`         same request id '${d.requestId}' as ${d.duplicateOf}`
+      + `${d.sameText ? '' : ' - BUT DIFFERENT TEXT (id reused, check by hand)'}`);
+  }
+}
 import { countLines } from '../display.mjs';
 
 /** 12 commands. */
@@ -42,7 +51,9 @@ export const COMMANDS = {
       out([
         'mem inbox new        [--as N]              what is new for me',
         'mem inbox all        [--as N]              all messages to me',
-        'mem inbox write      [--as N] --to N --subject "..." [< text.md]',
+        'mem inbox write      [--as N] --to N --subject "..." [--request-id ID] [< text.md]',
+        '                     with an id, the same send twice is ONE message (replay);',
+        '                     the same id with other text is refused (exit 1)',
         'mem inbox show <name> [--as N]',
         'mem inbox ack <name> [state]               state -> replied (default)',
         'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
@@ -64,15 +75,27 @@ export const COMMANDS = {
     const cfg = requireConfig(root);
 
     if (sub === 'write') {
-      checkFlags(args, ['as', 'to', 'subject', 'text'], 'inbox write');
+      checkFlags(args, ['as', 'to', 'subject', 'text', 'request-id'], 'inbox write');
       const from = whoAmIOrDie(root, args, cfg);
       if (!args.to) die("Missing --to");
       if (!args.subject) die("Missing --subject");
       const text = args.text ?? await readStdin();
       if (!text.trim()) die("Empty text (neither --text nor stdin)");
-      const { path: p } = inbox.write(root, cfg.participants, {
-        from, to: args.to, subject: args.subject, text,
-      });
+      let res;
+      try {
+        res = inbox.write(root, cfg.participants, {
+          from, to: args.to, subject: args.subject, text, requestId: args['request-id'] ?? null,
+        });
+      } catch (e) {
+        if (e.code === 'REQUEST_CONFLICT') die(e.message);
+        throw e;
+      }
+      if (res.replay) {
+        out(`Already sent (replay of request id '${args['request-id']}'): ${res.name}`);
+        out('Nothing written.');
+        return;
+      }
+      const { path: p } = res;
       out(`Written: ${path.relative(root, p)}`);
       out('');
       out(`Delivered only after:  git add . && git commit -m "inbox: ${args.subject}" && git push`);
@@ -82,7 +105,7 @@ export const COMMANDS = {
     if (sub === 'all') {
       checkFlags(args, ['as'], 'inbox all');
       const to = whoAmIOrDie(root, args, cfg);
-      const { dir, messages } = inbox.read(root, cfg.participants, { to });
+      const { dir, messages, duplicates } = inbox.read(root, cfg.participants, { to });
       if (dir === null) { out(`No inbox dir yet under ${inbox.INBOX_DIR}.`); return; }
       if (messages.length === 0) { out(`Empty inbox for '${to}'.`); return; }
       out(`${messages.length} messages for '${to}':`);
@@ -90,6 +113,7 @@ export const COMMANDS = {
         out(`  [${m.state}] ${m.name}`);
         out(`         ${m.subject} (from ${m.from})`);
       }
+      duplicateLines(duplicates);
       receiptHint(messages);
       return;
     }
@@ -97,9 +121,10 @@ export const COMMANDS = {
     if (sub === 'new') {
       checkFlags(args, ['as', 'no-mark'], 'inbox new');
       const to = whoAmIOrDie(root, args, cfg);
-      const { new: fresh, known } = inbox.newFor(root, cfg.participants, { to });
+      const { new: fresh, known, duplicates } = inbox.newFor(root, cfg.participants, { to });
       if (fresh.length === 0) {
         out(`Nothing new for '${to}'. ${known} known.`);
+        duplicateLines(duplicates);
         return;
       }
       out(`${fresh.length} new for '${to}': (${known} known)`);
@@ -110,6 +135,7 @@ export const COMMANDS = {
       if (!args['no-mark']) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
       }
+      duplicateLines(duplicates);
       receiptHint(fresh);
       return;
     }

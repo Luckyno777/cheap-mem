@@ -461,6 +461,9 @@ function inboxList(root, now) {
     states: Object.values(inbox.STATE),
     messages,
     broken: got.broken.map((b) => ({ name: b.name, reason: b.reason })),
+    duplicates: (got.duplicates ?? []).map((d) => ({
+      name: d.name, duplicateOf: d.duplicateOf, sameText: d.sameText, requestId: d.requestId ?? null,
+    })),
   };
 }
 
