@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import * as memory from '../../memory.mjs';
 import * as agents from '../../agents.mjs';
 import * as inbox from '../../inbox.mjs';
+import * as claim from '../../claim.mjs';
 import * as heartbeat from '../../heartbeat.mjs';
 import * as broadcast from '../../broadcast.mjs';
 import * as procedure from '../../procedure.mjs';
@@ -46,6 +47,12 @@ export const COMMANDS = {
         'mem inbox ack <name> [state]               state -> replied (default)',
         'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
         '                     exit 0/1/3, for shell pollers',
+        'mem inbox claim <name> [--as N] [--minutes 30]   take a message, with an expiry',
+        'mem inbox done <name> [--as N]                   finished (holder only)',
+        'mem inbox failed <name> --reason "..." [--as N]  gave up, released at once',
+        'mem inbox claims <name>                          who holds it, who does not count',
+        '                     git is not a lock: two hosts can both claim; the read',
+        '                     rule picks one and the other one stays visible.',
         '',
         '  Without a subcommand: same as `inbox new`.',
         '  --as picks who this call speaks as; without it, the stored `mem whoami`.',
@@ -161,9 +168,43 @@ export const COMMANDS = {
       process.exit(1);
     }
 
+    if (sub === 'claim' || sub === 'done' || sub === 'failed' || sub === 'claims') {
+      checkFlags(args, sub === 'claim' ? ['as', 'minutes'] : sub === 'failed' ? ['as', 'reason'] : sub === 'done' ? ['as'] : [],
+        `inbox ${sub}`);
+      const name = rest[1];
+      if (!name) die(`Missing name (inbox ${sub} <name>)`);
+      if (sub === 'claims') {
+        const st = claim.status(root, name);
+        out(`${name}: ${st.status}${st.holder ? ` — ${st.holder.claimed_by} until ${st.holder.until}` : ''}`);
+        for (const u of st.invalid) out(`  does not count: ${u.claimed_by ?? u.by} (${u.kind}) — ${u.reason}`);
+        for (const f of st.failures) out(`  failed: ${f.by} — ${f.reason}`);
+        if (st.broken.length) warn(`${st.broken.length} unreadable line(s) in ${claim.FILE}`);
+        return;
+      }
+      const by = whoAmIOrDie(root, args, cfg);
+      if (sub === 'claim') {
+        const r = claim.claim(root, name, {
+          by, minutes: args.minutes ? Number(args.minutes) : undefined,
+        });
+        out(r.valid ? `${name}: claimed by '${by}' (id ${r.id})`
+          : `${name}: claim written but does NOT count — ${r.reason}`);
+        if (!r.valid) process.exit(1);
+        return;
+      }
+      if (sub === 'done') {
+        const r = claim.done(root, name, { by });
+        out(`${name}: ${r.status}`);
+        return;
+      }
+      if (!args.reason || args.reason === true) die('Missing --reason');
+      const r = claim.failed(root, name, { by, reason: String(args.reason) });
+      out(`${name}: ${r.status} (released)`);
+      return;
+    }
+
     die([
       `inbox: unknown subcommand '${sub}'`,
-      'Known: new (default), all, write, show, ack, watch',
+      'Known: new (default), all, write, show, ack, watch, claim, done, failed, claims',
     ].join('\n'));
   },
 
