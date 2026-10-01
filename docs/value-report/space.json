@@ -1,19 +1,19 @@
 {
-  "commit": "8a24c64",
-  "dirty": true,
-  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "commit": "a831c45",
+  "dirty": false,
+  "measuredAt": "2026-10-01T19:39:14.408Z",
   "sizes": {
     "10000": {
       "notes": 10000,
       "logBytes": 2622043,
-      "indexCacheBytes": 7258718,
+      "indexCacheBytes": 7258710,
       "logBytesPerNote": 262.2,
       "withIndexBytesPerNote": 988.1
     },
     "100000": {
       "notes": 100000,
       "logBytes": 26297320,
-      "indexCacheBytes": 67132573,
+      "indexCacheBytes": 67132577,
       "logBytesPerNote": 263,
       "withIndexBytesPerNote": 934.3
     }

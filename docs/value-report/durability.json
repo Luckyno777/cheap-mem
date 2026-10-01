@@ -1,24 +1,23 @@
 {
-  "commit": "8a24c64",
-  "dirty": true,
-  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "commit": "a831c45",
+  "dirty": false,
+  "measuredAt": "2026-10-01T19:39:14.408Z",
   "trials": 30,
   "killedWhileWriting": 30,
-  "acknowledged": 2769,
+  "acknowledged": 2829,
   "lost": 0,
   "corruptLines": 0,
   "trialsWithLoss": 0,
   "trialsWithCorruption": 0,
-  "writeAfterCrashFailed": 4,
+  "writeAfterCrashFailed": 2,
   "nextWriteAfterCrash": {
     "n": 30,
-    "medianMs": 2.228,
-    "p95Ms": 10004,
-    "worstMs": 10008.418
+    "medianMs": 2.196,
+    "p95Ms": 10001.934,
+    "worstMs": 10002.431
   },
   "nextWriteErrors": [
-    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-mHchP8/.mem/locks/drawer-learning.lock' still held after 10000 m",
-    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-2QC2du/.mem/locks/drawer-learning.lock' still held after 10000 m",
-    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-1wKC7V/.mem/locks/drawer-learning.lock' still held after 10000 m"
+    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-Z7DFBU/.mem/locks/drawer-learning.lock' still held after 10000 m",
+    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-umOWcX/.mem/locks/drawer-learning.lock' still held after 10000 m"
   ]
 }

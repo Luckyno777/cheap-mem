@@ -100,7 +100,7 @@ What you get, measured (memory of 100k notes where size matters). Every row is g
 | Finds the note when you use its words (top 3) | 100% |
 | Finds it when you ask in everyday words (top 3) | 25% |
 | Answers when asked about something you never wrote (target 0%) | 43.8% |
-| Slowdown of a fresh answer when the memory grows (see the latency table above for milliseconds) | 5.4x |
+| Slowdown of a fresh answer when the memory grows (see the latency table above for milliseconds) | 5.1x |
 | Disk per real-shaped note | 233 B |
 | Model calls per day when idle | 0 |
 | Model calls per day, typical day | 4 |
