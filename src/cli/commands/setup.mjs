@@ -24,6 +24,7 @@ import * as cfgmod from '../../config.mjs';
 import * as viewer from '../../viewer.mjs';
 import * as guard from '../../guard.mjs';
 import * as probescaffold from '../../probescaffold.mjs';
+import * as guardgaps from '../../guardgaps.mjs';
 import * as source from '../../source.mjs';
 import * as component from '../../component.mjs';
 import * as componentTable from '../../component-table.mjs';
@@ -372,10 +373,31 @@ export const COMMANDS = {
       if (q.state === 'unknown') process.exitCode = 2;
       return;
     }
-    if (isHelp(args) || (rest[0] && rest[0] !== 'run' && rest[0] !== 'quote')) {
+    // Parity build for lucky-mem's L13 (a0403a8b): rank the errors that
+    // have no guard, instead of reading the whole log by hand.
+    if (rest[0] === 'gaps' && !isHelp(args)) {
+      checkFlags(args, ['json', 'top'], 'guard gaps');
+      const root = findRoot(args);
+      requireConfig(root);
+      const n = numberFlag('top', args.top, { fallback: 20, min: 1, max: 10000 });
+      const r = guardgaps.top(root, n);
+      if (args.json) { out(JSON.stringify(r)); return; }
+      if (r.total === 0) { out('not measurable: no error in the log.'); return; }
+      out(`Errors with a guard: ${r.guarded} of ${r.total} (${(r.guarded / r.total * 100).toFixed(1)}%)`);
+      out('');
+      if (!r.gaps.length) { out('No guard gaps: every error is covered.'); return; }
+      out(`Top ${r.gaps.length} guard gaps:`);
+      for (const g of r.gaps) {
+        out(`  ${String(g.id).padEnd(14)} ${(g.file ?? '(no file)').padEnd(28)} [${g.class ?? '?'}]  score=${g.score.toFixed(2)}`);
+        out(`      ${g.reasons.join('; ')}`);
+      }
+      return;
+    }
+    if (isHelp(args) || (rest[0] && rest[0] !== 'run' && rest[0] !== 'quote' && rest[0] !== 'gaps')) {
       out([
         'mem guard run [--duty]',
         'mem guard quote          share of errors with a guard, empty test scaffolds',
+        'mem guard gaps [--json] [--top N]   which errors without a guard first?',
         '',
         '  run: checks every latch in the memory. A latch hangs off an `error`',
         '  entry and answers ONE question: is the error back?',
@@ -392,6 +414,11 @@ export const COMMANDS = {
         '  latches.',
         '',
         '  --duty: raise a duty for every red latch.',
+        '',
+        '  gaps: ranks the errors WITHOUT a guard — three weights (same file+class',
+        '  repeated within 30 days > an open duty about it > fresh, only a',
+        '  tie-breaker) and one filter: an error that has a guard is no gap and',
+        '  is never listed. An empty log reads "not measurable", never 0 %.',
         '',
         '  quote: measures the SHARE of `error` entries that carry a guard',
         '  (field or non-empty test/error-<id>.test.mjs — the same rule as',
