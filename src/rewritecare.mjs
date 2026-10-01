@@ -32,7 +32,7 @@ import { editDistance } from './switches.mjs';
 import { pack } from './language.mjs';
 
 /** How many characteristic stems of a fetched entry each question word points at. */
-export const TARGETS_PER_ENTRY = 2;
+const TARGETS_PER_ENTRY = 2;
 
 /** At most this many evidence places per pair stay on the line (the newest). */
 const EVIDENCE_MAX = 20;

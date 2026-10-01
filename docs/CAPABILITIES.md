@@ -149,6 +149,8 @@ directory. The section number in brackets is where it is explained.
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `repetitionhint.mjs` | from the third repetition of an error class or normalised title, prints a draft for `mem log procedure` (`mem suggest procedure`); quotes the newest error, no model, writes nothing |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
+| `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
+| `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
@@ -560,7 +562,7 @@ procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
-gaps suggest search-levers
+gaps suggest search-levers rewrites
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later
