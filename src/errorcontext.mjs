@@ -43,6 +43,7 @@
 import * as memory from './memory.mjs';
 import * as errorfile from './errorfile.mjs';
 import * as repetition from './repetition.mjs';
+import * as procedure from './procedure.mjs';
 
 /** Marker on a duty: created automatically by this path. */
 export const AUTOMATIC_FIELD = 'automatic';
@@ -88,6 +89,85 @@ export function openDutiesFor(root, { files = [], errorIds = [], project = null 
   const idSet = new Set(errorIds);
   return open.filter((d) => (d.file && files.includes(d.file))
     || (Array.isArray(d.error_ids) && d.error_ids.some((id) => idSet.has(id))));
+}
+
+/**
+ * Before-edit: the open duties and the procedures in force that concern
+ * the file about to be changed.
+ *
+ * **The gap this closes.** The pre-edit hook (`bin/mem-before-edit`)
+ * passed only errors, decisions and learnings. A duty "add a guard for
+ * X at install/claude-code.sh" or a released procedure naming that file
+ * was found by the component lookup and then dropped by the lane
+ * filter — the one moment the agent touches the file was the moment it
+ * did not hear what is still owed there. lucky-mem shows open duties
+ * for the file in its before-edit header (`offenKopfZeilen`).
+ *
+ * `hits` are the component hits the hook already has (`mem component
+ * --hook`). A duty counts when it is OPEN (`memory.openDuties()`, the
+ * one folded view — a closed duty never shows) and either names the file
+ * in its `file` field, carries an error id of an error hit for the file,
+ * or is itself a hit. A procedure counts only when it is a rule, still
+ * holds (not retired, not replaced by a correction) and its status is
+ * `released` — a proposed, trial or withdrawn rule stays out.
+ *
+ * Capped per kind (`cap`), newest first. Never throws: a store it
+ * cannot read gives empty lists, the hook then says what it said before.
+ */
+export function beforeEditDuties(root, queryPath, hits = [], { cap = 2, project = undefined } = {}) {
+  const res = { duties: [], procedures: [] };
+  const parts = String(queryPath ?? '').split(/[\\/]/).filter(Boolean);
+  if (!parts.length) return res;
+  const two = parts.slice(-2).join('/');
+  const base = parts[parts.length - 1];
+  const namesFile = (f) => {
+    const s = memory.canonicalSep(String(f ?? '')).replace(/^\.\//, '');
+    if (!s) return false;
+    return s === two || s.endsWith(`/${two}`) || (two === base && s.endsWith(`/${base}`));
+  };
+  const laneOf = (h) => memory.canonicalSep(String(h?._source ?? ''));
+  const hitIds = new Set();
+  const errorIds = new Set();
+  for (const h of hits) {
+    if (!h || !h.id) continue;
+    hitIds.add(h.id);
+    if (/(^|\/)errors\.jsonl$/.test(laneOf(h))) errorIds.add(h.id);
+  }
+
+  let open = [];
+  try { ({ open } = memory.openDuties(root, { project })); } catch { open = []; }
+  res.duties = open
+    .filter((d) => namesFile(d.file)
+      || hitIds.has(d.id) || (d.replaces_id && hitIds.has(d.replaces_id))
+      || (Array.isArray(d.error_ids) && d.error_ids.some((id) => errorIds.has(id))))
+    .sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')))
+    .slice(0, cap);
+
+  const candidates = hits.filter((h) => h && h.id && /(^|\/)procedures\.jsonl$/.test(laneOf(h))
+    && procedure.isRule(h));
+  if (candidates.length) {
+    const lines = [];
+    let projects = [null];
+    try { projects = [null, ...memory.listProjects(root)]; } catch { /* global only */ }
+    for (const p of projects) {
+      try { lines.push(...memory.readLog(root, 'procedure', { project: p }).entries); } catch { /* skip */ }
+    }
+    const retired = memory.retiredMap(lines);
+    const successor = memory.correctionSuccessorMap(lines);
+    const seen = new Set();
+    res.procedures = candidates
+      .filter((h) => {
+        if (seen.has(h.id)) return false;
+        seen.add(h.id);
+        if (!memory.holds(h, retired) || successor.has(h.id)) return false;
+        let st = null;
+        try { st = procedure.statusFor(root, h); } catch { st = null; }
+        return st?.status === 'released';
+      })
+      .sort((a, b) => String(b.ts ?? '').localeCompare(String(a.ts ?? '')))
+      .slice(0, cap);
+  }
+  return res;
 }
 
 /**

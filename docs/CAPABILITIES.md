@@ -59,6 +59,7 @@ directory. The section number in brackets is where it is explained.
 | `atomicwrite.mjs` | the one way to write a state file: a unique temp file in the same directory, then `rename` (with a Windows retry) — a reader never sees half a file, two writers never share a temp file (F5, suggestion 14) |
 | `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); read by `getEntryFast()` and `mem-serve` |
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number |
+| `bashtargets.mjs` | which files a shell command WRITES (`sed -i`, `tee`, `> file`, `cp`, `mv`), read deterministically for the before-edit hook on Bash; directories, extension-less words, expansions, `/dev` and `/tmp` give no target |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
 | `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
@@ -82,6 +83,7 @@ directory. The section number in brackets is where it is explained.
 | `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |
 | `pwa.mjs` | the dashboard's manifest and service worker, which stores nothing unless asked to (7.5) |
 | `login.mjs` | the password in front of the dashboard: first setup only with a machine-local code, scrypt hash, server-side sessions, lock after failed attempts (7.5) |
+| `digestselect.mjs` | which pending captures one digest run gets: an age reserve for the oldest first (`MEM_DIGEST_AGE_RESERVE_PCT`, default 25 % of the cap), then smallest first; read by `bin/mem-digest` and its PowerShell port |
 | `docimages-state.mjs` | W7: the ONE list of UI files the docs screenshots depend on, the writer `bench/docs-images.mjs` calls after shooting (`docs/images/.state.json`, sha256 per file) and the check behind doctor finding `docs-images-fresh` (no state -> unknown; older than the UI -> warn with the one reshoot command; never reshoots itself) |
 | `integrationcontract.mjs` | X2: the integration contract as data — five occasions (session start, task start, before a change, after an error, task end) by three clients (Claude Code hooks, MCP, plain CLI), each cell full/partial/missing with its evidence (file, installer registration, tool name), what is delivered/retrieved/considered and what is measured; the doctor's `integration-contract` finding and the generated block of `docs/integration-contract.md` read only this |
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
@@ -525,7 +527,7 @@ return, so a flood cannot become a denial of service or a context bill.
 |---|---|---|
 | `SessionStart` | session begins | prints `FACTS.md` + recent context |
 | `UserPromptSubmit` | every message | recalls matching memory (no model, ~ms) and feeds it to the turn; refreshes the clone in the background, detached |
-| `PreToolUse` (Edit/Write/NotebookEdit) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it — once per file per session |
+| `PreToolUse` (Edit/Write/NotebookEdit, and Bash when the command writes a file) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it, plus open duties and released procedures for it — once per file per session |
 | `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
 | `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
 | `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |

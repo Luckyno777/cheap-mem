@@ -22,6 +22,10 @@
 #                             counts as stale (default 120; only used
 #                             where there is no flock, e.g. macOS)
 #                         the rest stays pending for the next tick
+#   MEM_DIGEST_AGE_RESERVE_PCT  share of MAX_BYTES for the OLDEST captures
+#                         first (default 25; 0 = pure smallest first)
+#   MEM_DIGEST_DEDUP_SINCE  window of the duplicate check, e.g. 30d
+#                         (default empty = the whole memory)
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude -p)
 #   MEM_DIGEST_LOG        log file (default: $ROOT/.mem/digest.log)
@@ -48,6 +52,29 @@ TIMEOUT="${MEM_DIGEST_TIMEOUT:-600}"
 CMD="${MEM_DIGEST_CMD:-claude -p}"
 LOG="${MEM_DIGEST_LOG:-$ROOT/.mem/digest.log}"
 MAX_BYTES="${MEM_DIGEST_MAX_BYTES:-16000000}"
+# Share of MAX_BYTES that goes to the OLDEST pending captures first
+# (src/digestselect.mjs). 0 switches the reserve off (pure smallest first).
+AGE_RESERVE_PCT="${MEM_DIGEST_AGE_RESERVE_PCT:-25}"
+
+# How far back the duplicate check looks (`mem find --since`). It was a
+# fixed 7 days: an entry from last month was invisible to it, and the
+# digest wrote the same thing again. Default now: the WHOLE memory.
+# Measured 2026-10-01 on a 100k-entry synthetic store (bench/scale.mjs,
+# fresh process, warm index cache, load ~9 on 4 cores): `--since 7d`
+# 2.3 s median, whole store 2.7 s — the index load dominates, the window
+# saves almost nothing. A window (`30d`, `24h`) can still be set.
+DEDUP_SINCE="${MEM_DIGEST_DEDUP_SINCE:-}"
+if [ -n "$DEDUP_SINCE" ] && ! printf '%s' "$DEDUP_SINCE" | grep -qE '^[0-9]+[dhm]$'; then
+  echo "error: MEM_DIGEST_DEDUP_SINCE='$DEDUP_SINCE' is not a window like 30d, 24h or 90m (empty = whole memory)" >&2
+  exit 2
+fi
+if [ -n "$DEDUP_SINCE" ]; then
+  DEDUP_SCOPE="in the last $DEDUP_SINCE"
+  DEDUP_CALL="mem find \"<keyword>\" --since $DEDUP_SINCE"
+else
+  DEDUP_SCOPE="across the whole memory"
+  DEDUP_CALL="mem find \"<keyword>\""
+fi
 
 # Authority ceiling for everything this run writes.
 #
@@ -151,39 +178,32 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
   # suffocates on context and reports nothing useful. The rest simply
   # stays pending and the next tick takes it, so a backlog drains over
   # several runs instead of failing in one.
-  SELECTION="$(printf '%s' "$PENDING_JSON" | MAX="$MAX_BYTES" ROOT="$ROOT" node -e '
-    const fs=require("fs"), path=require("path");
-    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+  # Which captures: src/digestselect.mjs, the ONE place (the PowerShell
+  # port asks the same module). An age reserve first — part of the
+  # budget goes to the OLDEST captures, so an old one cannot starve
+  # behind a stream of small new ones — then smallest first, so one huge
+  # capture that no session can finish does not block everything behind
+  # it. A file whose size is unknown counts as LARGE (the other way
+  # round lets a silent stat error eat the whole cap). B19 (2026-09-30):
+  # the budget counts bytes BEFORE packing (`rawSizes` from `raw pending
+  # --json`, the record field source_bytes), not gzipped bytes.
+  SEL="$HERE/../src/digestselect.mjs"
+  command -v cygpath >/dev/null 2>&1 && SEL="$(cygpath -m "$SEL")"
+  case "$SEL" in
+    /*) SEL_URL="file://$SEL" ;;
+    *)  SEL_URL="file:///$SEL" ;;
+  esac
+  SELECTION="$(printf '%s' "$PENDING_JSON" | MAX="$MAX_BYTES" RESERVE="$AGE_RESERVE_PCT" ROOT="$ROOT" node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
       let o;try{o=JSON.parse(d)}catch{process.exit(1)}
-      const max=Number(process.env.MAX), root=process.env.ROOT;
-      if(!root){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
-      // A file whose size we cannot read counts as LARGE. The other way
-      // round (unknown = 0) lets a silent stat error eat the whole cap:
-      // the sum never grows, everything is selected, and the limit is
-      // useless without anyone noticing.
-      // Smallest first, so one huge capture that no session can finish
-      // does not block everything behind it forever.
-      // B19 (2026-09-30): the budget counts bytes BEFORE packing
-      // (`rawSizes` from `raw pending --json`, the record
-      // field source_bytes). Until then it counted gzipped bytes read off the
-      // disk: a capture with 50 MiB of plain text weighed like one with
-      // 50 KiB, and it also failed for every capture moved to the archive.
+      if(!process.env.ROOT){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
       if(!o.rawSizes){process.stderr.write("selection: raw pending --json has no rawSizes - mem too old?\n");process.exit(2)}
-      const sized=(o.open||[]).map(f=>{
-        let s=Infinity;
-        const g=o.rawSizes[f];
-        if(typeof g==="number") s=g;
-        else process.stderr.write("selection: "+f+" has no known size - counts as large\n");
-        return {f,s};
-      }).sort((a,b)=>a.s-b.s);
-      const chosen=[];let sum=0;
-      for(const {f,s} of sized){
-        if(chosen.length && sum+s>max) break;
-        chosen.push(f);sum+=s;
-        if(sum>=max) break;
-      }
-      console.log(JSON.stringify({chosen,sum,total:(o.open||[]).length}));
-    })' 2>>"$LOG")"
+      for(const f of (o.open||[])) if(typeof o.rawSizes[f]!=="number")
+        process.stderr.write("selection: "+f+" has no known size - counts as large\n");
+      let m;try{m=await import(process.argv[1])}catch(e){process.stderr.write("selection: "+e.message+"\n");process.exit(2)}
+      const r=m.selectCaptures(o,{max:Number(process.env.MAX),reservePct:Number(process.env.RESERVE)});
+      console.log(JSON.stringify(r));
+    })' "$SEL_URL" 2>>"$LOG")"
   # The selection stage's exit code is a verdict, not noise: exit 1/2
   # there (unreadable JSON, no rawSizes, ROOT missing) leaves SELECTION
   # empty, which would otherwise read as "nothing selected, nothing to
@@ -207,6 +227,10 @@ STALE_MIN="${MEM_DIGEST_STALE_MIN:-120}"
       try{process.stdout.write(String(JSON.parse(d).total))}catch{process.stdout.write("?")}})')"
   [ "$N_CHOSEN" != "$N_TOTAL" ] && \
     note "backlog: $N_CHOSEN of $N_TOTAL captures this run, rest next tick"
+  N_RESERVED="$(printf '%s' "$SELECTION" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{process.stdout.write(String(JSON.parse(d).reserved.length))}catch{process.stdout.write("0")}})')"
+  [ "$N_RESERVED" != "0" ] && note "age reserve: the $N_RESERVED oldest of them first"
 
   PROMPT="You are the digest for a cheap-mem memory. Read \$ROOT/DIGEST.md first and follow it.
 
@@ -226,8 +250,8 @@ Work like this:
    all in your head. If a capture is too large to finish: do NOT mark
    it digested, write what you have, and log an error with
    --class digest-overflow.
-2. Before writing anything, check for duplicates:
-     mem find \"<keyword>\" --since 7d
+2. Before writing anything, check for duplicates $DEDUP_SCOPE:
+     $DEDUP_CALL
 3. Sort into drawers, every entry WITH --origin AND --asked:
      mem log <type> --title ... --text ... --tags ... \\
        --asked '<3-6 phrasings someone would LATER ask with, in other words than the title (everyday word instead of jargon, symptom instead of cause, activity instead of object)>' \\

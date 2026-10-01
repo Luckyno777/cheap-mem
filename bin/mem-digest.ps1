@@ -11,6 +11,10 @@
 #
 # Optional:
 #   MEM_DIGEST_MAX_BYTES  most raw material per run, bytes BEFORE packing (default 16000000)
+#   MEM_DIGEST_AGE_RESERVE_PCT  share of MAX_BYTES for the OLDEST captures
+#                         first (default 25; 0 = pure smallest first)
+#   MEM_DIGEST_DEDUP_SINCE  window of the duplicate check, e.g. 30d
+#                         (default empty = the whole memory)
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude)
 #   MEM_DIGEST_ARGS       arguments before the prompt (default: -p)
@@ -36,6 +40,20 @@ if (-not (Test-Path (Join-Path $Root '.mem'))) {
 $Here    = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Mem     = Join-Path $Here 'mem'
 $Timeout = if ($env:MEM_DIGEST_TIMEOUT) { [int]$env:MEM_DIGEST_TIMEOUT } else { 600 }
+# Same two knobs as the POSIX tick (bin/mem-digest says why and what was
+# measured): the age reserve for the selection, and the window of the
+# duplicate check - empty means the whole memory.
+$AgeReservePct = if ($null -ne $env:MEM_DIGEST_AGE_RESERVE_PCT -and $env:MEM_DIGEST_AGE_RESERVE_PCT -ne '') { $env:MEM_DIGEST_AGE_RESERVE_PCT } else { '25' }
+$DedupSince = [string]$env:MEM_DIGEST_DEDUP_SINCE
+if ($DedupSince -and $DedupSince -notmatch '^[0-9]+[dhm]$') {
+  [Console]::Error.WriteLine("error: MEM_DIGEST_DEDUP_SINCE='$DedupSince' is not a window like 30d, 24h or 90m (empty = whole memory)")
+  exit 2
+}
+if ($DedupSince) {
+  $DedupLine = "check for duplicates in the last ${DedupSince}: mem find `"<keyword>`" --since $DedupSince"
+} else {
+  $DedupLine = "check for duplicates across the whole memory: mem find `"<keyword>`""
+}
 $Cmd     = if ($env:MEM_DIGEST_CMD) { $env:MEM_DIGEST_CMD } else { 'claude' }
 $CmdArgs = if ($env:MEM_DIGEST_ARGS) { $env:MEM_DIGEST_ARGS -split ' ' } else { @('-p') }
 $MaxBytes = if ($env:MEM_DIGEST_MAX_BYTES) { [int]$env:MEM_DIGEST_MAX_BYTES } else { 16000000 }
@@ -101,33 +119,26 @@ try {
   # Only hand one run as much material as a session can actually read.
   # The rest stays pending and the next tick takes it, so a backlog
   # drains over several runs instead of failing in one.
+  # Which captures: src/digestselect.mjs, the same module the POSIX tick
+  # asks - an age reserve for the OLDEST captures first, then smallest
+  # first. A capture with no known size counts as LARGE.
+  # B19 (2026-09-30): bytes BEFORE packing (`rawSizes`), not gzipped.
   $SelectScript = @'
-const fs=require("fs"), path=require("path");
-let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
   let o;try{o=JSON.parse(d)}catch{process.exit(1)}
-  const max=Number(process.env.MAX), root=process.env.ROOT;
-  if(!root){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
-  // A file whose size we cannot read counts as LARGE. The other way
-  // round lets a silent stat error eat the whole cap.
-  // Smallest first, so one huge capture does not block the rest.
-  // B19 (2026-09-30): bytes BEFORE packing (`rawSizes`), not gzipped.
+  if(!process.env.ROOT){process.stderr.write("selection: ROOT missing\n");process.exit(2)}
   if(!o.rawSizes){process.stderr.write("selection: raw pending --json has no rawSizes\n");process.exit(2)}
-  const sized=(o.open||[]).map(f=>{
-    const g=o.rawSizes[f];
-    return {f,s:(typeof g==="number")?g:Infinity};
-  }).sort((a,b)=>a.s-b.s);
-  const chosen=[];let sum=0;
-  for(const {f,s} of sized){
-    if(chosen.length && sum+s>max) break;
-    chosen.push(f);sum+=s;
-    if(sum>=max) break;
-  }
-  console.log(chosen.join("\n"));
+  let m;try{m=await import(process.argv[1])}catch(e){process.stderr.write("selection: "+e.message+"\n");process.exit(2)}
+  const r=m.selectCaptures(o,{max:Number(process.env.MAX),reservePct:Number(process.env.RESERVE)});
+  console.log(r.chosen.join("\n"));
 });
 '@
   $env:MAX = $MaxBytes
+  $env:RESERVE = $AgeReservePct
   $env:ROOT = $Root
-  $Chosen = ($PendingJson | & node -e $SelectScript) -split "`n" | Where-Object { $_ }
+  $SelPath = [System.IO.Path]::GetFullPath((Join-Path $Here '../src/digestselect.mjs'))
+  $SelUrl = ([System.Uri]::new($SelPath)).AbsoluteUri
+  $Chosen = ($PendingJson | & node -e $SelectScript $SelUrl 2>$null) -split "`n" | Where-Object { $_ }
   # The selection stage's exit code is a verdict: a failure (unreadable
   # JSON, no rawSizes) leaves $Chosen empty and must not be reported as
   # "nothing to do".
@@ -151,7 +162,7 @@ Work like this:
      mem raw show <path> --from 0 --count 400
    If a capture is too large to finish: do NOT mark it digested, write
    what you have, and log an error with --class digest-overflow.
-2. Before writing, check for duplicates: mem find "<keyword>" --since 7d
+2. Before writing, $DedupLine
 3. Sort into drawers, every entry WITH --origin
 4. Close any duty that is now fulfilled (mem duties lists them)
 5. Mark as digested: mem raw digested <path1> <path2> ...

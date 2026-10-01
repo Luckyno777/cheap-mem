@@ -81,8 +81,8 @@ Evidence and scope per cell:
   - `installer registers UserPromptSubmit -> cheap-mem-user-prompt.sh`
   - `install/hooks/user-prompt.sh`
   - `bin/mem-retrieve`
-- **claude-code / before-change: full.** Literal path lookup before Edit, Write and NotebookEdit, one journal line per lookup; once per file per session. Reading a file or a shell command does not trigger it.
-  - `installer registers PreToolUse[Edit|Write|NotebookEdit] -> cheap-mem-pre-edit.sh`
+- **claude-code / before-change: full.** Literal path lookup before Edit, Write and NotebookEdit, and before a shell command that writes a file (sed -i, tee, > file, cp, mv); one journal line per lookup; once per file per session. Reading a file, or a shell command that writes none, does not trigger it.
+  - `installer registers PreToolUse[Edit|Write|NotebookEdit|Bash] -> cheap-mem-pre-edit.sh`
   - `install/hooks/pre-edit.sh`
   - `bin/mem-before-edit`
   - `bin/mem-before-edit (contains OCCASION.BEFORE_EDIT)`
@@ -133,7 +133,7 @@ Budget per occasion:
 |---|---|---|
 | session-start | FACTS.md, `mem context --n 10`, the working-style block; for a subagent the tagged procedures plus a recap | 10 context entries; a subagent block gets the remainder of its byte budget |
 | task-start | up to 3 hits above the score bar for the message | MEM_RETRIEVE_TOP=3, MEM_RETRIEVE_MIN=5.0; 4000 ms latency budget (src/latencybudget.mjs) |
-| before-change | up to 3 entries that name the file about to be changed | MEM_BEFORE_EDIT_TOP=3, once per file per session; 1000 ms latency budget |
+| before-change | up to 3 entries that name the file about to be changed, plus up to 2 open duties and 2 released procedures for it | MEM_BEFORE_EDIT_TOP=3, once per file per session; 1000 ms latency budget |
 | after-error | up to 3 error or learning entries matching the failure (real failure), or the failure the exit code hid | MEM_AFTER_FAILURE_TOP=3, MEM_AFTER_FAILURE_MIN=2.0, once per session per failure text, capped at 5 s; MEM_CATCH_FAIL_TOP=3 for the swallowed failure; 2500 ms latency budget |
 | task-end | nothing is retrieved; the open duties of this session as one short report (systemMessage, never block); the answer check may block once, the capture is written and pushed | report at most three names, three lines and 400 characters, once per duty per session, capped at 10 s (MEM_CLOSING_REPORT=0 turns it off); capture about 50 ms; push best-effort |
 

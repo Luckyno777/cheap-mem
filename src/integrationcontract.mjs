@@ -131,12 +131,12 @@ export const MATRIX = Object.freeze({
     [OCCASION.BEFORE_CHANGE]: {
       status: STATUS.FULL,
       entries: [
-        registered('PreToolUse', 'cheap-mem-pre-edit.sh', 'Edit|Write|NotebookEdit'),
+        registered('PreToolUse', 'cheap-mem-pre-edit.sh', 'Edit|Write|NotebookEdit|Bash'),
         file('install/hooks/pre-edit.sh'),
         file('bin/mem-before-edit'),
         contains('bin/mem-before-edit', 'OCCASION.BEFORE_EDIT'),
       ],
-      note: 'Literal path lookup before Edit, Write and NotebookEdit, one journal line per lookup; once per file per session. Reading a file or a shell command does not trigger it.',
+      note: 'Literal path lookup before Edit, Write and NotebookEdit, and before a shell command that writes a file (sed -i, tee, > file, cp, mv); one journal line per lookup; once per file per session. Reading a file, or a shell command that writes none, does not trigger it.',
     },
     [OCCASION.AFTER_ERROR]: {
       status: STATUS.FULL,
@@ -259,7 +259,7 @@ export const BUDGET = Object.freeze({
     budget: 'MEM_RETRIEVE_TOP=3, MEM_RETRIEVE_MIN=5.0; 4000 ms latency budget (src/latencybudget.mjs)',
   },
   [OCCASION.BEFORE_CHANGE]: {
-    delivers: 'up to 3 entries that name the file about to be changed',
+    delivers: 'up to 3 entries that name the file about to be changed, plus up to 2 open duties and 2 released procedures for it',
     budget: 'MEM_BEFORE_EDIT_TOP=3, once per file per session; 1000 ms latency budget',
   },
   [OCCASION.AFTER_ERROR]: {

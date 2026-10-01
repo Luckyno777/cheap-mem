@@ -30,6 +30,7 @@ import * as component from '../../component.mjs';
 import * as componentTable from '../../component-table.mjs';
 import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
+import * as errorcontext from '../../errorcontext.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore } from '../githook.mjs';
@@ -1066,10 +1067,20 @@ export const COMMANDS = {
       const usedTable = res.hits !== null;
       const hits = res.hits ?? component.find(root, p, cap);
       if (args.json) {
+        // Open duties and released procedures for this file, from the
+        // FULL hit list (not the `--top` slice): the hook shows them in
+        // their own capped section, see errorcontext.beforeEditDuties().
+        const owed = errorcontext.beforeEditDuties(root, p, hits, {
+          project: args.project ? String(args.project) : undefined,
+        });
+        const row = (e) => ({ id: e.id, ts: e.ts ?? null, source: e._source ?? null,
+          label: compactLine(e, { root }) || '' });
         out(JSON.stringify({
           path: p,
           forms: component.forms(p),
           n: hits.length,
+          duties: owed.duties.map(row),
+          procedures: owed.procedures.map(row),
           table: { state: res.tableState, usedTable, backgroundRebuild: res.backgroundRebuild },
           hits: hits.slice(0, top).map((h) => ({
             score: null,
