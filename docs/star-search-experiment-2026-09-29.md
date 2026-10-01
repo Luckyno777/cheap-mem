@@ -27,7 +27,7 @@ it:
 
 cheap-mem ships empty; there is no grown, human-labelled gold set with
 a matching decoy/bait set the way lucky-mem's
-`bench/selten-wort-gold.tsv` + Köder set are (see
+`bench/selten-wort-gold.tsv` (lucky-mem's file name, German: "rare-word gold") + decoy set are (see
 `docs/benchmarks-2026-09-28.md`'s "Not measured here, and why" —
 that gap is named there independently of this build). The only
 labelled corpus this house has is `bench/retrieval.mjs`'s synthetic

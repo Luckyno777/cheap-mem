@@ -1,5 +1,5 @@
 {
-  "erzeugt_am": "2026-10-01T07:28:06.166Z",
+  "erzeugt_am": "2026-10-01T18:40:34.119Z",
   "oberflaeche": {
     "assets/dashboard/dashboard.css": "ecd4e72107e2bf54c177d830df10a6f025bbeb3fd7cf21966d8f145688d57515",
     "assets/dashboard/dashboard.js": "8f0ff88530447036c76992cfcb2f74ed89507ab7a7a6a4f7d831b43a4a3c21d1",
@@ -8,7 +8,7 @@
     "assets/three/three-r180.min.js": "b5afad481e89ad3866eb45896739a05d54aaead1f93395fff53d3efc9397776b",
     "src/board.mjs": "74f20c5c4a14632aed486fd94e0c6e975006e80d134cecdf6c4f47c364a842b1",
     "src/dashboard-page.mjs": "e4ea1be414e000590dec439af67fbaea72f8d301f9eccee683eee54071ab95e1",
-    "src/login.mjs": "84047e6276a461d70ef5adce6c1b1cd9d1dd0abaf1fe17c65db3ec7ed3fc9647",
+    "src/login.mjs": "0c7cf2eb9851ec8f918eb14a5f74ec3304741e302c2aceafb412a824eadc890f",
     "src/viewer.mjs": "ceb039a3b5cc1c3517c271022a7613560488ae69d8499f6b1b71f509bc2df800"
   }
 }

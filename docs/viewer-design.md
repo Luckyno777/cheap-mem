@@ -608,7 +608,7 @@ stylesheet. Custom properties do the work a framework would.
    (1.39:1) when this was written, which left the card outlines nearly invisible; the
    value was raised since.
 - **Print stylesheet:** one `@media print` block exists (`src/viewer.mjs`), so
-   `mem view > report.pdf` is a real workflow.
+   printing the `mem viewer` page to PDF from the browser is a real workflow (there is no `mem view` command).
 - **`chip.act` (hoverable chip) is styled but not currently emitted** by any lens. Wire
    it or drop it.
 - **cheap-mem has no host, so it has no installable shell.** A manifest and a service

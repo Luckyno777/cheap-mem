@@ -26,7 +26,8 @@ installation — it is the tool that creates memories.
 - `src/config.mjs`     — `.mem/config.json` reader/writer, `findRoot()`
 - `src/memory.mjs`     — JSONL logs (append-only)
 - `src/inbox.mjs`      — file-based cross-session inbox
-- `install/*.sh`       — macOS + Linux + Claude Code installers
+- `install/`           — macOS, Linux, Windows and Claude Code installers,
+                         the `mem serve` service installer, and `hooks/`
 - `test/*.test.mjs`    — node:test suites (run: `node --test test/*.test.mjs`)
 - `docs/`              — English user docs
 

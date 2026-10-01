@@ -329,7 +329,7 @@ ordered among themselves by score. `src/entity.mjs`, `src/search.mjs`.
 Undigested captures are indexed but held in **reserve**: they surface
 only when nothing curated answers, and they are marked when they do.
 This keeps a raw transcript from outranking a written-up finding.
-`--mix-raw` restores the old behaviour.
+There is no CLI flag for it: code calling `retrieve()` in `src/retrieval.mjs` can pass `rawReserve: false` to restore the old behaviour.
 
 ### 2.4 Optional semantic recall
 
@@ -781,7 +781,7 @@ npm test                                    # the runner counts subtests; count:
 node bench/scale.mjs                        # the scaling table in scale.md
 node bench/redteam.mjs                      # scope and poisoning scenarios
 node bench/ranking-attack.mjs               # flooding and rank manipulation
-node bench/byzantine.mjs                    # corrupted and hostile log lines
+node bench/byzantine.mjs                    # a flood of rule-abiding, plausible but wrong claims
 node bench/alias-fragmentation.mjs --root <mem> --set "a,b,c"
 node bench/duplicate-rate.mjs --root <mem>  # does the digest consolidate?
 node eval/metrics.mjs                       # retrieval ceiling and floor, no model

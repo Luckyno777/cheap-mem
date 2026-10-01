@@ -94,7 +94,7 @@ use a private repo, don't put secrets in.
 ## What we left out (yet)
 
 - The bibliothekar's "PROMPT.md" curator role (application-specific)
-- The `mem post ich` dedup memory (still there, but simplified)
+- lucky-mem's `mem post ich` dedup memory (not carried over; cheap-mem's cross-session messages are `mem inbox`)
 - Vector / embedding search as a default (it is an optional add-on, see docs/semantic-search.md)
 - Multi-remote / conflict-avoidance mechanics (not needed at 1 user)
 

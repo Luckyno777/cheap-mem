@@ -36,10 +36,10 @@ Writing routes and their switch: `docs/dashboard-writes.md`.
   and the user and ledger view.
 - **Sources**: projects, files and store, raw captures, digest, and the
   export studio.
-- **Operations**: shards, operations, doctor, performance, integrity,
-  versions, MCP.
-- **Settings**: appearance, system (the console's knobs and long jobs),
-  the command catalogue, and project state.
+- **Operations**: storage and drawers, tasks, diagnosis (the doctor),
+  performance, integrity, versions, MCP tools.
+- **Settings**: appearance, access, system settings (the console's knobs
+  and long jobs), the function catalogue, and project state.
 
 Every count has four states, each with its own colour: calm, watch,
 alarm, unknown. The doctor uses good, warning, error, unknown.
