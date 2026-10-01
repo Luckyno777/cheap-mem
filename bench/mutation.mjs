@@ -502,7 +502,275 @@ export const MUTANTS=[
    from:'      if (i >= attempts || !TRANSIENT_RENAME.has(err.code)) throw err;',
    to:'      throw err;  // MUTANT: first refusal is final',
    tests:['test/atomic-cache.test.mjs'] },
+
+ // ---------------------------------------------------------------------
+ // Risk-ordered block (security- and data-critical modules).
+ //
+ // The catalogue grew by what was easy to break, not by what matters if
+ // it breaks: 17 of ~141 modules had a mutant, and `login`, `webauth`,
+ // `chain`, `shred`, `append`, `claim`, `writegate`, `pathcheck`,
+ // `filelock`, `inbox` and `guard` had none. Each mutant below breaks one
+ // promise a user relies on (a token leaves redaction, a wrong password is
+ // accepted, a tampered chain reads as fine, plaintext survives a shred, a
+ // foreign "done" counts, a path leaves its root). `tests` is the TARGET
+ // suite list: a sweep of exactly these mutants needs those suites, not the
+ // full suite. Measure: `node bench/mutation.mjs --security`.
+ // ---------------------------------------------------------------------
+
+ { name:'redaction: stripe keys are no longer matched',
+   file:'src/redaction.mjs',
+   from:"['stripe-key',      /\\b[rs]k_(live|test)_[A-Za-z0-9]{20,}/g],",
+   to:"['stripe-key',      /\\b[rs]k_(live|test)_[A-Za-z0-9]{2000,}/g],  // MUTANT",
+   tests:['test/redaction.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'redaction: secrets inside arrays are not redacted',
+   file:'src/redaction.mjs',
+   from:'  if (Array.isArray(o)) return o.map((x) => redactObject(x, found));',
+   to:'  if (Array.isArray(o)) return o;  // MUTANT',
+   tests:['test/redaction.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'redaction: no environment secret is ever collected',
+   file:'src/redaction.mjs',
+   from:'    out.push({ name, value });',
+   to:'    void value;  // MUTANT: nothing collected',
+   tests:['test/redaction.test.mjs'] },
+
+ { name:'login: any password matches the stored hash',
+   file:'src/login.mjs',
+   from:'  return timingSafeEqual(got, want);',
+   to:'  return true;  // MUTANT',
+   tests:['test/login.test.mjs'] },
+
+ { name:'login: an expired session still counts as signed in',
+   file:'src/login.mjs',
+   from:'  if (!e || !(e.expires > now)) return { valid: false };',
+   to:'  if (!e) return { valid: false };  // MUTANT',
+   tests:['test/login.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'login: failed attempts never lock a source out',
+   file:'src/login.mjs',
+   from:'  const lockMs = (n, from) => (n < from ? 0 :',
+   to:'  const lockMs = (n, from) => (true ? 0 :  // MUTANT',
+   tests:['test/login.test.mjs'] },
+
+ { name:'webauth: any token compares equal',
+   file:'src/webauth.mjs',
+   from:'  return timingSafeEqual(ha, hb);',
+   to:'  return true;  // MUTANT',
+   tests:['test/webauth.test.mjs','test/console.test.mjs'] },
+
+ { name:'webauth: a non-loopback bind is allowed without a token',
+   file:'src/webauth.mjs',
+   from:'  if (isLoopback(host)) return { ok: true };',
+   to:'  if (true) return { ok: true };  // MUTANT',
+   tests:['test/webauth.test.mjs','test/console.test.mjs'] },
+
+ { name:'webauth: a foreign origin passes the POST check',
+   file:'src/webauth.mjs',
+   from:'  return Boolean(host) && from.host === String(host);',
+   to:'  return true;  // MUTANT',
+   tests:['test/webauth.test.mjs','test/console.test.mjs'] },
+
+ { name:'capability: narrow() keeps scopes the capability does not cover',
+   file:'src/capability.mjs',
+   from:'    const keep = (scopes ?? this.scopes).filter((s) => this.covers(s));',
+   to:'    const keep = (scopes ?? this.scopes);  // MUTANT: widens',
+   tests:['test/retrieval.test.mjs'] },
+
+ { name:'capability: covers() ignores descendants:false',
+   file:'src/capability.mjs',
+   from:'    if (this.scopes.includes(id)) return true;\n    if (this.descendants && this.scopes.includes(GLOBAL)) return true;',
+   to:'    if (this.scopes.includes(id)) return true;\n    if (this.scopes.includes(GLOBAL)) return true;  // MUTANT',
+   tests:['test/retrieval.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'capability: the global scope is admitted without the read right',
+   file:'src/capability.mjs',
+   from:"    if (id === GLOBAL && this.rights.includes('read')) return true;",
+   to:"    if (id === GLOBAL) return true;  // MUTANT",
+   tests:['test/retrieval.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'chain: a seal that does not match the replayed hash counts as ok',
+   file:'src/chain.mjs',
+   from:'          ok: declared !== null && declared === before,',
+   to:'          ok: true,  // MUTANT',
+   tests:['test/chain.test.mjs'] },
+
+ { name:'chain: a writer with no seal reads as ok instead of unknown',
+   file:'src/chain.mjs',
+   from:"    else if (seals.length === 0 || covered === 0) state = 'unknown';",
+   to:"    else if (false) state = 'unknown';  // MUTANT",
+   tests:['test/chain.test.mjs'] },
+
+ { name:'chain: lines after the last seal are not counted as unsealed',
+   file:'src/chain.mjs',
+   from:'      unsealedSince: firstBad ? null : (total - covered),',
+   to:'      unsealedSince: firstBad ? null : 0,  // MUTANT',
+   tests:['test/chain.test.mjs'] },
+
+ { name:'shred: the plaintext body fields stay in the written entry',
+   file:'src/shred.mjs',
+   from:'  for (const f of Object.keys(present)) delete redacted[f];',
+   to:'  void present;  // MUTANT: plaintext stays',
+   tests:['test/p14-crypto-shred.test.mjs'] },
+
+ { name:'shred: destroying a key leaves it in the keyring',
+   file:'src/shred.mjs',
+   from:'    keys.delete(id);',
+   to:'    void id;  // MUTANT: the key survives',
+   tests:['test/p14-crypto-shred.test.mjs'] },
+
+ { name:'shred: an unreachable keyring is reported as a shredded entry',
+   file:'src/shred.mjs',
+   from:"    return { state: 'unreadable', reason: 'keyring-absent', fields: null };",
+   to:"    return { state: 'unreadable', reason: 'no-key', fields: null };  // MUTANT",
+   tests:['test/p14-crypto-shred.test.mjs'] },
+
+ { name:'append: a file without a final newline is no longer healed',
+   file:'src/append.mjs',
+   from:'    return probe[0] !== 0x0A;',
+   to:'    return false;  // MUTANT',
+   tests:['test/append-newline.test.mjs'] },
+
+ { name:'append: a short write is no longer truncated back',
+   file:'src/append.mjs',
+   from:'          fs.ftruncateSync(fd, sizeBefore);',
+   to:'          void sizeBefore;  // MUTANT: fragment stays',
+   tests:['test/append-enospc.test.mjs'] },
+
+ { name:'append: a short write truncates even when another writer was ahead',
+   file:'src/append.mjs',
+   from:'      if (sizeNow === ownEnd) {',
+   to:'      if (true) {  // MUTANT',
+   tests:['test/append-enospc.test.mjs'] },
+
+ { name:'claim: a done by someone who is not the holder counts',
+   file:'src/claim.mjs',
+   from:"  if (z.by !== holder.claimed_by) return 'done by someone who is not the holder';",
+   to:"  // MUTANT: holder check removed",
+   tests:['test/claim.test.mjs'] },
+
+ { name:'claim: a done with an old or foreign claim_id counts',
+   file:'src/claim.mjs',
+   from:"return 'done by someone who is not the holder';\n  if (z.claim_id !== holder.id) {",
+   to:"return 'done by someone who is not the holder';\n  if (false) {  // MUTANT",
+   tests:['test/claim.test.mjs','test/y0-claim-id.test.mjs'] },
+
+ { name:'claim: a second claim takes over while the first is still valid',
+   file:'src/claim.mjs',
+   from:'      } else if (holder && Date.parse(z.time) < Date.parse(holder.until)) {',
+   to:'      } else if (false) {  // MUTANT',
+   tests:['test/claim.test.mjs'] },
+
+ { name:'claim: renewals are no longer capped',
+   file:'src/claim.mjs',
+   from:'  if (Date.parse(z.until) > cap) {',
+   to:'  if (false) {  // MUTANT',
+   tests:['test/z2-claim-renew.test.mjs'] },
+
+ { name:'writegate: the read-only latch no longer wins over the flag',
+   file:'src/writegate.mjs',
+   from:'  if (readonly) {',
+   to:'  if (readonly && flag !== true) {  // MUTANT',
+   tests:['test/writegate.test.mjs'] },
+
+ { name:'writegate: any truthy allowWrites value is read as a yes',
+   file:'src/writegate.mjs',
+   from:'  if (value === true) {',
+   to:'  if (value) {  // MUTANT',
+   tests:['test/writegate.test.mjs'] },
+
+ { name:'writegate: the origin check is skipped for writes',
+   file:'src/writegate.mjs',
+   from:'  if (!webauth.postOriginOk(req.headers.origin, req.headers.host, cfg.origins)) {',
+   to:'  if (false) {  // MUTANT',
+   tests:['test/writegate.test.mjs'] },
+
+ { name:'pathcheck: a mention with no known tree reads as intact',
+   file:'src/pathcheck.mjs',
+   from:'  if (!tree) return VERDICT.UNKNOWN;',
+   to:'  if (!tree) return VERDICT.INTACT;  // MUTANT',
+   tests:['test/pathcheck.test.mjs'] },
+
+ { name:'pathcheck: a URL is read as a mention of a local path',
+   file:'src/pathcheck.mjs',
+   from:'  /(?<![A-Za-z0-9_./-])((?:src|',
+   to:'  /((?:src|',
+   tests:['test/pathcheck.test.mjs'] },
+
+ { name:'pathcheck: a dangling path is counted as intact',
+   file:'src/pathcheck.mjs',
+   from:'      else if (v === VERDICT.DANGLING) rec.dangling.push({ path: m, source, line });',
+   to:'      else if (v === VERDICT.DANGLING) rec.intact += 1;  // MUTANT',
+   tests:['test/pathcheck.test.mjs'] },
+
+ // (Dropped as equivalent: "a fresh lock is taken over as if stale" - removing
+ // the `age <= staleS` early return still ends in the `moved <= staleS`
+ // put-back and `return false`, so no caller can tell. Replaced by the
+ // opposite promise: a dead lock IS taken over.)
+ { name:'filelock: a stale lock is never taken over',
+   file:'src/filelock.mjs',
+   from:'  if (age <= staleS) return false;',
+   to:'  if (true) return false;  // MUTANT',
+   tests:['test/filelock.test.mjs'] },
+
+ { name:'filelock: nested locks are allowed',
+   file:'src/filelock.mjs',
+   from:'  if (heldPath !== null) {',
+   to:'  if (false) {  // MUTANT',
+   tests:['test/filelock.test.mjs'] },
+
+ { name:'filelock: the lock file is created without O_EXCL',
+   file:'src/filelock.mjs',
+   from:"flag: 'wx', mode: 0o600",
+   to:"flag: 'w', mode: 0o600  /* MUTANT */",
+   tests:['test/filelock.test.mjs'] },
+
+ { name:'inbox: a message name with a path in it is accepted',
+   file:'src/inbox.mjs',
+   from:"  if (name.includes('/') || name.includes('\\\\') || name.includes('..')) {",
+   to:'  if (false) {  // MUTANT',
+   tests:['test/inbox.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'inbox: a message is written to disk without redaction',
+   file:'src/inbox.mjs',
+   from:'    const r = redaction.redact(v);',
+   to:'    const r = { text: v, found: [] };  // MUTANT',
+   tests:['test/inbox.test.mjs','test/mutant-security-gaps.test.mjs'] },
+
+ { name:'inbox: a stale state writer still counts',
+   file:'src/inbox.mjs',
+   from:'    if (z.prior !== state) {',
+   to:'    if (false) {  // MUTANT',
+   tests:['test/inbox.test.mjs','test/z3-inbox.test.mjs'] },
+
+ { name:'inbox: reopening a closed message needs no reason',
+   file:'src/inbox.mjs',
+   from:'  if (isDone(current) && newState === STATE.OPEN && !r) {',
+   to:'  if (false) {  // MUTANT',
+   tests:['test/inbox.test.mjs','test/z3-inbox.test.mjs'] },
+
+ { name:'guard: a latch path may leave the root',
+   file:'src/guard.mjs',
+   from:'  if (!target.startsWith(path.resolve(root) + path.sep) && target !== path.resolve(root)) {',
+   to:'  if (false) {  // MUTANT',
+   tests:['test/guards.test.mjs','test/provenance-guard-heartbeat.test.mjs'] },
+
+ { name:'guard: a pattern latch on a missing file is no longer broken',
+   file:'src/guard.mjs',
+   from:"  if (!there) return { state: 'broken', why: `${rel} does not exist",
+   to:"  if (!there) return { state: 'green', why: `${rel} does not exist",
+   tests:['test/guards.test.mjs','test/provenance-guard-heartbeat.test.mjs'] },
 ];
+
+// The modules whose failure is a security or data-integrity failure. The
+// measure that matters is "mutants caught per module here", not "share of
+// modules with any mutant". `--security` sweeps only these, and only the
+// suites each mutant names (no baseline over, and no full run after, the
+// rest of the catalogue).
+const SECURITY_MODULES = Object.freeze([
+  'redaction', 'login', 'webauth', 'capability', 'chain', 'shred', 'append',
+  'claim', 'writegate', 'pathcheck', 'filelock', 'inbox', 'guard',
+].map((m) => `src/${m}.mjs`));
 
 // **The catalogue is importable; none of the rest of this file is.**
 //
@@ -530,6 +798,15 @@ const ALS_BEFEHL = process.argv[1]
 
 if (ALS_BEFEHL) {
 
+// `--security` or `--only=src/a.mjs,src/b.mjs`: sweep a subset, run only its
+// own suites. A survivor is then judged against ITS suites alone (no full
+// run to tell "caught elsewhere" from "survived"): it is reported as
+// SURVIVED and the person decides - a missing test, or an equivalent mutant.
+const ONLY=process.argv.includes('--security') ? SECURITY_MODULES
+  : (process.argv.find((a)=>a.startsWith('--only='))?.slice(7).split(',').filter(Boolean) ?? null);
+const SWEEP=ONLY ? MUTANTS.filter((m)=>ONLY.includes(m.file)) : MUTANTS;
+const perModule=new Map();
+
 // A mutant counts as caught when the tests fail. So on a suite that is
 // ALREADY failing, every mutant counts as caught and the score is perfect.
 // Found on 2026-09-05 by stripping assertions out of state.test.mjs: one
@@ -537,7 +814,7 @@ if (ALS_BEFEHL) {
 // A verification tool that scores highest when the thing it verifies is
 // broken is worse than none.
 {
-  const suites=[...new Set(MUTANTS.flatMap((m)=>m.tests))];
+  const suites=[...new Set(SWEEP.flatMap((m)=>m.tests))];
   try{ execFileSync('node',['--test',...suites],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
   catch(e){
     const out=String(e.stdout||'');
@@ -602,7 +879,7 @@ console.log('-------------------------------------------------+----------------'
 // The occasion: a rename on 2026-09-17 left six anchors pointing at
 // nothing. The mutants did not fail — they stopped running, and six
 // guarantees quietly stopped being checked.
-for(const m of MUTANTS){
+for(const m of SWEEP){
   const p=`${ROOT}/${m.file}`;
   const orig=fs.readFileSync(p,'utf8');
   const hits=orig.split(m.from).length-1;
@@ -625,20 +902,25 @@ for(const m of MUTANTS){
     detail=` (${n} test${n===1?'':'s'})`;
   }
   let elsewhere=false;
-  if(!failed){
+  if(!failed && !ONLY){
     try{ execFileSync('node',['--test'],{cwd:ROOT,stdio:['ignore','pipe','pipe'],encoding:'utf8'}); }
     catch{ elsewhere=true; }
   }
   restore();
+  { const r=perModule.get(m.file) ?? {caught:0,total:0}; r.total+=1; if(failed) r.caught+=1; perModule.set(m.file,r); }
   if(!failed && !elsewhere) survived++;
   if(!failed && elsewhere) misScoped++;
   console.log(`${m.name.padEnd(48)} | ${failed?'yes'+detail
     :elsewhere?'not by its own suite — caught elsewhere, list is wrong':'NO — SURVIVED'}`);
 }
 
-const applied=MUTANTS.length-skipped-ambiguous;
+const applied=SWEEP.length-skipped-ambiguous;
 console.log(`\n${applied-survived}/${applied} applied mutants caught by tests`
-  + ` (of ${MUTANTS.length} defined; ${skipped} anchor gone, ${ambiguous} ambiguous).`);
+  + ` (of ${SWEEP.length} defined; ${skipped} anchor gone, ${ambiguous} ambiguous).`);
+if(ONLY){
+  console.log('\nCaught mutants per module (the measure that matters):');
+  for(const [f,r] of [...perModule].sort()) console.log(`  ${f.padEnd(24)} ${r.caught}/${r.total}`);
+}
 if(survived) console.log(`${survived} surviving mutant(s) = ${survived} guarantee(s) that exist only in documentation.`);
 if(skipped||ambiguous) console.log(`${skipped+ambiguous} mutant(s) did not run. An untested guarantee is not a kept one — re-anchor them.`);
 if(misScoped) console.log(`${misScoped} mutant(s) name the wrong suite: the guarantee is kept, the bookkeeping is not.`);
