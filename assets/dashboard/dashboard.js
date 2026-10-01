@@ -306,6 +306,89 @@ function heading(k, title, desc, action = '') {
 function metrics(items) {
   return `<div class="metrics">${items.map(([a, b, c]) => `<div class="metric"><span class="name">${a}</span><strong>${b}</strong><small>${c}</small></div>`).join('')}</div>`;
 }
+// --- Agents page (#work/agents, parity with lucky-mem 2026-10-01) -----------
+// One row per agent instead of a card with eight fields. The page measures
+// nothing new: activity/pause/startable/channel arrive finished from the
+// server (src/dashboard.mjs agentSignals), the open mail from the inbox list
+// (the same 48 h line as the Inbox tab). Here they are only SUMMARISED.
+// The one state per agent:
+//   warning — mail to this agent waiting longer than 48 h, an active
+//             non-human writer without registration, an expired pause,
+//             a silent_until that is not a readable date
+//   good    — only with positive evidence: two sources confirm "alive"
+//   unknown — everything else. "unknown" and "not seen" NEVER count as good.
+// cheap-mem has no watcher process, so nothing here produces "error" —
+// a fourth state is not invented to fill the slot.
+// No penalty by design: an agent that cannot be started locally (a foreign
+// agent, a human) is not expected to send a heartbeat; an inbox bell
+// nobody has proven yet ("unknown") is a note, never a reason.
+const AG_MAIL_WAIT_MIN = 48 * 60;
+const AG_ACTIVE_DAYS = 7;
+const agentIsHuman = (a) => a.name.startsWith('human') || (D?.inbox?.human && a.name === D.inbox.human);
+const agentKind = (a) => (agentIsHuman(a) ? 'Human' : a.registered ? 'Agent' : 'Unregistered writer');
+function agoText(t, now = Date.now()) {
+  const ms = new Date(t).getTime();
+  if (!t || !Number.isFinite(ms)) return '—';
+  const min = (now - ms) / 60000;
+  if (min < 0) return when(t);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${Math.round(min)} min ago`;
+  if (min < 1440) return `${Math.round(min / 60)} h ago`;
+  const days = Math.round(min / 1440);
+  if (days < 60) return days === 1 ? '1 day ago' : `${days} days ago`;
+  return when(t);
+}
+// Open mail per agent — only when the inbox list is really here (it arrives
+// deferred); otherwise null = "not measured", never 0.
+function agentMail(a) {
+  const known = D?.inbox?.readable && (!D?.parts?.inbox || partState.inbox === 'ok');
+  if (!known) return null;
+  const mine = messages.filter((m) => m.to === a.name && m.situation !== 'done');
+  const ages = mine.map((m) => m.ageMin).filter((x) => Number.isFinite(x));
+  return { open: mine.length, waiting: mine.filter((m) => m.situation === 'waiting').length, oldestMin: ages.length ? Math.max(...ages) : null };
+}
+function agentStatus(a, now = Date.now()) {
+  const reasons = [];
+  const notes = [];
+  const kind = agentKind(a);
+  const human = kind === 'Human';
+  const act = a.activity || {};
+  const p = a.pause || {};
+  const lastMs = a.last ? new Date(a.last).getTime() : NaN;
+  const active = (Number.isFinite(lastMs) && now - lastMs <= AG_ACTIVE_DAYS * 864e5) || act.state === 'alive';
+  const mail = agentMail(a);
+  if (mail?.waiting) reasons.push(`${num(mail.waiting)} ${mail.waiting === 1 ? 'message' : 'messages'} waiting longer than 48 h`);
+  if (active && !a.registered && !human) reasons.push('writes, but not registered (no agents/<name>/ folder)');
+  if (p.state === 'expired') reasons.push('pause expired');
+  if (p.state === 'unknown' && p.until) reasons.push('silent_until is not a readable date');
+  if (a.startable && !a.startable.local && a.registered) notes.push('no local start, so no heartbeat expected (by design, no penalty)');
+  if (human) notes.push('human: no registration or heartbeat expected (no penalty)');
+  let state;
+  if (reasons.length) state = 'warning';
+  else if (act.state === 'alive') { state = 'good'; notes.unshift('alive: two sources confirm'); }
+  else {
+    state = 'unknown';
+    notes.unshift(act.state === 'unknown' ? 'only one of two sources confirms' : 'no source confirms a sign of life');
+  }
+  if (p.state === 'paused') notes.push(`paused until ${p.until || '—'}`);
+  const group = state === 'warning' ? 'attention' : active ? 'active' : 'idle';
+  return { state, reasons, notes, active, group, kind, mail };
+}
+// "Alive" has three values from the server: alive (two sources), unknown
+// (exactly ONE source), not seen (none). The bare word "unknown" next to
+// "not seen" read like two kinds of not knowing — so the count stands beside it.
+const aliveSources = (s) => (s === 'alive' ? '2 of 2 sources' : s === 'unknown' ? '1 of 2 sources' : s === 'not seen' ? '0 of 2 sources' : 'not measured');
+function agentRow(a, l, now = Date.now()) {
+  const es = state.project !== 'all' ? scoped().filter((e) => e.agent === a.name) : null;
+  const p = a.pause || {};
+  const act = a.activity || {};
+  const pause = p.state === 'paused' ? `until ${esc(p.until || '—')}${p.why ? ' · ' + esc(p.why) : ''}` : p.state === 'expired' ? 'expired' : p.state === 'unknown' ? 'unknown' : 'none';
+  const why = [...l.reasons, ...l.notes].join(' · ');
+  const m = l.mail;
+  const mailCell = m === null ? '<span title="the inbox list is not loaded or not readable">—</span>' : m.open ? `${num(m.open)}<span class="quiet ag-oldest"> · ${age(m.oldestMin)}</span>` : '0';
+  const details = `<div class="ag-detail"><p class="small quiet">${esc(a.role || 'no role recorded')}${a.model ? ' · ' + esc(a.model) : ''}${a.channel?.reason ? ' · ' + esc(a.channel.reason) : ''}</p><div class="stats-list"><div class="row ag-state-row"><span>State</span><span>${badge(l.state)} <span class="small quiet">${esc(why) || '—'}</span></span></div><div class="row"><span>Registration</span>${a.registered ? badge('present') : badge('missing', 'no folder')}</div><div class="row"><span>Alive (two sources)</span><span>${badge(act.state || 'unknown')} <span class="small quiet">${aliveSources(act.state)}</span></span></div><div class="row"><span>Heartbeat / activity</span><span class="small">${act.heartbeat?.ageMin != null ? age(act.heartbeat.ageMin) : 'never'} / ${act.content?.ageMin != null ? age(act.content.ageMin) : 'never'}</span></div><div class="row"><span>Pause (silent_until)</span><span class="small">${pause}</span></div><div class="row"><span>Locally startable</span><span class="small">${a.startable ? (a.startable.local ? 'yes' : 'no') : 'unknown'}</span></div><div class="row"><span>Inbox bell</span>${badge(a.channel?.state || 'unknown')}</div><div class="row"><span>Open mail</span><span class="small">${m === null ? 'not measured' : m.open ? `${num(m.open)} · oldest ${age(m.oldestMin)}` : '0'}</span></div><div class="row"><span>Last entry</span><span class="small">${a.last ? `${whenTime(a.last)} · ${agoText(a.last, now)}` : '—'}</span></div>${es ? `<div class="row"><span>In the chosen project</span><span class="small">${pluralEntries(es.length)}</span></div>` : ''}</div></div>`;
+  return `<details class="ag-row" data-agent="${esc(a.name)}" data-state="${l.state}"><summary><span class="ag-cell ag-name"><i class="ag-arrow" aria-hidden="true">›</i><span><strong>${esc(a.name)}</strong> <span class="tag ag-kind">${l.kind}</span></span></span><span class="ag-cell ag-state" title="${esc(why)}">${badge(l.state)}<span class="ag-why">${esc(why)}</span></span><span class="ag-cell ag-num"><span class="ag-lbl">Entries </span>${num(a.count ?? 0)}</span><span class="ag-cell ag-num" title="${a.last ? esc(whenTime(a.last)) : ''}">${a.last ? agoText(a.last, now) : '—'}</span><span class="ag-cell ag-num${m?.waiting ? ' gold' : ''}"><span class="ag-lbl">Mail </span>${mailCell}</span><span class="ag-cell ag-action">${btn('Contributions', 'agent-entries', `data-value="${esc(a.name)}"`, 'ghost small')}</span></summary>${details}</details>`;
+}
 function entryRows(list, emptyText) {
   return (
     list
@@ -378,7 +461,8 @@ const partReason = {};
 const partContentKey = {}; // name -> last JSON.stringify(b.data) (no-jump)
 function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
 function setCaptures(list) { rawSamples = list || []; }
-const PART_TAB = { inbox: 'inbox', raw: 'raw' };
+// The inbox list also feeds the per-agent mail column of the agents page.
+const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'] };
 // no-jump point 3: render() only when a part turns 'ok' for the FIRST
 // time and its tab is currently open (before that it said "loading" —
 // that MUST be shown). Every later refetch of the same part is a quiet
@@ -411,7 +495,7 @@ async function loadParts() {
       if (partState[name] !== 'ok') partState[name] = 'error';
     }
   }));
-  if (firstOk.some((name) => PART_TAB[name] === state.tab)) render();
+  if (firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
   else if (otherChanged) showNewDataMark();
 }
 function partNotice(name, title) {
@@ -939,21 +1023,28 @@ const pages = {
     const as = D.agents || [];
     const bell = D.bell || {};
     const tray = D.humanTray || {};
-    return `<div class="grid three">${as
-      .map((a) => {
-        const es = scoped().filter((e) => e.agent === a.name);
-        const p = a.pause || {};
-        const pause = p.state === 'paused' ? `until ${esc(p.until || '—')}${p.why ? ' · ' + esc(p.why) : ''}` : p.state === 'expired' ? 'expired' : p.state === 'unknown' ? 'unknown' : 'none';
-        const act = a.activity || {};
-        return panel(
-          esc(a.name),
-          `<div class="row-main" style="margin-bottom:22px"><div class="avatar">${esc(a.name.split(/[-_: ]/).map((x) => x[0] || '').join('').slice(0, 2).toUpperCase())}</div><div><strong>${a.name.startsWith('human') ? 'Human' : a.registered ? 'Agent' : 'Unregistered writer'}</strong><p class="small quiet">${esc(a.role || 'no role recorded')}${a.model ? ' · ' + esc(a.model) : ''}</p></div></div><div class="number">${num(a.count ?? 0)}</div><p class="small muted">entries in total${state.project !== 'all' ? ` · ${num(es.length)} in the chosen project` : ''}</p><div class="stats-list"><div class="row"><span>Registration</span>${a.registered ? badge('present') : badge('missing', 'no folder')}</div><div class="row"><span>Alive (two sources)</span>${badge(act.state || 'unknown')}</div><div class="row"><span>Heartbeat / activity</span><span class="small">${act.heartbeat?.ageMin != null ? age(act.heartbeat.ageMin) : 'never'} / ${act.content?.ageMin != null ? age(act.content.ageMin) : 'never'}</span></div><div class="row"><span>Pause (silent_until)</span><span class="small">${pause}</span></div><div class="row"><span>Locally startable</span><span class="small">${a.startable ? (a.startable.local ? 'yes' : 'no') : 'unknown'}</span></div><div class="row"><span>Inbox bell</span>${badge(a.channel?.state || 'unknown')}</div><div class="row"><span>Last entry</span><span>${a.last ? when(a.last) : '—'}</span></div></div>${btn('Open contributions', 'agent-entries', `data-value="${esc(a.name)}"`, 'ghost')}`,
-          a.channel?.reason ? esc(a.channel.reason) : '',
-        );
-      })
-      .join('') || empty('No agent registered and none seen in the log. <code class="mono">mem agent create &lt;name&gt;</code> registers one.')}</div>${panel(
+    const now = Date.now();
+    const rows = as.map((a) => ({ a, l: agentStatus(a, now) }));
+    const group = (g) => rows.filter((x) => x.l.group === g);
+    const attention = group('attention'), active = group('active'), idle = group('idle');
+    const mails = rows.map((x) => x.l.mail);
+    const mailTotal = mails.some((m) => m === null) ? null : mails.reduce((s, m) => s + m.open, 0);
+    const head = `<div class="ag-head" aria-hidden="true"><span>Agent</span><span>State</span><span>Entries</span><span>Last entry</span><span>Open mail</span><span></span></div>`;
+    const list = (xs) => `<div class="ag-list">${head}${xs.map(({ a, l }) => agentRow(a, l, now)).join('')}</div>`;
+    const section = (title, xs, sub) => (xs.length ? `<section class="ag-group" data-group="${esc(title)}"><h3 class="ag-group-title">${esc(title)} <span class="quiet">· ${num(xs.length)}</span></h3>${sub ? `<p class="small quiet ag-group-sub">${sub}</p>` : ''}${list(xs)}</section>` : '');
+    const board = as.length
+      ? section('Needs attention', attention, 'Mail waiting longer than 48 h, an active writer without registration, an expired or unreadable pause.') +
+        section('Active (7 days)', active, 'An entry in the last seven days, or confirmed alive by two sources.') +
+        (idle.length ? `<details class="accordion ag-idle" data-group="Idle"><summary>Idle <span class="quiet">· ${num(idle.length)}</span></summary><p class="small quiet ag-group-sub">No entry for more than seven days and no confirmed sign of life.</p>${list(idle)}</details>` : '')
+      : empty('No agent registered and none seen in the log. <code class="mono">mem agent create &lt;name&gt;</code> registers one.');
+    return `${metrics([
+      ['Agents', num(as.length), 'registered or seen in the log'],
+      ['Active in 7 days', num(rows.filter((x) => x.l.active).length), 'an entry or a confirmed sign of life, attention included'],
+      ['Need attention', num(attention.length), attention.length ? 'reasons in the row' : 'nothing stands out'],
+      ['Open mail', mailTotal === null ? '—' : num(mailTotal), mailTotal === null ? 'not measured: the inbox list is not loaded or not readable' : 'messages to all agents together'],
+    ])}${panel('Agents', board, 'One row per agent · click a row for every field · "unknown" never counts as good')}${panel(
       'Reachability needs independent sources',
-      `<div class="tablewrap"><table class="table"><thead><tr><th>Signal</th><th>Source</th><th>Here</th></tr></thead><tbody><tr><td>Own heartbeat</td><td>heartbeat.jsonl (mem heartbeat)</td><td>per agent, see the cards</td></tr><tr><td>Observed activity</td><td>the drawers and the inbox</td><td>per agent, see the cards</td></tr><tr><td>Deliberate pause</td><td>silent_until in AGENT.yaml</td><td>${num(as.filter((a) => a.pause?.state === 'paused').length)} paused</td></tr><tr><td>Locally startable</td><td>agents/&lt;name&gt;/PROMPT.md or START.md</td><td>${num(as.filter((a) => a.startable?.local).length)} of ${num(as.length)}</td></tr><tr><td>Digest bell</td><td>.mem/digest-bell.json</td><td>${bell.checkable ? (bell.rung ? 'rung · ' + esc(whenTime(bell.last)) : 'not rung') : badge('unknown')}</td></tr><tr><td>The human's tray (show only)</td><td>inbox/ addressed to the human participant</td><td>${tray.checkable === false ? badge('unknown', esc(tray.reason || 'unknown')) : `${num(tray.count)} open${tray.count ? ' · oldest ' + age(tray.oldestMin) : ''}`}</td></tr></tbody></table></div>${note('Two confirming sources: alive. One source: unknown. No observable signal: not seen. An announced pause is not an outage. The bell only reads ok once a message was actually answered.')}`,
+      `<div class="tablewrap"><table class="table ag-sources"><thead><tr><th>Signal</th><th>Source</th><th>Here</th></tr></thead><tbody><tr><td>Own heartbeat</td><td>heartbeat.jsonl (mem heartbeat)</td><td>per agent, in the row details</td></tr><tr><td>Observed activity</td><td>the drawers and the inbox</td><td>per agent, in the row details</td></tr><tr><td>Deliberate pause</td><td>silent_until in AGENT.yaml</td><td>${num(as.filter((a) => a.pause?.state === 'paused').length)} paused</td></tr><tr><td>Locally startable</td><td>agents/&lt;name&gt;/PROMPT.md or START.md</td><td>${num(as.filter((a) => a.startable?.local).length)} of ${num(as.length)}</td></tr><tr><td>Digest bell</td><td>.mem/digest-bell.json</td><td>${bell.checkable ? (bell.rung ? 'rung · ' + esc(whenTime(bell.last)) : 'not rung') : badge('unknown')}</td></tr><tr><td>The human's tray (show only)</td><td>inbox/ addressed to the human participant</td><td>${tray.checkable === false ? badge('unknown', esc(tray.reason || 'unknown')) : `${num(tray.count)} open${tray.count ? ' · oldest ' + age(tray.oldestMin) : ''}`}</td></tr></tbody></table></div>${note('Two confirming sources: alive. One source: unknown. No observable signal: not seen. An announced pause is not an outage. The bell only reads ok once a message was actually answered. An agent that cannot be started locally (a foreign agent) is not expected to send a heartbeat — that is no penalty.')}`,
     )}`;
   },
   inbox: () => partNotice('inbox', 'Inbox') ?? inboxPage(),

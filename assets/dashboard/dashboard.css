@@ -99,3 +99,40 @@ fieldset.read-only-fields{border:0;padding:0;margin:0;min-width:0;opacity:.62}
 
 /* 2026-09-29: the hidden attribute always wins — .btn{display:inline-flex} had the same specificity as [hidden] and came later, so the "New data" marker was always visible. */
 [hidden]{display:none!important}
+
+/* Agents page (2026-10-01, parity with lucky-mem): one row per agent, groups, details on click; on a phone compact row cards without horizontal scrolling */
+.ag-group{margin-bottom:22px}.ag-group:last-of-type{margin-bottom:6px}
+.ag-group-title{font-size:13px;font-weight:600;margin:0 0 3px}.ag-group-sub{margin:0 0 8px}
+.ag-idle>summary{font-size:13px}.ag-idle[open]>summary{margin-bottom:6px}
+.ag-list{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.ag-head,.ag-row>summary{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,2.4fr) 80px 130px 120px 116px;gap:14px;align-items:center;padding:10px 16px}
+.ag-head{font-size:10px;color:var(--quiet);letter-spacing:.4px;font-weight:500;border-bottom:1px solid var(--line)}
+.ag-row{border-bottom:1px solid var(--line)}.ag-row:last-child{border-bottom:0}
+.ag-row>summary{cursor:pointer;list-style:none;font-size:12px;transition:background .2s}
+.ag-row>summary::-webkit-details-marker{display:none}
+.ag-row>summary:hover{background:#b8e39106}.ag-row[open]>summary{background:var(--raised)}
+.ag-cell{min-width:0}
+.ag-name{display:flex;align-items:center;gap:8px}.ag-name strong{font-size:12px;font-weight:600;overflow-wrap:anywhere}
+.ag-kind{margin:0 0 0 4px;padding:1px 6px;font-size:9px}
+.ag-arrow{font-style:normal;color:var(--quiet);display:inline-block;transition:transform .2s;width:10px;flex:none}
+.ag-row[open] .ag-arrow{transform:rotate(90deg);color:var(--accent)}
+.ag-state .badge{vertical-align:middle}
+.ag-why{display:block;font-size:10px;color:var(--quiet);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ag-num{color:var(--muted);font-variant-numeric:tabular-nums}.ag-num.gold{color:var(--gold)}
+.ag-lbl{display:none}
+.ag-action{text-align:right}
+.ag-detail{padding:4px 16px 14px 34px;background:var(--raised)}.ag-detail>p{margin:4px 0 2px}
+.ag-detail .stats-list .row{padding:9px 0}
+@media(max-width:720px){
+.ag-head{display:none}
+.ag-row>summary{grid-template-columns:auto auto minmax(0,1fr) auto;grid-template-areas:"name name name state" "why why why why";gap:4px 10px;padding:12px 12px}
+.ag-name{grid-area:name}.ag-state{grid-area:state;justify-self:end;display:contents}
+.ag-state .badge{grid-area:state;justify-self:end}
+.ag-why{grid-area:why;white-space:normal;margin-top:0}
+.ag-why:empty{display:none}
+.ag-num{font-size:11px;grid-row:3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ag-action{grid-row:3;grid-column:4;justify-self:end}
+.ag-lbl{display:inline;color:var(--quiet)}.ag-oldest{display:none}.ag-action .btn{padding:5px 9px}
+.ag-detail{padding:4px 12px 12px 12px}
+.ag-detail .stats-list .row{flex-wrap:wrap;gap:4px 12px}
+.ag-sources{min-width:0}.ag-sources td,.ag-sources th{padding:10px 8px;overflow-wrap:anywhere}
+}
