@@ -23,6 +23,23 @@
 //    `staleS`), and never by deleting it blindly: the file is first
 //    renamed away (atomic — only one taker wins that rename) and its age
 //    is checked on the renamed file. A fresh lock is never taken.
+//  - **An orphaned lock is taken over AT ONCE (2026-10-01).** If the lock
+//    names a pid on THIS host and `process.kill(pid, 0)` answers ESRCH,
+//    the holder is provably dead (SIGKILL, crash) and we do not wait for
+//    `staleS`. Why: bench/value-report.mjs killed the writer 30 times with
+//    SIGKILL, and 5 times the next write failed or waited out its bound
+//    because the lock first had to go stale. The takeover is again a
+//    rename, and the renamed file must carry EXACTLY the content that was
+//    judged dead, or it is put back — so of two simultaneous takers exactly
+//    one wins. If the holder lives, the host differs, the pid is
+//    unreadable, or `kill` answers anything but ESRCH (EPERM: alive, just
+//    someone else's), age decides as before. A reused pid looks alive —
+//    then too only age, so never one takeover too many.
+//  - **The lock file is never empty.** It is written under a temporary
+//    name and attached with `link` (fails atomically with EEXIST, like
+//    `wx`). With `wx`, a SIGKILL between create and write could leave an
+//    EMPTY lock — no pid, so not recognisable as orphaned (seen once in the
+//    same run as "owner: unknown"). Without hard links it falls back to `wx`.
 //  - **Leaf locks only.** Taking a lock while this process already holds
 //    one throws `NestedLockError`. Not reentrant, on purpose: with only
 //    leaf locks two processes can never wait on each other's second
@@ -64,19 +81,53 @@ function ownerText(token) {
   return `${process.pid} ${os.hostname()} ${new Date().toISOString()} ${token}\n`;
 }
 
-/** Create the lock file atomically. `true` = got it, `false` = it exists. Other errors throw. */
+/** Error codes where `link` cannot work by design: fall back to `wx`. */
+const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EACCES']);
+
+/**
+ * Create the lock file atomically, WITH its content: write it under a
+ * temporary name, then `link` it to the lock name (EEXIST if one is
+ * there — atomic like `wx`). There is no moment in which the lock exists
+ * empty. `true` = got it, `false` = it exists. Other errors throw.
+ */
 function createLock(lockPath, token) {
-  const write = () => fs.writeFileSync(lockPath, ownerText(token),
-    { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  const text = ownerText(token);
+  const write = (p) => fs.writeFileSync(p, text, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+  const tmp = `${lockPath}.new-${process.pid}-${token}`;
   try {
     try {
-      write();
+      write(tmp);
     } catch (e) {
       if (!e || e.code !== 'ENOENT') throw e;
       // Directory missing: create it only now, not on every call (a
       // recursive mkdir per lock was a measurable part of the cost).
       fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-      write();
+      write(tmp);
+    }
+  } catch {
+    return createLockPlain(lockPath, write);
+  }
+  try {
+    fs.linkSync(tmp, lockPath);
+    return true;
+  } catch (e) {
+    if (e && e.code === 'EEXIST') return false;
+    if (!e || !NO_LINK.has(e.code)) throw e;
+    return createLockPlain(lockPath, write);
+  } finally {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* a crumb, harmless */ }
+  }
+}
+
+/** The plain `wx` create, for when the link route is not available. */
+function createLockPlain(lockPath, write) {
+  try {
+    try {
+      write(lockPath);
+    } catch (e) {
+      if (!e || e.code !== 'ENOENT') throw e;
+      fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+      write(lockPath);
     }
     return true;
   } catch (e) {
@@ -127,6 +178,49 @@ export function takeOverIfStale(lockPath, staleS) {
   return true;
 }
 
+/**
+ * Is the holder of this lock PROVABLY dead? `true` only if the content
+ * carries pid and host, the host is this one, the pid is not ours, and
+ * `process.kill(pid, 0)` answers ESRCH. Anything else (alive, EPERM,
+ * other host, unreadable, empty) is `false` — then age decides.
+ */
+function holderIsDead(content) {
+  const parts = String(content ?? '').trim().split(/\s+/);
+  if (parts.length < 4) return false;
+  const [pidText, host] = parts;
+  if (!/^[1-9][0-9]{0,9}$/.test(pidText)) return false;
+  const pid = Number(pidText);
+  if (pid === process.pid || host !== os.hostname()) return false;
+  try {
+    process.kill(pid, 0);
+    return false; // alive
+  } catch (e) {
+    return Boolean(e && e.code === 'ESRCH');
+  }
+}
+
+/**
+ * Take a lock over at once if its holder is provably dead (see
+ * `holderIsDead`). `true` means the lock is gone and the caller may create
+ * it again. Atomic through rename; the renamed file must carry exactly the
+ * content judged dead, or it is put back — so of several simultaneous
+ * takers exactly one wins.
+ */
+function takeOverIfOrphaned(lockPath) {
+  const content = readOwner(lockPath);
+  if (!content || !holderIsDead(content)) return false;
+  const grave = `${lockPath}.orphan-${process.pid}-${randomBytes(4).toString('hex')}`;
+  try { fs.renameSync(lockPath, grave); } catch { return false; } // someone else moved it first
+  if (readOwner(grave) !== content) {
+    // A fresh lock appeared between reading and the rename: put it back.
+    try { fs.linkSync(grave, lockPath); } catch { /* best effort */ }
+    try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
+    return false;
+  }
+  try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
+  return true;
+}
+
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -152,6 +246,7 @@ export function withLock(lockPath, fn, { waitMs = DEFAULT_WAIT_MS, staleS = DEFA
   let delay = 2;
   for (;;) {
     if (createLock(lockPath, token)) break;
+    if (takeOverIfOrphaned(lockPath)) continue;
     if (takeOverIfStale(lockPath, staleS)) continue;
     const left = deadline - Date.now();
     if (left <= 0) {
