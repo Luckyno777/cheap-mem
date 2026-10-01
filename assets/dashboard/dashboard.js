@@ -2173,6 +2173,26 @@ precision mediump float;
 varying vec3 vColor; varying float vAlpha; varying float vFog;
 void main(){ gl_FragColor = vec4(mix(vColor, vec3(0.031, 0.086, 0.098), vFog), vAlpha); }`;
 
+// Render load (parity with the sibling's 41ea1e12 + c669e71): both draw
+// loops (3D network, full-screen background shader) rest while the page
+// is hidden OR a dialog (palette, detail, editor) is open — nobody sees
+// a moving picture behind it, and a software-GL process would otherwise
+// keep several cores busy. Closing a dialog (event `close`) wakes both.
+const RESTING = () => document.hidden || !!document.querySelector('dialog[open]');
+// After 60 s without input (pointer, key, wheel) both loops do NOT stop but
+// slow to ~10 frames/s with a real-time step (same motion per second).
+// Any input lifts them back to the full rate. A full stop remains only for
+// RESTING() and prefers-reduced-motion (state.motion).
+// `window.CM_IDLE_MS` is only the probes' test hook.
+const IDLE_FRAME_MS = 95; // minimum gap between two frames when idle (~10/s)
+let lastAction = performance.now();
+const THROTTLED = () => performance.now() - lastAction > (window.CM_IDLE_MS || 60000);
+const wakers = new Set();
+['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => {
+  const idle = THROTTLED();
+  lastAction = performance.now();
+  if (idle) wakers.forEach((f) => f());
+}, { passive: true, capture: true }));
 // --- The network hull: ONE cloud of light fog (sphaere, 2026-09-28) ---------
 // The owner: "the sphere looks too much like a soap bubble; we want a
 // cloud-like look marked by light fog that fades out towards the edge and
@@ -2427,26 +2447,6 @@ void main(){ vec2 u = gl_PointCoord - 0.5; float r = dot(u, u) * 4.0; if (r > 1.
 }
 
 
-// Render load (parity with the sibling's 41ea1e12 + c669e71): both draw
-// loops (3D network, full-screen background shader) rest while the page
-// is hidden OR a dialog (palette, detail, editor) is open — nobody sees
-// a moving picture behind it, and a software-GL process would otherwise
-// keep several cores busy. Closing a dialog (event `close`) wakes both.
-const RESTING = () => document.hidden || !!document.querySelector('dialog[open]');
-// After 60 s without input (pointer, key, wheel) both loops do NOT stop but
-// slow to ~10 frames/s with a real-time step (same motion per second).
-// Any input lifts them back to the full rate. A full stop remains only for
-// RESTING() and prefers-reduced-motion (state.motion).
-// `window.CM_IDLE_MS` is only the probes' test hook.
-const IDLE_FRAME_MS = 95; // minimum gap between two frames when idle (~10/s)
-let lastAction = performance.now();
-const THROTTLED = () => performance.now() - lastAction > (window.CM_IDLE_MS || 60000);
-const wakers = new Set();
-['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => {
-  const idle = THROTTLED();
-  lastAction = performance.now();
-  if (idle) wakers.forEach((f) => f());
-}, { passive: true, capture: true }));
 function initGraph() {
   const T = window.MemThree,
     canvas = $('#brain'),
