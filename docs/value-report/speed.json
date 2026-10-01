@@ -1,0 +1,104 @@
+{
+  "commit": "a831c45",
+  "dirty": false,
+  "measuredAt": "2026-10-01T19:39:14.408Z",
+  "queries": [
+    "connection pool blocked the event loop",
+    "billing",
+    "why did we revert the migration",
+    "rate limiter latency",
+    "auth token refresh",
+    "nobody could explain the failure"
+  ],
+  "sizes": {
+    "10000": {
+      "state": "measured",
+      "cold": {
+        "n": 24,
+        "medianMs": 466.17,
+        "p95Ms": 560.19,
+        "worstMs": 570.11
+      },
+      "warm": {
+        "n": 60,
+        "medianMs": 22.168,
+        "p95Ms": 28.79,
+        "worstMs": 51.64
+      },
+      "queries": 6
+    },
+    "100000": {
+      "state": "measured",
+      "cold": {
+        "n": 24,
+        "medianMs": 2370.99,
+        "p95Ms": 2688.66,
+        "worstMs": 2910.78
+      },
+      "warm": {
+        "n": 60,
+        "medianMs": 193.506,
+        "p95Ms": 289.008,
+        "worstMs": 371.391
+      },
+      "queries": 6
+    }
+  },
+  "firstSearch": {
+    "10000": {
+      "state": "measured",
+      "ms": 1604.2
+    },
+    "100000": {
+      "state": "measured",
+      "ms": 14341.9
+    }
+  },
+  "afterWrite": {
+    "10000": {
+      "state": "measured",
+      "n": 5,
+      "medianMs": 454.35,
+      "p95Ms": 539.61,
+      "worstMs": 539.61
+    },
+    "100000": {
+      "state": "measured",
+      "n": 5,
+      "medianMs": 2481.7,
+      "p95Ms": 2700.18,
+      "worstMs": 2700.18
+    }
+  },
+  "write": {
+    "10000": {
+      "state": "measured",
+      "n": 53,
+      "medianMs": 18.036,
+      "p95Ms": 28.2,
+      "worstMs": 30.373
+    },
+    "100000": {
+      "state": "measured",
+      "n": 53,
+      "medianMs": 179.264,
+      "p95Ms": 225.91,
+      "worstMs": 242.011
+    }
+  },
+  "growth": [
+    {
+      "from": 10000,
+      "to": 100000,
+      "notesFactor": 10,
+      "coldMedianFactor": 5.09,
+      "coldMedianExponent": 0.71,
+      "coldP95Factor": 4.8,
+      "coldP95Exponent": 0.68,
+      "warmMedianFactor": 8.73,
+      "warmMedianExponent": 0.94,
+      "warmP95Factor": 10.04,
+      "warmP95Exponent": 1
+    }
+  ]
+}

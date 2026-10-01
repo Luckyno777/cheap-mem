@@ -1,0 +1,16 @@
+{
+  "commit": "a831c45",
+  "dirty": false,
+  "measuredAt": "2026-10-01T19:39:14.408Z",
+  "sizes": [
+    10000,
+    100000
+  ],
+  "environment": {
+    "cpuModel": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cpuCount": 4,
+    "node": "v22.22.2",
+    "totalMemMB": 16095,
+    "loadAvg1AtStart": 3.36
+  }
+}

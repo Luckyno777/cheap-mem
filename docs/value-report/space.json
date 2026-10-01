@@ -1,0 +1,31 @@
+{
+  "commit": "a831c45",
+  "dirty": false,
+  "measuredAt": "2026-10-01T19:39:14.408Z",
+  "sizes": {
+    "10000": {
+      "notes": 10000,
+      "logBytes": 2622043,
+      "indexCacheBytes": 7258710,
+      "logBytesPerNote": 262.2,
+      "withIndexBytesPerNote": 988.1
+    },
+    "100000": {
+      "notes": 100000,
+      "logBytes": 26297320,
+      "indexCacheBytes": 67132577,
+      "logBytesPerNote": 263,
+      "withIndexBytesPerNote": 934.3
+    }
+  },
+  "realNotes": {
+    "notes": 53,
+    "logBytes": 12339,
+    "bytesPerNote": 232.8
+  },
+  "extrapolation": {
+    "basis": "bytes per note times one million",
+    "measuredAt1M": false,
+    "realNotesGB": 0.233
+  }
+}

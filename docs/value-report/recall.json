@@ -1,0 +1,2121 @@
+{
+  "commit": "a831c45",
+  "dirty": false,
+  "measuredAt": "2026-10-01T19:39:14.408Z",
+  "sizes": {
+    "10000": {
+      "groups": {
+        "keywords": {
+          "n": 8,
+          "unknown": 0,
+          "at3": 8,
+          "at10": 8,
+          "pass3": 8,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 100,
+          "at10Pct": 100,
+          "pass3Pct": 100,
+          "leaked3Pct": 0
+        },
+        "all": {
+          "n": 44,
+          "unknown": 0,
+          "at3": 34,
+          "at10": 37,
+          "pass3": 32,
+          "leaked3": 2,
+          "measured": true,
+          "at3Pct": 77.3,
+          "at10Pct": 84.1,
+          "pass3Pct": 72.7,
+          "leaked3Pct": 4.5
+        },
+        "everyday": {
+          "n": 4,
+          "unknown": 0,
+          "at3": 1,
+          "at10": 3,
+          "pass3": 1,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 25,
+          "at10Pct": 75,
+          "pass3Pct": 25,
+          "leaked3Pct": 0
+        },
+        "other-words": {
+          "n": 4,
+          "unknown": 0,
+          "at3": 2,
+          "at10": 2,
+          "pass3": 2,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 50,
+          "at10Pct": 50,
+          "pass3Pct": 50,
+          "leaked3Pct": 0
+        },
+        "right-project": {
+          "n": 7,
+          "unknown": 0,
+          "at3": 7,
+          "at10": 7,
+          "pass3": 7,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 100,
+          "at10Pct": 100,
+          "pass3Pct": 100,
+          "leaked3Pct": 0
+        },
+        "latest-fact": {
+          "n": 8,
+          "unknown": 0,
+          "at3": 8,
+          "at10": 8,
+          "pass3": 6,
+          "leaked3": 2,
+          "measured": true,
+          "at3Pct": 100,
+          "at10Pct": 100,
+          "pass3Pct": 75,
+          "leaked3Pct": 25
+        },
+        "still-valid": {
+          "n": 7,
+          "unknown": 0,
+          "at3": 6,
+          "at10": 7,
+          "pass3": 6,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 85.7,
+          "at10Pct": 100,
+          "pass3Pct": 85.7,
+          "leaked3Pct": 0
+        },
+        "other-language": {
+          "n": 6,
+          "unknown": 0,
+          "at3": 2,
+          "at10": 2,
+          "pass3": 2,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 33.3,
+          "at10Pct": 33.3,
+          "pass3Pct": 33.3,
+          "leaked3Pct": 0
+        }
+      },
+      "cases": [
+        {
+          "id": "lex-01",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-postgres",
+            "g-c-mail",
+            "g-index"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-02",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-oom",
+            "b-err",
+            "g-pool",
+            "g-disk",
+            "g-bundle",
+            "g-c-locked",
+            "g-vendor-new",
+            "g-tls",
+            "a-err"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-03",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-tls"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-04",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-k8s"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-05",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-cors",
+            "g-port-new",
+            "b-deploy"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-06",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-index",
+            "g-c-mail",
+            "g-css-new",
+            "g-backup",
+            "g-postgres",
+            "g-cors",
+            "s2f2",
+            "s25k",
+            "s7cd",
+            "s61s"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-07",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-pool",
+            "s6ym",
+            "s55k",
+            "s4j5",
+            "s2ng",
+            "s2yu",
+            "s7kv",
+            "so7",
+            "sue",
+            "s49b"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-08",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-dst"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-01",
+          "group": "everyday",
+          "state": "pass",
+          "rank": 5,
+          "top": [
+            "a-login",
+            "g-bundle",
+            "g-tls",
+            "g-money",
+            "g-race",
+            "g-postgres",
+            "a-err",
+            "g-dst",
+            "s1ft",
+            "s75g"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-02",
+          "group": "everyday",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-tls",
+            "s2b5",
+            "s676",
+            "s7md",
+            "spz",
+            "s2lt",
+            "s3of",
+            "sly",
+            "s330",
+            "s60j"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-03",
+          "group": "everyday",
+          "state": "pass",
+          "rank": 7,
+          "top": [
+            "g-node-new",
+            "g-apidocs-old",
+            "g-cache-key",
+            "g-c-phone",
+            "g-tls",
+            "g-oom",
+            "g-disk"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-04",
+          "group": "everyday",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "s4ry",
+            "s2ms",
+            "s1h2",
+            "s46i",
+            "s1s4",
+            "s2cd",
+            "s73y",
+            "s4rm",
+            "s704",
+            "spk"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-05",
+          "group": "other-words",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "st0",
+            "s4sz",
+            "s4k3",
+            "s7eq",
+            "s1ou",
+            "s134",
+            "s7jz",
+            "s60f",
+            "s5uo",
+            "s7g"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-06",
+          "group": "other-words",
+          "state": "pass",
+          "rank": 2,
+          "top": [
+            "b-err",
+            "g-c-locked",
+            "g-pool",
+            "g-de-printer",
+            "g-disk",
+            "a-login",
+            "a-err",
+            "g-tls",
+            "g-vendor-new",
+            "g-cache-key"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-07",
+          "group": "other-words",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-c-mail",
+            "g-queue",
+            "a-login",
+            "g-postgres",
+            "g-index",
+            "g-cors",
+            "g-de-scanner",
+            "g-c-phone",
+            "g-dst",
+            "s2b5"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-08",
+          "group": "other-words",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "sb1",
+            "s7o4",
+            "s79w",
+            "s2ud",
+            "s52f",
+            "s1ji",
+            "syw",
+            "s35",
+            "s39m",
+            "s2r8"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "scope-01",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "a-err",
+            "g-pool",
+            "g-oom",
+            "g-disk",
+            "s4b0",
+            "s1xm",
+            "spd",
+            "s6zz",
+            "s7bc",
+            "s4xr"
+          ],
+          "leakedIds": [
+            "b-err"
+          ]
+        },
+        {
+          "id": "scope-02",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "b-err",
+            "g-pool",
+            "g-oom",
+            "g-disk",
+            "s4b0",
+            "s1xm",
+            "spd",
+            "s6zz",
+            "s7bc",
+            "s4xr"
+          ],
+          "leakedIds": [
+            "a-err"
+          ]
+        },
+        {
+          "id": "scope-03",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "a-deploy",
+            "s3hx",
+            "s5p1",
+            "s15w",
+            "s478",
+            "s5y1",
+            "s1xu",
+            "s1op",
+            "s126",
+            "s6wi"
+          ],
+          "leakedIds": [
+            "b-deploy"
+          ]
+        },
+        {
+          "id": "scope-04",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "b-login",
+            "b-deploy",
+            "sln",
+            "s2fb",
+            "s57b",
+            "s3pb",
+            "sl0",
+            "s627",
+            "s4wt",
+            "s3go"
+          ],
+          "leakedIds": [
+            "a-login"
+          ]
+        },
+        {
+          "id": "scope-05",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "a-session",
+            "g-postgres",
+            "sb1",
+            "s40n",
+            "s4pb",
+            "s8c",
+            "s5tk",
+            "s155",
+            "s4t7",
+            "s10y"
+          ],
+          "leakedIds": [
+            "b-session"
+          ]
+        },
+        {
+          "id": "scope-06",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "b-session",
+            "g-postgres",
+            "sb1",
+            "s40n",
+            "s4pb",
+            "s8c",
+            "s5tk",
+            "s155",
+            "s4t7",
+            "s10y"
+          ],
+          "leakedIds": [
+            "a-session"
+          ]
+        },
+        {
+          "id": "scope-07",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-money",
+            "g-postgres",
+            "a-session",
+            "g-c-mail",
+            "s2qa",
+            "s7lx",
+            "s4wv",
+            "s328",
+            "s6lq",
+            "ss"
+          ],
+          "leakedIds": [
+            "b-err"
+          ]
+        },
+        {
+          "id": "time-01",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-port-new",
+            "g-index",
+            "g-css-new",
+            "g-cors",
+            "g-disk",
+            "b-deploy"
+          ],
+          "leakedIds": [
+            "g-port-old"
+          ]
+        },
+        {
+          "id": "time-02",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-port-old",
+            "g-index",
+            "g-css-new",
+            "g-cors",
+            "g-disk",
+            "b-deploy"
+          ],
+          "leakedIds": [
+            "g-port-new"
+          ]
+        },
+        {
+          "id": "time-03",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-node-new",
+            "g-de-printer",
+            "g-k8s",
+            "a-session",
+            "g-queue",
+            "s3rp",
+            "s6ks",
+            "s7i2",
+            "s4d0",
+            "s56q"
+          ],
+          "leakedIds": [
+            "g-node-old"
+          ]
+        },
+        {
+          "id": "time-04",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-node-old",
+            "g-de-printer",
+            "g-k8s",
+            "a-session",
+            "g-queue",
+            "s3rp",
+            "s6ks",
+            "s7i2",
+            "s4d0",
+            "s56q"
+          ],
+          "leakedIds": [
+            "g-node-new"
+          ]
+        },
+        {
+          "id": "time-05",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-vendor-new",
+            "s227",
+            "s3tw",
+            "s3pa",
+            "s7et",
+            "s6yq",
+            "s2sz",
+            "s20p",
+            "sui",
+            "s61v"
+          ],
+          "leakedIds": [
+            "g-vendor-old"
+          ]
+        },
+        {
+          "id": "time-06",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-vendor-old",
+            "s227",
+            "s3tw",
+            "s3pa",
+            "s7et",
+            "s6yq",
+            "s2sz",
+            "s20p",
+            "sui",
+            "s61v"
+          ],
+          "leakedIds": [
+            "g-vendor-new"
+          ]
+        },
+        {
+          "id": "status-01",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-rule-canary",
+            "b-deploy",
+            "s3hx",
+            "s5p1",
+            "s15w",
+            "s478",
+            "s5y1",
+            "s1xu",
+            "s6wi",
+            "s4db"
+          ],
+          "leakedIds": [
+            "g-rule-freeze"
+          ]
+        },
+        {
+          "id": "status-02",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-rule-canary",
+            "b-deploy",
+            "s3hx",
+            "s5p1",
+            "s15w",
+            "s478",
+            "s5y1",
+            "s1xu",
+            "s6wi",
+            "s4db"
+          ],
+          "leakedIds": [
+            "g-rule-freeze"
+          ]
+        },
+        {
+          "id": "status-03",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-soc2-passed"
+          ],
+          "leakedIds": [
+            "g-duty-soc2"
+          ]
+        },
+        {
+          "id": "status-04",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 8,
+          "top": [
+            "g-pool",
+            "s3ai",
+            "s5x5",
+            "s3zd",
+            "s3hb",
+            "s3ra",
+            "s5vw",
+            "g-duty-pentest",
+            "s4g1",
+            "s5zh"
+          ],
+          "leakedIds": [
+            "g-duty-soc2"
+          ]
+        },
+        {
+          "id": "status-05",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-cache-key",
+            "s1mg",
+            "s2vv",
+            "s2f0",
+            "s4j",
+            "s1ey",
+            "s309",
+            "s4t1",
+            "s6v5",
+            "s2mo"
+          ],
+          "leakedIds": [
+            "g-cache-ttl"
+          ]
+        },
+        {
+          "id": "status-06",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-cache-key",
+            "b-deploy",
+            "a-deploy",
+            "s6js",
+            "s1xv",
+            "s1my",
+            "s1gd",
+            "s65o",
+            "s508",
+            "s4cc"
+          ],
+          "leakedIds": [
+            "g-cache-ttl"
+          ]
+        },
+        {
+          "id": "status-07",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-rule-review",
+            "g-index",
+            "g-vendor-new",
+            "g-backup",
+            "g-c-phone",
+            "s9k",
+            "s2gk",
+            "s4vp",
+            "s1xf",
+            "s6iu"
+          ],
+          "leakedIds": [
+            "g-rule-freeze"
+          ]
+        },
+        {
+          "id": "lang-01",
+          "group": "other-language",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-oom",
+            "g-bundle",
+            "g-queue"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-02",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-03",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-04",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "b-deploy",
+            "a-deploy",
+            "g-node-new",
+            "g-pool",
+            "g-rule-canary"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-05",
+          "group": "other-language",
+          "state": "pass",
+          "rank": 3,
+          "top": [
+            "g-disk",
+            "g-standup",
+            "g-de-printer",
+            "g-c-mail",
+            "g-port-new",
+            "g-c-slow"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-06",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "g-index",
+            "s1fz",
+            "g-pool",
+            "s4j5",
+            "s2yu",
+            "s30h",
+            "s5hd",
+            "sue",
+            "s42",
+            "s1c7"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "time-07",
+          "group": "latest-fact",
+          "state": "fail",
+          "rank": 1,
+          "top": [
+            "g-oncall-new",
+            "g-oncall-old",
+            "g-tls",
+            "a-err"
+          ],
+          "leakedIds": [
+            "g-oncall-old"
+          ]
+        },
+        {
+          "id": "time-08",
+          "group": "latest-fact",
+          "state": "fail",
+          "rank": 3,
+          "top": [
+            "g-css-old",
+            "g-bundle",
+            "g-css-new"
+          ],
+          "leakedIds": [
+            "g-css-old"
+          ],
+          "gap": "unlinked newer decision without topic — no ranking rule by design; addressed in the write path (src/neighbours.mjs similarDecisions, G1b)"
+        },
+        {
+          "id": "time-09",
+          "group": "latest-fact",
+          "state": "fail",
+          "rank": 1,
+          "top": [
+            "g-apidocs-new",
+            "g-apidocs-old",
+            "s3cd",
+            "s192",
+            "s3ok",
+            "s67r",
+            "sh6",
+            "s4xc",
+            "g-cors",
+            "s1j3"
+          ],
+          "leakedIds": [
+            "g-apidocs-old"
+          ]
+        }
+      ],
+      "decoys": {
+        "far": {
+          "n": 16,
+          "unknown": 0,
+          "falsePositives": 7,
+          "silent": 9,
+          "falsePositiveRatePct": 43.8
+        },
+        "near": {
+          "n": 12,
+          "unknown": 0,
+          "falsePositives": 12,
+          "silent": 0,
+          "falsePositiveRatePct": 100
+        }
+      },
+      "decoyCases": [
+        {
+          "id": "far-01",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-02",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "far-03",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-04",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-05",
+          "kind": "far",
+          "hits": 1
+        },
+        {
+          "id": "far-06",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "far-07",
+          "kind": "far",
+          "hits": 1
+        },
+        {
+          "id": "far-08",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-09",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "far-10",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-11",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-12",
+          "kind": "far",
+          "hits": 1
+        },
+        {
+          "id": "far-13",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-14",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-15",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-16",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "near-01",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-02",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-03",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-04",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-05",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-06",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-07",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-08",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-09",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-10",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-11",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-12",
+          "kind": "near",
+          "hits": 3
+        }
+      ]
+    },
+    "100000": {
+      "groups": {
+        "keywords": {
+          "n": 8,
+          "unknown": 0,
+          "at3": 8,
+          "at10": 8,
+          "pass3": 8,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 100,
+          "at10Pct": 100,
+          "pass3Pct": 100,
+          "leaked3Pct": 0
+        },
+        "all": {
+          "n": 44,
+          "unknown": 0,
+          "at3": 34,
+          "at10": 36,
+          "pass3": 32,
+          "leaked3": 2,
+          "measured": true,
+          "at3Pct": 77.3,
+          "at10Pct": 81.8,
+          "pass3Pct": 72.7,
+          "leaked3Pct": 4.5
+        },
+        "everyday": {
+          "n": 4,
+          "unknown": 0,
+          "at3": 1,
+          "at10": 3,
+          "pass3": 1,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 25,
+          "at10Pct": 75,
+          "pass3Pct": 25,
+          "leaked3Pct": 0
+        },
+        "other-words": {
+          "n": 4,
+          "unknown": 0,
+          "at3": 2,
+          "at10": 2,
+          "pass3": 2,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 50,
+          "at10Pct": 50,
+          "pass3Pct": 50,
+          "leaked3Pct": 0
+        },
+        "right-project": {
+          "n": 7,
+          "unknown": 0,
+          "at3": 7,
+          "at10": 7,
+          "pass3": 7,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 100,
+          "at10Pct": 100,
+          "pass3Pct": 100,
+          "leaked3Pct": 0
+        },
+        "latest-fact": {
+          "n": 8,
+          "unknown": 0,
+          "at3": 8,
+          "at10": 8,
+          "pass3": 6,
+          "leaked3": 2,
+          "measured": true,
+          "at3Pct": 100,
+          "at10Pct": 100,
+          "pass3Pct": 75,
+          "leaked3Pct": 25
+        },
+        "still-valid": {
+          "n": 7,
+          "unknown": 0,
+          "at3": 6,
+          "at10": 6,
+          "pass3": 6,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 85.7,
+          "at10Pct": 85.7,
+          "pass3Pct": 85.7,
+          "leaked3Pct": 0
+        },
+        "other-language": {
+          "n": 6,
+          "unknown": 0,
+          "at3": 2,
+          "at10": 2,
+          "pass3": 2,
+          "leaked3": 0,
+          "measured": true,
+          "at3Pct": 33.3,
+          "at10Pct": 33.3,
+          "pass3Pct": 33.3,
+          "leaked3Pct": 0
+        }
+      },
+      "cases": [
+        {
+          "id": "lex-01",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-postgres",
+            "g-c-mail",
+            "g-index"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-02",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-oom",
+            "b-err",
+            "g-pool",
+            "g-disk",
+            "g-bundle",
+            "g-c-locked",
+            "g-vendor-new",
+            "g-tls",
+            "a-err"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-03",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-tls"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-04",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-k8s"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-05",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-cors",
+            "g-port-new",
+            "b-deploy"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-06",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-index",
+            "g-c-mail",
+            "g-css-new",
+            "g-backup",
+            "g-postgres",
+            "g-cors",
+            "s2f2",
+            "sbey",
+            "sh6z",
+            "s61s"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-07",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-pool",
+            "s15ar",
+            "s1wgo",
+            "s1ehr",
+            "so4a",
+            "s1eac",
+            "sp6e",
+            "s9q2",
+            "s1tl8",
+            "shzv"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lex-08",
+          "group": "keywords",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-dst"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-01",
+          "group": "everyday",
+          "state": "pass",
+          "rank": 5,
+          "top": [
+            "a-login",
+            "g-bundle",
+            "g-tls",
+            "g-money",
+            "g-race",
+            "g-postgres",
+            "a-err",
+            "g-dst",
+            "s1lgm",
+            "si9j"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-02",
+          "group": "everyday",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-tls",
+            "s1n6w",
+            "s17p0",
+            "s1m5c",
+            "s1vub",
+            "s1y0c",
+            "sdjf",
+            "s1tny",
+            "sg74",
+            "szhu"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-03",
+          "group": "everyday",
+          "state": "pass",
+          "rank": 7,
+          "top": [
+            "g-node-new",
+            "g-apidocs-old",
+            "g-cache-key",
+            "g-c-phone",
+            "g-oom",
+            "g-tls",
+            "g-disk"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-04",
+          "group": "everyday",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "s1kqx",
+            "s1v49",
+            "s1n82",
+            "s1oae",
+            "s2ms",
+            "stsw",
+            "s1cpk",
+            "sn6k",
+            "g-c-phone",
+            "so8d"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-05",
+          "group": "other-words",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "sjg6",
+            "g-queue",
+            "swyd",
+            "sh8q",
+            "s1gjp",
+            "s4k3",
+            "s1svd",
+            "sbvq",
+            "su4f",
+            "s4sz"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-06",
+          "group": "other-words",
+          "state": "pass",
+          "rank": 2,
+          "top": [
+            "b-err",
+            "g-c-locked",
+            "g-pool",
+            "g-de-printer",
+            "g-disk",
+            "a-login",
+            "a-err",
+            "g-tls",
+            "g-vendor-new",
+            "g-cache-key"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-07",
+          "group": "other-words",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-c-mail",
+            "g-queue",
+            "a-login",
+            "g-postgres",
+            "g-index",
+            "g-cors",
+            "g-de-scanner",
+            "g-c-phone",
+            "g-dst",
+            "g-race"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "para-08",
+          "group": "other-words",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "sbtu",
+            "s22if",
+            "s23p9",
+            "stsa",
+            "s95e",
+            "s12wj",
+            "sv6w",
+            "si5z",
+            "shkj",
+            "s23j2"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "scope-01",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "a-err",
+            "g-pool",
+            "g-oom",
+            "g-disk",
+            "s1n2u",
+            "si8q",
+            "s1ljd",
+            "s16jt",
+            "s61p",
+            "s5k5"
+          ],
+          "leakedIds": [
+            "b-err"
+          ]
+        },
+        {
+          "id": "scope-02",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "b-err",
+            "g-pool",
+            "g-oom",
+            "g-disk",
+            "s1n2u",
+            "si8q",
+            "s1ljd",
+            "s16jt",
+            "s61p",
+            "s5k5"
+          ],
+          "leakedIds": [
+            "a-err"
+          ]
+        },
+        {
+          "id": "scope-03",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "a-deploy",
+            "s1g9r",
+            "sp9b",
+            "ssyz",
+            "s5k1",
+            "s99j",
+            "s15w3",
+            "s1rka",
+            "s228m",
+            "s1vw8"
+          ],
+          "leakedIds": [
+            "b-deploy"
+          ]
+        },
+        {
+          "id": "scope-04",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "b-login",
+            "b-deploy",
+            "s1mq3",
+            "s1ucd",
+            "skfa",
+            "sowb",
+            "slqr",
+            "sp3a",
+            "swwj",
+            "s1h5t"
+          ],
+          "leakedIds": [
+            "a-login"
+          ]
+        },
+        {
+          "id": "scope-05",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "a-session",
+            "g-postgres",
+            "s5ot",
+            "s1n6c",
+            "s95e",
+            "s17h7",
+            "s27g",
+            "s435",
+            "sing",
+            "sbic"
+          ],
+          "leakedIds": [
+            "b-session"
+          ]
+        },
+        {
+          "id": "scope-06",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "b-session",
+            "g-postgres",
+            "s5ot",
+            "s1n6c",
+            "s1ttz",
+            "stq1",
+            "s27g",
+            "sing",
+            "sp1n",
+            "s1r2z"
+          ],
+          "leakedIds": [
+            "a-session"
+          ]
+        },
+        {
+          "id": "scope-07",
+          "group": "right-project",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-money",
+            "g-postgres",
+            "a-session",
+            "g-c-mail",
+            "s1b4b",
+            "sum0",
+            "s409",
+            "s1qos",
+            "s1csv",
+            "spun"
+          ],
+          "leakedIds": [
+            "b-err"
+          ]
+        },
+        {
+          "id": "time-01",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-port-new",
+            "g-index",
+            "g-cors",
+            "g-css-new",
+            "g-disk",
+            "b-deploy"
+          ],
+          "leakedIds": [
+            "g-port-old"
+          ]
+        },
+        {
+          "id": "time-02",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-port-old",
+            "g-index",
+            "g-css-new",
+            "g-cors",
+            "g-disk",
+            "b-deploy"
+          ],
+          "leakedIds": [
+            "g-port-new"
+          ]
+        },
+        {
+          "id": "time-03",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-node-new",
+            "g-de-printer",
+            "g-k8s",
+            "a-session",
+            "g-queue",
+            "sbqt",
+            "s20gr",
+            "s1zn6",
+            "s1qjh",
+            "soub"
+          ],
+          "leakedIds": [
+            "g-node-old"
+          ]
+        },
+        {
+          "id": "time-04",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-node-old",
+            "g-de-printer",
+            "g-k8s",
+            "a-session",
+            "g-queue",
+            "sbqt",
+            "s20gr",
+            "s1zn6",
+            "s1qjh",
+            "soub"
+          ],
+          "leakedIds": [
+            "g-node-new"
+          ]
+        },
+        {
+          "id": "time-05",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-vendor-new",
+            "stft",
+            "s1qpt",
+            "s1fbk",
+            "sctx",
+            "sfji",
+            "s1yzn",
+            "s8so",
+            "s14p3",
+            "s1ttr"
+          ],
+          "leakedIds": [
+            "g-vendor-old"
+          ]
+        },
+        {
+          "id": "time-06",
+          "group": "latest-fact",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-vendor-old",
+            "stft",
+            "s1qpt",
+            "s1fbk",
+            "sctx",
+            "sfji",
+            "s1yzn",
+            "s8so",
+            "s14p3",
+            "s1ttr"
+          ],
+          "leakedIds": [
+            "g-vendor-new"
+          ]
+        },
+        {
+          "id": "status-01",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-rule-canary",
+            "b-deploy",
+            "s1g9r",
+            "sp9b",
+            "ssyz",
+            "s5k1",
+            "s99j",
+            "s15w3",
+            "s1rka",
+            "s228m"
+          ],
+          "leakedIds": [
+            "g-rule-freeze"
+          ]
+        },
+        {
+          "id": "status-02",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-rule-canary",
+            "b-deploy",
+            "s1g9r",
+            "sp9b",
+            "ssyz",
+            "s5k1",
+            "s99j",
+            "s15w3",
+            "s1rka",
+            "s228m"
+          ],
+          "leakedIds": [
+            "g-rule-freeze"
+          ]
+        },
+        {
+          "id": "status-03",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-soc2-passed"
+          ],
+          "leakedIds": [
+            "g-duty-soc2"
+          ]
+        },
+        {
+          "id": "status-04",
+          "group": "still-valid",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "g-pool",
+            "s1hk2",
+            "s1wb1",
+            "s21fo",
+            "s2ke",
+            "swfv",
+            "sgbx",
+            "s21yz",
+            "s12m4",
+            "s6a2"
+          ],
+          "leakedIds": [
+            "g-duty-soc2"
+          ]
+        },
+        {
+          "id": "status-05",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-cache-key",
+            "sdfh",
+            "s1zqp",
+            "s22s6",
+            "s1wma",
+            "sbfv",
+            "sss",
+            "sm90",
+            "s6dx",
+            "s22p8"
+          ],
+          "leakedIds": [
+            "g-cache-ttl"
+          ]
+        },
+        {
+          "id": "status-06",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-cache-key",
+            "b-deploy",
+            "a-deploy",
+            "s1ngg",
+            "sx6g",
+            "sg8o",
+            "sze6",
+            "swxk",
+            "sypy",
+            "s15a3"
+          ],
+          "leakedIds": [
+            "g-cache-ttl"
+          ]
+        },
+        {
+          "id": "status-07",
+          "group": "still-valid",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-rule-review",
+            "g-index",
+            "g-vendor-new",
+            "g-backup",
+            "g-c-phone",
+            "s87b",
+            "sqk7",
+            "s8sj",
+            "srwa",
+            "s1x0b"
+          ],
+          "leakedIds": [
+            "g-rule-freeze"
+          ]
+        },
+        {
+          "id": "lang-01",
+          "group": "other-language",
+          "state": "pass",
+          "rank": 1,
+          "top": [
+            "g-oom",
+            "g-bundle",
+            "g-queue"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-02",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-03",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-04",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "b-deploy",
+            "a-deploy",
+            "g-node-new",
+            "g-pool",
+            "g-rule-canary"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-05",
+          "group": "other-language",
+          "state": "pass",
+          "rank": 3,
+          "top": [
+            "g-disk",
+            "g-standup",
+            "g-de-printer",
+            "g-c-mail",
+            "g-port-new",
+            "g-c-slow"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "lang-06",
+          "group": "other-language",
+          "state": "fail",
+          "rank": null,
+          "top": [
+            "g-index",
+            "s1398",
+            "s9gn",
+            "s20te",
+            "s1m0z",
+            "shzv",
+            "s22z0",
+            "s23zd",
+            "s1wm2",
+            "s1pm0"
+          ],
+          "leakedIds": []
+        },
+        {
+          "id": "time-07",
+          "group": "latest-fact",
+          "state": "fail",
+          "rank": 1,
+          "top": [
+            "g-oncall-new",
+            "g-oncall-old",
+            "g-tls",
+            "a-err"
+          ],
+          "leakedIds": [
+            "g-oncall-old"
+          ]
+        },
+        {
+          "id": "time-08",
+          "group": "latest-fact",
+          "state": "fail",
+          "rank": 3,
+          "top": [
+            "g-css-old",
+            "g-bundle",
+            "g-css-new"
+          ],
+          "leakedIds": [
+            "g-css-old"
+          ],
+          "gap": "unlinked newer decision without topic — no ranking rule by design; addressed in the write path (src/neighbours.mjs similarDecisions, G1b)"
+        },
+        {
+          "id": "time-09",
+          "group": "latest-fact",
+          "state": "fail",
+          "rank": 1,
+          "top": [
+            "g-apidocs-new",
+            "g-apidocs-old",
+            "s9t6",
+            "sq9a",
+            "s1b4b",
+            "sfsq",
+            "sy5m",
+            "spco",
+            "g-cors",
+            "svpx"
+          ],
+          "leakedIds": [
+            "g-apidocs-old"
+          ]
+        }
+      ],
+      "decoys": {
+        "far": {
+          "n": 16,
+          "unknown": 0,
+          "falsePositives": 7,
+          "silent": 9,
+          "falsePositiveRatePct": 43.8
+        },
+        "near": {
+          "n": 12,
+          "unknown": 0,
+          "falsePositives": 12,
+          "silent": 0,
+          "falsePositiveRatePct": 100
+        }
+      },
+      "decoyCases": [
+        {
+          "id": "far-01",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-02",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "far-03",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-04",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-05",
+          "kind": "far",
+          "hits": 1
+        },
+        {
+          "id": "far-06",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "far-07",
+          "kind": "far",
+          "hits": 1
+        },
+        {
+          "id": "far-08",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-09",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "far-10",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-11",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-12",
+          "kind": "far",
+          "hits": 1
+        },
+        {
+          "id": "far-13",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-14",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-15",
+          "kind": "far",
+          "hits": 0
+        },
+        {
+          "id": "far-16",
+          "kind": "far",
+          "hits": 2
+        },
+        {
+          "id": "near-01",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-02",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-03",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-04",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-05",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-06",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-07",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-08",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-09",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-10",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-11",
+          "kind": "near",
+          "hits": 3
+        },
+        {
+          "id": "near-12",
+          "kind": "near",
+          "hits": 3
+        }
+      ]
+    }
+  }
+}
