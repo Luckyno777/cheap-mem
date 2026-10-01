@@ -767,7 +767,7 @@ export const MUTANTS=[
 // modules with any mutant". `--security` sweeps only these, and only the
 // suites each mutant names (no baseline over, and no full run after, the
 // rest of the catalogue).
-export const SECURITY_MODULES = Object.freeze([
+const SECURITY_MODULES = Object.freeze([
   'redaction', 'login', 'webauth', 'capability', 'chain', 'shred', 'append',
   'claim', 'writegate', 'pathcheck', 'filelock', 'inbox', 'guard',
 ].map((m) => `src/${m}.mjs`));

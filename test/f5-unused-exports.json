@@ -43,7 +43,7 @@
  "src/integrationcontract.mjs": 4,
  "src/langbridge.mjs": 2,
  "src/latencybudget.mjs": 8,
- "src/login.mjs": 14,
+ "src/login.mjs": 11,
  "src/maintenance.mjs": 3,
  "src/mcplive.mjs": 3,
  "src/measurements.mjs": 1,
@@ -60,7 +60,7 @@
  "src/recallrender.mjs": 4,
  "src/recallserver-place.mjs": 4,
  "src/recallsignal.mjs": 1,
- "src/redaction.mjs": 2,
+ "src/redaction.mjs": 1,
  "src/release.mjs": 3,
  "src/repetition.mjs": 3,
  "src/search.mjs": 7,
@@ -76,7 +76,7 @@
  "src/today.mjs": 1,
  "src/userhabits.mjs": 3,
  "src/viewer.mjs": 0,
- "src/webauth.mjs": 1,
+ "src/webauth.mjs": 0,
  "src/workflow.mjs": 3,
  "src/writegate.mjs": 1
 }
