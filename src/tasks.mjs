@@ -43,7 +43,7 @@
  * naming it "the" index rebuild would suggest it covers the everyday
  * BM25 search index, which it does not. None of the three is a fit;
  * The long-running kinds in `KINDS` below stay at two, not three, on purpose
- * (the two parameterised kinds added on 2026-09-28 — `raw-delete`, `done` —
+ * (the parameterised kinds added later — `raw-delete`, `done`, `restore`, `merge` —
  * are short, one-shot CLI calls the dashboard runs, not index work). See
  * `docs/dashboard-tasks.md` for the same finding written out.
  *
@@ -261,7 +261,53 @@ export const KINDS = Object.freeze({
     plainOk: /^done: /m,
     classify() { return { state: 'ok', reason: null }; },
   },
+  // **Entry lifecycle as tasks (parity with the sibling's commit 78ad6b85).**
+  // `restore` and `merge` are child processes of `mem restore` / `mem
+  // merge` (`src/entryops.mjs`) — append-only, no second write path. Same
+  // rules as `done`: a closed parameter list, values travel as
+  // `--key=value`, ids may not start with `-`.
+  restore: {
+    title: 'Restore an entry',
+    description: 'mem restore <id> --why "..." — takes a closed entry up again as a NEW line '
+      + 'with restored_from; the original and its tombstone stay.',
+    resume: 'restart',
+    params: {
+      id: { required: true, check: (v) => ENTRY_ID.test(v), why: 'an entry id' },
+      why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
+    },
+    command(root, id, p) {
+      return { file: MEM_BIN, args: ['restore', p.id, ...(p.why ? [`--why=${p.why}`] : [])] };
+    },
+    progressPattern: null,
+    plainOk: /^restored: /m,
+    classify() { return { state: 'ok', reason: null }; },
+  },
+  merge: {
+    title: 'Merge entries',
+    description: 'mem merge <id> <id> ... — a correction of the first entry carries the joined '
+      + 'content and merged_from; the others get an obsolete tombstone. Nothing is deleted.',
+    resume: 'restart',
+    params: {
+      ids: { required: true, check: (v) => { const l = mergeIds(v); return l.length >= 2 && l.length <= 20 && l.every((x) => ENTRY_ID.test(x)); },
+        why: 'two to twenty different entry ids, comma separated' },
+      title: { required: false, check: (v) => v.length <= 500 && !/[\u0000-\u001f]/.test(v), why: 'up to 500 characters, one line' },
+      text: { required: false, check: (v) => v.length <= 8000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 8000 characters' },
+      why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
+    },
+    command(root, id, p) {
+      return { file: MEM_BIN, args: ['merge', ...mergeIds(p.ids),
+        ...(p.title ? [`--title=${p.title}`] : []),
+        ...(p.text ? [`--text=${p.text}`] : []),
+        ...(p.why ? [`--why=${p.why}`] : [])] };
+    },
+    progressPattern: null,
+    plainOk: /^merged: /m,
+    classify() { return { state: 'ok', reason: null }; },
+  },
 });
+
+const ENTRY_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/;
+function mergeIds(v) { return [...new Set(String(v ?? '').split(/[\s,]+/).filter(Boolean))]; }
 
 /**
  * Check a kind's parameters against its closed list. Throws

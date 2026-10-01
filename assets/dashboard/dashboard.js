@@ -3317,11 +3317,12 @@ function statusDialog(id, kind) {
     return;
   }
   if (kind === 'restore' || kind === 'merge') {
+    const restoring = kind === 'restore';
     showInfo(
-      kind === 'restore' ? 'Restore an entry' : 'Merge entries',
-      kind === 'restore'
-        ? `<p class="muted small">${esc(e.title)}</p><p class="small">Takes a closed entry up again as a NEW line with <code class="mono">restored_from</code>; the original and its tombstone stay untouched.</p><p>${readonlyMark(`mem restore ${id} --why "…"`)}</p>${note('Command line only, like discarding: the browser has no write route for it. Refused when the entry is not closed, is superseded (use the newer version) or is already restored.')}`
-        : `<p class="muted small">${esc(e.title)}</p><p class="small">Merges entries of ONE drawer: a correction of the first carries the joined content and <code class="mono">merged_from</code>; the others get an obsolete tombstone. Nothing is deleted.</p><p>${readonlyMark(`mem merge ${id} <other-id> --why "…"`)}</p>${note('Command line only: the browser has no write route for it. Both entries stay readable in the log.')}`,
+      restoring ? 'Restore an entry' : 'Merge entries',
+      `<p class="muted small">${esc(e.title)}</p><p class="small">${restoring
+        ? 'Takes a closed entry up again as a NEW line with <code class="mono">restored_from</code>; the original and its tombstone stay untouched.'
+        : 'Merges entries of ONE drawer: a correction of the first carries the joined content and <code class="mono">merged_from</code>; the others get an obsolete tombstone. Nothing is deleted.'}</p><form id="statusForm" data-id="${esc(id)}" data-kind="${kind}" style="margin-top:20px">${restoring ? '' : '<label class="formfield">Other entry ids (comma separated, same drawer)<input name="others" class="field" required maxlength="1000"></label>'}<label class="formfield">Reason<input name="reason" class="field" maxlength="2000"></label><button class="btn primary" type="submit" ${state.readonly ? 'disabled' : ''}>Append</button></form><div id="statusState"></div>${state.readonly ? `<p>${readonlyMark(restoring ? `mem restore ${id} --why "…"` : `mem merge ${id} <other-id> --why "…"`)}</p>` : ''}${note(`Runs as a task through POST /task (the same command as on the CLI: mem ${kind}). Only appended — nothing is deleted. ${restoring ? 'Refused when the entry is not closed, is superseded (use the newer version) or is already restored.' : 'Refused across drawers and for entries that no longer hold.'}`)}`,
     );
     return;
   }
@@ -3907,8 +3908,12 @@ document.addEventListener('submit', async (e) => {
   if (f.id === 'entryForm' || f.id === 'messageForm') return toast('There is no write route for that from the browser — see the CLI note.');
   if (f.id === 'statusForm') {
     const kind = f.dataset.kind, id = f.dataset.id;
-    if (kind !== 'done') return toast('There is no write route for that from the browser — see the CLI note.');
-    const fields = { kind: 'done', id };
+    if (!['done', 'restore', 'merge'].includes(kind)) return toast('There is no write route for that from the browser — see the CLI note.');
+    const fields = { kind, id };
+    if (kind === 'merge') {
+      delete fields.id;
+      fields.ids = [id, ...String(data.others || '').split(/[\s,]+/).filter(Boolean)].join(',');
+    }
     if (data.reason) fields.why = data.reason;
     const button = f.querySelector('button[type=submit]');
     button.disabled = true;
@@ -3927,7 +3932,7 @@ document.addEventListener('submit', async (e) => {
     }
     $('#info').close();
     detailCache.delete(id);
-    toast('Appended. The original stays.');
+    toast(kind === 'done' ? 'Appended. The original stays.' : 'Appended. Nothing was deleted.');
     if (await loadData({ quiet: true })) {
       render();
       showDetail(id, 'history');

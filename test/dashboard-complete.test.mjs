@@ -244,7 +244,7 @@ export const INVENTORY = [
     needs: ['tasks'],
     js: [/fetch\('\/task'/, /fetch\('\/task\/cancel'/, /fetch\('\/task\.json/],
     check(d) {
-      for (const k of ['export', 'integrity', 'raw-delete', 'done']) assert.ok(d.tasks.kinds[k], `task kind ${k} missing`);
+      for (const k of ['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge']) assert.ok(d.tasks.kinds[k], `task kind ${k} missing`);
     },
   },
   {
