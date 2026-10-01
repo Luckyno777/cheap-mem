@@ -96,15 +96,15 @@ const einer = (a, r) => a[Math.floor(r() * a.length)];
 /** One distractor entry with its own topic and its own vocabulary. */
 function scatterEntry(r, i) {
   const topicName = word(r);
-  const teile = [];
+  const sentenceParts = [];
   for (let k = 0; k < 7; k += 1) {
-    teile.push(`${einer(UMSTAND, r)} muss der ${word(r)} den ${word(r)} ${einer(VERB, r)}`);
+    sentenceParts.push(`${einer(UMSTAND, r)} muss der ${word(r)} den ${word(r)} ${einer(VERB, r)}`);
   }
   return {
     id: `S-${i}`,
     topic: topicName,
     choice: `${topicName}: ${word(r)} vor ${word(r)} ${einer(VERB, r)}`,
-    why: `${teile.join('. ')}.`,
+    why: `${sentenceParts.join('. ')}.`,
     tags: [topicName],
   };
 }

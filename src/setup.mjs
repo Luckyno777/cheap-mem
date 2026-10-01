@@ -153,13 +153,13 @@ function bridgeStep(root, env, home) {
   // The MCP bridge is registered in a client config, and there are
   // several clients. Report what is FOUND rather than asserting a
   // single expected location.
-  const kandidaten = [
+  const candidates = [
     ['Claude Code', path.join(claudeHome(env, home), 'settings.json')],
     ['Claude Desktop (macOS)', path.join(home, 'Library', 'Application Support', 'Claude', 'claude_desktop_config.json')],
     ['Claude Desktop (Windows)', path.join(env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'Claude', 'claude_desktop_config.json')],
   ];
   const found = [];
-  for (const [label, p] of kandidaten) {
+  for (const [label, p] of candidates) {
     let text;
     try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
     if (/mem-mcp|cheap-mem/.test(text)) found.push(label);

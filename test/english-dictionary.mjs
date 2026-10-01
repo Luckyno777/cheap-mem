@@ -86,3 +86,48 @@ export const KNOWN_VERBATIM_QUOTES = Object.freeze([
   'Ein Riegel, der Unschuldige meldet, wird abgeschaltet',
   'Ein leerer Ordner ist messbar leer',
 ]);
+
+/**
+ * German CODE words: the vocabulary that finds a German identifier or
+ * a German word in a file name, where no function word ever appears
+ * (`const zaehler = 0`, `test/doku-zahlen.test.mjs`). Shared by
+ * test/f5-german-identifiers.test.mjs (identifiers in code and shell)
+ * and test/english-ratchet.test.mjs (file names, single words in
+ * comments), so the three probes recognise German code words the same
+ * way — moved here from the F5 probe on 2026-10-01.
+ *
+ * **Unmistakable words only, not a language detector.** A word that is
+ * also English ("probe", "hole", "rest", "stand", "lies", "muster",
+ * "band", "tot" in `ssTot`, "hier" in `hierId`) is NOT on it: a rule
+ * that flags English gets switched off. Every word on the list counts,
+ * however short (`roh`, `neu`); a short word that is also an English
+ * fragment or abbreviation simply does not go on it.
+ */
+export const GERMAN_IDENTIFIER_WORDS = Object.freeze(new Set([
+  'zaehler', 'zaehle', 'kurzhash', 'ablage', 'kanten', 'kante', 'schreibe', 'lese', 'pruefe',
+  'baue', 'finde', 'suche', 'wurzel', 'fehler', 'eintrag', 'eintraege', 'zeile', 'zeilen', 'datei',
+  'dateien', 'schalter', 'befehl', 'ergebnis', 'bericht', 'verzeichnis', 'spiegel', 'sperre',
+  'schloss', 'zustand', 'erfahrung', 'entscheidung', 'gedaechtnis', 'nutzung', 'sitzung', 'frage',
+  'antwort', 'treffer', 'quelle', 'anzahl', 'summe', 'gesamt', 'frisch', 'schwelle', 'deckel',
+  'gruen', 'wege', 'pfad', 'gruppe', 'jetzt', 'gestern', 'woche', 'nachricht', 'absender',
+  'empfaenger', 'abruf', 'einblendung', 'vorschlag', 'urteil', 'grund', 'aenderung', 'bauteil',
+  'hilfe', 'pflicht', 'verfahren', 'lernen', 'kette', 'riegel', 'daten', 'rueckgabe', 'ausgabe',
+  'eingabe', 'rumpf', 'koerper', 'inhalt', 'zwischen', 'merken', 'merke', 'gemerkt', 'gefunden',
+  'gefundene', 'geschrieben', 'gelesen', 'offen', 'geschlossen', 'erledigt', 'verworfen', 'gueltig',
+  'ungueltig', 'vorher', 'nachher', 'abstand', 'schlag', 'stamm', 'staemme', 'wort', 'woerter',
+  'nutzer', 'mensch', 'erlaubnis', 'freigabe', 'zahlen',
+  // Added 2026-10-01 from the English pass's inventory (each was a real
+  // identifier or file name here before it was renamed):
+  'ohne', 'welt', 'voll', 'leer', 'eins', 'zwei', 'drei', 'alle', 'alles', 'nichts', 'nicht',
+  'echt', 'echter', 'eigen', 'eigene', 'fremd', 'ziel', 'lauf', 'soll', 'drin', 'draussen',
+  'kommentar', 'kommentare', 'erwartet', 'fehlt', 'fehlend', 'fehlen', 'gesehen', 'behauptet',
+  'behauptungen', 'damals', 'geprueft', 'pruefung', 'aufgeloest', 'kaputt', 'tabelle', 'schritt',
+  'schritte', 'kandidat', 'kandidaten', 'herkunft', 'aussen', 'innen', 'bereich', 'bereiche',
+  'letzte', 'naechste', 'spanne', 'teile', 'genannt', 'getroffen', 'regel', 'geheim', 'erzeugt',
+  'oberflaeche', 'sammle', 'markierte', 'ausnahmen', 'dokumente', 'faktor', 'falsch', 'toleranz',
+  'vorgabe', 'helfer', 'skripte', 'aufrufe', 'aufrufer', 'schuldig', 'bleibt', 'faelle', 'getarnt',
+  'gleich', 'genau', 'zweiter', 'dritter', 'bauen', 'quatsch', 'kinder', 'versuche', 'ruhig',
+  'grenzen', 'fakten', 'messgeraete', 'doku', 'sprache', 'kontext', 'kalt', 'paket', 'eingefroren',
+  'zustandslos', 'unser', 'entrutscht', 'feld', 'felder', 'warum', 'befund', 'luecke', 'paritaet',
+  'heute', 'wert', 'kopf', 'tiefe', 'ebene', 'pfeil', 'zeig', 'seit', 'teil', 'roh', 'neu',
+]));

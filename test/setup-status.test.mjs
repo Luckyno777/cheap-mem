@@ -76,11 +76,11 @@ test('THE WINDOWS FINDING: a hook pointing at a dead path is BROKEN', (t) => {
   const hooks = path.join(home, '.claude', 'hooks');
   fs.mkdirSync(hooks, { recursive: true });
   fs.writeFileSync(path.join(hooks, 'cheap-mem-session-start.sh'),
-    'CHEAP_MEM_ROOT="/gibt/es/hier/nicht"\n');
+    'CHEAP_MEM_ROOT="/no/such/path/here"\n');
 
   const s = setup.check(r, { env: {}, home }).steps.find((x) => x.id === 'hooks');
   assert.equal(s.state, setup.STATE.BROKEN);
-  assert.match(s.detail, /gibt\/es\/hier\/nicht/, 'the dead path is not named');
+  assert.match(s.detail, /no\/such\/path\/here/, 'the dead path is not named');
   assert.ok(s.fix, 'no way out given');
 });
 
