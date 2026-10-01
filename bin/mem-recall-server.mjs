@@ -27,7 +27,7 @@ const s = await recallserver.start(root, {
   ...(codeRoot ? { codeRoot } : {}),
   onStale: () => process.exit(recallserver.STALE_RC),
 });
-if (!s.running) process.exit(1);
+if (!s.running) process.exit(s.reason === 'busy' ? recallserver.BUSY_RC : 1);
 const stop = () => { s.close().then(() => process.exit(0)); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);

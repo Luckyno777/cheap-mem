@@ -93,6 +93,7 @@ import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
+import * as injection from '../src/injection.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -1302,6 +1303,7 @@ async function handleCall(name, args) {
       const q = query ?? pattern;   // `pattern` kept for older callers
       if (!q) return textResult('mem_find needs a query.');
       const s = since ? sinceOf(since) : null;
+      const findStart = Date.now();
 
       if (literal) {
         const types = type ? [type] : Object.keys(memory.TYPES);
@@ -1351,13 +1353,28 @@ async function handleCall(name, args) {
         capability: findCapability,
         since: s, language: cfg.language, extraTerms,
       });
+      // Book into the injection journal like the hook does: occasion
+      // `mcp-question`, length/hits/sources/duration, NEVER the question
+      // text. A measurement must not hold the answer up: book() never throws.
+      try {
+        injection.book(root, {
+          occasion: injection.OCCASION.MCP_QUESTION,
+          reason: ranked.length ? null : injection.REASON.EMPTY,
+          bytes: null,
+          hits: ranked.length,
+          searched: index.N,
+          sources: ranked.map((h) => `${h.source}:${h.line ?? 0}`),
+          questionBytes: Buffer.byteLength(String(q)),
+          durationMs: Date.now() - findStart,
+        });
+      } catch { /* a measurement, not an operation */ }
       if (!ranked.length) {
         return textResult(`No hits for '${q}' (${index.N} entries). Try literal:true.`);
       }
       return textResult(ranked.map((h) => {
         const mark = h.raw ? (h.pending ? '  [raw, not yet digested]' : '  [raw]') : '';
         const preview = h.raw
-          ? (raw.snippet(root, h.source, q) || String(h.entry.text ?? '').slice(0, 200))
+          ? (userhabits.userSnippet(root, h.source, q) || '(raw capture: no user line matches the query)')
           : shortLine(h.entry);
         return `${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}\n`
           + `  ${String(preview).replace(/\s+/g, ' ').slice(0, 200)}`;

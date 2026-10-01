@@ -17,14 +17,18 @@
  * the service journal).
  *
  * **Only on `stale`.** A child that exits 1 (start failed: path too long,
- * foreign directory, a server already there) stays off — repeating a
+ * foreign directory) stays off — repeating a
  * failure every 60 s only hides it. A crash (signal, other code) is
- * treated like `stale`: restarted, under the same rate limit.
+ * treated like `stale`: restarted, under the same rate limit. A busy
+ * socket (BUSY_RC) is retried quietly, every BUSY_FACTOR x the limit.
  */
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { STALE_RC } from './recallserver.mjs';
+import { STALE_RC, BUSY_RC } from './recallserver.mjs';
+
+/** Busy socket: retry after this multiple of the rate limit (default 5 x 60 s). */
+const BUSY_FACTOR = 5;
 
 const CHILD = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'mem-recall-server.mjs');
 
@@ -35,6 +39,7 @@ export function keep(root, { env = process.env, log = null, now = () => Date.now
   let off = false;
   let lastStart = -Infinity;
   let timer = null;
+  let busySeries = false;
   const starts = [];
 
   const launch = (reason) => {
@@ -53,6 +58,18 @@ export function keep(root, { env = process.env, log = null, now = () => Date.now
       child = null;
       if (off) return;
       if (code === 1) { say('recall server did not start (see the line above) — no restart'); return; }
+      if (code === BUSY_RC) {
+        // Another server holds the socket (e.g. an orphan with old code).
+        // Do not give up, but do not log every minute either: retry every
+        // BUSY_FACTOR x the rate limit, say so once at the start of a series.
+        const pause = gapMs * BUSY_FACTOR;
+        if (!busySeries) say(`socket busy — retrying every ${Math.round(pause / 1000)} s until it is free; until then the hook asks the existing server`);
+        busySeries = true;
+        timer = setTimeout(() => launch(null), pause);
+        timer.unref?.();
+        return;
+      }
+      busySeries = false;
       const why = code === STALE_RC ? 'code under src/ changed' : `child exited with ${signal ?? code}`;
       const wait = Math.max(0, lastStart + gapMs - now());
       if (wait > 0) say(`${why} — restart in ${Math.ceil(wait / 1000)} s (at most one per ${Math.round(gapMs / 1000)} s); the hook runs direct until then`);

@@ -279,7 +279,8 @@ export function newLimiter({ now = () => Date.now() } = {}) {
 export function cookieFrom(req, name = COOKIE) {
   const c = String(req?.headers?.cookie ?? '');
   const m = new RegExp(`(?:^|;\\s*)${name}=([^;]+)`).exec(c);
-  return m ? decodeURIComponent(m[1]) : '';
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return ''; } // broken %-sequence: fail closed
 }
 
 function isLoopbackAddress(a) {

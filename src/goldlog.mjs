@@ -49,6 +49,7 @@ import { randomBytes } from 'node:crypto';
 import { appendLine } from './append.mjs';
 import * as injection from './injection.mjs';
 import * as userhabits from './userhabits.mjs';
+import * as raw from './raw.mjs';
 
 /** 12 base36 characters — same shape as verifylog.newId(), own namespace. */
 export function newId() {
@@ -196,6 +197,20 @@ export function outcomeOf(line) {
   return null; // no-signal / off / already-shown / rebuild: not a quality signal
 }
 
+/**
+ * Does this capture message belong to the journal's session?
+ *
+ * The journal books the REAL session id; the capture file name carries a
+ * hash of the transcript path (a different quantity). A capture stamped
+ * with the fingerprint of the real id is compared on that; an older
+ * capture without it falls back to the file-name comparison (which only
+ * matches when a caller passed the same id as the stamp).
+ */
+export function sameSession(m, session) {
+  if (m.sessionFingerprint) return m.sessionFingerprint === raw.sessionFingerprint(session);
+  return sessionFromPath(m.path) === session;
+}
+
 /** Nearest real message to a journal line's `ts`, within the same
  *  session (by capture path), within `toleranceMs`. `messages` must be
  *  sorted by `ts` (as `userhabits.realMessages()` returns them). */
@@ -205,10 +220,7 @@ export function nearestMessage(messages, ts, session, { toleranceMs = 15000 } = 
   let best = null;
   let bestGap = Infinity;
   for (const m of messages) {
-    if (session) {
-      const s = sessionFromPath(m.path);
-      if (s !== session) continue;
-    }
+    if (session && !sameSession(m, session)) continue;
     const t = Date.parse(m.ts ?? '');
     if (!Number.isFinite(t)) continue;
     const gap = Math.abs(t - target);

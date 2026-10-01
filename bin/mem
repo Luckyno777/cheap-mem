@@ -197,7 +197,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   process.exit(0);
 }
 
-const cmd = COMMANDS[head];
+const cmd = Object.hasOwn(COMMANDS, head) ? COMMANDS[head] : undefined;
 if (!cmd) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
 try {
   await cmd({ rest: leftover, args });

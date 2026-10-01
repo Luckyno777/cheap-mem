@@ -57,6 +57,15 @@ export const OCCASION = Object.freeze({
    * (the hook prints in several pieces; not measured is not 0).
    */
   SESSION_START: 'session-start',
+  /**
+   * `mem_find` over the MCP bridge: a search a CONNECTED tool asked for,
+   * not a hook. Its own value and not `question`, because `question` is
+   * the person's message, counted for the hook's recall rate and
+   * effectiveness; mixing a tool's targeted search into it would skew
+   * exactly the rate the hook measures. Booked like the hook books: the
+   * question's length, hits, sources, duration - NEVER the question text.
+   */
+  MCP_QUESTION: 'mcp-question',
 });
 
 /**
