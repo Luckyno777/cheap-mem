@@ -42,6 +42,7 @@ export function misplaced(text) {
 
 const CAP = {
   'src/chain.mjs': 1,
+  'src/claim.mjs': 2,
   'src/cli/githook.mjs': 1,
   'src/cli/shell.mjs': 1,
   'src/clihelp.mjs': 1,
