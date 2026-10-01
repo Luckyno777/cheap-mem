@@ -20,7 +20,7 @@
 // "rest", "minute", ...) are NOT on it; a German identifier built from other
 // words slips through. That is the cost of a rule that never flags English.
 //
-// **A ceiling, not a rewrite.** The old stock (39 files, 65 identifiers,
+// **A ceiling, not a rewrite.** The old stock (38 files, 64 identifiers,
 // measured 2026-10-01) is capped per file in CEILING below. A file not listed
 // must have none; a listed file must not get more; fewer is fine (lower the
 // ceiling to keep the gain). Same shape as english-ratchet.json.
@@ -46,7 +46,8 @@ export const GERMAN_IDENTIFIER_WORDS = new Set([
 /** Identifiers of a code text that contain a German word (distinct). */
 export function germanIdentifiers(text) {
   const code = stripComments(text)
-    .replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g, ' ');
+    .replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`/g, ' ')
+    .replace(/\/\/.*$/gm, ''); // trailing line comments (whole-line ones are gone already)
   const found = new Set();
   for (const id of new Set(code.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? [])) {
     const parts = id.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split('_').filter(Boolean);
@@ -85,7 +86,6 @@ const CEILING = {
   'test/entry-content.test.mjs': 1,
   'test/eval-frozen.test.mjs': 1,
   'test/field-without-writer.test.mjs': 1,
-  'test/hook-windows-root.test.mjs': 1,
   'test/installer-parity.test.mjs': 3,
   'test/no-log-without-reader.test.mjs': 1,
   'test/package-contents.test.mjs': 1,
@@ -103,7 +103,7 @@ const CANDIDATES = () => ['src', 'bin', 'test', 'bench'].flatMap((d) => files(d,
   (n) => /\.(mjs|js)$/.test(n) || (d === 'bin' && !n.includes('.'))));
 
 test('positive control: German identifiers are seen, English ones and strings are not', () => {
-  assert.deepEqual(germanIdentifiers('const zaehler = 0; let kurzHash = x;'), ['zaehler', 'kurzHash']);
+  assert.deepEqual(germanIdentifiers('const zaehler = 0; let kurzHash = x;'), ['kurzHash', 'zaehler']);
   assert.deepEqual(germanIdentifiers('const FELD_KANTEN = 1; function holeEintrag() {}'), ['FELD_KANTEN', 'holeEintrag']);
   assert.deepEqual(germanIdentifiers("const probe = 'zaehler'; // ablage\nconst agent = `kurzhash`;"), []);
   assert.deepEqual(germanIdentifiers('const sleeper = 1; const rest = 2; const stand = 3;'), []);
