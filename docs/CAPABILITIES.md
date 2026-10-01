@@ -667,10 +667,11 @@ typing a long command is, in practice, not changeable.
 
 | Path | What |
 |---|---|
-| `/`, `/pult` | the dashboard page (7.5) — since 2026-09-28 also home of the settings, installation steps and connections this section describes |
+| `/`, `/dashboard` | the dashboard page (7.5) — since 2026-09-28 also home of the settings, installation steps and connections this section describes |
 | `/console`, `/viewer` | redirects (303) into the dashboard; the pages of their own are gone |
+| `/pult`, `/pult.json` | redirects (308) to `/dashboard` and `/desk.json` — the old German names, kept for bookmarks since 2026-10-01 |
 | `/console.json` | the state numbers, for tools |
-| `/pult.json` | the dashboard's data, for tools (was `/dashboard.json` until 2026-09-28) |
+| `/desk.json` | the old desk's data, for tools (was `/dashboard.json` until 2026-09-28, `/pult.json` until 2026-10-01) |
 | `/task`, `/task/cancel` | start/cancel a long CLI work item as a task (E1.7, `src/tasks.mjs`) |
 | `/task.json` | a task's progress/result, or the two-kind overview |
 | `/inbox/reply` | answer one message in the human participant's tray — same write as `mem inbox write` (P1b) |
@@ -748,8 +749,8 @@ It is the sibling house's dashboard, functionally and visually the same,
 in English, with cheap-mem's own mark (the C) and an empty store on a
 fresh install. Five areas — **Overview**, **Knowledge**, **Work**,
 **Sources**, **Operations** — plus **Settings**, and a 3D network of every
-declared link. `/pult` and `/dashboard` serve the same page; `/console`
-and `/viewer` lead into it (303). `/console.json` and `/pult.json` stay
+declared link. `/` and `/dashboard` serve the same page; `/console`
+and `/viewer` lead into it (303), `/pult` too (308). `/console.json` and `/desk.json` stay
 for tools; `mem board` and `mem viewer` stay on the CLI.
 
 **It has no fallback, and that is the feature.** Every view is drawn

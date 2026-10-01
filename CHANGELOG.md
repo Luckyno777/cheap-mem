@@ -14,6 +14,17 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — English throughout: the last German names
+
+- **`/desk.json` replaces `/pult.json`; `/pult` redirects.** The old
+  desk's numbers answer at `/desk.json`. `/pult` and `/pult.json`, the
+  sibling house's German names, answer with a 308 to `/dashboard` and
+  `/desk.json` (query string kept), so bookmarks and scripts keep working.
+- German identifiers, test file names and comments renamed or translated;
+  no behaviour change. The English ratchet now also covers identifiers
+  in `install/`, `hooks/`, `.github/`, `assets/` and `eval/`, and German
+  words anywhere in a file name.
+
 ### Added — cold path: the long-lived processes keep the index in memory
 
 - **In-process index memo** (`src/search.mjs` `setProcessMemo`): the recall

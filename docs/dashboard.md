@@ -15,13 +15,14 @@ mem serve --allow-writes  # allow the page to write, for this run only
 
 | Route | What |
 |---|---|
-| `/`, `/dashboard`, `/pult` | the page |
+| `/`, `/dashboard` | the page |
+| `/pult`, `/pult.json` | 308 to `/dashboard` and `/desk.json` (old German names, kept for bookmarks) |
 | `/dashboard.json` | everything the views show, collected live (gzip when asked) |
 | `/dashboard/entry.json?id=` | one entry, whole |
 | `/dashboard/message.json?id=` | one inbox message, whole |
 | `/dashboard/probe.json` | the retrieval probe: what `mem retrieve` would inject for a question. It is read-only and never logged |
 | `/dashboard/facts-at.json?known=&valid=` | the bitemporal comparison (Knowledge / Facts) |
-| `/console.json`, `/pult.json` | the console's and the board's numbers, for tools |
+| `/console.json`, `/desk.json` | the console's and the board's numbers, for tools |
 | `/console`, `/viewer` | 303 into the dashboard (`#settings/system`, `#knowledge/entries`) |
 | `/manifest.webmanifest`, `/sw.js`, `/favicon.ico` | the installable shell (PWA) |
 

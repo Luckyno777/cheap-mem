@@ -329,7 +329,7 @@ export const INVENTORY = [
     check(d) { assert.ok(d.catalog.cli.includes('viewer'), 'mem viewer is not in the catalogue'); },
   },
   {
-    oldFeature: 'The data routes tools and probes read (/console.json, /pult.json, /entry.json, /entries.json, /task.json, /health)',
+    oldFeature: 'The data routes tools and probes read (/console.json, /desk.json, /entry.json, /entries.json, /task.json, /health)',
     oldPlace: 'bin/mem-serve PATHS',
     newPlace: 'unchanged, still served (checked against the server\'s own PATHS below)',
     needs: [],
@@ -357,7 +357,7 @@ for (const row of INVENTORY) {
 test('complete (server): /dashboard.json delivers the same real data, and the data routes still answer', async () => {
   const { r, messageName } = world();
   const mod = await import(`${pathToFileURL(SERVE).href}?complete=${Math.random()}`);
-  for (const p of ['/console.json', '/pult.json', '/entry.json', '/entries.json', '/task.json']) {
+  for (const p of ['/console.json', '/desk.json', '/entry.json', '/entries.json', '/task.json']) {
     assert.ok(mod.PATHS.includes(p), `${p} was dropped from PATHS`);
   }
   const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
@@ -376,7 +376,7 @@ test('complete (server): /dashboard.json delivers the same real data, and the da
     assert.ok(Array.isArray(rawPart.data), 'raw.captures through the deferred route is not a list');
     assert.ok(d.agents.some((a) => a.name === 'probeagent'));
     assert.ok(d.projects.some((p) => p.name === 'demo'));
-    for (const p of ['/console.json', '/pult.json', '/task.json', '/health']) {
+    for (const p of ['/console.json', '/desk.json', '/task.json', '/health']) {
       const x = await fetch(base + p);
       assert.equal(x.status, 200, `${p} answers ${x.status}`);
     }

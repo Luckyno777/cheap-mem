@@ -239,7 +239,7 @@ started`, `running`, `ok`, `warning`, `cancelled`, `no longer tracked`
 after a server restart, `error`), its times and reason, and one no-JS
 form — **Start**, or **Cancel** while one runs. The data is
 `dashboard.collect()`'s `tasks` field, read through `tasks.overview()`;
-`/pult.json` carries the same field.
+`/desk.json` carries the same field.
 
 The forms send `from=/`. With it, `/task` and `/task/cancel` answer a
 success with `303 → /` and a refusal with a short HTML page; without it

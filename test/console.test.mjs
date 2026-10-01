@@ -106,14 +106,14 @@ test('binding to a public address without a token is REFUSED', async () => {
   }
 });
 
-test('/ and /pult are the dashboard; /console and /viewer lead into it', async () => {
+test('/ and /dashboard are the dashboard; /pult, /console and /viewer lead into it', async () => {
   // Since 2026-09-28 the dashboard is the only UI (owner decision). Every
   // old address is checked, because a move where one address quietly
   // serves another's page is the kind nobody notices.
   const r = memory();
   const s = await start(r);
   try {
-    for (const p of ['/', '/pult', '/dashboard']) {
+    for (const p of ['/', '/dashboard']) {
       const d = await (await fetch(`${s.base}${p}`, { headers: WITH_DOOR })).text();
       assert.match(d, /<title>cheap-mem · Your knowledge, connected\.<\/title>/, `${p} is not the dashboard`);
       assert.match(d, /<nav id="nav" class="nav">/);
@@ -123,6 +123,13 @@ test('/ and /pult are the dashboard; /console and /viewer lead into it', async (
       assert.equal(res.status, 303, `${p} answered ${res.status}`);
       assert.equal(res.headers.get('location'), to);
     }
+    // `/pult` is the German alias kept for old bookmarks (2026-10-01):
+    // a 308 to the English path, and following it lands on the page.
+    const alias = await fetch(`${s.base}/pult`, { headers: WITH_DOOR, redirect: 'manual' });
+    assert.equal(alias.status, 308);
+    assert.equal(alias.headers.get('location'), '/dashboard');
+    const followed = await (await fetch(`${s.base}/pult`, { headers: WITH_DOOR })).text();
+    assert.match(followed, /<nav id="nav" class="nav">/, '/pult no longer lands on the dashboard');
   } finally { await s.stop(); fs.rmSync(r, { recursive: true, force: true }); }
 });
 
