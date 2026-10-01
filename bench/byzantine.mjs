@@ -107,17 +107,17 @@ console.log(`  potential conflicts flagged: ${res.contested.length}`
 //   2. the contradiction is reported as contested (the caller is told)
 //   3. the cap actually ran           (or 1 and 2 hold for the wrong reason)
 const capped = res.excluded.filter((e) => /author share/.test(e.why || '')).length;
-const fehler = [];
-if (rank === 0) fehler.push('the genuine claim is no longer returned at all');
-if (!res.contested.length) fehler.push('the contradiction was not reported as contested');
-if (!capped) fehler.push(`the share cap excluded nothing (${FLOOD} flood claims and no candidate dropped) — this run proves less than it looks`);
+const failures = [];
+if (rank === 0) failures.push('the genuine claim is no longer returned at all');
+if (!res.contested.length) failures.push('the contradiction was not reported as contested');
+if (!capped) failures.push(`the share cap excluded nothing (${FLOOD} flood claims and no candidate dropped) — this run proves less than it looks`);
 
 console.log('');
 console.log(`  share cap excluded: ${capped} candidate(s)`);
-console.log(fehler.length
-  ? '  ==> ' + fehler.join('\n  ==> ')
+console.log(failures.length
+  ? '  ==> ' + failures.join('\n  ==> ')
   : byz > res.claims.length / 2
     ? '  ==> the answer survives and is flagged contested, but the context is mostly false. Caller must judge.'
     : '  ==> the answer survives and the flood is bounded.');
 fs.rmSync(root, { recursive: true, force: true });
-if (fehler.length) process.exitCode = 1;
+if (failures.length) process.exitCode = 1;

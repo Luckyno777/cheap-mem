@@ -434,16 +434,16 @@ export const MUTANTS=[
    to:"  { name: 'number', re: /\\b\\d{1,8}\\b/g },  // MUTANT: every everyday number becomes an identifier",
    tests:['test/exact-lane.test.mjs'] },
 
- { name:'SEM Frageworte are not indexed at all',
+ { name:'SEM asked words are not indexed at all',
    file:'src/search.mjs',
    from:'  asked: 2.0,',
    to:'  // MUTANT: the field drops out of indexing',
    tests:['test/asked.test.mjs'] },
 
- { name:'SEM Frageworte outweigh the title',
+ { name:'SEM asked words outweigh the title',
    file:'src/search.mjs',
    from:'  asked: 2.0,',
-   to:'  asked: 5.0,  // MUTANT: geratene Woerter uebersteuern den Gegenstand',
+   to:'  asked: 5.0,  // MUTANT: guessed words outweigh the subject',
    tests:['test/asked.test.mjs'] },
 
  { name:'SEM `--asked` is stored flat, as one string',
@@ -775,7 +775,7 @@ const SECURITY_MODULES = Object.freeze([
 // single mutant or running a single test. Every effectful line below,
 // starting with the baseline check, has to sit behind the SAME
 // run-as-a-command gate the mutation sweep already used further down
-// (`ALS_BEFEHL`, moved up here so it covers the baseline check too):
+// (`RUN_AS_SCRIPT`, moved up here so it covers the baseline check too):
 // computed BEFORE anything runs, so a bare `import()` of this file does
 // nothing observable at all.
 //
@@ -783,15 +783,15 @@ const SECURITY_MODULES = Object.freeze([
 // testing needs a green baseline" and launched a full baseline
 // `execFileSync('node', ['--test', ...])` run as a SIDE EFFECT of being
 // imported, because only the sweep loop further down was behind
-// `ALS_BEFEHL` — the baseline check above it was not. Every run of
+// `RUN_AS_SCRIPT` — the baseline check above it was not. Every run of
 // `test/readme-numbers.test.mjs` was paying for a full baseline test run
 // it never asked for, and a transient flake in that baseline (see the
 // 2026-09-19 note below) could fail a test file with nothing to do with
 // mutation testing at all.
-const ALS_BEFEHL = process.argv[1]
+const RUN_AS_SCRIPT = process.argv[1]
   && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
-if (ALS_BEFEHL) {
+if (RUN_AS_SCRIPT) {
 
 // `--security` or `--only=src/a.mjs,src/b.mjs`: sweep a subset, run only its
 // own suites. A survivor is then judged against ITS suites alone (no full
@@ -865,7 +865,7 @@ process.on('uncaughtException', (e)=>{ restore(); throw e; });
 
 console.log('Mutant                                           | do tests fail?');
 console.log('-------------------------------------------------+----------------');
-// **The catalogue is importable; the sweep is not.** (`ALS_BEFEHL` itself
+// **The catalogue is importable; the sweep is not.** (`RUN_AS_SCRIPT` itself
 // now lives at the top of this file, ahead of the baseline check — see
 // the comment there. `test/mutation-anchors.test.mjs` and
 // `test/readme-numbers.test.mjs` both rely on importing `MUTANTS` costing

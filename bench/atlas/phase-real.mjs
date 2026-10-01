@@ -264,12 +264,12 @@ export const BIAS_FAIL_RATIO = 3;
 // exist to catch "hung" or "pathological", not to grade normal latency.
 const BUILD_DEGRADED_MS = 15000;
 const BUILD_FAIL_MS = 60000;
-const FINDE_DEGRADED_MS = 1000;
-const FINDE_FAIL_MS = 5000;
+const FIND_DEGRADED_MS = 1000;
+const FIND_FAIL_MS = 5000;
 const DOCTOR_DEGRADED_MS = 15000;
 const DOCTOR_FAIL_MS = 60000;
-const KONTEXT_DEGRADED_MS = 5000;
-const KONTEXT_FAIL_MS = 20000;
+const CONTEXT_DEGRADED_MS = 5000;
+const CONTEXT_FAIL_MS = 20000;
 
 // Below this many sampled queries, a p95 is the slowest of a handful
 // dressed up as a tail — see `PERCENTILE_FLOOR` in `phase-load.mjs` for
@@ -1219,11 +1219,11 @@ export async function run(atlas, { quick = false } = {}) {
 
     // --- warm finde latency, one call per remaining frequent token --
     const warmQueries = queries.slice(1).length ? queries.slice(1) : queries;
-    const findeRuns = warmQueries.map((q) => runMem(['finde', q, '--json', '--top', '10']));
-    const findeMs = findeRuns.map((r) => r.ms).sort((a, b) => a - b);
-    const enough = findeMs.length >= QUERY_PERCENTILE_FLOOR;
-    const findeP50 = pct(findeMs, 50);
-    const findeP95 = enough ? pct(findeMs, 95) : null;
+    const findRuns = warmQueries.map((q) => runMem(['finde', q, '--json', '--top', '10']));
+    const findMs = findRuns.map((r) => r.ms).sort((a, b) => a - b);
+    const enough = findMs.length >= QUERY_PERCENTILE_FLOOR;
+    const findP50 = pct(findMs, 50);
+    const findP95 = enough ? pct(findMs, 95) : null;
 
     // --- doktor, warm (the index is already built above) ------------
     const doctor = runMem(['doktor', '--json']);
@@ -1234,7 +1234,7 @@ export async function run(atlas, { quick = false } = {}) {
     } catch { /* left null; the timing record below still stands */ }
 
     // --- kontext ------------------------------------------------------
-    const kontext = runMem(['kontext']);
+    const contextRun = runMem(['kontext']);
 
     const loadAfter = captureForeignLoad(calibBaseline);
     const load = foreignLoadDelta(loadBefore, loadAfter, calibBaseline);
@@ -1328,22 +1328,22 @@ export async function run(atlas, { quick = false } = {}) {
     record({
       id: 'real.cli.finde-latency',
       title: 'mem finde wall time over several real-vocabulary queries (query text never recorded)',
-      verdict: enough ? timeVerdictUnderLoad(findeP95, FINDE_DEGRADED_MS, FINDE_FAIL_MS, load)
-        : timeVerdictUnderLoad(findeP50, FINDE_DEGRADED_MS, FINDE_FAIL_MS, load),
-      expected: say`under ${FINDE_DEGRADED_MS} ms (over ${FINDE_FAIL_MS} ms means hung, not slow; `
+      verdict: enough ? timeVerdictUnderLoad(findP95, FIND_DEGRADED_MS, FIND_FAIL_MS, load)
+        : timeVerdictUnderLoad(findP50, FIND_DEGRADED_MS, FIND_FAIL_MS, load),
+      expected: say`under ${FIND_DEGRADED_MS} ms (over ${FIND_FAIL_MS} ms means hung, not slow; `
         .plus(`not-measured instead of either if the calibration loop, PSI, or steal+cgroup showed foreign load — ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied, or ${CALIBRATION_LOAD_FACTOR}x the calibration baseline)`),
-      actual: say`${enough ? findeP95 : findeP50} ms at `
-        .plus(`${enough ? 'p95' : 'p50'} over ${findeMs.length} queries`),
+      actual: say`${enough ? findP95 : findP50} ms at `
+        .plus(`${enough ? 'p95' : 'p50'} over ${findMs.length} queries`),
       severity: SEVERITY.MINOR,
       evidence: say`measured against a scratch copy; the queries came from the corpus's own `
         .plus('frequent words and were used as CLI arguments only, never recorded'),
       measured: {
-        queryCount: findeMs.length,
-        percentilesFrom: enough ? findeMs.length : null,
-        p50: findeP50,
-        p95: findeP95,
-        min: findeMs[0] ?? null,
-        max: findeMs[findeMs.length - 1] ?? null,
+        queryCount: findMs.length,
+        percentilesFrom: enough ? findMs.length : null,
+        p50: findP50,
+        p95: findP95,
+        min: findMs[0] ?? null,
+        max: findMs[findMs.length - 1] ?? null,
       },
     });
     if (!enough) {
@@ -1391,14 +1391,14 @@ export async function run(atlas, { quick = false } = {}) {
     record({
       id: 'real.cli.kontext',
       title: 'mem kontext wall time and output size against the real corpus',
-      verdict: timeVerdictUnderLoad(kontext.ms, KONTEXT_DEGRADED_MS, KONTEXT_FAIL_MS, load),
-      expected: say`under ${KONTEXT_DEGRADED_MS} ms (over ${KONTEXT_FAIL_MS} ms means hung, not slow; `
+      verdict: timeVerdictUnderLoad(contextRun.ms, CONTEXT_DEGRADED_MS, CONTEXT_FAIL_MS, load),
+      expected: say`under ${CONTEXT_DEGRADED_MS} ms (over ${CONTEXT_FAIL_MS} ms means hung, not slow; `
         .plus(`not-measured instead of either if the calibration loop, PSI, or steal+cgroup showed foreign load — ${FOREIGN_LOAD_DENIED_MS_PER_SEC} ms/s denied, or ${CALIBRATION_LOAD_FACTOR}x the calibration baseline)`),
-      actual: say`${kontext.ms} ms, ${kontext.bytes} bytes of session context`,
+      actual: say`${contextRun.ms} ms, ${contextRun.bytes} bytes of session context`,
       severity: SEVERITY.MINOR,
-      ms: kontext.ms,
+      ms: contextRun.ms,
       evidence: say`measured against a scratch copy, never the original`,
-      measured: { kontextMs: kontext.ms, outputBytes: kontext.bytes, exitStatus: kontext.status },
+      measured: { kontextMs: contextRun.ms, outputBytes: contextRun.bytes, exitStatus: contextRun.status },
     });
 
     atlas.blind('doktor findings\' fidelity to the live memory',

@@ -86,8 +86,8 @@ test('A: a field a decision depends on, never carrying a value, is found', () =>
     const r = run(w);
     const t = r.hits.find((x) => x.field === 'Antwort-Auf');
     assert.ok(t, `not found. Checked ${r.checked} fields, found ${r.hits.length}`);
-    assert.equal(t.gesehen, 2, 'it should count both messages carrying the empty header');
-    assert.deepEqual(t.form, ['kopf'], 'the header form has to be recognised as its own shape');
+    assert.equal(t.seen, 2, 'it should count both messages carrying the empty header');
+    assert.deepEqual(t.form, ['header'], 'the header form has to be recognised as its own shape');
   } finally { weg(w); }
 });
 
@@ -98,7 +98,7 @@ test('A2: the header shape is read at all — three of four real cases lived the
   try {
     const b = inCorpus(w);
     assert.ok(b.fields.has('Betreff'), 'message headers are not being read');
-    assert.ok([...b.fields.get('Betreff').form].includes('kopf'));
+    assert.ok([...b.fields.get('Betreff').form].includes('header'));
     assert.ok(b.fields.has('klasse'), 'log entries are not being read');
   } finally { weg(w); }
 });
