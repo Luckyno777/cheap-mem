@@ -267,7 +267,14 @@ test('M10-8: the journal vocabulary is closed', () => {
 
 test('M10-9: a question whose client already gave up is skipped, not searched', async () => {
   const root = build();
-  const s = await recallserver.start(root, { env: {}, log: () => {} });
+  // A fixed code state of its own: this probe is about deadlines, not code
+  // state. Watching the package's src/ made it answer "stale" once in the
+  // full suite (chain run 2026-10-01), which says nothing about deadlines.
+  const code = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-m10-code-'));
+  made.push(code);
+  fs.mkdirSync(path.join(code, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(code, 'src', 'a.mjs'), 'export const a = 1;\n');
+  const s = await recallserver.start(root, { env: {}, codeRoot: code, log: () => {} });
   try {
     const key = fs.readFileSync(s.where.key, 'utf8');
     const ask = (deadline) => new Promise((resolve) => {
