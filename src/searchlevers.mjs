@@ -38,7 +38,7 @@ export const LEVERS = Object.freeze(['h1', 'h2', 'h3', 'h4', 'h5']);
  * sibling house turned it on. See the commit that sets this list for the
  * numbers.
  */
-export const DEFAULT_ON = Object.freeze(['h3']);
+const DEFAULT_ON = Object.freeze(['h3']);
 
 /** The env variable that switches the levers. */
 export const ENV = 'MEM_SEARCH_LEVERS';
@@ -126,7 +126,7 @@ export const FIND_BAR_REFERENCE_N = 10000;
  * perfectly rare word in THIS memory (the same formula as `idf()` in
  * src/search.mjs, df = 1).
  */
-export function rareWordWeight(n) {
+function rareWordWeight(n) {
   return Math.log(1 + (Math.max(1, n) - 0.5) / 1.5);
 }
 
@@ -152,7 +152,7 @@ const scoreOf = (h) => Number(h?.score) || 0;
 const isExact = (h) => Array.isArray(h?.exact) ? h.exact.length > 0 : Boolean(h?.exact);
 
 /** The score of the second-best hit of the list (0 when there is none). */
-export function secondScore(hits) {
+function secondScore(hits) {
   const s = (hits ?? []).map(scoreOf).sort((a, b) => b - a);
   return s.length > 1 ? s[1] : 0;
 }
@@ -208,14 +208,14 @@ export function answerHolds(hits, { occasion = 'find', bar = FIND_BAR, on = true
 // the search module costs ~25 ms to import — so an error word matches a
 // hit only in the same surface form (four letters or more, no digits-only
 // runs). Coarser, and stated: it can only miss a reorder, never add a hit.
-export const LANE_WEIGHT_ESTIMATE = Object.freeze({ project: 0.1, file: 0.2, error: 0.2 });
+const LANE_WEIGHT_ESTIMATE = Object.freeze({ project: 0.1, file: 0.2, error: 0.2 });
 /** No hit gets more than half again from context. */
-export const CONTEXT_FACTOR_MAX = 1.5;
+const CONTEXT_FACTOR_MAX = 1.5;
 
 const TAIL_BYTES = 128 * 1024;
 
 /** Surface words of four letters or more, lower case, in order, unique. */
-export function signalWords(text) {
+function signalWords(text) {
   const out = [];
   for (const w of String(text ?? '').toLowerCase()
     .replace(/\u00e4/g, 'ae').replace(/\u00f6/g, 'oe').replace(/\u00fc/g, 'ue').replace(/\u00df/g, 'ss')
@@ -331,7 +331,7 @@ export const H5_HEADER_NOTE = ' Short form: the full entry per line is `mem show
 
 /** The core line of a hit: the same statement as `renderHit()`, cut at a
  * sentence or clause boundary to {@link H5_CHARS}. */
-export function coreLine(hit) {
+function coreLine(hit) {
   const r = renderHit(hit);
   return { ...r, line: cutAtBoundary(r.line, H5_CHARS).text };
 }

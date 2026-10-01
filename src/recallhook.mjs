@@ -65,7 +65,7 @@ function parseWithheld(raw) {
  * unchanged. (h3 acts one step earlier, in `mem find`: a withheld answer
  * arrives here as no hits plus `withheld`.)
  */
-export function shownHits(hits, { env = process.env } = {}) {
+function shownHits(hits, { env = process.env } = {}) {
   const list = Array.isArray(hits) ? hits : [];
   if (!levers.active('h2', env)) return list;
   return levers.rerank(list, levers.contextSignals({ cwd: env.MEM_RH_CWD, transcript: env.MEM_RH_TRANSCRIPT }));

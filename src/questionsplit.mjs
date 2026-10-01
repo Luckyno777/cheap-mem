@@ -19,13 +19,13 @@ import * as entity from './entity.mjs';
 // still add to the score, but they do not count in coverage.
 
 /** A word is a core word when at most this share of the corpus carries it. */
-export const CORE_DF_SHARE = 0.01;
+const CORE_DF_SHARE = 0.01;
 /** Floor, so a small memory (40 entries) does not make every word common. */
-export const CORE_DF_MIN = 3;
+const CORE_DF_MIN = 3;
 /** Weight of a by-catch word against a typed word (1.0). */
 export const BYCATCH_WEIGHT = 0.3;
 /** Core words per question, the same cap as `retrievalQuery()`. */
-export const CORE_MAX = search.RETRIEVE_WORDS_MAX;
+const CORE_MAX = search.RETRIEVE_WORDS_MAX;
 
 function dfOf(index) {
   return index?.statsDocFreq ?? index?.docFreq ?? null;
@@ -40,7 +40,7 @@ function rarity(df, word) {
 
 const PROJECTS = new WeakMap();
 /** The project names the index knows (lower case), once per index. */
-export function projectNames(index) {
+function projectNames(index) {
   if (!index || typeof index !== 'object') return [];
   if (PROJECTS.has(index)) return PROJECTS.get(index);
   const names = new Set();

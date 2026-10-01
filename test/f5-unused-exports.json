@@ -62,7 +62,7 @@
  "src/redaction.mjs": 1,
  "src/release.mjs": 3,
  "src/repetition.mjs": 2,
- "src/search.mjs": 7,
+ "src/search.mjs": 6,
  "src/shred.mjs": 7,
  "src/shrink.mjs": 1,
  "src/skillusage.mjs": 2,

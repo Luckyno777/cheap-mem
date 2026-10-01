@@ -401,8 +401,8 @@ export const MUTANTS=[
 
  { name:'ARCH the retrieval query asks the raw captures what is rare',
    file:'src/search.mjs',
-   from:"  const df = idx.statsDocFreq ?? idx.docFreq;",
-   to:"  const df = idx.docFreq;  // MUTANT: the capture decides the eight words",
+   from:"  const df = idx?.statsDocFreq ?? idx?.docFreq;",
+   to:"  const df = idx?.docFreq;  // MUTANT: the capture decides the eight words",
    tests:['test/raw-stats.test.mjs','test/search.test.mjs','test/retrieval.test.mjs'] },
 
  { name:'ARCH the exact lane forgets its own bound',

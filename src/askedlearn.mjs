@@ -81,7 +81,7 @@ export const WORDS_MAX = 5;
  * this bound 7 of 7 cases learned words like 'allem', 'vorallem' and a
  * hex id. The bound holds ONLY for shown misses.
  */
-export const SHOWN_QUESTION_MAX_CHARS = 240;
+const SHOWN_QUESTION_MAX_CHARS = 240;
 
 /** Which rule produced a case; stored in `asked_evidence.learned`. */
 export const LEARNED = Object.freeze({ MISS: 'M18b', SHOWN: 'H4-shown' });
