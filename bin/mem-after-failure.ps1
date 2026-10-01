@@ -131,7 +131,9 @@ function Release-Claim { if ($Claim) { Remove-Item -LiteralPath $Claim -Force -E
 
 $Top = if ($env:MEM_AFTER_FAILURE_TOP) { [int]$env:MEM_AFTER_FAILURE_TOP } else { 3 }
 # A generous --top: the two lanes are picked out of the result.
-$Hits = (& node @MemArgv find $Query --content-words --top ($Top * 4) --json 2>$null) -join "`n"
+# --weak: this hook holds its own, lower bar; the h3 answer gate of
+# `mem find` is tuned for a spoken question (mirror of bin/mem-after-failure).
+$Hits = (& node @MemArgv find $Query --content-words --top ($Top * 4) --json --weak 2>$null) -join "`n"
 if ($LASTEXITCODE -ne 0 -or -not $Hits) {
   Release-Claim
   Add-JournalLine 'empty'

@@ -94,6 +94,7 @@ import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
+import * as levers from '../src/searchlevers.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -447,6 +448,7 @@ const TOOLS = [
         since: { type: 'string', description: 'ISO time or relative: 7d, 24h, 30m' },
         top: { type: 'number', description: 'How many hits (default 10)' },
         literal: { type: 'boolean', description: 'Plain substring search instead' },
+        weak: { type: 'boolean', description: 'Show the hits even when none is confident (a flat field of weak matches is withheld otherwise)' },
       },
       required: ['query'],
     },
@@ -1299,7 +1301,7 @@ async function handleCall(name, args) {
     }
 
     case 'mem_find': {
-      const { query, pattern, type, project, since, top, literal } = args;
+      const { query, pattern, type, project, since, top, literal, weak } = args;
       const q = query ?? pattern;   // `pattern` kept for older callers
       if (!q) return textResult('mem_find needs a query.');
       const s = since ? sinceOf(since) : null;
@@ -1348,18 +1350,26 @@ async function handleCall(name, args) {
         mq = resolved.query;
         extraTerms = resolved.extraTerms;
       }
-      const ranked = search.search(index, mq, {
+      const listed = search.search(index, mq, {
         top: top ?? 10, type: type ?? null, project: project ?? null,
         capability: findCapability,
         since: s, language: cfg.language, extraTerms,
+        withCoverage: levers.active('h3'),
       });
+      // H3 (Block H): the same answer gate as `mem find` — a flat field of
+      // weak hits, none clearly ahead, is withheld and said so. One rule,
+      // in src/searchlevers.mjs, for both doors.
+      const withheld = !weak && levers.active('h3')
+        && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) }) ? listed.length : 0;
+      for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
+      const ranked = withheld ? [] : listed;
       // Book into the injection journal like the hook does: occasion
       // `mcp-question`, length/hits/sources/duration, NEVER the question
       // text. A measurement must not hold the answer up: book() never throws.
       try {
         injection.book(root, {
           occasion: injection.OCCASION.MCP_QUESTION,
-          reason: ranked.length ? null : injection.REASON.EMPTY,
+          reason: ranked.length ? null : (withheld ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY),
           bytes: null,
           hits: ranked.length,
           searched: index.N,
@@ -1368,6 +1378,10 @@ async function handleCall(name, args) {
           durationMs: Date.now() - findStart,
         });
       } catch { /* a measurement, not an operation */ }
+      if (!ranked.length && withheld) {
+        return textResult(`Nothing confident for '${q}' (${index.N} entries): ${withheld} weak `
+          + `match${withheld === 1 ? '' : 'es'} withheld, none clearly ahead. weak:true shows them.`);
+      }
       if (!ranked.length) {
         return textResult(`No hits for '${q}' (${index.N} entries). Try literal:true.`);
       }

@@ -131,7 +131,9 @@ if ($SessionId) {
 }
 
 $Top = if ($env:MEM_CATCH_FAIL_TOP) { $env:MEM_CATCH_FAIL_TOP } else { '3' }
-$Hits = (& node @MemArgv find $Query --top $Top --json 2>$null) -join "`n"
+# --weak: this hook holds its own, lower bar; the h3 answer gate of
+# `mem find` is tuned for a spoken question (mirror of bin/mem-catch-fail).
+$Hits = (& node @MemArgv find $Query --top $Top --json --weak 2>$null) -join "`n"
 if ($LASTEXITCODE -ne 0) { exit 0 }
 if (-not $Hits) { exit 0 }
 

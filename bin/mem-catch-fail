@@ -118,7 +118,9 @@ if [ -n "$SESSION" ]; then
 fi
 
 TOP="${MEM_CATCH_FAIL_TOP:-3}"
-HITS="$(capped 5 "${RUN_MEM[@]}" find "$QUERY" --top "$TOP" --json 2>/dev/null)" || exit 0
+# --weak: this hook holds its own, lower bar (MEM_CATCH_FAIL_MIN, below);
+# `mem find`'s answer gate (search lever h3) is tuned for a spoken question.
+HITS="$(capped 5 "${RUN_MEM[@]}" find "$QUERY" --top "$TOP" --json --weak 2>/dev/null)" || exit 0
 [ -z "$HITS" ] && exit 0
 
 # **A lower bar than mem-retrieve's (measured against this hook's own

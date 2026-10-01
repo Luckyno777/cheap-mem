@@ -117,6 +117,33 @@ const DATE_WITH_PREPOSITION = [
 ];
 
 /**
+ * The absolute date anchors of a text ("on 2028-10-04", "since
+ * 2028-10-04", "from ..."), lower-cased, whitespace normalised, in text
+ * order, without duplicates. The SAME patterns as
+ * `DATE_WITH_PREPOSITION` — one place, two users.
+ *
+ * **What for (ported from lucky-mem, 2026-10-01).**
+ * `search.retrievalQuery()` shortens a question to its content words;
+ * "what was on 2028-10-04" came out as "2028": "on" is filler, the date
+ * crumbled into 2028/10/04 and only "2028" passed the four-character
+ * bar. `mem find --content-words` then asks `hasTimeIntent()` on exactly
+ * that shortened text, so an absolute date question never reached the
+ * time lane. `retrievalQuery` therefore keeps the anchors verbatim. A
+ * BARE date stays what it was: a mention, not a question.
+ */
+export function dateAnchors(text) {
+  if (!text || typeof text !== 'string') return [];
+  const s = text.toLowerCase();
+  const found = [];
+  for (const re of DATE_WITH_PREPOSITION) {
+    const all = new RegExp(re.source, 'g');
+    for (const m of s.matchAll(all)) found.push({ at: m.index, text: m[0].replace(/\s+/g, ' ') });
+  }
+  found.sort((a, b) => a.at - b.at);
+  return [...new Set(found.map((x) => x.text))];
+}
+
+/**
  * Does `text` actually ASK about a time, rather than merely mention a
  * date in passing? Call this before `windowFor()` in an automatic
  * (non-explicit) lane — `mem when` stays direct, a person typing it

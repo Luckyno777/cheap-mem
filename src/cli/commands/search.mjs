@@ -28,6 +28,8 @@ import * as hybrid from '../../hybrid.mjs';
 import * as timeexpr from '../../timeexpr.mjs';
 import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
+import * as levers from '../../searchlevers.mjs';
+import * as questionsplit from '../../questionsplit.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
@@ -83,13 +85,18 @@ export const COMMANDS = {
         '             this same command with a raw chat message, where a',
         "             typed `*` must stay an ordinary character, not an",
         '             operator someone can trigger by accident.',
+        '  --weak     show the list even when no hit is confident. With the',
+        '             h3 search lever on (the default, see `mem search-levers`),',
+        '             a list in which no hit clears the bar by a clear gap',
+        '             (a flat field of near-equal scores) is withheld as a',
+        '             whole: "nothing confident" instead of noise.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
       ].join('\n'));
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard'], 'find');
+      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -266,7 +273,25 @@ export const COMMANDS = {
     // to reach). With no `--project`, `findCapability` stays null and
     // both lanes below behave exactly as before this change.
     const findCapability = args.project ? capability.grantProject(args.project) : null;
-    const hits0 = search.search(index, query, {
+    // **H1 (Block H, ported from lucky-mem): split the question.** Only
+    // with the lever on (`mem search-levers`). Core words are searched,
+    // common words ride along as damped by-catch that does not count in
+    // coverage. `null` (no core word, no identifier) keeps the question as
+    // it was. The exact lane and the echo filter below still see the
+    // question as typed.
+    let rankedQuery = query;
+    let extraTerms = wildcard.extraTerms;
+    if (levers.active('h1')) {
+      const built = questionsplit.buildQuery(query, index);
+      if (built) {
+        rankedQuery = built.query;
+        if (built.extraTerms) {
+          extraTerms = new Map(extraTerms ?? []);
+          for (const [t, w] of built.extraTerms) if ((extraTerms.get(t) ?? 0) < w) extraTerms.set(t, w);
+        }
+      }
+    }
+    const hits0 = search.search(index, rankedQuery, {
       // Fetch wider, so enough remains after filtering.
       top: args['with-echo'] ? wanted : wanted * 3,
       type: args.type ?? null,
@@ -276,7 +301,9 @@ export const COMMANDS = {
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
       withRetired: withRetiredForFetch,
-      extraTerms: wildcard.extraTerms,
+      extraTerms,
+      // h3's answer gate reads how much of the question each hit carries.
+      withCoverage: levers.active('h3'),
       // Deliberately NOT `language: cfg.language`. `cfg.language` is the
       // memory's configured DEFAULT (src/config.mjs, 'en' unless set), not
       // a per-query "the user asked for one language" signal — `find` has
@@ -360,9 +387,22 @@ export const COMMANDS = {
     // it one line further down would be absurd.
     const heldThen = (h) => !retrieval.blocksRecall(h.retired, withRetiredFlag)
       && (!asOf || retrieval.validAt({ ...(h.entry ?? h), retired: h.retired ?? null }, asOf));
-    const hits = [...exactMatches.filter(heldThen),
+    const listed = [...exactMatches.filter(heldThen),
       ...filtered.filter((h) => !exactIds.has(h.entry?.id)).filter(heldThen)]
       .slice(0, wanted);
+    // **H3 (Block H, ported from lucky-mem): threshold by score gap, for
+    // the answer as a whole.** A list in which no hit is exact, strong, or
+    // clearly ahead of the second is a flat field of near-equal scores —
+    // "how tall is mount kilimanjaro" answered with two "How we deploy"
+    // notes because both carry "how". It is withheld, and said so; a list
+    // in which ONE hit passes is shown unchanged, weaker hits included.
+    // The rule and its calibration: `src/searchlevers.mjs` (occasion
+    // `find`). `--weak` shows the list anyway.
+    const gated = !args.weak && levers.active('h3')
+      && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) });
+    const withheld = gated ? listed.length : 0;
+    for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
+    const hits = gated ? [] : listed;
     const ms = Date.now() - t0;
 
     // M18b: the recall hooks book every question they ask — the injected
@@ -378,7 +418,7 @@ export const COMMANDS = {
       injection.book(root, {
         session: args['journal-session'],
         occasion: injection.OCCASION.QUESTION,
-        reason: shown.length ? null : (hits.length ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY),
+        reason: shown.length ? null : (listed.length ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY),
         bytes: null,
         hits: shown.length,
         searched: index.N,
@@ -404,7 +444,7 @@ export const COMMANDS = {
           ...statusOf(root, h.entry, h.source),
           ...(h.retired ? { state: h.retired.state } : {}),
         }));
-        out(JSON.stringify({ query, ms, asOf, hits: brief }, null, 2));
+        out(JSON.stringify({ query, ms, asOf, hits: brief, ...(withheld ? { withheld } : {}) }, null, 2));
         return;
       }
       // `asOf` is IN the envelope even when null. A consumer has to be
@@ -413,7 +453,16 @@ export const COMMANDS = {
       // time.
       out(JSON.stringify(sanitizeForDisplay({
         query, ms, asOf, hits: hits.map((h) => ({ ...h, ...statusOf(root, h.entry, h.source), entry: markedEntry(h.entry, { root }) })),
+        // Only when something was withheld: a consumer must be able to
+        // tell "nothing found" from "nothing confident".
+        ...(withheld ? { withheld } : {}),
       }), null, 2));
+      return;
+    }
+    if (hits.length === 0 && withheld) {
+      out(`Nothing confident for '${query}'${asOf ? ` as of ${asOf}` : ''} (${index.N} entries, ${ms}ms): `
+        + `${withheld} weak match${withheld === 1 ? '' : 'es'} withheld, none clearly ahead.`);
+      out('  --weak shows them; --literal does a plain substring search.');
       return;
     }
     if (hits.length === 0) {

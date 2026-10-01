@@ -73,6 +73,19 @@ export const WORD_MIN = 4;
 /** At most this many words per case — rarest first. */
 export const WORDS_MAX = 5;
 
+/**
+ * H4 (Block H, ported from lucky-mem): for a SHOWN miss (something was
+ * injected, but the session then fetched a different entry by hand) the
+ * question is often a pasted message, not a subject — long texts teach
+ * only rubble. Measured there on the real journal (2026-09-30): without
+ * this bound 7 of 7 cases learned words like 'allem', 'vorallem' and a
+ * hex id. The bound holds ONLY for shown misses.
+ */
+export const SHOWN_QUESTION_MAX_CHARS = 240;
+
+/** Which rule produced a case; stored in `asked_evidence.learned`. */
+export const LEARNED = Object.freeze({ MISS: 'M18b', SHOWN: 'H4-shown' });
+
 /** How a use is evidenced. Closed list. */
 export const KIND = Object.freeze({ MENTION_PROMPT: 'mention-prompt', MENTION_TOOL: 'mention-tool' });
 
@@ -94,11 +107,21 @@ export function journalWithPlace(root) {
   return out;
 }
 
-/** The misses that may be learned from: questions with nothing shown. */
-export function misses(journal) {
+/**
+ * The misses that may be learned from: questions with nothing shown.
+ *
+ * `includeShown` (H4, search lever `h4` or `mem asked-learn --shown`):
+ * also questions where something WAS shown. Since the recall bar stopped
+ * being a hurdle, "nothing shown" became rare (lucky-mem: 1 of 1653 turns),
+ * so the plain rule had nothing left to learn from. A shown turn is a
+ * miss only when the session then fetched a DIFFERENT entry by hand — the
+ * self-shown latch in `cases()` drops every entry the memory showed.
+ */
+export function misses(journal, { includeShown = false } = {}) {
   const why = new Set([injection.REASON.TOO_WEAK, injection.REASON.EMPTY]);
   return journal.filter(({ z }) => z.occasion === injection.OCCASION.QUESTION
-    && why.has(z.reason) && z.session && Number.isFinite(Date.parse(z.ts ?? '')));
+    && (why.has(z.reason) || (includeShown && z.reason == null))
+    && z.session && Number.isFinite(Date.parse(z.ts ?? '')));
 }
 
 /**
@@ -205,6 +228,7 @@ export function learnWords(index, question, doc, { dfMax = DF_SHARE_MAX, max = W
   const words = [...new Set(langbridge.rawWords(question).filter((w) => [...w].length >= WORD_MIN))];
   const candidates = [];
   words.forEach((w, pos) => {
+    if (/^[0-9a-f]{12,}$/.test(w)) return;                    // an id or hash, not a word
     if (PACKS.some((p) => p.stopwords.has(w))) return;       // filler in some language
     if (langbridge.isQueryStop(bridges, w)) return;           // a bridge's question word
     const forms = search.tokenizeGroupsMulti(w, { langs: PACKS }).flat();
@@ -265,10 +289,10 @@ export function withoutAmbiguous(list, alreadyLearned = new Map()) {
  * dropped as self-shown), so "0 cases" reads as a measurement, not as
  * silence.
  */
-export function cases(root, { index = null, journal = null, lines = null } = {}) {
+export function cases(root, { index = null, journal = null, lines = null, includeShown = false } = {}) {
   const idx = index ?? search.loadIndex(root);
   const j = journal ?? journalWithPlace(root);
-  const ms = misses(j);
+  const ms = misses(j, { includeShown });
   const sessions = new Set(ms.map((m) => m.z.session));
   const { bySession, unreadable } = lines ?? sessionLines(root, sessions);
   // Every curated id is known, and a superseded one resolves to its
@@ -292,7 +316,8 @@ export function cases(root, { index = null, journal = null, lines = null } = {})
   };
   const counts = {
     misses: ms.length, withCapture: 0, withQuestion: 0, withMention: 0,
-    selfShown: 0, noNewWords: 0, ambiguous: 0, cases: 0, unreadableCaptures: unreadable,
+    selfShown: 0, noNewWords: 0, ambiguous: 0, longQuestion: 0, cases: 0, unreadableCaptures: unreadable,
+    includeShown: Boolean(includeShown),
   };
   const out = [];
   for (const m of ms) {
@@ -307,6 +332,8 @@ export function cases(root, { index = null, journal = null, lines = null } = {})
     if (!named.length) continue;
     counts.withMention += 1;
     const text = raw.textOf(q.z);
+    const shown = m.z.reason == null;
+    if (shown && String(text).length > SHOWN_QUESTION_MAX_CHARS) { counts.longQuestion += 1; continue; }
     for (const g of named) {
       const doc = current(g.id);
       if (doc.retired) continue;       // done or discarded, not superseded
@@ -318,6 +345,7 @@ export function cases(root, { index = null, journal = null, lines = null } = {})
         journal: m.place, ts: m.z.ts, session: m.z.session,
         entry: { id: doc.entry.id, type: doc.type, project: doc.project ?? null, place },
         use: { kind: g.kind, ts: new Date(g.t).toISOString() },
+        learned: shown ? LEARNED.SHOWN : LEARNED.MISS,
         words,
       });
     }
@@ -332,7 +360,7 @@ export function cases(root, { index = null, journal = null, lines = null } = {})
 export function evidence(c) {
   return {
     journal: c.journal, ts: c.ts, session: c.session,
-    words: c.words.join(' '), use: c.use, learned: 'M18b',
+    words: c.words.join(' '), use: c.use, learned: c.learned ?? LEARNED.MISS,
   };
 }
 
@@ -370,7 +398,8 @@ export function write(root, c) {
 export function asText({ cases: list, counts: k }, { written = null } = {}) {
   const lines = [
     `QUERY WORDS FROM MISSES: ${k.cases} case(s)`,
-    `  ${k.misses} misses in the journal (nothing shown), ${k.withCapture} with a readable capture, `
+    `  ${k.misses} misses in the journal (${k.includeShown ? 'nothing shown, or shown and another entry fetched — H4' : 'nothing shown'}), `
+      + `${k.withCapture} with a readable capture, `
       + `${k.withQuestion} with the question found,`,
     `  ${k.withMention} followed by the session naming an entry; dropped: ${k.selfShown} shown by `
       + `the memory itself (no evidence), ${k.noNewWords} without new words, ${k.ambiguous} only ambiguous.`,
@@ -382,6 +411,7 @@ export function asText({ cases: list, counts: k }, { written = null } = {}) {
     lines.push('  No readable raw capture for those sessions — without one there is no evidence,');
     lines.push('  and nothing is learned. That is a statement about this machine, not about demand.');
   }
+  if (k.longQuestion) lines.push(`  ${k.longQuestion} shown miss(es) skipped: question over ${SHOWN_QUESTION_MAX_CHARS} characters.`);
   if (k.unreadableCaptures) lines.push(`  ${k.unreadableCaptures} capture(s) unreachable (archive offline?).`);
   for (const c of list) {
     lines.push(`  ${c.journal} -> ${c.entry.id} (${c.entry.place}) [${c.use.kind}]: ${c.words.join(' ')}`);

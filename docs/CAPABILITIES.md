@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 75 CLI commands, 35 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 76 CLI commands, 35 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3152 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -52,6 +52,8 @@ directory. The section number in brackets is where it is explained.
 | `answercheck.mjs` | the Stop hook's last-answer check: patterns tied to a LOGGED error in this memory, never on suspicion, dropped once their own measured hit rate falls under 1 in 5 |
 | `append.mjs` | the one place a JSONL drawer is appended to — guards against a fused line when the file did not already end on a newline |
 | `askedlearn.mjs` | query words learned from recall misses: a miss the same session then fetched by id teaches the entry the words it was asked with, in any language (`mem asked-learn`, M18b) |
+| `searchlevers.mjs` | Block H search levers, one switch `MEM_SEARCH_LEVERS` (`mem search-levers`): threshold by score gap (h3: a flat field of weak hits is withheld), context reorder (h2), short recall lines with counted loads (h5) |
+| `questionsplit.mjs` | Block H lever h1: the question split into core words (searched) and common words (damped by-catch that does not count in coverage) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
 | `atomicwrite.mjs` | the one way to write a state file: a unique temp file in the same directory, then `rename` (with a Windows retry) — a reader never sees half a file, two writers never share a temp file (F5, suggestion 14) |
@@ -545,7 +547,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 75 commands
+### 7.1 CLI — 76 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -556,7 +558,7 @@ procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
-gaps suggest
+gaps suggest search-levers
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later

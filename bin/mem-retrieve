@@ -102,6 +102,11 @@ fi
 
 MIN="${MEM_RETRIEVE_MIN:-5.0}"
 TOP="${MEM_RETRIEVE_TOP:-3}"
+# H5 search lever (src/searchlevers.mjs): shorter lines, so up to five fit
+# the same byte budget. Only the default moves; MEM_RETRIEVE_TOP still wins.
+case ",${MEM_SEARCH_LEVERS:-}," in
+  *,h5,*|*,all,*) TOP="${MEM_RETRIEVE_TOP:-5}" ;;
+esac
 
 # A cap on how long a call may run, portably. GNU `timeout` is not on
 # macOS by default (there it is `gtimeout` from coreutils, if at all).
@@ -172,11 +177,21 @@ PROMPT="$(printf '%s' "$IN" | node -e '
     try { const j = JSON.parse(d); process.stdout.write(j.prompt ?? j.user_prompt ?? ""); }
     catch { /* not JSON: then nothing */ }
   })' 2>/dev/null)"
-SESSION_ID="$(printf '%s' "$IN" | node -e '
+# Session id, and for the h2 search lever the working directory and the
+# transcript path - one node call, one value per line (none of the three
+# holds a newline; a stray one is flattened to a space).
+HOOK_META="$(printf '%s' "$IN" | node -e '
   let d = "";
   process.stdin.on("data", (c) => (d += c)).on("end", () => {
-    try { process.stdout.write(String(JSON.parse(d).session_id ?? "")); } catch {}
+    try {
+      const j = JSON.parse(d);
+      const one = (v) => String(v ?? "").replace(/[\r\n]+/g, " ");
+      process.stdout.write([one(j.session_id), one(j.cwd), one(j.transcript_path)].join("\n"));
+    } catch {}
   })' 2>/dev/null)"
+{ IFS= read -r SESSION_ID; IFS= read -r HOOK_CWD; IFS= read -r HOOK_TRANSCRIPT; } <<EOF_META || true
+$HOOK_META
+EOF_META
 # **Short prompts (Z1c).** Under 12 characters is still "no signal" for
 # ordinary words - the sibling house measured that bar and kept it. But
 # a short prompt that names an ID, a file, an error code or a word that
@@ -364,5 +379,6 @@ fi
 # would have been booked before a byte left the hook.)
 printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_MIN="$MIN" MEM_RH_SESSION="${SESSION_ID:-}" \
   MEM_RH_TURNS="$TURNS" MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" \
-  MEM_RH_PATH="$RECALL_PATH" MEM_RH_PATH_REASON="$RECALL_REASON" node "$RECALL_JS" recall 2>/dev/null
+  MEM_RH_PATH="$RECALL_PATH" MEM_RH_PATH_REASON="$RECALL_REASON" \
+  MEM_RH_CWD="${HOOK_CWD:-}" MEM_RH_TRANSCRIPT="${HOOK_TRANSCRIPT:-}" node "$RECALL_JS" recall 2>/dev/null
 exit 0
