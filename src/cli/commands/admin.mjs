@@ -738,6 +738,44 @@ export const COMMANDS = {
     out(today.asText(r));
   },
 
+  // Parity for the sibling's R1 (`mem luecken`, 2b19ffd6): open and
+  // closed knowledge gaps, and the weekly rate. Reads only. No digest
+  // task here (that part of the sibling is its own digest's input).
+  gaps: async ({ args, rest }) => {
+    const sub = rest[0];
+    if (isHelp(args) || (sub && sub !== 'rate')) {
+      out([
+        'mem gaps [--json] [--top N]',
+        'mem gaps rate [--json]',
+        '',
+        '  A retrieval miss (journal reason too-weak/empty) is only a finding',
+        '  when the session itself afterwards worked the same topic out or',
+        '  called its answer unproven (TBD / not documented / I don\'t know).',
+        '  A LATER entry sharing the stems closes it, with its id. Nothing is',
+        '  written, and neither question text nor stems are ever printed.',
+        '',
+        '  rate: open and closed per calendar week; the rate is open/(open+',
+        '  closed), `null` for a week without any gap (not 0).',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, sub ? ['json', 'root'] : ['json', 'top', 'root'], sub ? `gaps ${sub}` : 'gaps');
+    const root = findRoot(args);
+    requireConfig(root);
+    const g = gap.gaps(root);
+    if (sub) {
+      if (!g.readable) { out(args.json ? JSON.stringify({ readable: false, reason: g.reason }) : `not measurable: ${g.reason}`); return; }
+      const weeks = gap.ratePerWeek(g);
+      if (args.json) { out(JSON.stringify({ readable: true, weeks })); return; }
+      if (!weeks.length) { out('No gap in any week (or none measurable).'); return; }
+      for (const w of weeks) out(`${w.week}  open ${w.open}  closed ${w.closed}  rate ${w.rate === null ? 'n/a' : `${(w.rate * 100).toFixed(0)}%`}`);
+      return;
+    }
+    const top = numberFlag('top', args.top, { fallback: 20, min: 1, max: 10000 });
+    if (args.json) { out(JSON.stringify(g)); return; }
+    out(gap.asText(g, { top }));
+  },
+
   gold: async ({ args, rest }) => {
     const sub = rest[0];
     if (isHelp(args) || !sub || sub === 'help') {
