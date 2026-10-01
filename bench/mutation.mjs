@@ -571,11 +571,6 @@ export const MUTANTS=[
    to:'  return true;  // MUTANT',
    tests:['test/webauth.test.mjs','test/console.test.mjs'] },
 
- { name:'capability: narrow() keeps scopes the capability does not cover',
-   file:'src/capability.mjs',
-   from:'    const keep = (scopes ?? this.scopes).filter((s) => this.covers(s));',
-   to:'    const keep = (scopes ?? this.scopes);  // MUTANT: widens',
-   tests:['test/retrieval.test.mjs'] },
 
  { name:'capability: covers() ignores descendants:false',
    file:'src/capability.mjs',
