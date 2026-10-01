@@ -110,10 +110,12 @@ test('the entry index is built once per listing, not once per question', () => {
   // small fixture would be noise.
   const src = fs.readFileSync(new URL('../src/question.mjs', import.meta.url), 'utf8');
   const ohneKommentare = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
-  assert.match(ohneKommentare, /const byId = memory\.entriesById\(root\);/,
-    'question.all no longer builds the index itself');
-  assert.match(ohneKommentare, /memory\.linksOf\(root, e\.id, \{ byId \}\)/,
-    'question.all stopped passing the index it built');
+  // Since parity wave 1 the graph is read once for ALL questions
+  // (`memory.linksOfMany`, the same path `linksOf` takes with one id).
+  assert.match(ohneKommentare, /memory\.linksOfMany\(root, [\s\S]*?\{ byId: memory\.entriesById\(root\) \}\)/,
+    'question.all no longer builds the index once and reads the graph in one pass');
+  assert.doesNotMatch(ohneKommentare, /memory\.linksOf\(/,
+    'question.all went back to one linksOf call per question');
   // And the default still works without one, so no caller has to know.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-kanten2-'));
   try {

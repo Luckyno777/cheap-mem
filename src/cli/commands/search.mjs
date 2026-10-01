@@ -19,6 +19,7 @@ import * as memory from '../../memory.mjs';
 import * as procedure from '../../procedure.mjs';
 import * as search from '../../search.mjs';
 import * as raw from '../../raw.mjs';
+import * as userhabits from '../../userhabits.mjs';
 import * as thesaurus from '../../thesaurus.mjs';
 import * as retrieval from '../../retrieval.mjs';
 import * as capability from '../../capability.mjs';
@@ -29,6 +30,10 @@ import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
+
+// What a raw hit shows when no real user line carries a query word: never
+// the entry text (an unfiltered join of every role).
+const RAW_NO_USER_LINE = '(raw capture: no user line matches the query)';
 
 // X3b: `status` field for a hit that is a rule and not released; else nothing.
 const statusOf = (root, entry, source) => {
@@ -425,10 +430,10 @@ export const COMMANDS = {
       out(`  ${h.source}:${h.line}  [${h.entry.ts ?? '?'}]  ${h.score.toFixed(2)}${mark}`);
       // compactLine() already neutralises the digested branch; the raw-
       // capture branch reads straight from the un-digested transcript
-      // (raw.snippet / the raw entry's own .text) and never passed
+      // (userhabits.userSnippet: real user lines only) and never passed
       // through compactLine at all, so it needs its own call here.
       const preview = h.raw
-        ? sanitizeForDisplay(String(raw.snippet(root, h.source, query) || h.entry.text || ''))
+        ? sanitizeForDisplay(userhabits.userSnippet(root, h.source, query) || RAW_NO_USER_LINE)
         : compactLine(h.entry, { root });
       out(`    ${String(preview).replace(/\s+/g, ' ').slice(0, 160)}`);
     }

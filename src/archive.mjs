@@ -170,8 +170,14 @@ export function setLocation(root, location) {
   const target = path.resolve(root, stripScheme(String(location).trim()));
   fs.mkdirSync(target, { recursive: true });
   const probe = path.join(target, `.writeprobe-${process.pid}`);
-  fs.writeFileSync(probe, 'ok');
-  fs.unlinkSync(probe);
+  // Clean up even when the write fails: on a full disk writeFileSync creates
+  // the file and only throws while writing; the unlink was skipped and an
+  // empty probe file stayed behind.
+  try {
+    fs.writeFileSync(probe, 'ok');
+  } finally {
+    fs.rmSync(probe, { force: true });
+  }
 
   const file = path.join(root, LOCATION_FILE);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -423,6 +429,11 @@ export function deletions(root) {
  * moment it enters the memory.
  */
 export function inRange(rows, { from, to, hourFrom, hourTo } = {}) {
+  // **No range asked, no filter.** Without this every caller that passed no
+  // range at all (`mem raw export` with nothing but --into) silently lost
+  // every capture that has no date, and the count it printed was smaller than
+  // the register's. A time filter only filters when somebody names a time.
+  if (!from && !to && hourFrom == null && hourTo == null) return [...rows];
   const fromT = from ? Date.parse(from.length <= 10 ? `${from}T00:00:00Z` : from) : -Infinity;
   const toT = to ? Date.parse(to.length <= 10 ? `${to}T23:59:59Z` : to) : Infinity;
   return rows.filter((s) => {

@@ -14,9 +14,11 @@ import path from 'node:path';
 
 export function name() { return 'voyage'; }
 
-function apiKey() {
+function apiKey(root = null) {
   if (process.env.VOYAGE_API_KEY) return process.env.VOYAGE_API_KEY;
-  const local = path.resolve('.mem', 'embed.env');
+  // Relative to the memory ROOT, not the caller's working directory: a hook
+  // running elsewhere never found the key (audit B#23).
+  const local = path.resolve(root ?? process.cwd(), '.mem', 'embed.env');
   if (fs.existsSync(local)) {
     for (const line of fs.readFileSync(local, 'utf8').split('\n')) {
       const m = /^VOYAGE_API_KEY\s*=\s*(.+)$/.exec(line.trim());
@@ -33,12 +35,12 @@ function apiKey() {
   throw e;
 }
 
-export async function embed(text, { model = 'voyage-3-lite', signal = null } = {}) {
+export async function embed(text, { model = 'voyage-3-lite', signal = null, root = null } = {}) {
   let res;
   try {
     res = await fetch('https://api.voyageai.com/v1/embeddings', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey()}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey(root)}` },
       body: JSON.stringify({ input: [text], model, input_type: 'document' }),
       signal,
     });

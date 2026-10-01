@@ -1111,28 +1111,48 @@ function checkOrphanDrawers(root) {
 }
 
 function checkCaptures(root) {
-  const list = raw.listCaptures(root);
-  if (list.length === 0) {
+  // One count, one rule: `raw.capturesWithState` - the SAME function the
+  // dashboard tile, `mem raw archive` and `mem raw review` read. This check
+  // used to count `raw.listCaptures` (the digest's work list), so a capture
+  // whose bytes were gone counted as healthy here and as MISSING elsewhere.
+  const rows = raw.capturesWithState(root);
+  if (rows.length === 0) {
     return finding('capture', LEVEL.WARN, 'no captures at all',
       'Is the Stop hook wired up? See the "stop-hook" finding below.');
   }
+  const counts = Object.fromEntries(raw.CAPTURE_STATES.map((st) => [st, 0]));
+  for (const r of rows) counts[r.state] = (counts[r.state] ?? 0) + 1;
+  const present = rows.filter((r) => r.state === 'present');
   let bytes = 0;
-  for (const c of list) {
-    try { bytes += fs.statSync(path.join(root, c)).size; } catch { /* gone */ }
+  const store = archive.readConfig(process.env, root);
+  for (const r of present) {
+    // The bytes on disk (gzipped), as before - not the record's pre-pack size.
+    const file = archive.filePath(store, root, r.path);
+    try { if (file) bytes += fs.statSync(file).size; } catch { /* gone */ }
   }
   // Did the redaction actually catch anything lately? A capture run
   // with a dead redaction looks exactly like a clean one.
   let withRedactions = 0;
-  const recent = list.slice(-5);
+  const recent = present.slice(0, 5);
   for (const c of recent) {
     try {
-      const { header } = raw.readCapture(root, c);
+      const { header } = raw.readCapture(root, c.path);
       if ((header?.__redacted ?? []).length > 0) withRedactions += 1;
     } catch { /* a broken capture is reported elsewhere */ }
   }
+  const others = (counts.deleted ? `, ${counts.deleted} deleted` : '')
+    + (counts.elsewhere ? `, ${counts.elsewhere} in another machine's store` : '');
+  if (counts.unreachable > 0) {
+    // A defect, not a state: the register knows it, it belongs here, the
+    // bytes are gone and nobody said so. Real loss stays an alarm.
+    return finding('capture', LEVEL.ERROR,
+      `${counts.unreachable} of ${rows.length} captures are MISSING (recorded, bytes not there)`
+      + `; ${present.length} present, ${Math.round(bytes / 1024)} KB${others}`,
+      'Is the archive mounted? `mem raw missing` names each missing capture and the path it is expected at.');
+  }
   return finding('capture', LEVEL.GOOD,
-    `${list.length} captures, ${Math.round(bytes / 1024)} KB, `
-    + `${withRedactions} of the last ${recent.length} carry redactions`);
+    `${present.length} captures, ${Math.round(bytes / 1024)} KB, `
+    + `${withRedactions} of the last ${recent.length} carry redactions${others}`);
 }
 
 function checkDigest(root) {

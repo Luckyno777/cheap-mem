@@ -1234,6 +1234,7 @@ it says so rather than letting anyone believe otherwise.
 | `mem raw migrate [--remove]` | pull captures still in the repo into the archive |
 | `mem raw export --from … --to … [--hour-from N] [--hour-to N] --into <dir>` | write a time range out, decompressed |
 | `mem raw review [--project X] [--from … --to …] [--json]` | every capture with its state |
+| `mem raw missing [--json]` | every MISSING capture one by one: path, date, bytes, the path it is expected at |
 | `mem raw delete <path> --reason "…" [--by …] [--yes]` | remove the bytes, leave a tombstone |
 
 **Deleting a capture, and what "delete" has to mean here.** Because git

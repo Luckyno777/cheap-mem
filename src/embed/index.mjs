@@ -99,7 +99,7 @@ export async function embed(root, text, { cfg = null, timeoutMs = null } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), t);
   try {
-    const vec = await adapter.embed(capped, { model: c.model, signal: controller.signal });
+    const vec = await adapter.embed(capped, { model: c.model, signal: controller.signal, root });
     if (!(vec instanceof Float32Array)) {
       throw new Error(`adapter '${c.provider}' did not return a Float32Array`);
     }
