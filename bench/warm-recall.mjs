@@ -22,7 +22,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildCorpus } from './scale.mjs';
 import * as place from '../src/recallserver-place.mjs';
 
@@ -50,9 +50,9 @@ const rssMb = (pid) => {
 
 async function run(root, mode, questions, sockDir) {
   const env = { ...process.env, MEM_RECALL_SERVER_DIR: sockDir };
-  const after = mode === 'nomemo' ? 'import(' + JSON.stringify(path.join(CODE, 'src', 'search.mjs')) + ').then((s) => s.setProcessMemo(false))' : 'Promise.resolve()';
+  const after = mode === 'nomemo' ? 'import(' + JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'search.mjs')).href) + ').then((s) => s.setProcessMemo(false))' : 'Promise.resolve()';
   const kid = spawn(process.execPath, ['--max-old-space-size=8192', '-e', `
-    import(${JSON.stringify(path.join(CODE, 'src', 'recallserver.mjs'))}).then((r) => r.start(${JSON.stringify(root)}))
+    import(${JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
       .then(async (x) => { if (!x.running) process.exit(1); await ${after}; process.on('SIGTERM', () => x.close().then(() => process.exit(0))); });
   `], { env, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';

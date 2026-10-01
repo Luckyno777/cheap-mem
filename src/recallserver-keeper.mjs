@@ -43,7 +43,10 @@ export function keep(root, { env = process.env, log = null, now = () => Date.now
     starts.push(lastStart);
     if (reason) say(`restart (${reason})`);
     child = spawn(process.execPath, [CHILD], {
-      env: { ...env, CHEAP_MEM_ROOT: root }, stdio: ['ignore', 'inherit', 'inherit'],
+      // MEM_RECALL_SERVER_PARENT: the child watches this pid and stops when it
+      // is gone — the only guard that also holds when `mem serve` is SIGKILLed.
+      env: { ...env, CHEAP_MEM_ROOT: root, MEM_RECALL_SERVER_PARENT: String(process.pid) },
+      stdio: ['ignore', 'inherit', 'inherit'],
     });
     child.on('exit', (code, signal) => {
       child = null;
@@ -66,9 +69,32 @@ export function keep(root, { env = process.env, log = null, now = () => Date.now
   };
   launch(null);
 
+  // A SIGTERM/SIGINT to `mem serve` ends the process without closing the
+  // HTTP server, so `stop()` never ran and the child was left behind as an
+  // orphan, holding the parent's stdout/stderr open (chain run 2026-10-01:
+  // test/cli-contract.test.mjs hung for 30 minutes on exactly that). Take
+  // the child down, then re-raise the signal so the default exit stays.
+  const onSignal = (sig) => {
+    unhook();
+    off = true;
+    if (timer) clearTimeout(timer);
+    try { child?.kill('SIGTERM'); } catch { /* already gone */ }
+    process.kill(process.pid, sig);
+  };
+  const onTerm = () => onSignal('SIGTERM');
+  const onInt = () => onSignal('SIGINT');
+  const onExit = () => { try { child?.kill('SIGTERM'); } catch { /* already gone */ } };
+  const unhook = () => {
+    process.off('SIGTERM', onTerm); process.off('SIGINT', onInt); process.off('exit', onExit);
+  };
+  process.on('SIGTERM', onTerm);
+  process.on('SIGINT', onInt);
+  process.on('exit', onExit);
+
   return {
     starts,
     stop: () => new Promise((resolve) => {
+      unhook();
       off = true;
       if (timer) clearTimeout(timer);
       if (!child) { resolve(); return; }

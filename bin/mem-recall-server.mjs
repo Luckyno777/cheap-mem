@@ -31,3 +31,9 @@ if (!s.running) process.exit(1);
 const stop = () => { s.close().then(() => process.exit(0)); };
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
+// Under a keeper: stop when the parent is gone (SIGKILL leaves no chance to
+// tell the child). By hand (no MEM_RECALL_SERVER_PARENT) nothing changes.
+const parent = Number(process.env.MEM_RECALL_SERVER_PARENT);
+if (parent > 0) {
+  setInterval(() => { if (process.ppid !== parent) stop(); }, 1000).unref();
+}

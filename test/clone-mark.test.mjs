@@ -92,7 +92,8 @@ test('the mark itself must never travel', () => {
   // the repair rests on that, and an unchecked assumption is the same
   // outage under a new name.
   const ignore = fs.readFileSync(path.join(REPO, '.gitignore'), 'utf8');
-  assert.match(ignore, /^\.pipeline\/?$/m,
+  // `.pipeline/*` (since the re-include fix) or the older `.pipeline/`.
+  assert.match(ignore, /^\.pipeline\/\*?$/m,
     'the clone mark lives in .pipeline/ and MUST stay ignored — otherwise '
     + 'the add/add conflict moves from the messages onto the mark');
 });

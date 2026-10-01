@@ -419,6 +419,16 @@ function relativeImportTargets(file) {
 function importGraphReachable(root) {
   const seen = new Set();
   const queue = cliEntryFiles(root);
+  // A module a bin/ script wires by literal path (e.g. recallhook.mjs via
+  // bin/mem-retrieve) runs, so what IT imports runs too: seed the graph with
+  // it. Without this, recallsignal.mjs fell out of reach the day it gained an
+  // import of its own (F3 frozenset) and stopped counting as a primitive.
+  const srcDir = path.join(root, 'src');
+  if (fs.existsSync(srcDir)) {
+    for (const f of fs.readdirSync(srcDir)) {
+      if (f.endsWith('.mjs') && literalPathReachable(root, f)) queue.push(path.join(srcDir, f));
+    }
+  }
   while (queue.length) {
     const f = queue.pop();
     if (!fs.existsSync(f) || !fs.statSync(f).isFile()) continue;
