@@ -2538,6 +2538,71 @@ void main(){ vec2 u = gl_PointCoord - 0.5; float r = dot(u, u) * 4.0; if (r > 1.
 }
 
 
+// Atlas labels carry at most five words and 34 characters (a relation bundle is
+// named after its hub's title, which can be a whole paragraph); the full name
+// stays in the tooltip and in the breadcrumb.
+const labelShort = (t) => { const k = String(t).trim().split(/\s+/).slice(0, 5).join(' '); return k.length > 34 ? k.slice(0, 33) + '…' : k; };
+// <labelplace> Collision-free placement of the atlas labels (parity with
+// lucky-mem 2026-10-01: in a focus the labels of the subgroups piled up).
+// A PURE function: rectangles in, offsets out; no DOM read, no state
+// (test/board-parity-atlas-cm.test.mjs).
+//  cands: [{ key, x, y, w, h, prio, depth, focus, before }] — x/y the anchor on
+//         screen, w/h the label size, prio the weight (members), focus = belongs
+//         to the focus, before = {dx, dy} of the last placement or null.
+//  area:  { w, h, taken: [[l, t, r, b]] } — the drawing area and rectangles already taken.
+//  Returns a Map key -> { label: true, dx, dy, moved } | { label: false } (then a small dot).
+// Order: focus > weight (with hysteresis: what already stood counts 1.6 times)
+// > depth > key. Per label 8 directions on two rings (16 spots); the previous
+// spot first. Budget from the area: at most LABEL_PLACE.fill of the area carries
+// labels (not a fixed count).
+const LABEL_PLACE = { near: 12, far: 20, gap: 4, margin: 5, hysteresis: 1.6, fill: 0.2, anchor: 4, throttle: 120 };
+function placeLabels(cands, area, opt = LABEL_PLACE) {
+  const out = new Map();
+  if (!cands.length) return out;
+  const { near, far, gap, margin, hysteresis, fill, anchor } = opt;
+  let sum = 0;
+  for (const k of cands) sum += (k.w + gap) * (k.h + gap);
+  const budget = Math.max(1, Math.floor((fill * area.w * area.h) / (sum / cands.length)));
+  const worth = (k) => k.prio * (k.before ? hysteresis : 1);
+  const order = [...cands].sort((a, b) => (b.focus ? 1 : 0) - (a.focus ? 1 : 0) || worth(b) - worth(a) || (a.depth || 0) - (b.depth || 0) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const taken = (area.taken || []).map((r) => r.slice());
+  // The anchors of all candidates: a label should, where possible, not cover another node.
+  const anchors = cands.map((k) => [k.x - anchor, k.y - anchor, k.x + anchor, k.y + anchor, k.key]);
+  const hits = (l, t, r, b, q) => l < q[2] + gap && r + gap > q[0] && t < q[3] + gap && b + gap > q[1];
+  let count = 0;
+  for (const k of order) {
+    if (count >= budget) { out.set(k.key, { label: false }); continue; }
+    const { w, h } = k;
+    const spots = [];
+    if (k.before) spots.push([k.before.dx, k.before.dy]);
+    // Near ring: 8 directions close to the anchor (bottom right = the old spot first).
+    spots.push([near, near], [near, -h - near / 2], [-w - near, near], [-w - near, -h - near / 2], [near, -h / 2], [-w - near, -h / 2], [-w / 2, -h - near], [-w / 2, near]);
+    // Far ring: the same 8 directions one label row or column further out (then with a leader line).
+    const zy = h + 2 * gap, sx = w + 2 * gap + far - near;
+    spots.push([near, near + zy], [near, -h - near / 2 - zy], [-w - near, near + zy], [-w - near, -h - near / 2 - zy], [near + sx, -h / 2], [-w - near - sx, -h / 2], [-w / 2, -h - near - zy], [-w / 2, near + zy]);
+    let pick = null;
+    for (const strict of [true, false]) {
+      for (const [dx, dy] of spots) {
+        const l = k.x + dx, t = k.y + dy, r = l + w, b = t + h;
+        if (l < margin || t < margin || r > area.w - margin || b > area.h - margin) continue;
+        if (taken.some((q) => hits(l, t, r, b, q))) continue;
+        if (strict && anchors.some((q) => q[4] !== k.key && hits(l, t, r, b, q))) continue;
+        pick = [dx, dy];
+        break;
+      }
+      if (pick) break;
+    }
+    if (!pick) { out.set(k.key, { label: false }); continue; }
+    const [dx, dy] = pick;
+    taken.push([k.x + dx, k.y + dy, k.x + dx + w, k.y + dy + h]);
+    count++;
+    // Moved = further from the anchor than the near ring: then a fine line leads to the node.
+    const nx = Math.max(dx, Math.min(0, dx + w)), ny = Math.max(dy, Math.min(0, dy + h));
+    out.set(k.key, { label: true, dx, dy, moved: Math.hypot(nx, ny) > near * 1.5 + 2 });
+  }
+  return out;
+}
+// </labelplace>
 function initGraph() {
   const T = window.MemThree,
     canvas = $('#brain'),
@@ -2596,6 +2661,12 @@ function initGraph() {
     look = center.clone();
   let w = 1, h = 1, baseDistance = 6, distance = 6, dead = false, onScreen = true, frame = 0, last = 0, time = 0, transition = null,
     hoverId = null, hoverGroup = null, hoverIndex = -1, labels = [], edgeVisuals = [], units = [], pulses = [], angle = camera.angle, tilt = camera.tilt;
+  // Atlas labels: the result of the last placement per label, the throttle time, the camera signature.
+  let labelPlaced = new Map(), labelTime = -1e9, labelSig = '', labelTimer = 0, labelVersion = 0;
+  // One SVG under the labels for the leader lines (created through markup: no
+  // namespace address in the source — the dashboard probes hold every URL).
+  labelLayer.insertAdjacentHTML('afterbegin', '<svg class="label-lines" aria-hidden="true"></svg>');
+  const labelLines = labelLayer.firstElementChild;
   let screenX = new Float32Array(0), screenY = new Float32Array(0), screenZ = new Float32Array(0), screenV = new Uint8Array(0);
   let groupHits = [];
   const pointers = new Map();
@@ -2691,7 +2762,8 @@ function initGraph() {
 
   function label(text, small, color, key, kind) {
     const el = document.createElement('button');
-    el.className = 'atlas-label ' + (kind || '');
+    // A new label starts hidden (label-off); only the placement fades it in.
+    el.className = 'atlas-label label-off ' + (kind || '');
     el.style.setProperty('--node-color', color);
     el.innerHTML = `<i></i><span>${esc(text)}${small ? `<small>${esc(small)}</small>` : ''}</span>`;
     el.setAttribute('aria-label', 'Focus ' + text + (small ? ' · ' + small : ''));
@@ -2700,7 +2772,8 @@ function initGraph() {
     return el;
   }
   const rootLabel = label(coreName(), es.length ? 'Shared core' : 'Shared core · empty', '#d9f3cf', 'root', 'root-label');
-  const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(s.members.length), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key }));
+  const rootRec = { el: rootLabel, pos: mainPos, key: 'root', prio: 1e9, depth: -1 };
+  const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(s.members.length), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key, prio: s.members.length, depth: 0 }));
 
   const positions = new Map();
   model.groups.forEach((g) => {
@@ -2756,6 +2829,8 @@ function initGraph() {
     edgeVisuals = [];
     labels.forEach((l) => l.el.remove());
     labels = [];
+    labelLines.replaceChildren();
+    labelVersion++;
   }
   let coreGeo = null, strandGeo = null, pulseGeo = null;
   function tintHierarchy() {
@@ -2862,18 +2937,22 @@ function initGraph() {
     units.forEach((u) => {
       if (u.cell && (camera.focus === u.g.key || cells.length <= 16)) {
         const el = label(u.cell.drawer ? u.cell.label : pluralEntries(u.members.length), u.cell.drawer ? pluralEntries(u.members.length) + ' · drawer' : 'Subgroup', u.g.color, u.cell.key, 'cell-label');
-        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key });
+        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.members.length, depth: (u.cell.depth || 0) + 1, cell: u.cell });
       }
       if (u.e && u.g.trail) {
         const dir = u.e.id === u.g.trail.c.id ? 'Middle' : u.g.trail.out.some((x) => x.e.id === u.e.id) ? 'points to →' : '← points here';
         const el = label(u.e.title.split(/\s+/).slice(0, 5).join(' '), dir, u.g.color, 'entry:' + u.e.id, u.e.id === u.g.trail.c.id ? 'root-label' : 'cell-label');
-        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key });
+        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.e.id === u.g.trail.c.id ? 1e6 : 1, depth: 1 });
       }
     });
     if (state.graphMode !== 'storage' && state.graphMode !== 'overview' && state.graphMode !== 'trail')
       model.groups.forEach((g) => {
-        const el = label(g.label, pluralEntries(g.members.length), g.color, g.key);
-        labels.push({ el, pos: vec(g.center).add(v(0, 0.13, 0)), key: g.key, parent: g.key });
+        // A label always carries the short form (a bundle is named after its
+        // hub's title, which can be a paragraph); the full name is in the
+        // breadcrumb and the tooltip.
+        const el = label(labelShort(g.label), pluralEntries(g.members.length), g.color, g.key);
+        if (labelShort(g.label) !== g.label) el.title = g.label;
+        labels.push({ el, pos: vec(g.center).add(v(0, 0.13, 0)), key: g.key, parent: g.key, prio: g.members.length, depth: 0 });
       });
 
     // Edges: bundled per endpoint pair as in the mockup — here every
@@ -3005,24 +3084,38 @@ function initGraph() {
     camera.zoom = baseDistance / distance;
     $('#graphZoom').value = Math.round(camera.zoom * 100) + '%';
     const g = model.groups.find((g) => g.key === camera.focus), c = currentCell();
-    $('#graphBreadcrumb').textContent = coreSlug() + ' / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
+    const crumbText = coreSlug() + ' / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
+    const crumb = $('#graphBreadcrumb');
+    if (crumb && crumb.textContent !== crumbText) { crumb.textContent = crumbText; clampCrumb(crumb); }
     $('.atlas-back').hidden = !camera.focus;
     $$('#graphGroups button').forEach((el) => el.setAttribute('aria-pressed', el.dataset.value === camera.focus));
     const n = state.graphMode === 'overview' ? edgeVisuals.reduce((k, e) => k + e.count, 0) : model.edges.length;
     $('#graphEdgeCount').textContent = num(n) + ' relations · ' + num(model.shards.length) + ' projects · 1 memory';
     canvas.dataset.focus = camera.cell || camera.focus || '';
   }
+  // The breadcrumb in a focus (a bundle is named after its hub's title, which
+  // can be a whole paragraph): at most two lines, then "more". Measured once
+  // per text change, never per frame.
+  function clampCrumb(crumb) {
+    const line = crumb.parentElement;
+    let more = line.querySelector('.crumb-more');
+    if (!more) {
+      more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'crumb-more';
+      more.onclick = () => { const opened = line.classList.toggle('crumb-open'); more.textContent = opened ? 'less' : 'more'; more.setAttribute('aria-expanded', String(opened)); };
+      crumb.after(more);
+    }
+    line.classList.remove('crumb-open');
+    more.textContent = 'more';
+    more.setAttribute('aria-expanded', 'false');
+    more.hidden = true;
+    requestAnimationFrame(() => { if (!dead) more.hidden = crumb.scrollHeight <= crumb.clientHeight + 1; });
+  }
   const _p = new T.Vector3();
   function toScreen(p) {
     const q = _p.copy(p).project(cam);
     return { x: ((q.x + 1) * w) / 2, y: ((1 - q.y) * h) / 2, z: q.z, visible: q.z > -1 && q.z < 1 && q.x > -1.1 && q.x < 1.1 && q.y > -1.1 && q.y < 1.1 };
-  }
-  function place(el, p, show = true, dy = 0) {
-    const q = toScreen(p);
-    el.hidden = !show || !q.visible;
-    if (el.hidden) return;
-    el.style.left = Math.max(5, Math.min(w - el.offsetWidth - 5, q.x + 12)) + 'px';
-    el.style.top = Math.max(5, Math.min(h - el.offsetHeight - 5, q.y + dy)) + 'px';
   }
   function refreshProjected() {
     for (let i = 0; i < units.length; i++) {
@@ -3033,9 +3126,117 @@ function initGraph() {
       const p = toScreen(vec(g.center)), edge = toScreen(vec(g.center).add(v(g.radius, 0, 0)));
       return { ...g, ...p, r: Math.max(28, Math.abs(edge.x - p.x) + 16) };
     });
-    place(rootLabel, mainPos, !camera.focus && state.graphMode !== 'trail', 18);
-    shardLabels.forEach((s) => place(s.el, s.pos, (state.graphMode === 'storage' || state.graphMode === 'overview') && !camera.focus, 12));
-    labels.forEach((l) => place(l.el, l.pos, (!camera.focus || camera.focus === l.parent) && l.key !== camera.cell, 12));
+    // Labels: the placement does NOT run per frame, only when camera, area,
+    // focus or the labels changed — throttled to LABEL_PLACE.throttle ms, with
+    // a trailing run so the last state after a movement is surely placed. Per
+    // frame only the anchors are projected (arithmetic) and offsets written
+    // (no DOM read).
+    const sig = [angle, tilt, distance, look.x, look.y, look.z].map((x) => x.toFixed(4)).join('|') + '|' + [w, h, camera.focus, camera.cell, state.graphMode, labelVersion].join('|');
+    if (sig !== labelSig) {
+      const nowMs = performance.now(), rebuilt = !labelSig.endsWith('|' + labelVersion);
+      if (rebuilt || nowMs - labelTime >= LABEL_PLACE.throttle) {
+        labelSig = sig;
+        labelTime = nowMs;
+        placeAllLabels();
+      } else if (!labelTimer) {
+        labelTimer = setTimeout(() => { labelTimer = 0; if (!dead) refreshProjected(); }, LABEL_PLACE.throttle - (nowMs - labelTime) + 5);
+      }
+    }
+    applyLabels();
+  }
+  // Which labels are candidates right now (the same rules as before), with weight, depth and focus priority.
+  function labelCandidates() {
+    const list = [], focusCell = camera.cell;
+    const inFocus = (l) => !!focusCell && !!l.cell && l.cell.key !== focusCell && (l.cell.parent === focusCell || String(l.cell.key).startsWith(focusCell + ':'));
+    if (!camera.focus && state.graphMode !== 'trail') list.push({ rec: rootRec, focus: true });
+    if ((state.graphMode === 'storage' || state.graphMode === 'overview') && !camera.focus) for (const s of shardLabels) list.push({ rec: s, focus: false });
+    for (const l of labels) {
+      if ((!camera.focus || camera.focus === l.parent) && l.key !== camera.cell) list.push({ rec: l, focus: inFocus(l) || (!!camera.focus && l.key === camera.focus) });
+    }
+    return list;
+  }
+  // Label sizes: measured once per label, batched (write every class first,
+  // then read every size, then back) — never per frame. After a resize of the
+  // area they are measured again.
+  function measureLabels(recs) {
+    const todo = recs.filter((r) => !r.size && r.el.isConnected);
+    if (!todo.length) return;
+    const dots = todo.filter((r) => r.el.classList.contains('label-dot'));
+    dots.forEach((r) => r.el.classList.remove('label-dot'));
+    for (const r of todo) { const bw = r.el.offsetWidth, bh = r.el.offsetHeight; if (bw && bh) r.size = { w: bw, h: bh }; }
+    dots.forEach((r) => r.el.classList.add('label-dot'));
+  }
+  function placeAllLabels() {
+    const cands = labelCandidates();
+    measureLabels(cands.map((k) => k.rec));
+    // Invisible anchors drop out before the placement.
+    const input = [];
+    for (const k of cands) {
+      const r = k.rec, q = toScreen(r.pos);
+      if (!q.visible) continue;
+      const g = r.size || { w: 110, h: 30 };
+      const prev = labelPlaced.get(r.el);
+      input.push({ key: r.el, x: q.x, y: q.y, w: g.w, h: g.h, prio: r.prio ?? 1, depth: r.depth ?? 1, focus: k.focus, before: prev && prev.label ? { dx: prev.dx, dy: prev.dy } : null, rec: r });
+    }
+    // The key is the element itself (unique, even when two labels share a key).
+    const result = placeLabels(input, { w, h, taken: [] });
+    const next = new Map();
+    for (const x of input) next.set(x.rec.el, { ...result.get(x.key), rec: x.rec });
+    labelPlaced = next;
+    let n = 0;
+    for (const [el, st] of next) if (st.label && el !== rootLabel && !el.classList.contains('cell-label') && !el.classList.contains('shard-label')) n++;
+    canvas.dataset.groupLabels = String(n);
+  }
+  // Per frame: only write the offset (transform); state classes only on a change.
+  function allLabelRecs() { return [rootRec, ...shardLabels, ...labels]; }
+  function applyLabels() {
+    for (const r of allLabelRecs()) {
+      const st = labelPlaced.get(r.el);
+      let mode = 'off', x = 0, y = 0;
+      if (st) {
+        const q = toScreen(r.pos);
+        if (q.visible) {
+          mode = st.label ? 'label' : 'dot';
+          x = st.label ? q.x + st.dx : q.x + 3;
+          y = st.label ? q.y + st.dy : q.y - 11;
+          if (st.label && st.moved) leaderLine(r, q.x, q.y, x, y);
+          else lineOff(r);
+        }
+      }
+      if (mode === 'off') lineOff(r);
+      if (r.mode !== mode) {
+        r.el.classList.toggle('label-off', mode === 'off');
+        r.el.classList.toggle('label-dot', mode === 'dot');
+        r.mode = mode;
+      }
+      if (mode !== 'off' && (Math.abs((r.tx ?? -1e9) - x) >= 0.5 || Math.abs((r.ty ?? -1e9) - y) >= 0.5)) {
+        r.tx = x; r.ty = y;
+        r.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      }
+    }
+  }
+  // Leader line from the node to the nearest point of the moved label.
+  function leaderLine(r, ax, ay, l, t) {
+    const g = r.size || { w: 110, h: 30 };
+    const bx = Math.max(l, Math.min(ax, l + g.w)), by = Math.max(t, Math.min(ay, t + g.h));
+    if (!r.line || !r.line.isConnected) {
+      r.lineAt = '';
+      r.line = document.createElementNS(labelLines.namespaceURI, 'line');
+      r.line.setAttribute('stroke', r.el.style.getPropertyValue('--node-color') || '#9fc7b5');
+      labelLines.append(r.line);
+    }
+    // Only write what changed (a still camera: no writing, no repaint).
+    const k = ax.toFixed(1) + ',' + ay.toFixed(1) + ',' + bx.toFixed(1) + ',' + by.toFixed(1);
+    if (r.lineAt !== k) {
+      const [x1, y1, x2, y2] = k.split(',');
+      r.line.setAttribute('x1', x1); r.line.setAttribute('y1', y1);
+      r.line.setAttribute('x2', x2); r.line.setAttribute('y2', y2);
+      if (!r.lineAt) r.line.style.display = '';
+      r.lineAt = k;
+    }
+  }
+  function lineOff(r) {
+    if (r.line && r.lineAt) { r.line.style.display = 'none'; r.lineAt = ''; }
   }
   function draw(now = performance.now(), force = false) {
     if (dead) return;
@@ -3303,6 +3504,9 @@ function initGraph() {
     const r = viewport.getBoundingClientRect();
     w = r.width;
     h = r.height;
+    // Label sizes depend on the width (narrow view: smaller type) — measure and place again.
+    for (const x of allLabelRecs()) x.size = null;
+    labelVersion++;
     renderer.setSize(w, h, false);
     cam.aspect = w / h;
     cam.updateProjectionMatrix();
@@ -3349,6 +3553,7 @@ function initGraph() {
     dead = true;
     graphAPI = null;
     cancelAnimationFrame(frame);
+    clearTimeout(labelTimer);
     observer.disconnect();
     visibility.disconnect();
     document.removeEventListener('visibilitychange', redraw);

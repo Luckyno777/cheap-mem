@@ -136,3 +136,16 @@ fieldset.read-only-fields{border:0;padding:0;margin:0;min-width:0;opacity:.62}
 .ag-detail .stats-list .row{flex-wrap:wrap;gap:4px 12px}
 .ag-sources{min-width:0}.ag-sources td,.ag-sources th{padding:10px 8px;overflow-wrap:anywhere}
 }
+
+/* Atlas labels (2026-10-01, parity with lucky-mem): labels stand by transform (no layout read per frame) and fade in and out; a label without free room becomes a small dot that shows its label on hover or focus; a moved label gets a fine leader line to its node. */
+.graph-labels .atlas-label{left:0;top:0;z-index:1;will-change:transform;transition:opacity .28s ease,visibility 0s,background .18s}
+.graph-labels .atlas-label.label-off{opacity:0;visibility:hidden;pointer-events:none;transition:opacity .28s ease,visibility 0s .28s}
+.graph-labels .atlas-label.label-dot{width:8px;height:8px;min-width:0;max-width:none;padding:0;gap:0;border-radius:50%;border:1px solid var(--node-color);background:#0d2022cc;box-shadow:0 0 6px #0006;opacity:.85;backdrop-filter:none;z-index:0}
+.graph-labels .atlas-label.label-dot>span{display:none}
+.graph-labels .atlas-label.label-dot:hover,.graph-labels .atlas-label.label-dot:focus-visible{z-index:5;opacity:1;background:var(--node-color)}
+.graph-labels .atlas-label.label-dot:hover>span,.graph-labels .atlas-label.label-dot:focus-visible>span{display:block;position:absolute;left:12px;top:-9px;white-space:nowrap;padding:6px 9px;background:#0d2022f2;border:1px solid var(--node-color);border-left-width:2px;border-radius:5px;box-shadow:0 4px 14px #0006;color:var(--node-color)}
+.label-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.label-lines line{stroke-width:1;opacity:.5}
+#graphBreadcrumb{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;min-width:0;max-width:min(78ch,100%);line-height:1.45}
+.graph-context.crumb-open #graphBreadcrumb{-webkit-line-clamp:unset;line-clamp:none;display:block}
+.crumb-more{flex:none;border:0;background:none;color:#9fd3b8;font:inherit;font-size:10px;padding:0 2px;cursor:pointer;text-decoration:underline dotted;align-self:flex-end}
