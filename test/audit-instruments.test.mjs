@@ -32,10 +32,10 @@ import { funnel } from '../bench/consumption-funnel.mjs';
 import { TASKS, grade } from '../eval/tasks.mjs';
 
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
-const kanal = (root) => funnel(root, { isDone: inbox.isDone })
+const chan = (root) => funnel(root, { isDone: inbox.isDone })
   .find((c) => c.channel === 'questions');
 
-function welt({ project = 'alpha' } = {}) {
+function world({ project = 'alpha' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-mess-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
@@ -49,13 +49,13 @@ function welt({ project = 'alpha' } = {}) {
 }
 
 test('the funnel counts the question the reader says is answered', () => {
-  const root = welt();
+  const root = world();
   try {
-    const echt = question.all(root);
-    assert.equal(echt.length, 1, 'the fixture itself is wrong');
-    assert.equal(echt.filter((q) => !q.open).length, 1, 'the fixture question is not answered');
+    const real = question.all(root);
+    assert.equal(real.length, 1, 'the fixture itself is wrong');
+    assert.equal(real.filter((q) => !q.open).length, 1, 'the fixture question is not answered');
 
-    const c = kanal(root);
+    const c = chan(root);
     assert.equal(c.produced, 1, `produced ${c.produced} where the reader sees 1`);
     assert.equal(c.consumed, 1, `consumed ${c.consumed} where the reader sees 1`);
   } finally { away(root); }
@@ -71,7 +71,7 @@ test('an unanswered question counts as produced and not consumed', () => {
     memory.logEntry(root, 'question', {
       id: 'question9', question: 'Still open?', ts: '2026-09-01T10:00:00Z',
     }, { project: 'alpha' });
-    const c = kanal(root);
+    const c = chan(root);
     assert.equal(c.produced, 1);
     assert.equal(c.consumed, 0, 'an unanswered question was counted as consumed');
   } finally { away(root); }
@@ -80,9 +80,9 @@ test('an unanswered question counts as produced and not consumed', () => {
 test('a global question is measured too, not only a project one', () => {
   // The old channel read `projects/*` only. A memory used without
   // projects reported zero and looked like a dead channel.
-  const root = welt({ project: null });
+  const root = world({ project: null });
   try {
-    const c = kanal(root);
+    const c = chan(root);
     assert.equal(c.produced, 1, 'a question outside any project is invisible to the gauge');
     assert.equal(c.consumed, 1);
   } finally { away(root); }
@@ -93,7 +93,7 @@ test('no store at all is null, not zero', () => {
   try {
     fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
     config.writeConfig(root, config.DEFAULT_CONFIG);
-    const c = kanal(root);
+    const c = chan(root);
     assert.equal(c.produced, null, 'an absent store was reported as a measured 0');
     assert.equal(c.consumed, null);
     assert.match(String(c.note ?? ''), /no questions store/);
@@ -101,11 +101,11 @@ test('no store at all is null, not zero', () => {
 });
 
 test('a withdrawn answer is not consumption', () => {
-  const root = welt();
+  const root = world();
   try {
-    assert.equal(kanal(root).consumed, 1, 'the positive control failed');
+    assert.equal(chan(root).consumed, 1, 'the positive control failed');
     memory.retireEntry(root, 'link', 'link00001', { state: 'discarded', project: 'alpha' });
-    assert.equal(kanal(root).consumed, 0,
+    assert.equal(chan(root).consumed, 0,
       'a withdrawn resolves edge still counts as a consumed question');
   } finally { away(root); }
 });
@@ -144,24 +144,24 @@ test('every control answer a task declares grades the way it says', () => {
 // are exempt, BY NAME, until the split is legitimately re-cut. An
 // exemption that is written down and counted is a debt; one that is
 // quietly folded into the rule is the defect again.
-const EINGEFROREN_MIT_LOCH = Object.freeze(['F3', 'D6', 'F6']);
+const FROZEN_WITH_HOLE = Object.freeze(['F3', 'D6', 'F6']);
 
 test('a number contract without control answers is not allowed', () => {
   // THE probe of this half. D18 was wrong for months because a bare
   // `\b3\b` had never been shown a misleading answer. A contract whose
   // `must` is a naked number now has to carry the three controls — or
   // be on the frozen list above.
-  const nackt = TASKS.filter((t) => t.must.some((re) => /^\/\\b\d+\\b\/$/.test(String(re))));
-  const ohne = nackt.filter((t) => !t.kontrollen && !EINGEFROREN_MIT_LOCH.includes(t.id));
-  assert.deepEqual(ohne.map((t) => t.id), [],
-    `bare-number contracts without control answers: ${ohne.map((t) => t.id).join(', ')}`);
+  const bare = TASKS.filter((t) => t.must.some((re) => /^\/\\b\d+\\b\/$/.test(String(re))));
+  const without = bare.filter((t) => !t.kontrollen && !FROZEN_WITH_HOLE.includes(t.id));
+  assert.deepEqual(without.map((t) => t.id), [],
+    `bare-number contracts without control answers: ${without.map((t) => t.id).join(', ')}`);
   // And the exemption may not grow by itself: every name on it must
   // really be in the frozen split and really still carry the hole.
-  for (const id of EINGEFROREN_MIT_LOCH) {
+  for (const id of FROZEN_WITH_HOLE) {
     const t = TASKS.find((x) => x.id === id);
     assert.ok(t, `${id} is exempt from a rule but does not exist`);
     assert.equal(t.split, 'final', `${id} is exempt as frozen but sits in '${t.split}'`);
-    assert.ok(nackt.includes(t),
+    assert.ok(bare.includes(t),
       `${id} no longer needs the exemption — take it off the list`);
   }
 });

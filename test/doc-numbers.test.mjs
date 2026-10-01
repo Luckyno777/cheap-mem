@@ -63,7 +63,7 @@ function lineCount(dir, filter = () => true) {
   return n;
 }
 
-const IST = {
+const IS = {
   /** Countable things. No tolerance — these are facts, not estimates. */
   genau: {
     'MCP tools': new Set([...read('bin/mem-mcp').matchAll(/name: '(mem_[a-z_]+)'/g)].map((m) => m[1])).size,
@@ -99,7 +99,7 @@ const IST = {
 // 2026-09-16: 899 statically against 904 reported by the runner. Close
 // enough to guard, and named as a lower bound so nobody later reads it
 // as the runner's number.
-IST.ungefaehr.tests = fs.readdirSync(path.join(REPO, 'test'))
+IS.ungefaehr.tests = fs.readdirSync(path.join(REPO, 'test'))
   .filter((n) => n.endsWith('.mjs'))
   .reduce((a, n) => a + [...read(path.join('test', n)).matchAll(/^test\(/gm)].length, 0);
 
@@ -126,15 +126,15 @@ IST.ungefaehr.tests = fs.readdirSync(path.join(REPO, 'test'))
 // The bands live in bench/readme-numbers.mjs (O7): the writer decides
 // with the SAME band whether a place needs rewriting at all, so what it
 // writes and what this guard accepts cannot drift apart.
-const TOLERANZ = places.TOLERANCE;
-const TOLERANZ_VORGABE = places.DEFAULT_BAND;
-const bandFuer = places.bandFor;
+const TOLERANCE_PCT = places.TOLERANCE;
+const TOLERANCE_DEFAULT = places.DEFAULT_BAND;
+const bandOf = places.bandFor;
 
 // --- Which documents are living, and which are records ---------------
 
 // The archive rule and the document list live in bench/readme-numbers.mjs
 // (O7): the writer walks exactly the documents this guard checks.
-const dokumente = () => places.livingDocs(REPO);
+const documents = () => places.livingDocs(REPO);
 
 // --- Finding claims ---------------------------------------------------
 
@@ -155,11 +155,11 @@ const dokumente = () => places.livingDocs(REPO);
 //   - `lines` is the one word that also means something else ("480
 //     lines per hour"); only a claim that names the code is graded.
 const MUSTER = places.SWEEP_PATTERN;
-const markierteAusnahmen = places.markedExemptions;
-const sammleBehauptungen = () => {
+const markedExceptions = places.markedExemptions;
+const collectClaims = () => {
   const r = places.sweepClaims(REPO);
   const map = (c) => ({ rel: c.rel, zahl: c.number, was: c.kind, zeile: c.line });
-  return { geprueft: r.checked.map(map), datiert: r.dated.map(map), nichtCode: r.notCode.map(map) };
+  return { checkedClaims: r.checked.map(map), datedClaims: r.dated.map(map), nonCodeClaims: r.notCode.map(map) };
 };
 
 // --- The guards -------------------------------------------------------
@@ -167,68 +167,68 @@ const sammleBehauptungen = () => {
 test('POSITIVE: the counters see a real codebase', () => {
   // A guard whose counters return zero passes forever. This is the
   // vacuity check, and it is first on purpose.
-  assert.ok(IST.genau['MCP tools'] >= 15, `${IST.genau['MCP tools']} MCP tools found — the counter broke, not the docs`);
-  assert.ok(IST.genau['CLI commands'] >= 30, `${IST.genau['CLI commands']} CLI commands found — the counter broke`);
-  assert.ok(IST.genau.modules >= 25, `${IST.genau.modules} modules found — the counter broke`);
-  assert.ok(IST.ungefaehr.tests >= 300, `${IST.ungefaehr.tests} tests found — the counter broke`);
-  assert.ok(IST.ungefaehr['lines:all'] >= 5000, `${IST.ungefaehr['lines:all']} lines found — the counter broke`);
+  assert.ok(IS.genau['MCP tools'] >= 15, `${IS.genau['MCP tools']} MCP tools found — the counter broke, not the docs`);
+  assert.ok(IS.genau['CLI commands'] >= 30, `${IS.genau['CLI commands']} CLI commands found — the counter broke`);
+  assert.ok(IS.genau.modules >= 25, `${IS.genau.modules} modules found — the counter broke`);
+  assert.ok(IS.ungefaehr.tests >= 300, `${IS.ungefaehr.tests} tests found — the counter broke`);
+  assert.ok(IS.ungefaehr['lines:all'] >= 5000, `${IS.ungefaehr['lines:all']} lines found — the counter broke`);
   // The floor was 1000 while `bin/mem` held the whole command table. It
   // holds the dispatch now and is ~180 lines; a floor from the old shape
   // reports the counter as broken every run, which is how a vacuity
   // check turns into noise and gets deleted.
-  assert.ok(IST.ungefaehr['lines:cli'] >= 80, `${IST.ungefaehr['lines:cli']} lines in bin/mem — the counter broke`);
+  assert.ok(IS.ungefaehr['lines:cli'] >= 80, `${IS.ungefaehr['lines:cli']} lines in bin/mem — the counter broke`);
 });
 
 test('POSITIVE: the pattern finds a claim in ordinary prose', () => {
   // Without this, a pattern that matches nothing would make every
   // document below look clean.
-  const treffer = [...'the server ships 28 MCP tools and about 18,900 lines'.matchAll(MUSTER)];
-  assert.equal(treffer.length, 2);
-  assert.equal(Number(treffer[0][1]), 28);
-  assert.equal(Number(treffer[1][1].replace(/,/g, '')), 18900);
+  const hits = [...'the server ships 28 MCP tools and about 18,900 lines'.matchAll(MUSTER)];
+  assert.equal(hits.length, 2);
+  assert.equal(Number(hits[0][1]), 28);
+  assert.equal(Number(hits[1][1].replace(/,/g, '')), 18900);
 });
 
 test('POSITIVE: an exemption exempts its own number and nothing else', () => {
   // Both halves matter. Without the first, the marker does nothing;
   // without the second, one marker silences a whole paragraph — which
   // is exactly how the corrected figure nearly went unguarded.
-  const a = markierteAusnahmen('<!-- zahl-historisch: 500 lines (was wrong) -->');
+  const a = markedExceptions('<!-- zahl-historisch: 500 lines (was wrong) -->');
   assert.ok(a.has('500 lines'), 'the marker does not exempt its own number');
   assert.ok(!a.has('23,300 lines'), 'the marker leaks onto other numbers');
   assert.equal(a.size, 1);
-  assert.equal(markierteAusnahmen('no marker here').size, 0);
+  assert.equal(markedExceptions('no marker here').size, 0);
 });
 
 test('the guard actually reaches the living documents', () => {
   // The exemptions must stay a minority. If skipping ever becomes the
   // rule, this file checks nothing while looking busy.
-  const { geprueft, datiert, nichtCode } = sammleBehauptungen();
-  assert.ok(geprueft.length >= 8,
-    `only ${geprueft.length} claims checked (${datiert.length} dated, ${nichtCode.length} not about code) `
+  const { checkedClaims, datedClaims, nonCodeClaims } = collectClaims();
+  assert.ok(checkedClaims.length >= 8,
+    `only ${checkedClaims.length} claims checked (${datedClaims.length} dated, ${nonCodeClaims.length} not about code) `
     + '— either the docs stopped stating numbers, or the pattern no longer matches how they are written');
-  assert.ok(geprueft.length > datiert.length + nichtCode.length,
-    `more claims skipped (${datiert.length + nichtCode.length}) than checked (${geprueft.length}) `
+  assert.ok(checkedClaims.length > datedClaims.length + nonCodeClaims.length,
+    `more claims skipped (${datedClaims.length + nonCodeClaims.length}) than checked (${checkedClaims.length}) `
     + '— the exemptions have eaten the guard');
-  assert.ok(dokumente().length >= 3, 'no living documents found at all');
+  assert.ok(documents().length >= 3, 'no living documents found at all');
 });
 
 test('every countable claim in every living document is right', () => {
-  const falsch = [];
-  for (const c of sammleBehauptungen().geprueft) {
+  const wrong = [];
+  for (const c of collectClaims().checkedClaims) {
     const was = c.was;
-    if (was in IST.genau) {
-      if (c.zahl !== IST.genau[was]) {
-        falsch.push(`${c.rel}:${c.zeile} says ${c.zahl} ${c.was} — the code has ${IST.genau[was]}`);
+    if (was in IS.genau) {
+      if (c.zahl !== IS.genau[was]) {
+        wrong.push(`${c.rel}:${c.zeile} says ${c.zahl} ${c.was} — the code has ${IS.genau[was]}`);
       }
-    } else if (was in IST.ungefaehr) {
-      const real = IST.ungefaehr[was];
-      const faktor = Math.max(real, c.zahl) / Math.min(real, c.zahl);
-      if (faktor > bandFuer(was)) {
-        falsch.push(`${c.rel}:${c.zeile} says ${c.zahl} ${c.was} — really ${real} (factor ${faktor.toFixed(2)})`);
+    } else if (was in IS.ungefaehr) {
+      const real = IS.ungefaehr[was];
+      const factor = Math.max(real, c.zahl) / Math.min(real, c.zahl);
+      if (factor > bandOf(was)) {
+        wrong.push(`${c.rel}:${c.zeile} says ${c.zahl} ${c.was} — really ${real} (factor ${factor.toFixed(2)})`);
       }
     }
   }
-  assert.deepEqual(falsch, [], `\n${falsch.join('\n')}\n`);
+  assert.deepEqual(wrong, [], `\n${wrong.join('\n')}\n`);
 });
 
 test('the drift that got past the 2026-09-08 guard would fail this one', () => {
@@ -236,9 +236,9 @@ test('the drift that got past the 2026-09-08 guard would fail this one', () => {
   // "about 18,900 lines" against a real 23,318 is a factor of 1.23 — it
   // slipped through a tolerance of 1.5. If it would slip through here
   // too, this file is decoration.
-  const faktor = IST.ungefaehr['lines:all'] / 18900;
-  assert.ok(faktor > bandFuer('lines:all'),
-    `the 18,900 claim would pass at a band of ${bandFuer('lines:all')} — this guard adds nothing`);
+  const factor = IS.ungefaehr['lines:all'] / 18900;
+  assert.ok(factor > bandOf('lines:all'),
+    `the 18,900 claim would pass at a band of ${bandOf('lines:all')} — this guard adds nothing`);
 });
 
 test('the test-count drift that the 1.15 band swallowed would fail this one', () => {
@@ -264,15 +264,15 @@ test('the test-count drift that the 1.15 band swallowed would fail this one', ()
   // something, and the old band really did swallow it — and it goes red
   // if someone widens `TOLERANZ.tests` back past 1.056, which is the
   // only change it exists to catch.
-  const DAMALS_BEHAUPTET = 1166;
-  const DAMALS_GEZAEHLT = 1231;
-  const faktor = DAMALS_GEZAEHLT / DAMALS_BEHAUPTET;
-  assert.ok(faktor > bandFuer('tests'),
-    `${DAMALS_BEHAUPTET} tests against ${DAMALS_GEZAEHLT} would pass at a band of `
-    + `${bandFuer('tests')} — the narrowing bought nothing`);
-  assert.ok(faktor < TOLERANZ_VORGABE,
-    `${DAMALS_BEHAUPTET} against ${DAMALS_GEZAEHLT} is a factor of ${faktor.toFixed(3)} — if it `
-    + `exceeded the OLD band of ${TOLERANZ_VORGABE} the premise is wrong: it was never `
+  const THEN_CLAIMED = 1166;
+  const THEN_COUNTED = 1231;
+  const factor = THEN_COUNTED / THEN_CLAIMED;
+  assert.ok(factor > bandOf('tests'),
+    `${THEN_CLAIMED} tests against ${THEN_COUNTED} would pass at a band of `
+    + `${bandOf('tests')} — the narrowing bought nothing`);
+  assert.ok(factor < TOLERANCE_DEFAULT,
+    `${THEN_CLAIMED} against ${THEN_COUNTED} is a factor of ${factor.toFixed(3)} — if it `
+    + `exceeded the OLD band of ${TOLERANCE_DEFAULT} the premise is wrong: it was never `
     + 'swallowed, and this test proves nothing');
 });
 
@@ -288,11 +288,11 @@ test('POSITIVE: the narrow band still passes the number that is actually there',
   // to 1266 and turned this red — a probe whose premise is a constant
   // gets tighter with every honest commit until it fails, which is the
   // one thing the comment above says it must not do.
-  const real = IST.ungefaehr.tests;
-  for (const behauptet of [real, real - 21]) {
-    const faktor = Math.max(real, behauptet) / Math.min(real, behauptet);
-    assert.ok(faktor <= bandFuer('tests'),
-      `a claim of ${behauptet} against ${real} counted would FAIL at ${bandFuer('tests')} `
+  const real = IS.ungefaehr.tests;
+  for (const claimed of [real, real - 21]) {
+    const factor = Math.max(real, claimed) / Math.min(real, claimed);
+    assert.ok(factor <= bandOf('tests'),
+      `a claim of ${claimed} against ${real} counted would FAIL at ${bandOf('tests')} `
       + '— the band is too tight for the static-vs-runner gap');
   }
 });
@@ -300,7 +300,7 @@ test('POSITIVE: the narrow band still passes the number that is actually there',
 test('a claim in a dated record is left alone', () => {
   // CHANGELOG.md states "17 MCP tools" for a release where that was
   // true. A guard that "corrects" a record falsifies it.
-  const alle = dokumente();
-  assert.ok(!alle.includes('CHANGELOG.md'), 'the changelog is a record and must not be rewritten');
-  assert.ok(alle.includes('README.md'), 'the README is living and must be checked');
+  const all = documents();
+  assert.ok(!all.includes('CHANGELOG.md'), 'the changelog is a record and must not be rewritten');
+  assert.ok(all.includes('README.md'), 'the README is living and must be checked');
 });

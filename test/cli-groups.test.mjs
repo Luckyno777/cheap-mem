@@ -77,7 +77,7 @@ test('the sixty commands the CLI had before the split are all still there', asyn
   // commands swapped places with two new ones; a derived list would
   // agree with whatever the code happens to say today, which is the
   // thing under test.
-  const ERWARTET = [
+  const EXPECTED = [
     'onboarding', 'sources', 'component', 'broadcast', 'questions', 'answer',
     'procedures', 'guard', 'heartbeat', 'init', 'whoami', 'inbox', 'log',
     'find', 'discard', 'done', 'when', 'show', 'raw-capture', 'status',
@@ -90,43 +90,43 @@ test('the sixty commands the CLI had before the split are all still there', asyn
   ];
   const t = await tables();
   const da = new Set(GROUPS.flatMap((g) => t[g]));
-  const fehlt = ERWARTET.filter((n) => !da.has(n));
-  assert.deepEqual(fehlt, [], `lost in the split: ${fehlt.join(', ')}`);
-  assert.equal(ERWARTET.length, 60);
+  const missing = EXPECTED.filter((n) => !da.has(n));
+  assert.deepEqual(missing, [], `lost in the split: ${missing.join(', ')}`);
+  assert.equal(EXPECTED.length, 60);
 });
 
 test('every command the CLI offers is reachable through the merge', () => {
   // Not through the modules — through the real program, so a broken
   // merge or a bad import path is caught here and not only at runtime.
-  const hilfe = execFileSync('node', [path.join(REPO, 'bin/mem')], { encoding: 'utf8' });
-  assert.match(hilfe, /cheap-mem CLI/);
+  const help = execFileSync('node', [path.join(REPO, 'bin/mem')], { encoding: 'utf8' });
+  assert.match(help, /cheap-mem CLI/);
   // `log` and `find` are the two the whole thing exists for. If the help
   // text stops naming them, something is very wrong.
   for (const n of ['log', 'find', 'doctor', 'inbox']) {
-    assert.match(hilfe, new RegExp(`\\b${n}\\b`), `help text no longer mentions '${n}'`);
+    assert.match(help, new RegExp(`\\b${n}\\b`), `help text no longer mentions '${n}'`);
   }
 });
 
 test('SABOTAGE: a duplicate name across two groups is refused, not resolved', () => {
   // The merge throws. If it did not, the second definition would win by
   // import order and the first would be dead code that still looks live.
-  const zwei = { a: { doppelt: 1, x: 2 }, b: { doppelt: 3 } };
+  const two = { a: { doppelt: 1, x: 2 }, b: { doppelt: 3 } };
   const merge = () => {
-    const raus = {};
-    for (const [gruppe, tabelle] of Object.entries(zwei)) {
-      for (const [name, h] of Object.entries(tabelle)) {
-        if (name in raus) throw new Error(`two groups define \`mem ${name}\`: ${gruppe} and one before it`);
-        raus[name] = h;
+    const merged = {};
+    for (const [group, table] of Object.entries(two)) {
+      for (const [name, h] of Object.entries(table)) {
+        if (name in merged) throw new Error(`two groups define \`mem ${name}\`: ${group} and one before it`);
+        merged[name] = h;
       }
     }
-    return raus;
+    return merged;
   };
   assert.throws(merge, /two groups define/);
   // And the real merge in bin/mem must be the same shape — if someone
   // replaces it with a spread, this test still passes while the
   // guarantee is gone. So check the source says so.
-  const quelle = fs.readFileSync(path.join(REPO, 'bin/mem'), 'utf8');
-  assert.match(quelle, /if \(name in COMMANDS\)/,
+  const srcText = fs.readFileSync(path.join(REPO, 'bin/mem'), 'utf8');
+  assert.match(srcText, /if \(name in COMMANDS\)/,
     'bin/mem no longer refuses duplicates — a spread merge would silently drop one');
 });
 
@@ -134,9 +134,9 @@ test('bin/mem stays small enough to be read in one sitting', () => {
   // The whole reason for the split. Without a number here, the file
   // grows back one convenient handler at a time, and the next person to
   // notice is the one who cannot find anything in it.
-  const zeilen = fs.readFileSync(path.join(REPO, 'bin/mem'), 'utf8').split('\n').length;
-  assert.ok(zeilen < 400,
-    `bin/mem is ${zeilen} lines. It was 4503 before the split and 223 after; `
+  const lines = fs.readFileSync(path.join(REPO, 'bin/mem'), 'utf8').split('\n').length;
+  assert.ok(lines < 400,
+    `bin/mem is ${lines} lines. It was 4503 before the split and 223 after; `
     + 'if a handler landed back in here, move it to its group.');
 });
 
@@ -153,23 +153,23 @@ test('every lazy import inside a command handler resolves', () => {
   // front of whoever ran that command, and nothing here would have gone
   // red. A static import fails loudly at load; a lazy one waits until
   // someone needs it — which is exactly when you least want to find out.
-  const dateien = fs.readdirSync(path.join(REPO, 'src/cli/commands'))
+  const files = fs.readdirSync(path.join(REPO, 'src/cli/commands'))
     .filter((f) => f.endsWith('.mjs'));
-  const kaputt = [];
-  let gesehen = 0;
-  for (const datei of dateien) {
-    const voll = path.join(REPO, 'src/cli/commands', datei);
-    const quelle = fs.readFileSync(voll, 'utf8');
-    for (const m of quelle.matchAll(/await import\('([^']+)'\)/g)) {
-      const ziel = m[1];
-      if (!ziel.startsWith('.')) continue;   // ein Paket, nicht unser Pfad
-      gesehen += 1;
-      const aufgeloest = path.resolve(path.dirname(voll), ziel);
-      if (!fs.existsSync(aufgeloest)) kaputt.push(`${datei}: ${ziel}`);
+  const broken = [];
+  let seen = 0;
+  for (const file of files) {
+    const whole = path.join(REPO, 'src/cli/commands', file);
+    const srcText = fs.readFileSync(whole, 'utf8');
+    for (const m of srcText.matchAll(/await import\('([^']+)'\)/g)) {
+      const target = m[1];
+      if (!target.startsWith('.')) continue;   // ein Paket, nicht unser Pfad
+      seen += 1;
+      const resolved = path.resolve(path.dirname(whole), target);
+      if (!fs.existsSync(resolved)) broken.push(`${file}: ${target}`);
     }
   }
   // POSITIVE: a probe that finds no lazy imports at all passes forever.
-  assert.ok(gesehen >= 8,
-    `only ${gesehen} lazy imports found across the groups — the probe stopped matching them`);
-  assert.deepEqual(kaputt, [], `\n${kaputt.join('\n')}\n`);
+  assert.ok(seen >= 8,
+    `only ${seen} lazy imports found across the groups — the probe stopped matching them`);
+  assert.deepEqual(broken, [], `\n${broken.join('\n')}\n`);
 });

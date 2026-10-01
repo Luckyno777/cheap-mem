@@ -33,13 +33,13 @@ test('red proof: the start commit has no claim id in done()', (t) => {
 test('REGRESSION: an old process with the old id after resumption -> invalid, the new claim stays open', (t) => {
   const { root, name } = message(t);
   const old = c.claim(root, name, { by: 'agentA', minutes: 30, now: T0 });
-  const neu = c.claim(root, name, { by: 'agentA', minutes: 30, now: min(31) });
-  assert.notEqual(old.id, neu.id);
+  const created = c.claim(root, name, { by: 'agentA', minutes: 30, now: min(31) });
+  assert.notEqual(old.id, created.id);
   const r = c.done(root, name, { by: 'agentA', claimId: old.id, now: min(32) });
   assert.equal(r.valid, false);
   assert.match(r.reason, /old or foreign/);
   assert.equal(r.status, c.STATUS.CLAIMED, 'the new claim is still open');
-  assert.equal(r.holder.id, neu.id);
+  assert.equal(r.holder.id, created.id);
   assert.equal(r.invalid.some((u) => u.id === r.id && /not the valid claim/.test(u.reason)), true, 'named with a reason, never silent');
   // same for failed: must not release the new claim
   const f = c.failed(root, name, { by: 'agentA', claimId: old.id, reason: 'late', now: min(33) });

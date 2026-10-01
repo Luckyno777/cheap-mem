@@ -59,13 +59,13 @@ test('ONE ULP in the similarity does not move the MMR result', () => {
   // then, does the run show which mechanism decided.
   const c = tied(3);
   const key = (h) => h.entry.id;
-  const [, zweiter] = c.slice().sort(search.byScoreThenIdentity);
+  const [, second] = c.slice().sort(search.byScoreThenIdentity);
 
-  const genau = (a, b) => (a === b ? 1 : 0.5);
+  const exact = (a, b) => (a === b ? 1 : 0.5);
   // `zweiter` is the one the key picks next. Give exactly IT the higher
   // similarity, so a raw value comparison would drop it in favour of
   // the other — one unit in the last place is all it takes.
-  const einUlpDaneben = (a, b) => {
+  const oneUlpOff = (a, b) => {
     if (a === b) return 1;
     // **A full Number.EPSILON, not half of it — measured, not assumed.**
     // `Number.EPSILON * 0.5` (one ULP at 0.5) does produce a different
@@ -73,15 +73,15 @@ test('ONE ULP in the similarity does not move the MMR result', () => {
     // 0.5499999999999999 either way. The perturbation vanished inside
     // the arithmetic, and the probe was green without measuring
     // anything. A full EPSILON survives.
-    return a === zweiter ? 0.5 + Number.EPSILON : 0.5;
+    return a === second ? 0.5 + Number.EPSILON : 0.5;
   };
 
-  const lauf = (simOf) => search
+  const runOnce = (simOf) => search
     .mmrRerank(c.slice(), { lambda: 0.7, top: 3, simOf }).map(key);
 
-  const a = lauf(genau);
-  const b = lauf(einUlpDaneben);
-  assert.equal(a[1], key(zweiter), 'the fixture does not do what it claims');
+  const a = runOnce(exact);
+  const b = runOnce(oneUlpOff);
+  assert.equal(a[1], key(second), 'the fixture does not do what it claims');
   assert.deepEqual(b, a,
     `one ULP changed the order:\n  exact: ${a.join(' ')}\n  +1ulp: ${b.join(' ')}`);
 });
@@ -93,18 +93,18 @@ test('a REAL difference in similarity still decides — the threshold is no blan
   // leaving it looking switched on.
   const c = tied(3);
   const key = (h) => h.entry.id;
-  const [, zweiter, dritter] = c.slice().sort(search.byScoreThenIdentity);
+  const [, second, third] = c.slice().sort(search.byScoreThenIdentity);
 
   // `dritter` is the one the key would take LAST — and the one that is
   // clearly least similar to the first pick. MMR must take it second.
   const simOf = (a, b) => {
     if (a === b) return 1;
-    return a === dritter ? 0.05 : 0.95;
+    return a === third ? 0.05 : 0.95;
   };
 
   const rang = search.mmrRerank(c.slice(), { lambda: 0.7, top: 3, simOf }).map(key);
-  assert.notEqual(key(dritter), key(zweiter), 'the fixture is degenerate');
-  assert.equal(rang[1], key(dritter),
+  assert.notEqual(key(third), key(second), 'the fixture is degenerate');
+  assert.equal(rang[1], key(third),
     `MMR did not prefer the clearly less similar candidate: ${rang.join(' ')}`);
 });
 

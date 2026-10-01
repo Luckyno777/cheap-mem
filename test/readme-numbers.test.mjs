@@ -114,10 +114,10 @@ test('the README states the test count, and it is close to the real one', () => 
   const claim = claimLine();
   const m = claim.match(/([\d,]+) tests/);
   assert.ok(m, `the numbers line no longer states a test count: "${claim}"`);
-  const behauptet = Number(m[1].replace(/,/g, ''));
-  const ab = Math.abs(behauptet - counted.tests) / counted.tests;
+  const claimed = Number(m[1].replace(/,/g, ''));
+  const ab = Math.abs(claimed - counted.tests) / counted.tests;
   assert.ok(ab <= 0.02,
-    `README says ${behauptet} tests, ${counted.tests} test( calls are in test/ `
+    `README says ${claimed} tests, ${counted.tests} test( calls are in test/ `
     + `(${(ab * 100).toFixed(1)} % apart). Run \`npm test\` and put the real number in.`);
 });
 
@@ -125,14 +125,14 @@ test('the line-count claim is within a factor that a rewrite cannot hide in', ()
   const real = lineCount('bin') + lineCount('src', (n) => n.endsWith('.mjs'));
   const m = README.match(/about ([\d,]+) lines/);
   assert.ok(m, 'the README no longer states a line count at all');
-  const behauptet = Number(m[1].replace(/,/g, ''));
+  const claimed = Number(m[1].replace(/,/g, ''));
 
   // Generous on purpose — see the note at the top. The old claim was
   // 500 against ~18,900; anything that survives this check is honest
   // in the way that matters.
-  const faktor = Math.max(real, behauptet) / Math.min(real, behauptet);
-  assert.ok(faktor < 1.5,
-    `README claims about ${behauptet} lines, the code has ${real} (factor ${faktor.toFixed(1)})`);
+  const factor = Math.max(real, claimed) / Math.min(real, claimed);
+  assert.ok(factor < 1.5,
+    `README claims about ${claimed} lines, the code has ${real} (factor ${factor.toFixed(1)})`);
 });
 
 test('the old claim would fail this test', () => {
@@ -149,8 +149,8 @@ test('the historical measurement is dated, so it cannot be read as current', () 
   // an external review as a second wrong number.
   const i = README.indexOf('0 of the tools');
   assert.ok(i > 0, 'the historical measurement is gone or reworded');
-  const umfeld = README.slice(Math.max(0, i - 400), i + 200);
-  assert.match(umfeld, /September 2026|2026-09/,
+  const surroundings = README.slice(Math.max(0, i - 400), i + 200);
+  assert.match(surroundings, /September 2026|2026-09/,
     'the historical measurement carries no date — it will be read as current');
 });
 

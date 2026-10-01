@@ -74,13 +74,13 @@ function steps() {
  * the SAME invocation tokens the rules below split on. One spelling in
  * one place — the reader and the rules cannot drift apart.
  */
-const RUFT_DIGEST = /bash bin\/mem-digest|-File bin\/mem-digest\.ps1/;
+const CALLS_DIGEST = /bash bin\/mem-digest|-File bin\/mem-digest\.ps1/;
 export function startsDigest(body) {
-  const ohneKommentare = String(body ?? '')
+  const withoutComments = String(body ?? '')
     .split('\n')
     .filter((l) => !/^\s*#/.test(l))
     .join('\n');
-  return RUFT_DIGEST.test(ohneKommentare);
+  return CALLS_DIGEST.test(withoutComments);
 }
 
 /** Steps that actually start a digest tick. */
@@ -232,20 +232,20 @@ function declaredParams(text) {
 
 test('every switch a CI step passes to one of our scripts is actually declared', () => {
   const offenders = [];
-  let geprueft = 0;
+  let checked = 0;
   for (const { step, script, rest } of powershellCalls()) {
     const p = path.join(REPO, script);
     if (!fs.existsSync(p)) continue;          // a generated hook in a temp dir
     const declared = declaredParams(fs.readFileSync(p, 'utf8'));
     if (declared === null) continue;
-    geprueft += 1;
+    checked += 1;
     for (const m of rest.matchAll(/(^|\s)-([A-Za-z][\w]*)/g)) {
       if (!declared.includes(m[2].toLowerCase())) {
         offenders.push(`${step}: -${m[2]} is not declared by ${script}`);
       }
     }
   }
-  assert.ok(geprueft > 0, 'no call to a shipped .ps1 found - the reader broke');
+  assert.ok(checked > 0, 'no call to a shipped .ps1 found - the reader broke');
   assert.deepEqual(offenders, [],
     'PowerShell puts an undeclared switch into $args without a word, so the '
     + 'call does nothing and the step reads as if it had worked.');

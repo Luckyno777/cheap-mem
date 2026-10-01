@@ -51,9 +51,9 @@ const CLAIM = places.TOOL_CLAIM;
 test('POSITIV: the probe can see a wrong number', () => {
   // Without this control the search below could silently match nothing
   // and the test would pass forever.
-  const treffer = [...'the server exposes eight tools today'.matchAll(CLAIM)];
-  assert.equal(treffer.length, 1);
-  assert.equal(treffer[0][1].toLowerCase(), 'eight');
+  const hits = [...'the server exposes eight tools today'.matchAll(CLAIM)];
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0][1].toLowerCase(), 'eight');
 });
 
 test('every documented tool count matches the server', () => {

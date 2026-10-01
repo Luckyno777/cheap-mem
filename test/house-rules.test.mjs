@@ -29,7 +29,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MCP = path.join(ROOT, 'bin', 'mem-mcp');
 
 /** A real initialize handshake, read back. */
-function connect({ pkg = ROOT, erlaubeLeer = false } = {}) {
+function connect({ pkg = ROOT, allowEmpty = false } = {}) {
   const mem = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-hr-'));
   fs.mkdirSync(path.join(mem, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(mem, '.mem/config.json'), JSON.stringify({ version: 1 }));
@@ -48,7 +48,7 @@ function connect({ pkg = ROOT, erlaubeLeer = false } = {}) {
     // failure message named neither the exit code nor the server's own
     // stack. The suite has been green here and red in CI for days with
     // exactly that message and nothing else to go on.
-    if (!line && !erlaubeLeer) {
+    if (!line && !allowEmpty) {
       throw new Error(
         'the MCP server produced no reply to initialize.\n'
         + `  exit status : ${r.status}\n`

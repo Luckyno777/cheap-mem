@@ -60,11 +60,11 @@ const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 function raceThem(script, r, marks) {
   const file = path.join(r, 'writer.mjs');
   fs.writeFileSync(file, script);
-  const kinder = marks.map((m) => spawn(
+  const children = marks.map((m) => spawn(
     process.execPath, [file, r, m, String(PER_WRITER), String(PAD)],
     { stdio: ['ignore', 'ignore', 'pipe'] },
   ));
-  return Promise.all(kinder.map((k, i) => new Promise((ok, fail) => {
+  return Promise.all(children.map((k, i) => new Promise((ok, fail) => {
     let err = '';
     k.stderr.on('data', (b) => { err += b; });
     // A writer that dies must say so. Without this the file is simply

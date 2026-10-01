@@ -100,9 +100,9 @@ test('POSITIVE CONTROL: the probe reads the real scripts and the detector fires'
     assert.ok(files.some((f) => f.rel === expected), `${expected} is not seen by the probe`);
   }
   // The detector must fire on the exact shape that broke the installer.
-  const gefunden = nonAscii('Write-Warning "not JSON \u2014 leaving it alone"');
-  assert.equal(gefunden.length, 1, 'the detector does not see an em dash');
-  assert.equal(gefunden[0].ch.codePointAt(0), 0x2014);
+  const found = nonAscii('Write-Warning "not JSON \u2014 leaving it alone"');
+  assert.equal(found.length, 1, 'the detector does not see an em dash');
+  assert.equal(found[0].ch.codePointAt(0), 0x2014);
   // And it must stay quiet on a line that is already correct, otherwise
   // it would report every file forever.
   assert.equal(nonAscii('Write-Warning "not JSON - leaving it alone"').length, 0);

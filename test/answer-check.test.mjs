@@ -151,7 +151,7 @@ test('bin/mem-stop: a hit prints exactly one block-JSON on stdout, a clean answe
     const errId = /id:\s*(\S+)/.exec(out)[1];
     writePatterns(r, [{ id: 'p1', error_id: errId, pattern: 'do-the-forbidden-thing', reason: 'x' }]);
 
-    const lauf = (text, session) => {
+    const runOnce = (text, session) => {
       const t = transcript(r, [
         { type: 'user', message: { content: 'go' } },
         { type: 'assistant', message: { content: [{ type: 'text', text }] } },
@@ -164,18 +164,18 @@ test('bin/mem-stop: a hit prints exactly one block-JSON on stdout, a clean answe
     };
     const why = (res) => `status ${res.status}, stderr: ${String(res.stderr).slice(-800)}`;
 
-    const clean = lauf('all fine here', 'k1');
+    const clean = runOnce('all fine here', 'k1');
     assert.equal(clean.status, 0, why(clean));
     assert.equal(clean.stdout, '', `positive control that a clean run stays silent — ${why(clean)}`);
 
-    const hit = lauf('going to do-the-forbidden-thing right now', 'k2');
+    const hit = runOnce('going to do-the-forbidden-thing right now', 'k2');
     assert.equal(hit.status, 0, why(hit));
     assert.notEqual(hit.stdout.trim(), '', `hit produced no block-JSON — ${why(hit)}`);
     const j = JSON.parse(hit.stdout);
     assert.equal(j.decision, 'block');
     assert.match(j.reason, /p1/);
 
-    const second = lauf('going to do-the-forbidden-thing right now', 'k2');
+    const second = runOnce('going to do-the-forbidden-thing right now', 'k2');
     assert.equal(second.stdout, '', `second Stop, same session: must stay silent — ${why(second)}`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });

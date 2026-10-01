@@ -44,7 +44,7 @@ const KEY = ['aB3xY9kQ', '7mZ2pL5w', 'Q1rT4uV6', 'nH8jK0dF'].join('');
 const key = (n) => KEY.slice(0, n);
 
 test('an env reference is left alone, byte for byte', () => {
-  const bleibt = [
+  const stays = [
     'const token = process.env.GITHUB_TOKEN;',
     "const t = process.env['GITHUB_TOKEN'];",
     'password = os.environ["DB_PASSWORD"]',
@@ -52,18 +52,18 @@ test('an env reference is left alone, byte for byte', () => {
     'const secret = await readSecretFromVault(name);',
     'export function redactAgainstEnv(text, secrets = []) {',
   ];
-  for (const line of bleibt) {
+  for (const line of stays) {
     assert.equal(redaction.redact(line).text, line,
       `over-masked: ${line}`);
   }
 });
 
 test('a real secret is still redacted, and the separator survives', () => {
-  const faelle = [
+  const cases = [
     [`export DB_PASSWORD=${key(16)}`, 'export DB_PASSWORD='],
     [`my_token = ${key(24)}`, 'my_token = '],
   ];
-  for (const [line, prefix] of faelle) {
+  for (const [line, prefix] of cases) {
     const out = redaction.redact(line).text;
     assert.ok(out.includes('[REDACTED:'), `not redacted: ${line}`);
     // Everything up to the marker must be a verbatim prefix of the
@@ -77,13 +77,13 @@ test('a real secret is still redacted, and the separator survives', () => {
 test('SABOTAGE: a credential dressed as a reference is still caught', () => {
   // If the exemption were a plain shape test, every one of these would
   // walk straight through. They must not.
-  const getarnt = [
+  const disguised = [
     `MY_TOKEN=process.env.${key(28)}`,
     `password = getSecret(${key(30)})`,
     `SECRET=$env:${KEY}`,
     `TOKEN = os.environ[${key(28)}]`,
   ];
-  for (const line of getarnt) {
+  for (const line of disguised) {
     assert.ok(redaction.redact(line).text.includes('[REDACTED:'),
       `LEAK — exemption too wide: ${line}`);
   }

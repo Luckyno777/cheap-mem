@@ -252,7 +252,7 @@ test('nothing lost: topic grouping, current/trail and links match a hand-checked
 // uses (`bench/atlas/core.mjs`, imported here as `corpus`), rather than
 // leaving checks 3-4 as the two un-gated wall-clock probes in this file.
 // Check 5 (counting, below) already never needed this — it stays as is.
-function messungUnterLastGate(work) {
+function measurementUnderLastGate(work) {
   const calibBaseline = corpus.captureQuietCalibrationBaseline();
   const before = corpus.captureForeignLoad(calibBaseline);
   const result = work();
@@ -279,7 +279,7 @@ function messungUnterLastGate(work) {
 }
 
 test('the guarantee: viewer build time grows sub-quadratically with corpus size', (t) => {
-  const gate = messungUnterLastGate(() => measureGrowth((root) => viewer.collectMemory(root)));
+  const gate = measurementUnderLastGate(() => measureGrowth((root) => viewer.collectMemory(root)));
   if (gate.notMeasuredReason) {
     t.skip(`not measured: ${gate.notMeasuredReason} points: ${JSON.stringify(gate.result.points)} `
       + '(the load-immune counting probe below still covers this guarantee unconditionally)');
@@ -301,7 +301,7 @@ test('the guarantee: viewer build time grows sub-quadratically with corpus size'
 test('sabotage: reintroducing per-topic topicState() makes the exponent check fail', async (t) => {
   const { module: sabotagedModule, cleanup } = await loadSabotagedViewer();
 
-  const redGate = messungUnterLastGate(() => measureGrowth((root) => sabotagedModule.collectMemory(root)));
+  const redGate = measurementUnderLastGate(() => measureGrowth((root) => sabotagedModule.collectMemory(root)));
   if (redGate.notMeasuredReason) {
     cleanup();
     t.skip(`not measured (RED half): ${redGate.notMeasuredReason} `
@@ -319,7 +319,7 @@ test('sabotage: reintroducing per-topic topicState() makes the exponent check fa
   // Restore: the real, checked-in module (never modified on disk) is
   // green again. No git command involved anywhere in this test — the
   // "restore" is simply using the untouched file.
-  const greenGate = messungUnterLastGate(() => measureGrowth((root) => viewer.collectMemory(root)));
+  const greenGate = measurementUnderLastGate(() => measureGrowth((root) => viewer.collectMemory(root)));
   if (greenGate.notMeasuredReason) {
     cleanup();
     t.skip(`not measured (GREEN half): ${greenGate.notMeasuredReason} `

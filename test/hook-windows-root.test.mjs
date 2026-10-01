@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Every shell hook that looks for `.mem/config.json` itself. */
-function hooksMitWurzelsuche() {
+function hooksWithRootLookup() {
   const d = path.join(REPO, 'bin');
   return fs.readdirSync(d)
     .filter((n) => n.startsWith('mem-') && !n.endsWith('.ps1'))
@@ -42,18 +42,18 @@ function hooksMitWurzelsuche() {
 test('POSITIVE: the probe finds the hooks that resolve a root', () => {
   // Without this a renamed directory, or a rewritten probe, would make
   // the guard below pass by finding nothing at all.
-  const h = hooksMitWurzelsuche();
+  const h = hooksWithRootLookup();
   assert.ok(h.length >= 4, `only ${h.length} hooks with a root lookup — has the shape changed?`);
-  for (const erwartet of ['mem-before-edit', 'mem-retrieve', 'mem-stop']) {
-    assert.ok(h.some((x) => x.n === erwartet), `${erwartet} is no longer found by the probe`);
+  for (const expected of ['mem-before-edit', 'mem-retrieve', 'mem-stop']) {
+    assert.ok(h.some((x) => x.n === expected), `${expected} is no longer found by the probe`);
   }
 });
 
 test('each of them normalises the path before looking it up', () => {
-  const ohne = hooksMitWurzelsuche()
+  const without = hooksWithRootLookup()
     .filter((h) => !/to_slashes/.test(h.s))
     .map((h) => h.n);
-  assert.deepEqual(ohne, [],
+  assert.deepEqual(without, [],
     'These hooks test for .mem/config.json without turning backslashes into '
     + 'slashes first. On Windows they find nothing and exit 0 in silence, which '
     + 'reads exactly like "nothing to report". The whole hook is then inert and '
@@ -69,7 +69,7 @@ test('$0 is normalised too, not only the root', () => {
   //
   // This is the whole reason the guard checks BOTH: the first repair
   // was real, verified, and did not fix the reported failure.
-  for (const { n, s: text } of hooksMitWurzelsuche()) {
+  for (const { n, s: text } of hooksWithRootLookup()) {
     // Any variable name — HOOK_DIR here, HERE there. What matters is
     // that no `dirname "$0"` survives unnormalised anywhere.
     assert.doesNotMatch(text, /dirname "\$0"/,
@@ -81,12 +81,12 @@ test('$0 is normalised too, not only the root', () => {
 test('the helper is defined before it is used', () => {
   // A helper defined below its first call is an unbound command in
   // bash: the hook then fails at exactly the line meant to save it.
-  for (const { n, s: text } of hooksMitWurzelsuche()) {
+  for (const { n, s: text } of hooksWithRootLookup()) {
     const def = text.indexOf('to_slashes() {');
-    const nutz = text.indexOf('to_slashes "');
-    if (nutz < 0) continue;
-    assert.ok(def >= 0 && def < nutz,
-      `${n}: the helper is used at ${nutz} and defined at ${def}`);
+    const use = text.indexOf('to_slashes "');
+    if (use < 0) continue;
+    assert.ok(def >= 0 && def < use,
+      `${n}: the helper is used at ${use} and defined at ${def}`);
   }
 });
 
@@ -144,8 +144,8 @@ test('lane patterns accept either path separator', () => {
   // ended the guessing.
   const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
   const muster = [...s.matchAll(/\/\[?\\*\\?\/?\]?\((?:errors|decisions|learnings)[^/]*\/[gimsuy]*/g)];
-  const roh = [...s.matchAll(/\/\\\/\((?:errors|decisions|learnings)/g)];
-  assert.deepEqual(roh.map((m) => m[0]), [],
+  const raw = [...s.matchAll(/\/\\\/\((?:errors|decisions|learnings)/g)];
+  assert.deepEqual(raw.map((m) => m[0]), [],
     'a lane pattern demands a forward slash — on Windows it matches nothing '
     + 'and the hook goes silent');
   assert.match(s, /\[\\\\\/\]\(errors\|decisions\|learnings\)/,

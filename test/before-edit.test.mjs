@@ -73,7 +73,7 @@ function call(root, { file, session = 's1' } = {}) {
 }
 
 /** Why was it silent? For assertion messages, so a red test explains itself. */
-function warum(a) {
+function why(a) {
   return `(silent)  exit=${a.status} signal=${a.signal ?? '-'} `
     + `spawn=${a.spawnError ?? '-'}\n  stderr: ${a.stderr.slice(0, 1200) || '(empty)'}`;
 }
@@ -117,7 +117,7 @@ test('THE CASE: the entry about the touched file arrives', () => {
   try {
     const a = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh' });
     const { json } = a;
-    assert.ok(json, `nothing printed ${warum(a)}`);
+    assert.ok(json, `nothing printed ${why(a)}`);
     assert.match(json.hookSpecificOutput.additionalContext, /unquoted-path/);
     assert.equal(json.hookSpecificOutput.hookEventName, 'PreToolUse');
   } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
@@ -139,21 +139,21 @@ test('twice on the same file: a pointer the second time, NEVER silence', () => {
   try {
     const f = '/home/x/cheap-mem/install/claude-code.sh';
     const one = call(root, { file: f });
-    assert.ok(one.raw, `even the first call was silent ${warum(one)}`);
+    assert.ok(one.raw, `even the first call was silent ${why(one)}`);
     assert.match(one.json.hookSpecificOutput.additionalContext, /went wrong here before/);
 
     const two = call(root, { file: f });
-    assert.ok(two.raw, `the second call was silent — exactly the defect ${warum(two)}`);
+    assert.ok(two.raw, `the second call was silent — exactly the defect ${why(two)}`);
     const t = two.json.hookSpecificOutput.additionalContext;
     // `warum(two)` on these three as well, not only on the silence above.
     // On the 2026-09-16 Windows runner this assertion failed with nothing
     // but the repeated block to look at — while the trace that names the
     // branch was already being collected and simply not printed. A
     // diagnosis that exists and is not shown is worth as much as none.
-    assert.match(t, /already injected/, `the block came back instead of a pointer ${warum(two)}`);
-    assert.match(t, /unchanged/, `no watermark in the pointer ${warum(two)}`);
+    assert.match(t, /already injected/, `the block came back instead of a pointer ${why(two)}`);
+    assert.match(t, /unchanged/, `no watermark in the pointer ${why(two)}`);
     assert.ok(!/went wrong here before/.test(t),
-      `the second call repeated the block ${warum(two)}`);
+      `the second call repeated the block ${why(two)}`);
     assert.ok(two.raw.length < one.raw.length, 'the pointer is not shorter than the block');
   } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
@@ -172,7 +172,7 @@ test('an entry arriving DURING the session brings the full block back', () => {
       text: 'Happened today.',
     }) + '\n');
     const a = call(root, { file: f });
-    assert.ok(a.json, `the hook does not see the entry ${warum(a)}`);
+    assert.ok(a.json, `the hook does not see the entry ${why(a)}`);
     const t = a.json.hookSpecificOutput.additionalContext;
     assert.match(t, /brand-new|empty HOME|went wrong here before/,
       'the new entry was withheld');
@@ -192,10 +192,10 @@ test('when the memory grows ELSEWHERE it stays a pointer', () => {
       title: 'src/somewhere-else.mjs falls over', text: 'Nothing to do with the installer.',
     }) + '\n');
     const a = call(root, { file: f });
-    assert.ok(a.json, `the hook does not see the entry ${warum(a)}`);
+    assert.ok(a.json, `the hook does not see the entry ${why(a)}`);
     const t = a.json.hookSpecificOutput.additionalContext;
     assert.match(t, /already injected/,
-      `a foreign entry triggered the whole block again ${warum(a)}`);
+      `a foreign entry triggered the whole block again ${why(a)}`);
   } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
@@ -222,16 +222,16 @@ test('a Windows ROOT is found too', () => {
   // slashes and with nothing when addressed with backslashes.
   const root = memory(ENTRIES);
   try {
-    const gerade = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh', session: 'w1' });
-    assert.ok(gerade.raw, `precondition: the memory answers at all ${warum(gerade)}`);
+    const straight = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh', session: 'w1' });
+    assert.ok(straight.raw, `precondition: the memory answers at all ${why(straight)}`);
 
-    const schief = call(root.replace(/\//g, '\\'),
+    const skewed = call(root.replace(/\//g, '\\'),
       { file: '/home/x/cheap-mem/install/claude-code.sh', session: 'w2' });
-    assert.ok(schief.raw,
+    assert.ok(skewed.raw,
       'a memory addressed with backslashes was not found, and the hook said nothing '
-      + `about it — the exact Windows failure ${warum(schief)}`);
-    assert.equal(schief.json.hookSpecificOutput.additionalContext,
-      gerade.json.hookSpecificOutput.additionalContext,
+      + `about it — the exact Windows failure ${why(skewed)}`);
+    assert.equal(skewed.json.hookSpecificOutput.additionalContext,
+      straight.json.hookSpecificOutput.additionalContext,
       'both spellings of the same root must give the same answer');
   } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
@@ -244,7 +244,7 @@ test('a Windows path is split too', () => {
   try {
     const a = call(root, { file: 'C:\\Users\\x\\cheap-mem\\install\\claude-code.sh' });
     const { json } = a;
-    assert.ok(json, `a Windows path produced nothing ${warum(a)}`);
+    assert.ok(json, `a Windows path produced nothing ${why(a)}`);
     assert.match(json.hookSpecificOutput.additionalContext, /unquoted-path/);
   } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });

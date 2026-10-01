@@ -91,15 +91,15 @@ test('THREE STATES: no ledger is not an empty ledger', () => {
   // same makes the second one unreportable.
   const r = memory();
   try {
-    const nichts = run(r, 'observations');
-    assert.equal(nichts.status, 0);
-    assert.match(nichts.stdout, /no ledger yet/i, 'a missing ledger reads as an empty one');
+    const nothing = run(r, 'observations');
+    assert.equal(nothing.status, 0);
+    assert.match(nothing.stdout, /no ledger yet/i, 'a missing ledger reads as an empty one');
 
     fs.mkdirSync(path.dirname(observations.ledgerPath(r)), { recursive: true });
     fs.writeFileSync(observations.ledgerPath(r), '');
-    const leer = run(r, 'observations');
-    assert.match(leer.stdout, /empty/i, 'an empty ledger reads as a missing one');
-    assert.ok(!/no ledger yet/i.test(leer.stdout),
+    const empty = run(r, 'observations');
+    assert.match(empty.stdout, /empty/i, 'an empty ledger reads as a missing one');
+    assert.ok(!/no ledger yet/i.test(empty.stdout),
       'the two states are rendered identically');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
@@ -139,14 +139,14 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   // unreachable. The rule did not change — the CLI is still what has
   // to be able to show a log — only where the CLI's code sits.
   const src = fs.readdirSync(path.join(ROOT, 'src')).filter((f) => f.endsWith('.mjs'));
-  const cliDateien = [
+  const cliFiles = [
     ...fs.readdirSync(path.join(ROOT, 'bin')).map((f) => path.join(ROOT, 'bin', f)),
     ...fs.readdirSync(path.join(ROOT, 'src', 'cli'))
       .filter((f) => f.endsWith('.mjs')).map((f) => path.join(ROOT, 'src', 'cli', f)),
     ...fs.readdirSync(path.join(ROOT, 'src', 'cli', 'commands'))
       .map((f) => path.join(ROOT, 'src', 'cli', 'commands', f)),
   ];
-  const binFiles = cliDateien
+  const binFiles = cliFiles
     .filter((f) => fs.statSync(f).isFile())
     .map((f) => fs.readFileSync(f, 'utf8')).join('\n');
   // A probe that reads an empty string reports every module unreachable
@@ -233,8 +233,8 @@ test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
   for (const [f, t] of appending) {
     const moduleName = f.replace('.mjs', '');
     const exportNames = [...t.matchAll(/export function (\w+)/g)].map((m) => m[1]);
-    const benutzt = exportNames.some((fn) => new RegExp(`\\b${moduleName}\\.${fn}\\b`).test(binFiles));
-    if (!benutzt) unreachable.push(f);
+    const used = exportNames.some((fn) => new RegExp(`\\b${moduleName}\\.${fn}\\b`).test(binFiles));
+    if (!used) unreachable.push(f);
   }
   assert.deepEqual(unreachable, [],
     'These modules append lines to disk and nothing in bin/ calls into them. '
@@ -248,20 +248,20 @@ test('COUNTER-PROBE: the self-cleaning carve-out does not excuse a real log', ()
   // could drift from what the guard actually runs.
 
   // A real ledger: appends to a path it keeps, never cleans up.
-  const echterLog = 'fs.appendFileSync(ledgerPath(root), line);';
-  assert.equal(selfCleaning(echterLog), false,
+  const realLog = 'fs.appendFileSync(ledgerPath(root), line);';
+  assert.equal(selfCleaning(realLog), false,
     'a module that only appends was excused as a probe');
 
   // A ledger that happens to delete something ELSE is still a ledger:
   // both halves are required, and the temp-dir half is the load-bearing
   // one.
-  const logMitAufraeumen = 'fs.appendFileSync(ledgerPath(root), line);\nfs.rmSync(oldBackup);';
-  assert.equal(selfCleaning(logMitAufraeumen), false,
+  const logWithCleanup = 'fs.appendFileSync(ledgerPath(root), line);\nfs.rmSync(oldBackup);';
+  assert.equal(selfCleaning(logWithCleanup), false,
     'deleting something unrelated turned a ledger into a probe');
 
   // And the shape that IS a probe.
-  const sonde = 'const dir = fs.mkdtempSync(p);\nfs.appendFileSync(f, l);\nfs.rmSync(dir, { recursive: true });';
-  assert.equal(selfCleaning(sonde), true, 'a self-cleaning probe was not recognised');
+  const probe = 'const dir = fs.mkdtempSync(p);\nfs.appendFileSync(f, l);\nfs.rmSync(dir, { recursive: true });';
+  assert.equal(selfCleaning(probe), true, 'a self-cleaning probe was not recognised');
 });
 
 test('COUNTER-PROBE: the append-primitive carve-out does not excuse a real log', () => {

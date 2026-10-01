@@ -198,7 +198,7 @@ function mmrRerankNaive(candidates, { lambda = 0.7, top = 10, simOf }) {
   const maxScore = candidates.reduce((m, c) => (c.score > m ? c.score : m), 0);
   const remaining = candidates.map((c) => c);
   const selected = [];
-  const GLEICH = 1e-12;
+  const SAME = 1e-12;
   const key = (h) => `${h.source ?? ''}:${String(h.line ?? 0).padStart(9, '0')}`;
   while (selected.length < top && remaining.length) {
     let bestPos = -1;
@@ -213,9 +213,9 @@ function mmrRerankNaive(candidates, { lambda = 0.7, top = 10, simOf }) {
       }
       const val = lambda * rel - (1 - lambda) * maxSim;
       if (bestPos === -1) { bestVal = val; bestPos = p; continue; }
-      const spanne = Math.max(Math.abs(val), Math.abs(bestVal), 1) * GLEICH;
-      if (val > bestVal + spanne) { bestVal = val; bestPos = p; continue; }
-      if (val >= bestVal - spanne && key(cand) < key(remaining[bestPos])) {
+      const span = Math.max(Math.abs(val), Math.abs(bestVal), 1) * SAME;
+      if (val > bestVal + span) { bestVal = val; bestPos = p; continue; }
+      if (val >= bestVal - span && key(cand) < key(remaining[bestPos])) {
         bestVal = val; bestPos = p;
       }
     }

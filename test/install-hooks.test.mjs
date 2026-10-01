@@ -97,9 +97,9 @@ test('the command points at the file that is really there', () => {
       const script = (cmd.match(/(\S+cheap-mem-[a-z-]+\.sh)/) ?? [])[1];
       assert.ok(script, `no script path in the command: ${cmd}`);
       assert.ok(fs.existsSync(script), `command points nowhere: ${script}`);
-      const soll = path.join(claudeHome, 'hooks');
-      assert.ok(sameDir(path.dirname(script), soll),
-        `script sits in ${path.dirname(script)}, expected ${soll}`);
+      const target = path.join(claudeHome, 'hooks');
+      assert.ok(sameDir(path.dirname(script), target),
+        `script sits in ${path.dirname(script)}, expected ${target}`);
     }
   } finally { wipe(tmp); }
 });

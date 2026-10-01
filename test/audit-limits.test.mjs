@@ -31,7 +31,7 @@ const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
 /** Two entries with the SAME literal in them, in different projects. */
-function welt() {
+function world() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-limits-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
@@ -51,7 +51,7 @@ const find = (root, ...argv) => JSON.parse(execFileSync(
 test('POSITIVE: without filters both entries really are findable', () => {
   // Without this, every probe below would pass against a memory that
   // simply holds nothing.
-  const root = welt();
+  const root = world();
   try {
     const ids = find(root, 'src/payments.mjs').hits.map((h) => h.entry.id).sort();
     assert.deepEqual(ids, ['scopealpha', 'scopebetaa'],
@@ -64,23 +64,23 @@ test('the id lane answers the scope it was asked for', () => {
   // restricting to alpha decisions returned it anyway. The lane checked
   // `retired` and nothing else, so project and type were requested and
   // silently ignored.
-  const root = welt();
+  const root = world();
   try {
     const idx = search.buildIndex(root);
-    const fremd = search.search(idx, 'scopebetaa', { project: 'alpha', type: 'decision' });
-    assert.deepEqual(fremd, [], `the id lane crossed the scope: ${JSON.stringify(fremd)}`);
+    const foreign = search.search(idx, 'scopebetaa', { project: 'alpha', type: 'decision' });
+    assert.deepEqual(foreign, [], `the id lane crossed the scope: ${JSON.stringify(foreign)}`);
     // And the counter-direction, so this is not just "the lane is dead":
     // asked within its own scope the same id still answers at once.
-    const eigen = search.search(idx, 'scopebetaa', { project: 'beta', type: 'error' });
-    assert.equal(eigen.length, 1, 'the id lane stopped working altogether');
-    assert.equal(eigen[0].entry.id, 'scopebetaa');
+    const own = search.search(idx, 'scopebetaa', { project: 'beta', type: 'error' });
+    assert.equal(own.length, 1, 'the id lane stopped working altogether');
+    assert.equal(own[0].entry.id, 'scopebetaa');
   } finally { away(root); }
 });
 
 test('mem find: the exact lane does not add back what the filters removed', () => {
   // The exact lane goes in FRONT, so its hits were not merely weighted
   // differently — they overruled --project and --type.
-  const root = welt();
+  const root = world();
   try {
     const hits = find(root, 'src/payments.mjs', '--project', 'alpha', '--type', 'decision').hits;
     assert.deepEqual(hits.map((h) => h.entry.id), ['scopealpha'],
@@ -89,11 +89,11 @@ test('mem find: the exact lane does not add back what the filters removed', () =
 });
 
 test('mem find: a retired entry needs --with-retired, in the exact lane too', () => {
-  const root = welt();
+  const root = world();
   try {
     memory.retireEntry(root, 'decision', 'scopealpha', { project: 'alpha' });
-    const ohne = find(root, 'src/payments.mjs').hits.map((h) => h.entry.id);
-    assert.deepEqual(ohne, ['scopebetaa'], `a retired entry came back unasked: ${ohne}`);
+    const without = find(root, 'src/payments.mjs').hits.map((h) => h.entry.id);
+    assert.deepEqual(without, ['scopebetaa'], `a retired entry came back unasked: ${without}`);
     // Positive control: with the flag it IS there. Otherwise this probe
     // would also pass if retired entries had become unreachable.
     const mit = find(root, 'src/payments.mjs', '--with-retired').hits.map((h) => h.entry.id).sort();
@@ -106,19 +106,19 @@ test('there is exactly ONE admission check, and every lane calls it', () => {
   // agreed once before and drifted apart twice (see test/paths-agree).
   // What keeps them together is that none of them filters on its own.
   const src = fs.readFileSync(path.join(PKG, 'src', 'search.mjs'), 'utf8');
-  const ohneKommentare = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
-  assert.equal((ohneKommentare.match(/export function admits\(/g) || []).length, 1,
+  const withoutComments = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
+  assert.equal((withoutComments.match(/export function admits\(/g) || []).length, 1,
     'admits is declared more or less than once');
   // Both lanes inside search.mjs call it.
-  assert.ok((ohneKommentare.match(/admits\(doc[,)]/g) || []).length >= 3,
+  assert.ok((withoutComments.match(/admits\(doc[,)]/g) || []).length >= 3,
     'a lane in search.mjs stopped asking admits');
   // And the project/type/retired tests must not live anywhere else in
   // this file — that is how the id lane got its private copy.
-  const ausserhalb = ohneKommentare.slice(ohneKommentare.indexOf('export function search('));
-  assert.equal(/doc\.retired && !withRetired/.test(ausserhalb), false,
+  const outside = withoutComments.slice(withoutComments.indexOf('export function search('));
+  assert.equal(/doc\.retired && !withRetired/.test(outside), false,
     'a lane grew its own retired check again');
   assert.equal(/doc\.project !== target/.test(
-    ausserhalb.slice(ausserhalb.indexOf('const maybeId'))), false,
+    outside.slice(outside.indexOf('const maybeId'))), false,
   'a lane grew its own project check again');
 });
 
@@ -129,33 +129,33 @@ test('narrowing stays narrowing, over more than one step', () => {
   // out; after the second it was back in, because `global` in a scope
   // list together with `descendants` IS the everything-capability and
   // `admits(global)` is true for anyone who may read at all.
-  const eins = caps.grantAll().narrow({ scopes: ['project:a'] });
-  assert.equal(eins.admits('project:b'), false, 'the first step did not narrow');
-  const zwei = eins.narrow({ scopes: ['global'] });
-  assert.equal(zwei.admits('project:b'), false,
+  const one = caps.grantAll().narrow({ scopes: ['project:a'] });
+  assert.equal(one.admits('project:b'), false, 'the first step did not narrow');
+  const two = one.narrow({ scopes: ['global'] });
+  assert.equal(two.admits('project:b'), false,
     'narrowing to global widened the capability back to everything');
   // What must NOT break: global facts stay readable from a narrowed
   // capability. A project session that cannot see the person, the
   // timezone or the setup is dumber than a global one for no benefit.
-  assert.equal(eins.admits('global'), true, 'a project capability lost the global facts');
-  assert.equal(zwei.admits('global'), true, 'narrowing to global lost global');
-  assert.equal(eins.admits('project:a'), true, 'the capability lost its own project');
+  assert.equal(one.admits('global'), true, 'a project capability lost the global facts');
+  assert.equal(two.admits('global'), true, 'narrowing to global lost global');
+  assert.equal(one.admits('project:a'), true, 'the capability lost its own project');
 });
 
 test('narrowing is monotone for every scope, not just the one we looked at', () => {
   // The audit found the hole with one scope. A probe pinned to that one
   // scope would pass again the next time a different pair does it.
-  const alle = ['global', 'project:a', 'project:b', 'project:c'];
-  const schritte = [{ scopes: ['project:a'] }, { scopes: ['global'] },
+  const all = ['global', 'project:a', 'project:b', 'project:c'];
+  const steps = [{ scopes: ['project:a'] }, { scopes: ['global'] },
     { scopes: ['project:a', 'project:b'] }, { rights: ['read'] }];
   let cap = caps.grantAll();
-  for (const schritt of schritte) {
-    const vorher = alle.filter((s) => cap.admits(s));
-    cap = cap.narrow(schritt);
-    const nachher = alle.filter((s) => cap.admits(s));
-    for (const s of nachher) {
-      assert.ok(vorher.includes(s),
-        `narrow(${JSON.stringify(schritt)}) ADDED ${s} — was ${vorher}, now ${nachher}`);
+  for (const step of steps) {
+    const before = all.filter((s) => cap.admits(s));
+    cap = cap.narrow(step);
+    const after = all.filter((s) => cap.admits(s));
+    for (const s of after) {
+      assert.ok(before.includes(s),
+        `narrow(${JSON.stringify(step)}) ADDED ${s} — was ${before}, now ${after}`);
     }
   }
 });

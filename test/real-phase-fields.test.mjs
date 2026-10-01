@@ -103,15 +103,15 @@ test('every content field the generator writes is one this house ranks on', () =
 });
 
 test('the German mirror still matches what lucky-mem actually ranks on', (t) => {
-  const suche = '/home/user/lucky-mem/src/suche.mjs';
-  if (!fs.existsSync(suche)) {
+  const search = '/home/user/lucky-mem/src/suche.mjs';
+  if (!fs.existsSync(search)) {
     // Third state, not a pass: on a machine without the sister checkout
     // this question cannot be answered, and answering it green anyway
     // is the class of defect this whole file is about.
     t.skip('lucky-mem is not present in this environment; the mirror cannot be checked here');
     return;
   }
-  const src = fs.readFileSync(suche, 'utf8');
+  const src = fs.readFileSync(search, 'utf8');
   // Since O2 (2026-09-30) lucky-mem keeps the weights in GEWICHT_JE_FELD
   // and builds FELDGEWICHT from its single content-field source; the
   // older literal is still accepted so an older sister checkout parses.

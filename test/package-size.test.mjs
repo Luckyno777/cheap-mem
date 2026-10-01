@@ -74,7 +74,7 @@ function packed() {
 // own script and stylesheet. That is the owner's deliberate exception
 // (docs/dashboard-port-2026-09-28.md §6.1), not drift — and 4.8 MB (the
 // branding-kit accident below) still fails by a factor of three.
-const DECKEL = 1_500_000;
+const CAP = 1_500_000;
 
 test('POSITIVE: npm pack answers at all', () => {
   // A probe that silently returns zero passes forever. It happened to
@@ -86,8 +86,8 @@ test('POSITIVE: npm pack answers at all', () => {
 
 test('the tarball stays small enough for the claim the README makes', () => {
   const { size } = packed();
-  assert.ok(size <= DECKEL,
-    `npm pack is ${(size / 1e6).toFixed(1)} MB, over the ${(DECKEL / 1e6).toFixed(1)} MB ceiling. `
+  assert.ok(size <= CAP,
+    `npm pack is ${(size / 1e6).toFixed(1)} MB, over the ${(CAP / 1e6).toFixed(1)} MB ceiling. `
     + 'Something large is being shipped to people who only want to run the tool. '
     + 'Look at `npm pack --dry-run | sort -k3 -h -r | head` and exclude it in "files".');
 });
@@ -96,10 +96,10 @@ test('the GitHub branding images are not in the tarball', () => {
   // Named, because this is the thing that happened. A generic size
   // ceiling would go green again the moment someone shrinks the PNGs
   // instead of removing them — and they still would not belong there.
-  const roh = runNpm(['pack', '--dry-run']) + runNpm(['pack', '--dry-run', '--json']);
-  for (const bild of ['github-header.png', 'social-preview.png', 'social-preview.jpg']) {
-    assert.ok(!roh.includes(bild),
-      `${bild} is in the tarball — that image belongs on the GitHub page, not in an install`);
+  const raw = runNpm(['pack', '--dry-run']) + runNpm(['pack', '--dry-run', '--json']);
+  for (const image of ['github-header.png', 'social-preview.png', 'social-preview.jpg']) {
+    assert.ok(!raw.includes(image),
+      `${image} is in the tarball — that image belongs on the GitHub page, not in an install`);
   }
 });
 
@@ -115,21 +115,21 @@ test('the README states the download size, and it is right', () => {
   // <!--packed-size--> and this reads exactly that. Any other kB number
   // in the prose is free to be about something else.
   const README = fs.readFileSync(path.join(REPO, 'README.md'), 'utf8');
-  const treffer = [...README.matchAll(/\*\*(\d{2,5}) kB\*\*<!--packed-size-->/g)];
-  assert.equal(treffer.length, 1,
-    `${treffer.length} <!--packed-size--> markers in the README — there must be exactly one, `
+  const hits = [...README.matchAll(/\*\*(\d{2,5}) kB\*\*<!--packed-size-->/g)];
+  assert.equal(hits.length, 1,
+    `${hits.length} <!--packed-size--> markers in the README — there must be exactly one, `
     + 'or the "download size" is two numbers that will drift apart');
-  const behauptet = Number(treffer[0][1]) * 1000;
+  const claimed = Number(hits[0][1]) * 1000;
   const { size } = packed();
-  const faktor = Math.max(size, behauptet) / Math.min(size, behauptet);
-  assert.ok(faktor < 1.15,
-    `README claims ${treffer[0][1]} kB, npm pack says ${Math.round(size / 1000)} kB `
-    + `(factor ${faktor.toFixed(1)})`);
+  const factor = Math.max(size, claimed) / Math.min(size, claimed);
+  assert.ok(factor < 1.15,
+    `README claims ${hits[0][1]} kB, npm pack says ${Math.round(size / 1000)} kB `
+    + `(factor ${factor.toFixed(1)})`);
 });
 
 test('the error that happened would fail this test', () => {
   // A guard that would not have caught the thing it was written for is
   // decoration. 4.8 MB against the ceiling, checked explicitly.
-  assert.ok(4_800_000 > DECKEL,
+  assert.ok(4_800_000 > CAP,
     'the 4.8 MB tarball would pass this ceiling — then the ceiling guards nothing');
 });

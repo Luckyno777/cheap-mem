@@ -49,9 +49,9 @@ function world(t, agent = undefined) {
   assert.equal(cli(root, 'init').status, 0);
   const old = memory.logEntry(root, 'decision', { title: 'Dashboard styled with Tailwind zebracorn', choice: 'Tailwind', why: 'x', ...(agent ? { agent } : {}) },
     { now: new Date('2026-01-10T09:00:00Z') }).entry;
-  const neu = memory.logEntry(root, 'decision', { title: 'Dashboard moved to plain CSS zebracorn', choice: 'plain CSS', why: 'y', ...(agent ? { agent } : {}) },
+  const created = memory.logEntry(root, 'decision', { title: 'Dashboard moved to plain CSS zebracorn', choice: 'plain CSS', why: 'y', ...(agent ? { agent } : {}) },
     { now: new Date('2026-05-01T09:00:00Z') }).entry;
-  return { root, old, neu };
+  return { root, old, created };
 }
 const findIds = (root, ...extra) => {
   const r = cli(root, 'find', 'zebracorn', '--json', '--top', '10', ...extra);
@@ -66,24 +66,24 @@ test('POSITIVE CONTROL: unlinked, the old decision still holds after the new one
 });
 
 test('mem supersede: old holds before the new one, new holds after, status superseded', (t) => {
-  const { root, old, neu } = world(t);
-  const r = cli(root, 'supersede', old.id, '--by', neu.id);
+  const { root, old, created } = world(t);
+  const r = cli(root, 'supersede', old.id, '--by', created.id);
   assert.equal(r.status, 0, r.stderr);
   assert.equal(stateOf(root, old.id), 'superseded', 'status must read superseded, not discarded/done');
   // The streaming replay (P11) must decide the same, end included.
   const streamed = memory.retiredMapFromFiles([memory.logPath(root, 'decision', null)]).get(old.id);
   assert.equal(streamed?.state, 'superseded');
-  assert.equal(streamed?.supersededAt, neu.ts, 'the streaming replay lost the successor start');
+  assert.equal(streamed?.supersededAt, created.ts, 'the streaming replay lost the successor start');
   assert.ok(findIds(root, '--as-of', '2026-03-01').includes(old.id), 'as of March the old decision held');
   const june = findIds(root, '--as-of', '2026-06-01');
-  assert.ok(june.includes(neu.id), 'as of June the new decision holds');
+  assert.ok(june.includes(created.id), 'as of June the new decision holds');
   assert.ok(!june.includes(old.id), 'as of June the old decision is over — it ended when the new one STARTED, not when the link was typed');
   // Gateway door agrees.
   const g = cli(root, 'retrieve', 'zebracorn', '--as-of', '2026-03-01', '--json');
   assert.ok(g.stdout.includes(old.id), `retrieve lost the old decision's past:\n${g.stdout}`);
   // Present-day recall shows the new one only.
   const now = findIds(root);
-  assert.ok(now.includes(neu.id) && !now.includes(old.id));
+  assert.ok(now.includes(created.id) && !now.includes(old.id));
 });
 
 test('why not discard: it stamps "discarded" and erases the old decision from its own past', (t) => {
@@ -121,15 +121,15 @@ test('rank rule: a lower tier cannot supersede a user claim (disputed, target st
 test('bridge: mem_log with retires_id/state/by_id is the same door; the topic note shows too', (t) => {
   // Same author as the bridge session: the strict rule allows it (a
   // DIFFERENT author at the same tier would be refused — see the rank test).
-  const { root, old, neu } = world(t, 'session');
+  const { root, old, created } = world(t, 'session');
   const [bad, ok] = bridge(root, [
     ['mem_log', { type: 'decision', retires_id: old.id, state: 'superseded', by_id: 'nosuchid00' }],
-    ['mem_log', { type: 'decision', retires_id: old.id, state: 'superseded', by_id: neu.id }],
+    ['mem_log', { type: 'decision', retires_id: old.id, state: 'superseded', by_id: created.id }],
   ]);
   assert.equal(bad.isError, true, `an unknown successor was accepted: ${textOf(bad)}`);
   assert.ok(!ok.isError, textOf(ok));
   const line = memory.readLog(root, 'decision').entries.at(-1);
-  assert.deepEqual([line.retires_id, line.state, line.by_id], [old.id, 'superseded', neu.id]);
+  assert.deepEqual([line.retires_id, line.state, line.by_id], [old.id, 'superseded', created.id]);
   assert.equal(stateOf(root, old.id), 'superseded');
   // O1 parity: the same-topic note `mem log` prints, now over the bridge.
   cli(root, 'log', 'decision', '--topic', 'styling', '--choice', 'Tailwind', '--why', 'a');

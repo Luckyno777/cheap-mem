@@ -206,7 +206,7 @@ test('A the rename-based write never tears', async (t) => {
   const load = foreignLoadDelta(before, after, calibBaseline);
   const stealCgroupOver = load.deniedMsPerSec !== null && load.deniedMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
   const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
-  const lastNichtRuhig = !calibBaseline.trustworthy || stealCgroupOver || psiOver;
+  const lastNotQuiet = !calibBaseline.trustworthy || stealCgroupOver || psiOver;
 
   assert.equal(r.torn, 0,
     `${r.torn} torn reads out of ${r.ok + r.torn + r.missing + r.other} — rename is ` +
@@ -216,7 +216,7 @@ test('A the rename-based write never tears', async (t) => {
     'target, so a reader must never see a gap either');
   assert.equal(r.other, 0, `${r.other} reads parsed but held neither payload`);
 
-  if ((r.timedOut || r.ok < 2000 || r.writes - r.refused <= 0) && lastNichtRuhig) {
+  if ((r.timedOut || r.ok < 2000 || r.writes - r.refused <= 0) && lastNotQuiet) {
     t.skip(`throughput not measurable under load: timedOut=${r.timedOut}, ok=${r.ok}/2000, `
       + `writes=${r.writes}, refused=${r.refused} (deniedMsPerSec=${load.deniedMsPerSec}, `
       + `psiMsPerSec=${load.psiMsPerSec}, calibTrustworthy=${calibBaseline.trustworthy}) — `
@@ -311,13 +311,13 @@ for (const [label, impl] of [
     assert.throws(
       () => impl('a', 'b', { rename: refuse('ENOENT', 99), pause: nopause }),
       /ENOENT/);
-    let versuche = 0;
+    let tryCount = 0;
     try {
       impl('a', 'b', {
-        rename: () => { versuche += 1; throw Object.assign(new Error('x'), { code: 'ENOENT' }); },
+        rename: () => { tryCount += 1; throw Object.assign(new Error('x'), { code: 'ENOENT' }); },
         pause: nopause,
       });
     } catch { /* expected */ }
-    assert.equal(versuche, 1, `${label}: a non-transient error is retried instead of thrown at once`);
+    assert.equal(tryCount, 1, `${label}: a non-transient error is retried instead of thrown at once`);
   });
 }

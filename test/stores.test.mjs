@@ -21,9 +21,9 @@ import path from 'node:path';
 import * as stores from '../src/stores.mjs';
 import { tempDir } from './temp-dir.mjs';
 
-function fakeHome(t, bauen = []) {
+function fakeHome(t, build = []) {
   const home = tempDir('cm-home-', t);
-  for (const rel of bauen) fs.mkdirSync(path.join(home, rel), { recursive: true });
+  for (const rel of build) fs.mkdirSync(path.join(home, rel), { recursive: true });
   return home;
 }
 
@@ -77,14 +77,14 @@ test('two candidates are AMBIGUOUS, not silently the first one', (t) => {
 
 test('a store not installed here says so, and an unknown id lists the known ones', (t) => {
   const home = fakeHome(t);
-  const nicht = stores.resolve('dropbox', { platform: 'linux', home });
-  assert.equal(nicht.ok, false);
-  assert.equal(nicht.reason, 'not-installed');
+  const not = stores.resolve('dropbox', { platform: 'linux', home });
+  assert.equal(not.ok, false);
+  assert.equal(not.reason, 'not-installed');
 
-  const quatsch = stores.resolve('megaupload', { platform: 'linux', home });
-  assert.equal(quatsch.ok, false);
-  assert.equal(quatsch.reason, 'unknown-store');
-  assert.ok(quatsch.known.includes('dropbox'), 'the error does not say what IS known');
+  const nonsense = stores.resolve('megaupload', { platform: 'linux', home });
+  assert.equal(nonsense.ok, false);
+  assert.equal(nonsense.reason, 'unknown-store');
+  assert.ok(nonsense.known.includes('dropbox'), 'the error does not say what IS known');
 });
 
 test('a plain folder is not a cloud and asks for a path', (t) => {
@@ -99,11 +99,11 @@ test('the sync warning belongs to the PATH, not to the command', (t) => {
   // is a property of how you phrased it, which is no property at all.
   const home = fakeHome(t, ['Dropbox']);
   const opts = { platform: 'linux', home };
-  const drin = path.join(home, 'Dropbox', 'cheap-mem-archive');
-  const draussen = path.join(home, 'ganz-normal');
+  const inside = path.join(home, 'Dropbox', 'cheap-mem-archive');
+  const outside = path.join(home, 'ganz-normal');
 
-  assert.equal(stores.syncingStoreFor(drin, opts)?.id, 'dropbox');
-  assert.equal(stores.syncingStoreFor(draussen, opts), null);
+  assert.equal(stores.syncingStoreFor(inside, opts)?.id, 'dropbox');
+  assert.equal(stores.syncingStoreFor(outside, opts), null);
 });
 
 test('a sibling folder is not "inside" the store', (t) => {
