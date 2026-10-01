@@ -230,14 +230,16 @@ Work like this:
      mem find \"<keyword>\" --since 7d
 3. Sort into drawers, every entry WITH --origin AND --asked:
      mem log <type> --title ... --text ... --tags ... \\
-       --asked '<3-5 words someone would ASK with>' \\
+       --asked '<3-6 phrasings someone would LATER ask with, in other words than the title (everyday word instead of jargon, symptom instead of cause, activity instead of object)>' \\
        --origin '{\"raw\":\"<path>\",\"session_id\":\"<id>\"}'
    --asked is the one place you add words that are NOT in the entry.
    Ask yourself: months from now, in what words would someone come
    looking for this — not knowing the words it is written in? Those.
-   Rules: at most five; a word already in the entry does not count and
-   must be left out; no invented facts, only other words for the same
-   thing. If nothing genuinely different comes to mind, leave it off —
+   Rules: at most six; a word already in the entry does not count and
+   must be left out; question words carry no time words (today,
+   yesterday, a date): they would pull the entry into time-bound
+   questions (measured on the sibling house: loss); no invented facts,
+   only other words for the same thing. If nothing genuinely different comes to mind, leave it off —
    an empty field is honest, a padded one is noise in every future
    search.
 4. Close any duty that is now fulfilled (mem duties lists them)
