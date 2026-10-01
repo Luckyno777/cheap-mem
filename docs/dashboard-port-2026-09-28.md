@@ -226,7 +226,7 @@ Status vocabulary matches the task's: **available** (wire it up),
 | Sources → Export | none | **must be built** | Same gap, same recommendation as lucky-mem's own doc: a server-side export endpoint over the existing read layer, not a generic export command |
 | Ops → Shards | no "shard" concept in cheap-mem; nearest is drawer (`project/type` path, same as lucky-mem's own "reinterpret as Kasten" conclusion) | **not applicable, reinterpret** | Use drawer (project × type) as the grouping, exactly as lucky-mem itself decided for its "Kasten" |
 | Ops → Doctor | `doctor.mjs` — **states already match exactly**: `good`/`warn`/`error`/`unknown` | **available** | No dedicated HTTP route yet (`/entry.json` etc. exist, `/doctor.json` does not) — small, well-scoped addition |
-| Ops → Performance | `gauges.mjs`, `bench/atlas.mjs` | **must be built** | No time-series history persisted anywhere; same conclusion as lucky-mem's own "So würden Messreihen aussehen" caveat — do not fabricate a chart from one point |
+| Ops → Performance | `gauges.mjs`, `bench/atlas.mjs` | **must be built** | No time-series history persisted anywhere; same conclusion as lucky-mem's own "So würden Messreihen aussehen" caveat (a German quote from lucky-mem's mockup, "this is what series would look like") — do not fabricate a chart from one point |
 | Ops → Integrity | `integrity.mjs`, `tasks.mjs`'s `integrity` kind (already a task button in `/console`) | **available** | Encryption/shredder-style rows from the mockup are **not applicable**: cheap-mem is deliberately append-only plaintext JSONL. Exact citation (`docs/design.md:76-81`, "Why there's no encryption"): *"Because your memory belongs on a private git remote and git has no mainstream encryption story... the honest advice is: use a private repo, don't put secrets in."* A stated design choice, not an oversight — no fake encryption toggle to match the mockup's row |
 | Ops → Versions | `component.mjs` (`mem component <path>`, wired at `src/cli/commands/setup.mjs:939`) — English throughout, no German name to translate; its own header cites a real measurement ("805 path mentions: 312 distinct components, 70 of them (22%) occur…"), git state | **available** | Verified 2026-09-28: `grep -n "german\|bauteil" src/component.mjs` returns no hits — this row's earlier "verify" is resolved, nothing to translate |
 | Ops → MCP | `mcpprofile.mjs` — verified 2026-09-28: exports `READING`/`WRITING` (English, `src/mcpprofile.mjs:52,68`), never German `LESEND`/`SCHREIBEND` — this house's naming was already English before this document's first draft raised the question | **available** | Tool list is static; whether a specific client sees it is unknowable from the server, same as lucky-mem's own honest "unbekannt bleibt es" |
@@ -269,8 +269,8 @@ house rule "not measured is not null."
 - **Two-signal agent liveness** (heartbeat + observed activity, never
   folded into one boolean, `src/dashboard.mjs:170-176`) is stricter
   than the mockup's presumed single-signal badge (lucky-mem's own doc
-  flags the identical tension for itself in its §3.3 "in lucky-mem
-  nicht sinnvoll" list — same fix applies here: keep two signals, three
+  flags the identical tension for itself in its §3.3 list headed by the
+  German phrase "in lucky-mem nicht sinnvoll" ("not sensible in lucky-mem") — same fix applies here: keep two signals, three
   possible statements, never a boolean).
 - **`mem board`** (text-first status, `src/board.mjs`) has no mockup
   page; whether it is worth a view of its own or fully subsumed by the
@@ -612,7 +612,7 @@ landed and the owner has signed off per the task's own precondition.
    dashboard behaviour (e.g. "four-state vocabulary never collapses to
    three"), written once, checked by each house's own test in its own
    language, rather than a shared module. Confirm this is the intended
-   meaning of the `Parity: lm=yes|no|offen` trailer convention already
+   meaning of the `Parity: lm=yes|no|open` trailer convention already
    used by this very task, or whether the owner wants something
    additional (e.g. a periodic "mirror test" that diffs the two
    houses' `PATHS`-equivalent lists by shape, not by name).
