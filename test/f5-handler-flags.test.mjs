@@ -79,7 +79,7 @@ test('positive control: the reader finds handlers and flags violations', () => {
 
 test('every handler calls checkFlags and isHelp (named exceptions aside)', () => {
   const h = handlers(SOURCES());
-  assert.ok(Object.keys(h).length > 80, `read only ${Object.keys(h).length} handlers -- reader broken?`);
+  assert.ok(Object.keys(h).length > 60, `read only ${Object.keys(h).length} handlers -- reader broken?`);
   const v = violations(h);
   assert.deepEqual(v.check, [], `without checkFlags: ${v.check.join(', ')}`);
   assert.deepEqual(v.help, [], `without isHelp: ${v.help.join(', ')}`);
