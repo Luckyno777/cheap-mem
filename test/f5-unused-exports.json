@@ -37,7 +37,7 @@
  "src/goldlog.mjs": 1,
  "src/hybrid.mjs": 1,
  "src/icon.mjs": 1,
- "src/inbox.mjs": 10,
+ "src/inbox.mjs": 9,
  "src/indexcache.mjs": 1,
  "src/integrationcontract.mjs": 4,
  "src/langbridge.mjs": 2,

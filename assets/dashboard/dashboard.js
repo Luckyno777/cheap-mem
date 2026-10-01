@@ -306,6 +306,89 @@ function heading(k, title, desc, action = '') {
 function metrics(items) {
   return `<div class="metrics">${items.map(([a, b, c]) => `<div class="metric"><span class="name">${a}</span><strong>${b}</strong><small>${c}</small></div>`).join('')}</div>`;
 }
+// --- Agents page (#work/agents, parity with the sibling house 2026-10-01) -----------
+// One row per agent instead of a card with eight fields. The page measures
+// nothing new: activity/pause/startable/channel arrive finished from the
+// server (src/dashboard.mjs agentSignals), the open mail from the inbox list
+// (the same 48 h line as the Inbox tab). Here they are only SUMMARISED.
+// The one state per agent:
+//   warning — mail to this agent waiting longer than 48 h, an active
+//             non-human writer without registration, an expired pause,
+//             a silent_until that is not a readable date
+//   good    — only with positive evidence: two sources confirm "alive"
+//   unknown — everything else. "unknown" and "not seen" NEVER count as good.
+// cheap-mem has no watcher process, so nothing here produces "error" —
+// a fourth state is not invented to fill the slot.
+// No penalty by design: an agent that cannot be started locally (a foreign
+// agent, a human) is not expected to send a heartbeat; an inbox bell
+// nobody has proven yet ("unknown") is a note, never a reason.
+const AG_MAIL_WAIT_MIN = 48 * 60;
+const AG_ACTIVE_DAYS = 7;
+const agentIsHuman = (a) => a.name.startsWith('human') || (D?.inbox?.human && a.name === D.inbox.human);
+const agentKind = (a) => (agentIsHuman(a) ? 'Human' : a.registered ? 'Agent' : 'Unregistered writer');
+function agoText(t, now = Date.now()) {
+  const ms = new Date(t).getTime();
+  if (!t || !Number.isFinite(ms)) return '—';
+  const min = (now - ms) / 60000;
+  if (min < 0) return when(t);
+  if (min < 1) return 'just now';
+  if (min < 60) return `${Math.round(min)} min ago`;
+  if (min < 1440) return `${Math.round(min / 60)} h ago`;
+  const days = Math.round(min / 1440);
+  if (days < 60) return days === 1 ? '1 day ago' : `${days} days ago`;
+  return when(t);
+}
+// Open mail per agent — only when the inbox list is really here (it arrives
+// deferred); otherwise null = "not measured", never 0.
+function agentMail(a) {
+  const known = D?.inbox?.readable && (!D?.parts?.inbox || partState.inbox === 'ok');
+  if (!known) return null;
+  const mine = messages.filter((m) => m.to === a.name && m.situation !== 'done');
+  const ages = mine.map((m) => m.ageMin).filter((x) => Number.isFinite(x));
+  return { open: mine.length, waiting: mine.filter((m) => m.situation === 'waiting').length, oldestMin: ages.length ? Math.max(...ages) : null };
+}
+function agentStatus(a, now = Date.now()) {
+  const reasons = [];
+  const notes = [];
+  const kind = agentKind(a);
+  const human = kind === 'Human';
+  const act = a.activity || {};
+  const p = a.pause || {};
+  const lastMs = a.last ? new Date(a.last).getTime() : NaN;
+  const active = (Number.isFinite(lastMs) && now - lastMs <= AG_ACTIVE_DAYS * 864e5) || act.state === 'alive';
+  const mail = agentMail(a);
+  if (mail?.waiting) reasons.push(`${num(mail.waiting)} ${mail.waiting === 1 ? 'message' : 'messages'} waiting longer than 48 h`);
+  if (active && !a.registered && !human) reasons.push('writes, but not registered (no agents/<name>/ folder)');
+  if (p.state === 'expired') reasons.push('pause expired');
+  if (p.state === 'unknown' && p.until) reasons.push('silent_until is not a readable date');
+  if (a.startable && !a.startable.local && a.registered) notes.push('no local start, so no heartbeat expected (by design, no penalty)');
+  if (human) notes.push('human: no registration or heartbeat expected (no penalty)');
+  let state;
+  if (reasons.length) state = 'warning';
+  else if (act.state === 'alive') { state = 'good'; notes.unshift('alive: two sources confirm'); }
+  else {
+    state = 'unknown';
+    notes.unshift(act.state === 'unknown' ? 'only one of two sources confirms' : 'no source confirms a sign of life');
+  }
+  if (p.state === 'paused') notes.push(`paused until ${p.until || '—'}`);
+  const group = state === 'warning' ? 'attention' : active ? 'active' : 'idle';
+  return { state, reasons, notes, active, group, kind, mail };
+}
+// "Alive" has three values from the server: alive (two sources), unknown
+// (exactly ONE source), not seen (none). The bare word "unknown" next to
+// "not seen" read like two kinds of not knowing — so the count stands beside it.
+const aliveSources = (s) => (s === 'alive' ? '2 of 2 sources' : s === 'unknown' ? '1 of 2 sources' : s === 'not seen' ? '0 of 2 sources' : 'not measured');
+function agentRow(a, l, now = Date.now()) {
+  const es = state.project !== 'all' ? scoped().filter((e) => e.agent === a.name) : null;
+  const p = a.pause || {};
+  const act = a.activity || {};
+  const pause = p.state === 'paused' ? `until ${esc(p.until || '—')}${p.why ? ' · ' + esc(p.why) : ''}` : p.state === 'expired' ? 'expired' : p.state === 'unknown' ? 'unknown' : 'none';
+  const why = [...l.reasons, ...l.notes].join(' · ');
+  const m = l.mail;
+  const mailCell = m === null ? '<span title="the inbox list is not loaded or not readable">—</span>' : m.open ? `${num(m.open)}<span class="quiet ag-oldest"> · ${age(m.oldestMin)}</span>` : '0';
+  const details = `<div class="ag-detail"><p class="small quiet">${esc(a.role || 'no role recorded')}${a.model ? ' · ' + esc(a.model) : ''}${a.channel?.reason ? ' · ' + esc(a.channel.reason) : ''}</p><div class="stats-list"><div class="row ag-state-row"><span>State</span><span>${badge(l.state)} <span class="small quiet">${esc(why) || '—'}</span></span></div><div class="row"><span>Registration</span>${a.registered ? badge('present') : badge('missing', 'no folder')}</div><div class="row"><span>Alive (two sources)</span><span>${badge(act.state || 'unknown')} <span class="small quiet">${aliveSources(act.state)}</span></span></div><div class="row"><span>Heartbeat / activity</span><span class="small">${act.heartbeat?.ageMin != null ? age(act.heartbeat.ageMin) : 'never'} / ${act.content?.ageMin != null ? age(act.content.ageMin) : 'never'}</span></div><div class="row"><span>Pause (silent_until)</span><span class="small">${pause}</span></div><div class="row"><span>Locally startable</span><span class="small">${a.startable ? (a.startable.local ? 'yes' : 'no') : 'unknown'}</span></div><div class="row"><span>Inbox bell</span>${badge(a.channel?.state || 'unknown')}</div><div class="row"><span>Open mail</span><span class="small">${m === null ? 'not measured' : m.open ? `${num(m.open)} · oldest ${age(m.oldestMin)}` : '0'}</span></div><div class="row"><span>Last entry</span><span class="small">${a.last ? `${whenTime(a.last)} · ${agoText(a.last, now)}` : '—'}</span></div>${es ? `<div class="row"><span>In the chosen project</span><span class="small">${pluralEntries(es.length)}</span></div>` : ''}</div></div>`;
+  return `<details class="ag-row" data-agent="${esc(a.name)}" data-state="${l.state}"><summary><span class="ag-cell ag-name"><i class="ag-arrow" aria-hidden="true">›</i><span><strong>${esc(a.name)}</strong> <span class="tag ag-kind">${l.kind}</span></span></span><span class="ag-cell ag-state" title="${esc(why)}">${badge(l.state)}<span class="ag-why">${esc(why)}</span></span><span class="ag-cell ag-num"><span class="ag-lbl">Entries </span>${num(a.count ?? 0)}</span><span class="ag-cell ag-num" title="${a.last ? esc(whenTime(a.last)) : ''}">${a.last ? agoText(a.last, now) : '—'}</span><span class="ag-cell ag-num${m?.waiting ? ' gold' : ''}"><span class="ag-lbl">Mail </span>${mailCell}</span><span class="ag-cell ag-action">${btn('Contributions', 'agent-entries', `data-value="${esc(a.name)}"`, 'ghost small')}</span></summary>${details}</details>`;
+}
 function entryRows(list, emptyText) {
   return (
     list
@@ -378,7 +461,8 @@ const partReason = {};
 const partContentKey = {}; // name -> last JSON.stringify(b.data) (no-jump)
 function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
 function setCaptures(list) { rawSamples = list || []; }
-const PART_TAB = { inbox: 'inbox', raw: 'raw' };
+// The inbox list also feeds the per-agent mail column of the agents page.
+const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'] };
 // no-jump point 3: render() only when a part turns 'ok' for the FIRST
 // time and its tab is currently open (before that it said "loading" —
 // that MUST be shown). Every later refetch of the same part is a quiet
@@ -411,7 +495,7 @@ async function loadParts() {
       if (partState[name] !== 'ok') partState[name] = 'error';
     }
   }));
-  if (firstOk.some((name) => PART_TAB[name] === state.tab)) render();
+  if (firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
   else if (otherChanged) showNewDataMark();
 }
 function partNotice(name, title) {
@@ -565,7 +649,7 @@ function pageDesc() {
       network: 'Structure, declared relations and storage are three different perspectives.',
       inbox: 'Every recipient\'s messages: read, reply, acknowledge — through the same routes as the command line.',
       context: 'What the hooks really injected last — from the injection journal, no simulation.',
-      export: 'Check the scope and understand the dependencies. A package download is not built into the product yet.',
+      export: 'Check the scope, understand the dependencies and load the project package as JSON.',
       shards: 'The drawers of this memory: project × type. Counted from the store, not estimated.',
       operations: 'Tasks with a provable end, result and confirmed cancel — child processes of the CLI.',
       understanding: 'Measured habits and job ledgers – no ascribed traits.',
@@ -939,21 +1023,28 @@ const pages = {
     const as = D.agents || [];
     const bell = D.bell || {};
     const tray = D.humanTray || {};
-    return `<div class="grid three">${as
-      .map((a) => {
-        const es = scoped().filter((e) => e.agent === a.name);
-        const p = a.pause || {};
-        const pause = p.state === 'paused' ? `until ${esc(p.until || '—')}${p.why ? ' · ' + esc(p.why) : ''}` : p.state === 'expired' ? 'expired' : p.state === 'unknown' ? 'unknown' : 'none';
-        const act = a.activity || {};
-        return panel(
-          esc(a.name),
-          `<div class="row-main" style="margin-bottom:22px"><div class="avatar">${esc(a.name.split(/[-_: ]/).map((x) => x[0] || '').join('').slice(0, 2).toUpperCase())}</div><div><strong>${a.name.startsWith('human') ? 'Human' : a.registered ? 'Agent' : 'Unregistered writer'}</strong><p class="small quiet">${esc(a.role || 'no role recorded')}${a.model ? ' · ' + esc(a.model) : ''}</p></div></div><div class="number">${num(a.count ?? 0)}</div><p class="small muted">entries in total${state.project !== 'all' ? ` · ${num(es.length)} in the chosen project` : ''}</p><div class="stats-list"><div class="row"><span>Registration</span>${a.registered ? badge('present') : badge('missing', 'no folder')}</div><div class="row"><span>Alive (two sources)</span>${badge(act.state || 'unknown')}</div><div class="row"><span>Heartbeat / activity</span><span class="small">${act.heartbeat?.ageMin != null ? age(act.heartbeat.ageMin) : 'never'} / ${act.content?.ageMin != null ? age(act.content.ageMin) : 'never'}</span></div><div class="row"><span>Pause (silent_until)</span><span class="small">${pause}</span></div><div class="row"><span>Locally startable</span><span class="small">${a.startable ? (a.startable.local ? 'yes' : 'no') : 'unknown'}</span></div><div class="row"><span>Inbox bell</span>${badge(a.channel?.state || 'unknown')}</div><div class="row"><span>Last entry</span><span>${a.last ? when(a.last) : '—'}</span></div></div>${btn('Open contributions', 'agent-entries', `data-value="${esc(a.name)}"`, 'ghost')}`,
-          a.channel?.reason ? esc(a.channel.reason) : '',
-        );
-      })
-      .join('') || empty('No agent registered and none seen in the log. <code class="mono">mem agent create &lt;name&gt;</code> registers one.')}</div>${panel(
+    const now = Date.now();
+    const rows = as.map((a) => ({ a, l: agentStatus(a, now) }));
+    const group = (g) => rows.filter((x) => x.l.group === g);
+    const attention = group('attention'), active = group('active'), idle = group('idle');
+    const mails = rows.map((x) => x.l.mail);
+    const mailTotal = mails.some((m) => m === null) ? null : mails.reduce((s, m) => s + m.open, 0);
+    const head = `<div class="ag-head" aria-hidden="true"><span>Agent</span><span>State</span><span>Entries</span><span>Last entry</span><span>Open mail</span><span></span></div>`;
+    const list = (xs) => `<div class="ag-list">${head}${xs.map(({ a, l }) => agentRow(a, l, now)).join('')}</div>`;
+    const section = (title, xs, sub) => (xs.length ? `<section class="ag-group" data-group="${esc(title)}"><h3 class="ag-group-title">${esc(title)} <span class="quiet">· ${num(xs.length)}</span></h3>${sub ? `<p class="small quiet ag-group-sub">${sub}</p>` : ''}${list(xs)}</section>` : '');
+    const board = as.length
+      ? section('Needs attention', attention, 'Mail waiting longer than 48 h, an active writer without registration, an expired or unreadable pause.') +
+        section('Active (7 days)', active, 'An entry in the last seven days, or confirmed alive by two sources.') +
+        (idle.length ? `<details class="accordion ag-idle" data-group="Idle"><summary>Idle <span class="quiet">· ${num(idle.length)}</span></summary><p class="small quiet ag-group-sub">No entry for more than seven days and no confirmed sign of life.</p>${list(idle)}</details>` : '')
+      : empty('No agent registered and none seen in the log. <code class="mono">mem agent create &lt;name&gt;</code> registers one.');
+    return `${metrics([
+      ['Agents', num(as.length), 'registered or seen in the log'],
+      ['Active in 7 days', num(rows.filter((x) => x.l.active).length), 'an entry or a confirmed sign of life, attention included'],
+      ['Need attention', num(attention.length), attention.length ? 'reasons in the row' : 'nothing stands out'],
+      ['Open mail', mailTotal === null ? '—' : num(mailTotal), mailTotal === null ? 'not measured: the inbox list is not loaded or not readable' : 'messages to all agents together'],
+    ])}${panel('Agents', board, 'One row per agent · click a row for every field · "unknown" never counts as good')}${panel(
       'Reachability needs independent sources',
-      `<div class="tablewrap"><table class="table"><thead><tr><th>Signal</th><th>Source</th><th>Here</th></tr></thead><tbody><tr><td>Own heartbeat</td><td>heartbeat.jsonl (mem heartbeat)</td><td>per agent, see the cards</td></tr><tr><td>Observed activity</td><td>the drawers and the inbox</td><td>per agent, see the cards</td></tr><tr><td>Deliberate pause</td><td>silent_until in AGENT.yaml</td><td>${num(as.filter((a) => a.pause?.state === 'paused').length)} paused</td></tr><tr><td>Locally startable</td><td>agents/&lt;name&gt;/PROMPT.md or START.md</td><td>${num(as.filter((a) => a.startable?.local).length)} of ${num(as.length)}</td></tr><tr><td>Digest bell</td><td>.mem/digest-bell.json</td><td>${bell.checkable ? (bell.rung ? 'rung · ' + esc(whenTime(bell.last)) : 'not rung') : badge('unknown')}</td></tr><tr><td>The human's tray (show only)</td><td>inbox/ addressed to the human participant</td><td>${tray.checkable === false ? badge('unknown', esc(tray.reason || 'unknown')) : `${num(tray.count)} open${tray.count ? ' · oldest ' + age(tray.oldestMin) : ''}`}</td></tr></tbody></table></div>${note('Two confirming sources: alive. One source: unknown. No observable signal: not seen. An announced pause is not an outage. The bell only reads ok once a message was actually answered.')}`,
+      `<div class="tablewrap"><table class="table ag-sources"><thead><tr><th>Signal</th><th>Source</th><th>Here</th></tr></thead><tbody><tr><td>Own heartbeat</td><td>heartbeat.jsonl (mem heartbeat)</td><td>per agent, in the row details</td></tr><tr><td>Observed activity</td><td>the drawers and the inbox</td><td>per agent, in the row details</td></tr><tr><td>Deliberate pause</td><td>silent_until in AGENT.yaml</td><td>${num(as.filter((a) => a.pause?.state === 'paused').length)} paused</td></tr><tr><td>Locally startable</td><td>agents/&lt;name&gt;/PROMPT.md or START.md</td><td>${num(as.filter((a) => a.startable?.local).length)} of ${num(as.length)}</td></tr><tr><td>Digest bell</td><td>.mem/digest-bell.json</td><td>${bell.checkable ? (bell.rung ? 'rung · ' + esc(whenTime(bell.last)) : 'not rung') : badge('unknown')}</td></tr><tr><td>The human's tray (show only)</td><td>inbox/ addressed to the human participant</td><td>${tray.checkable === false ? badge('unknown', esc(tray.reason || 'unknown')) : `${num(tray.count)} open${tray.count ? ' · oldest ' + age(tray.oldestMin) : ''}`}</td></tr></tbody></table></div>${note('Two confirming sources: alive. One source: unknown. No observable signal: not seen. An announced pause is not an outage. The bell only reads ok once a message was actually answered. An agent that cannot be started locally (a foreign agent) is not expected to send a heartbeat — that is no penalty.')}`,
     )}`;
   },
   inbox: () => partNotice('inbox', 'Inbox') ?? inboxPage(),
@@ -1023,9 +1114,9 @@ const pages = {
   export: () =>
     `<div class="grid two">${panel(
       'Assemble a package',
-      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓ (not built)', 'export-json', 'aria-disabled="true"', 'ghost')}${btn('Offline reading view ↓ (not built)', 'export-html', 'aria-disabled="true"', 'ghost')}</div>`,
-      'The selection shows the scope a package would have.',
-    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('A project package export is not built into the product yet. The existing export is the raw capture export — below, under Sources › Raw capture and as a task under Operations › Tasks. The offline reading view is <code class="mono">mem viewer</code>, a file to take along.')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
+      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓', 'export-json', '', 'primary')}${btn('Offline reading view ↓ (not built)', 'export-html', 'aria-disabled="true"', 'ghost')}</div>`,
+      'Preview and package count from the same data state.',
+    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('The JSON package holds the chosen entries with their relations; entries outside the package appear only as references (id, type, title). The header names the format version, creation time, commit, counts and completeness. Encrypted entries stay encrypted (ciphertext unchanged), every plaintext runs through the redaction. Not included: raw captures, inbox mail, file bytes, key material. The offline reading view is <code class="mono">mem viewer</code>, a file to take along; raw captures are exported by their own flow below (also under Sources › Raw capture and Operations › Tasks).')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
 
   // --- Operations -------------------------------------------------------------
   shards: () => {
@@ -2447,6 +2538,71 @@ void main(){ vec2 u = gl_PointCoord - 0.5; float r = dot(u, u) * 4.0; if (r > 1.
 }
 
 
+// Atlas labels carry at most five words and 34 characters (a relation bundle is
+// named after its hub's title, which can be a whole paragraph); the full name
+// stays in the tooltip and in the breadcrumb.
+const labelShort = (t) => { const k = String(t).trim().split(/\s+/).slice(0, 5).join(' '); return k.length > 34 ? k.slice(0, 33) + '…' : k; };
+// <labelplace> Collision-free placement of the atlas labels (parity with the
+// sibling house 2026-10-01: in a focus the labels of the subgroups piled up).
+// A PURE function: rectangles in, offsets out; no DOM read, no state
+// (test/board-parity-atlas-cm.test.mjs).
+//  cands: [{ key, x, y, w, h, prio, depth, focus, before }] — x/y the anchor on
+//         screen, w/h the label size, prio the weight (members), focus = belongs
+//         to the focus, before = {dx, dy} of the last placement or null.
+//  area:  { w, h, taken: [[l, t, r, b]] } — the drawing area and rectangles already taken.
+//  Returns a Map key -> { label: true, dx, dy, moved } | { label: false } (then a small dot).
+// Order: focus > weight (with hysteresis: what already stood counts 1.6 times)
+// > depth > key. Per label 8 directions on two rings (16 spots); the previous
+// spot first. Budget from the area: at most LABEL_PLACE.fill of the area carries
+// labels (not a fixed count).
+const LABEL_PLACE = { near: 12, far: 20, gap: 4, margin: 5, hysteresis: 1.6, fill: 0.2, anchor: 4, throttle: 120 };
+function placeLabels(cands, area, opt = LABEL_PLACE) {
+  const out = new Map();
+  if (!cands.length) return out;
+  const { near, far, gap, margin, hysteresis, fill, anchor } = opt;
+  let sum = 0;
+  for (const k of cands) sum += (k.w + gap) * (k.h + gap);
+  const budget = Math.max(1, Math.floor((fill * area.w * area.h) / (sum / cands.length)));
+  const worth = (k) => k.prio * (k.before ? hysteresis : 1);
+  const order = [...cands].sort((a, b) => (b.focus ? 1 : 0) - (a.focus ? 1 : 0) || worth(b) - worth(a) || (a.depth || 0) - (b.depth || 0) || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const taken = (area.taken || []).map((r) => r.slice());
+  // The anchors of all candidates: a label should, where possible, not cover another node.
+  const anchors = cands.map((k) => [k.x - anchor, k.y - anchor, k.x + anchor, k.y + anchor, k.key]);
+  const hits = (l, t, r, b, q) => l < q[2] + gap && r + gap > q[0] && t < q[3] + gap && b + gap > q[1];
+  let count = 0;
+  for (const k of order) {
+    if (count >= budget) { out.set(k.key, { label: false }); continue; }
+    const { w, h } = k;
+    const spots = [];
+    if (k.before) spots.push([k.before.dx, k.before.dy]);
+    // Near ring: 8 directions close to the anchor (bottom right = the old spot first).
+    spots.push([near, near], [near, -h - near / 2], [-w - near, near], [-w - near, -h - near / 2], [near, -h / 2], [-w - near, -h / 2], [-w / 2, -h - near], [-w / 2, near]);
+    // Far ring: the same 8 directions one label row or column further out (then with a leader line).
+    const zy = h + 2 * gap, sx = w + 2 * gap + far - near;
+    spots.push([near, near + zy], [near, -h - near / 2 - zy], [-w - near, near + zy], [-w - near, -h - near / 2 - zy], [near + sx, -h / 2], [-w - near - sx, -h / 2], [-w / 2, -h - near - zy], [-w / 2, near + zy]);
+    let pick = null;
+    for (const strict of [true, false]) {
+      for (const [dx, dy] of spots) {
+        const l = k.x + dx, t = k.y + dy, r = l + w, b = t + h;
+        if (l < margin || t < margin || r > area.w - margin || b > area.h - margin) continue;
+        if (taken.some((q) => hits(l, t, r, b, q))) continue;
+        if (strict && anchors.some((q) => q[4] !== k.key && hits(l, t, r, b, q))) continue;
+        pick = [dx, dy];
+        break;
+      }
+      if (pick) break;
+    }
+    if (!pick) { out.set(k.key, { label: false }); continue; }
+    const [dx, dy] = pick;
+    taken.push([k.x + dx, k.y + dy, k.x + dx + w, k.y + dy + h]);
+    count++;
+    // Moved = further from the anchor than the near ring: then a fine line leads to the node.
+    const nx = Math.max(dx, Math.min(0, dx + w)), ny = Math.max(dy, Math.min(0, dy + h));
+    out.set(k.key, { label: true, dx, dy, moved: Math.hypot(nx, ny) > near * 1.5 + 2 });
+  }
+  return out;
+}
+// </labelplace>
 function initGraph() {
   const T = window.MemThree,
     canvas = $('#brain'),
@@ -2505,6 +2661,12 @@ function initGraph() {
     look = center.clone();
   let w = 1, h = 1, baseDistance = 6, distance = 6, dead = false, onScreen = true, frame = 0, last = 0, time = 0, transition = null,
     hoverId = null, hoverGroup = null, hoverIndex = -1, labels = [], edgeVisuals = [], units = [], pulses = [], angle = camera.angle, tilt = camera.tilt;
+  // Atlas labels: the result of the last placement per label, the throttle time, the camera signature.
+  let labelPlaced = new Map(), labelTime = -1e9, labelSig = '', labelTimer = 0, labelVersion = 0;
+  // One SVG under the labels for the leader lines (created through markup: no
+  // namespace address in the source — the dashboard probes hold every URL).
+  labelLayer.insertAdjacentHTML('afterbegin', '<svg class="label-lines" aria-hidden="true"></svg>');
+  const labelLines = labelLayer.firstElementChild;
   let screenX = new Float32Array(0), screenY = new Float32Array(0), screenZ = new Float32Array(0), screenV = new Uint8Array(0);
   let groupHits = [];
   const pointers = new Map();
@@ -2600,7 +2762,8 @@ function initGraph() {
 
   function label(text, small, color, key, kind) {
     const el = document.createElement('button');
-    el.className = 'atlas-label ' + (kind || '');
+    // A new label starts hidden (label-off); only the placement fades it in.
+    el.className = 'atlas-label label-off ' + (kind || '');
     el.style.setProperty('--node-color', color);
     el.innerHTML = `<i></i><span>${esc(text)}${small ? `<small>${esc(small)}</small>` : ''}</span>`;
     el.setAttribute('aria-label', 'Focus ' + text + (small ? ' · ' + small : ''));
@@ -2609,7 +2772,8 @@ function initGraph() {
     return el;
   }
   const rootLabel = label(coreName(), es.length ? 'Shared core' : 'Shared core · empty', '#d9f3cf', 'root', 'root-label');
-  const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(s.members.length), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key }));
+  const rootRec = { el: rootLabel, pos: mainPos, key: 'root', prio: 1e9, depth: -1 };
+  const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(s.members.length), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key, prio: s.members.length, depth: 0 }));
 
   const positions = new Map();
   model.groups.forEach((g) => {
@@ -2665,6 +2829,8 @@ function initGraph() {
     edgeVisuals = [];
     labels.forEach((l) => l.el.remove());
     labels = [];
+    labelLines.replaceChildren();
+    labelVersion++;
   }
   let coreGeo = null, strandGeo = null, pulseGeo = null;
   function tintHierarchy() {
@@ -2771,18 +2937,22 @@ function initGraph() {
     units.forEach((u) => {
       if (u.cell && (camera.focus === u.g.key || cells.length <= 16)) {
         const el = label(u.cell.drawer ? u.cell.label : pluralEntries(u.members.length), u.cell.drawer ? pluralEntries(u.members.length) + ' · drawer' : 'Subgroup', u.g.color, u.cell.key, 'cell-label');
-        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key });
+        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.members.length, depth: (u.cell.depth || 0) + 1, cell: u.cell });
       }
       if (u.e && u.g.trail) {
         const dir = u.e.id === u.g.trail.c.id ? 'Middle' : u.g.trail.out.some((x) => x.e.id === u.e.id) ? 'points to →' : '← points here';
         const el = label(u.e.title.split(/\s+/).slice(0, 5).join(' '), dir, u.g.color, 'entry:' + u.e.id, u.e.id === u.g.trail.c.id ? 'root-label' : 'cell-label');
-        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key });
+        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.e.id === u.g.trail.c.id ? 1e6 : 1, depth: 1 });
       }
     });
     if (state.graphMode !== 'storage' && state.graphMode !== 'overview' && state.graphMode !== 'trail')
       model.groups.forEach((g) => {
-        const el = label(g.label, pluralEntries(g.members.length), g.color, g.key);
-        labels.push({ el, pos: vec(g.center).add(v(0, 0.13, 0)), key: g.key, parent: g.key });
+        // A label always carries the short form (a bundle is named after its
+        // hub's title, which can be a paragraph); the full name is in the
+        // breadcrumb and the tooltip.
+        const el = label(labelShort(g.label), pluralEntries(g.members.length), g.color, g.key);
+        if (labelShort(g.label) !== g.label) el.title = g.label;
+        labels.push({ el, pos: vec(g.center).add(v(0, 0.13, 0)), key: g.key, parent: g.key, prio: g.members.length, depth: 0 });
       });
 
     // Edges: bundled per endpoint pair as in the mockup — here every
@@ -2914,24 +3084,38 @@ function initGraph() {
     camera.zoom = baseDistance / distance;
     $('#graphZoom').value = Math.round(camera.zoom * 100) + '%';
     const g = model.groups.find((g) => g.key === camera.focus), c = currentCell();
-    $('#graphBreadcrumb').textContent = coreSlug() + ' / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
+    const crumbText = coreSlug() + ' / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
+    const crumb = $('#graphBreadcrumb');
+    if (crumb && crumb.textContent !== crumbText) { crumb.textContent = crumbText; clampCrumb(crumb); }
     $('.atlas-back').hidden = !camera.focus;
     $$('#graphGroups button').forEach((el) => el.setAttribute('aria-pressed', el.dataset.value === camera.focus));
     const n = state.graphMode === 'overview' ? edgeVisuals.reduce((k, e) => k + e.count, 0) : model.edges.length;
     $('#graphEdgeCount').textContent = num(n) + ' relations · ' + num(model.shards.length) + ' projects · 1 memory';
     canvas.dataset.focus = camera.cell || camera.focus || '';
   }
+  // The breadcrumb in a focus (a bundle is named after its hub's title, which
+  // can be a whole paragraph): at most two lines, then "more". Measured once
+  // per text change, never per frame.
+  function clampCrumb(crumb) {
+    const line = crumb.parentElement;
+    let more = line.querySelector('.crumb-more');
+    if (!more) {
+      more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'crumb-more';
+      more.onclick = () => { const opened = line.classList.toggle('crumb-open'); more.textContent = opened ? 'less' : 'more'; more.setAttribute('aria-expanded', String(opened)); };
+      crumb.after(more);
+    }
+    line.classList.remove('crumb-open');
+    more.textContent = 'more';
+    more.setAttribute('aria-expanded', 'false');
+    more.hidden = true;
+    requestAnimationFrame(() => { if (!dead) more.hidden = crumb.scrollHeight <= crumb.clientHeight + 1; });
+  }
   const _p = new T.Vector3();
   function toScreen(p) {
     const q = _p.copy(p).project(cam);
     return { x: ((q.x + 1) * w) / 2, y: ((1 - q.y) * h) / 2, z: q.z, visible: q.z > -1 && q.z < 1 && q.x > -1.1 && q.x < 1.1 && q.y > -1.1 && q.y < 1.1 };
-  }
-  function place(el, p, show = true, dy = 0) {
-    const q = toScreen(p);
-    el.hidden = !show || !q.visible;
-    if (el.hidden) return;
-    el.style.left = Math.max(5, Math.min(w - el.offsetWidth - 5, q.x + 12)) + 'px';
-    el.style.top = Math.max(5, Math.min(h - el.offsetHeight - 5, q.y + dy)) + 'px';
   }
   function refreshProjected() {
     for (let i = 0; i < units.length; i++) {
@@ -2942,9 +3126,117 @@ function initGraph() {
       const p = toScreen(vec(g.center)), edge = toScreen(vec(g.center).add(v(g.radius, 0, 0)));
       return { ...g, ...p, r: Math.max(28, Math.abs(edge.x - p.x) + 16) };
     });
-    place(rootLabel, mainPos, !camera.focus && state.graphMode !== 'trail', 18);
-    shardLabels.forEach((s) => place(s.el, s.pos, (state.graphMode === 'storage' || state.graphMode === 'overview') && !camera.focus, 12));
-    labels.forEach((l) => place(l.el, l.pos, (!camera.focus || camera.focus === l.parent) && l.key !== camera.cell, 12));
+    // Labels: the placement does NOT run per frame, only when camera, area,
+    // focus or the labels changed — throttled to LABEL_PLACE.throttle ms, with
+    // a trailing run so the last state after a movement is surely placed. Per
+    // frame only the anchors are projected (arithmetic) and offsets written
+    // (no DOM read).
+    const sig = [angle, tilt, distance, look.x, look.y, look.z].map((x) => x.toFixed(4)).join('|') + '|' + [w, h, camera.focus, camera.cell, state.graphMode, labelVersion].join('|');
+    if (sig !== labelSig) {
+      const nowMs = performance.now(), rebuilt = !labelSig.endsWith('|' + labelVersion);
+      if (rebuilt || nowMs - labelTime >= LABEL_PLACE.throttle) {
+        labelSig = sig;
+        labelTime = nowMs;
+        placeAllLabels();
+      } else if (!labelTimer) {
+        labelTimer = setTimeout(() => { labelTimer = 0; if (!dead) refreshProjected(); }, LABEL_PLACE.throttle - (nowMs - labelTime) + 5);
+      }
+    }
+    applyLabels();
+  }
+  // Which labels are candidates right now (the same rules as before), with weight, depth and focus priority.
+  function labelCandidates() {
+    const list = [], focusCell = camera.cell;
+    const inFocus = (l) => !!focusCell && !!l.cell && l.cell.key !== focusCell && (l.cell.parent === focusCell || String(l.cell.key).startsWith(focusCell + ':'));
+    if (!camera.focus && state.graphMode !== 'trail') list.push({ rec: rootRec, focus: true });
+    if ((state.graphMode === 'storage' || state.graphMode === 'overview') && !camera.focus) for (const s of shardLabels) list.push({ rec: s, focus: false });
+    for (const l of labels) {
+      if ((!camera.focus || camera.focus === l.parent) && l.key !== camera.cell) list.push({ rec: l, focus: inFocus(l) || (!!camera.focus && l.key === camera.focus) });
+    }
+    return list;
+  }
+  // Label sizes: measured once per label, batched (write every class first,
+  // then read every size, then back) — never per frame. After a resize of the
+  // area they are measured again.
+  function measureLabels(recs) {
+    const todo = recs.filter((r) => !r.size && r.el.isConnected);
+    if (!todo.length) return;
+    const dots = todo.filter((r) => r.el.classList.contains('label-dot'));
+    dots.forEach((r) => r.el.classList.remove('label-dot'));
+    for (const r of todo) { const bw = r.el.offsetWidth, bh = r.el.offsetHeight; if (bw && bh) r.size = { w: bw, h: bh }; }
+    dots.forEach((r) => r.el.classList.add('label-dot'));
+  }
+  function placeAllLabels() {
+    const cands = labelCandidates();
+    measureLabels(cands.map((k) => k.rec));
+    // Invisible anchors drop out before the placement.
+    const input = [];
+    for (const k of cands) {
+      const r = k.rec, q = toScreen(r.pos);
+      if (!q.visible) continue;
+      const g = r.size || { w: 110, h: 30 };
+      const prev = labelPlaced.get(r.el);
+      input.push({ key: r.el, x: q.x, y: q.y, w: g.w, h: g.h, prio: r.prio ?? 1, depth: r.depth ?? 1, focus: k.focus, before: prev && prev.label ? { dx: prev.dx, dy: prev.dy } : null, rec: r });
+    }
+    // The key is the element itself (unique, even when two labels share a key).
+    const result = placeLabels(input, { w, h, taken: [] });
+    const next = new Map();
+    for (const x of input) next.set(x.rec.el, { ...result.get(x.key), rec: x.rec });
+    labelPlaced = next;
+    let n = 0;
+    for (const [el, st] of next) if (st.label && el !== rootLabel && !el.classList.contains('cell-label') && !el.classList.contains('shard-label')) n++;
+    canvas.dataset.groupLabels = String(n);
+  }
+  // Per frame: only write the offset (transform); state classes only on a change.
+  function allLabelRecs() { return [rootRec, ...shardLabels, ...labels]; }
+  function applyLabels() {
+    for (const r of allLabelRecs()) {
+      const st = labelPlaced.get(r.el);
+      let mode = 'off', x = 0, y = 0;
+      if (st) {
+        const q = toScreen(r.pos);
+        if (q.visible) {
+          mode = st.label ? 'label' : 'dot';
+          x = st.label ? q.x + st.dx : q.x + 3;
+          y = st.label ? q.y + st.dy : q.y - 11;
+          if (st.label && st.moved) leaderLine(r, q.x, q.y, x, y);
+          else lineOff(r);
+        }
+      }
+      if (mode === 'off') lineOff(r);
+      if (r.mode !== mode) {
+        r.el.classList.toggle('label-off', mode === 'off');
+        r.el.classList.toggle('label-dot', mode === 'dot');
+        r.mode = mode;
+      }
+      if (mode !== 'off' && (Math.abs((r.tx ?? -1e9) - x) >= 0.5 || Math.abs((r.ty ?? -1e9) - y) >= 0.5)) {
+        r.tx = x; r.ty = y;
+        r.el.style.transform = `translate(${x.toFixed(1)}px,${y.toFixed(1)}px)`;
+      }
+    }
+  }
+  // Leader line from the node to the nearest point of the moved label.
+  function leaderLine(r, ax, ay, l, t) {
+    const g = r.size || { w: 110, h: 30 };
+    const bx = Math.max(l, Math.min(ax, l + g.w)), by = Math.max(t, Math.min(ay, t + g.h));
+    if (!r.line || !r.line.isConnected) {
+      r.lineAt = '';
+      r.line = document.createElementNS(labelLines.namespaceURI, 'line');
+      r.line.setAttribute('stroke', r.el.style.getPropertyValue('--node-color') || '#9fc7b5');
+      labelLines.append(r.line);
+    }
+    // Only write what changed (a still camera: no writing, no repaint).
+    const k = ax.toFixed(1) + ',' + ay.toFixed(1) + ',' + bx.toFixed(1) + ',' + by.toFixed(1);
+    if (r.lineAt !== k) {
+      const [x1, y1, x2, y2] = k.split(',');
+      r.line.setAttribute('x1', x1); r.line.setAttribute('y1', y1);
+      r.line.setAttribute('x2', x2); r.line.setAttribute('y2', y2);
+      if (!r.lineAt) r.line.style.display = '';
+      r.lineAt = k;
+    }
+  }
+  function lineOff(r) {
+    if (r.line && r.lineAt) { r.line.style.display = 'none'; r.lineAt = ''; }
   }
   function draw(now = performance.now(), force = false) {
     if (dead) return;
@@ -3212,6 +3504,9 @@ function initGraph() {
     const r = viewport.getBoundingClientRect();
     w = r.width;
     h = r.height;
+    // Label sizes depend on the width (narrow view: smaller type) — measure and place again.
+    for (const x of allLabelRecs()) x.size = null;
+    labelVersion++;
     renderer.setSize(w, h, false);
     cam.aspect = w / h;
     cam.updateProjectionMatrix();
@@ -3258,6 +3553,7 @@ function initGraph() {
     dead = true;
     graphAPI = null;
     cancelAnimationFrame(frame);
+    clearTimeout(labelTimer);
     observer.disconnect();
     visibility.disconnect();
     document.removeEventListener('visibilitychange', redraw);
@@ -3422,17 +3718,57 @@ async function paletteMemorySearch(q, localHits) {
       .join('')}`
     : '';
 }
+// Project package (#sources/export): selection, counts and package are
+// computed by the server (src/projectpackage.mjs select()) from THE SAME
+// build as /dashboard.json — preview and download cannot drift apart. The
+// path stands literally in every fetch() (the closed route list).
+let exportPreviewNo = 0;
 function getExport() {
   const project = $('#exportProject')?.value || 'global',
     global = $('#exportGlobal')?.checked ?? true,
     hist = $('#exportHistory')?.checked ?? true;
-  const included = entries.filter((e) => (e.project === project || (global && e.project === 'global')) && (hist || e.state === 'active'));
-  const ids = new Set(included.map((e) => e.id));
-  return { project, included, refs: [...new Set(allEdges(included).map((e) => e.to).filter((id) => !ids.has(id)))], hist, global };
+  return { project, hist, global, query: `project=${encodeURIComponent(project)}&global=${global ? 1 : 0}&history=${hist ? 1 : 0}` };
 }
-function updateExportPreview() {
+async function updateExportPreview() {
+  if (!$('#exportPreview')) return;
+  const x = getExport(), no = ++exportPreviewNo;
+  $('#exportPreview').innerHTML = '<p class="small muted">Counting …</p>';
+  let b;
+  try {
+    const r = await fetch(`/dashboard/project-package.json?${x.query}&preview=1`, { credentials: 'same-origin', cache: 'no-store' });
+    b = await r.json();
+    if (!r.ok) throw new Error(b?.reason || 'answer ' + r.status);
+  } catch (e) {
+    if (no === exportPreviewNo && $('#exportPreview')) $('#exportPreview').innerHTML = note('Preview not readable: ' + esc(e?.message || e) + '. Scope unknown.', 'bad');
+    return;
+  }
+  if (no !== exportPreviewNo || !$('#exportPreview')) return;
+  const z = b.counts, c = b.completeness || {}, list = b.list || [];
+  $('#exportPreview').innerHTML = `<div class="number" id="exportCount">${num(z.entries)}</div><p class="muted small">entries for ${esc(x.project)}</p><div class="row"><span class="small">Global foundations</span><span class="small">${x.global ? 'Included' + (x.project === 'global' ? '' : ' · ' + num(z.global)) : 'As references only'}</span></div><div class="row"><span class="small">Historical / retired</span><span class="small">${x.hist ? num(z.historical) : 'Excluded'}</span></div><div class="row"><span class="small">External entry references</span><span id="exportRefs">${num(z.externalRefs)}</span></div><div class="row"><span class="small">Completeness</span>${badge(c.state === 'good' ? 'complete' : 'unknown')}</div>${c.reasons?.length ? `<p class="small quiet">${esc(c.reasons.join(' · '))}</p>` : ''}<div style="max-height:200px;overflow:auto;margin-top:15px">${list.map((e) => `<p class="small muted" style="padding:5px 0">${esc(e.id)} · ${esc(e.title)}</p>`).join('')}${z.entries > list.length ? `<p class="small quiet">… and ${num(z.entries - list.length)} more</p>` : ''}</div>`;
+}
+async function exportJson() {
   const x = getExport();
-  $('#exportPreview').innerHTML = `<div class="number">${num(x.included.length)}</div><p class="muted small">entries for ${esc(x.project)}</p><div class="row"><span class="small">Global foundations</span><span class="small">${x.global ? 'Included' : 'As references only'}</span></div><div class="row"><span class="small">External entry references</span><span>${num(x.refs.length)}</span></div><div class="row"><span class="small">Completeness</span>${badge(state.missing ? 'unknown' : 'complete')}</div><div style="max-height:200px;overflow:auto;margin-top:15px">${x.included.slice(0, 200).map((e) => `<p class="small muted" style="padding:5px 0">${esc(e.id)} · ${esc(e.title)}</p>`).join('')}${x.included.length > 200 ? `<p class="small quiet">… and ${num(x.included.length - 200)} more</p>` : ''}</div>`;
+  toast('Building the project package …');
+  try {
+    const r = await fetch(`/dashboard/project-package.json?${x.query}`, { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      let reason = 'answer ' + r.status;
+      try { reason = (await r.json()).reason || reason; } catch { /* the status stays the reason */ }
+      throw new Error(reason);
+    }
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || `cheap-mem-${x.project}.json`;
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast('Project package loaded: ' + name);
+  } catch (e) {
+    toast('Project package not built: ' + (e?.message || e));
+  }
 }
 
 // --- The mockup's extra views -----------------------------------------------------
@@ -3695,8 +4031,10 @@ document.addEventListener('click', async (ev) => {
       await rawExport(el);
       break;
     case 'export-json':
+      await exportJson();
+      break;
     case 'export-html':
-      toast('A project package export is not built into the product yet.');
+      toast('The offline reading view is not built here — mem viewer writes one as a file.');
       break;
     case 'shard-detail': {
       const es = scoped().filter((e) => drawerOf(e) === d.value);

@@ -111,7 +111,9 @@ test('every fetch() in the script goes to a closed list of this server\'s routes
     // tempo (2026-09-28): deferred parts of /dashboard.json — read-only, the same cached build, the same gates.
     '/dashboard/part.json',
     // gold (2026-09-29, N9): one rating of today's retrieval questions — write gate + Origin/Host + login, off-git file.
-    '/dashboard/gold-verdict']);
+    '/dashboard/gold-verdict',
+    // project package (2026-10-01, parity with lucky-mem): read-only GET, the same build and gates as /dashboard.json.
+    '/dashboard/project-package.json']);
   const calls = [...JS.matchAll(/fetch\(\s*([`'])([^`'?$]*)/g)].map((m) => m[2]);
   // formPost(path, …) is the one wrapper for form writes.
   const posts = [...JS.matchAll(/formPost\('([^']+)'/g)].map((m) => m[1]);
@@ -215,7 +217,7 @@ test('every dashboard route answers; the page has a CSP; no route sends a CORS h
   try {
     const routes = [...Object.values(page.PATHS), ...page.FONTS.map((f) => f.path), '/manifest.webmanifest', '/sw.js', '/favicon.ico'];
     for (const p of routes) {
-      const q = p === page.PATHS.entry ? `${p}?id=nope` : p === page.PATHS.message ? `${p}?name=nope.md` : p === page.PATHS.factsAt ? `${p}?known=2026-09-28&valid=2026-09-28` : p === page.PATHS.probe ? `${p}?question=x` : p;
+      const q = p === page.PATHS.entry ? `${p}?id=nope` : p === page.PATHS.message ? `${p}?name=nope.md` : p === page.PATHS.factsAt ? `${p}?known=2026-09-28&valid=2026-09-28` : p === page.PATHS.probe ? `${p}?question=x` : p === page.PATHS.projectPackage ? `${p}?project=global&preview=1` : p;
       const res = await rawGet(s.port, q, `127.0.0.1:${s.port}`, { origin: 'https://evil.example' });
       assert.ok([200, 404].includes(res.status), `${q} answered ${res.status}`);
       assert.equal(res.headers['access-control-allow-origin'], undefined, `${q} sent a CORS header`);

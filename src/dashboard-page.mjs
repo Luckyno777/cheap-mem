@@ -43,6 +43,10 @@ export const PATHS = Object.freeze({
   // their own (?part=raw|inbox) — from the SAME build as /dashboard.json
   // (bin/mem-serve, `DEFERRED_PARTS`).
   part: '/dashboard/part.json',
+  // The project package export (#sources/export, parity with the sibling house
+  // 2026-10-01): read-only GET, ?project=&global=1|0&history=1|0[&preview=1].
+  // src/projectpackage.mjs.
+  projectPackage: '/dashboard/project-package.json',
   css: '/dashboard/app.css',
   script: '/dashboard/app.js',
   three: '/dashboard/three.js',

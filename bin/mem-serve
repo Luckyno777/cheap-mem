@@ -63,6 +63,8 @@ import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as verifylog from '../src/verifylog.mjs';
 import * as goldlog from '../src/goldlog.mjs';
 import * as login from '../src/login.mjs';
+import * as projectPackage from '../src/projectpackage.mjs';
+import * as memoryModule from '../src/memory.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
 const PACKAGE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -166,6 +168,8 @@ export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '
 export const HOST_GUARDED = Object.freeze([
   dashboardPage.PATHS.data, dashboardPage.PATHS.entry, dashboardPage.PATHS.message,
   dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part, fulltext.PATH,
+  // The project package export (src/projectpackage.mjs): memory content too.
+  dashboardPage.PATHS.projectPackage,
   // D3b: the list as a page, and its JSON twin, read the same memory.
   entriesPage.PATH, '/entries.json',
 ]);
@@ -617,6 +621,42 @@ export function buildHandler(root, cfg, env = process.env) {
       } else {
         res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(body);
       }
+      return;
+    }
+    // **Project package (#sources/export, parity with lucky-mem 2026-10-01).**
+    // Read only, the same gates as /dashboard.json (token door and login
+    // above, Host check in HOST_GUARDED, no CORS header), GET only. The
+    // selection comes from THE SAME build as /dashboard.json
+    // (src/projectpackage.mjs select()); `?preview=1` answers only the counts
+    // for the page's content preview, otherwise the whole package as a file
+    // (Content-Disposition). Encrypted stays ciphertext, plaintext runs
+    // through src/redaction.mjs.
+    if (url.pathname === dashboardPage.PATHS.projectPackage) {
+      const json = (code, o, extra = {}) => res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8', ...extra }).end(JSON.stringify(o));
+      if (req.method !== 'GET' && req.method !== 'HEAD') { json(405, { state: 'error', reason: 'GET only' }, { allow: 'GET' }); return; }
+      let known;
+      try { known = memoryModule.listProjects(root); } catch (e) { json(500, { state: 'error', reason: e?.message || String(e) }); return; }
+      const a = projectPackage.checkRequest(url.searchParams, known);
+      if (!a.ok) { json(a.code, { state: a.code === 404 ? 'unknown' : 'error', reason: a.reason }); return; }
+      let st;
+      try { st = dashCache.get(); } catch (e) { json(500, { state: 'error', reason: e?.message || String(e) }); return; }
+      if (url.searchParams.get('preview') === '1') {
+        json(200, { ...projectPackage.preview(st.data, a), cache: st.meta });
+        return;
+      }
+      let pkg;
+      const now = new Date();
+      try { pkg = projectPackage.build(root, st.data, a, { cache: st.meta, now }); } catch (e) {
+        json(500, { state: 'error', reason: e?.message || String(e) }); return;
+      }
+      const text = JSON.stringify(pkg, null, 1);
+      const head = {
+        ...HEAD, 'content-type': 'application/json; charset=utf-8',
+        'content-disposition': `attachment; filename="${projectPackage.fileName(a.project, now)}"`,
+      };
+      if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
+        res.writeHead(200, { ...head, 'content-encoding': 'gzip', vary: 'accept-encoding' }).end(zlib.gzipSync(text));
+      } else res.writeHead(200, head).end(text);
       return;
     }
     // One entry whole (card + raw line) — for the dashboard's detail drawer.
