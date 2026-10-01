@@ -47,7 +47,7 @@ const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
  * matters — three of the four real cases were NOT in the log, and an
  * instrument that only reads `.jsonl` would have called them clean.
  */
-function bau({ antwortAufWert = '', extraLog = {} } = {}) {
+function build({ replyToValue = '', extraLog = {} } = {}) {
   const w = fs.mkdtempSync(path.join(os.tmpdir(), 'fow-'));
   fs.mkdirSync(path.join(w, 'post'), { recursive: true });
   fs.mkdirSync(path.join(w, 'src'), { recursive: true });
@@ -56,7 +56,7 @@ function bau({ antwortAufWert = '', extraLog = {} } = {}) {
   // exactly the state the real bug had for a month.
   for (const n of ['a', 'b']) {
     fs.writeFileSync(path.join(w, 'post', `${n}.md`),
-      `Von: sitzung\nAn: chatgpt\nBetreff: ${n}\nAntwort-Auf: ${antwortAufWert}\n\nRumpf.\n`);
+      `Von: sitzung\nAn: chatgpt\nBetreff: ${n}\nAntwort-Auf: ${replyToValue}\n\nRumpf.\n`);
   }
   fs.writeFileSync(path.join(w, 'log.jsonl'),
     `${JSON.stringify({ id: 'x1', ts: '2026-09-16T10:00:00Z', klasse: 'a', ...extraLog })}\n`
@@ -81,7 +81,7 @@ const run = (w) => finding({
 // --- A ----------------------------------------------------------------
 
 test('A: a field a decision depends on, never carrying a value, is found', () => {
-  const w = bau({ antwortAufWert: '' });
+  const w = build({ replyToValue: '' });
   try {
     const r = run(w);
     const t = r.hits.find((x) => x.field === 'Antwort-Auf');
@@ -94,7 +94,7 @@ test('A: a field a decision depends on, never carrying a value, is found', () =>
 test('A2: the header shape is read at all — three of four real cases lived there', () => {
   // Without this the instrument could pass A through the .jsonl path
   // alone and still be blind to exactly the cases that motivated it.
-  const w = bau();
+  const w = build();
   try {
     const b = inCorpus(w);
     assert.ok(b.fields.has('Betreff'), 'message headers are not being read');
@@ -106,7 +106,7 @@ test('A2: the header shape is read at all — three of four real cases lived the
 // --- B ----------------------------------------------------------------
 
 test('B: a field that IS set somewhere is not reported', () => {
-  const w = bau({ antwortAufWert: '2026-09-15T20-13-14Z--sitzung-an-chatgpt.md' });
+  const w = build({ replyToValue: '2026-09-15T20-13-14Z--sitzung-an-chatgpt.md' });
   try {
     const r = run(w);
     assert.equal(r.hits.find((x) => x.field === 'Antwort-Auf'), undefined,
@@ -119,7 +119,7 @@ test('B2: ONE filled occurrence is enough to clear a field', () => {
   // The real corpus has fields that are legitimately empty on most
   // entries and carry a value on a few. Reporting those would make the
   // instrument useless within a week.
-  const w = bau({ antwortAufWert: '' });
+  const w = build({ replyToValue: '' });
   try {
     fs.writeFileSync(path.join(w, 'post', 'c.md'),
       'Von: a\nAn: b\nBetreff: c\nAntwort-Auf: a.md\n\nRumpf.\n');
@@ -132,7 +132,7 @@ test('B2: ONE filled occurrence is enough to clear a field', () => {
 test('B3: a field the corpus never saw is NOT a finding', () => {
   // Most fields a program reads are local variables. Mixing them in
   // would bury eleven real answers under seven hundred — measured.
-  const w = bau();
+  const w = build();
   try {
     fs.appendFileSync(path.join(w, 'src', 'riegel.mjs'),
       'export const f = (o) => (o.someLocalThing ? 1 : 2);\n');
@@ -176,7 +176,7 @@ test('D: an instrument that only reads the log would miss the real cases', () =>
   // The sabotage that matters, because it is the shape of the mistake
   // that was actually made twice while building this: reading one
   // persistence form and calling the rest clean.
-  const w = bau({ antwortAufWert: '' });
+  const w = build({ replyToValue: '' });
   try {
     const onlyJsonl = { fields: new Map(), files: 0 };
     for (const [k, v] of inCorpus(w).fields) {

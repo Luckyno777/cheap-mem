@@ -251,12 +251,14 @@ export const SYNONYMS = Object.freeze({ tools: 'MCP tools', commands: 'CLI comma
 
 /**
  * An exemption NAMES the number it exempts:
- * `<!-- zahl-historisch: 500 lines (reason) -->` exempts `500 lines` and
+ * `<!-- number-historical: 500 lines (reason) -->` exempts `500 lines` and
  * nothing else (see test/doc-numbers.test.mjs for why it never guesses).
+ * The German spelling of the marker from before 2026-10-01 is still read,
+ * so a document marked back then keeps its exemption.
  */
 export function markedExemptions(text) {
   const out = new Set();
-  for (const m of text.matchAll(/<!--\s*zahl-historisch:\s*([\d][\d,]*)\s+([A-Za-z ]+?)\s*(?:\(|-->)/gi)) {
+  for (const m of text.matchAll(/<!--\s*(?:number-historical|zahl-historisch):\s*([\d][\d,]*)\s+([A-Za-z ]+?)\s*(?:\(|-->)/gi)) {
     out.add(`${m[1].replace(/,/g, '')} ${m[2].trim()}`);
   }
   return out;

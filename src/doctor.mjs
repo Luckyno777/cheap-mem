@@ -1287,7 +1287,7 @@ function checkSynonyms(root) {
   const docs = idx.documents ?? [];
   if (docs.length < 5) return finding('synonyms', LEVEL.UNKNOWN, 'too few entries to judge');
 
-  // Haeufigste Inhaltswoerter der Memory.
+  // The memory's most frequent content words.
   const df = new Map();
   for (const d of docs) {
     const text = JSON.stringify(d.entry ?? d).toLowerCase();

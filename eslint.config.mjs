@@ -46,12 +46,12 @@ export default [
       // An unused variable is usually a rename that was left half done.
       'no-unused-vars': ['error', {
         argsIgnorePattern: '^_',
-        // `const { agent: _ignored, ...fields } = args` ist das Muster,
-        // mit dem die Bruecke Felder WEGWIRFT, die ein Aufrufer nicht
-        // setzen darf. Die Variable ist absichtlich unbenutzt — sie
-        // existiert nur, damit `...fields` sie nicht enthaelt. Eine
-        // Namensregel (`^_`) wuerde dasselbe erlauben, sagt aber nicht,
-        // warum; diese Option benennt genau den Fall.
+        // `const { agent: _ignored, ...fields } = args` is the pattern
+        // the bridge uses to DROP fields a caller must not set. The
+        // variable is unused on purpose — it exists only so that
+        // `...fields` does not contain it. A naming rule (`^_`) would
+        // allow the same, but would not say why; this option names
+        // exactly that case.
         ignoreRestSiblings: true,
         // `catch {}` without a binding is the house style for "this
         // failure is expected and handled by the fallback"; a bound but
@@ -99,15 +99,15 @@ export default [
     files: ['test/**', 'bench/**', 'eval/**'],
     rules: {
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', ignoreRestSiblings: true }],
-      // **Hier ist das seltsame Zeichen der Pruefgegenstand.**
+      // **Here the strange character IS what is being tested.**
       //
-      // `test/redaction-unicode.test.mjs` prueft, dass die Redaktion
-      // sich nicht mit unsichtbaren Trennern austricksen laesst;
-      // `test/browse.test.mjs` prueft das Entfernen von ANSI-Codes. Die
-      // Regeln melden dort genau das, was die Probe absichtlich
-      // enthaelt. Sie einzeln zu unterdruecken hiesse, in jede Fixtur
-      // eine Direktive zu schreiben — und eine Direktive, die
-      // ueberall steht, liest niemand mehr.
+      // `test/redaction-unicode.test.mjs` checks that the redaction
+      // cannot be tricked by invisible separators;
+      // `test/browse.test.mjs` checks that ANSI codes are stripped. The
+      // rules report exactly what the probe contains on purpose. To
+      // suppress them one by one would mean a directive in every
+      // fixture — and a directive that stands everywhere is read by
+      // nobody.
       'no-irregular-whitespace': 'off',
       'no-control-regex': 'off',
     },

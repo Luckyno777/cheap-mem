@@ -417,8 +417,8 @@ and authority mechanism, every CLI command, every MCP tool, every module,
 the things that are deliberately absent, and the commands to verify each
 claim rather than believe it.
 
-<!-- zahl-historisch: 17 MCP tools (a true measurement of that day) -->
-<!-- zahl-historisch: 28 modules (likewise) -->
+<!-- number-historical: 17 MCP tools (a true measurement of that day) -->
+<!-- number-historical: 28 modules (likewise) -->
 That file exists because this README is not enough for a skim, and that
 was measured, not guessed: three separate AI evaluations reported built
 capabilities as missing. Against the README alone, in **September 2026
@@ -867,7 +867,7 @@ determined the result is `unknown`, not `ok`.
   thing runs on Node's standard library. Embeddings and anything else
   optional load lazily and only if asked for.
 
-  <!-- zahl-historisch: 500 lines (the corrected claim, quoted here as
+  <!-- number-historical: 500 lines (the corrected claim, quoted here as
        the error it was — not a statement about today. The "about N
        lines" figure in the numbers line IS current and stays guarded.) -->
   This bullet used to say "the tool is small on purpose, ~500 lines of
