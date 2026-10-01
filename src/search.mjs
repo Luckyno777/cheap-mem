@@ -40,6 +40,7 @@ import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
 import * as statequestion from './statequestion.mjs';
+import { dateAnchors } from './timeexpr.mjs';
 
 // Crypto-shredding reader (src/shred.mjs), loaded as tolerantly as
 // `memory.mjs` loads it: absent module -> encrypted entries read as
@@ -2910,16 +2911,26 @@ export function contentWords(text) {
 export const RETRIEVE_WORDS_MAX = 8;
 
 export function retrievalQuery(text, { root = null, index = null } = {}) {
-  const w = contentWords(text);
-  if (!w.length) return String(text ?? '').trim();
-  if (w.length <= RETRIEVE_WORDS_MAX) return w.join(' ');
+  // **Date anchors survive the shortening (ported from lucky-mem,
+  // 2026-10-01).** "what was on 2028-10-04" came out as "2028": "on" is
+  // filler and the date crumbled into its parts. `mem find
+  // --content-words` decides the time lane on the SHORTENED text, so an
+  // absolute date question never got there. Only an anchor WITH its
+  // preposition is kept — a bare date in running text is no time
+  // question (`hasTimeIntent`), and must not become one here either.
+  const anchors = dateAnchors(String(text ?? ''));
+  const anchorParts = new Set(anchors.flatMap((a) => a.split(/[^a-z0-9]+/)).filter(Boolean));
+  const w = contentWords(text).filter((x) => !anchorParts.has(x));
+  const withAnchors = (words) => [...anchors, ...words].join(' ');
+  if (!w.length) return anchors.length ? withAnchors([]) : String(text ?? '').trim();
+  if (w.length <= RETRIEVE_WORDS_MAX) return withAnchors(w);
 
   let idx = index;
   if (!idx && root) {
     try { idx = loadIndex(root); } catch { idx = null; }
   }
-  const df = idx.statsDocFreq ?? idx.docFreq;
-  if (!idx || !df) return w.slice(0, RETRIEVE_WORDS_MAX).join(' ');
+  const df = idx?.statsDocFreq ?? idx?.docFreq;
+  if (!idx || !df) return withAnchors(w.slice(0, RETRIEVE_WORDS_MAX));
 
   // From the CURATED statistic, for the same reason as the idf — and it
   // weighs heavier here. BM25 shifts a rank; this cut drops a word
@@ -2936,7 +2947,7 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
     for (const t of tokenize(x)) lowest = Math.min(lowest, df.get(t) ?? 0);
     return Number.isFinite(lowest) ? lowest : 0;
   };
-  return [...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX).join(' ');
+  return withAnchors([...w].sort((a, b) => rarity(a) - rarity(b)).slice(0, RETRIEVE_WORDS_MAX));
 }
 
 /**
