@@ -36,8 +36,8 @@ import * as memory from './memory.mjs';
 import * as viewer from './viewer.mjs';
 import * as redaction from './redaction.mjs';
 
-export const FORMAT = 'cheap-mem-project-package';
-export const VERSION = 1;
+const FORMAT = 'cheap-mem-project-package';
+const VERSION = 1;
 const PREVIEW_CAP = 200;
 
 const EXCLUDED = Object.freeze([
@@ -78,7 +78,7 @@ export function checkRequest(params, known) {
  * plus the global ones when `global`; without `history` only `state ===
  * 'active'`. References: targets of `out` that are not in the package (once per id).
  */
-export function select(entries, { project, global = true, history = true }) {
+function select(entries, { project, global = true, history = true }) {
   const included = (entries || []).filter((e) => {
     const p = e.project || 'global';
     return (p === project || (global && p === 'global')) && (history || (e.state || 'active') === 'active');

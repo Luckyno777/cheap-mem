@@ -260,7 +260,9 @@ test('new state: no export button in the export studio is silently disabled', NE
     await visibility(page, 'sources/export');
     assert.equal(await page.locator('#screen button[data-action^="export-"][disabled]').count(), 0);
     // Playwright treats aria-disabled as "not clickable"; a person clicks anyway.
-    await page.locator('#screen button[data-action="export-json"]').click({ force: true });
+    // The JSON package is built since 2026-10-01 (project package); the
+    // offline reading view still answers with a visible reason.
+    await page.locator('#screen button[data-action="export-html"]').click({ force: true });
     assert.match(await page.locator('#toast').innerText(), /not built/);
   } finally { await ctx.close(); await s.stop(); }
 });
