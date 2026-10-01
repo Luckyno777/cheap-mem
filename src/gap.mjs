@@ -113,10 +113,7 @@ export function nearestMessage(messages, ts, session, { toleranceMs = 15000 } = 
   let best = null;
   let bestGap = Infinity;
   for (const m of messages) {
-    if (session) {
-      const s = sessionFromPath(m.path);
-      if (s !== session) continue;
-    }
+    if (session && !goldlog.sameSession(m, session)) continue;
     const t = Date.parse(m.ts ?? '');
     if (!Number.isFinite(t)) continue;
     const gap = Math.abs(t - target);

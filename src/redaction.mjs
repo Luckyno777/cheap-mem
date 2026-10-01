@@ -94,7 +94,7 @@ export const PATTERNS = Object.freeze([
     // The prefix before the keyword is OPTIONAL. It used to be
     // [A-Za-z_][A-Za-z0-9_]* — at least one character — which let a
     // bare `token=...` in a URL slip through.
-    new RegExp(`\\b([A-Za-z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]{0,64})${SP}*${SEP}${SP}*["']?([^\\s"'\`,;&]{8,})["']?`, 'gi')],
+    new RegExp(`\\b([A-Za-z0-9_]{0,64}(?:TOKEN|SECRET|PASSWORD|PASSWD|PASSPHRASE|APIKEY|API_KEY|PRIVATE_KEY|CREDENTIAL|SESSION_KEY)[A-Za-z0-9_]{0,64})${SP}*${SEP}${SP}*["']?([^\\s"'\`,;&]{6,})["']?`, 'gi')],
 
   // CLI flag form with a space instead of `=`: `--token ey...`,
   // `--api-key sk-...`, `cloudflared tunnel run --token <blob>`. The
@@ -136,7 +136,7 @@ export const PATTERNS = Object.freeze([
   // side of the keyword. The price, named: a key with more than 64
   // characters before the keyword is no longer caught by THIS rule.
   ['json-secret',
-    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{8,})["']`, 'gi')],
+    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{6,})["']`, 'gi')],
 
   // --- The keyword-free pair: address, then a credential ------------
   //
@@ -286,7 +286,16 @@ const PROSE_ABOUT_SECRETS =
 
 function isHarmless(s) {
   const t = String(s).trim();
-  if (t.length < 8) return true;
+  // Six characters count when the value carries a digit or a special
+  // character (the German-style and pair patterns already match at six);
+  // a plain short word stays at eight. Audit finding B#2.
+  // Short values must also be one plain token (no backslash, brace or
+  // other escape syntax) with at least one letter.
+  if (t.length < 8) {
+    const shortSecret = t.length >= 6 && /[0-9!#$%&*+?@^_-]/.test(t)
+      && /^[A-Za-z0-9!#$%&*+?@^_-]+$/.test(t) && /[A-Za-z]/.test(t);
+    if (!shortSecret) return true;
+  }
   if (PROSE_ABOUT_SECRETS.test(t) && !looksLikeCredential(t)) return true;
   // A reference to a secret is not the secret — but only while the value
   // itself carries nothing credential-shaped. Same gate as the prose rule.

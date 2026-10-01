@@ -64,9 +64,7 @@ export function check(fields = {}) {
  */
 export function all(root, { project = undefined } = {}) {
   const projects = project === undefined ? [null, ...memory.listProjects(root)] : [project];
-  const out = [];
-  // Once, not per question. See the reasoning at memory.linksOf.
-  const byId = memory.entriesById(root);
+  const questions = [];
   for (const p of projects) {
     let res;
     try { res = memory.readLog(root, TYPE, { project: p }); } catch { continue; }
@@ -74,17 +72,23 @@ export function all(root, { project = undefined } = {}) {
     for (const e of res.entries) {
       if (e.__broken || !e.question || !e.id) continue;
       if (!memory.holds(e, retired)) continue;
-      const g = memory.linksOf(root, e.id, { byId });
-      const answers = g.incoming.filter((r) => r.kind === RESOLVES);
-      out.push({
-        ...e,
-        _project: p,
-        open: answers.length === 0,
-        answers: answers.map((r) => ({ id: r.from, entry: r.entry })),
-      });
+      questions.push({ e, p });
     }
   }
-  return out;
+  if (!questions.length) return [];
+  // Once, not per question: the entry overview AND the link drawers are
+  // read in one pass for all questions (`memory.linksOfMany`; `linksOf` is
+  // the same path with one id - one rule, one place).
+  const graph = memory.linksOfMany(root, questions.map(({ e }) => e.id), { byId: memory.entriesById(root) });
+  return questions.map(({ e, p }) => {
+    const answers = graph.get(e.id).incoming.filter((r) => r.kind === RESOLVES);
+    return {
+      ...e,
+      _project: p,
+      open: answers.length === 0,
+      answers: answers.map((r) => ({ id: r.from, entry: r.entry })),
+    };
+  });
 }
 
 /** Only the open ones. The usual case. */

@@ -22,6 +22,7 @@ import zlib from 'node:zlib';
 import * as redaction from './redaction.mjs';
 import * as archive from './archive.mjs';
 import { appendLine } from './append.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 /**
  * What a capture DROPS before it stores anything — and why the memory
@@ -167,6 +168,17 @@ function shortHash(s) {
   return (h >>> 0).toString(36).padStart(7, '0');
 }
 
+/**
+ * Fingerprint of the REAL session id (the one every transcript line
+ * carries and the injection journal books). `session_id` in the stamp is
+ * a hash of the transcript PATH, a different quantity, so the two never
+ * matched and the journal-to-capture correlation ran into the void.
+ * The raw id itself is never stored in a capture, only this fingerprint.
+ */
+export function sessionFingerprint(id) {
+  return id ? shortHash(`session:${String(id)}`) : null;
+}
+
 function loadJson(p, fallback) {
   if (!fs.existsSync(p)) return fallback;
   try {
@@ -178,6 +190,24 @@ function loadJson(p, fallback) {
 function saveJson(p, o) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
   fs.writeFileSync(p, `${JSON.stringify(o, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * Remember the offset of ONE transcript (audit B#18).
+ *
+ * The offset file belongs to all transcripts together. Reading it at the
+ * START of a capture and writing it back whole at the END erased the
+ * offset a parallel capture of another transcript had stored in between,
+ * and that transcript was captured again from the top (duplicates). Now:
+ * re-read right before writing, set ONLY this key, replace atomically
+ * (`writeAtomic`), so the window shrinks from the capture's duration to a
+ * few milliseconds.
+ */
+function rememberOffset(root, key, entry) {
+  const offsetPath = path.join(root, OFFSET_FILE);
+  const all = loadJson(offsetPath, {});
+  all[key] = entry;
+  writeAtomic(offsetPath, `${JSON.stringify(all, null, 2)}\n`);
 }
 
 function isoSeconds(d) {
@@ -194,10 +224,13 @@ function isoSeconds(d) {
  */
 export function buildStamp({
   sessionId = null, transcript = null, surface = null,
-  tsFrom = null, tsTo = null, project = null,
+  tsFrom = null, tsTo = null, project = null, realSessionId = null,
 } = {}) {
   return {
     session_id: sessionId ?? (transcript ? shortHash(transcript) : 'unknown'),
+    // Fingerprint of the real session id; null for captures made before
+    // this field existed. Never the raw id.
+    session_fingerprint: sessionFingerprint(realSessionId),
     surface: surface ?? detectSurface(),
     ts_from: tsFrom,
     ts_to: tsTo,
@@ -281,6 +314,8 @@ export function capture(root, transcriptPath, {
 
   let chunk;
   let cleanBoundary = true;
+  // How many bytes this capture really covers (see the half-line rule below).
+  let used = fresh;
   try {
     const fd = fs.openSync(transcriptPath, 'r');
     try {
@@ -298,11 +333,29 @@ export function capture(root, transcriptPath, {
       }
       const buf = Buffer.alloc(fresh);
       fs.readSync(fd, buf, 0, fresh, from);
-      chunk = buf.toString('utf8');
+      // Audit B#19: if the LAST line of the increment is still half
+      // written it does not belong in this capture; it comes with the
+      // next one, whole. Before, the offset jumped to `size`, the half
+      // ended up as `__unparsable` and the rest was thrown away next time
+      // as a "slice" of the previous line.
+      const lastBreak = buf.lastIndexOf(0x0a);
+      const lastLine = buf.subarray(lastBreak + 1).toString('utf8');
+      if (lastLine.trim() !== '') {
+        let whole = true;
+        try { JSON.parse(lastLine); } catch { whole = false; }
+        if (!whole) used = lastBreak + 1;
+      }
+      chunk = buf.subarray(0, used).toString('utf8');
     } finally { fs.closeSync(fd); }
   } catch (e) {
     return { status: 'broken', reason: 'read', detail: e.message };
   }
+
+  if (used === 0) {
+    // Only half a line is there: capture nothing, leave the offset alone.
+    return { status: 'nothing', fresh, threshold: minBytes, reason: 'half-line' };
+  }
+  const toByte = from + used;
 
   // Drop the first line only if it really is a slice of the previous
   // one. On the very first capture (offset 0) and after a clean line
@@ -316,12 +369,16 @@ export function capture(root, transcriptPath, {
   let droppedBytes = 0;
   let tsFrom = null;
   let tsTo = null;
+  // The real session id, straight from the transcript: every line carries
+  // it. First one wins; all lines of a capture belong to one session.
+  let realSessionId = null;
 
   for (const l of lines) {
     if (!l.trim()) continue;
     let o;
     try { o = JSON.parse(l); }
     catch { o = { __unparsable: true, raw: l.slice(0, 2000) }; }
+    if (!realSessionId && typeof o.sessionId === 'string' && o.sessionId) realSessionId = o.sessionId;
 
     // Drop BEFORE redacting: redaction is the expensive part, and a
     // task_reminder that is thrown away should not be paid for.
@@ -349,12 +406,11 @@ export function capture(root, transcriptPath, {
   }
 
   if (captured.length === 0) {
-    allOffsets[key] = { bytes: size, path: transcriptPath };
-    saveJson(offsetPath, allOffsets);
+    rememberOffset(root, key, { bytes: toByte, path: transcriptPath });
     return { status: 'nothing', reason: 'blank-lines-only' };
   }
 
-  const stamp = buildStamp({ transcript: transcriptPath, tsFrom, tsTo, ...stampExtra });
+  const stamp = buildStamp({ transcript: transcriptPath, tsFrom, tsTo, realSessionId, ...stampExtra });
 
   // Header line: the provenance stamp itself, so the file can stand
   // on its own.
@@ -363,7 +419,7 @@ export function capture(root, transcriptPath, {
     __captured_at: isoSeconds(now),
     __lines: captured.length,
     __offset_from: from,
-    __offset_to: size,
+    __offset_to: toByte,
     __redacted: [...allFound].map(([type, count]) => ({ type, count })),
     // Never silent: what was left out, why, and how much it weighed.
     __dropped: [...dropped].map(([reason, count]) => ({ reason, count })),
@@ -414,15 +470,14 @@ export function capture(root, transcriptPath, {
     ts_from: tsFrom,
     ts_to: tsTo,
     lines: captured.length,
-    source_bytes: fresh,
+    source_bytes: used,
     ...stored,
     redacted: header.__redacted,
     dropped: header.__dropped,
     dropped_bytes: droppedBytes,
   });
 
-  allOffsets[key] = { bytes: size, path: transcriptPath, last: header.__captured_at };
-  saveJson(offsetPath, allOffsets);
+  rememberOffset(root, key, { bytes: toByte, path: transcriptPath, last: header.__captured_at });
 
   // Ring the bell. Only NOW, once the file is safely on disk — a bell
   // without material would mean a digest run over nothing.
@@ -434,7 +489,7 @@ export function capture(root, transcriptPath, {
     archive: stored.location,
     sha256: stored.sha256,
     lines: captured.length,
-    bytes: fresh,
+    bytes: used,
     redacted: header.__redacted,
     dropped: header.__dropped,
     droppedBytes,
@@ -451,7 +506,7 @@ export function capture(root, transcriptPath, {
  * (about a millisecond) rather than keep the full text in the index —
  * otherwise the index would not stay small.
  */
-export function snippet(root, relPath, terms, { width = 260 } = {}) {
+export function snippet(root, relPath, terms, { width = 260, accept = null } = {}) {
   let lines;
   try { ({ lines } = readCapture(root, relPath)); }
   catch { return ''; }
@@ -461,6 +516,9 @@ export function snippet(root, relPath, terms, { width = 260 } = {}) {
     .filter((b) => b.length >= 3);
 
   for (const l of lines) {
+    // `accept`: a role filter from the caller (see userhabits.userSnippet).
+    // Without it every line counts, assistant and tool lines included.
+    if (accept && !accept(l)) continue;
     const text = textOf(l);
     if (!text) continue;
     const low = text.toLowerCase();
@@ -521,12 +579,15 @@ export function listCaptures(root, { withDeleted = false } = {}) {
 
   const base = path.join(root, RAW_DIR);
   if (!fs.existsSync(base)) return out.sort();
+  // A broken symlink (or an entry that vanishes between readdir and stat)
+  // is NOT a directory and does not abort the whole listing (audit B#17).
+  const isDir = (w) => { try { return fs.statSync(w).isDirectory(); } catch { return false; } };
   for (const year of fs.readdirSync(base).sort()) {
     const yp = path.join(base, year);
-    if (!fs.statSync(yp).isDirectory()) continue;
+    if (!isDir(yp)) continue;
     for (const month of fs.readdirSync(yp).sort()) {
       const mp = path.join(yp, month);
-      if (!fs.statSync(mp).isDirectory()) continue;
+      if (!isDir(mp)) continue;
       for (const file of fs.readdirSync(mp).sort()) {
         if (!file.endsWith('.jsonl.gz')) continue;
         const p = path.join(RAW_DIR, year, month, file);

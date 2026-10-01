@@ -1492,17 +1492,27 @@ export function entriesById(root) {
  * rather than silently skipped: an edge into nothing is a real defect,
  * and hiding it would make the graph look healthier than it is.
  */
-export function linksOf(root, id, { withRetired = false, byId: prebuilt = null } = {}) {
-  // The caller may bring its own entry-overview. `question.all` calls
-  // this function once PER QUESTION, and every call used to re-read the
-  // whole memory — quadratic in the number of questions. The overview
-  // depends only on the root, not on `id`, so it can be built once
-  // outside. The default stays: build it yourself, so a caller does not
-  // HAVE to get anything right.
+export function linksOf(root, id, opts = {}) {
+  return linksOfMany(root, [id], opts).get(id);
+}
+
+/**
+ * `linksOf()` for MANY ids in ONE pass: the same rule, the same order per
+ * id, but the entry overview and every link drawer are read once instead
+ * of once per id (`question.all` called it per question: a full re-read of
+ * the link drawers each time). `linksOf` is this path with one id - one
+ * rule in one place, no second version. A link from a to b appears at a
+ * (outgoing) AND at b (incoming), exactly like two single calls.
+ */
+export function linksOfMany(root, ids, { withRetired = false, byId: prebuilt = null } = {}) {
+  // The caller may bring its own entry-overview. The overview depends only
+  // on the root, not on an id, so it can be built once outside. The default
+  // stays: build it yourself, so a caller does not HAVE to get anything right.
   const byId = prebuilt ?? entriesById(root);
-  const out = [];
-  const incoming = [];
-  const dangling = [];
+  const result = new Map();
+  for (const id of ids) {
+    if (!result.has(id)) result.set(id, { id, entry: byId.get(id) ?? null, out: [], incoming: [], dangling: [] });
+  }
   for (const project of [null, ...listProjects(root)]) {
     let res;
     try { res = readLog(root, 'link', { project }); } catch { continue; }
@@ -1519,15 +1529,18 @@ export function linksOf(root, id, { withRetired = false, byId: prebuilt = null }
       const from = l.from ?? l.source ?? null;
       const to = l.to ?? l.target ?? null;
       if (!from || !to) continue;
-      if (from !== id && to !== id) continue;
-      const other = from === id ? to : from;
-      const rec = { link: l, kind: l.kind ?? '?', from, to, other, entry: byId.get(other) ?? null };
-      if (!byId.has(from) || !byId.has(to)) dangling.push(rec);
-      else if (from === id) out.push(rec);
-      else incoming.push(rec);
+      for (const id of (from === to ? [from] : [from, to])) {
+        const g = result.get(id);
+        if (!g) continue;
+        const other = from === id ? to : from;
+        const rec = { link: l, kind: l.kind ?? '?', from, to, other, entry: byId.get(other) ?? null };
+        if (!byId.has(from) || !byId.has(to)) g.dangling.push(rec);
+        else if (from === id) g.out.push(rec);
+        else g.incoming.push(rec);
+      }
     }
   }
-  return { id, entry: byId.get(id) ?? null, out, incoming, dangling };
+  return result;
 }
 
 /**

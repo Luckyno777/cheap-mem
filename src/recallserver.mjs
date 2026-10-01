@@ -47,6 +47,13 @@ const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Exit code of the server child process on a detected code change (EX_TEMPFAIL). */
 export const STALE_RC = 75;
+/**
+ * Exit code of the server child when another server already listens on
+ * the socket (an orphan with old code, seen on the VM 2026-10-01). The
+ * keeper then retries quietly after a pause instead of giving up as it
+ * does for a real start failure (exit 1).
+ */
+export const BUSY_RC = 76;
 
 /**
  * The state of the code this process loaded: a print over `src/` (count,

@@ -75,6 +75,8 @@ export const COMMANDS = {
         '                                not a decision). Uses the same range',
         '                                filter as raw export/archive.inRange —',
         '                                there is only one "in range" in this repo.',
+        'mem raw missing [--json]        every MISSING capture one by one: path, date,',
+        '                                bytes and the path it is expected at',
         'mem raw delete <path> --reason "..." [--by <name>] [--yes]',
         '                                irreversible: the BYTES leave the archive,',
         '                                outside git, and a tombstone is appended',
@@ -362,9 +364,36 @@ export const COMMANDS = {
       return;
     }
 
+    if (sub === 'missing') {
+      // The diagnosis behind every reader that says MISSING: each missing
+      // capture one by one, with what the register knows about it and the
+      // path it should be at. Same count as `raw archive`, the dashboard
+      // tile and the doctor - `raw.capturesWithState`, nothing else.
+      checkFlags(args, ['json'], 'raw missing');
+      const store = archive.readConfig(process.env, root);
+      const all = raw.capturesWithState(root);
+      const missing = all.filter((r) => r.state === 'unreachable').map((r) => ({
+        path: r.path, at: r.at, bytes: r.bytes,
+        expected: path.join(store.location, archive.pathInArchive(r.path)),
+      }));
+      if (args.json) {
+        out(JSON.stringify({ archive: { location: store.location, source: store.source }, total: all.length, missing }, null, 1));
+        return;
+      }
+      out(`Archive: ${store.location} (source: ${store.source})`);
+      out(`${missing.length} of ${all.length} captures MISSING.`);
+      for (const m of missing) {
+        out(`  ${m.path}`);
+        out(`    at: ${m.at ?? '(no date)'}  bytes: ${m.bytes ?? '(unknown)'}`);
+        out(`    expected here: ${m.expected}`);
+      }
+      return;
+    }
+
     if (sub === 'review') {
       checkFlags(args, ['project', 'from', 'to', 'hour-from', 'hour-to', 'json'], 'raw review');
       let rows = raw.capturesWithState(root);
+      let undated = [];
 
       if (args.project !== undefined) {
         const proj = args.project === 'global' ? null : String(args.project);
@@ -387,10 +416,16 @@ export const COMMANDS = {
           },
         );
         const kept = new Set(inRange.map((r) => r.path));
+        // A capture with no date cannot be checked against a range: it is
+        // shown as its own group instead of vanishing from the count.
+        undated = rows.filter((r) => !r.at);
         rows = rows.filter((r) => kept.has(r.path));
       }
 
-      if (args.json) { out(JSON.stringify(rows)); return; }
+      if (args.json) {
+        out(JSON.stringify(undated.length ? [...rows, ...undated.map((r) => ({ ...r, undated: true }))] : rows));
+        return;
+      }
 
       // One entry per state in `raw.CAPTURE_STATES`: `capturesWithState`
       // yields four, and a count or a mark table that knows only three
@@ -400,7 +435,7 @@ export const COMMANDS = {
       out(`${rows.length} captures — ${counts.present} present, `
         + `${counts.deleted} deleted, ${counts.unreachable} unreachable, `
         + `${counts.elsewhere} elsewhere`);
-      if (!rows.length) { out('(nothing matches the filter)'); return; }
+      if (!rows.length && !undated.length) { out('(nothing matches the filter)'); return; }
       out('');
       const MARK = { present: ' ', deleted: 'D', unreachable: '!', elsewhere: '>' };
       for (const r of rows) {
@@ -416,6 +451,12 @@ export const COMMANDS = {
         if (r.state === 'elsewhere') {
           out("        recorded into another machine's store — not readable from here");
         }
+      }
+      if (undated.length) {
+        out('');
+        out(`Plus ${undated.length} captures WITHOUT A DATE - no range can be checked, so listed apart:`);
+        for (const r of undated.slice(0, 20)) out(`  [${MARK[r.state] ?? '?'}] ${r.path}`);
+        if (undated.length > 20) out(`  ... and ${undated.length - 20} more (--json for all)`);
       }
       return;
     }

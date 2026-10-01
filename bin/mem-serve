@@ -105,7 +105,8 @@ function tokenFrom(req, url) {
   if (bearer) return bearer;
   const cookie = req.headers.cookie || '';
   const m = /(?:^|;\s*)mem_k=([^;]+)/.exec(cookie);
-  return m ? decodeURIComponent(m[1]) : '';
+  if (!m) return '';
+  try { return decodeURIComponent(m[1]); } catch { return ''; } // broken %-sequence: fail closed
 }
 
 /**

@@ -7,10 +7,9 @@
 // no network, no cost. This is the lane the time router (src/timeexpr.mjs)
 // feeds.
 
-import fs from 'node:fs';
 import path from 'node:path';
-import zlib from 'node:zlib';
 import { find } from './memory.mjs';
+import * as raw from './raw.mjs';
 
 // Words that are time/filler, not subject keywords. If anything survives the
 // cut, the window is narrowed to entries mentioning it.
@@ -74,9 +73,6 @@ export function entriesInWindow(root, capability, {
     .sort((a, b) => new Date(a.ts) - new Date(b.ts));
 }
 
-function readDir(p) { try { return fs.readdirSync(p); } catch { return []; } }
-function isDir(p) { try { return fs.statSync(p).isDirectory(); } catch { return false; } }
-
 // "2026-09-01T18-35-16Z" (filename) → ms. The capture time is the UPPER bound of
 // the lines it holds: a capture written before `from` can hold no line in range.
 function captureMs(name) {
@@ -99,43 +95,40 @@ function shortContent(o) {
  * discussed" layer — raw text, not digested.
  */
 export function rawInWindow(root, { from, to, maxLines = 200 } = {}) {
-  const rawDir = path.join(root, 'raw');
   const fMs = new Date(from).getTime();
   const tMs = new Date(to).getTime();
+  // The captures come from the SAME list the index uses (`raw.listCaptures`)
+  // and are read through the archive (`raw.readCapture`). This function used
+  // to read only `raw/*.jsonl.gz` inside the repository: since the move into
+  // the archive (2026-09-08) every archived capture was MISSING silently, and
+  // a time question looked like "nothing discussed" (audit B#45). A capture
+  // that is listed but unreachable is COUNTED (`unreachable`), never read as empty.
+  let listed = [];
+  try { listed = raw.listCaptures(root); } catch { /* no raw/: nothing to read */ }
   const files = [];
-  for (const y of readDir(rawDir)) {
-    const yp = path.join(rawDir, y);
-    if (!isDir(yp)) continue;
-    for (const mo of readDir(yp)) {
-      const mp = path.join(yp, mo);
-      if (!isDir(mp)) continue;
-      for (const f of readDir(mp)) {
-        if (!f.endsWith('.jsonl.gz')) continue;
-        const cap = captureMs(f);
-        if (cap !== null && cap < fMs) continue;
-        files.push(path.join(mp, f));
-      }
-    }
+  for (const rel of listed) {
+    const cap = captureMs(path.basename(rel));
+    if (cap !== null && cap < fMs) continue;
+    files.push(rel);
   }
   files.sort();
 
   const lines = [];
   let capped = false;
-  for (const fp of files) {
-    let text;
-    try { text = zlib.gunzipSync(fs.readFileSync(fp)).toString('utf8'); } catch { continue; }
-    for (const line of text.split('\n')) {
-      if (!line.trim()) continue;
-      let o; try { o = JSON.parse(line); } catch { continue; }
+  let unreachable = 0;
+  for (const rel of files) {
+    let cap;
+    try { cap = raw.readCapture(root, rel); } catch { unreachable += 1; continue; }
+    for (const o of cap.lines) {
       const ts = o.timestamp ?? o.time ?? o.ts;
       if (!ts) continue;
       const t = new Date(ts).getTime();
       if (Number.isNaN(t) || t < fMs || t >= tMs) continue;
-      lines.push({ ts, source: path.relative(root, fp), type: o.type ?? null, text: shortContent(o) });
+      lines.push({ ts, source: rel, type: o.type ?? null, text: shortContent(o) });
       if (lines.length >= maxLines) { capped = true; break; }
     }
     if (capped) break;
   }
   lines.sort((a, b) => new Date(a.ts) - new Date(b.ts));
-  return { lines, capped, files: files.length };
+  return { lines, capped, files: files.length, unreachable };
 }

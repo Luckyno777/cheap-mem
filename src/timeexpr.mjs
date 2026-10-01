@@ -216,7 +216,14 @@ export function windowFor(text, { now = new Date(), zone = systemZone() } = {}) 
   // 2) Day anchor.
   let dayStart = null;
   let dayLabel = null;
-  const isoD = s.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  // An impossible date (2026-13-45, 2026-02-31) is NOT a date: Date.UTC
+  // silently rolls it into the next month or year (audit finding B#44).
+  const realDay = (y, mo, d) => {
+    const t = new Date(Date.UTC(y, mo - 1, d));
+    return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+  };
+  let isoD = s.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+  if (isoD && !realDay(+isoD[1], +isoD[2], +isoD[3])) isoD = null;
   if (isoD) {
     dayStart = zonedToUtc(+isoD[1], +isoD[2], +isoD[3], 0, 0, zone);
     dayLabel = `${isoD[1]}-${isoD[2]}-${isoD[3]}`;

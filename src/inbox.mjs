@@ -463,12 +463,15 @@ function writeMessage(root, participants, {
   // taken, in one operation.
   let name = base;
   let p = path.join(dir, name);
-  for (let n = 2; n < 1000; n += 1) {
+  // Names: the base plus -2 to -999 (the clone mark allows at most three digits)
+  // = 999 attempts. The old `n < 1000` tried only 998 and the message said 1000.
+  for (let n = 2; n <= 1000; n += 1) {
     try {
       fs.writeFileSync(p, content, { encoding: 'utf8', flag: 'wx' });
       return { path: p, name, time };
     } catch (e) {
       if (e.code !== 'EEXIST') throw e;
+      if (n >= 1000) break; // -999 was the last name the mark allows
       // The counter belongs BEHIND the mark, not behind the recipient
       // name. It used to read `-2` right after the name, and
       // fromFileName returned null for that: the second message of a
@@ -478,7 +481,7 @@ function writeMessage(root, participants, {
       p = path.join(dir, name);
     }
   }
-  throw new Error(`Inbox: 1000 messages in one second for '${base}' — refusing to guess`);
+  throw new Error(`Inbox: 999 messages in one second for '${base}' — refusing to guess`);
 }
 
 /**

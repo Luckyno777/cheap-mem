@@ -111,6 +111,29 @@ export function isRealUserMessage(o) {
   return !SYNTHETIC_PREFIXES.some((p) => start.startsWith(p));
 }
 
+/**
+ * The excerpt around a hit, from REAL USER lines only.
+ *
+ * `raw.snippet()` scans every line of a capture, assistant and tool lines
+ * included. Shown in `mem find` or over MCP as a "memory hit", the
+ * model's own unchecked wording comes back as if it were stored
+ * knowledge - self-reinforcement. Here a line only counts when the same
+ * test as `realMessages()` accepts it (one definition of "real", not a
+ * second one). The text is normalised first, so a real user line whose
+ * content is an array of text blocks does not fail on its FORMAT alone.
+ * No real user line with a query word: `''` - the caller must NOT fall
+ * back to the entry text (the same unfiltered join of every role).
+ */
+export function userSnippet(root, relPath, terms, { width = 260 } = {}) {
+  return raw.snippet(root, relPath, terms, {
+    width,
+    accept: (l) => {
+      const text = raw.textOf(l);
+      return Boolean(text) && isRealUserMessage({ ...l, message: { ...(l?.message ?? {}), content: text } });
+    },
+  });
+}
+
 // --- Locating a hit: capture path + PHYSICAL line number --------------
 
 /**
@@ -135,13 +158,14 @@ function readCaptureWithLineNumbers(root, relPath) {
   }
   const text = zlib.gunzipSync(data).toString('utf8');
   const out = [];
+  out.stamp = null;
   const rawLines = text.split('\n');
   for (let i = 0; i < rawLines.length; i += 1) {
     const lt = rawLines[i];
     if (!lt.trim()) continue;
     let o;
     try { o = JSON.parse(lt); } catch { continue; }
-    if (o.__stamp) continue; // the provenance header, not a transcript line
+    if (o.__stamp) { out.stamp = o.__stamp; continue; } // the provenance header, not a transcript line
     out.push({ o, line: i + 1 });
   }
   return out;
@@ -190,7 +214,10 @@ export function realMessages(root, { timeCapMs = TIME_CAP_MS } = {}) {
       if (!isRealUserMessage(o)) continue;
       const text = raw.textOf(o);
       if (!text) continue;
-      messages.push({ path: p, line, text, ts: o.timestamp ?? o.ts ?? null });
+      messages.push({
+        path: p, line, text, ts: o.timestamp ?? o.ts ?? null,
+        sessionFingerprint: lined.stamp?.session_fingerprint ?? null,
+      });
     }
   }
 
