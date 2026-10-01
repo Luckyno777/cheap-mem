@@ -259,7 +259,7 @@ export const BUDGET = Object.freeze({
     budget: 'MEM_RETRIEVE_TOP=3, MEM_RETRIEVE_MIN=5.0; 4000 ms latency budget (src/latencybudget.mjs)',
   },
   [OCCASION.BEFORE_CHANGE]: {
-    delivers: 'up to 3 entries that name the file about to be changed',
+    delivers: 'up to 3 entries that name the file about to be changed, plus up to 2 open duties and 2 released procedures for it',
     budget: 'MEM_BEFORE_EDIT_TOP=3, once per file per session; 1000 ms latency budget',
   },
   [OCCASION.AFTER_ERROR]: {

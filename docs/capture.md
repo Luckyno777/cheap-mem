@@ -75,10 +75,21 @@ material is still arriving.
 ### How much per run
 
 `MEM_DIGEST_MAX_BYTES` (default 16 MB) caps what one run is handed.
-Files are chosen **smallest first**, so a single oversized capture that
-no session can finish does not block everything behind it forever. The
-rest stays pending and the next tick takes it — a backlog drains over
-several runs instead of failing in one.
+First an **age reserve** (`MEM_DIGEST_AGE_RESERVE_PCT`, default 25 % of
+the cap) goes to the **oldest** captures, so an old one cannot starve
+behind a steady stream of small new ones; the oldest capture that fits
+the cap at all is always taken. The rest of the cap is filled
+**smallest first**, so a single oversized capture that no session can
+finish does not block everything behind it forever. The rest stays
+pending and the next tick takes it — a backlog drains over several runs
+instead of failing in one (`src/digestselect.mjs`).
+
+Before writing, the digest checks for duplicates across the **whole
+memory** by default. `MEM_DIGEST_DEDUP_SINCE` (e.g. `30d`) narrows that
+to a window; until 2026-10-01 it was a fixed 7 days, which let an entry
+from last month be written again. On a 100k-entry store a duplicate
+search took 2.3 s with `--since 7d` and 2.7 s over the whole store
+(fresh process, warm index cache, loaded 4-core machine).
 
 ### Why the wrapper does not trust the exit code
 
