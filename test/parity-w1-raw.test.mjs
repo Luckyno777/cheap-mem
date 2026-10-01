@@ -10,6 +10,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as raw from '../src/raw.mjs';
 import * as timesearch from '../src/timesearch.mjs';
 import * as openai from '../src/embed/openai.mjs';
@@ -126,7 +127,7 @@ test('B45: the time search reads captures that live in the archive, not only in 
 import { spawnSync } from 'node:child_process';
 import * as userhabits from '../src/userhabits.mjs';
 
-const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(ROOT, 'bin', 'mem');
 
 function rawRoot(t) {

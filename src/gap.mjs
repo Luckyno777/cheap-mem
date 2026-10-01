@@ -73,7 +73,7 @@ export function sessionFromPath(p) {
 
 /** How many shared stems make two texts "the same topic" — never more
  *  than the candidate itself has stems to offer. */
-export const MIN_OVERLAP = 2;
+const MIN_OVERLAP = 2;
 export function minOverlap(n) {
   return Math.max(1, Math.min(MIN_OVERLAP, n));
 }
@@ -208,7 +208,7 @@ function sweepDetailed(root, { since = null, entries = null, messages = null, to
  * the journal itself. Wording mirrors the house rule "what is not
  * evidenced is TBD".
  */
-export const UNPROVEN_MARKERS = Object.freeze([
+const UNPROVEN_MARKERS = Object.freeze([
   /\btbd\b/i,
   /\bnot (?:documented|recorded|established|evidenced)\b/i,
   /\bi (?:do not|don't) know\b/i,

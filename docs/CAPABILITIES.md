@@ -102,6 +102,7 @@ directory. The section number in brackets is where it is explained.
 | `gap.mjs` | N18 parity: a retrieval miss the injection journal recorded, later matched by content-word overlap with a NEW entry, is a closed knowledge gap — produces `kind:'gap'` candidates for `goldlog.mjs`'s file, shown first on the "Rate today" card |
 | `gauges.mjs` | three numbers about retrieval: occupancy, sufficiency, allocation |
 | `guard.mjs` | a recorded error becomes a latch (10.2) |
+| `guardgaps.mjs` | ranks the errors that have NO guard (`mem guard gaps`): a guarded error is a filter, never a gap; repetition, an open duty and age only order the unguarded ones; reads, writes nothing |
 | `heartbeat.mjs` | running, or just nothing to do (10.3) |
 | `hybrid.mjs` | BM25 and semantic recall, fused by RRF (2) |
 | `icon.mjs` | the mark, drawn in code |
@@ -142,6 +143,7 @@ directory. The section number in brackets is where it is explained.
 | `redaction.mjs` | secrets removed before anything reaches disk (5) |
 | `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
+| `repetitionhint.mjs` | from the third repetition of an error class or normalised title, prints a draft for `mem log procedure` (`mem suggest procedure`); quotes the newest error, no model, writes nothing |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
@@ -554,7 +556,13 @@ procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
+gaps suggest
 ```
+
+`mem gaps` lists open and closed knowledge gaps (a retrieval miss later
+answered by a new entry) and `gaps rate` the weekly rate; `mem suggest
+procedure <class>` prints a draft `mem log procedure` for an error class
+that repeated three times, and writes nothing.
 
 `mem board` is the operating state on one screen — raw archive, digest,
 error classes, agents, open questions, installation, MCP bridge — with

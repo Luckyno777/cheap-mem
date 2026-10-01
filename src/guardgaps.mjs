@@ -35,7 +35,7 @@ export const WEIGHT_DUTY = 2;
 /** Weakest: age only breaks ties, decaying linearly. */
 export const WEIGHT_FRESH_MAX = 1;
 /** Same horizon as the repetition rule — one number, not two that drift apart. */
-export const FRESH_WINDOW_DAYS = repetition.FILE_CLASS_WINDOW_DAYS;
+const FRESH_WINDOW_DAYS = repetition.FILE_CLASS_WINDOW_DAYS;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

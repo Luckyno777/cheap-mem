@@ -210,6 +210,21 @@ test('SOURCE PROBE: the classification comes from the code, not from memory', ()
       holds: (body) => /indexcache\.writeIndexCache\s*\(/.test(body)
         && reachesAWrite('indexcache', 'writeIndexCache'),
     }],
+    // **The third class: an observation about the call, not content.**
+    // Since parity wave 1, `mem_find` books one line into the injection
+    // journal (occasion `mcp-question`). Same decision as the sibling's
+    // mem_finde, which stays a reading tool: the line holds the question's
+    // LENGTH, hit count, sources and duration, never the caller's text,
+    // and nothing is stored that the caller supplied. The assertion holds
+    // the exception to that claim: `book` must still append, and the line
+    // builder must still take a byte count and no free text.
+    ['injection.book', {
+      why: 'journal line of numbers (length, hits, duration), never the question text',
+      holds: (body) => /appendLine\s*\(/.test(body)
+        && /questionBytes/.test(modules.get('injection') ?? '')
+        && !/\b(question|query|text)\s*=/.test(
+          (modules.get('injection') ?? '').split('export function buildLine')[1]?.split('\n}')[0] ?? ''),
+    }],
     ['setup.archiveStep', {
       why: 'write-and-delete probe: the answer to "is this writable"',
       holds: (body) => SYSCALLS.test(body) && /fs\.unlinkSync/.test(body),
