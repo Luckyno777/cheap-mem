@@ -50,7 +50,8 @@ export function germanIdentifiers(text) {
   const found = new Set();
   for (const id of new Set(code.match(/\b[A-Za-z_][A-Za-z0-9_]*\b/g) ?? [])) {
     const parts = id.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase().split('_').filter(Boolean);
-    if (parts.some((p) => p.length >= 5 && GERMAN_IDENTIFIER_WORDS.has(p))) found.add(id);
+    const whole = id.toLowerCase().replace(/_/g, '');
+    if (parts.some((p) => p.length >= 5 && GERMAN_IDENTIFIER_WORDS.has(p)) || (whole.length >= 5 && GERMAN_IDENTIFIER_WORDS.has(whole))) found.add(id);
   }
   return [...found].sort();
 }
