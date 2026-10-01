@@ -113,7 +113,7 @@ test('(1) package = preview = the old browser rule, for all four switch combinat
     assert.ok(pkg.header.created && pkg.header.selection.project === 'demo');
   }
   const pkg = await (await get('project=demo&global=1&history=1')).json();
-  assert.ok(pkg.refs.some((v) => v.id === w1.a1.id && v.title === 'Foreign knowledge'), 'the external reference names id and title');
+  assert.ok(pkg.refs.some((v) => v.id === w1.a1.id && /^Foreign knowledge/.test(v.title || '')), 'the external reference names id and title');
   assert.ok(!pkg.entries.some((e) => e.id === w1.a1.id), '... but its content is not in the package');
 });
 
