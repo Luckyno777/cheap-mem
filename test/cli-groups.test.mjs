@@ -162,7 +162,7 @@ test('every lazy import inside a command handler resolves', () => {
     const srcText = fs.readFileSync(whole, 'utf8');
     for (const m of srcText.matchAll(/await import\('([^']+)'\)/g)) {
       const target = m[1];
-      if (!target.startsWith('.')) continue;   // ein Paket, nicht unser Pfad
+      if (!target.startsWith('.')) continue;   // a package, not one of our paths
       seen += 1;
       const resolved = path.resolve(path.dirname(whole), target);
       if (!fs.existsSync(resolved)) broken.push(`${file}: ${target}`);

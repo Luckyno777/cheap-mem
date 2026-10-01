@@ -143,14 +143,14 @@ test('lane patterns accept either path separator', () => {
   // bugs and neither was this one; the trace named the branch and
   // ended the guessing.
   const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
-  const muster = [...s.matchAll(/\/\[?\\*\\?\/?\]?\((?:errors|decisions|learnings)[^/]*\/[gimsuy]*/g)];
+  const lanePatterns = [...s.matchAll(/\/\[?\\*\\?\/?\]?\((?:errors|decisions|learnings)[^/]*\/[gimsuy]*/g)];
   const raw = [...s.matchAll(/\/\\\/\((?:errors|decisions|learnings)/g)];
   assert.deepEqual(raw.map((m) => m[0]), [],
     'a lane pattern demands a forward slash — on Windows it matches nothing '
     + 'and the hook goes silent');
   assert.match(s, /\[\\\\\/\]\(errors\|decisions\|learnings\)/,
     'the lane pattern does not accept both separators');
-  assert.ok(muster.length >= 0);  // die Suche selbst darf leer sein
+  assert.ok(lanePatterns.length >= 0);  // the search itself may come back empty
 });
 
 test('POSITIVE: the lane pattern is actually in this file', () => {

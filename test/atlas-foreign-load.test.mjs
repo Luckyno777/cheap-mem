@@ -80,7 +80,7 @@ function killAll(children) {
 
 /**
  * Addendum, 2026-09-20: three probes below (`captureCalibrationBaselineOnce
- * on THIS (idle) machine...`, and the two GRUEN positive controls for
+ * on THIS (idle) machine...`, and the two GREEN positive controls for
  * decision #1 and for the real-measurement pass) each asserted "this
  * machine is quiet" as a premise the test does not control. Alone they
  * passed every time (29/29); inside a full `node --test` run, where other
@@ -204,7 +204,7 @@ test('a foreign-load reading that could not be measured at all (both sources nul
 });
 
 test('non-time-based verdicts are structurally untouched: biasVerdict takes no load parameter at all', () => {
-  // The other half of "nicht-zeitbasierte Pruefungen bleiben unberuehrt":
+  // The other half of "non-time-based checks stay untouched":
   // this function, which grades every `real.shape.*` comparison, has one
   // parameter. If a future edit threads foreign load into it, this
   // arity pin breaks and says exactly why.
@@ -445,7 +445,7 @@ test('captureCalibrationBaselineOnce on THIS (idle) machine reports a trustworth
     return;
   }
   // A genuinely flaky assertion would be "always trustworthy on any CI
-  // box" — this is instead the GRUEN half of the baseline-corruption
+  // box" — this is instead the GREEN half of the baseline-corruption
   // pair below: on a capture `trustworthy` itself confirms was quiet,
   // the reps' own agreement with each other should hold — by
   // definition of `trustworthy` this is now redundant with the gate

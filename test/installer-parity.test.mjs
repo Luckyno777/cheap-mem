@@ -46,12 +46,12 @@ const WINDOWS = path.join(REPO, 'install', 'windows.ps1');
  * first — a mention in prose is not a registration, and the docblocks
  * above both call sites name every event by hand.
  */
-function registered(file, muster, comment) {
+function registered(file, pattern, comment) {
   const raw = fs.readFileSync(file, 'utf8');
   const lines = raw.split('\n').filter((z) => !comment.test(z));
   const drop = new Map();
   for (const z of lines) {
-    const m = muster.exec(z);
+    const m = pattern.exec(z);
     if (m) drop.set(m[1], z.trim());
   }
   return drop;
