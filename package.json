@@ -51,6 +51,7 @@
     "!docs/assets/brand/*.jpg",
     "!docs/images/*.png",
     "!docs/images/*.webp",
+    "!docs/value-report/*.json",
     "DIGEST.md",
     "README.md",
     "LICENSE",
