@@ -139,6 +139,18 @@ export function validId(id) {
 }
 
 function tasksDir(root) { return path.join(root, '.mem', 'tasks'); }
+
+// A task's state line is written from child-process event handlers. If the
+// write fails there (the store was moved or deleted, the disk is full), the
+// throw would escape as an uncaught exception and take the whole server down.
+// Record nothing then, say so on stderr, and keep serving.
+function appendFromHandler(file, line) {
+  try {
+    appendLine(file, line);
+  } catch (e) {
+    process.stderr.write(`tasks: could not record a task state line (${e.code || e.message}); the server keeps running\n`);
+  }
+}
 export function statePath(root, id) { return path.join(tasksDir(root), `${id}.jsonl`); }
 function exportTarget(root, id) { return path.join(tasksDir(root), id, 'export'); }
 
@@ -502,12 +514,12 @@ export function start(root, kind, params = {}, context = {}) {
     for (const line of String(chunk).split('\n')) {
       const s = line.trim();
       if (s && spec.progressPattern.test(s)) {
-        appendLine(file, `${JSON.stringify({ event: 'progress', ts: nowIso(), text: s })}\n`);
+        appendFromHandler(file, `${JSON.stringify({ event: 'progress', ts: nowIso(), text: s })}\n`);
       }
     }
   });
   child.on('error', (e) => {
-    appendLine(file, `${JSON.stringify({
+    appendFromHandler(file, `${JSON.stringify({
       event: 'result', ts: nowIso(), state: 'error', result: null,
       reason: `child process could not be started: ${e.message}`, exitCode: null,
     })}\n`);
@@ -517,12 +529,12 @@ export function start(root, kind, params = {}, context = {}) {
   child.on('close', (code) => {
     entry.ended = true;
     if (entry.cancelReason) {
-      appendLine(file, `${JSON.stringify({
+      appendFromHandler(file, `${JSON.stringify({
         event: 'cancelled', ts: nowIso(), reason: entry.cancelReason, exitCode: code,
       })}\n`);
     } else {
       const verdict = classifyResult(kind, { code, stdout, stderrTail });
-      appendLine(file, `${JSON.stringify({
+      appendFromHandler(file, `${JSON.stringify({
         event: 'result', ts: nowIso(), state: verdict.state,
         result: verdict.result, reason: verdict.reason, exitCode: code,
       })}\n`);
