@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
+// @ts-check
 /**
  * claim — X4: taking over a message or task, with an expiry.
  *
@@ -282,6 +283,7 @@ export function fold(lines, { now = new Date() } = {}) {
       }
     }
   }
+  /** @type {string} */
   let status = STATUS.FREE;
   if (done) status = STATUS.DONE;
   else if (holder) status = nowMs < Date.parse(holder.until) ? STATUS.CLAIMED : STATUS.EXPIRED;
@@ -307,6 +309,7 @@ export function status(root, message, { now = new Date() } = {}) {
  * Claim a message. The line is ALWAYS written; whether it counts is
  * `valid` — read with the read rule, not guessed.
  */
+/** @param {any} root @param {any} message @param {{ by?: any, minutes?: number, now?: Date }} [opt] */
 export function claim(root, message, { by, minutes = DEFAULT_MINUTES, now = new Date() } = {}) {
   checkMessage(root, message);
   checkWho(by);
@@ -345,6 +348,7 @@ function checkClaimId(claimId, what) {
  * Z2/A4: extend MY claim (`claimId`) by `minutes` from now. The line is
  * ALWAYS written; whether it counts is `valid`, with the reason when not.
  */
+/** @param {any} root @param {any} message @param {{ by?: any, claimId?: any, minutes?: number, now?: Date }} [opt] */
 export function renew(root, message, { by, claimId, minutes = DEFAULT_MINUTES, now = new Date() } = {}) {
   checkMessage(root, message);
   checkWho(by);
@@ -359,6 +363,7 @@ export function renew(root, message, { by, claimId, minutes = DEFAULT_MINUTES, n
   return closing(root, message, line, now);
 }
 
+/** @param {any} root @param {any} message @param {{ by?: any, claimId?: any, now?: Date }} [opt] */
 export function done(root, message, { by, claimId, now = new Date() } = {}) {
   checkMessage(root, message);
   checkWho(by);
@@ -369,6 +374,7 @@ export function done(root, message, { by, claimId, now = new Date() } = {}) {
   return closing(root, message, line, now);
 }
 
+/** @param {any} root @param {any} message @param {{ by?: any, claimId?: any, reason?: any, now?: Date }} [opt] */
 export function failed(root, message, { by, claimId, reason, now = new Date() } = {}) {
   checkMessage(root, message);
   checkWho(by);
