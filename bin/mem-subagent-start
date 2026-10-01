@@ -18,7 +18,7 @@
 
 set -u
 
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 [ "${MEM_SUBAGENT_START_OFF:-}" = "1" ] && exit 0
 
@@ -28,7 +28,7 @@ ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
-  k="$(entrutscht "$k")"
+  k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && exit 0
@@ -41,7 +41,7 @@ if   [ -f "$ROOT/src/subagentstart.mjs" ]; then MODULE="$ROOT/src/subagentstart.
 elif [ -n "${CHEAP_MEM_CODE:-}" ] && [ -f "$CHEAP_MEM_CODE/src/subagentstart.mjs" ]; then
   MODULE="$CHEAP_MEM_CODE/src/subagentstart.mjs"
 else
-  HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+  HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
   [ -f "$HERE/../src/subagentstart.mjs" ] && MODULE="$HERE/../src/subagentstart.mjs"
 fi
 [ -z "$MODULE" ] && exit 0

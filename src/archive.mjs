@@ -478,13 +478,13 @@ export function migrate(archive, root, paths, { remove = false } = {}) {
     if (known.has(relPath)) { skipped.push({ path: relPath, reason: 'already-recorded' }); continue; }
 
     const data = fs.readFileSync(src);
-    const ablage = put(archive, relPath, data);
+    const storedEntry = put(archive, relPath, data);
 
     // Read it back before anything disappears.
     // Comparing sizes would be cheaper and would wave a half-written
     // file straight through.
     const back = get(archive, root, relPath);
-    if (!back || checksum(back) !== ablage.sha256) {
+    if (!back || checksum(back) !== storedEntry.sha256) {
       skipped.push({ path: relPath, reason: 'checksum-mismatch' });
       continue;
     }
@@ -524,7 +524,7 @@ export function migrate(archive, root, paths, { remove = false } = {}) {
       ts_from: header?.__stamp?.ts_from ?? null,
       ts_to: header?.__stamp?.ts_to ?? header?.__captured_at ?? null,
       lines: header?.__lines ?? null,
-      ...ablage,
+      ...storedEntry,
       migrated: true,
     });
     if (remove) fs.unlinkSync(src);

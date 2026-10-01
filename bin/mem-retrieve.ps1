@@ -57,7 +57,7 @@ if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
 # MEM_RETRIEVE_ROOTS so a test can reach it.
 #
 # **No backslash substitution here, and that is the point.** The POSIX
-# hook carries `entrutscht()` because bash reads `C:\Users\x` as an
+# hook carries `to_slashes()` because bash reads `C:\Users\x` as an
 # escape soup and finds nothing. PowerShell's own path APIs take a
 # native Windows path as it comes, so the whole class of bug that made
 # the bash hooks silent on Windows cannot occur on this side.

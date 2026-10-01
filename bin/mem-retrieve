@@ -52,7 +52,7 @@ export MEM_HOOK_START_MS
 # report". Two places per hook needed this, and five hooks carried the
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 [ "${MEM_RETRIEVE_OFF:-}" = "1" ] && exit 0
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 
@@ -66,7 +66,7 @@ ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
-  k="$(entrutscht "$k")"
+  k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && exit 0
@@ -82,7 +82,7 @@ done
 # so HOOK_DIR became the CURRENT directory instead of bin/. The tool
 # next to the hook was then not found and the hook exited 0 in
 # silence — the same failure as the root lookup, one line further on.
-HOOK_DIR="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 # TOOL_ROOT travels with RUN_MEM on purpose: `src/bidi.mjs` is TOOL code,
 # not memory data, so it lives beside whichever `bin/mem` is actually
 # about to run, not necessarily beside $ROOT. Getting this wrong is a

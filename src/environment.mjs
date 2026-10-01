@@ -453,11 +453,11 @@ export function checkAppendAtomicity(root, opts = {}) {
       + 'and this filesystem documents atomic O_APPEND. Two sources agree.');
   }
 
-  const warum = key && PASSTHROUGH_FS.has(key)
+  const whyNot = key && PASSTHROUGH_FS.has(key)
     ? `${fsType} forwards to another filesystem, so its name says nothing either way`
     : `${fsType ?? 'this filesystem'} is not one whose documentation affirms atomic O_APPEND`;
   return check('append-atomicity', LAYER.OS, null,
-    `measured: ${found} — none torn, none missing, none duplicated, but ${warum}. `
+    `measured: ${found} — none torn, none missing, none duplicated, but ${whyNot}. `
     + 'A short clean run shows that no tearing happened, not that none can: this '
     + 'measurement can falsify the guarantee, never establish it.',
     'If this mount must carry the memory, serialise writers — or run the '

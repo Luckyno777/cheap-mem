@@ -927,13 +927,13 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
  */
 export function entityText(doc) {
   const e = doc?.entry ?? {};
-  const teile = [];
+  const textParts = [];
   for (const v of Object.values(e)) {
-    if (typeof v === 'string') teile.push(v);
-    else if (Array.isArray(v)) for (const x of v) if (typeof x === 'string') teile.push(x);
+    if (typeof v === 'string') textParts.push(v);
+    else if (Array.isArray(v)) for (const x of v) if (typeof x === 'string') textParts.push(x);
   }
-  if (doc?.source) teile.push(String(doc.source));
-  return teile.join(' ');
+  if (doc?.source) textParts.push(String(doc.source));
+  return textParts.join(' ');
 }
 
 /** BM25 IDF (with +1 to keep very common terms from going negative). */
@@ -1215,7 +1215,7 @@ export function byScoreThenIdentity(a, b) {
  * and treating them as equal is what lets the deterministic tie-break
  * below decide instead of the platform's maths library.
  */
-const MMR_GLEICH = 1e-12;
+const MMR_TIE = 1e-12;
 
 /**
  * How many candidates the MMR pass gets: without MMR exactly `n`, with MMR
@@ -1300,11 +1300,11 @@ export function mmrRerank(candidates, { lambda = 0.7, top = 10, simOf } = {}) {
       // what a different maths library produces — turned a tie into a
       // win, one way on one machine and the other way on another.
       if (bestPos === -1) { bestVal = val; bestPos = p; continue; }
-      const spanne = Math.max(Math.abs(val), Math.abs(bestVal), 1) * MMR_GLEICH;
-      if (val > bestVal + spanne) { bestVal = val; bestPos = p; continue; }
+      const tieMargin = Math.max(Math.abs(val), Math.abs(bestVal), 1) * MMR_TIE;
+      if (val > bestVal + tieMargin) { bestVal = val; bestPos = p; continue; }
       // A tie down to the last bits: chance does not decide, identity
       // does — and the same way on every machine.
-      if (val >= bestVal - spanne && stableKey(cand) < stableKey(remaining[bestPos])) {
+      if (val >= bestVal - tieMargin && stableKey(cand) < stableKey(remaining[bestPos])) {
         bestVal = val; bestPos = p;
       }
     }

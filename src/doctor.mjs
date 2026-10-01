@@ -1295,10 +1295,10 @@ function checkSynonyms(root) {
   }
   const top = [...df.entries()].sort((a, b) => b[1] - a[1]).slice(0, 60).map(([w]) => w);
   const cov = thesaurus.curatedCoverage(top, pack(cfg.language ?? 'en'));
-  const eigene = thesaurus.loadUserGroups(root, fs, path).loaded ?? 0;
+  const ownGroups = thesaurus.loadUserGroups(root, fs, path).loaded ?? 0;
   const pct = cov.fraction === null ? 0 : Math.round(cov.fraction * 100);
 
-  if (cov.covered === 0 && eigene === 0) {
+  if (cov.covered === 0 && ownGroups === 0) {
     return finding('synonyms', LEVEL.WARN,
       `the curated synonyms match NONE of this memory's 60 commonest words (language ${cfg.language ?? 'en'})`,
       'The built-in list is English. Retrieval still works, but one of its '
@@ -1306,9 +1306,9 @@ function checkSynonyms(root) {
       + '.mem/thesaurus.json — an array of arrays, e.g. '
       + '[["auslieferung","deploy","ausrollen"]]. No word may appear twice.');
   }
-  if (eigene > 0) {
+  if (ownGroups > 0) {
     return finding('synonyms', LEVEL.GOOD,
-      `${eigene} own group(s), curated list covers ${pct}% of the commonest words`);
+      `${ownGroups} own group(s), curated list covers ${pct}% of the commonest words`);
   }
   if (pct < 10) {
     return finding('synonyms', LEVEL.WARN,
@@ -2069,32 +2069,32 @@ export function checkGitignoreEffective(root) {
   // single-file name stands here. Both stay — a leftover file from
   // before the change can still be lying around, and a memory created
   // back then carries only the old line.
-  const PFLICHT = [
+  const REQUIRED_IGNORES = [
     '.mem/embed.env', '.mem/epoch.json',
     '.mem/search-index.json', '.mem/search-index/',
   ];
   if (!fs.existsSync(path.join(root, '.git'))) {
     return finding('gitignore', LEVEL.UNKNOWN, 'no git repository — nothing to ignore');
   }
-  const offen = [];
-  for (const regel of PFLICHT) {
-    const r = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', regel],
+  const notIgnored = [];
+  for (const ignoreRule of REQUIRED_IGNORES) {
+    const r = spawnSync('git', ['-C', root, 'check-ignore', '-q', '--no-index', ignoreRule],
       { encoding: 'utf8' });
     // 0 = ignored, 1 = not ignored, anything else = git could not answer.
-    if (r.status === 1) offen.push(regel);
+    if (r.status === 1) notIgnored.push(ignoreRule);
     else if (r.status !== 0) {
       return finding('gitignore', LEVEL.UNKNOWN,
         `git check-ignore could not answer (${r.status})`);
     }
   }
-  if (!offen.length) {
+  if (!notIgnored.length) {
     return finding('gitignore', LEVEL.GOOD,
-      `git ignores all ${PFLICHT.length} required paths`);
+      `git ignores all ${REQUIRED_IGNORES.length} required paths`);
   }
-  const geheim = offen.includes('.mem/embed.env');
-  return finding('gitignore', geheim ? LEVEL.ERROR : LEVEL.WARN,
-    `git does NOT ignore: ${offen.join(', ')}`
-    + (geheim ? ' — embed.env holds API keys' : ''),
+  const secretExposed = notIgnored.includes('.mem/embed.env');
+  return finding('gitignore', secretExposed ? LEVEL.ERROR : LEVEL.WARN,
+    `git does NOT ignore: ${notIgnored.join(', ')}`
+    + (secretExposed ? ' — embed.env holds API keys' : ''),
     'run `mem init` again in this memory: it rewrites the block and repairs broken lines');
 }
 

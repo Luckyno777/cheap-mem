@@ -130,8 +130,8 @@ export function resolveFacts(entries, { now = new Date(), staleDays = 120, retir
     // one that happened to sort second.
     let conflict = false;
     if (current) {
-      const gleichAlt = valid.filter((e) => whenMs(e) === whenMs(current));
-      conflict = new Set(gleichAlt.map((e) => JSON.stringify(valueOf(e)))).size > 1;
+      const sameAge = valid.filter((e) => whenMs(e) === whenMs(current));
+      conflict = new Set(sameAge.map((e) => JSON.stringify(valueOf(e)))).size > 1;
     }
     let state = STATE.CURRENT;
     if (!current) {
@@ -153,15 +153,15 @@ export function formatFact(f) {
   // Nothing holds right now. Saying so is the whole point — a line that
   // printed the future value here would be the defect this guards.
   if (!f.current) {
-    const naechste = f.future?.[f.future.length - 1];
-    if (naechste) {
-      return `${f.key} = (not yet) ${valueOf(naechste)}  `
-        + `(starts ${String(naechste.valid_from ?? naechste.ts ?? '').slice(0, 10) || '?'})`;
+    const nextFuture = f.future?.[f.future.length - 1];
+    if (nextFuture) {
+      return `${f.key} = (not yet) ${valueOf(nextFuture)}  `
+        + `(starts ${String(nextFuture.valid_from ?? nextFuture.ts ?? '').slice(0, 10) || '?'})`;
     }
-    const letzte = f.expired?.[0];
-    if (letzte) {
-      return `${f.key} = (expired) ${valueOf(letzte)}  `
-        + `(ran out ${String(letzte.valid_until ?? '').slice(0, 10) || '?'})`;
+    const lastExpired = f.expired?.[0];
+    if (lastExpired) {
+      return `${f.key} = (expired) ${valueOf(lastExpired)}  `
+        + `(ran out ${String(lastExpired.valid_until ?? '').slice(0, 10) || '?'})`;
     }
     return `${f.key} = (nothing valid)`;
   }

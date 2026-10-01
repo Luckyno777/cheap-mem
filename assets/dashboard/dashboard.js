@@ -2414,9 +2414,9 @@ function buildHull(T, cortex, own, v, model, clock) {
         return v(c.r * lights[i].power, c.g * lights[i].power, c.b * lights[i].power);
       }),
     },
-    uniforms = (mehr = {}) => ({
+    uniforms = (extraUniforms = {}) => ({
       uTime: clock.uTime, alpha: { value: 0.15 }, uCloudCenter: { value: v(shape.center.x, shape.center.y, shape.center.z) },
-      uFog: { value: v(shape.fog.x, shape.fog.y, shape.fog.z) }, uLight, uLightColour, ...mehr,
+      uFog: { value: v(shape.fog.x, shape.fog.y, shape.fog.z) }, uLight, uLightColour, ...extraUniforms,
     }),
     // Purely additive (target times ONE): the fog adds light and never
     // darkens — not even the energy cores. Opacity premultiplied (wOut).

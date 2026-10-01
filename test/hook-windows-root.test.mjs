@@ -51,7 +51,7 @@ test('POSITIVE: the probe finds the hooks that resolve a root', () => {
 
 test('each of them normalises the path before looking it up', () => {
   const ohne = hooksMitWurzelsuche()
-    .filter((h) => !/entrutscht/.test(h.s))
+    .filter((h) => !/to_slashes/.test(h.s))
     .map((h) => h.n);
   assert.deepEqual(ohne, [],
     'These hooks test for .mem/config.json without turning backslashes into '
@@ -82,8 +82,8 @@ test('the helper is defined before it is used', () => {
   // A helper defined below its first call is an unbound command in
   // bash: the hook then fails at exactly the line meant to save it.
   for (const { n, s: text } of hooksMitWurzelsuche()) {
-    const def = text.indexOf('entrutscht() {');
-    const nutz = text.indexOf('entrutscht "');
+    const def = text.indexOf('to_slashes() {');
+    const nutz = text.indexOf('to_slashes "');
     if (nutz < 0) continue;
     assert.ok(def >= 0 && def < nutz,
       `${n}: the helper is used at ${nutz} and defined at ${def}`);
@@ -94,7 +94,7 @@ test('the substitution really turns backslashes into slashes', () => {
   // The counter-check on the helper itself. A helper that is present
   // but wrong would satisfy the guard above while fixing nothing.
   const s = fs.readFileSync(path.join(REPO, 'bin', 'mem-before-edit'), 'utf8');
-  const m = s.match(/entrutscht\(\)\s*\{[^}]*\}/);
+  const m = s.match(/to_slashes\(\)\s*\{[^}]*\}/);
   assert.ok(m, 'the helper is gone');
   assert.match(m[0], /\$\{1\/\/\\\\\\\\\/\/\}|\$\{1\/\/\\\\\//,
     `the helper does not substitute backslash for slash: ${m[0]}`);

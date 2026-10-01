@@ -109,8 +109,8 @@ function hookStep(root, env, home) {
       fix: 'bash install/claude-code.sh   (or install/windows.ps1)',
     };
   }
-  const dateien = fs.readdirSync(dir).filter((n) => /cheap-mem|session-(start|stop)/.test(n));
-  if (!dateien.length) {
+  const hookFiles = fs.readdirSync(dir).filter((n) => /cheap-mem|session-(start|stop)/.test(n));
+  if (!hookFiles.length) {
     return {
       id: 'hooks',
       title: 'Session hooks are installed',
@@ -123,21 +123,21 @@ function hookStep(root, env, home) {
   // **The check that the Windows install needed and nobody had.** A
   // hook naming a root that does not exist here is worse than a missing
   // hook: it runs, finds nothing, and exits quietly.
-  const tot = [];
-  for (const n of dateien) {
+  const deadRoots = [];
+  for (const n of hookFiles) {
     let text;
     try { text = fs.readFileSync(path.join(dir, n), 'utf8'); } catch { continue; }
     for (const m of text.matchAll(/CHEAP_MEM_ROOT\s*=\s*['"]([^'"]+)['"]/g)) {
-      const genannt = m[1];
-      if (genannt && !fs.existsSync(genannt)) tot.push(`${n} -> ${genannt}`);
+      const namedRoot = m[1];
+      if (namedRoot && !fs.existsSync(namedRoot)) deadRoots.push(`${n} -> ${namedRoot}`);
     }
   }
-  if (tot.length) {
+  if (deadRoots.length) {
     return {
       id: 'hooks',
       title: 'Session hooks are installed',
       state: STATE.BROKEN,
-      detail: `a hook names a path that does not exist here: ${tot.join(', ')}`,
+      detail: `a hook names a path that does not exist here: ${deadRoots.join(', ')}`,
       fix: 'bash install/claude-code.sh   (re-run it on THIS machine)',
     };
   }
@@ -145,7 +145,7 @@ function hookStep(root, env, home) {
     id: 'hooks',
     title: 'Session hooks are installed',
     state: STATE.OK,
-    detail: `${dateien.length} in ${dir}`,
+    detail: `${hookFiles.length} in ${dir}`,
   };
 }
 

@@ -74,8 +74,8 @@ export function tableCommandsRaw(source) {
 }
 
 /** Every name in every group file, repeats included. */
-export function allTableCommandsRaw(lies) {
-  return COMMAND_FILES.flatMap((datei) => tableCommandsRaw(lies(datei)));
+export function allTableCommandsRaw(readSource) {
+  return COMMAND_FILES.flatMap((groupFile) => tableCommandsRaw(readSource(groupFile)));
 }
 
 export const COMMAND_FILES = Object.freeze([
@@ -85,16 +85,16 @@ export const COMMAND_FILES = Object.freeze([
 /**
  * Every command the CLI dispatches, across all group modules.
  *
- * `lies` is passed in rather than importing `fs` here: this module is
+ * `readSource` is passed in rather than importing `fs` here: this module is
  * also loaded by probes that read from a fixture or from git, and a
  * helper that can only read the working tree cannot serve them.
  */
-export function allTableCommands(lies) {
-  const namen = new Set();
-  for (const datei of COMMAND_FILES) {
-    for (const n of tableCommands(lies(datei))) namen.add(n);
+export function allTableCommands(readSource) {
+  const commandNames = new Set();
+  for (const groupFile of COMMAND_FILES) {
+    for (const n of tableCommands(readSource(groupFile))) commandNames.add(n);
   }
-  return [...namen].sort();
+  return [...commandNames].sort();
 }
 
 export function tableCommands(source) {

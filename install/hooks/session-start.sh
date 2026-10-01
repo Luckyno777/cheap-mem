@@ -43,15 +43,15 @@ fi
 # `MEM_HOOK_OFF=1` stays the one silent exit, because that one is a
 # decision somebody made on purpose.
 mem_root=""
-for kandidat in \
+for candidate in \
   "${CHEAP_MEM_ROOT:-}" \
   "$HOME/cheap-mem" \
   "$HOME/my-memory" \
   "$HOME/.cheap-mem" \
   "$HOME/memory"
 do
-  [ -n "$kandidat" ] || continue
-  if [ -f "$kandidat/.mem/config.json" ]; then mem_root="$kandidat"; break; fi
+  [ -n "$candidate" ] || continue
+  if [ -f "$candidate/.mem/config.json" ]; then mem_root="$candidate"; break; fi
 done
 
 if [ -z "$mem_root" ]; then

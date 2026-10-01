@@ -39,7 +39,7 @@
  */
 import * as memory from './memory.mjs';
 
-export const FELD_KANTEN = Object.freeze(['derived_from', 'replaces', 'closes']);
+export const FIELD_EDGES = Object.freeze(['derived_from', 'replaces', 'closes']);
 
 /**
  * The link kinds that count as declared. Closed list — and the
@@ -55,7 +55,7 @@ export const FELD_KANTEN = Object.freeze(['derived_from', 'replaces', 'closes'])
  * is now taken from its owner instead of being copied.
  */
 export const LINK_KINDS = Object.freeze([
-  ...FELD_KANTEN, ...Object.keys(memory.LINK_KINDS),
+  ...FIELD_EDGES, ...Object.keys(memory.LINK_KINDS),
 ]);
 
 /**

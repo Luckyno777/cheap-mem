@@ -51,10 +51,23 @@ test('missing state -> unknown, never good', () => {
 test('written state + unchanged UI -> good', () => {
   const w = dummy();
   const s = d.writeState(w, new Date('2026-09-29T10:00:00Z'));
-  assert.equal(s.erzeugt_am, '2026-09-29T10:00:00.000Z');
+  assert.equal(s.created_at, '2026-09-29T10:00:00.000Z');
   assert.ok(fs.existsSync(path.join(w, d.STATE_FILE)));
   assert.equal(checkDocsImagesFresh(w).level, 'good');
-  assert.ok(!Object.keys(s.oberflaeche).some((p) => p.endsWith('.txt')), 'extension filter');
+  assert.ok(!Object.keys(s.surface).some((p) => p.endsWith('.txt')), 'extension filter');
+});
+
+test('a state file with the pre-2026-10-01 German keys is still read', () => {
+  // Rename of the state keys (English throughout): an old file must not
+  // turn a good state into unknown. Control: the same file without its
+  // hashes IS unknown, so the probe sees the keys at all.
+  const w = dummy();
+  const s = d.writeState(w, new Date('2026-09-29T10:00:00Z'));
+  const file = path.join(w, d.STATE_FILE);
+  fs.writeFileSync(file, JSON.stringify({ erzeugt_am: s.created_at, oberflaeche: s.surface }));
+  assert.equal(checkDocsImagesFresh(w).level, 'good');
+  fs.writeFileSync(file, JSON.stringify({ erzeugt_am: s.created_at }));
+  assert.equal(checkDocsImagesFresh(w).level, 'unknown');
 });
 
 test('changed file -> warn naming the file and the one command; added/removed likewise', () => {

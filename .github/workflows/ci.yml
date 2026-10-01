@@ -102,24 +102,24 @@ jobs:
           const out = fs.readFileSync('/tmp/cov.txt', 'utf8');
           const m = out.match(/Statements\s*:\s*([\d.]+)%/);
           if (!m) { console.error('no coverage summary in the output — the probe is broken'); process.exit(1); }
-          const echt = Number(m[1]);
-          const BODEN = 85;
+          const measuredPct = Number(m[1]);
+          const COVERAGE_FLOOR = 85;
           const readme = fs.readFileSync('README.md', 'utf8');
           const r = readme.match(/\*\*([\d.]+) % statement\s*\n?\s*coverage\*\*/);
           if (!r) { console.error('the README no longer states a statement-coverage figure'); process.exit(1); }
-          const behauptet = Number(r[1]);
-          console.log(`measured ${echt} % · README claims ${behauptet} % · floor ${BODEN} %`);
-          let schlecht = false;
-          if (echt < BODEN) {
-            console.error(`coverage ${echt} % is below the ${BODEN} % floor`);
-            schlecht = true;
+          const claimedPct = Number(r[1]);
+          console.log(`measured ${measuredPct} % · README claims ${claimedPct} % · floor ${COVERAGE_FLOOR} %`);
+          let coverageBad = false;
+          if (measuredPct < COVERAGE_FLOOR) {
+            console.error(`coverage ${measuredPct} % is below the ${COVERAGE_FLOOR} % floor`);
+            coverageBad = true;
           }
-          if (behauptet > echt + 0.5) {
-            console.error(`the README claims ${behauptet} % but ${echt} % was measured — `
+          if (claimedPct > measuredPct + 0.5) {
+            console.error(`the README claims ${claimedPct} % but ${measuredPct} % was measured — `
               + 'update the README; a shop window may understate, never overstate');
-            schlecht = true;
+            coverageBad = true;
           }
-          process.exit(schlecht ? 1 : 0);
+          process.exit(coverageBad ? 1 : 0);
           EOF
 
   smoke:
@@ -766,25 +766,25 @@ jobs:
           # uses — otherwise this step would be a second place that has
           # to be remembered when a fifth lane arrives.
           $posix = Get-Content -LiteralPath 'install/claude-code.sh' -Raw
-          $erwartet = [regex]::Matches($posix, "upsertHook\(\s*'([A-Za-z]+)'") |
+          $expectedEvents = [regex]::Matches($posix, "upsertHook\(\s*'([A-Za-z]+)'") |
             ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
-          if ($erwartet.Count -lt 4) {
-            Write-Host "::error::read only $($erwartet.Count) events out of the POSIX installer"
+          if ($expectedEvents.Count -lt 4) {
+            Write-Host "::error::read only $($expectedEvents.Count) events out of the POSIX installer"
             exit 1
           }
 
-          $fehlt = @()
-          foreach ($e in $erwartet) {
-            $eintraege = $cfg.hooks.$e
-            if (-not $eintraege) { $fehlt += $e; continue }
-            $unser = $eintraege | Where-Object {
+          $missingEvents = @()
+          foreach ($e in $expectedEvents) {
+            $hookEntries = $cfg.hooks.$e
+            if (-not $hookEntries) { $missingEvents += $e; continue }
+            $ours = $hookEntries | Where-Object {
               $_.hooks | Where-Object { $_.command -match 'cheap-mem-' }
             }
-            if (-not $unser) { $fehlt += $e; continue }
+            if (-not $ours) { $missingEvents += $e; continue }
             # And the file it points at must exist. A registration that
             # names a script nobody shipped is the same silence one step
             # further along.
-            foreach ($u in $unser) {
+            foreach ($u in $ours) {
               foreach ($h in $u.hooks) {
                 if ($h.command -match '-File\s+"?([^"]+\.ps1)"?') {
                   if (-not (Test-Path $Matches[1])) {
@@ -795,8 +795,8 @@ jobs:
               }
             }
           }
-          if ($fehlt.Count -gt 0) {
-            Write-Host "::error::not registered: $($fehlt -join ', ')"
+          if ($missingEvents.Count -gt 0) {
+            Write-Host "::error::not registered: $($missingEvents -join ', ')"
             exit 1
           }
 
@@ -811,7 +811,7 @@ jobs:
             }
           } finally { $env:USERPROFILE = $alt }
           $cfg2 = Get-Content -LiteralPath $settings -Raw | ConvertFrom-Json
-          foreach ($e in $erwartet) {
+          foreach ($e in $expectedEvents) {
             $n = @($cfg2.hooks.$e | Where-Object {
               $_.hooks | Where-Object { $_.command -match 'cheap-mem-' }
             }).Count
@@ -820,7 +820,7 @@ jobs:
               exit 1
             }
           }
-          Write-Host "all $($erwartet.Count) lanes registered, each exactly once, each pointing at a file that exists"
+          Write-Host "all $($expectedEvents.Count) lanes registered, each exactly once, each pointing at a file that exists"
           exit 0
 
   digest:
@@ -932,7 +932,7 @@ jobs:
           # certainty — and said plainly rather than rounded up. The
           # honest reading is "a race here will be noticed within a PR or
           # two", not "cannot get through".
-          for runde in 1 2 3 4 5 6 7 8 9 10; do
+          for try_no in 1 2 3 4 5 6 7 8 9 10; do
             for n in 1 2; do
               env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
                 MEM_DIGEST_LOG="$W/log$n" MEM_DIGEST_VOLUME_NOW_KB=1 \
@@ -987,8 +987,8 @@ jobs:
           done
           env CHEAP_MEM_ROOT="$W" CLAUDE_TRANSCRIPT_PATH="$L" \
             bash bin/mem-capture < /dev/null > /dev/null 2>&1 || true
-          FAENGE="$(find "$W/raw" -name '*.jsonl.gz' 2>/dev/null | wc -l | tr -d ' ')"
-          test "$FAENGE" -ge 1 || { echo "::error::no capture was produced — nothing to digest"; exit 1; }
+          CAPTURE_COUNT="$(find "$W/raw" -name '*.jsonl.gz' 2>/dev/null | wc -l | tr -d ' ')"
+          test "$CAPTURE_COUNT" -ge 1 || { echo "::error::no capture was produced — nothing to digest"; exit 1; }
 
           TALLY="$W/calls"
           printf '#!/bin/sh\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"

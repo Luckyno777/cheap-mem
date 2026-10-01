@@ -36,7 +36,7 @@ set -u
 # report". Two places per hook needed this, and five hooks carried the
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 
 # Never recurse.
 if [ -n "${MEM_HEADLESS:-}" ]; then
@@ -49,7 +49,7 @@ if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
   exit 0
 fi
 
-CHEAP_MEM_ROOT="$(entrutscht "${CHEAP_MEM_ROOT:-}")"
+CHEAP_MEM_ROOT="$(to_slashes "${CHEAP_MEM_ROOT:-}")"
 export CHEAP_MEM_ROOT
 if [ ! -f "$CHEAP_MEM_ROOT/.mem/config.json" ]; then
   exit 0
@@ -57,7 +57,7 @@ fi
 
 THRESHOLD="${MEM_REFLECT_THRESHOLD_BYTES:-400000}"
 # shellcheck source=bin/_portable.sh
-. "$(cd "$(dirname "$(entrutscht "$0")")" && pwd)/_portable.sh"
+. "$(cd "$(dirname "$(to_slashes "$0")")" && pwd)/_portable.sh"
 
 TIMEOUT="${MEM_REFLECT_TIMEOUT:-90}"
 CMD="${MEM_REFLECT_CMD:-claude -p}"

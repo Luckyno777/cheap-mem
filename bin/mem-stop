@@ -50,7 +50,7 @@ set -u
 # report". Two places per hook needed this, and five hooks carried the
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 [ "${MEM_CAPTURE_OFF:-}" = "1" ] && exit 0
 # Never capture ourselves — the digest/worker sets this to avoid the
@@ -65,7 +65,7 @@ ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
-  k="$(entrutscht "$k")"
+  k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && exit 0
@@ -73,7 +73,7 @@ done
 # `$0` is a path from outside too: on Windows `dirname` of a
 # backslash path returns `.`, so this would become the CURRENT
 # directory instead of bin/.
-HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 
 STDIN_JSON=""
 if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi

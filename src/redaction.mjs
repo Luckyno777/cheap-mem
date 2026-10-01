@@ -333,10 +333,10 @@ function isHarmless(s) {
  * match, and a short value can also occur inside the key name
  * (`TOKEN_TOKEN=TOKEN`).
  */
-function replaceValue(match, value, ersatz) {
+function replaceValue(match, value, replacementText) {
   const at = match.lastIndexOf(value);
   if (at < 0) return match;
-  return match.slice(0, at) + ersatz + match.slice(at + value.length);
+  return match.slice(0, at) + replacementText + match.slice(at + value.length);
 }
 
 /**

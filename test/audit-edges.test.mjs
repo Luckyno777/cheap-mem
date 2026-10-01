@@ -50,7 +50,7 @@ test('the net spells the relations the way the writer validates them', () => {
   // And nothing in the net's list that the writer would refuse, other
   // than the structural field edges.
   const erfunden = net.LINK_KINDS
-    .filter((k) => !net.FELD_KANTEN.includes(k) && !(k in memory.LINK_KINDS));
+    .filter((k) => !net.FIELD_EDGES.includes(k) && !(k in memory.LINK_KINDS));
   assert.deepEqual(erfunden, [],
     `the net knows verbs the writer refuses: ${erfunden.join(', ')}`);
 });
