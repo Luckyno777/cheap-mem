@@ -27,7 +27,8 @@ export const RESHOOT_COMMAND = 'node bench/docs-images.mjs';
  * by writer and checker. Entry = file (repo-relative) or directory
  * (ends in '/', not recursive, filtered by `exts`). Chosen deliberately:
  * dashboard script and style, the page shell (src/dashboard-page.mjs),
- * the sign-in page (src/login.mjs), the vendored fonts and the 3D
+ * the sign-in page (src/login.mjs), the board and viewer pages
+ * (src/board.mjs, src/viewer.mjs), the vendored fonts and the 3D
  * library. NOT in it: data/cache modules (they decide content, not
  * look; the demo store is synthetic anyway).
  */
@@ -37,6 +38,10 @@ export const UI_FILES = Object.freeze([
   Object.freeze({ path: 'assets/three/', exts: Object.freeze(['.js']) }),
   Object.freeze({ path: 'src/dashboard-page.mjs' }),
   Object.freeze({ path: 'src/login.mjs' }),
+  // README images docs/assets/brand/04-board.png and 05-viewer.png
+  // (`mem board --html`, `mem viewer`) -- pages that bypass the dashboard.
+  Object.freeze({ path: 'src/board.mjs' }),
+  Object.freeze({ path: 'src/viewer.mjs' }),
 ]);
 
 /** The resolved, sorted file list (repo-relative, '/'-separated). */

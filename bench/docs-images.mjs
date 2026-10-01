@@ -16,6 +16,10 @@ import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import * as memory from '../src/memory.mjs';
 import * as injection from '../src/injection.mjs';
+import * as board from '../src/board.mjs';
+import * as viewer from '../src/viewer.mjs';
+import * as archive from '../src/archive.mjs';
+import * as heartbeat from '../src/heartbeat.mjs';
 import { waitReady } from '../test/fixture/browser.mjs';
 import { writeState, hashUi } from '../src/docimages-state.mjs';
 
@@ -24,6 +28,9 @@ const REPO = path.join(HERE, '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const TARGET_DIR = path.join(REPO, 'docs', 'images');
 const NOW = new Date('2026-09-28T09:00:00Z');
+// The two README images under docs/assets/brand/ (static pages, no
+// server): same demo world, 2x pixel density like the images above.
+const BRAND_DIR = path.join(REPO, 'docs', 'assets', 'brand');
 
 /**
  * The guard: this function only accepts a directory under the system
@@ -82,7 +89,10 @@ function link(root, ids, projects) {
   let edges = 0;
   const edge = (project, from, to, kind) => {
     if (!from || !to || from === to) return;
-    memory.logEntry(root, 'link', { from, to, kind }, { project });
+    // Pinned to the demo clock (30 days back, older than every other
+    // entry): without `now` the links carry the real run date and make
+    // the images differ from run to run.
+    memory.logEntry(root, 'link', { from, to, kind }, { project, now: new Date(NOW.getTime() - 30 * 86400_000 + edges * 60_000) });
     edges += 1;
   };
   const at = (arr, i) => (arr && arr.length ? arr[i % arr.length] : null);
@@ -233,6 +243,64 @@ function bookDemoJournal(root, ids) {
   // Turns without an injection, with the honest reason.
   for (const reason of ['too-weak', 'too-weak', 'no-signal', 'empty']) {
     line('', { reason, hits: 0, bytes: 0, sources: [] });
+  }
+}
+
+/**
+ * State for the `mem board` shot, on top of the demo world: one lost
+ * capture (alarm), stale heartbeats (watch), and no bridge report
+ * (unmeasured) next to calm tiles -- so the image shows all FOUR board
+ * states. Everything goes through the real writers; the archive path is
+ * a fixed fake and the clock is NOW, so the image is reproducible.
+ */
+function boardHtml(root) {
+  const location = '/home/user/northwind-archive';
+  archive.writeRecord(root, { path: '2026-09-20-session.md', location, bytes: 1200 });
+  heartbeat.beat(root, 'bot', { now: new Date(NOW.getTime() - 2 * 3600_000), where: 'demo' });
+  heartbeat.beat(root, 'alex', { now: new Date(NOW.getTime() - 30 * 3600_000), where: 'demo' });
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-docs-images-home-'));
+  try {
+    const b = board.board(root, { env: { CHEAP_MEM_ARCHIVE: location }, home, now: NOW });
+    b.at = NOW.toISOString().replace(/\.\d{3}Z$/, 'Z');
+    return board.asHtml(b);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
+/** `mem viewer` page of the demo world, clock pinned to NOW. */
+function viewerHtml(root) {
+  const data = viewer.collectAll(root);
+  data.generatedAt = NOW.toISOString();
+  return viewer.renderHtml(data, { title: 'northwind', generatedAt: NOW });
+}
+
+/** Writes the two static pages to temp files and shoots them. */
+async function shootBrand(browser, root) {
+  fs.mkdirSync(BRAND_DIR, { recursive: true });
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-docs-images-brand-'));
+  assertRootIsTemp(tmp);
+  try {
+    const jobs = [
+      ['04-board.png', boardHtml(root), { width: 1000, height: 900 }, true],
+      ['05-viewer.png', viewerHtml(root), { width: 1280, height: 1232 }, false],
+    ];
+    for (const [name, html, viewport, fullPage] of jobs) {
+      const file = path.join(tmp, name.replace(/\.png$/, '.html'));
+      fs.writeFileSync(file, html);
+      const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme: 'light' });
+      const page = await ctx.newPage();
+      try {
+        await page.goto(pathToFileURL(file).href, { waitUntil: 'load', timeout: 60000 });
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: path.join(BRAND_DIR, name), fullPage, animations: 'disabled', timeout: 60000 });
+      } finally {
+        await page.close();
+        await ctx.close();
+      }
+    }
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 }
 
@@ -440,6 +508,10 @@ async function main() {
       prepare: (page) => page.waitForTimeout(300),
     })]);
     await mobile.close();
+
+    // README "What it looks like": `mem board` and `mem viewer`
+    // (docs/assets/brand/04-board.png, 05-viewer.png).
+    await shootBrand(browser, root);
 
     // 8) Sign-in page (login on, task `login`): its own, fresh temp
     // root with no password set -> the setup page, black, one form.

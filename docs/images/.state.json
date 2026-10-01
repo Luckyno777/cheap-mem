@@ -1,12 +1,14 @@
 {
-  "erzeugt_am": "2026-09-30T09:54:18.139Z",
+  "erzeugt_am": "2026-10-01T07:28:06.166Z",
   "oberflaeche": {
     "assets/dashboard/dashboard.css": "ecd4e72107e2bf54c177d830df10a6f025bbeb3fd7cf21966d8f145688d57515",
-    "assets/dashboard/dashboard.js": "6ab07f473d226ab623b4a9917c4aa1e6bbc939424ae0d254b6aacfab99b2d899",
+    "assets/dashboard/dashboard.js": "8f0ff88530447036c76992cfcb2f74ed89507ab7a7a6a4f7d831b43a4a3c21d1",
     "assets/fonts/dm-sans-latin-ext.woff2": "5d18d31d23ada61ebee1d589b11d5da30db9e158f589d5e35221ba2b1a45de54",
     "assets/fonts/dm-sans-latin.woff2": "ca72d2bcea8f4daa783dbdfa2d9b46068c3ce38168e05918fb867aa453b4f890",
     "assets/three/three-r180.min.js": "b5afad481e89ad3866eb45896739a05d54aaead1f93395fff53d3efc9397776b",
+    "src/board.mjs": "74f20c5c4a14632aed486fd94e0c6e975006e80d134cecdf6c4f47c364a842b1",
     "src/dashboard-page.mjs": "e4ea1be414e000590dec439af67fbaea72f8d301f9eccee683eee54071ab95e1",
-    "src/login.mjs": "84047e6276a461d70ef5adce6c1b1cd9d1dd0abaf1fe17c65db3ec7ed3fc9647"
+    "src/login.mjs": "84047e6276a461d70ef5adce6c1b1cd9d1dd0abaf1fe17c65db3ec7ed3fc9647",
+    "src/viewer.mjs": "ceb039a3b5cc1c3517c271022a7613560488ae69d8499f6b1b71f509bc2df800"
   }
 }
