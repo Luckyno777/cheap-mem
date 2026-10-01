@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
+// @ts-check
 // frozenset.mjs — a set that is really immutable (audit A.7).
 //
 // `Object.freeze(new Set([...]))` freezes only the Set OBJECT (no new

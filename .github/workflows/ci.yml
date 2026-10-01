@@ -1171,6 +1171,15 @@ jobs:
           cache: npm
       - run: npm ci --omit=optional
 
+      # Type check: CI only, via npx, NO entry in package.json (no
+      # devDependency, nothing in the lockfile) so "no dependencies"
+      # stays true. The version is pinned exactly (npm "latest" on
+      # 2026-10-01: 7.0.2). Only files that opt in with `// @ts-check`
+      # are checked; tsconfig.json lists them and
+      # test/tsc-optin.test.mjs keeps the two in step.
+      - name: Type check (tsc, only files with @ts-check)
+        run: npx --yes -p typescript@7.0.2 tsc -p tsconfig.json
+
       # **This repo had no shellcheck at all until 2026-09-18.** That is
       # how two `# shellcheck disable=SCxxxx -- reason` lines survived in
       # bin/: written that way the checker cannot parse them (SC1072 and
