@@ -93,17 +93,18 @@ Re-measure: `node bench/cold-find.mjs`. Source: `bench/cold-find.json`.
 
 `mem board` — the operating state of a memory on one screen:
 
-![The cheap-mem board: seven tiles. Installation shows WATCH in amber with four of five steps done. Agents and MCP bridge show UNMEASURED in grey, one reading "no state reported — not measurable from here". Raw archive, Digest, Error classes and Open questions show CALM in green. The header reads "1 watch, 2 unmeasured".](docs/assets/brand/04-board.png)
+![The cheap-mem board for the demo memory "northwind": seven tiles, worst first. Raw archive shows ALARM in red ("1 MISSING"). Digest, Agents and Installation show WATCH in amber. MCP bridge shows UNMEASURED in grey: "no state reported — not measurable from here". Error classes and Open questions show CALM in green. The header reads "1 alarm, 3 watch, 1 unmeasured".](docs/assets/brand/04-board.png)
 
-Look at the two grey tiles. A tile that could **not be measured** says so;
+Look at the grey tile. A tile that could **not be measured** says so;
 it does not show a reassuring zero. That is the rule the whole tool is
-built on — *three states, never two* — and it is the difference between a
-dashboard that is calm and a dashboard that is merely quiet.
+built on — *four states, never two*: calm, watch, alarm, and unmeasured
+— and it is the difference between a dashboard that is calm and a
+dashboard that is merely quiet. The worst tiles come first.
 
 `mem viewer` writes the whole memory into one self-contained HTML file —
 no server, no network, no model:
 
-![The cheap-mem viewer: a single page with a search box that filters as you type, tabs for Timeline, Topics, Links, Experience, Agents, Store and Facts, and a list of entries. Each entry shows its drawer, date, tags, id and source file and line. The footer reads "one file, no network, no model".](docs/assets/brand/05-viewer.png)
+![The cheap-mem viewer for the demo memory "northwind": a single page headed "northwind, 213 entries" with a search box that filters as you type, a drawer selector, an "only live" checkbox, and tabs for Timeline (213), Topics, Links (50), Experience (25), Agents, Store and Facts. Below, the newest entries as cards, each with its type, date, tags, id, and the source file and line it lives on, such as projects/lighthouse/decisions.jsonl:1. The footer reads "one file, no network, no model".](docs/assets/brand/05-viewer.png)
 
 Every entry carries the file and line it lives on, because the files are
 the product — the page is only a way to look at them.
