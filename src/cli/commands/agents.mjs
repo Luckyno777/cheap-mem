@@ -25,7 +25,7 @@ import * as question from '../../question.mjs';
 import * as onboarding from '../../onboarding.mjs';
 import * as errorclass from '../../errorclass.mjs';
 import * as board from '../../board.mjs';
-import { out, die, warn, checkFlags, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding } from '../shell.mjs';
 
 /** Duplicates are shown, never dropped: same id sent twice, folded into the older message. */
 function duplicateLines(duplicates) {
@@ -260,7 +260,7 @@ export const COMMANDS = {
       const by = whoAmIOrDie(root, args, cfg);
       if (sub === 'claim') {
         const r = claim.claim(root, name, {
-          by, minutes: args.minutes ? Number(args.minutes) : undefined,
+          by, minutes: (numberFlag('minutes', args.minutes, { min: 1 }) ?? undefined),
         });
         out(r.valid ? `${name}: claimed by '${by}' (claim-id ${r.id} — done/failed need it)`
           : `${name}: claim written but does NOT count — ${r.reason}`);
@@ -271,7 +271,7 @@ export const COMMANDS = {
       const claimId = String(args['claim-id']);
       if (sub === 'renew') {
         const r = claim.renew(root, name, {
-          by, claimId, minutes: args.minutes ? Number(args.minutes) : undefined,
+          by, claimId, minutes: (numberFlag('minutes', args.minutes, { min: 1 }) ?? undefined),
         });
         if (!r.valid) {
           out(`${name}: renew written but does NOT count — ${r.reason}`);
@@ -568,7 +568,7 @@ export const COMMANDS = {
   },
 
   heartbeat: async ({ args }) => {
-    if (args.help) {
+    if (isHelp(args)) {
       out([
         'mem heartbeat [--what "..."] [--gap <minutes>]',
         '',
@@ -585,12 +585,13 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
+    checkFlags(args, ['what', 'gap'], 'heartbeat');
     const root = findRoot(args);
     requireConfig(root);
     const me = memory.agentDefault();
     const r = heartbeat.beat(root, me, {
       what: args.what && args.what !== true ? String(args.what) : null,
-      minGapMin: args.gap ? Number(args.gap) : undefined,
+      minGapMin: (numberFlag('gap', args.gap, { min: 0 }) ?? undefined),
     });
     if (r.written) out(`Heartbeat for '${me}' recorded (${r.line.where}).`);
     else out(`No new one needed for '${me}': ${r.why}.`);
@@ -617,7 +618,7 @@ export const COMMANDS = {
     checkFlags(args, ['json', 'html', 'days', 'root'], 'board');
     const root = findRoot(args);
     const b = board.board(root, {
-      windowDays: args.days ? Number(args.days) : undefined,
+      windowDays: (numberFlag('days', args.days, { min: 0 }) ?? undefined),
     });
     if (args.json) { out(JSON.stringify(b)); return; }
     if (args.html) { out(board.asHtml(b)); return; }

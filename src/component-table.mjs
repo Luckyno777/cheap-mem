@@ -83,8 +83,8 @@ import * as memory from './memory.mjs';
 import * as component from './component.mjs';
 import * as probescaffold from './probescaffold.mjs';
 import { stamp as memoryStamp } from './backlinks.mjs';
-import { renameWithRetry } from './indexcache.mjs';
 import { lockAgeS, tryLock, releaseLock, takeOverIfStale } from './filelock.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 /** Where the table lives, relative to the memory root. */
 export const TABLE_PATH = path.join('.mem', 'component-table.json');
@@ -385,17 +385,13 @@ export function build(root) {
 
 /**
  * Write the table to disk: written beside the target then renamed into
- * place, so a reader never sees a half file — same "write beside it,
- * then rename" shape `backlinks.write()` uses, reusing its
- * `renameWithRetry` import rather than a third copy.
+ * place, so a reader never sees a half file — through `writeAtomic()`
+ * (src/atomicwrite.mjs), the one way to write a state file.
  */
 export function write(root, data = null) {
   const built = data || build(root);
   const target = path.join(root, TABLE_PATH);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(built), 'utf8');
-  renameWithRetry(tmp, target);
+  writeAtomic(target, JSON.stringify(built));
   return built;
 }
 

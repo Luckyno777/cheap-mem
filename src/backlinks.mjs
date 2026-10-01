@@ -68,7 +68,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as net from './net.mjs';
-import { renameWithRetry } from './indexcache.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 /** Where the register lives, relative to the memory root. */
 export const BACKLINKS_PATH = path.join('.mem', 'backlinks.json');
@@ -159,20 +159,14 @@ export function build(root) {
 
 /**
  * Write the register to disk: written to a scratch file beside the
- * target, then renamed into place, so a reader never sees a half
- * file — same "write beside it, then rename" shape `search.mjs` and
- * `indexcache.mjs` already use for their own caches. Reuses `indexcache.
- * renameWithRetry` for the rename itself rather than a third copy of
- * its Windows-safe retry loop (see that function's own header for the
- * `EPERM` finding it guards against).
+ * target, then renamed into place, so a reader never sees a half file —
+ * through `writeAtomic()` (src/atomicwrite.mjs), the one way to write a
+ * state file; its rename retries the transient Windows `EPERM`.
  */
 export function write(root, data = null) {
   const built = data || build(root);
   const target = path.join(root, BACKLINKS_PATH);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(built), 'utf8');
-  renameWithRetry(tmp, target);
+  writeAtomic(target, JSON.stringify(built));
   return built;
 }
 

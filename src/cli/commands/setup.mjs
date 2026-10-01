@@ -29,7 +29,7 @@ import * as component from '../../component.mjs';
 import * as componentTable from '../../component-table.mjs';
 import * as capability from '../../capability.mjs';
 import * as board from '../../board.mjs';
-import { PKG_ROOT, out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
+import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore } from '../githook.mjs';
 
@@ -303,6 +303,7 @@ export const COMMANDS = {
       return;
     }
     if (rest[0] === 'check') {
+      checkFlags(args, [], 'hooks check');
       const r = proveHook(root);
       for (const l of r.lines) out(l);
       process.exit(r.ok ? 0 : 1);
@@ -371,7 +372,7 @@ export const COMMANDS = {
       if (q.state === 'unknown') process.exitCode = 2;
       return;
     }
-    if (args.help || (rest[0] && rest[0] !== 'run' && rest[0] !== 'quote')) {
+    if (isHelp(args) || (rest[0] && rest[0] !== 'run' && rest[0] !== 'quote')) {
       out([
         'mem guard run [--duty]',
         'mem guard quote          share of errors with a guard, empty test scaffolds',
@@ -399,6 +400,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
+    checkFlags(args, ['duty'], 'guard run');
     const root = findRoot(args);
     requireConfig(root);
     const list = guard.all(root, { iterLog: memory.iterLog, listProjects: memory.listProjects });
@@ -892,7 +894,7 @@ export const COMMANDS = {
           project: args.project ?? null,
           note: args.note && args.note !== true ? String(args.note) : null,
           agent: memory.agentDefault(),
-          max: args.max ? Number(args.max) : undefined,
+          max: (numberFlag('max', args.max, { min: 1 }) ?? undefined),
         });
       } catch (e) { die(`sources bridge: ${e.message}`); }
       out(`Appended: ${path.relative(root, r.path)}:${countLines(r.path)}`);
@@ -918,7 +920,7 @@ export const COMMANDS = {
           project: args.project ?? null,
           note: args.note && args.note !== true ? String(args.note) : null,
           agent: memory.agentDefault(),
-          max: args.max ? Number(args.max) : undefined,
+          max: (numberFlag('max', args.max, { min: 1 }) ?? undefined),
         });
       } catch (e) { die(`sources add: ${e.message}`); }
       out(`Appended: ${path.relative(root, r.path)}:${countLines(r.path)}`);
@@ -1013,7 +1015,7 @@ export const COMMANDS = {
       return;
     }
     const p = rest.join(' ').trim();
-    const top = args.top ? Number(args.top) : 8;
+    const top = numberFlag('top', args.top, { fallback: 8, min: 1 });
     if (args.table) {
       componentTable.update(root);
       const looked = componentTable.lookupPath(root, p);

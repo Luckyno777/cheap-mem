@@ -34,6 +34,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeAtomic } from './atomicwrite.mjs';
 
 /** Where the baseline lives. Runtime state, per machine. */
 export const BASELINE_FILE = path.join('.pipeline', 'shrink-baseline.json');
@@ -205,8 +206,7 @@ export function setBaseline(root, now = {}, { why = '' } = {}) {
     books: { ...now },
   };
   const where = path.join(root, BASELINE_FILE);
-  fs.mkdirSync(path.dirname(where), { recursive: true });
-  fs.writeFileSync(where, JSON.stringify(state, null, 1));
+  writeAtomic(where, JSON.stringify(state, null, 1));
   return state;
 }
 
@@ -214,8 +214,7 @@ export function setBaseline(root, now = {}, { why = '' } = {}) {
 export function save(root, state) {
   const where = path.join(root, BASELINE_FILE);
   try {
-    fs.mkdirSync(path.dirname(where), { recursive: true });
-    fs.writeFileSync(where, JSON.stringify(state, null, 1));
+    writeAtomic(where, JSON.stringify(state, null, 1));
     return true;
   } catch { return false; }
 }

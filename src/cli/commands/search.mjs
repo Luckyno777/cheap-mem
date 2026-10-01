@@ -27,7 +27,7 @@ import * as hybrid from '../../hybrid.mjs';
 import * as timeexpr from '../../timeexpr.mjs';
 import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
-import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
 // X3b: `status` field for a hit that is a rule and not released; else nothing.
@@ -245,7 +245,7 @@ export const COMMANDS = {
       query = wildcard.query;
       for (const note of wildcard.notes) process.stderr.write(`mem find: ${note}\n`);
     }
-    const wanted = args.top ? Number(args.top) : 10;
+    const wanted = numberFlag('top', args.top, { fallback: 10, min: 1 });
     const withRetiredFlag = Boolean(args['with-retired']);
     // `--as-of` needs superseded candidates to survive to `heldThen`
     // below — `retrieval.blocksRecall` is what keeps the OTHER retired
@@ -297,7 +297,7 @@ export const COMMANDS = {
       // MMR on by default: keep the top-k from filling with near-duplicates.
       // --no-mmr restores pure BM25 order.
       mmr: !args['no-mmr'],
-      mmrLambda: args['mmr-lambda'] ? Number(args['mmr-lambda']) : 0.7,
+      mmrLambda: numberFlag('mmr-lambda', args['mmr-lambda'], { fallback: 0.7, min: 0, max: 1 }),
     });
     // Drop the echo: the retrieval hook runs on every message and the stop
     // hook files every message as a raw capture, so the best hit for a
@@ -368,7 +368,7 @@ export const COMMANDS = {
     // score at or over `--journal-min`, or an exact hit.
     if (typeof args['journal-session'] === 'string' && args['journal-session']) {
       const injection = await import('../../injection.mjs');
-      const min = Number(args['journal-min'] ?? 5);
+      const min = numberFlag('journal-min', args['journal-min'], { fallback: 5 });
       const shown = hits.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length));
       injection.book(root, {
         session: args['journal-session'],
@@ -467,7 +467,7 @@ export const COMMANDS = {
     const db = await store.open(root, dim);
     try {
       const hits = store.search(db, vector, {
-        top: args.top ? Number(args.top) : 5,
+        top: numberFlag('top', args.top, { fallback: 5, min: 1 }),
         type: args.type ?? null,
         project: args.project ?? null,
         since: args.since ? sinceOf(args.since) : null,
@@ -507,7 +507,7 @@ export const COMMANDS = {
     const semantic = await hybrid.makeSemantic(root);
     const t0 = Date.now();
     const fused = await hybrid.hybridSearch(index, query, {
-      top: args.top ? Number(args.top) : 10,
+      top: numberFlag('top', args.top, { fallback: 10, min: 1 }),
       semantic,
     });
     const ms = Date.now() - t0;
@@ -562,7 +562,7 @@ export const COMMANDS = {
       ? capability.grantProject(String(args.project), { subject: 'cli' })
       : capability.grantAll('cli');
     const r = retrieval.retrieve(root, rest.join(' '), cap, {
-      top: args.top ? Number(args.top) : 10,
+      top: numberFlag('top', args.top, { fallback: 10, min: 1 }),
       asOf: args['as-of'] ? asOfOf(args['as-of'], 'retrieve') : null,
       type: args.type ? String(args.type) : null,
       withDisputed: Boolean(args['with-disputed']),
@@ -646,7 +646,7 @@ export const COMMANDS = {
   },
 
   when: async ({ rest, args }) => {
-    if (args.help) {
+    if (isHelp(args)) {
       out([
         'mem when "<time expression>" [--raw] [--project X] [--tz IANA/Zone]',
         'mem when --from <ISO> --to <ISO> [--raw] ...',
@@ -859,15 +859,15 @@ export const COMMANDS = {
     checkFlags(args, ['n', 'budget'], 'context');
     const root = findRoot(args);
     requireConfig(root);
-    const n = Number(args.n ?? 20);
+    const n = numberFlag('n', args.n, { fallback: 20, min: 1 });
     // Refuse a budget that cannot be met instead of quietly ignoring it.
     // The header alone is about 120 characters; a "budget" below that
     // would produce a block that breaks its own promise on the first
     // line.
     let maxChars = null;
     if (args.budget !== undefined) {
-      maxChars = Number(args.budget);
-      if (!Number.isFinite(maxChars) || maxChars < memory.MIN_CONTEXT_CHARS) {
+      maxChars = numberFlag('budget', args.budget);
+      if (maxChars < memory.MIN_CONTEXT_CHARS) {
         die(`context: --budget '${args.budget}' is not a usable size.\n`
           + `  The smallest budget that can keep its own promise is ${memory.MIN_CONTEXT_CHARS}\n`
           + '  characters — below that the header and the footer that reports\n'
@@ -904,10 +904,10 @@ export const COMMANDS = {
     if (rest[0] === 'due') {
       checkFlags(args, ['volume-now', 'volume-min', 'quiet', 'ceiling', 'json'], 'digest due');
       const th = {};
-      if (args['volume-now']) th.volumeNow = Number(args['volume-now']) * 1024;
-      if (args['volume-min']) th.volumeMin = Number(args['volume-min']) * 1024;
-      if (args.quiet) th.quietMs = Number(args.quiet) * 60000;
-      if (args.ceiling) th.ceilingMs = Number(args.ceiling) * 3600000;
+      if (args['volume-now']) th.volumeNow = numberFlag('volume-now', args['volume-now'], { min: 0 }) * 1024;
+      if (args['volume-min']) th.volumeMin = numberFlag('volume-min', args['volume-min'], { min: 0 }) * 1024;
+      if (args.quiet) th.quietMs = numberFlag('quiet', args.quiet, { min: 0 }) * 60000;
+      if (args.ceiling) th.ceilingMs = numberFlag('ceiling', args.ceiling, { min: 0 }) * 3600000;
       let d;
       try { d = raw.due(root, { thresholds: th }); }
       catch (e) { out(`cannot tell: ${e.message}`); process.exit(3); }
@@ -942,8 +942,8 @@ export const COMMANDS = {
     checkFlags(args, ['max', 'stale-days'], 'core');
     const root = findRoot(args);
     requireConfig(root);
-    const staleDays = args['stale-days'] ? Number(args['stale-days']) : 120;
-    const max = args.max ? Number(args.max) : 40;
+    const staleDays = numberFlag('stale-days', args['stale-days'], { fallback: 120, min: 0 });
+    const max = numberFlag('max', args.max, { fallback: 40, min: 1 });
     process.stdout.write(memory.core(root, { staleDays, max }));
     process.stdout.write('\n');
   },

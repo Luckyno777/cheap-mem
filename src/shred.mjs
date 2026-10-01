@@ -181,6 +181,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { withLock } from './filelock.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 export const KEYRING_DIR = '.mem';
 export const KEYRING_FILE = 'keyring.json';
@@ -302,11 +303,8 @@ export function loadKeyring(root) {
  */
 function saveKeyring(root, keys) {
   const p = keyringPath(root);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
   const obj = { version: KEYRING_VERSION, keys: Object.fromEntries(keys) };
-  const tmp = `${p}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(obj));
-  fs.renameSync(tmp, p);
+  writeAtomic(p, JSON.stringify(obj));
 }
 
 /** Record a new key for `id`. Creates the keyring file if it did not

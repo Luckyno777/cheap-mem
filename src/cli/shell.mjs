@@ -105,6 +105,28 @@ export function checkFlags(args, known, sub) {
 
 export function isHelp(args) { return args.help === true; }
 
+/**
+ * A number from a switch -- or a loud refusal.
+ *
+ * `Number('abc')` is `NaN`, and `NaN` does not break a comparison, it just
+ * makes it `false`: `--top abc` then meant "no limit" or "no results" with
+ * exit 0, indistinguishable from a real answer. This is the ONLY way a
+ * command handler turns a switch into a number (test/f5-numberflag-guard).
+ * Mirror of `zahlAus()` in lucky-mem's bin/mem.
+ *
+ * Returns `fallback` (default `null`) when the switch is absent or empty.
+ * A bare `--top` arrives as `true`: that is an error, not a 1.
+ */
+export function numberFlag(name, value, { fallback = null, min = null, max = null } = {}) {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') die(`Error: --${name} needs a number, but came without a value.`);
+  const n = Number(value);
+  if (!Number.isFinite(n)) die(`Error: --${name} needs a number, got '${value}'.`);
+  if (min !== null && n < min) die(`Error: --${name} must be at least ${min}, got ${n}.`);
+  if (max !== null && n > max) die(`Error: --${name} must be at most ${max}, got ${n}.`);
+  return n;
+}
+
 // Text fields, i.e. the ones whose value is prose a user typed. If one of
 // these arrives as `true`, the value was eaten — see fieldsFrom().
 export const TEXT_FIELDS = new Set(['title', 'text', 'topic', 'choice', 'why', 'fact',

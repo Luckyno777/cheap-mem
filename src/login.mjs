@@ -37,6 +37,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { writeAtomic } from './atomicwrite.mjs';
 
 export const PATHS = Object.freeze({
   page: '/login',
@@ -85,11 +86,7 @@ export function files(dir) {
 }
 
 function writePrivate(file, body) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
-  fs.writeFileSync(tmp, body, { mode: 0o600 });
-  fs.chmodSync(tmp, 0o600);
-  fs.renameSync(tmp, file);
+  writeAtomic(file, body, { mode: 0o600 });
 }
 
 function readJson(file) {

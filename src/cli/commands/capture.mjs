@@ -22,7 +22,7 @@ import * as archive from '../../archive.mjs';
 import * as stores from '../../stores.mjs';
 import * as redaction from '../../redaction.mjs';
 import * as userhabits from '../../userhabits.mjs';
-import { out, die, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
+import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /**
  * Yield per capture (B16, Z1a): how many logged entries name it in
@@ -232,8 +232,8 @@ export const COMMANDS = {
       const store = archive.readConfig(process.env, root);
       const hit = archive.inRange(archive.records(root), {
         from: args.from, to: args.to,
-        hourFrom: args['hour-from'] == null ? null : Number(args['hour-from']),
-        hourTo: args['hour-to'] == null ? null : Number(args['hour-to']),
+        hourFrom: numberFlag('hour-from', args['hour-from'], { min: 0, max: 24 }),
+        hourTo: numberFlag('hour-to', args['hour-to'], { min: 0, max: 24 }),
       });
       if (!hit.length) { out('No captures in that range.'); return; }
       fs.mkdirSync(args.into, { recursive: true });
@@ -284,12 +284,8 @@ export const COMMANDS = {
       const rel = rest[1];
       if (!rel) die('raw show: which capture? (mem raw pending lists them)');
       const { header, lines, broken, state } = raw.readCapture(root, rel);
-      const from = args.from === undefined ? 0 : Math.max(0, Number(args.from));
-      if (!Number.isFinite(from)) die('raw show: --from needs a number');
-      const count = args.count === undefined ? null : Number(args.count);
-      if (count !== null && (!Number.isFinite(count) || count <= 0)) {
-        die('raw show: --count needs a positive number');
-      }
+      const from = Math.max(0, numberFlag('from', args.from, { fallback: 0 }));
+      const count = numberFlag('count', args.count, { fallback: null, min: 1 });
       out(JSON.stringify({ ...(header ?? {}), __lines: lines.length, __state: state, __broken_lines: broken }, null, 2));
       // B21: never silent. ok / partial / broken — on partial and broken
       // the counter also goes to stderr so the digest sees it.
@@ -386,8 +382,8 @@ export const COMMANDS = {
           {
             from: args.from,
             to: args.to,
-            hourFrom: args['hour-from'] == null ? null : Number(args['hour-from']),
-            hourTo: args['hour-to'] == null ? null : Number(args['hour-to']),
+            hourFrom: numberFlag('hour-from', args['hour-from'], { min: 0, max: 24 }),
+            hourTo: numberFlag('hour-to', args['hour-to'], { min: 0, max: 24 }),
           },
         );
         const kept = new Set(inRange.map((r) => r.path));
@@ -491,7 +487,7 @@ export const COMMANDS = {
     const transcript = args.transcript;
     if (!transcript) die('raw-capture: --transcript is required');
     const r = raw.capture(root, transcript, {
-      minBytes: args['min-bytes'] ? Number(args['min-bytes']) : 4096,
+      minBytes: numberFlag('min-bytes', args['min-bytes'], { fallback: 4096, min: 0 }),
       stampExtra: args.project ? { project: args.project } : {},
     });
     if (args.json) { out(JSON.stringify(r)); return; }
@@ -638,8 +634,7 @@ export const COMMANDS = {
 
     let minEvidence;
     if (args['min-evidence'] !== undefined) {
-      minEvidence = Number(args['min-evidence']);
-      if (!Number.isFinite(minEvidence)) die('user: --min-evidence needs a number');
+      minEvidence = numberFlag('min-evidence', args['min-evidence']);
     }
 
     if (args['session-start']) {

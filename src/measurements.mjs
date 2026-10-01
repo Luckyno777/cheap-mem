@@ -36,6 +36,7 @@ import * as net from './net.mjs';
 import * as injection from './injection.mjs';
 import * as consolePage from './console.mjs';
 import * as doctor from './doctor.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 export const FILE = path.join('.mem', 'measurements.jsonl');
 export const MAX_WEEKS = 52;
@@ -150,11 +151,8 @@ export function recordIfDue(root, { now = new Date(), doctorResult = null } = {}
     if (have.weeks.some((w) => w.week === week)) return { recorded: false, reason: 'this week is measured already' };
     const line = snapshot(root, { now, doctorResult });
     const file = path.join(root, FILE);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
     const keep = [...have.weeks, line].slice(-MAX_WEEKS);
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, keep.map((w) => JSON.stringify(w)).join('\n') + '\n', 'utf8');
-    fs.renameSync(tmp, file);
+    writeAtomic(file, keep.map((w) => JSON.stringify(w)).join('\n') + '\n');
     return { recorded: true, week, kept: keep.length };
   } catch (e) {
     return { recorded: false, reason: e?.message || String(e) };
