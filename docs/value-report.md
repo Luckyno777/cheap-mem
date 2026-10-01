@@ -61,7 +61,7 @@ Measured at commit `8a24c64` (working tree dirty) on 2026-10-01; sizes in this r
 
 - Of 120 fake secrets (24 kinds, several shapes each), 98.3% were removed before storing (118 of 120). Method: [secrets](#method). Raw: [secrets.json](value-report/secrets.json) `/caughtPct`.
 - Written through the real writer, 98.3% of the fake secrets stayed out of the log file on disk (118 of 120). Method: [secrets](#method). Raw: [secrets.json](value-report/secrets.json) `/keptOutOfLogFilePct`.
-- Security mutants caught by tests: **not measured** (not run in this pass; add --mutation (it applies each security mutant and runs its own test suites, several minutes)). Method: [mutation](#method). Raw: [mutation.json](value-report/mutation.json) `/state`.
+- Security mutants caught by tests: **not measured** (the suites the security mutants rely on already fail here (first: "A11: over MCP the whole lifecycle — failed and claims, identity from the connection"; missing optional dependency @modelcontextprotocol/sdk), and a score on a red baseline would be meaningless; fix the baseline and re-run `node bench/value-report.mjs --mutation-only`). Method: [mutation](#method). Raw: [mutation.json](value-report/mutation.json) `/state`.
 
 ## The numbers, per category
 

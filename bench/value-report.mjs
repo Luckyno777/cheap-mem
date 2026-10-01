@@ -11,6 +11,7 @@
  *   node bench/value-report.mjs                     # 10k and 100k notes
  *   node bench/value-report.mjs --sizes 1000000     # one size (VM run)
  *   node bench/value-report.mjs --mutation          # also the mutation score
+ *   node bench/value-report.mjs --mutation-only     # just the mutation score, keep the rest
  *   node bench/value-report.mjs --render-only       # re-render from the raw JSON
  *   node bench/value-report.mjs --readme            # refresh the README block
  *
@@ -537,6 +538,11 @@ export function measureSecrets({ variants = WRAPS.length, seed = 5, redactFn = r
 export function measureMutation({ run = false } = {}) {
   if (!run) return { state: 'not-measured', why: 'not run in this pass; add --mutation (it applies each security mutant and runs its own test suites, several minutes)' };
   const r = spawnSync(process.execPath, [path.join(HERE, 'mutation.mjs'), '--security'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 26, timeout: 3 * 3600 * 1000 });
+  if (/suites these mutants rely on are already failing/.test(r.stdout ?? '')) {
+    const first = /^not ok \d+ - (.+)$/m.exec(r.stdout)?.[1] ?? 'unknown test';
+    const dep = /needs (@?[\w/.-]+)/.exec(r.stdout)?.[1];
+    return { state: 'not-measured', why: `the suites the security mutants rely on already fail here (first: "${first}"${dep ? `; missing optional dependency ${dep}` : ''}), and a score on a red baseline would be meaningless; fix the baseline and re-run \`node bench/value-report.mjs --mutation-only\`` };
+  }
   const m = /(\d+)\/(\d+) applied mutants caught by tests \(of (\d+) defined; (\d+) anchor gone, (\d+) ambiguous\)/.exec(r.stdout ?? '');
   if (!m) return { state: 'not-measured', why: `mutation.mjs --security produced no score line (exit ${r.status})` };
   const perModule = {};
@@ -921,6 +927,16 @@ async function main() {
     return;
   }
 
+  if (flag('--mutation-only')) {
+    // Only the mutation section (slow, several minutes): measure it, keep every other raw file as it is.
+    const data = loadRaw(outDir);
+    data.mutation = { ...stamp(), ...measureMutation({ run: true }) };
+    const text = renderReport(data);
+    writeRaw(outDir, 'mutation', data.mutation);
+    fs.writeFileSync(reportPath, text);
+    console.log(`mutation score written: ${data.mutation.state}`);
+    return;
+  }
   const sizes = opt('--sizes', DEFAULT_SIZES.join(',')).split(',').map(Number).filter(Boolean);
   const only = new Set(opt('--only', 'recall,speed,space,cost,durability,secrets').split(','));
   const o = {

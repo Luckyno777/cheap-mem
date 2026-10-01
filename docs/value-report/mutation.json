@@ -1,7 +1,7 @@
 {
-  "commit": "8a24c64",
+  "commit": "7051dee",
   "dirty": true,
-  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "measuredAt": "2026-10-01T19:38:49.393Z",
   "state": "not-measured",
-  "why": "not run in this pass; add --mutation (it applies each security mutant and runs its own test suites, several minutes)"
+  "why": "the suites the security mutants rely on already fail here (first: \"A11: over MCP the whole lifecycle — failed and claims, identity from the connection\"; missing optional dependency @modelcontextprotocol/sdk), and a score on a red baseline would be meaningless; fix the baseline and re-run `node bench/value-report.mjs --mutation-only`"
 }
