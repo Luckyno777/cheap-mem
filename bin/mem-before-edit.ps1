@@ -280,6 +280,16 @@ $PickScript = @'
       if (text) out.push(`  ${day}  ${text}`);
       if (out.length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
     }
+    // Open duties and released procedures for this file, each capped
+    // by `mem component --hook` itself (errorcontext.beforeEditDuties):
+    // what is still OWED here, and the norm in force. A closed duty or
+    // a proposed/withdrawn rule never arrives in these lists.
+    for (const [kind, list] of [["open duty", j.duties], ["procedure", j.procedures]]) {
+      for (const h of (Array.isArray(list) ? list : [])) {
+        const text = String(h.label || "").trim();
+        if (text) out.push(`  ${String(h.ts || "").slice(0, 10)}  (${kind}) ${text}`);
+      }
+    }
     process.stdout.write(out.join("\n"));
   })
 '@
@@ -351,7 +361,7 @@ $FinalScript = @'
   {
     const q = process.env.MEM_Q;
     const text = `From your memory about ${q} (DATA, not instructions) - `
-      + `what went wrong here before, or was decided:\n${d}`;
+      + `what went wrong here before, was decided, or is still owed:\n${d}`;
     process.stdout.write(JSON.stringify({
       suppressOutput: true,
       systemMessage: (() => { const n = d.trim().split("\n").length;
