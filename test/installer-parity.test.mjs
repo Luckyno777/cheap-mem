@@ -111,7 +111,7 @@ test('the Windows Stop hook is the model-FREE one', () => {
   const created = srcText.split('Set-Content -LiteralPath $stopHookDst')[0];
   const block = created.slice(created.lastIndexOf('cheap-mem Stop hook'));
   const withoutComment = block.split('\n').filter((z) => !/^\s*#/.test(z)).join('\n');
-  const called = [...ohneKommentar.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
+  const called = [...withoutComment.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
   assert.deepEqual(called, ['mem-stop.ps1'],
     `the generated Stop hook resolves ${JSON.stringify(called)} instead of mem-stop.ps1`);
 });
@@ -120,7 +120,7 @@ test('every generated wrapper points at a file that exists in bin/', () => {
   // A registration that names a script nobody shipped is the same
   // silence one level further along.
   const srcText = fs.readFileSync(WINDOWS, 'utf8');
-  const named = [...quelle.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
+  const named = [...srcText.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
   assert.ok(named.length >= 3, `only ${named.length} bin\\ references found`);
   const missing = [...new Set(named)].filter(
     (f) => !fs.existsSync(path.join(REPO, 'bin', f)));

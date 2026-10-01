@@ -224,7 +224,7 @@ export function build(root, { poisoned = false, noise = 4, scatter = 700, flood 
   //     one — not more rounds of the same topic.
   for (let i = 0; i < scatter; i += 1) {
     memory.logEntry(root, i % 3 === 0 ? 'error' : 'decision',
-      { ...streuEintrag(r, i), author: 'lucky', authority: 'user', project: PROJECT,
+      { ...scatterEntry(r, i), author: 'lucky', authority: 'user', project: PROJECT,
         ...(i % 3 === 0 ? { title: `Stoerung im ${word(r)}`, class: 'betrieb' } : {}) },
       { project: PROJECT });
   }
