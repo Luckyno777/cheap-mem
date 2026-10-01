@@ -306,7 +306,7 @@ function heading(k, title, desc, action = '') {
 function metrics(items) {
   return `<div class="metrics">${items.map(([a, b, c]) => `<div class="metric"><span class="name">${a}</span><strong>${b}</strong><small>${c}</small></div>`).join('')}</div>`;
 }
-// --- Agents page (#work/agents, parity with lucky-mem 2026-10-01) -----------
+// --- Agents page (#work/agents, parity with the sibling house 2026-10-01) -----------
 // One row per agent instead of a card with eight fields. The page measures
 // nothing new: activity/pause/startable/channel arrive finished from the
 // server (src/dashboard.mjs agentSignals), the open mail from the inbox list
@@ -2542,8 +2542,8 @@ void main(){ vec2 u = gl_PointCoord - 0.5; float r = dot(u, u) * 4.0; if (r > 1.
 // named after its hub's title, which can be a whole paragraph); the full name
 // stays in the tooltip and in the breadcrumb.
 const labelShort = (t) => { const k = String(t).trim().split(/\s+/).slice(0, 5).join(' '); return k.length > 34 ? k.slice(0, 33) + '…' : k; };
-// <labelplace> Collision-free placement of the atlas labels (parity with
-// lucky-mem 2026-10-01: in a focus the labels of the subgroups piled up).
+// <labelplace> Collision-free placement of the atlas labels (parity with the
+// sibling house 2026-10-01: in a focus the labels of the subgroups piled up).
 // A PURE function: rectangles in, offsets out; no DOM read, no state
 // (test/board-parity-atlas-cm.test.mjs).
 //  cands: [{ key, x, y, w, h, prio, depth, focus, before }] — x/y the anchor on
