@@ -110,6 +110,9 @@ if (Test-Path -LiteralPath (Join-Path $Root 'bin/mem')) {
 
 $Min = if ($env:MEM_RETRIEVE_MIN) { $env:MEM_RETRIEVE_MIN } else { '5.0' }
 $Top = if ($env:MEM_RETRIEVE_TOP) { $env:MEM_RETRIEVE_TOP } else { '3' }
+# H5 search lever (src/searchlevers.mjs): shorter lines, so up to five fit
+# the same byte budget. Only the default moves; MEM_RETRIEVE_TOP still wins.
+if (-not $env:MEM_RETRIEVE_TOP -and (",$($env:MEM_SEARCH_LEVERS)," -match ',(h5|all),')) { $Top = '5' }
 
 # --- Keep the clone from going stale --------------------------------
 #
@@ -177,12 +180,17 @@ if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
 
 $Prompt = ''
 $SessionId = ''
+$HookCwd = ''
+$HookTranscript = ''
 if ($In) {
   try {
     $j = $In | ConvertFrom-Json
     if ($j.prompt) { $Prompt = [string]$j.prompt }
     elseif ($j.user_prompt) { $Prompt = [string]$j.user_prompt }
     if ($j.session_id) { $SessionId = [string]$j.session_id }
+    # For the h2 search lever (src/searchlevers.mjs): context, read only there.
+    if ($j.cwd) { $HookCwd = [string]$j.cwd }
+    if ($j.transcript_path) { $HookTranscript = [string]$j.transcript_path }
   } catch { }
 }
 
@@ -300,5 +308,7 @@ $env:MEM_RH_TURNS = $Turns
 $env:MEM_RH_QB = [string]$QuestionBytes
 $env:MEM_RH_PATH = $RecallPath
 $env:MEM_RH_PATH_REASON = $RecallReason
+$env:MEM_RH_CWD = $HookCwd
+$env:MEM_RH_TRANSCRIPT = $HookTranscript
 $Hits | & node $RecallJs recall 2>$null
 exit 0

@@ -181,7 +181,8 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  chain [--json]                               do the per-writer seals still hold?");
   out("  archive [--json]                             what moved out of this clone, still reachable?");
   out("  gauges [--session <id>]                      occupancy, sufficiency, and what they cost");
-  out("  asked-learn [--write]                        learn query words from recall misses");
+  out("  asked-learn [--write] [--shown]               learn query words from recall misses");
+  out("  search-levers [--json]                       Block H search levers: which are on, loads after a showing");
   out("  effect [--json]                              share of injections used again, Wilson interval");
   out("  ledger [--json]                              jobs per agent kind/model — counted, not claimed");
   out("  today [--json]                               operations, decisions & facts to verify — one source, three surfaces");

@@ -128,7 +128,9 @@ fi
 TOP="${MEM_AFTER_FAILURE_TOP:-3}"
 # A generous `--top`: the two lanes are picked out of the result, and a
 # hit in another lane would otherwise use up the room.
-HITS="$(capped 5 "${RUN_MEM[@]}" find "$QUERY" --content-words --top "$((TOP * 4))" --json 2>/dev/null)" || HITS=""
+# --weak: this hook holds its own, lower bar (src/afterfailure.mjs);
+# `mem find`'s answer gate (search lever h3) is tuned for a spoken question.
+HITS="$(capped 5 "${RUN_MEM[@]}" find "$QUERY" --content-words --top "$((TOP * 4))" --json --weak 2>/dev/null)" || HITS=""
 if [ -z "$HITS" ]; then
   [ -n "$CLAIM" ] && rmdir "$CLAIM" 2>/dev/null
   MEM_AF_REASON=empty af book </dev/null

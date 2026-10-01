@@ -152,7 +152,7 @@ export const COMMANDS = {
   'asked-learn': async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem asked-learn [--write] [--json]',
+        'mem asked-learn [--write] [--json] [--shown]',
         '',
         '  Query words learned from recall misses (M18b). A question the',
         '  recall hook found nothing for, followed in the SAME session by',
@@ -168,14 +168,20 @@ export const COMMANDS = {
         '',
         '  Source is the injection journal (.pipeline/) and the raw',
         '  capture. Without --write nothing is written.',
+        '',
+        '  --shown  also learn from SHOWN misses (H4): something was injected,',
+        '           but the session then fetched a DIFFERENT entry by hand.',
+        '           Also on with the h4 search lever (`mem search-levers`).',
+        '           Questions over 240 characters do not count there.',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['write', 'json', 'root'], 'asked-learn');
+    checkFlags(args, ['write', 'json', 'root', 'shown'], 'asked-learn');
     const root = findRoot(args);
     requireConfig(root);
     const askedlearn = await import('../../askedlearn.mjs');
-    const r = askedlearn.cases(root);
+    const levers = await import('../../searchlevers.mjs');
+    const r = askedlearn.cases(root, { includeShown: Boolean(args.shown) || levers.active('h4') });
     let written = null;
     if (args.write) {
       written = 0;
@@ -183,6 +189,77 @@ export const COMMANDS = {
     }
     if (args.json) { out(JSON.stringify({ ...r, written }, null, 2)); return; }
     out(askedlearn.asText(r, { written }));
+  },
+
+  'search-levers': async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem search-levers [--json]',
+        '',
+        '  The search levers of Block H (ported from lucky-mem) and their state:',
+        '  which are on, and whether that comes from the default or from',
+        '  MEM_SEARCH_LEVERS (off | all | a list such as h1,h3).',
+        '',
+        '    h1  split the question: core words searched, common words as by-catch',
+        '    h2  the session\'s context (directory, files, last error) reorders',
+        '    h3  threshold by score gap: a flat field of weak hits is withheld',
+        '    h4  mem asked-learn also learns from SHOWN misses',
+        '    h5  short recall lines, full entry by `mem show <id>`',
+        '',
+        '  Also counted: entries carrying learned query words (H4/M18b), and',
+        '  how many shown entries a session loaded by id afterwards (H5) — read',
+        '  off the injection journal and the raw capture, nothing written.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'root'], 'search-levers');
+    const root = findRoot(args);
+    requireConfig(root);
+    const levers = await import('../../searchlevers.mjs');
+    const search = await import('../../search.mjs');
+    const askedlearn = await import('../../askedlearn.mjs');
+    const injection = await import('../../injection.mjs');
+    const index = search.loadIndex(root);
+    // H4: entries that learned query words, and how many from shown misses.
+    let entries = 0; let fromShown = 0;
+    const place = new Map();
+    for (const d of index.documents ?? []) {
+      if (d.type === 'raw' || !d.entry?.id) continue;
+      place.set(String(d.entry.id).toLowerCase(), `${d.source}:${d.line}`);
+      if (d.retired) continue;
+      const ev = Array.isArray(d.entry.asked_evidence) ? d.entry.asked_evidence : [];
+      if (!ev.length) continue;
+      entries += 1;
+      if (ev.some((x) => x?.learned === askedlearn.LEARNED.SHOWN)) fromShown += 1;
+    }
+    // H5: loads by id after a showing, from the session's own capture.
+    const journal = injection.read(root).lines;
+    const sessions = new Set(journal.filter((z) => z?.occasion === 'question' && z.reason == null && z.session)
+      .map((z) => z.session));
+    const { bySession } = sessions.size ? askedlearn.sessionLines(root, sessions) : { bySession: new Map() };
+    const SHOW = /\bshow\s+([0-9a-z][0-9a-z_-]{3,39})\b/g;
+    const toolIds = (z) => {
+      if (z?.type !== 'assistant' || !Array.isArray(z.message?.content)) return [];
+      const ids = [];
+      for (const c of z.message.content) {
+        if (c?.type !== 'tool_use') continue;
+        if (/mem_show$/.test(String(c.name ?? '')) && typeof c.input?.id === 'string') ids.push(c.input.id.toLowerCase());
+        const cmd = typeof c.input?.command === 'string' ? c.input.command.toLowerCase() : '';
+        for (const m of cmd.matchAll(SHOW)) ids.push(m[1]);
+      }
+      return ids;
+    };
+    const reloads = levers.reloadBalance(journal, bySession, place, { isToolMention: toolIds });
+    const st = levers.leverState();
+    if (args.json) {
+      out(JSON.stringify({
+        env: levers.ENV, source: st.source,
+        levers: Object.fromEntries(levers.LEVERS.map((h) => [h, st.on.has(h)])),
+        learned: { entries, fromShown }, reloads,
+      }, null, 2));
+      return;
+    }
+    out(levers.stateText(process.env, { learned: { entries, fromShown }, reloads }));
   },
 
   effect: async ({ args }) => {

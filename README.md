@@ -530,6 +530,8 @@ mem user [--json]              generic, code-only habit meter over YOUR OWN
 mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem asked-learn [--write]      learn query words from recall misses, any language
+mem search-levers              Block H search levers (MEM_SEARCH_LEVERS): which are
+                               on; h3 withholds a flat field of weak hits
 mem effect                     share of injections named/opened/edited afterwards,
                                with a Wilson interval; "not measurable" under 1000
                                pairs. A finding, never a ranking signal.
