@@ -521,13 +521,13 @@ export const MUTANTS=[
    file:'src/redaction.mjs',
    from:"['stripe-key',      /\\b[rs]k_(live|test)_[A-Za-z0-9]{20,}/g],",
    to:"['stripe-key',      /\\b[rs]k_(live|test)_[A-Za-z0-9]{2000,}/g],  // MUTANT",
-   tests:['test/redaction.test.mjs'] },
+   tests:['test/redaction.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'redaction: secrets inside arrays are not redacted',
    file:'src/redaction.mjs',
    from:'  if (Array.isArray(o)) return o.map((x) => redactObject(x, found));',
    to:'  if (Array.isArray(o)) return o;  // MUTANT',
-   tests:['test/redaction.test.mjs'] },
+   tests:['test/redaction.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'redaction: no environment secret is ever collected',
    file:'src/redaction.mjs',
@@ -545,7 +545,7 @@ export const MUTANTS=[
    file:'src/login.mjs',
    from:'  if (!e || !(e.expires > now)) return { valid: false };',
    to:'  if (!e) return { valid: false };  // MUTANT',
-   tests:['test/login.test.mjs'] },
+   tests:['test/login.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'login: failed attempts never lock a source out',
    file:'src/login.mjs',
@@ -557,19 +557,19 @@ export const MUTANTS=[
    file:'src/webauth.mjs',
    from:'  return timingSafeEqual(ha, hb);',
    to:'  return true;  // MUTANT',
-   tests:['test/webauth.test.mjs'] },
+   tests:['test/webauth.test.mjs','test/console.test.mjs'] },
 
  { name:'webauth: a non-loopback bind is allowed without a token',
    file:'src/webauth.mjs',
    from:'  if (isLoopback(host)) return { ok: true };',
    to:'  if (true) return { ok: true };  // MUTANT',
-   tests:['test/webauth.test.mjs'] },
+   tests:['test/webauth.test.mjs','test/console.test.mjs'] },
 
  { name:'webauth: a foreign origin passes the POST check',
    file:'src/webauth.mjs',
    from:'  return Boolean(host) && from.host === String(host);',
    to:'  return true;  // MUTANT',
-   tests:['test/webauth.test.mjs'] },
+   tests:['test/webauth.test.mjs','test/console.test.mjs'] },
 
  { name:'capability: narrow() keeps scopes the capability does not cover',
    file:'src/capability.mjs',
@@ -581,13 +581,13 @@ export const MUTANTS=[
    file:'src/capability.mjs',
    from:'    if (this.scopes.includes(id)) return true;\n    if (this.descendants && this.scopes.includes(GLOBAL)) return true;',
    to:'    if (this.scopes.includes(id)) return true;\n    if (this.scopes.includes(GLOBAL)) return true;  // MUTANT',
-   tests:['test/retrieval.test.mjs'] },
+   tests:['test/retrieval.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'capability: the global scope is admitted without the read right',
    file:'src/capability.mjs',
    from:"    if (id === GLOBAL && this.rights.includes('read')) return true;",
    to:"    if (id === GLOBAL) return true;  // MUTANT",
-   tests:['test/retrieval.test.mjs'] },
+   tests:['test/retrieval.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'chain: a seal that does not match the replayed hash counts as ok',
    file:'src/chain.mjs',
@@ -653,7 +653,7 @@ export const MUTANTS=[
    file:'src/claim.mjs',
    from:"return 'done by someone who is not the holder';\n  if (z.claim_id !== holder.id) {",
    to:"return 'done by someone who is not the holder';\n  if (false) {  // MUTANT",
-   tests:['test/claim.test.mjs'] },
+   tests:['test/claim.test.mjs','test/y0-claim-id.test.mjs'] },
 
  { name:'claim: a second claim takes over while the first is still valid',
    file:'src/claim.mjs',
@@ -703,10 +703,14 @@ export const MUTANTS=[
    to:'      else if (v === VERDICT.DANGLING) rec.intact += 1;  // MUTANT',
    tests:['test/pathcheck.test.mjs'] },
 
- { name:'filelock: a fresh lock is taken over as if stale',
+ // (Dropped as equivalent: "a fresh lock is taken over as if stale" - removing
+ // the `age <= staleS` early return still ends in the `moved <= staleS`
+ // put-back and `return false`, so no caller can tell. Replaced by the
+ // opposite promise: a dead lock IS taken over.)
+ { name:'filelock: a stale lock is never taken over',
    file:'src/filelock.mjs',
    from:'  if (age <= staleS) return false;',
-   to:'  // MUTANT: no staleness check',
+   to:'  if (true) return false;  // MUTANT',
    tests:['test/filelock.test.mjs'] },
 
  { name:'filelock: nested locks are allowed',
@@ -725,37 +729,37 @@ export const MUTANTS=[
    file:'src/inbox.mjs',
    from:"  if (name.includes('/') || name.includes('\\\\') || name.includes('..')) {",
    to:'  if (false) {  // MUTANT',
-   tests:['test/inbox.test.mjs'] },
+   tests:['test/inbox.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'inbox: a message is written to disk without redaction',
    file:'src/inbox.mjs',
    from:'    const r = redaction.redact(v);',
    to:'    const r = { text: v, found: [] };  // MUTANT',
-   tests:['test/inbox.test.mjs'] },
+   tests:['test/inbox.test.mjs','test/mutant-security-gaps.test.mjs'] },
 
  { name:'inbox: a stale state writer still counts',
    file:'src/inbox.mjs',
    from:'    if (z.prior !== state) {',
    to:'    if (false) {  // MUTANT',
-   tests:['test/inbox.test.mjs'] },
+   tests:['test/inbox.test.mjs','test/z3-inbox.test.mjs'] },
 
  { name:'inbox: reopening a closed message needs no reason',
    file:'src/inbox.mjs',
    from:'  if (isDone(current) && newState === STATE.OPEN && !r) {',
    to:'  if (false) {  // MUTANT',
-   tests:['test/inbox.test.mjs'] },
+   tests:['test/inbox.test.mjs','test/z3-inbox.test.mjs'] },
 
  { name:'guard: a latch path may leave the root',
    file:'src/guard.mjs',
    from:'  if (!target.startsWith(path.resolve(root) + path.sep) && target !== path.resolve(root)) {',
    to:'  if (false) {  // MUTANT',
-   tests:['test/guards.test.mjs'] },
+   tests:['test/guards.test.mjs','test/provenance-guard-heartbeat.test.mjs'] },
 
  { name:'guard: a pattern latch on a missing file is no longer broken',
    file:'src/guard.mjs',
    from:"  if (!there) return { state: 'broken', why: `${rel} does not exist",
    to:"  if (!there) return { state: 'green', why: `${rel} does not exist",
-   tests:['test/guards.test.mjs'] },
+   tests:['test/guards.test.mjs','test/provenance-guard-heartbeat.test.mjs'] },
 ];
 
 // The modules whose failure is a security or data-integrity failure. The
