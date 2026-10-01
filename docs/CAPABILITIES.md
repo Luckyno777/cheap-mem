@@ -54,6 +54,7 @@ directory. The section number in brackets is where it is explained.
 | `askedlearn.mjs` | query words learned from recall misses: a miss the same session then fetched by id teaches the entry the words it was asked with, in any language (`mem asked-learn`, M18b) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
+| `atomicwrite.mjs` | the one way to write a state file: a unique temp file in the same directory, then `rename` (with a Windows retry) — a reader never sees half a file, two writers never share a temp file (F5, suggestion 14) |
 | `backlinks.mjs` | an incrementally maintained index — id -> every entry that points at it by a declared edge, across every drawer and project (E1.4); read by `getEntryFast()` and `mem-serve` |
 | `basis.mjs` | on what basis a statement stands: stated, measured, inferred, guessed — a mark, never a number |
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |

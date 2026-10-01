@@ -25,8 +25,46 @@
 // fixture picks the args -- `startBrowser({ args: [] })` for dash-fix4,
 // every other caller unchanged (no argument = default).
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { createRequire } from 'node:module';
 import { after } from 'node:test';
+
+// **One browser file at a time (2026-10-01).** In the full suite test files
+// run in parallel; several Chromium instances plus the rest of the suite
+// made browser probes miss their 30 s deadline in turn (green when run
+// alone; seen in both houses). So a lock in TMPDIR (the full suite gives
+// every file the same TMPDIR): whoever starts a browser waits until no other
+// file holds one. A dead holder's lock is taken over; after LOCK_MAX_MS the
+// file goes on without the lock (never hang).
+const LOCK = path.join(os.tmpdir(), 'cheap-mem-browser.lock');
+const LOCK_MAX_MS = 15 * 60 * 1000;
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+export async function takeLock() {
+  const until = Date.now() + LOCK_MAX_MS;
+  while (Date.now() < until) {
+    try {
+      fs.mkdirSync(LOCK);
+      fs.writeFileSync(path.join(LOCK, 'pid'), String(process.pid));
+      const release = () => {
+        try {
+          if (fs.readFileSync(path.join(LOCK, 'pid'), 'utf8') === String(process.pid)) fs.rmSync(LOCK, { recursive: true, force: true });
+        } catch { /* already gone */ }
+      };
+      process.once('exit', release);
+      return release;
+    } catch {
+      let holder = NaN;
+      try { holder = Number(fs.readFileSync(path.join(LOCK, 'pid'), 'utf8')); } catch { /* being created */ }
+      if (Number.isFinite(holder) && holder > 0 && !alive(holder)) {
+        try { fs.rmSync(LOCK, { recursive: true, force: true }); } catch { /* someone was faster */ }
+        continue;
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  return () => {};
+}
 
 const DEFAULT_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
 
@@ -51,6 +89,7 @@ function loadPlaywright() {
 export async function startBrowser({ args = DEFAULT_ARGS } = {}) {
   const pw = loadPlaywright();
   if (!pw) return { browser: null, reason: 'playwright not installed' };
+  const release = await takeLock();
   let browser = null;
   try { browser = await pw.chromium.launch({ args }); } catch { /* fall through */ }
   if (!browser) {
@@ -59,9 +98,9 @@ export async function startBrowser({ args = DEFAULT_ARGS } = {}) {
       try { browser = await pw.chromium.launch({ executablePath: p, args }); } catch { /* fall through */ }
     }
   }
-  if (!browser) return { browser: null, reason: 'no startable Chromium' };
+  if (!browser) { release(); return { browser: null, reason: 'no startable Chromium' }; }
   // Without this the browser keeps the process alive -- see file header.
-  after(async () => { await browser.close(); });
+  after(async () => { try { await browser.close(); } finally { release(); } });
   // `reason: false`, NOT `null` -- `test(name, { skip: null }, fn)` on
   // node:test 22.22.2 wrongly tags the TAP line "# SKIP" even though the
   // test body really runs (found 2026-09-29: "31 screens" in the log, yet

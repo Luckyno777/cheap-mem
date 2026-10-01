@@ -43,7 +43,7 @@
  "src/integrationcontract.mjs": 4,
  "src/langbridge.mjs": 2,
  "src/latencybudget.mjs": 8,
- "src/login.mjs": 15,
+ "src/login.mjs": 14,
  "src/maintenance.mjs": 3,
  "src/mcplive.mjs": 3,
  "src/measurements.mjs": 1,
@@ -75,7 +75,7 @@
  "src/timeexpr.mjs": 1,
  "src/today.mjs": 1,
  "src/userhabits.mjs": 3,
- "src/viewer.mjs": 1,
+ "src/viewer.mjs": 0,
  "src/webauth.mjs": 1,
  "src/workflow.mjs": 3,
  "src/writegate.mjs": 1
