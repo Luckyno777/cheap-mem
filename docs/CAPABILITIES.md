@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 76 CLI commands, 35 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 77 CLI commands, 35 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3152 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -149,6 +149,8 @@ directory. The section number in brackets is where it is explained.
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `repetitionhint.mjs` | from the third repetition of an error class or normalised title, prints a draft for `mem log procedure` (`mem suggest procedure`); quotes the newest error, no model, writes nothing |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
+| `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
+| `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
@@ -549,7 +551,7 @@ Sync is git. A watcher can drive the loop on a server.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 76 commands
+### 7.1 CLI — 77 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -560,7 +562,7 @@ procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
-gaps suggest search-levers
+gaps suggest search-levers rewrites
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later

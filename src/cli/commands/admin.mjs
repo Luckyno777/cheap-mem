@@ -191,6 +191,57 @@ export const COMMANDS = {
     out(askedlearn.asText(r, { written }));
   },
 
+  rewrites: async ({ args, rest }) => {
+    const sub = rest[0];
+    if (isHelp(args) || (sub && !['care', 'lock', 'unlock'].includes(sub))) {
+      out([
+        'mem rewrites [--json]',
+        'mem rewrites care [--write] [--json]',
+        'mem rewrites lock <from> <to> [--reason <text>]',
+        'mem rewrites unlock <from> <to>',
+        '',
+        '  The learned rewrite table: question word -> entry word, from the',
+        '  same vetted misses `mem asked-learn` reads (a miss the session then',
+        '  resolved by naming an entry the memory had NOT shown). A pair works',
+        '  in search only from 2 independent sessions on, at weight 0.5 (below',
+        '  the typed word, the language bridge and the thesaurus), rests after',
+        '  90 days without new evidence, and can be locked one by one.',
+        '  MEM_REWRITES=off switches the whole table off. Shipped empty.',
+        '',
+        '  care: collect the evidence; --write appends changed pairs to',
+        '  .mem/rewrites.jsonl (append-only). Without --write nothing is written.',
+      ].join('\n'));
+      return;
+    }
+    const known = { care: ['write', 'json', 'root'], lock: ['reason', 'root'], unlock: ['root'] }[sub] ?? ['json', 'root'];
+    checkFlags(args, known, sub ? `rewrites ${sub}` : 'rewrites');
+    const root = findRoot(args);
+    requireConfig(root);
+    const rewrites = await import('../../rewrites.mjs');
+    if (sub === 'care') {
+      const care = await import('../../rewritecare.mjs');
+      const r = care.care(root, { write: Boolean(args.write) });
+      if (args.json) { out(JSON.stringify(r, null, 2)); return; }
+      const k = r.counts;
+      out(`REWRITE CARE: ${r.changed} changed pair(s), ${r.fresh} new`
+        + (k ? ` — from ${k.cases} asked-learn case(s) out of ${k.misses} miss(es), ${k.withCapture} with a readable capture` : ''));
+      for (const p of r.pairs) out(`  ${p.from} -> ${p.to}  ${p.sessions} session(s)${p.fresh ? '  (new)' : ''}`);
+      if (args.write) out(`  written: ${r.written}`);
+      else if (r.changed) out('  (dry run — `--write` appends them)');
+      return;
+    }
+    if (sub === 'lock' || sub === 'unlock') {
+      const [from, to] = [rest[1], rest[2]];
+      if (!from || !to) die(`mem rewrites ${sub} <from> <to>`);
+      const r = sub === 'lock' ? rewrites.lock(root, from, to, args.reason) : rewrites.unlock(root, from, to);
+      if (!r.written) die(`no such pair: ${from} -> ${to} (\`mem rewrites\` lists them)`);
+      out(`${sub === 'lock' ? 'locked' : 'unlocked'}: ${from} -> ${to}`);
+      return;
+    }
+    if (args.json) { out(JSON.stringify({ switchOn: rewrites.on(), pairs: [...rewrites.folded(root).values()] }, null, 2)); return; }
+    out(rewrites.asText(root));
+  },
+
   'search-levers': async ({ args }) => {
     if (isHelp(args)) {
       out([

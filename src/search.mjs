@@ -34,6 +34,7 @@ import * as memory from './memory.mjs';
 import { BODY_FIELDS, NON_BODY_FIELDS } from './bodyfields.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import * as langbridge from './langbridge.mjs';
+import * as rewrites from './rewrites.mjs';
 import * as entity from './entity.mjs';
 import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
@@ -1582,6 +1583,26 @@ export function search(index, query, {
     }
   }
 
+  // The learned rewrite table (src/rewrites.mjs): question stem -> entry
+  // stem, from real misses (src/rewritecare.mjs), active only from
+  // MIN_SESSIONS independent sessions on, with decay and a kill switch
+  // (MEM_REWRITES=off). A table, no model. Like the bridge: half
+  // coverage and its own weight below the original, the bridge and the
+  // thesaurus — it only raises a weaker graph term, never overrides.
+  const rewriteTable = index.rewrites ?? null;
+  if (rewriteTable?.size) {
+    for (const packVariants of groups) {
+      const near = new Set();
+      for (const t of packVariants.flat()) for (const r of rewriteTable.get(t) ?? []) near.add(r.to);
+      for (const t of ownSet) near.delete(t);
+      if (!near.size) continue;
+      packVariants.rewritten = [...near];
+      for (const t of near) {
+        if ((terms.get(t) ?? 0) < rewrites.WEIGHT) terms.set(t, rewrites.WEIGHT);
+      }
+    }
+  }
+
   // Wildcard expansion terms (MANUAL search paths only — see
   // `extraTerms`'s own doc comment above). Same additive stacking rule
   // as the thesaurus/bridge loops just above: an exact typed word always
@@ -1661,7 +1682,8 @@ export function search(index, query, {
       let c = 0;
       for (const packVariants of groups) {
         if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) c += 1;
-        else if (packVariants.bridged?.some((t) => doc.weights.has(t))) c += 0.5;
+        else if (packVariants.bridged?.some((t) => doc.weights.has(t))
+          || packVariants.rewritten?.some((t) => doc.weights.has(t))) c += 0.5;
       }
       coveredShare = c / groups.length;
     }
@@ -1672,7 +1694,9 @@ export function search(index, query, {
         // M18b: a bridged word covers HALF — a translation is a guess
         // about the typed word, not the word itself (lucky-mem M18
         // measured full coverage: same hit rate, more risk).
-        else if (packVariants.bridged?.some((t) => doc.weights.has(t))) covered += 0.5;
+        // A rewritten word (src/rewrites.mjs) likewise: learned, not typed.
+        else if (packVariants.bridged?.some((t) => doc.weights.has(t))
+          || packVariants.rewritten?.some((t) => doc.weights.has(t))) covered += 0.5;
       }
       // **The floor (2026-09-20).** Until this day the line read
       //
@@ -2636,6 +2660,10 @@ export function loadIndex(root, opts = {}) {
     index.bridge = null;
     index.bridgeError = e.message;
   }
+  // The learned rewrite table rides on the index the same way: read
+  // fresh (stat-cached) on every load, never written to the cache, so a
+  // `mem rewrites care --write` or a lock needs no rebuild.
+  index.rewrites = rewrites.active(root);
   // Same reasoning as `bridge` just above: read fresh from config on
   // every load, never cached, so a deployment can point at its own
   // signal-word file without a rebuild. A broken CUSTOM file fails
