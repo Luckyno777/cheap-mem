@@ -81,8 +81,8 @@ Evidence and scope per cell:
   - `installer registers UserPromptSubmit -> cheap-mem-user-prompt.sh`
   - `install/hooks/user-prompt.sh`
   - `bin/mem-retrieve`
-- **claude-code / before-change: full.** Literal path lookup before Edit, Write and NotebookEdit, one journal line per lookup; once per file per session. Reading a file or a shell command does not trigger it.
-  - `installer registers PreToolUse[Edit|Write|NotebookEdit] -> cheap-mem-pre-edit.sh`
+- **claude-code / before-change: full.** Literal path lookup before Edit, Write and NotebookEdit, and before a shell command that writes a file (sed -i, tee, > file, cp, mv); one journal line per lookup; once per file per session. Reading a file, or a shell command that writes none, does not trigger it.
+  - `installer registers PreToolUse[Edit|Write|NotebookEdit|Bash] -> cheap-mem-pre-edit.sh`
   - `install/hooks/pre-edit.sh`
   - `bin/mem-before-edit`
   - `bin/mem-before-edit (contains OCCASION.BEFORE_EDIT)`

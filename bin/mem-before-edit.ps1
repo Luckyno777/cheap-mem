@@ -22,10 +22,11 @@
 # was being touched. None was shown, because between the person's
 # message and the write there is no event a hook hangs on.
 #
-# So: PreToolUse on Edit|Write, and the query is the PATH.
+# So: PreToolUse on Edit|Write|NotebookEdit, and on Bash when the command
+# writes a file (src/bashtargets.mjs); the query is the PATH.
 #
 # Wire it up in your assistant's settings as a PreToolUse hook:
-#   "PreToolUse": [{"matcher": "Edit|Write|NotebookEdit", "hooks": [{"type": "command",
+#   "PreToolUse": [{"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command",
 #     "command": "powershell -NoProfile -File C:\\path\\to\\bin\\mem-before-edit.ps1"}]}]
 #
 # Env (identical to the POSIX hook):
@@ -158,6 +159,17 @@ if ($In) {
     if ($j.tool_input) {
       if ($j.tool_input.file_path) { $p = [string]$j.tool_input.file_path }
       elseif ($j.tool_input.notebook_path) { $p = [string]$j.tool_input.notebook_path }
+    }
+    # Bash: the first file the command WRITES (sed -i, tee, > file,
+    # cp, mv), decided in ONE place - src/bashtargets.mjs - so the two
+    # hooks cannot drift. A command that writes no file stays silent,
+    # without a journal line, exactly like the POSIX hook.
+    if (-not $p -and [string]$j.tool_name -eq 'Bash' -and $j.tool_input -and $j.tool_input.command) {
+      $btPath = [System.IO.Path]::GetFullPath((Join-Path $ToolRoot 'src/bashtargets.mjs'))
+      $btUrl = ([System.Uri]::new($btPath)).AbsoluteUri
+      $env:MEM_BT_CMD = [string]$j.tool_input.command
+      $BtScript = 'import(process.argv[1]).then((m) => process.stdout.write(m.writeTargets(process.env.MEM_BT_CMD)[0] ?? "")).catch(() => {})'
+      $p = ((& node -e $BtScript $btUrl 2>$null) -join '').Trim()
     }
     if ($p) {
       $parts = $p -split '[\\/]' | Where-Object { $_ }

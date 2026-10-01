@@ -498,8 +498,9 @@ if (-not (Test-Path `$retrieve)) { exit 0 }
 
   @"
 # cheap-mem PreToolUse hook (Windows). Delegates to mem-before-edit.ps1.
-# The before-edit lane: it runs before an Edit/Write/NotebookEdit and
-# shows what the memory holds about THAT file. Model-free.
+# The before-edit lane: it runs before an Edit/Write/NotebookEdit (or a
+# Bash command that writes a file) and shows what the memory holds
+# about THAT file. Model-free.
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
@@ -640,10 +641,11 @@ if (-not (Test-Path `$subagent)) { exit 0 }
     Upsert-Hook $cfg['hooks'] 'SessionStart' 'cheap-mem-session-start.ps1' "$ps `"$startHookDst`""
     Upsert-Hook $cfg['hooks'] 'Stop'         'cheap-mem-session-stop.ps1'  "$ps `"$stopHookDst`""
     Upsert-Hook $cfg['hooks'] 'UserPromptSubmit' 'cheap-mem-user-prompt.ps1' "$ps `"$promptHookDst`""
-    # With a matcher - otherwise it would also run on Read and Bash, and
-    # the path of a file being READ is not an intention to change it.
+    # With a matcher - otherwise it would also run on Read, and the path
+    # of a file being READ is not an intention to change it. Bash is in
+    # when the command writes a file (src/bashtargets.mjs decides).
     # Same matcher as the POSIX side; it is the rule, not a preference.
-    Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit'
+    Upsert-Hook $cfg['hooks'] 'PreToolUse' 'cheap-mem-pre-edit.ps1' "$ps `"$editHookDst`"" 'Edit|Write|NotebookEdit|Bash'
     # Same matcher as the POSIX side (Bash only) - the rule, not a preference.
     Upsert-Hook $cfg['hooks'] 'PostToolUse' 'cheap-mem-catch-fail.ps1' "$ps `"$catchFailHookDst`"" 'Bash'
     # PostToolUseFailure (X2b): a tool call that really failed - another

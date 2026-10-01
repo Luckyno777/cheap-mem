@@ -44,7 +44,7 @@ test('POSITIVE: the registrations are read from the installer, not restated', ()
   const regs = c.registrations(REPO);
   assert.ok(regs.length >= 6, `only ${regs.length} registrations found`);
   assert.ok(regs.some((r) => r.event === 'SessionStart' && r.hook === 'cheap-mem-session-start.sh'));
-  assert.ok(regs.some((r) => r.event === 'PreToolUse' && r.matcher === 'Edit|Write|NotebookEdit'));
+  assert.ok(regs.some((r) => r.event === 'PreToolUse' && r.matcher === 'Edit|Write|NotebookEdit|Bash'));
   assert.equal(c.registrations(temp()), null, 'an unreadable installer is null, not an empty list');
 });
 

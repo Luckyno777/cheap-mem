@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: 2026 Lucky H.
 # SPDX-License-Identifier: MIT
-# pre-edit.sh — Claude Code PreToolUse hook (Edit|Write|NotebookEdit).
+# pre-edit.sh — Claude Code PreToolUse hook (Edit|Write|NotebookEdit|Bash).
 # Delegates to mem-before-edit, which recalls what the memory knows
 # about the file being touched — before it is touched.
 #

@@ -523,7 +523,7 @@ return, so a flood cannot become a denial of service or a context bill.
 |---|---|---|
 | `SessionStart` | session begins | prints `FACTS.md` + recent context |
 | `UserPromptSubmit` | every message | recalls matching memory (no model, ~ms) and feeds it to the turn; refreshes the clone in the background, detached |
-| `PreToolUse` (Edit/Write/NotebookEdit) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it — once per file per session |
+| `PreToolUse` (Edit/Write/NotebookEdit, and Bash when the command writes a file) | before a file changes | searches the memory for that PATH, literally, and shows errors, decisions and learnings naming it, plus open duties and released procedures for it — once per file per session |
 | `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
 | `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
 | `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |

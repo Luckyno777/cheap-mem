@@ -239,9 +239,12 @@ function upsertHook(event, script, matcher) {
 upsertHook('SessionStart', 'session-start');
 upsertHook('Stop', 'session-stop');
 upsertHook('UserPromptSubmit', 'user-prompt');
-// With a matcher — otherwise it would also run on Read and Bash, and
-// the path of a file being READ is not an intention to change it.
-upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit');
+// With a matcher — otherwise it would also run on Read, and the path
+// of a file being READ is not an intention to change it. Bash is in:
+// `sed -i`, `tee`, `> file`, `cp`, `mv` change a file like Edit does.
+// The hook itself drops every Bash call that writes no file, before a
+// node process starts (bin/mem-before-edit, src/bashtargets.mjs).
+upsertHook('PreToolUse', 'pre-edit', 'Edit|Write|NotebookEdit|Bash');
 // PostToolUse (success!), matcher `Bash` only — a DIFFERENT event from
 // any PostToolUseFailure hook, so the two can never register as
 // duplicates of each other; see bin/mem-catch-fail's own header for why

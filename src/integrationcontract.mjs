@@ -131,12 +131,12 @@ export const MATRIX = Object.freeze({
     [OCCASION.BEFORE_CHANGE]: {
       status: STATUS.FULL,
       entries: [
-        registered('PreToolUse', 'cheap-mem-pre-edit.sh', 'Edit|Write|NotebookEdit'),
+        registered('PreToolUse', 'cheap-mem-pre-edit.sh', 'Edit|Write|NotebookEdit|Bash'),
         file('install/hooks/pre-edit.sh'),
         file('bin/mem-before-edit'),
         contains('bin/mem-before-edit', 'OCCASION.BEFORE_EDIT'),
       ],
-      note: 'Literal path lookup before Edit, Write and NotebookEdit, one journal line per lookup; once per file per session. Reading a file or a shell command does not trigger it.',
+      note: 'Literal path lookup before Edit, Write and NotebookEdit, and before a shell command that writes a file (sed -i, tee, > file, cp, mv); one journal line per lookup; once per file per session. Reading a file, or a shell command that writes none, does not trigger it.',
     },
     [OCCASION.AFTER_ERROR]: {
       status: STATUS.FULL,
