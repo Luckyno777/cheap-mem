@@ -1,0 +1,24 @@
+{
+  "commit": "8a24c64",
+  "dirty": true,
+  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "trials": 30,
+  "killedWhileWriting": 30,
+  "acknowledged": 2769,
+  "lost": 0,
+  "corruptLines": 0,
+  "trialsWithLoss": 0,
+  "trialsWithCorruption": 0,
+  "writeAfterCrashFailed": 4,
+  "nextWriteAfterCrash": {
+    "n": 30,
+    "medianMs": 2.228,
+    "p95Ms": 10004,
+    "worstMs": 10008.418
+  },
+  "nextWriteErrors": [
+    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-mHchP8/.mem/locks/drawer-learning.lock' still held after 10000 m",
+    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-2QC2du/.mem/locks/drawer-learning.lock' still held after 10000 m",
+    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-1wKC7V/.mem/locks/drawer-learning.lock' still held after 10000 m"
+  ]
+}

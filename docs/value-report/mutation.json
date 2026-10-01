@@ -1,0 +1,7 @@
+{
+  "commit": "8a24c64",
+  "dirty": true,
+  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "state": "not-measured",
+  "why": "not run in this pass; add --mutation (it applies each security mutant and runs its own test suites, several minutes)"
+}

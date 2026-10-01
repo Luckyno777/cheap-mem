@@ -1,0 +1,104 @@
+{
+  "commit": "8a24c64",
+  "dirty": true,
+  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "queries": [
+    "connection pool blocked the event loop",
+    "billing",
+    "why did we revert the migration",
+    "rate limiter latency",
+    "auth token refresh",
+    "nobody could explain the failure"
+  ],
+  "sizes": {
+    "10000": {
+      "state": "measured",
+      "cold": {
+        "n": 24,
+        "medianMs": 480.23,
+        "p95Ms": 546.53,
+        "worstMs": 572.77
+      },
+      "warm": {
+        "n": 60,
+        "medianMs": 29.06,
+        "p95Ms": 38.257,
+        "worstMs": 78.97
+      },
+      "queries": 6
+    },
+    "100000": {
+      "state": "measured",
+      "cold": {
+        "n": 24,
+        "medianMs": 2583.84,
+        "p95Ms": 2780.17,
+        "worstMs": 2860.53
+      },
+      "warm": {
+        "n": 60,
+        "medianMs": 206.844,
+        "p95Ms": 282.957,
+        "worstMs": 315.098
+      },
+      "queries": 6
+    }
+  },
+  "firstSearch": {
+    "10000": {
+      "state": "measured",
+      "ms": 1845.8
+    },
+    "100000": {
+      "state": "measured",
+      "ms": 12028.7
+    }
+  },
+  "afterWrite": {
+    "10000": {
+      "state": "measured",
+      "n": 5,
+      "medianMs": 593.29,
+      "p95Ms": 681.2,
+      "worstMs": 681.2
+    },
+    "100000": {
+      "state": "measured",
+      "n": 5,
+      "medianMs": 2543.07,
+      "p95Ms": 2567.59,
+      "worstMs": 2567.59
+    }
+  },
+  "write": {
+    "10000": {
+      "state": "measured",
+      "n": 53,
+      "medianMs": 19.973,
+      "p95Ms": 28.858,
+      "worstMs": 34.577
+    },
+    "100000": {
+      "state": "measured",
+      "n": 53,
+      "medianMs": 210.166,
+      "p95Ms": 244.292,
+      "worstMs": 254.589
+    }
+  },
+  "growth": [
+    {
+      "from": 10000,
+      "to": 100000,
+      "notesFactor": 10,
+      "coldMedianFactor": 5.38,
+      "coldMedianExponent": 0.73,
+      "coldP95Factor": 5.09,
+      "coldP95Exponent": 0.71,
+      "warmMedianFactor": 7.12,
+      "warmMedianExponent": 0.85,
+      "warmP95Factor": 7.4,
+      "warmP95Exponent": 0.87
+    }
+  ]
+}

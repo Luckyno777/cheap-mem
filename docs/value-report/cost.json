@@ -1,0 +1,72 @@
+{
+  "commit": "8a24c64",
+  "dirty": true,
+  "measuredAt": "2026-10-01T19:13:22.049Z",
+  "tickMin": 10,
+  "scenarios": {
+    "idle": {
+      "label": "idle: nothing captured",
+      "days": 1,
+      "captures": 0,
+      "captureKB": 0,
+      "calls": 0,
+      "callsPerDay": 0,
+      "reasons": {}
+    },
+    "away": {
+      "label": "away for a week after one small pile",
+      "days": 7,
+      "captures": 1,
+      "captureKB": 40,
+      "calls": 1,
+      "callsPerDay": 0.14,
+      "reasons": {
+        "quiet": 1
+      }
+    },
+    "light": {
+      "label": "light day: 6 captures of 20 KB",
+      "days": 1,
+      "captures": 6,
+      "captureKB": 20,
+      "calls": 3,
+      "callsPerDay": 3,
+      "reasons": {
+        "quiet": 3
+      }
+    },
+    "typical": {
+      "label": "typical day: 12 captures of 40 KB",
+      "days": 1,
+      "captures": 12,
+      "captureKB": 40,
+      "calls": 4,
+      "callsPerDay": 4,
+      "reasons": {
+        "quiet": 4
+      }
+    },
+    "heavy": {
+      "label": "heavy day: 40 captures of 100 KB",
+      "days": 1,
+      "captures": 40,
+      "captureKB": 100,
+      "calls": 8,
+      "callsPerDay": 8,
+      "reasons": {
+        "volume": 7,
+        "quiet": 1
+      }
+    }
+  },
+  "dollars": {
+    "state": "not-measured",
+    "why": "the price of one call depends on your model and plan; the code states no price. bin/mem-digest journals the real cost of every run to .pipeline/model-cost.jsonl (read from the CLI, labelled an estimate), so your own figure appears after your first digest."
+  },
+  "thresholds": {
+    "volumeNow": 512000,
+    "volumeMin": 32768,
+    "quietMs": 2700000,
+    "ceilingMs": 28800000
+  }
+}
