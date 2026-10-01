@@ -13,6 +13,9 @@
 // something says nothing.
 // Covers an assurance from shared/invariants.jsonl.
 // invariant: unterprozess-nennt-ursache
+// Cleanup retries (chain run 2026-10-01): under the full suite a rmdir hit
+// ENOTEMPTY once — a background writer was still finishing in the temp root.
+// maxRetries makes rmSync try again instead of failing the test on cleanup.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -106,7 +109,7 @@ test('THE FALSIFICATION: a path no entry names stays silent', () => {
   try {
     const { raw } = call(root, { file: '/x/src/nothing-here.mjs' });
     assert.equal(raw, '', `it spoke anyway: ${raw}`);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('THE CASE: the entry about the touched file arrives', () => {
@@ -117,7 +120,7 @@ test('THE CASE: the entry about the touched file arrives', () => {
     assert.ok(json, `nothing printed ${warum(a)}`);
     assert.match(json.hookSpecificOutput.additionalContext, /unquoted-path/);
     assert.equal(json.hookSpecificOutput.hookEventName, 'PreToolUse');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('warning lanes only — a thought about the same file stays out', () => {
@@ -125,7 +128,7 @@ test('warning lanes only — a thought about the same file stays out', () => {
   try {
     const { json } = call(root, { file: '/home/x/cheap-mem/install/claude-code.sh' });
     assert.ok(!/pleasant/.test(json.hookSpecificOutput.additionalContext));
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('twice on the same file: a pointer the second time, NEVER silence', () => {
@@ -152,7 +155,7 @@ test('twice on the same file: a pointer the second time, NEVER silence', () => {
     assert.ok(!/went wrong here before/.test(t),
       `the second call repeated the block ${warum(two)}`);
     assert.ok(two.raw.length < one.raw.length, 'the pointer is not shorter than the block');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('an entry arriving DURING the session brings the full block back', () => {
@@ -174,7 +177,7 @@ test('an entry arriving DURING the session brings the full block back', () => {
     assert.match(t, /brand-new|empty HOME|went wrong here before/,
       'the new entry was withheld');
     assert.ok(!/already injected/.test(t), 'only a pointer despite a new entry');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('when the memory grows ELSEWHERE it stays a pointer', () => {
@@ -193,7 +196,7 @@ test('when the memory grows ELSEWHERE it stays a pointer', () => {
     const t = a.json.hookSpecificOutput.additionalContext;
     assert.match(t, /already injected/,
       `a foreign entry triggered the whole block again ${warum(a)}`);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('a different session starts over', () => {
@@ -202,7 +205,7 @@ test('a different session starts over', () => {
     const f = '/home/x/cheap-mem/install/claude-code.sh';
     call(root, { file: f, session: 's1' });
     assert.ok(call(root, { file: f, session: 's2' }).raw);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('a Windows ROOT is found too', () => {
@@ -230,7 +233,7 @@ test('a Windows ROOT is found too', () => {
     assert.equal(schief.json.hookSpecificOutput.additionalContext,
       gerade.json.hookSpecificOutput.additionalContext,
       'both spellings of the same root must give the same answer');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('a Windows path is split too', () => {
@@ -243,7 +246,7 @@ test('a Windows path is split too', () => {
     const { json } = a;
     assert.ok(json, `a Windows path produced nothing ${warum(a)}`);
     assert.match(json.hookSpecificOutput.additionalContext, /unquoted-path/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('SECOND CHANNEL: the hit is visible to the person as well', () => {
@@ -254,7 +257,7 @@ test('SECOND CHANNEL: the hit is visible to the person as well', () => {
     const { json } = call(root, { file: '/a/install/claude-code.sh' });
     assert.match(json.systemMessage, /install\/claude-code\.sh/);
     assert.match(json.systemMessage, /1 entry\b/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('MEM_HOOK_OFF stops it, like every other hook', () => {
@@ -266,7 +269,7 @@ test('MEM_HOOK_OFF stops it, like every other hook', () => {
       env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_HOOK_OFF: '1' },
     });
     assert.equal(String(r.stdout).trim(), '');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('broken hook JSON never holds up an edit', () => {
@@ -278,7 +281,7 @@ test('broken hook JSON never holds up an edit', () => {
     });
     assert.equal(r.status, 0);
     assert.equal(String(r.stdout).trim(), '');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
 });
 
 test('without a memory it ends quietly', () => {
