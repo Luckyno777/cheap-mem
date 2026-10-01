@@ -39,6 +39,7 @@ test('writeTargets: silence where nothing readable is written', () => {
   for (const c of [
     "sed -n '1,5p' src/x.mjs",           // sed without -i reads
     'cmd >/dev/null 2>&1',                // only /dev/null and a dup
+    'node run.mjs > /tmp/run-1.log',      // scratch space
     'cp -r src build',                    // directories, no extension
     'echo $X > $S/out.tap',               // decided at run time
     "node -e 'const f=(a)=>a>b.txt'",     // inside quotes: data

@@ -136,10 +136,26 @@ test('CAPPED: five open duties for the file show at most two', () => {
 test('TABLE PATH: the same answer when the component table is fresh', () => {
   const root = memory(FULL);
   try {
+    // The table knows only git-tracked paths and reads test/ (as
+    // test/component-table.test.mjs sets it up): a throwaway fixture
+    // repo, unsigned like that fixture, with the file it is about.
+    fs.mkdirSync(path.join(root, 'install'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'install', 'claude-code.sh'), '#!/bin/sh\n');
+    fs.mkdirSync(path.join(root, 'test'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'test', 'keep.test.mjs'), '// fixture\n');
+    const git = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+    git('init', '-q');
+    git('config', 'user.email', 'fixture@example.invalid');
+    git('config', 'user.name', 'Fixture');
+    git('config', 'commit.gpgsign', 'false');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'fixture');
     const b = spawnSync('node', [MEM, '--root', root, 'component', '--rebuild'], { encoding: 'utf8', timeout: 30000 });
     assert.equal(b.status, 0, b.stderr);
     const j = componentJson(root);
     assert.equal(j.table.usedTable, true, 'control: the table answered');
+    assert.match(j.hits.map((h) => h.label).join('\n'), /CLOSED-DUTY/,
+      'control: the table hands the closed duty over as a hit — only the filter keeps it out');
     const { ctx } = hook(root);
     assert.match(ctx, /\(open duty\).*OWED-GUARD/);
     assert.match(ctx, /\(procedure\).*RULE-IN-FORCE/);

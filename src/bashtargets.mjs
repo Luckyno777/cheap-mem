@@ -13,7 +13,7 @@
  * reader (quotes, backslashes, control operators, heredoc bodies
  * skipped) and five write shapes:
  *
- *   - redirection `>`, `>>`, `>|`, `&>`, `N>` (never `N>&M`, never /dev/…)
+ *   - redirection `>`, `>>`, `>|`, `&>`, `N>` (never `N>&M`, /dev, /tmp)
  *   - `sed -i` / `--in-place` (the files after the script)
  *   - `tee [-a] FILE…`
  *   - `cp SRC… DEST` (DEST), `mv SRC… DEST` (DEST and the SRCs)
@@ -125,7 +125,10 @@ function plausibleFile(t) {
   if (!t || t.dynamic || typeof t.w !== 'string') return false;
   const w = t.w;
   if (!w || w.startsWith('-') || DUP.test(w)) return false;
-  if (/^\/(dev|proc|sys)\//.test(w)) return false;
+  // Devices, and scratch space: a log under /tmp is never what an entry
+  // is about, and every lookup for one costs a full search (measured
+  // ~0.7 s under load) on one of the most common shell writes there is.
+  if (/^\/(dev|proc|sys|tmp|var\/tmp)\//.test(w)) return false;
   const base = w.split(/[\\/]/).filter(Boolean).pop() ?? '';
   return /^[^.].*\.[A-Za-z0-9]{1,8}$/.test(base) || /^\.[^.\s]+\.[A-Za-z0-9]{1,8}$/.test(base);
 }
