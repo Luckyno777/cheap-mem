@@ -275,6 +275,8 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // procedure status yet.
   // H7 (2026-10-01): 'skill-wirkung' added on the lucky-mem side (share of
   // offered skills that were fetched), mapped as a gap: no registry here yet.
+  // Riegel C (2026-10-01): 'main-ungeprueft' added on the lucky-mem side (code
+  // commits on main without a tested-tree line), mapped as a gap.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -285,7 +287,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
     'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kennzahlen-gleich',
-    'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'modell-start', 'nachher-haken',
+    'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'post-ungepusht', 'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag', 'riegel-prueft-das-falsche-verdacht', 'rohfang',
     'rueckstand', 'sicherung', 'skill-nachschaerfen', 'skill-nutzung', 'skill-wirkung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
