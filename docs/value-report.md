@@ -52,10 +52,10 @@ Measured at commit `a831c45` on 2026-10-01; sizes in this run: 10k, 100k. Machin
 
 ### Never loses a note
 
-- Killing the writer mid-write 30 times, 0 of 2829 acknowledged notes were missing afterwards. Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/lost`.
+- Killing the writer mid-write 30 times, 0 of 3225 acknowledged notes were missing afterwards. Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/lost`.
 - Killing the writer mid-write 30 times left 0 damaged lines in the note files. Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/corruptLines`.
-- After the crash, the next write failed in 2 of 30 trials (the crashed writer’s lock had to expire first). Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/writeAfterCrashFailed`.
-- The next write after a crash took 2.20 ms (median) and 10002 ms in the worst of 30 trials. Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/nextWriteAfterCrash/worstMs`.
+- After the crash, the next write failed in 5 of 30 trials (the crashed writer’s lock had to expire first). Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/writeAfterCrashFailed`.
+- The next write after a crash took 2.43 ms (median) and 10008 ms in the worst of 30 trials. Method: [durability](#method). Raw: [durability.json](value-report/durability.json) `/nextWriteAfterCrash/worstMs`.
 
 ### Keeps secrets out
 
@@ -129,8 +129,8 @@ Measured at commit `a831c45` on 2026-10-01; sizes in this run: 10k, 100k. Machin
 |---|---:|---|---|
 | Notes lost after a crash | 0 | [durability](#method) | [durability.json](value-report/durability.json) `/lost` |
 | Corrupt lines after a crash | 0 | [durability](#method) | [durability.json](value-report/durability.json) `/corruptLines` |
-| Writes that failed after a crash | 2 | [durability](#method) | [durability.json](value-report/durability.json) `/writeAfterCrashFailed` |
-| Next write after a crash, worst | 10002 ms | [durability](#method) | [durability.json](value-report/durability.json) `/nextWriteAfterCrash/worstMs` |
+| Writes that failed after a crash | 5 | [durability](#method) | [durability.json](value-report/durability.json) `/writeAfterCrashFailed` |
+| Next write after a crash, worst | 10008 ms | [durability](#method) | [durability.json](value-report/durability.json) `/nextWriteAfterCrash/worstMs` |
 
 ### Keeps secrets out
 

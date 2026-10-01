@@ -405,7 +405,7 @@ export async function measureDurability({ trials = 30, seed = 11 } = {}) {
         memory.logCheckedEntry(root, 'learning', { id: `after-${t}`, title: 'after the crash', text: 'next write', agent: 'human:alex' }, { now: new Date() });
         const again = readAllNotes(root);
         if (!again.ids.has(`after-${t}`) || again.corrupt > seen.corrupt) { out.writeAfterCrashFailed += 1; errors.add('next write left the files invalid'); }
-      } catch (e) { out.writeAfterCrashFailed += 1; errors.add(String(e.message).slice(0, 160)); }
+      } catch (e) { out.writeAfterCrashFailed += 1; errors.add(String(e.message).split(root).join('<memory>').slice(0, 160)); }
       after.push(performance.now() - t1);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   }
@@ -950,10 +950,11 @@ async function main() {
   const base = { ...st, sizes, environment: { cpuModel: env.cpuModel, cpuCount: env.cpuCount, node: env.node, totalMemMB: env.totalMemMB, loadAvg1AtStart: env.loadAvg1 ?? null } };
 
   const per = {};
-  for (const n of sizes) { process.stderr.write(`size ${sizeLabel(n)} ...\n`); per[n] = await measureSize(n, o); }
+  const needSizes = ['recall', 'speed', 'space'].some((k) => only.has(k));
+  if (needSizes) for (const n of sizes) { process.stderr.write(`size ${sizeLabel(n)} ...\n`); per[n] = await measureSize(n, o); }
 
   const out = { ...prev };
-  out.meta = base;
+  if (needSizes) out.meta = base;
   if (only.has('recall')) out.recall = { ...st, sizes: Object.fromEntries(sizes.map((n) => [n, per[n].recall])) };
   if (only.has('speed')) {
     const bySize = Object.fromEntries(sizes.map((n) => [n, per[n].speed]));

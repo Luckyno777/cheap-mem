@@ -1,23 +1,23 @@
 {
-  "commit": "a831c45",
-  "dirty": false,
-  "measuredAt": "2026-10-01T19:39:14.408Z",
+  "commit": "7400157",
+  "dirty": true,
+  "measuredAt": "2026-10-01T19:49:40.916Z",
   "trials": 30,
   "killedWhileWriting": 30,
-  "acknowledged": 2829,
+  "acknowledged": 3225,
   "lost": 0,
   "corruptLines": 0,
   "trialsWithLoss": 0,
   "trialsWithCorruption": 0,
-  "writeAfterCrashFailed": 2,
+  "writeAfterCrashFailed": 5,
   "nextWriteAfterCrash": {
     "n": 30,
-    "medianMs": 2.196,
-    "p95Ms": 10001.934,
-    "worstMs": 10002.431
+    "medianMs": 2.427,
+    "p95Ms": 10002.569,
+    "worstMs": 10007.709
   },
   "nextWriteErrors": [
-    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-Z7DFBU/.mem/locks/drawer-learning.lock' still held after 10000 m",
-    "lock '/tmp/claude-0/-home-user/4c275479-856b-5c13-81f5-84223c76ef13/scratchpad/vr-data/vr-crash-umOWcX/.mem/locks/drawer-learning.lock' still held after 10000 m"
+    "lock '<memory>/.mem/locks/drawer-learning.lock' still held after 10000 ms (owner: 29566 vm 2026-10-01T19:49:41.269Z 76ef2c265ac8); a lock older than 120 s would",
+    "lock '<memory>/.mem/locks/drawer-learning.lock' still held after 10000 ms (owner: unknown); a lock older than 120 s would be taken over."
   ]
 }
