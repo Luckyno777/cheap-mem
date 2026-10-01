@@ -176,10 +176,18 @@ export function readLines(root) {
   return { lines, broken };
 }
 
-/** The order every host agrees on: time, then stable key. */
+/**
+ * The order every host agrees on: time, then kind, then stable key. Kind
+ * comes before the key because a closing line needs its claim: in the SAME
+ * millisecond the random id decided otherwise, and a `failed`/`done` came
+ * before its own claim about every second time and was read as invalid
+ * (chain run 2026-10-01; probe test/claim-same-millisecond).
+ */
+const KIND_RANK = { claim: 0, renew: 1, done: 2, failed: 2 };
 function key(z) { return `${z.claimed_by ?? z.by}\u0000${z.id}`; }
 function order(lines) {
   return [...lines].sort((a, b) => (Date.parse(a.time) - Date.parse(b.time))
+    || ((KIND_RANK[a.kind] ?? 3) - (KIND_RANK[b.kind] ?? 3))
     || (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
