@@ -138,7 +138,7 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",async()=>{
   $env:ROOT = $Root
   $SelPath = [System.IO.Path]::GetFullPath((Join-Path $Here '../src/digestselect.mjs'))
   $SelUrl = ([System.Uri]::new($SelPath)).AbsoluteUri
-  $Chosen = ($PendingJson | & node -e $SelectScript $SelUrl) -split "`n" | Where-Object { $_ }
+  $Chosen = ($PendingJson | & node -e $SelectScript $SelUrl 2>$null) -split "`n" | Where-Object { $_ }
   # The selection stage's exit code is a verdict: a failure (unreadable
   # JSON, no rawSizes) leaves $Chosen empty and must not be reported as
   # "nothing to do".

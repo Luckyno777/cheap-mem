@@ -332,7 +332,7 @@ test('no hook passes a bare path along as an ESM specifier', () => {
     // guard switched off. The RULE is unchanged: the last argument must
     // name a URL, not a path.
     const handoffs = [
-      ...(text.match(/'\s+"\$[A-Z_]+"\s+2>\/dev\/null/g) ?? []),
+      ...(text.match(/'\s+"\$[A-Z_]+"\s+2>(?:\/dev\/null|>"\$[A-Z_]+")/g) ?? []),
       ...(text.match(/node -e \$[A-Za-z]+\s+\$[A-Za-z]+\s+2>\$null/g) ?? []),
     ];
     assert.ok(handoffs.length > 0, `${name}: no handoff found`);
