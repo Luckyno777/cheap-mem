@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
+// @ts-check
 /**
  * recallserver-keeper.mjs — keeps the warm recall server running (M10 follow-up).
  *
@@ -93,13 +94,13 @@ export function keep(root, { env = process.env, log = null, now = () => Date.now
 
   return {
     starts,
-    stop: () => new Promise((resolve) => {
+    stop: () => new Promise(/** @type {(resolve: (v?: any) => void) => void} */ ((resolve) => {
       unhook();
       off = true;
       if (timer) clearTimeout(timer);
       if (!child) { resolve(); return; }
       child.once('exit', () => resolve());
       child.kill('SIGTERM');
-    }),
+    })),
   };
 }
