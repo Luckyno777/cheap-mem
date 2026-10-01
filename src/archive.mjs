@@ -433,10 +433,14 @@ export function inRange(rows, { from, to, hourFrom, hourTo } = {}) {
   // range at all (`mem raw export` with nothing but --into) silently lost
   // every capture that has no date, and the count it printed was smaller than
   // the register's. A time filter only filters when somebody names a time.
-  if (!from && !to && hourFrom == null && hourTo == null) return [...rows];
+  // A tombstone is a register row about a capture, not a capture: it has no
+  // dates of its own, so the date filter always dropped it; with no filter it
+  // must be dropped here, or every deleted capture counts twice.
+  const captures = rows.filter((s) => s?.record !== DELETED_MARK);
+  if (!from && !to && hourFrom == null && hourTo == null) return captures;
   const fromT = from ? Date.parse(from.length <= 10 ? `${from}T00:00:00Z` : from) : -Infinity;
   const toT = to ? Date.parse(to.length <= 10 ? `${to}T23:59:59Z` : to) : Infinity;
-  return rows.filter((s) => {
+  return captures.filter((s) => {
     const when = s.ts_to ?? s.captured_at;
     if (!when) return false;
     const t = Date.parse(when);
