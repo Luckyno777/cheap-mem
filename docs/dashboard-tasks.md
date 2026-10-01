@@ -42,7 +42,7 @@ and none of them fits cleanly:
 
 `KINDS` in `src/tasks.mjs` therefore held two entries, not three, when this
 was written (`export`, `integrity`); the dashboard port of 2026-09-28 added
-two that take parameters (`raw-delete`, `done`), so it holds four now.
+two that take parameters (`raw-delete`, `done`), so it holds four now (the kinds restore and merge came later: six in all).
 `mem doctor` was checked too (the plan text's other guess, mirroring
 lucky-mem's own dead end with `mem doktor --tief`) and has no `--deep`
 or comparable flag; it is a fast set of findings, not a long-running

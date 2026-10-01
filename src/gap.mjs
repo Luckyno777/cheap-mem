@@ -61,6 +61,7 @@ import * as injection from './injection.mjs';
 import * as memory from './memory.mjs';
 import * as search from './search.mjs';
 import * as userhabits from './userhabits.mjs';
+import * as raw from './raw.mjs';
 import * as goldlog from './goldlog.mjs';
 
 /** Same shape as `goldlog.sessionFromPath` — kept local so this module
@@ -157,8 +158,19 @@ export function closingEntry(stems, ts, entries) {
  * The whole sweep: open/closed/unknown MISS candidates. `unknown` holds
  * candidates whose question text could not be recovered from any real
  * capture (nothing to tokenize on) — never folded into "open".
+ *
+ * Rows carry `capture`/`line` (where the question was found) and never
+ * the question text or its stems.
  */
-export function sweep(root, { since = null, entries = null, messages = null, toleranceMs = 15000 } = {}) {
+export function sweep(root, opts = {}) {
+  const d = sweepDetailed(root, opts);
+  if (!d.readable) return d;
+  const bare = (row) => { const { _stems, _msg, ...rest } = row; return rest; };
+  return { ...d, open: d.open.map(bare), closed: d.closed.map(bare) };
+}
+
+/** Same as {@link sweep}, but open/closed rows still carry `_stems` and `_msg` (in memory only). */
+function sweepDetailed(root, { since = null, entries = null, messages = null, toleranceMs = 15000 } = {}) {
   const j = injection.read(root);
   if (!j.present) return { readable: false, reason: 'no injection journal — nothing to sweep', open: [], closed: [], unknown: [] };
 
@@ -174,12 +186,151 @@ export function sweep(root, { since = null, entries = null, messages = null, tol
     if (!msg) { unknown.push({ ts: c.ts, session: c.session, reason: c.reason }); continue; }
     const stems = stemsOf(msg.text);
     if (!stems.size) { unknown.push({ ts: c.ts, session: c.session, reason: c.reason }); continue; }
-    const row = { ts: c.ts, session: c.session, reason: c.reason, stemCount: stems.size };
+    const row = {
+      ts: c.ts, session: c.session, reason: c.reason, stemCount: stems.size,
+      capture: msg.path ?? null, line: msg.line ?? null, _stems: stems, _msg: msg,
+    };
     const closes = closingEntry(stems, c.ts, allEntries);
     if (closes) closed.push({ ...row, entryId: closes.id, closedAt: closes.ts, overlap: closes.overlap.length });
     else open.push(row);
   }
   return { readable: true, reason: null, open, closed, unknown };
+}
+
+// -- Open gaps (parity with the sibling's R1, `luecken.mjs` 2b19ffd6) ------
+
+/**
+ * A miss alone is not yet a finding. It becomes an OPEN gap only when
+ * the session itself, AFTER the miss, either worked out the same topic
+ * (>= {@link minOverlap} shared stems with its own later text) or called
+ * its answer unproven. Otherwise a bare miss is noise — without this,
+ * every `too-weak` journal line would be a task and the list as long as
+ * the journal itself. Wording mirrors the house rule "what is not
+ * evidenced is TBD".
+ */
+export const UNPROVEN_MARKERS = Object.freeze([
+  /\btbd\b/i,
+  /\bnot (?:documented|recorded|established|evidenced)\b/i,
+  /\bi (?:do not|don't) know\b/i,
+]);
+
+function syntheticLine(o) {
+  // The harness talking to itself (hooks, subagent handbacks, side
+  // chains) is not the session working the topic out.
+  if (!o || typeof o !== 'object') return true;
+  if (o.isMeta || o.isSidechain) return true;
+  if (o.type === 'user' && !userhabits.isRealUserMessage(o)) return true;
+  return false;
+}
+
+/**
+ * Evidence for ONE miss row: `{ state: 'measured', workedOut, unproven,
+ * overlap }`, or `{ state: 'unknown' }` when the capture cannot be read
+ * (archive not mounted) — never folded into "no evidence". Reads only;
+ * the text is tokenized, never kept or quoted.
+ */
+export function evidence(root, row, { read = raw.readCapture } = {}) {
+  if (!row?.capture || !row._stems) return { state: 'unknown' };
+  let lines;
+  try { ({ lines } = read(root, row.capture)); } catch { return { state: 'unknown' }; }
+  const limit = Date.parse(String(row.ts ?? ''));
+  if (!Number.isFinite(limit)) return { state: 'unknown' };
+  const parts = [];
+  for (const o of lines) {
+    if (syntheticLine(o)) continue;
+    const t = Date.parse(o.timestamp ?? o.ts ?? '');
+    // No provable time -> not counted: better a gap wrongly left out
+    // than evidence invented from a line that may predate the question.
+    if (!Number.isFinite(t) || t <= limit) continue;
+    const text = raw.textOf(o);
+    // The question itself (its journal line may be a moment older than
+    // the captured message) is not the answer.
+    if (text && !(o.type === 'user' && row._msg && text === row._msg.text)) parts.push(text);
+  }
+  const text = parts.join(' ');
+  if (!text) return { state: 'measured', workedOut: false, unproven: false, overlap: 0 };
+  const later = stemsOf(text);
+  const overlap = [...row._stems].filter((st) => later.has(st)).length;
+  return {
+    state: 'measured',
+    workedOut: overlap >= minOverlap(row._stems.size),
+    unproven: UNPROVEN_MARKERS.some((re) => re.test(text)),
+    overlap,
+  };
+}
+
+/**
+ * Open and closed gaps. `open` holds only misses with evidence (see
+ * above); `noise` counts misses without any, `unknown` those whose text
+ * or capture could not be read. Nothing is written.
+ */
+export function gaps(root, opts = {}) {
+  const d = sweepDetailed(root, opts);
+  if (!d.readable) return { readable: false, reason: d.reason, open: [], closed: [], noise: 0, unknown: 0 };
+  const strip = (row) => { const { _stems, _msg, ...rest } = row; return rest; };
+  const open = [];
+  let noise = 0;
+  let unknown = d.unknown.length;
+  for (const row of d.open) {
+    const ev = evidence(root, row, { read: opts.read ?? raw.readCapture });
+    if (ev.state === 'unknown') { unknown += 1; continue; }
+    if (!ev.workedOut && !ev.unproven) { noise += 1; continue; }
+    open.push({ ...strip(row), evidence: [ev.workedOut ? 'worked-out' : null, ev.unproven ? 'marked-unproven' : null].filter(Boolean) });
+  }
+  return { readable: true, reason: null, open, closed: d.closed.map(strip), noise, unknown };
+}
+
+/**
+ * ISO week key (`YYYY-Www`) of a timestamp; `null` for an unreadable
+ * one instead of a guessed week.
+ */
+export function weekKey(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const weekday = (day.getUTCDay() + 6) % 7; // Monday = 0
+  day.setUTCDate(day.getUTCDate() - weekday + 3); // the Thursday of that week
+  const yearStart = new Date(Date.UTC(day.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((day - yearStart) / 86400000 - 3 + ((yearStart.getUTCDay() + 6) % 7)) / 7);
+  return `${day.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
+/**
+ * Open/closed per calendar week, oldest first. `rate` is open / (open +
+ * closed) of that week; `null` when the week saw no gap at all — "no
+ * information" is not "rate 0".
+ */
+export function ratePerWeek({ open = [], closed = [] } = {}) {
+  const weeks = new Map();
+  const add = (list, field) => {
+    for (const e of list) {
+      const w = weekKey(e.ts);
+      if (!w) continue;
+      if (!weeks.has(w)) weeks.set(w, { week: w, open: 0, closed: 0 });
+      weeks.get(w)[field] += 1;
+    }
+  };
+  add(open, 'open');
+  add(closed, 'closed');
+  return [...weeks.values()]
+    .map((r) => ({ ...r, rate: (r.open + r.closed) ? r.open / (r.open + r.closed) : null }))
+    .sort((a, b) => a.week.localeCompare(b.week));
+}
+
+/** Plain-text report for `mem gaps`. Never prints question text or stems. */
+export function asText(g, { top = 20 } = {}) {
+  if (!g.readable) return `not measurable: ${g.reason}`;
+  const line = (e) => `  ${e.ts}  session ${e.session ?? '?'}  [${e.evidence?.join(',') ?? 'closed'}]`;
+  const out = [`OPEN KNOWLEDGE GAPS: ${g.open.length}`];
+  for (const e of g.open.slice(0, top)) out.push(line(e));
+  if (g.open.length > top) out.push(`  ... and ${g.open.length - top} more`);
+  out.push('');
+  out.push(`CLOSED KNOWLEDGE GAPS: ${g.closed.length}`);
+  for (const e of g.closed.slice(0, top)) out.push(`${line(e)} -> ${e.entryId} (${e.closedAt})`);
+  if (g.closed.length > top) out.push(`  ... and ${g.closed.length - top} more`);
+  out.push('');
+  out.push(`Misses without a follow-up (noise): ${g.noise}; not measurable: ${g.unknown}`);
+  return out.join('\n');
 }
 
 // -- N18: gap -> gold candidate --------------------------------------------

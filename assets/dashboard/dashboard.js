@@ -2173,6 +2173,26 @@ precision mediump float;
 varying vec3 vColor; varying float vAlpha; varying float vFog;
 void main(){ gl_FragColor = vec4(mix(vColor, vec3(0.031, 0.086, 0.098), vFog), vAlpha); }`;
 
+// Render load (parity with the sibling's 41ea1e12 + c669e71): both draw
+// loops (3D network, full-screen background shader) rest while the page
+// is hidden OR a dialog (palette, detail, editor) is open — nobody sees
+// a moving picture behind it, and a software-GL process would otherwise
+// keep several cores busy. Closing a dialog (event `close`) wakes both.
+const RESTING = () => document.hidden || !!document.querySelector('dialog[open]');
+// After 60 s without input (pointer, key, wheel) both loops do NOT stop but
+// slow to ~10 frames/s with a real-time step (same motion per second).
+// Any input lifts them back to the full rate. A full stop remains only for
+// RESTING() and prefers-reduced-motion (state.motion).
+// `window.CM_IDLE_MS` is only the probes' test hook.
+const IDLE_FRAME_MS = 95; // minimum gap between two frames when idle (~10/s)
+let lastAction = performance.now();
+const THROTTLED = () => performance.now() - lastAction > (window.CM_IDLE_MS || 60000);
+const wakers = new Set();
+['pointermove', 'pointerdown', 'keydown', 'wheel', 'touchstart'].forEach((ev) => document.addEventListener(ev, () => {
+  const idle = THROTTLED();
+  lastAction = performance.now();
+  if (idle) wakers.forEach((f) => f());
+}, { passive: true, capture: true }));
 // --- The network hull: ONE cloud of light fog (sphaere, 2026-09-28) ---------
 // The owner: "the sphere looks too much like a soap bubble; we want a
 // cloud-like look marked by light fog that fades out towards the edge and
@@ -2928,7 +2948,15 @@ function initGraph() {
   }
   function draw(now = performance.now(), force = false) {
     if (dead) return;
-    const dt = Math.min(0.05, (now - last) / 1000 || 0.016);
+    // Resting (no drag, no hover, no flight): the network turns only slowly
+    // (0.027 rad/s) — 20 frames/s are enough. After 60 s without input only
+    // ~10 frames/s (also with a pointer parked over a node).
+    const idle = THROTTLED();
+    if (!force && !transition && (idle || (!pointers.size && !hoverId && !hoverGroup)) && now - last < (idle ? IDLE_FRAME_MS : 45)) {
+      if (((state.motion && onScreen) || transition) && !RESTING()) frame = requestAnimationFrame(draw);
+      return;
+    }
+    const dt = Math.min(idle ? 0.2 : 0.05, (now - last) / 1000 || 0.016);
     last = now;
     fps.frames++;
     if (now - fps.t0 > 1000) {
@@ -2968,7 +2996,7 @@ function initGraph() {
     cam.updateMatrixWorld();
     renderer.render(scene, cam);
     refreshProjected();
-    if (((state.motion && onScreen) || transition) && !document.hidden) frame = requestAnimationFrame(draw);
+    if (((state.motion && onScreen) || transition) && !RESTING()) frame = requestAnimationFrame(draw);
   }
   function redraw() {
     cancelAnimationFrame(frame);
@@ -3210,6 +3238,8 @@ function initGraph() {
   const observer = new ResizeObserver(resize);
   observer.observe(viewport);
   document.addEventListener('visibilitychange', redraw);
+  document.addEventListener('close', redraw, true);
+  wakers.add(redraw);
   graphAPI = {
     zoom, reset, focus, redraw,
     inspect: () => ({
@@ -3231,6 +3261,8 @@ function initGraph() {
     observer.disconnect();
     visibility.disconnect();
     document.removeEventListener('visibilitychange', redraw);
+    document.removeEventListener('close', redraw, true);
+    wakers.delete(redraw);
     viewport.removeEventListener('contextmenu', context);
     viewport.removeEventListener('wheel', wheel);
     resources.forEach((r) => r.dispose?.());
@@ -3317,11 +3349,12 @@ function statusDialog(id, kind) {
     return;
   }
   if (kind === 'restore' || kind === 'merge') {
+    const restoring = kind === 'restore';
     showInfo(
-      kind === 'restore' ? 'Restore an entry' : 'Merge entries',
-      kind === 'restore'
-        ? `<p class="muted small">${esc(e.title)}</p><p class="small">Takes a closed entry up again as a NEW line with <code class="mono">restored_from</code>; the original and its tombstone stay untouched.</p><p>${readonlyMark(`mem restore ${id} --why "…"`)}</p>${note('Command line only, like discarding: the browser has no write route for it. Refused when the entry is not closed, is superseded (use the newer version) or is already restored.')}`
-        : `<p class="muted small">${esc(e.title)}</p><p class="small">Merges entries of ONE drawer: a correction of the first carries the joined content and <code class="mono">merged_from</code>; the others get an obsolete tombstone. Nothing is deleted.</p><p>${readonlyMark(`mem merge ${id} <other-id> --why "…"`)}</p>${note('Command line only: the browser has no write route for it. Both entries stay readable in the log.')}`,
+      restoring ? 'Restore an entry' : 'Merge entries',
+      `<p class="muted small">${esc(e.title)}</p><p class="small">${restoring
+        ? 'Takes a closed entry up again as a NEW line with <code class="mono">restored_from</code>; the original and its tombstone stay untouched.'
+        : 'Merges entries of ONE drawer: a correction of the first carries the joined content and <code class="mono">merged_from</code>; the others get an obsolete tombstone. Nothing is deleted.'}</p><form id="statusForm" data-id="${esc(id)}" data-kind="${kind}" style="margin-top:20px">${restoring ? '' : '<label class="formfield">Other entry ids (comma separated, same drawer)<input name="others" class="field" required maxlength="1000"></label>'}<label class="formfield">Reason<input name="reason" class="field" maxlength="2000"></label><button class="btn primary" type="submit" ${state.readonly ? 'disabled' : ''}>Append</button></form><div id="statusState"></div>${state.readonly ? `<p>${readonlyMark(restoring ? `mem restore ${id} --why "…"` : `mem merge ${id} <other-id> --why "…"`)}</p>` : ''}${note(`Runs as a task through POST /task (the same command as on the CLI: mem ${kind}). Only appended — nothing is deleted. ${restoring ? 'Refused when the entry is not closed, is superseded (use the newer version) or is already restored.' : 'Refused across drawers and for entries that no longer hold.'}`)}`,
     );
     return;
   }
@@ -3907,8 +3940,12 @@ document.addEventListener('submit', async (e) => {
   if (f.id === 'entryForm' || f.id === 'messageForm') return toast('There is no write route for that from the browser — see the CLI note.');
   if (f.id === 'statusForm') {
     const kind = f.dataset.kind, id = f.dataset.id;
-    if (kind !== 'done') return toast('There is no write route for that from the browser — see the CLI note.');
-    const fields = { kind: 'done', id };
+    if (!['done', 'restore', 'merge'].includes(kind)) return toast('There is no write route for that from the browser — see the CLI note.');
+    const fields = { kind, id };
+    if (kind === 'merge') {
+      delete fields.id;
+      fields.ids = [id, ...String(data.others || '').split(/[\s,]+/).filter(Boolean)].join(',');
+    }
     if (data.reason) fields.why = data.reason;
     const button = f.querySelector('button[type=submit]');
     button.disabled = true;
@@ -3927,7 +3964,7 @@ document.addEventListener('submit', async (e) => {
     }
     $('#info').close();
     detailCache.delete(id);
-    toast('Appended. The original stays.');
+    toast(kind === 'done' ? 'Appended. The original stays.' : 'Appended. Nothing was deleted.');
     if (await loadData({ quiet: true })) {
       render();
       showDetail(id, 'history');
@@ -4018,8 +4055,12 @@ function initAtmosphere() {
   let time = 0, frame = 0, last = 0, mx = 0, my = 0;
   function draw(now = 0) {
     cancelAnimationFrame(frame);
-    if (now - last > 33 || !state.motion) {
-      if (state.motion) time += 0.024;
+    // 15 frames/s at the same running speed (double step): the weave moves
+    // slowly, the fill rate of the full-screen shader is halved. Idle (60 s
+    // without input): ~10 frames/s, step by real time (0.8/s).
+    const idle = THROTTLED();
+    if (now - last > (idle ? IDLE_FRAME_MS : 60) || !state.motion) {
+      if (state.motion) time += idle ? 0.8 * Math.min(0.2, (now - last) / 1000) : 0.048;
       last = now;
       gl.uniform2f(u.res, c.width, c.height);
       gl.uniform1f(u.time, time);
@@ -4028,10 +4069,10 @@ function initAtmosphere() {
       gl.uniform3fv(u.tint, hues[state.area]);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
-    if (state.motion && !document.hidden) frame = requestAnimationFrame(draw);
+    if (state.motion && !RESTING()) frame = requestAnimationFrame(draw);
   }
   function resize() {
-    const ratio = Math.min(1, 1100 / innerWidth);
+    const ratio = Math.min(1, 800 / innerWidth);
     c.width = Math.round(innerWidth * ratio);
     c.height = Math.round(innerHeight * ratio);
     gl.viewport(0, 0, c.width, c.height);
@@ -4039,6 +4080,8 @@ function initAtmosphere() {
   }
   window.addEventListener('resize', resize);
   document.addEventListener('visibilitychange', () => draw());
+  document.addEventListener('close', () => draw(), true);
+  wakers.add(() => draw());
   document.addEventListener('pointermove', (e) => { mx = e.clientX / innerWidth - 0.5; my = e.clientY / innerHeight - 0.5; }, { passive: true });
   ambience = { draw };
   resize();
