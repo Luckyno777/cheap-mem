@@ -40,8 +40,19 @@ const EVIDENCE_MAX = 20;
 /** Only stems as the tokenizer emits them — never free text. */
 const validStem = (w) => typeof w === 'string' && /^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$|^[a-z0-9]$/.test(w);
 
-/** A stemmer split, not a rewrite: one contains the other, or two edits apart. */
-const morphological = (a, b) => a.includes(b) || b.includes(a) || editDistance(a, b) <= 2;
+/**
+ * A stemmer split, not a rewrite: one contains the other, two edits
+ * apart, or the typed word and the target share all but one letter of
+ * the shorter one as a prefix. The last rule catches what the stemmer
+ * itself bends out of shape: `pays` stems to `pai`, which neither
+ * contains `payment` nor lies two edits from it.
+ */
+function morphological(a, b, typed = a) {
+  if (a.includes(b) || b.includes(a) || editDistance(a, b) <= 2) return true;
+  let p = 0;
+  while (p < typed.length && p < b.length && typed[p] === b[p]) p += 1;
+  return p >= 3 && p >= Math.min(typed.length, b.length) - 1;
+}
 
 /**
  * The characteristic stems of an entry: field weight times rarity
@@ -88,7 +99,7 @@ export function pairsFromCases(index, list) {
       const from = search.tokenizeGroupsMulti(w, { langs: [en] }).flat()[0];
       if (!validStem(from)) continue;
       for (const to of targets) {
-        if (from === to || morphological(from, to)) continue;
+        if (from === to || morphological(from, to, String(w).toLowerCase())) continue;
         const p = take(map, from, to);
         p.sessions.add(c.session);
         const ts = String(c.use?.ts ?? c.ts ?? '');
