@@ -2708,7 +2708,7 @@ export function closeDuty(root, id, {
     closes_id: id, state, why,
     ...(agent ? { agent } : {}),
     ...(tier ? { authority: tier } : {}),
-    // Paket: a caller that already lowered a claimed tier (the MCP bridge)
+    // Package work (2026-09-30): a caller that already lowered a claimed tier (the MCP bridge)
     // records the demotion, as mem_log does.
     ...(tier && authorityClampedFrom ? { authority_clamped_from: authorityClampedFrom } : {}),
   }, { project });

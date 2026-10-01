@@ -97,7 +97,7 @@ export const KNOWN_VERBATIM_QUOTES = Object.freeze([
  * way — moved here from the F5 probe on 2026-10-01.
  *
  * **Unmistakable words only, not a language detector.** A word that is
- * also English ("probe", "hole", "rest", "stand", "lies", "muster",
+ * also English (`probe`, "hole", "rest", "stand", "lies", `muster`,
  * "band", "tot" in `ssTot`, "hier" in `hierId`) is NOT on it: a rule
  * that flags English gets switched off. Every word on the list counts,
  * however short (`roh`, `neu`); a short word that is also an English

@@ -112,7 +112,12 @@ export const ALLOWED = Object.freeze({
   'test/audit-edges.test.mjs': { herkunft: 'fixture: a sibling-style provenance key the net must NOT read as a link' },
   'test/entry-content.test.mjs': { hilfe: 'fixture: the swallowed `--hilfe` flag a user typed, which must not count as content' },
   'test/docs-images-fresh.test.mjs': { oberflaeche: LEGACY_DOCS_STATE, erzeugt_am: LEGACY_DOCS_STATE },
-  'eval/pair.mjs': Object.fromEntries(['lauf', 'schwelle', 'fehler', 'antwort', 'zahlen', 'gesamt', 'ohne'].map((k) => [k, EVAL_RECORD]).concat([['erfundeneZahlen', FROZEN_EVAL]])),
+  'eval/pair.mjs': {
+    lauf: EVAL_RECORD, schwelle: EVAL_RECORD, antwort: EVAL_RECORD, zahlen: EVAL_RECORD, gesamt: EVAL_RECORD,
+    fehler: EVAL_RECORD,
+    ohne: EVAL_RECORD,
+    erfundeneZahlen: FROZEN_EVAL,
+  },
   'eval/pair-evaluate.mjs': { fehler: EVAL_RECORD },
   'eval/world.mjs': { grund: EVAL_WORLD, ziel: EVAL_WORLD },
   'src/docimages-state.mjs': { oberflaeche: LEGACY_DOCS_STATE, erzeugt_am: LEGACY_DOCS_STATE },
@@ -167,7 +172,7 @@ test('positive control: shell, PowerShell and workflow names are seen, prose and
   assert.deepEqual(germanShellIdentifiers('for kandidat in a b; do\n  [ -f "$kandidat/x" ]\ndone'), ['kandidat']);
   assert.deepEqual(germanShellIdentifiers('$eintrag = @{ a = 1 }\nforeach ($e in $erwartet) { $fehlt += $e }'), ['eintrag', 'erwartet', 'fehlt']);
   assert.deepEqual(germanShellIdentifiers('entrutscht() { printf x; }\nconst behauptet = 1;'), ['behauptet', 'entrutscht']);
-  assert.deepEqual(germanShellIdentifiers('# kandidat und eintrag in a comment\necho "no fehler here"\nfor candidate in a; do :; done'), []);
+  assert.deepEqual(germanShellIdentifiers('# kandidat in a comment\necho "no fehler here"\nfor candidate in a; do :; done'), []);
 });
 
 test('a German identifier planted in a scanned file turns the probe red (sabotage)', () => {

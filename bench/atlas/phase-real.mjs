@@ -1217,7 +1217,7 @@ export async function run(atlas, { quick = false } = {}) {
     const indexBytes = fs.existsSync(indexPath) ? fs.statSync(indexPath).size : null;
     const pipelineBytes = fs.existsSync(pipelineDir) ? dirBytes(pipelineDir) : null;
 
-    // --- warm finde latency, one call per remaining frequent token --
+    // --- warm `finde` latency, one call per remaining frequent token
     const warmQueries = queries.slice(1).length ? queries.slice(1) : queries;
     const findRuns = warmQueries.map((q) => runMem(['finde', q, '--json', '--top', '10']));
     const findMs = findRuns.map((r) => r.ms).sort((a, b) => a - b);
@@ -1233,7 +1233,7 @@ export async function run(atlas, { quick = false } = {}) {
       doctorCounts = parsed.zusammenfassung ?? null;
     } catch { /* left null; the timing record below still stands */ }
 
-    // --- kontext ------------------------------------------------------
+    // --- `kontext` ----------------------------------------------------
     const contextRun = runMem(['kontext']);
 
     const loadAfter = captureForeignLoad(calibBaseline);

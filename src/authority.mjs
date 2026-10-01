@@ -104,7 +104,7 @@ export function maySupersede(claim, target) {
   if (outranks(ct, tt)) {
     return { ok: true, reason: `${ct} outranks ${tt}` };
   }
-  // Paket (2026-09-30), aligned with lucky-mem Y4c (rang.darfAendern):
+  // Package work (2026-09-30), aligned with lucky-mem Y4c (rang.darfAendern):
   // `user` is ONE person. Two user-tier lines with different writers
   // (session A recorded the rule, session B the correction) have the same
   // author — the writer is only the scribe. Without this, every correction

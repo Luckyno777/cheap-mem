@@ -1,4 +1,4 @@
-// Paket (2026-09-30): `mem_duty_close` over MCP takes an optional
+// Package work (2026-09-30): `mem_duty_close` over MCP takes an optional
 // `authority`, capped like `mem_log` (Y4b: over the bridge never above
 // `agent`; the demotion is recorded in `authority_clamped_from`).
 //

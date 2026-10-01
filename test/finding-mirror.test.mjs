@@ -237,7 +237,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // reviewed change, per the instructions above.
   // Workflow B/C (2026-09-29): 'workflow-ohne-ausloeser' and
   // 'baustein-ohne-redaktion' added on the lucky-mem side — mapped as
-  // gaps (luecke:true, with why) in shared/finding-map.jsonl until
+  // gaps (`luecke: true`, with why) in shared/finding-map.jsonl until
   // cheap-mem gets hook recognition / the after-the-fact snippet check.
   // W9 (2026-09-29): 'paritaetsschuld' added on the lucky-mem side, paired
   // here with this house's own 'parity-debt' — refreshed as its own

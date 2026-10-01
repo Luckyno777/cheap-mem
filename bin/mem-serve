@@ -1056,7 +1056,7 @@ export function buildHandler(root, cfg, env = process.env) {
     //
     // Same four states dashboard.getEntryFast() returns, mapped to
     // HTTP the same way lucky-mem's `/eintrag.json` mirror maps
-    // zustand:gut/unbekannt/fehler/warnung — 'ok'/'warning' both answer
+    // `zustand:gut/unbekannt/fehler/warnung` — 'ok'/'warning' both answer
     // 200 (found, one of them with a disclosed gap), 'unknown' answers
     // 404, 'error' answers 500. No fallback: a state this route does
     // not recognise is a bug in `getEntryFast()`, not something to

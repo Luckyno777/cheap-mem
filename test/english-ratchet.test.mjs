@@ -56,7 +56,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { germanHits, asProse, KNOWN_VERBATIM_QUOTES } from './english-dictionary.mjs';
+import { germanHits, asProse, KNOWN_VERBATIM_QUOTES, GERMAN_IDENTIFIER_WORDS } from './english-dictionary.mjs';
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const RATCHET = JSON.parse(fs.readFileSync(path.join(REPO, 'test', 'english-ratchet.json'), 'utf8'));
@@ -210,6 +210,12 @@ test('no file exceeds its English-ratchet ceiling, and no un-ceilinged file carr
       hints.push(`${rel}: down to ${count} German line(s), ceiling is still ${ceiling} — lower it`);
     }
   }
+  // A ceilinged file that is down to ZERO never reaches the loop above
+  // (it has no offenders); without this line its ceiling would sit there
+  // unnoticed, ready to absorb new German up to the old count.
+  for (const rel of Object.keys(ceilings)) {
+    if (!perFile.has(rel) && !isExempt(rel)) hints.push(`${rel}: down to 0 German lines, ceiling is still ${ceilings[rel]} — remove it`);
+  }
   if (hints.length) {
     // Progress, not failure — see the file header. Printed so an agent
     // or Lucky can tighten test/english-ratchet.json without re-deriving
@@ -245,10 +251,31 @@ test('the measured total is reported', () => {
 // on 2026-09-26. The list itself lives in test/english-ratchet.json
 // (`filenameGermanWords`), the one source for both this test and anyone
 // auditing the JSON by hand.
-function filenameHits(rel) {
+//
+// **Widened on 2026-10-01.** The explicit substring list caught only the
+// words someone had thought of: `test/audit-grenzen`, `test/kalt-index-memo`
+// and `test/paket-*` passed it. So a path is ALSO cut into words (at `/`,
+// `.`, `-`, `_` and camelCase) and every word is looked up in
+// GERMAN_IDENTIFIER_WORDS, the same unmistakable-German list the identifier
+// probe uses — and an umlaut or ß anywhere in a path is German by itself.
+export function filenameHits(rel) {
   const lower = rel.toLowerCase();
-  return RATCHET.filenameGermanWords.filter((w) => lower.includes(w));
+  const hits = new Set(RATCHET.filenameGermanWords.filter((w) => lower.includes(w)));
+  for (const word of rel.replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9äöüß]+/)) {
+    if (GERMAN_IDENTIFIER_WORDS.has(word)) hits.add(word);
+  }
+  if (/[äöüß]/i.test(rel)) hits.add('umlaut/ß');
+  return [...hits];
 }
+
+test('POSITIVE: a German file name is seen, whether listed, a dictionary word or an umlaut', () => {
+  assert.ok(filenameHits('test/eine-sprache.test.mjs').length > 0, 'the explicit list');
+  assert.ok(filenameHits('test/audit-grenzen.test.mjs').includes('grenzen'), 'a dictionary word');
+  assert.ok(filenameHits('test/kalt-index-memo.test.mjs').includes('kalt'));
+  assert.ok(filenameHits('docs/übersicht.md').includes('umlaut/ß'));
+  assert.deepEqual(filenameHits('test/cold-index-memo.test.mjs'), []);
+  assert.deepEqual(filenameHits('bench/atlas/phase-ceiling.mjs'), []);
+});
 
 test('every named filenameAllowlist entry still matches its file and its word', () => {
   const { files } = scan();
@@ -269,4 +296,105 @@ test('no tracked path carries a German filename-word, unless named in filenameAl
   assert.deepEqual(offenders, [],
     `tracked path(s) carry a German filename-word and are not in filenameAllowlist:\n`
     + offenders.map((f) => `  ${f}  [${filenameHits(f).join(', ')}]`).join('\n'));
+});
+
+// --- Single German words in comments (2026-10-01) ---------------------
+//
+// The line rule above needs TWO German function words, so a comment that
+// slips one German word into English ("// ein Paket, nicht unser Pfad"
+// has them, "// Paket: same cap as ..." does not) passes it. This check
+// reads the COMMENTS of code (src/, bin/, test/, bench/, eval/, install/,
+// hooks/, assets/dashboard/, .github/) and counts lines that carry a word
+// from GERMAN_IDENTIFIER_WORDS standing on its own.
+//
+// **What is NOT a German word here, by construction:** text in backticks
+// or quotes (a cited name, a quoted sentence), a word glued to `-`, `/`,
+// `.` or `_` (a path, a file name, an id like `leer-ist-kein-bestehen` or
+// `geteilt/befund-zuordnung.jsonl` — the sibling house's names, which
+// this repo has to be able to cite), `invariant:` lines (the cross-house
+// ids), and the known verbatim quotes. What is left is prose.
+//
+// **A ratchet like the line rule.** The 2026-10-01 pass translated what
+// could be; what is left (multi-line quotations of the sibling, a German
+// example input like `--as-of gestern`) is ceilinged per file in
+// english-ratchet.json's `commentWordCeilings`. A file not listed must
+// have none.
+const CODE_DIRS = /^(src|bin|test|bench|eval|install|hooks|assets\/dashboard|\.github)\//;
+const NON_CODE = /\.(png|jpe?g|ico|woff2?|tsv|json|jsonl|md|txt|svg|webp|gz|css|html|sha256)$/;
+const COMMENT_EXEMPT = new Set(['test/english-dictionary.mjs', 'test/f5-german-identifiers.test.mjs', 'test/english-ratchet.test.mjs', 'test/english-only.test.mjs']);
+
+/** Comment texts of one file, one per line that has a comment. */
+export function commentLines(text, js) {
+  const out = []; let inBlock = false;
+  for (const l of text.split('\n')) {
+    let c = '';
+    if (js) {
+      if (inBlock) { c = l; if (l.includes('*/')) inBlock = false; }
+      else {
+        const m = l.match(/^\s*(\/\/|\*|\/\*)(.*)$/);
+        if (m) { c = m[2]; if (m[1] === '/*' && !l.includes('*/')) inBlock = true; }
+        else { const t = l.match(/\s\/\/\s(.*)$/); if (t) c = t[1]; }
+      }
+    } else {
+      const m = l.match(/(?:^|\s)#(?![!{])(.*)$/);
+      if (m) c = m[1];
+    }
+    if (c) out.push(c);
+  }
+  return out;
+}
+
+/** German words standing on their own in one comment text. */
+export function germanCommentWords(comment) {
+  if (/invariant:/.test(comment) || KNOWN_VERBATIM_QUOTES.some((q) => comment.includes(q))) return [];
+  const prose = comment.replace(/`[^`]*`/g, ' ').replace(/"[^"]*"|'[^']*'|„[^“]*“/g, ' ');
+  const words = prose.match(/(?<![\w\-/.])[A-Za-zÄÖÜäöüß]+(?![\w\-/]|\.\w)/g) ?? [];
+  return words.filter((w) => GERMAN_IDENTIFIER_WORDS.has(w.toLowerCase()));
+}
+
+function commentScan() {
+  const per = {};
+  for (const rel of trackedFiles()) {
+    if (!CODE_DIRS.test(rel) || rel.startsWith('eval/runs/') || NON_CODE.test(rel) || COMMENT_EXEMPT.has(rel)) continue;
+    let text; try { text = fs.readFileSync(path.join(REPO, rel), 'utf8'); } catch { continue; }
+    const js = /\.(mjs|js|cjs)$/.test(rel) || text.startsWith('#!/usr/bin/env node');
+    const hits = commentLines(text, js).map(germanCommentWords).filter((h) => h.length);
+    if (hits.length) per[rel] = hits.length;
+  }
+  return per;
+}
+
+test('POSITIVE: a lone German word in a comment is seen; cited names are not', () => {
+  assert.deepEqual(germanCommentWords(' Paket: same cap as mem_log'), ['Paket']);
+  assert.deepEqual(germanCommentWords(' a package, nicht our path'), ['nicht']);
+  assert.deepEqual(germanCommentWords(' mirrors lucky-mem\'s test/kein-springen.test.mjs and `zaehler`'), []);
+  assert.deepEqual(germanCommentWords(' the `zustand:gut` key and "fehler" in quotes'), []);
+  assert.deepEqual(germanCommentWords(' invariant: leer-ist-kein-bestehen'), []);
+  // Sabotage on a real file: one planted German word in a real source's
+  // comment is counted on top of what the file had.
+  const real = fs.readFileSync(path.join(REPO, 'src', 'archive.mjs'), 'utf8');
+  const before = commentLines(real, true).filter((c) => germanCommentWords(c).length).length;
+  const after = commentLines(`${real}\n// the ablage is checked here\n`, true).filter((c) => germanCommentWords(c).length).length;
+  assert.equal(after, before + 1);
+});
+
+test('no file exceeds its comment-word ceiling, and no other file has a lone German comment word', () => {
+  const per = commentScan();
+  const ceilings = RATCHET.commentWordCeilings ?? {};
+  const bad = []; const hints = [];
+  for (const [rel, n] of Object.entries(per)) {
+    const cap = ceilings[rel] ?? 0;
+    if (n > cap) bad.push(`${rel}: ${n} comment line(s) with a lone German word (ceiling ${cap})`);
+    else if (n < cap) hints.push(`${rel}: down to ${n}, ceiling ${cap} — lower it`);
+  }
+  for (const rel of Object.keys(ceilings)) if (!(rel in per)) hints.push(`${rel}: down to 0 — remove its ceiling`);
+  // eslint-disable-next-line no-console
+  if (hints.length) console.log(`HINT:\n${hints.map((h) => `  ${h}`).join('\n')}`);
+  assert.deepEqual(bad, [], `translate the comment, or cite the name in backticks:\n${bad.join('\n')}`);
+});
+
+test('every commentWordCeilings entry still names a tracked file', () => {
+  const tracked = new Set(trackedFiles());
+  const stale = Object.keys(RATCHET.commentWordCeilings ?? {}).filter((rel) => !tracked.has(rel));
+  assert.deepEqual(stale, []);
 });

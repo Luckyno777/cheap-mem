@@ -1405,7 +1405,7 @@ async function handleCall(name, args) {
     }
 
     case 'mem_duty_close': {
-      // Paket: same cap as mem_log (Y4b) — a claimed tier above `agent` is
+      // Package work (2026-09-30): same cap as mem_log (Y4b) — a claimed tier above `agent` is
       // lowered and the demotion recorded; no tier gets the write default.
       const capped = bridgeAuthority({ authority: args.authority });
       const { entry } = memory.closeDuty(root, args.id, {
