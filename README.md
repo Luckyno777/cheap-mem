@@ -635,9 +635,11 @@ the needed permissions into `~/.claude/settings.json`:
   difference between a memory you *can* query and one that just
   *remembers*. It also refreshes the clone in the background (at most
   every 10 min, detached — the prompt never waits).
-- **PreToolUse** (Edit/Write/NotebookEdit) — before a file is changed,
+- **PreToolUse** (Edit/Write/NotebookEdit, and Bash commands that write a
+  file via `sed -i`, `tee`, `>`, `cp` or `mv`) — before a file is changed,
   searches the memory for that PATH, literally, and shows the errors,
-  decisions and learnings that name it. Once per file per session.
+  decisions and learnings that name it, plus open duties and released
+  procedures for it. Once per file per session.
   Literal, not ranked: if no entry names the file, nothing is shown —
   a hint that appears on every edit gets skipped after the third time.
 
