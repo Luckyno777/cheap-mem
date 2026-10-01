@@ -649,7 +649,7 @@ function pageDesc() {
       network: 'Structure, declared relations and storage are three different perspectives.',
       inbox: 'Every recipient\'s messages: read, reply, acknowledge — through the same routes as the command line.',
       context: 'What the hooks really injected last — from the injection journal, no simulation.',
-      export: 'Check the scope and understand the dependencies. A package download is not built into the product yet.',
+      export: 'Check the scope, understand the dependencies and load the project package as JSON.',
       shards: 'The drawers of this memory: project × type. Counted from the store, not estimated.',
       operations: 'Tasks with a provable end, result and confirmed cancel — child processes of the CLI.',
       understanding: 'Measured habits and job ledgers – no ascribed traits.',
@@ -1114,9 +1114,9 @@ const pages = {
   export: () =>
     `<div class="grid two">${panel(
       'Assemble a package',
-      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓ (not built)', 'export-json', 'aria-disabled="true"', 'ghost')}${btn('Offline reading view ↓ (not built)', 'export-html', 'aria-disabled="true"', 'ghost')}</div>`,
-      'The selection shows the scope a package would have.',
-    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('A project package export is not built into the product yet. The existing export is the raw capture export — below, under Sources › Raw capture and as a task under Operations › Tasks. The offline reading view is <code class="mono">mem viewer</code>, a file to take along.')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
+      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓', 'export-json', '', 'primary')}${btn('Offline reading view ↓ (not built)', 'export-html', 'aria-disabled="true"', 'ghost')}</div>`,
+      'Preview and package count from the same data state.',
+    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('The JSON package holds the chosen entries with their relations; entries outside the package appear only as references (id, type, title). The header names the format version, creation time, commit, counts and completeness. Encrypted entries stay encrypted (ciphertext unchanged), every plaintext runs through the redaction. Not included: raw captures, inbox mail, file bytes, key material. The offline reading view is <code class="mono">mem viewer</code>, a file to take along; raw captures are exported by their own flow below (also under Sources › Raw capture and Operations › Tasks).')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
 
   // --- Operations -------------------------------------------------------------
   shards: () => {
@@ -3718,17 +3718,57 @@ async function paletteMemorySearch(q, localHits) {
       .join('')}`
     : '';
 }
+// Project package (#sources/export): selection, counts and package are
+// computed by the server (src/projectpackage.mjs select()) from THE SAME
+// build as /dashboard.json — preview and download cannot drift apart. The
+// path stands literally in every fetch() (the closed route list).
+let exportPreviewNo = 0;
 function getExport() {
   const project = $('#exportProject')?.value || 'global',
     global = $('#exportGlobal')?.checked ?? true,
     hist = $('#exportHistory')?.checked ?? true;
-  const included = entries.filter((e) => (e.project === project || (global && e.project === 'global')) && (hist || e.state === 'active'));
-  const ids = new Set(included.map((e) => e.id));
-  return { project, included, refs: [...new Set(allEdges(included).map((e) => e.to).filter((id) => !ids.has(id)))], hist, global };
+  return { project, hist, global, query: `project=${encodeURIComponent(project)}&global=${global ? 1 : 0}&history=${hist ? 1 : 0}` };
 }
-function updateExportPreview() {
+async function updateExportPreview() {
+  if (!$('#exportPreview')) return;
+  const x = getExport(), no = ++exportPreviewNo;
+  $('#exportPreview').innerHTML = '<p class="small muted">Counting …</p>';
+  let b;
+  try {
+    const r = await fetch(`/dashboard/project-package.json?${x.query}&preview=1`, { credentials: 'same-origin', cache: 'no-store' });
+    b = await r.json();
+    if (!r.ok) throw new Error(b?.reason || 'answer ' + r.status);
+  } catch (e) {
+    if (no === exportPreviewNo && $('#exportPreview')) $('#exportPreview').innerHTML = note('Preview not readable: ' + esc(e?.message || e) + '. Scope unknown.', 'bad');
+    return;
+  }
+  if (no !== exportPreviewNo || !$('#exportPreview')) return;
+  const z = b.counts, c = b.completeness || {}, list = b.list || [];
+  $('#exportPreview').innerHTML = `<div class="number" id="exportCount">${num(z.entries)}</div><p class="muted small">entries for ${esc(x.project)}</p><div class="row"><span class="small">Global foundations</span><span class="small">${x.global ? 'Included' + (x.project === 'global' ? '' : ' · ' + num(z.global)) : 'As references only'}</span></div><div class="row"><span class="small">Historical / retired</span><span class="small">${x.hist ? num(z.historical) : 'Excluded'}</span></div><div class="row"><span class="small">External entry references</span><span id="exportRefs">${num(z.externalRefs)}</span></div><div class="row"><span class="small">Completeness</span>${badge(c.state === 'good' ? 'complete' : 'unknown')}</div>${c.reasons?.length ? `<p class="small quiet">${esc(c.reasons.join(' · '))}</p>` : ''}<div style="max-height:200px;overflow:auto;margin-top:15px">${list.map((e) => `<p class="small muted" style="padding:5px 0">${esc(e.id)} · ${esc(e.title)}</p>`).join('')}${z.entries > list.length ? `<p class="small quiet">… and ${num(z.entries - list.length)} more</p>` : ''}</div>`;
+}
+async function exportJson() {
   const x = getExport();
-  $('#exportPreview').innerHTML = `<div class="number">${num(x.included.length)}</div><p class="muted small">entries for ${esc(x.project)}</p><div class="row"><span class="small">Global foundations</span><span class="small">${x.global ? 'Included' : 'As references only'}</span></div><div class="row"><span class="small">External entry references</span><span>${num(x.refs.length)}</span></div><div class="row"><span class="small">Completeness</span>${badge(state.missing ? 'unknown' : 'complete')}</div><div style="max-height:200px;overflow:auto;margin-top:15px">${x.included.slice(0, 200).map((e) => `<p class="small muted" style="padding:5px 0">${esc(e.id)} · ${esc(e.title)}</p>`).join('')}${x.included.length > 200 ? `<p class="small quiet">… and ${num(x.included.length - 200)} more</p>` : ''}</div>`;
+  toast('Building the project package …');
+  try {
+    const r = await fetch(`/dashboard/project-package.json?${x.query}`, { credentials: 'same-origin', cache: 'no-store' });
+    if (!r.ok) {
+      let reason = 'answer ' + r.status;
+      try { reason = (await r.json()).reason || reason; } catch { /* the status stays the reason */ }
+      throw new Error(reason);
+    }
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || `cheap-mem-${x.project}.json`;
+    const url = URL.createObjectURL(await r.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    toast('Project package loaded: ' + name);
+  } catch (e) {
+    toast('Project package not built: ' + (e?.message || e));
+  }
 }
 
 // --- The mockup's extra views -----------------------------------------------------
@@ -3991,8 +4031,10 @@ document.addEventListener('click', async (ev) => {
       await rawExport(el);
       break;
     case 'export-json':
+      await exportJson();
+      break;
     case 'export-html':
-      toast('A project package export is not built into the product yet.');
+      toast('The offline reading view is not built here — mem viewer writes one as a file.');
       break;
     case 'shard-detail': {
       const es = scoped().filter((e) => drawerOf(e) === d.value);
