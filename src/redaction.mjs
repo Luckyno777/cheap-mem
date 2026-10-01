@@ -75,7 +75,14 @@ export const PATTERNS = Object.freeze([
   // segments. 'eyJ' is base64 for '{"', so it is nearly always a data
   // blob rather than prose; past 40 characters a chance match is
   // unrealistic.
-  ['json-blob',       /\beyJ[A-Za-z0-9_-]{40,}={0,2}(?![A-Za-z0-9_.-])/g],
+  //
+  // **A full stop is not a third segment (2026-10-01).** The tail used to
+  // forbid ANY following dot so the pattern would not bite into a JWT.
+  // That let the blob through whenever a sentence ended with it:
+  // `tunnel token eyJ... . Please keep this private.` (bench/value-report.mjs,
+  // json-blob 4 of 5). Now only a dot followed by token characters, the
+  // JWT shape, stops it.
+  ['json-blob',       /\beyJ[A-Za-z0-9_-]{40,}={0,2}(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])/g],
   ['pem-block',       /-----BEGIN[^-]{0,40}-----[\s\S]*?-----END[^-]{0,40}-----/g],
   ['ssh-key',         /\bssh-(?:rsa|ed25519|dss)\s+[A-Za-z0-9+/=]{50,}/g],
 
@@ -135,8 +142,17 @@ export const PATTERNS = Object.freeze([
   // never finished. Key names are short: at most 64 characters on either
   // side of the keyword. The price, named: a key with more than 64
   // characters before the keyword is no longer caught by THIS rule.
+  //
+  // **Escaped quotes (2026-10-01).** A JSON object carried as a string
+  // inside a JSON log line has `\"` instead of `"`:
+  // `{"msg":"{\"secretKey\": \"...\"}"}`. The backslash in front of the
+  // quote defeated the pattern (bench/value-report.mjs, json-secret 4 of
+  // 5). Up to three backslashes are now allowed before each quote (escaped
+  // once or twice). The value takes a backslash only when it does NOT start
+  // the closing escaped quote; otherwise it would swallow the `\` and the
+  // redaction would break the escape sequence.
   ['json-secret',
-    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}["']?${SP}*${SEP}${SP}*)["']([^"'\\s]{6,})["']`, 'gi')],
+    new RegExp(`(?<![A-Za-z0-9_])(["']?[A-Za-z0-9_]{0,64}(?:password|passwd|secret|token|api_key|apikey|private_key|access_key|client_secret|refresh_token)[A-Za-z0-9_-]{0,64}\\\\{0,3}["']?${SP}*${SEP}${SP}*)\\\\{0,3}["']((?:[^"'\\s\\\\]|\\\\(?!\\\\{0,2}["'])){6,})\\\\{0,3}["']`, 'gi')],
 
   // --- The keyword-free pair: address, then a credential ------------
   //
@@ -205,7 +221,7 @@ const HARMLESS_KEY = [
 
 /** Does this key name something that grants no access? See HARMLESS_KEY. */
 export function isHarmlessKey(name) {
-  const bare = String(name ?? '').trim().replace(/^["'\s]+/, '').replace(/["'\s:=]+$/, '');
+  const bare = String(name ?? '').trim().replace(/^["'\s]+/, '').replace(/[\\"'\s:=]+$/, '');
   return HARMLESS_KEY.some((r) => r.test(bare));
 }
 
@@ -368,7 +384,7 @@ export function redact(text) {
         // The gap this leaves, named: a diceware-style passphrase
         // (`"secret-value": "correct-horse-battery"`) under a kebab key.
         // camelCase and bare keys are untouched.
-        if (/[A-Za-z0-9]-[A-Za-z0-9]/.test(key.replace(/["'\s:=]+$/, '')) && !looksLikeCredential(value)) return match;
+        if (/[A-Za-z0-9]-[A-Za-z0-9]/.test(key.replace(/[\\"'\s:=]+$/, '')) && !looksLikeCredential(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return replaceValue(match, value, `[REDACTED:${type}]`);
       }
