@@ -33,7 +33,7 @@
       "reason": "the one cross-house file that is byte-identical with lucky-mem's geteilt/befund-zuordnung.jsonl (BAUWEISE rule 15); decision 2026-09-26: it will carry both 'warum' and 'why', so German stays in it by design. shared/invariants.jsonl and shared/calculations.jsonl are NOT exempt: each house writes its own prose there, and cheap-mem's must be English."
     },
     {
-      "pattern": "eval/final-eingefroren.json",
+      "pattern": "eval/final-frozen.json",
       "reason": "the frozen reference result, pinned by its sha256 in test/eval-frozen.test.mjs — translating it would break the pin and falsify the record; same class as eval/runs/*.jsonl"
     },
     {
@@ -91,18 +91,6 @@
     {
       "path": "eval/runs/paar4-ausgeglichen.jsonl",
       "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
-    },
-    {
-      "path": "test/eine-sprache.test.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "test/audit-messgeraete.test.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "test/eval-kontext-riegel.test.mjs",
-      "reason": "to be renamed in B6/B4"
     }
   ],
   "ceilings": {
@@ -123,7 +111,7 @@
     "src/search.mjs": 2,
     "test/asked.test.mjs": 1,
     "test/atlas-real-guard-origin.test.mjs": 3,
-    "test/audit-messgeraete.test.mjs": 2,
+    "test/audit-instruments.test.mjs": 2,
     "test/calculations.test.mjs": 1,
     "test/dashboard-page.test.mjs": 1,
     "test/consumption-funnel.test.mjs": 1,

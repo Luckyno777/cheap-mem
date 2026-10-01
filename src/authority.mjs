@@ -109,7 +109,7 @@ export function maySupersede(claim, target) {
   // (session A recorded the rule, session B the correction) have the same
   // author — the writer is only the scribe. Without this, every correction
   // of a user rule by a different session was refused. Agent-vs-agent and
-  // every lower tier stay strict (test/paket-user-supersede.test.mjs).
+  // every lower tier stay strict (test/package-user-supersede.test.mjs).
   if (ct === 'user' && tt === 'user') {
     return { ok: true, reason: 'both user (one person, different scribes)' };
   }

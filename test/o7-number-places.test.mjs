@@ -5,7 +5,7 @@
 //
 // **The finding.** After a merge on 2026-09-30, docs/mcp-setup.md:3/:267
 // and docs/CAPABILITIES.md:560 ("N tools") were red in the guards
-// (test/tool-count-doc.test.mjs, test/doku-zahlen.test.mjs), and
+// (test/tool-count-doc.test.mjs, test/doc-numbers.test.mjs), and
 // `node bench/readme-numbers.mjs --write --all` — the step the merge
 // chain runs for exactly this — fixed none of them. The writer knew
 // four phrasings; the guards swept every sentence. Two lists of places,
@@ -144,7 +144,7 @@ test(`RED on the fixed start ${START}: that writer leaves the docs places wrong`
 });
 
 test('the guards import the places from the writer — one list, not two', () => {
-  for (const f of ['test/doku-zahlen.test.mjs', 'test/tool-count-doc.test.mjs']) {
+  for (const f of ['test/doc-numbers.test.mjs', 'test/tool-count-doc.test.mjs']) {
     const src = fs.readFileSync(path.join(REPO, f), 'utf8');
     assert.match(src, /from '\.\.\/bench\/readme-numbers\.mjs'/, `${f} no longer imports the writer's places`);
     assert.doesNotMatch(src, /\\b\(\[\\d\]\[\\d,\]\*\)\\s\+\(MCP tools/, `${f} carries its own copy of the sweep pattern again`);

@@ -55,7 +55,7 @@ code.
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
-download size, by `test/readme-zahlen.test.mjs` and
+download size, by `test/readme-numbers.test.mjs` and
 `test/package-size.test.mjs`, with CI failing when a claim stops matching
 — or it is a **benchmark you can run yourself**, which is a weaker
 promise and named as one: a benchmark result is true of the day it was
@@ -403,7 +403,7 @@ factor of 32. And every one of these probes is itself sabotaged — a
 falsified README is fed to it and it must go red — because a guard that
 can only pass is decoration.
 
-<!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
+<!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
 As of 2026-09-26: **75 CLI commands, 35 MCP tools, 144 modules, 3152
 tests**; as of 2026-09-20, about 59635 lines in `bin/` and `src/`, at

@@ -4,7 +4,7 @@
 // documentation looks out of date again." He was right, and the
 // interesting part is that a guard already existed and was green.
 //
-// `test/readme-zahlen.test.mjs` was built on 2026-09-08 after two
+// `test/readme-numbers.test.mjs` was built on 2026-09-08 after two
 // provably wrong numbers turned up in an external review. It works. It
 // guards `README.md`. That is exactly as far as it goes:
 //

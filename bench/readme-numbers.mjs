@@ -6,7 +6,7 @@
  * them forward.
  *
  * **Why this exists (B10, 2026-09-26).** cheap-mem already had a bolt on
- * these numbers, `test/readme-zahlen.test.mjs` — it works, and it goes
+ * these numbers, `test/readme-numbers.test.mjs` — it works, and it goes
  * red the moment a number drifts. What it does not have is a write path:
  * every drift it catches gets fixed by hand, the same hand-motion each
  * time. lucky-mem hit exactly this (`betrieb/readme-zahlen.mjs`'s own
@@ -15,7 +15,7 @@
  * cheap-mem's own README.
  *
  * **One truth, not two.** The counters and the claim patterns live HERE;
- * `test/readme-zahlen.test.mjs` keeps its own inline counters for the
+ * `test/readme-numbers.test.mjs` keeps its own inline counters for the
  * numbers it checks, and that is deliberate — a probe that imports the
  * thing it is grading tests the import, not the number. What matters is
  * that both sides count the SAME way (readdir + a fixed pattern), so
@@ -48,7 +48,7 @@
  * its own "N tests" claim ("17 benchmarks, an eval harness with a
  * frozen reference run, 2033 tests") — a SECOND place stating the same
  * `tests` count as README's claim, checked by
- * `test/doku-zahlen.test.mjs`'s static count, but this file used to
+ * `test/doc-numbers.test.mjs`'s static count, but this file used to
  * write only `README.md`. The gap was not theoretical: on 2026-09-27
  * README already said 2041 while CAPABILITIES.md still said 2033,
  * eight commits of drift that `--write` never touched because it never
@@ -59,7 +59,7 @@
  *
  * **One list of places, not two (O7, 2026-09-30).** M14 taught the
  * writer a second FILE, but the guards check more places than the
- * writer's `CLAIMS` knew: `test/doku-zahlen.test.mjs` sweeps every
+ * writer's `CLAIMS` knew: `test/doc-numbers.test.mjs` sweeps every
  * living document for "<n> MCP tools/CLI commands/commands/tools/
  * modules/tests/lines", and `test/tool-count-doc.test.mjs` sweeps every
  * document for "<n|word> tools". On 2026-09-30 docs/mcp-setup.md (twice)
@@ -134,7 +134,7 @@ export function buildCounters(root = DEFAULT_ROOT) {
     // Cannot be had exactly without running the suite, and a test that
     // starts the suite contains itself — so this counts `test(` call
     // sites, close enough (0.3 % apart, measured 2026-09-19 in
-    // test/readme-zahlen.test.mjs's own header) for a tolerance, never
+    // test/readme-numbers.test.mjs's own header) for a tolerance, never
     // written without `--all`.
     tests: () => fs.readdirSync(path.join(root, 'test'))
       .filter((n) => n.endsWith('.test.mjs'))
@@ -206,7 +206,7 @@ export const ALL = [...EXACT, 'tests', 'lines', 'linesCli'];
 
 // ---------------------------------------------------------------------
 // The sweep — the places the guards check (O7). Everything below is
-// imported by test/doku-zahlen.test.mjs and test/tool-count-doc.test.mjs;
+// imported by test/doc-numbers.test.mjs and test/tool-count-doc.test.mjs;
 // a change here changes what they check AND what this file writes.
 
 /**
@@ -252,7 +252,7 @@ export const SYNONYMS = Object.freeze({ tools: 'MCP tools', commands: 'CLI comma
 /**
  * An exemption NAMES the number it exempts:
  * `<!-- zahl-historisch: 500 lines (reason) -->` exempts `500 lines` and
- * nothing else (see test/doku-zahlen.test.mjs for why it never guesses).
+ * nothing else (see test/doc-numbers.test.mjs for why it never guesses).
  */
 export function markedExemptions(text) {
   const out = new Set();
@@ -276,7 +276,7 @@ export function linesTarget(text, index) {
 
 /**
  * The allowed drift per approximate kind — ONE source for the guard
- * (test/doku-zahlen.test.mjs, which explains each number) and for the
+ * (test/doc-numbers.test.mjs, which explains each number) and for the
  * writer's decision whether a sweep place needs rewriting at all.
  */
 export const TOLERANCE = Object.freeze({ tests: 1.02, 'lines:all': 1.15, 'lines:cli': 1.15 });
@@ -319,7 +319,7 @@ export function sweepText(rel, text) {
   return { checked, dated, notCode };
 }
 
-/** The sweep over every living document (what doku-zahlen checks). */
+/** The sweep over every living document (what doc-numbers checks). */
 export function sweepClaims(root = DEFAULT_ROOT) {
   const checked = []; const dated = []; const notCode = [];
   for (const rel of livingDocs(root)) {
@@ -442,7 +442,7 @@ function byFile(claims) {
 /**
  * The files one run looks at, in a stable order: every file a `CLAIMS`
  * entry names (in their first-seen order), then every other document the
- * sweep checks. `living` marks the ones doku-zahlen's sweep covers.
+ * sweep checks. `living` marks the ones doc-numbers' sweep covers.
  */
 function filesToVisit(root, claims) {
   const groups = byFile(claims);
@@ -552,7 +552,7 @@ export async function updateNumbers({
       changes.push(...pending.map(({ field, from, to }) => ({ file, field, from, to })));
     }
 
-    // The sweep places (doku-zahlen), then the tool-count places — the
+    // The sweep places (doc-numbers), then the tool-count places — the
     // second scan runs on the text the first already fixed, so a "33
     // tools" both guards see is written once.
     for (const pass of ['sweep', 'tools']) {

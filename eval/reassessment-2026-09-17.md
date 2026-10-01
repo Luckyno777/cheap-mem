@@ -67,10 +67,10 @@ untouched.
 
 Three tasks in the frozen final split — F3, D6, F6 — carry the same
 bare-number contract. Repairing them would change
-`eval/final-eingefroren.sha256`, and after that the final run would no
+`eval/final-frozen.sha256`, and after that the final run would no
 longer be an independent measurement. That costs more than the hole
 does, so they stay as they are, exempt **by name** in
-`test/audit-messgeraete.test.mjs`, which also checks that the exemption
+`test/audit-instruments.test.mjs`, which also checks that the exemption
 does not grow and that every name on it still needs it.
 
 They are a debt. The next time the final split is legitimately re-cut,

@@ -26,7 +26,7 @@ test('the frozen final split is unchanged', () => {
   }));
   const json = JSON.stringify(now, null, 2);
   const hash = createHash('sha256').update(json).digest('hex');
-  const expected = fs.readFileSync(path.join(EVAL, 'final-eingefroren.sha256'), 'utf8').trim();
+  const expected = fs.readFileSync(path.join(EVAL, 'final-frozen.sha256'), 'utf8').trim();
   assert.equal(hash, expected,
     'The final split changed after the freeze. If that was intended, the freeze '
     + 'has to be re-set with a reason — and the final run no longer counts as '

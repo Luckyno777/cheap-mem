@@ -2,7 +2,7 @@
 // lucky-mem's `betrieb/readme-zahlen.mjs` write path, against
 // cheap-mem's own bench/readme-numbers.mjs and README.
 //
-// **Why this file exists.** `test/readme-zahlen.test.mjs` catches a
+// **Why this file exists.** `test/readme-numbers.test.mjs` catches a
 // drifted number; it has never fixed one. Every catch since 2026-09-08
 // was corrected by the same hand-motion. This is the write path, and —
 // same as lucky-mem's own postmortem — it is graded on more than "it

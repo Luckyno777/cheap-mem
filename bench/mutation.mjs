@@ -769,7 +769,7 @@ const SECURITY_MODULES = Object.freeze([
 
 // **The catalogue is importable; none of the rest of this file is.**
 //
-// `test/mutation-anchors.test.mjs` (and `test/readme-zahlen.test.mjs`,
+// `test/mutation-anchors.test.mjs` (and `test/readme-numbers.test.mjs`,
 // which reads `MUTANTS.length` to check the README's own count) both
 // import this module only to read `MUTANTS` — cheap, without applying a
 // single mutant or running a single test. Every effectful line below,
@@ -784,7 +784,7 @@ const SECURITY_MODULES = Object.freeze([
 // `execFileSync('node', ['--test', ...])` run as a SIDE EFFECT of being
 // imported, because only the sweep loop further down was behind
 // `ALS_BEFEHL` — the baseline check above it was not. Every run of
-// `test/readme-zahlen.test.mjs` was paying for a full baseline test run
+// `test/readme-numbers.test.mjs` was paying for a full baseline test run
 // it never asked for, and a transient flake in that baseline (see the
 // 2026-09-19 note below) could fail a test file with nothing to do with
 // mutation testing at all.
@@ -868,7 +868,7 @@ console.log('-------------------------------------------------+----------------'
 // **The catalogue is importable; the sweep is not.** (`ALS_BEFEHL` itself
 // now lives at the top of this file, ahead of the baseline check — see
 // the comment there. `test/mutation-anchors.test.mjs` and
-// `test/readme-zahlen.test.mjs` both rely on importing `MUTANTS` costing
+// `test/readme-numbers.test.mjs` both rely on importing `MUTANTS` costing
 // nothing: no baseline run, no sweep.)
 //
 // The occasion: a rename on 2026-09-17 left six anchors pointing at

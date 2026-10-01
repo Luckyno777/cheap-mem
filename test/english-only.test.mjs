@@ -36,7 +36,7 @@
 //     the exact failure mode `docs/deliberately-not-built.md` warns
 //     against for this kind of problem. On 2026-09-16 a benchmark run
 //     leaked the operator's own memory into three answers, and
-//     test/eval-kontext-riegel.test.mjs quotes what the model actually
+//     test/eval-context-guard.test.mjs quotes what the model actually
 //     said, in the language it actually said it in, as the evidence
 //     for the incident. Translating the quote would misrepresent what
 //     was found;

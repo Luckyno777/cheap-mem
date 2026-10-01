@@ -1043,7 +1043,7 @@ jobs:
 
   # The README calls its benchmark numbers (96.6 % tokens saved,
   # R@1 100 / 50 / 67 %) "a weaker promise" than the counts
-  # `coverage` and test/readme-zahlen.test.mjs re-derive, and says so —
+  # `coverage` and test/readme-numbers.test.mjs re-derive, and says so —
   # then guards none of them. This job is the same idea as `coverage`
   # above, aimed at the benchmark numbers instead of the coverage figure:
   # measure, compare to the README's claim, fail past a band.

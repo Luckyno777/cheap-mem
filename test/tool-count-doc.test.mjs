@@ -63,7 +63,7 @@ test('every documented tool count matches the server', () => {
   let claimsChecked = 0;
   // A dated report records what was true that day; it is not a claim
   // about today — `toolCountClaims` skips archives, same rule as
-  // test/doku-zahlen.test.mjs.
+  // test/doc-numbers.test.mjs.
   for (const c of places.toolCountClaims(ROOT)) {
     claimsChecked += 1;
     if (c.said !== n) wrong.push(`${c.rel}: says "${c.raw} tools", server serves ${n}`);
