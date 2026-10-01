@@ -24,6 +24,7 @@ import * as procedure from '../../procedure.mjs';
 import * as question from '../../question.mjs';
 import * as onboarding from '../../onboarding.mjs';
 import * as errorclass from '../../errorclass.mjs';
+import * as repetitionhint from '../../repetitionhint.mjs';
 import * as board from '../../board.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding } from '../shell.mjs';
 
@@ -448,6 +449,36 @@ export const COMMANDS = {
       why: args.why && args.why !== true ? String(args.why) : undefined,
     }, { project: args.project ?? null });
     out(`${withId} resolves ${qid}  (link ${entry.id})`);
+  },
+
+  // Parity for the sibling's W11 (`mem vorschlag verfahren`, 9847a03):
+  // print the draft `mem log procedure` command for a repeated error
+  // class. Writes NOTHING; a procedure is a human's act.
+  suggest: async ({ rest = [], args }) => {
+    if (isHelp(args) || rest[0] !== 'procedure') {
+      out([
+        'mem suggest procedure <class>',
+        '',
+        '  Prints a ready `mem log procedure ...` command for an error class',
+        '  (mem classes lists the twelve). The rule text comes ONLY from the',
+        '  `remedy`/`correct` field or one sentence of the NEWEST error of that',
+        '  class, no model call. Nothing is written; `mem log procedure',
+        '  --issued-by owner` stays a human act.',
+        '',
+        '  Refused when the class already has a procedure in force, or when no',
+        '  error of that class exists.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['root'], 'suggest procedure');
+    const root = findRoot(args);
+    requireConfig(root);
+    if (!rest[1]) die('suggest procedure: which class? (mem classes lists all)');
+    const r = repetitionhint.suggestProcedure(root, rest[1]);
+    if (!r.ok) die(`suggest procedure: ${r.reason}`);
+    out(`Source: newest error ${r.source} (${r.count}x this class). Nothing written:`);
+    out('');
+    out(r.command);
   },
 
   procedures: async ({ rest = [], args }) => {

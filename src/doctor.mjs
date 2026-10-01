@@ -44,7 +44,9 @@ import * as cfgmod from './config.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import { pack } from './language.mjs';
 import * as errorfile from './errorfile.mjs';
+import * as errorclass from './errorclass.mjs';
 import * as repetition from './repetition.mjs';
+import * as repetitionhint from './repetitionhint.mjs';
 import * as errorcontext from './errorcontext.mjs';
 import { debtList } from './parity.mjs';
 import { siblingClone } from './sibling.mjs';
@@ -367,6 +369,7 @@ export function checkAll(root) {
   f.push(checkContestedClaims(root));
   f.push(checkTopicQuality(root));
   f.push(checkRepetition(root));
+  f.push(checkRepetitionHint(root));
   f.push(checkClosedWithoutEvidence(root));
   f.push(checkAutoDutyAge(root));
   f.push(checkDelivery(root));
@@ -641,6 +644,41 @@ export function checkRepetition(root, now = new Date()) {
       + 'opens a duty "Guard for <class> at <file>" — `mem doctor` only shows the overall picture here.');
   }
   return finding('repetition', LEVEL.GOOD, core);
+}
+
+/**
+ * W11 (parity with the sibling's `wiederholungs-hinweis`, 9847a03): from
+ * the THIRD repetition of an error class or of the same normalised title
+ * (whole log, no time window) that has no procedure in force, a draft is
+ * shown — from the newest error only, no model (`src/repetitionhint.mjs`).
+ * Writes nothing: `mem suggest procedure <class>` prints the command, a
+ * procedure stays a human's act.
+ */
+export function checkRepetitionHint(root) {
+  const r = repetitionhint.candidates(root);
+  if (!r.total) {
+    return finding('repetition-hint', LEVEL.UNKNOWN,
+      'no error entries — the repetition hint is not measurable here');
+  }
+  if (!r.list.length) {
+    return finding('repetition-hint', LEVEL.GOOD,
+      `no error class or title pattern reached ${repetitionhint.THRESHOLD} repetitions without a `
+      + `procedure in force (${r.total} errors, ${r.classes} classes, ${r.titles} title patterns)`);
+  }
+  const lines = r.list.map((k) => {
+    const label = k.kind === 'class' ? k.key : `title pattern "${k.key}"`;
+    const cls = errorclass.normalise(k.newest.class);
+    return `  ${k.count}x ${label}:\n`
+      + `    From the newest error (${k.newest.id}): "${repetitionhint.correctPathText(k.newest)}"\n`
+      + `    mem suggest procedure ${cls ?? '(no valid class)'}`;
+  });
+  const core = `${r.list.length} repetition${r.list.length === 1 ? '' : 's'} `
+    + `(>= ${repetitionhint.THRESHOLD}x, whole log) without a procedure in force: `
+    + r.list.map((k) => `${k.count}x ${k.kind === 'class' ? k.key : `"${k.key}"`}`).join(', ');
+  return finding('repetition-hint', LEVEL.WARN, core,
+    'From the THIRD repetition (class OR normalised title) a draft text built ONLY from remedy/correct '
+    + 'or one sentence of the newest error, no model call. `mem suggest procedure <class>` prints the '
+    + 'ready command — nothing is written from here, a procedure stays a human act:\n' + lines.join('\n'));
 }
 
 /**
