@@ -40,6 +40,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeAtomic } from './atomicwrite.mjs';
 
 /** What to do. Closed list. */
 export const ACTION = Object.freeze({
@@ -119,8 +120,7 @@ export function readMark(where) {
 /** Write a mark. Never fails outward. */
 export function writeMark(where, { level = 0, fingerprint: f = '', shown = 0 } = {}) {
   try {
-    fs.mkdirSync(path.dirname(where), { recursive: true });
-    fs.writeFileSync(where, JSON.stringify({ level, fingerprint: f, shown }));
+    writeAtomic(where, JSON.stringify({ level, fingerprint: f, shown }));
     return true;
   } catch { return false; }
 }

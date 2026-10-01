@@ -23,7 +23,7 @@ import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
 import * as bodyfields from '../bodyfields.mjs';
 import * as injection from '../injection.mjs';
-import { out, die, checkFlags, isHelp, findRoot, requireConfig, authorityArg } from './shell.mjs';
+import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig, authorityArg } from './shell.mjs';
 
 /**
  * Parse `--as-of`, and REFUSE what cannot be parsed.
@@ -136,7 +136,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
     // literal number 20 instead of a coincidence that also came out to
     // 20. Default stays 20 for a bare `--json` with no `--top` (`mem
     // when` never sets it, so its own callers see no change).
-    const cap = args.top ? Number(args.top) : 20;
+    const cap = numberFlag('top', args.top, { fallback: 20, min: 1 });
     const newest = [...entries].reverse().slice(0, cap > 0 ? cap : 20);
     const hits = newest.map((e, i) => ({
       score: 1000 - i, source: e._source, line: e._line, entry: e,
@@ -180,7 +180,7 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
   }
   if (args.raw) {
     const { lines, capped, files } = timesearch.rawInWindow(root, {
-      from: window.from, to: window.to, maxLines: Number(args['raw-max'] ?? 200),
+      from: window.from, to: window.to, maxLines: numberFlag('raw-max', args['raw-max'], { fallback: 200, min: 0 }),
     });
     out('');
     out(`--- raw conversation in window (${lines.length} lines from ${files} captures${capped ? ', capped' : ''}) ---`);

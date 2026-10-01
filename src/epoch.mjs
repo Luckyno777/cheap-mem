@@ -43,6 +43,7 @@ import crypto from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
 import * as semantics from './semantics.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 export const EPOCH_FILE = path.join('.mem', 'epoch.json');
 export const EPOCH_VERSION = 1;
@@ -150,7 +151,6 @@ export function recordEpoch(root, { force = false } = {}) {
     return { written: false, ...state };
   }
   const p = path.join(root, EPOCH_FILE);
-  fs.mkdirSync(path.dirname(p), { recursive: true });
-  fs.writeFileSync(p, JSON.stringify(state.current, null, 2) + '\n', 'utf8');
+  writeAtomic(p, JSON.stringify(state.current, null, 2) + '\n');
   return { written: true, ...state };
 }

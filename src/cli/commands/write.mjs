@@ -28,7 +28,7 @@ import * as errorclass from '../../errorclass.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
-import { out, die, warn, checkFlags, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
 /** 12 commands. */
@@ -799,7 +799,7 @@ export const COMMANDS = {
     checkFlags(args, ['stale', 'conflicts', 'key', 'stale-days'], 'facts');
     const root = findRoot(args);
     requireConfig(root);
-    const staleDays = args['stale-days'] ? Number(args['stale-days']) : 120;
+    const staleDays = numberFlag('stale-days', args['stale-days'], { fallback: 120, min: 0 });
     let facts = memory.currentFacts(root, { staleDays });
     if (args.key) facts = facts.filter((f) => f.key === args.key);
     if (args.stale) facts = facts.filter((f) => f.stale);

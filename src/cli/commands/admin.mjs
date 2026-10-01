@@ -34,7 +34,7 @@ import * as modelcost from '../../modelcost.mjs';
 import * as goldlog from '../../goldlog.mjs';
 import * as gap from '../../gap.mjs';
 import * as skillusage from '../../skillusage.mjs';
-import { out, die, warn, checkFlags, isHelp, findRoot, requireConfig } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /** 13 commands. */
 export const COMMANDS = {
@@ -138,8 +138,8 @@ export const COMMANDS = {
     const { lines: journalRaw, broken, present } = injection.read(root);
     const session = typeof args.session === 'string' ? args.session : null;
     const journal = session ? journalRaw.filter((l) => l.session === session) : journalRaw;
-    const cpt = Number(args['chars-per-token']);
-    const win = Number(args.window);
+    const cpt = numberFlag('chars-per-token', args['chars-per-token'], { min: 0 });
+    const win = numberFlag('window', args.window, { min: 0 });
     const r = gauges.measure({
       journal, lines: [], broken, journalPresent: present,
       charsPerToken: Number.isFinite(cpt) && cpt > 0 ? cpt : null,
@@ -245,7 +245,7 @@ export const COMMANDS = {
 
     const broken = led.entries.filter((e) => e.__broken).length;
     const good = led.entries.filter((e) => !e.__broken);
-    const n = args.last && args.last !== true ? Math.max(1, Number(args.last)) : 20;
+    const n = numberFlag('last', args.last, { fallback: 20, min: 1 });
     out(`${good.length} observation(s)${broken ? `, ${broken} unreadable` : ''} in ${led.path}`);
     if (broken) out('Unreadable lines are kept, not dropped -- silence here would hide the corruption this log exists to catch.');
     out('');
@@ -341,6 +341,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
+    checkFlags(args, ['json'], 'chain');
     // `integrity.logFiles` owns which drawer files exist; `chain.verifyChain`
     // owns what a seal means. Calling both here keeps one enumeration and
     // one verifier — and it is also what makes this command visibly the
@@ -393,6 +394,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
+    checkFlags(args, ['json'], 'archive');
     const root = findRoot(args);
     const st = shardarchive.archiveStatus(root);
     if (args.json) { out(JSON.stringify(st, null, 2)); return; }
@@ -491,7 +493,7 @@ export const COMMANDS = {
         return;
       }
       out(`${index.tagGraph.size} tags with learned neighbours:`);
-      out(thesaurus.graphReport(index.tagGraph, { top: args.top ? Number(args.top) : 20 }));
+      out(thesaurus.graphReport(index.tagGraph, { top: numberFlag('top', args.top, { fallback: 20, min: 1 }) }));
       return;
     }
     out(`${thesaurus.THESAURUS.length} curated groups`
@@ -635,6 +637,7 @@ export const COMMANDS = {
       ].join('\n'));
       return;
     }
+    checkFlags(args, ['json'], 'status');
     const root = findRoot(args);
     const res = setup.check(root);
 
@@ -880,7 +883,7 @@ export const COMMANDS = {
     checkFlags(args, ['days', 'json', 'root'], 'modelcost');
     const root = findRoot(args);
     requireConfig(root);
-    const days = args.days && args.days !== true ? Number(args.days) : 7;
+    const days = numberFlag('days', args.days, { fallback: 7, min: 0 });
     const summary = modelcost.sumByCaller(root, { sinceDays: days });
     if (args.json) { out(JSON.stringify(summary, null, 2)); return; }
     if (!summary.length) {

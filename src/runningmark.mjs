@@ -39,6 +39,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { writeAtomic } from './atomicwrite.mjs';
 
 /** Where all service markers live, relative to the memory root. */
 export const MARKER_DIR = path.join('.pipeline', 'running');
@@ -90,10 +91,7 @@ export function writeMarker(root, { service, codePath = root, pid = process.pid,
   if (commit === null) marker.reason = reason;
 
   const target = markerPath(root, service);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  const tmp = `${target}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmp, `${JSON.stringify(marker, null, 2)}\n`, 'utf8');
-  fs.renameSync(tmp, target);
+  writeAtomic(target, `${JSON.stringify(marker, null, 2)}\n`);
   return marker;
 }
 

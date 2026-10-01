@@ -41,6 +41,10 @@
       "reason": "German synonym groups are data by design, so a memory written in German stays searchable — already named as such in test/english-only.test.mjs's own header"
     },
     {
+      "pattern": "test/f5-german-identifiers.test.mjs",
+      "reason": "the German-identifier probe's own word list (F5, item 23): German code words listed as DATA so the probe can find them in identifiers, not prose itself; same class as test/english-dictionary.mjs"
+    },
+    {
       "pattern": "test/english-dictionary.mjs",
       "reason": "the guard's own recognition dictionary — German function words listed as DATA so the probe can find them in prose, not prose itself"
     },
