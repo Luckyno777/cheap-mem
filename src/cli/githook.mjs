@@ -263,6 +263,7 @@ export function writeMemoryGitignore(root) {
     ['.mem/vectors.db', 'derived: rebuild with `mem embed backfill`'],
     ['.mem/tasks/', 'per-machine task log (E1.7): started/progress/result/cancelled\n     lines for `mem-serve`\'s /task route, and the export it writes into'],
     ['.mem/raw-offsets.json', 'per-machine read positions'],
+    ['.mem/local/', 'per-machine private files (miss-gold question text) must never travel'],
     ['.mem/digest-bell.json', 'transient'],
     ['.mem/digest.lock', 'transient'],
     ['.mem/digest.log', 'local log'],

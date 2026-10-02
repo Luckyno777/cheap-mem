@@ -23,6 +23,8 @@
 #   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
 #   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
 #   MEM_DIGEST_CEILING_H      dueness threshold: ceiling in hours
+#   MEM_GOLD_DAILY        'no' switches off the daily miss-gold collection
+#   MEM_GOLD_TIMEOUT      its own time cap in seconds (default 300)
 #
 # Exit codes:
 #   0  ran, or nothing to do
@@ -64,6 +66,23 @@ function Note($msg) {
   $line = "[{0}] {1}" -f (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'), $msg
   Write-Output $line
   Add-Content -Path $LogPath -Value $line
+}
+
+# --- Miss gold, at most once per UTC day ---------------------------
+#
+# Same as bin/mem-digest (which says why): `mem gold miss daily` on this
+# tick, its OWN time cap (MEM_GOLD_TIMEOUT, default 300 s), output
+# discarded, failure ignored - this job's exit code does not change.
+if ($env:MEM_GOLD_DAILY -ne 'no') {
+  try {
+    $GoldTimeout = if ($env:MEM_GOLD_TIMEOUT) { [int]$env:MEM_GOLD_TIMEOUT } else { 300 }
+    $GoldOut = Join-Path ([System.IO.Path]::GetTempPath()) "cheap-mem-gold-$PID.out"
+    $GoldErr = "$GoldOut.err"
+    $GoldProc = Start-Process -FilePath 'node' -ArgumentList @($Mem, '--root', $Root, 'gold', 'miss', 'daily') `
+      -NoNewWindow -PassThru -RedirectStandardOutput $GoldOut -RedirectStandardError $GoldErr
+    if (-not $GoldProc.WaitForExit($GoldTimeout * 1000)) { try { $GoldProc.Kill() } catch { } }
+    Remove-Item $GoldOut, $GoldErr -Force -ErrorAction SilentlyContinue
+  } catch { }
 }
 
 # --- Check dueness BEFORE taking the lock ---------------------------

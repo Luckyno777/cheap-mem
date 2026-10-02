@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **82 CLI commands, 37 MCP tools, 166 modules, 3428
-tests**; as of 2026-09-20, about 68627 lines in `bin/` and `src/`, at
+As of 2026-09-26: **82 CLI commands, 37 MCP tools, 167 modules, 3452
+tests**; as of 2026-09-20, about 69035 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -550,6 +550,9 @@ mem user [--json]              generic, code-only habit meter over YOUR OWN
 mem digest due|bell            is the pile ripe?
 mem thesaurus [--graph]        word groups, and what the tag graph learned
 mem asked-learn [--write]      learn query words from recall misses, any language
+mem gold miss collect|daily|status|score
+                               local, git-ignored question text of real misses; scored
+                               from 20 cases on, numbers only (daily via the digest tick)
 mem search-levers              Block H search levers (MEM_SEARCH_LEVERS): which are
                                on; h3 withholds a flat field of weak hits
 mem effect                     share of injections named/opened/edited afterwards,
