@@ -95,7 +95,11 @@ function synth(n, { extraBytes = 0 } = {}) {
 /** A small store with every case the pass must agree with the full build on. */
 function caseStore() {
   const r = emptyRoot();
-  const L = (type, data, o = {}) => memory.logEntry(r, type, data, o);
+  // Projects are created on purpose since project-new (logEntry refuses unknown ones).
+  const L = (type, data, o = {}) => {
+    if (o.project && !memory.projectExists(r, o.project)) memory.projectInit(r, o.project);
+    return memory.logEntry(r, type, data, o);
+  };
   const a = L('learning', { title: 'A one', text: 'x', tags: ['q', 'r'] }, { project: 'p1' });
   const b = L('learning', { title: 'B two', text: 'y', tags: ['q'] });
   const c = L('decision', { title: 'C', choice: 'o', why: 'w', tags: ['r'], agent: 'bot' });
