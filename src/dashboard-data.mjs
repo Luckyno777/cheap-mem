@@ -536,7 +536,7 @@ function gitHead(dir) {
     return r.status === 0 ? String(r.stdout).trim() || null : null;
   } catch { return null; }
 }
-function codeState() {
+export function codeState() {
   let version = null;
   try { version = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8')).version ?? null; } catch { version = null; }
   const headNow = gitHead(PACKAGE_ROOT);
@@ -655,6 +655,34 @@ function invariantsState(doc) {
     broken,
     ids,
     parity: findingNamed(doc, 'finding-parity'),
+  };
+}
+
+/** The types with display names — one place for the build, the placeholder and the light head. */
+export function typesList() {
+  return Object.keys(memory.TYPES).map((type) => ({ type, name: TYPE_NAME[type] ?? type, label: viewer.TYPE_LABEL[type] ?? type }));
+}
+
+/**
+ * The first answer while NOTHING is built yet (board-tempo-cm): a cold start
+ * without a stored head on a large store. No counter, no list — only the
+ * honest state "unknown" with a reason; the page asks again until the
+ * background build is done (src/dashboard-cache.mjs).
+ */
+export function placeholder({ title = 'cheap-mem', writesAllowed = false } = {}) {
+  const reason = 'The first build since the start is running in the background; no stored state yet. Nothing here is measured.';
+  return {
+    state: 'unknown',
+    placeholder: true,
+    reasons: [reason],
+    at: null,
+    meta: { title, writesAllowed, git: {}, inventory: null, entriesTotal: null },
+    types: typesList(),
+    entries: [],
+    overview: null,
+    inbox: { readable: false, reason: 'not built yet', error: 'not built yet' },
+    raw: { readable: false, reason: 'not built yet', error: 'not built yet' },
+    parts: {},
   };
 }
 
@@ -906,7 +934,7 @@ export function collectDashboard(root, {
       workspace,
       root: d.root,
     },
-    types: Object.keys(memory.TYPES).map((type) => ({ type, name: TYPE_NAME[type] ?? type, label: viewer.TYPE_LABEL[type] ?? type })),
+    types: typesList(),
     today: todayResult,
     entries,
     brokenLines: pass.broken,

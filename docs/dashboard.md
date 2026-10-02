@@ -18,6 +18,7 @@ mem serve --allow-writes  # allow the page to write, for this run only
 | `/`, `/dashboard` | the page |
 | `/pult`, `/pult.json` | 308 to `/dashboard` and `/desk.json` (old German names, kept for bookmarks) |
 | `/dashboard.json` | everything the views show, collected live (gzip when asked) |
+| `/dashboard/part.json?part=` | what the first answer leaves out: `inbox`, `raw`, `experiences` as lists; `entries` page by page (`&from=&n=`, at most 5000 a page) |
 | `/dashboard/entry.json?id=` | one entry, whole |
 | `/dashboard/message.json?id=` | one inbox message, whole |
 | `/dashboard/probe.json` | the retrieval probe: what `mem retrieve` would inject for a question. It is read-only and never logged |
@@ -27,6 +28,44 @@ mem serve --allow-writes  # allow the page to write, for this run only
 | `/manifest.webmanifest`, `/sw.js`, `/favicon.ico` | the installable shell (PWA) |
 
 Writing routes and their switch: `docs/dashboard-writes.md`.
+
+## How fast the first page is (since 2026-10-02)
+
+The first answer of `/dashboard.json` is a small **head**, whatever the size
+of the store: the newest 120 entries (plus the open duties and questions the
+start page names), the counters (`overview`: per type and project, computed on
+the server) and the paths of the parts that follow. The rest of the entries
+arrives page by page (`/dashboard/part.json?part=entries&from=&n=`) from the
+same build; the page shows "x of y entries loaded" until it is whole, and
+takes its counters from the server's `overview`, never from the part it has.
+A part that is not built yet answers `building` and is never shown as an
+empty list.
+
+- **After a restart** the head from the last run answers at once (`cache.source:
+  "disk"`, never fresh, with its reason) while the server rebuilds. It lies in
+  `.mem/dashboard-head.json` (0600, written atomically, machine-local, not in
+  git) and holds no `text`, `fact` or `why` of any entry: the dashboard decrypts
+  locked entries in memory only, and decrypted content never reaches the disk.
+- **A large store without a head on disk** gets a placeholder first (state
+  unknown, no invented figure), then within seconds a light head (counters and
+  newest titles, one pass over the drawers, bounded memory), then the full build.
+- **Above 64 MB of drawers** (`CHEAP_MEM_SERVE_FULL_BUILD_MB` changes the line)
+  the full build does not run at all: the page says it shows counters and the
+  newest entries only, and the tiles of the full build are unknown, not zero.
+  Measured: 100,000 entries (26 MB) need 26 s and 1.1 GB for the full build,
+  250,000 (66 MB) need 99 s and 2.9 GB.
+- The full build runs in a worker thread whose heap the server caps (at most
+  4 GB, half the RAM) and enforces itself: Node's `resourceLimits` alone did
+  not hold on Node 22.22 (a 64 MB limit ran on to 2 GB). A build over the cap
+  fails the worker only; the server keeps answering with the last head and says
+  why. The cache counts a result's age from the END of its build and waits at
+  least four times a build's duration before the next background build.
+- `CHEAP_MEM_SERVE_HEAD_ENTRIES` sets how many newest entries the first answer
+  carries (default 120). The page holds at most 30,000 entries; above that lists and the network show
+  the newest and the search goes through the server.
+
+The measurements (`bench/board-tempo.mjs`, synthetic stores of
+`bench/scale.mjs`) are in the changelog entry of 2026-10-02.
 
 ## What it shows
 

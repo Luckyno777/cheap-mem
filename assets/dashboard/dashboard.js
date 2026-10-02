@@ -194,7 +194,10 @@ const pluralEntries = (count) => (count === 1 ? '1 entry' : num(count) + ' entri
 // difference, never silently.
 const entriesTotalText = () => {
   const g = D?.meta?.entriesTotal;
-  return g != null ? `${num(g)} entries` : `${num(entries.length)} entries (incl. history)`;
+  if (g != null) return `${num(g)} entries`;
+  // board-tempo-cm: only a part is loaded -> the server's number, never the length of the part.
+  if (!entriesLoad.full && D?.overview) return `${num(D.overview.count)} entries (incl. history)`;
+  return `${num(entries.length)} entries (incl. history)`;
 };
 const mb = (b) => (b === null || b === undefined ? '—' : (b / 1048576).toLocaleString('en-GB', { maximumFractionDigits: 1 }) + ' MB');
 const age = (min) => {
@@ -409,26 +412,20 @@ function prepare(d) {
   D._openDuty = new Set((d.openDuties || []).map((p) => p.id));
   D._dutyWho = new Map((d.openDuties || []).map((p) => [p.id, p.who]));
   D._openQuestion = new Set((d.openQuestions || []).map((f) => f.id));
-  entries = (d.entries || []).map((e) => ({
-    id: e.id, type: e.type, title: e.title, project: e.project, text: e.text || '', tags: e.tags || [], rels: e.out || [],
-    refs: (e.out || []).map((r) => r[1]), agent: e.agent || '—', ts: e.ts || '', memory: 'local', state: e.state || 'active',
-    why: e.why || null, source: e.source ? e.source + (e.line ? ':' + e.line : '') : '—', readable: !!e.readable, recall: e.recall ?? null,
-    capture: e.capture || null, validFrom: e.validFrom || null, validUntil: e.validUntil || null, fact: e.fact || null, replaces: e.replaces || null,
-    cited: e.cited || 0, contested: !!e.contested, basis: e.basis || null, authority: e.authority || null, scope: e.scope || null,
-    derivedFrom: e.derivedFrom || [], key: e.key || null, ruleStatus: e.status || null,
-  }));
-  entries.sort((a, b) => b.ts.localeCompare(a.ts));
-  entryIndex = new Map(entries.map((e) => [e.id, e]));
-  incomingIndex = new Map();
-  for (const e of entries) for (const [kind, id] of e.rels) {
-    if (!incomingIndex.has(id)) incomingIndex.set(id, []);
-    incomingIndex.get(id).push({ kind, id: e.id });
+  // board-tempo-cm: for a large store the first answer carries only the
+  // newest entries (`d.parts.entries`); the rest comes page by page
+  // (loadEntriesPart). A list that is already complete stays until the one of
+  // the new state is here — never back to the part.
+  if (!d.parts?.entries) { setEntries(d.entries || []); entriesLoad = { full: true, loaded: entries.length, total: entries.length, key: null }; }
+  else if (entriesLoad.key === null) {
+    setEntries(d.entries || []);
+    entriesLoad = { full: false, loaded: entries.length, total: d.parts.entries.count, key: null };
   }
-  for (const e of entries) e._s = (e.id + ' ' + e.title + ' ' + e.text + ' ' + e.tags.join(' ') + ' ' + e.agent + ' ' + e.project + ' ' + (types[e.type] || '')).toLowerCase();
   // tempo: messages and captures arrive deferred (`d.parts`, loadParts()) —
   // if they are in the answer after all (older server), they count as before.
   if (!d.parts?.inbox) setMessages(d.inbox?.messages || []);
   if (!d.parts?.raw) setCaptures(d.raw?.readable ? d.raw.captures || [] : []);
+  if (!d.parts?.experiences) setExperiences(D.experiences || []);
   // A drawer that was not readable makes the coverage unclear — then
   // every view shows the mockup's note, this time with the real reason.
   state.missing = d.state !== 'ok' || entries.some((e) => !e.readable);
@@ -452,6 +449,93 @@ function prepare(d) {
   $('#dataMark').textContent = serverWrites ? 'LIVE DATA' : 'LIVE · READ ONLY';
   $('#footLeft').textContent = `cheap-mem · ${entriesTotalText()} · state ${whenTime(d.at)} · memory ${g.head || '—'}.`;
 }
+function setEntries(list) {
+  entries = (list || []).map((e) => ({
+    id: e.id, type: e.type, title: e.title, project: e.project, text: e.text || '', tags: e.tags || [], rels: e.out || [],
+    refs: (e.out || []).map((r) => r[1]), agent: e.agent || '—', ts: e.ts || '', memory: 'local', state: e.state || 'active',
+    why: e.why || null, source: e.source ? e.source + (e.line ? ':' + e.line : '') : '—', readable: !!e.readable, recall: e.recall ?? null,
+    capture: e.capture || null, validFrom: e.validFrom || null, validUntil: e.validUntil || null, fact: e.fact || null, replaces: e.replaces || null,
+    cited: e.cited || 0, contested: !!e.contested, basis: e.basis || null, authority: e.authority || null, scope: e.scope || null,
+    derivedFrom: e.derivedFrom || [], key: e.key || null, ruleStatus: e.status || null,
+  }));
+  entries.sort((a, b) => b.ts.localeCompare(a.ts));
+  entryIndex = new Map(entries.map((e) => [e.id, e]));
+  incomingIndex = new Map();
+  for (const e of entries) for (const [kind, id] of e.rels) {
+    if (!incomingIndex.has(id)) incomingIndex.set(id, []);
+    incomingIndex.get(id).push({ kind, id: e.id });
+  }
+  for (const e of entries) e._s = (e.id + ' ' + e.title + ' ' + e.text + ' ' + e.tags.join(' ') + ' ' + e.agent + ' ' + e.project + ' ' + (types[e.type] || '')).toLowerCase();
+}
+// --- board-tempo-cm: entries page by page -------------------------------------
+// At most this many entries does the page hold (memory, 3D net, lists). Above
+// that it stays with the newest ones — with the visible figure "x of y
+// loaded"; the counters then come from `D.overview` (server), the search
+// goes through the server (palette and full-text search).
+const ENTRIES_CAP = 30000;
+let entriesLoad = { full: true, loaded: 0, total: 0, key: null };
+let entriesRun = 0;
+let entriesLoadingFor = null; // state key of the running load (no second run for the same one)
+let partRetryTimer = 0;
+const stateKey = (d) => (d?.cache ? d.cache.built_at + '|' + d.cache.source : null);
+// A part that is still being built (`building`) is no error: ask again soon
+// (at most one timer) — and the page never shows it as an empty list.
+function partLaterAgain() {
+  if (partRetryTimer) return;
+  partRetryTimer = setTimeout(() => { partRetryTimer = 0; loadParts(); }, TEMPO_TEST_MS ?? 3000);
+}
+async function loadEntriesPart() {
+  const t = D?.parts?.entries;
+  const key = stateKey(D);
+  // `head_only`: the server has no full list (light head for a very large store).
+  if (!t || t.head_only || !key || key === entriesLoad.key || key === entriesLoadingFor) return null;
+  const run = ++entriesRun;
+  entriesLoadingFor = key;
+  const wasThere = partState.entries === 'ok';
+  if (!wasThere) partState.entries = 'loading';
+  const list = [];
+  let from = 0;
+  let stateId = null;
+  try {
+    while (from !== null && list.length < ENTRIES_CAP) {
+      const n = Math.min(t.page || 5000, ENTRIES_CAP - list.length);
+      // Literal, not t.path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
+      const r = await fetch('/dashboard/part.json?part=entries&from=' + from + '&n=' + n, { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error('answer ' + r.status);
+      const b = await r.json();
+      if (run !== entriesRun) return null; // a newer run took over
+      if (b.building) { partLaterAgain(); return null; }
+      if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
+      if (stateId !== null && b.state_id !== stateId) { list.length = 0; from = 0; stateId = null; continue; }
+      stateId = b.state_id;
+      list.push(...b.data);
+      from = b.next;
+      entriesLoad.total = b.total;
+    }
+  } catch (e) {
+    partReason.entries = e?.message || String(e);
+    if (partState.entries !== 'ok') partState.entries = 'error';
+    return null;
+  } finally {
+    if (run === entriesRun) entriesLoadingFor = null;
+  }
+  const before = entries.length;
+  setEntries(list);
+  entriesLoad = { full: from === null, loaded: entries.length, total: entriesLoad.total, key };
+  partState.entries = 'ok';
+  partReason.entries = null;
+  return wasThere ? (entries.length !== before ? 'changed' : null) : 'first';
+}
+// The counters of the start page: from the loaded list when it is whole —
+// otherwise from the server's overview (D.overview), never from the part.
+function areaFigures(es) {
+  const u = D?.overview;
+  if (entriesLoad.full || !u) {
+    return { count: es.length, readable: es.filter((e) => e.readable).length, skills: es.filter((e) => e.type === 'skill').length + es.filter((e) => e.type === 'procedure').length, part: false };
+  }
+  const z = state.project === 'all' ? u : u.perProject?.[state.project] || { count: 0, readable: 0, perType: {} };
+  return { count: z.count, readable: z.readable, skills: (z.perType?.skill || 0) + (z.perType?.procedure || 0), part: true };
+}
 // --- tempo: deferred parts ---------------------------------------------------
 // What the start page does not need (messages, captures) the page fetches
 // after the first draw through /dashboard/part.json. Until it is there the
@@ -461,17 +545,20 @@ const partReason = {};
 const partContentKey = {}; // name -> last JSON.stringify(b.data) (no-jump)
 function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
 function setCaptures(list) { rawSamples = list || []; }
+let experienceList = []; // learnings with citation counts (deferred part `experiences`)
+function setExperiences(list) { experienceList = list || []; }
 // The inbox list also feeds the per-agent mail column of the agents page.
-const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'] };
+const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'], experiences: ['learnings'] };
 // no-jump point 3: render() only when a part turns 'ok' for the FIRST
 // time and its tab is currently open (before that it said "loading" —
 // that MUST be shown). Every later refetch of the same part is a quiet
 // background sync like loadData() — a marker on a real change, never its
 // own render().
 async function loadParts() {
-  const parts = Object.keys(D?.parts || {});
+  const parts = Object.keys(D?.parts || {}).filter((name) => name !== 'entries');
   const firstOk = [];
   let otherChanged = false;
+  const entriesRun1 = loadEntriesPart();
   await Promise.all(parts.map(async (name) => {
     const wasOk = partState[name] === 'ok';
     if (!wasOk) partState[name] = 'loading';
@@ -480,12 +567,15 @@ async function loadParts() {
       const r = await fetch('/dashboard/part.json?part=' + encodeURIComponent(name), { credentials: 'same-origin', cache: 'no-store' });
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
+      // Not built yet (a head from disk) — no error, ask again soon.
+      if (b.building) { partLaterAgain(); return; }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
       const key = JSON.stringify(b.data);
       const changed = partContentKey[name] !== undefined && partContentKey[name] !== key;
       partContentKey[name] = key;
       if (name === 'inbox') setMessages(b.data);
       else if (name === 'raw') setCaptures(b.data);
+      else if (name === 'experiences') setExperiences(b.data);
       partState[name] = 'ok';
       partReason[name] = null;
       if (!wasOk) firstOk.push(name);
@@ -495,8 +585,11 @@ async function loadParts() {
       if (partState[name] !== 'ok') partState[name] = 'error';
     }
   }));
-  if (firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
-  else if (otherChanged) showNewDataMark();
+  // The entries concern every view (start page, net, lists): draw once when
+  // they are complete for the first time, afterwards only the marker.
+  const e = await entriesRun1;
+  if (e === 'first' || firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
+  else if (otherChanged || e === 'changed') showNewDataMark();
 }
 function partNotice(name, title) {
   if (!D?.parts?.[name] || partState[name] === 'ok') return null;
@@ -527,7 +620,8 @@ async function loadData({ quiet = false } = {}) {
     // so it never visibly flickers.
     if (changed) showNewDataMark();
     // tempo: when the answer is not fresh, ask again quietly until it is —
-    // soon when the server already rebuilds, otherwise less often (it
+    // every second while only the placeholder stands (board-tempo-cm: the quick
+    // head is seconds away), soon when the server already rebuilds, otherwise less often (it
     // rebuilds at most every 20 s). At most one refetch waits.
     // no-jump: this refetch no longer draws by itself — it would replace
     // #screen no matter where the human is reading/typing/scrolling.
@@ -535,8 +629,13 @@ async function loadData({ quiet = false } = {}) {
     if (D?.cache && !D.cache.fresh && !refetchTimer && !document.hidden) {
       refetchTimer = setTimeout(async () => {
         refetchTimer = 0;
+        // board-tempo-cm: what stands on the screen while only the placeholder
+        // is there is NOTHING — the first real state is drawn at once (unlike a
+        // later background refresh, which only sets the marker).
+        const wasPlaceholder = Boolean(D?.placeholder);
         await loadData({ quiet: true });
-      }, TEMPO_TEST_MS ?? (D.cache.refreshing ? 5000 : 20000));
+        if (wasPlaceholder && D && !D.placeholder) render();
+      }, TEMPO_TEST_MS ?? (D.placeholder ? 1000 : D.cache.refreshing ? 5000 : 20000));
     }
   } catch (e) {
     loadError = e?.message || String(e);
@@ -603,12 +702,22 @@ function render() {
     // a silent blank: the sub-view says "unknown" with the reason (house
     // rule "not measurable is not zero", dash-fix4).
     try {
-      html += pages[state.tab]();
+      // board-tempo-cm: before the first build nothing is measured — a view
+      // over no data would say "no entry yet", which would be false.
+      html += D.placeholder
+        ? panel('State unknown', note('The first state is being built in the background. This page asks again by itself — until then there is nothing measured to show.'))
+        : pages[state.tab]();
     } catch (e) {
       html += panel('View cannot be drawn', note('This sub-view could not be drawn: ' + esc(e?.message || String(e)) + '. State: unknown — an empty area would be a false statement here.', 'bad'));
     }
   }
-  $('#screen').innerHTML = `<div class="screen-enter">${state.missing ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
+  // board-tempo-cm: only a part of the entries is loaded -> every view says so (never a part as the whole).
+  const partBanner = !D.placeholder && !entriesLoad.full && D.overview
+    ? '<div id="entriesLoad">' + note(`${num(entriesLoad.loaded)} of ${num(entriesLoad.total || D.overview.count)} entries loaded${D.parts?.entries?.head_only ? ' — the server only has the counters and the newest entries for a store this large' : entriesLoad.loaded >= ENTRIES_CAP ? ' — lists and net show the newest, all through the search' : ' — the rest is loading, the lists are not complete yet'}.`) + '</div>'
+    : '';
+  // A light head is no unreadable source but a limit: say that instead.
+  const lightNote = D.light ? note('Only counters and the newest entries are shown: ' + esc((D.reasons || [])[0] || 'the full build did not run') + ' — the tiles of the full build are unknown, not zero.') : '';
+  $('#screen').innerHTML = `<div class="screen-enter">${partBanner}${lightNote}${state.missing && !D.placeholder && !D.light ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
   // tempo (2026-09-28): draw the overview FIRST, the 3-D network one frame
   // later. `initGraph()` compiles the shaders (measured in the sibling's
   // Chromium profile: ~4–6 s with software GL under load) — synchronous
@@ -770,11 +879,16 @@ function todayCard() {
 }
 
 function home() {
+  // Before the first build (a cold start without a stored head) nothing is measured.
+  if (D?.placeholder) {
+    return heading('Your memory, in context', 'The first state is being built.', (D.reasons || []).map(esc).join(' · ')) + panel('State unknown', note('The server builds the first state in the background since its start. This page asks again by itself and shows it as soon as it is there — until then no figure, because none is measured.'));
+  }
   const es = scoped(),
     todo = openWork(es),
-    skills = es.filter((e) => e.type === 'skill'),
-    readable = es.filter((e) => e.readable).length;
-  const coverage = state.missing ? 'Unclear' : !es.length ? 'Empty' : readable === es.length ? 'Complete' : 'Partial';
+    z = areaFigures(es);
+  const skillsN = z.skills;
+  const readable = z.readable;
+  const coverage = state.missing ? 'Unclear' : !z.count ? 'Empty' : readable === z.count ? 'Complete' : 'Partial';
   return (
     heading(
       'Your memory, in context',
@@ -784,10 +898,10 @@ function home() {
     ) +
     todayCard() +
     metrics([
-      ['Knowledge in view', num(es.length), 'entries in the chosen scope'],
+      ['Knowledge in view', num(z.count), 'entries in the chosen scope'],
       ['Open work', num(todo.length), 'duties & unanswered questions'],
-      ['Skills & procedures', num(skills.length + es.filter((e) => e.type === 'procedure').length), 'with origin and validity'],
-      ['Data coverage', coverage, es.length ? `${num(readable)} of ${num(es.length)} entries readable` : 'no entry written yet'],
+      ['Skills & procedures', num(skillsN), 'with origin and validity'],
+      ['Data coverage', coverage, z.count ? `${num(readable)} of ${num(z.count)} entries readable` : 'no entry written yet'],
     ]) +
     `<div class="home-layout"><div class="graph-block">${brainBlock()}</div><article class="panel pad"><div class="panelhead"><h2>Your next look</h2><span class="badge warn">${num(todo.length)} open</span></div>${
       todo
@@ -992,12 +1106,14 @@ const pages = {
   },
   learnings: () => {
     const es = scoped().filter((e) => e.type === 'learning');
-    const ex = new Map((D.experiences || []).map((x) => [x.id, x]));
+    const ex = new Map(experienceList.map((x) => [x.id, x]));
+    const exWait = D.parts?.experiences && partState.experiences !== 'ok';
     const rows = es.slice(0, 40).map((e) => {
       const x = ex.get(e.id);
       return `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(e.project)} · ${esc(e.agent)}${x ? ` · cited ${num(x.cited)}×${(x.backedBy || []).length ? ` · backed by ${num(x.backedBy.length)}` : ''}` : ''}</p></div></div>${x?.contested ? badge('warning', 'contested') : badge(statusOf(e.id))}</div>`;
     }).join('');
-    return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.');
+    return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.')
+      + (exWait ? note(partState.experiences === 'error' ? 'Citation counts not loaded: ' + esc(partReason.experiences || 'unknown') : 'Citation counts are still loading — the rows show them as soon as they are here.') : '');
   },
   // The catalogue arrives on its own from /dashboard/skills.json
   // (skCatalogLoad, called from render()); a loading line until then.
