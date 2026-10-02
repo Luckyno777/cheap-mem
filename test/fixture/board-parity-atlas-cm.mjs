@@ -44,7 +44,9 @@ export async function atlasWorld(REPO) {
 
 export async function withServer(REPO, root, run) {
   const mod = await import(`${pathToFileURL(path.join(REPO, 'bin/mem-serve')).href}?atlas=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
+    // The red proofs run an OLD client that does not page: it must get every entry in the first answer.
+    CHEAP_MEM_SERVE_HEAD_ENTRIES: '100000' });
   try { return await run(`http://127.0.0.1:${server.address().port}`); }
   finally { await new Promise((res) => { server.closeAllConnections?.(); server.close(res); }); }
 }

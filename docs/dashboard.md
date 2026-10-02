@@ -60,7 +60,8 @@ empty list.
   fails the worker only; the server keeps answering with the last head and says
   why. The cache counts a result's age from the END of its build and waits at
   least four times a build's duration before the next background build.
-- The page holds at most 30,000 entries; above that lists and the network show
+- `CHEAP_MEM_SERVE_HEAD_ENTRIES` sets how many newest entries the first answer
+  carries (default 120). The page holds at most 30,000 entries; above that lists and the network show
   the newest and the search goes through the server.
 
 The measurements (`bench/board-tempo.mjs`, synthetic stores of

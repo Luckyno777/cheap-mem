@@ -196,6 +196,22 @@ test('server: the first answer is small and carries counters; the pages equal th
   } finally { await s.stop(); }
 });
 
+test('server: CHEAP_MEM_SERVE_HEAD_ENTRIES sets the size of the head (positive control: the default is 120)', async () => {
+  const root = world({ entries: 300 });
+  const small = await start(root, { CHEAP_MEM_SERVE_HEAD_ENTRIES: '40' });
+  try {
+    const d = await small.json('/dashboard.json');
+    assert.ok(d.entries.length <= 40 + 150 && d.entries.length >= 40, `${d.entries.length}`);
+    assert.equal(d.parts.entries.in_head, d.entries.length);
+    assert.ok(d.entries.length < 100, 'the setting did not take effect');
+  } finally { await small.stop(); }
+  const dflt = await start(root);
+  try {
+    const d = await dflt.json('/dashboard.json');
+    assert.ok(d.entries.length >= 120, `default head ${d.entries.length}`);
+  } finally { await dflt.stop(); }
+});
+
 test('server: a large store without a stored head gets the placeholder (never a wait), then head, then build', async () => {
   const root = bigWorld();
   const s = await start(root);

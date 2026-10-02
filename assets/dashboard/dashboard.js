@@ -425,7 +425,7 @@ function prepare(d) {
   // if they are in the answer after all (older server), they count as before.
   if (!d.parts?.inbox) setMessages(d.inbox?.messages || []);
   if (!d.parts?.raw) setCaptures(d.raw?.readable ? d.raw.captures || [] : []);
-  if (!d.parts?.experiences) setExperiences(d.experiences || []);
+  if (!d.parts?.experiences) setExperiences(D.experiences || []);
   // A drawer that was not readable makes the coverage unclear — then
   // every view shows the mockup's note, this time with the real reason.
   state.missing = d.state !== 'ok' || entries.some((e) => !e.readable);

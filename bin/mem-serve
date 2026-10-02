@@ -323,6 +323,9 @@ export function buildHandler(root, cfg, env = process.env) {
   // Above this size of the drawers only the light head is built. The
   // default is measured (src/dashboard-head.mjs); the variable tunes it
   // (MB) — for a bigger machine, and for the probes.
+  // How many of the newest entries the first answer carries (default 120).
+  const headMaxEnv = Number(env.CHEAP_MEM_SERVE_HEAD_ENTRIES);
+  const headMax = Number.isFinite(headMaxEnv) && headMaxEnv >= 1 ? Math.floor(headMaxEnv) : dashboardHead.HEAD_ENTRIES;
   const fullBuildMb = Number(env.CHEAP_MEM_SERVE_FULL_BUILD_MB);
   const fullBuildMax = Number.isFinite(fullBuildMb) && fullBuildMb > 0 ? fullBuildMb * 1048576 : dashboardHead.FULL_BUILD_UP_TO_BYTES;
   const lightBuild = (reason) => dashboardCache.buildInWorker(root, {
@@ -411,7 +414,7 @@ export function buildHandler(root, cfg, env = process.env) {
       head.topics = { ...head.topics, list: head.topics.list.map((t) => (Array.isArray(t.trail) && t.trail.length > 8 ? { ...t, trail: t.trail.slice(0, 8), trailTotal: t.trail.length } : t)) };
     }
     const open = new Set([...(data.openDuties || []), ...(data.openQuestions || [])].map((x) => x.id));
-    const e = dashboardHead.headEntries(data.entries || [], { open, route: entriesRoute });
+    const e = dashboardHead.headEntries(data.entries || [], { open, max: headMax, route: entriesRoute });
     head.entries = e.entries;
     head.overview = e.overview;
     if (e.part) head.parts.entries = e.part;

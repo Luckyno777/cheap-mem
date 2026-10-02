@@ -149,7 +149,7 @@ try {
       let open = 0;
       let lastAnswer = 0;
       const tS = performance.now();
-      const isDash = (u) => /\/dashboard[./]/.test(new URL(u).pathname);
+      const isDash = (u) => /\/dashboard[./]/.test(u.replace(/^https?:\/\/[^/]+/, '').split('?')[0]);
       page.on('request', (q) => { if (isDash(q.url())) open += 1; });
       const done = (q) => { if (isDash(q.url())) { open -= 1; lastAnswer = performance.now(); } };
       page.on('requestfinished', done);
