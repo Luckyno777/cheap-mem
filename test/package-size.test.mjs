@@ -74,7 +74,14 @@ function packed() {
 // own script and stylesheet. That is the owner's deliberate exception
 // (docs/dashboard-port-2026-09-28.md §6.1), not drift — and 4.8 MB (the
 // branding-kit accident below) still fails by a factor of three.
-const CAP = 1_500_000;
+//
+// **Raised from 1.5 MB to 2.0 MB on 2026-10-02, for ONE named reason:**
+// the ports of 2026-10-01/02 (search levers, mail permission, ChatGPT
+// import, skill registry and catalogue, board parity) hit the 1.5 MB line
+// three times in one night, each time "fixed" by dropping another doc from
+// the tarball. Owner's explicit decision (2026-10-02): give the code room
+// instead of shipping fewer docs. 4.8 MB still fails by a factor of 2.4.
+const CAP = 2_000_000;
 
 test('POSITIVE: npm pack answers at all', () => {
   // A probe that silently returns zero passes forever. It happened to
