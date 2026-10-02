@@ -226,7 +226,7 @@ test('every countable claim in every living document is right', () => {
     } else if (kind in ACTUAL.approx) {
       const real = ACTUAL.approx[kind];
       const factor = Math.max(real, c.number) / Math.min(real, c.number);
-      if (factor > bandOf(was)) {
+      if (factor > bandOf(kind)) {
         wrong.push(`${c.rel}:${c.line} says ${c.number} ${c.kind} — really ${real} (factor ${factor.toFixed(2)})`);
       }
     }
