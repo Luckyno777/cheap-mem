@@ -91,12 +91,14 @@ function rng(seed) {
 const FILLER_EXPAND = process.env.MEM_EXPAND === '1' && process.env.MEM_EXPAND_FILLER === '1';
 const FILLER_VOCAB = FILLER_EXPAND
   ? JSON.parse(fs.readFileSync(new URL('./expand/filler-asked-as.json', import.meta.url), 'utf8')) : null;
+const FILLER_STRIP = FILLER_EXPAND && process.env.MEM_EXPAND_STRIP === '1' ? (await import('./expand/strip.mjs')).strip : null;
 function fillerAskedAs(e, topic) {
   const v = FILLER_VOCAB;
   const verb = Object.keys(v.verb).find((x) => e.title.startsWith(`${x} `));
   const noun = Object.keys(v.noun).find((x) => e.title.includes(x));
   const why = Object.keys(v.why).find((x) => e.text.startsWith(x));
-  return [...(v.topic[topic] ?? []).slice(0, 3), ...(v.verb[verb] ?? []), ...(v.noun[noun] ?? []), ...(v.why[why] ?? [])];
+  const list = [...(v.topic[topic] ?? []).slice(0, 3), ...(v.verb[verb] ?? []), ...(v.noun[noun] ?? []), ...(v.why[why] ?? [])];
+  return FILLER_STRIP ? FILLER_STRIP(list) : list;
 }
 
 export function buildCorpus(n, seed = 42) {

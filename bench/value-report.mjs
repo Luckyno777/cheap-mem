@@ -255,7 +255,7 @@ export async function measureSize(n, o) {
       ? JSON.parse(fs.readFileSync(path.join(HERE, 'expand', 'asked-as.json'), 'utf8')) : null;
     for (const row of world.entries) {
       const t = performance.now();
-      if (expand && Array.isArray(expand[row.data?.id])) row.data = { ...row.data, asked_as: expand[row.data.id] };
+      if (expand && Array.isArray(expand[row.data?.id])) row.data = { ...row.data, asked_as: (await import('./expand/strip.mjs')).strip(expand[row.data.id]) };
       memory.logEntry(root, row.type, row.data, { project: row.project ?? null, now: new Date(row.at) });
       w.push(performance.now() - t);
     }
