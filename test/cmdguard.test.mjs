@@ -132,9 +132,10 @@ test('the booklet follows the data: a new error is guarded at once, a correction
     assert.match(said(bash(root, 'git checkout --ours x', 'p1')), new RegExp(a.id));
     const b = err(root, 'force push over a shared branch', 'git push --force');
     assert.match(said(bash(root, 'git push --force origin x', 'p2')), new RegExp(b.id), 'stale booklet rebuilt');
-    memory.correctionEntry(root, 'error', a.id, { ...a, id: undefined, ts: undefined, command_pattern: 'git merge -X ours' });
+    const { id: _i, ts: _t, ...body } = a;
+    memory.correctionEntry(root, 'error', a.id, { ...body, command_pattern: 'git merge -X ours' });
     assert.equal(bash(root, 'git checkout --ours x', 'p3'), null, 'the replaced pattern is gone');
-    assert.match(said(bash(root, 'git merge -X ours topic', 'p4')), /git merge|force|ours/);
+    assert.match(said(bash(root, 'git merge -X ours topic', 'p4')), /checkout --ours took a whole file/, 'the correction line carries the new pattern');
   } finally { done(root); }
 });
 
@@ -303,7 +304,7 @@ test('MEASURE: matching cost per command and false-alarm rate on 500 ordinary co
     err(root, 'commit -a after a merge', 'git commit -a ;; git commit -am');
     err(root, 'checkout --ours on a whole file', 'git checkout --ours');
     err(root, 'git pull on the VM', 'git pull & /work/');
-    err(root, 'rm -rf /tmp wiped others', 'rm -rf /tmp ;; rm -rf /tmp/*');
+    err(root, 'rm -rf /tmp wiped others', 'rm -rf /tmp ;; rm -rf /tmp/' + '*');
     err(root, 'force push over history', 'git push --force ;; git push -f ;; git push --force-with-lease');
     cg.build(root);
     const set = ordinaryCommands(500);

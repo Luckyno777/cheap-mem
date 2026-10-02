@@ -25,8 +25,8 @@
 // joined with " & " and ALL must occur in the command ("git pull & /work/").
 // Matching is literal, with no parser and no shell:
 //   - the FIRST wording must stand where a command starts (line start,
-//     after ; & | ( { or a backtick, behind sudo/time/nohup/exec/xargs and
-//     VAR=value, or as the first word inside `bash -c "..."`) and end at
+//     after ; & | ( { or a backtick, behind sudo/time/nohup/exec/xargs (with
+//     plain flags like `sudo -n`) and VAR=value, or as the first word inside `bash -c "..."`) and end at
 //     whitespace, a separator or the end. So `git add .` does not hit
 //     `git add .gitignore`, `rm -rf /tmp` does not hit `rm -rf /tmp/x/y`,
 //     and a sentence in a --text that only NAMES the command triggers
@@ -62,7 +62,7 @@ const WORDING_MIN = 4;
 const WORDING_MAX = 80;
 export const PATTERNS_PER_ERROR_MAX = 8;
 /** At most this many warnings in ONE display. */
-export const WARNINGS_PER_COMMAND_MAX = 2;
+const WARNINGS_PER_COMMAND_MAX = 2;
 const TITLE_MAX = 140;
 const BOOKLET_VERSION = 1;
 /** The class a command pattern belongs to (the grip, not the build). */
@@ -115,7 +115,7 @@ export function rejected(value) {
 
 // --- Matching ----------------------------------------------------------------
 
-const LEAD_WORD = /(?<![^\s;&|({`])(?:sudo|time|nohup|exec|command|xargs|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
+const LEAD_WORD = /(?<![^\s;&|({`])(?:(?:sudo|time|nohup|exec|command|xargs)(?: -\S+)*|[A-Za-z_][A-Za-z0-9_]*=\S*)$/;
 
 /** The raw command on one line: a line break becomes `;`, whitespace becomes one space. */
 export function normalise(command) {
