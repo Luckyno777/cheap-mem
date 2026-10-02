@@ -203,6 +203,20 @@ if ($In) {
 # and books the "no" as `no-signal`; pure confirmations never search.
 $RecallJs = Join-Path $ToolRoot 'src/recallhook.mjs'
 $QuestionBytes = [System.Text.Encoding]::UTF8.GetByteCount($Prompt)
+# Machine turns (P10, mirrored from bin/mem-retrieve): a prompt that
+# BEGINS with a foreign-turn marker (harness relay, Stop-hook feedback,
+# subagent hand-back) is not searched and is booked as `machine`, never
+# as a miss. The same node program decides (`recallhook.mjs machine`,
+# list in src/recallsignal.mjs); the first-character test only spares the
+# common case a node call - every marker begins with [, A, S or a.
+$Lead = $Prompt.TrimStart()
+if ($Lead.Length -gt 0 -and '[ASa'.Contains($Lead.Substring(0, 1)) -and (Test-Path -LiteralPath $RecallJs)) {
+  $env:CHEAP_MEM_ROOT = $Root
+  $env:MEM_RH_SESSION = $SessionId
+  $env:MEM_RH_QB = [string]$QuestionBytes
+  $Machine = ($Prompt | & node $RecallJs machine 2>$null) -join ''
+  if ($Machine -eq 'machine') { exit 0 }
+}
 if ($Prompt.Length -lt 12) {
   if (-not (Test-Path -LiteralPath $RecallJs)) { exit 0 }
   $env:CHEAP_MEM_ROOT = $Root

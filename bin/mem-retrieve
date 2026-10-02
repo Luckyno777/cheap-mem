@@ -201,6 +201,21 @@ EOF_META
 # model) and BOOKS the "no" as `no-signal`. Pure confirmations never search.
 RECALL_JS="$TOOL_ROOT/src/recallhook.mjs"
 QB="$(printf '%s' "$PROMPT" | wc -c | tr -d ' ')"
+# **Machine turns (P10).** A prompt that BEGINS with a foreign-turn
+# marker (a harness relay, Stop-hook feedback, a subagent hand-back) was
+# not typed by the person: it is not searched, nothing is injected, and
+# it is booked with its own reason `machine` - never as a miss. The
+# same node program decides on every platform (`recallhook.mjs machine`,
+# the list lives in src/recallsignal.mjs). Only the START counts, so a
+# quick shell test keeps the common case free of an extra node call:
+# every marker begins with `[`, `A`, `S` or `a`.
+case "$(printf '%s' "$PROMPT" | sed -e '1s/^[[:space:]]*//' | head -c 1)" in
+  '['|A|S|a)
+    MACHINE="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_QB="$QB" \
+      MEM_RH_START_MS="$MEM_HOOK_START_MS" capped 8 node "$RECALL_JS" machine 2>/dev/null)"
+    [ "$MACHINE" = "machine" ] && exit 0
+    ;;
+esac
 if [ "${#PROMPT}" -lt 12 ]; then
   VERDICT="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_QB="$QB" \
     capped 8 node "$RECALL_JS" signal 2>/dev/null)"
