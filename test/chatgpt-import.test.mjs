@@ -12,8 +12,8 @@
 // src/chatgptimport.mjs does not exist — every probe below that runs the
 // import is red there. Ported from lucky-mem test/s13-chatgpt-import.
 //
-// invariant: nothing-rather-than-wrong
-// invariant: append-only
+// Rule under test: nothing rather than wrong.
+// Rule under test: append-only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -15,7 +15,7 @@
 // src/prepush.mjs nor hooks/pre-push exists, and `mem hooks install
 // --pre-push` is refused as an unknown flag — every probe here is red.
 //
-// invariant: nothing-rather-than-wrong
+// Rule under test: nothing rather than wrong.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

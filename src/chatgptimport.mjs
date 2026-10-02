@@ -76,8 +76,8 @@
  *     a new, complete version (`new-version`, the header names the one
  *     it replaces). The old capture stays (append-only).
  *
- * invariant: append-only
- * invariant: nothing-rather-than-wrong
+ * Rule: append-only (the record is never rewritten).
+ * Rule: nothing rather than wrong.
  */
 
 import fs from 'node:fs';

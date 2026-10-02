@@ -47,7 +47,7 @@
  * **It writes nothing** and only runs read-only `git` and `gh` calls.
  * The hook script (`hooks/pre-push`) exits 0 no matter what this prints.
  *
- * invariant: nothing-rather-than-wrong
+ * Rule: nothing rather than wrong.
  */
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
