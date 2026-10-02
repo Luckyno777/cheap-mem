@@ -67,6 +67,7 @@ directory. The section number in brackets is where it is explained.
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
 | `chain.mjs` | a per-writer hash chain over the append-only logs — catches a rewrite that survives a commit, which a git-diff check alone cannot |
+| `chatgptimport.mjs` | `mem raw import-chatgpt`: a ChatGPT data export (ZIP or `conversations.json`) in as raw captures — one per conversation, current branch only, redacted before disk, no model call, idempotent by conversation fingerprint + `update_time`, continuations file only the new part, `--dry-run` counts and writes nothing ([6.1](#61-importing-a-chatgpt-history)) |
 | `checkrecord.mjs` | the tracked, append-only proof (`checked.jsonl`) that a full `node --test` run was green for a given tree — one tier, no local machine-only stamp (Bauplan P1) |
 | `claim.mjs` | taking over a message with an expiry: append-only claim/done/failed lines, first unexpired claim counts, a second one stays visibly invalid, resumption after expiry; git is not a lock (X4) |
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
@@ -132,6 +133,7 @@ directory. The section number in brackets is where it is explained.
 | `parity.mjs` | the parity core (mem-admin_02 L5/W9): the cutoff, the `Parity:` trailer shape, merge coverage, addenda, and the W9 debt list against the sibling house — `bench/parity.mjs` is the thin CLI over this |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree |
 | `pointer.mjs` | a pointer instead of silence when something was already shown |
+| `prepush.mjs` | the opt-in pre-push WARNING: before a push to the default branch, asks CI (via `gh`) whether that exact commit has a green run — green/red/pending/none/unknown, never blocks, never says green without CI saying so ([6.2](#62-the-pre-push-ci-warning)) |
 | `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |
 | `profile.mjs` | switchable measuring points that land in the ordinary log — finds where time went without a hand-written report script |
@@ -547,6 +549,39 @@ raw captures, and turns them into entries — the one thing code cannot
 do. Capture and search run without it.
 
 Sync is git. A watcher can drive the loop on a server.
+
+### 6.1 Importing a ChatGPT history
+
+`mem raw import-chatgpt <export.zip|conversations.json>` reads the
+official ChatGPT data export (Settings -> Data controls -> Export data)
+into the raw capture — the same lane the Stop hook fills. One capture per
+conversation, the visible branch only (the parent chain from
+`current_node`; a conversation without one is skipped, not guessed),
+system/hidden/tool messages left out and counted, images and files as
+placeholders. Redaction runs before anything is written, with the same
+canary as capture. **No entry is written and no model is called**: the
+next `mem digest` condenses the captures like any other session.
+
+Re-running is safe: the record keeps a fingerprint of each conversation
+(never its raw id or title) with its `update_time`, so an unchanged
+conversation is skipped, a conversation that grew files only the new
+messages, and an edited one files a new full version beside the old.
+A capture deleted with `mem raw delete` does not come back. `--dry-run`
+prints the counts (conversations, messages, left out, redaction
+findings) and writes nothing; `--since <date>` limits by last update.
+
+### 6.2 The pre-push CI warning
+
+`mem hooks install --pre-push` (opt-in) adds a pre-push hook next to the
+pre-commit one; in a cheap-mem checkout, `git config core.hooksPath hooks`
+arms both. Before a push to the remote's default branch it asks CI
+through `gh run list --commit <sha>` and prints one of five states:
+green, red, pending, none (no run for that exact commit) or unknown (no
+`gh`, offline, not logged in, not a GitHub remote). It **never blocks**
+and never reports green unless CI said so. Why a warning and not the
+sibling house's local "tested green" stamp: `src/checkrecord.mjs` explains
+why this house keeps no machine-local stamp; CI is the independent
+evidence, and a network answer that may be missing cannot carry a block.
 
 ---
 
