@@ -25,12 +25,15 @@
 //      IMMEDIATELY with it — expressly as not fresh, with its build time —
 //      and rebuilds in the background (stale-while-revalidate, see
 //      dashboard-cache.mjs).
-//   3. `lightHead()`: for stores where the full build does not work (drawers
-//      over `FULL_BUILD_UP_TO_BYTES`, or the build worker failed at its heap
-//      cap). ONE pass over the drawers, memory bounded to the newest
+//   3. `lightHead()`: the quick first state of a store the full build still
+//      handles but needs a while for (placeholder, then this head, then the
+//      full build). ONE pass over the drawers, memory bounded to the newest
 //      `HEAD_ENTRIES`: counters per type/project and the newest titles —
 //      nothing else, and the answer says so as a reason (`state:'warning'`).
-//      The tile sections of the full build are missing visibly, not zero.
+//      Above `FULL_BUILD_UP_TO_BYTES` (and when the full build fails at its
+//      heap cap) the COMPACT build takes over instead
+//      (src/dashboard-compact.mjs, task atlas-pass-cm): the same single pass
+//      kept to counters plus the net, questions, agents and the condensed atlas.
 //
 // **What does NOT go to disk.** The entries in the head lose their free
 // texts (`text`, `fact`, `why`) there: the dashboard decrypts locked
@@ -57,7 +60,7 @@ const HEAD_VERSION = 1;
 
 /**
  * Above this size of the drawers (bytes) the full build is not even tried,
- * only `lightHead()`. Measured (bench/board-tempo.mjs, synthetic stores of
+ * the compact build runs instead. Measured (bench/board-tempo.mjs, synthetic stores of
  * bench/scale.mjs, one build worker): 100,000 entries = 26 MB of drawers: 26 s
  * and 1.1 GB peak; 250,000 entries = 66 MB: 99 s and 2.9 GB peak; the old
  * state needed 494 s and 8.1 GB at 1M entries (263 MB). The worker's cap is
@@ -97,10 +100,13 @@ export function overview(entries) {
  *   everything fits into the head; `sorted` is the full list, newest first
  *   (for `page()`, computed once per build).
  */
-export function headEntries(entries, { open = new Set(), max = HEAD_ENTRIES, maxOpen = HEAD_OPEN, route } = {}) {
+export function headEntries(entries, { open = new Set(), max = HEAD_ENTRIES, maxOpen = HEAD_OPEN, route, overview: given = null } = {}) {
   const sorted = [...entries].sort(newestFirst);
-  const ov = overview(sorted);
-  if (sorted.length <= max) return { sorted, entries: sorted, overview: ov, part: null };
+  // A compact build brings its own counters (`given`): its list is only the
+  // newest window of the store, so the counters cannot come from it.
+  const ov = given ?? overview(sorted);
+  const total = given ? given.count : sorted.length;
+  if (sorted.length <= max && total <= sorted.length) return { sorted, entries: sorted, overview: ov, part: null };
   const chosen = sorted.slice(0, max);
   const inside = new Set(chosen.map((e) => e.id));
   // The open duties/questions the start page names under "next look" —
@@ -113,16 +119,27 @@ export function headEntries(entries, { open = new Set(), max = HEAD_ENTRIES, max
   }
   return {
     sorted, entries: chosen, overview: ov,
-    part: { path: route, count: sorted.length, in_head: chosen.length, page: PAGE_MAX },
+    part: {
+      path: route, count: total, in_head: chosen.length, page: PAGE_MAX,
+      // The list is a window of the newest entries, not the whole store.
+      ...(total > sorted.length ? { window: sorted.length } : {}),
+    },
   };
 }
 
-/** One page of the `entries` part (offset `from`, at most `n`). */
-export function page(sorted, from, n) {
+/**
+ * One page of the `entries` part (offset `from`, at most `n`). `total` is the
+ * count of the whole store when `sorted` is only its newest window (the
+ * compact build); the answer then says `window`.
+ */
+export function page(sorted, from, n, { total = sorted.length } = {}) {
   const start = Math.max(0, Math.floor(Number(from) || 0));
   const count = Math.min(PAGE_MAX, Math.max(1, Math.floor(Number(n) || PAGE_MAX)));
   const data = sorted.slice(start, start + count);
-  return { data, from: start, n: data.length, total: sorted.length, next: start + data.length < sorted.length ? start + data.length : null };
+  return {
+    data, from: start, n: data.length, total, next: start + data.length < sorted.length ? start + data.length : null,
+    ...(total > sorted.length ? { window: sorted.length } : {}),
+  };
 }
 
 /** Where the head lies on disk (machine-local, derived, not in git). */

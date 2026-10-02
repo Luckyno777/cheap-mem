@@ -138,26 +138,34 @@ export function headline(e) {
  * show, gathered by the same code the search uses.
  */
 /**
- * Everything one memory has to show, as data.
- *
- * The old viewer collected a flat list of entries — which is what a log
- * file is. Everything that makes this a MEMORY rather than a log lives
- * beside that list and was invisible: what a topic looks like over
- * months, which entries the digest connected and how, which learnings
- * the rest of the memory actually leans on, what is true right now and
- * since when. A prettier flat list is still a flat list, so this
- * gathers the structure too.
- *
- * Shaped for MANY memories from the start (`collectAll` wraps this in a
- * list) even though today there is one. A team that shards per project —
- * which is what docs/scale.md tells them to do past 50k entries — needs
- * the cross-memory view, and retrofitting the data shape later is far
- * more expensive than allowing for it now.
+ * The store. Only the REGISTER travels, never the bytes — the page
+ * already carries real memory content, and an embedded video would be
+ * the end of the one-file promise. Reads no drawer, so the compact build
+ * (src/dashboard-compact.mjs) calls it too.
  */
-export function collectMemory(root, { name = null } = {}) {
-  const rows = collect(root);
-  const byId = new Map(rows.map((r) => [r.id, r]));
+export function storeRegister(root) {
+  let storeList = [];
+  let storeState = null;
+  try {
+    storeList = storeModule.holdings(root).map((l) => ({
+      sha256: l.sha256, name: l.name ?? '?', ts: l.ts ?? '', size: l.size ?? 0,
+      mime: l.mime ?? '', purpose: l.purpose ?? '', checked: Boolean(l.checked),
+      agent: l.agent ?? null, project: l.project ?? null,
+      deleted_at: l.deleted_at ?? null, delete_reason: l.delete_reason ?? null,
+    }));
+    storeState = storeModule.verify(root);
+  } catch { storeList = []; }
+  return { storeList, storeState };
+}
 
+/**
+ * The lenses that read the whole corpus on their own — topics with their
+ * area tree and quality, the learnings with their citations, the living
+ * facts. Split out of `collectMemory` so the compact build
+ * (src/dashboard-compact.mjs) can run each one separately, and say so when it
+ * does not.
+ */
+export function topicsLens(root) {
   // `memory.topicState(root, topic)` each re-reads and re-scans the WHOLE
   // corpus through `memory.topicEntries()` — correct for a single lookup
   // (e.g. `mem topics <name>`), but calling it once per topic here turned
@@ -189,42 +197,6 @@ export function collectMemory(root, { name = null } = {}) {
     };
   });
 
-  const links = [];
-  for (const r of rows) {
-    if (r.type !== 'link') continue;
-    const d = r.details || {};
-    if (!d.from || !d.to) continue;
-    links.push({
-      id: r.id, from: d.from, to: d.to, kind: d.kind || 'related',
-      why: d.why || null, ts: r.ts,
-      // A link whose endpoints are not in this memory is dangling — the
-      // doctor reports it, and the viewer should not pretend otherwise.
-      fromKnown: byId.has(d.from), toKnown: byId.has(d.to),
-    });
-  }
-
-  const experiences = memory.experiences(root).map((e) => ({
-    id: e.id, title: e.title || e.learning || '', cited: e.cited || 0,
-    contested: Boolean(e.contested), backedBy: e.backedBy || [], ts: e.ts || '',
-  }));
-
-  // A living fact resolves to { key, current, history, stale, conflict } —
-  // the value sits on `current`, and the history is what makes it a
-  // timeline rather than a setting. Both are shown: what is true now, and
-  // what it used to be.
-  const facts = memory.currentFacts(root).map((f) => ({
-    key: f.key,
-    value: f.current ? String(f.current.value ?? f.current.fact ?? '') : '',
-    validFrom: f.current ? (f.current.valid_from || String(f.current.ts || '').slice(0, 10)) : '',
-    ageDays: typeof f.ageDays === 'number' ? Math.round(f.ageDays) : null,
-    stale: Boolean(f.stale),
-    conflict: Boolean(f.conflict),
-    history: (f.history || []).map((h) => ({
-      value: String(h.value ?? h.fact ?? ''),
-      validFrom: h.valid_from || String(h.ts || '').slice(0, 10),
-    })),
-  }));
-
   // The TREE over the path segments, not just the flat list. Sixty-nine
   // topics stacked under each other is exactly the unreadability this was
   // reported for; grouped by area it is seven rows. Computed from the
@@ -239,6 +211,75 @@ export function collectMemory(root, { name = null } = {}) {
     leaves: b.children.map((c) => c.leaf),
   }));
   const quality = memory.topicQuality(root);
+  return { topics, areas, quality };
+}
+
+export function experiencesLens(root) {
+  return memory.experiences(root).map((e) => ({
+    id: e.id, title: e.title || e.learning || '', cited: e.cited || 0,
+    contested: Boolean(e.contested), backedBy: e.backedBy || [], ts: e.ts || '',
+  }));
+}
+
+export function factsLens(root) {
+  // A living fact resolves to { key, current, history, stale, conflict } —
+  // the value sits on `current`, and the history is what makes it a
+  // timeline rather than a setting. Both are shown: what is true now, and
+  // what it used to be.
+  return memory.currentFacts(root).map((f) => ({
+    key: f.key,
+    value: f.current ? String(f.current.value ?? f.current.fact ?? '') : '',
+    validFrom: f.current ? (f.current.valid_from || String(f.current.ts || '').slice(0, 10)) : '',
+    ageDays: typeof f.ageDays === 'number' ? Math.round(f.ageDays) : null,
+    stale: Boolean(f.stale),
+    conflict: Boolean(f.conflict),
+    history: (f.history || []).map((h) => ({
+      value: String(h.value ?? h.fact ?? ''),
+      validFrom: h.valid_from || String(h.ts || '').slice(0, 10),
+    })),
+  }));
+}
+
+/**
+ * Everything one memory has to show, as data.
+ *
+ * The old viewer collected a flat list of entries — which is what a log
+ * file is. Everything that makes this a MEMORY rather than a log lives
+ * beside that list and was invisible: what a topic looks like over
+ * months, which entries the digest connected and how, which learnings
+ * the rest of the memory actually leans on, what is true right now and
+ * since when. A prettier flat list is still a flat list, so this
+ * gathers the structure too.
+ *
+ * Shaped for MANY memories from the start (`collectAll` wraps this in a
+ * list) even though today there is one. A team that shards per project —
+ * which is what docs/scale.md tells them to do past 50k entries — needs
+ * the cross-memory view, and retrofitting the data shape later is far
+ * more expensive than allowing for it now.
+ */
+export function collectMemory(root, { name = null } = {}) {
+  const rows = collect(root);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+
+  const { topics, areas, quality } = topicsLens(root);
+
+  const links = [];
+  for (const r of rows) {
+    if (r.type !== 'link') continue;
+    const d = r.details || {};
+    if (!d.from || !d.to) continue;
+    links.push({
+      id: r.id, from: d.from, to: d.to, kind: d.kind || 'related',
+      why: d.why || null, ts: r.ts,
+      // A link whose endpoints are not in this memory is dangling — the
+      // doctor reports it, and the viewer should not pretend otherwise.
+      fromKnown: byId.has(d.from), toKnown: byId.has(d.to),
+    });
+  }
+
+  const experiences = experiencesLens(root);
+
+  const facts = factsLens(root);
 
   // The agent board. It DELIBERATELY shows both sides at once: who is
   // registered and who appears in the memory. An agent with a folder but
@@ -271,20 +312,8 @@ export function collectMemory(root, { name = null } = {}) {
     });
   } catch { agentList = []; }
 
-  // The store. Only the REGISTER travels, never the bytes — the page
-  // already carries real memory content, and an embedded video would be
-  // the end of the one-file promise.
-  let storeList = [];
-  let storeState = null;
-  try {
-    storeList = storeModule.holdings(root).map((l) => ({
-      sha256: l.sha256, name: l.name ?? '?', ts: l.ts ?? '', size: l.size ?? 0,
-      mime: l.mime ?? '', purpose: l.purpose ?? '', checked: Boolean(l.checked),
-      agent: l.agent ?? null, project: l.project ?? null,
-      deleted_at: l.deleted_at ?? null, delete_reason: l.delete_reason ?? null,
-    }));
-    storeState = storeModule.verify(root);
-  } catch { storeList = []; }
+  // The store: only the REGISTER travels (see `storeRegister`).
+  const { storeList, storeState } = storeRegister(root);
 
   return {
     name: name || path.basename(path.resolve(root)),

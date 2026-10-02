@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 82 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3428 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3445 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -80,7 +80,9 @@ directory. The section number in brackets is where it is explained.
 | `console.mjs` | the console: state, settings, connections (7.4) |
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
 | `dashboard-cache.mjs` | `/dashboard.json` from a cache: generation stamp (drawers, git reflog, local sources), background rebuild in a worker thread with a heap cap the parent enforces, cold start from the head on disk or a placeholder, age counted from the end of the build, never stale as fresh (`cache.fresh`/`refreshing`/`reason`/`source`) (7.5) |
-| `dashboard-head.mjs` | the first answer of `/dashboard.json`: newest entries + server-side counters (`overview`), the rest paged through `/dashboard/part.json?part=entries`; the head kept on disk without free texts (0600, atomic); the light head for stores the full build cannot handle |
+| `dashboard-head.mjs` | the first answer of `/dashboard.json`: newest entries + server-side counters (`overview`), the rest paged through `/dashboard/part.json?part=entries`; the head kept on disk without free texts (0600, atomic); the light head only as the quick first state of a store the full build still handles |
+| `dashboard-pass.mjs` | ONE pass over the drawers for a store the full build cannot handle: line total, overview, net, open questions, agents, projects, the newest entries and the condensed 3D atlas (the 240 largest topics, drawers, pair counts, the newest 60 entries of each as the first page); fingerprint table of about 14 bytes an entry, no entry list in memory; `/dashboard/part.json?part=atlas` pages it 60 at a time |
+| `dashboard-compact.mjs` | the compact build above the full-build line (replaces the light head): the pass plus the same `collectDashboard()` as the full build; modules that read the whole store themselves (integrity, duties, facts, topics, learnings) run up to 128 MB of drawers, above they are unknown with a reason; the doctor and today never run there |
 | `dashboard-data.mjs` | the dashboard's DATA layer: `/dashboard.json`, one entry, one message, the read-only retrieval probe, facts at a date (7.5) |
 | `dashboard-page.mjs` | the dashboard's page shell; the views are drawn in the browser from `assets/dashboard/` (7.5) |
 | `measurements.mjs` | the dashboard's weekly measurement series, at most 52 weeks, written only by a running server (7.5) |

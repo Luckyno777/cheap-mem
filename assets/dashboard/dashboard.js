@@ -449,15 +449,21 @@ function prepare(d) {
   $('#dataMark').textContent = serverWrites ? 'LIVE DATA' : 'LIVE · READ ONLY';
   $('#footLeft').textContent = `cheap-mem · ${entriesTotalText()} · state ${whenTime(d.at)} · memory ${g.head || '—'}.`;
 }
-function setEntries(list) {
-  entries = (list || []).map((e) => ({
+// One entry from the server's shape into the page's (list, net, atlas pages).
+function entryOf(e) {
+  const x = {
     id: e.id, type: e.type, title: e.title, project: e.project, text: e.text || '', tags: e.tags || [], rels: e.out || [],
     refs: (e.out || []).map((r) => r[1]), agent: e.agent || '—', ts: e.ts || '', memory: 'local', state: e.state || 'active',
     why: e.why || null, source: e.source ? e.source + (e.line ? ':' + e.line : '') : '—', readable: !!e.readable, recall: e.recall ?? null,
     capture: e.capture || null, validFrom: e.validFrom || null, validUntil: e.validUntil || null, fact: e.fact || null, replaces: e.replaces || null,
     cited: e.cited || 0, contested: !!e.contested, basis: e.basis || null, authority: e.authority || null, scope: e.scope || null,
     derivedFrom: e.derivedFrom || [], key: e.key || null, ruleStatus: e.status || null,
-  }));
+  };
+  x._s = (x.id + ' ' + x.title + ' ' + x.text + ' ' + x.tags.join(' ') + ' ' + x.agent + ' ' + x.project + ' ' + (types[x.type] || '')).toLowerCase();
+  return x;
+}
+function setEntries(list) {
+  entries = (list || []).map(entryOf);
   entries.sort((a, b) => b.ts.localeCompare(a.ts));
   entryIndex = new Map(entries.map((e) => [e.id, e]));
   incomingIndex = new Map();
@@ -465,7 +471,8 @@ function setEntries(list) {
     if (!incomingIndex.has(id)) incomingIndex.set(id, []);
     incomingIndex.get(id).push({ kind, id: e.id });
   }
-  for (const e of entries) e._s = (e.id + ' ' + e.title + ' ' + e.text + ' ' + e.tags.join(' ') + ' ' + e.agent + ' ' + e.project + ' ' + (types[e.type] || '')).toLowerCase();
+  // Loaded atlas pages stay findable across a new state (the detail card).
+  for (const pg of atlasPages.values()) for (const e of pg.list) if (!entryIndex.has(e.id)) entryIndex.set(e.id, e);
 }
 // --- board-tempo-cm: entries page by page -------------------------------------
 // At most this many entries does the page hold (memory, 3D net, lists). Above
@@ -496,6 +503,7 @@ async function loadEntriesPart() {
   const list = [];
   let from = 0;
   let stateId = null;
+  let windowed = false; // atlas-pass-cm: the compact build lists only the newest window of the store
   try {
     while (from !== null && list.length < ENTRIES_CAP) {
       const n = Math.min(t.page || 5000, ENTRIES_CAP - list.length);
@@ -510,6 +518,7 @@ async function loadEntriesPart() {
       stateId = b.state_id;
       list.push(...b.data);
       from = b.next;
+      windowed = Boolean(b.window);
       entriesLoad.total = b.total;
     }
   } catch (e) {
@@ -521,7 +530,7 @@ async function loadEntriesPart() {
   }
   const before = entries.length;
   setEntries(list);
-  entriesLoad = { full: from === null, loaded: entries.length, total: entriesLoad.total, key };
+  entriesLoad = { full: from === null && !windowed, loaded: entries.length, total: entriesLoad.total, key };
   partState.entries = 'ok';
   partReason.entries = null;
   return wasThere ? (entries.length !== before ? 'changed' : null) : 'first';
@@ -555,7 +564,8 @@ const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'], experiences: ['lear
 // background sync like loadData() — a marker on a real change, never its
 // own render().
 async function loadParts() {
-  const parts = Object.keys(D?.parts || {}).filter((name) => name !== 'entries');
+  // `entries` loads page by page, `atlas` only when the page zooms into a topic or a drawer (atlasLoad).
+  const parts = Object.keys(D?.parts || {}).filter((name) => name !== 'entries' && name !== 'atlas');
   const firstOk = [];
   let otherChanged = false;
   const entriesRun1 = loadEntriesPart();
@@ -713,11 +723,13 @@ function render() {
   }
   // board-tempo-cm: only a part of the entries is loaded -> every view says so (never a part as the whole).
   const partBanner = !D.placeholder && !entriesLoad.full && D.overview
-    ? '<div id="entriesLoad">' + note(`${num(entriesLoad.loaded)} of ${num(entriesLoad.total || D.overview.count)} entries loaded${D.parts?.entries?.head_only ? ' — the server only has the counters and the newest entries for a store this large' : entriesLoad.loaded >= ENTRIES_CAP ? ' — lists and net show the newest, all through the search' : ' — the rest is loading, the lists are not complete yet'}.`) + '</div>'
+    ? '<div id="entriesLoad">' + note(`${num(entriesLoad.loaded)} of ${num(entriesLoad.total || D.overview.count)} entries loaded${D.parts?.entries?.head_only ? ' — the server only has the counters and the newest entries for a store this large' : D.parts?.entries?.window || entriesLoad.loaded >= ENTRIES_CAP ? ' — lists show the newest, all through the search' + (D.atlas?.condensed ? '; the atlas shows all of them as topics' : '') : ' — the rest is loading, the lists are not complete yet'}.`) + '</div>'
     : '';
+  // The compact build (a store the full build cannot handle) is no unreadable source but a limit: say that.
+  const compactNote = D.compact ? note(esc((D.reasons || [])[0] || 'The compact build runs.') + ' What needs the whole store is unknown, not zero — each view says why.') : '';
   // A light head is no unreadable source but a limit: say that instead.
   const lightNote = D.light ? note('Only counters and the newest entries are shown: ' + esc((D.reasons || [])[0] || 'the full build did not run') + ' — the tiles of the full build are unknown, not zero.') : '';
-  $('#screen').innerHTML = `<div class="screen-enter">${partBanner}${lightNote}${state.missing && !D.placeholder && !D.light ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
+  $('#screen').innerHTML = `<div class="screen-enter">${partBanner}${lightNote}${compactNote}${state.missing && !D.placeholder && !D.light && !D.compact ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
   // tempo (2026-09-28): draw the overview FIRST, the 3-D network one frame
   // later. `initGraph()` compiles the shaders (measured in the sibling's
   // Chromium profile: ~4–6 s with software GL under load) — synchronous
@@ -2227,6 +2239,86 @@ const graphModes = {
   trail: 'Evidence trail · one entry',
 };
 const camera = { zoom: 1, angle: 0.47, tilt: 0.4, panX: 0, panY: 0, focus: null, cell: null };
+// --- atlas-pass-cm: the condensed atlas ---------------------------------------------
+// For a store the full build cannot handle (the server builds compact,
+// `D.atlas.condensed`) the atlas first shows only topics and drawers with their
+// counters (computed by the server in one pass; the size does not grow with the
+// store). The entries of a topic or a drawer come when zooming in, page by page
+// through /dashboard/part.json?part=atlas. A small store keeps the full view
+// (there is no `D.atlas`).
+const CONDENSED_MODES = new Set(['storage', 'overview', 'topics', 'structure']);
+const atlasCondensed = (mode = state.graphMode) => Boolean(D?.atlas?.condensed) && CONDENSED_MODES.has(mode);
+const ATLAS_PAGE = 60;
+const atlasPages = new Map(); // key -> { list, total, next, loading, searching, error, source }
+const atlasKey = (kind, value, project) => kind + ':' + value + (kind === 'theme' ? '|' + project : '');
+const atlasPageOf = (kind, value) => atlasPages.get(atlasKey(kind, value, state.project)) || null;
+// The context for graphModel(): null = the full view.
+function atlasContext(mode) {
+  if (!atlasCondensed(mode)) return null;
+  const proj = state.project;
+  const loaded = (kind, value) => atlasPages.get(atlasKey(kind, value, proj))?.list || [];
+  const seen = new Map();
+  for (const [k, pg] of atlasPages) if (k.startsWith('drawer:') || k.endsWith('|' + proj)) for (const e of pg.list) if (scope(e)) seen.set(e.id, e);
+  return { atlas: D.atlas, proj, loaded, scope, focus: camera.focus, entries: [...seen.values()] };
+}
+async function atlasLoad(kind, value, { more = false } = {}) {
+  const project = state.project;
+  const k = atlasKey(kind, value, project);
+  const old = atlasPages.get(k);
+  if (old?.loading) return;
+  if (old && !more) return;
+  if (old && more && old.next === null) return;
+  const pg = old || { list: [], total: null, next: 0, loading: false, searching: false, error: null, source: null };
+  pg.loading = true; pg.error = null;
+  atlasPages.set(k, pg);
+  atlasStateShow();
+  try {
+    for (let attempt = 0; attempt < 400; attempt++) {
+      // Literal, not t.path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
+      const r = await fetch('/dashboard/part.json?part=atlas&' + kind + '=' + encodeURIComponent(value) + '&project=' + encodeURIComponent(project) + '&from=' + (pg.next || 0) + '&n=' + ATLAS_PAGE, { credentials: 'same-origin', cache: 'no-store' });
+      if (!r.ok) throw new Error('answer ' + r.status);
+      const b = await r.json();
+      // Not built yet, or the search over the store is running: ask again, never show it empty.
+      if (b.searching || b.building) { pg.searching = true; atlasStateShow(); await new Promise((ok) => setTimeout(ok, TEMPO_TEST_MS ?? 700)); continue; }
+      if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
+      for (const e of b.data) {
+        if (!entryIndex.has(e.id)) entryIndex.set(e.id, entryOf(e));
+        const x = entryIndex.get(e.id);
+        if (!pg.list.includes(x)) pg.list.push(x);
+      }
+      pg.total = b.total; pg.next = b.next; pg.source = b.source || null;
+      break;
+    }
+  } catch (e) {
+    pg.error = e?.message || String(e);
+  } finally {
+    pg.loading = false; pg.searching = false;
+  }
+  // Redraw only when the page still shows the same view.
+  if ($('#brain') && atlasCondensed() && state.project === project) render();
+  else atlasStateShow();
+}
+// What the group/cell in focus would load: { kind, value } or null.
+function atlasTarget(g, c) {
+  if (c?.condensed) return c.condensed;
+  return g?.condensed?.kind === 'theme' ? g.condensed : null;
+}
+// The state of the page in focus, under the net: "60 of 1,234 loaded · load more".
+function atlasStateShow() {
+  const el = $('#atlasState'), more = $('.atlas-more');
+  if (!el || !more) return;
+  const m = graphAPI?.model;
+  const g = m?.groups.find((x) => x.key === camera.focus);
+  const z = m?.condensed ? atlasTarget(g, m.cells?.get(camera.cell)) : null;
+  const pg = z ? atlasPageOf(z.kind, z.value) : null;
+  if (!m?.condensed) { el.textContent = ''; more.hidden = true; return; }
+  if (!z) { el.textContent = `Condensed: ${num(D.overview?.count ?? 0)} entries in ${num(D.atlas.themesTotal)} topics · entries appear when zooming in`; more.hidden = true; return; }
+  if (!pg || (pg.loading && !pg.list.length)) { el.textContent = pg?.searching ? 'Searching the store for entries …' : 'Loading entries …'; more.hidden = true; return; }
+  if (pg.error && !pg.list.length) { el.textContent = 'Entries could not be loaded: ' + pg.error; more.hidden = true; return; }
+  el.textContent = `${num(pg.list.length)} of ${num(pg.total ?? countOf(g))} entries loaded` + (pg.loading ? (pg.searching ? ' · searching for more …' : ' · loading …') : '');
+  more.hidden = pg.next === null || pg.loading;
+  more.textContent = 'Load ' + num(ATLAS_PAGE) + ' more';
+}
 let graphAPI = null;
 const neuralPalette = ['#bce7a1', '#88d8cd', '#99bde9', '#c9afea', '#e4c38d', '#e3a5b1', '#a9d4c1'];
 function allEdges(es = entries) {
@@ -2258,7 +2350,14 @@ function graphListEntries() {
   }
   return es;
 }
-function graphModel(es, mode) {
+function graphModel(es, mode, vk = null) {
+  // atlas-pass-cm: `vk` is the context of the condensed atlas (atlasContext()): topics and
+  // drawers count from `vk.atlas`, and the net holds only the pages loaded when zooming in.
+  // Without `vk` the full view as before.
+  const condensed = Boolean(vk);
+  const proj = vk?.proj;
+  const loadedFor = (kind, value) => (vk ? vk.loaded(kind, value) : []);
+  if (condensed) es = vk.entries;
   const ids = new Set(es.map((e) => e.id)),
     stored = allEdges(es).filter((e) => ids.has(e.to)),
     // The third kind (src/netderive.mjs): auto-tier derived links, drawn dashed. They join the
@@ -2273,10 +2372,12 @@ function graphModel(es, mode) {
   const groups = [],
     assignment = new Map();
   const projectCount = new Map();
-  for (const e of es) projectCount.set(e.project, (projectCount.get(e.project) || 0) + 1);
+  if (condensed) {
+    for (const d of vk.atlas.drawers || []) if (proj === 'all' || d.project === proj) projectCount.set(d.project, (projectCount.get(d.project) || 0) + d.count);
+  } else for (const e of es) projectCount.set(e.project, (projectCount.get(e.project) || 0) + 1);
   const shards = [...projectCount]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(([p], i) => ({ key: 'shard:' + p, label: p, shard: p, color: neuralPalette[i % 7], members: es.filter((e) => e.project === p) }));
+    .map(([p, n], i) => ({ key: 'shard:' + p, label: p, shard: p, color: neuralPalette[i % 7], members: es.filter((e) => e.project === p), ...(condensed ? { count: n } : {}) }));
   const positions = [
     [-0.64, 0.46, 0.45],
     [0.64, 0.4, 0.39],
@@ -2297,12 +2398,31 @@ function graphModel(es, mode) {
   };
   shards.forEach((s, i) => (s.center = position(i, shards.length)));
   function add(key, label, members, extra = {}) {
-    if (!members.length) return;
+    if (!members.length && !extra.condensed) return;
     const g = { key, label, members, color: neuralPalette[groups.length % 7], ...extra };
     groups.push(g);
     members.forEach((e) => assignment.set(e.id, g));
   }
-  if (mode === 'topics') {
+  if (condensed) {
+    // An entry stands in the net only ONCE (it may carry several topics): first the group in focus,
+    // then the order of the nodes.
+    const taken = new Set();
+    const take = (list, inFocus) => list.filter((e) => vk.scope(e) && (inFocus || !taken.has(e.id)) && (taken.add(e.id), true));
+    if (mode === 'topics') {
+      const themes = (vk.atlas.themes || []).map((t) => ({ t, n: proj === 'all' ? t.count : t.perProject?.[proj] || 0 })).filter((x) => x.n > 0);
+      const focusTag = String(vk.focus || '').startsWith('tag:') ? vk.focus.slice(4) : null;
+      const first = focusTag ? new Map([[focusTag, take(loadedFor('theme', focusTag), true)]]) : new Map();
+      for (const { t, n } of themes) {
+        const members = first.get(t.tag) ?? take(loadedFor('theme', t.tag), false);
+        const r = t.recall;
+        add('tag:' + t.tag, t.tag, members, { count: n, condensed: { kind: 'theme', value: t.tag }, recallMean: r && r.measured ? r.sessions / r.measured : null });
+      }
+    } else if (mode === 'structure') {
+      const perType = new Map();
+      for (const d of vk.atlas.drawers || []) if (proj === 'all' || d.project === proj) perType.set(d.type, (perType.get(d.type) || 0) + d.count);
+      [...perType].sort((a, b) => a[0].localeCompare(b[0])).forEach(([t, n]) => add('type:' + t, types[t] || t, [], { count: n, condensed: { kind: 'type', value: t } }));
+    } else shards.forEach((sh) => add(sh.key, sh.label, [], { color: sh.color, project: sh.shard, count: sh.count, condensed: { kind: 'project', value: sh.shard } }));
+  } else if (mode === 'topics') {
     // EVERY topic with members is a main node of its own — no cap, no collecting node
     // "Other topics" (parity with the sibling house 2026-10-01: a capped picture differs from
     // the real net). An entry lands in the topic of its most frequent still-free tag; the
@@ -2413,18 +2533,19 @@ function graphModel(es, mode) {
   // the main nodes sit on ONE shell whose radius grows with the node count; the heaviest stand
   // spread (golden step) instead of side by side.
   let topicsTotal = groups.length, tiered = false;
-  if ((mode === 'topics' || mode === 'relations') && groups.length > GROUPS_SHELL_FROM) {
+  if (!condensed && (mode === 'topics' || mode === 'relations') && groups.length > GROUPS_SHELL_FROM) {
     tiered = true;
     const r = hierarchise(groups, assignment, adj);
     topicsTotal = r.topics + groups.filter((g) => g.key === 'untagged' || g.key === 'isolated').length;
   }
   const groupCount = groups.length, many = mode !== 'trail' && (tiered || groupCount > GROUPS_SHELL_FROM);
-  const maxWeight = Math.max(1, ...groups.map((g) => g.members.length));
+  const maxWeight = Math.max(1, ...groups.map((g) => countOf(g)));
   const plan = many ? shellPlan(groupCount, topicsTotal, tiered ? SHELL_TIER_MIN : SHELL_MIN) : null;
   const step = many ? shellStep(groupCount) : 1;
-  const rank = many ? new Map([...groups.keys()].sort((a, b) => groups[b].members.length - groups[a].members.length || a - b).map((gi, r) => [gi, r])) : null;
+  const rank = many ? new Map([...groups.keys()].sort((a, b) => countOf(groups[b]) - countOf(groups[a]) || a - b).map((gi, r) => [gi, r])) : null;
+  const cellMap = new Map(); // condensed: key -> cell (a drawer or a collecting node)
   groups.forEach((g, i) => {
-    g.weight = g.members.length;
+    g.weight = countOf(g);
     g.weightRank = many ? rank.get(i) : i;
     g.center = mode === 'trail' ? { x: 0, y: 0, z: 0 } : many && (mode === 'topics' || mode === 'relations') ? shellPoint(plan, (rank.get(i) * step) % groupCount) : position(i, groupCount, plan);
     const rel = Math.sqrt(g.weight / maxWeight);
@@ -2432,7 +2553,11 @@ function graphModel(es, mode) {
     g.scale = many ? Math.max(0.25, Math.min(1, (g.radius / 0.19) * 1.2)) : 1;
     g.coreRadius = many ? (tiered ? 0.03 + 0.03 * rel : 0.007 + 0.022 * rel) : null;
     g.direct = null;
-    if (mode === 'topics' || (mode === 'relations' && g.attached?.length)) {
+    if (condensed) {
+      g.cells = condensedCells(g, mode, vk);
+      g.direct = mode === 'topics' && g.members.length ? g.members : null;
+      g.cells.forEach((c) => cellMap.set(c.key, c));
+    } else if (mode === 'topics' || (mode === 'relations' && g.attached?.length)) {
       // Subtopics from the tag bundles, radially outward; without any the subgroups stay.
       const tree = subtopicTree(g, splitCells);
       g.cells = tree.cells.length ? tree.cells : splitCells(g.members, g.center, g.radius, g.key, g.key);
@@ -2450,7 +2575,25 @@ function graphModel(es, mode) {
   const sk = many || bloom ? Math.max(1, Math.min(2.2, Math.pow(extent / 1.25, 0.6))) : 1;
   // Loops of the STORED links (A -> B -> C -> A), deterministic.
   const cycles = mode === 'trail' ? [] : findCycles(stored, ids);
-  return { groups, assignment, edges, shards, records: es, mode, many, tiered, topicsTotal, cycles, sk, extent, derivedCount: derived.length };
+  return { groups, assignment, edges, shards, records: es, mode, many, tiered, topicsTotal, cycles, sk, extent, derivedCount: derived.length, condensed, cells: cellMap };
+}
+// The cells of a condensed group: in the topics mode ONE collecting node (all entries of the topic,
+// the count from the server; the loaded ones lie around the middle), otherwise the drawers
+// (project x type) with their counters — pages are loaded per drawer.
+function condensedCells(g, mode, vk) {
+  const proj = vk.proj;
+  const cell = (key, label, extra, j, count) => {
+    const a = j * 2.399963, y = count === 1 ? 0 : 1 - (2 * (j + 0.5)) / count, r = Math.sqrt(Math.max(0, 1 - y * y)) * g.radius;
+    return { key, label, center: count === 1 && extra.collective ? { ...g.center } : { x: g.center.x + Math.cos(a) * r, y: g.center.y + y * g.radius, z: g.center.z + Math.sin(a) * r }, parent: g.key, group: g.key, depth: 0, radius: g.radius * (extra.collective ? 0.25 : 0.3), cells: [], ...extra };
+  };
+  if (mode === 'topics') return [cell(g.key + ':all', g.label, { collective: true, count: g.count, members: [], topic: null, recallMean: g.recallMean }, 0, 1)];
+  const drawers = (vk.atlas.drawers || []).filter((d) => (proj === 'all' || d.project === proj) && (mode === 'structure' ? d.type === g.condensed.value : d.project === g.condensed.value));
+  return drawers.map((d, j) => cell(g.key + ':drawer:' + (mode === 'structure' ? d.drawer : d.type), mode === 'structure' ? d.project : types[d.type] || d.type,
+    { drawer: d.drawer, count: d.count, members: vk.loaded('drawer', d.drawer).filter(vk.scope), condensed: { kind: 'drawer', value: d.drawer } }, j, drawers.length));
+}
+// The count of a node: condensed from the server (`count`), otherwise its members.
+function countOf(x) {
+  return x && Number.isFinite(x.count) ? x.count : x?.members?.length ?? 0;
 }
 // --- Radial hierarchy (parity with the sibling house 2026-10-01) --------------
 // Core inside -> main topics on the first shell -> subtopics further out (they "bloom" from
@@ -2691,6 +2834,10 @@ function edgeEvidence(k) {
   return rec ? `stored in ${rec.source}${rec.line ? ':' + rec.line : ''} (${types[rec.type] || rec.type})` : 'stored (line not loaded)';
 }
 function graphCaption() {
+  if (atlasCondensed()) {
+    const at = D.atlas;
+    return `Condensed view (large store): ${num(D.overview?.count ?? 0)} entries, ${num(at.themesTotal)} topics, the ${num(at.themesShown)} largest of them as nodes. An entry counts in every topic it carries; the server computes the figures in one pass over the whole store${at.exact === false ? ' (capped: ' + esc(at.reason || 'lower bounds') + ')' : ''}. The entries of a topic or a drawer appear when zooming in, page by page.`;
+  }
   return {
     storage: 'One memory, spread over projects and their drawers (project × type). The shared core connects the project cores. Topics are independent of that.',
     topics: 'Every topic with entries is a main node of its own, without a cap: an entry stands in the topic of its most frequent free tag. With many topics the heaviest are main nodes and the others bloom outward as their subtopics. The size follows the entry count; labels carry the heaviest, the rest appear when zooming in, in a focus and on hover. Every tag stays on its entry.',
@@ -2707,12 +2854,15 @@ function recallLegend() {
     : 'Brightness not measurable: ' + esc(a?.reason || 'no injection journal');
 }
 function brainBlock(large = false) {
-  const es = scoped();
-  const ks = new Set(es.map((e) => drawerOf(e))).size;
+  // atlas-pass-cm: condensed, the full list exists only as a number (the server's overview) —
+  // `es` then stands for exactly that number, never for the part that is loaded.
+  const cd = Boolean(D?.atlas?.condensed);
+  const es = cd ? { length: areaFigures(scoped()).count } : scoped();
+  const ks = cd ? (D.atlas.drawers || []).filter((d) => state.project === 'all' || d.project === state.project).length : new Set(es.map((e) => drawerOf(e))).size;
   const emptyHint = es.length ? '' : `<div class="graph-empty" role="note"><strong>Your first entries will appear here.</strong><span>One calm core is waiting. Every entry you log becomes an energy core around it — <code class="mono">mem log learning "…"</code></span></div>`;
-  return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">${esc(coreName())} / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · one shared knowledge structure</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Knowledge network">${['storage', 'topics', 'relations', 'structure']
+  return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">${esc(coreName())} / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · ${cd ? 'condensed: topics and drawers, entries when zooming in' : 'one shared knowledge structure'}</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Knowledge network">${['storage', 'topics', 'relations', 'structure']
     .map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`)
-    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; finely dashed strands between entries = derived links (guessed by the system from shared rare terms and a file, not stored, see "Derived links to review"); dashed branches at the project cores = the storage hierarchy. A golden loop = stored links that run in a circle. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
+    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span><span id="atlasState" class="atlas-state" aria-live="polite"></span><button data-action="atlas-more" class="atlas-more ghost small" hidden>Load more</button></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; finely dashed strands between entries = derived links (guessed by the system from shared rare terms and a file, not stored, see "Derived links to review"); dashed branches at the project cores = the storage hierarchy. A golden loop = stored links that run in a circle. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
 }
 
 // The energy-core shader. One point per node; `aBright` < 0 means "not
@@ -3169,7 +3319,7 @@ function initGraph() {
     canvas = $('#brain'),
     viewport = canvas.parentElement,
     es = scoped(),
-    model = graphModel(es, state.graphMode),
+    model = graphModel(es, state.graphMode, atlasContext(state.graphMode)),
     labelLayer = $('#graphLabels'),
     tip = $('#graphHover');
   if (!model.groups.some((g) => g.key === camera.focus)) {
@@ -3179,7 +3329,7 @@ function initGraph() {
   let renderer;
   $('#graphGroups').innerHTML =
     model.groups
-      .map((g) => `<button data-action="graph-focus" data-value="${esc(g.key)}" aria-pressed="false" style="--cluster:${g.color}" title="Focus ${esc(g.label)}"><i></i><span>${esc(g.label)}</span><b>${num(g.members.length)}</b></button>`)
+      .map((g) => `<button data-action="graph-focus" data-value="${esc(g.key)}" aria-pressed="false" style="--cluster:${g.color}" title="Focus ${esc(g.label)}"><i></i><span>${esc(g.label)}</span><b>${num(countOf(g))}</b></button>`)
       .join('') || '<span>No groups in this selection.</span>';
   if (!T) {
     $('.graph-fallback').hidden = false;
@@ -3263,6 +3413,9 @@ function initGraph() {
     const s = known.reduce((n, e) => n + (e.recall.sessions || 0), 0) / known.length;
     return s <= 0 ? 0.08 : 0.25 + 0.75 * Math.min(1, Math.log2(1 + s) / Math.log2(1 + maxSessions));
   };
+  // atlas-pass-cm, condensed: a topic carries the mean of its injections (from the server).
+  const maxMean = Math.max(1, ...model.groups.map((g) => g.recallMean || 0));
+  const meanBright = (x) => (x.recallMean == null ? -1 : x.recallMean <= 0 ? 0.08 : 0.25 + 0.75 * Math.min(1, Math.log2(1 + x.recallMean) / Math.log2(1 + maxMean)));
   const phase = (key) => {
     let hsh = 2166136261;
     for (let i = 0; i < key.length; i++) hsh = Math.imul(hsh ^ key.charCodeAt(i), 16777619);
@@ -3302,7 +3455,7 @@ function initGraph() {
   const groupOrbs = (groupCores ? model.groups : []).map((g) => {
     const r = g.coreRadius ?? 0.047;
     const ring = g.weightRank < CORE_RINGS_MAX ? rings(vec(g.center), g.color, Math.max(r, 0.03), world) : null;
-    hubs.push({ key: g.key, pos: vec(g.center), color: g.color, size: r * 9 * model.sk, bright: brightness(g.members), ring });
+    hubs.push({ key: g.key, pos: vec(g.center), color: g.color, size: r * 9 * model.sk, bright: model.condensed ? meanBright(g) : brightness(g.members), ring });
     return { key: g.key, ring };
   });
   const hubGeo = own(new T.BufferGeometry());
@@ -3345,7 +3498,7 @@ function initGraph() {
   }
   const rootLabel = label(coreName(), es.length ? 'Shared core' : 'Shared core · empty', '#d9f3cf', 'root', 'root-label');
   const rootRec = { el: rootLabel, pos: mainPos, key: 'root', prio: 1e9, depth: -1 };
-  const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(s.members.length), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key, prio: s.members.length, depth: 0 }));
+  const shardLabels = shardOrbs.map((s) => ({ el: label(s.label, pluralEntries(countOf(s)), s.color, s.key, 'shard-label'), pos: vec(s.center), key: s.key, prio: countOf(s), depth: 0 }));
 
   const positions = new Map();
   model.groups.forEach((g) => {
@@ -3441,7 +3594,7 @@ function initGraph() {
     });
     function emitCells(cells, g) {
       cells.forEach((c) => {
-        if (activePath.has(c.key) && !(state.graphMode === 'overview')) {
+        if (activePath.has(c.key) && !(state.graphMode === 'overview') && !c.collective) {
           if (c.cells.length) {
             emitCells(c.cells, g);
             if (c.direct) entryUnits(c.direct, c, g);
@@ -3467,7 +3620,7 @@ function initGraph() {
       const r = u.radius || (u.cell ? 0.065 : 0.034 * (u.g.scale ?? 1));
       u.base = r * 8 * sk;
       S[i] = u.base;
-      B[i] = brightness(u.members);
+      B[i] = u.cell?.collective ? meanBright(u.cell) : brightness(u.members);
       PH[i] = phase(u.key);
       DT[i] = u.e && (u.e.id === state.selected || (u.g.trail && u.e.id === u.g.trail.c.id)) ? 1 : 0;
       DM[i] = selected ? 1 : 0.14;
@@ -3519,10 +3672,10 @@ function initGraph() {
     // outside the storage mode, every neighbour in the evidence trail.
     const cells = units.filter((u) => u.cell);
     units.forEach((u) => {
-      if (u.cell && (camera.focus === u.g.key || (cells.length <= 16 && !model.many))) {
+      if (u.cell && !u.cell.collective && (camera.focus === u.g.key || (cells.length <= 16 && !model.many))) {
         const named = u.cell.drawer || u.cell.topic;
-        const el = label(named ? labelShort(u.cell.label) : pluralEntries(u.members.length), u.cell.drawer ? pluralEntries(u.members.length) + ' · drawer' : u.cell.topic ? pluralEntries(u.members.length) + ' · subtopic' : 'Subgroup', u.g.color, u.cell.key, 'cell-label');
-        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.members.length, depth: (u.cell.depth || 0) + 1, cell: u.cell });
+        const el = label(named ? labelShort(u.cell.label) : pluralEntries(countOf(u.cell)), u.cell.drawer ? pluralEntries(countOf(u.cell)) + ' · drawer' : u.cell.topic ? pluralEntries(countOf(u.cell)) + ' · subtopic' : 'Subgroup', u.g.color, u.cell.key, 'cell-label');
+        labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: countOf(u.cell), depth: (u.cell.depth || 0) + 1, cell: u.cell });
       }
       if (u.e && u.g.trail) {
         const dir = u.e.id === u.g.trail.c.id ? 'Middle' : u.g.trail.out.some((x) => x.e.id === u.e.id) ? 'points to →' : '← points here';
@@ -3545,7 +3698,7 @@ function initGraph() {
     const endpoint = new Map();
     units.forEach((u) => u.members.forEach((e) => endpoint.set(e.id, u)));
     const bundles = new Map();
-    const sourceEdges = state.graphMode === 'overview' ? overviewEdges(units) : model.edges;
+    const sourceEdges = state.graphMode === 'overview' ? overviewEdges(units) : model.condensed && state.graphMode === 'topics' ? [...topicEdges(units), ...model.edges] : model.edges;
     sourceEdges.forEach((e) => {
       const a = e.a || endpoint.get(e.from), b = e.b || endpoint.get(e.to);
       if (!a || !b) return;
@@ -3691,6 +3844,14 @@ function initGraph() {
     canvas.dataset.superCore = '1';
     canvas.dataset.renderer = 'webgl-3d';
   }
+  // atlas-pass-cm, condensed: topic pairs (entries that carry both; counted by the server) as
+  // bundles between the collecting nodes — an aggregation, not a single edge.
+  function topicEdges(us) {
+    const byTheme = new Map(us.filter((u) => u.cell?.collective).map((u) => [u.g.condensed?.value, u]));
+    return (D.atlas?.edges || [])
+      .map((k) => ({ a: byTheme.get(k.from), b: byTheme.get(k.to), count: k.count, list: [] }))
+      .filter((x) => x.a && x.b);
+  }
   // Overview: the drawer pairs from net.mjs (aggregated, with a count) as bundles.
   function overviewEdges(us) {
     const byDrawer = new Map(us.filter((u) => u.cell?.drawer).map((u) => [u.cell.drawer, u]));
@@ -3744,6 +3905,15 @@ function initGraph() {
     if (crumb && crumb.textContent !== crumbText) { crumb.textContent = crumbText; clampCrumb(crumb); }
     $('.atlas-back').hidden = !camera.focus;
     $$('#graphGroups button').forEach((el) => el.setAttribute('aria-pressed', el.dataset.value === camera.focus));
+    if (model.condensed) {
+      const at = D.atlas;
+      $('#graphEdgeCount').textContent = (state.graphMode === 'topics'
+        ? num(model.groups.length) + ' of ' + num(at.themesTotal) + ' topics · ' + num(edgeVisuals.reduce((k, e) => k + e.count, 0)) + ' shared entries between topics'
+        : num(model.groups.length) + (state.graphMode === 'structure' ? ' entry types' : ' projects') + ' · ' + num(model.cells.size) + ' drawers') + (model.edges.length ? ' · ' + num(model.edges.length) + ' relations loaded' : '') + ' · condensed';
+      canvas.dataset.focus = camera.cell || camera.focus || '';
+      canvas.dataset.condensed = '1';
+      return;
+    }
     const derivedN = state.graphMode === 'overview' ? 0 : model.derivedCount;
     const n = state.graphMode === 'overview' ? edgeVisuals.reduce((k, e) => k + e.count, 0) : model.edges.length - derivedN;
     const loopsN = model.cycles.length;
@@ -3829,9 +3999,9 @@ function initGraph() {
   // A group's label: the short form (a bundle is named after its hub's title, which can be a
   // paragraph); the full name is in the breadcrumb and the tooltip.
   function groupLabel(g) {
-    const el = label(labelShort(g.label), pluralEntries(g.members.length), g.color, g.key);
+    const el = label(labelShort(g.label), pluralEntries(countOf(g)), g.color, g.key);
     if (labelShort(g.label) !== g.label) el.title = g.label;
-    return { el, pos: vec(g.center).add(v(0, model.many ? g.radius + 0.03 : 0.13, 0)), key: g.key, parent: g.key, prio: g.members.length, depth: 0 };
+    return { el, pos: vec(g.center).add(v(0, model.many ? g.radius + 0.03 : 0.13, 0)), key: g.key, parent: g.key, prio: countOf(g), depth: 0 };
   }
   // Label sizes: measured once per label, batched (write every class first,
   // then read every size, then back) — never per frame. After a resize of the
@@ -3998,8 +4168,11 @@ function initGraph() {
     });
   }
   function focus(key) {
-    const cell = cellMap.get(key), g = model.groups.find((g) => g.key === (cell?.group || key));
+    let cell = cellMap.get(key);
+    const g = model.groups.find((g) => g.key === (cell?.group || key));
     if (!g) return;
+    // The collecting node of a condensed topic IS the topic.
+    if (cell?.collective) cell = null;
     if (state.graphMode === 'overview' && cell?.drawer) {
       // A drawer of the overview opens in the storage mode.
       state.graphMode = 'storage';
@@ -4017,6 +4190,10 @@ function initGraph() {
     const radius = hh ? Math.max(hh.r, cell ? cell.radius : g.radius) * 1.15 + 0.06 : cell ? cell.radius * 1.65 : g.radius + 0.13, dist = (radius / (Math.tan((cam.fov * Math.PI) / 360) * Math.min(1, w / h))) * 1.2;
     fly(vec(hh || cell?.center || g.center), Math.max(0.1, dist), cell ? angle : g.center.x < 0 ? -0.32 : 0.32, 0.18);
     if (state.tab === 'network') refreshEntryList();
+    // atlas-pass-cm, condensed: zooming in loads the first page of the topic or drawer.
+    const target = model.condensed ? atlasTarget(g, cell) : null;
+    if (target && !atlasPageOf(target.kind, target.value)) atlasLoad(target.kind, target.value);
+    atlasStateShow();
   }
   function reset() {
     camera.focus = null;
@@ -4026,6 +4203,7 @@ function initGraph() {
     cortexAlpha(false);
     fly(center, baseDistance, 0.47, 0.4);
     if (state.tab === 'network') refreshEntryList();
+    atlasStateShow();
   }
   function zoom(factor) {
     transition = null;
@@ -4112,13 +4290,16 @@ function initGraph() {
       const rc = e.recall ? (e.recall.sessions ? `injected in ${num(e.recall.sessions)} sessions` : 'never injected') : 'injection not measurable';
       tip.innerHTML = `<span class="flag-kicker">${esc(types[e.type] || e.type)} · ${esc(drawerOf(e).toUpperCase())}</span><strong>${esc(short(e.title))}</strong><span class="flag-log">Entry ${esc(e.id)} · ${esc(e.source)}</span><span class="flag-author">${esc(e.agent)} · ${rc} · ${camera.focus || node.g.trail ? 'Click: open' : 'Click: focus the group'}</span>`;
     } else if (node?.cell) {
-      tip.innerHTML = `<span class="flag-kicker">${node.cell.drawer ? 'DRAWER · ' + esc(node.cell.drawer.toUpperCase()) : node.cell.topic ? 'SUBTOPIC · ' + esc(labelShort(node.cell.label).toUpperCase()) : 'SUBGROUP'}</span><strong>${pluralEntries(node.members.length)}</strong><span>Left click: ${state.graphMode === 'overview' ? 'open the drawer' : 'next level of detail'}</span>`;
+      tip.innerHTML = `<span class="flag-kicker">${node.cell.drawer ? 'DRAWER · ' + esc(node.cell.drawer.toUpperCase()) : node.cell.topic ? 'SUBTOPIC · ' + esc(labelShort(node.cell.label).toUpperCase()) : 'SUBGROUP'}</span><strong>${pluralEntries(countOf(node.cell))}</strong><span>Left click: ${state.graphMode === 'overview' ? 'open the drawer' : node.cell.condensed || node.cell.collective ? 'load the entries' : 'next level of detail'}</span>`;
+    } else if (strand && !strand.edges.length) {
+      // An aggregated bundle (drawer pair / topic pair): only the number, no single edge.
+      tip.innerHTML = `<span class="flag-kicker">${state.graphMode === 'topics' ? 'TOPIC PAIR · SHARED ENTRIES' : 'DRAWER PAIR'}</span><strong>${num(strand.count)}</strong><span>${esc(short(strand.a.g.label))} ↔ ${esc(short(strand.b.g.label))}</span>`;
     } else if (strand) {
       const kinds = [...new Set(strand.edges.map((k) => edgeLabels[k.kind] || k.kind))];
       const k0 = strand.edges[0];
       tip.innerHTML = `<span class="flag-kicker">${strand.dashed ? 'DERIVED · A GUESS' : 'RELATION · ' + esc(kinds.join(', ').toUpperCase())}</span><strong>${num(strand.edges.length)} ${strand.edges.length === 1 ? 'edge' : 'edges'}</strong><span class="flag-log">${esc(short(byId(k0.from)?.title || k0.from))} → ${esc(short(byId(k0.to)?.title || k0.to))}</span><span>Source: ${esc(edgeEvidence(k0))}</span><span class="flag-author">Click: every source</span>`;
     } else if (g)
-      tip.innerHTML = `<span class="flag-kicker">${state.graphMode === 'storage' || state.graphMode === 'overview' ? 'PROJECT · STORAGE' : 'KNOWLEDGE GROUP'}</span><strong>${esc(short(g.label))}</strong><span>${pluralEntries(g.members.length)} · left click to fly in</span>`;
+      tip.innerHTML = `<span class="flag-kicker">${state.graphMode === 'storage' || state.graphMode === 'overview' ? 'PROJECT · STORAGE' : 'KNOWLEDGE GROUP'}</span><strong>${esc(short(g.label))}</strong><span>${pluralEntries(countOf(g))} · left click to fly in</span>`;
     if (!tip.hidden) {
       tip.style.left = Math.max(8, Math.min(w - tip.offsetWidth - 8, p.x + 19)) + 'px';
       tip.style.top = Math.max(8, Math.min(h - tip.offsetHeight - 8, p.y + 17)) + 'px';
@@ -4259,7 +4440,7 @@ function initGraph() {
   document.addEventListener('close', redraw, true);
   wakers.add(redraw);
   graphAPI = {
-    zoom, reset, focus, redraw,
+    zoom, reset, focus, redraw, model,
     inspect: () => ({
       points: units.map((u, i) => ({ id: u.e?.id, key: u.key, group: u.g.key, cell: u.cell?.key || null, x: screenX[i], y: screenY[i], z: screenZ[i], visible: !!screenV[i], bright: coreGeo?.attributes.aBright.array[i], pos: { x: u.pos.x, y: u.pos.y, z: u.pos.z }, dim: coreGeo?.attributes.aDim.array[i] })),
       core: { x: mainPos.x, y: mainPos.y, z: mainPos.z },
@@ -4674,6 +4855,12 @@ document.addEventListener('click', async (ev) => {
     case 'graph-focus':
       graphAPI?.focus(d.value);
       break;
+    case 'atlas-more': {
+      const m = graphAPI?.model;
+      const z = m?.condensed ? atlasTarget(m.groups.find((x) => x.key === camera.focus), m.cells?.get(camera.cell)) : null;
+      if (z) atlasLoad(z.kind, z.value, { more: true });
+      break;
+    }
     case 'show-in-graph':
       state.trail = d.id;
       state.graphMode = 'trail';

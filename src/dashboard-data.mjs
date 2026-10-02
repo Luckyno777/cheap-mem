@@ -693,6 +693,48 @@ function safe(fn, what) {
 }
 
 /**
+ * One entry of `/dashboard.json`, from the row of `dashboard.collect()` (`z`),
+ * the raw line (`e`, or null when there is none) and its injection count.
+ * Shared with the pages of the condensed atlas (bin/mem-serve), which hold
+ * the same rows without a raw line.
+ */
+export function entryRow(z, e, count, capture = z.capture ?? null) {
+  return withoutEmpty({
+    id: z.id,
+    type: z.type,
+    title: z.headline || z.id,
+    // X3b: rule status (proposed/trial/withdrawn); absent otherwise.
+    status: z.status ?? null,
+    project: z.project || 'global',
+    tags: z.tags ?? [],
+    ts: z.ts ?? null,
+    agent: z.author ?? (e?.agent ?? null),
+    state: z.retired?.state ?? 'active',
+    why: z.retired?.why ?? null,
+    out: (z.links ?? []).map((l) => [l.kind, l.id, l.known ? 1 : 0]),
+    text: e ? excerpt(textOf(e, z.type)) : null,
+    source: z.source ?? null,
+    line: z.line ?? null,
+    readable: Boolean(z.readable),
+    cited: z.cited ?? 0,
+    contested: Boolean(z.contested),
+    replaces: z.replaces ?? null,
+    capture,
+    validFrom: validFromOf(e),
+    validUntil: validUntilOf(e),
+    fact: e && (e.value != null || e.fact != null) ? excerpt(String(e.value ?? e.fact), 240) : null,
+    key: e?.key ?? null,
+    basis: z.basis ?? null,
+    authority: z.authority ?? null,
+    scope: z.scope ?? null,
+    derivedFrom: z.derivedFrom ?? [],
+    // `recall` ALWAYS travels, `null` included: missing would read as
+    // "never shown" and "not measurable" at once.
+    recall: count,
+  }, ['recall']);
+}
+
+/**
  * Everything for `/dashboard.json`.
  *
  * `collect` is injectable so a probe can run without the full desk pass;
@@ -702,6 +744,10 @@ export function collectDashboard(root, {
   env = process.env, now = new Date(), cfg = {}, title = 'cheap-mem', writesAllowed = false,
   collect = dashboard.collect, readPass = dashboard.readPass, readJournal = injection.read,
   doctorCheck = doctor.checkAll,
+  // The compact build (src/dashboard-compact.mjs) answers these from its single
+  // pass or marks them unknown; in service they read the whole store.
+  dutiesOpen = memory.openDuties, questionsOpen = question.open,
+  todayOf = today.today, integrityOf = integrity.scanIntegrity,
 } = {}) {
   const d = collect(root, { env, now, cfg });
   const reasons = [];
@@ -737,51 +783,19 @@ export function collectDashboard(root, {
       if (e?.topic) topicsByCapture.get(capture).add(String(e.topic));
       entriesByCapture.set(capture, [...(entriesByCapture.get(capture) ?? []), z.id]);
     }
-    return withoutEmpty({
-      id: z.id,
-      type: z.type,
-      title: z.headline || z.id,
-      // X3b: rule status (proposed/trial/withdrawn); absent otherwise.
-      status: z.status ?? null,
-      project: z.project || 'global',
-      tags: z.tags ?? [],
-      ts: z.ts ?? null,
-      agent: z.author ?? (e?.agent ?? null),
-      state: z.retired?.state ?? 'active',
-      why: z.retired?.why ?? null,
-      out: (z.links ?? []).map((l) => [l.kind, l.id, l.known ? 1 : 0]),
-      text: e ? excerpt(textOf(e, z.type)) : null,
-      source: z.source ?? null,
-      line: z.line ?? null,
-      readable: Boolean(z.readable),
-      cited: z.cited ?? 0,
-      contested: Boolean(z.contested),
-      replaces: z.replaces ?? null,
-      capture,
-      validFrom: validFromOf(e),
-      validUntil: validUntilOf(e),
-      fact: e && (e.value != null || e.fact != null) ? excerpt(String(e.value ?? e.fact), 240) : null,
-      key: e?.key ?? null,
-      basis: z.basis ?? null,
-      authority: z.authority ?? null,
-      scope: z.scope ?? null,
-      derivedFrom: z.derivedFrom ?? [],
-      // `recall` ALWAYS travels, `null` included: missing would read as
-      // "never shown" and "not measurable" at once.
-      recall: count,
-    }, ['recall']);
+    return entryRow(z, e, count, capture);
   });
 
   // --- 3. work: what is open is decided by memory/question, not here ----
   const openDuties = [];
   const openQuestions = [];
   try {
-    for (const p of memory.openDuties(root).open) {
+    for (const p of dutiesOpen(root).open) {
       if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: p.due ?? p.by ?? null });
     }
   } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
   try {
-    for (const q of question.open(root)) if (q?.id) openQuestions.push({ id: q.id });
+    for (const q of questionsOpen(root)) if (q?.id) openQuestions.push({ id: q.id });
   } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
@@ -813,7 +827,7 @@ export function collectDashboard(root, {
   // Reuses the doctor result already computed above instead of running
   // doctor.checkAll() a second time.
   let todayResult;
-  try { todayResult = today.today(root, { env, now, doctorResult: doc.result }); } catch (e) {
+  try { todayResult = todayOf(root, { env, now, doctorResult: doc.result }); } catch (e) {
     todayResult = { state: 'unknown', reasons: [`today() failed: ${e?.message || e}`] };
   }
 
@@ -864,7 +878,7 @@ export function collectDashboard(root, {
     checkRecord: checkRecordState(env),
   };
   const integrityState = safe(() => {
-    const s = integrity.scanIntegrity(root);
+    const s = integrityOf(root);
     return {
       lines: s.lines, entries: s.entries, broken: s.broken.length, badTimestamp: s.badTimestamp.length,
       duplicateIds: s.duplicateIds.length, replacement: {

@@ -381,7 +381,8 @@ export function board(root, opt = {}) {
     tileDigest(root, opt),
     tileErrors(root, opt),
     tileAgents(root, opt),
-    tileQuestions(root, opt),
+    // The compact build brings the open questions from its single pass.
+    opt.questionsTile ? opt.questionsTile() : tileQuestions(root, opt),
     tileSetup(root, opt),
     tileBridge(root, opt),
   ];

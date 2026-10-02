@@ -131,7 +131,7 @@ export function readPass(root) {
  * "0 open" and looks healthy. So a total of zero is `unknown`, not
  * `calm`, and says which of the two it is.
  */
-function workTile(title, open, total, { noun, whenEmpty }) {
+export function workTile(title, open, total, { noun, whenEmpty }) {
   if (total === 0) {
     return { title, value: null, state: 'unknown', note: whenEmpty, open: null, total: 0 };
   }
@@ -346,10 +346,16 @@ function collectTasks(root) {
   }
 }
 
-export function collect(root, { env = process.env, now = new Date(), cfg = {} } = {}) {
-  const con = consolePage.collect(root, { env, now, cfg });
-  const mem = viewer.collectMemory(root);
-  const pass = readPass(root);
+/**
+ * @param pre what the compact build (src/dashboard-compact.mjs) brings from its
+ *   single pass instead of the readings below: `console`, `memory`, `pass`,
+ *   `net`, `entries`, `work`, `projects`. Without it everything is read here,
+ *   as always.
+ */
+export function collect(root, { env = process.env, now = new Date(), cfg = {}, pre = null } = {}) {
+  const con = pre ? pre.console : consolePage.collect(root, { env, now, cfg });
+  const mem = pre ? pre.memory : viewer.collectMemory(root);
+  const pass = pre ? pre.pass : readPass(root);
 
   // --- D5: agent signals + the human's own tray -----------------------
   // `cfg` above is the SERVER's config (host, port, token) — a different
@@ -378,14 +384,15 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   // --- the net -------------------------------------------------------
   // Built from the same pass, in the shape `mem net` already uses, so
   // the page and the CLI cannot disagree about an edge.
-  const graph = net.build({
+  const graph = pre ? pre.net.graph : net.build({
     readAll: () => pass.rows.map(({ project, drawer, entry }) => ({ project, drawer, entry })),
   });
   // The third kind of edge (src/netderive.mjs): guesses from shared evidence,
   // apart from the declared links and never counted with them. Unreadable
   // is `unknown`, not "no derived links".
   let derived;
-  try { derived = netderive.derive(pass.rows); } catch (e) { derived = { unknown: true, reason: String(e?.message || e) }; }
+  if (pre) derived = pre.net.derived;
+  else try { derived = netderive.derive(pass.rows); } catch (e) { derived = { unknown: true, reason: String(e?.message || e) }; }
 
   // --- per-entry enrichment ------------------------------------------
   // The raw entry, retired ones included. `memory.entriesById` filters
@@ -395,7 +402,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   const raw = new Map();
   for (const { entry } of pass.rows) if (entry.id && !raw.has(entry.id)) raw.set(entry.id, entry);
 
-  const stand = memory.standing(root);
+  const stand = pre ? new Map() : memory.standing(root);
 
   // Both directions of every declared edge, once. `memory.linksOf`
   // answers for ONE id and rebuilds the whole map each time it is
@@ -426,7 +433,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     type, label: viewer.TYPE_LABEL[type] || type,
   }));
 
-  const entries = mem.entries.map((r) => {
+  const entries = pre ? pre.entries : mem.entries.map((r) => {
     const e = raw.get(r.id) ?? null;
     const s = stand.get(r.id) ?? null;
     const links = out.get(r.id) ?? [];
@@ -473,7 +480,8 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
 
   // --- the work ------------------------------------------------------
   let duties = null;
-  try {
+  if (pre) duties = pre.work.duties;
+  else try {
     const d = memory.openDuties(root);
     duties = workTile('Duties', d.open.length, d.open.length + d.done.length,
       { noun: 'duties', whenEmpty: 'no duty has ever been recorded' });
@@ -482,7 +490,8 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   }
 
   let questions = null;
-  try {
+  if (pre) questions = pre.work.questions;
+  else try {
     const qs = question.all(root);
     questions = workTile('Questions', qs.filter((q) => q.open).length, qs.length,
       { noun: 'questions', whenEmpty: 'no question has ever been asked' });
@@ -525,14 +534,14 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     if (ts > p.last) p.last = ts;
   }
   let openPerProject = new Map();
-  try {
+  if (!pre) try {
     for (const q of question.open(root)) {
       const k = q._project ?? 'global';
       openPerProject.set(k, (openPerProject.get(k) ?? 0) + 1);
     }
   } catch { openPerProject = new Map(); }
 
-  const projects = [...perProject.values()].map((p) => ({
+  const projects = pre ? pre.projects(mem.agents) : [...perProject.values()].map((p) => ({
     name: p.name,
     entries: p.entries,
     retired: p.retired,

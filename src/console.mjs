@@ -265,8 +265,12 @@ export function connections(env = process.env, cfg = {}) {
   ];
 }
 
-/** How large is the memory, per drawer? */
-export function inventory(root) {
+/**
+ * How large is the memory, per drawer? `known` is the line total when a
+ * single pass already counted it (src/dashboard-pass.mjs) — the drawers are
+ * then not read a second time.
+ */
+export function inventory(root, { known = null } = {}) {
   const count = (project) => {
     let n = 0;
     for (const type of Object.keys(memory.TYPES)) {
@@ -276,8 +280,11 @@ export function inventory(root) {
     return n;
   };
   const projects = memory.listProjects(root);
-  let total = count(null);
-  for (const p of projects) total += count(p);
+  let total = known;
+  if (total === null) {
+    total = count(null);
+    for (const p of projects) total += count(p);
+  }
   // Not `records(root).length`. Since 2026-09-16 a deletion appends a
   // TOMBSTONE to the same append-only register, so counting rows would
   // have made every delete look like a new capture — the number going
@@ -303,10 +310,15 @@ export function inventory(root) {
  * Separate so it also goes out as JSON, and so the probes can check the
  * numbers without reaching through markup.
  */
-export function collect(root, { env = process.env, now = new Date(), cfg = {} } = {}) {
+export function collect(root, {
+  env = process.env, now = new Date(), cfg = {},
+  // The compact build (src/dashboard-compact.mjs) brings its own board and
+  // inventory: both read the whole store.
+  boardOf = (r, o) => board.board(r, o), inventoryOf = inventory,
+} = {}) {
   const windowDays = SETTINGS['error-window'].read(root).value;
   const quietMin = SETTINGS['quiet-hours'].read(root).value * 60;
-  const b = board.board(root, { env, now, windowDays, quietMin });
+  const b = boardOf(root, { env, now, windowDays, quietMin });
   const settings = Object.entries(SETTINGS).map(([id, s]) => {
     let state;
     try { state = s.read(root, env); }
@@ -324,7 +336,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     connections: connections(env, cfg),
     setup: steps,
     git: gitState(root),
-    inventory: inventory(root),
+    inventory: inventoryOf(root),
     log: readLog(root, { max: 5 }),
     // **Only what was actually FOUND.** The first draft mapped every
     // entry `discover()` returns, and `discover()` returns all five
