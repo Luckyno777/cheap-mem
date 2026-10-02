@@ -14,6 +14,20 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — command guard: the before-edit hook warns before a Bash command that hurt before
+
+- **An error of the class `mishandling` may carry a `command_pattern`**
+  (`mem log error ... --command-pattern "git add -A$ ;; git add --all$"`).
+  The before-edit hook on Bash shows the error once per session and
+  error when a command matches, and never blocks. Matching is literal: the
+  first wording must stand where a command starts, so a sentence that only
+  names the command triggers nothing. A shell prefilter starts node only on
+  a keyword hit; with no pattern recorded there is no extra process.
+  `mem command-guard build|show|check|seed` (seed writes correction lines
+  for old errors, append-only). Ships empty. Measured on 500 synthetic
+  ordinary commands with eight armed patterns: 0 false alarms, 0.1 ms per
+  command including the booklet freshness check.
+
 ### Changed — mail between agents needs permission to wake anyone (breaking)
 
 - **A message wakes the watcher only if it asks for something and the
