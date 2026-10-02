@@ -324,5 +324,7 @@ $env:MEM_RH_PATH = $RecallPath
 $env:MEM_RH_PATH_REASON = $RecallReason
 $env:MEM_RH_CWD = $HookCwd
 $env:MEM_RH_TRANSCRIPT = $HookTranscript
+# The skill offer reads the prompt (src/recallhook.mjs skillOffer).
+$env:MEM_RH_PROMPT = $Prompt
 $Hits | & node $RecallJs recall 2>$null
 exit 0

@@ -115,6 +115,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
 import { appendLine } from './append.mjs';
+import * as procedure from './procedure.mjs';
+import * as skillregistry from './skillregistry.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MEM_BIN = path.join(HERE, '..', 'bin', 'mem');
@@ -316,6 +318,40 @@ export const KINDS = Object.freeze({
     plainOk: /^merged: /m,
     classify() { return { state: 'ok', reason: null }; },
   },
+  // **The status of a skill-registry entry (parity with lucky-mem's
+  // `skill-status`, 2026-10-01).** The same path as the CLI: `mem skills
+  // status <id> <status> --issued-by owner --why "..."` — one APPENDED
+  // status line, the transitions of `procedure.TRANSITIONS`. `--issued-by`
+  // never comes from the form (a closed list without that field), only
+  // from `context.user` — a valid PASSWORD session; without one `start()`
+  // refuses BEFORE any child (`humanOnly`, code NOT_A_PERSON). A wrong
+  // transition is refused up front with the SAME check (`precheck`); the
+  // child command checks once more on its own.
+  'skill-status': {
+    title: 'Set a skill/procedure status',
+    description: 'mem skills status <id> <status> --issued-by owner --why "..." --json — one appended status line.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      id: { required: true, check: (v) => ENTRY_ID.test(v), why: 'an entry id' },
+      status: { required: true, check: (v) => procedure.STATUSES.includes(v), why: `one of ${procedure.STATUSES.join(', ')}` },
+      why: { required: true, check: (v) => v.trim().length >= 3 && v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: '3 to 2000 characters' },
+    },
+    precheck(root, p) {
+      const it = skillregistry.registry(root).find((i) => i.id === p.id);
+      if (!it) throw new Error(`no registry entry with id '${p.id}'`);
+      const chk = procedure.checkStatus({ status_of: p.id, status: p.status, issued_by: 'owner' }, skillregistry.transitionFrom(it.status));
+      if (!chk.ok) throw new Error(chk.errors.join('; '));
+    },
+    command(root, id, p, context) {
+      return { file: MEM_BIN, args: ['skills', 'status', p.id, p.status,
+        ...(context?.user === true ? ['--issued-by=owner'] : []), `--why=${p.why}`, '--json'] };
+    },
+    progressPattern: null,
+    classify(json) {
+      return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new line' };
+    },
+  },
 });
 
 const ENTRY_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/;
@@ -451,6 +487,7 @@ function spawnChild(file, args, root) {
  *  - 'LOCK_ACTIVE'     — the same kind is already running in this server
  *                         instance (`e.runningId` names the id)
  *  - 'INVALID_PARAMS'  — a parameter is unknown, malformed or missing
+ *  - 'NOT_A_PERSON'    — a `humanOnly` kind without a password session
  */
 /**
  * Y4b: `--authority user` for a kind that writes a state change (`done`),
@@ -473,6 +510,18 @@ export function start(root, kind, params = {}, context = {}) {
     throw e;
   }
   const checked = checkParams(kind, params);
+  if (spec.humanOnly && context?.user !== true) {
+    const e = new Error(`task '${kind}' needs a password session — without a signed-in person nothing is written`);
+    e.code = 'NOT_A_PERSON';
+    throw e;
+  }
+  if (spec.precheck) {
+    try { spec.precheck(root, checked); } catch (err) {
+      const e = new Error(`task '${kind}': ${err.message}`);
+      e.code = 'INVALID_PARAMS';
+      throw e;
+    }
+  }
   const running = ACTIVE.get(kind);
   if (running && running.epoch === SERVER_EPOCH && !running.ended) {
     const e = new Error(`task '${kind}' is already running (id=${running.id}).`);

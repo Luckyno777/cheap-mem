@@ -28,6 +28,7 @@ import * as errorclass from '../../errorclass.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
+import * as skillregistry from '../../skillregistry.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -275,6 +276,12 @@ export const COMMANDS = {
       }
       data = workflow.complete(data, { agent: me });
     }
+
+    // **A registry status has ONE write path** — `mem skills status`
+    // (a human as author, an allowed transition). A status field slipped
+    // in here would bypass that check (src/skillregistry.mjs).
+    const statusRefused = skillregistry.statusFieldRefusal(type, data);
+    if (statusRefused) die(statusRefused);
 
     // **Snippets: not an authority question, a redaction one.** Unlike
     // `procedure`/`workflow`, the MCP bridge MAY write this type — see

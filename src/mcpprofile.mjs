@@ -52,6 +52,7 @@ export const PROFILE = Object.freeze({
 export const READING = Object.freeze([
   'mem_board', 'mem_questions',
   'mem_procedures', 'mem_component', 'mem_links',
+  'mem_skill_find', 'mem_skill_fetch',
   'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts',
   'mem_explain', 'mem_retrieve', 'mem_find', 'mem_duties',
   'mem_context', 'mem_inbox_show', 'mem_store_list', 'mem_store_get',
