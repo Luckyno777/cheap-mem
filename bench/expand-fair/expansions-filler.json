@@ -1,0 +1,52 @@
+{
+"_how": "Filler notes are generated from four templates (bench/scale.mjs), so their expansions are composed from per-part phrases: topic[0..1] + verb[0..1] + noun[0..2] + why[0..2] = 10 plain phrases per note. Every filler note in the corpus gets one, the 200 extracted ones included.",
+"topic": {
+  "billing": ["invoicing area", "customer billing"],
+  "auth": ["login and access", "user authentication"],
+  "database": ["data storage layer", "database server"],
+  "ci": ["build pipeline", "automated test runs"],
+  "ops": ["operations and servers", "infrastructure work"],
+  "frontend": ["web interface", "browser side code"],
+  "security": ["security area", "protection against attacks"],
+  "cache": ["caching layer", "stored copies for speed"],
+  "payments": ["card payments", "taking money from customers"],
+  "search": ["search feature", "finding things in the product"],
+  "deploy": ["release process", "shipping to production"],
+  "testing": ["test suite", "quality checks"],
+  "mobile": ["phone app", "mobile client"],
+  "api": ["public interface", "endpoints for integrations"],
+  "queue": ["background jobs", "message queue"]
+},
+"verb": {
+  "chose": ["picked an option", "decision made"],
+  "reverted": ["undid a change", "went back to the previous version"],
+  "migrated": ["moved to a new setup", "migration of a component"],
+  "fixed": ["repaired a problem", "bug fix"],
+  "broke": ["caused a breakage", "regression introduced"],
+  "measured": ["benchmark run", "performance numbers taken"],
+  "shipped": ["released a change", "rolled out to users"],
+  "rolled back": ["undid a release", "rollback of a change"],
+  "profiled": ["performance profiling", "looked at where time goes"],
+  "rewrote": ["rewrite from scratch", "replaced the implementation"]
+},
+"noun": {
+  "the connection pool": ["shared database connections", "connection reuse", "pool of open links to the database"],
+  "the token refresh": ["renewing login tokens", "session renewal", "access token expiry handling"],
+  "the retry policy": ["trying again after failures", "retry rules", "backoff after errors"],
+  "the index build": ["building the search index", "index generation", "lookup structure creation"],
+  "the migration": ["data migration", "schema change", "moving data to a new format"],
+  "the rate limiter": ["request throttling", "limit on requests per client", "traffic limits"],
+  "the worker queue": ["background workers", "job processing line", "task queue"],
+  "the session store": ["storage place of sessions", "logged in state storage", "session data"],
+  "the upload path": ["file uploads", "upload handling", "sending files to the server"],
+  "the health check": ["liveness probe", "service status check", "uptime monitoring"]
+},
+"why": {
+  "it blocked the event loop": ["server froze while waiting", "everything else stalled", "blocking call problem"],
+  "the numbers did not survive review": ["results not trusted", "measurements rejected by reviewers", "figures did not hold up"],
+  "a simpler shape held the same load": ["simpler design was enough", "less complexity same capacity", "the plain version performed as well"],
+  "the old one lost data on restart": ["data lost after reboot", "state not persisted", "restart wiped data"],
+  "latency doubled under real traffic": ["twice as slow in production", "response times doubled", "slowdown with real users"],
+  "nobody could explain the failure mode": ["unexplained failure", "root cause unknown", "mysterious breakage"]
+}
+}
