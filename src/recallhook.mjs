@@ -40,8 +40,9 @@
  * (claim directory), MEM_RH_QB (question bytes), MEM_RH_START_MS,
  * MEM_RH_PATH / MEM_RH_PATH_REASON (M10: server or direct, and why),
  * MEM_RH_CWD / MEM_RH_TRANSCRIPT (the hook JSON's `cwd` and
- * `transcript_path`, read only by the h2 search lever), MEM_RH_WORKFLOW
- * (the workflow block, see above).
+ * `transcript_path`, read only by the h2 search lever), MEM_RH_PROMPT (the
+ * prompt, read only by the skill offer), MEM_RH_WORKFLOW (the workflow
+ * block, see above).
  * Internal to the hooks; not user switches. The user switch that acts
  * here is `MEM_SEARCH_LEVERS` (src/searchlevers.mjs: h2, h5).
  */
@@ -189,19 +190,37 @@ async function workflowFor(root, prompt, env = process.env) {
  * object (or null) and a function that writes the journal line — the
  * caller calls it AFTER the answer went out.
  */
-export function recall(root, hitsJson, env = process.env) {
+export function recall(root, hitsJson, env = process.env, { offer = null } = {}) {
   const hits = parseHits(hitsJson);
   const min = num(env.MEM_RH_MIN, 5.0);
-  const nothing = (reason) => ({
+  // The skill offer: one line naming released skills, booked as `skill-offer`.
+  const bookOffer = () => {
+    if (offer && env.MEM_RH_SESSION) {
+      injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, reason: null,
+        bytes: Buffer.byteLength(offer.line, 'utf8'), hits: offer.ids.length, searched: null, sources: offer.ids,
+        recallPath: undefined, pathReason: undefined }));
+    }
+  };
+  const offerOnly = (reason) => {
+    const text = visible(`${RECALL_HEADER}\n${offer.line}`);
+    const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
+    return { out, book: () => { if (env.MEM_RH_SESSION) injection.book(root, booking(env, { reason, bytes: 0, hits: 0, searched: null })); bookOffer(); } };
+  };
+  const nothing = (reason) => (offer && reason !== injection.REASON.ALREADY_SHOWN ? offerOnly(reason) : {
     out: null,
     book: () => { if (env.MEM_RH_SESSION) injection.book(root, booking(env, { reason, bytes: 0, hits: 0, searched: null })); },
   });
   // The search showed nothing: the miss is booked as before, and a
   // workflow block (if the hook handed one over) still goes out alone.
+  // With a skill offer the miss already carries an answer (the offer
+  // line): the workflow block joins it instead of replacing it.
   const withWorkflow = (miss) => {
     const wf = workflowOnly(root, env);
     if (!wf.out) return miss;
-    return { out: wf.out, book: () => { miss.book(); wf.book(); } };
+    if (!miss.out) return { out: wf.out, book: () => { miss.book(); wf.book(); } };
+    const both = visible(`${miss.out.hookSpecificOutput.additionalContext}\n\n${wf.out.hookSpecificOutput.additionalContext}`);
+    const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: both } };
+    return { out, book: () => { miss.book(); wf.book(); } };
   };
   if (hits === null) return withWorkflow(nothing(injection.REASON.ERROR));
   const shown = shownHits(hits, { env });
@@ -217,7 +236,7 @@ export function recall(root, hitsJson, env = process.env) {
   }
   const wf = workflowBlock(env);
   const text = visible(`${RECALL_HEADER}${short ? levers.H5_HEADER_NOTE : ''}\n${r.lines.join('\n')}`
-    + `${wf ? `\n\n${wf}` : ''}`);
+    + `${offer ? `\n\n${offer.line}` : ''}${wf ? `\n\n${wf}` : ''}`);
   const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
 
   // The claim, over the finished block: session + block. A second
@@ -230,11 +249,27 @@ export function recall(root, hitsJson, env = process.env) {
   const json = JSON.stringify(out);
   return {
     out,
-    book: () => injection.book(root, booking(env, {
-      reason: null, bytes: Buffer.byteLength(json, 'utf8'),
-      hits: r.lines.length, searched: null, sources: r.sources,
-    })),
+    book: () => {
+      injection.book(root, booking(env, {
+        reason: null, bytes: Buffer.byteLength(json, 'utf8'),
+        hits: r.lines.length, searched: null, sources: r.sources,
+      }));
+      bookOffer();
+    },
   };
+}
+
+/**
+ * The skill offer for the prompt in MEM_RH_PROMPT, or null. Never throws:
+ * a broken registry costs the offer, not the recall.
+ */
+export async function skillOffer(root, env = process.env) {
+  if (!root || !env.MEM_RH_PROMPT) return null;
+  try {
+    const reg = await import('./skillregistry.mjs');
+    await reg.loadTokenizer();
+    return reg.offer(root, env.MEM_RH_PROMPT);
+  } catch { return null; }
 }
 
 /** `catch` mode as a function. */
@@ -270,7 +305,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     } else if (mode === 'machine') {
       if (machine(root, raw)) process.stdout.write('machine');
     } else if (mode === 'recall') {
-      const { out, book } = recall(root, raw);
+      const { out, book } = recall(root, raw, process.env, { offer: await skillOffer(root) });
       if (out) process.stdout.write(JSON.stringify(out), () => book());
       else book();
     } else if (mode === 'workflow') {

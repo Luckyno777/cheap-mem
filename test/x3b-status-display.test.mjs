@@ -184,13 +184,21 @@ async function dashboardPicture(base, ids, { client = null } = {}) {
     }, visible);
     // The skills-and-procedures tab: the card of the rule carries the label
     await page.evaluate(() => { location.hash = 'knowledge/skills'; });
-    await page.waitForFunction(() => [...document.querySelectorAll('#screen .panel h2')].some((h) => h.textContent.includes('Quokka proposal')), null, { timeout: 15000 });
+    // Since the skill catalogue (src/skillcatalog.mjs) the tab shows compact
+    // rows (`.sk-row`, full title in `title`); the old client shows panels.
+    await page.waitForFunction(() => [...document.querySelectorAll('#screen .panel h2')].some((h) => h.textContent.includes('Quokka proposal'))
+      || [...document.querySelectorAll('#screen .sk-row')].some((r) => (r.title || '').includes('Quokka proposal')), null, { timeout: 15000 });
     const tab = await page.evaluate((sc) => {
       const vis = eval(sc);
       const byTitle = {};
       for (const p of document.querySelectorAll('#screen .panel')) {
+        if (!p.querySelector('h2')) continue;
         const tag = p.querySelector('.rule-status');
         byTitle[p.querySelector('h2')?.textContent] = tag ? { text: tag.textContent, visible: vis(tag) } : null;
+      }
+      for (const r of document.querySelectorAll('#screen .sk-row')) {
+        const tag = r.querySelector('.rule-status');
+        byTitle[r.title] = tag ? { text: tag.textContent, visible: vis(tag) } : null;
       }
       return byTitle;
     }, visible);

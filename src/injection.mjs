@@ -66,6 +66,14 @@ export const OCCASION = Object.freeze({
    * question's length, hits, sources, duration - NEVER the question text.
    */
   MCP_QUESTION: 'mcp-question',
+  /**
+   * The question hook offered released skills by NAME (one line, never
+   * the full text; src/skillregistry.mjs `offer()`). `sources` are the
+   * offered ids. Its own occasion: the offer->fetched rate
+   * (src/skilleffect.mjs) counts these lines, and the question rates
+   * must not.
+   */
+  SKILL_OFFER: 'skill-offer',
 });
 
 /**

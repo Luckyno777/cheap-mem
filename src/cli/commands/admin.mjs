@@ -34,6 +34,8 @@ import * as modelcost from '../../modelcost.mjs';
 import * as goldlog from '../../goldlog.mjs';
 import * as gap from '../../gap.mjs';
 import * as skillusage from '../../skillusage.mjs';
+import * as skillregistry from '../../skillregistry.mjs';
+import * as skilleffect from '../../skilleffect.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /** 13 commands. */
@@ -1006,24 +1008,92 @@ export const COMMANDS = {
     if (isHelp(args) || rest[0] === undefined) {
       out([
         'mem skills usage [--json]',
+        'mem skills list [--json]',
+        'mem skills export --format claude|text [--target <path>] [--types skill,workflow,snippet,procedure]',
+        'mem skills status <id> <proposed|trial|released|withdrawn> --issued-by owner [--why "..."] [--json]',
+        'mem skills fetch <name|id>',
+        'mem skills effect [--json]',
         '',
-        '  W10: how often was which skill invoked (Skill tool and /command),',
-        '  last use, in how many sessions — measured from the raw-capture',
-        '  archive. Every output states its coverage; subagents are not',
-        '  captured (handover 5.2). House skills without a hit are "not',
-        '  observed", never "unused". No model, nothing is written or',
-        '  removed; merging is only a proposal. Time cap',
-        '  MEM_SKILLUSAGE_TIME_MS: beyond it the state is unknown',
-        '  ("partially read").',
+        '  usage: skill calls from the raw capture, with coverage (W10).',
+        '  list/export/status/fetch: one registry over skill, workflow, snippet,',
+        '  procedure. Only a human sets a status (an appended line); skills and',
+        '  snippets without one are unknown and never exported. export writes',
+        '  .claude/skills/mem-<name>/SKILL.md (+ marker; never ~/.claude) or',
+        '  .pipeline/mem-skills.md; only released and [trial] leave.',
+        '  effect: offered -> fetched of the hook offer; below the minimum count unknown, never 0.',
       ].join('\n'));
       return;
     }
-    if (rest[0] !== 'usage') die(`skills: unknown subcommand '${rest[0]}'. Known: usage`);
-    checkFlags(args, ['json', 'root'], 'skills usage');
+    const sub = rest[0];
+    const known = ['usage', 'list', 'export', 'status', 'fetch', 'effect'];
+    if (!known.includes(sub)) die(`skills: unknown subcommand '${sub}'. Known: ${known.join(', ')}`);
+    const flags = { usage: ['json'], list: ['json'], export: ['format', 'target', 'types'],
+      status: ['issued-by', 'why', 'agent', 'json'], fetch: [], effect: ['json'] }[sub];
+    checkFlags(args, [...flags, 'root'], `skills ${sub}`);
     const root = findRoot(args);
     requireConfig(root);
-    const r = skillusage.measure(root);
-    out(args.json ? JSON.stringify(skillusage.asJson(r), null, 2) : skillusage.asText(r));
+    if (sub === 'usage') {
+      const r = skillusage.measure(root);
+      out(args.json ? JSON.stringify(skillusage.asJson(r), null, 2) : skillusage.asText(r));
+      return;
+    }
+    if (sub === 'list') {
+      const items = skillregistry.registry(root);
+      out(args.json
+        ? JSON.stringify(items.map(({ entry, baseName, ...it }) => it), null, 2)
+        : skillregistry.listText(items));
+      return;
+    }
+    if (sub === 'export') {
+      let types = skillregistry.TYPES;
+      if (typeof args.types === 'string') {
+        types = args.types.split(',').map((t) => t.trim()).filter(Boolean);
+        const bad = types.filter((t) => !skillregistry.TYPES.includes(t));
+        if (bad.length) die(`skills export: --types ${bad.join(', ')} unknown (allowed: ${skillregistry.TYPES.join(', ')})`);
+      }
+      const target = typeof args.target === 'string' ? args.target : null;
+      try {
+        if (args.format === 'claude') {
+          const r = skillregistry.exportClaude(root, { target, types });
+          out(`Export claude -> ${r.target}: ${r.written.length} written, ${r.unchanged.length} unchanged, `
+            + `${r.removed.length} removed${r.occupied.length ? `, ${r.occupied.length} skipped (folder without marker: ${r.occupied.join(', ')})` : ''}.`);
+        } else if (args.format === 'text') {
+          const r = skillregistry.exportText(root, { target, types });
+          out(`Export text -> ${r.target}: ${r.written ? 'written' : 'unchanged'}.`);
+        } else {
+          die('skills export: --format claude|text required.');
+        }
+      } catch (e) {
+        die(`skills export: ${e.message}`);
+      }
+      return;
+    }
+    if (sub === 'status') {
+      const [, id, next] = rest;
+      if (!id || !next) die('skills status: id and status required.');
+      try {
+        const r = skillregistry.writeStatus(root, id, next, {
+          issued_by: typeof args['issued-by'] === 'string' ? args['issued-by'] : '',
+          agent: typeof args.agent === 'string' ? args.agent : null,
+          why: typeof args.why === 'string' ? args.why : null,
+        });
+        // --json for the dashboard task `skill-status`: `new` names the appended line.
+        out(args.json ? JSON.stringify({ new: r.entry.id, id, status: next, type: r.item.type })
+          : `Status of ${r.item.type} ${id}: ${next}  (line ${r.entry.id}, by ${r.entry.issued_by})`);
+      } catch (e) {
+        die(`skills status: refused — ${e.message}\n  Nothing was written.`);
+      }
+      return;
+    }
+    if (sub === 'fetch') {
+      if (!rest[1]) die('skills fetch: name or id required (mem skills list).');
+      const r = skillregistry.fetchItem(root, rest[1]);
+      if (!r.ok) die(`skills fetch: ${r.reason}`);
+      out(r.text.trimEnd());
+      return;
+    }
+    const e = skilleffect.measure(root);
+    out(args.json ? JSON.stringify(e, null, 2) : skilleffect.asText(e));
   },
 
   modelcost: async ({ args }) => {

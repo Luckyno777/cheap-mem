@@ -269,3 +269,37 @@ test('B3: a draft workflow with a matching tool pattern stays silent', () => {
     assert.equal(bash(root, 'npm publish'), '');
   } finally { done(root); }
 });
+
+// --- with the skill offer (merge with port-skills-cm) ------------------------
+//
+// Decision: a workflow block never REPLACES the skill offer line. Both
+// go out in the same answer — with recall hits, and when the search
+// shows nothing — and both are booked.
+
+test('B2 + skill offer: workflow block and skill offer line both go out, with and without hits', async () => {
+  const recallhook = await import('../src/recallhook.mjs');
+  const injection = await import('../src/injection.mjs');
+  const root = world();
+  try {
+    const s = memory.logEntry(root, 'skill', { title: 'Publish', text: 'Publish — body', triggers: 'publish package,npm release' }).entry;
+    memory.logEntry(root, 'skill', { status_of: s.id, status: 'released', issued_by: 'owner', agent: 'test' });
+    const env = {
+      MEM_RH_SESSION: 'both1', MEM_RH_PROMPT: 'how do I publish the package for the npm release',
+      MEM_RH_WORKFLOW: 'Workflow card WF-MARK', MEM_RH_MIN: '0',
+    };
+    const offer = await recallhook.skillOffer(root, env);
+    assert.ok(offer, 'POSITIVE: the skill is offered at all');
+    const empty = recallhook.recall(root, '{"hits":[]}', env, { offer });
+    const t1 = empty.out.hookSpecificOutput.additionalContext;
+    assert.match(t1, /Skill publish fits/);
+    assert.match(t1, /WF-MARK/);
+    empty.book();
+    const lines = injection.read(root).lines;
+    assert.ok(lines.some((l) => l.occasion === injection.OCCASION.SKILL_OFFER), 'offer booked');
+    const hit = JSON.stringify({ hits: [{ id: 'x1', score: 9, label: 'a hit line', source: 'global/decisions.jsonl', ts: '2026-10-01T00:00:00Z', text: 'a hit line' }] });
+    const full = recallhook.recall(root, hit, { ...env, MEM_RH_SESSION: 'both2' }, { offer });
+    const t2 = full.out.hookSpecificOutput.additionalContext;
+    assert.match(t2, /Skill publish fits/);
+    assert.match(t2, /WF-MARK/);
+  } finally { done(root); }
+});

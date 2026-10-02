@@ -1,7 +1,7 @@
 # MCP setup per client
 
-cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes 35 tools:
-`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_inbox_claim`, `mem_inbox_renew`, `mem_inbox_done`, `mem_inbox_failed`, `mem_inbox_claims`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`, `mem_answer`, `mem_board`, `mem_bridge_report`, `mem_component`, `mem_heartbeat`, `mem_ledger`, `mem_procedures`, `mem_questions`, `mem_source`, `mem_user_habits`.
+cheap-mem ships an MCP server (`bin/mem-mcp`) that exposes 37 tools:
+`mem_log`, `mem_find`, `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`, `mem_facts`, `mem_explain`, `mem_retrieve`, `mem_duties`, `mem_duty_close`, `mem_context`, `mem_inbox_new`, `mem_inbox_show`, `mem_inbox_write`, `mem_inbox_ack`, `mem_inbox_claim`, `mem_inbox_renew`, `mem_inbox_done`, `mem_inbox_failed`, `mem_inbox_claims`, `mem_project_init`, `mem_store_put`, `mem_store_list`, `mem_store_get`, `mem_answer`, `mem_board`, `mem_bridge_report`, `mem_component`, `mem_heartbeat`, `mem_ledger`, `mem_procedures`, `mem_questions`, `mem_skill_find`, `mem_skill_fetch`, `mem_source`, `mem_user_habits`.
 
 Six of them — `mem_links`, `mem_show`, `mem_experiences`, `mem_topics`,
 `mem_facts`, `mem_explain` — were added on 2026-09-08. They had existed
@@ -264,6 +264,6 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
   | CHEAP_MEM_ROOT=/tmp/nowhere node /path/to/cheap-mem/bin/mem-mcp
 ```
 
-You should see a JSON blob listing 35 tools. (The `mem_*` tools that
+You should see a JSON blob listing 37 tools. (The `mem_*` tools that
 touch the memory will fail because `/tmp/nowhere` is not initialized —
 that's fine, we only wanted `tools/list`.)

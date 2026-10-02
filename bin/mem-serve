@@ -67,6 +67,8 @@ import * as verifylog from '../src/verifylog.mjs';
 import * as goldlog from '../src/goldlog.mjs';
 import * as login from '../src/login.mjs';
 import * as projectPackage from '../src/projectpackage.mjs';
+import * as skillcatalog from '../src/skillcatalog.mjs';
+import * as skilleffect from '../src/skilleffect.mjs';
 import * as memoryModule from '../src/memory.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
@@ -175,6 +177,8 @@ export const HOST_GUARDED = Object.freeze([
   dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part, fulltext.PATH,
   // The project package export (src/projectpackage.mjs): memory content too.
   dashboardPage.PATHS.projectPackage,
+  // The skill catalogue (src/skillcatalog.mjs): entry texts and history.
+  dashboardPage.PATHS.skills,
   // D3b: the list as a page, and its JSON twin, read the same memory.
   entriesPage.PATH, '/entries.json',
 ]);
@@ -286,6 +290,15 @@ export function buildHandler(root, cfg, env = process.env) {
   // ONE cache per handler (not per module): a probe that builds its own
   // handler never sees another one's result.
   const writesAllowed = () => writegate.read(root, gateOpts(cfg)).allowed;
+  // The skill effect reads the raw capture: measured at most once a minute.
+  let effectCache = { at: 0, value: null };
+  const skillEffect = () => {
+    if (effectCache.value && Date.now() - effectCache.at < 60000) return effectCache.value;
+    let v;
+    try { v = skilleffect.measure(root); } catch (e) { v = { state: 'unknown', reason: e?.message || String(e), skills: [] }; }
+    effectCache = { at: Date.now(), value: v };
+    return v;
+  };
   const dashOptions = (w) => ({ env, cfg, title: cfg.title, writesAllowed: w });
   // no-jump: TEST ONLY — with a tiny test store the cache always builds
   // synchronously and is therefore immediately fresh on every answer
@@ -636,6 +649,23 @@ export function buildHandler(root, cfg, env = process.env) {
     // for the page's content preview, otherwise the whole package as a file
     // (Content-Disposition). Encrypted stays ciphertext, plaintext runs
     // through src/redaction.mjs.
+    // The skill catalogue: read only; canSetStatus needs writing on AND a
+    // password session (the token is not a person). Writes go via /task.
+    if (url.pathname === dashboardPage.PATHS.skills) {
+      const json = (code, o) => res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(o));
+      if (req.method !== 'GET' && req.method !== 'HEAD') { json(405, { state: 'error', reason: 'GET only' }); return; }
+      const w = writesAllowed();
+      const person = personSignedIn(req);
+      let body;
+      try {
+        body = skillcatalog.catalogue(root, {
+          env, effect: skillEffect(), canSetStatus: w && person,
+          noButtonReason: !w ? 'writing from the page is off (mem serve --allow-writes)' : (person ? null : 'no password session (a token is not a person)'),
+        });
+      } catch (e) { json(500, { state: 'error', reason: e?.message || String(e) }); return; }
+      json(200, body);
+      return;
+    }
     if (url.pathname === dashboardPage.PATHS.projectPackage) {
       const json = (code, o, extra = {}) => res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8', ...extra }).end(JSON.stringify(o));
       if (req.method !== 'GET' && req.method !== 'HEAD') { json(405, { state: 'error', reason: 'GET only' }, { allow: 'GET' }); return; }
@@ -1199,6 +1229,10 @@ export function buildHandler(root, cfg, env = process.env) {
             }
             if (e?.code === 'UNKNOWN_KIND') {
               answer(400, { state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) });
+              return;
+            }
+            if (e?.code === 'NOT_A_PERSON') {
+              answer(403, { state: 'error', reason: e.message });
               return;
             }
             if (e?.code === 'LOCK_ACTIVE') {
