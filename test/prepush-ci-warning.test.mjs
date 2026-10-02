@@ -185,6 +185,7 @@ test('mem hooks install --pre-push arms it (opt-in); without the flag there is n
     const root = tempDir('cm-prepush-mem-');
     const init = spawnSync(process.execPath, [MEM, 'init', '--root', root], { env, encoding: 'utf8' });
     assert.equal(init.status, 0, init.stderr);
+    execFileSync('git', ['init', '-q', root]); // the hook lives in a git repository; init does not make one
     return root;
   };
   const hooksDir = (root) => execFileSync('git', ['-C', root, 'config', '--get', 'core.hooksPath'], { encoding: 'utf8' }).trim();

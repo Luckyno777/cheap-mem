@@ -20,6 +20,7 @@ import os from 'node:os';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as observations from '../observations.mjs';
 import { PKG_ROOT } from './shell.mjs';
+import { writeAtomic } from '../atomicwrite.mjs';
 
 export function canExecuteIn(dir) {
   // Windows has no execve and no noexec mounts: git for Windows starts
@@ -125,7 +126,7 @@ export function installHook(root, dirOverride, { prePush = false } = {}) {
   lines.push(`Hook written: ${hookPath}`);
   if (prePush) {
     const pushPath = path.join(target, 'pre-push');
-    fs.writeFileSync(pushPath, prePushBody());
+    writeAtomic(pushPath, prePushBody());
     fs.chmodSync(pushPath, 0o755);
     lines.push(`Hook written: ${pushPath}  (warning only: CI status of what lands on the default branch)`);
   }
