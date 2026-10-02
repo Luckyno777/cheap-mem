@@ -46,10 +46,12 @@ else
 fi
 [ -z "$MODULE" ] && exit 0
 
-# The stdin JSON carries session_id etc., but nothing here is keyed on
-# it (the block is the same for every subagent) — it is only read so a
-# malformed or absent stdin cannot make the module import fail.
-if [ ! -t 0 ]; then cat >/dev/null 2>&1 || true; fi
+# The stdin JSON carries session_id and the assignment text (`prompt`):
+# a workflow whose `triggers` match the assignment leads the block
+# (src/workflowdetect.mjs). Everything else is the same for every
+# subagent. A malformed or absent stdin just means no workflow block.
+IN=""
+if [ ! -t 0 ]; then IN="$(cat 2>/dev/null)" || IN=""; fi
 
 # An ESM specifier is a URL, not a path — the same trap mem-before-edit
 # already carries a long note about. On Linux a plain absolute path
@@ -66,11 +68,14 @@ case "$MODULE_FS" in
   *)  MODULE_URL="file:///$MODULE_FS" ;;
 esac
 
-CHEAP_MEM_ROOT="$ROOT" node -e '
-  import(process.argv[1]).then((m) => {
-    const r = m.hookResult(process.env.CHEAP_MEM_ROOT);
-    if (r) process.stdout.write(JSON.stringify(r));
-  }).catch(() => {});
+printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" node -e '
+  let d = "";
+  process.stdin.on("data", (c) => { d += c; }).on("end", () => {
+    import(process.argv[1]).then(async (m) => {
+      const r = await m.hookResultFor(process.env.CHEAP_MEM_ROOT, d);
+      if (r) process.stdout.write(JSON.stringify(r));
+    }).catch(() => {});
+  });
 ' "$MODULE_URL" 2>/dev/null
 
 exit 0

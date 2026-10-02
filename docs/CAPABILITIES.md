@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 77 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 80 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3305 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3345 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -99,6 +99,7 @@ directory. The section number in brackets is where it is explained.
 | `errorclass.mjs` | the closed vocabulary of twelve error classes (10.16) |
 | `errorcontext.mjs` | `mem log error`'s file history (max 3) and the auto-duty it opens on a real repetition, one per file+class |
 | `errorfile.mjs` | which file an error concerns: an explicit field first, else the path pattern |
+| `errorfixes.mjs` | errors linked to their fixes and lessons on the existing link drawer: commit trailer `Fixes: <id>` -> `resolves` (`mem error-fixes backfill`), `mem log learning --from <id>` -> `generalizes`, notes at write time, doctor `error-linked` (10.26) |
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
 | `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, stale lock taken over by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
@@ -191,6 +192,7 @@ directory. The section number in brackets is where it is explained.
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
 | `webauth.mjs` | the door in front of any HTTP service (7.4) |
 | `workflow.mjs` | a named SEQUENCE for all — same authority question as `procedure`, same answer: only a human issues one, the bridge never writes it (10.26) |
+| `workflowdetect.mjs` | finds the visible workflow (human, in force, no draft) for a prompt, a subagent assignment (`triggers`), a Bash command (`tool_patterns`) or a file (`path_patterns`, table role `works-on`); a tie shows titles only (10.26) |
 | `writegate.mjs` | the dashboard write switch: off by default, one check in front of every writing route (7.4) |
 
 Plus `src/embed/` — the optional embedding lane (provider, store,
@@ -594,7 +596,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 77 commands
+### 7.1 CLI — 80 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -605,7 +607,7 @@ procedures broadcast onboarding sources component status board classes
 bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
-gaps suggest search-levers rewrites
+gaps suggest search-levers rewrites workflow snippet error-fixes
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later
@@ -1817,6 +1819,23 @@ at the `procedure`/`skill`/`errorclass`/`snippet` entries a workflow
 relies on by id/name only — an unknown kind, or anything shaped like
 copied text rather than an id, is refused, not silently dropped.
 
+**Found without being asked for** (`src/workflowdetect.mjs`). The
+question hook and the subagent hook show a visible workflow (issued by a
+human, in force, not a draft) whose `triggers` match the text on the
+search's own tokens; the before-edit hook does the same for a Bash
+command against `tool_patterns`, and for an edited file the component
+table names (role `works-on`, from `path_patterns`). One clear winner:
+its card once per session, then a pointer; a tie: titles only. `mem
+workflow new|check|list|show` writes the three list fields
+(comma-separated) under the same check; `mem doctor` warns on
+`workflow-without-trigger`.
+
+**Errors to fixes** (`src/errorfixes.mjs`): a commit trailer `Fixes:
+<error-id>` becomes a `resolves` link with `evidence: commit:<hash>`
+(`mem error-fixes backfill [--repo P]`, idempotent, an unknown id only
+warns); `mem log learning --from <error-id>` writes `generalizes`;
+`mem doctor` reports `error-linked`.
+
 ### 10.27 Snippets — `src/snippet.mjs`, `mem log snippet`
 
 A `snippet` is a reusable code/script/text/mail/letter building block
@@ -1824,7 +1843,8 @@ carrying `{{PLACEHOLDER}}`s instead of real data. Unlike `workflow`, it
 is not an authority problem — the MCP bridge MAY write this type — but
 a `text`/`mail`/`letter` body MUST clear `src/redaction.mjs`'s
 `redact()` before it is written, in both the CLI and the bridge; a hit
-is an ABORT, not a warning, because the entire point of a snippet is
+is an ABORT, not a warning (`mem snippet new|list|show` too; `mem doctor`
+reports `snippet-without-redaction` for legacy lines), because the entire point of a snippet is
 reuse by other agents. `code`/`script` bodies are deliberately not
 redaction-gated — a credential-shaped example in a docstring is normal
 there and must stay writable.

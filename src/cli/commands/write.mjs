@@ -28,11 +28,12 @@ import * as errorclass from '../../errorclass.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
+import * as errorfixes from '../../errorfixes.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
-/** 12 commands. */
+/** 14 commands. */
 export const COMMANDS = {
   log: async ({ rest, args }) => {
     if (isHelp(args)) {
@@ -43,6 +44,9 @@ export const COMMANDS = {
         "  Reserved: --project, --root",
         "  Every other --flag becomes a field in the JSONL entry.",
         "  --tags takes a comma-separated list.",
+        "  --from <error-id[,...]>  for `log learning`: the error(s) this lesson",
+        "             is drawn from — written as `generalizes` links, not as a",
+        "             field. An unknown id aborts before anything is written.",
         "  --file <path>  for `log error`: lays down test/error-<id>.test.mjs",
         "             (marker, three test.todo sections) unless one is already",
         "             there. Never overwritten. --without-scaffold turns it off.",
@@ -89,6 +93,20 @@ export const COMMANDS = {
     // but unless it is taken out of `data` here it is ALSO written into
     // the entry as a field `"no-broadcast": true`.
     delete data['no-broadcast'];
+
+    // **L2a port: `--from` on a learning is not a field but edges.** The
+    // error(s) the lesson is drawn from become `generalizes` links after
+    // the write (src/errorfixes.mjs). An unknown id aborts BEFORE the
+    // write — an id that does not exist is not guessed at. (`from` stays
+    // an ordinary field for every other type: a `link` entry needs it.)
+    let fromErrors = [];
+    if (type === 'learning' && Object.hasOwn(data, 'from')) {
+      fromErrors = errorfixes.fromIds(data.from === true ? '' : data.from);
+      delete data.from;
+      if (!fromErrors.length) die('log: --from without an error id. Meant: --from <error-id[,<error-id>...]>.');
+      const c = errorfixes.checkFrom(root, fromErrors);
+      if (c.unknown.length) die(`log: --from: no error with id ${c.unknown.join(', ')}. Nothing was written.`);
+    }
 
     // **A class outside the vocabulary is warned about, never refused.**
     //
@@ -331,6 +349,18 @@ export const COMMANDS = {
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
     for (const l of neighbours.similarHint(alike, { newId: entry.id })) out(l);
+    // L2a port: learning <- error. With --from: edges; without: up to
+    // three fitting errors as a note with the ready command.
+    if (type === 'learning') {
+      try {
+        if (fromErrors.length) {
+          const k = errorfixes.writeGeneralizes(root, entry.id, fromErrors, { project: args.project ?? null });
+          out(`  generalizes: ${k.written.join(', ') || '(nothing new)'} — link(s) from ${entry.id}`);
+        } else {
+          for (const l of errorfixes.noteForLearning(root, entry, { newId: entry.id })) out(l);
+        }
+      } catch (e) { warn(`learning link: ${e.message}`); }
+    }
     if (startAs) {
       out(startAs === 'released'
         ? `  status: ${startAs} (issued by ${entry.issued_by})`
@@ -354,6 +384,11 @@ export const COMMANDS = {
     // `mem doctor`.
     if (type === 'error') {
       for (const l of errorcontext.historyLines(root, entry, { project: args.project ?? null })) out(l);
+      // L2a port: what already exists for this class/file — learnings,
+      // procedures, fixes (src/errorfixes.mjs noteForError). Output only.
+      try {
+        for (const l of errorfixes.noteForError(root, entry)) out(l);
+      } catch (e) { warn(`fix note: ${e.message}`); }
     }
 
     // **The class as a warning, not a label.**
@@ -747,6 +782,43 @@ export const COMMANDS = {
     } catch (e) { die(`merge: ${e.message}`); }
   },
 
+  'error-fixes': async ({ rest, args }) => {
+    if (isHelp(args) || rest[0] !== 'backfill') {
+      out([
+        'mem error-fixes backfill [--repo <path>] [--since <rev>] [--check-only]',
+        '',
+        '  Writes the missing `resolves` links (from a commit or a closed duty',
+        '  to an error) out of the history — append-only and idempotent (key:',
+        '  error id + evidence). Sources, evidence only:',
+        '    - the commit trailer `Fixes: <error-id>[, <error-id>]` (git log --all)',
+        '    - a commit message with a fix verb directly before the error id',
+        '      ("fixes <id>"); a fix word elsewhere on the line is only counted',
+        '    - closed duties with error_ids whose evidence holds for that id',
+        '  An unknown id in a trailer is a warning, never a link.',
+        '',
+        '  --repo <path>   the git checkout to read (default: the memory root;',
+        '                  fixes usually live in the code repository)',
+        '  --since <rev>   only commits not reachable from <rev>',
+        '  --check-only    counts, writes nothing',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['repo', 'since', 'check-only'], 'error-fixes backfill');
+    const root = findRoot(args);
+    requireConfig(root);
+    if (args.since === true) die('error-fixes backfill: --since needs a revision.');
+    if (args.repo === true) die('error-fixes backfill: --repo needs a path.');
+    let r;
+    try {
+      r = errorfixes.backfill(root, {
+        repo: args.repo ? path.resolve(String(args.repo)) : root,
+        since: args.since ? String(args.since) : null,
+        checkOnly: Boolean(args['check-only']),
+      });
+    } catch (e) { die(`error-fixes backfill: ${e.message}`); }
+    for (const l of errorfixes.backfillLines(r)) out(l);
+  },
+
   links: async ({ rest, args }) => {
     if (isHelp(args) || !rest[0]) {
       out([
@@ -773,7 +845,8 @@ export const COMMANDS = {
       return;
     }
     const line = (r, arrow) => {
-      const what = r.entry ? `${r.entry._type}: ${compactLine(r.entry)}` : '(missing entry)';
+      const what = r.entry ? `${r.entry._type}: ${compactLine(r.entry)}`
+        : (memory.isOutsideEvidence(r.other) ? '(evidence outside the memory)' : '(missing entry)');
       out(`    ${arrow} ${String(r.kind).padEnd(12)} ${r.other}  ${what}`);
     };
     if (g.out.length) { out(''); out('  this entry ->'); for (const r of g.out) line(r, '->'); }

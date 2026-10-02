@@ -133,6 +133,20 @@ export const LINK_KINDS = Object.freeze({
 });
 
 /**
+ * A link end that is evidence OUTSIDE the memory, not an entry: a commit
+ * (`commit:<hash>`, the source of a `resolves` edge that a `Fixes:`
+ * trailer proves — src/errorfixes.mjs). Never written as an entry, so it
+ * is never a dangling end either. One prefix, one place: `linksOfMany()`
+ * and the doctor's orphan check both ask `isOutsideEvidence()`.
+ */
+export const COMMIT_EVIDENCE_PREFIX = 'commit:';
+
+/** Is this link end evidence outside the memory (see above)? */
+export function isOutsideEvidence(id) {
+  return String(id ?? '').startsWith(COMMIT_EVIDENCE_PREFIX);
+}
+
+/**
  * L4 (BAUPLAN-mem-admin_02.md, Block F, ported as F4): types for which
  * `mem log` gives NO hint about a missing `asked`.
  *
@@ -1534,7 +1548,8 @@ export function linksOfMany(root, ids, { withRetired = false, byId: prebuilt = n
         if (!g) continue;
         const other = from === id ? to : from;
         const rec = { link: l, kind: l.kind ?? '?', from, to, other, entry: byId.get(other) ?? null };
-        if (!byId.has(from) || !byId.has(to)) g.dangling.push(rec);
+        const lands = (x) => byId.has(x) || isOutsideEvidence(x);
+        if (!lands(from) || !lands(to)) g.dangling.push(rec);
         else if (from === id) g.out.push(rec);
         else g.incoming.push(rec);
       }

@@ -40,7 +40,7 @@
  "src/indexcache.mjs": 1,
  "src/integrationcontract.mjs": 4,
  "src/langbridge.mjs": 2,
- "src/latencybudget.mjs": 8,
+ "src/latencybudget.mjs": 7,
  "src/login.mjs": 11,
  "src/maintenance.mjs": 3,
  "src/mcplive.mjs": 3,
@@ -65,7 +65,7 @@
  "src/shred.mjs": 7,
  "src/shrink.mjs": 1,
  "src/skillusage.mjs": 2,
- "src/snippet.mjs": 1,
+ "src/snippet.mjs": 0,
  "src/statequestion.mjs": 1,
  "src/store.mjs": 1,
  "src/tasks.mjs": 1,
@@ -75,6 +75,6 @@
  "src/userhabits.mjs": 3,
  "src/viewer.mjs": 0,
  "src/webauth.mjs": 0,
- "src/workflow.mjs": 2,
+ "src/workflow.mjs": 1,
  "src/writegate.mjs": 1
 }
