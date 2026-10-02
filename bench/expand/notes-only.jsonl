@@ -1,0 +1,53 @@
+{"id":"g-postgres","type":"decision","text":"Orders are stored in PostgreSQL | PostgreSQL | transactions and strong consistency matter for money | database"}
+{"id":"g-oom","type":"error","text":"crash | CSV import crashed with out of memory | the importer loaded the whole file at once; streaming it row by row fixed the crash | import"}
+{"id":"g-backup","type":"learning","text":"A backup nobody has restored is not a backup | the first restore drill found the dump was missing a schema entirely | ops"}
+{"id":"g-tls","type":"error","text":"outage | An expired TLS certificate took the site down on a Sunday | renewal was manual and the reminder went to someone who had left | ops"}
+{"id":"g-queue","type":"decision","text":"Outgoing email goes through a job queue | job queue | sending inline slowed requests and lost mail whenever a process crashed | email"}
+{"id":"g-money","type":"learning","text":"Never store money as a floating point number | every rounding bug came from the same shortcut; amounts are integer cents now | payments"}
+{"id":"g-race","type":"error","text":"bug | A shopper was billed twice from a race condition | two quick clicks created two separate charges; an idempotency key now prevents it | payments"}
+{"id":"g-disk","type":"error","text":"outage | Server ran out of disk from unrotated logs | log files filled the volume until writes failed; logrotate now caps them | ops"}
+{"id":"g-k8s","type":"decision","text":"Stayed on plain containers instead of Kubernetes | no Kubernetes | three services do not need a cluster | ops"}
+{"id":"g-cors","type":"error","text":"bug | CORS blocked the API from the staging domain | the allowlist missed the new preview URLs | api"}
+{"id":"g-index","type":"error","text":"performance | A missing index made the orders list take nine seconds | a sequential scan over every row; the query planner showed it immediately | database"}
+{"id":"g-pool","type":"error","text":"outage | Connection pool exhaustion during the sale | long transactions held connections open and new requests queued until they timed out | database"}
+{"id":"g-dst","type":"error","text":"bug | Scheduled jobs fired twice during the daylight saving change | local time was used for scheduling; everything runs in UTC now | ops"}
+{"id":"g-standup","type":"decision","text":"Replaced the daily standup with a written update | written update | half the team is in another timezone | team"}
+{"id":"g-bundle","type":"error","text":"performance | The dashboard bundle grew past two megabytes | a date library was imported whole for one function | frontend"}
+{"id":"g-c-slow","type":"error","text":"performance | The shop page crawled for everyone after lunch | the pictures were huge and all of them came down at once | shop"}
+{"id":"g-c-locked","type":"error","text":"outage | Nobody could get in on Monday morning | the sign-in page kept saying the password was wrong for everyone | people"}
+{"id":"g-c-mail","type":"error","text":"bug | Customers never heard back after they ordered | the thank-you messages got stuck and nobody noticed for a week | shop"}
+{"id":"g-c-phone","type":"error","text":"bug | The app kept eating the phone battery | it woke up every few seconds to ask whether there was anything new | phone"}
+{"id":"g-rule-freeze","type":"procedure","text":"No deploys on Fridays | Nobody deploys to production on a Friday. | owner"}
+{"id":"g-rule-canary","type":"procedure","text":"Deploys are allowed on any weekday while the canary stays green | Deploy on any weekday, including Friday, as long as the canary stays green for thirty minutes. | owner"}
+{"id":"g-rule-freeze-off","type":"procedure","text":"g-rule-freeze | withdrawn | owner | g-rule-freeze | obsolete | replaced by the canary rule"}
+{"id":"g-rule-review","type":"procedure","text":"Every schema migration needs a second reviewer | A second person reviews every schema migration before it runs. | owner"}
+{"id":"g-duty-soc2","type":"duty","text":"Collect evidence for the SOC 2 audit | ops"}
+{"id":"g-soc2-passed","type":"event","text":"Passed the SOC 2 audit with no findings | compliance, audit"}
+{"id":"g-duty-soc2-done","type":"duty","text":"g-duty-soc2 | done | audit passed"}
+{"id":"g-duty-pentest","type":"duty","text":"Book the external penetration test for the security review | ops"}
+{"id":"g-cache-ttl","type":"decision","text":"Catalog cache expires on a fixed one hour TTL | fixed TTL | simplest thing that could work | cache"}
+{"id":"g-cache-key","type":"decision","text":"Catalog cache is invalidated by explicit key on every price change | explicit invalidation | shoppers saw stale prices for up to an hour | cache"}
+{"id":"g-cache-ttl-off","type":"decision","text":"g-cache-ttl | discarded | stale prices; see explicit invalidation"}
+{"id":"g-port-old","type":"decision","text":"The staging server listens on port 8080 | port 8080 | default of the framework"}
+{"id":"g-port-new","type":"decision","text":"g-port-old | The staging server listens on port 9090 | port 9090 | 8080 clashed with the metrics agent"}
+{"id":"g-node-old","type":"decision","text":"All services run on Node 20 | Node 20 | current long term support line"}
+{"id":"g-node-new","type":"decision","text":"g-node-old | All services run on Node 22 | Node 22 | Node 20 left long term support"}
+{"id":"g-vendor-old","type":"decision","text":"Card payments go through a single provider, PayCo | PayCo only | one integration was enough to launch"}
+{"id":"g-vendor-new","type":"decision","text":"g-vendor-old | 2026-05-01T00:00:00Z | Card payments are split between PayCo and a second provider, BillFast | PayCo and BillFast | one outage at PayCo stopped all revenue"}
+{"id":"g-de-invoice","type":"decision","text":"Rechnungen werden als PDF archiviert und zehn Jahre aufbewahrt | PDF-Archiv | gesetzliche Aufbewahrungspflicht fuer Buchungsbelege"}
+{"id":"g-de-printer","type":"error","text":"outage | Der Druckerserver im Lager fiel nach dem Update aus | der Treiber passte nicht zur neuen Version; Zurueckrollen half"}
+{"id":"g-de-scanner","type":"error","text":"bug | Die Handscanner im Lager verlieren staendig die Funkverbindung | die Geraete wechseln zwischen zwei Zugangspunkten hin und her"}
+{"id":"a-err","type":"error","text":"outage | Checkout timed out under load | the payment call blocked the event loop; moving it to a worker restored response time"}
+{"id":"b-err","type":"error","text":"outage | Checkout timed out under load | the payment SDK retried forever on a flaky network"}
+{"id":"a-deploy","type":"decision","text":"How we deploy: blue-green switch behind the load balancer | blue-green | instant rollback"}
+{"id":"b-deploy","type":"decision","text":"How we deploy: staged rollout through the app store | staged rollout | a bad build reaches only a few percent of phones"}
+{"id":"a-login","type":"decision","text":"Login uses one-time codes sent by email | email codes | no password database to leak"}
+{"id":"b-login","type":"decision","text":"Login uses fingerprint unlock on the phone | biometric unlock | typing codes on a phone is tedious"}
+{"id":"a-session","type":"decision","text":"Sessions are stored in Redis | Redis | every web node must see the same session"}
+{"id":"b-session","type":"decision","text":"Sessions are stored in the device keychain | keychain | the app must work offline"}
+{"id":"g-oncall-old","type":"timeline","text":"Anna is on call | oncall | Anna | 2026-01-06T00:00:00Z"}
+{"id":"g-oncall-new","type":"timeline","text":"Ben is on call | oncall | Ben | 2026-02-03T00:00:00Z"}
+{"id":"g-css-old","type":"decision","text":"The dashboard is styled with Tailwind | Tailwind | consistent without a design system"}
+{"id":"g-css-new","type":"decision","text":"The dashboard moved from Tailwind to plain CSS | plain CSS | the class lists became unreadable"}
+{"id":"g-apidocs-old","type":"decision","text":"api-docs | The API docs are rendered with Swagger UI | Swagger UI | it reads the OpenAPI file as it is"}
+{"id":"g-apidocs-new","type":"decision","text":"api-docs | API docs moved from Swagger UI to Redoc | Redoc | one static page, no try-it console to secure"}
