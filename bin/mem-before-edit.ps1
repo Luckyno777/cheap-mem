@@ -144,6 +144,55 @@ function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes) {
   } catch { }
 }
 
+# The command guard first on a Bash call (lever-5 port), independent of
+# any written file. Same module and same rule as bin/mem-before-edit
+# (src/commandguard.mjs decides, marks once per session and error, books).
+# The node start is paid only when a line of
+# .pipeline/command-guard/words.txt stands in the hook JSON, or the
+# booklet is missing/older than an error drawer that holds a pattern.
+if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
+  try {
+    $cgd = Join-Path $ToolRoot 'src/commandguard.mjs'
+    $cgDir = Join-Path $Root '.pipeline/command-guard'
+    $cgRules = Join-Path $cgDir 'rules.json'
+    $cgWords = Join-Path $cgDir 'words.txt'
+    $cgDrawers = @(Join-Path $Root 'global/errors.jsonl')
+    $cgProj = Join-Path $Root 'projects'
+    if (Test-Path -LiteralPath $cgProj) {
+      $cgDrawers += @(Get-ChildItem -LiteralPath $cgProj -Directory | ForEach-Object { Join-Path $_.FullName 'errors.jsonl' })
+    }
+    $cgNeeded = $false
+    $cgStale = $false
+    if (Test-Path -LiteralPath $cgRules) {
+      $cgTime = (Get-Item -LiteralPath $cgRules).LastWriteTimeUtc
+      foreach ($d in $cgDrawers) {
+        if ((Test-Path -LiteralPath $d) -and ((Get-Item -LiteralPath $d).LastWriteTimeUtc -gt $cgTime)) { $cgStale = $true; break }
+      }
+      if (-not $cgStale) {
+        if ((Test-Path -LiteralPath $cgWords) -and ((Get-Item -LiteralPath $cgWords).Length -gt 0)) {
+          foreach ($w in (Get-Content -LiteralPath $cgWords)) {
+            if ($w -and $In.Contains($w)) { $cgNeeded = $true; break }
+          }
+        }
+      }
+    }
+    if ((-not (Test-Path -LiteralPath $cgRules)) -or $cgStale) {
+      foreach ($d in $cgDrawers) {
+        if ((Test-Path -LiteralPath $d) -and (Select-String -LiteralPath $d -Pattern '"command_pattern"' -Quiet)) { $cgNeeded = $true; break }
+      }
+    }
+    if ($cgNeeded -and (Test-Path -LiteralPath $cgd)) {
+      $env:CHEAP_MEM_ROOT = $Root
+      $cgOut = (($In | & node $cgd bash 2>$null) -join '')
+      if ($cgOut) {
+        [Console]::Out.Write($cgOut)
+        Write-Trace 'command-guard'
+        exit 0
+      }
+    }
+  } catch { }
+}
+
 # Workflows first on a Bash call (wf-bc B3 port), independent of any
 # written file: `npm test` writes none. Same module and same rule as
 # bin/mem-before-edit (src/workflowdetect.mjs decides and books); the

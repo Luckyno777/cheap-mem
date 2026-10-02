@@ -34,6 +34,7 @@ import * as variants from '../../variants.mjs';
 import * as workflow from '../../workflow.mjs';
 import * as snippet from '../../snippet.mjs';
 import * as workflowdetect from '../../workflowdetect.mjs';
+import * as commandguard from '../../commandguard.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
@@ -1143,6 +1144,85 @@ export const COMMANDS = {
     }
 
     die(`workflow: unknown subcommand '${sub}'. Known: new, check, list, show.`);
+  },
+
+  // Lever-5 port (lucky-mem "Befehls-Riegel"): errors of the class
+  // `mishandling` carry a command pattern; the before-edit hook warns
+  // before a matching Bash command runs. See src/commandguard.mjs.
+  'command-guard': async ({ rest, args }) => {
+    const sub = rest[0];
+    if (isHelp(args) || !['build', 'show', 'check', 'seed'].includes(sub)) {
+      out([
+        'mem command-guard build | show [--json] | check "<command>" | seed [--map <file.json>] [--write]',
+        '',
+        '  An error of the class `mishandling` may carry a command pattern; the',
+        '  before-edit hook warns before a Bash command that matches runs, once',
+        '  per session and error (it never blocks):',
+        '    mem log error ... --command-pattern "git add -A ;; git add --all"',
+        '  Several patterns are separated by " ;; ", several wordings of ONE',
+        '  pattern by " & " (all must occur). The first wording must stand where a',
+        '  command starts; a trailing `$` allows no further argument.',
+        '',
+        '  build    write the derived booklet (.pipeline/command-guard/) anew',
+        '  show     patterns with error id, and the coverage (mishandling errors with one)',
+        '  check    dry run: which patterns hit this command (no mark, no journal line)',
+        '  seed     old errors that should carry a pattern. Without --map: the candidates',
+        '           (mishandling, no pattern). With --map {"<error-id>": ["pattern"]}: the',
+        '           plan; with --write one correction line per error (append-only)',
+        '',
+        '  cm ships empty: no pattern comes with the code.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'write', 'map', 'root'], 'command-guard');
+    const root = findRoot(args);
+    requireConfig(root);
+    if (sub === 'build') {
+      const r = commandguard.build(root);
+      out(`Booklet built: ${r.length} error(s) with a pattern, ${r.reduce((a, x) => a + x.patterns.length, 0)} pattern(s).`);
+      return;
+    }
+    if (sub === 'check') {
+      const command = rest.slice(1).join(' ');
+      if (!command.trim()) die('command-guard check: the command is missing (in quotes).');
+      const hit = commandguard.matches(root, command);
+      if (!hit.length) { out('No pattern hits.'); return; }
+      for (const r of hit) out(`${r.id} [${r.className}] ${r.title}  <- pattern: ${r.matched.join(' & ')}`);
+      return;
+    }
+    if (sub === 'seed') {
+      let entries = [];
+      if (args.map !== undefined) {
+        if (args.map === true) die('command-guard seed: --map needs a JSON file.');
+        let map;
+        try { map = JSON.parse(fs.readFileSync(path.resolve(String(args.map)), 'utf8')); }
+        catch (e) { die(`command-guard seed: cannot read ${args.map}: ${e.message}`); }
+        entries = commandguard.seedEntries(map);
+        if (!entries.length) die('command-guard seed: the map names no error. Meant: {"<error-id>": ["pattern", ...]}');
+      } else {
+        const cand = commandguard.candidates(root);
+        if (!cand.length) out('No mishandling error without a pattern.');
+        for (const c of cand) out(`  ${c.id}  ${c.title}`);
+        if (cand.length) out('Write a map {"<error-id>": ["pattern"]} and run: mem command-guard seed --map <file> [--write]');
+        if (args.write) die('command-guard seed: --write needs --map.');
+        return;
+      }
+      const plan = commandguard.seedPlan(root, entries);
+      for (const p of plan) out(`  ${p.state.padEnd(7)} ${p.id}  ${p.patterns.join(' ;; ')}`);
+      if (!args.write) { out(`Plan: ${plan.filter((p) => p.state === 'ready').length} ready (--write writes them).`); return; }
+      const made = commandguard.seed(root, entries);
+      commandguard.build(root);
+      out(`${made.length} correction line(s) written, booklet rebuilt.`);
+      return;
+    }
+    const rules = commandguard.booklet(root, { readOnly: true });
+    const cov = commandguard.coverage(root);
+    if (args.json) { out(JSON.stringify({ rules, coverage: cov }, null, 2)); return; }
+    if (!rules.length) out('No error carries a command pattern.');
+    for (const r of rules) out(`${r.id} [${r.className}] ${r.patterns.map((p) => p.join(' & ')).join(' ;; ')}  -- ${r.title}`);
+    out(cov
+      ? `Coverage: ${cov.withPattern} of ${cov.total} mishandling incidents carry a command pattern (${cov.patterns} pattern(s)).`
+      : 'Coverage: unknown (no error of the class mishandling).');
   },
 
   snippet: async ({ rest, args }) => {

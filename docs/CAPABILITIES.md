@@ -73,6 +73,7 @@ directory. The section number in brackets is where it is explained.
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `closingreport.mjs` | X2b: the task-end occasion — the Stop hook reports the open duties written in this session (a systemMessage, never a block; capped, once per duty; filtered from `today.decisionsForHuman`, no second count) |
+| `commandguard.mjs` | the command guard (lever-5 port): an error of the class `mishandling` may carry a `command_pattern` (`mem log error ... --command-pattern "git add -A$"`); the before-edit hook on Bash warns once per session and error when a command matches, never blocks, behind a shell prefilter that starts node only on a keyword hit; derived booklet under `.pipeline/command-guard/`; `mem command-guard build\|show\|check\|seed` (10.30) |
 | `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
@@ -610,7 +611,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience
+experience command-guard
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later
@@ -1964,3 +1965,30 @@ compares a released procedure's repetition rate 14 days before and after
 its release. Doctor: `skill-sharpen`, `guard-suspicion`,
 `procedure-effect` — numbers and suspicions, never a verdict, nothing
 changed.
+
+### 10.30 Command guard — `src/commandguard.mjs`, `mem command-guard`
+
+The before-edit hook catches a repeated mistake on a FILE; for a shell
+command it saw nothing, so `pkill chrome`, `git add -A` or `rm -rf /tmp`
+could be repeated although the error was logged. An error of the class
+`mishandling` may therefore carry a **command pattern** (field
+`command_pattern`, written with `mem log error ... --command-pattern
+"git add -A$ ;; git add --all$"`; for an old error a correction line, see
+`mem command-guard seed`). When a Bash command matches, the hook shows the
+error once per session and error (title, class, id) and **never blocks**.
+
+Matching is literal, without a parser or a shell: the first wording of a
+pattern must stand where a command starts (line start, after `;` `&` `|`
+`(`, behind `sudo`/`time`/`VAR=x`, or first in `bash -c "..."`), so a
+sentence that only names the command triggers nothing; wordings joined with
+` & ` must ALL occur; a trailing `$` allows no further argument. A pattern
+nothing can match (under 4 characters, quotes, non-ASCII) is refused at
+write time. A shell prefilter in `bin/mem-before-edit` (and its `.ps1` twin)
+starts node only when a keyword of the derived booklet
+(`.pipeline/command-guard/words.txt`) occurs in the hook JSON or the booklet
+is stale; with no pattern recorded there is no extra process. cm ships
+empty: no pattern comes with the code. The pattern is never learned from
+hits and changes no rank. `mem command-guard show` prints the coverage
+(`mishandling` incidents carrying a pattern); `check "<command>"` is a dry
+run.
+

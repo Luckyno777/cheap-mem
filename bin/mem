@@ -105,6 +105,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  error-fixes backfill [--repo P] [--since REV] [--check-only]");
   out("                    resolves links error <- commit/duty (Fixes: trailer)");
   out("  workflow new|check|list|show          named sequences, with triggers/patterns");
+  out("  command-guard build|show|check|seed   mishandling errors with --command-pattern warn before a matching Bash command");
   out("  snippet new|list|show                 reusable blocks with {{PLACEHOLDERS}}");
   out("  experiences      [--all] [--type T]   what the memory stands behind");
   out("                    ranked by citations, not by how often it was read");

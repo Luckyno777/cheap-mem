@@ -536,6 +536,7 @@ mem skills version <name>      a new version as a trial correction line (owner o
 mem experience review|guards|effect  fixes a newer lesson questions, test<->error
                                guards, a procedure's repetition rate around its release
 mem workflow new|list|show     workflows with triggers/patterns the hooks match
+mem command-guard build|show|check|seed  warn before a Bash command an error recorded as mishandled
 mem snippet new|list|show      reusable blocks with {{PLACEHOLDERS}}, redaction-gated
 mem experiences [--all]        lessons ranked by how much of the memory leans on them
 mem viewer [--out f.html]      one self-contained HTML page to browse it all
