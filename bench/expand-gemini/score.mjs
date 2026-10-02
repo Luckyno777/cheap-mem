@@ -8,6 +8,8 @@
 // Every run is first checked against the shipped answerHolds (replay = 0
 // mismatches) before a number is used.
 import fs from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { holds, verify, SHIPPED, load } from '../expand-fair/analyze.mjs';
 import { validate } from './validate.mjs';
 
@@ -49,7 +51,7 @@ function mcnemar(b, c) {
   for (let i = 0; i <= n; i += 1) { if (i <= k) s += coef; coef = (coef * (n - i)) / (i + 1); }
   return Math.min(1, (2 * s) / 2 ** n);
 }
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const [dir, sizesArg] = process.argv.slice(2);
   const cols = [];
   for (const n of sizesArg.split(',')) for (const v of ['off', 'w03', 'w05']) {

@@ -13,7 +13,7 @@
 //    printed alongside for comparison.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tokenizeGroupsMulti, EXPAND_STOP } from '../../src/search.mjs';
 import { pack } from '../../src/language.mjs';
 import { overlap } from '../expand-fair/check-decoys.mjs';
@@ -74,7 +74,7 @@ export function validate() {
     reuseSelfWritten: reuse(jl(path.join(FAIR, 'questions.jsonl')).map((q) => ({ ...q, de: q.expected[0].startsWith('g-de-') }))),
   };
 }
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const v = validate();
   const i = process.argv.indexOf('--json');
   if (i > 0) fs.writeFileSync(process.argv[i + 1], JSON.stringify(v, null, 1));
