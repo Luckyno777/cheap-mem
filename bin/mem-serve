@@ -649,11 +649,8 @@ export function buildHandler(root, cfg, env = process.env) {
     // for the page's content preview, otherwise the whole package as a file
     // (Content-Disposition). Encrypted stays ciphertext, plaintext runs
     // through src/redaction.mjs.
-    // **The skill catalogue (parity with lucky-mem 2026-10-01).** Read only,
-    // the same gates as /dashboard.json. `manage.canSetStatus` is true only
-    // with writing switched on AND a valid PASSWORD session (Y4b: the
-    // token is not a person); the status itself is written through /task
-    // (kind `skill-status`), which checks the same again on its own.
+    // The skill catalogue: read only; canSetStatus needs writing on AND a
+    // password session (the token is not a person). Writes go via /task.
     if (url.pathname === dashboardPage.PATHS.skills) {
       const json = (code, o) => res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(o));
       if (req.method !== 'GET' && req.method !== 'HEAD') { json(405, { state: 'error', reason: 'GET only' }); return; }

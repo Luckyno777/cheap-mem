@@ -125,10 +125,7 @@ export function machine(root, prompt, env = process.env) {
 export function recall(root, hitsJson, env = process.env, { offer = null } = {}) {
   const hits = parseHits(hitsJson);
   const min = num(env.MEM_RH_MIN, 5.0);
-  // The skill offer (src/skillregistry.mjs `offer()`): ONE line with the
-  // name of a released skill, never its text, booked as its own occasion
-  // `skill-offer` so the offer->fetched rate (src/skilleffect.mjs) has a
-  // denominator and the question rates stay untouched.
+  // The skill offer: one line naming released skills, booked as `skill-offer`.
   const bookOffer = () => {
     if (offer && env.MEM_RH_SESSION) {
       injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, reason: null,

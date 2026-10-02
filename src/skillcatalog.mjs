@@ -1,29 +1,14 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 /**
- * skillcatalog — the dashboard's "Skills & procedures" tab as a catalogue
- * (parity twin of the sibling's `src/skillkatalog.mjs`), served as
- * `GET /dashboard/skills.json`.
- *
- * Before, the tab read the RAW drawers: every status line (`status_of`)
- * showed up as a "skill" of its own and the whole text stood as a
- * heading. Now status lines are the HISTORY of their entry, never entries.
- *
- * **One truth.** Nothing here computes status, names or exportability of
- * its own — it reads `skillregistry.registry()`, the effect from
- * `skilleffect.measure()` and the transitions from
- * `procedure.TRANSITIONS`.
- *
- * **"Installed" means: the server sees a SKILL.md** in the places Claude
- * Code looks: `<root>/.claude/skills` (project, the default target of
- * `mem skills export`), `$HOME/.claude/skills`, `$HOME/.claude/plugins`
- * and the same under `CLAUDE_CONFIG_DIR`. READ only. What the server
- * cannot read stands as `unknown`, never as empty. The export marker
- * names the registry id, so drift is visible: released but not
- * installed, installed but withdrawn / not released / outdated, or a
- * marker that points at no registry entry.
- *
- * No model, nothing written.
+ * skillcatalog — the dashboard's "Skills & procedures" catalogue (twin of
+ * lucky-mem's `skillkatalog`), `GET /dashboard/skills.json`. Status lines
+ * are history, never entries. One truth: it reads
+ * `skillregistry.registry()`, `skilleffect.measure()` and
+ * `procedure.TRANSITIONS`. "Installed" = a SKILL.md the server can read
+ * where Claude Code looks (project `.claude/skills`, `~/.claude/skills`,
+ * `~/.claude/plugins`, `CLAUDE_CONFIG_DIR`); READ only, unreadable is
+ * `unknown`. The export marker names the registry id, so drift shows.
  */
 
 import fs from 'node:fs';

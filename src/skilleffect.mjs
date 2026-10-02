@@ -1,47 +1,25 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 /**
- * skilleffect — does the question hook's skill offer work? The rate
- * "offered -> fetched", only from what is already recorded (parity twin
- * of the sibling's H7 `src/skillwirkung.mjs`). No model, nothing written.
- *
- * **Denominator.** Every injection-journal line with occasion
- * `skill-offer`: skills (ids in `sources`) offered in a session at a time.
- *
- * **Numerator ("fetched").** After the offer, in the SAME session, within
- * WINDOW_MIN minutes, the raw capture of that session (matched by
- * `raw.sessionFingerprint` of the journal's session id) shows a tool call
- * `mem_skill_fetch` (MCP, also `mcp__<server>__mem_skill_fetch`) or a
- * Bash call `mem skills fetch <name>` for that skill. A fetch counts only
- * for the LAST offer of the same skill before it (no double counting).
- *
- * **What is NOT measured.** Whether the skill helped: "fetched" means
- * requested. A call inside a subagent is invisible (not captured).
- *
- * **Not measurable is not zero.** An offer counts as "not fetched" only
- * when the session's capture COVERS the whole window (last line >= offer
- * + window); otherwise it is `unobserved` and in neither numerator nor
- * denominator. Below MIN_N observed offers the rate is `unknown` (null),
- * never 0.
+ * skilleffect — the rate "offered -> fetched" of the question hook's
+ * skill offer (twin of lucky-mem's H7), from what is recorded; no model,
+ * nothing written. Denominator: journal lines `skill-offer`. Numerator: a
+ * `mem_skill_fetch` tool call or `mem skills fetch <name>` in the raw
+ * capture of the SAME session (`raw.sessionFingerprint`) within
+ * WINDOW_MIN, counted for the last offer of that skill before it.
+ * "Fetched" means requested, not "it helped"; subagents are invisible.
+ * Not measurable is not zero: an offer whose window the capture does not
+ * cover is `unobserved`; below MIN_N observed offers the rate is null.
  */
 
 import * as injection from './injection.mjs';
 import * as raw from './raw.mjs';
 import * as skillregistry from './skillregistry.mjs';
 
-/**
- * Minutes "after the offer". The offer stands in the answer round to ONE
- * question; who fetches the skill because of it does so in that round or
- * the next. After 30 minutes a fetch is more likely caused by something
- * else. A setting, not a measured value — printed with every display.
- */
+/** Minutes "after the offer" (one or two answer rounds). A setting, printed with every display. */
 export const WINDOW_MIN = 30;
-/** Minimum OBSERVED offers for a rate (per skill and overall). Under 10 even
- *  a Wilson interval says little (0 of 9 reaches ~30 %). */
+/** Minimum OBSERVED offers for a rate (0 of 9 still reaches ~30 % upper bound). */
 export const MIN_N = 10;
-/** Doctor threshold: warning when the UPPER Wilson bound of the overall
- *  rate is below 10 % — the offer is then almost never taken. A setting. */
-export const WARN_UPPER = 0.10;
 const Z95 = 1.96;
 
 /** Wilson interval (95 %) for k of n; null for n = 0. */

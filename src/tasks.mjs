@@ -318,15 +318,10 @@ export const KINDS = Object.freeze({
     plainOk: /^merged: /m,
     classify() { return { state: 'ok', reason: null }; },
   },
-  // **The status of a skill-registry entry (parity with lucky-mem's
-  // `skill-status`, 2026-10-01).** The same path as the CLI: `mem skills
-  // status <id> <status> --issued-by owner --why "..."` — one APPENDED
-  // status line, the transitions of `procedure.TRANSITIONS`. `--issued-by`
-  // never comes from the form (a closed list without that field), only
-  // from `context.user` — a valid PASSWORD session; without one `start()`
-  // refuses BEFORE any child (`humanOnly`, code NOT_A_PERSON). A wrong
-  // transition is refused up front with the SAME check (`precheck`); the
-  // child command checks once more on its own.
+  // Registry status (lucky-mem `skill-status`): the CLI's `mem skills
+  // status`. `--issued-by` only from `context.user` (password session),
+  // never from the form; without it refused before any child
+  // (NOT_A_PERSON). `precheck` runs the same transition check up front.
   'skill-status': {
     title: 'Set a skill/procedure status',
     description: 'mem skills status <id> <status> --issued-by owner --why "..." --json — one appended status line.',

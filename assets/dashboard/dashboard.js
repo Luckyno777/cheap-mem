@@ -1552,20 +1552,13 @@ async function goldVerdictWrite(fields) {
   try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
   return { ok: r.status === 201, ...b };
 }
-// --- Skill catalogue (parity with lucky-mem 2026-10-01): the "Skills &
-// procedures" tab from the registry. Before, it read the raw drawers and
-// every status line stood as a "skill" of its own. Now everything arrives
-// finished from /dashboard/skills.json (src/skillcatalog.mjs): status lines
-// are history. The status form shows only when the server proves a password
-// session (`manage.canSetStatus`); the write goes through /task (kind
-// `skill-status`, the same check as `mem skills status`). Otherwise the
-// ready CLI command stands there to copy.
+// --- Skill catalogue from /dashboard/skills.json (src/skillcatalog.mjs); status
+// form only with a password session (task skill-status), else a CLI command to copy.
 let skCat = null;
 let skRun = 0;
 const skFilter = { q: '', status: 'all', type: 'all' };
 function skBadge(s) {
   const tone = { released: 'good', trial: 'warn', proposed: 'warn', draft: 'warn', withdrawn: 'bad', unknown: 'unknown' }[s] || 'unknown';
-  // X3b: everything but "released" is not a rule in force and carries the same class as ruleTag().
   return `<span class="badge ${tone}${s === 'released' ? '' : ' rule-status'}" data-sk-status="${esc(s)}"><i class="dot"></i>${esc(s)}</span>`;
 }
 function skEffect(w) {

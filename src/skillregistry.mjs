@@ -1,42 +1,19 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 /**
- * skillregistry — ONE registry view over the four drawers that carry
- * "how is X done": `skill`, `workflow`, `snippet`, `procedure` (parity
- * twin of the sibling's H6 `src/skillregistry.mjs`), plus deterministic
- * exports: a Claude Code `SKILL.md` per entry and one plain-text file.
- *
- * **No new store.** This is code that reads the existing drawers. A
- * status for a skill or snippet is an appended status line in the SAME
- * drawer (`status_of`), the shape procedures already use — so status
- * lines are history of their entry, never entries of their own.
- *
- * **Status: one truth, from `procedure.mjs` (X3).** The statuses
- * `proposed | trial | released | withdrawn`, the transitions and the
- * check (`checkStatus`: a human as `issued_by`) come from there and are
- * NOT rebuilt here. Only what an entry WITHOUT any status line is
- * differs per type:
- *   - `procedure`: as before (legacy stock released, newer `unknown`).
- *   - `workflow`: `status: 'draft'` is a draft; otherwise a workflow
- *     issued by a human counts as released — the issue IS the release
- *     (`workflow.check` refuses a non-human author at write time).
- *   - `skill`, `snippet`: NO legacy. The bridge may write both, and a
- *     CLI call without an agent name is called `human:<login>`, so the
- *     author proves nothing. Without a status line such an entry is
- *     `unknown` — never exported, never offered.
- * A status line counts only with a human `issued_by`; a line appended
- * by any other path with an agent author is skipped here on READ, not
- * only refused on write.
- *
- * **What goes where.** Export (Claude, text, MCP fetch): `released` and
- * `trial`, trial with a visible `[trial]` mark. The hook offer: only
- * `released` skills, one line with the NAME, never the full text.
- *
- * **Claude Code format** (https://code.claude.com/docs/en/skills, read
- * 2026-09-30): `.claude/skills/<dir>/SKILL.md`, YAML front matter with
- * `name` (lower case, digits, hyphens, at most 64), `description`,
- * `when_to_use`, `metadata`. Only these four are written. No model, no
- * clock in the output: the same drawers give byte-identical exports.
+ * skillregistry — ONE registry over the drawers that say "how is X done"
+ * (`skill`, `workflow`, `snippet`, `procedure`; twin of lucky-mem's H6),
+ * plus deterministic exports (Claude Code `SKILL.md`, one text file).
+ * No new store: a status is an appended `status_of` line in the SAME
+ * drawer — history of its entry, never an entry. Statuses, transitions
+ * and the human check come from `procedure.mjs` (X3), never rebuilt.
+ * Without a status line: procedures keep their legacy rule, a workflow
+ * issued by a human is released (`status: 'draft'` is a draft), a skill
+ * or snippet is `unknown` (the bridge writes both; an author proves
+ * nothing) — never exported, never offered. A status line counts only
+ * with a human `issued_by`, checked on READ. Export: released and trial
+ * (`[trial]`); hook offer: released skills, by name only. Claude Code
+ * format per https://code.claude.com/docs/en/skills (2026-09-30).
  */
 
 import fs from 'node:fs';
@@ -141,11 +118,7 @@ function rawText(e) {
     .filter((x) => typeof x === 'string' && x).join('\n');
 }
 
-/**
- * Every registry entry, ordered by type, timestamp, id. An entry replaced
- * by a correction drops out; a withdrawn one stays WITH its status, so
- * `list` shows why it left the export.
- */
+/** Every entry by type, ts, id; a replaced one drops out, a withdrawn one stays with its status. */
 export function registry(root) {
   const items = [];
   let projects = [];
@@ -231,12 +204,7 @@ export function find(root, task, { top = 5 } = {}) {
   return out.sort((a, b) => b.points - a.points || a.it.name.localeCompare(b.it.name)).slice(0, top);
 }
 
-/**
- * The hook offer: RELEASED skills whose triggers hit at least
- * OFFER_MIN_STEMS distinct stems of the question. `null` or
- * `{ line, ids, names }` — the line names, never the full text. A tie
- * offers all best ones (at most three). Needs `loadTokenizer()`.
- */
+/** Hook offer: released skills whose triggers hit >= OFFER_MIN_STEMS stems; `{ line, ids, names }` or null. */
 export function offer(root, question) {
   const q = stems(question);
   if (q.size < OFFER_MIN_STEMS) return null;
@@ -297,12 +265,7 @@ function writeIfDifferent(p, content) {
   return true;
 }
 
-/**
- * Write `mem-<name>/SKILL.md` plus the marker per exportable entry into
- * `target` (default `<root>/.claude/skills`). Idempotent. Removes only
- * directories WITH the marker that are no longer exportable; a directory
- * without the marker is someone else's and is left alone. Never `~/.claude`.
- */
+/** `mem-<name>/SKILL.md` + marker per exportable entry; idempotent; removes only marked folders; never `~/.claude`. */
 export function exportClaude(root, { target = null, env = process.env, types = TYPES } = {}) {
   const dir = path.resolve(target ?? path.join(root, '.claude', 'skills'));
   if (inHomeClaude(dir, env)) throw new Error(`target ${dir} is inside the user's Claude configuration folder — the export never writes there`);
