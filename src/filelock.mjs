@@ -20,21 +20,33 @@
 //    sleep until `waitMs` has passed, then `LockTimeoutError` is thrown.
 //    Never an unbounded wait.
 //  - **A stale lock is taken over only by age** (mtime older than
-//    `staleS`), and never by deleting it blindly: the file is first
-//    renamed away (atomic — only one taker wins that rename) and its age
-//    is checked on the renamed file. A fresh lock is never taken.
+//    `staleS`), and never by deleting it blindly. A fresh lock is never
+//    taken.
 //  - **An orphaned lock is taken over AT ONCE (2026-10-01).** If the lock
 //    names a pid on THIS host and `process.kill(pid, 0)` answers ESRCH,
 //    the holder is provably dead (SIGKILL, crash) and we do not wait for
 //    `staleS`. Why: bench/value-report.mjs killed the writer 30 times with
 //    SIGKILL, and 5 times the next write failed or waited out its bound
-//    because the lock first had to go stale. The takeover is again a
-//    rename, and the renamed file must carry EXACTLY the content that was
-//    judged dead, or it is put back — so of two simultaneous takers exactly
-//    one wins. If the holder lives, the host differs, the pid is
-//    unreadable, or `kill` answers anything but ESRCH (EPERM: alive, just
-//    someone else's), age decides as before. A reused pid looks alive —
-//    then too only age, so never one takeover too many.
+//    because the lock first had to go stale. If the holder lives, the host
+//    differs, the pid is unreadable, or `kill` answers anything but ESRCH
+//    (EPERM: alive, just someone else's), age decides as before. A reused
+//    pid looks alive — then too only age, so never one takeover too many.
+//  - **Every removal of someone else's lock goes through the takeover
+//    bar `<lock>.takeover` (2026-10-02).** Finding: four simultaneous
+//    takers of an orphan — two processes inside at once. The old takeover
+//    renamed the lock away and linked it back if the content was not the
+//    one judged dead. But rename checks no content: B renamed A's FRESH
+//    lock away, meanwhile C linked its own lock into the empty name, B's
+//    link back failed with EEXIST, B deleted A's lock — A and C inside.
+//    Now the bar is created atomically (link/O_EXCL, like the lock); only
+//    its holder reads the lock content AGAIN and removes the lock with
+//    unlink if it still is exactly the one judged dead/stale. While the
+//    lock exists nobody can create it; only the bar holder removes it
+//    (and its owner on release, also under the bar) — so no rename-away
+//    and put-back any more, no deleting someone else's lock. The bar is
+//    held for one read + stat + unlink (microseconds). An orphaned bar
+//    (its holder died in exactly that window) is broken after
+//    `TAKEOVER_ORPHAN_S` — see there.
 //  - **The lock file is never empty.** It is written under a temporary
 //    name and attached with `link` (fails atomically with EEXIST, like
 //    `wx`). With `wx`, a SIGKILL between create and write could leave an
@@ -155,27 +167,99 @@ function readOwner(lockPath) {
 }
 
 /**
+ * Age (seconds) after which a takeover bar counts as orphaned. The bar is
+ * held for one read + stat + unlink of a single small file —
+ * microseconds, milliseconds under load. 10 s is more than a thousand
+ * times that: a holder standing that long has died (or was stopped,
+ * SIGSTOP), it is not slow. Shorter than `DEFAULT_STALE_S` (60 s), so an
+ * orphaned bar never blocks longer than an orphaned lock would anyway; by
+ * age and not by pid, because a bar can only be orphaned in that tiny
+ * window and age knows no pid reuse.
+ */
+export const TAKEOVER_ORPHAN_S = 10;
+
+/** The takeover bar belonging to a lock. */
+export function takeoverPath(lockPath) { return `${lockPath}.takeover`; }
+
+/**
+ * Break an orphaned bar (older than `TAKEOVER_ORPHAN_S`). Through rename,
+ * and the age is checked on the renamed file (rename keeps mtime). No bar
+ * above the bar: breaking one is only needed after a death inside the
+ * microsecond window. `true` = the bar is gone, try to create it again.
+ */
+function breakOrphanedBar(bar) {
+  const age = lockAgeS(bar);
+  // A MISSING bar (`Infinity`) has nothing to break: create it again. Never
+  // treat it as ancient — the rename would then hit the fresh bar someone
+  // just created (seen in the stress probe: two bar holders, a bar left behind).
+  if (age === Infinity) return true;
+  if (age <= TAKEOVER_ORPHAN_S) return false;
+  const grave = `${bar}.orphan-${process.pid}-${randomBytes(4).toString('hex')}`;
+  try { fs.renameSync(bar, grave); } catch { return false; }
+  const moved = lockAgeS(grave);
+  if (moved <= TAKEOVER_ORPHAN_S) {
+    try { fs.linkSync(grave, bar); } catch { /* best effort */ }
+  }
+  try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
+  return moved > TAKEOVER_ORPHAN_S;
+}
+
+/**
+ * Run `fn` under the takeover bar. `{ got, result }`; if the bar cannot be
+ * had within `waitMs`, `got: false` and `fn` did not run. Never throws
+ * except from `fn`.
+ */
+function underBar(lockPath, fn, waitMs = 0) {
+  const bar = takeoverPath(lockPath);
+  const token = randomBytes(6).toString('hex');
+  const deadline = Date.now() + waitMs;
+  let delay = 1;
+  for (;;) {
+    let got = false;
+    try { got = createLock(bar, token); } catch { return { got: false, result: undefined }; }
+    if (!got && breakOrphanedBar(bar)) continue;
+    if (got) {
+      try {
+        return { got: true, result: fn() };
+      } finally {
+        if (readOwner(bar).endsWith(` ${token}`)) releaseLock(bar);
+      }
+    }
+    const left = deadline - Date.now();
+    if (left <= 0) return { got: false, result: undefined };
+    sleepMs(Math.min(delay, left));
+    delay = Math.min(delay * 2, 20);
+  }
+}
+
+/**
+ * Remove the lock if, under the bar, it still carries exactly `content`
+ * and `stillValid()` agrees. `true` means it is gone (removed by us or
+ * already vanished) and the caller may create it again.
+ */
+function removeUnderBar(lockPath, content, stillValid = () => true) {
+  const { got, result } = underBar(lockPath, () => {
+    if (lockAgeS(lockPath) === Infinity) return true; // already gone
+    if (readOwner(lockPath) !== content || !stillValid()) return false; // a different one by now
+    try { fs.unlinkSync(lockPath); } catch (e) { return Boolean(e && e.code === 'ENOENT'); }
+    return true;
+  });
+  return got && result === true;
+}
+
+/**
  * Take over a lock file only if it is older than `staleS`. `true` means
  * the lock is gone (taken away or already vanished) and the caller may
- * try to create it again. Never removes a fresh lock on purpose.
+ * try to create it again. Never removes a fresh lock on purpose. Removal
+ * happens only under the takeover bar, and only of the same lock (same
+ * content) whose age was checked — checked there once more.
  */
 export function takeOverIfStale(lockPath, staleS) {
+  const content = readOwner(lockPath);
   const age = lockAgeS(lockPath);
   if (age === Infinity) return true; // vanished meanwhile
   if (age <= staleS) return false;
-  const grave = `${lockPath}.stale-${process.pid}-${randomBytes(4).toString('hex')}`;
-  try { fs.renameSync(lockPath, grave); } catch { return false; } // someone else moved it first
-  // rename keeps mtime, so this is the age of the file we actually moved.
-  const moved = lockAgeS(grave); // Infinity if unreadable: then it is ours to drop
-  if (moved <= staleS) {
-    // We moved a lock that was replaced by a fresh one in the meantime:
-    // put it back (fails harmlessly if yet another lock exists by now).
-    try { fs.linkSync(grave, lockPath); } catch { /* best effort */ }
-    try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
-    return false;
-  }
-  try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
-  return true;
+  return removeUnderBar(lockPath, content, () => lockAgeS(lockPath) > staleS);
 }
 
 /**
@@ -202,28 +286,22 @@ function holderIsDead(content) {
 /**
  * Take a lock over at once if its holder is provably dead (see
  * `holderIsDead`). `true` means the lock is gone and the caller may create
- * it again. Atomic through rename; the renamed file must carry exactly the
- * content judged dead, or it is put back — so of several simultaneous
- * takers exactly one wins.
+ * it again. Removal happens only under the takeover bar and only if the
+ * lock there still carries EXACTLY the content judged dead (its token is
+ * unique: same content = the same dead lock).
  */
 function takeOverIfOrphaned(lockPath) {
   const content = readOwner(lockPath);
   if (!content || !holderIsDead(content)) return false;
-  const grave = `${lockPath}.orphan-${process.pid}-${randomBytes(4).toString('hex')}`;
-  try { fs.renameSync(lockPath, grave); } catch { return false; } // someone else moved it first
-  if (readOwner(grave) !== content) {
-    // A fresh lock appeared between reading and the rename: put it back.
-    try { fs.linkSync(grave, lockPath); } catch { /* best effort */ }
-    try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
-    return false;
-  }
-  try { fs.rmSync(grave, { force: true }); } catch { /* fine */ }
-  return true;
+  return removeUnderBar(lockPath, content);
 }
 
 function sleepMs(ms) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
+
+/** How long a release waits for the takeover bar, milliseconds. */
+const BAR_RELEASE_WAIT_MS = 200;
 
 let heldPath = null; // per-process guard: at most one lock at a time
 
@@ -263,8 +341,14 @@ export function withLock(lockPath, fn, { waitMs = DEFAULT_WAIT_MS, staleS = DEFA
     result = fn();
   } finally {
     heldPath = null;
-    // Only remove the lock if it is still OURS (it may have been taken over as stale).
-    if (readOwner(lockPath).endsWith(` ${token}`)) releaseLock(lockPath);
+    // Only remove the lock if it is still OURS (it may have been taken over
+    // as stale) — and under the takeover bar, so no taker hits a successor
+    // between its check and its unlink. If the bar cannot be had (orphaned),
+    // as before without it.
+    const release = () => {
+      if (readOwner(lockPath).endsWith(` ${token}`)) releaseLock(lockPath);
+    };
+    if (!underBar(lockPath, release, BAR_RELEASE_WAIT_MS).got) release();
   }
   if (result && typeof result.then === 'function') {
     throw new TypeError('withLock: fn must be synchronous — the lock is already released when a promise settles.');
