@@ -425,6 +425,7 @@ function prepare(d) {
   // if they are in the answer after all (older server), they count as before.
   if (!d.parts?.inbox) setMessages(d.inbox?.messages || []);
   if (!d.parts?.raw) setCaptures(d.raw?.readable ? d.raw.captures || [] : []);
+  if (!d.parts?.experiences) setExperiences(d.experiences || []);
   // A drawer that was not readable makes the coverage unclear — then
   // every view shows the mockup's note, this time with the real reason.
   state.missing = d.state !== 'ok' || entries.some((e) => !e.readable);
@@ -544,8 +545,10 @@ const partReason = {};
 const partContentKey = {}; // name -> last JSON.stringify(b.data) (no-jump)
 function setMessages(list) { messages = (list || []).map((m) => ({ ...m, id: m.name, title: m.subject })); }
 function setCaptures(list) { rawSamples = list || []; }
+let experienceList = []; // learnings with citation counts (deferred part `experiences`)
+function setExperiences(list) { experienceList = list || []; }
 // The inbox list also feeds the per-agent mail column of the agents page.
-const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'] };
+const PART_TAB = { inbox: ['inbox', 'agents'], raw: ['raw'], experiences: ['learnings'] };
 // no-jump point 3: render() only when a part turns 'ok' for the FIRST
 // time and its tab is currently open (before that it said "loading" —
 // that MUST be shown). Every later refetch of the same part is a quiet
@@ -572,6 +575,7 @@ async function loadParts() {
       partContentKey[name] = key;
       if (name === 'inbox') setMessages(b.data);
       else if (name === 'raw') setCaptures(b.data);
+      else if (name === 'experiences') setExperiences(b.data);
       partState[name] = 'ok';
       partReason[name] = null;
       if (!wasOk) firstOk.push(name);
@@ -616,7 +620,8 @@ async function loadData({ quiet = false } = {}) {
     // so it never visibly flickers.
     if (changed) showNewDataMark();
     // tempo: when the answer is not fresh, ask again quietly until it is —
-    // soon when the server already rebuilds, otherwise less often (it
+    // every second while only the placeholder stands (board-tempo-cm: the quick
+    // head is seconds away), soon when the server already rebuilds, otherwise less often (it
     // rebuilds at most every 20 s). At most one refetch waits.
     // no-jump: this refetch no longer draws by itself — it would replace
     // #screen no matter where the human is reading/typing/scrolling.
@@ -625,7 +630,7 @@ async function loadData({ quiet = false } = {}) {
       refetchTimer = setTimeout(async () => {
         refetchTimer = 0;
         await loadData({ quiet: true });
-      }, TEMPO_TEST_MS ?? (D.cache.refreshing ? 5000 : 20000));
+      }, TEMPO_TEST_MS ?? (D.placeholder ? 1000 : D.cache.refreshing ? 5000 : 20000));
     }
   } catch (e) {
     loadError = e?.message || String(e);
@@ -1094,12 +1099,14 @@ const pages = {
   },
   learnings: () => {
     const es = scoped().filter((e) => e.type === 'learning');
-    const ex = new Map((D.experiences || []).map((x) => [x.id, x]));
+    const ex = new Map(experienceList.map((x) => [x.id, x]));
+    const exWait = D.parts?.experiences && partState.experiences !== 'ok';
     const rows = es.slice(0, 40).map((e) => {
       const x = ex.get(e.id);
       return `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(e.project)} · ${esc(e.agent)}${x ? ` · cited ${num(x.cited)}×${(x.backedBy || []).length ? ` · backed by ${num(x.backedBy.length)}` : ''}` : ''}</p></div></div>${x?.contested ? badge('warning', 'contested') : badge(statusOf(e.id))}</div>`;
     }).join('');
-    return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.');
+    return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.')
+      + (exWait ? note(partState.experiences === 'error' ? 'Citation counts not loaded: ' + esc(partReason.experiences || 'unknown') : 'Citation counts are still loading — the rows show them as soon as they are here.') : '');
   },
   // The catalogue arrives on its own from /dashboard/skills.json
   // (skCatalogLoad, called from render()); a loading line until then.

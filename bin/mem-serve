@@ -248,7 +248,12 @@ function short(res, code, text) {
 export const DEFERRED_PARTS = Object.freeze({
   raw: { section: 'raw', field: 'captures', readable: (d) => d.raw?.readable === true },
   inbox: { section: 'inbox', field: 'messages', readable: (d) => d.inbox?.readable === true },
+  // board-tempo-cm: `section: null` = a top-level list. The learnings with
+  // their citation counts grow with the store (2.8 MB at 100k entries).
+  experiences: { section: null, field: 'experiences', readable: () => true },
 });
+/** The list of a deferred part in a full result. */
+const partList = (data, p) => (p.section ? data[p.section]?.[p.field] : data[p.field]);
 
 /**
  * @param env the environment `cfg` was BUILT from — not `process.env`.
@@ -315,6 +320,11 @@ export function buildHandler(root, cfg, env = process.env) {
   // cannot handle — with its reason.
   const entriesRoute = `${dashboardPage.PATHS.part}?part=entries`;
   let fullFailed = null; // { bytes, reason } — see buildInBackground
+  // Above this size of the drawers only the light head is built. The
+  // default is measured (src/dashboard-head.mjs); the variable tunes it
+  // (MB) — for a bigger machine, and for the probes.
+  const fullBuildMb = Number(env.CHEAP_MEM_SERVE_FULL_BUILD_MB);
+  const fullBuildMax = Number.isFinite(fullBuildMb) && fullBuildMb > 0 ? fullBuildMb * 1048576 : dashboardHead.FULL_BUILD_UP_TO_BYTES;
   const lightBuild = (reason) => dashboardCache.buildInWorker(root, {
     kind: 'head', title: cfg.title, writesAllowed: writesAllowed(), reason, types: dashboardData.typesList(), route: entriesRoute,
   });
@@ -326,8 +336,8 @@ export function buildHandler(root, cfg, env = process.env) {
     buildInBackground: async () => {
       const bytes = dashboardCache.storeBytes(root, { env });
       const b = bytes?.build ?? null;
-      if (b !== null && b > dashboardHead.FULL_BUILD_UP_TO_BYTES) {
-        return lightBuild(`Drawers ${Math.round(b / 1048576)} MB: the full build runs only up to ${Math.round(dashboardHead.FULL_BUILD_UP_TO_BYTES / 1048576)} MB. Only counters and newest entries; the tiles are unknown.`);
+      if (b !== null && b > fullBuildMax) {
+        return lightBuild(`Drawers ${Math.round(b / 1048576)} MB: the full build runs only up to ${Math.round(fullBuildMax / 1048576)} MB. Only counters and newest entries; the tiles are unknown.`);
       }
       if (fullFailed && b !== null && b >= fullFailed.bytes) return lightBuild(fullFailed.reason);
       try {
@@ -386,11 +396,19 @@ export function buildHandler(root, cfg, env = process.env) {
     // The deferred parts: list out, path and count in (readable ones only —
     // an unreadable section keeps its reason and has no list).
     for (const [name, p] of Object.entries(DEFERRED_PARTS)) {
-      const list = data[p.section]?.[p.field];
+      const list = partList(data, p);
       if (!p.readable(data) || !Array.isArray(list)) continue;
-      const { [p.field]: _gone, ...rest } = data[p.section];
-      head[p.section] = rest;
+      if (p.section) {
+        const { [p.field]: _gone, ...rest } = data[p.section];
+        head[p.section] = rest;
+      } else delete head[p.field];
       head.parts[name] = { path: `${dashboardPage.PATHS.part}?part=${name}`, count: list.length };
+    }
+    // `topics.list[].trail` holds the ids of EVERY entry of the topic (754 KB
+    // at 100k entries) and no view reads it: the head carries the first few
+    // and the count.
+    if (Array.isArray(head.topics?.list)) {
+      head.topics = { ...head.topics, list: head.topics.list.map((t) => (Array.isArray(t.trail) && t.trail.length > 8 ? { ...t, trail: t.trail.slice(0, 8), trailTotal: t.trail.length } : t)) };
     }
     const open = new Set([...(data.openDuties || []), ...(data.openQuestions || [])].map((x) => x.id));
     const e = dashboardHead.headEntries(data.entries || [], { open, route: entriesRoute });
@@ -461,7 +479,7 @@ export function buildHandler(root, cfg, env = process.env) {
     return dashText;
   }
 
-  return function handler(req, res) {
+  function handler(req, res) {
     let url;
     try { url = new URL(req.url, 'http://x'); }
     catch { res.writeHead(400).end('bad request'); return; }
@@ -714,10 +732,10 @@ export function buildHandler(root, cfg, env = process.env) {
         // the page notice when a rebuild happened between two pages.
         found = { state: 'ok', part: name, ...dashboardHead.page(headOf(st).sorted, url.searchParams.get('from'), url.searchParams.get('n')), state_id: st.id, cache: st.meta };
       } else {
-        const list = st.data[p.section]?.[p.field];
+        const list = partList(st.data, p);
         found = p.readable(st.data) && Array.isArray(list)
           ? { state: 'ok', part: name, data: list, cache: st.meta }
-          : { state: 'unknown', part: name, data: null, reason: st.data[p.section]?.reason || `${p.section} not readable`, cache: st.meta };
+          : { state: 'unknown', part: name, data: null, reason: (p.section && st.data[p.section]?.reason) || `${p.section ?? p.field} not readable`, cache: st.meta };
       }
       const body = JSON.stringify(found);
       if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
@@ -1401,7 +1419,17 @@ export function buildHandler(root, cfg, env = process.env) {
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
+  }
+  // board-tempo-cm: a large store has no synchronous build and no stored
+  // head yet -> start the first (background) build when the server starts,
+  // not when the first person opens the page. A small store builds
+  // synchronously on its first request as before (no work at start).
+  handler.warm = () => {
+    const b = dashboardCache.storeBytes(root, { env })?.build ?? null;
+    if (b !== null && b <= dashboardCache.SYNC_UP_TO_BYTES) return;
+    try { dashCache.get(); } catch { /* the first request says it */ }
   };
+  return handler;
 }
 
 /**
@@ -1426,7 +1454,8 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
       process.stderr.write(`serve: setup code could not be created: ${e?.message || e}\n`);
     }
   }
-  const server = http.createServer(buildHandler(root, cfg, env));
+  const handler = buildHandler(root, cfg, env);
+  const server = http.createServer(handler);
   // The weekly measurement series (src/measurements.mjs): one line per
   // ISO week, written by THIS process on its own clock — never by a page
   // read. `unref` so a measurement timer never keeps a stopped server alive.
@@ -1449,6 +1478,7 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
       try { runningmark.writeMarker(root, { service: 'serve', codePath: PACKAGE_ROOT }); }
       catch (e) { process.stderr.write(`serve: could not write the W1 start marker: ${e?.message || e}\n`); }
       if (measureWeekly) setImmediate(measure);
+      setImmediate(() => handler.warm());
       // M10: the warm recall server (src/recallserver.mjs), a child process,
       // a Unix socket under .pipeline/recall/. Only a REAL server starts
       // it (`mem serve`, `recall: true`) — the same rule as `measure`: a

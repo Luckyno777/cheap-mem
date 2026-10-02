@@ -61,10 +61,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { frozenSet } from './frozenset.mjs';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
-import { performance } from 'node:perf_hooks';
 import * as backlinks from './backlinks.mjs';
 import * as memory from './memory.mjs';
 import * as archive from './archive.mjs';
+
+/** How often the parent checks the build worker's heap against its cap (ms). */
+const GUARD_MS = 100;
 
 /** Maximum age of a cached result, even without a detected change. */
 export const TTL_MS = 60 * 1000;
@@ -97,8 +99,17 @@ export const SYNC_UP_TO_BYTES = 1024 * 1024;
  * store in memory; without a cap a store that is too large would take the
  * WHOLE server down (OOM in the process). With the cap only the worker
  * fails — the server keeps answering with the last head and says why.
+ *
+ * **Measured 2026-10-02 (Node 22.22): `resourceLimits.maxOldGenerationSizeMb`
+ * alone does NOT hold here.** A worker with a 64 MB limit that allocates
+ * objects ran on to 2 GB and more, until the process-wide limit (8 GB) — the
+ * limit it was handed is not enforced for object-heavy work. So the cap is
+ * ALSO enforced by the parent: it asks the worker for its heap every
+ * `GUARD_MS` (`worker.getHeapStatistics()` answers even while the worker
+ * computes) and terminates it over the cap. The `resourceLimits` stay as a
+ * second line for runtimes that do honour them.
  */
-const WORKER_HEAP_MB = Math.max(512, Math.min(4096, Math.floor(os.totalmem() / 1024 / 1024 / 2)));
+export const WORKER_HEAP_MB = Math.max(512, Math.min(4096, Math.floor(os.totalmem() / 1024 / 1024 / 2)));
 
 /** Machine-local sources of the dashboard outside the drawers (relative to the root). */
 export const PLACES = Object.freeze(['.mem', 'inbox', 'agents']);
@@ -187,7 +198,7 @@ export function storeBytes(root, { env = process.env } = {}) {
  * without blocking the server. `options.kind === 'head'` builds only the
  * light head (dashboard-head.mjs). The heap is capped (`WORKER_HEAP_MB`).
  */
-export async function buildInWorker(root, options = {}) {
+export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_MB } = {}) {
   // The worker imports the data module fresh; without this it would
   // measure ITS OWN start as "the code at start" and `stale` could never
   // be true. This (server) process's start head goes along.
@@ -198,16 +209,33 @@ export async function buildInWorker(root, options = {}) {
     // no second module, so nothing here is out of the CLI's reach.
     const w = new Worker(new URL(import.meta.url), {
       workerData: { dashboardCacheBuild: true, root, options, codeHeadAtStart: headAtStart },
-      resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB },
+      resourceLimits: { maxOldGenerationSizeMb: heapMb },
     });
     w.unref();
     let done = false;
+    // The parent's guard (see WORKER_HEAP_MB): over the cap -> terminate, reject.
+    let guard = null;
+    if (typeof w.getHeapStatistics === 'function') {
+      guard = setInterval(async () => {
+        try {
+          const h = await w.getHeapStatistics();
+          if (!done && h.used_heap_size > heapMb * 1024 * 1024) {
+            done = true;
+            clearInterval(guard);
+            reject(new Error(`the build used more than its ${heapMb} MB memory cap (worker stopped)`));
+            w.terminate();
+          }
+        } catch { /* the worker is gone: its exit/error event reports it */ }
+      }, GUARD_MS);
+      guard.unref();
+    }
     w.once('message', (m) => {
       done = true;
+      clearInterval(guard);
       if (m?.ok) resolve(m.data); else reject(new Error(m?.reason || 'worker without a result'));
     });
-    w.once('error', (e) => { if (!done) { done = true; reject(e); } });
-    w.once('exit', (code) => { if (!done) { done = true; reject(new Error(`worker exited (${code}) without a result`)); } });
+    w.once('error', (e) => { clearInterval(guard); if (!done) { done = true; reject(e); } });
+    w.once('exit', (code) => { clearInterval(guard); if (!done) { done = true; reject(new Error(`worker exited (${code}) without a result`)); } });
   });
 }
 
@@ -246,9 +274,8 @@ export function createCache({
   };
   const synchronous = (s) => {
     const start = now();
-    const t0 = performance.now();
     const data = build();
-    store(data, s, start, Math.round(performance.now() - t0));
+    store(data, s, start, Math.max(0, Math.round(now() - start)));
   };
   const background = (s) => {
     if (running) return;
@@ -259,22 +286,21 @@ export function createCache({
     const gap = minGapMs > 0 ? Math.max(minGapMs, (current?.durationMs ?? 0) * 4) : 0;
     if (start - lastStart < gap) return;
     lastStart = start;
-    const t0 = performance.now();
     running = Promise.resolve()
       .then(async () => {
         // Only the placeholder stands: first the quick head (seconds), then
         // the full build (minutes for a large store).
         if (buildHead && current?.source === 'placeholder') {
-          const t1 = performance.now();
+          const t1 = now();
           try {
             const h = await buildHead();
-            store(h, s, start, Math.round(performance.now() - t1), 'head');
+            store(h, s, start, Math.max(0, Math.round(now() - t1)), 'head');
             if (afterBackgroundBuild) { try { afterBackgroundBuild(); } catch { /* pre-work only */ } }
           } catch { /* the full build follows anyway */ }
         }
         return buildInBackground();
       })
-      .then((data) => { store(data, s, start, Math.round(performance.now() - t0)); })
+      .then((data) => { store(data, s, start, Math.max(0, Math.round(now() - start))); })
       .catch((e) => { failure = `rebuild failed: ${e?.message || e}`; })
       .finally(() => {
         running = null;

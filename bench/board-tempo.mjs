@@ -124,6 +124,21 @@ try {
     result.parts = d.parts ?? null;
     result.overview = d.overview ? { count: d.overview.count } : null;
     result.rss_after_json = rss(child.pid);
+    // Afterwards: how long until the answer carries FIGURES (the head) and
+    // until the full build is in (`source: build`), measured from the same t1.
+    if (!process.argv.includes('--no-follow')) {
+      const get = async () => { const r = await fetch(`${base}/dashboard.json`, { headers: { 'accept-encoding': 'gzip' } }); return r.json(); };
+      let cur = d;
+      while (performance.now() - t1 < DEADLINE_MS) {
+        if (result.figures_ms === undefined && cur.overview) { result.figures_ms = Math.round(performance.now() - t1); result.figures_source = cur.cache?.source; }
+        if (cur.cache?.source === 'build' && !cur.light) { result.full_ms = Math.round(performance.now() - t1); break; }
+        if (cur.light && cur.cache?.source === 'build') { result.full_ms = Math.round(performance.now() - t1); result.light_only = true; break; }
+        await wait(500);
+        cur = await get();
+      }
+      result.final = { source: cur.cache?.source, light: Boolean(cur.light), state: cur.state, count: cur.overview?.count ?? null };
+      result.rss_after_follow = rss(child.pid);
+    }
   } else {
     const req = createRequire(import.meta.url);
     let pw = null;
