@@ -108,7 +108,7 @@ export function register(root, {
 }
 
 /** This process's provider identity, if it has one — fingerprint only leaves this function. */
-export function ownIdentity(env = process.env) {
+function ownIdentity(env = process.env) {
   const sid = String(env.CLAUDE_CODE_SESSION_ID ?? '').trim();
   if (sid) return { provider: 'claude', fingerprint: fingerprint(sid) };
   return null;

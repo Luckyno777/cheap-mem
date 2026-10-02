@@ -33,11 +33,11 @@
 
 export const INTENTS = Object.freeze(['information', 'request', 'read', 'result', 'clarification', 'cancel']);
 
-/** Intents that wake the recipient (each still needs permission or a budget). */
-export const WAKING_INTENTS = Object.freeze(['request', 'read', 'clarification']);
-
-/** Intents that ask for an answer — `read` wakes but does not. */
-export const ANSWER_INTENTS = Object.freeze(['request', 'clarification']);
+/**
+ * Intents that wake the recipient (each still needs permission or a
+ * budget). `request`/`clarification` ask for an answer, `read` does not.
+ */
+const WAKING_INTENTS = Object.freeze(['request', 'read', 'clarification']);
 
 /**
  * The turn budget: how many replies deep a chain may go before nothing
@@ -115,11 +115,6 @@ export function fromHeader(header = {}) {
   };
 }
 
-/** Does this intent wake at all (before any permission)? */
-export function isWakingIntent(intent) {
-  return WAKING_INTENTS.includes(intent);
-}
-
 /**
  * The turn of a reply to `original`: one deeper, same maximum. The
  * first message of a chain carries no Turn and counts as turn 0.
@@ -149,7 +144,7 @@ export function wakes(m, { forRole = null, permit = null, human = () => false } 
   if (forRole && m.to !== forRole) return { wakes: false, reason: 'not-for-me' };
   if (m.state && m.state !== 'open') return { wakes: false, reason: `state-${m.state}` };
   const intent = m.intent ?? 'information';
-  if (!isWakingIntent(intent)) return { wakes: false, reason: `intent-${intent}` };
+  if (!WAKING_INTENTS.includes(intent)) return { wakes: false, reason: `intent-${intent}` };
   if (human(m.to)) return { wakes: false, reason: 'to-human' };
   if (Number.isInteger(m.turn) && Number.isInteger(m.turnMax) && m.turn > m.turnMax) {
     return { wakes: false, reason: 'turn-budget-spent' };

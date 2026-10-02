@@ -89,6 +89,7 @@ directory. The section number in brackets is where it is explained.
 | `doctor.mjs` | the self-check: configured, missing, or merely unknown |
 | `effect.mjs` | did an injection get used? Share of (injection, entry) pairs named/opened/edited again within 30 minutes, with a Wilson interval, floored at 1000 pairs (`mem effect`, M5 parity) |
 | `embed-hook.mjs` | embedding on write, without blocking the write |
+| `envelope.mjs` | what a message intends (information/request/read/result/clarification/cancel), its reply turn, and THE one rule whether it may wake a model (10.28) |
 | `entity.mjs` | machine-shaped identifiers: exact, not similar (2) |
 | `entryops.mjs` | restore and merge as append-only operations: `mem restore` (a closed entry taken up again as a NEW line with `restored_from`) and `mem merge` (a correction of the first entry carrying `merged_from`, obsolete tombstones for the rest) — no line is ever rewritten (Bauplan P3) |
 | `entries-page.mjs` | `GET /entries`: the paged entry list rendered as a server page (same filters, cursor and `pages.page()` as `/entries.json`), a plain GET filter form and a next-page link, no script, nothing loaded from outside (D3b) |
@@ -118,6 +119,7 @@ directory. The section number in brackets is where it is explained.
 | `language.mjs` | stemming and stop words, per language |
 | `langbridge.mjs` | optional starter dictionaries from the language a person asks in to the language the agents wrote in, as files (`src/langbridge/*.tsv`), off by default (`languageBridges` in `.mem/config.json`, M18b) |
 | `latencybudget.mjs` | ONE latency budget per recall-hook occasion over the injection journal's `duration_ms`: p50/p95, four states, under 20 timed lines unknown — the doctor's `hook-latency` finding and the dashboard's hook-time panel read only this (Bauplan P2) |
+| `mailpermit.mjs` | the user's permission and budgets for waking messages, as an append-only ledger with estimated token spend (10.28) |
 | `maintenance.mjs` | content-hash deduplication: identical entries merge, highest authority stays active |
 | `mcplive.mjs` | a real `tools/list` probe of the local MCP bridge — cached, run in the background, never awaited by `/dashboard.json` (7.5) |
 | `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing |
@@ -148,6 +150,7 @@ directory. The section number in brackets is where it is explained.
 | `release.mjs` | the release rail for a service install: a frozen, verified `git archive` copy, rollback, the active code path — gated on a matching `checked.jsonl` row (Bauplan P1) |
 | `repetition.mjs` | is this error a repeat? same file+class in 30 days, or the same class 3x in 7 |
 | `repetitionhint.mjs` | from the third repetition of an error class or normalised title, prints a draft for `mem log procedure` (`mem suggest procedure`); quotes the newest error, no model, writes nothing |
+| `routes.mjs` | which registered session of a role a message is for: registered on pickup, by fingerprint, never the raw session id (10.28) |
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
 | `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
@@ -613,7 +616,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_duty_close` | close a fulfilled duty — appends a line, the original stays |
 | `mem_inbox_new` | new inbox messages addressed to you |
 | `mem_inbox_show` | one inbox message in full |
-| `mem_inbox_write` | write a message to another agent |
+| `mem_inbox_write` | write a message to another agent; `intent` decides whether it may wake the recipient (10.28) |
 | `mem_inbox_ack` | change a message's state (open / replied / processed / closed) |
 | `mem_inbox_claim` / `mem_inbox_renew` / `mem_inbox_done` | claim a message with an expiry, renew it, report it done — as the connected agent, same read rule as `mem inbox claim` |
 | `mem_inbox_failed` / `mem_inbox_claims` | give a claim up with a reason (released at once); read only: who holds a message and whether your own claim still counts — same as `mem inbox failed|claims` |
@@ -1798,3 +1801,48 @@ later version is never an edit of the same line: it is a new entry
 carrying `replaces_id`, via `memory.correctionEntry()`, the same
 append-only correction mechanism every corrected entry in this house
 already uses.
+
+### 10.28 Session mail that does not cost money by itself — `src/envelope.mjs`, `src/mailpermit.mjs`, `src/routes.mjs`
+
+Ported from lucky-mem (Block S). Before this, the watcher (`bin/mem-watch`)
+started its handler, a fresh paid model session, for every new message:
+a broadcast note, a thank-you, a receipt.
+
+**Intent.** A message carries an optional `Intent` header. `information`
+(the default), `result` (the default for a reply, `--in-reply-to`) and
+`cancel` never wake anyone. `request` and `clarification` ask for an
+answer, `read` asks to be read; those three wake the recipient — but only
+with permission.
+
+**Permission or a budget, from the user only.** Agents may write a waking
+message at any time; it lies in the inbox and is reported as
+`waiting-for-permission` until the user permits it
+(`mem inbox permit <name> --authority user`) or gives a budget
+(`mem inbox allow --letters N | --tokens N [--until D] [--to R] --authority user`).
+Grants and spending are lines in `inbox/permissions.jsonl`, append-only;
+a message is charged once however long it lies. Token figures are
+estimates from the model-cost journal, or a named assumption, and are
+always marked as such. A headless run (`MEM_HEADLESS`) and a process
+under a lower `CHEAP_MEM_MAX_AUTHORITY` cannot grant; a line without
+`authority: user` is listed as disputed and does not count. The limit is
+the same as in 10.1: whoever can write the repository can forge a line.
+
+**The one wake rule.** `envelope.wakes()` decides for the watcher's look
+at the remote (`mem inbox watch`), after the pull (`mem inbox wake`, which
+charges the grant or budget right before the handler starts) and for the
+headless listing (`mem inbox new` in a handler run does not hand over a
+request still waiting). Mail to the human participant never waits: no
+machine wakes them. No model call anywhere in this path.
+
+**Reply budget.** A reply is one turn deeper than its original
+(`Turn: n of 6`). Past the maximum nothing in the chain wakes anyone,
+whatever the permission says, so two agents cannot ping-pong.
+
+**Routes.** A role can be played by several sessions at once. A session
+that picks up its mail (`mem inbox new|show|all`) registers a route
+(`inbox/routes.jsonl`: role, provider, a fingerprint of the session id,
+a generated id; never the raw id). Its messages carry `From-Route`; the
+write path sets `To-Route` on a reply from the original, and `mem inbox
+new` does not offer such a reply to another session of the same role.
+`mem inbox routes` lists them; `mem inbox permissions` shows budgets,
+grants and what is waiting.

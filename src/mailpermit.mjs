@@ -54,7 +54,7 @@ export const FILE = path.join('inbox', 'permissions.jsonl');
  * output tokens together) — rough, hence labelled an assumption.
  */
 export const TOKEN_ASSUMPTION = 60000;
-export const ESTIMATE_DAYS = 30;
+const ESTIMATE_DAYS = 30;
 
 const KINDS = Object.freeze(['budget', 'grant', 'spend']);
 
@@ -66,7 +66,7 @@ export function ledgerPath(root) { return path.join(root, FILE); }
  * never silently skipped. Pure, so the watcher can feed it the remote
  * copy of the file as well as the local one.
  */
-export function parseLines(text) {
+function parseLines(text) {
   const lines = [];
   const broken = [];
   String(text ?? '').split('\n').forEach((raw, i) => {
@@ -84,7 +84,7 @@ export function parseLines(text) {
 }
 
 /** The local ledger lines, plus `extraText` (e.g. the remote copy), deduplicated by id. */
-export function readLines(root, { extraText = null } = {}) {
+function readLines(root, { extraText = null } = {}) {
   const p = ledgerPath(root);
   const exists = fs.existsSync(p);
   const local = parseLines(exists ? fs.readFileSync(p, 'utf8') : '');
@@ -104,7 +104,7 @@ function newId(seed) {
  * May this process write a grant? Throws with a `code`. One place for
  * the CLI and every later surface.
  */
-export function checkGrantRight({ authority: claimed = null, env = process.env } = {}) {
+function checkGrantRight({ authority: claimed = null, env = process.env } = {}) {
   if (env.MEM_HEADLESS) {
     const e = new Error(`Only the user grants permission — a headless run (${env.MEM_HEADLESS}) cannot.`);
     e.code = 'HEADLESS';
