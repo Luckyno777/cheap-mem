@@ -27,6 +27,7 @@ function world() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-src-'));
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 's' }));
+  memory.projectInit(r, 'alpha'); // logEntry no longer creates a project
   memory.logEntry(r, 'learning', { topic: 't', title: 'a', text: 'needle here' });
   memory.logEntry(r, 'decision', { topic: 't', choice: 'b', why: 'needle again' },
     { project: 'alpha' });

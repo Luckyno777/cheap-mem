@@ -90,6 +90,8 @@ If YES: write ONE inbox message to the librarian summarizing what you saw, and l
   git -C `$CHEAP_MEM_ROOT commit -m 'reflect: <summary>'
   git -C `$CHEAP_MEM_ROOT push origin HEAD:main
 
+A project name in --project must already exist: an unknown one is refused (log the entry again without --project). You do not create projects; that is for a person or the digest, with evidence (mem project new).
+
 If NO substantial change: exit silently, no log, no commit.
 "@
 

@@ -57,6 +57,8 @@ export const READING = Object.freeze([
   'mem_explain', 'mem_retrieve', 'mem_find', 'mem_duties',
   'mem_context', 'mem_inbox_show', 'mem_store_list', 'mem_store_get',
   'mem_user_habits', 'mem_ledger',
+  // 2026-10-02: counts topics against captures, creates nothing (dry run).
+  'mem_project_suggestions',
   // Z3/A11 (2026-09-30): reads the claim file, writes nothing.
   'mem_inbox_claims',
 ]);
@@ -70,7 +72,7 @@ export const READING = Object.freeze([
  */
 export const WRITING = Object.freeze([
   'mem_answer', 'mem_log', 'mem_duty_close', 'mem_inbox_new',
-  'mem_inbox_write', 'mem_inbox_ack', 'mem_project_init', 'mem_store_put',
+  'mem_inbox_write', 'mem_inbox_ack', 'mem_project_init', 'mem_project_new', 'mem_store_put',
   // O1 (2026-09-30): claim lines in the inbox's claim file — state other
   // agents read.
   'mem_inbox_claim', 'mem_inbox_renew', 'mem_inbox_done',

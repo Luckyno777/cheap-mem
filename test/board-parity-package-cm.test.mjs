@@ -52,6 +52,8 @@ function world() {
   roots.push(r);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'pkg', participants: { alex: { human: true }, bot: {} }, language: 'en' }));
+  memory.projectInit(r, 'demo'); // logEntry no longer creates a project
+  memory.projectInit(r, 'other');
   // A raw capture with a marker; one entry points at it through origin.raw.
   const rawRel = path.join('raw', '2026', '09', 'capture-pp.jsonl');
   fs.mkdirSync(path.join(r, path.dirname(rawRel)), { recursive: true });

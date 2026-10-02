@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 import * as writegate from './writegate.mjs';
 import * as dashboard from './dashboard.mjs';
 import * as memory from './memory.mjs';
+import { projectStatus } from './projectnew.mjs';
 import * as question from './question.mjs';
 import * as inbox from './inbox.mjs';
 import * as injection from './injection.mjs';
@@ -514,7 +515,13 @@ function projectShelf(root) {
         .filter((d) => d.isFile() && !d.name.endsWith('.jsonl'))
         .map((d) => ({ name: d.name, where: 'present' }));
     } catch { files = []; }
-    out.push({ name: project, filled, empty, missing, drawersTotal: types.length, files });
+    // `isNew`: created by an agent or the digest and not yet confirmed by a
+    // person (facts.yaml `status: new`, src/projectnew.mjs). Old projects: false.
+    const st = projectStatus(root, project);
+    out.push({
+      name: project, filled, empty, missing, drawersTotal: types.length, files,
+      isNew: st.isNew, createdOn: st.created_on, createdBy: st.created_by,
+    });
   }
   return { projects: out };
 }

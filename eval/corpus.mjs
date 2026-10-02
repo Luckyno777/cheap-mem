@@ -175,6 +175,7 @@ const DISTRACTOR_ERRORS = [
  */
 export function build(root, { poisoned = false, noise = 4, scatter = 700, flood = 40, echoes = [], rawOnly = [], queryWords = false, seed = 7 } = {}) {
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
+  memory.projectInit(root, PROJECT); // logEntry no longer creates a project
   const r = rng(seed);
   const ids = [];
 

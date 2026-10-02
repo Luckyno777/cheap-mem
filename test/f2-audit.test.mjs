@@ -344,6 +344,7 @@ test('#19 embed backfill --project: an unknown project is refused, --force with 
   try {
     const init = spawnSync('node', [MEM, '--root', root, 'init'], { encoding: 'utf8', env: cleanEnv() });
     assert.equal(init.status, 0, both(init));
+    memory.projectInit(root, 'known'); // logEntry no longer creates a project
     memory.logEntry(root, 'learning', { title: 'in a project', text: 'x' }, { project: 'known' });
     const nope = cli(root, ['embed', 'backfill', '--project', 'nope']);
     assert.notEqual(nope.status, 0);

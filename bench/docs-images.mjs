@@ -143,6 +143,8 @@ export function world() {
   const subjects = ['architecture', 'planning', 'operations', 'customers', 'integration'];
   const ids = {};
   let n = 0;
+  // A project is created before anything is logged into it (logEntry refuses an unknown one).
+  for (const project of projects) memory.projectInit(r, project);
   projects.forEach((project, pi) => {
     const g = PROJECT_SIZE[project];
     const e = { decision: [], error: [], learning: [], duty: [], question: [] };

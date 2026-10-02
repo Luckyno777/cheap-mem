@@ -763,14 +763,79 @@ export const COMMANDS = {
     if (isHelp(args)) {
       out([
         'mem project init <name> [--title "Display name"]',
+        'mem project new <name> --title "<title>" --reason "<reason>" [--captures p1,p2]',
+        'mem project confirm <name>',
+        'mem project suggestions [--json]',
         "",
-        "  Creates projects/<name>/ idempotently.",
+        "  `init` creates projects/<name>/ idempotently.",
+        "",
+        "  `new` is the way to a NEW project (`mem log --project <unknown>` is",
+        "  refused). It rejects names too like an existing project or a topic",
+        "  alias (distance <= 2, a word part, same spelling) and names the",
+        "  existing one. It writes the event 'Project created' and marks",
+        "  facts.yaml with status: new.",
+        "  --captures: capture paths from `mem raw pending` as evidence. In an",
+        "  unattended run (MEM_HEADLESS: the digest, the reflector) it is",
+        "  required: at least 2 evidenced captures on 2 different days.",
+        "  `confirm` removes the mark (a person; refused in an unattended run).",
+        "  `suggestions` is the dry run: reads, counts, creates nothing.",
+        "  Merging two projects does not exist (see src/projectnew.mjs, head).",
       ].join('\n'));
       return;
     }
     const sub = rest[0];
+    if (sub === 'new') {
+      checkFlags(args, ['title', 'reason', 'captures'], 'project new');
+      const root = findRoot(args);
+      requireConfig(root);
+      const name = rest[1];
+      if (!name) die('project new: name missing. Example: mem project new garden --title "Garden" --reason "..."');
+      const pn = await import('../../projectnew.mjs');
+      let res;
+      try {
+        res = pn.createProject(root, name, {
+          title: args.title, reason: args.reason, captures: args.captures ?? [],
+          // The unattended digest needs the evidence as code (2 captures, 2 days).
+          strict: Boolean(process.env.MEM_HEADLESS),
+        });
+      } catch (e) { die(String(e.message ?? e)); }
+      for (const r of res.evidence.rejected) warn(`--captures ${r.path}: ${r.why}.`);
+      out(`Project created: ${path.relative(root, res.dir)} (status: new, awaits confirmation)`);
+      out(`  event ${res.entry.id}; evidence: ${res.evidence.ok.length} capture(s) on ${res.evidence.days.length} day(s)`);
+      out(`It is delivered only after: git add ${path.relative(root, res.dir)} && git commit -m "project new: ${name}" && git push`);
+      return;
+    }
+    if (sub === 'confirm') {
+      checkFlags(args, ['agent'], 'project confirm');
+      const root = findRoot(args);
+      requireConfig(root);
+      const name = rest[1];
+      if (!name) die('project confirm: name missing. Example: mem project confirm garden');
+      // Like granting permission (src/mailpermit.mjs): only a person
+      // confirms. An unattended run confirming its own creation would
+      // make the mark meaningless.
+      if (process.env.MEM_HEADLESS) die(`project confirm: only a person confirms — an unattended run (${process.env.MEM_HEADLESS}) cannot.`);
+      const pn = await import('../../projectnew.mjs');
+      try {
+        const { entry } = pn.confirmProject(root, name, { by: args.agent ?? null });
+        out(`Project ${name} confirmed (event ${entry.id}).`);
+      } catch (e) { die(String(e.message ?? e)); }
+      return;
+    }
+    if (sub === 'suggestions') {
+      checkFlags(args, ['json'], 'project suggestions');
+      const root = findRoot(args);
+      requireConfig(root);
+      const pn = await import('../../projectnew.mjs');
+      const res = pn.suggestions(root);
+      out(args.json ? JSON.stringify(res, null, 2) : pn.suggestionsText(res));
+      return;
+    }
     if (sub !== 'init') {
-      die(`project: unknown subcommand '${sub ?? '(missing)'}'`);
+      die([
+        `project: unknown subcommand '${sub ?? '(missing)'}'`,
+        'Known: init, new, confirm, suggestions. Example: mem project new garden --title "Garden" --reason "..."',
+      ].join('\n'));
     }
     checkFlags(args, ['title'], 'project init');
     const root = findRoot(args);

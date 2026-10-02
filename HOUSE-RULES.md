@@ -89,6 +89,10 @@ What does NOT belong in it: guesses stated as facts, your own
 conversation with other agents (results only), and never secrets — no
 tokens, keys, passwords. Say WHERE something lives, never WHAT is in it.
 
+**A new project** only when an undertaking shows up in 2 captures on 2
+days and fits no existing one: `mem_project_new` (never guess; else leave
+`project` out - an unknown `project` is refused).
+
 **Append-only means append-only.** Never change an old entry. What was
 wrong is corrected by a new entry.
 

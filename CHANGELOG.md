@@ -67,6 +67,21 @@ are the day the work landed on `main`.
   running the one call). The doctor: 8.6 s at 20,000 entries, 97.8 s and 1.43 GB at 250,000. Not measured: the
   browser's first display at these sizes, 10,000,000 entries.
 
+### Changed — a new project is created on purpose, never by a typo (ported from the sibling house)
+
+- **`mem log --project <unknown>` is refused** (and every other writer through
+  `memory.logEntry`, the MCP bridge included) with a hint, instead of creating a
+  half-made directory. An old half-made directory stays writable.
+- **`mem project new <name> --title --reason [--captures p1,p2]`** creates a
+  project the guarded way: a name too like a project or a topic alias is refused
+  and the existing one is named; the project gets a reason, an event and
+  `status: new` in `facts.yaml`. In an unattended run (`MEM_HEADLESS`) it needs 2
+  evidenced captures on 2 different days, checked by code. `mem project confirm`
+  (a person only) removes the mark; `mem project suggestions [--json]` is the dry
+  run. MCP: `mem_project_new` (writes) and `mem_project_suggestions` (reads).
+  The dashboard's Projects card shows "new · unconfirmed". The digest and reflector
+  prompts and HOUSE-RULES.md carry the rule. Merging projects is not built.
+
 ### Changed — the dashboard's first page no longer waits for the store (board-tempo)
 
 - **The first answer of `/dashboard.json` is a small head** (newest 120 entries,

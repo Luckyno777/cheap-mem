@@ -76,6 +76,7 @@ function filled({ extra = 0 } = {}) {
   agents.createAgent(r, MINE.agent, { role: 'measures things', model: 'none' });
   const learning = memory.logEntry(r, 'learning',
     { topic: 'retrieval', title: MINE.learning, text: 'a view on the log, never a second truth' });
+  memory.projectInit(r, MINE.project); // logEntry no longer creates a project
   const decision = memory.logEntry(r, 'decision',
     { topic: 'retrieval', choice: MINE.decision, why: 'the spread was not spelling' },
     { project: MINE.project });

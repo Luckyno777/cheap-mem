@@ -40,6 +40,7 @@ function world({ project = 'alpha' } = {}) {
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
   const ts = '2026-09-01T10:00:00Z';
+  if (project) memory.projectInit(root, project); // logEntry no longer creates a project
   // Through the public writer. A fixture that writes rows by hand can
   // agree with a reader that reads them by hand, and both be wrong.
   memory.logEntry(root, 'question', { id: 'question1', question: 'Where is quartz?', ts }, { project });
@@ -68,6 +69,7 @@ test('an unanswered question counts as produced and not consumed', () => {
   try {
     fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
     config.writeConfig(root, config.DEFAULT_CONFIG);
+    memory.projectInit(root, 'alpha'); // logEntry no longer creates a project
     memory.logEntry(root, 'question', {
       id: 'question9', question: 'Still open?', ts: '2026-09-01T10:00:00Z',
     }, { project: 'alpha' });

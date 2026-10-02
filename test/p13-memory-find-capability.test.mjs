@@ -42,6 +42,8 @@ const NEEDLE = 'zzzp13findcap';
  */
 function world() {
   const root = tmp();
+  memory.projectInit(root, 'alpha'); // logEntry no longer creates a project
+  memory.projectInit(root, 'beta');
   const g = memory.logEntry(root, 'decision',
     { topic: 't', choice: NEEDLE, why: `${NEEDLE} global` }).entry;
   const a = memory.logEntry(root, 'decision',

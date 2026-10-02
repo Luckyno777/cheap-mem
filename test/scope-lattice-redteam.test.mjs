@@ -123,6 +123,9 @@ function memJson(root, args) {
 function buildScopedMemory() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-p13-'));
   runMem(root, ['init']);
+  // `mem log --project <unknown>` is refused now: create the two projects first.
+  runMem(root, ['project', 'init', 'alpha']);
+  runMem(root, ['project', 'init', 'beta']);
   runMem(root, ['log', 'decision', '--project', 'alpha', '--topic', 'alpha/secret',
     '--title', `alpha-only decision ${ALPHA_SECRET}`, '--choice', ALPHA_SECRET, '--why', 'alpha reasons only']);
   runMem(root, ['log', 'decision', '--project', 'beta', '--topic', 'beta/own',

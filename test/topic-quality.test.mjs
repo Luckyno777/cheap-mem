@@ -51,6 +51,7 @@ test('topicTree branches by PROJECT, not by the name', () => {
   // were four. The grouping had been there all along, called `project`.
   const r = root();
   try {
+    for (const p of ['payments', 'sales']) memory.projectInit(r, p); // logEntry no longer creates a project
     for (const [t, i] of [['transfers', 1], ['clauses', 2], ['translation', 3]]) {
       memory.logEntry(r, 'decision', { topic: t, choice: 'x', why: 'y' },
         { project: 'payments', now: new Date(`2026-01-0${i}T00:00:00Z`) });
@@ -71,6 +72,7 @@ test('topicTree branches by PROJECT, not by the name', () => {
 test('a prefix repeating the project drops out of the tree', () => {
   const r = root();
   try {
+    memory.projectInit(r, 'cheap-mem'); // logEntry no longer creates a project
     memory.logEntry(r, 'decision', { topic: 'cheap-mem/retrieval', choice: 'x', why: 'y' },
       { project: 'cheap-mem' });
     memory.logEntry(r, 'decision', { topic: 'memory/store', choice: 'x', why: 'y' },

@@ -64,6 +64,9 @@ function freshRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'reserved-typo-'));
   const r = mem(root, 'init');
   assert.equal(r.status, 0, `init failed:\n${r.why}`);
+  // `mem log --project <unknown>` is refused now: the project is made first.
+  const p = mem(root, 'project', 'init', 'alpha');
+  assert.equal(p.status, 0, `project init failed:\n${p.why}`);
   return root;
 }
 

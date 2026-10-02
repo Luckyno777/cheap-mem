@@ -38,6 +38,7 @@ function root() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'p14-shred-'));
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   config.writeConfig(r, config.DEFAULT_CONFIG);
+  memory.projectInit(r, 'p'); // logEntry no longer creates a project
   return r;
 }
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
@@ -414,6 +415,7 @@ function gitRoot() {
   execFileSync('git', ['config', 'user.name', 'p14 test'], { cwd: r });
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   config.writeConfig(r, config.DEFAULT_CONFIG);
+  memory.projectInit(r, 'p'); // logEntry no longer creates a project
   return r;
 }
 function commitAll(r, message) {
