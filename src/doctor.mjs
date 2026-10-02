@@ -59,6 +59,9 @@ import * as contract from './integrationcontract.mjs';
 import * as workflowdetect from './workflowdetect.mjs';
 import * as snippet from './snippet.mjs';
 import * as errorfixes from './errorfixes.mjs';
+import * as experience from './experience.mjs';
+import * as envelope from './envelope.mjs';
+import * as mailpermit from './mailpermit.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -376,10 +379,14 @@ export function checkAll(root) {
   f.push(checkClosedWithoutEvidence(root));
   f.push(checkAutoDutyAge(root));
   f.push(checkErrorLinked(root));
+  f.push(checkSkillSharpen(root));
+  f.push(checkGuardSuspicion(root));
+  f.push(checkProcedureEffect(root));
   f.push(checkWorkflowWithoutTrigger(root));
   f.push(checkSnippetWithoutRedaction(root));
   f.push(checkDelivery(root));
   f.push(checkOrphanedClaims(root));
+  f.push(checkInboxWaitingPermission(root));
   f.push(checkInboxUnpushed(root));
   f.push(checkIndex(root));
   f.push(checkCorrectionContentLoss(root));
@@ -830,6 +837,87 @@ export function checkErrorLinked(root, { now = new Date() } = {}) {
     + `${errorfixes.WINDOW_DAYS} days. A fix commit carries the trailer \`Fixes: <error-id>\` and `
     + '`mem error-fixes backfill` turns it into the edge; a learning drawn from an error is written '
     + 'with `mem log learning ... --from <error-id>`. This finding writes nothing.');
+}
+
+/**
+ * L3 (lucky-mem `skill-nachschaerfen`): how many sharpening packages are
+ * RIPE (experience.RIPE_POINTS_MIN evidenced points of RIPE_KINDS_MIN
+ * kinds AND the gate: CASES_MIN cases in the declared scope in
+ * CASES_WINDOW_DAYS days). A note, never an error; nothing is changed.
+ *   unknown  registry unreadable, or no entry with a declared scope
+ *            (without one there is nothing to measure — not "nothing to sharpen")
+ *   warn     at least one package ripe (names in the advice)
+ *   good     none ripe
+ */
+export function checkSkillSharpen(root, { now = new Date() } = {}) {
+  let ps;
+  try { ps = experience.packages(root, { now }); }
+  catch (e) { return finding('skill-sharpen', LEVEL.UNKNOWN, `registry unreadable: ${e?.message || e}`); }
+  const scoped = ps.filter((p) => !p.withoutScope);
+  if (!scoped.length) {
+    return finding('skill-sharpen', LEVEL.UNKNOWN, `${ps.length} registry entries, none with a declared scope (classes/files/topics) — `
+      + 'without one no error is assigned, so nothing is measured (not: nothing to sharpen)');
+  }
+  const ripe = scoped.filter((p) => p.ripe);
+  const core = `${ripe.length} of ${scoped.length} entries with a scope have a ripe sharpening package (from `
+    + `${experience.RIPE_POINTS_MIN} evidenced points of ${experience.RIPE_KINDS_MIN} kinds and ${experience.CASES_MIN} cases in `
+    + `${experience.CASES_WINDOW_DAYS} days); ${ps.length - scoped.length} without a scope`;
+  if (!ripe.length) return finding('skill-sharpen', LEVEL.GOOD, core);
+  return finding('skill-sharpen', LEVEL.WARN, core, `Ripe: ${ripe.map((p) => `${p.name} (${p.count})`).join(', ')}
+`
+    + 'Proposal only: mem skills sharpen <name> shows the evidence; a new version is filed only by the owner.');
+}
+
+/**
+ * L3 (lucky-mem `riegel-prueft-das-falsche-verdacht`): a test with
+ * `// error: <id>` guards that error; when the error came back AFTER the
+ * test commit (a later error names the id, or same class and file), the
+ * guard may check the wrong thing. A suspicion, not a verdict.
+ *   unknown  test/ unreadable, or no pair with a known id and a readable commit time
+ *   warn     at least one suspicion (test and error id in the advice)
+ *   good     measured pairs, none came back
+ */
+export function checkGuardSuspicion(root) {
+  let s;
+  try { s = experience.guards(root); }
+  catch (e) { return finding('guard-suspicion', LEVEL.UNKNOWN, `not checkable: ${e?.message || e}`); }
+  if (!s.readable) return finding('guard-suspicion', LEVEL.UNKNOWN, 'test/ not readable');
+  const measured = s.pairs.filter((p) => p.state === 'guarded' || p.state === 'suspicion');
+  if (!measured.length) {
+    return finding('guard-suspicion', LEVEL.UNKNOWN,
+      `${s.pairs.length} test-error pair(s), none with a known error id and a readable commit time — not measurable (not: no suspicion)`);
+  }
+  const sus = measured.filter((p) => p.state === 'suspicion');
+  const core = `${sus.length} of ${measured.length} measured test-error pairs: the error came back after the test commit `
+    + `(${s.pairs.length - measured.length} not measurable: unknown id or no commit time)`;
+  if (!sus.length) return finding('guard-suspicion', LEVEL.GOOD, core);
+  return finding('guard-suspicion', LEVEL.WARN, core,
+    `${sus.map((p) => `${p.test} guards ${p.error}, after it: ${p.back.map((w) => `${w.id} [${w.via}]`).join(' ')}`).join('\n')}\n`
+    + 'A suspicion, not a verdict: the test may check the right thing and the later error be another. Details: mem experience guards');
+}
+
+/**
+ * L3 (lucky-mem `verfahren-wirkung`): repetition rate of a released
+ * procedure's error classes before/after its release.
+ *   unknown  none measurable (legacy, window not full, too few cases before)
+ *   warn     at least one ineffective
+ *   good     at least one effective, none ineffective
+ * Numbers, not a causal proof; nothing is withdrawn.
+ */
+export function checkProcedureEffect(root, { now = new Date() } = {}) {
+  let w;
+  try { w = experience.procedureEffect(root, { now }); }
+  catch (e) { return finding('procedure-effect', LEVEL.UNKNOWN, `not checkable: ${e?.message || e}`); }
+  const good = w.filter((x) => x.verdict === 'effective');
+  const bad = w.filter((x) => x.verdict === 'ineffective');
+  const core = `${w.length} procedure(s): ${good.length} effective, ${bad.length} ineffective, ${w.length - good.length - bad.length} unknown`;
+  if (!good.length && !bad.length) {
+    return finding('procedure-effect', LEVEL.UNKNOWN, `${core} — none measurable (legacy without a release moment, window not full or too few cases before)`);
+  }
+  const advice = [...bad, ...good].map((x) => `${x.verdict}: ${x.name} (${x.id}) before ${x.before.errors}/${x.before.repetitions}, `
+    + `after ${x.after.errors}/${x.after.repetitions}`).join('\n')
+    + '\nErrors/repetitions before and after the release, not a causal proof. Nothing is withdrawn — the owner decides.';
+  return finding('procedure-effect', bad.length ? LEVEL.WARN : LEVEL.GOOD, core, advice);
 }
 
 /** From when an auto-duty counts as "old" (BAUPLAN-mem-admin_02.md, Block F). */
@@ -2730,6 +2818,42 @@ export function checkIntegrationContract(root, { settingsPaths = null, codeRoot 
   const r = contract.judge({ codeRoot, settingsPaths: paths });
   const level = { good: LEVEL.GOOD, warn: LEVEL.WARN, error: LEVEL.ERROR }[r.level] ?? LEVEL.UNKNOWN;
   return finding('integration-contract', level, r.text, r.advice);
+}
+
+/**
+ * S4 (lucky-mem `post-wartet-erlaubnis`): messages that WOULD wake a model
+ * but lack the owner's permission (`waiting-for-permission`). The same
+ * rule as every waker (`envelope.wakes` with `mailpermit.checker`), no
+ * second verdict.
+ *   good     none waits
+ *   warn     N wait (oldest since ...) — waiting is the intended state
+ *            without permission, but the owner should see it, or the
+ *            sender waits for an answer nobody triggers
+ *   unknown  inbox or ledger unreadable (a broken ledger line may hide a budget)
+ */
+export function checkInboxWaitingPermission(root, { now = new Date() } = {}) {
+  const N = 'inbox-waiting-permission';
+  let messages;
+  let broken;
+  let participants = {};
+  try {
+    try { participants = cfgmod.readConfig(root)?.participants ?? {}; } catch { participants = {}; }
+    messages = inbox.read(root, {}).messages ?? [];
+    broken = mailpermit.status(root, { now }).broken;
+  } catch (e) {
+    return finding(N, LEVEL.UNKNOWN, `not readable: ${e?.message || e}`);
+  }
+  if (broken.length) {
+    return finding(N, LEVEL.UNKNOWN, `${broken.length} unreadable line(s) in ${mailpermit.FILE} — a budget may be missing`,
+      'mem inbox permissions');
+  }
+  const pm = mailpermit.checker(root, { now });
+  const waiting = messages.filter((m) => envelope.wakes(m, { permit: pm, human: (n) => cfgmod.isHuman(participants[n]) }).reason === envelope.WAITING);
+  if (!waiting.length) return finding(N, LEVEL.GOOD, 'no message waits for permission');
+  const oldest = waiting.map((m) => String(m.time ?? '')).filter(Boolean).sort()[0];
+  return finding(N, LEVEL.WARN, `${waiting.length} message(s) ${envelope.WAITING}${oldest ? `, oldest since ${oldest}` : ''} — they wake nobody`,
+    'See: mem inbox permissions. Permit one: mem inbox permit <name> --authority user '
+    + '(or a budget: mem inbox allow --letters N --authority user; the dashboard task inbox-permit behind a password session).');
 }
 
 /**

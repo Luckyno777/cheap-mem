@@ -69,7 +69,7 @@ async function waitForTerminal(root, id, { timeoutMs = 20000, intervalMs = 60 } 
 // --- The closed list -------------------------------------------------
 
 test('KINDS is a closed list: the two long-running paths and the two parameterised dashboard kinds', () => {
-  assert.deepEqual(new Set(Object.keys(tasks.KINDS)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status']));
+  assert.deepEqual(new Set(Object.keys(tasks.KINDS)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status', 'inbox-permit']));
   for (const spec of Object.values(tasks.KINDS)) {
     assert.equal(typeof spec.title, 'string');
     assert.ok(spec.title.length > 0);
@@ -255,7 +255,7 @@ test('overview() names both kinds even when nothing was ever started', () => {
   const r = world();
   try {
     const o = tasks.overview(r);
-    assert.deepEqual(new Set(Object.keys(o)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status']));
+    assert.deepEqual(new Set(Object.keys(o)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status', 'inbox-permit']));
     for (const kind of Object.keys(o)) assert.equal(o[kind], null);
   } finally { gone(r); }
 });
@@ -361,7 +361,7 @@ test('POST /task with an unknown kind -> 400 with the known list', async () => {
     assert.equal(res.status, 400);
     const body = await res.json();
     assert.equal(body.state, 'unknown');
-    assert.deepEqual(new Set(body.known), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status']));
+    assert.deepEqual(new Set(body.known), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status', 'inbox-permit']));
   } finally { await s.stop(); gone(r); }
 });
 
@@ -409,8 +409,8 @@ test('GET /task.json with no id lists both kinds and their (empty) status', asyn
     assert.equal(res.status, 200);
     const body = await res.json();
     assert.equal(body.state, 'ok');
-    assert.deepEqual(new Set(Object.keys(body.kinds)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status']));
-    assert.deepEqual(new Set(Object.keys(body.running)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status']));
+    assert.deepEqual(new Set(Object.keys(body.kinds)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status', 'inbox-permit']));
+    assert.deepEqual(new Set(Object.keys(body.running)), new Set(['export', 'integrity', 'raw-delete', 'done', 'restore', 'merge', 'skill-status', 'inbox-permit']));
   } finally { await s.stop(); gone(r); }
 });
 

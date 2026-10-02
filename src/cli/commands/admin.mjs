@@ -36,6 +36,7 @@ import * as gap from '../../gap.mjs';
 import * as skillusage from '../../skillusage.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
 import * as skilleffect from '../../skilleffect.mjs';
+import * as experience from '../../experience.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /** 13 commands. */
@@ -1013,6 +1014,11 @@ export const COMMANDS = {
         'mem skills status <id> <proposed|trial|released|withdrawn> --issued-by owner [--why "..."] [--json]',
         'mem skills fetch <name|id>',
         'mem skills effect [--json]',
+        'mem skills account [<name>] [--json]          L3: traps, fixes, learnings in the declared scope',
+        'mem skills sharpen <name> [--json]            L3: "new since the last version", proposal only',
+        'mem skills version <name> [--text "..."] [--title "..."] [--classes a,b] [--files p/] [--topics t]',
+        '                  [--why "..."] --issued-by owner --authority user',
+        '                                              L3: new version as a correction line, status trial (never released)',
         '',
         '  usage: skill calls from the raw capture, with coverage (W10).',
         '  list/export/status/fetch: one registry over skill, workflow, snippet,',
@@ -1021,14 +1027,18 @@ export const COMMANDS = {
         '  .claude/skills/mem-<name>/SKILL.md (+ marker; never ~/.claude) or',
         '  .pipeline/mem-skills.md; only released and [trial] leave.',
         '  effect: offered -> fetched of the hook offer; below the minimum count unknown, never 0.',
+        '  account/sharpen/version: the experience of an entry (src/experience.mjs). An error counts',
+        '  only inside the scope the entry declares (classes/files/topics); nothing is changed by itself.',
       ].join('\n'));
       return;
     }
     const sub = rest[0];
-    const known = ['usage', 'list', 'export', 'status', 'fetch', 'effect'];
+    const known = ['usage', 'list', 'export', 'status', 'fetch', 'effect', 'account', 'sharpen', 'version'];
     if (!known.includes(sub)) die(`skills: unknown subcommand '${sub}'. Known: ${known.join(', ')}`);
     const flags = { usage: ['json'], list: ['json'], export: ['format', 'target', 'types'],
-      status: ['issued-by', 'why', 'agent', 'json'], fetch: [], effect: ['json'] }[sub];
+      status: ['issued-by', 'why', 'agent', 'json'], fetch: [], effect: ['json'],
+      account: ['json'], sharpen: ['json'],
+      version: ['text', 'title', 'why', 'issued-by', 'authority', 'agent', 'classes', 'files', 'topics', 'json'] }[sub];
     checkFlags(args, [...flags, 'root'], `skills ${sub}`);
     const root = findRoot(args);
     requireConfig(root);
@@ -1085,6 +1095,45 @@ export const COMMANDS = {
       }
       return;
     }
+    if (sub === 'account') {
+      let usage = null;
+      try { usage = skillusage.measure(root); } catch { usage = null; }
+      let ks = experience.accounts(root, { usage });
+      const q = rest[1] ? String(rest[1]).replace(new RegExp(`^${skillregistry.PREFIX}`), '') : null;
+      if (q) ks = ks.filter((k) => k.name === q || k.id === q);
+      if (q && !ks.length) die(`skills account: no registry entry '${rest[1]}'`);
+      if (args.json) { out(JSON.stringify(ks, null, 2)); return; }
+      const scoped = ks.filter((k) => !k.withoutScope);
+      if (!q) out(`${ks.length} entries, ${scoped.length} with a scope, ${ks.length - scoped.length} without (no errors assigned).`);
+      for (const k of (q ? ks : scoped)) out(experience.accountText(k));
+      return;
+    }
+    if (sub === 'sharpen') {
+      if (!rest[1]) die('skills sharpen: name or id required (mem skills list).');
+      const ps = experience.packages(root, { name: rest[1] });
+      if (!ps.length) die(`skills sharpen: no registry entry '${rest[1]}'`);
+      out(args.json ? JSON.stringify(ps[0], null, 2) : experience.packageText(ps[0]));
+      return;
+    }
+    if (sub === 'version') {
+      if (!rest[1]) die('skills version: name or id required.');
+      // Scope: comma separated; "" clears an axis on purpose.
+      const axis = (v) => (typeof v === 'string' ? v.split(',').map((x) => x.trim()).filter(Boolean) : null);
+      const str = (v) => (typeof v === 'string' ? v : null);
+      try {
+        const r = experience.writeVersion(root, rest[1], {
+          text: str(args.text), title: str(args.title), why: str(args.why), authority: str(args.authority),
+          issued_by: str(args['issued-by']) ?? '', agent: str(args.agent),
+          classes: axis(args.classes), files: axis(args.files), topics: axis(args.topics),
+        });
+        out(args.json ? JSON.stringify({ new: r.entry.id, version_of: r.entry.version_of, status: 'trial' })
+          : `New version ${r.entry.id} of ${r.entry.version_of}: status trial (release only with `
+            + `'mem skills status ${r.entry.id} released --issued-by owner').`);
+      } catch (e) {
+        die(`skills version: refused — ${e.message}`);
+      }
+      return;
+    }
     if (sub === 'fetch') {
       if (!rest[1]) die('skills fetch: name or id required (mem skills list).');
       const r = skillregistry.fetchItem(root, rest[1]);
@@ -1094,6 +1143,53 @@ export const COMMANDS = {
     }
     const e = skilleffect.measure(root);
     out(args.json ? JSON.stringify(e, null, 2) : skilleffect.asText(e));
+  },
+
+  // L3/L2b: views over the experience drawers (src/experience.mjs); nothing is written.
+  experience: async ({ rest, args }) => {
+    const sub = rest[0];
+    if (isHelp(args) || sub === undefined) {
+      out([
+        'mem experience review [--json]   old fixes a newer learning questions (never marked obsolete by itself)',
+        'mem experience guards [--json]   which test guards which error (// error: <id>); did it come back after the test?',
+        'mem experience effect [--json]   repetition rate of a procedure\'s error classes before/after its release',
+        '',
+        '  Views over existing drawers; nothing is written. The system proposes, the owner decides.',
+      ].join('\n'));
+      return;
+    }
+    const known = ['review', 'guards', 'effect'];
+    if (!known.includes(sub)) die(`experience: unknown subcommand '${sub}'. Known: ${known.join(', ')}`);
+    checkFlags(args, ['json', 'root'], `experience ${sub}`);
+    const root = findRoot(args);
+    requireConfig(root);
+    if (sub === 'review') {
+      const m = experience.reviewMarks(root);
+      if (args.json) { out(JSON.stringify(m, null, 2)); return; }
+      out(m.length ? m.map((x) => `  review: fix ${x.fix} — newer learning ${x.learning} generalizes error ${x.error}`).join('\n') : 'no fix to review.');
+      return;
+    }
+    if (sub === 'guards') {
+      const g = experience.guards(root);
+      if (args.json) { out(JSON.stringify(g, null, 2)); return; }
+      if (!g.readable) die('experience guards: test/ not readable.');
+      const n = {};
+      for (const p of g.pairs) n[p.state] = (n[p.state] ?? 0) + 1;
+      out(`${g.pairs.length} test-error pair(s): ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`);
+      for (const p of g.pairs.filter((x) => x.state === 'suspicion')) {
+        out(`  suspicion: ${p.test} guards ${p.error} (commit ${p.commit}) — after it: ${p.back.map((w) => `${w.id} [${w.via}]`).join(', ')}`);
+      }
+      return;
+    }
+    const w = experience.procedureEffect(root);
+    if (args.json) { out(JSON.stringify(w, null, 2)); return; }
+    const n = {};
+    for (const x of w) n[x.verdict] = (n[x.verdict] ?? 0) + 1;
+    out(`${w.length} procedure(s): ${Object.entries(n).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`);
+    for (const x of w.filter((y) => y.verdict !== 'unknown')) {
+      out(`  ${x.verdict}: ${x.name} (${x.id}) — before ${x.before.errors} errors/${x.before.repetitions} repetitions, `
+        + `after ${x.after.errors}/${x.after.repetitions} (${x.reason}; numbers, not a causal proof)`);
+    }
   },
 
   modelcost: async ({ args }) => {

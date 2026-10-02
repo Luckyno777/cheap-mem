@@ -103,7 +103,7 @@ export const COMMANDS = {
         '                     a model now; charges grants/budgets once. exit 1 = run handler',
         'mem inbox allow      --letters N | --tokens N [--until DATE] [--to N] --authority user',
         '                     a budget for waking messages (user only, append-only ledger)',
-        'mem inbox permit <name> --authority user    permit one waking message (user only)',
+        'mem inbox permit <name> --authority user [--json]   permit one waking message (user only)',
         'mem inbox permissions                       budgets, grants, messages waiting',
         'mem inbox routes                            registered sessions per role',
         'mem inbox claim <name> [--as N] [--minutes 30]   take a message, with an expiry',
@@ -229,6 +229,8 @@ export const COMMANDS = {
       if (!args['no-mark']) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
       }
+      // S2c: the recipient got them — one `picked-up` event each (a `read` request is then done).
+      if (!args['no-mark']) for (const f of inbox.markPickedUp(root, { to, names: fresh.map((m) => m.name) }).failed) warn(`picked-up not recorded for ${f.name}: ${f.reason}`);
       duplicateLines(duplicates);
       receiptHint(fresh);
       return;
@@ -247,6 +249,7 @@ export const COMMANDS = {
       try { content = inbox.readMessage(root, name); } catch { die(`'${name}' is not in the inbox`); }
       const m = inbox.parse(content);
       if (m.to !== to) out(`(Warning: this message is to '${m.to}', not '${to}')`);
+      else inbox.markPickedUp(root, { to, names: [name] });
       // Z3/A8: the header is only the start state. If the effective state
       // differs (state event or claim), say so BEFORE the message.
       try {
@@ -357,7 +360,7 @@ export const COMMANDS = {
     }
 
     if (sub === 'permit') {
-      checkFlags(args, ['authority'], 'inbox permit');
+      checkFlags(args, ['authority', 'json'], 'inbox permit');
       const name = rest[1];
       if (!name) die('Missing name (inbox permit <name> --authority user)');
       let z;
@@ -368,6 +371,8 @@ export const COMMANDS = {
           by: inbox.whoAmI(root),
         });
       } catch (e) { die(e.message); }
+      // --json for the dashboard task `inbox-permit`: `new` names the appended line.
+      if (args.json) { out(JSON.stringify({ ...z, new: z.id })); return; }
       out(`Permit ${z.id}: ${z.message}`);
       out(`Ledger: ${mailpermit.FILE} — commit and push it like a message.`);
       return;
