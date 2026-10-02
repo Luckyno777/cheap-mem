@@ -128,7 +128,7 @@ function link(root, ids, projects) {
   return edges;
 }
 
-function world() {
+export function world() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-docs-images-'));
   assertRootIsTemp(r);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });

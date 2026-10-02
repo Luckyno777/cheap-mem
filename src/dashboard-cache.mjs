@@ -36,16 +36,35 @@
 //      the drawers (PLACES below, two levels deep, files only, without the
 //      derived caches in DERIVED).
 // What the stamp does not see (time-dependent fields such as "today"),
-// `ttlMs` catches: older than that is always rebuilt.
+// `ttlMs` catches: older than that is always rebuilt. The age counts from
+// the END of the build (board-tempo-cm): counted from its start, a build
+// that takes longer than the TTL would be "too old" the moment it finishes,
+// never fresh, and the next rebuild would follow at once.
+//
+// **Cold start (board-tempo-cm, 2026-10-02).** After a restart the memory
+// is empty, and the first request used to wait for the WHOLE build (35 s
+// at 100k entries, growing with the store). Now:
+//   - a head from the last run lies on disk (`fromDisk`, see
+//     dashboard-head.mjs) -> answer at once with it, `fresh:false`,
+//     `source:'disk'`, and rebuild in the background;
+//   - otherwise, with a small store (`syncAllowed`: drawers under
+//     `SYNC_UP_TO_BYTES`) -> synchronously as before (probes, fresh installs);
+//   - otherwise -> a placeholder (`source:'placeholder'`, state unknown with
+//     a reason) and the build in the background: first the quick head
+//     (`buildHead`, seconds, `source:'head'`), then the full build.
+// A head from disk, a quick head and a placeholder are NEVER fresh.
 //
 // invariant: three-states-never-two
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { frozenSet } from './frozenset.mjs';
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 import { performance } from 'node:perf_hooks';
 import * as backlinks from './backlinks.mjs';
+import * as memory from './memory.mjs';
+import * as archive from './archive.mjs';
 
 /** Maximum age of a cached result, even without a detected change. */
 export const TTL_MS = 60 * 1000;
@@ -65,6 +84,22 @@ export const SYNC_UP_TO_MS = 1000;
  */
 export const MIN_GAP_MS = 20 * 1000;
 
+/**
+ * Up to this size of the drawers (bytes) a cold start WITHOUT a stored head
+ * may build synchronously. A real store (a few MB of drawers, seconds of
+ * build) lies above it and gets the placeholder; probes (a few KB) stay
+ * synchronous and at once fresh.
+ */
+export const SYNC_UP_TO_BYTES = 1024 * 1024;
+
+/**
+ * Highest heap of the build worker (MB). The full build keeps the whole
+ * store in memory; without a cap a store that is too large would take the
+ * WHOLE server down (OOM in the process). With the cap only the worker
+ * fails — the server keeps answering with the last head and says why.
+ */
+const WORKER_HEAP_MB = Math.max(512, Math.min(4096, Math.floor(os.totalmem() / 1024 / 1024 / 2)));
+
 /** Machine-local sources of the dashboard outside the drawers (relative to the root). */
 export const PLACES = Object.freeze(['.mem', 'inbox', 'agents']);
 
@@ -76,6 +111,8 @@ export const PLACES = Object.freeze(['.mem', 'inbox', 'agents']);
  */
 export const DERIVED = frozenSet([
   'search-index', 'search-index.json', 'backlinks.json', 'langbridge', 'console.json', 'answer-patterns.json',
+  // board-tempo-cm: the head the server itself lays down after every build.
+  'dashboard-head.json',
 ]);
 const isDerived = (name) => DERIVED.has(name) || /heartbeat/.test(name);
 
@@ -116,7 +153,40 @@ export function generationStamp(root, { places = PLACES } = {}) {
   return `d=${drawers}|g=${gitPart(root)}|p=${acc.n}:${acc.bytes}:${acc.newest}`;
 }
 
-/** Run the build in a worker thread — the same call (`collectDashboard`), without blocking the server. */
+/**
+ * Bytes of the store, by `stat` only: the drawers, the archive manifest and
+ * the archived shard files (`shardarchive.mjs`). `null` for a part = not
+ * measurable. NOT through `backlinks.stamp`: that sees the drawers only, and
+ * an archived store would read as small.
+ *
+ * `build` is what the full build reads (drawers + manifest): the archived
+ * shards cost it nothing, so they count into `total` (what the head reports)
+ * but NOT into the decision whether the full build still runs.
+ */
+export function storeBytes(root, { env = process.env } = {}) {
+  const size = (p) => { try { return fs.statSync(p).size; } catch { return 0; } };
+  try {
+    let drawers = 0;
+    for (const project of [null, ...memory.listProjects(root)]) {
+      for (const type of Object.keys(memory.TYPES)) {
+        try { drawers += size(memory.logPath(root, type, project)); } catch { /* unknown project name */ }
+      }
+    }
+    const manifest = size(path.join(root, 'archive-manifest.jsonl'));
+    let shards = 0;
+    try {
+      const dir = path.join(archive.readConfig(env, root).location, 'shards');
+      for (const name of fs.readdirSync(dir)) shards += size(path.join(dir, name));
+    } catch { /* no archive: no shards */ }
+    return { drawers, manifest, shards, build: drawers + manifest, total: drawers + manifest + shards };
+  } catch { return null; }
+}
+
+/**
+ * Run the build in a worker thread — the same call (`collectDashboard`),
+ * without blocking the server. `options.kind === 'head'` builds only the
+ * light head (dashboard-head.mjs). The heap is capped (`WORKER_HEAP_MB`).
+ */
 export async function buildInWorker(root, options = {}) {
   // The worker imports the data module fresh; without this it would
   // measure ITS OWN start as "the code at start" and `stale` could never
@@ -126,7 +196,10 @@ export async function buildInWorker(root, options = {}) {
   return new Promise((resolve, reject) => {
     // The worker runs THIS module (the branch at the end of the file) —
     // no second module, so nothing here is out of the CLI's reach.
-    const w = new Worker(new URL(import.meta.url), { workerData: { dashboardCacheBuild: true, root, options, codeHeadAtStart: headAtStart } });
+    const w = new Worker(new URL(import.meta.url), {
+      workerData: { dashboardCacheBuild: true, root, options, codeHeadAtStart: headAtStart },
+      resourceLimits: { maxOldGenerationSizeMb: WORKER_HEAP_MB },
+    });
     w.unref();
     let done = false;
     w.once('message', (m) => {
@@ -146,21 +219,30 @@ export async function buildInWorker(root, options = {}) {
  *   buildInBackground()   a Promise, for the large store
  *   stamp()               the generation stamp
  *   afterBackgroundBuild() optional, after every background build (pre-work)
+ *   fromDisk()            optional, the head of the last run
+ *                         ({data, stamp, builtMs, durationMs}) or null — cold start only
+ *   syncAllowed()         optional, may a cold start without a stored head build synchronously
+ *   placeholder()         optional, the data for "nothing built yet"
+ *   buildHead()           optional, a Promise: a quick partial build (the head)
+ *                         that runs BEFORE the full build while only the
+ *                         placeholder stands — counts as `source:'head'`, never fresh
  */
 export function createCache({
   build, buildInBackground, stamp, afterBackgroundBuild = null,
+  fromDisk = () => null, syncAllowed = () => true,
+  placeholder = () => ({ state: 'unknown', reasons: ['not built yet'] }), buildHead = null,
   ttlMs = TTL_MS, syncUpToMs = SYNC_UP_TO_MS, minGapMs = MIN_GAP_MS, now = () => Date.now(),
 } = {}) {
-  let current = null; // { id, data, stamp, builtMs, durationMs }
+  let current = null; // { id, data, stamp, builtMs, durationMs, source: 'build'|'disk'|'placeholder'|'head' }
   let running = null; // Promise of the background build
   let failure = null; // reason of the last failed background build
   let lastStart = -Infinity;
   let counter = 0;
 
-  const store = (data, s, start, durationMs) => {
+  const store = (data, s, start, durationMs, source = 'build') => {
     counter += 1;
-    current = { id: counter, data, stamp: s, builtMs: start, durationMs };
-    failure = null;
+    current = { id: counter, data, stamp: s, builtMs: start, durationMs, source };
+    if (source === 'build') failure = null;
   };
   const synchronous = (s) => {
     const start = now();
@@ -171,11 +253,27 @@ export function createCache({
   const background = (s) => {
     if (running) return;
     const start = now();
-    if (start - lastStart < minGapMs) return;
+    // A build that takes longer than the TTL (100k entries: ~35 s, 1M: much
+    // more) would otherwise follow itself without a pause. So at most a
+    // quarter of the time is spent building. 0 (probes only) stays 0.
+    const gap = minGapMs > 0 ? Math.max(minGapMs, (current?.durationMs ?? 0) * 4) : 0;
+    if (start - lastStart < gap) return;
     lastStart = start;
     const t0 = performance.now();
     running = Promise.resolve()
-      .then(() => buildInBackground())
+      .then(async () => {
+        // Only the placeholder stands: first the quick head (seconds), then
+        // the full build (minutes for a large store).
+        if (buildHead && current?.source === 'placeholder') {
+          const t1 = performance.now();
+          try {
+            const h = await buildHead();
+            store(h, s, start, Math.round(performance.now() - t1), 'head');
+            if (afterBackgroundBuild) { try { afterBackgroundBuild(); } catch { /* pre-work only */ } }
+          } catch { /* the full build follows anyway */ }
+        }
+        return buildInBackground();
+      })
       .then((data) => { store(data, s, start, Math.round(performance.now() - t0)); })
       .catch((e) => { failure = `rebuild failed: ${e?.message || e}`; })
       .finally(() => {
@@ -184,33 +282,51 @@ export function createCache({
       });
   };
 
+  // The age counts from the END of the build (see the header).
+  const age = () => now() - current.builtMs - (current.durationMs || 0);
   return {
     /** The state for ONE answer. Throws only when the synchronous build throws. */
     get() {
       const s = stamp();
-      if (!current) synchronous(s);
-      else {
-        const tooOld = now() - current.builtMs > ttlMs;
-        if ((current.stamp !== s || tooOld) && !running) {
-          if (current.durationMs <= syncUpToMs) synchronous(s);
+      if (!current) {
+        // Cold start (header): the stored head first, then synchronous only
+        // for a small store, otherwise the placeholder.
+        let stored = null;
+        try { stored = fromDisk(); } catch { stored = null; }
+        if (stored) store(stored.data, stored.stamp, stored.builtMs, stored.durationMs, 'disk');
+        else if (syncAllowed()) synchronous(s);
+        else store(placeholder(), null, now(), 0, 'placeholder');
+        if (current.source !== 'build') background(s);
+      } else {
+        const tooOld = age() > ttlMs;
+        if ((current.source !== 'build' || current.stamp !== s || tooOld) && !running) {
+          if (current.source === 'build' && current.durationMs <= syncUpToMs) synchronous(s);
           else background(s);
         }
       }
-      const tooOld = now() - current.builtMs > ttlMs;
-      const fresh = current.stamp === s && !tooOld && !failure;
+      const tooOld = age() > ttlMs;
+      // A head from disk or a placeholder is NEVER fresh: it lacks the
+      // deferred lists, and this process did not build it.
+      const fresh = current.source === 'build' && current.stamp === s && !tooOld && !failure;
       let reason = null;
       if (failure) reason = failure;
+      else if (current.source === 'disk') reason = 'state of the last run (from disk), rebuild running';
+      else if (current.source === 'placeholder') reason = 'first build since the start is running, no stored state yet';
+      else if (current.source === 'head') reason = 'head only (counters, newest entries), full build running';
       else if (current.stamp !== s) reason = 'store changed since the build';
       else if (tooOld) reason = `older than ${Math.round(ttlMs / 1000)} s`;
       return {
         id: current.id,
         data: current.data,
+        stamp: current.stamp,
+        source: current.source,
         meta: {
           built_at: new Date(current.builtMs).toISOString(),
           build_ms: current.durationMs,
           fresh,
           refreshing: Boolean(running),
           reason,
+          source: current.source,
         },
       };
     },
@@ -224,9 +340,12 @@ export function createCache({
 // the data. Runs only inside a worker started by `buildInWorker()`.
 if (!isMainThread && workerData?.dashboardCacheBuild) {
   const { root, options } = workerData;
-  import('./dashboard-data.mjs')
-    .then((dashboardData) => {
-      const data = dashboardData.collectDashboard(root, { ...options, env: options.env ?? process.env });
+  Promise.all([import('./dashboard-data.mjs'), import('./dashboard-head.mjs')])
+    .then(([dashboardData, dashboardHead]) => {
+      const { kind, ...rest } = options;
+      const data = kind === 'head'
+        ? dashboardHead.lightHead(root, rest)
+        : dashboardData.collectDashboard(root, { ...rest, env: rest.env ?? process.env });
       parentPort.postMessage({ ok: true, data });
     })
     .catch((e) => parentPort.postMessage({ ok: false, reason: e?.message || String(e) }));

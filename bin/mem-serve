@@ -56,6 +56,7 @@ import * as dashboardPage from '../src/dashboard-page.mjs';
 import * as entriesPage from '../src/entries-page.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
+import * as dashboardHead from '../src/dashboard-head.mjs';
 import * as fulltext from '../src/fulltext.mjs';
 import * as pwa from '../src/pwa.mjs';
 import * as icon from '../src/icon.mjs';
@@ -309,16 +310,97 @@ export function buildHandler(root, cfg, env = process.env) {
   // background builds (otherwise 20 s). Without this variable (normal
   // operation) unchanged.
   const syncUpToMsTest = env.CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS;
+  // board-tempo-cm: the route of the paged `entries` part, and the light
+  // head (only counters and the newest entries) for a store the full build
+  // cannot handle — with its reason.
+  const entriesRoute = `${dashboardPage.PATHS.part}?part=entries`;
+  let fullFailed = null; // { bytes, reason } — see buildInBackground
+  const lightBuild = (reason) => dashboardCache.buildInWorker(root, {
+    kind: 'head', title: cfg.title, writesAllowed: writesAllowed(), reason, types: dashboardData.typesList(), route: entriesRoute,
+  });
   const dashCache = dashboardCache.createCache({
     build: () => dashboardData.collectDashboard(root, dashOptions(writesAllowed())),
-    buildInBackground: () => dashboardCache.buildInWorker(root, { ...dashOptions(writesAllowed()), env: { ...env } }),
+    // Over FULL_BUILD_UP_TO_BYTES, or when the full build already failed at
+    // this size in the worker (heap cap): only the light head, with a
+    // reason — not minutes and gigabytes again with every rebuild.
+    buildInBackground: async () => {
+      const bytes = dashboardCache.storeBytes(root, { env });
+      const b = bytes?.build ?? null;
+      if (b !== null && b > dashboardHead.FULL_BUILD_UP_TO_BYTES) {
+        return lightBuild(`Drawers ${Math.round(b / 1048576)} MB: the full build runs only up to ${Math.round(dashboardHead.FULL_BUILD_UP_TO_BYTES / 1048576)} MB. Only counters and newest entries; the tiles are unknown.`);
+      }
+      if (fullFailed && b !== null && b >= fullFailed.bytes) return lightBuild(fullFailed.reason);
+      try {
+        return await dashboardCache.buildInWorker(root, { ...dashOptions(writesAllowed()), env: { ...env } });
+      } catch (e) {
+        const reason = `Full build failed (${e?.message || e}). Only counters and newest entries; the tiles are unknown.`;
+        if (b !== null) fullFailed = { bytes: b, reason };
+        return lightBuild(reason);
+      }
+    },
+    // The quick head BEFORE the full build, while only the placeholder stands.
+    buildHead: () => lightBuild('First state since the start: only counters and newest entries, the full build is still running.'),
     // The write gate is part of the data (`writesAllowed`) — part of the stamp too.
     stamp: () => `${dashboardCache.generationStamp(root)}|w=${writesAllowed()}`,
     ...(syncUpToMsTest !== undefined ? { syncUpToMs: Number(syncUpToMsTest), minGapMs: 0 } : {}),
     // Serialize and pack the new state right away — otherwise the first
     // request afterwards would pay for packing.
     afterBackgroundBuild: () => { dashboardAnswerText(dashCache.get()).gzip(); },
+    // Cold start without waiting for the full build: the head of the last
+    // run from disk, otherwise (a small store) synchronously as before,
+    // otherwise the placeholder.
+    fromDisk: () => dashboardHead.readHead(root),
+    syncAllowed: () => {
+      const b = dashboardCache.storeBytes(root, { env })?.build ?? null;
+      return b !== null && b <= dashboardCache.SYNC_UP_TO_BYTES;
+    },
+    placeholder: () => dashboardData.placeholder({ title: cfg.title, writesAllowed: writesAllowed() }),
   });
+  // **The head per state (board-tempo-cm).** The first answer carries only
+  // the newest entries + `overview`; the full, sorted list stays here for
+  // `/dashboard/part.json?part=entries`. Computed once per state and (for a
+  // real build) laid down on disk.
+  let headState = null; // { id, head, sorted }
+  const layDown = (st, head) => {
+    try {
+      dashboardHead.writeHead(root, head, { stamp: st.stamp ?? '', builtMs: Date.parse(st.meta.built_at), durationMs: st.meta.build_ms });
+    } catch (err) {
+      process.stderr.write(`serve: dashboard head could not be laid down: ${err?.message || err}\n`);
+    }
+  };
+  function headOf(st) {
+    if (headState?.id === st.id) return headState;
+    const { data } = st;
+    if (st.source !== 'build' || data.light || data.placeholder) {
+      // The git and process state is LIVE, never from the last run: a head
+      // from disk comes from another process (wrong "process stale" mark).
+      const meta = { ...(data.meta ?? {}) };
+      try { meta.git = consolePage.gitState(root); } catch { /* stays what it was */ }
+      try { meta.code = dashboardData.codeState(); } catch { /* stays what it was */ }
+      headState = { id: st.id, head: { ...data, meta }, sorted: null };
+      // A light head is a real (partial) build: lay it down like any other.
+      if (st.source === 'build' || st.source === 'head') layDown(st, headState.head);
+      return headState;
+    }
+    const head = { ...data, parts: {} };
+    // The deferred parts: list out, path and count in (readable ones only —
+    // an unreadable section keeps its reason and has no list).
+    for (const [name, p] of Object.entries(DEFERRED_PARTS)) {
+      const list = data[p.section]?.[p.field];
+      if (!p.readable(data) || !Array.isArray(list)) continue;
+      const { [p.field]: _gone, ...rest } = data[p.section];
+      head[p.section] = rest;
+      head.parts[name] = { path: `${dashboardPage.PATHS.part}?part=${name}`, count: list.length };
+    }
+    const open = new Set([...(data.openDuties || []), ...(data.openQuestions || [])].map((x) => x.id));
+    const e = dashboardHead.headEntries(data.entries || [], { open, route: entriesRoute });
+    head.entries = e.entries;
+    head.overview = e.overview;
+    if (e.part) head.parts.entries = e.part;
+    headState = { id: st.id, head, sorted: e.sorted };
+    layDown(st, head);
+    return headState;
+  }
   let dashText = null; // { key, plain, gzip() } — the last serialized text
   const packedPerVersion = new Map(); // 'path:version' -> gzip of a page file (tempo)
   function dashboardAnswerText(st) {
@@ -340,7 +422,7 @@ export function buildHandler(root, cfg, env = process.env) {
     //
     // tempo: the cached data is NOT modified (it serves many answers) —
     // the live fields go into a copy of `catalog.mcp`.
-    const { data } = st;
+    const data = headOf(st).head;
     let mcpNew = null;
     try {
       const mcp = data.catalog?.mcp;
@@ -372,16 +454,6 @@ export function buildHandler(root, cfg, env = process.env) {
     }, st.meta]);
     if (dashText?.key === key) return dashText;
     const whole = mcpNew ? { ...data, catalog: { ...data.catalog, mcp: mcpNew } } : { ...data };
-    // The deferred parts: list out, path and count in (readable ones only —
-    // an unreadable section keeps its reason and has no list).
-    whole.parts = {};
-    for (const [name, p] of Object.entries(DEFERRED_PARTS)) {
-      const list = data[p.section]?.[p.field];
-      if (!p.readable(data) || !Array.isArray(list)) continue;
-      const { [p.field]: _gone, ...rest } = data[p.section];
-      whole[p.section] = rest;
-      whole.parts[name] = { path: `${dashboardPage.PATHS.part}?part=${name}`, count: list.length };
-    }
     whole.cache = st.meta;
     const plain = JSON.stringify(whole);
     let packed = null;
@@ -617,9 +689,9 @@ export function buildHandler(root, cfg, env = process.env) {
     if (url.pathname === dashboardPage.PATHS.part) {
       const name = url.searchParams.get('part') || '';
       const p = Object.hasOwn(DEFERRED_PARTS, name) ? DEFERRED_PARTS[name] : null;
-      if (!p) {
+      if (!p && name !== 'entries') {
         res.writeHead(404, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-          .end(JSON.stringify({ state: 'unknown', reason: `no deferred part '${name}' (known: ${Object.keys(DEFERRED_PARTS).join(', ')})` }));
+          .end(JSON.stringify({ state: 'unknown', reason: `no deferred part '${name}' (known: ${[...Object.keys(DEFERRED_PARTS), 'entries'].join(', ')})` }));
         return;
       }
       let st;
@@ -628,10 +700,25 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(JSON.stringify({ state: 'error', reason: e?.message || String(e) }));
         return;
       }
-      const list = st.data[p.section]?.[p.field];
-      const found = p.readable(st.data) && Array.isArray(list)
-        ? { state: 'ok', part: name, data: list, cache: st.meta }
-        : { state: 'unknown', part: name, data: null, reason: st.data[p.section]?.reason || `${p.section} not readable`, cache: st.meta };
+      // board-tempo-cm: before the first real build (a head from disk, a
+      // quick head or the placeholder) there is no list — "unknown" with
+      // `building`, the page asks again later; never an empty list.
+      let found;
+      if (st.source !== 'build') {
+        found = { state: 'unknown', part: name, data: null, building: true, reason: st.meta.reason || 'list not built yet', cache: st.meta };
+      } else if (name === 'entries' && !headOf(st).sorted) {
+        // Light head: this state has no full list.
+        found = { state: 'unknown', part: name, data: null, head_only: true, reason: (st.data.reasons || [])[0] || 'head only', cache: st.meta };
+      } else if (name === 'entries') {
+        // Page by page from the sorted list of THIS state; `state_id` lets
+        // the page notice when a rebuild happened between two pages.
+        found = { state: 'ok', part: name, ...dashboardHead.page(headOf(st).sorted, url.searchParams.get('from'), url.searchParams.get('n')), state_id: st.id, cache: st.meta };
+      } else {
+        const list = st.data[p.section]?.[p.field];
+        found = p.readable(st.data) && Array.isArray(list)
+          ? { state: 'ok', part: name, data: list, cache: st.meta }
+          : { state: 'unknown', part: name, data: null, reason: st.data[p.section]?.reason || `${p.section} not readable`, cache: st.meta };
+      }
       const body = JSON.stringify(found);
       if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
         res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8', 'content-encoding': 'gzip', vary: 'accept-encoding' })
@@ -675,6 +762,10 @@ export function buildHandler(root, cfg, env = process.env) {
       if (!a.ok) { json(a.code, { state: a.code === 404 ? 'unknown' : 'error', reason: a.reason }); return; }
       let st;
       try { st = dashCache.get(); } catch (e) { json(500, { state: 'error', reason: e?.message || String(e) }); return; }
+      // board-tempo-cm: a head from disk / a quick head / the placeholder (or
+      // a light head) does not carry every entry — a package from it would be
+      // silently incomplete. Refused honestly, the caller asks again.
+      if (st.source !== 'build' || st.data.light) { json(503, { state: 'unknown', building: true, reason: st.meta.reason || (st.data.reasons || [])[0] || 'not built yet', cache: st.meta }); return; }
       if (url.searchParams.get('preview') === '1') {
         json(200, { ...projectPackage.preview(st.data, a), cache: st.meta });
         return;
