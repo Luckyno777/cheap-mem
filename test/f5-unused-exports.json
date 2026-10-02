@@ -35,7 +35,6 @@
  "src/filelock.mjs": 2,
  "src/fulltext.mjs": 1,
  "src/goldlog.mjs": 1,
- "src/hybrid.mjs": 1,
  "src/icon.mjs": 1,
  "src/inbox.mjs": 9,
  "src/indexcache.mjs": 1,
