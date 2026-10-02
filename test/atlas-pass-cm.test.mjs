@@ -406,14 +406,25 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): over the line only a ligh
   } finally { fs.rmSync(tmpScript, { force: true }); }
 });
 
-test('cache: a quick head may be skipped (buildHead answers null) — the next build follows at once', async () => {
-  let built = 0;
-  const c = cache.createCache({
-    build: () => ({ kind: 'full' }), buildInBackground: async () => { built += 1; return { kind: 'bg' }; },
+test('cache: a quick head may be skipped (buildHead answers null) — nothing null is stored as a state', async () => {
+  let during = null;
+  let c;
+  c = cache.createCache({
+    build: () => ({ kind: 'full' }), buildInBackground: async () => { during = c.get(); return { kind: 'bg' }; },
     stamp: () => 's', syncAllowed: () => false, buildHead: async () => null, minGapMs: 0,
   });
   assert.equal(c.get().source, 'placeholder');
   await c.waitForRebuild();
+  assert.equal(during.source, 'placeholder', 'while the build runs the placeholder stands — a skipped head is not a state');
+  assert.notEqual(during.data, null);
   assert.equal(c.get().data.kind, 'bg');
-  assert.equal(built, 1);
+  // positive control: a head that IS built becomes the state while the build runs
+  let during2 = null;
+  const c2 = cache.createCache({
+    build: () => ({ kind: 'full' }), buildInBackground: async () => { during2 = c2.get(); return { kind: 'bg' }; },
+    stamp: () => 's', syncAllowed: () => false, buildHead: async () => ({ kind: 'quick' }), minGapMs: 0,
+  });
+  c2.get();
+  await c2.waitForRebuild();
+  assert.equal(during2.source, 'head');
 });
