@@ -151,7 +151,7 @@ directory. The section number in brackets is where it is explained.
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
 | `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
-| `projectpackage.mjs` | the project package export behind the board's "JSON package" button: same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
+| `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |

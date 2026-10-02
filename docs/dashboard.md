@@ -34,9 +34,13 @@ Writing routes and their switch: `docs/dashboard-writes.md`.
   `mem board`, which stays on the CLI), and the 3D network.
 - **Knowledge**: entries, network, topics, facts, learnings, skills.
 - **Work**: duties and questions, agents, inbox, agent context, usage,
-  and the user and ledger view.
+  and the user and ledger view. The agents page is a table: a summary
+  bar on top, then one row per agent, grouped into needs attention,
+  active (last 7 days) and idle.
 - **Sources**: projects, files and store, raw captures, digest, and the
-  export studio.
+  export studio. The export studio builds a JSON package of one project
+  (`/dashboard/project-package.json`), previewed from the same
+  selection; the offline reading view is `mem viewer`.
 - **Operations**: storage and drawers, tasks, diagnosis (the doctor),
   performance, integrity, versions, MCP tools.
 - **Settings**: appearance, access, system settings (the console's knobs
