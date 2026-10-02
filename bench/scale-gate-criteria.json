@@ -1,0 +1,198 @@
+{
+  "schema": 1,
+  "name": "cheap-mem scale gate, pre-registered pass criteria",
+  "registeredOn": "2026-10-02",
+  "decision": "Owner, 2026-10-02: only option 1 - run it in the container only, at most 1,000,000 entries, on a quiet machine later; nothing on the VM.",
+  "rule": "Committed BEFORE any run of bench/scale-gate.mjs. The gate records the SHA-256 of this file in every result row and refuses to run when the file differs from the committed one. A bound is changed only by a new commit that says why, never after seeing a result. A value that was not measured is UNKNOWN, never a pass; an aborted rung is UNKNOWN, never a failure.",
+  "baselineRung": 10000,
+  "defaultRungs": [10000, 100000, 1000000],
+  "vocabulary": "bench/heaps-corpus.mjs (Heaps-law growing vocabulary, K 138.6 and beta 0.618: lucky-mem's fit on a German memory, transfer to English unmeasured, see that file's header). The gold world (bench/gold/world.jsonl, 53 entries) is written through the real writer on top of the filler, filler timestamps end before the gold timestamps.",
+  "headroom": {
+    "value": 2,
+    "why": "A documented figure is one measurement on one day on a shared 4-core container (load average 3 to 8 at the time, see the sources). A bound at exactly the documented figure would fail on noise. Factor 2 is a choice, stated here, not derived: the documented 10k to 100k exponents differ from run to run by about that much (cold-find.json 20k to 200k: 0.79; value-report speed.json 10k to 100k: 0.71)."
+  },
+  "corpusWeights": {
+    "why": "Every documented timing was measured on bench/scale.mjs's corpus (about 262 bytes per entry). The gate's corpus is bench/heaps-corpus.mjs (about 1,080 bytes per entry), so each documented figure is multiplied by a measured ratio of the two corpora. The ratios come from ONE calibration run on 2026-10-02, 10,000 entries each, same code, same machine, load average about 7 (so noisy). That run measured the corpora against each other, not any rung against any bound. Re-measure with the same two calls (buildCorpus vs synthesizeCorpus, `mem find`, loadIndex+search) and commit a new weight if it moves.",
+    "calibration": {
+      "entries": 10000,
+      "scale": { "firstFindMs": 1985, "coldFindMedianMs": 715, "warmSearchMedianMs": 34.5, "bytesOnDisk": 9874217 },
+      "heaps": { "firstFindMs": 19231, "coldFindMedianMs": 1437, "warmSearchMedianMs": 36.6, "bytesOnDisk": 46849855 }
+    },
+    "build": 9.69,
+    "cold": 2.01,
+    "warm": 1.06,
+    "rss": 4.74,
+    "rssNote": "RSS was not measured in the calibration; the bytes-on-disk ratio stands in for it (an assumption, named here)."
+  },
+  "criteria": [
+    {
+      "id": "gold-pass3-drop",
+      "what": "Recall quality on the gold questions (bench/gold/cases.jsonl, 44 scored cases): share that pass at rank 3 with no forbidden id in the top 3. Must not drop more than 5.0 percentage points against the 10,000-entry rung.",
+      "metric": "goldPass3Pct",
+      "kind": "max-drop",
+      "maxDrop": 5.0,
+      "source": "docs/value-report/recall.json (2026-10-01, a831c45): group 'all' pass at 3 was 72.7 at 10k and 72.7 at 100k, a drop of 0. 5.0 points is two of 44 cases (2.3 points each); the documented at-10 drop 10k to 100k was one case (84.1 to 81.8)."
+    },
+    {
+      "id": "gold-at10-drop",
+      "what": "Gold questions: share whose expected id is in the top 10. Must not drop more than 5.0 points against the 10,000-entry rung.",
+      "metric": "goldAt10Pct",
+      "kind": "max-drop",
+      "maxDrop": 5.0,
+      "source": "docs/value-report/recall.json (2026-10-01, a831c45): group 'all' at 10 was 84.1 at 10k and 81.8 at 100k (one case, 2.3 points). Same 5.0 as above."
+    },
+    {
+      "id": "heaps-anchor-at10-drop",
+      "what": "Recall on the heaps questions: 30 entries spread evenly over the filler, each asked by its first four title words; share whose own id is in the top 10. Must not drop more than 5.0 points against the 10,000-entry rung of the same run.",
+      "metric": "anchorAt10Pct",
+      "kind": "max-drop",
+      "maxDrop": 5.0,
+      "source": "No documented figure exists for this question set (it is new). The baseline is the 10k rung of the same run, the limit is the same 5.0 points as for the gold set (1.67 points per question at 60, 3.3 at 30: so one to two questions). Stated as a choice."
+    },
+    {
+      "id": "cold-find-p95",
+      "what": "p95 over the question set of a fresh `mem find` process (index read from the cache on disk), in ms.",
+      "metric": "coldP95Ms",
+      "kind": "max",
+      "bound": {
+        "anchors": [[1000, 316.15], [10000, 560.19], [100000, 2688.66], [200000, 5281.96]],
+        "extrapolateExponent": 0.79,
+        "weight": "cold",
+        "headroom": 2
+      },
+      "source": "Anchors: bench/cold-find.json (2026-09-29) cold p95 1k 316.15 ms and 200k 5281.96 ms; docs/value-report/speed.json (2026-10-01) cold p95 10k 560.19 ms and 100k 2688.66 ms. Between anchors: log-log interpolation. Beyond 200k: exponent 0.79, the cold-find.json exponent 20k (860.89 ms) to 200k (5281.96 ms). Times the cold corpus weight and the headroom."
+    },
+    {
+      "id": "warm-find-p95",
+      "what": "p95 over the question set of search() on an already loaded index (a fresh child process loads once, the second round is timed), in ms.",
+      "metric": "warmP95Ms",
+      "kind": "max",
+      "bound": {
+        "anchors": [[1000, 17.826], [10000, 28.79], [20000, 78.346], [100000, 289.008], [200000, 697.022]],
+        "extrapolateExponent": 1.0,
+        "weight": "warm",
+        "headroom": 2
+      },
+      "source": "Anchors: bench/cold-find.json warm p95 1k 17.826 ms, 20k 78.346 ms, 200k 697.022 ms; docs/value-report/speed.json warm p95 10k 28.79 ms, 100k 289.008 ms. Beyond 200k: exponent 1.0, the documented 10k to 100k warm p95 exponent (speed.json growth: 1) and the header of bench/scale.mjs (search is linear). Times the warm corpus weight and the headroom."
+    },
+    {
+      "id": "warm-service-p95",
+      "what": "p95 of the questions after the first through the warm recall server (src/recallserver.mjs over its Unix socket, memo on, as `mem serve` runs it), in ms.",
+      "metric": "serviceP95Ms",
+      "kind": "max",
+      "bound": {
+        "anchors": [[2000, 10], [20000, 38], [200000, 479]],
+        "extrapolateExponent": 1.1,
+        "weight": "warm",
+        "headroom": 2
+      },
+      "source": "CHANGELOG.md, 'Added - cold path: the long-lived processes keep the index in memory' (bench/warm-recall.mjs, load about 8): 200k p95 479 ms; 20k p50 38 ms and 2k p50 10 ms (only medians are documented there for 2k and 20k, so those two anchors understate a p95; the headroom has to cover that). Beyond 200k: exponent 1.1, from 38 ms (20k) to 479 ms (200k) = 1.10. Times the warm corpus weight and the headroom."
+    },
+    {
+      "id": "build-time",
+      "what": "Wall time of the first `mem find` after the corpus is written (it builds the index cache), in ms.",
+      "metric": "buildMs",
+      "kind": "max",
+      "bound": {
+        "anchors": [[10000, 1604.2], [100000, 14341.9]],
+        "extrapolateExponent": 0.95,
+        "weight": "build",
+        "headroom": 2
+      },
+      "source": "docs/value-report/speed.json firstSearch (2026-10-01): 10k 1604.2 ms, 100k 14341.9 ms. Exponent 0.95 = ln(14341.9/1604.2)/ln(10), the same two numbers. Times the build corpus weight (9.69, the heaps entries are about four times larger and carry a larger vocabulary) and the headroom."
+    },
+    {
+      "id": "build-peak-rss",
+      "what": "Peak resident memory (VmHWM) of the process that builds the index, in MB.",
+      "metric": "buildPeakRssMb",
+      "kind": "max",
+      "bound": {
+        "anchors": [[10000, 24.1], [100000, 212.2], [1000000, 1524.7]],
+        "extrapolateExponent": 0.86,
+        "weight": "rss",
+        "headroom": 2,
+        "floor": 512,
+        "ceiling": 12288
+      },
+      "source": "bench/scale.mjs header (2026-09-05): index heap 24.1 MB at 10k, 212.2 MB at 100k, 1524.7 MB at 1M (a HEAP figure from before the on-disk index cache; the only documented size-by-size memory figure in the repo). Times the rss corpus weight and the headroom. Floor 512 MB: a choice, because a Node process exists at all (not documented). Ceiling 12288 MB: the container has 15 GB RAM (measured 2026-10-02); a bound above that would be no bound."
+    },
+    {
+      "id": "doctor-answers",
+      "what": "`mem doctor` answers: exits 0, 1 or 2, prints findings, does not time out. The findings themselves are recorded, not judged: a synthetic corpus is allowed to have warnings.",
+      "metric": "doctorAnswered",
+      "kind": "true",
+      "timeoutMs": 1800000,
+      "source": "bench/atlas-baseline.json finding real.cli.doctor-time: a doctor run answered in 15.8 s over 2,429 real entries with exit status 2, and 'over 60000 ms means hung' for that size. No doctor time at scale is documented, so the 30 minute deadline is a choice; the measured time is recorded, not bounded."
+    },
+    {
+      "id": "dashboard-first-answer",
+      "what": "`bin/mem-serve` is up and its first GET /dashboard.json answers 200 with JSON, in ms from the first request.",
+      "metric": "dashboardFirstMs",
+      "kind": "max",
+      "bound": {
+        "anchors": [[1000, 60], [1000000, 60]],
+        "extrapolateExponent": 0,
+        "weight": null,
+        "headroom": 2,
+        "floor": 2000
+      },
+      "source": "CHANGELOG.md, board tempo tables: the first answer is a placeholder in 0.03 to 0.06 s at every size from 213 entries to 1,000,000. Floor 2000 ms: a choice (a shared machine and an HTTP round trip are not 60 ms)."
+    },
+    {
+      "id": "dashboard-counters",
+      "what": "Time until the dashboard answer carries the counters (an `overview`), in ms from the first request.",
+      "metric": "dashboardCountersMs",
+      "kind": "max",
+      "bound": {
+        "anchors": [[10000, 560], [100000, 1100], [1000000, 10900]],
+        "extrapolateExponent": 1.0,
+        "weight": null,
+        "headroom": 2,
+        "floor": 5000
+      },
+      "source": "CHANGELOG.md, board tempo tables: counters shown 0.56 s at 10k, 1.1 s at 100k (light head), 10.9 s at 1,000,000 (compact build). Floor 5000 ms: a choice. No corpus weight: the figures are for the dashboard's own build, which reads the same entries."
+    },
+    {
+      "id": "link-map-answers",
+      "what": "`mem net` (the declared-link map, read only) answers: exit 0 within 30 minutes.",
+      "metric": "netAnswered",
+      "kind": "true",
+      "timeoutMs": 1800000,
+      "source": "No documented time at scale. The 30 minute deadline is a choice; the time and the peak RSS are recorded, not bounded."
+    },
+    {
+      "id": "time-questions-answer",
+      "what": "The four time questions (`--since` as a date and as a duration, `--as-of` twice) all exit 0 and return JSON hits. The `--since` path bypasses the index, so it is the scan path.",
+      "metric": "timeAnswered",
+      "kind": "true",
+      "source": "src/cli/commands/search.mjs help text: --literal and --since bypass the index. No documented time; the times are recorded, not bounded."
+    },
+    {
+      "id": "write-succeeds",
+      "what": "A `mem log learning` after the build exits 0.",
+      "metric": "writeOk",
+      "kind": "true",
+      "source": "Owner brief 2026-10-02: a write after the build succeeds."
+    },
+    {
+      "id": "write-findable",
+      "what": "The first `mem find` for the written entry's unique token, right after the write, returns that entry in its top 10.",
+      "metric": "writeFindable",
+      "kind": "true",
+      "source": "Owner brief 2026-10-02: a write after the build is findable."
+    },
+    {
+      "id": "find-after-write",
+      "what": "Wall time of that first find after the write (the index is stale), in ms.",
+      "metric": "findAfterWriteMs",
+      "kind": "max",
+      "bound": {
+        "anchors": [[10000, 539.61], [100000, 2700.18]],
+        "extrapolateExponent": 0.7,
+        "weight": "cold",
+        "headroom": 2
+      },
+      "source": "docs/value-report/speed.json afterWrite p95 (2026-10-01): 10k 539.61 ms, 100k 2700.18 ms (n = 5 each). Exponent 0.7 from the same two numbers (ln(2700.18/539.61)/ln(10) = 0.70). Times the cold corpus weight and the headroom."
+    }
+  ]
+}
