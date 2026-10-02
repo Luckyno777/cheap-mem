@@ -118,31 +118,46 @@ test('browser: a part that is still being built is no empty list — the banner 
   });
 });
 
-test('browser: before the first build every view says "state unknown", never "holds no entry yet"', { skip: SKIP }, async () => {
+const placeholderBody = () => ({ ...dashboardData.placeholder({ title: 't' }), cache: { built_at: new Date().toISOString(), build_ms: 0, fresh: false, refreshing: true, reason: 'first build since the start is running', source: 'placeholder' } });
+
+test('browser: while only the placeholder stands every view says "state unknown", never "holds no entry yet"', { skip: SKIP }, async () => {
   const root = store(400);
+  await withServer(root, {}, async (base) => {
+    const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.route('**/dashboard.json', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(placeholderBody()) }));
+    try {
+      for (const hash of ['knowledge/entries', 'work/tasks', 'sources/projects', 'ops/doctor']) {
+        await page.goto(`${base}/dashboard#${hash}`);
+        await page.waitForFunction(() => /State unknown/.test(document.querySelector('#screen')?.textContent || ''), null, { timeout: 20000 });
+        const text = await page.textContent('#screen');
+        assert.doesNotMatch(text, /holds no entry yet|No entry|Nothing found|No duty/, `${hash}: a view over no data said "nothing"`);
+      }
+      await page.goto(`${base}/dashboard#home`);
+      await page.waitForFunction(() => /first state is being built/.test(document.querySelector('#screen')?.textContent || ''), null, { timeout: 20000 });
+      assert.equal(await page.evaluate(() => !!document.querySelector('#screen .metrics')), false, 'a figure was shown without a measurement');
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+});
+
+test('browser: the first real state is drawn by itself after the placeholder (nothing to click, no navigation)', { skip: SKIP }, async () => {
+  const root = store(60); // under the head size: no entries part whose arrival would draw the page anyway
   await withServer(root, {}, async (base) => {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     const errors = [];
     page.on('pageerror', (e) => errors.push(e.message));
     let first = true;
     await page.route('**/dashboard.json', async (route) => {
-      if (first) {
-        first = false;
-        const body = { ...dashboardData.placeholder({ title: 't' }), cache: { built_at: new Date().toISOString(), build_ms: 0, fresh: false, refreshing: true, reason: 'first build since the start is running', source: 'placeholder' } };
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
-      } else await route.continue();
+      if (first) { first = false; await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(placeholderBody()) }); } else await route.continue();
     });
     try {
-      await page.goto(`${base}/dashboard#knowledge/entries`);
-      await page.waitForFunction(() => /State unknown/.test(document.querySelector('#screen')?.textContent || ''), null, { timeout: 20000 });
-      const text = await page.textContent('#screen');
-      assert.doesNotMatch(text, /holds no entry yet|No entry|Nothing found/, 'a view over no data said "no entry"');
-      await page.evaluate(() => { location.hash = '#home'; });
+      await page.goto(`${base}/dashboard#home`);
       await page.waitForFunction(() => /first state is being built/.test(document.querySelector('#screen')?.textContent || ''), null, { timeout: 20000 });
-      assert.equal(await page.evaluate(() => !!document.querySelector('#screen .metrics')), false, 'a figure was shown without a measurement');
-      // then the real state arrives by itself
+      assert.equal(await page.evaluate(() => !!document.querySelector('#screen .metrics')), false, 'positive control: the placeholder is on screen first');
       await page.waitForFunction(() => !!document.querySelector('#screen .metrics'), null, { timeout: 30000 });
-      assert.match(await metric(page, 'Knowledge in view'), /400/);
+      assert.match(await metric(page, 'Knowledge in view'), /60/);
       assert.deepEqual(errors, []);
     } finally { await page.close(); }
   });
