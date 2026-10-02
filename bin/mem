@@ -8,6 +8,7 @@
  *   find "<pattern>"         search across log files
  *   context [--n N]          compact dump for session start
  *   project init <name>      idempotent project skeleton
+ *   project new|confirm|suggestions   a NEW project, with a similarity guard
  *   inbox write|new|show|ack     inbox operations (was: post)
  *   inbox watch              remote-only "post ready" check, exit 0/1/3
  *   whoami / whoami <name>   who this install is in the channel
@@ -113,6 +114,8 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("                    one self-contained HTML page to browse it all");
   out("  correction <type> <old-id> [--project X] --<field> <value>");
   out("  project init <name> [--title \"...\"]");
+  out("  project new <name> --title \"...\" --reason \"...\" [--captures p1,p2]");
+  out("  project confirm <name>  |  project suggestions [--json]");
   out("");
   out("Inbox (cross-session messages):");
   out("  inbox new        [--as N]              what is new for me");

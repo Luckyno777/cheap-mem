@@ -103,6 +103,8 @@ test('two projects with the same key are two facts', () => {
   try {
     fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
     config.writeConfig(root, config.DEFAULT_CONFIG);
+    memory.projectInit(root, 'alpha'); // logEntry no longer creates a project
+    memory.projectInit(root, 'beta');
     memory.logEntry(root, 'timeline', {
       id: 'factaaa', key: 'db.engine', value: 'Postgres', ts: '2026-09-01T10:00:00Z',
     }, { project: 'alpha' });

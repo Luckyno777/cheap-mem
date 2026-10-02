@@ -34,6 +34,7 @@ function world() {
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'),
     JSON.stringify({ name: 'backlinks-test', participants: ['someone'], language: 'en' }));
+  memory.projectInit(r, 'demo'); // logEntry no longer creates a project
   return r;
 }
 

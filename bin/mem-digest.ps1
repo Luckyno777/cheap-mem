@@ -164,6 +164,12 @@ Work like this:
    what you have, and log an error with --class digest-overflow.
 2. Before writing, $DedupLine
 3. Sort into drawers, every entry WITH --origin
+   New project (DIGEST.md, section 'A new project'): ONLY when a topic
+   appears in at least 2 captures on 2 different days and fits no
+   existing project: mem project new <name> --title '<one sentence>'
+   --reason '<how you saw it>' --captures '<path1,path2>'. Never guess;
+   if the command names an existing project, use that one. A log with an
+   unknown --project is refused: log it again without --project.
 4. Close any duty that is now fulfilled (mem duties lists them)
 5. Mark as digested: mem raw digested <path1> <path2> ...
 6. Commit and push.

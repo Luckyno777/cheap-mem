@@ -251,6 +251,7 @@ export async function measureSize(n, o) {
     // The gold world goes in through the real writer: these are the writes timed below.
     const w = [];
     for (const row of world.entries) {
+      if (row.project) memory.projectInit(root, row.project); // idempotent; logEntry refuses an unknown project
       const t = performance.now();
       memory.logEntry(root, row.type, row.data, { project: row.project ?? null, now: new Date(row.at) });
       w.push(performance.now() - t);
@@ -275,7 +276,10 @@ export function measureRealNoteBytes() {
   try {
     fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
     fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify(world.config ?? {}));
-    for (const row of world.entries) memory.logEntry(root, row.type, row.data, { project: row.project ?? null, now: new Date(row.at) });
+    for (const row of world.entries) {
+      if (row.project) memory.projectInit(root, row.project); // idempotent
+      memory.logEntry(root, row.type, row.data, { project: row.project ?? null, now: new Date(row.at) });
+    }
     const b = jsonlBytes(root);
     return { notes: world.entries.length, logBytes: b, bytesPerNote: round(b / world.entries.length, 1) };
   } finally { fs.rmSync(root, { recursive: true, force: true }); }

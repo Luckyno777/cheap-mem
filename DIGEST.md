@@ -107,6 +107,32 @@ rule. It reports GOOD only when the ratio is at or above 1.2 **and**
 `malformed` is zero — so a single prefixed topic keeps the whole check
 amber until it is folded away.
 
+## A new project
+
+Since 2026-10-02 the digest may create a project - but only with
+evidence. `mem log --project <unknown>` is refused; a half-made
+directory never arises again.
+
+**When.** An undertaking or topic appears in at least **2 captures on 2
+different days** and fits no existing project. Then:
+
+    mem project new <name> --title "<one sentence>" --reason "<how you saw it>" --captures <path1,path2>
+
+`--captures` are the capture paths as `mem raw pending` lists them. In
+an unattended run the code checks them (2 captures, 2 days, each sharing
+a content word with the title or reason); otherwise nothing is created.
+The project then shows as **new, unconfirmed** in the dashboard until a
+person confirms it.
+
+**When not.** Never guess. A one-off mention belongs in global or in the
+nearest existing project. If the command refuses the name as too alike
+(a project or a topic alias), take the project it names - that is the
+answer, not an obstacle. Merging two projects does not exist; a wrong
+one stays and is not confirmed.
+
+If `mem log` refuses an unknown project, log the same entry again
+without `--project` or with the nearest project - never drop it.
+
 ## Hard limits
 
 - **Never change an existing JSONL line.** A correction is a new line

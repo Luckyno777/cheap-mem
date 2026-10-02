@@ -83,6 +83,19 @@ mem log decision --topic memory-backend --choice sqlite --why "smaller than post
 mem log error    --class flake --title "CI timed out on test/e2e/*" --text "reproduced locally"
 ```
 
+A project is created once, before anything is logged into it
+(`--project <unknown>` is refused rather than creating a half-made
+directory):
+```bash
+mem project new garden --title "Garden planning" --reason "came up in three sessions"
+mem project confirm garden          # a person, once, after a look
+mem project suggestions             # dry run: which topics look like a project
+mem log decision --project garden --topic beds --choice raised --why "drainage"
+```
+`mem project new` names the existing project when your name is too like
+one (or like a topic alias) — use that one. For a quick skeleton with no
+checks, `mem project init <name>` still exists.
+
 Search:
 ```bash
 mem find "auth"

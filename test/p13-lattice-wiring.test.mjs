@@ -145,6 +145,9 @@ function mcpText(reply) { return reply?.result?.content?.[0]?.text ?? ''; }
 function buildLatticeCorpus() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-p13-lattice-'));
   runMem(root, ['init']);
+  // `mem log --project <unknown>` is refused now: create the two projects first.
+  runMem(root, ['project', 'init', 'alpha']);
+  runMem(root, ['project', 'init', 'beta']);
   for (let i = 0; i < 3; i += 1) {
     runMem(root, ['log', 'decision', '--topic', `shared/setup-${i}`,
       '--title', `${TOKEN} shared setup note ${i}`, '--choice', `shared-${i}`,

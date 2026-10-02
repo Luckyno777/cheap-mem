@@ -35,6 +35,8 @@ function world() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-limits-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
+  memory.projectInit(root, 'alpha'); // logEntry no longer creates a project
+  memory.projectInit(root, 'beta');
   memory.logEntry(root, 'decision', {
     id: 'scopealpha', choice: 'database alpha', text: 'src/payments.mjs',
     ts: '2026-09-01T10:00:00Z',

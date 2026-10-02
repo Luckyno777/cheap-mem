@@ -159,6 +159,7 @@ export async function buildWorld(world = loadWorld(), { codeDir = REPO } = {}) {
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify(world.config ?? {}));
   for (const row of world.entries) {
+    if (row.project) memory.projectInit(root, row.project); // idempotent; logEntry refuses an unknown project
     memory.logEntry(root, row.type, row.data, { project: row.project ?? null, now: new Date(row.at) });
   }
   return root;

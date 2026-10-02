@@ -589,6 +589,22 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   }
 
   const p = logPath(root, type, project);
+  // **No silent project creation (2026-10-02, owner decision).** The
+  // `mkdirSync` further down used to turn any unknown project name into a
+  // half-made directory (no README, no facts.yaml): a typo became a new
+  // project. A new project now arises only through `mem project new`
+  // (src/projectnew.mjs: similarity guard, reason, event, `status: new`).
+  // What is checked is the DIRECTORY, not the skeleton files, so an old
+  // half-made directory stays writable.
+  if (project && !fs.existsSync(path.dirname(p))) {
+    const known = listProjects(root);
+    throw new Error(
+      `Project '${project}' does not exist — nothing was written. `
+      + `Create it: mem project new ${project} --title "<title>" --reason "<reason>" `
+      + '(it checks first whether a similar project already exists). '
+      + `Meant an existing one? ${known.length ? `Known: ${known.slice(0, 12).join(', ')}${known.length > 12 ? ', …' : ''}.` : 'There is none yet.'} `
+      + 'No project: leave --project out (global).');
+  }
   const ts = data.ts ?? new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
   // A SUPPLIED id is checked against the whole corpus; a generated one is
   // not. That asymmetry is deliberate.
@@ -1407,6 +1423,12 @@ export function find(root, pattern, capability, {
     });
   }
   return hits;
+}
+
+/** Does the project exist (directory `projects/<name>/`)? An invalid name: no. */
+export function projectExists(root, name) {
+  try { checkProjectName(name); } catch { return false; }
+  try { return fs.statSync(path.join(root, 'projects', name)).isDirectory(); } catch { return false; }
 }
 
 export function listProjects(root) {
@@ -2343,7 +2365,7 @@ function shortText(e) {
  * Create a project directory idempotently.
  * Missing files get written, existing files stay untouched.
  */
-export function projectInit(root, name, { title = null } = {}) {
+export function projectInit(root, name, { title = null, facts = null } = {}) {
   checkProjectName(name);
   const dir = path.join(root, 'projects', name);
   const created = [];
@@ -2358,7 +2380,7 @@ export function projectInit(root, name, { title = null } = {}) {
 
   const files = [
     ['README.md', defaultReadme(name, title)],
-    ['facts.yaml', `# stable facts about ${name}\nname: ${name}\n${title ? `title: ${JSON.stringify(title)}\n` : ''}`],
+    ['facts.yaml', `# stable facts about ${name}\nname: ${name}\n${title ? `title: ${JSON.stringify(title)}\n` : ''}${facts ? Object.entries(facts).map(([k, v]) => `${k}: ${JSON.stringify(String(v))}\n`).join('') : ''}`],
     ['sources.yaml', '# pointers to external files\nrepos: []\ndrives: []\n'],
     ['decisions.jsonl', ''],
     ['errors.jsonl', ''],

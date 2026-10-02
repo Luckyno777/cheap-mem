@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 82 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 82 CLI commands, 39 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3428 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3447 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -161,6 +161,7 @@ directory. The section number in brackets is where it is explained.
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
 | `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
+| `projectnew.mjs` | a NEW project, the guarded way: `mem project new` refuses a name too like a project or a topic alias (distance, word part, spelling) and names the existing one, writes a reason and an event, marks `facts.yaml` `status: new` until a person confirms (`mem project confirm`); an unattended run needs 2 evidenced captures on 2 days; `mem project suggestions` is the dry run; `mem log --project <unknown>` is refused. Merging two projects is not built (see the head of the file) |
 | `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
@@ -632,7 +633,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 37 tools
+### 7.2 MCP — 39 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio (or `--http`).
@@ -667,6 +668,8 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_inbox_claim` / `mem_inbox_renew` / `mem_inbox_done` | claim a message with an expiry, renew it, report it done — as the connected agent, same read rule as `mem inbox claim` |
 | `mem_inbox_failed` / `mem_inbox_claims` | give a claim up with a reason (released at once); read only: who holds a message and whether your own claim still counts — same as `mem inbox failed|claims` |
 | `mem_project_init` | create a project skeleton |
+| `mem_project_new` | create a NEW project the guarded way: refused when the name is too like a project or topic alias, written with a reason and an event, marked new until a person confirms it |
+| `mem_project_suggestions` | read only: which topics without a project hang on 2 captures on 2 days (dry run, same as `mem project suggestions`) |
 | `mem_store_put` | register a local file in the content-addressed store |
 | `mem_store_list` | what is held in the file store right now |
 | `mem_store_get` | resolve a hash to the local path of the stored bytes |

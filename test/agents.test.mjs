@@ -66,6 +66,7 @@ test('a path: pointing out of the memory is not followed', () => {
 test('agent is a second axis beside project, not a substitute', () => {
   const r = root();
   try {
+    memory.projectInit(r, 'payments'); // logEntry no longer creates a project
     memory.logEntry(r, 'event', { title: 'a', agent: 'vm-admin' }, { project: 'payments' });
     memory.logEntry(r, 'event', { title: 'b', agent: 'vm-admin' });
     memory.logEntry(r, 'event', { title: 'c', agent: 'librarian' }, { project: 'payments' });

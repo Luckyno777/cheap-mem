@@ -90,6 +90,7 @@ import * as neighbours from '../src/neighbours.mjs';
 import * as claim from '../src/claim.mjs';
 import * as component from '../src/component.mjs';
 import * as source from '../src/source.mjs';
+import * as projectnew from '../src/projectnew.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
@@ -834,6 +835,35 @@ const TOOLS = [
       },
       required: ['name'],
     },
+  },
+  {
+    name: 'mem_project_new',
+    description:
+      'Create a NEW project (an unknown `project` in mem_log is refused). Only when an ' +
+      'undertaking shows up in at least 2 captures on 2 different days and fits no existing ' +
+      'project; never guess. Refuses a name too alike an existing project or topic alias and ' +
+      'names it - use that one. Marks the project new until a person confirms it ' +
+      '(`mem project confirm`, CLI only).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Project key (lowercase, digits, hyphen)' },
+        title: { type: 'string', description: 'One sentence: what is the project?' },
+        reason: { type: 'string', description: 'Why a new project, how you recognised it' },
+        captures: {
+          type: 'array', items: { type: 'string' },
+          description: 'Capture paths (as `mem raw pending` lists them) as evidence; optional here, verified when given',
+        },
+      },
+      required: ['name', 'title', 'reason'],
+    },
+  },
+  {
+    name: 'mem_project_suggestions',
+    description:
+      'Dry run: which topics without a project hang on at least 2 captures on 2 different ' +
+      'days and would come into question as a new project. Reads, counts, creates nothing.',
+    inputSchema: { type: 'object', properties: {} },
   },
   // --- Three more that existed as a CLI command already -------------
   //
@@ -1633,6 +1663,20 @@ async function handleCall(name, args) {
         `Project: ${path.relative(root, dir)}\n` +
         (created.length ? `  created: ${created.join(', ')}\n` : '') +
         (existed.length ? `  existed: ${existed.join(', ')}\n` : ''));
+    }
+    case 'mem_project_new': {
+      const res = projectnew.createProject(root, String(args.name ?? ''), {
+        title: args.title, reason: args.reason, captures: Array.isArray(args.captures) ? args.captures : [],
+        strict: Boolean(process.env.MEM_HEADLESS),
+      });
+      return textResult(
+        `Project created: ${path.relative(root, res.dir)} (status: new, awaits confirmation)\n` +
+        `  event ${res.entry.id}; evidence: ${res.evidence.ok.length} capture(s) on ${res.evidence.days.length} day(s)\n` +
+        res.evidence.rejected.map((r) => `  ! ${r.path}: ${r.why}\n`).join(''));
+    }
+    case 'mem_project_suggestions': {
+      const res = projectnew.suggestions(root);
+      return structuredResult(res, projectnew.suggestionsText(res).split('\n'));
     }
     case 'mem_store_put': {
       const source = String(args.source ?? '').trim();

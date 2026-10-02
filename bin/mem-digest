@@ -266,6 +266,14 @@ Work like this:
    only other words for the same thing. If nothing genuinely different comes to mind, leave it off —
    an empty field is honest, a padded one is noise in every future
    search.
+   New project (DIGEST.md, section 'A new project'): ONLY when an
+   undertaking or topic appears in at least 2 captures on 2 different
+   days and fits no existing project. Then:
+     mem project new <name> --title '<one sentence>' --reason '<how you saw it>' --captures '<path1,path2>'
+   Never guess; a one-off goes to global or the nearest project. If the
+   command names an existing project (name too alike), use that one. A
+   'mem log --project <unknown>' is refused: log the same entry again,
+   without --project or with the nearest project - never drop it.
 4. Close any duty that is now fulfilled (mem duties lists them)
 5. Synthesise — ONLY when a pattern is genuinely there (usually none):
    If, across the entries you just wrote and ones you find with

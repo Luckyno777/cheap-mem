@@ -357,7 +357,7 @@ const TOOLS = [
   'mem_explain', 'mem_facts', 'mem_find', 'mem_heartbeat',
   'mem_inbox_ack', 'mem_inbox_claim', 'mem_inbox_claims', 'mem_inbox_done', 'mem_inbox_failed', 'mem_inbox_new',
   'mem_inbox_renew', 'mem_inbox_show', 'mem_inbox_write',
-  'mem_ledger', 'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
+  'mem_ledger', 'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init', 'mem_project_new', 'mem_project_suggestions',
   'mem_questions', 'mem_retrieve', 'mem_show', 'mem_skill_fetch', 'mem_skill_find', 'mem_source',
   'mem_store_get', 'mem_store_list', 'mem_store_put', 'mem_topics',
   'mem_user_habits',
@@ -382,6 +382,7 @@ test('no tool edits, deletes, commits or pushes', () => {
     //   mem_store_put      a new register line, a content-addressed file
     //   mem_bridge_report  a new line in the bridge reports
     //   mem_project_init   a directory skeleton, idempotent
+    //   mem_project_new    a directory skeleton plus one event line, refused when too alike
     //   mem_inbox_write    a new message file
     //   mem_answer         a new `resolves` edge
     //   mem_duty_close     a closing line; the original stays

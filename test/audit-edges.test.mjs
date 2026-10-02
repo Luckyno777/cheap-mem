@@ -83,6 +83,7 @@ test('a discarded answer re-opens its question', () => {
     fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
     config.writeConfig(root, config.DEFAULT_CONFIG);
     const ts = '2026-09-01T10:00:00Z';
+    memory.projectInit(root, 'alpha'); // logEntry no longer creates a project
     memory.logEntry(root, 'question', { id: 'question1', question: 'Where is quartz?', ts }, { project: 'alpha' });
     memory.logEntry(root, 'learning', { id: 'answer001', text: 'Quartz is here', ts }, { project: 'alpha' });
     memory.logEntry(root, 'link', { id: 'link00001', from: 'answer001', to: 'question1', kind: 'resolves', ts }, { project: 'alpha' });

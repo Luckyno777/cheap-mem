@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **82 CLI commands, 37 MCP tools, 166 modules, 3428
-tests**; as of 2026-09-20, about 68627 lines in `bin/` and `src/`, at
+As of 2026-09-26: **82 CLI commands, 39 MCP tools, 167 modules, 3447
+tests**; as of 2026-09-20, about 69165 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -587,6 +587,13 @@ mem retrieve "<question>"      STRUCTURED claims: author, authority, scope,
 mem explain "<q>" <claim-id>   why a claim did (not) come back
 mem epoch [show|record]        did the memory go backwards?
 mem project init <name>        idempotent project skeleton
+mem project new <name> --title "..." --reason "..." [--captures p1,p2]
+                               a NEW project, the guarded way: refused when
+                               the name is too like a project or a topic
+                               alias; marked new until confirmed. An
+                               unknown `--project` in `mem log` is refused.
+mem project confirm <name>     a person removes the "new" mark
+mem project suggestions [--json]  dry run: topics on 2 captures, 2 days
 mem correction <type> <id> ... append a correction linked to the old entry
 mem correction intended <old> <new> [--reason ...]   a human confirms a
                                flagged correction-content-loss pair was
