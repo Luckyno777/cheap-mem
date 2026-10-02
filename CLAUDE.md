@@ -12,7 +12,7 @@ installation — it is the tool that creates memories.
                          belongs in its group. It was 4503 before the
                          split on 2026-09-18, the largest file here.
 - the CLI's own modules, under `src/cli/`:
-  - `commands/`        — the 76 handlers, in six groups cut by the
+  - `commands/`        — the 77 handlers, in six groups cut by the
                          QUESTION a command answers: write, search,
                          capture, agents, setup, admin
   - `shell.mjs`        — what holds across commands: arguments, output,

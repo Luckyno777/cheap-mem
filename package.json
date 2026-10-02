@@ -52,6 +52,8 @@
     "!docs/images/*.png",
     "!docs/images/*.webp",
     "!docs/value-report/*.json",
+    "!docs/*-2026-*.md",
+    "!docs/*-proposal.md",
     "DIGEST.md",
     "README.md",
     "LICENSE",
