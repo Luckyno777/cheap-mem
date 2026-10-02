@@ -13,6 +13,8 @@
 #   CHEAP_MEM_ROOT      memory root (otherwise searched upward from cwd)
 #   MEM_CAPTURE_MIN     bytes of growth before capturing (default 4096)
 #   MEM_CAPTURE_OFF=1   disable for this session
+#   MEM_RAW_EXCLUDE=1   exclude this session (recorded, unlike OFF);
+#                       from inside a session: `mem raw exclude`
 #   MEM_HEADLESS        set = we are a machine session, do not capture
 #
 # The hook receives the assistant's JSON on stdin; we read the
@@ -37,11 +39,17 @@ if ([Console]::IsInputRedirected) {
 }
 
 $Transcript = $env:CLAUDE_TRANSCRIPT_PATH
-if (-not $Transcript -and $StdinJson) {
+# The session id, for `mem raw exclude` (otherwise the transcript's file
+# name stands in, see src/raw.mjs capture()).
+$Session = ''
+if ($StdinJson) {
   try {
     $o = $StdinJson | ConvertFrom-Json
-    if ($o.transcript_path) { $Transcript = $o.transcript_path }
-    elseif ($o.transcriptPath) { $Transcript = $o.transcriptPath }
+    if (-not $Transcript) {
+      if ($o.transcript_path) { $Transcript = $o.transcript_path }
+      elseif ($o.transcriptPath) { $Transcript = $o.transcriptPath }
+    }
+    if ($o.session_id) { $Session = [string]$o.session_id }
   } catch { }
 }
 
@@ -53,6 +61,10 @@ $MinBytes = if ($env:MEM_CAPTURE_MIN) { $env:MEM_CAPTURE_MIN } else { '4096' }
 # A hook that fails must never break the session it is attached to.
 # Errors go nowhere and the exit code stays 0.
 try {
-  & node $Mem raw-capture --transcript $Transcript --min-bytes $MinBytes *> $null
+  if ($Session) {
+    & node $Mem raw-capture --transcript $Transcript --min-bytes $MinBytes --session $Session *> $null
+  } else {
+    & node $Mem raw-capture --transcript $Transcript --min-bytes $MinBytes *> $null
+  }
 } catch { }
 exit 0

@@ -13,6 +13,8 @@
 #   CHEAP_MEM_ROOT      memory root (otherwise searched upward from cwd)
 #   MEM_CAPTURE_MIN     bytes of growth before capturing (default 4096)
 #   MEM_CAPTURE_OFF=1   disable for this session
+#   MEM_RAW_EXCLUDE=1   exclude this session (recorded in the record,
+#                       unlike OFF); from inside a session: `mem raw exclude`
 #   MEM_HEADLESS        set = we are a machine session, do not capture
 #
 # The hook receives the assistant's JSON on stdin; we read the
@@ -43,7 +45,20 @@ fi
 [ -z "$TRANSCRIPT" ] && exit 0
 [ -f "$TRANSCRIPT" ] || exit 0
 
+# The session id, for `mem raw exclude`. If it is missing, the
+# transcript's file name stands in (Claude Code names it after the
+# session); it never travels further than `mem`.
+SESSION=""
+if [ -n "$STDIN_JSON" ]; then
+  SESSION="$(printf '%s' "$STDIN_JSON" | node -e '
+    let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
+      try{const o=JSON.parse(d);process.stdout.write(o.session_id||"")}catch{}})' 2>/dev/null)"
+fi
+SESSION_ARG=""
+[ -n "$SESSION" ] && SESSION_ARG="--session"
+
 # A hook that fails must never break the session it is attached to.
 # Every error goes to the log and the exit code stays 0.
-node "$HERE/mem" raw-capture --transcript "$TRANSCRIPT" >/dev/null 2>&1 || true
+node "$HERE/mem" raw-capture --transcript "$TRANSCRIPT" \
+  $SESSION_ARG ${SESSION_ARG:+"$SESSION"} >/dev/null 2>&1 || true
 exit 0

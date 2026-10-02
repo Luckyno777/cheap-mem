@@ -2293,7 +2293,8 @@ function timeFromCaptureName(name) {
 // has no such neighbour, which is why that one really is unknown on an
 // empty memory.
 function everCaptured(root) {
-  try { return archive.records(root).length > 0; } catch { return false; }
+  // Rows without a path (exclusion marks, raw.exclude) are no capture.
+  try { return archive.records(root).some((r) => r?.path); } catch { return false; }
 }
 
 export function checkArchiveBacklog(root, { env = process.env, now = Date.now() } = {}) {

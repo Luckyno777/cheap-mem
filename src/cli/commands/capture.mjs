@@ -77,6 +77,14 @@ export const COMMANDS = {
         '                                there is only one "in range" in this repo.',
         'mem raw missing [--json]        every MISSING capture one by one: path, date,',
         '                                bytes and the path it is expected at',
+        'mem raw exclude [--session <id>] [--json]',
+        '                                keep THIS session out of raw capture (a',
+        '                                personal or interview session). The',
+        '                                session runs it itself; the id comes from',
+        '                                CLAUDE_CODE_SESSION_ID or --session. Only',
+        '                                a fingerprint of the id is recorded.',
+        '                                MEM_RAW_EXCLUDE=1 does the same for a',
+        '                                session started locally with it set.',
         'mem raw delete <path> --reason "..." [--by <name>] [--yes]',
         '                                irreversible: the BYTES leave the archive,',
         '                                outside git, and a tombstone is appended',
@@ -204,9 +212,35 @@ export const COMMANDS = {
         + (elsewhere ? `, ${elsewhere} in another machine's store` : ''));
       out(`  ${(bytes / 1048576).toFixed(2)} MB in the archive`);
       if (legacy > 0) out(`  ${legacy} captures still in the repo — pull them with: mem raw migrate`);
+      const excl = raw.exclusionSummary(root);
+      if (excl.sessions) {
+        out(`  excluded: ${excl.sessions} session(s) deliberately not captured, `
+          + `${excl.skipped} capture(s) skipped (mem raw exclude) — no loss`);
+      }
       // A missing capture is not cosmetic: the digest then works across
       // gaps without noticing.
       if (missing > 0) die(`${missing} captures are recorded but not reachable. Is the archive mounted?`);
+      return;
+    }
+
+    if (sub === 'exclude') {
+      // A personal or interview session stays out of the raw capture. The
+      // session calls this itself (works in the cloud: no host access, no
+      // restart). Only the fingerprint of the id is written.
+      checkFlags(args, ['session', 'json', 'root'], 'raw exclude');
+      const id = typeof args.session === 'string' ? args.session : process.env.CLAUDE_CODE_SESSION_ID;
+      if (!id) {
+        die('raw exclude: session id unknown (CLAUDE_CODE_SESSION_ID is not set) — nothing excluded. '
+          + 'Pass --session <id>. Until then this session is still captured.');
+      }
+      const r = raw.exclude(root, id);
+      if (r.status === 'broken') die(`raw exclude: ${r.reason}`);
+      if (args.json) { out(JSON.stringify(r)); return; }
+      out(r.status === 'already'
+        ? `already excluded: session ${r.fingerprint}`
+        : `excluded: session ${r.fingerprint} is no longer captured`);
+      out(`  record: ${archive.RECORD_FILE} (record "excluded", the fingerprint only). `
+        + 'What was captured before stays: mem raw review / mem raw delete.');
       return;
     }
 
@@ -511,7 +545,7 @@ export const COMMANDS = {
       out(`  at: ${r.at}`);
       return;
     }
-    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check, review, delete`);
+    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check, review, delete, exclude`);
   },
 
   'raw-capture': async ({ args }) => {
@@ -519,10 +553,10 @@ export const COMMANDS = {
     // hook path stays a single, obvious call with no subcommand
     // parsing between it and the work.
     if (isHelp(args)) {
-      out('mem raw-capture --transcript <path> [--min-bytes N] [--project X]');
+      out('mem raw-capture --transcript <path> [--min-bytes N] [--project X] [--session <id>]');
       return;
     }
-    checkFlags(args, ['transcript', 'min-bytes', 'project', 'json'], 'raw-capture');
+    checkFlags(args, ['transcript', 'min-bytes', 'project', 'json', 'session'], 'raw-capture');
     const root = findRoot(args);
     requireConfig(root);
     const transcript = args.transcript;
@@ -530,8 +564,10 @@ export const COMMANDS = {
     const r = raw.capture(root, transcript, {
       minBytes: numberFlag('min-bytes', args['min-bytes'], { fallback: 4096, min: 0 }),
       stampExtra: args.project ? { project: args.project } : {},
+      sessionId: typeof args.session === 'string' ? args.session : null,
     });
     if (args.json) { out(JSON.stringify(r)); return; }
+    if (r.status === 'excluded') { out(`excluded: session ${r.fingerprint} is excluded from raw capture — nothing captured`); return; }
     if (r.status === 'captured') {
       out(`captured ${r.path} (${r.lines} lines, ${r.bytes} bytes)`);
       if (r.redacted.length) {
