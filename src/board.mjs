@@ -96,7 +96,8 @@ export function tileArchive(root, { env = process.env } = {}) {
   // MISSING. A deleted capture is neither — it was removed on purpose.
   const gone = archive.deletions(root);
   for (const r of rows) {
-    if (r?.record === archive.DELETED_MARK || gone.has(r?.path)) continue;
+    // A row without a path (an exclusion mark, raw.exclude) is no capture.
+    if (!r?.path || r.record === archive.DELETED_MARK || gone.has(r.path)) continue;
     const where = archive.filePath(store, root, r.path);
     if (where) {
       if (where.startsWith(store.location)) { inArchive += 1; bytes += r.bytes ?? 0; }

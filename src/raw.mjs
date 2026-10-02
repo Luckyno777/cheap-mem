@@ -257,10 +257,88 @@ export function capturePath(root, stamp, now = new Date()) {
     `${time}--${stamp.session_id}.jsonl.gz`);
 }
 
+// ---------------------------------------------------------------------
+// Excluding a session from raw capture (ported from the sibling house,
+// 2026-10-02). A personal or interview session can be kept out of the
+// raw archive: the capture is UNREDACTED-by-meaning plain text (the
+// redaction removes secrets, not private talk).
+//
+// **Why a row in the record and not only an environment switch.** A
+// switch in the environment only works when it is set BEFORE the session
+// starts; in a cloud session nobody controls the start. The session can
+// run a command itself (`mem raw exclude`), and the Stop hook (another
+// process, later) reads the row. The record is append-only, tracked and
+// committed by the Stop hook, so the mark survives a container change.
+// `MEM_RAW_EXCLUDE=1` stays as the extra way for local starts.
+//
+// The row carries ONLY the fingerprint of the session id
+// (`sessionFingerprint`), never the raw id, and NO `path`: it is not a
+// capture and must not appear in any capture count (every reader of the
+// record skips rows without `path`).
+//
+// Fail-safe: if the record cannot be read, nothing is captured.
+// ---------------------------------------------------------------------
+const EXCLUDED_MARK = 'excluded';
+const EXCLUSION_STATE_FILE = path.join('.mem', 'raw-exclusion-state.json');
+
+/** Exclusion rows of the record; throws when the record is unreadable. */
+function exclusionRows(root) {
+  return archive.records(root).filter((o) => o?.record === EXCLUDED_MARK);
+}
+
+/** Is one of these (raw) session ids excluded from raw capture? */
+function isExcluded(root, ids) {
+  const prints = [...new Set((ids ?? []).filter(Boolean).map(sessionFingerprint))];
+  if (!prints.length) return { excluded: false, fingerprint: null };
+  const marks = exclusionRows(root).filter((o) => o.event === 'mark');
+  const hit = prints.find((f) => marks.some((o) => o.fingerprint === f));
+  return { excluded: Boolean(hit), fingerprint: hit ?? prints[0] };
+}
+
+/** Exclude a session. Idempotent: a second mark is not appended. */
+export function exclude(root, id, { now = new Date(), reason = 'personal session' } = {}) {
+  if (!id) return { status: 'broken', reason: 'no-session-id' };
+  const fingerprint = sessionFingerprint(id);
+  if (isExcluded(root, [id]).excluded) return { status: 'already', fingerprint };
+  archive.writeRecord(root, {
+    record: EXCLUDED_MARK, event: 'mark', fingerprint, at: isoSeconds(now), reason,
+  });
+  return { status: 'excluded', fingerprint };
+}
+
+/**
+ * A skipped capture: one row once the growth reaches the size that would
+ * have triggered a capture. The count stays honest (a gap with a name)
+ * and the record does not grow on every Stop.
+ */
+function noteSkipped(root, fingerprint, size, minBytes, now, cause) {
+  const statePath = path.join(root, EXCLUSION_STATE_FILE);
+  const state = loadJson(statePath, {});
+  const last = Number.isFinite(state[fingerprint]) ? state[fingerprint] : null;
+  if (last !== null && size - last < minBytes) return false;
+  archive.writeRecord(root, {
+    record: EXCLUDED_MARK, event: 'skipped', fingerprint, at: isoSeconds(now), transcript_bytes: size, cause,
+  });
+  try { writeAtomic(statePath, `${JSON.stringify({ ...state, [fingerprint]: size }, null, 2)}\n`); }
+  catch { /* next time again */ }
+  return true;
+}
+
+/** Counts for `mem raw archive`: excluded sessions and skipped captures. */
+export function exclusionSummary(root) {
+  const rows = exclusionRows(root);
+  return {
+    sessions: new Set(rows.map((o) => o.fingerprint)).size,
+    skipped: rows.filter((o) => o.event === 'skipped').length,
+  };
+}
+
 /**
  * Capture a transcript — incremental, redacted, gzipped.
  *
- * Returns three states, never two:
+ * Returns four states, never two:
+ *   `{status:'excluded'}`  the session is excluded (`mem raw exclude`,
+ *                          or MEM_RAW_EXCLUDE=1) — nothing read
  *   `{status:'nothing'}`   nothing new since the last capture
  *   `{status:'captured'}`  new material stored
  *   `{status:'broken'}`    transcript unreadable — a finding, not a no
@@ -276,9 +354,28 @@ export function capture(root, transcriptPath, {
   // off cannot be measured against itself. Every claim about how much
   // it saves comes from running the same transcript both ways.
   drop = true,
+  // The raw session id from the hook JSON (optional); else the file name
+  // (Claude Code names the transcript after the session).
+  sessionId = null,
+  env = process.env,
 } = {}) {
   if (!transcriptPath || !fs.existsSync(transcriptPath)) {
     return { status: 'broken', reason: 'no-transcript', detail: String(transcriptPath) };
+  }
+
+  // Exclusion BEFORE everything else (the redaction too): what must not
+  // be captured is not even read. Not checkable = not captured.
+  const fileId = path.basename(String(transcriptPath)).replace(/\.jsonl$/, '');
+  const byEnv = env?.MEM_RAW_EXCLUDE === '1';
+  let excl;
+  try { excl = isExcluded(root, [sessionId, fileId]); }
+  catch (e) { return { status: 'broken', reason: 'exclusion-unreadable', detail: e.message }; }
+  if (excl.excluded || byEnv) {
+    let size = 0;
+    try { size = fs.statSync(transcriptPath).size; } catch { /* 0 */ }
+    try { noteSkipped(root, excl.fingerprint, size, minBytes, now, excl.excluded ? 'mark' : 'MEM_RAW_EXCLUDE'); }
+    catch (e) { return { status: 'broken', reason: 'exclusion-note', detail: e.message }; }
+    return { status: 'excluded', fingerprint: excl.fingerprint };
   }
 
   // Canary BEFORE anything else. If the redaction no longer does what

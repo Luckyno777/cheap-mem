@@ -92,6 +92,7 @@ import * as source from '../src/source.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
+import * as variantsMod from '../src/variants.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
@@ -449,6 +450,12 @@ const TOOLS = [
         top: { type: 'number', description: 'How many hits (default 10)' },
         literal: { type: 'boolean', description: 'Plain substring search instead' },
         weak: { type: 'boolean', description: 'Show the hits even when none is confident (a flat field of weak matches is withheld otherwise)' },
+        variants: {
+          type: 'array', items: { type: 'string' }, maxItems: 4,
+          description: 'Optional: up to 4 rewordings of YOUR query in other words '
+            + '(everyday word / technical term, symptom / cause). Each is searched on its own and the '
+            + 'hits are merged deterministically - the memory calls no model for this, you are the model.',
+        },
       },
       required: ['query'],
     },
@@ -1301,7 +1308,7 @@ async function handleCall(name, args) {
     }
 
     case 'mem_find': {
-      const { query, pattern, type, project, since, top, literal, weak } = args;
+      const { query, pattern, type, project, since, top, literal, weak, variants } = args;
       const q = query ?? pattern;   // `pattern` kept for older callers
       if (!q) return textResult('mem_find needs a query.');
       const s = since ? sinceOf(since) : null;
@@ -1350,12 +1357,17 @@ async function handleCall(name, args) {
         mq = resolved.query;
         extraTerms = resolved.extraTerms;
       }
-      const listed = search.search(index, mq, {
+      const findOpt = {
         top: top ?? 10, type: type ?? null, project: project ?? null,
         capability: findCapability,
         since: s, language: cfg.language, extraTerms,
         withCoverage: levers.active('h3'),
-      });
+      };
+      // `variants`: rewordings the calling agent supplies (src/variants.mjs)
+      // - no model here; without them this is the plain search as before.
+      const listed = Array.isArray(variants) && variants.length
+        ? variantsMod.searchWithVariants(index, mq, variants, findOpt)
+        : search.search(index, mq, findOpt);
       // H3 (Block H): the same answer gate as `mem find` — a flat field of
       // weak hits, none clearly ahead, is withheld and said so. One rule,
       // in src/searchlevers.mjs, for both doors.

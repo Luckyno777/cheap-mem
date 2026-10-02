@@ -34,6 +34,30 @@
 
 import { frozenSet } from './frozenset.mjs';
 
+/**
+ * P10 (ported from the sibling house, 2026-10-02): markers a MACHINE turn
+ * begins with. A prompt that starts with one of them (after leading
+ * whitespace / zero-width characters) was written by the harness or by
+ * another agent, not by the person: a background relay, Stop-hook
+ * feedback, a subagent hand-back, a message between agents. Only the
+ * START counts — a person quoting a marker in the middle of a question
+ * still asks a question.
+ */
+export const FOREIGN_TURN_MARKERS = Object.freeze([
+  'Another Claude session sent a message',
+  '[SYSTEM NOTIFICATION',
+  'Stop hook feedback:',
+  '[Subagent hand-back]',
+  'agent-message from=',
+]);
+
+/** Does `text` BEGIN with a foreign-turn marker? */
+export function isForeignTurn(text) {
+  const s = String(text ?? '').replace(/^[\s\u200b\ufeff]+/, '');
+  if (!s) return false;
+  return FOREIGN_TURN_MARKERS.some((m) => s.startsWith(m));
+}
+
 /** The bar for ordinary prompts, in characters. */
 export const MIN_CHARS = 12;
 

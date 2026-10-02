@@ -436,7 +436,9 @@ export function inRange(rows, { from, to, hourFrom, hourTo } = {}) {
   // A tombstone is a register row about a capture, not a capture: it has no
   // dates of its own, so the date filter always dropped it; with no filter it
   // must be dropped here, or every deleted capture counts twice.
-  const captures = rows.filter((s) => s?.record !== DELETED_MARK);
+  // A row without a `path` is not about a capture at all (an exclusion
+  // mark, see raw.exclude): it is never counted as one.
+  const captures = rows.filter((s) => s?.path && s.record !== DELETED_MARK);
   if (!from && !to && hourFrom == null && hourTo == null) return captures;
   const fromT = from ? Date.parse(from.length <= 10 ? `${from}T00:00:00Z` : from) : -Infinity;
   const toT = to ? Date.parse(to.length <= 10 ? `${to}T23:59:59Z` : to) : Infinity;

@@ -76,6 +76,16 @@ export const OCCASION = Object.freeze({
 export const REASON = Object.freeze({
   /** Question too short — "yes", "go on". No signal, not searched. */
   NO_SIGNAL: 'no-signal',
+  /**
+   * P10 (ported from the sibling house, 2026-10-02): the WHOLE turn is
+   * machine-made — it BEGINS with a foreign-turn marker (a harness relay,
+   * Stop-hook feedback, a subagent hand-back; the list is
+   * `recallsignal.FOREIGN_TURN_MARKERS`). Not searched, not injected.
+   * Its own reason, not `no-signal`: otherwise nobody could see how much
+   * agent traffic skews the question rates. Never a miss (gap.mjs and
+   * askedlearn.mjs read only too-weak/empty): nobody typed it.
+   */
+  MACHINE: 'machine',
   /** Searched; the index was empty or held no matching drawers. */
   EMPTY: 'empty',
   /** Searched, hits found, all below the threshold. */

@@ -35,6 +35,7 @@ found one.
 | `CHEAP_MEM_ROOT` | the memory root |
 | `MEM_CAPTURE_MIN` | bytes of growth before capturing (default 4096) |
 | `MEM_CAPTURE_OFF=1` | disable for this session |
+| `MEM_RAW_EXCLUDE=1` | exclude this session, with a row in the record (unlike OFF the gap stays counted); from inside a running session: `mem raw exclude` |
 | `MEM_HEADLESS` | set = machine session, do not capture |
 
 `MEM_HEADLESS` is what stops the digest from capturing its own

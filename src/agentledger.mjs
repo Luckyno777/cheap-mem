@@ -35,6 +35,16 @@
  * purpose: a second writer for the same log is a second place for the
  * shape to drift from what this module reads.
  *
+ * Two OPTIONAL fields (K4 + W12, ported from the sibling house,
+ * 2026-10-02):
+ *
+ *   --criticality critical|uncritical   K4: missing or invalid counts as
+ *                                       "critical, unknown" — counted and
+ *                                       shown, NEVER silently uncritical.
+ *   --red_probes <n>                    W12: red probes at acceptance; a
+ *                                       job without it is "not reported"
+ *                                       (null), never 0.
+ *
  * A `package` field missing means the entry cannot be attributed to a
  * job at all — it counts in `unassigned`, never guessed at. A missing
  * `agent_kind` or `model` is recorded as the string `'unknown'`, never
@@ -79,6 +89,31 @@ export const STAGE = Object.freeze({
 
 const UNKNOWN = 'unknown';
 
+/** Criticality (K4): the only three values. `uncritical` must be stated. */
+export const CRIT = Object.freeze({
+  CRITICAL: 'critical',
+  UNCRITICAL: 'uncritical',
+  UNKNOWN: 'critical, unknown',
+});
+
+/**
+ * The criticality of an entry when READING: only a valid value counts;
+ * missing, empty, a typo or an old entry is "critical, unknown".
+ */
+export function criticalityOf(e) {
+  const v = typeof e?.criticality === 'string' ? e.criticality.trim().toLowerCase() : '';
+  if (v === CRIT.CRITICAL) return CRIT.CRITICAL;
+  if (v === CRIT.UNCRITICAL) return CRIT.UNCRITICAL;
+  return CRIT.UNKNOWN;
+}
+
+/** Red probes (W12): an integer >= 0, else null (not reported is not 0). */
+function redProbesOf(v) {
+  if (v === null || v === undefined || String(v).trim() === '') return null;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 /** A follow-up named in free text (evidence b, see module head). */
 const FOLLOW_UP_TEXT_RE = /follow-?up\w*|rework\w*|reworked|redo(?:ne|s)?\b/i;
 
@@ -104,13 +139,22 @@ function normalizePackage(p) {
  */
 export function buildJobFields({
   package: pkg, agent_kind: agentKind = null, model = null, first_try: firstTry, follow_ups: followUps = 0,
+  criticality = null, red_probes: redProbes = null,
 } = {}) {
   if (!pkg || !String(pkg).trim()) throw new Error('buildJobFields: package is missing.');
   if (typeof firstTry !== 'boolean') {
     throw new Error("buildJobFields: first_try must be true/false ('yes'/'no' in the entry).");
   }
+  if (criticality !== null && ![CRIT.CRITICAL, CRIT.UNCRITICAL].includes(criticality)) {
+    throw new Error("buildJobFields: criticality must be 'critical' or 'uncritical' (or left out: then it counts as critical, unknown).");
+  }
+  if (redProbes !== null && redProbesOf(redProbes) === null) {
+    throw new Error(`buildJobFields: red_probes must be an integer >= 0, not '${redProbes}'.`);
+  }
   const n = Number(followUps);
   return {
+    ...(criticality ? { criticality } : {}),
+    ...(redProbes !== null ? { red_probes: redProbesOf(redProbes) } : {}),
     package: String(pkg).trim(),
     agent_kind: agentKind && String(agentKind).trim() ? String(agentKind).trim() : UNKNOWN,
     model: model && String(model).trim() ? String(model).trim() : UNKNOWN,
@@ -209,6 +253,8 @@ export function jobFromEntry(e) {
     firstTryEvidence: structuredFirstTry,
     followUpsField: numberOrNull(e.follow_ups),
     textFollowUp: FOLLOW_UP_TEXT_RE.test(text) || FOLLOW_UP_TEXT_RE.test(title),
+    criticality: criticalityOf(e),
+    redProbes: redProbesOf(e.red_probes),
   };
 }
 
@@ -269,6 +315,8 @@ export function extractJobs(root, { git = null } = {}) {
       followUps: followUpsField,
       evidence,
       reverted: revertHits.length > 0,
+      criticality: j.criticality,
+      redProbes: j.redProbes,
     });
   }
   return { jobs, unassigned, git: signals.git };
@@ -285,6 +333,7 @@ export function ledger(root, { git = null } = {}) {
   const { jobs, unassigned, git: gitRan } = extractJobs(root, { git });
   const blank = () => ({
     jobs: 0, confirmed: 0, rework: 0, unknown: 0, followUpsSum: 0, packagesReverted: new Set(),
+    criticalUnknown: 0, redProbesSum: 0, redProbesReported: 0,
   });
   const count = (g, j) => {
     g.jobs += 1;
@@ -292,14 +341,20 @@ export function ledger(root, { git = null } = {}) {
     else if (j.stage === STAGE.REWORK) g.rework += 1;
     else g.unknown += 1;
     if (typeof j.followUps === 'number') g.followUpsSum += j.followUps;
+    if (j.criticality === CRIT.UNKNOWN) g.criticalUnknown += 1;
+    if (typeof j.redProbes === 'number') { g.redProbesSum += j.redProbes; g.redProbesReported += 1; }
   };
   const share = (g) => ({
     unknown: g.unknown, of: g.jobs,
     share: g.jobs > 0 ? g.unknown / g.jobs : null,
   });
   const groups = new Map();
+  const models = new Map();
   const total = blank();
   for (const j of jobs) {
+    // W12: also per model alone, across every agent kind.
+    if (!models.has(j.model)) models.set(j.model, { model: j.model, ...blank() });
+    count(models.get(j.model), j);
     const key = `${j.agent_kind}\u0000${j.model}`;
     if (!groups.has(key)) groups.set(key, { agent_kind: j.agent_kind, model: j.model, ...blank() });
     const g = groups.get(key);
@@ -318,13 +373,29 @@ export function ledger(root, { git = null } = {}) {
     unknownShare: share(g),
     followUpsSum: g.followUpsSum,
     packagesReverted: g.packagesReverted.size,
+    criticalUnknown: g.criticalUnknown,
   })).sort((x, y) => y.jobs - x.jobs
     || x.agent_kind.localeCompare(y.agent_kind) || x.model.localeCompare(y.model));
 
+  // W12: red probes only over the jobs that reported them; none reported
+  // is null, never 0.
+  const byModel = [...models.values()].map((g) => ({
+    model: g.model,
+    jobs: g.jobs,
+    confirmed: g.confirmed,
+    rework: g.rework,
+    unknown: g.unknown,
+    criticalUnknown: g.criticalUnknown,
+    redProbes: g.redProbesReported > 0 ? g.redProbesSum : null,
+    redProbesReported: g.redProbesReported,
+  })).sort((x, y) => y.jobs - x.jobs || x.model.localeCompare(y.model));
+
   return {
     rows,
+    byModel,
     unassigned,
     totalJobs: total.jobs,
+    criticalUnknown: total.criticalUnknown,
     confirmed: total.confirmed,
     rework: total.rework,
     unknown: total.unknown,
@@ -360,9 +431,20 @@ export function reportText(result) {
       + `${String(r.confirmed).padStart(9)}  ${String(r.rework).padStart(6)}  `
       + `${unknownShareText(r.unknownShare).padEnd(32)}  `
       + `${String(r.followUpsSum).padStart(10)}  ${String(r.packagesReverted).padStart(8)}`),
-    '',
-    `Total: ${result.confirmed} confirmed, ${result.rework} rework evidenced, ${result.unknown} unknown — `
-      + `share unknown: ${unknownShareText(result.unknownShare)}.`,
   ];
+  if (result.byModel?.length) {
+    body.push('', 'Per model (from the entry\'s `model` field; none given: "unknown"):');
+    for (const z of result.byModel) {
+      const rp = z.redProbes === null ? 'unknown' : `${z.redProbes} (${z.redProbesReported}/${z.jobs} reported)`;
+      body.push(`  ${z.model}: ${z.jobs} job(s), confirmed ${z.confirmed} / rework ${z.rework} / unknown ${z.unknown}, `
+        + `red probes ${rp}, critical unknown ${z.criticalUnknown}`);
+    }
+  }
+  if (result.criticalUnknown > 0) {
+    body.push('', `Criticality: ${result.criticalUnknown} of ${result.totalJobs} job(s) carry no valid marking `
+      + 'and count as "critical, unknown" (not as uncritical).');
+  }
+  body.push('', `Total: ${result.confirmed} confirmed, ${result.rework} rework evidenced, ${result.unknown} unknown — `
+    + `share unknown: ${unknownShareText(result.unknownShare)}.`);
   return [...head, ...body].join('\n');
 }
