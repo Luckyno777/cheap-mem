@@ -318,6 +318,28 @@ export const KINDS = Object.freeze({
     plainOk: /^merged: /m,
     classify() { return { state: 'ok', reason: null }; },
   },
+  // S4 (lucky-mem `post-freigeben`): permit ONE waking message — the CLI's
+  // `mem inbox permit <name> --authority user --json`. `--authority user`
+  // comes ONLY from authorityArgs(context), i.e. a valid PASSWORD session;
+  // `humanOnly` refuses the task without one before any child, and the
+  // command itself refuses a missing `--authority user` (mailpermit.mjs).
+  'inbox-permit': {
+    title: 'Permit a message to wake',
+    description: 'mem inbox permit <name> --authority user --json — one grant line in inbox/permissions.jsonl.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      name: { required: true, check: (v) => /^[A-Za-z0-9._~-]{1,200}\.md$/.test(v) && !v.startsWith('-') && !v.includes('..'),
+        why: 'a message file name from inbox/' },
+    },
+    command(root, id, p, context) {
+      return { file: MEM_BIN, args: ['inbox', 'permit', p.name, '--json', ...authorityArgs(context)] };
+    },
+    progressPattern: null,
+    classify(json) {
+      return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new line' };
+    },
+  },
   // Registry status (lucky-mem `skill-status`): the CLI's `mem skills
   // status`. `--issued-by` only from `context.user` (password session),
   // never from the form; without it refused before any child

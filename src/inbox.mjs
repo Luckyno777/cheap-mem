@@ -754,13 +754,21 @@ export class StateConflictError extends Error {
  */
 export function readStateLines(root) {
   const p = statesPath(root);
-  if (!fs.existsSync(p)) return { lines: [], broken: [] };
+  if (!fs.existsSync(p)) return { lines: [], events: [], broken: [] };
   const lines = [];
+  const events = [];
   const broken = [];
   fs.readFileSync(p, 'utf8').split('\n').forEach((raw, i) => {
     if (!raw.trim()) return;
     try {
       const z = JSON.parse(raw);
+      if (z && typeof z === 'object' && z.kind === 'event') {
+        const fine = typeof z.message === 'string' && typeof z.id === 'string'
+          && EVENTS.includes(z.event) && Number.isFinite(Date.parse(z.time));
+        if (!fine) throw new Error('event line: fields missing or unreadable');
+        events.push(z);
+        return;
+      }
       const ok = z && typeof z === 'object' && z.kind === 'state'
         && typeof z.message === 'string' && typeof z.id === 'string'
         && typeof z.state === 'string' && typeof z.prior === 'string'
@@ -769,7 +777,51 @@ export function readStateLines(root) {
       lines.push(z);
     } catch (e) { broken.push({ log: STATES_FILE, line: i + 1, reason: e.message }); }
   });
-  return { lines, broken };
+  return { lines, events, broken };
+}
+
+/**
+ * S2b/S2c (lucky-mem `abgeholt`): delivery EVENTS as their own lines in
+ * states.jsonl. `picked-up`: the RECIPIENT actually got the message
+ * (`mem inbox new` / `mem inbox show` as that participant) — never the
+ * watcher's poll and never the seen-marker. An event changes no state line;
+ * the one exception is in the projection: a message with intent `read`
+ * (wakes, asks for no answer) counts as `processed` once its recipient
+ * picked it up. No fifth state. Append-only.
+ */
+export const EVENTS = Object.freeze(['picked-up']);
+
+/**
+ * The recipient `to` picked these messages up: at most ONE line per
+ * (message, recipient) — asking ten times writes once. A message to
+ * someone else is skipped (a look into foreign mail is no pickup).
+ * Never throws (picking up must not fail on the bookkeeping); errors are
+ * returned in `failed`.
+ */
+export function markPickedUp(root, { to, names = [], now = new Date() } = {}) {
+  const written = [];
+  const failed = [];
+  if (!to || !names.length) return { written, failed };
+  let have;
+  try {
+    have = new Set(readStateLines(root).events.filter((e) => e.event === 'picked-up' && e.by === to).map((e) => e.message));
+  } catch (e) { return { written, failed: [{ name: STATES_FILE, reason: e.message }] }; }
+  for (const name of [...new Set(names)]) {
+    if (have.has(name)) continue;
+    try {
+      checkMessageName(name);
+      if (parse(readMessage(root, name)).to !== to) continue;
+      const line = {
+        kind: 'event', event: 'picked-up', message: name, by: to, time: new Date(now).toISOString(),
+        id: createHash('sha256').update(`${name}\0picked-up\0${to}\0${Date.now()}\0${Math.random()}`).digest('hex').slice(0, 12),
+      };
+      fs.mkdirSync(inboxDir(root), { recursive: true });
+      appendLine(statesPath(root), `${JSON.stringify(line)}\n`);
+      written.push(line);
+      have.add(name);
+    } catch (e) { failed.push({ name, reason: e.message }); }
+  }
+  return { written, failed };
 }
 
 /** The fold, pure. `headerState` = the header's state, `lines` = this message's state lines. */
@@ -809,6 +861,11 @@ function projectionData(root) {
     if (!stateBy.has(z.message)) stateBy.set(z.message, []);
     stateBy.get(z.message).push(z);
   }
+  const eventBy = new Map();
+  for (const z of st.events ?? []) {
+    if (!eventBy.has(z.message)) eventBy.set(z.message, []);
+    eventBy.get(z.message).push(z);
+  }
   const claimBy = new Map();
   try {
     const c = claim.readLines(root);
@@ -820,7 +877,7 @@ function projectionData(root) {
   } catch (e) {
     broken.push({ log: claim.FILE, line: null, reason: `unreadable: ${e.message}` });
   }
-  return { stateBy, claimBy, broken };
+  return { stateBy, eventBy, claimBy, broken };
 }
 
 /**
@@ -842,6 +899,14 @@ function project(m, proj) {
   const f = foldState(m.state, proj.stateBy.get(m.name) ?? []);
   const out = { ...m, headerState: m.state, state: f.state, stateSource: f.source };
   if (f.conflicts.length) out.stateConflicts = f.conflicts;
+  // S2b/S2c: `picked-up` counts only from the recipient; a `read` request
+  // is done with it — `processed`, not `replied` (it asked for no answer).
+  const picked = (proj.eventBy?.get(m.name) ?? []).filter((e) => e.event === 'picked-up' && e.by === m.to)
+    .sort((a, b) => Date.parse(a.time) - Date.parse(b.time))[0] ?? null;
+  if (picked) {
+    out.pickedUp = picked.time;
+    if (out.state === STATE.OPEN && m.intent === 'read') { out.state = STATE.PROCESSED; out.stateSource = 'picked-up'; }
+  }
   const cl = proj.claimBy.get(m.name);
   if (cl && cl.length) {
     const c = claim.fold(cl);

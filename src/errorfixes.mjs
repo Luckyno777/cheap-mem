@@ -67,7 +67,7 @@ function commitEvidence(hash) {
 // --- reading the store ---------------------------------------------------
 
 /** Errors that count, id -> entry: done/obsolete still do (a fix closes); superseded/discarded/disputed not. */
-function errorMap(root) {
+export function errorMap(root) {
   const map = new Map();
   for (const project of [null, ...memory.listProjects(root)]) {
     let entries;
@@ -83,7 +83,8 @@ function errorMap(root) {
   return map;
 }
 
-function allLinks(root) {
+/** Every link in force (withdrawn ones out), global and per project, with `from`/`to` normalised. */
+export function allLinks(root) {
   const out = [];
   for (const project of [null, ...memory.listProjects(root)]) {
     let res;

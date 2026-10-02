@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **80 CLI commands, 37 MCP tools, 163 modules, 3363
-tests**; as of 2026-09-20, about 66735 lines in `bin/` and `src/`, at
+As of 2026-09-26: **81 CLI commands, 37 MCP tools, 164 modules, 3388
+tests**; as of 2026-09-20, about 67558 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -529,6 +529,12 @@ mem core [--max 40]            always-load block of settled facts + backed exper
 mem topics / mem topic <key>   where a subject stands now, and how it got there
 mem links <id>                 typed edges in and out (causes, generalizes, ...)
 mem error-fixes backfill       commit trailer `Fixes: <error-id>` -> resolves link
+mem skills account|sharpen     a skill's traps, fixes and lessons inside its declared
+                               scope, and what is new since its last version (proposal only)
+mem skills version <name>      a new version as a trial correction line (owner only,
+                               --issued-by owner --authority user; never released)
+mem experience review|guards|effect  fixes a newer lesson questions, test<->error
+                               guards, a procedure's repetition rate around its release
 mem workflow new|list|show     workflows with triggers/patterns the hooks match
 mem snippet new|list|show      reusable blocks with {{PLACEHOLDERS}}, redaction-gated
 mem experiences [--all]        lessons ranked by how much of the memory leans on them

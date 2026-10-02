@@ -1523,6 +1523,8 @@ async function handleCall(name, args) {
       // that is still open comes back after the back-off.
       if (!args?.no_mark && fresh.length) {
         inbox.markSeen(root, { to, names: fresh.map((m) => m.name) });
+        // S2c: the recipient got them (a `read` request is then done).
+        inbox.markPickedUp(root, { to, names: fresh.map((m) => m.name) });
       }
       // Z3/A9: unreadable messages/lines are ALWAYS in the reply text — a
       // client that shows only `content` must not see a healthy empty inbox.
