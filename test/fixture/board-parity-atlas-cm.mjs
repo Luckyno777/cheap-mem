@@ -24,6 +24,8 @@ export async function atlasWorld(REPO) {
   const memory = await import(pathToFileURL(path.join(REPO, 'src/memory.mjs')).href);
   const t0 = Date.parse('2026-09-01T09:00:00Z');
   let n = 0;
+  // Projects are created on purpose since project-new (logEntry refuses unknown ones).
+  for (const p of ['workshop', 'garden']) memory.projectInit(r, p);
   const log = (d) => memory.logEntry(r, 'learning', d, { project: ['workshop', 'garden'][n % 2], now: new Date(t0 + (n++) * 60e3) }).entry;
   // One large topic "capture" with 18 subtopics of different sizes.
   for (let m = 0; m < 220; m++) {

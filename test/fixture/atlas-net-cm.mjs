@@ -23,6 +23,8 @@ export async function netWorld(REPO, { topics = 0, members = 3, sub = 0, bundles
   const memory = await import(pathToFileURL(path.join(REPO, 'src/memory.mjs')).href);
   const t0 = Date.parse('2026-09-01T09:00:00Z');
   let n = 0;
+  // Projects are created on purpose since project-new (logEntry refuses unknown ones).
+  for (const p of ['workshop', 'garden']) memory.projectInit(r, p);
   const log = (d, type = 'learning') => memory.logEntry(r, type, d, { project: type === 'link' ? null : ['workshop', 'garden'][n % 2], now: new Date(t0 + (n++) * 60e3) }).entry;
   const ids = { ring: [], derived: [] };
   for (let t = 0; t < topics; t++) {

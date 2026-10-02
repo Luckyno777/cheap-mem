@@ -124,7 +124,9 @@ async function loadSabotagedViewer() {
   const src = fs.readFileSync(viewerPath, 'utf8');
 
   const startMarker = '  const idsByTopic = new Map();';
-  const endMarker = '  const links = [];';
+  // Since atlas-pass the grouping lives in topicsLens(); the block ends where
+  // the area tree starts (the old end marker sat in another function now).
+  const endMarker = '  // The TREE over the path segments';
   const startIdx = src.indexOf(startMarker);
   const endIdx = src.indexOf(endMarker);
   if (!(startIdx >= 0 && endIdx > startIdx)) {
