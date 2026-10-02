@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# pre-push — a WARNING when what lands on the default branch has no green
+# CI run. Never a block: this hook always exits 0.
+#
+# The logic lives in src/prepush.mjs (why a warning and not a block, why
+# CI and not a local stamp, the five states). This script only feeds it
+# git's push lines and prints what it says.
+#
+# Arm it:
+#   in a memory:            mem hooks install --pre-push   (opt-in)
+#   in a cheap-mem checkout: git config core.hooksPath hooks
+#
+# Fail-open by design, but never silently: if the check does not finish
+# (no node, a crash, no end marker), the push goes ahead AND the hook says
+# the CI status is unknown. "Could not ask" is never printed as green.
+
+set -u
+
+PKG="${CHEAP_MEM_PKG:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+# Same MSYS path fix as hooks/pre-commit: Git-Bash `pwd` answers /c/...,
+# which Windows node reads as a relative path.
+if command -v cygpath >/dev/null 2>&1; then PKG="$(cygpath -m "$PKG")"; fi
+
+ANSWER="$(node "$PKG/src/prepush.mjs" "${1:-}" "${2:-}" 2>/dev/null)"
+case "$ANSWER" in
+  *PREPUSH-END)
+    ANSWER="${ANSWER%PREPUSH-END}"
+    [ -n "${ANSWER//[[:space:]]/}" ] && printf '%s' "$ANSWER" >&2
+    ;;
+  *)
+    echo "pre-push (cheap-mem): CI status unknown — the check did not finish ($PKG/src/prepush.mjs)." >&2
+    echo "  This is a warning, not a block: the push goes ahead." >&2
+    ;;
+esac
+exit 0

@@ -281,7 +281,9 @@ export const COMMANDS = {
   hooks: async ({ rest, args }) => {
     if (isHelp(args) || rest.length === 0) {
       out([
-        'mem hooks install [--dir <path>]   arm the pre-commit secret check',
+        'mem hooks install [--dir <path>] [--pre-push]',
+        '                                   arm the pre-commit secret check;',
+        '                                   --pre-push also arms the CI warning',
         'mem hooks check                    prove it fires, with a decoy',
         '',
         '  The memory and this tool are different directories, so the',
@@ -291,6 +293,9 @@ export const COMMANDS = {
         '  --dir  put the hook somewhere else. Needed when the memory',
         '         sits on a noexec mount — git starts hooks with execve,',
         '         and no chmod can help there.',
+        '  --pre-push  opt-in: before a push to the default branch, ask CI',
+        '         (via gh) whether that exact commit has a green run, and',
+        '         WARN if not — red, pending, none or unknown. Never blocks.',
       ].join('\n'));
       return;
     }
@@ -298,8 +303,8 @@ export const COMMANDS = {
     requireConfig(root);
 
     if (rest[0] === 'install') {
-      checkFlags(args, ['dir'], 'hooks install');
-      const r = installHook(root, args.dir ?? null);
+      checkFlags(args, ['dir', 'pre-push'], 'hooks install');
+      const r = installHook(root, args.dir ?? null, { prePush: Boolean(args['pre-push']) });
       for (const l of r.lines) out(l);
       if (!r.ok) process.exit(1);
       return;
