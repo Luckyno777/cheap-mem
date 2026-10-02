@@ -215,7 +215,8 @@ test('GREEN: glitter does not glow itself — colour only from the light of the 
   const glitter = h.objects.find((o) => o.isPoints);
   assert.ok(glitter, 'glitter present');
   const count = glitter.geometry.attributes.position.count;
-  assert.ok(count > 0 && count <= 120, `a few particles (${count})`);
+  // Upper bound 180: the owner asked on 2026-10-02 for 50 % more glitter particles (110 -> 165).
+  assert.ok(count > 0 && count <= 180, `a few particles (${count})`);
   const { vertexShader: vs, fragmentShader: fsh, uniforms: u } = glitter.material;
   assert.match(vs, /vLight = vec3\(0\.0\);/, 'black without light');
   assert.equal((vs.match(/vLight \+?=/g) || []).length, 2, 'only the start value and the sum over the cores');
@@ -245,10 +246,11 @@ test('GREEN: glitter more visible (glimmer, 2026-09-28) — more, larger, a flas
   // (cores and fog unchanged; the rest is the glitter itself).
   const OLD = '3eff43cbd10ad661a97a9bfc87627d6a5c66ff0d';
   const old = execFileSync('git', ['show', `${OLD}:assets/dashboard/dashboard.js`], { cwd: ROOT, encoding: 'utf8' });
-  const count = (q) => Number(/const COUNT = (\d+);/.exec(between(q, ANCHOR, 'function initGraph() {'))[1]);
+  // Since 2026-10-02 the number lives in CLOUD_GLITTER (COUNT = CLOUD_GLITTER); older states carry it directly.
+  const count = (q) => Number((/const CLOUD_GLITTER = (\d+);/.exec(q) || /const COUNT = (\d+);/.exec(between(q, ANCHOR, 'function initGraph() {')))[1]);
   assert.equal(count(old), 70, 'RED: 70 particles before');
   assert.doesNotMatch(old, /flash = pow\(mirror/, 'RED: no flash before');
-  assert.ok(count(SOURCE) >= 100 && count(SOURCE) <= 120, `now ${count(SOURCE)} particles — more visible, still few`);
+  assert.ok(count(SOURCE) >= 100 && count(SOURCE) <= 180, `now ${count(SOURCE)} particles — more visible, still few (owner, 2026-10-02: +50 %)`);
   assert.match(BLOCK, /float mirror = max\(0\.0, dot\(reflect\(-L, n\), V\)\);\n\s*float gloss = pow\(mirror, [\d.]+\), flash = pow\(mirror, [\d.]+\);/, 'gloss and flash from the mirror angle to the core — no glow of its own');
   const h = hull(graphModel(store(64, ['a', 'b', 'c']), 'storage'));
   assert.ok(h.drawCalls <= 2, `${h.drawCalls} draw calls`);
