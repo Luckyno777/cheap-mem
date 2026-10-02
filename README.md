@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **81 CLI commands, 37 MCP tools, 164 modules, 3388
-tests**; as of 2026-09-20, about 67558 lines in `bin/` and `src/`, at
+As of 2026-09-26: **82 CLI commands, 37 MCP tools, 165 modules, 3403
+tests**; as of 2026-09-20, about 68131 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -536,6 +536,7 @@ mem skills version <name>      a new version as a trial correction line (owner o
 mem experience review|guards|effect  fixes a newer lesson questions, test<->error
                                guards, a procedure's repetition rate around its release
 mem workflow new|list|show     workflows with triggers/patterns the hooks match
+mem command-guard build|show|check|seed  warn before a Bash command an error recorded as mishandled
 mem snippet new|list|show      reusable blocks with {{PLACEHOLDERS}}, redaction-gated
 mem experiences [--all]        lessons ranked by how much of the memory leans on them
 mem viewer [--out f.html]      one self-contained HTML page to browse it all

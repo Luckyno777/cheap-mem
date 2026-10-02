@@ -25,6 +25,7 @@ import * as snippet from '../../snippet.mjs';
 import * as question from '../../question.mjs';
 import * as neighbours from '../../neighbours.mjs';
 import * as errorclass from '../../errorclass.mjs';
+import * as commandguard from '../../commandguard.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
@@ -129,6 +130,31 @@ export const COMMANDS = {
         warn('  Pick the one whose question you can answer on this case:');
         for (const block of errorclass.help()) for (const l of block.split('\n')) warn(l);
       }
+    }
+
+    // **`--command-pattern` on an error (lever-5 port, src/commandguard.mjs).**
+    // The switch is stored as the field `command_pattern`, which the before-
+    // edit hook reads on Bash. A pattern that cannot be matched (too short,
+    // quotes, non-ASCII) is dropped by the reader, so it is WARNED about
+    // here instead of leaving a guard that exists and never fires.
+    if (Object.hasOwn(data, 'command-pattern')) {
+      const { 'command-pattern': v, ...restFields } = data;
+      data = { ...restFields, [commandguard.FIELD]: data[commandguard.FIELD] ?? v };
+    }
+    if (Object.hasOwn(data, commandguard.FIELD)) {
+      if (type !== 'error') die('log: --command-pattern belongs on an error (type error).');
+      if (data[commandguard.FIELD] === true) die('log: --command-pattern arrived without a value. Meant: --command-pattern "git add -A".');
+      const given = String(data[commandguard.FIELD]);
+      const bad = commandguard.rejected(given);
+      if (!commandguard.parseField(given).length) {
+        die(`log: --command-pattern has no usable pattern (${bad.map((b) => JSON.stringify(b)).join(', ') || 'empty'}). `
+          + 'A pattern is printable ASCII, 4 to 80 characters, no quote or backslash. Nothing was written.');
+      }
+      for (const b of bad) warn(`command pattern ${JSON.stringify(b)} is unusable and will not fire (4-80 printable ASCII characters, no quote or backslash).`);
+      if (errorclass.normalise(data.class) !== commandguard.GUARD_CLASS) {
+        warn(`command pattern: the guard is meant for class '${commandguard.GUARD_CLASS}' (this one is '${data.class ?? 'none'}'); it fires anyway.`);
+      }
+      data[commandguard.FIELD] = commandguard.fieldValue(commandguard.parseField(given));
     }
 
     // --- The latch, and its positive control -------------------------

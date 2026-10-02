@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 81 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 82 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3388 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3403 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -73,6 +73,7 @@ directory. The section number in brackets is where it is explained.
 | `clihelp.mjs` | what the CLI dispatches, what its help advertises, and where the two have drifted apart |
 | `clock.mjs` | clock skew between writers, measured from the log itself, never used to reorder anything |
 | `closingreport.mjs` | X2b: the task-end occasion — the Stop hook reports the open duties written in this session (a systemMessage, never a block; capped, once per duty; filtered from `today.decisionsForHuman`, no second count) |
+| `commandguard.mjs` | the command guard (lever-5 port): an error of the class `mishandling` may carry a `command_pattern` (`mem log error ... --command-pattern "git add -A$"`); the before-edit hook on Bash warns once per session and error when a command matches, never blocks, behind a shell prefilter that starts node only on a keyword hit; derived booklet under `.pipeline/command-guard/`; `mem command-guard build\|show\|check\|seed` (10.30) |
 | `component-table.mjs` | an offline-built register — every git-tracked path and exported symbol to the entries that mention/guard/fix it — so `mem component --table`/`--hook` (the pre-edit hook) can look up instead of scanning; R-Tab parity with lucky-mem |
 | `component.mjs` | one file, across both spellings (10.14) |
 | `config.mjs` | participants, defaults, the memory's own settings |
@@ -598,7 +599,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 81 commands
+### 7.1 CLI — 82 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -610,7 +611,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience
+experience command-guard
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later
@@ -1964,3 +1965,30 @@ compares a released procedure's repetition rate 14 days before and after
 its release. Doctor: `skill-sharpen`, `guard-suspicion`,
 `procedure-effect` — numbers and suspicions, never a verdict, nothing
 changed.
+
+### 10.30 Command guard — `src/commandguard.mjs`, `mem command-guard`
+
+The before-edit hook catches a repeated mistake on a FILE; for a shell
+command it saw nothing, so `pkill chrome`, `git add -A` or `rm -rf /tmp`
+could be repeated although the error was logged. An error of the class
+`mishandling` may therefore carry a **command pattern** (field
+`command_pattern`, written with `mem log error ... --command-pattern
+"git add -A$ ;; git add --all$"`; for an old error a correction line, see
+`mem command-guard seed`). When a Bash command matches, the hook shows the
+error once per session and error (title, class, id) and **never blocks**.
+
+Matching is literal, without a parser or a shell: the first wording of a
+pattern must stand where a command starts (line start, after `;` `&` `|`
+`(`, behind `sudo`/`time`/`VAR=x`, or first in `bash -c "..."`), so a
+sentence that only names the command triggers nothing; wordings joined with
+` & ` must ALL occur; a trailing `$` allows no further argument. A pattern
+nothing can match (under 4 characters, quotes, non-ASCII) is refused at
+write time. A shell prefilter in `bin/mem-before-edit` (and its `.ps1` twin)
+starts node only when a keyword of the derived booklet
+(`.pipeline/command-guard/words.txt`) occurs in the hook JSON or the booklet
+is stale; with no pattern recorded there is no extra process. cm ships
+empty: no pattern comes with the code. The pattern is never learned from
+hits and changes no rank. `mem command-guard show` prints the coverage
+(`mishandling` incidents carrying a pattern); `check "<command>"` is a dry
+run.
+

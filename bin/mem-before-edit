@@ -182,6 +182,38 @@ journal_book() {
 IS_BASH=""
 if printf '%s' "$IN" | grep -qE '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; then
   IS_BASH=1
+  # **The command guard (lever-5 port), before the workflows and independent
+  # of any written file.** An error of the class `mishandling` may carry a
+  # `command_pattern`; src/commandguard.mjs warns once per session and
+  # error when the command matches, and never blocks. The node start is
+  # paid only when (a) a line of `.pipeline/command-guard/words.txt` (first
+  # wording of each pattern) stands in the hook JSON (grep -F), or (b) the
+  # booklet is missing or older than an error drawer AND some drawer holds
+  # a `"command_pattern"` (node then rebuilds it). Nothing armed: a few
+  # stat calls, no process. May be falsely positive, never falsely negative
+  # (except two spaces in the raw text, see the module head).
+  CGD="$TOOL_ROOT/src/commandguard.mjs"
+  cg_needed() {
+    local dir="$ROOT/.pipeline/command-guard" f stale=""
+    if [ -f "$dir/rules.json" ]; then
+      for f in "$ROOT/global/errors.jsonl" "$ROOT"/projects/*/errors.jsonl; do
+        if [ -f "$f" ] && [ "$f" -nt "$dir/rules.json" ]; then stale=1; break; fi
+      done
+      if [ -z "$stale" ]; then
+        [ -s "$dir/words.txt" ] && printf '%s' "$IN" | grep -qFf "$dir/words.txt"
+        return
+      fi
+    fi
+    grep -qs '"command_pattern"' "$ROOT/global/errors.jsonl" "$ROOT"/projects/*/errors.jsonl
+  }
+  if [ -f "$CGD" ] && cg_needed; then
+    CG_OUT="$(printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" capped 5 node "$CGD" bash 2>/dev/null)"
+    if [ -n "$CG_OUT" ]; then
+      printf '%s' "$CG_OUT"
+      trace "command-guard"
+      exit 0
+    fi
+  fi
   # **Workflows first (wf-bc B3 port), independent of any written file.**
   # `npm test` or `git rebase` write no file, so the prefilter below
   # would leave silently before a workflow's `tool_patterns` were ever
