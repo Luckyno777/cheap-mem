@@ -73,7 +73,7 @@ let types = {
 };
 const edgeLabels = {
   derived_from: 'Origin', replaces: 'Replaces', closes: 'Closes', causes: 'Causes', generalizes: 'Generalizes',
-  contradicts: 'Contradicts', resolves: 'Resolves',
+  contradicts: 'Contradicts', resolves: 'Resolves', derived: 'Derived (a guess)',
 };
 
 // --- Data ---------------------------------------------------------------------
@@ -961,7 +961,7 @@ const pages = {
       'Open nodes directly',
       '<div class="graph-entry-list">' + entryRows(focus.slice(0, 80), 'Your first entries will appear here.') + '</div>' + limitNote(Math.min(80, focus.length), focus.length, 'knowledge/entries'),
       'An alternative to spatial navigation',
-    )}${panel('Project matrix', projectMatrix(), 'Stored links between the projects, from the drawer pairs')}</div><div class="grid two" style="margin-top:18px">${panel('Drawers · project × type', drawerMatrix(), `${num(D.net?.boxes?.length)} drawers · one click shows their entries (the old net view's overview)`)}${panel('Layers', netLayers(), `depth ${num(D.net?.layers?.depth)} · what points at others stands on top (net.layers)`)}</div><div style="margin-top:18px">${panel('Hand-drawn links', (D.links || []).slice(0, 40).map((l) => `<div class="row"><div><strong>${esc(edgeLabels[l.kind] || l.kind)}</strong><p>${byId(l.from) ? open(l.from, byId(l.from).title, 'textlink') : esc(l.from)} → ${byId(l.to) ? open(l.to, byId(l.to).title, 'textlink') : esc(l.to)}${l.why ? ' · ' + esc(l.why) : ''}</p></div>${l.fromKnown && l.toKnown ? badge('present', 'both ends known') : badge('missing', 'dangling')}</div>`).join('') || empty('No link has been drawn by hand yet. <code class="mono">mem log link --from … --to … --kind causes</code> draws one.'), 'Typed relations from the links drawer, with their reason')}</div>`;
+    )}${panel('Project matrix', projectMatrix(), 'Stored links between the projects, from the drawer pairs')}</div><div class="grid two" style="margin-top:18px">${panel('Drawers · project × type', drawerMatrix(), `${num(D.net?.boxes?.length)} drawers · one click shows their entries (the old net view's overview)`)}${panel('Layers', netLayers(), `depth ${num(D.net?.layers?.depth)} · what points at others stands on top (net.layers)`)}</div><div style="margin-top:18px">${panel('Hand-drawn links', (D.links || []).slice(0, 40).map((l) => `<div class="row"><div><strong>${esc(edgeLabels[l.kind] || l.kind)}</strong><p>${byId(l.from) ? open(l.from, byId(l.from).title, 'textlink') : esc(l.from)} → ${byId(l.to) ? open(l.to, byId(l.to).title, 'textlink') : esc(l.to)}${l.why ? ' · ' + esc(l.why) : ''}</p></div>${l.fromKnown && l.toKnown ? badge('present', 'both ends known') : badge('missing', 'dangling')}</div>`).join('') || empty('No link has been drawn by hand yet. <code class="mono">mem log link --from … --to … --kind causes</code> draws one.'), 'Typed relations from the links drawer, with their reason')}</div><div style="margin-top:18px">${derivedPanel()}</div>`;
   },
   topics: () => {
     const counts = new Map();
@@ -2070,6 +2070,19 @@ function projectstatePage() {
   )}</div>`;
 }
 
+// --- Derived links to review (src/netderive.mjs, `mem net --derived`) ---------
+// One read-only list: the borderline pairs (strong shared rare terms alone). The system does not
+// decide them; a human draws the link (`mem log link`) or leaves it. Auto pairs (terms AND file
+// strong) are drawn dashed in the atlas and listed below them.
+function derivedPanel() {
+  const d = D.net?.derived;
+  if (!d || d.unknown) return panel('Derived links to review', `<p class="muted">${badge('unknown')} Not computed: ${esc(d?.reason || 'no data')}.</p>`, 'Guesses from shared evidence');
+  const row = (l) => `<div class="row"><div class="row-main"><div>${open(l.from, short5(byId(l.from)?.title || l.from), 'open-entry textlink')} <span class="quiet">→</span> ${open(l.to, short5(byId(l.to)?.title || l.to), 'open-entry textlink')}<p class="small muted">${esc(l.reason)}</p></div></div><span class="badge ${l.tier === 'auto' ? '' : 'warn'}">${l.tier === 'auto' ? 'auto · dashed' : 'for you'}</span></div>`;
+  const head = `<p class="small muted">${num(d.borderlineTotal)} borderline${d.borderlineTotal > d.borderline.length ? ` (${num(d.borderline.length)} strongest listed)` : ''} · ${num(d.auto.length)} auto, drawn dashed · ${num(d.linked)} already linked · over ${num(d.entries)} entries. Nothing here is stored or decided: a link you agree with is drawn with <code class="mono">mem log link --from … --to … --kind …</code>.</p>`;
+  const body = [...d.borderline, ...d.auto.slice(0, 40)].map(row).join('') || empty('No pair shares enough rare evidence. With more entries the list fills by itself.');
+  return panel('Derived links to review', head + body, 'Shared rare terms and files · deterministic, no model');
+}
+const short5 = (t) => String(t).trim().split(/\s+/).slice(0, 6).join(' ');
 // --- The brain network (the mockup's Neural Atlas, fed by real data) ---------
 //
 // Built as in the mockup: a folded, decorative brain hull (no data), a
@@ -2131,9 +2144,13 @@ function graphListEntries() {
 }
 function graphModel(es, mode) {
   const ids = new Set(es.map((e) => e.id)),
-    edges = allEdges(es).filter((e) => ids.has(e.to)),
+    stored = allEdges(es).filter((e) => ids.has(e.to)),
+    // The third kind (src/netderive.mjs): auto-tier derived links, drawn dashed. They join the
+    // drawing, never the bundling (adjacency) and never the loops: nobody wrote them.
+    derived = mode === 'trail' ? [] : (D?.net?.derived?.auto || []).filter((d) => ids.has(d.from) && ids.has(d.to)).map((d) => ({ from: d.from, to: d.to, kind: 'derived', derived: d })),
+    edges = stored.concat(derived),
     adj = new Map(es.map((e) => [e.id, new Set()]));
-  edges.forEach((e) => {
+  stored.forEach((e) => {
     adj.get(e.from).add(e.to);
     adj.get(e.to).add(e.from);
   });
@@ -2152,8 +2169,11 @@ function graphModel(es, mode) {
     [-0.51, -0.49, 0.19],
     [0.54, -0.48, 0.18],
   ];
-  const position = (i, n) => {
+  // Centres of the main nodes. n <= 6: the fixed spots; up to GROUPS_SHELL_FROM the double
+  // surface; above that one Fibonacci shell whose radius grows with the node count.
+  const position = (i, n, plan) => {
     if (n <= 6) return { x: positions[i][0], y: positions[i][1], z: positions[i][2] };
+    if (n > GROUPS_SHELL_FROM) return shellPoint(plan || shellPlan(n), i);
     const j = Math.floor(i / 2),
       side = i % 2 ? 1 : -1,
       a = j * 2.399963;
@@ -2167,35 +2187,36 @@ function graphModel(es, mode) {
     members.forEach((e) => assignment.set(e.id, g));
   }
   if (mode === 'topics') {
-    let remaining = es.slice();
-    while (remaining.length) {
-      if (groups.length === 5) {
-        add('other-topics', 'Other topics', remaining);
-        break;
-      }
-      const counts = new Map();
-      remaining.forEach((e) => new Set(e.tags).forEach((tag) => counts.set(tag, (counts.get(tag) || 0) + 1)));
-      const best = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'en'))[0];
+    // EVERY topic with members is a main node of its own — no cap, no collecting node
+    // "Other topics" (parity with the sibling house 2026-10-01: a capped picture differs from
+    // the real net). An entry lands in the topic of its most frequent still-free tag; the
+    // counts are updated while assigning instead of rebuilt per round.
+    const byTag = new Map(), counts = new Map(), free = new Set(es);
+    for (const e of es) for (const tag of new Set(e.tags)) {
+      if (!byTag.has(tag)) byTag.set(tag, []);
+      byTag.get(tag).push(e);
+      counts.set(tag, (counts.get(tag) || 0) + 1);
+    }
+    while (free.size) {
+      let best = null;
+      for (const [tag, n] of counts) if (n > 0 && (!best || n > best[1] || (n === best[1] && tag.localeCompare(best[0], 'en') < 0))) best = [tag, n];
       if (!best) {
-        add('untagged', 'No topic', remaining);
+        add('untagged', 'No topic', es.filter((e) => free.has(e)));
         break;
       }
-      add('tag:' + best[0], best[0], remaining.filter((e) => e.tags.includes(best[0])));
-      remaining = remaining.filter((e) => !assignment.has(e.id));
+      const members = byTag.get(best[0]).filter((e) => free.has(e));
+      add('tag:' + best[0], best[0], members);
+      for (const e of members) {
+        free.delete(e);
+        for (const tag of new Set(e.tags)) counts.set(tag, counts.get(tag) - 1);
+      }
     }
   } else if (mode === 'relations') {
-    // As in the mockup: repeatedly the entry with the most still-free
-    // neighbours plus its neighbours. With real amounts capped at seven
-    // bundles; the rest stays complete in two collecting groups.
+    // As in the mockup: repeatedly the entry with the most still-free neighbours plus its
+    // neighbours. WITHOUT a cap: every bundle with members is a main node. Only entries without
+    // any internal relation remain, as one honestly named group.
     const remaining = new Set(es.map((e) => e.id));
     while (remaining.size) {
-      if (groups.length === 7) {
-        const rest = es.filter((e) => remaining.has(e.id));
-        const linked = rest.filter((e) => [...adj.get(e.id)].length);
-        add('ref-rest', 'Other relations', linked);
-        add('isolated', 'No internal relations', rest.filter((e) => !adj.get(e.id).size));
-        break;
-      }
       let top = null, n = 0;
       for (const id of remaining) {
         let k = 0;
@@ -2270,18 +2291,294 @@ function graphModel(es, mode) {
       return cell;
     });
   }
+  // Centre, weight and size per main node (weight = member count, the sphere grows with its
+  // root). Up to GROUPS_SHELL_FROM groups everything stays as before. Above that only the
+  // heaviest topics/bundles stay main nodes (hierarchise), the rest become their subtopics, and
+  // the main nodes sit on ONE shell whose radius grows with the node count; the heaviest stand
+  // spread (golden step) instead of side by side.
+  let topicsTotal = groups.length, tiered = false;
+  if ((mode === 'topics' || mode === 'relations') && groups.length > GROUPS_SHELL_FROM) {
+    tiered = true;
+    const r = hierarchise(groups, assignment, adj);
+    topicsTotal = r.topics + groups.filter((g) => g.key === 'untagged' || g.key === 'isolated').length;
+  }
+  const groupCount = groups.length, many = mode !== 'trail' && (tiered || groupCount > GROUPS_SHELL_FROM);
+  const maxWeight = Math.max(1, ...groups.map((g) => g.members.length));
+  const plan = many ? shellPlan(groupCount, topicsTotal, tiered ? SHELL_TIER_MIN : SHELL_MIN) : null;
+  const step = many ? shellStep(groupCount) : 1;
+  const rank = many ? new Map([...groups.keys()].sort((a, b) => groups[b].members.length - groups[a].members.length || a - b).map((gi, r) => [gi, r])) : null;
   groups.forEach((g, i) => {
-    g.center = mode === 'trail' ? { x: 0, y: 0, z: 0 } : position(i, groups.length);
-    g.radius = mode === 'trail' ? 0.62 : groups.length > 8 ? 0.19 : 0.29;
-    g.cells = mode === 'trail' ? [] : mode === 'storage' ? drawerCells(g, false) : mode === 'overview' ? drawerCells(g, true) : splitCells(g.members, g.center, g.radius, g.key, g.key);
+    g.weight = g.members.length;
+    g.weightRank = many ? rank.get(i) : i;
+    g.center = mode === 'trail' ? { x: 0, y: 0, z: 0 } : many && (mode === 'topics' || mode === 'relations') ? shellPoint(plan, (rank.get(i) * step) % groupCount) : position(i, groupCount, plan);
+    const rel = Math.sqrt(g.weight / maxWeight);
+    g.radius = mode === 'trail' ? 0.62 : many ? Math.max(0.02, Math.min(tiered ? 0.3 : 0.19, 0.42 * plan.d * (0.35 + 0.65 * rel))) : groups.length > 8 ? 0.19 : 0.29;
+    g.scale = many ? Math.max(0.25, Math.min(1, (g.radius / 0.19) * 1.2)) : 1;
+    g.coreRadius = many ? (tiered ? 0.03 + 0.03 * rel : 0.007 + 0.022 * rel) : null;
+    g.direct = null;
+    if (mode === 'topics' || (mode === 'relations' && g.attached?.length)) {
+      // Subtopics from the tag bundles, radially outward; without any the subgroups stay.
+      const tree = subtopicTree(g, splitCells);
+      g.cells = tree.cells.length ? tree.cells : splitCells(g.members, g.center, g.radius, g.key, g.key);
+      g.direct = tree.cells.length ? tree.direct : null;
+      g.hull = hullOf(g.center, g.radius, g.cells);
+    } else g.cells = mode === 'trail' ? [] : mode === 'storage' ? drawerCells(g, false) : mode === 'overview' ? drawerCells(g, true) : splitCells(g.members, g.center, g.radius, g.key, g.key);
   });
-  return { groups, assignment, edges, shards, records: es, mode };
+  // Drawing scale: when the net grows outward (a large shell, a subtopic bloom) it fills only
+  // part of the fitted picture; nodes, strands and lights grow with the extent (1 = the old
+  // compact net, at most 2.2). With few topics everything stays exactly as before.
+  let extent = 0.9;
+  const measure = (c) => { extent = Math.max(extent, Math.hypot(c.center.x - CORE_POINT.x, c.center.y - CORE_POINT.y, c.center.z - CORE_POINT.z) + (c.radius || 0)); (c.cells || []).forEach(measure); };
+  if (mode !== 'trail') groups.forEach(measure);
+  const bloom = groups.some((g) => g.cells.some((c) => c.topic));
+  const sk = many || bloom ? Math.max(1, Math.min(2.2, Math.pow(extent / 1.25, 0.6))) : 1;
+  // Loops of the STORED links (A -> B -> C -> A), deterministic.
+  const cycles = mode === 'trail' ? [] : findCycles(stored, ids);
+  return { groups, assignment, edges, shards, records: es, mode, many, tiered, topicsTotal, cycles, sk, extent, derivedCount: derived.length };
+}
+// --- Radial hierarchy (parity with the sibling house 2026-10-01) --------------
+// Core inside -> main topics on the first shell -> subtopics further out (they "bloom" from
+// their topic outward) -> entries outermost. The shell GROWS with its node count; subtopics
+// come deterministically from the members' tag bundles, never from chunks or chance.
+// From this group count on: one shell instead of the old double surface (measured by the
+// sibling: the double surface becomes two flat bands, minimum gap n=221 0.109 against 0.162).
+const GROUPS_SHELL_FROM = 16;
+// Target gap of neighbouring main nodes on the first shell, and the smallest shell radius.
+const SHELL_GAP = 0.34;
+const SHELL_MIN = 0.62;
+// Hierarchy: as many main topics as a share of the topics gives (7 %, at least 8, at most
+// 20); the first shell then lies clearly further from the core.
+const MAIN_SHARE = 0.07, MAIN_MIN = 8, MAIN_MAX = 20, SHELL_TIER_MIN = 2.2;
+const SHELL_AXES = { x: 1, y: 0.86, z: 0.8 };
+const CORE_POINT = { x: 0, y: -0.03, z: 0.02 };
+// A topic with more members than CELL_SPLIT splits by its tags; a subtopic needs at least
+// SUBTOPIC_MIN members; the recursion ends at SUBTOPIC_DEPTH. What fits no subtopic stays
+// DIRECTLY at the topic.
+const CELL_SPLIT = 28;
+const SUBTOPIC_MIN = 4;
+const SUBTOPIC_DEPTH = 3;
+// Loops: stored links only, at most this long and this many.
+const CYCLE_MAX_LENGTH = 8;
+const CYCLES_MAX = 400;
+// Label tiers with many main nodes: the heaviest always carry a label; this many more may
+// appear once their sphere is large enough on screen (zooming in).
+const LABEL_GROUPS_FIXED = 10;
+const LABEL_GROUPS_EXTRA = 26;
+const LABEL_MIN_PX = 30;
+// Rings (two torus meshes per core) only for the heaviest main nodes.
+const CORE_RINGS_MAX = 16;
+// Below this zoom (1 = whole view) single edges inside a group are quiet; bundled strands and
+// those across group borders stay loud.
+const STRAND_NEAR_ZOOM = 1.6;
+// At most this many loops are drawn as a path (all count; meshes are expensive).
+const CYCLES_DRAWN_MAX = 60;
+const PHI_GOLDEN = 0.6180339887498949;
+/** Unit vector from the core outward; without a distance: forward. */
+function outward(p) {
+  const x = p.x - CORE_POINT.x, y = p.y - CORE_POINT.y, z = p.z - CORE_POINT.z, l = Math.hypot(x, y, z);
+  return l < 1e-6 ? { x: 0, y: 0, z: 1 } : { x: x / l, y: y / l, z: z / l };
+}
+/** Plan of the first shell for n main nodes: the radius grows with the root of n, grid gap d. */
+function shellPlan(n, total = n, minR = SHELL_MIN) {
+  const R = Math.max(minR, 0.2625 * 1.1 * (minR === SHELL_TIER_MIN ? 0.55 : SHELL_GAP) * Math.sqrt(Math.max(1, total)));
+  return { R, d: n <= 1 ? SHELL_GAP : Math.min(1.2, (R * 3.809) / Math.sqrt(n)) / 1.1, n };
+}
+function shellPoint(plan, i) {
+  const n = plan.n, a = i * 2.399963, y = n === 1 ? 0 : 1 - (2 * (i + 0.5)) / n, q = Math.sqrt(Math.max(0, 1 - y * y));
+  return { x: Math.cos(a) * q * plan.R * SHELL_AXES.x, y: y * plan.R * SHELL_AXES.y, z: Math.sin(a) * q * plan.R * SHELL_AXES.z };
+}
+/** A step coprime to n near 0.618 n: consecutive ranks spread over the whole sphere. */
+function shellStep(n) {
+  const gcd = (a, b) => (b ? gcd(b, a % b) : a);
+  let s = Math.max(1, Math.round(n * PHI_GOLDEN));
+  while (s > 1 && gcd(s, n) !== 1) s--;
+  return s;
+}
+/** Tag bundles of a member list: per round the most frequent free tag (tie: name), from SUBTOPIC_MIN. */
+function tagBundles(members, used) {
+  const byTag = new Map(), counts = new Map(), free = new Set(members);
+  for (const e of members) for (const tag of new Set(e.tags)) {
+    if (used.has(tag)) continue;
+    if (!byTag.has(tag)) byTag.set(tag, []);
+    byTag.get(tag).push(e);
+    counts.set(tag, (counts.get(tag) || 0) + 1);
+  }
+  const bundles = [];
+  for (;;) {
+    let best = null;
+    for (const [tag, n] of counts) if (n >= SUBTOPIC_MIN && (!best || n > best[1] || (n === best[1] && tag.localeCompare(best[0], 'en') < 0))) best = [tag, n];
+    if (!best) break;
+    const m = byTag.get(best[0]).filter((e) => free.has(e));
+    counts.set(best[0], 0);
+    if (m.length < SUBTOPIC_MIN) continue;
+    bundles.push([best[0], m]);
+    for (const e of m) {
+      free.delete(e);
+      for (const tag of new Set(e.tags)) if (counts.has(tag) && tag !== best[0]) counts.set(tag, counts.get(tag) - 1);
+    }
+  }
+  return { bundles, direct: members.filter((e) => free.has(e)) };
+}
+/** Subtopics bloom outward: a sphere (Fibonacci, decoupled radius) behind the parent node. */
+function layBloom(cells, P, rp, mp) {
+  const k = cells.length, u = outward(P);
+  cells.forEach((c) => { c.radius = rp * (0.3 + 0.4 * Math.sqrt(c.members.length / Math.max(1, mp))); });
+  const rMean = cells.reduce((sum, c) => sum + c.radius, 0) / k;
+  const blob = k === 1 ? 0 : rMean * 2.1 * Math.cbrt(k);
+  const dist = rp + Math.max(blob, rMean) + 0.05;
+  const B = { x: P.x + u.x * dist, y: P.y + u.y * dist, z: P.z + u.z * dist };
+  cells.forEach((c, i) => {
+    const a = i * 2.399963, y = k === 1 ? 0 : 1 - (2 * (i + 0.5)) / k, q = Math.sqrt(Math.max(0, 1 - y * y)), rr = blob * Math.cbrt(((i + 0.5) * PHI_GOLDEN) % 1);
+    c.center = { x: B.x + Math.cos(a) * q * rr, y: B.y + y * rr, z: B.z + Math.sin(a) * q * rr };
+  });
+}
+/**
+ * Hierarchy instead of equal-ranked nodes: only the heaviest topics/bundles (a share, not a
+ * fixed number) stay main nodes; each smaller one becomes a subtopic of the main node it
+ * shares the most entries/links with (tie: the heavier main node, then the key; no contact:
+ * the one with the fewest subtopics). Nothing is cut, no collecting node.
+ */
+function hierarchise(groups, assignment, adj) {
+  const free = (g) => g.key === 'untagged' || g.key === 'isolated';
+  const sorted = groups.filter((g) => !free(g)).sort((a, b) => b.members.length - a.members.length || (a.key < b.key ? -1 : 1));
+  const k = Math.max(MAIN_MIN, Math.min(MAIN_MAX, Math.round(groups.length * MAIN_SHARE)));
+  const main = sorted.slice(0, k), small = sorted.slice(k);
+  const mainOfEntry = new Map(), mainOfTag = new Map();
+  for (const m of main) {
+    m.own = m.members.slice();
+    m.attached = [];
+    for (const e of m.members) mainOfEntry.set(e.id, m);
+    if (m.key.startsWith('tag:')) mainOfTag.set(m.key.slice(4), m);
+  }
+  for (const g of small) {
+    const points = new Map();
+    for (const e of g.members) {
+      for (const nb of adj.get(e.id) || []) { const m = mainOfEntry.get(nb); if (m) points.set(m, (points.get(m) || 0) + 1); }
+      for (const t of e.tags || []) { const m = mainOfTag.get(t); if (m) points.set(m, (points.get(m) || 0) + 1); }
+    }
+    let target = null;
+    for (const m of main) {
+      const p = points.get(m) || 0, q = target ? points.get(target) || 0 : -1;
+      if (p > q || (p === q && p === 0 && m.attached.length < target.attached.length)) target = m;
+    }
+    target.attached.push(g);
+  }
+  for (const m of main) {
+    for (const g of m.attached) { m.members = m.members.concat(g.members); for (const e of g.members) assignment.set(e.id, m); }
+  }
+  const keep = new Set([...main, ...groups.filter(free)]);
+  const next = groups.filter((g) => keep.has(g));
+  groups.length = 0;
+  groups.push(...next);
+  return { topics: sorted.length + (next.length - main.length), main: main.length };
+}
+/** The subtopic tree of a topic (recursive): `{ cells, direct }`. */
+function subtopicTree(g, splitFn) {
+  const attached = g.attached || [];
+  if ((!g.key.startsWith('tag:') || g.members.length <= CELL_SPLIT) && !attached.length) return { cells: [], direct: null };
+  const build = (members, used, parent, depth, P, rp, mp) => {
+    const first = depth === 0;
+    if (!first && (members.length <= CELL_SPLIT || depth >= SUBTOPIC_DEPTH)) return { cells: [], direct: null };
+    // Level 0: the smaller topics attached to it are finished subtopics; its own entries split by tags as well.
+    const own = first ? g.own || members : members;
+    const ahead = first ? attached.map((a) => [a.label, a.members, a.key]) : [];
+    const tags = g.key.startsWith('tag:') && own.length > CELL_SPLIT ? tagBundles(own, used) : { bundles: [], direct: own };
+    const bundles = [...ahead, ...tags.bundles];
+    if (!bundles.length) return { cells: [], direct: null };
+    const cells = bundles.map(([tag, m, k]) => ({ key: parent + ':u:' + (k || tag), label: tag, topic: true, members: m, parent, group: g.key, depth, cells: [], direct: null }));
+    layBloom(cells, P, rp, mp);
+    cells.forEach((c) => {
+      const sub = build(c.members, new Set([...used, c.label]), c.key, depth + 1, c.center, c.radius, c.members.length);
+      // No further subtopic, but still large: the existing subgroups (splitCells) as before.
+      c.cells = sub.cells.length || c.members.length <= CELL_SPLIT ? sub.cells : splitFn(c.members, c.center, c.radius, g.key, c.key, depth + 1);
+      c.direct = sub.cells.length ? sub.direct : null;
+    });
+    return { cells, direct: tags.direct };
+  };
+  const r = build(g.members, new Set([g.key.slice(4)]), g.key, 0, g.center, g.radius, g.members.length);
+  return { cells: r.cells, direct: r.cells.length ? r.direct : null };
+}
+/** The enclosing sphere of a node and all its subtopics (the focus flight keeps the bloom in the picture). */
+function hullOf(mid, radius, cells) {
+  const spheres = [{ x: mid.x, y: mid.y, z: mid.z, r: radius }];
+  const collect = (list) => (list || []).forEach((c) => { spheres.push({ x: c.center.x, y: c.center.y, z: c.center.z, r: c.radius }); collect(c.cells); });
+  collect(cells);
+  let c = { ...spheres[0] };
+  for (const k of spheres.slice(1)) {
+    const d = Math.hypot(k.x - c.x, k.y - c.y, k.z - c.z);
+    if (d + k.r <= c.r) continue;
+    const r = (c.r + d + k.r) / 2, t = d ? (r - c.r) / d : 0;
+    c = { x: c.x + (k.x - c.x) * t, y: c.y + (k.y - c.y) * t, z: c.z + (k.z - c.z) * t, r };
+  }
+  return c;
+}
+/**
+ * Loops (cycles) of the STORED links: A -> B -> C -> A. Deterministic: strongly connected
+ * components (Tarjan, iterative), in them every simple cycle up to CYCLE_MAX_LENGTH, each
+ * starting at its smallest id, sorted by length and ids. Derived links do not count: they
+ * always point from the younger to the older entry and would never be evidence.
+ */
+function findCycles(links, ids) {
+  const adj = new Map([...ids].sort().map((id) => [id, new Set()]));
+  for (const k of links) if (k.kind !== 'derived' && k.from !== k.to && adj.has(k.from) && adj.has(k.to)) adj.get(k.from).add(k.to);
+  const next = new Map([...adj].map(([id, set]) => [id, [...set].sort()]));
+  let counter = 0;
+  const index = new Map(), low = new Map(), on = new Set(), stack = [], comps = [];
+  for (const start of next.keys()) {
+    if (index.has(start)) continue;
+    const work = [[start, 0]];
+    index.set(start, counter); low.set(start, counter); counter++; stack.push(start); on.add(start);
+    while (work.length) {
+      const top = work[work.length - 1], [v, i] = top, ns = next.get(v);
+      if (i < ns.length) {
+        top[1]++;
+        const w = ns[i];
+        if (!index.has(w)) { index.set(w, counter); low.set(w, counter); counter++; stack.push(w); on.add(w); work.push([w, 0]); }
+        else if (on.has(w)) low.set(v, Math.min(low.get(v), index.get(w)));
+      } else {
+        work.pop();
+        if (work.length) { const p = work[work.length - 1][0]; low.set(p, Math.min(low.get(p), low.get(v))); }
+        if (low.get(v) === index.get(v)) {
+          const c = []; let w;
+          do { w = stack.pop(); on.delete(w); c.push(w); } while (w !== v);
+          if (c.length > 1) comps.push(c.sort());
+        }
+      }
+    }
+  }
+  const cycles = [];
+  for (const comp of comps.sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const inside = new Set(comp);
+    for (const s of comp) {
+      const way = [s], seen = new Set([s]);
+      const walk = (v) => {
+        if (cycles.length >= CYCLES_MAX) return;
+        for (const w of next.get(v)) {
+          if (!inside.has(w) || w < s) continue;
+          if (w === s) { cycles.push(way.slice()); continue; }
+          if (seen.has(w) || way.length >= CYCLE_MAX_LENGTH) continue;
+          seen.add(w); way.push(w);
+          walk(w);
+          way.pop(); seen.delete(w);
+        }
+      };
+      walk(s);
+    }
+  }
+  return cycles.sort((a, b) => a.length - b.length || (a.join() < b.join() ? -1 : 1)).slice(0, CYCLES_MAX);
+}
+// The evidence of a shown edge (a click on a strand shows it): a stored edge stands in the
+// line of its entry (file:line); a derived one carries the system's reason.
+function edgeEvidence(k) {
+  if (k.kind === 'derived') return k.derived ? `derived, ${k.derived.tier === 'auto' ? 'automatic guess' : 'borderline'} · ${k.derived.reason}` : 'derived (evidence not loaded)';
+  const rec = byId(k.record);
+  return rec ? `stored in ${rec.source}${rec.line ? ':' + rec.line : ''} (${types[rec.type] || rec.type})` : 'stored (line not loaded)';
 }
 function graphCaption() {
   return {
     storage: 'One memory, spread over projects and their drawers (project × type). The shared core connects the project cores. Topics are independent of that.',
-    topics: 'Up to six topic bundles from shared tags. "Other topics" collects the rest for the overview only; every tag stays on its entry.',
-    relations: 'A point of reference and its direct neighbours form a relation bundle. Every stored cross-relation is kept.',
+    topics: 'Every topic with entries is a main node of its own, without a cap: an entry stands in the topic of its most frequent free tag. With many topics the heaviest are main nodes and the others bloom outward as their subtopics. The size follows the entry count; labels carry the heaviest, the rest appear when zooming in, in a focus and on hover. Every tag stays on its entry.',
+    relations: 'A point of reference and its direct neighbours form a relation bundle; every bundle is a main node of its own, without a cap. Entries without any relation stand in a group of their own, named so. Every stored cross-relation is kept.',
     structure: 'Grouped by entry type within the same cheap-mem memory.',
     overview: 'Overview: every drawer a sphere, every tube a drawer pair from net.mjs — explicitly an aggregation, not a single edge.',
     trail: 'Evidence trail: one entry in the middle, on the right where it points, on the left what points at it. "Show in the network" in the detail picks the entry.',
@@ -2299,7 +2596,7 @@ function brainBlock(large = false) {
   const emptyHint = es.length ? '' : `<div class="graph-empty" role="note"><strong>Your first entries will appear here.</strong><span>One calm core is waiting. Every entry you log becomes an energy core around it — <code class="mono">mem log learning "…"</code></span></div>`;
   return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">${esc(coreName())} / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · one shared knowledge structure</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Knowledge network">${['storage', 'topics', 'relations', 'structure']
     .map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`)
-    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; dashed branches = the storage hierarchy. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
+    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; finely dashed strands between entries = derived links (guessed by the system from shared rare terms and a file, not stored, see "Derived links to review"); dashed branches at the project cores = the storage hierarchy. A golden loop = stored links that run in a circle. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
 }
 
 // The energy-core shader. One point per node; `aBright` < 0 means "not
@@ -2479,9 +2776,12 @@ function cloudHash(x, y, z) {
 // the layout in graphModel/initGraph (a group's nodes lie within g.radius
 // of g.center, cells within c.radius of c.center, the evidence trail
 // within ~0.8 of the middle, the cores with their rings).
+/** With many topics/bundles every group is a core of its own; the project cores would float between the shells. */
+const groupCoresOf = (model) => !!(model?.many && (model.mode === 'topics' || model.mode === 'relations'));
 function cloudSupports(model) {
   const st = [{ x: 0, y: -0.03, z: 0.02, r: 0.2 }];
-  (model?.shards || []).forEach((s) => s.center && st.push({ ...s.center, r: 0.13 }));
+  // Project cores only where they are drawn (topics/relations with many groups: every group is a core).
+  if (!groupCoresOf(model)) (model?.shards || []).forEach((s) => s.center && st.push({ ...s.center, r: 0.13 }));
   const cells2 = (cells) => (cells || []).forEach((c) => (st.push({ ...c.center, r: c.radius }), cells2(c.cells)));
   (model?.groups || []).forEach((g) => {
     if (!g.center) return;
@@ -2527,7 +2827,7 @@ function cloudShape(model) {
 // The light sources: shared core, project cores, groups (position + colour).
 function cloudLights(model) {
   const l = [{ x: 0, y: -0.03, z: 0.02, colour: '#d9f3cf', power: 1 }];
-  (model?.shards || []).forEach((s) => s.center && l.push({ ...s.center, colour: s.color, power: 0.9 }));
+  if (!groupCoresOf(model)) (model?.shards || []).forEach((s) => s.center && l.push({ ...s.center, colour: s.color, power: 0.9 }));
   (model?.groups || []).forEach((g) => g.center && l.push({ ...g.center, colour: g.color, power: 0.7 }));
   return l.slice(0, CLOUD_LIGHTS);
 }
@@ -2804,6 +3104,7 @@ function initGraph() {
     look = center.clone();
   let w = 1, h = 1, baseDistance = 6, distance = 6, dead = false, onScreen = true, frame = 0, last = 0, time = 0, transition = null,
     hoverId = null, hoverGroup = null, hoverIndex = -1, labels = [], edgeVisuals = [], units = [], pulses = [], angle = camera.angle, tilt = camera.tilt;
+  let fixedLabelKeys = new Set(), lazyLabels = new Map(), neighbours = new Map(), loops = [], strandNear = false;
   // Atlas labels: the result of the last placement per label, the throttle time, the camera signature.
   let labelPlaced = new Map(), labelTime = -1e9, labelSig = '', labelTimer = 0, labelVersion = 0;
   // One SVG under the labels for the leader lines (created through markup: no
@@ -2868,13 +3169,23 @@ function initGraph() {
   // An empty memory: the shared core alone, calm and pulsing — nothing
   // to measure yet is not the same as "not measurable".
   hubs.push({ key: 'root', pos: mainPos, color: '#d9f3cf', size: 0.115 * 9, bright: es.length ? brightness(es) : 0.32, ring: mainRing });
-  const shardOrbs = model.shards.map((s) => {
+  // Main nodes: with MORE than GROUPS_SHELL_FROM topics/bundles every group is a core (size by
+  // weight), since the project cores on their fixed spots would float between the shells. Up
+  // to that everything stays as before.
+  const groupCores = groupCoresOf(model);
+  const shardOrbs = (groupCores ? [] : model.shards).map((s) => {
     const r = state.graphMode === 'storage' || state.graphMode === 'overview' ? 0.078 : 0.047;
     const ring = rings(vec(s.center), s.color, r, world);
     const curve = new T.CubicBezierCurve3(mainPos.clone(), v(s.center.x * 0.15, 0.12, s.center.z * 0.25), v(s.center.x * 0.75, s.center.y + 0.1, s.center.z), vec(s.center));
     path(curve.getPoints(60), s.color, 0.35, world, true);
     hubs.push({ key: s.key, pos: vec(s.center), color: s.color, size: r * 9, bright: brightness(s.members), ring });
     return { ...s, ring };
+  });
+  const groupOrbs = (groupCores ? model.groups : []).map((g) => {
+    const r = g.coreRadius ?? 0.047;
+    const ring = g.weightRank < CORE_RINGS_MAX ? rings(vec(g.center), g.color, Math.max(r, 0.03), world) : null;
+    hubs.push({ key: g.key, pos: vec(g.center), color: g.color, size: r * 9 * model.sk, bright: brightness(g.members), ring });
+    return { key: g.key, ring };
   });
   const hubGeo = own(new T.BufferGeometry());
   const hubDim = new Float32Array(hubs.length).fill(1);
@@ -2920,7 +3231,8 @@ function initGraph() {
 
   const positions = new Map();
   model.groups.forEach((g) => {
-    if (g.cells.length) return;
+    // With subtopics: only the DIRECT entries of the topic lie around its centre.
+    if (g.cells.length && !g.direct) return;
     if (g.trail) {
       // Evidence trail: middle = the entry, right where it points, left what points at it.
       positions.set(g.trail.c.id, v(0, 0, 0));
@@ -2938,8 +3250,8 @@ function initGraph() {
       lay(g.trail.inc, -1);
       return;
     }
-    const n = g.members.length;
-    g.members.forEach((e, j) => {
+    const own = g.cells.length ? g.direct : g.members, n = own.length;
+    own.forEach((e, j) => {
       const y = 1 - (2 * (j + 0.5)) / n,
         a = j * 2.399963,
         r = g.radius * (0.7 + 0.3 * (((j * 17) % 13) / 13)),
@@ -2972,6 +3284,8 @@ function initGraph() {
     edgeVisuals = [];
     labels.forEach((l) => l.el.remove());
     labels = [];
+    lazyLabels.forEach((l) => l.el.remove());
+    lazyLabels = new Map();
     labelLines.replaceChildren();
     labelVersion++;
   }
@@ -2980,8 +3294,8 @@ function initGraph() {
     const focused = !!camera.focus;
     hubs.forEach((hb, i) => {
       const dim = focused && hb.key !== camera.focus;
-      hubDim[i] = dim ? 0.12 : 1;
-      hb.ring.traverse((n) => {
+      hubDim[i] = dim ? 0.12 : focused && groupCores ? 0.3 : 1;
+      hb.ring?.traverse((n) => {
         if (n.material) {
           if (n.userData.normalOpacity === undefined) n.userData.normalOpacity = n.material.opacity;
           n.material.opacity = dim ? n.userData.normalOpacity * 0.12 : n.userData.normalOpacity;
@@ -2993,27 +3307,36 @@ function initGraph() {
   function createUnits() {
     clearDynamic();
     tintHierarchy();
+    // Scale: in the whole view everything grows with the extent of the net; in a focus (close
+    // up) the original sizes hold — otherwise the entries melt into a white area.
+    const sk = camera.focus ? 1 : model.sk;
     const chosenCell = currentCell(), activePath = new Set();
     let ancestor = chosenCell;
     while (ancestor) {
       activePath.add(ancestor.key);
       ancestor = cellMap.get(ancestor.parent);
     }
+    // Entries around an opened cell: the cell is their centre, its radius the hull.
+    const entryUnits = (list, c, g) => list.forEach((e, j) => {
+      const n = list.length, y = 1 - (2 * (j + 0.5)) / n, a = j * 2.399963, r = c.radius, q = Math.sqrt(1 - y * y);
+      units.push({ key: e.id, e, g, members: [e], pos: vec(c.center).add(v(Math.cos(a) * q * r, y * r, Math.sin(a) * q * r)), radius: r * (c.depth > 0 ? 0.2 : 0.14) });
+    });
     function emitCells(cells, g) {
       cells.forEach((c) => {
         if (activePath.has(c.key) && !(state.graphMode === 'overview')) {
-          if (c.cells.length) emitCells(c.cells, g);
-          else
-            c.members.forEach((e, j) => {
-              const n = c.members.length, y = 1 - (2 * (j + 0.5)) / n, a = j * 2.399963, r = c.radius, q = Math.sqrt(1 - y * y);
-              units.push({ key: e.id, e, g, members: [e], pos: vec(c.center).add(v(Math.cos(a) * q * r, y * r, Math.sin(a) * q * r)), radius: r * (c.depth > 0 ? 0.2 : 0.14) });
-            });
-        } else units.push({ key: c.key, cell: c, g, members: c.members, pos: vec(c.center), radius: c.radius * (c.depth > 0 ? 0.42 : 0.28) });
+          if (c.cells.length) {
+            emitCells(c.cells, g);
+            if (c.direct) entryUnits(c.direct, c, g);
+          } else entryUnits(c.members, c, g);
+        } else units.push({ key: c.key, cell: c, g, members: c.members, pos: vec(c.center), radius: c.radius * (c.topic ? 0.55 : c.depth > 0 ? 0.42 : 0.28) });
       });
     }
     model.groups.forEach((g) => {
-      if (g.cells.length) emitCells(g.cells, g);
-      else g.members.forEach((e) => units.push({ key: e.id, e, g, members: [e], pos: positions.get(e.id), radius: g.trail ? (e.id === g.trail.c.id ? 0.07 : 0.042) : null }));
+      if (g.cells.length) {
+        emitCells(g.cells, g);
+        // The topic's direct entries (in no subtopic) lie around its centre.
+        if (g.direct) g.direct.forEach((e) => units.push({ key: e.id, e, g, members: [e], pos: positions.get(e.id), radius: null }));
+      } else g.members.forEach((e) => units.push({ key: e.id, e, g, members: [e], pos: positions.get(e.id), radius: g.trail ? (e.id === g.trail.c.id ? 0.07 : 0.042) : null }));
     });
     // Nodes: one point per unit, all in one draw call.
     const n = units.length;
@@ -3023,8 +3346,8 @@ function initGraph() {
       const col = new T.Color(u.g.color);
       P.set([u.pos.x, u.pos.y, u.pos.z], i * 3);
       C.set([col.r, col.g, col.b], i * 3);
-      const r = u.radius || (u.cell ? 0.065 : 0.034);
-      u.base = r * 8;
+      const r = u.radius || (u.cell ? 0.065 : 0.034 * (u.g.scale ?? 1));
+      u.base = r * 8 * sk;
       S[i] = u.base;
       B[i] = brightness(u.members);
       PH[i] = phase(u.key);
@@ -3050,8 +3373,8 @@ function initGraph() {
     // Roots at single entries (the mockup: 5 fibres per entry) — as ONE line set.
     const fibres = [];
     const fCol = [];
-    const entryUnits = units.filter((u) => !u.cell);
-    const withFibres = entryUnits.length <= 700 ? entryUnits : entryUnits.filter((u) => camera.focus && u.g.key === camera.focus);
+    const single = units.filter((u) => !u.cell);
+    const withFibres = single.length <= 700 ? single : single.filter((u) => camera.focus && u.g.key === camera.focus);
     for (const u of withFibres) {
       const r = (u.radius || 0.034) * 1.0, c = new T.Color(u.g.color);
       for (let j = 0; j < 5; j++) {
@@ -3078,8 +3401,9 @@ function initGraph() {
     // outside the storage mode, every neighbour in the evidence trail.
     const cells = units.filter((u) => u.cell);
     units.forEach((u) => {
-      if (u.cell && (camera.focus === u.g.key || cells.length <= 16)) {
-        const el = label(u.cell.drawer ? u.cell.label : pluralEntries(u.members.length), u.cell.drawer ? pluralEntries(u.members.length) + ' · drawer' : 'Subgroup', u.g.color, u.cell.key, 'cell-label');
+      if (u.cell && (camera.focus === u.g.key || (cells.length <= 16 && !model.many))) {
+        const named = u.cell.drawer || u.cell.topic;
+        const el = label(named ? labelShort(u.cell.label) : pluralEntries(u.members.length), u.cell.drawer ? pluralEntries(u.members.length) + ' · drawer' : u.cell.topic ? pluralEntries(u.members.length) + ' · subtopic' : 'Subgroup', u.g.color, u.cell.key, 'cell-label');
         labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.members.length, depth: (u.cell.depth || 0) + 1, cell: u.cell });
       }
       if (u.e && u.g.trail) {
@@ -3088,18 +3412,18 @@ function initGraph() {
         labels.push({ el, pos: u.pos, key: u.key, parent: u.g.key, prio: u.e.id === u.g.trail.c.id ? 1e6 : 1, depth: 1 });
       }
     });
-    if (state.graphMode !== 'storage' && state.graphMode !== 'overview' && state.graphMode !== 'trail')
-      model.groups.forEach((g) => {
-        // A label always carries the short form (a bundle is named after its
-        // hub's title, which can be a paragraph); the full name is in the
-        // breadcrumb and the tooltip.
-        const el = label(labelShort(g.label), pluralEntries(g.members.length), g.color, g.key);
-        if (labelShort(g.label) !== g.label) el.title = g.label;
-        labels.push({ el, pos: vec(g.center).add(v(0, 0.13, 0)), key: g.key, parent: g.key, prio: g.members.length, depth: 0 });
-      });
+    // Label tiers: with many main nodes only the heaviest carry a label permanently; any other
+    // group gets one once its sphere is large enough on screen (zooming in, labelCandidates),
+    // in a focus and on hover (the tooltip). Up to GROUPS_SHELL_FROM groups every one has its label.
+    fixedLabelKeys = new Set();
+    if (state.graphMode !== 'storage' && state.graphMode !== 'overview' && state.graphMode !== 'trail') {
+      const fixed = model.many ? [...model.groups].sort((a, b) => b.weight - a.weight || model.groups.indexOf(a) - model.groups.indexOf(b)).slice(0, LABEL_GROUPS_FIXED) : model.groups;
+      fixed.forEach((g) => labels.push(groupLabel(g)));
+      fixed.forEach((g) => fixedLabelKeys.add(g.key));
+    }
 
     // Edges: bundled per endpoint pair as in the mockup — here every
-    // bundle in ONE geometry set (tubes + arrow heads).
+    // bundle in ONE geometry set (tubes + arrow heads; dashed pieces for derived ones).
     const endpoint = new Map();
     units.forEach((u) => u.members.forEach((e) => endpoint.set(e.id, u)));
     const bundles = new Map();
@@ -3130,15 +3454,30 @@ function initGraph() {
       }
       const curve = new T.CubicBezierCurve3(a.pos, c1, c2, b.pos),
         color = new T.Color(a.g.color).lerp(new T.Color(b.g.color), 0.45);
-      const alpha = edgeBaseAlpha({ a, b });
-      const tube = new T.TubeGeometry(curve, 34, 0.0018 + Math.min(0.0042, Math.log2(count + 1) * 0.0006), 5, false);
-      const cone = new T.ConeGeometry(0.008, 0.03, 5);
-      tmp.quaternion.setFromUnitVectors(v(0, 1, 0), curve.getTangent(0.8).normalize());
-      cone.applyQuaternion(tmp.quaternion);
-      const p8 = curve.getPoint(0.8);
-      cone.translate(p8.x, p8.y, p8.z);
+      const alpha = edgeBaseAlpha({ a, b, count });
+      // The third kind: a bundle of ONLY derived links is drawn DASHED — short tube pieces with
+      // gaps, no arrow head. Mixed bundles stay solid: they carry at least one stored relation.
+      const dashed = edges.length > 0 && edges.every((x) => x.kind === 'derived');
+      const tubeR = (0.0018 + Math.min(0.0042, Math.log2(count + 1) * 0.0006)) * sk * (model.tiered ? 1.7 : 1);
+      let geos;
+      if (dashed) {
+        geos = [];
+        const DASHES = 9;
+        for (let q = 0; q < DASHES; q++) {
+          const t0 = (q + 0.1) / DASHES, t1 = (q + 0.62) / DASHES;
+          geos.push(new T.TubeGeometry(new T.CatmullRomCurve3([0, 1, 2, 3].map((k) => curve.getPoint(t0 + ((t1 - t0) * k) / 3))), 4, tubeR * 0.85, 4, false));
+        }
+      } else {
+        const tube = new T.TubeGeometry(curve, 34, tubeR, 5, false);
+        const cone = new T.ConeGeometry(0.008 * sk, 0.03 * sk, 5);
+        tmp.quaternion.setFromUnitVectors(v(0, 1, 0), curve.getTangent(0.8).normalize());
+        cone.applyQuaternion(tmp.quaternion);
+        const p8 = curve.getPoint(0.8);
+        cone.translate(p8.x, p8.y, p8.z);
+        geos = [tube, cone];
+      }
       const start = base;
-      for (const geo of [tube, cone]) {
+      for (const geo of geos) {
         const pos = geo.attributes.position;
         for (let k = 0; k < pos.count; k++) {
           PP.push(pos.getX(k), pos.getY(k), pos.getZ(k));
@@ -3150,8 +3489,9 @@ function initGraph() {
         base += pos.count;
         geo.dispose();
       }
-      edgeVisuals.push({ a, b, edges, curve, from: start, to: base, count });
-      if (i < 180) pulses.push({ curve, phase: (i * 0.173) % 1, color });
+      // pts: fixed support points per strand (14 segments); projected only on demand (hover/click).
+      edgeVisuals.push({ a, b, edges, curve, from: start, to: base, count, dashed, pts: curve.getPoints(14) });
+      if (i < 180 && !dashed) pulses.push({ curve, phase: (i * 0.173) % 1, color });
     });
     if (PP.length) {
       strandGeo = own(new T.BufferGeometry());
@@ -3163,13 +3503,46 @@ function initGraph() {
       mesh.frustumCulled = false;
       dynamic.add(mesh);
     } else strandGeo = null;
+    // Neighbourhood of the units (from the strands): on hover bright, the rest dimmed.
+    neighbours = new Map();
+    for (const e of edgeVisuals) {
+      if (e.a.key === e.b.key) continue;
+      if (!neighbours.has(e.a.key)) neighbours.set(e.a.key, new Set());
+      if (!neighbours.has(e.b.key)) neighbours.set(e.b.key, new Set());
+      neighbours.get(e.a.key).add(e.b.key);
+      neighbours.get(e.b.key).add(e.a.key);
+    }
+    // Loops (cycles of stored links): a closed golden path through the units of their entries.
+    loops = [];
+    model.cycles.slice(0, CYCLES_DRAWN_MAX).forEach((ids) => {
+      const us = ids.map((id) => endpoint.get(id)).filter(Boolean);
+      const pts = [];
+      for (const u of us) if (!pts.length || pts[pts.length - 1].key !== u.key) pts.push({ key: u.key, p: u.pos.clone() });
+      while (pts.length > 1 && pts[0].key === pts[pts.length - 1].key) pts.pop();
+      const members = new Set(ids);
+      if (pts.length < 2) { loops.push({ ids, members, mesh: null }); return; }
+      let points = pts.map((x) => x.p);
+      if (points.length === 2) {
+        // Two ends: an oval instead of a line.
+        const m = points[0].clone().add(points[1]).multiplyScalar(0.5), d = points[1].clone().sub(points[0]);
+        const q = v(-d.y, d.x, d.z * 0.3 + 0.02).normalize().multiplyScalar(0.18 * d.length() + 0.012);
+        points = [points[0], m.clone().add(q), points[1], m.clone().sub(q)];
+      }
+      const geo = own(new T.TubeGeometry(new T.CatmullRomCurve3(points, true, 'centripetal'), Math.max(28, points.length * 14), 0.0034 * sk, 5, true));
+      const mat = own(new T.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.34, depthWrite: false }));
+      const mesh = new T.Mesh(geo, mat);
+      mesh.frustumCulled = false;
+      dynamic.add(mesh);
+      loops.push({ ids, members, mesh, mat });
+    });
+    setLoopAlpha();
     // Wandering points of light: ONE point set, positions anew per frame.
     if (pulses.length) {
       pulseGeo = own(new T.BufferGeometry());
       const PC = [], PS = [], PB = [], PPh = [], PD = [], PDm = [], PK = [];
       pulses.forEach((p) => {
         PC.push(p.color.r, p.color.g, p.color.b);
-        PS.push(0.007 * 8);
+        PS.push(0.007 * 8 * sk);
         PB.push(0.7);
         PPh.push(p.phase);
         PD.push(0);
@@ -3190,6 +3563,10 @@ function initGraph() {
     } else pulseGeo = null;
     canvas.dataset.renderedEdges = state.graphMode === 'overview' ? edgeVisuals.reduce((n, e) => n + e.count, 0) : model.edges.length;
     canvas.dataset.edgeStrands = edgeVisuals.length;
+    canvas.dataset.cycles = String(model.cycles.length);
+    canvas.dataset.cyclesDrawn = String(loops.filter((x) => x.mesh).length);
+    canvas.dataset.edgeDashed = edgeVisuals.filter((e) => e.dashed).length;
+    canvas.dataset.mainNodes = model.groups.length;
     canvas.dataset.shardCores = model.shards.length;
     canvas.dataset.units = units.length;
     canvas.dataset.memoryCores = '1';
@@ -3206,7 +3583,9 @@ function initGraph() {
   // A bundle's base opacity: quiet outside the focus; in an open
   // subgroup/drawer only the bundles that touch it are loud.
   function edgeBaseAlpha(e) {
-    if (!camera.focus) return 0.56;
+    // Far (whole view): single edges inside a group are quiet, bundled strands and all across
+    // group borders loud; close up: all equally loud. Nothing disappears, nothing is invented.
+    if (!camera.focus) return model.many && !strandNear && e.a.g.key === e.b.g.key && e.count < 2 ? 0.24 : 0.56;
     if (e.a.g.key !== camera.focus && e.b.g.key !== camera.focus) return 0.09;
     const c = currentCell();
     if (!c) return 0.56;
@@ -3222,18 +3601,36 @@ function initGraph() {
       for (let k = e.from; k < e.to; k++) A.array[k] = al;
     }
     A.needsUpdate = true;
+    setLoopAlpha();
+  }
+  // Loops: a quiet golden path; in a focus (group, cell) or on hover over an entry the ones
+  // touching it glow, the others step back.
+  function setLoopAlpha() {
+    const cell = currentCell();
+    const touches = (sl) => {
+      if (hoverId && sl.members.has(hoverId)) return true;
+      if (cell) return cell.members.some((m) => sl.members.has(m.id));
+      if (camera.focus) return [...sl.members].some((id) => model.assignment.get(id)?.key === camera.focus);
+      return false;
+    };
+    const focused = !!(hoverId || camera.focus);
+    for (const sl of loops) if (sl.mat) sl.mat.opacity = !focused ? 0.34 : touches(sl) ? 0.98 : 0.07;
   }
   function updateUI() {
     camera.zoom = baseDistance / distance;
     $('#graphZoom').value = Math.round(camera.zoom * 100) + '%';
+    if ((camera.zoom >= STRAND_NEAR_ZOOM) !== strandNear) { strandNear = camera.zoom >= STRAND_NEAR_ZOOM; setEdgeAlpha(); }
     const g = model.groups.find((g) => g.key === camera.focus), c = currentCell();
     const crumbText = coreSlug() + ' / ' + (g ? g.label + (c ? ' / ' + c.label : '') : state.graphMode === 'trail' ? 'Evidence trail' : 'all projects');
     const crumb = $('#graphBreadcrumb');
     if (crumb && crumb.textContent !== crumbText) { crumb.textContent = crumbText; clampCrumb(crumb); }
     $('.atlas-back').hidden = !camera.focus;
     $$('#graphGroups button').forEach((el) => el.setAttribute('aria-pressed', el.dataset.value === camera.focus));
-    const n = state.graphMode === 'overview' ? edgeVisuals.reduce((k, e) => k + e.count, 0) : model.edges.length;
-    $('#graphEdgeCount').textContent = num(n) + ' relations · ' + num(model.shards.length) + ' projects · 1 memory';
+    const derivedN = state.graphMode === 'overview' ? 0 : model.derivedCount;
+    const n = state.graphMode === 'overview' ? edgeVisuals.reduce((k, e) => k + e.count, 0) : model.edges.length - derivedN;
+    const loopsN = model.cycles.length;
+    const where = groupCores ? num(model.tiered ? model.topicsTotal : model.groups.length) + (state.graphMode === 'topics' ? ' topics' : ' bundles') + (model.tiered ? ' (' + num(model.groups.length) + ' main)' : '') : num(model.shards.length) + ' projects';
+    $('#graphEdgeCount').textContent = num(n) + ' relations' + (derivedN ? ' + ' + num(derivedN) + ' derived (dashed)' : '') + (loopsN ? ' · ' + num(loopsN) + (loopsN === 1 ? ' loop' : ' loops') : '') + ' · ' + where + ' · 1 memory';
     canvas.dataset.focus = camera.cell || camera.focus || '';
   }
   // The breadcrumb in a focus (a bundle is named after its hub's title, which
@@ -3296,7 +3693,27 @@ function initGraph() {
     for (const l of labels) {
       if ((!camera.focus || camera.focus === l.parent) && l.key !== camera.cell) list.push({ rec: l, focus: inFocus(l) || (!!camera.focus && l.key === camera.focus) });
     }
+    // Many main nodes: further group labels once their sphere is large enough on screen
+    // (zooming in), created once and kept; the placement decides who stands.
+    if (model.many && !camera.focus && state.graphMode !== 'trail' && state.graphMode !== 'storage' && state.graphMode !== 'overview') {
+      const more = groupHits.filter((g) => !fixedLabelKeys.has(g.key) && g.visible && (g.r - 16) * 2 >= LABEL_MIN_PX).sort((a, b) => b.r - a.r).slice(0, LABEL_GROUPS_EXTRA);
+      for (const hit of more) {
+        let l = lazyLabels.get(hit.key);
+        if (!l) {
+          l = groupLabel(model.groups.find((x) => x.key === hit.key));
+          lazyLabels.set(hit.key, l);
+        }
+        list.push({ rec: l, focus: false });
+      }
+    }
     return list;
+  }
+  // A group's label: the short form (a bundle is named after its hub's title, which can be a
+  // paragraph); the full name is in the breadcrumb and the tooltip.
+  function groupLabel(g) {
+    const el = label(labelShort(g.label), pluralEntries(g.members.length), g.color, g.key);
+    if (labelShort(g.label) !== g.label) el.title = g.label;
+    return { el, pos: vec(g.center).add(v(0, model.many ? g.radius + 0.03 : 0.13, 0)), key: g.key, parent: g.key, prio: g.members.length, depth: 0 };
   }
   // Label sizes: measured once per label, batched (write every class first,
   // then read every size, then back) — never per frame. After a resize of the
@@ -3331,7 +3748,7 @@ function initGraph() {
     canvas.dataset.groupLabels = String(n);
   }
   // Per frame: only write the offset (transform); state classes only on a change.
-  function allLabelRecs() { return [rootRec, ...shardLabels, ...labels]; }
+  function allLabelRecs() { return [rootRec, ...shardLabels, ...labels, ...lazyLabels.values()]; }
   function applyLabels() {
     for (const r of allLabelRecs()) {
       const st = labelPlaced.get(r.el);
@@ -3413,6 +3830,7 @@ function initGraph() {
       time += dt;
       mainRing.rotation.y = time * 0.12;
       shardOrbs.forEach((s, i) => (s.ring.rotation.y = time * 0.1 + i));
+      groupOrbs.forEach((g, i) => { if (g.ring) g.ring.rotation.y = time * 0.1 + i; });
     }
     coreUniforms.uTime.value = time;
     coreUniforms.uMotion.value = state.motion ? 1 : 0;
@@ -3476,8 +3894,10 @@ function initGraph() {
     camera.cell = cell?.key || null;
     createUnits();
     cortexAlpha(true);
-    const radius = cell ? cell.radius * 1.65 : g.radius + 0.13, dist = (radius / (Math.tan((cam.fov * Math.PI) / 360) * Math.min(1, w / h))) * 1.2;
-    fly(vec(cell?.center || g.center), Math.max(0.1, dist), cell ? angle : g.center.x < 0 ? -0.32 : 0.32, 0.18);
+    // With subtopics the whole bloom counts: the flight aims at the enclosing sphere of topic and subtopics.
+    const hh = cell && cell.topic ? hullOf(cell.center, cell.radius, cell.cells) : !cell && g.hull ? g.hull : null;
+    const radius = hh ? Math.max(hh.r, cell ? cell.radius : g.radius) * 1.15 + 0.06 : cell ? cell.radius * 1.65 : g.radius + 0.13, dist = (radius / (Math.tan((cam.fov * Math.PI) / 360) * Math.min(1, w / h))) * 1.2;
+    fly(vec(hh || cell?.center || g.center), Math.max(0.1, dist), cell ? angle : g.center.x < 0 ? -0.32 : 0.32, 0.18);
     if (state.tab === 'network') refreshEntryList();
   }
   function reset() {
@@ -3506,8 +3926,35 @@ function initGraph() {
       if (d < (u.cell ? 18 : r0) && (d < bd || (d === bd && screenZ[i] < screenZ[best]))) { bd = d; best = i; }
     }
     if (best >= 0) return { node: units[best], index: best };
+    const strand = pickStrand(p);
+    if (strand) return { strand };
     const g = groupHits.filter((g) => g.visible && Math.hypot(g.x - p.x, g.y - p.y) < g.r).sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y))[0];
     return { g };
+  }
+  // A strand under the pointer: the nearest in screen space, at most 7 px away. Projected only
+  // on demand (hover/click), never per frame.
+  function pickStrand(p) {
+    let best = null, bd = 7;
+    for (const e of edgeVisuals) {
+      if (camera.focus && e.a.g.key !== camera.focus && e.b.g.key !== camera.focus) continue;
+      let prev = null;
+      for (const q of e.pts) {
+        const c = toScreen(q);
+        if (prev && c.visible) {
+          const dx = c.x - prev.x, dy = c.y - prev.y, l2 = dx * dx + dy * dy;
+          const t = l2 ? Math.max(0, Math.min(1, ((p.x - prev.x) * dx + (p.y - prev.y) * dy) / l2)) : 0;
+          const d = Math.hypot(p.x - (prev.x + t * dx), p.y - (prev.y + t * dy));
+          if (d < bd) { bd = d; best = e; }
+        }
+        prev = c.visible ? { x: c.x, y: c.y } : null;
+      }
+    }
+    return best;
+  }
+  // The evidence of every edge in a strand: where it stands (stored) or why the system guesses it (derived).
+  function strandHtml(e) {
+    return e.edges.slice(0, 40).map((k) => `<div class="row"><div class="row-main"><div><span class="badge ${k.kind === 'derived' ? 'warn' : ''}">${esc(edgeLabels[k.kind] || k.kind)}</span> ${open(k.from, short(byId(k.from)?.title || k.from), 'open-entry textlink')} <span class="quiet">→</span> ${open(k.to, short(byId(k.to)?.title || k.to), 'open-entry textlink')}<p class="small muted">Source: ${esc(edgeEvidence(k))}</p></div></div></div>`).join('')
+      + (e.edges.length > 40 ? `<p class="small quiet">${num(e.edges.length)} edges, 40 shown.</p>` : '');
   }
   const short = (t) => String(t).trim().split(/\s+/).slice(0, 5).join(' ');
   function setHover(i) {
@@ -3525,19 +3972,33 @@ function initGraph() {
     }
     S.needsUpdate = true;
     Dt.needsUpdate = true;
+    setNeighbours(i);
+  }
+  // Hover over a unit: it and its neighbours (over real strands) stay bright, the rest steps back.
+  function setNeighbours(i) {
+    const A = coreGeo.attributes.aDim, nb = i >= 0 ? neighbours.get(units[i].key) : null;
+    units.forEach((u, j) => {
+      const base = !camera.focus || u.g.key === camera.focus ? 1 : 0.14;
+      A.array[j] = nb && j !== i && !nb.has(u.key) ? base * 0.35 : base;
+    });
+    A.needsUpdate = true;
   }
   function hoverAt(p) {
-    const { node, g, index } = pick(p);
+    const { node, g, index, strand } = pick(p);
     hoverId = node?.e?.id || null;
     hoverGroup = node?.g?.key || g?.key || null;
-    canvas.style.cursor = node || g ? 'pointer' : 'grab';
-    tip.hidden = !node && !g;
+    canvas.style.cursor = node || g || strand ? 'pointer' : 'grab';
+    tip.hidden = !node && !g && !strand;
     if (node?.e) {
       const e = node.e;
       const rc = e.recall ? (e.recall.sessions ? `injected in ${num(e.recall.sessions)} sessions` : 'never injected') : 'injection not measurable';
       tip.innerHTML = `<span class="flag-kicker">${esc(types[e.type] || e.type)} · ${esc(drawerOf(e).toUpperCase())}</span><strong>${esc(short(e.title))}</strong><span class="flag-log">Entry ${esc(e.id)} · ${esc(e.source)}</span><span class="flag-author">${esc(e.agent)} · ${rc} · ${camera.focus || node.g.trail ? 'Click: open' : 'Click: focus the group'}</span>`;
     } else if (node?.cell) {
-      tip.innerHTML = `<span class="flag-kicker">${node.cell.drawer ? 'DRAWER · ' + esc(node.cell.drawer.toUpperCase()) : 'SUBGROUP'}</span><strong>${pluralEntries(node.members.length)}</strong><span>Left click: ${state.graphMode === 'overview' ? 'open the drawer' : 'next level of detail'}</span>`;
+      tip.innerHTML = `<span class="flag-kicker">${node.cell.drawer ? 'DRAWER · ' + esc(node.cell.drawer.toUpperCase()) : node.cell.topic ? 'SUBTOPIC · ' + esc(labelShort(node.cell.label).toUpperCase()) : 'SUBGROUP'}</span><strong>${pluralEntries(node.members.length)}</strong><span>Left click: ${state.graphMode === 'overview' ? 'open the drawer' : 'next level of detail'}</span>`;
+    } else if (strand) {
+      const kinds = [...new Set(strand.edges.map((k) => edgeLabels[k.kind] || k.kind))];
+      const k0 = strand.edges[0];
+      tip.innerHTML = `<span class="flag-kicker">${strand.dashed ? 'DERIVED · A GUESS' : 'RELATION · ' + esc(kinds.join(', ').toUpperCase())}</span><strong>${num(strand.edges.length)} ${strand.edges.length === 1 ? 'edge' : 'edges'}</strong><span class="flag-log">${esc(short(byId(k0.from)?.title || k0.from))} → ${esc(short(byId(k0.to)?.title || k0.to))}</span><span>Source: ${esc(edgeEvidence(k0))}</span><span class="flag-author">Click: every source</span>`;
     } else if (g)
       tip.innerHTML = `<span class="flag-kicker">${state.graphMode === 'storage' || state.graphMode === 'overview' ? 'PROJECT · STORAGE' : 'KNOWLEDGE GROUP'}</span><strong>${esc(short(g.label))}</strong><span>${pluralEntries(g.members.length)} · left click to fly in</span>`;
     if (!tip.hidden) {
@@ -3599,8 +4060,9 @@ function initGraph() {
     const p = local(e), pinch = pointers.size > 1;
     pointers.delete(e.pointerId);
     if (!cancel && !dragged && !pinch) {
-      const { node, g } = pick(p);
-      if (node?.cell) focus(node.cell.key);
+      const { node, g, strand } = pick(p);
+      if (strand) showInfo(esc('Connection · ' + num(strand.edges.length) + (strand.edges.length === 1 ? ' relation' : ' relations')), `<p class="muted small">Every shown edge has its evidence: a stored one stands in the named line, a derived one carries its reason (shared file, shared rare terms).</p>${strandHtml(strand)}`);
+      else if (node?.cell) focus(node.cell.key);
       else if (node?.e) {
         if (camera.focus === node.g.key || node.g.trail) showDetail(node.e.id, 'content');
         else focus(node.g.key);
@@ -3681,10 +4143,16 @@ function initGraph() {
   graphAPI = {
     zoom, reset, focus, redraw,
     inspect: () => ({
-      points: units.map((u, i) => ({ id: u.e?.id, key: u.key, group: u.g.key, x: screenX[i], y: screenY[i], z: screenZ[i], visible: !!screenV[i], bright: coreGeo?.attributes.aBright.array[i] })),
+      points: units.map((u, i) => ({ id: u.e?.id, key: u.key, group: u.g.key, cell: u.cell?.key || null, x: screenX[i], y: screenY[i], z: screenZ[i], visible: !!screenV[i], bright: coreGeo?.attributes.aBright.array[i], pos: { x: u.pos.x, y: u.pos.y, z: u.pos.z }, dim: coreGeo?.attributes.aDim.array[i] })),
+      core: { x: mainPos.x, y: mainPos.y, z: mainPos.z },
+      cycles: model.cycles.map((ids) => { const sl = loops.find((x) => x.ids === ids); return { ids, drawn: !!sl?.mesh, alpha: sl?.mat ? sl.mat.opacity : null }; }),
       groups: groupHits.map((g) => ({ key: g.key, x: g.x, y: g.y, r: g.r })),
       edgeCount: model.edges.length,
-      strands: edgeVisuals.map((e) => ({ count: e.count, from: e.a.key, to: e.b.key })),
+      mainNodes: model.groups.length,
+      strands: edgeVisuals.map((e) => {
+        const m = toScreen(e.pts[7]);
+        return { count: e.count, from: e.a.key, to: e.b.key, dashed: !!e.dashed, x: m.x, y: m.y, visible: m.visible, edges: e.edges.map((k) => ({ from: k.from, to: k.to, kind: k.kind, source: edgeEvidence(k) })) };
+      }),
       camera: { distance, baseDistance, angle, tilt, transitioning: !!transition, look: look.toArray() },
       fps: fps.value,
       drawCalls: renderer.info.render.calls,

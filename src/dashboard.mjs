@@ -40,6 +40,7 @@ import * as memory from './memory.mjs';
 import * as shred from './shred.mjs';
 import * as procedure from './procedure.mjs';
 import * as net from './net.mjs';
+import * as netderive from './netderive.mjs';
 import * as backlinkIndex from './backlinks.mjs';
 import * as question from './question.mjs';
 import * as basis from './basis.mjs';
@@ -380,6 +381,11 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
   const graph = net.build({
     readAll: () => pass.rows.map(({ project, drawer, entry }) => ({ project, drawer, entry })),
   });
+  // The third kind of edge (src/netderive.mjs): guesses from shared evidence,
+  // apart from the declared links and never counted with them. Unreadable
+  // is `unknown`, not "no derived links".
+  let derived;
+  try { derived = netderive.derive(pass.rows); } catch (e) { derived = { unknown: true, reason: String(e?.message || e) }; }
 
   // --- per-entry enrichment ------------------------------------------
   // The raw entry, retired ones included. `memory.entriesById` filters
@@ -601,7 +607,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {} } 
     // changes what `mem post` shows next.
     humanInbox,
     facts: mem.facts,
-    net: { ...graph, layers: net.layers(graph) },
+    net: { ...graph, layers: net.layers(graph), derived },
     // What the console could set and this page could not. Carried
     // through unchanged rather than re-derived: two places computing
     // "is this writable" would eventually disagree, and the one that
