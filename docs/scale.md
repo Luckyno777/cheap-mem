@@ -130,3 +130,25 @@ entries the single-file cache exceeded V8's maximum string length and
 [docs/benchmark-atlas.md](benchmark-atlas.md) is the reading of that run,
 including the walls, what is confirmed broken, and the blind spots (28 in
 the run it reads) — the things it could not see.
+
+## The scale gate
+
+`node bench/scale-gate.mjs` is the pass/fail counterpart of the tables above:
+a ladder of rungs (10,000, 100,000 and 1,000,000 entries by default, never
+more) built on a Heaps-law corpus with the gold world written on top, judged
+against limits that were committed BEFORE the first run
+(`bench/scale-gate-criteria.json`, each limit with the documented figure it
+comes from). Per rung it checks recall against the 10k rung, p95 of a cold
+`mem find`, of a warm search and of the warm recall server, build time and
+peak RSS, that `mem doctor`, the dashboard and the link map answer, that the
+time questions (`--since`, `--as-of`) answer, and that one write after the
+build is found again.
+
+Three verdicts: `pass`, `fail`, and `unknown`. A value that was not measured
+never passes, an aborted rung is `unknown` rather than failed, and a rung the
+machine cannot hold is refused up front ("unknown (insufficient resources)")
+from a disk and RAM estimate made on a small calibration rung. Each rung's row
+is appended to a JSONL the moment it finishes (`--resume` skips finished
+rungs); everything lives under the temp directory and is removed afterwards.
+It is meant for a quiet machine: the documented timings were taken at load 3
+to 8 on four cores, and the row records the load it ran at.

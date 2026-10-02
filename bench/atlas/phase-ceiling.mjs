@@ -153,7 +153,7 @@ function fitLine(points) {
   return { base, slope, r2: ssTot === 0 ? 1 : 1 - ssRes / ssTot, points: n };
 }
 
-function fitPowerLaw(points) {
+export function fitPowerLaw(points) {
   const p = points.filter((pt) => pt.n > 0 && pt.y > 0);
   if (p.length < 2) return null;
   const xs = p.map((pt) => Math.log(pt.n));
@@ -178,12 +178,12 @@ function fitPowerLaw(points) {
   return { a, b, r2, n: p.length };
 }
 
-function predictPowerLaw(fit, n) {
+export function predictPowerLaw(fit, n) {
   if (!fit) return null;
   return fit.a * (n ** fit.b);
 }
 
-function relativeError(actual, predicted) {
+export function relativeError(actual, predicted) {
   if (!(actual > 0) || predicted === null || !Number.isFinite(predicted)) return null;
   return Math.abs(predicted - actual) / actual;
 }
@@ -218,7 +218,7 @@ function counterCheck(points) {
 // --- disk budgeting --------------------------------------------------------
 
 /** Free bytes on the filesystem that holds `dir`, or null if unreadable. */
-function freeBytesAt(dir) {
+export function freeBytesAt(dir) {
   try {
     const s = fs.statfsSync(dir);
     return s.bavail * s.bsize;
