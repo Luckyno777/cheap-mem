@@ -113,6 +113,22 @@ do_work() {
       exit 1
     fi
 
+    # Block S: the pull brought the mail; now the ONE wake rule decides
+    # on the local tree whether a paid model run may start at all, and
+    # charges the user's grant or budget once per message. Information,
+    # results and requests still waiting for permission start nothing.
+    # `mem inbox wake` exits 1 = may wake, 0 = nothing may, else unknown.
+    node "$MEM_CLI" inbox wake --as "$MEM_WATCH_WHO" --root "$CHEAP_MEM_ROOT" >>"$LOG" 2>&1
+    wake_code=$?
+    if [ "$wake_code" -eq 0 ]; then
+      note "handler: nothing may wake a model (information only, or waiting for permission) — not started"
+      exit 0
+    fi
+    if [ "$wake_code" -ne 1 ]; then
+      note "handler: wake decision failed (exit $wake_code) — not started"
+      exit 1
+    fi
+
     if [ ! -x "$HANDLER" ] && [ ! -f "$HANDLER" ]; then
       note "handler: no handler script at $HANDLER — post remains for a human to process"
       exit 1

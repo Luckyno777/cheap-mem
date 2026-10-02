@@ -693,6 +693,12 @@ const TOOLS = [
         text: { type: 'string' },
         request_id: { type: 'string', description: 'Optional idempotency id: the same id sent twice is ONE message; the same id with other text is refused' },
         in_reply_to: { type: 'string', description: 'Optional: file name of the message this answers (must exist and go the other way)' },
+        intent: {
+          type: 'string',
+          enum: ['information', 'request', 'read', 'result', 'clarification', 'cancel'],
+          description: 'Default information (result with in_reply_to). request/read/clarification wake the '
+            + 'recipient only with the user\'s permission or a budget; the others never wake anyone.',
+        },
       },
       required: ['to', 'subject', 'text'],
     },
@@ -1479,6 +1485,8 @@ async function handleCall(name, args) {
         requestId: args.request_id ?? null,
         // Z3/A7: the stable reference to the message answered (checked).
         inReplyTo: args.in_reply_to ?? null,
+        // Block S: the intent decides whether the message may wake anyone.
+        intent: typeof args.intent === 'string' ? args.intent : null,
       });
       if (res.replay) {
         return textResult(`Already sent (replay of request id '${args.request_id}'): ${res.name}\nNothing written.`);

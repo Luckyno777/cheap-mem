@@ -35,7 +35,8 @@ You are the '$($env:MEM_WATCH_WHO)' role in this cheap-mem installation. Read `$
   1. node `$CHEAP_MEM_ROOT\bin\mem inbox new --as $($env:MEM_WATCH_WHO)
   2. For each new message: node `$CHEAP_MEM_ROOT\bin\mem inbox show <name> --as $($env:MEM_WATCH_WHO)
   3. Do what the message asks. If a log entry: node `$CHEAP_MEM_ROOT\bin\mem log <type> ...
-  4. If a reply: node `$CHEAP_MEM_ROOT\bin\mem inbox write --as $($env:MEM_WATCH_WHO) --to <sender> --subject ...
+  4. If a reply: node `$CHEAP_MEM_ROOT\bin\mem inbox write --as $($env:MEM_WATCH_WHO) --to <sender> --in-reply-to <name> --subject ...
+     (a reply is a result and wakes nobody; never answer a result or a receipt)
   5. Acknowledge: node `$CHEAP_MEM_ROOT\bin\mem inbox ack <name> processed
   6. Commit and push to main:
        git -C `$CHEAP_MEM_ROOT add -A
