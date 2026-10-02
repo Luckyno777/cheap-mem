@@ -44,24 +44,24 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Every file that shells out to the agent CLI. */
-function aufrufer() {
-  const raus = [];
+function caller() {
+  const drop = [];
   for (const dir of ['eval', 'bench']) {
     const d = path.join(REPO, dir);
     if (!fs.existsSync(d)) continue;
     for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.mjs'))) {
       const rel = path.join(dir, n);
       const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
-      if (/execFileSync\(\s*'claude'/.test(text)) raus.push({ rel, text });
+      if (/execFileSync\(\s*'claude'/.test(text)) drop.push({ rel, text });
     }
   }
-  return raus;
+  return drop;
 }
 
 test('POSITIVE: the probe finds the files that call the CLI', () => {
   // Without this, a renamed harness would make the guard below pass by
   // finding nothing — the failure mode this whole file exists to catch.
-  const a = aufrufer();
+  const a = caller();
   assert.ok(a.length >= 2,
     `only ${a.length} CLI callers found — the probe looks in the wrong place, `
     + 'or the harness moved. Either way this guard is checking nothing.');
@@ -70,15 +70,15 @@ test('POSITIVE: the probe finds the files that call the CLI', () => {
 test('every CLI call in a measurement passes --restricted', () => {
   // The flag keeps the operator's SessionStart hooks out of the answer.
   // Without it the run measures the machine as much as the memory.
-  const ohne = aufrufer().filter((a) => !/'--restricted'/.test(a.text));
-  assert.deepEqual(ohne.map((a) => a.rel), [],
+  const without = caller().filter((a) => !/'--restricted'/.test(a.text));
+  assert.deepEqual(without.map((a) => a.rel), [],
     'these measurement harnesses would inherit the operator\'s session context');
 });
 
 test('--restricted sits in the argument list, not in a comment', () => {
   // A guard that a comment can satisfy is not a guard. The flag has to
   // be inside the execFileSync argument array to do anything.
-  for (const { rel, text } of aufrufer()) {
+  for (const { rel, text } of caller()) {
     const i = text.indexOf("execFileSync('claude'");
     const bis = text.indexOf('], {', i);
     assert.ok(bis > i, `${rel}: cannot find the end of the argument list`);
@@ -92,10 +92,10 @@ test('the reason is written down where the flag is', () => {
   // A flag nobody understands gets removed by the next person who finds
   // it in the way. The measurement that justified it has to travel with
   // it — this project has lost guards to "looked unnecessary" before.
-  for (const { rel, text } of aufrufer()) {
+  for (const { rel, text } of caller()) {
     const i = text.indexOf("'--restricted'");
-    const davor = text.slice(Math.max(0, i - 1400), i);
-    assert.match(davor, /SessionStart|Hook/i,
+    const before = text.slice(Math.max(0, i - 1400), i);
+    assert.match(before, /SessionStart|Hook/i,
       `${rel}: --restricted stands there without saying what it keeps out`);
   }
 });

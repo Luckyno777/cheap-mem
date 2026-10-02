@@ -72,7 +72,7 @@ remote_ahead() {
   REMOTE_HEAD="$(git -C "$WORK/remote" rev-parse main)"
 }
 
-run() { printf '%s' "$FRAGE" | env "$@" CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null; }
+run() { printf '%s' "$QUESTION" | env "$@" CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null; }
 pulled() {
   for _ in $(seq 1 40); do
     [ "$(git -C "$WORK/mem" rev-parse HEAD)" = "$REMOTE_HEAD" ] && return 0
@@ -81,7 +81,7 @@ pulled() {
   return 1
 }
 
-FRAGE='{"prompt":"why is the flaky payment integration test failing on timeout?"}'
+QUESTION='{"prompt":"why is the flaky payment integration test failing on timeout?"}'
 
 echo "1) a real question yields context, and it is valid JSON"
 build_memory
@@ -90,7 +90,7 @@ build_memory
 # it. BM25 scores vary a little across Node/platform, so the hook half
 # uses a low, deterministic threshold — the point here is the envelope
 # and the banner, not the exact score (test 9 guards the threshold).
-Q="$(printf '%s' "$FRAGE" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.parse(d).prompt))')"
+Q="$(printf '%s' "$QUESTION" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>process.stdout.write(JSON.parse(d).prompt))')"
 HITS="$(node "$WORK/mem/bin/mem" --root "$WORK/mem" find "$Q" --top 3 --json 2>/dev/null)"
 N="$(printf '%s' "$HITS" | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{try{process.stdout.write(String((JSON.parse(d).hits||[]).length))}catch{process.stdout.write("0")}})')"
 if [ "${N:-0}" -ge 1 ]; then ok "search finds the entry ($N hit(s))"; else
@@ -121,7 +121,7 @@ exec "$REAL_GIT" "\$@"
 GITEND
 chmod +x "$WORK/bin/git"
 START=$(now_ms)
-printf '%s' "$FRAGE" | env PATH="$WORK/bin:$PATH" MEM_RETRIEVE_FRESH_MIN=0 \
+printf '%s' "$QUESTION" | env PATH="$WORK/bin:$PATH" MEM_RETRIEVE_FRESH_MIN=0 \
   CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" >/dev/null 2>&1
 MS=$(( $(now_ms) - START ))
 echo "     waited ${MS} ms (hanging git: 25 s)"
@@ -202,7 +202,7 @@ if PATH="$SAFE" command -v timeout >/dev/null 2>&1 \
    || PATH="$SAFE" command -v gtimeout >/dev/null 2>&1; then
   echo "     (skipped: this box still exposes timeout on the trimmed PATH)"
 else
-  OUT="$(printf '%s' "$FRAGE" | env PATH="$SAFE" MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
+  OUT="$(printf '%s' "$QUESTION" | env PATH="$SAFE" MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
     CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
   printf '%s' "$OUT" | grep -q "Recalled automatically from memory" \
     && ok "context produced without timeout on PATH" \

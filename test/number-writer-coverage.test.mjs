@@ -1,6 +1,6 @@
 // Every checked number-place has a writer (BAUPLAN M14).
 //
-// **The finding.** `test/doku-zahlen.test.mjs` already caught
+// **The finding.** `test/doc-numbers.test.mjs` already caught
 // `docs/CAPABILITIES.md`'s "2033 tests" drifting against a real 2043 —
 // it is a good guard. What it never had was a write path: every catch
 // it made was fixed by the same hand-motion, because
@@ -26,7 +26,7 @@ import * as numbers from '../bench/readme-numbers.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-// The same claim shape `test/doku-zahlen.test.mjs`'s sweep looks for —
+// The same claim shape `test/doc-numbers.test.mjs`'s sweep looks for —
 // duplicated on purpose. This probe asks a COARSER, structural
 // question ("does any checkable number live in this file") than the
 // counting itself, so it does not need that file's exemption logic

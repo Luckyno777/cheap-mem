@@ -46,20 +46,20 @@ const WINDOWS = path.join(REPO, 'install', 'windows.ps1');
  * first — a mention in prose is not a registration, and the docblocks
  * above both call sites name every event by hand.
  */
-function registriert(datei, muster, kommentar) {
-  const roh = fs.readFileSync(datei, 'utf8');
-  const zeilen = roh.split('\n').filter((z) => !kommentar.test(z));
-  const raus = new Map();
-  for (const z of zeilen) {
-    const m = muster.exec(z);
-    if (m) raus.set(m[1], z.trim());
+function registered(file, pattern, comment) {
+  const raw = fs.readFileSync(file, 'utf8');
+  const lines = raw.split('\n').filter((z) => !comment.test(z));
+  const drop = new Map();
+  for (const z of lines) {
+    const m = pattern.exec(z);
+    if (m) drop.set(m[1], z.trim());
   }
-  return raus;
+  return drop;
 }
 
-const posixEvents = () => registriert(
+const posixEvents = () => registered(
   POSIX, /upsertHook\(\s*['"]([A-Za-z]+)['"]/, /^\s*(\/\/|#)/);
-const windowsEvents = () => registriert(
+const windowsEvents = () => registered(
   WINDOWS, /Upsert-Hook\s+\$cfg\['hooks'\]\s+'([A-Za-z]+)'/, /^\s*#/);
 
 test('POSITIVE CONTROL: the reader finds real registrations in BOTH files', () => {
@@ -76,9 +76,9 @@ test('POSITIVE CONTROL: the reader finds real registrations in BOTH files', () =
 test('THE RULE: Windows registers every event POSIX does', () => {
   const p = posixEvents();
   const w = windowsEvents();
-  const fehlend = [...p.keys()].filter((e) => !w.has(e));
-  assert.deepEqual(fehlend, [],
-    `install/windows.ps1 does not register: ${fehlend.join(', ')}. `
+  const missing = [...p.keys()].filter((e) => !w.has(e));
+  assert.deepEqual(missing, [],
+    `install/windows.ps1 does not register: ${missing.join(', ')}. `
     + 'A lane nobody calls is a lane that does not exist — on 2026-09-19 '
     + 'that was UserPromptSubmit and PreToolUse, and the ports for both '
     + 'had already shipped.');
@@ -90,10 +90,10 @@ test('the PreToolUse matcher is the same on both sides', () => {
   // Two different matchers would mean two different products.
   const p = posixEvents().get('PreToolUse') ?? '';
   const w = windowsEvents().get('PreToolUse') ?? '';
-  const holen = (z) => /['"]([A-Za-z|]*\|[A-Za-z|]*)['"]/.exec(z)?.[1] ?? null;
-  const pm = holen(p);
+  const fetch = (z) => /['"]([A-Za-z|]*\|[A-Za-z|]*)['"]/.exec(z)?.[1] ?? null;
+  const pm = fetch(p);
   assert.ok(pm, `no matcher found on the POSIX side: ${p}`);
-  assert.equal(holen(w), pm, `Windows registers PreToolUse with a different matcher: ${w}`);
+  assert.equal(fetch(w), pm, `Windows registers PreToolUse with a different matcher: ${w}`);
 });
 
 test('the Windows Stop hook is the model-FREE one', () => {
@@ -107,24 +107,24 @@ test('the Windows Stop hook is the model-FREE one', () => {
   // a call, and a probe that cannot tell them apart forces the next
   // person to delete the explanation to get green. So it reads the
   // ASSIGNMENT: which script the generated hook resolves and starts.
-  const quelle = fs.readFileSync(WINDOWS, 'utf8');
-  const erzeugt = quelle.split('Set-Content -LiteralPath $stopHookDst')[0];
-  const block = erzeugt.slice(erzeugt.lastIndexOf('cheap-mem Stop hook'));
-  const ohneKommentar = block.split('\n').filter((z) => !/^\s*#/.test(z)).join('\n');
-  const gerufen = [...ohneKommentar.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
-  assert.deepEqual(gerufen, ['mem-stop.ps1'],
-    `the generated Stop hook resolves ${JSON.stringify(gerufen)} instead of mem-stop.ps1`);
+  const srcText = fs.readFileSync(WINDOWS, 'utf8');
+  const created = srcText.split('Set-Content -LiteralPath $stopHookDst')[0];
+  const block = created.slice(created.lastIndexOf('cheap-mem Stop hook'));
+  const withoutComment = block.split('\n').filter((z) => !/^\s*#/.test(z)).join('\n');
+  const called = [...withoutComment.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
+  assert.deepEqual(called, ['mem-stop.ps1'],
+    `the generated Stop hook resolves ${JSON.stringify(called)} instead of mem-stop.ps1`);
 });
 
 test('every generated wrapper points at a file that exists in bin/', () => {
   // A registration that names a script nobody shipped is the same
   // silence one level further along.
-  const quelle = fs.readFileSync(WINDOWS, 'utf8');
-  const genannt = [...quelle.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
-  assert.ok(genannt.length >= 3, `only ${genannt.length} bin\\ references found`);
-  const fehlend = [...new Set(genannt)].filter(
+  const srcText = fs.readFileSync(WINDOWS, 'utf8');
+  const named = [...srcText.matchAll(/'bin\\(mem-[a-z-]+\.ps1)'/g)].map((m) => m[1]);
+  assert.ok(named.length >= 3, `only ${named.length} bin\\ references found`);
+  const missing = [...new Set(named)].filter(
     (f) => !fs.existsSync(path.join(REPO, 'bin', f)));
-  assert.deepEqual(fehlend, [], `registered but not shipped: ${fehlend.join(', ')}`);
+  assert.deepEqual(missing, [], `registered but not shipped: ${missing.join(', ')}`);
 });
 
 test('a re-install does not leave a second hook behind', () => {
@@ -133,9 +133,9 @@ test('a re-install does not leave a second hook behind', () => {
   // existed on 2026-09-19 and nothing else. With a third one a second
   // install would have added an entry beside the old one — and two
   // hooks on UserPromptSubmit means every message pays twice.
-  const quelle = fs.readFileSync(WINDOWS, 'utf8');
-  assert.doesNotMatch(quelle, /-match\s+'cheap-mem-session'/,
+  const srcText = fs.readFileSync(WINDOWS, 'utf8');
+  assert.doesNotMatch(srcText, /-match\s+'cheap-mem-session'/,
     'the upsert filter is keyed on a literal script name again');
-  assert.match(quelle, /regex\]::Escape\(\$file\)/,
+  assert.match(srcText, /regex\]::Escape\(\$file\)/,
     'the upsert filter no longer keys on the caller-named file');
 });

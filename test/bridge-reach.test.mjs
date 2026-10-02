@@ -215,10 +215,10 @@ const ROUND3 = ['mem_heartbeat', 'mem_questions', 'mem_answer',
 test('REACH: the six new capabilities are at the bridge', () => {
   const root = memory();
   try {
-    const namen = bridge(root)[1].result.tools.map((t) => t.name);
-    const fehlen = ROUND3.filter((n) => !namen.includes(n));
-    assert.deepEqual(fehlen, [],
-      `CLI-only, and therefore absent for a bridge agent: ${fehlen.join(', ')}`);
+    const toolNames = bridge(root)[1].result.tools.map((t) => t.name);
+    const missing = ROUND3.filter((n) => !toolNames.includes(n));
+    assert.deepEqual(missing, [],
+      `CLI-only, and therefore absent for a bridge agent: ${missing.join(', ')}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

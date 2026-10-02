@@ -175,7 +175,7 @@ test('the write path answers early: verdict returned, warning emitted, line stil
   assert.equal(state.statusOf(state.deriveState(root), t.id), 'active');
 });
 
-// --- Rot-Nachweis: the fixed pre-fix commit (Regel 12) ------------------
+// --- Red proof: the fixed pre-fix commit (rule 12) ------------------------
 const OLD = 'd0a305aaa819338c96727b55bb3a08883ab8b45b';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 let oldTree = null;

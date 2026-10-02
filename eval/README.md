@@ -626,7 +626,7 @@ database," H1 named JSON): **0 of 33 given away, 33 topical only.**
 
 ## Frozen
 
-`eval/final-eingefroren.json` + `.sha256`, sealed by
+`eval/final-frozen.json` + `.sha256`, sealed by
 `test/eval-frozen.test.mjs`. From here on: no rewording, no relaxed
 rule, no special case on final.
 

@@ -1,6 +1,6 @@
 {
-  "erzeugt_am": "2026-10-01T18:40:34.119Z",
-  "oberflaeche": {
+  "created_at": "2026-10-01T18:40:34.119Z",
+  "surface": {
     "assets/dashboard/dashboard.css": "ecd4e72107e2bf54c177d830df10a6f025bbeb3fd7cf21966d8f145688d57515",
     "assets/dashboard/dashboard.js": "8f0ff88530447036c76992cfcb2f74ed89507ab7a7a6a4f7d831b43a4a3c21d1",
     "assets/fonts/dm-sans-latin-ext.woff2": "5d18d31d23ada61ebee1d589b11d5da30db9e158f589d5e35221ba2b1a45de54",

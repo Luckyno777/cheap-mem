@@ -55,7 +55,7 @@ set -u
 # report". Two places per hook needed this, and five hooks carried the
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 
 # **Which exit did it take?** `MEM_BEFORE_EDIT_TRACE=1` makes every
 # early exit name itself on stderr. Nothing is printed without it, and
@@ -108,7 +108,7 @@ ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
-  k="$(entrutscht "$k")"
+  k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && { trace "no-root (CHEAP_MEM_ROOT=${CHEAP_MEM_ROOT:-} PROBE=$PROBE)"; exit 0; }
@@ -120,7 +120,7 @@ done
 # so HOOK_DIR became the CURRENT directory instead of bin/. The tool
 # next to the hook was then not found and the hook exited 0 in
 # silence — the same failure as the root lookup, one line further on.
-HOOK_DIR="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+HOOK_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 if [ -f "$ROOT/bin/mem" ]; then
   RUN_MEM=(node "$ROOT/bin/mem")
   TOOL_ROOT="$ROOT"

@@ -95,7 +95,7 @@ test('RED PROOF: at the fixed commit, workflow.check() had no idea what `trigger
 
 test('POSITIVE CONTROL: the fixed commit DID already validate `title`, so the probe sees something real', () => {
   const wf = showAtFixed('src/workflow.mjs');
-  assert.match(wf.text, /titel fehlt|title missing/);
+  assert.match(wf.text, /title missing/);
 });
 
 test('GREEN: triggers/path_patterns/tool_patterns/tools/source_proposal/scope are checked', () => {

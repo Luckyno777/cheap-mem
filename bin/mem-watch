@@ -36,7 +36,7 @@ set -u
 # report". Two places per hook needed this, and five hooks carried the
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 
 if [ -z "${CHEAP_MEM_ROOT:-}" ]; then
   echo "error: env CHEAP_MEM_ROOT missing" >&2
@@ -46,7 +46,7 @@ fi
 # Normalise BEFORE the first use as a path: a native Windows root
 # (`C:\mem`) makes `[ -d "$ROOT/.git" ]` false in bash, and the clone
 # check would reject a perfectly good clone.
-CHEAP_MEM_ROOT="$(entrutscht "${CHEAP_MEM_ROOT:-}")"
+CHEAP_MEM_ROOT="$(to_slashes "${CHEAP_MEM_ROOT:-}")"
 export CHEAP_MEM_ROOT
 if [ ! -d "$CHEAP_MEM_ROOT/.git" ]; then
   echo "error: CHEAP_MEM_ROOT='$CHEAP_MEM_ROOT' is not a git clone" >&2
@@ -70,7 +70,7 @@ HANDLER_TIMEOUT="${MEM_WATCH_HANDLER_TIMEOUT:-300}"
 # `$0` is a path from outside too: on Windows `dirname` of a
 # backslash path returns `.`, so this would become the CURRENT
 # directory instead of bin/.
-HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 # shellcheck source=bin/_portable.sh
 . "$HERE/_portable.sh"
 MEM_CLI="$HERE/mem"

@@ -24,14 +24,14 @@ import * as memory from '../src/memory.mjs';
 import * as config from '../src/config.mjs';
 
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
-const HEUTE = new Date('2026-09-16T00:00:00Z');
+const TODAY = new Date('2026-09-16T00:00:00Z');
 
 test('POSITIVE: a version already in force IS the current one', () => {
   // Without this, every probe below would pass against a resolver that
   // simply never answers.
   const f = fresh.resolveFacts([
     { id: 'present', key: 'service.port', value: 8000, valid_from: '2026-09-01' },
-  ], { now: HEUTE });
+  ], { now: TODAY });
   assert.equal(f[0].current.id, 'present');
   assert.equal(f[0].state, fresh.STATE.CURRENT);
   assert.equal(f[0].ageDays, 15);
@@ -41,7 +41,7 @@ test('a version that starts next year does not win today', () => {
   const f = fresh.resolveFacts([
     { id: 'present', key: 'service.port', value: 8000, valid_from: '2026-09-01' },
     { id: 'future', key: 'service.port', value: 9000, valid_from: '2027-01-01' },
-  ], { now: HEUTE });
+  ], { now: TODAY });
   assert.equal(f[0].current.id, 'present', 'the future version is being served as current');
   assert.ok(f[0].ageDays >= 0, `negative age: ${f[0].ageDays}`);
   // And it is not swallowed either — "there is a value, it just does not
@@ -55,7 +55,7 @@ test('when everything is still in the future there is no current value, and it s
   // house rule: a number nobody took must not look like a measurement.
   const f = fresh.resolveFacts([
     { id: 'future', key: 'service.port', value: 9000, valid_from: '2027-01-01' },
-  ], { now: HEUTE });
+  ], { now: TODAY });
   assert.equal(f[0].current, null);
   assert.equal(f[0].ageDays, null, 'an unmeasured age came back as a number');
   assert.equal(f[0].state, fresh.STATE.NOT_YET);
@@ -65,21 +65,21 @@ test('when everything is still in the future there is no current value, and it s
 });
 
 test('valid_until is respected, and it is exclusive', () => {
-  const abgelaufen = fresh.resolveFacts([
+  const expired = fresh.resolveFacts([
     { id: 'alt', key: 'k', value: 1, valid_from: '2026-01-01', valid_until: '2026-06-01' },
-  ], { now: HEUTE });
-  assert.equal(abgelaufen[0].current, null, 'an expired version is still being served');
-  assert.equal(abgelaufen[0].state, fresh.STATE.EXPIRED);
+  ], { now: TODAY });
+  assert.equal(expired[0].current, null, 'an expired version is still being served');
+  assert.equal(expired[0].state, fresh.STATE.EXPIRED);
   // Exclusive: on the last day itself it no longer holds.
   const amTag = fresh.resolveFacts([
     { id: 'alt', key: 'k', value: 1, valid_from: '2026-01-01', valid_until: '2026-06-01' },
   ], { now: new Date('2026-06-01T00:00:00Z') });
   assert.equal(amTag[0].current, null, 'valid_until turned out to be inclusive after all');
   // One day earlier it does.
-  const davor = fresh.resolveFacts([
+  const before = fresh.resolveFacts([
     { id: 'alt', key: 'k', value: 1, valid_from: '2026-01-01', valid_until: '2026-06-01' },
   ], { now: new Date('2026-05-31T00:00:00Z') });
-  assert.equal(davor[0].current.id, 'alt', 'a version inside its window was dropped');
+  assert.equal(before[0].current.id, 'alt', 'a version inside its window was dropped');
 });
 
 test('a conflict among THREE concurrent versions is a conflict', () => {
@@ -87,15 +87,15 @@ test('a conflict among THREE concurrent versions is a conflict', () => {
     { id: 'a', key: 'x', value: 'A', ts: '2026-09-01' },
     { id: 'b', key: 'x', value: 'A', ts: '2026-09-01' },
     { id: 'c', key: 'x', value: 'B', ts: '2026-09-01' },
-  ], { now: HEUTE });
+  ], { now: TODAY });
   assert.equal(c[0].conflict, true, 'A, A, B reported agreement');
   // Counter-direction: three that really do agree are not a conflict.
-  const einig = fresh.resolveFacts([
+  const agreed = fresh.resolveFacts([
     { id: 'a', key: 'x', value: 'A', ts: '2026-09-01' },
     { id: 'b', key: 'x', value: 'A', ts: '2026-09-01' },
     { id: 'c', key: 'x', value: 'A', ts: '2026-09-01' },
-  ], { now: HEUTE });
-  assert.equal(einig[0].conflict, false, 'agreement was reported as conflict');
+  ], { now: TODAY });
+  assert.equal(agreed[0].conflict, false, 'agreement was reported as conflict');
 });
 
 test('two projects with the same key are two facts', () => {
@@ -110,18 +110,18 @@ test('two projects with the same key are two facts', () => {
       id: 'factbbb', key: 'db.engine', value: 'SQLite', ts: '2026-09-02T10:00:00Z',
     }, { project: 'beta' });
 
-    const facts = memory.currentFacts(root, { now: HEUTE });
-    const nach = new Map(facts.map((f) => [f.project, f]));
-    assert.equal(nach.size, 2, `the two projects collapsed into ${nach.size} fact(s)`);
-    assert.equal(nach.get('alpha').current.value, 'Postgres');
-    assert.equal(nach.get('beta').current.value, 'SQLite');
+    const facts = memory.currentFacts(root, { now: TODAY });
+    const after = new Map(facts.map((f) => [f.project, f]));
+    assert.equal(after.size, 2, `the two projects collapsed into ${after.size} fact(s)`);
+    assert.equal(after.get('alpha').current.value, 'Postgres');
+    assert.equal(after.get('beta').current.value, 'SQLite');
     // The decisive line: neither may appear as the other's history.
     for (const f of facts) {
       assert.deepEqual(f.history, [],
         `${f.project} invented a history from another project: ${JSON.stringify(f.history)}`);
     }
     // And a caller can ask for one scope on its own.
-    const nurAlpha = memory.currentFacts(root, { now: HEUTE, project: 'alpha' });
+    const nurAlpha = memory.currentFacts(root, { now: TODAY, project: 'alpha' });
     assert.deepEqual(nurAlpha.map((f) => f.current.value), ['Postgres']);
   } finally { away(root); }
 });

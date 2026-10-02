@@ -241,14 +241,14 @@ if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 try { if ([Console]::IsInputRedirected) { `$hookIn = [Console]::In.ReadToEnd() } } catch { }
 
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 
 if (-not `$memRoot) {
@@ -436,14 +436,14 @@ Write-Host 'transcript grows past the byte-delta threshold.'
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -480,14 +480,14 @@ if (-not (Test-Path `$stop)) { exit 0 }
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -504,14 +504,14 @@ if (-not (Test-Path `$retrieve)) { exit 0 }
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -528,14 +528,14 @@ if (-not (Test-Path `$before)) { exit 0 }
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -553,14 +553,14 @@ if (-not (Test-Path `$catchFail)) { exit 0 }
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -578,14 +578,14 @@ if (-not (Test-Path `$afterFailure)) { exit 0 }
 `$hint = '$($env:CHEAP_MEM_ROOT)'
 if (`$env:MEM_HOOK_OFF -eq '1') { exit 0 }
 `$memRoot = `$null
-foreach (`$kandidat in @(
+foreach (`$candidate in @(
     `$env:CHEAP_MEM_ROOT,
     `$hint,
     (Join-Path `$env:USERPROFILE 'cheap-mem'),
     (Join-Path `$env:USERPROFILE 'my-memory'),
     (Join-Path `$env:USERPROFILE '.cheap-mem'))) {
-  if ([string]::IsNullOrWhiteSpace(`$kandidat)) { continue }
-  if (Test-Path (Join-Path `$kandidat '.mem\config.json')) { `$memRoot = `$kandidat; break }
+  if ([string]::IsNullOrWhiteSpace(`$candidate)) { continue }
+  if (Test-Path (Join-Path `$candidate '.mem\config.json')) { `$memRoot = `$candidate; break }
 }
 if (-not `$memRoot) { exit 0 }
 `$env:CHEAP_MEM_ROOT = `$memRoot
@@ -633,9 +633,9 @@ if (-not (Test-Path `$subagent)) { exit 0 }
         }
         $keep
       })
-      $eintrag = @{ hooks = @(@{ type = 'command'; command = $cmd }) }
-      if ($matcher) { $eintrag['matcher'] = $matcher }
-      $h[$event] += $eintrag
+      $hookEntry = @{ hooks = @(@{ type = 'command'; command = $cmd }) }
+      if ($matcher) { $hookEntry['matcher'] = $matcher }
+      $h[$event] += $hookEntry
     }
     $ps = 'powershell -NoProfile -ExecutionPolicy Bypass -File'
     Upsert-Hook $cfg['hooks'] 'SessionStart' 'cheap-mem-session-start.ps1' "$ps `"$startHookDst`""

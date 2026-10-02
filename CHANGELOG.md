@@ -14,6 +14,17 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — English throughout: the last German names
+
+- **`/desk.json` replaces `/pult.json`; `/pult` redirects.** The old
+  desk's numbers answer at `/desk.json`. `/pult` and `/pult.json`, the
+  sibling house's German names, answer with a 308 to `/dashboard` and
+  `/desk.json` (query string kept), so bookmarks and scripts keep working.
+- German identifiers, test file names and comments renamed or translated;
+  no behaviour change. The English ratchet now also covers identifiers
+  in `install/`, `hooks/`, `.github/`, `assets/` and `eval/`, and German
+  words anywhere in a file name.
+
 ### Added — cold path: the long-lived processes keep the index in memory
 
 - **In-process index memo** (`src/search.mjs` `setProcessMemo`): the recall
@@ -24,7 +35,7 @@ are the day the work landed on `main`.
   keyring), so a destroyed or rotated key takes effect on the next question.
   Default OFF for the CLI. Recall server, 200k entries (synthetic, 4 cores,
   load ~8): p50 4076 ms -> 377 ms, p95 4262 -> 479 ms; 20k: 424 -> 38 ms;
-  2k: 57 -> 10 ms (`bench/warm-recall.mjs`). Probe: `test/kalt-index-memo.test.mjs`.
+  2k: 57 -> 10 ms (`bench/warm-recall.mjs`). Probe: `test/cold-index-memo.test.mjs`.
 
 ### Added — P11/V10/V11: chain-head content-loss finding, human confirmation
 
@@ -337,7 +348,7 @@ are the day the work landed on `main`.
   `mem raw archive --set`. `CHEAP_MEM_ARCHIVE` still wins for a single
   run; the report always names which of the three sources was used.
 - `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTING.md`.
-- A guard for the README's own numbers (`test/readme-zahlen.test.mjs`),
+- A guard for the README's own numbers (`test/readme-numbers.test.mjs`),
   because numbers in prose have no guard and therefore rot.
 - **The error-class vocabulary** (`src/errorclass.mjs`, `mem classes`).
   Twelve closed classes, each with the question that decides it

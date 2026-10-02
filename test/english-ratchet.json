@@ -14,7 +14,12 @@
     "",
     "'filenameAllowlist' is the file-NAME version of the same idea: a",
     "short explicit list of German words (Lucky's decision, 2026-09-26)",
-    "must not appear in any tracked path unless it is named here."
+    "must not appear in any tracked path unless it is named here.",
+    "",
+    "'commentWordCeilings' (2026-10-01): per file, the number of comment",
+    "lines that carry a lone word from GERMAN_IDENTIFIER_WORDS (outside",
+    "backticks/quotes, not glued to a path or id). Same ratchet rule: only",
+    "ever lower it; a file not listed must have none."
   ],
   "metric": "German lines per file / total tracked text files, using test/english-dictionary.mjs's two-distinct-word threshold and KNOWN_VERBATIM_QUOTES over EVERY line of EVERY file `git ls-files` tracks (not only comments) — the same rule test/english-only.test.mjs applies to src/bin/test/bench comments, widened to the whole repo per Lucky's 2026-09-26 decision that cheap-mem is throughout-English.",
   "baseline": {
@@ -33,7 +38,7 @@
       "reason": "the one cross-house file that is byte-identical with lucky-mem's geteilt/befund-zuordnung.jsonl (BAUWEISE rule 15); decision 2026-09-26: it will carry both 'warum' and 'why', so German stays in it by design. shared/invariants.jsonl and shared/calculations.jsonl are NOT exempt: each house writes its own prose there, and cheap-mem's must be English."
     },
     {
-      "pattern": "eval/final-eingefroren.json",
+      "pattern": "eval/final-frozen.json",
       "reason": "the frozen reference result, pinned by its sha256 in test/eval-frozen.test.mjs — translating it would break the pin and falsify the record; same class as eval/runs/*.jsonl"
     },
     {
@@ -93,22 +98,13 @@
       "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); B6 left it as-is"
     },
     {
-      "path": "test/eine-sprache.test.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "test/audit-messgeraete.test.mjs",
-      "reason": "to be renamed in B6/B4"
-    },
-    {
-      "path": "test/eval-kontext-riegel.test.mjs",
-      "reason": "to be renamed in B6/B4"
+      "path": "eval/runs/zustandslos-sonnet5.jsonl",
+      "reason": "measurement record, exempt from renaming (see eval/runs/*.jsonl exemption); caught once file names were also looked up word by word (2026-10-01)"
     }
   ],
   "ceilings": {
     "bench/atlas/phase-real.mjs": 2,
     "bench/duplicate-rate.mjs": 2,
-    "eslint.config.mjs": 12,
     "eval/arms.mjs": 7,
     "eval/corpus.mjs": 36,
     "eval/echo.mjs": 5,
@@ -123,22 +119,19 @@
     "src/search.mjs": 2,
     "test/asked.test.mjs": 1,
     "test/atlas-real-guard-origin.test.mjs": 3,
-    "test/audit-messgeraete.test.mjs": 2,
+    "test/audit-instruments.test.mjs": 1,
     "test/calculations.test.mjs": 1,
     "test/dashboard-page.test.mjs": 1,
     "test/consumption-funnel.test.mjs": 1,
     "test/coverage-state.test.mjs": 3,
     "test/dashboard.test.mjs": 1,
     "test/english-only.test.mjs": 17,
-    "test/english-ratchet.json": 1,
     "test/errorcontext.test.mjs": 1,
     "test/eval-frozen.test.mjs": 1,
     "test/exact-lane.test.mjs": 3,
     "test/finding-mirror.test.mjs": 1,
     "test/gateway-diversity.test.mjs": 4,
-    "test/hook-windows-root.test.mjs": 1,
     "test/install-hooks.test.mjs": 1,
-    "test/installer-parity.test.mjs": 1,
     "test/invariants.test.mjs": 1,
     "test/langdetect.test.mjs": 17,
     "test/language-per-entry.test.mjs": 8,
@@ -148,8 +141,20 @@
     "test/raw-stats.test.mjs": 6,
     "test/redaction-unicode.test.mjs": 1,
     "test/search.test.mjs": 1,
-    "test/setup-status.test.mjs": 2,
     "test/userhabits.test.mjs": 1,
     "test/viewer.test.mjs": 1
+  },
+  "commentWordCeilings": {
+    "src/cli/display.mjs": 1,
+    "src/doctor.mjs": 1,
+    "src/environment.mjs": 1,
+    "src/parity.mjs": 2,
+    "src/search.mjs": 1,
+    "src/shardarchive.mjs": 2,
+    "test/as-of-every-lane.test.mjs": 1,
+    "test/entry-content.test.mjs": 1,
+    "test/finding-mirror.test.mjs": 1,
+    "test/icon-guard.test.mjs": 1,
+    "test/paths-agree.test.mjs": 1
   }
 }

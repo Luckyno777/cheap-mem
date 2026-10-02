@@ -62,7 +62,7 @@ if ($env:MEM_CAPTURE_OFF -eq '1') { exit 0 }
 if ($env:MEM_HEADLESS) { exit 0 }
 
 # **No backslash substitution here, and that is the point.** The POSIX
-# hook carries `entrutscht()` because bash reads `C:\Users\x` as an
+# hook carries `to_slashes()` because bash reads `C:\Users\x` as an
 # escape soup and exits 0 in silence. PowerShell's path APIs take the
 # native Windows path as it comes.
 #

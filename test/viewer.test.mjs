@@ -145,19 +145,19 @@ test('a broken (non-JSON) log line does not crash the viewer', (t) => {
 // invariant: kein-rueckfall-auf-erfundene-daten
 test('an empty memory renders an empty page, not a sample one', (t) => {
   const root = tmpRoot(t);
-  const leer = viewer.build([root], { title: 'probe' });
+  const empty = viewer.build([root], { title: 'probe' });
 
   // POSITIVE CONTROL first: with entries, the page really does carry
   // them. Without this the assertion below passes on a broken builder
   // that renders nothing at all, ever.
   const full = tmpRoot(t);
   seed(full);
-  const voll = viewer.build([full], { title: 'probe' });
-  assert.ok(voll.count > 0 && voll.html.includes('sqlite'),
+  const whole = viewer.build([full], { title: 'probe' });
+  assert.ok(whole.count > 0 && whole.html.includes('sqlite'),
     'positive control failed: a seeded memory does not reach the page');
 
-  assert.equal(leer.count, 0, 'an empty memory must count zero entries');
-  assert.ok(!leer.html.includes('sqlite'),
+  assert.equal(empty.count, 0, 'an empty memory must count zero entries');
+  assert.ok(!empty.html.includes('sqlite'),
     'an empty memory must not show another memory\'s content');
   fs.rmSync(root, { recursive: true, force: true });
   fs.rmSync(full, { recursive: true, force: true });

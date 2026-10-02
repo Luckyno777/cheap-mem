@@ -165,10 +165,10 @@ test('raw captures do not decide which eight words carry the question', () => {
     const dir = path.join(r, 'raw', '2026', '09');
     fs.mkdirSync(dir, { recursive: true });
     for (let i = 0; i < 40; i += 1) {
-      const zeile = JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user',
+      const row = JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user',
         text: `kanarienvogel kanarienvogel gespraech ${i}` });
       fs.writeFileSync(path.join(dir, `2026-09-01T10-00-00Z--k${i}.jsonl.gz`),
-        zlib.gzipSync(`${zeile}\n`));
+        zlib.gzipSync(`${row}\n`));
     }
     const idx = search.buildIndex(r, { language: 'de' });
 

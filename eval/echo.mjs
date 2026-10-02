@@ -89,11 +89,11 @@ function wilson(k, n, z = 1.96) {
 // a broken probe.
 {
   const q = 'Welchen Port trage ich fuer die Erreichbarkeitspruefung ein';
-  const rohEcho = { type: 'raw', entry: { title: '[raw] a.jsonl.gz', text: q } };
-  const rohFremd = { type: 'raw', entry: { title: '[raw] b.jsonl.gz',
+  const rawEcho = { type: 'raw', entry: { title: '[raw] a.jsonl.gz', text: q } };
+  const rawForeign = { type: 'raw', entry: { title: '[raw] b.jsonl.gz',
     text: 'Der Zwischenspeicher wird nach sieben Tagen geleert, danach ist er kalt.' } };
   const getippt = { type: 'thought', entry: { title: q, text: q } };
-  const a = search.isEchoHit(q, rohEcho), b = search.isEchoHit(q, rohFremd);
+  const a = search.isEchoHit(q, rawEcho), b = search.isEchoHit(q, rawForeign);
   // Third control: the filter must NOT touch typed entries.
   if (search.isEchoHit(q, getippt)) {
     console.log('Positive control: the filter engages on typed entries. Aborting.');

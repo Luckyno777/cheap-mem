@@ -8,7 +8,7 @@
  *   find "<pattern>"         search across log files
  *   context [--n N]          compact dump for session start
  *   project init <name>      idempotent project skeleton
- *   inbox schreib|new|show|ack   inbox operations (was: post)
+ *   inbox write|new|show|ack     inbox operations (was: post)
  *   inbox watch              remote-only "post ready" check, exit 0/1/3
  *   whoami / whoami <name>   who this install is in the channel
  *   correction <type> <old-id> --<field> ...

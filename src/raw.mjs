@@ -83,19 +83,19 @@ const KEEP_ATTACHMENT = new Set([
  * to a text digest — but the FACT that an image was there is worth
  * something, so a marker stays behind.
  */
-function stripImages(o, zaehler) {
+function stripImages(o, elidedCounter) {
   const c = o?.message?.content;
   if (!Array.isArray(c)) return o;
-  let getroffen = false;
-  const neu = c.map((part) => {
+  let sawImage = false;
+  const stripped = c.map((part) => {
     if (part?.type !== 'image') return part;
-    getroffen = true;
+    sawImage = true;
     const bytes = Buffer.byteLength(JSON.stringify(part));
     return { type: 'text', text: `[image elided by cheap-mem: ${bytes} bytes]` };
   });
-  if (!getroffen) return o;
-  zaehler.set('image', (zaehler.get('image') ?? 0) + 1);
-  return { ...o, message: { ...o.message, content: neu } };
+  if (!sawImage) return o;
+  elidedCounter.set('image', (elidedCounter.get('image') ?? 0) + 1);
+  return { ...o, message: { ...o.message, content: stripped } };
 }
 
 /**

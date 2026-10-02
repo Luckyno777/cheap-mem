@@ -225,13 +225,13 @@ const q = (s) => (/[\s"]/.test(s) ? `"${s}"` : s);
 // in place and add a second one next to it. Two hooks on
 // UserPromptSubmit means every message pays twice.
 function upsertHook(event, script, matcher) {
-  const datei = `cheap-mem-${script}.sh`;
+  const hookFile = `cheap-mem-${script}.sh`;
   cfg.hooks[event] = cfg.hooks[event] || [];
   cfg.hooks[event] = cfg.hooks[event].filter((entry) => {
     if (!entry.hooks) return true;
-    return !entry.hooks.some((h) => h.command && h.command.includes(datei));
+    return !entry.hooks.some((h) => h.command && h.command.includes(hookFile));
   });
-  const cmd = `${q(bashBin)} ${q(`${hooksDir.replace(/[\\/]$/, '')}/${datei}`)}`;
+  const cmd = `${q(bashBin)} ${q(`${hooksDir.replace(/[\\/]$/, '')}/${hookFile}`)}`;
   const entry = { hooks: [{ type: 'command', command: cmd }] };
   if (matcher) entry.matcher = matcher;
   cfg.hooks[event].push(entry);

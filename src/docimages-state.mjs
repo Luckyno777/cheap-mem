@@ -74,7 +74,7 @@ export function hashUi(root = CODE_ROOT) {
 export function writeState(root = CODE_ROOT, now = new Date(), surface = null) {
   const file = path.join(root, STATE_FILE);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const state = { erzeugt_am: now.toISOString(), oberflaeche: surface || hashUi(root) };
+  const state = { created_at: now.toISOString(), surface: surface || hashUi(root) };
   fs.writeFileSync(file, JSON.stringify(state, null, 2) + '\n');
   return state;
 }
@@ -96,16 +96,21 @@ export function checkState(root = CODE_ROOT) {
         : `${STATE_FILE} is unreadable (${e && e.message})`,
     };
   }
-  if (!state || typeof state.oberflaeche !== 'object' || state.oberflaeche === null) {
+  // English keys since 2026-10-01 (`created_at`, `surface`); a state file
+  // shot before that carries the German ones (`erzeugt_am`, `oberflaeche`)
+  // and is read the same — a rename must not turn a good state unknown.
+  const surfaceHashes = state?.surface ?? state?.oberflaeche;
+  const shotAt = state?.created_at ?? state?.erzeugt_am;
+  if (!state || typeof surfaceHashes !== 'object' || surfaceHashes === null) {
     return { state: 'unknown', changed: [], text: `${STATE_FILE} holds no UI hashes` };
   }
   const now = hashUi(root);
-  const all = new Set([...Object.keys(state.oberflaeche), ...Object.keys(now)]);
-  const changed = [...all].filter((p) => (state.oberflaeche[p] ?? null) !== (now[p] ?? null)).sort();
+  const all = new Set([...Object.keys(surfaceHashes), ...Object.keys(now)]);
+  const changed = [...all].filter((p) => (surfaceHashes[p] ?? null) !== (now[p] ?? null)).sort();
   if (!changed.length) {
     return {
       state: 'good', changed,
-      text: `docs images were shot from today's UI (${Object.keys(now).length} files, shot ${state.erzeugt_am || '?'})`,
+      text: `docs images were shot from today's UI (${Object.keys(now).length} files, shot ${shotAt || '?'})`,
     };
   }
   return { state: 'warn', changed, text: `Docs images older than the UI: ${changed.join(', ')}` };

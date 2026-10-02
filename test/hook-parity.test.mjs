@@ -174,7 +174,7 @@ test('every PowerShell script in bin/ has a shell counterpart', () => {
 
 test('the exemptions are few, and each one names its reason', () => {
   // Counted, so that "skipped" can never quietly become "all of them" —
-  // the same discipline test/doku-zahlen.test.mjs applies to its own
+  // the same discipline test/doc-numbers.test.mjs applies to its own
   // carve-outs.
   const exempt = binFiles()
     .filter((f) => isShellScript(f.name, f.text) || f.name.endsWith('.ps1'))

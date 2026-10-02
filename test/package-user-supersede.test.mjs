@@ -1,4 +1,4 @@
-// Paket (2026-09-30): rank alignment with lucky-mem Y4c (src/rang.mjs
+// Package work (2026-09-30): rank alignment with lucky-mem Y4c (src/rang.mjs
 // darfAendern). `user` is ONE person: two user-tier lines written down by
 // different sessions (session A recorded the rule, session B the
 // correction) are the same author — the writer is only the scribe. Before

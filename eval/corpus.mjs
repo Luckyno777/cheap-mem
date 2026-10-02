@@ -90,22 +90,22 @@ const UMSTAND = ['seit der Umstellung', 'im Nachtlauf', 'bei hoher Last', 'am Mo
   'im Aussendienst', 'nach dem Umzug', 'bei mehreren Standorten', 'im Vertretungsfall',
   'bei Teillieferung', 'nach einer Stornierung', 'bei ungueltigem Beleg', 'im Probebetrieb'];
 
-const wort = (r) => BESTIMMUNG[Math.floor(r() * BESTIMMUNG.length)] + GRUNDWORT[Math.floor(r() * GRUNDWORT.length)];
+const word = (r) => BESTIMMUNG[Math.floor(r() * BESTIMMUNG.length)] + GRUNDWORT[Math.floor(r() * GRUNDWORT.length)];
 const einer = (a, r) => a[Math.floor(r() * a.length)];
 
 /** One distractor entry with its own topic and its own vocabulary. */
-function streuEintrag(r, i) {
-  const thema = wort(r);
-  const teile = [];
+function scatterEntry(r, i) {
+  const topicName = word(r);
+  const sentenceParts = [];
   for (let k = 0; k < 7; k += 1) {
-    teile.push(`${einer(UMSTAND, r)} muss der ${wort(r)} den ${wort(r)} ${einer(VERB, r)}`);
+    sentenceParts.push(`${einer(UMSTAND, r)} muss der ${word(r)} den ${word(r)} ${einer(VERB, r)}`);
   }
   return {
     id: `S-${i}`,
-    topic: thema,
-    choice: `${thema}: ${wort(r)} vor ${wort(r)} ${einer(VERB, r)}`,
-    why: `${teile.join('. ')}.`,
-    tags: [thema],
+    topic: topicName,
+    choice: `${topicName}: ${word(r)} vor ${word(r)} ${einer(VERB, r)}`,
+    why: `${sentenceParts.join('. ')}.`,
+    tags: [topicName],
   };
 }
 
@@ -149,7 +149,7 @@ const ABLENKUNG_TEILT_VOKABULAR = [
   ['pruefumfang', 'nur geaenderte Zeilen pruefen, nicht die ganze Datei', 'sonst prueft niemand'],
 ];
 
-const ABLENKUNG_FEHLER = [
+const DISTRACTOR_ERRORS = [
   ['der Auftragslaeufer haelt Speicher fest', 'der Haufen waechst rund 40 MB je Stunde'],
   ['die Integrationsstrecke bricht etwa jeden fuenften Lauf ab', 'immer ein anderer Test, nie oertlich nachstellbar'],
   ['ein Umbau der Tabelle hielt eine Sperre', 'vierzig Sekunden ohne Schreibzugriff'],
@@ -173,7 +173,7 @@ const ABLENKUNG_FEHLER = [
  *   run. This lets the PRICE of the reserve lane be measured: a fact
  *   that is nowhere kept up to date.
  */
-export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 40, echoes = [], rawOnly = [], queryWords = false, seed = 7 } = {}) {
+export function build(root, { poisoned = false, noise = 4, scatter = 700, flood = 40, echoes = [], rawOnly = [], queryWords = false, seed = 7 } = {}) {
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   const r = rng(seed);
   const ids = [];
@@ -181,15 +181,15 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
   // 1. The facts themselves. Replacements are written as such, so that
   //    state comes from the log and not from ordering.
   const rawOnlySet = new Set(rawOnly);
-  const rohDir = path.join(root, 'raw', '2026', '08');
+  const rawDir = path.join(root, 'raw', '2026', '08');
   for (const f of FACTS) {
     if (rawOnlySet.has(f.id)) {
       // Undigested: the same sentence, but as a transcript of a
       // conversation, embedded in ambient chatter — the way it really
       // arrives.
-      fs.mkdirSync(rohDir, { recursive: true });
+      fs.mkdirSync(rawDir, { recursive: true });
       const satz = satzA(f, r);
-      const zeilen = [
+      const lines = [
         `kurz zu ${satz.topic}: was machen wir da eigentlich`,
         `wir nehmen ${satz.choice}`,
         `weil ${satz.why}`,
@@ -197,8 +197,8 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
       ].map((t, i) => JSON.stringify({
         ts: `2026-08-2${i % 10}T09:00:00Z`, role: i % 2 ? 'assistant' : 'user', text: t,
       })).join('\n');
-      fs.writeFileSync(path.join(rohDir, `2026-08-20T09-00-00Z--${f.id}.jsonl.gz`),
-        zlib.gzipSync(`${zeilen}\n`));
+      fs.writeFileSync(path.join(rawDir, `2026-08-20T09-00-00Z--${f.id}.jsonl.gz`),
+        zlib.gzipSync(`${lines}\n`));
       ids.push(f.id);
       continue;
     }
@@ -222,32 +222,32 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
   // 2a. Scatter: many entries with their own topic and their own
   //     vocabulary each. That is what makes the corpus resemble a real
   //     one — not more rounds of the same topic.
-  for (let i = 0; i < streu; i += 1) {
+  for (let i = 0; i < scatter; i += 1) {
     memory.logEntry(root, i % 3 === 0 ? 'error' : 'decision',
-      { ...streuEintrag(r, i), author: 'lucky', authority: 'user', project: PROJECT,
-        ...(i % 3 === 0 ? { title: `Stoerung im ${wort(r)}`, class: 'betrieb' } : {}) },
+      { ...scatterEntry(r, i), author: 'lucky', authority: 'user', project: PROJECT,
+        ...(i % 3 === 0 ? { title: `Stoerung im ${word(r)}`, class: 'betrieb' } : {}) },
       { project: PROJECT });
   }
 
   // 2b. Distractors: topically adjacent, the answer to no task.
   for (let i = 0; i < noise; i += 1) {
-    for (const [thema, wahl, grund] of ABLENKUNG_THEMEN) {
+    for (const [topicName, choiceText, reason] of ABLENKUNG_THEMEN) {
       memory.logEntry(root, 'decision', {
-        id: `N-${thema}-${i}`, topic: thema, choice: `${wahl} (Runde ${i})`,
-        why: `${grund}. ${AUSBAU[(i * 3) % AUSBAU.length]} ${AUSBAU[(i * 5 + 1) % AUSBAU.length]} ${AUSBAU[(i * 7 + 2) % AUSBAU.length]} ${AUSBAU[(i + 3) % AUSBAU.length]} ${AUSBAU[(i * 2 + 5) % AUSBAU.length]}`,
-        tags: [thema], author: 'lucky', authority: 'user', project: PROJECT,
+        id: `N-${topicName}-${i}`, topic: topicName, choice: `${choiceText} (Runde ${i})`,
+        why: `${reason}. ${AUSBAU[(i * 3) % AUSBAU.length]} ${AUSBAU[(i * 5 + 1) % AUSBAU.length]} ${AUSBAU[(i * 7 + 2) % AUSBAU.length]} ${AUSBAU[(i + 3) % AUSBAU.length]} ${AUSBAU[(i * 2 + 5) % AUSBAU.length]}`,
+        tags: [topicName], author: 'lucky', authority: 'user', project: PROJECT,
       }, { project: PROJECT });
     }
-    for (const [thema, wahl, grund] of ABLENKUNG_TEILT_VOKABULAR) {
+    for (const [topicName, choiceText, reason] of ABLENKUNG_TEILT_VOKABULAR) {
       memory.logEntry(root, 'decision', {
-        id: `V-${thema}-${i}`, topic: thema, choice: `${wahl} (Runde ${i})`,
-        why: `${grund}. ${AUSBAU[(i * 2) % AUSBAU.length]} ${AUSBAU[(i * 4 + 3) % AUSBAU.length]} ${AUSBAU[(i * 6 + 1) % AUSBAU.length]} ${AUSBAU[(i + 5) % AUSBAU.length]} ${AUSBAU[(i * 3 + 4) % AUSBAU.length]}`,
-        tags: [thema], author: 'lucky', authority: 'user', project: PROJECT,
+        id: `V-${topicName}-${i}`, topic: topicName, choice: `${choiceText} (Runde ${i})`,
+        why: `${reason}. ${AUSBAU[(i * 2) % AUSBAU.length]} ${AUSBAU[(i * 4 + 3) % AUSBAU.length]} ${AUSBAU[(i * 6 + 1) % AUSBAU.length]} ${AUSBAU[(i + 5) % AUSBAU.length]} ${AUSBAU[(i * 3 + 4) % AUSBAU.length]}`,
+        tags: [topicName], author: 'lucky', authority: 'user', project: PROJECT,
       }, { project: PROJECT });
     }
-    for (const [titel, text] of ABLENKUNG_FEHLER) {
+    for (const [titleText, text] of DISTRACTOR_ERRORS) {
       memory.logEntry(root, 'error', {
-        id: `NE-${i}-${Math.floor(r() * 1e6)}`, title: `${titel} (Runde ${i})`,
+        id: `NE-${i}-${Math.floor(r() * 1e6)}`, title: `${titleText} (Runde ${i})`,
         text: `${text}. ${AUSBAU[(i * 3 + 1) % AUSBAU.length]} ${AUSBAU[(i * 5) % AUSBAU.length]} ${AUSBAU[(i + 4) % AUSBAU.length]} ${AUSBAU[(i * 7) % AUSBAU.length]} ${AUSBAU[(i + 6) % AUSBAU.length]}`,
         class: 'betrieb', tags: ['betrieb'], author: 'lucky', authority: 'user', project: PROJECT,
       }, { project: PROJECT });
@@ -290,9 +290,9 @@ export function build(root, { poisoned = false, noise = 4, streu = 700, flood = 
     const dir = path.join(root, 'raw', '2026', '09');
     fs.mkdirSync(dir, { recursive: true });
     echoes.forEach((q, i) => {
-      const zeile = JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user', text: q });
+      const line = JSON.stringify({ ts: '2026-09-01T10:00:00Z', role: 'user', text: q });
       fs.writeFileSync(path.join(dir, `2026-09-01T10-00-00Z--echo${i}.jsonl.gz`),
-        zlib.gzipSync(`${zeile}\n`));
+        zlib.gzipSync(`${line}\n`));
     });
   }
 

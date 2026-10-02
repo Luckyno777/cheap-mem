@@ -110,10 +110,10 @@ function writeScript(dir, name, src) {
 }
 
 function runWriters(scriptPath, args, n) {
-  const kinder = Array.from({ length: n }, (_, i) => spawn(
+  const children = Array.from({ length: n }, (_, i) => spawn(
     process.execPath, [scriptPath, ...args(i)], { stdio: ['ignore', 'ignore', 'pipe'] },
   ));
-  return Promise.all(kinder.map((k, i) => new Promise((ok, fail) => {
+  return Promise.all(children.map((k, i) => new Promise((ok, fail) => {
     let err = '';
     k.stderr.on('data', (b) => { err += b; });
     k.on('error', (e) => fail(new Error(`writer ${i} would not start: ${e.message}`)));

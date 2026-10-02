@@ -88,31 +88,31 @@ export function decisionFields(dirs, readFile = (p) => fs.readFileSync(p, 'utf8'
  * found one in four and reported the other three as clean — the exact
  * failure mode it exists to catch.
  */
-export function inCorpus(wurzel, { tiefe = 0 } = {}) {
+export function inCorpus(rootDir, { depth = 0 } = {}) {
   const fields = new Map();
-  const zaehle = (k, v) => {
-    if (!fields.has(k)) fields.set(k, { gesehen: 0, mitWert: 0, form: new Set() });
+  const countField = (k, v) => {
+    if (!fields.has(k)) fields.set(k, { seen: 0, withValue: 0, form: new Set() });
     const e = fields.get(k);
-    e.gesehen += 1;
-    if (v !== null && v !== undefined && v !== '' && v !== 'null') e.mitWert += 1;
+    e.seen += 1;
+    if (v !== null && v !== undefined && v !== '' && v !== 'null') e.withValue += 1;
     return e;
   };
   const tiefEin = (obj) => {
     for (const [k, v] of Object.entries(obj ?? {})) {
-      zaehle(k, v).form.add('jsonl');
+      countField(k, v).form.add('jsonl');
       if (v && typeof v === 'object' && !Array.isArray(v)) tiefEin(v);
     }
   };
 
   let files = 0;
-  (function lauf(d, ebene) {
-    if (ebene > 12) return;
-    let eintraege = [];
-    try { eintraege = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const e of eintraege) {
+  (function walk(d, level) {
+    if (level > 12) return;
+    let dirEntries = [];
+    try { dirEntries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of dirEntries) {
       if (e.name.startsWith('.') || e.name === 'node_modules') continue;
       const p = path.join(d, e.name);
-      if (e.isDirectory()) { lauf(p, ebene + 1); continue; }
+      if (e.isDirectory()) { walk(p, level + 1); continue; }
 
       if (e.name.endsWith('.jsonl')) {
         files += 1;
@@ -126,16 +126,16 @@ export function inCorpus(wurzel, { tiefe = 0 } = {}) {
         // A message header: `Field: value` lines before the first blank.
         let text = '';
         try { text = fs.readFileSync(p, 'utf8'); } catch { continue; }
-        const kopf = text.split(/\n\s*\n/)[0] ?? '';
-        if (!/^[A-Za-z][A-Za-z0-9_-]*:/.test(kopf)) continue;
+        const header = text.split(/\n\s*\n/)[0] ?? '';
+        if (!/^[A-Za-z][A-Za-z0-9_-]*:/.test(header)) continue;
         files += 1;
-        for (const zeile of kopf.split('\n')) {
-          const m = zeile.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
-          if (m) zaehle(m[1], m[2].trim()).form.add('kopf');
+        for (const headerLine of header.split('\n')) {
+          const m = headerLine.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+          if (m) countField(m[1], m[2].trim()).form.add('header');
         }
       }
     }
-  }(wurzel, tiefe));
+  }(rootDir, depth));
 
   return { fields, files };
 }
@@ -153,20 +153,20 @@ export function finding({ code, corpus }) {
   for (const [field, files] of code) {
     const b = corpus.fields.get(field);
     if (!b) { unknown.push(field); continue; }
-    if (b.mitWert === 0) {
+    if (b.withValue === 0) {
       hits.push({
         field,
-        gesehen: b.gesehen,
+        seen: b.seen,
         form: [...b.form].sort(),
-        gelesenIn: [...files].sort(),
+        readIn: [...files].sort(),
       });
     }
   }
   return {
-    hits: hits.sort((a, b) => b.gesehen - a.gesehen),
+    hits: hits.sort((a, b) => b.seen - a.seen),
     checked: code.size - unknown.length,
     unknown: unknown.length,
-    bestandsfelder: corpus.fields.size,
+    corpusFields: corpus.fields.size,
     corpusFiles: corpus.files,
   };
 }
@@ -174,13 +174,13 @@ export function finding({ code, corpus }) {
 // --- as a command ------------------------------------------------------
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const WURZEL = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
+  const ROOT = path.resolve(flag('root') ?? process.env.CHEAP_MEM_ROOT ?? process.cwd());
   const CODE = (flag('code') ?? 'src,bin').split(',').map((d) => path.resolve(d));
   const code = decisionFields(CODE);
-  const corpus = inCorpus(WURZEL);
+  const corpus = inCorpus(ROOT);
   const r = finding({ code, corpus });
 
-  console.log(`Corpus: ${WURZEL}  (${r.corpusFiles} files, ${r.bestandsfelder} distinct fields)`);
+  console.log(`Corpus: ${ROOT}  (${r.corpusFiles} files, ${r.corpusFields} distinct fields)`);
   console.log(`Fields a decision depends on: ${code.size}`);
   console.log(`  of those the corpus knows:  ${r.checked}`);
   console.log(`  unknown to the corpus:      ${r.unknown}  (not a finding — mostly local variables)`);
@@ -197,8 +197,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   }
   console.log(`${r.hits.length} field(s) read by a decision, never carrying a value:`);
   for (const t of r.hits) {
-    console.log(`  ${t.field}  — ${t.gesehen}x in the corpus, 0x with a value  [${t.form.join('+')}]`);
-    console.log(`      decided on in: ${t.gelesenIn.join(', ')}`);
+    console.log(`  ${t.field}  — ${t.seen}x in the corpus, 0x with a value  [${t.form.join('+')}]`);
+    console.log(`      decided on in: ${t.readIn.join(', ')}`);
   }
   process.exit(1);
 }

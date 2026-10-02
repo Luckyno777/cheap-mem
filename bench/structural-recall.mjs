@@ -98,7 +98,7 @@ const root = a.root ?? process.env.CHEAP_MEM_ROOT ?? '.';
 const srcDir = a.src ?? path.join(root, 'src');
 const top = Number(a.top ?? 10);
 
-const korpus = entries(root);
+const allEntries = entries(root);
 const graph = importGraph(srcDir);
 const index = search.loadIndex(root);
 
@@ -106,9 +106,9 @@ const index = search.loadIndex(root);
 // deliberately literal: it is what a person means by "there is history
 // about this file", and it needs no ranking to establish.
 const mentions = new Map();
-const byId = new Map(korpus.map((e) => [e.id, e]));
+const byId = new Map(allEntries.map((e) => [e.id, e]));
 for (const f of graph.keys()) {
-  mentions.set(f, new Set(korpus.filter((e) => e.text.includes(f)).map((e) => e.id)));
+  mentions.set(f, new Set(allEntries.filter((e) => e.text.includes(f)).map((e) => e.id)));
 }
 
 /**
@@ -235,7 +235,7 @@ const rateControl = sumControl ? sumHitControl / sumControl : 0;
 
 console.log(`memory      ${root}`);
 console.log(`source      ${srcDir}`);
-console.log(`entries     ${korpus.length}`);
+console.log(`entries     ${allEntries.length}`);
 console.log(`files       ${graph.size} in the import graph, ${rows.length} with both `
   + 'own history and neighbours');
 console.log(`top         ${top} (what the word query is allowed to return)`);

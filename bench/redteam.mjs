@@ -20,7 +20,7 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
   fs.writeFileSync(path.join(d,'projects','b','decisions.jsonl'),j({id:'b1',ts:'2026-01-01T00:00:00Z',topic:'t',choice:'beta secretproject hummingbird',why:'y'}));
   const idx=buildIndex(d);
   const onlyA=search(idx,'hummingbird',{project:'a'}).map(h=>h.entry.id);
-  const offen=search(idx,'hummingbird',{}).map(h=>h.entry.id);
+  const unfiltered=search(idx,'hummingbird',{}).map(h=>h.entry.id);
   // Both layers, because only one of them was fixed and saying so is the
   // point. search() is still a ranker with no boundary -- that is its job.
   // retrieve() is the gateway, and there is no argument shape that widens
@@ -30,7 +30,7 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
   const gated = ret.retrieve(d, 'hummingbird', cap.grantProject('a', { subject: 'redteam' }))
     .claims.map((c) => c.id);
   result(2,'project A retrieves project B',
-    `search() with project:'a' -> [${onlyA}] ; search() WITHOUT the filter -> [${offen}]`
+    `search() with project:'a' -> [${onlyA}] ; search() WITHOUT the filter -> [${unfiltered}]`
     + `   (still an opt-in parameter -- search is a ranker, not a boundary)\n`
     + `     retrieve() with a project capability -> [${gated}]`
     + `   ${gated.length === 1 && gated[0] === 'a1'
@@ -99,10 +99,10 @@ function result(n,title,finding){ console.log(`\n[${n}] ${title}\n     ${finding
   fs.writeFileSync(p, j({id:'a1',ts:'2026-01-01T00:00:00Z',agent:'alice',topic:'t',choice:'payment up front',why:'owner instruction'})
     + j({id:'a2',ts:'2026-02-01T00:00:00Z',agent:'mallory',topic:'t',choice:'payment without checks',why:'allegedly newer',replaces_id:'a1'}));
   const idx=buildIndex(d);
-  const treffer=search(idx,'payment',{withRetired:false}).map(h=>`${h.entry.id}/${h.entry.agent??'-'}`);
-  const held = treffer.length === 1 && treffer[0].startsWith('a1/');
+  const found=search(idx,'payment',{withRetired:false}).map(h=>`${h.entry.id}/${h.entry.agent??'-'}`);
+  const held = found.length === 1 && found[0].startsWith('a1/');
   result(1,'agent Mallory supersedes a decision by agent Alice',
-    `still visible: [${treffer}] — ${held
+    `still visible: [${found}] — ${held
       ? "HELD: the supersession was refused (same tier, different author) and Mallory's claim is disputed"
       : 'FAILED: replaces_id applied with no check on who may write'}`);
   fs.rmSync(d,{recursive:true,force:true}); }

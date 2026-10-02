@@ -49,10 +49,10 @@ test('the net spells the relations the way the writer validates them', () => {
   }
   // And nothing in the net's list that the writer would refuse, other
   // than the structural field edges.
-  const erfunden = net.LINK_KINDS
-    .filter((k) => !net.FELD_KANTEN.includes(k) && !(k in memory.LINK_KINDS));
-  assert.deepEqual(erfunden, [],
-    `the net knows verbs the writer refuses: ${erfunden.join(', ')}`);
+  const invented = net.LINK_KINDS
+    .filter((k) => !net.FIELD_EDGES.includes(k) && !(k in memory.LINK_KINDS));
+  assert.deepEqual(invented, [],
+    `the net knows verbs the writer refuses: ${invented.join(', ')}`);
 });
 
 test('both shapes of written provenance become edges', () => {
@@ -109,12 +109,12 @@ test('the entry index is built once per listing, not once per question', () => {
   // index and question.all passes one), because a timing assertion on a
   // small fixture would be noise.
   const src = fs.readFileSync(new URL('../src/question.mjs', import.meta.url), 'utf8');
-  const ohneKommentare = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
+  const withoutComments = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
   // Since parity wave 1 the graph is read once for ALL questions
   // (`memory.linksOfMany`, the same path `linksOf` takes with one id).
-  assert.match(ohneKommentare, /memory\.linksOfMany\(root, [\s\S]*?\{ byId: memory\.entriesById\(root\) \}\)/,
+  assert.match(withoutComments, /memory\.linksOfMany\(root, [\s\S]*?\{ byId: memory\.entriesById\(root\) \}\)/,
     'question.all no longer builds the index once and reads the graph in one pass');
-  assert.doesNotMatch(ohneKommentare, /memory\.linksOf\(/,
+  assert.doesNotMatch(withoutComments, /memory\.linksOf\(/,
     'question.all went back to one linksOf call per question');
   // And the default still works without one, so no caller has to know.
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-kanten2-'));

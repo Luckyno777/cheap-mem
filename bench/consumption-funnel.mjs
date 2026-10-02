@@ -255,22 +255,22 @@ function questionChannel(root) {
   }
   const edges = fromProjects(root, 'links');
   const globalEdges = readJsonl(memory.logPath(root, 'link'));
-  const alle = question.all(root);
-  const bekannt = new Set(alle.map((f) => f.id));
-  const kanten = [...edges.rows, ...globalEdges.rows];
+  const allQuestions = question.all(root);
+  const knownIds = new Set(allQuestions.map((f) => f.id));
+  const allEdges = [...edges.rows, ...globalEdges.rows];
   return {
     channel: 'questions',
     measuredAt: 'store',
     fold: FOLD_EDGE,
-    produced: alle.length,
+    produced: allQuestions.length,
     delivered: null,
-    consumed: alle.filter((f) => !f.open).length,
+    consumed: allQuestions.filter((f) => !f.open).length,
     brokenLines: questions.broken + global.broken + edges.broken + globalEdges.broken,
     // An edge pointing at nothing looks exactly like an answer.
-    danglingEdges: kanten
+    danglingEdges: allEdges
       .filter((k) => k?.kind === 'resolves')
       .map((k) => k?.to)
-      .filter((id) => id && !bekannt.has(id)).length,
+      .filter((id) => id && !knownIds.has(id)).length,
   };
 }
 

@@ -170,7 +170,7 @@ function toClaim(hit, { bodyChars, state }) {
  *
  * `NON_BODY_FIELDS` is the other half, and it is what keeps this list
  * honest: every field the indexer knows is in exactly one of the two,
- * and `test/audit-koerper.test.mjs` fails when a nineteenth appears in
+ * and `test/audit-body.test.mjs` fails when a nineteenth appears in
  * neither. A field that is neither read nor deliberately excluded is
  * how this defect happened the first time.
  */

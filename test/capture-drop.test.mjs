@@ -44,18 +44,18 @@ function captureFile(root, relPath) {
 }
 
 /** Pseudo-random but reproducible filler — see the note in `transkript`. */
-function rauschen(seed, laenge) {
+function noise(seed, len) {
   let x = seed * 2654435761 % 2147483647;
   let out = '';
-  while (out.length < laenge) {
+  while (out.length < len) {
     x = (x * 48271) % 2147483647;
     out += x.toString(36);
   }
-  return out.slice(0, laenge);
+  return out.slice(0, len);
 }
 
 /** A transcript with the real shapes in it, assembled at runtime. */
-function transkript(dir) {
+function transcript(dir) {
   const lines = [];
   const push = (o) => lines.push(JSON.stringify(o));
   for (let i = 0; i < 40; i += 1) {
@@ -66,9 +66,9 @@ function transkript(dir) {
     // list and a different token count. The first version of this test
     // measured 19.5% for exactly that reason.
     push({ type: 'attachment', attachment: { type: 'task_reminder',
-      content: `task ${i}: ${rauschen(i, 400)}` } });
+      content: `task ${i}: ${noise(i, 400)}` } });
     push({ type: 'attachment', attachment: { type: 'total_tokens_reminder',
-      content: `tokens left ${900000 - i * 137}: ${rauschen(i + 99, 200)}` } });
+      content: `tokens left ${900000 - i * 137}: ${noise(i + 99, 200)}` } });
     push({ type: 'mode', mode: 'auto' });
     // The signal.
     push({ type: 'user', timestamp: `2026-09-08T10:${String(i).padStart(2, '0')}:00Z`,
@@ -86,7 +86,7 @@ function transkript(dir) {
   return p;
 }
 
-function frischeWurzel(testCtx) {
+function freshRoot(testCtx) {
   const w = tempDir('capdrop-', testCtx);
   fs.mkdirSync(path.join(w, '.mem'), { recursive: true });
   return w;
@@ -97,76 +97,76 @@ function text(root, rel) {
 }
 
 test('the filter cuts the stored size by more than half', (testCtx) => {
-  const quelle = frischeWurzel(testCtx);
-  const t = transkript(quelle);
+  const srcText = freshRoot(testCtx);
+  const t = transcript(srcText);
 
-  const a = frischeWurzel(testCtx);
-  const ohne = raw.capture(a, t, { drop: false });
-  const b = frischeWurzel(testCtx);
+  const a = freshRoot(testCtx);
+  const without = raw.capture(a, t, { drop: false });
+  const b = freshRoot(testCtx);
   const mit = raw.capture(b, t, { drop: true });
 
-  assert.equal(ohne.status, 'captured');
+  assert.equal(without.status, 'captured');
   assert.equal(mit.status, 'captured');
 
-  const groessOhne = fs.statSync(captureFile(a, ohne.path)).size;
-  const groessMit = fs.statSync(captureFile(b, mit.path)).size;
-  const ersparnis = 1 - groessMit / groessOhne;
+  const sizeWithout = fs.statSync(captureFile(a, without.path)).size;
+  const sizeWith = fs.statSync(captureFile(b, mit.path)).size;
+  const saving = 1 - sizeWith / sizeWithout;
 
   // Deliberately a MARGIN, not "smaller than". A test that only asks
   // for "smaller" stays green when the filter drops one line in a
   // thousand — which is what a broken filter looks like.
-  assert.ok(ersparnis > 0.4,
-    `filter saves only ${(ersparnis * 100).toFixed(1)}% — expected well over 40%`);
+  assert.ok(saving > 0.4,
+    `filter saves only ${(saving * 100).toFixed(1)}% — expected well over 40%`);
 });
 
 test('the noise is gone and the conversation is not', (testCtx) => {
-  const quelle = frischeWurzel(testCtx);
-  const w = frischeWurzel(testCtx);
-  const r = raw.capture(w, transkript(quelle));
+  const srcText = freshRoot(testCtx);
+  const w = freshRoot(testCtx);
+  const r = raw.capture(w, transcript(srcText));
   // The BODY, not the file. The header lists the dropped reasons BY
   // NAME, so searching the whole file for 'task_reminder' finds the
   // bookkeeping and calls it a survivor. The first version of this test
   // did exactly that and failed for the wrong reason.
-  const inhalt = text(w, r.path).split('\n').slice(1).join('\n');
+  const body = text(w, r.path).split('\n').slice(1).join('\n');
 
   // Noise: gone.
-  assert.ok(!inhalt.includes('task_reminder'), 'task_reminder survived');
-  assert.ok(!inhalt.includes('total_tokens_reminder'), 'token reminder survived');
+  assert.ok(!body.includes('task_reminder'), 'task_reminder survived');
+  assert.ok(!body.includes('total_tokens_reminder'), 'token reminder survived');
 
   // Signal: every single turn still there.
   for (let i = 0; i < 40; i += 1) {
-    assert.ok(inhalt.includes(`frage nummer ${i} `), `lost question ${i}`);
-    assert.ok(inhalt.includes(`antwort nummer ${i}`), `lost answer ${i}`);
+    assert.ok(body.includes(`frage nummer ${i} `), `lost question ${i}`);
+    assert.ok(body.includes(`antwort nummer ${i}`), `lost answer ${i}`);
   }
   // Reasoning is 6.3% and the only record of WHY — it stays.
-  assert.ok(inhalt.includes('ueberlegung 7'), 'thinking was dropped');
+  assert.ok(body.includes('ueberlegung 7'), 'thinking was dropped');
   // A content-bearing attachment stays.
-  assert.ok(inhalt.includes('ECHTER_DATEIINHALT'), 'a real file attachment was dropped');
+  assert.ok(body.includes('ECHTER_DATEIINHALT'), 'a real file attachment was dropped');
 });
 
 test('an elided image leaves a visible marker, not a hole', (testCtx) => {
-  const quelle = frischeWurzel(testCtx);
-  const w = frischeWurzel(testCtx);
-  const r = raw.capture(w, transkript(quelle));
-  const inhalt = text(w, r.path);
-  assert.ok(!inhalt.includes('A'.repeat(200)), 'image payload was stored');
-  assert.match(inhalt, /image elided by cheap-mem: \d+ bytes/);
+  const srcText = freshRoot(testCtx);
+  const w = freshRoot(testCtx);
+  const r = raw.capture(w, transcript(srcText));
+  const body = text(w, r.path);
+  assert.ok(!body.includes('A'.repeat(200)), 'image payload was stored');
+  assert.match(body, /image elided by cheap-mem: \d+ bytes/);
 });
 
 test('NEVER SILENT: the header books what was left out', (testCtx) => {
-  const quelle = frischeWurzel(testCtx);
-  const w = frischeWurzel(testCtx);
-  const r = raw.capture(w, transkript(quelle));
-  const kopf = JSON.parse(text(w, r.path).split('\n')[0]);
+  const srcText = freshRoot(testCtx);
+  const w = freshRoot(testCtx);
+  const r = raw.capture(w, transcript(srcText));
+  const head = JSON.parse(text(w, r.path).split('\n')[0]);
 
-  assert.ok(Array.isArray(kopf.__dropped) && kopf.__dropped.length > 0,
+  assert.ok(Array.isArray(head.__dropped) && head.__dropped.length > 0,
     'nothing was booked — a gap nobody can see is a bug, not a decision');
-  assert.ok(kopf.__dropped_bytes > 0, 'no byte count');
+  assert.ok(head.__dropped_bytes > 0, 'no byte count');
 
-  const gruende = Object.fromEntries(kopf.__dropped.map((d) => [d.reason, d.count]));
-  assert.equal(gruende['attachment:task_reminder'], 40);
-  assert.equal(gruende['line:mode'], 40);
-  assert.equal(gruende.image, 1);
+  const reasons = Object.fromEntries(head.__dropped.map((d) => [d.reason, d.count]));
+  assert.equal(reasons['attachment:task_reminder'], 40);
+  assert.equal(reasons['line:mode'], 40);
+  assert.equal(reasons.image, 1);
 
   // And the caller sees the same thing, not just the file.
   assert.ok(r.droppedBytes > 0);

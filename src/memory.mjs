@@ -176,7 +176,7 @@ export function needsAskedHint(type, data) {
  * caller's question, and answering it here would hide a dangling edge,
  * which is exactly what `build()` in net.mjs counts on purpose.
  */
-export const HERKUNFT_FELDER = Object.freeze([
+export const PROVENANCE_FIELDS = Object.freeze([
   ['origin', 'derived_from'],
   ['provenance', 'derived_from'],
   ['provenance', 'inferred_from'],
@@ -184,8 +184,8 @@ export const HERKUNFT_FELDER = Object.freeze([
 
 export function derivedFrom(e) {
   const out = [];
-  for (const [aussen, innen] of HERKUNFT_FELDER) {
-    const q = e?.[aussen]?.[innen];
+  for (const [outerKey, innerKey] of PROVENANCE_FIELDS) {
+    const q = e?.[outerKey]?.[innerKey];
     if (!Array.isArray(q)) continue;
     for (const x of q) if (typeof x === 'string' && x && !out.includes(x)) out.push(x);
   }
@@ -1435,17 +1435,17 @@ export function listProjects(root) {
  * again by accident.
  */
 export function currentFacts(root, { now = new Date(), staleDays = 120, project } = {}) {
-  const bereiche = project === undefined
+  const projectScopes = project === undefined
     ? [null, ...listProjects(root)]
     : [project === 'global' ? null : project];
   const out = [];
-  for (const bereich of bereiche) {
-    const entries = readLog(root, 'timeline', { project: bereich }).entries
+  for (const projectScope of projectScopes) {
+    const entries = readLog(root, 'timeline', { project: projectScope }).entries
       .filter((e) => !e.__broken);
     if (!entries.length) continue;
     for (const f of freshness.resolveFacts(entries, {
       now, staleDays, retired: retiredMap(entries),
-    })) out.push({ ...f, project: bereich });
+    })) out.push({ ...f, project: projectScope });
   }
   out.sort((a, b) => String(a.project ?? '').localeCompare(String(b.project ?? ''))
     || a.key.localeCompare(b.key));
@@ -2708,7 +2708,7 @@ export function closeDuty(root, id, {
     closes_id: id, state, why,
     ...(agent ? { agent } : {}),
     ...(tier ? { authority: tier } : {}),
-    // Paket: a caller that already lowered a claimed tier (the MCP bridge)
+    // Package work (2026-09-30): a caller that already lowered a claimed tier (the MCP bridge)
     // records the demotion, as mem_log does.
     ...(tier && authorityClampedFrom ? { authority_clamped_from: authorityClampedFrom } : {}),
   }, { project });

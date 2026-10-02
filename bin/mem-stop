@@ -50,7 +50,7 @@ set -u
 # report". Two places per hook needed this, and five hooks carried the
 # same copy. Git Bash resolves `C:/…` fine; on Linux and macOS the
 # substitution changes nothing.
-entrutscht() { printf '%s' "${1//\\//}"; }
+to_slashes() { printf '%s' "${1//\\//}"; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 [ "${MEM_CAPTURE_OFF:-}" = "1" ] && exit 0
 # Never capture ourselves — the digest/worker sets this to avoid the
@@ -65,7 +65,7 @@ ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do
   [ -z "$k" ] && continue
-  k="$(entrutscht "$k")"
+  k="$(to_slashes "$k")"
   [ -f "$k/.mem/config.json" ] && { ROOT="$k"; break; }
 done
 [ -z "$ROOT" ] && exit 0
@@ -73,7 +73,7 @@ done
 # `$0` is a path from outside too: on Windows `dirname` of a
 # backslash path returns `.`, so this would become the CURRENT
 # directory instead of bin/.
-HERE="$(cd "$(dirname "$(entrutscht "$0")")" && pwd)"
+HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 
 STDIN_JSON=""
 if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
@@ -215,7 +215,7 @@ if [ "${MEM_STOP_NO_PUSH:-}" != "1" ] && [ -d "$ROOT/.git" ]; then
         # Remote moved ahead — rebase once and retry.
         #
         # **--autostash, or this trap never surfaces (L12, mirrored from
-        # lucky-mem's Fehler 1968v6itl823, 2026-09-27).** The capture and
+        # lucky-mem's error entry 1968v6itl823, 2026-09-27).** The capture and
         # its record are already committed above, so THEY do not block
         # this. But anything else tracked and left unstaged — a stray
         # edit, a pipeline file, a half-finished change from earlier in

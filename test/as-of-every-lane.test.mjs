@@ -326,14 +326,14 @@ test('NOTHING THEN is said differently from NOTHING AT ALL', () => {
     // at every moment, so the result was never empty and the probe never
     // reached the branch it claims to test. Caught by sabotage: removing
     // the moment from the empty answer left it green.
-    const nichtsDamals = mem(r, 'find', 'chargebacks', '--as-of', BEFORE_ALL, '--top', '10').out;
-    assert.match(nichtsDamals, /^Nothing for/m,
+    const nothingThen = mem(r, 'find', 'chargebacks', '--as-of', BEFORE_ALL, '--top', '10').out;
+    assert.match(nothingThen, /^Nothing for/m,
       'the fixture no longer produces an empty result — this probe tests nothing');
-    assert.ok(holds(nichtsDamals, BEFORE_ALL),
+    assert.ok(holds(nothingThen, BEFORE_ALL),
       'the empty answer does not name the moment it was empty at, so it reads '
       + 'like "this memory knows nothing about that" instead of "not then"');
-    const garnichts = mem(r, 'find', 'quinoa-supplier', '--top', '10').out;
-    assert.ok(!holds(garnichts, 'as of'),
+    const nothing = mem(r, 'find', 'quinoa-supplier', '--top', '10').out;
+    assert.ok(!holds(nothing, 'as of'),
       'a plain miss claims to have been filtered by a moment');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });

@@ -42,7 +42,7 @@ const SCRIPT = fs.readFileSync(new URL('../assets/dashboard/dashboard.js', impor
 const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
 /** A memory with English content, so a hit below is the UI's own word. */
-function welt() {
+function world() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-sprache-'));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   config.writeConfig(root, config.DEFAULT_CONFIG);
@@ -63,14 +63,14 @@ function welt() {
  * general would catch a person's name or a project called `Kolibri`.
  * These are the labels a translation pass would actually produce.
  */
-const DEUTSCHE_BESCHRIFTUNGEN = Object.freeze([
+const GERMAN_LABELS = Object.freeze([
   'Pult', 'Wissen', 'Projekte', 'Agenten', 'Netz', 'Einstellungen',
   'Herkunft', 'Entscheidung', 'Fehler', 'Erkenntnis', 'Pflicht', 'Frage',
   'Zurück', 'Übersicht', 'Suche', 'Speichern', 'Löschen',
 ]);
 
-const seiten = () => {
-  const root = welt();
+const pages = () => {
+  const root = world();
   try {
     return {
       desk: dashboardPage.asHtml({ title: 'x' }) + SCRIPT,
@@ -81,22 +81,22 @@ const seiten = () => {
 
 test('POSITIVE: the probe really reads pages with navigation in them', () => {
   // Without this, "no German label" would hold against an empty string.
-  const s = seiten();
+  const s = pages();
   assert.ok(s.desk.length > 5000, `desk page only ${s.desk.length} characters`);
   assert.ok(s.viewer.length > 5000, `viewer page only ${s.viewer.length} characters`);
-  for (const wort of ['Knowledge', 'Projects', 'Agents', 'Overview']) {
-    assert.ok(s.desk.includes(wort), `the desk has no '${wort}' tab — wrong page?`);
+  for (const word of ['Knowledge', 'Projects', 'Agents', 'Overview']) {
+    assert.ok(s.desk.includes(word), `the desk has no '${word}' tab — wrong page?`);
   }
 });
 
 test('no rendered page carries a German label', () => {
-  const s = seiten();
+  const s = pages();
   for (const [name, html] of Object.entries(s)) {
-    for (const wort of DEUTSCHE_BESCHRIFTUNGEN) {
+    for (const word of GERMAN_LABELS) {
       // Word boundary, so 'Fehler' does not hit inside a URL or an id.
-      const re = new RegExp(`(^|[>\\s"'(])${wort}($|[<\\s"'.,:;)])`);
+      const re = new RegExp(`(^|[>\\s"'(])${word}($|[<\\s"'.,:;)])`);
       assert.equal(re.test(html), false,
-        `the ${name} page says '${wort}' — cheap-mem is English throughout, `
+        `the ${name} page says '${word}' — cheap-mem is English throughout, `
         + 'and half-translated navigation is the two vocabularies this repo fights');
     }
   }
@@ -106,7 +106,7 @@ test('the detail label is "built on", and deliberately not "Provenance"', () => 
   // `src/provenance.mjs` is a freshness state over the whole memory. The
   // per-entry thing shown here is `origin.derived_from`. One word for
   // both would be the same defect one level down.
-  const html = seiten().desk;
+  const html = pages().desk;
   assert.match(html, /built on<\/span>/,
     'the "built on" label is gone — if it was renamed, the reason above has to be re-read');
   assert.equal(/<span>[^<]*Provenance[^<]*<\/span>/i.test(html), false,
@@ -125,11 +125,11 @@ test('the tab names come from ONE place, not from each page', () => {
   assert.ok(dashboard.VIEWS.length >= 5, `only ${dashboard.VIEWS.length} views`);
   for (const v of dashboard.VIEWS) {
     assert.match(v, /^[a-z][a-z0-9-]*$/, `view name '${v}' is not a plain identifier`);
-    assert.equal(DEUTSCHE_BESCHRIFTUNGEN.some((w) => w.toLowerCase() === v), false,
+    assert.equal(GERMAN_LABELS.some((w) => w.toLowerCase() === v), false,
       `view '${v}' is a German label`);
   }
   const src = fs.readFileSync(new URL('../src/dashboard.mjs', import.meta.url), 'utf8');
-  const ohneKommentare = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
-  assert.equal((ohneKommentare.match(/export const VIEWS = /g) || []).length, 1,
+  const withoutComments = src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|\n)\s*\/\/[^\n]*/g, '$1');
+  assert.equal((withoutComments.match(/export const VIEWS = /g) || []).length, 1,
     'VIEWS is declared more or less than once');
 });

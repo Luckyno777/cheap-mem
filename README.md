@@ -55,7 +55,7 @@ code.
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
-download size, by `test/readme-zahlen.test.mjs` and
+download size, by `test/readme-numbers.test.mjs` and
 `test/package-size.test.mjs`, with CI failing when a claim stops matching
 — or it is a **benchmark you can run yourself**, which is a weaker
 promise and named as one: a benchmark result is true of the day it was
@@ -403,7 +403,7 @@ factor of 32. And every one of these probes is itself sabotaged — a
 falsified README is fed to it and it must go red — because a guard that
 can only pass is decoration.
 
-<!-- NUMBERS: checked by test/readme-zahlen.test.mjs. Do not edit by
+<!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
 As of 2026-09-26: **76 CLI commands, 35 MCP tools, 148 modules, 3186
 tests**; as of 2026-09-20, about 61003 lines in `bin/` and `src/`, at
@@ -417,8 +417,8 @@ and authority mechanism, every CLI command, every MCP tool, every module,
 the things that are deliberately absent, and the commands to verify each
 claim rather than believe it.
 
-<!-- zahl-historisch: 17 MCP tools (a true measurement of that day) -->
-<!-- zahl-historisch: 28 modules (likewise) -->
+<!-- number-historical: 17 MCP tools (a true measurement of that day) -->
+<!-- number-historical: 28 modules (likewise) -->
 That file exists because this README is not enough for a skim, and that
 was measured, not guessed: three separate AI evaluations reported built
 capabilities as missing. Against the README alone, in **September 2026
@@ -867,7 +867,7 @@ determined the result is `unknown`, not `ok`.
   thing runs on Node's standard library. Embeddings and anything else
   optional load lazily and only if asked for.
 
-  <!-- zahl-historisch: 500 lines (the corrected claim, quoted here as
+  <!-- number-historical: 500 lines (the corrected claim, quoted here as
        the error it was — not a statement about today. The "about N
        lines" figure in the numbers line IS current and stays guarded.) -->
   This bullet used to say "the tool is small on purpose, ~500 lines of

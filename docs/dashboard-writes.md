@@ -53,8 +53,9 @@ gate calls:
 | `POST /dashboard/verify-verdict` | a human's verdict on one Today-card "to verify" candidate — one line appended OUTSIDE the memory root (`src/verifylog.mjs`, `CHEAP_MEM_VERIFY_FILE` or `~/.cheap-mem-verify/facts-verdict.jsonl`), never a write inside this repository (N9 parity) |
 | `POST /dashboard/gold-verdict` | a human's verdict on one real retrieval question (hit / near miss / no hit) — one line appended OUTSIDE the memory root (`src/goldlog.mjs`, `CHEAP_MEM_GOLD_FILE` or `~/.cheap-mem-gold/retrieval-gold.jsonl`), never a write inside this repository (N9 parity) |
 
-Every other path (`/`, `/dashboard`, `/pult`, the `.json` routes, the
-retrieval probe) only reads. `/console` and `/viewer` only redirect.
+Every other path (`/`, `/dashboard`, the `.json` routes, the
+retrieval probe) only reads. `/console`, `/viewer`, `/pult` and
+`/pult.json` only redirect.
 
 With the switch off each of them answers **403**, names the reason and
 says how to turn it on. Nothing is written — the probe snapshots every
@@ -79,7 +80,7 @@ are unchanged.
 Only `on` lets a write through, but the page and the 403 say WHICH of
 the other three it is: a config that cannot be read is shown as "could
 not be read", never as a plain "off". `/console.json` and
-`/pult.json` carry the same object as `writes`; `mem serve` prints
+`/desk.json` carry the same object as `writes`; `mem serve` prints
 it on start.
 
 ## On the pages

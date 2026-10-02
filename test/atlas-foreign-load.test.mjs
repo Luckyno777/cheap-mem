@@ -66,7 +66,7 @@ const FAIL_AT = 5000;
 let lastRealLoadMeasurement = null;
 
 /** Spawn `count` CPU-bound child processes that spin until killed, for tests that need REAL foreign load rather than a fabricated `foreignLoadDelta`. Always killed in the caller's `finally`. */
-function spawnCpuFressers(count) {
+function spawnCpuEater(count) {
   const children = [];
   for (let i = 0; i < count; i += 1) {
     children.push(spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += Math.sqrt(x + 1); }']));
@@ -80,7 +80,7 @@ function killAll(children) {
 
 /**
  * Addendum, 2026-09-20: three probes below (`captureCalibrationBaselineOnce
- * on THIS (idle) machine...`, and the two GRUEN positive controls for
+ * on THIS (idle) machine...`, and the two GREEN positive controls for
  * decision #1 and for the real-measurement pass) each asserted "this
  * machine is quiet" as a premise the test does not control. Alone they
  * passed every time (29/29); inside a full `node --test` run, where other
@@ -204,7 +204,7 @@ test('a foreign-load reading that could not be measured at all (both sources nul
 });
 
 test('non-time-based verdicts are structurally untouched: biasVerdict takes no load parameter at all', () => {
-  // The other half of "nicht-zeitbasierte Pruefungen bleiben unberuehrt":
+  // The other half of "non-time-based checks stay untouched":
   // this function, which grades every `real.shape.*` comparison, has one
   // parameter. If a future edit threads foreign load into it, this
   // arity pin breaks and says exactly why.
@@ -445,7 +445,7 @@ test('captureCalibrationBaselineOnce on THIS (idle) machine reports a trustworth
     return;
   }
   // A genuinely flaky assertion would be "always trustworthy on any CI
-  // box" — this is instead the GRUEN half of the baseline-corruption
+  // box" — this is instead the GREEN half of the baseline-corruption
   // pair below: on a capture `trustworthy` itself confirms was quiet,
   // the reps' own agreement with each other should hold — by
   // definition of `trustworthy` this is now redundant with the gate
@@ -466,7 +466,7 @@ test('captureQuietCalibrationBaseline reports attempts and never exceeds maxAtte
 
 test('decision #1, ROT: a baseline captured WHILE under real load is flagged, not silently accepted', { timeout: 20000 }, () => {
   const cpuCount = os.cpus().length || 4;
-  const fressers = spawnCpuFressers(cpuCount * 2);
+  const eater = spawnCpuEater(cpuCount * 2);
   try {
     execFileSync('sleep', ['1.5']); // let the fressers actually ramp up
     const baseline = captureCalibrationBaselineOnce();
@@ -477,7 +477,7 @@ test('decision #1, ROT: a baseline captured WHILE under real load is flagged, no
       'a corrupted capture must be caught by internal rep-to-rep disagreement, PSI\'s avg10, or both — '
       + 'not silently pass both checks');
   } finally {
-    killAll(fressers);
+    killAll(eater);
   }
 });
 
@@ -503,7 +503,7 @@ test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline rec
 test('ROT (the real finding this whole fix answers): under 2x-oversubscribed real CPU load, the OLD sensors '
   + '(steal + cgroup) stay blind while the NEW sensors correctly force not-measured', { timeout: 30000 }, () => {
   const cpuCount = os.cpus().length || 4;
-  const fressers = spawnCpuFressers(cpuCount * 2);
+  const eater = spawnCpuEater(cpuCount * 2);
   try {
     execFileSync('sleep', ['1.5']); // ramp-up, matching the brief's own measurement method
     const calibBaseline = captureQuietCalibrationBaseline(); // captured before the timed window, per B3
@@ -545,7 +545,7 @@ test('ROT (the real finding this whole fix answers): under 2x-oversubscribed rea
     assert.equal(verdict, VERDICT.NOT_MEASURED,
       `a fast, otherwise-passing measurement must be not-measured under real foreign load — got ${verdict}`);
   } finally {
-    killAll(fressers);
+    killAll(eater);
   }
 });
 
@@ -627,12 +627,12 @@ test('an unrelated, non-time-based check is untouched by real load: biasVerdict 
   // which — per the arity pin above — cannot even receive a load value,
   // so no amount of real contention changes its answer for a fixed ratio.
   const cpuCount = os.cpus().length || 4;
-  const fressers = spawnCpuFressers(cpuCount * 2);
+  const eater = spawnCpuEater(cpuCount * 2);
   try {
     execFileSync('sleep', ['0.5']);
     assert.equal(biasVerdict(1.2), VERDICT.PASS);
     assert.equal(biasVerdict(2), VERDICT.DEGRADED);
   } finally {
-    killAll(fressers);
+    killAll(eater);
   }
 });

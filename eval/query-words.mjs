@@ -39,8 +39,8 @@ import { TASKS } from './tasks.mjs';
  * list too, and falsifies it just the same.
  */
 export function safeWords(id) {
-  const roh = QUERY_WORDS[id] ?? [];
-  return roh.filter((w) => !TASKS.some(
+  const raw = QUERY_WORDS[id] ?? [];
+  return raw.filter((w) => !TASKS.some(
     (t) => t.gold?.length && t.must.length && t.must.every((re) => re.test(w))));
 }
 

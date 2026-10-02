@@ -105,14 +105,14 @@ test('every "!" exclusion in "files" actually excludes something', () => {
   // harmless the way a stale path is: it reads as a size guarantee that
   // nothing enforces. If the brand images move, this fails instead of
   // silently letting 4.3 MB back into the tarball.
-  for (const muster of (PKG.files ?? []).filter((p) => p.startsWith('!'))) {
-    const roh = muster.slice(1);
-    const dir = path.join(REPO, path.dirname(roh));
-    const re = new RegExp('^' + path.basename(roh).replace(/[.+^${}()|[\]\\]/g, '\\$&')
+  for (const exclusion of (PKG.files ?? []).filter((p) => p.startsWith('!'))) {
+    const raw = exclusion.slice(1);
+    const dir = path.join(REPO, path.dirname(raw));
+    const re = new RegExp('^' + path.basename(raw).replace(/[.+^${}()|[\]\\]/g, '\\$&')
       .replace(/\*/g, '.*') + '$');
-    const treffer = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => re.test(f)) : [];
-    assert.ok(treffer.length > 0,
-      `"files" excludes ${muster}, which matches nothing — the exclusion is decoration`);
+    const hits = fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => re.test(f)) : [];
+    assert.ok(hits.length > 0,
+      `"files" excludes ${exclusion}, which matches nothing — the exclusion is decoration`);
   }
 });
 

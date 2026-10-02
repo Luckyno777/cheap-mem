@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
-// The old desk's numbers moved from `/dashboard.json` to `/pult.json`.
+// The old desk's numbers moved from `/dashboard.json` to `/pult.json`, and
+// on 2026-10-01 to the English `/desk.json` (`/pult.json` now redirects).
 //
 // **Why (owner decision 2026-09-28, port spec
 // docs/dashboard-port-2026-09-28.md §6.2).** The new dashboard — the one
@@ -10,7 +11,7 @@
 // would have given one address two meanings for as long as the port took.
 // So the rename landed first, alone, and this file pins it:
 //
-//  1. `/pult.json` is in `PATHS` and answers the old desk's shape
+//  1. `/desk.json` is in `PATHS` and answers the old desk's shape
 //     (`views` is its fingerprint).
 //  2. `/dashboard.json` NEVER answers the old desk's shape again —
 //     whether it is 404 (before the new page) or the new dashboard's
@@ -45,19 +46,28 @@ function routesOldDeskAtDashboardJson(source) {
   return /url\.pathname === '\/dashboard\.json'\s*\n?\s*\?\s*\{\s*data:\s*dashboard\.collect\(/.test(source);
 }
 
-test('/pult.json is in PATHS and answers the old desk shape', async () => {
+test('/desk.json is in PATHS and answers the old desk shape; /pult.json redirects to it', async () => {
   const mod = await import(`${pathToFileURL(SERVE).href}?rename=${Math.random()}`);
-  assert.ok(mod.PATHS.includes('/pult.json'));
+  assert.ok(mod.PATHS.includes('/desk.json'));
+  assert.ok(mod.PATHS.includes('/pult.json'), 'the German alias was dropped: old scripts would get a 404');
   const root = bare();
   const { server } = await mod.serve(root, {
     CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
   });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
-    const r = await fetch(`${base}/pult.json`);
+    const r = await fetch(`${base}/desk.json`);
     assert.equal(r.status, 200);
     const d = await r.json();
     assert.ok(Array.isArray(d.views), 'the old desk shape carries its views list');
+
+    // The German alias: a 308 to the English path, query kept; a client
+    // that follows redirects gets the same payload as before.
+    const alias = await fetch(`${base}/pult.json?x=1`, { redirect: 'manual' });
+    assert.equal(alias.status, 308);
+    assert.equal(alias.headers.get('location'), '/desk.json?x=1');
+    const followed = await (await fetch(`${base}/pult.json`)).json();
+    assert.ok(Array.isArray(followed.views), '/pult.json no longer reaches the desk data');
 
     // (2) `/dashboard.json` never again answers the old desk's shape.
     const n = await fetch(`${base}/dashboard.json`);

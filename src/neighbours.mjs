@@ -131,10 +131,10 @@ export function neighbours(root, type, data = {}, {
   if (!tail) return { field, value, hits: [], scannedWholeFile: false, unreadable: true };
   const res = { entries: [] };
   let broken = 0;
-  for (const zeile of tail.raw.split('\n')) {
-    if (!zeile.trim()) continue;
-    try { res.entries.push(JSON.parse(zeile)); }
-    catch { broken += 1; res.entries.push({ __broken: true, raw: zeile }); }
+  for (const rawLine of tail.raw.split('\n')) {
+    if (!rawLine.trim()) continue;
+    try { res.entries.push(JSON.parse(rawLine)); }
+    catch { broken += 1; res.entries.push({ __broken: true, raw: rawLine }); }
   }
 
   // **`readLog` does NOT filter.** It hands back the raw lines,
@@ -285,9 +285,9 @@ export function similarDecisions(root, type, data = {}, {
   const tail = readTail(memory.logPath(root, type, project), tailBytes);
   if (!tail) return none;
   const entries = [];
-  for (const zeile of tail.raw.split('\n')) {
-    if (!zeile.trim()) continue;
-    try { entries.push(JSON.parse(zeile)); } catch { /* a broken line is no neighbour */ }
+  for (const rawLine of tail.raw.split('\n')) {
+    if (!rawLine.trim()) continue;
+    try { entries.push(JSON.parse(rawLine)); } catch { /* a broken line is no neighbour */ }
   }
   const retired = memory.retiredMap(entries);
   const scored = [];

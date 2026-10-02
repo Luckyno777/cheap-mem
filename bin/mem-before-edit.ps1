@@ -64,7 +64,7 @@ if ($env:MEM_BEFORE_EDIT_OFF -eq '1') { Write-Trace 'off-switch'; exit 0 }
 if ($env:MEM_HOOK_OFF -eq '1') { Write-Trace 'hook-off'; exit 0 }
 
 # **No backslash substitution here, and that is the point.** The POSIX
-# hook carries `entrutscht()` because bash reads the native Windows path
+# hook carries `to_slashes()` because bash reads the native Windows path
 # the agent hands it - `C:\Users\x\...` - as an escape soup, finds
 # nothing, and exits 0 without a word. PowerShell's path APIs take that
 # path as it comes.

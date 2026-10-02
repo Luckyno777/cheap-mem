@@ -71,7 +71,7 @@ this task started.
 ## Test count
 
 From the counting script, not by hand (`test( ` call sites under
-`test/*.test.mjs`, the same count `test/readme-zahlen.test.mjs` checks
+`test/*.test.mjs`, the same count `test/readme-numbers.test.mjs` checks
 the README against with a 2% tolerance): **2240**, unchanged from the
 README's own "As of 2026-09-26" line — no drift on this date.
 

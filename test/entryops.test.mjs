@@ -57,12 +57,12 @@ test('restore: a closed entry comes back as a NEW line; the original and its tom
     const after = bytesOf(r, 'thought');
     assert.ok(after.startsWith(before), 'append-only: the old bytes are a prefix of the new ones');
     assert.equal(after.split('\n').filter(Boolean).length, before.split('\n').filter(Boolean).length + 1, 'exactly ONE line was appended');
-    const neu = lines(r, 'thought').find((e) => e.id === res.created);
-    assert.equal(neu.restored_from, a.id);
-    assert.equal(neu.restored_why, 'needed after all');
-    assert.equal(neu.text, 'warm the index before the first recall');
-    assert.equal(neu.retires_id, undefined);
-    assert.equal(neu.replaces_id, undefined, 'a restore is standalone, not a correction chain');
+    const createdEntry = lines(r, 'thought').find((e) => e.id === res.created);
+    assert.equal(createdEntry.restored_from, a.id);
+    assert.equal(createdEntry.restored_why, 'needed after all');
+    assert.equal(createdEntry.text, 'warm the index before the first recall');
+    assert.equal(createdEntry.retires_id, undefined);
+    assert.equal(createdEntry.replaces_id, undefined, 'a restore is standalone, not a correction chain');
     assert.equal(holdsNow(r, 'thought', res.created), true, 'the restored line holds');
     assert.equal(holdsNow(r, 'thought', a.id), false, 'the original stays closed: the history is kept');
     assert.equal(res.was, 'discarded');

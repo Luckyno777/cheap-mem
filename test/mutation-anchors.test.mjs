@@ -62,15 +62,15 @@ test('an anchor matches EXACTLY ONE place, or the mutant is ambiguous', () => {
   // a mutant applied to the wrong one of two identical lines measures
   // something nobody chose.
   const cache = new Map();
-  const mehrfach = [];
+  const repeated = [];
   for (const m of MUTANTS) {
     const p = path.join(ROOT, m.file);
     if (!cache.has(p)) cache.set(p, fs.existsSync(p) ? fs.readFileSync(p, 'utf8') : '');
     const text = cache.get(p);
     if (!text) continue;
     const n = text.split(m.from).length - 1;
-    if (n > 1) mehrfach.push(`${m.name} → ${n}x in ${m.file}`);
+    if (n > 1) repeated.push(`${m.name} → ${n}x in ${m.file}`);
   }
-  assert.deepEqual(mehrfach, [],
+  assert.deepEqual(repeated, [],
     'These anchors match more than one line — which one gets mutated is then luck.');
 });

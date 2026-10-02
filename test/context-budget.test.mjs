@@ -67,9 +67,9 @@ test('THE CASE: without a budget the block is long enough to need one', () => {
   // cut, and the budget could be a no-op.
   const r = build();
   try {
-    const voll = memory.context(r, { n: 20 });
-    assert.ok(voll.length > 1500,
-      `the fixture only produces ${voll.length} characters — nothing here would ever be cut`);
+    const whole = memory.context(r, { n: 20 });
+    assert.ok(whole.length > 1500,
+      `the fixture only produces ${whole.length} characters — nothing here would ever be cut`);
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
@@ -79,13 +79,13 @@ test('NEVER EXCEEDED: every budget from the floor upward is kept', () => {
   // not where anybody would think to look.
   const r = build();
   try {
-    const voll = memory.context(r, { n: 20 }).length;
-    const ueber = [];
-    for (let b = memory.MIN_CONTEXT_CHARS; b <= voll + 400; b += 7) {
+    const whole = memory.context(r, { n: 20 }).length;
+    const over = [];
+    for (let b = memory.MIN_CONTEXT_CHARS; b <= whole + 400; b += 7) {
       const text = memory.context(r, { n: 20, maxChars: b });
-      if (text.length > b) ueber.push(`${b} -> ${text.length}`);
+      if (text.length > b) over.push(`${b} -> ${text.length}`);
     }
-    assert.deepEqual(ueber, [],
+    assert.deepEqual(over, [],
       'these budgets produced a longer block than they allowed');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
@@ -109,17 +109,17 @@ test('NEVER MID-ENTRY: no line of the fixture text appears half written', () => 
   // block built without a budget.
   const r = build();
   try {
-    const vollZeilen = new Set(memory.context(r, { n: 20 }).split('\n'));
+    const fullLines = new Set(memory.context(r, { n: 20 }).split('\n'));
     for (const b of [400, 700, 1100, 1600]) {
       const text = memory.context(r, { n: 20, maxChars: b });
-      for (const zeile of text.split('\n')) {
+      for (const row of text.split('\n')) {
         // The headings carry counts that differ once something was cut,
         // and the footer exists only in the budgeted block.
-        if (zeile.startsWith('---') || zeile.startsWith('  cut to fit')
-          || zeile.startsWith('  everything fitted')) continue;
-        assert.ok(vollZeilen.has(zeile),
+        if (row.startsWith('---') || row.startsWith('  cut to fit')
+          || row.startsWith('  everything fitted')) continue;
+        assert.ok(fullLines.has(row),
           `budget ${b} produced a line that is not in the full block — `
-          + `it was cut or reshaped:\n    ${zeile}`);
+          + `it was cut or reshaped:\n    ${row}`);
       }
     }
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
@@ -133,10 +133,10 @@ test('IT SAYS WHAT DID NOT FIT, and how much', () => {
       'the block was shortened and does not say so — indistinguishable from a quiet memory');
     assert.match(eng, /\d+ errors/, 'it does not say how many errors were dropped');
 
-    const weit = memory.context(r, { n: 20, maxChars: 100000 });
-    assert.match(weit, /everything fitted/,
+    const far = memory.context(r, { n: 20, maxChars: 100000 });
+    assert.match(far, /everything fitted/,
       'a block that fitted does not say so, so the reader cannot tell it is complete');
-    assert.ok(!/cut to fit/.test(weit), 'a complete block claims to have been cut');
+    assert.ok(!/cut to fit/.test(far), 'a complete block claims to have been cut');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 

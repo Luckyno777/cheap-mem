@@ -1,4 +1,4 @@
-// test/kalt-index-memo.test.mjs — cold path (2026-09-30): the in-process
+// test/cold-index-memo.test.mjs — cold path (2026-09-30): the in-process
 // index memo for long-lived processes (src/search.mjs setProcessMemo).
 //
 // Probes:

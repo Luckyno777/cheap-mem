@@ -53,7 +53,7 @@ function bodyOf(e) {
 /**
  * The content hash for one entry, or null if it has no content to
  * compare (a pure tombstone never reaches here — callers filter with
- * `memory.holds` first — but an entry of a type with no KOERPER field
+ * `memory.holds` first — but an entry of a type with no `KOERPER` field
  * at all, e.g. a bare `link`, legitimately can).
  */
 export function contentHashOf(type, entry) {

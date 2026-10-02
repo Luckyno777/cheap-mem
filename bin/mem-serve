@@ -9,13 +9,16 @@
 //
 // **Since 2026-09-28 the dashboard is the ONLY UI** (owner decision:
 // the sibling house's Dashboard-Muster-3, ported — src/dashboard-page.mjs,
-// src/dashboard-data.mjs, assets/dashboard/). `/`, `/dashboard` and
-// `/pult` serve the same page. The old Astra desk, the console page and
+// src/dashboard-data.mjs, assets/dashboard/). `/` and `/dashboard`
+// serve the same page; `/pult` (the sibling house's German word for it)
+// is a redirect to `/dashboard` since 2026-10-01, kept only so old
+// bookmarks still land. The old Astra desk, the console page and
 // the viewer route are gone — switched off only after
 // test/dashboard-complete.test.mjs proved every feature has a place in
 // the dashboard. `/console` and `/viewer` answer with a redirect into
 // the dashboard so bookmarks still land; the data routes (`/console.json`,
-// `/pult.json`, `/entry.json`, `/entries.json`, `/task.json`) stay.
+// `/desk.json`, `/entry.json`, `/entries.json`, `/task.json`) stay, and
+// `/pult.json` redirects to `/desk.json` for the same reason `/pult` does.
 //
 // The trade is worth naming out loud. The viewer file was "no daemon,
 // nothing that keeps running". This IS a daemon. So it carries the two
@@ -132,7 +135,9 @@ export const VERIFY_VERDICT_PATH = '/dashboard/verify-verdict';
 export const GOLD_VERDICT_PATH = '/dashboard/gold-verdict';
 
 export const PATHS = Object.freeze([
-  '/', '/console', '/viewer', '/setting', '/console.json', '/pult', '/pult.json',
+  '/', '/console', '/viewer', '/setting', '/console.json', '/desk.json',
+  // Redirect aliases for bookmarks from before 2026-10-01 (English paths).
+  '/pult', '/pult.json',
   '/entry.json', '/entries.json', entriesPage.PATH, '/task', '/task.json', '/task/cancel', '/inbox/reply',
   // The dashboard (2026-09-28): the page, its data, one entry, one
   // message, the retrieval probe, the bitemporal facts, its three files,
@@ -534,7 +539,7 @@ export function buildHandler(root, cfg, env = process.env) {
     }
 
     // --- The dashboard: the page and its data ---------------------------
-    if (url.pathname === dashboardPage.PATHS.page || url.pathname === '/' || url.pathname === '/pult') {
+    if (url.pathname === dashboardPage.PATHS.page || url.pathname === '/') {
       let html;
       try {
         let workspace = {};
@@ -1042,7 +1047,7 @@ export function buildHandler(root, cfg, env = process.env) {
     // --- One entry, without building the desk (D1, 2026-09-27) -------
     //
     // Until this route existed, the only way to look up ONE entry over
-    // this server was `/dashboard.json` (now `/pult.json`), which builds every view,
+    // this server was `/dashboard.json` (now `/desk.json`), which builds every view,
     // every drawer, every project — to hand back one row. This route
     // resolves the id directly through `dashboard.getEntryFast()` (see
     // its header comment in `src/dashboard.mjs` for the full contract
@@ -1051,7 +1056,7 @@ export function buildHandler(root, cfg, env = process.env) {
     //
     // Same four states dashboard.getEntryFast() returns, mapped to
     // HTTP the same way lucky-mem's `/eintrag.json` mirror maps
-    // zustand:gut/unbekannt/fehler/warnung — 'ok'/'warning' both answer
+    // `zustand:gut/unbekannt/fehler/warnung` — 'ok'/'warning' both answer
     // 200 (found, one of them with a disclosed gap), 'unknown' answers
     // 404, 'error' answers 500. No fallback: a state this route does
     // not recognise is a bug in `getEntryFast()`, not something to
@@ -1230,16 +1235,15 @@ export function buildHandler(root, cfg, env = process.env) {
     // something else and keeps the heading. That is the failure mode the
     // arriving UI export shipped with, and the whole point of building
     // this one the other way round.
-    // `/pult` still answers beside `/` so a bookmark from before the
-    // move keeps working.
     //
-    // **`/pult.json`, not `/dashboard.json` (2026-09-28).** The desk's
+    // **`/desk.json`, not `/dashboard.json` (2026-09-28, English name
+    // since 2026-10-01).** The desk's
     // numbers used to answer at `/dashboard.json`. The new dashboard
     // (lucky-mem's Dashboard-Muster-3, ported) owns `/dashboard` and
     // `/dashboard.json` in both houses, so the old route was renamed
     // BEFORE the new page was built — never two meanings for one address,
     // not even for one commit (owner decision 2026-09-28, port spec §6.2).
-    if (url.pathname === '/pult.json') {
+    if (url.pathname === '/desk.json') {
       let data;
       try { data = dashboard.collect(root, { env, cfg }); } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
@@ -1248,6 +1252,18 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       res.writeHead(200, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
         .end(JSON.stringify(data));
+      return;
+    }
+
+    // --- The German aliases: a redirect to the English path ------------
+    // cheap-mem is English throughout (owner decision 2026-09-26). The
+    // page and the desk data were reachable at `/pult` and `/pult.json`
+    // until 2026-10-01; a bookmark or a script that still uses them is
+    // sent on with 308 (method and body kept), query string included, so
+    // nothing that worked before stops working.
+    if (url.pathname === '/pult' || url.pathname === '/pult.json') {
+      const to = url.pathname === '/pult' ? dashboardPage.PATHS.page : '/desk.json';
+      res.writeHead(308, { location: `${to}${url.search}` }).end();
       return;
     }
 

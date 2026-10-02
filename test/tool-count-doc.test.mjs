@@ -51,9 +51,9 @@ const CLAIM = places.TOOL_CLAIM;
 test('POSITIV: the probe can see a wrong number', () => {
   // Without this control the search below could silently match nothing
   // and the test would pass forever.
-  const treffer = [...'the server exposes eight tools today'.matchAll(CLAIM)];
-  assert.equal(treffer.length, 1);
-  assert.equal(treffer[0][1].toLowerCase(), 'eight');
+  const hits = [...'the server exposes eight tools today'.matchAll(CLAIM)];
+  assert.equal(hits.length, 1);
+  assert.equal(hits[0][1].toLowerCase(), 'eight');
 });
 
 test('every documented tool count matches the server', () => {
@@ -63,7 +63,7 @@ test('every documented tool count matches the server', () => {
   let claimsChecked = 0;
   // A dated report records what was true that day; it is not a claim
   // about today — `toolCountClaims` skips archives, same rule as
-  // test/doku-zahlen.test.mjs.
+  // test/doc-numbers.test.mjs.
   for (const c of places.toolCountClaims(ROOT)) {
     claimsChecked += 1;
     if (c.said !== n) wrong.push(`${c.rel}: says "${c.raw} tools", server serves ${n}`);
