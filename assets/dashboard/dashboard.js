@@ -2880,6 +2880,7 @@ const CLOUD_DENSITY = '(1.0 - smoothstep(0.34, 1.0, r)) * (0.55 + 0.45 * smooths
 const CLOUD_NEAR = 'smoothstep(0.05, 0.55, t + 1.6 * s)';
 const CLOUD_CAP = 0.3; // highest fog brightness per pixel (thin)
 const CLOUD_LIGHTS = 12; // this many cores light the fog and the glitter
+const CLOUD_GLITTER = 165; // glitter particles (2026-10-02: was 110, +50 % at the owner's request); few, not self-luminous
 // The bundled three.js build (assets/three) does not export these
 // constants; their values have been fixed in three.js for years (BackSide 1,
 // CustomBlending 5, OneFactor 201).
@@ -3049,7 +3050,7 @@ void main(){
   //    Colour and brightness ONLY from the light of the cores: hardly any
   //    diffuse light, a specular glint towards the camera as a brief flash.
   const pos = [], normals = [], phase = [];
-  const COUNT = 110;
+  const COUNT = CLOUD_GLITTER;
   for (let i = 0; i < COUNT; i++) {
     const y = 1 - (2 * (i + 0.5)) / COUNT, r = Math.sqrt(Math.max(0, 1 - y * y)), a = i * 2.399963,
       z1 = cloudHash(i, 3.1, 7.7), z2 = cloudHash(i, 9.2, 1.3), z3 = cloudHash(i, 4.4, 2.2),
@@ -3092,6 +3093,7 @@ void main(){ vec2 u = gl_PointCoord - 0.5; float r = dot(u, u) * 4.0; if (r > 1.
     }),
   );
   glitter.frustumCulled = false;
+  glitter.userData.glitter = true; // cortexAlpha dims the fog in focus, never the glitter (same brightness in every view)
   add(glitter);
   return shape;
 }
@@ -3988,7 +3990,7 @@ function initGraph() {
   }
   function cortexAlpha(focused) {
     cortex.children.forEach((o) => {
-      if (o.material?.uniforms?.alpha) o.material.uniforms.alpha.value = focused ? 0.055 : 0.15;
+      if (o.material?.uniforms?.alpha) o.material.uniforms.alpha.value = focused && !o.userData.glitter ? 0.055 : 0.15;
       else if (o.material) {
         if (o.userData.normalOpacity === undefined) o.userData.normalOpacity = o.material.opacity;
         o.material.opacity = focused ? o.userData.normalOpacity * 0.4 : o.userData.normalOpacity;
