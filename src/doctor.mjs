@@ -56,6 +56,9 @@ import * as release from './release.mjs';
 import * as latencybudget from './latencybudget.mjs';
 import * as injection from './injection.mjs';
 import * as contract from './integrationcontract.mjs';
+import * as workflowdetect from './workflowdetect.mjs';
+import * as snippet from './snippet.mjs';
+import * as errorfixes from './errorfixes.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -372,6 +375,9 @@ export function checkAll(root) {
   f.push(checkRepetitionHint(root));
   f.push(checkClosedWithoutEvidence(root));
   f.push(checkAutoDutyAge(root));
+  f.push(checkErrorLinked(root));
+  f.push(checkWorkflowWithoutTrigger(root));
+  f.push(checkSnippetWithoutRedaction(root));
   f.push(checkDelivery(root));
   f.push(checkOrphanedClaims(root));
   f.push(checkInboxUnpushed(root));
@@ -726,6 +732,106 @@ export function checkClosedWithoutEvidence(root) {
     + 'means a `guard` field on the affected error or a probe with the marker.');
 }
 
+/**
+ * `workflow-without-trigger` (lucky-mem `workflow-ohne-ausloeser`, wf-bc
+ * C2): a workflow in force with no triggers, path or tool patterns no hook
+ * can ever find. Over every workflow in force, visible or not. unknown =
+ * none in force; warn (never error: kept incompletely, not broken).
+ */
+export function checkWorkflowWithoutTrigger(root) {
+  const all = workflowdetect.workflowsInForce(root);
+  if (!all.length) {
+    return finding('workflow-without-trigger', LEVEL.UNKNOWN, 'no workflow in force — not measurable');
+  }
+  const reach = (w) => ['triggers', 'path_patterns', 'tool_patterns']
+    .some((k) => workflowdetect.listOf(w[k]).length);
+  const unreachable = all.filter((w) => !reach(w));
+  if (!unreachable.length) {
+    return finding('workflow-without-trigger', LEVEL.GOOD,
+      `${all.length} workflow(s) in force, each with at least one trigger, path or tool pattern`);
+  }
+  const names = unreachable.slice(0, 5).map((w) => `${w.id} (${w.title ?? '(no title)'})`);
+  return finding('workflow-without-trigger', LEVEL.WARN,
+    `${unreachable.length} of ${all.length} workflow(s) without triggers/path_patterns/tool_patterns: `
+    + `${names.join(', ')}${unreachable.length > 5 ? ', ...' : ''}`,
+    'No hook can ever show such a workflow — built, but unreachable. `mem workflow show <id>`, '
+    + 'then write a successor with at least one of them: `mem workflow new ... --triggers` / '
+    + '`--path-patterns` / `--tool-patterns` (append-only; retire the old one with `mem supersede`).');
+}
+
+/**
+ * `snippet-without-redaction` (lucky-mem `baustein-ohne-redaktion`, wf-bc
+ * C2): a text/mail/letter snippet that fails `snippet.checkRedaction()`
+ * TODAY (legacy, imported, or older than a pattern). unknown = no
+ * snippets; error, not warn: a real data-protection finding.
+ */
+export function checkSnippetWithoutRedaction(root) {
+  const all = [];
+  let projects;
+  try { projects = memory.listProjects(root); } catch { projects = []; }
+  for (const project of [null, ...projects]) {
+    let it;
+    try { it = memory.iterLog(root, snippet.TYPE, { project }); } catch { continue; }
+    for (const e of it) {
+      if (!e || e.__broken || !e.id || memory.isClosingLine(e)) continue;
+      all.push(e);
+    }
+  }
+  if (!all.length) return finding('snippet-without-redaction', LEVEL.UNKNOWN, 'no snippets — not measurable');
+  const bound = all.filter((e) => snippet.REDACTION_KINDS.includes(String(e.kind ?? '').trim()));
+  if (!bound.length) {
+    return finding('snippet-without-redaction', LEVEL.GOOD,
+      `${all.length} snippet(s), none of kind text/mail/letter (the redaction duty applies to none)`);
+  }
+  const failed = bound.filter((e) => !snippet.checkRedaction(e.kind, e.body).ok);
+  if (!failed.length) {
+    return finding('snippet-without-redaction', LEVEL.GOOD,
+      `${bound.length} snippet(s) of kind text/mail/letter, all pass the redaction check today`);
+  }
+  const names = failed.slice(0, 5).map((e) => `${e.id} (${e.kind})`);
+  return finding('snippet-without-redaction', LEVEL.ERROR,
+    `${failed.length} of ${bound.length} text/mail/letter snippet(s) fail the redaction check today: `
+    + `${names.join(', ')}${failed.length > 5 ? ', ...' : ''}`,
+    'A reusable text block that carries real credentials is copied on with every use. '
+    + '`mem snippet show <id>`, replace the real value with a {{PLACEHOLDER}}, write the new version '
+    + '(`mem correction snippet <id> ...`, append-only), and rotate the exposed secret.');
+}
+
+/**
+ * `error-linked` (lucky-mem `fehler-verknuepft`, L2a): share of errors
+ * with a `resolves` link (fix commit `Fixes: <id>`, or a closed duty with
+ * evidence) and a `generalizes` link (a learning), overall and in 30 days.
+ * unknown below 5 errors in the window; good at 25 % and 10 % (targets in
+ * src/errorfixes.mjs); warn below; never error. Writes nothing.
+ */
+export function checkErrorLinked(root, { now = new Date() } = {}) {
+  let k;
+  try { k = errorfixes.metric(root, { now: now instanceof Date ? now.getTime() : new Date(now).getTime() }); }
+  catch (e) {
+    return finding('error-linked', LEVEL.UNKNOWN, `errors/links unreadable: ${e?.message || e}`);
+  }
+  const pct = (a, n) => (n ? `${Math.round((a / n) * 100)} %` : 'n/a');
+  const g = k.total;
+  const w = k.window;
+  const core = `errors with a resolves edge: ${g.resolves} of ${g.n} overall (${pct(g.resolves, g.n)}), `
+    + `${w.resolves} of ${w.n} in ${errorfixes.WINDOW_DAYS} days (${pct(w.resolves, w.n)}); `
+    + `with a generalizes edge: ${g.generalizes} of ${g.n} overall (${pct(g.generalizes, g.n)}), `
+    + `${w.generalizes} of ${w.n} in ${errorfixes.WINDOW_DAYS} days (${pct(w.generalizes, w.n)})`;
+  if (w.n < errorfixes.MIN_WINDOW_ERRORS) {
+    return finding('error-linked', LEVEL.UNKNOWN,
+      `only ${w.n} error(s) in ${errorfixes.WINDOW_DAYS} days (below ${errorfixes.MIN_WINDOW_ERRORS}) — no share measurable; ${core}`);
+  }
+  const resolvesOk = w.resolves / w.n >= errorfixes.TARGET_RESOLVES;
+  const generalizesOk = w.generalizes / w.n >= errorfixes.TARGET_GENERALIZES;
+  if (resolvesOk && generalizesOk) return finding('error-linked', LEVEL.GOOD, core);
+  return finding('error-linked', LEVEL.WARN, core,
+    `Target: resolves for ${Math.round(errorfixes.TARGET_RESOLVES * 100)} %, generalizes for `
+    + `${Math.round(errorfixes.TARGET_GENERALIZES * 100)} % of the errors of the last `
+    + `${errorfixes.WINDOW_DAYS} days. A fix commit carries the trailer \`Fixes: <error-id>\` and `
+    + '`mem error-fixes backfill` turns it into the edge; a learning drawn from an error is written '
+    + 'with `mem log learning ... --from <error-id>`. This finding writes nothing.');
+}
+
 /** From when an auto-duty counts as "old" (BAUPLAN-mem-admin_02.md, Block F). */
 export const AUTO_DUTY_AGE_DAYS = 14;
 /** From how many of those the plan's abort criterion fires. */
@@ -901,7 +1007,9 @@ export function checkOrphans(root) {
     return finding('orphans', LEVEL.UNKNOWN,
       'no correction, close or link pointers exist yet — nothing to check for orphans');
   }
-  const orphans = pointers.filter((p) => !ids.has(p.to));
+  // A commit as a link end (`commit:<hash>`, a `Fixes:` trailer's edge —
+  // src/errorfixes.mjs) is evidence outside the memory, never an entry.
+  const orphans = pointers.filter((p) => !ids.has(p.to) && !memory.isOutsideEvidence(p.to));
   if (orphans.length === 0) {
     return finding('orphans', LEVEL.GOOD, `${pointers.length} correction/close links, all resolve`);
   }

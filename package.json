@@ -55,7 +55,7 @@
     "!docs/*-2026-*.md",
     "!docs/*-proposal.md",
     "!docs/CAPABILITIES.md",
-    "!docs/viewer-design.md",
+    "!docs/viewer-design*",
     "DIGEST.md",
     "README.md",
     "LICENSE",

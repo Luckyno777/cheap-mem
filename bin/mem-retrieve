@@ -216,10 +216,32 @@ case "$(printf '%s' "$PROMPT" | sed -e '1s/^[[:space:]]*//' | head -c 1)" in
     [ "$MACHINE" = "machine" ] && exit 0
     ;;
 esac
+# **Workflows (wf-bc B2 port).** A workflow whose `triggers` match the
+# prompt (same tokens as the search, no model — src/workflowdetect.mjs)
+# goes out with the recall block, or alone when the search shows
+# nothing. The node start is paid only when a workflow drawer holds a
+# `triggers` field at all — a grep, no process. The turns directory is
+# defined further down; the workflow-only answer needs it for the same
+# once-per-turn claim.
+WF_TEXT=""
+if [ -f "$TOOL_ROOT/src/workflowdetect.mjs" ] \
+  && grep -qs '"triggers"' "$ROOT/global/workflows.jsonl" "$ROOT"/projects/*/workflows.jsonl; then
+  WF_TEXT="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" \
+    capped 5 node "$RECALL_JS" workflow 2>/dev/null)"
+fi
+# The exits below that never reach `recallhook.mjs recall` (no signal,
+# a failed or an empty search) still deliver the workflow block alone.
+workflow_only() {
+  [ -n "$WF_TEXT" ] || return 0
+  CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_TURNS="${TURNS:-$ROOT/.mem/retrieve-turns}" \
+    MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" MEM_RH_WORKFLOW="$WF_TEXT" \
+    capped 5 node "$RECALL_JS" workflow-only </dev/null 2>/dev/null
+  return 0
+}
 if [ "${#PROMPT}" -lt 12 ]; then
   VERDICT="$(printf '%s' "$PROMPT" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_SESSION="${SESSION_ID:-}" MEM_RH_QB="$QB" \
     capped 8 node "$RECALL_JS" signal 2>/dev/null)"
-  [ "$VERDICT" = "search" ] || exit 0
+  [ "$VERDICT" = "search" ] || { workflow_only; exit 0; }
 fi
 
 # --- Once per turn, however often it is registered --------------------
@@ -369,9 +391,10 @@ if [ "$FIND_RC" -ne 0 ]; then
           }).catch(() => {});' >/dev/null 2>&1 || true
     fi
   }
+  workflow_only
   exit 0
 fi
-[ -z "$HITS" ] && exit 0
+[ -z "$HITS" ] && { workflow_only; exit 0; }
 
 # Keep only what clears the bar, render one line each, claim the turn,
 # print, book. All of it is `recallhook.mjs recall` - the ONE renderer
@@ -396,5 +419,6 @@ printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_RH_MIN="$MIN" MEM_RH_SESSION="$
   MEM_RH_TURNS="$TURNS" MEM_RH_QB="$QB" MEM_RH_START_MS="$MEM_HOOK_START_MS" \
   MEM_RH_PATH="$RECALL_PATH" MEM_RH_PATH_REASON="$RECALL_REASON" \
   MEM_RH_CWD="${HOOK_CWD:-}" MEM_RH_TRANSCRIPT="${HOOK_TRANSCRIPT:-}" MEM_RH_PROMPT="$PROMPT" \
+  MEM_RH_WORKFLOW="$WF_TEXT" \
   node "$RECALL_JS" recall 2>/dev/null
 exit 0

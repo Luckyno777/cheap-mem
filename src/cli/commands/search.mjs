@@ -31,6 +31,9 @@ import * as observations from '../../observations.mjs';
 import * as levers from '../../searchlevers.mjs';
 import * as questionsplit from '../../questionsplit.mjs';
 import * as variants from '../../variants.mjs';
+import * as workflow from '../../workflow.mjs';
+import * as snippet from '../../snippet.mjs';
+import * as workflowdetect from '../../workflowdetect.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
@@ -44,7 +47,37 @@ const statusOf = (root, entry, source) => {
   return st ? { status: st } : {};
 };
 
-/** 13 commands. */
+/** A comma-separated flag as a list of non-empty strings; a bare flag is an empty list. */
+function commaList(v) {
+  if (v === undefined || v === null || v === true) return [];
+  return String(v).split(',').map((x) => x.trim()).filter(Boolean);
+}
+
+/** `mem workflow new|check` flags -> the fields `workflow.check()` reads. */
+function workflowFieldsFrom(args) {
+  const f = {};
+  if (args.title !== undefined && args.title !== true) f.title = String(args.title);
+  if (args.steps !== undefined && args.steps !== true) {
+    f.steps = String(args.steps).split(';').map((x) => x.trim()).filter(Boolean);
+  }
+  if (args['issued-by'] !== undefined && args['issued-by'] !== true) f.issued_by = String(args['issued-by']);
+  for (const [flag, field] of [['triggers', 'triggers'], ['path-patterns', 'path_patterns'],
+    ['tool-patterns', 'tool_patterns'], ['tools', 'tools']]) {
+    if (args[flag] !== undefined) f[field] = commaList(args[flag]);
+  }
+  if (args.scope !== undefined && args.scope !== true) f.scope = String(args.scope);
+  if (args['source-proposal'] !== undefined && args['source-proposal'] !== true) {
+    f.source_proposal = String(args['source-proposal']);
+  }
+  const refs = {};
+  for (const kind of workflow.REFERENCE_KINDS) {
+    if (args[`references-${kind}`] !== undefined) refs[kind] = commaList(args[`references-${kind}`]);
+  }
+  if (Object.keys(refs).length) f.references = refs;
+  return f;
+}
+
+/** 15 commands. */
 export const COMMANDS = {
   find: async ({ rest, args }) => {
     if (isHelp(args)) {
@@ -1016,4 +1049,177 @@ export const COMMANDS = {
     process.stdout.write('\n');
   },
 
+  // wf-bc C1 port. `mem log workflow` cannot set the three list fields
+  // (`fieldsFrom()` keeps a comma list as one string, which
+  // `workflow.check()` refuses); `mem workflow new` takes them as lists
+  // and runs the same check and completion.
+  workflow: async ({ rest, args }) => {
+    const sub = rest[0];
+    if (isHelp(args) || !sub) {
+      out([
+        'mem workflow new   --title "..." --steps "a;b;c" --issued-by owner [...]',
+        'mem workflow check --title "..." --steps "a;b;c" --issued-by owner [...]',
+        'mem workflow list',
+        'mem workflow show <id>',
+        '',
+        '  A workflow is a named sequence for a recurring task. Only a human',
+        '  issues one (`--issued-by owner` or `human:<name>`) — the same',
+        '  authority check as a procedure; the MCP bridge does not write it.',
+        '',
+        '  --steps          semicolon-separated (a step may contain a comma)',
+        '  --triggers       comma-separated words/phrases: the question and',
+        '                   subagent hooks show the workflow when the text holds',
+        '                   all words of one trigger (search tokens, no model)',
+        '  --path-patterns  comma-separated files (`bin/mem-before-edit`): the',
+        '                   component table marks them `works-on`',
+        '  --tool-patterns  comma-separated substrings of a Bash command',
+        '                   (`npm publish`): the before-edit hook shows it',
+        '  --tools, --scope, --source-proposal   optional',
+        '  --references-procedure, --references-skill, --references-errorclass,',
+        '  --references-snippet   comma-separated ids/names (never copied text)',
+        '',
+        '  `new` writes only after the check passes; `check` runs the same',
+        '  check and writes nothing. `list`/`show` cover VISIBLE workflows: in',
+        '  force, issued by a human, not a draft — what the hooks can show.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (sub === 'list') {
+      checkFlags(args, [], 'workflow list');
+      const visible = workflowdetect.visibleWorkflows(root);
+      if (!visible.length) { out('No visible workflows (in force, issued by a human, not a draft).'); return; }
+      for (const w of visible) {
+        const reach = [
+          ['triggers', workflowdetect.listOf(w.triggers).length],
+          ['path patterns', workflowdetect.listOf(w.path_patterns).length],
+          ['tool patterns', workflowdetect.listOf(w.tool_patterns).length],
+        ].filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(', ') || 'no trigger, path or tool pattern';
+        out(`  ${w.id}  ${w.title}`);
+        out(`    ${workflow.mark(w)} — ${reach}`);
+      }
+      out('');
+      out(`${visible.length} visible workflow(s). Full text: mem workflow show <id>`);
+      return;
+    }
+
+    if (sub === 'show') {
+      checkFlags(args, [], 'workflow show');
+      const id = rest[1];
+      if (!id) die('workflow show: which id? mem workflow show <id>');
+      const e = memory.getEntry(root, id);
+      if (!e || e._type !== workflow.TYPE) die(`workflow show: '${id}' is not a known workflow.`);
+      out(workflowdetect.cardText(e));
+      for (const [k, label] of [['triggers', 'triggers'], ['path_patterns', 'path patterns'], ['tool_patterns', 'tool patterns']]) {
+        const v = workflowdetect.listOf(e[k]);
+        if (v.length) out(`  ${label}: ${v.join(', ')}`);
+      }
+      return;
+    }
+
+    if (sub === 'check' || sub === 'new') {
+      checkFlags(args, ['title', 'steps', 'issued-by', 'triggers', 'path-patterns', 'tool-patterns',
+        'tools', 'scope', 'source-proposal', 'references-procedure', 'references-skill',
+        'references-errorclass', 'references-snippet', 'project'], `workflow ${sub}`);
+      const fields = workflowFieldsFrom(args);
+      const r = workflow.check(fields);
+      if (sub === 'check') {
+        if (r.ok) { out('OK — `mem workflow new` would accept these fields.'); return; }
+        out('Not accepted:');
+        for (const e of r.errors) out(`  ${e}`);
+        process.exitCode = 1;
+        return;
+      }
+      if (!r.ok) die(`workflow new:\n  ${r.errors.join('\n  ')}`);
+      const data = workflow.complete(fields, { agent: memory.agentDefault() });
+      const project = args.project && args.project !== true ? String(args.project) : null;
+      const { path: p, entry } = memory.logCheckedEntry(root, workflow.TYPE, data, { project });
+      out(`Appended: ${path.relative(root, p)}`);
+      out(`  id: ${entry.id}`);
+      out(`  ${workflow.mark(entry)}`);
+      return;
+    }
+
+    die(`workflow: unknown subcommand '${sub}'. Known: new, check, list, show.`);
+  },
+
+  snippet: async ({ rest, args }) => {
+    const sub = rest[0];
+    if (isHelp(args) || !sub) {
+      out([
+        'mem snippet new --title "..." --kind code|script|text|mail|letter --body "..." [...]',
+        'mem snippet list [--project <name>|global]',
+        'mem snippet show <id>',
+        '',
+        '  A reusable block with {{PLACEHOLDERS}} instead of real data. A',
+        '  text/mail/letter snippet must pass the redaction check — a hit is an',
+        '  abort, nothing is written (the same `snippet.check()` as `mem log',
+        '  snippet` and the MCP bridge).',
+        '',
+        '  --language, --origin, --test   optional strings',
+        '  --placeholders   comma-separated (else read off --body)',
+        '  --used-by        comma-separated workflow ids (the back-reference)',
+        '  --version        a positive integer (default 1)',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+
+    if (sub === 'list') {
+      checkFlags(args, ['project'], 'snippet list');
+      let targets;
+      if (args.project && args.project !== true) targets = [String(args.project) === 'global' ? null : String(args.project)];
+      else targets = [null, ...memory.listProjects(root)];
+      const all = [];
+      for (const project of targets) {
+        let entries;
+        try { ({ entries } = memory.readLog(root, snippet.TYPE, { project })); } catch { continue; }
+        const retired = memory.retiredMap(entries);
+        for (const e of entries) if (e.id && memory.holds(e, retired)) all.push(e);
+      }
+      if (!all.length) { out('No snippets.'); return; }
+      for (const e of all) {
+        out(`  ${e.id}  ${snippet.mark(e)}`);
+        if (e.title) out(`    ${e.title}`);
+      }
+      out('');
+      out(`${all.length} snippet(s). Full text: mem snippet show <id>`);
+      return;
+    }
+
+    if (sub === 'show') {
+      checkFlags(args, [], 'snippet show');
+      const id = rest[1];
+      if (!id) die('snippet show: which id? mem snippet show <id>');
+      const e = memory.getEntry(root, id);
+      if (!e || e._type !== snippet.TYPE) die(`snippet show: '${id}' is not a known snippet.`);
+      out(snippet.display(e));
+      return;
+    }
+
+    if (sub === 'new') {
+      checkFlags(args, ['title', 'kind', 'body', 'language', 'placeholders', 'origin', 'test',
+        'used-by', 'version', 'project'], 'snippet new');
+      const fields = {};
+      for (const k of ['title', 'kind', 'body', 'language', 'origin', 'test']) {
+        if (args[k] !== undefined && args[k] !== true) fields[k] = String(args[k]);
+      }
+      if (args.placeholders !== undefined) fields.placeholders = commaList(args.placeholders);
+      if (args['used-by'] !== undefined) fields.used_by = commaList(args['used-by']);
+      if (args.version !== undefined) fields.version = numberFlag('version', args.version, { min: 1 });
+      const r = snippet.check(fields);
+      if (!r.ok) die(`snippet new:\n  ${r.errors.join('\n  ')}`);
+      const project = args.project && args.project !== true ? String(args.project) : null;
+      const { path: p, entry } = memory.logCheckedEntry(root, snippet.TYPE, snippet.complete(fields), { project });
+      out(`Appended: ${path.relative(root, p)}`);
+      out(`  id: ${entry.id}`);
+      out(`  ${snippet.mark(entry)}`);
+      return;
+    }
+
+    die(`snippet: unknown subcommand '${sub}'. Known: new, list, show.`);
+  },
 };

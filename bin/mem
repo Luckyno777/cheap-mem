@@ -102,6 +102,10 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("                    always-load block of settled facts (bake-in, no training)");
   out("  topics / topic <key> [--all]          subjects, and where one stands now");
   out("  links <id>                            typed edges in and out of one entry");
+  out("  error-fixes backfill [--repo P] [--since REV] [--check-only]");
+  out("                    resolves links error <- commit/duty (Fixes: trailer)");
+  out("  workflow new|check|list|show          named sequences, with triggers/patterns");
+  out("  snippet new|list|show                 reusable blocks with {{PLACEHOLDERS}}");
   out("  experiences      [--all] [--type T]   what the memory stands behind");
   out("                    ranked by citations, not by how often it was read");
   out("  viewer           [--out f.html] [--title \"...\"] [--open]");
