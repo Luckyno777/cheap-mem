@@ -205,7 +205,7 @@ test('server: CHEAP_MEM_SERVE_HEAD_ENTRIES sets the size of the head (positive c
     assert.equal(d.parts.entries.in_head, d.entries.length);
     assert.ok(d.entries.length < 100, 'the setting did not take effect');
   } finally { await small.stop(); }
-  const dflt = await start(root);
+  const dflt = await start(world({ entries: 300 })); // a root of its own: the first one now has a head of 40 on disk
   try {
     const d = await dflt.json('/dashboard.json');
     assert.ok(d.entries.length >= 120, `default head ${d.entries.length}`);
