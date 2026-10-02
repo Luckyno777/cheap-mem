@@ -1,0 +1,160 @@
+{"id":"ev-01","kind":"everyday","query":"where do we keep the records of what customers bought","expected":["g-postgres"],"src":"gold","half":"calib"}
+{"id":"ev-02","kind":"everyday","query":"the spreadsheet upload that kept blowing up","expected":["g-oom"],"src":"gold","half":"held"}
+{"id":"ev-03","kind":"everyday","query":"have we ever actually tried getting our saved copies back","expected":["g-backup"],"src":"gold","half":"calib"}
+{"id":"ev-04","kind":"everyday","query":"why was the website dead that weekend","expected":["g-tls"],"src":"gold","half":"held"}
+{"id":"ev-05","kind":"everyday","query":"the browser warned people our site was not safe","expected":["g-tls"],"src":"gold","half":"calib"}
+{"id":"ev-06","kind":"everyday","query":"how do the emails we send actually go out","expected":["g-queue"],"src":"gold","half":"held"}
+{"id":"ev-07","kind":"everyday","query":"how should we keep prices so pennies never go missing","expected":["g-money"],"src":"gold","half":"calib"}
+{"id":"ev-08","kind":"everyday","query":"a customer got charged two times for one purchase","expected":["g-race"],"src":"gold","half":"held"}
+{"id":"ev-09","kind":"everyday","query":"double payment after somebody clicked the button quickly","expected":["g-race"],"src":"gold","half":"calib"}
+{"id":"ev-10","kind":"everyday","query":"the machine filled up and stopped saving anything","expected":["g-disk"],"src":"gold","half":"held"}
+{"id":"ev-11","kind":"everyday","query":"did we decide against that big google cluster system","expected":["g-k8s"],"src":"gold","half":"calib"}
+{"id":"ev-12","kind":"everyday","query":"the test website could not talk to our backend","expected":["g-cors"],"src":"gold","half":"held"}
+{"id":"ev-13","kind":"everyday","query":"the page listing purchases was painfully slow","expected":["g-index"],"src":"gold","half":"calib"}
+{"id":"ev-14","kind":"everyday","query":"everything froze during the big discount day","expected":["g-pool"],"src":"gold","half":"held"}
+{"id":"ev-15","kind":"everyday","query":"timed tasks ran twice when the clocks changed","expected":["g-dst"],"src":"gold","half":"calib"}
+{"id":"ev-16","kind":"everyday","query":"why did we stop the morning meeting","expected":["g-standup"],"src":"gold","half":"held"}
+{"id":"ev-17","kind":"everyday","query":"the admin screen takes forever to download","expected":["g-bundle"],"src":"gold","half":"calib"}
+{"id":"ev-18","kind":"everyday","query":"the store website was sluggish in the afternoon","expected":["g-c-slow"],"src":"gold","half":"held"}
+{"id":"ev-19","kind":"everyday","query":"nobody could log in at the start of the week","expected":["g-c-locked"],"src":"gold","half":"calib"}
+{"id":"ev-20","kind":"everyday","query":"buyers did not get a thank you after they paid","expected":["g-c-mail"],"src":"gold","half":"held"}
+{"id":"ev-21","kind":"everyday","query":"the app drains my phone charge","expected":["g-c-phone"],"src":"gold","half":"calib"}
+{"id":"ev-22","kind":"everyday","query":"are we allowed to ship at the end of the week","expected":["g-rule-canary"],"src":"gold","half":"held"}
+{"id":"ev-23","kind":"everyday","query":"who has to look at table changes before they go out","expected":["g-rule-review"],"src":"gold","half":"calib"}
+{"id":"ev-24","kind":"everyday","query":"who is going to try breaking in for the security check","expected":["g-duty-pentest"],"src":"gold","half":"held"}
+{"id":"ev-25","kind":"everyday","query":"how did the compliance inspection go","expected":["g-soc2-passed"],"src":"gold","half":"calib"}
+{"id":"ev-26","kind":"everyday","query":"why were shoppers seeing old prices","expected":["g-cache-key"],"src":"gold","half":"held"}
+{"id":"ev-27","kind":"everyday","query":"what number does the test server answer on","expected":["g-port-new"],"src":"gold","half":"calib"}
+{"id":"ev-28","kind":"everyday","query":"which version of the javascript runtime are we using","expected":["g-node-new"],"src":"gold","half":"held"}
+{"id":"ev-29","kind":"everyday","query":"who handles credit card charges for us","expected":["g-vendor-new"],"src":"gold","half":"calib"}
+{"id":"ev-30","kind":"everyday","query":"who do I ring when things break at night","expected":["g-oncall-new"],"src":"gold","half":"held"}
+{"id":"ev-31","kind":"everyday","query":"how is the admin screen made to look nice","expected":["g-css-new"],"src":"gold","half":"calib"}
+{"id":"ev-32","kind":"everyday","query":"where can developers read how to call our interface","expected":["g-apidocs-new"],"src":"gold","half":"held"}
+{"id":"ev-33","kind":"everyday","query":"how do we put a new website version live and undo it instantly","expected":["a-deploy"],"src":"gold","half":"calib"}
+{"id":"ev-34","kind":"everyday","query":"how do new app versions reach phones a little at a time","expected":["b-deploy"],"src":"gold","half":"held"}
+{"id":"ev-35","kind":"everyday","query":"how do people sign in without remembering a secret word","expected":["a-login"],"src":"gold","half":"calib"}
+{"id":"ev-36","kind":"everyday","query":"signing in by touching the phone with a finger","expected":["b-login"],"src":"gold","half":"held"}
+{"id":"ev-37","kind":"everyday","query":"where do the web machines remember who is signed in","expected":["a-session"],"src":"gold","half":"calib"}
+{"id":"ev-38","kind":"everyday","query":"how does the app keep you signed in without internet","expected":["b-session"],"src":"gold","half":"held"}
+{"id":"ev-39","kind":"everyday","query":"everyone was told their login was wrong","expected":["g-c-locked"],"src":"gold","half":"calib"}
+{"id":"ev-40","kind":"everyday","query":"the shop stopped answering when the promotion started","expected":["g-pool"],"src":"gold","half":"held"}
+{"id":"ev-41","kind":"everyday","query":"search: we redid the is-it-alive probe because the figures fell apart when checked","expected":["s0"],"src":"filler","half":"calib"}
+{"id":"ev-42","kind":"everyday","query":"api: we timed the is-it-alive probe and a plainer design coped just as well","expected":["sk"],"src":"filler","half":"held"}
+{"id":"ev-43","kind":"everyday","query":"queue: we timed the data move and things got twice as slow with real users","expected":["s14"],"src":"filler","half":"calib"}
+{"id":"ev-44","kind":"everyday","query":"security: we damaged where logins are kept and pages got twice as slow","expected":["s1o"],"src":"filler","half":"held"}
+{"id":"ev-45","kind":"everyday","query":"payments: we undid the database link sharing change since a plainer design coped","expected":["s28"],"src":"filler","half":"calib"}
+{"id":"ev-46","kind":"everyday","query":"queue: we repaired the data move after the old one forgot things on reboot","expected":["s2s"],"src":"filler","half":"held"}
+{"id":"ev-47","kind":"everyday","query":"deploy: we released the login keeper but the figures fell apart when checked","expected":["s3c"],"src":"filler","half":"calib"}
+{"id":"ev-48","kind":"everyday","query":"mobile: we undid the request throttle because the old one forgot things on reboot","expected":["s3w"],"src":"filler","half":"held"}
+{"id":"ev-49","kind":"everyday","query":"ops: we undid the data move since a plainer design coped just as well","expected":["s4g"],"src":"filler","half":"calib"}
+{"id":"ev-50","kind":"everyday","query":"security: we damaged the database link sharing and the figures fell apart when checked","expected":["s50"],"src":"filler","half":"held"}
+{"id":"ev-51","kind":"everyday","query":"mobile: we redid how the lookup table gets built but the figures fell apart","expected":["s5k"],"src":"filler","half":"calib"}
+{"id":"ev-52","kind":"everyday","query":"database: we undid the link sharing change because the old one forgot things on reboot","expected":["s64"],"src":"filler","half":"held"}
+{"id":"ev-53","kind":"everyday","query":"ops: we studied how often we try again and a plainer design coped","expected":["s6o"],"src":"filler","half":"calib"}
+{"id":"ev-54","kind":"everyday","query":"testing: we timed where logins are kept but the figures fell apart when checked","expected":["s78"],"src":"filler","half":"held"}
+{"id":"ev-55","kind":"everyday","query":"ops: we moved the request throttle over and pages got twice as slow","expected":["s7s"],"src":"filler","half":"calib"}
+{"id":"ev-56","kind":"everyday","query":"frontend: we repaired where logins are kept but the figures fell apart","expected":["s8c"],"src":"filler","half":"held"}
+{"id":"ev-57","kind":"everyday","query":"billing: we timed the is-it-alive probe and the figures fell apart when checked","expected":["s8w"],"src":"filler","half":"calib"}
+{"id":"ev-58","kind":"everyday","query":"queue: we undid the link sharing change because the figures fell apart","expected":["s9g"],"src":"filler","half":"held"}
+{"id":"ev-59","kind":"everyday","query":"security: we repaired the data move but the figures fell apart when checked","expected":["sa0"],"src":"filler","half":"calib"}
+{"id":"ev-60","kind":"everyday","query":"cache: we redid the database link sharing and a plainer design coped just as well","expected":["sak"],"src":"filler","half":"held"}
+{"id":"ev-61","kind":"everyday","query":"search: we timed the background job line and it got twice as slow with real users","expected":["sb4"],"src":"filler","half":"calib"}
+{"id":"ev-62","kind":"everyday","query":"security: we moved where logins are kept and a plainer design coped just as well","expected":["sbo"],"src":"filler","half":"held"}
+{"id":"ev-63","kind":"everyday","query":"ops: we undid the background job line because it froze everything else","expected":["sc8"],"src":"filler","half":"calib"}
+{"id":"ev-64","kind":"everyday","query":"api: we repaired the is-it-alive probe after pages got twice as slow","expected":["scs"],"src":"filler","half":"held"}
+{"id":"ev-65","kind":"everyday","query":"queue: we damaged the login renewal and nobody understood why it failed","expected":["sdc"],"src":"filler","half":"calib"}
+{"id":"ev-66","kind":"everyday","query":"payments: we studied the data move but the figures fell apart when checked","expected":["sdw"],"src":"filler","half":"held"}
+{"id":"ev-67","kind":"everyday","query":"queue: we undid the request throttle and nobody understood why it failed","expected":["seg"],"src":"filler","half":"calib"}
+{"id":"ev-68","kind":"everyday","query":"cache: we damaged the database link sharing though a plainer design coped","expected":["sf0"],"src":"filler","half":"held"}
+{"id":"ev-69","kind":"everyday","query":"frontend: we timed the database link sharing and it froze everything else","expected":["sfk"],"src":"filler","half":"calib"}
+{"id":"ev-70","kind":"everyday","query":"database: we moved the is-it-alive probe and a plainer design coped just as well","expected":["sg4"],"src":"filler","half":"held"}
+{"id":"ev-71","kind":"everyday","query":"ops: we moved the is-it-alive probe after the old one forgot things on reboot","expected":["sgo"],"src":"filler","half":"calib"}
+{"id":"ev-72","kind":"everyday","query":"auth: we studied how often we try again after the old one forgot things on reboot","expected":["sh8"],"src":"filler","half":"held"}
+{"id":"ev-73","kind":"everyday","query":"frontend: we studied the is-it-alive probe after the old one forgot things on reboot","expected":["shs"],"src":"filler","half":"calib"}
+{"id":"ev-74","kind":"everyday","query":"cache: we picked the file sending route because the other froze everything else","expected":["sic"],"src":"filler","half":"held"}
+{"id":"ev-75","kind":"everyday","query":"frontend: we damaged where logins are kept and the figures fell apart when checked","expected":["siw"],"src":"filler","half":"calib"}
+{"id":"ev-76","kind":"everyday","query":"api: we damaged the request throttle and the figures fell apart when checked","expected":["sjg"],"src":"filler","half":"held"}
+{"id":"ev-77","kind":"everyday","query":"queue: we undid how the lookup table gets built because the figures fell apart","expected":["sk0"],"src":"filler","half":"calib"}
+{"id":"ev-78","kind":"everyday","query":"testing: we repaired the background job line after the old one forgot things on reboot","expected":["skk"],"src":"filler","half":"held"}
+{"id":"ev-79","kind":"everyday","query":"ci: we repaired the background job line after the old one forgot things on reboot","expected":["sl4"],"src":"filler","half":"calib"}
+{"id":"ev-80","kind":"everyday","query":"auth: we released the database link sharing since a plainer design coped","expected":["slo"],"src":"filler","half":"held"}
+{"id":"te-01","kind":"technical","query":"relational datastore with ACID guarantees for order records","expected":["g-postgres"],"src":"gold","half":"calib"}
+{"id":"te-02","kind":"technical","query":"heap exhaustion during bulk file ingest","expected":["g-oom"],"src":"gold","half":"held"}
+{"id":"te-03","kind":"technical","query":"disaster recovery test of the database dump","expected":["g-backup"],"src":"gold","half":"calib"}
+{"id":"te-04","kind":"technical","query":"x509 renewal automation incident","expected":["g-tls"],"src":"gold","half":"held"}
+{"id":"te-05","kind":"technical","query":"async smtp delivery via background workers","expected":["g-queue"],"src":"gold","half":"calib"}
+{"id":"te-06","kind":"technical","query":"decimal precision for currency arithmetic","expected":["g-money"],"src":"gold","half":"held"}
+{"id":"te-07","kind":"technical","query":"duplicate charge concurrency bug on checkout submit","expected":["g-race"],"src":"gold","half":"calib"}
+{"id":"te-08","kind":"technical","query":"filesystem full because of log retention","expected":["g-disk"],"src":"gold","half":"held"}
+{"id":"te-09","kind":"technical","query":"container orchestration platform evaluation","expected":["g-k8s"],"src":"gold","half":"calib"}
+{"id":"te-10","kind":"technical","query":"preflight request rejected by origin policy","expected":["g-cors"],"src":"gold","half":"held"}
+{"id":"te-11","kind":"technical","query":"full table scan latency on the orders query","expected":["g-index"],"src":"gold","half":"calib"}
+{"id":"te-12","kind":"technical","query":"db connection limit reached under peak traffic","expected":["g-pool"],"src":"gold","half":"held"}
+{"id":"te-13","kind":"technical","query":"cron duplicates during utc offset shift","expected":["g-dst"],"src":"gold","half":"calib"}
+{"id":"te-14","kind":"technical","query":"async status reporting replacing synchronous meeting","expected":["g-standup"],"src":"gold","half":"held"}
+{"id":"te-15","kind":"technical","query":"javascript bundle bloat without tree shaking","expected":["g-bundle"],"src":"gold","half":"calib"}
+{"id":"te-16","kind":"technical","query":"page load latency from unoptimized images","expected":["g-c-slow"],"src":"gold","half":"held"}
+{"id":"te-17","kind":"technical","query":"authentication failure for all users","expected":["g-c-locked"],"src":"gold","half":"calib"}
+{"id":"te-18","kind":"technical","query":"order confirmation emails stuck in the outbound queue","expected":["g-c-mail"],"src":"gold","half":"held"}
+{"id":"te-19","kind":"technical","query":"mobile app background polling battery drain","expected":["g-c-phone"],"src":"gold","half":"calib"}
+{"id":"te-20","kind":"technical","query":"release gating on canary health metrics","expected":["g-rule-canary"],"src":"gold","half":"held"}
+{"id":"te-21","kind":"technical","query":"mandatory peer approval for DDL changes","expected":["g-rule-review"],"src":"gold","half":"calib"}
+{"id":"te-22","kind":"technical","query":"schedule a third party security assessment","expected":["g-duty-pentest"],"src":"gold","half":"held"}
+{"id":"te-23","kind":"technical","query":"cache invalidation triggered on price update events","expected":["g-cache-key"],"src":"gold","half":"calib"}
+{"id":"te-24","kind":"technical","query":"staging bind port configuration","expected":["g-port-new"],"src":"gold","half":"held"}
+{"id":"te-25","kind":"technical","query":"runtime LTS upgrade for all services","expected":["g-node-new"],"src":"gold","half":"calib"}
+{"id":"te-26","kind":"technical","query":"payment processor redundancy with failover","expected":["g-vendor-new"],"src":"gold","half":"held"}
+{"id":"te-27","kind":"technical","query":"current pager rotation owner","expected":["g-oncall-new"],"src":"gold","half":"calib"}
+{"id":"te-28","kind":"technical","query":"frontend styling framework migration","expected":["g-css-new"],"src":"gold","half":"held"}
+{"id":"te-29","kind":"technical","query":"biometric authentication on mobile","expected":["b-login"],"src":"gold","half":"calib"}
+{"id":"te-30","kind":"technical","query":"secure enclave credential storage offline","expected":["b-session"],"src":"gold","half":"held"}
+{"id":"te-31","kind":"technical","query":"payments index rebuild fix after non-durable state on reboot","expected":["s8"],"src":"filler","half":"calib"}
+{"id":"te-32","kind":"technical","query":"database upload path profiling after volatile state lost on reboot","expected":["s2g"],"src":"filler","half":"held"}
+{"id":"te-33","kind":"technical","query":"ops worker queue rollout with undiagnosed root cause","expected":["s4o"],"src":"filler","half":"calib"}
+{"id":"te-34","kind":"technical","query":"testing connection pool migration with equivalent throughput from simpler design","expected":["s6w"],"src":"filler","half":"held"}
+{"id":"te-35","kind":"technical","query":"frontend upload path regression with benchmark results rejected in review","expected":["s94"],"src":"filler","half":"calib"}
+{"id":"te-36","kind":"technical","query":"ops health check migration after non-persistent state lost on reboot","expected":["sbc"],"src":"filler","half":"held"}
+{"id":"te-37","kind":"technical","query":"auth upload path migration with equivalent throughput from simpler design","expected":["sdk"],"src":"filler","half":"calib"}
+{"id":"te-38","kind":"technical","query":"mobile session store benchmark p99 regression under production load","expected":["sfs"],"src":"filler","half":"held"}
+{"id":"te-39","kind":"technical","query":"api rate limiter rewrite with equivalent throughput from simpler design","expected":["si0"],"src":"filler","half":"calib"}
+{"id":"te-40","kind":"technical","query":"deploy migration rollback after non-persistent state lost on reboot","expected":["sk8"],"src":"filler","half":"held"}
+{"id":"ke-01","kind":"keywords","query":"orders stored in postgresql","expected":["g-postgres"],"src":"gold","half":"calib"}
+{"id":"ke-02","kind":"keywords","query":"csv import out of memory","expected":["g-oom"],"src":"gold","half":"held"}
+{"id":"ke-03","kind":"keywords","query":"expired tls certificate","expected":["g-tls"],"src":"gold","half":"calib"}
+{"id":"ke-04","kind":"keywords","query":"outgoing email job queue","expected":["g-queue"],"src":"gold","half":"held"}
+{"id":"ke-05","kind":"keywords","query":"money floating point","expected":["g-money"],"src":"gold","half":"calib"}
+{"id":"ke-06","kind":"keywords","query":"billed twice race condition","expected":["g-race"],"src":"gold","half":"held"}
+{"id":"ke-07","kind":"keywords","query":"server out of disk unrotated logs","expected":["g-disk"],"src":"gold","half":"calib"}
+{"id":"ke-08","kind":"keywords","query":"plain containers instead of kubernetes","expected":["g-k8s"],"src":"gold","half":"held"}
+{"id":"ke-09","kind":"keywords","query":"cors staging domain","expected":["g-cors"],"src":"gold","half":"calib"}
+{"id":"ke-10","kind":"keywords","query":"missing index orders list","expected":["g-index"],"src":"gold","half":"held"}
+{"id":"ke-11","kind":"keywords","query":"daylight saving scheduled jobs","expected":["g-dst"],"src":"gold","half":"calib"}
+{"id":"ke-12","kind":"keywords","query":"dashboard bundle two megabytes","expected":["g-bundle"],"src":"gold","half":"held"}
+{"id":"ke-13","kind":"keywords","query":"app eating phone battery","expected":["g-c-phone"],"src":"gold","half":"calib"}
+{"id":"ke-14","kind":"keywords","query":"schema migration second reviewer","expected":["g-rule-review"],"src":"gold","half":"held"}
+{"id":"ke-15","kind":"keywords","query":"catalog cache explicit invalidation","expected":["g-cache-key"],"src":"gold","half":"calib"}
+{"id":"ke-16","kind":"keywords","query":"staging server port 9090","expected":["g-port-new"],"src":"gold","half":"held"}
+{"id":"ke-17","kind":"keywords","query":"services run on node 22","expected":["g-node-new"],"src":"gold","half":"calib"}
+{"id":"ke-18","kind":"keywords","query":"payco billfast card payments","expected":["g-vendor-new"],"src":"gold","half":"held"}
+{"id":"ke-19","kind":"keywords","query":"blue-green switch load balancer","expected":["a-deploy"],"src":"gold","half":"calib"}
+{"id":"ke-20","kind":"keywords","query":"sessions stored in redis","expected":["a-session"],"src":"gold","half":"held"}
+{"id":"ke-21","kind":"keywords","query":"fixed the connection pool in billing numbers did not survive review","expected":["s4"],"src":"filler","half":"calib"}
+{"id":"ke-22","kind":"keywords","query":"measured the rate limiter in payments blocked the event loop","expected":["s18"],"src":"filler","half":"held"}
+{"id":"ke-23","kind":"keywords","query":"fixed the worker queue in payments blocked the event loop","expected":["s2c"],"src":"filler","half":"calib"}
+{"id":"ke-24","kind":"keywords","query":"profiled the session store in deploy numbers did not survive review","expected":["s3g"],"src":"filler","half":"held"}
+{"id":"ke-25","kind":"keywords","query":"measured the retry policy in payments blocked the event loop","expected":["s4k"],"src":"filler","half":"calib"}
+{"id":"ke-26","kind":"keywords","query":"profiled the worker queue in testing latency doubled","expected":["s5o"],"src":"filler","half":"held"}
+{"id":"ke-27","kind":"keywords","query":"migrated the worker queue in deploy failure mode","expected":["s6s"],"src":"filler","half":"calib"}
+{"id":"ke-28","kind":"keywords","query":"shipped the index build in api latency doubled","expected":["s7w"],"src":"filler","half":"held"}
+{"id":"ke-29","kind":"keywords","query":"reverted the token refresh in ops simpler shape","expected":["s90"],"src":"filler","half":"calib"}
+{"id":"ke-30","kind":"keywords","query":"reverted the upload path in billing lost data on restart","expected":["sa4"],"src":"filler","half":"held"}
+{"id":"ke-31","kind":"keywords","query":"broke the index build in security lost data on restart","expected":["sb8"],"src":"filler","half":"calib"}
+{"id":"ke-32","kind":"keywords","query":"chose the worker queue in api blocked the event loop","expected":["scc"],"src":"filler","half":"held"}
+{"id":"ke-33","kind":"keywords","query":"broke the token refresh in search lost data on restart","expected":["sdg"],"src":"filler","half":"calib"}
+{"id":"ke-34","kind":"keywords","query":"fixed the connection pool in cache numbers did not survive review","expected":["sek"],"src":"filler","half":"held"}
+{"id":"ke-35","kind":"keywords","query":"rolled back the migration in api latency doubled","expected":["sfo"],"src":"filler","half":"calib"}
+{"id":"ke-36","kind":"keywords","query":"reverted the session store in api numbers did not survive review","expected":["sgs"],"src":"filler","half":"held"}
+{"id":"ke-37","kind":"keywords","query":"migrated the health check in ci simpler shape","expected":["shw"],"src":"filler","half":"calib"}
+{"id":"ke-38","kind":"keywords","query":"profiled the worker queue in ci lost data on restart","expected":["sj0"],"src":"filler","half":"held"}
+{"id":"ke-39","kind":"keywords","query":"broke the worker queue in auth failure mode","expected":["sk4"],"src":"filler","half":"calib"}
+{"id":"ke-40","kind":"keywords","query":"chose the retry policy in mobile blocked the event loop","expected":["sl8"],"src":"filler","half":"held"}
