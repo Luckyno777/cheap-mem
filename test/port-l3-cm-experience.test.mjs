@@ -66,6 +66,14 @@ const bytes = (root) => fs.readdirSync(path.join(root, 'global')).filter((f) => 
 
 // --- scope & account -----------------------------------------------------------
 
+test('the thresholds are lucky-mem\'s: gate 2 in 30 days, ripe 3 points of 2 kinds, 14-day windows, 3 before/after', () => {
+  assert.deepEqual([xp.CASES_MIN, xp.CASES_WINDOW_DAYS, xp.RIPE_POINTS_MIN, xp.RIPE_KINDS_MIN], [2, 30, 3, 2]);
+  assert.deepEqual([xp.PROVEN_DAYS, xp.COMPARE_WINDOW_DAYS, xp.COMPARE_MIN_BEFORE, xp.EFFECT_MIN_BEFORE, xp.EFFECT_MIN_AFTER], [14, 14, 3, 3, 3]);
+  const scope = xp.scopeOf({ classes: [CLS], files: ['src/svc/'], topics: ['deploy'] });
+  assert.equal(xp.inScope({ class: CLS, file: 'src/svc/a.mjs', topic: 'deploy' }, scope), true, 'all three axes hit');
+  assert.equal(xp.inScope({ class: CLS, file: 'src/svc/a.mjs', topic: 'other' }, scope), false, 'axes are AND, not OR');
+});
+
 test('account: counts the errors IN scope, not outside (positive control + counter-probes)', (t) => {
   const { root, ids } = world(t);
   const k = xp.account(item(root, ids.needle), xp.stock(root), { now: NOW });
@@ -256,6 +264,7 @@ function guardWorld(t) {
 
 test('guards: a test with `// error: <id>` guards it; a return AFTER the test commit is a suspicion with both ids', (t) => {
   const { root, s1, s2, s3, w2, w3, v1 } = guardWorld(t);
+  assert.equal(xp.markPairs(root).length, 4, 'the empty test file carries a mark but no test()');
   const g = xp.guards(root, { commitTime: () => ago(30).toISOString() });
   const per = Object.fromEntries(g.pairs.map((p) => [p.error, p]));
   assert.equal(g.pairs.length, 4, 'a test file without test() does not count');

@@ -2832,7 +2832,6 @@ export function checkIntegrationContract(root, { settingsPaths = null, codeRoot 
  *   unknown  inbox or ledger unreadable (a broken ledger line may hide a budget)
  */
 export function checkInboxWaitingPermission(root, { now = new Date() } = {}) {
-  const N = 'inbox-waiting-permission';
   let messages;
   let broken;
   let participants = {};
@@ -2841,17 +2840,17 @@ export function checkInboxWaitingPermission(root, { now = new Date() } = {}) {
     messages = inbox.read(root, {}).messages ?? [];
     broken = mailpermit.status(root, { now }).broken;
   } catch (e) {
-    return finding(N, LEVEL.UNKNOWN, `not readable: ${e?.message || e}`);
+    return finding('inbox-waiting-permission', LEVEL.UNKNOWN, `not readable: ${e?.message || e}`);
   }
   if (broken.length) {
-    return finding(N, LEVEL.UNKNOWN, `${broken.length} unreadable line(s) in ${mailpermit.FILE} — a budget may be missing`,
+    return finding('inbox-waiting-permission', LEVEL.UNKNOWN, `${broken.length} unreadable line(s) in ${mailpermit.FILE} — a budget may be missing`,
       'mem inbox permissions');
   }
   const pm = mailpermit.checker(root, { now });
   const waiting = messages.filter((m) => envelope.wakes(m, { permit: pm, human: (n) => cfgmod.isHuman(participants[n]) }).reason === envelope.WAITING);
-  if (!waiting.length) return finding(N, LEVEL.GOOD, 'no message waits for permission');
+  if (!waiting.length) return finding('inbox-waiting-permission', LEVEL.GOOD, 'no message waits for permission');
   const oldest = waiting.map((m) => String(m.time ?? '')).filter(Boolean).sort()[0];
-  return finding(N, LEVEL.WARN, `${waiting.length} message(s) ${envelope.WAITING}${oldest ? `, oldest since ${oldest}` : ''} — they wake nobody`,
+  return finding('inbox-waiting-permission', LEVEL.WARN, `${waiting.length} message(s) ${envelope.WAITING}${oldest ? `, oldest since ${oldest}` : ''} — they wake nobody`,
     'See: mem inbox permissions. Permit one: mem inbox permit <name> --authority user '
     + '(or a budget: mem inbox allow --letters N --authority user; the dashboard task inbox-permit behind a password session).');
 }

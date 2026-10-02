@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 80 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 81 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3363 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3388 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -101,6 +101,7 @@ directory. The section number in brackets is where it is explained.
 | `errorfile.mjs` | which file an error concerns: an explicit field first, else the path pattern |
 | `errorfixes.mjs` | errors linked to their fixes and lessons on the existing link drawer: commit trailer `Fixes: <id>` -> `resolves` (`mem error-fixes backfill`), `mem log learning --from <id>` -> `generalizes`, notes at write time, doctor `error-linked` (10.26) |
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
+| `experience.mjs` | the experience of a skill/workflow/snippet/procedure inside its DECLARED scope: account (traps, fixes, learnings), the causality gate, the sharpening package (proposal only), versions as trial correction lines (owner only), review marks, test<->error guards, procedure effect; doctor `skill-sharpen`, `guard-suspicion`, `procedure-effect` (10.29) |
 | `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, stale lock taken over by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `fulltext.mjs` | full-text search behind the knowledge view's search field: `GET /api/fulltext?q=` returns the ids whose WHOLE entry (every string field, tags, nested) contains the query; index kept per store state under the dashboard cache's generation stamp; a failure is `measurable:false`, never an empty list (7.5) |
@@ -597,7 +598,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 80 commands
+### 7.1 CLI — 81 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -609,6 +610,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
+experience
 ```
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later
@@ -1906,3 +1908,59 @@ write path sets `To-Route` on a reply from the original, and `mem inbox
 new` does not offer such a reply to another session of the same role.
 `mem inbox routes` lists them; `mem inbox permissions` shows budgets,
 grants and what is waiting.
+
+**What waits, and permitting it from the dashboard.** `mem doctor` reports
+`inbox-waiting-permission`: messages the one wake rule would wake but
+that lack a grant or budget (warn, with the oldest), unknown when the
+ledger has a broken line (it may hide a budget). The dashboard permits a
+message through the task `inbox-permit` (`POST /task`), which runs `mem
+inbox permit <name> --authority user --json`; `--authority user` comes
+only from a password session, and without one the task is refused before
+anything runs.
+
+**Picked up.** When the recipient itself fetches its mail (`mem inbox
+new`, `mem inbox show`, MCP `mem_inbox_new`), one `picked-up` event per
+message and recipient is appended to `inbox/states.jsonl` (never by the
+watcher's poll, never twice). A `read` request asks for no answer: once
+its recipient picked it up it reads as `processed`; a `request` stays
+open until answered.
+
+### 10.29 Experience of a skill — `src/experience.mjs`, `mem skills account|sharpen|version`, `mem experience`
+
+Ported from lucky-mem (L3, L2b). A view over drawers that exist — the
+registry, errors, learnings and the `resolves`/`generalizes`/`contradicts`
+links — with no new store and no model: the code names evidence ids, a
+session writes the prose. The system proposes, the owner decides.
+
+**Scope.** An error counts for an entry only inside the scope the entry
+declares: `classes` (error classes; a procedure's `on_class` counts),
+`files` (paths, a trailing `/` for a folder), `topics` (an error's
+`topic` or `tags`). Several axes must all hit. Without a scope an entry
+gets no errors at all — an error that only sounds similar is no
+experience of it. Whether a use helped is written nowhere, so it stays
+unknown and is never a trigger.
+
+**Account and package.** `mem skills account [<name>]` lists traps,
+fixes, learnings, contradictions and open traps. Two cases in scope in
+30 days make a proposal (one is an event). `mem skills sharpen <name>`
+shows what is new since the last version — new traps, fixes proven for
+14 days whose error did not come back, new learnings, newly released
+procedures for the same class, questionable steps — each with its id;
+ripe from 3 points of 2 kinds AND the gate. The source time of a
+`Fixes:` edge is the commit time, not when backfill wrote the edge.
+
+**Versions.** `mem skills version <name> [--text] [--title] [--classes]
+[--files] [--topics] --issued-by owner --authority user` appends a
+correction line (`replaces_id`) with `start_status: trial`, never
+released; releasing stays `mem skills status`. Refused before writing
+without both flags, in a headless run, or under a lower authority
+ceiling. A version that only sets the scope keeps the package start.
+
+**Views.** `mem experience review` names old fixes a newer learning
+generalizes over (never marked obsolete by itself); `mem experience
+guards` pairs tests carrying `// error: <id>` with the error and flags
+a return after the test commit as a suspicion; `mem experience effect`
+compares a released procedure's repetition rate 14 days before and after
+its release. Doctor: `skill-sharpen`, `guard-suspicion`,
+`procedure-effect` — numbers and suspicions, never a verdict, nothing
+changed.
