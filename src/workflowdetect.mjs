@@ -32,7 +32,7 @@ import * as component from './component.mjs';
 import * as pointer from './pointer.mjs';
 
 /** The status value that keeps a workflow out of every hook. */
-export const DRAFT_STATUS = 'draft';
+const DRAFT_STATUS = 'draft';
 
 /** The role the component table gives a file a workflow's `path_patterns` names. */
 export const WORKS_ON = 'works-on';
@@ -100,7 +100,7 @@ async function tokenizer() {
 }
 
 /** Per workflow, the triggers whose tokens ALL occur in the text's tokens. */
-export async function triggerHits(root, text, { workflows = null } = {}) {
+async function triggerHits(root, text, { workflows = null } = {}) {
   const tokenize = await tokenizer();
   const have = new Set(tokenize(String(text ?? '')));
   if (!have.size) return [];
@@ -117,7 +117,7 @@ export async function triggerHits(root, text, { workflows = null } = {}) {
 }
 
 /** Tool-pattern matches per visible workflow: plain substrings of the command text. */
-export function toolPatternHits(root, command, { workflows = null } = {}) {
+function toolPatternHits(root, command, { workflows = null } = {}) {
   const text = String(command ?? '');
   if (!text.trim()) return [];
   const out = [];
@@ -136,7 +136,7 @@ export function tieText(list) {
 }
 
 /** The pointer that replaces a card already shown in this session. */
-export function pointerText(entry) {
+function pointerText(entry) {
   return `Workflow '${entry.title ?? entry.id}' (${entry.id}): already shown in this session `
     + `and unchanged. To see it again: mem workflow show ${entry.id}`;
 }
@@ -156,7 +156,7 @@ function marksDir(root, env) {
 }
 
 /** The card the first time in a session, then the pointer (unless the card changed). */
-export function cardOrPointer(root, entry, session, env = process.env) {
+function cardOrPointer(root, entry, session, env = process.env) {
   const full = () => cardText(entry);
   const dir = marksDir(root, env);
   try { fs.mkdirSync(dir, { recursive: true }); } catch { return full(); }
@@ -173,7 +173,7 @@ export function cardOrPointer(root, entry, session, env = process.env) {
 }
 
 /** Hits -> card/pointer for one winner, titles for a tie, `null` for none. */
-export function fromHits(root, hits, { session = null, env = process.env } = {}) {
+function fromHits(root, hits, { session = null, env = process.env } = {}) {
   if (!hits.length) return null;
   const best = Math.max(...hits.map((h) => h.count));
   const winners = hits.filter((h) => h.count === best);
@@ -191,14 +191,14 @@ export async function forText(root, text, { session = null, env = process.env } 
 }
 
 /** Bash occasion: tool patterns against the command text. */
-export function forCommand(root, command, { session = null, env = process.env } = {}) {
+function forCommand(root, command, { session = null, env = process.env } = {}) {
   const workflows = visibleWorkflows(root);
   if (!workflows.length) return null;
   return fromHits(root, toolPatternHits(root, command, { workflows }), { session, env });
 }
 
 /** Bash branch of the before-edit hook: hook JSON in, PreToolUse answer out, journal line booked. */
-export async function bashHookResult(root, rawJson, env = process.env) {
+async function bashHookResult(root, rawJson, env = process.env) {
   let j;
   try { j = JSON.parse(String(rawJson ?? '')); } catch { return null; }
   if (j?.tool_name !== 'Bash') return null;

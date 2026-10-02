@@ -26,11 +26,11 @@ import * as search from './search.mjs';
 import * as procedure from './procedure.mjs';
 
 /** How long a commit hash is in `evidence` (git-usual, unique enough). */
-export const HASH_LENGTH = 12;
+const HASH_LENGTH = 12;
 /** Who writes the edges (field `agent`). */
 export const AGENT = 'errorfixes';
 /** At most this many errors/learnings/procedures/fixes per note. */
-export const NOTE_MAX = 3;
+const NOTE_MAX = 3;
 /** The window of the "last 30 days" metric. */
 export const WINDOW_DAYS = 30;
 /**
@@ -60,14 +60,14 @@ export function fixesIds(text) {
 }
 
 /** `commit:<hash>` — the ONE spelling of a commit as evidence. */
-export function commitEvidence(hash) {
+function commitEvidence(hash) {
   return `${memory.COMMIT_EVIDENCE_PREFIX}${String(hash).slice(0, HASH_LENGTH)}`;
 }
 
 // --- reading the store ---------------------------------------------------
 
 /** Errors that count, id -> entry: done/obsolete still do (a fix closes); superseded/discarded/disputed not. */
-export function errorMap(root) {
+function errorMap(root) {
   const map = new Map();
   for (const project of [null, ...memory.listProjects(root)]) {
     let entries;
@@ -101,7 +101,7 @@ function allLinks(root) {
 }
 
 /** Keys `<error-id>|<evidence>` of the `resolves` edges that carry evidence. */
-export function existingResolvesKeys(root) {
+function existingResolvesKeys(root) {
   const s = new Set();
   for (const l of allLinks(root)) {
     if (l.kind === 'resolves' && typeof l.evidence === 'string' && l.evidence) s.add(`${l.to}|${l.evidence}`);
@@ -112,7 +112,7 @@ export function existingResolvesKeys(root) {
 // --- writing ----------------------------------------------------------------
 
 /** ONE `resolves` link, unless the error is unknown, evidence missing or the key known. */
-export function writeResolves(root, { from, errorId, evidence, why }, { errors, known, checkOnly = false }) {
+function writeResolves(root, { from, errorId, evidence, why }, { errors, known, checkOnly = false }) {
   const e = errors.get(errorId);
   if (!e) return { written: false, reason: 'unknown' };
   if (!evidence) return { written: false, reason: 'no-evidence' };
@@ -127,7 +127,7 @@ export function writeResolves(root, { from, errorId, evidence, why }, { errors, 
 }
 
 /** `Fixes:` trailers of `[{hash, body}]` -> links; `unknown` holds the warnings to show. */
-export function edgesFromCommits(root, commits, { checkOnly = false, errors = null, known = null } = {}) {
+function edgesFromCommits(root, commits, { checkOnly = false, errors = null, known = null } = {}) {
   const f = errors ?? errorMap(root);
   const k = known ?? existingResolvesKeys(root);
   const r = { written: [], would: [], present: [], unknown: [] };
@@ -176,7 +176,7 @@ const TRAILER_LINE = /^[ \t]*Fixes:/i;
  * evidence. The sibling house found the wide one (a fix word anywhere on
  * the line) right in about 4 of 13 cases; `textCandidates` only counts it.
  */
-export function textMentions(body, errors) {
+function textMentions(body, errors) {
   const out = [];
   for (const line of String(body ?? '').split('\n')) {
     if (TRAILER_LINE.test(line)) continue;
@@ -189,7 +189,7 @@ export function textMentions(body, errors) {
 }
 
 /** The wide reading (a fix word anywhere on the line of the id) — ONLY counted, never written. */
-export function textCandidates(body, errors) {
+function textCandidates(body, errors) {
   const narrow = new Set(textMentions(body, errors));
   const out = [];
   for (const line of String(body ?? '').split('\n')) {
