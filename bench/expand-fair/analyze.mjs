@@ -16,6 +16,9 @@ export function holds(hits, bar0, p) {
   return hits.some((h) => {
     if (isExact(h)) return true;
     if (h.covered === 1 && scoreOf(h) > 0) return true;
+    // calibration option: a hit that carries none of the typed words in its
+    // OWN fields (covered 0 = matched through asked_as only) is no answer alone
+    if (p.ownMin && !(h.covered > 0)) return false;
     const s = scoreOf(h);
     if (!(s >= bar)) return false;
     if (s >= p.strong * bar) return true;
