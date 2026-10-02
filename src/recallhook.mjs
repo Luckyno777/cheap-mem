@@ -184,6 +184,32 @@ export function recall(root, hitsJson, env = process.env, { offer = null } = {})
   };
 }
 
+/** The skill drawer's file name; test/hookcost-cm pins it to `memory.TYPES.skill`. */
+export const SKILL_FILE = 'skills.jsonl';
+
+/**
+ * Can this store hold an offerable skill at all? Only a `released` skill
+ * is offered, and that word must stand in a skill drawer (status line or
+ * human `start_status`). Without it the registry, the tokenizer and the
+ * search module are never loaded: ~40 ms per prompt on a store without
+ * skills. A `\u` escape anywhere falls back to the full check. Fail-open:
+ * any doubt answers true, so the offer itself stays the one decider.
+ */
+export function mayOffer(root) {
+  const files = [path.join(root, 'global', SKILL_FILE)];
+  try {
+    for (const d of fs.readdirSync(path.join(root, 'projects'), { withFileTypes: true })) {
+      if (d.isDirectory()) files.push(path.join(root, 'projects', d.name, SKILL_FILE));
+    }
+  } catch (e) { if (!e || e.code !== 'ENOENT') return true; }
+  for (const f of files) {
+    let raw;
+    try { raw = fs.readFileSync(f, 'utf8'); } catch (e) { if (e && e.code === 'ENOENT') continue; return true; }
+    if (raw.includes('released') || raw.includes('\\u')) return true;
+  }
+  return false;
+}
+
 /**
  * The skill offer for the prompt in MEM_RH_PROMPT, or null. Never throws:
  * a broken registry costs the offer, not the recall.
@@ -191,6 +217,7 @@ export function recall(root, hitsJson, env = process.env, { offer = null } = {})
 export async function skillOffer(root, env = process.env) {
   if (!root || !env.MEM_RH_PROMPT) return null;
   try {
+    if (!mayOffer(root)) return null;
     const reg = await import('./skillregistry.mjs');
     await reg.loadTokenizer();
     return reg.offer(root, env.MEM_RH_PROMPT);
