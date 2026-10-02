@@ -182,6 +182,22 @@ journal_book() {
 IS_BASH=""
 if printf '%s' "$IN" | grep -qE '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; then
   IS_BASH=1
+  # **Workflows first (wf-bc B3 port), independent of any written file.**
+  # `npm test` or `git rebase` write no file, so the prefilter below
+  # would leave silently before a workflow's `tool_patterns` were ever
+  # looked at. A workflow hit goes out at once, with its own journal
+  # line (src/workflowdetect.mjs decides and books); no hit falls through
+  # unchanged. The node start is paid only when some workflow drawer
+  # holds a `tool_patterns` field at all — a grep, no process.
+  WFD="$TOOL_ROOT/src/workflowdetect.mjs"
+  if [ -f "$WFD" ] && grep -qs '"tool_patterns"' "$ROOT/global/workflows.jsonl" "$ROOT"/projects/*/workflows.jsonl; then
+    WF_OUT="$(printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" capped 5 node "$WFD" bash 2>/dev/null)"
+    if [ -n "$WF_OUT" ]; then
+      printf '%s' "$WF_OUT"
+      trace "workflow"
+      exit 0
+    fi
+  fi
   STRIPPED="$(printf '%s' "$IN" | sed -E 's/[0-9]*>&[0-9-]+//g; s/&?>>?[[:space:]]*\/dev\/null//g')"
   if ! printf '%s' "$STRIPPED" | grep -q '>' \
      && ! printf '%s' "$STRIPPED" | grep -qE '(^|[^A-Za-z0-9_-])(tee|sed|cp|mv)($|[^A-Za-z0-9_-])'; then
@@ -364,12 +380,19 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
     // silence. Same family as everything else here: a separator
     // written into a pattern that has to read a real path.
     const warning = /[\\/](errors|decisions|learnings)\.jsonl$/;
+    // A workflow whose `path_patterns` name this file says HOW a change
+    // here goes. Only as a component-table row of role `works-on`: that
+    // role is written for VISIBLE workflows alone (in force, issued by a
+    // human, not a draft — src/workflowdetect.mjs); a workflow that merely
+    // mentions the path, or a live-search fallback hit, stays out.
+    const isWorkflow = (h) => /[\\/]workflows\.jsonl$/.test(String(h.source || "")) && h.form === "works-on";
     const out = [];
     for (const h of (j.hits || [])) {
-      if (!warning.test(String(h.source || ""))) continue;
+      const wf = isWorkflow(h);
+      if (!wf && !warning.test(String(h.source || ""))) continue;
       const day = String(h.ts || "").slice(0, 10);
       const text = String(h.label || "").trim();
-      if (text) out.push(`  ${day}  ${text}`);
+      if (text) out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
       if (out.length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
     }
     // Open duties and released procedures for this file, each capped

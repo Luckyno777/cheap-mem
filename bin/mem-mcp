@@ -96,6 +96,7 @@ import * as variantsMod from '../src/variants.mjs';
 import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
+import * as errorfixes from '../src/errorfixes.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -424,6 +425,7 @@ const TOOLS = [
         retires_id: { type: 'string', description: 'With state "superseded" and by_id: mark this entry superseded by an existing one (same as mem supersede)' },
         state: { type: 'string' },
         by_id: { type: 'string', description: 'The successor for state "superseded"' },
+        from: { type: 'string', description: 'For type learning: the error id(s) this lesson is drawn from (comma-separated) — written as generalizes links, not as a field. For type link: the source id.' },
       },
       required: ['type'],
     },
@@ -1115,6 +1117,17 @@ async function handleCall(name, args) {
       const { type, project = null, tags, agent: _ignored, id: _no, ts: _neither, ...fields } = args;
       let data = bridgeAuthority({ ...fields, agent: resolveAgent() });
       if (Array.isArray(tags)) data.tags = tags;
+      // L2a port: `from` on a learning is not a field but `generalizes`
+      // links after the write — the same rule as `mem log learning --from`
+      // (src/cli/commands/write.mjs). An unknown id refuses BEFORE the write.
+      let fromErrors = [];
+      if (type === 'learning' && Object.hasOwn(data, 'from')) {
+        fromErrors = errorfixes.fromIds(data.from);
+        delete data.from;
+        if (!fromErrors.length) throw new Error('from without an error id (meant: an error id, or comma-separated ids).');
+        const c = errorfixes.checkFrom(root, fromErrors);
+        if (c.unknown.length) throw new Error(`from: no error with id ${c.unknown.join(', ')}. Nothing was written.`);
+      }
       // **Snippets: the redaction gate applies here too.** The bridge MAY
       // write this type — unlike `procedure`/`workflow` it is not an
       // authority question — but a `text`/`mail`/`letter` snippet whose
@@ -1159,6 +1172,17 @@ async function handleCall(name, args) {
       if (findings.length) lines.push(`  ${memory.findingsLine(findings)}`);
       lines.push(...neighbours.hint(around));
       lines.push(...neighbours.similarHint(alike, { newId: entry.id }));
+      // L2a port: the same learning <- error link, or note, as `mem log learning`.
+      if (type === 'learning') {
+        try {
+          if (fromErrors.length) {
+            const k = errorfixes.writeGeneralizes(root, entry.id, fromErrors, { project });
+            lines.push(`  generalizes: ${k.written.join(', ') || '(nothing new)'} — link(s) from ${entry.id}`);
+          } else {
+            lines.push(...errorfixes.noteForLearning(root, entry, { newId: entry.id, via: 'mcp' }));
+          }
+        } catch (e) { lines.push(`Learning link failed: ${e.message}`); }
+      }
 
       // **F1/F4 belong HERE too, not only in bin/mem.** Same reasoning
       // as the broadcast right below: a foreign agent files errors over
@@ -1166,6 +1190,9 @@ async function handleCall(name, args) {
       // here as at the CLI — see src/errorcontext.mjs.
       if (type === 'error') {
         lines.push(...errorcontext.historyLines(root, entry, { project }));
+        // L2a port: the same fix note as `mem log error` (output only).
+        try { lines.push(...errorfixes.noteForError(root, entry)); }
+        catch (e) { lines.push(`Fix note failed: ${e.message}`); }
         const rep = errorcontext.checkAndDuty(root, entry, { project });
         if (rep.triggered) {
           if (rep.created) {
@@ -1211,7 +1238,8 @@ async function handleCall(name, args) {
       const lines = [];
       lines.push(g.entry ? `${g.entry._type}  ${shortLine(g.entry)}` : `(no entry with id ${g.id})`);
       const showRelation = (r, arrow) => `    ${arrow} ${String(r.kind).padEnd(12)} ${r.other}  `
-        + (r.entry ? `${r.entry._type}: ${shortLine(r.entry)}` : '(missing entry)');
+        + (r.entry ? `${r.entry._type}: ${shortLine(r.entry)}`
+          : (memory.isOutsideEvidence(r.other) ? '(evidence outside the memory)' : '(missing entry)'));
       if (g.out.length) { lines.push('', '  this entry ->'); for (const r of g.out) lines.push(showRelation(r, '->')); }
       if (g.incoming.length) { lines.push('', '  -> this entry'); for (const r of g.incoming) lines.push(showRelation(r, '<-')); }
       if (!g.out.length && !g.incoming.length) lines.push('', '  no links yet.');

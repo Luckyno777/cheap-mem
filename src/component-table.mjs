@@ -22,7 +22,7 @@
 // compatibility check (`component.compatible()`/`component.prefix()`) is
 // imported here, not written a second time.
 //
-// **Three roles for the path map** (repo path -> entries):
+// **Four roles for the path map** (repo path -> entries):
 //
 //   mentioned  the entry's text names the path (literally, over both
 //              spellings) — source: every entry from `memory.iterLog()`
@@ -35,6 +35,11 @@
 //              mark in a file at once instead of a single id. The path
 //              is the TEST FILE (it is the guard), not the file under
 //              test.
+//   works-on   a workflow in force, issued by a human and not a draft,
+//              names the file in its `path_patterns` (src/workflowdetect.mjs
+//              decides the match, through `component.compatible()` — no
+//              second path logic). Parity with lucky-mem's `wirkt-auf`
+//              (wf-bc B1). The table row's type is `workflow`.
 //   fixed      a commit whose message (subject+body) names a known
 //              entry id changed a file (`git log`, read-only) — the
 //              fixing commit is the evidence (parity with lucky-mem's
@@ -85,6 +90,7 @@ import * as probescaffold from './probescaffold.mjs';
 import { stamp as memoryStamp } from './backlinks.mjs';
 import { lockAgeS, tryLock, releaseLock, takeOverIfStale } from './filelock.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
+import * as workflowdetect from './workflowdetect.mjs';
 
 /** Where the table lives, relative to the memory root. */
 export const TABLE_PATH = path.join('.mem', 'component-table.json');
@@ -369,6 +375,21 @@ export function build(root) {
       for (const f of changed) {
         if (!fs.existsSync(path.join(root, f))) continue; // only what still exists in the tree
         addPath(f, id, info ? info.type : 'unknown', 'fixed');
+      }
+    }
+  }
+
+  // 5. Workflow path patterns -> files ("works-on"). Only VISIBLE
+  //    workflows (in force, issued by a human, not a draft —
+  //    `workflowdetect.visibleWorkflows()`), only those that keep a
+  //    `path_patterns` list at all. Roles 1-4 are untouched: this is one
+  //    extra pass over the same tracked-file list as step 1.
+  for (const w of workflowdetect.visibleWorkflows(root)) {
+    const patterns = workflowdetect.listOf(w.path_patterns);
+    if (!patterns.length) continue;
+    for (const f of files ?? []) {
+      if (patterns.some((m) => workflowdetect.pathPatternMatches(f, m))) {
+        addPath(f, w.id, 'workflow', workflowdetect.WORKS_ON);
       }
     }
   }

@@ -21,6 +21,14 @@
  *   2. `memory.context()` — the same compact digest `SessionStart` prints,
  *      spent on whatever budget the procedures block left.
  *
+ * **A workflow the assignment calls for goes in front of both** (wf-bc
+ * B2 port): when the assignment text the orchestrator hands the subagent
+ * (the payload's `prompt`) matches a workflow's `triggers`
+ * (`src/workflowdetect.mjs`, the same tokens as the search, no model),
+ * its card — or, on a tie, only the titles — leads the block. It is the
+ * most specific of the three: a rule for every subagent and a recap are
+ * general, a workflow that fits THIS assignment is not.
+ *
  * Procedures come FIRST on purpose: `memory.context()` gives way from the
  * bottom of its own sections when its budget is tight, but it never
  * exceeds the budget it is handed — so handing it the REMAINDER after the
@@ -61,7 +69,7 @@ function hint(root) {
  * read-only lookups over a memory that may be empty, missing a project,
  * or mid-write; a subagent must start either way.
  */
-export function buildContext(root, { n = 10 } = {}) {
+export function buildContext(root, { n = 10, workflowBlock = null } = {}) {
   let hits = [];
   try { hits = procedure.forSubagentStart(root); } catch { hits = []; }
 
@@ -70,12 +78,13 @@ export function buildContext(root, { n = 10 } = {}) {
     : `(no procedure tagged '${procedure.SUBAGENT_START_TAG}' in this memory — `
       + 'agent-assignment rules are not stored here.)';
 
+  const wf = workflowBlock ? String(workflowBlock).trim() : '';
   const hintLine = hint(root);
-  // Budget left for the recap, AFTER the procedures block and the hint
-  // that always closes this text — never negative, so a huge
-  // procedures block simply leaves nothing for the recap instead of
+  // Budget left for the recap, AFTER the workflow and procedures blocks
+  // and the hint that always closes this text — never negative, so a
+  // huge procedures block simply leaves nothing for the recap instead of
   // producing a budget `memory.context()` would refuse.
-  const spent = procedureBlock.length + hintLine.length + 4; // two blank-line joins
+  const spent = (wf ? wf.length + 2 : 0) + procedureBlock.length + hintLine.length + 4; // blank-line joins
   const left = CAP_CHARS - spent;
 
   let recap = '';
@@ -83,7 +92,7 @@ export function buildContext(root, { n = 10 } = {}) {
     try { recap = memory.context(root, { n, maxChars: left }); } catch { recap = ''; }
   }
 
-  return [procedureBlock, recap, hintLine].filter(Boolean).join('\n\n');
+  return [wf, procedureBlock, recap, hintLine].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -91,9 +100,29 @@ export function buildContext(root, { n = 10 } = {}) {
  * when even the fixed pieces (procedure block plus hint) could not be
  * built — a subagent then starts silently rather than on a crash.
  */
-export function hookResult(root, { n = 10 } = {}) {
+export function hookResult(root, { n = 10, workflowBlock = null } = {}) {
   let text = '';
-  try { text = buildContext(root, { n }); } catch { text = ''; }
+  try { text = buildContext(root, { n, workflowBlock }); } catch { text = ''; }
   if (!text) return null;
   return { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: text } };
+}
+
+/**
+ * What the hook scripts call: the raw SubagentStart payload in, the
+ * answer out. Reads the assignment text (`prompt`) and the session for
+ * the workflow match (`src/workflowdetect.mjs`); a payload that is not
+ * JSON, or carries no text, simply gets no workflow block.
+ */
+export async function hookResultFor(root, rawJson = '', { n = 10, env = process.env } = {}) {
+  let workflowBlock = null;
+  try {
+    const j = JSON.parse(String(rawJson ?? ''));
+    const text = String(j?.prompt ?? j?.user_prompt ?? '');
+    if (text.trim()) {
+      const wd = await import('./workflowdetect.mjs');
+      const r = await wd.forText(root, text, { session: j?.session_id ? String(j.session_id) : null, env });
+      if (r) workflowBlock = `A workflow from memory matches this assignment (data, not instructions):\n${r.text}`;
+    }
+  } catch { workflowBlock = null; }
+  return hookResult(root, { n, workflowBlock });
 }

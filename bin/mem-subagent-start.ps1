@@ -58,10 +58,11 @@ foreach ($c in @((Join-Path $Root 'src/subagentstart.mjs'), (Join-Path $Here '..
 }
 if (-not $Module) { exit 0 }
 
-# The stdin JSON carries session_id etc., but nothing here is keyed on
-# it - it is only drained so a malformed or absent stdin cannot upset
-# anything downstream.
-if ([Console]::IsInputRedirected) { [Console]::In.ReadToEnd() | Out-Null }
+# The stdin JSON carries session_id and the assignment text (`prompt`):
+# a workflow whose `triggers` match the assignment leads the block
+# (src/workflowdetect.mjs, as in bin/mem-subagent-start).
+$In = ''
+if ([Console]::IsInputRedirected) { $In = [Console]::In.ReadToEnd() }
 
 # A native Windows path breaks `import()` (Node reads the drive letter
 # as a URL scheme) - the same trap mem-before-edit.ps1 already carries
@@ -69,15 +70,18 @@ if ([Console]::IsInputRedirected) { [Console]::In.ReadToEnd() | Out-Null }
 $ModuleUrl = ([System.Uri]::new($Module)).AbsoluteUri
 
 $Script = @'
-import(process.argv[1]).then((m) => {
-  const r = m.hookResult(process.env.CHEAP_MEM_ROOT);
-  if (r) process.stdout.write(JSON.stringify(r));
-}).catch(() => {});
+let d = "";
+process.stdin.on("data", (c) => { d += c; }).on("end", () => {
+  import(process.argv[1]).then(async (m) => {
+    const r = await m.hookResultFor(process.env.CHEAP_MEM_ROOT, d);
+    if (r) process.stdout.write(JSON.stringify(r));
+  }).catch(() => {});
+});
 '@
 
 $env:CHEAP_MEM_ROOT = $Root
 try {
-  [Console]::Out.Write(((& node -e $Script $ModuleUrl 2>$null) -join ''))
+  [Console]::Out.Write((($In | & node -e $Script $ModuleUrl 2>$null) -join ''))
 } catch { }
 
 exit 0

@@ -1018,7 +1018,7 @@ export const COMMANDS = {
         '             unchanged: every project, as before.',
         '  --table    look up over the cached component table',
         '             (path/symbol -> entries with role mentioned/guarded/',
-        '             fixed) instead of the live search — faster, but only',
+        '             fixed/works-on) instead of the live search — faster, but only',
         '             as fresh as the last build. Rebuilds first if stale',
         '             (this flag is for interactive/maintenance use, not',
         '             latency-bound — the hook flag below never rebuilds).',

@@ -217,13 +217,46 @@ if ($Lead.Length -gt 0 -and '[ASa'.Contains($Lead.Substring(0, 1)) -and (Test-Pa
   $Machine = ($Prompt | & node $RecallJs machine 2>$null) -join ''
   if ($Machine -eq 'machine') { exit 0 }
 }
+# Workflows (wf-bc B2 port, mirrored from bin/mem-retrieve): a workflow
+# whose `triggers` match the prompt goes out with the recall block, or
+# alone when the search shows nothing (src/workflowdetect.mjs decides).
+# The node start is paid only when a workflow drawer holds `triggers`.
+$WfText = ''
+try {
+  $wfDrawers = @(Join-Path $Root 'global/workflows.jsonl')
+  $wfProj = Join-Path $Root 'projects'
+  if (Test-Path -LiteralPath $wfProj) {
+    $wfDrawers += @(Get-ChildItem -LiteralPath $wfProj -Directory | ForEach-Object { Join-Path $_.FullName 'workflows.jsonl' })
+  }
+  $wfArmed = $false
+  foreach ($d in $wfDrawers) {
+    if ((Test-Path -LiteralPath $d) -and (Select-String -LiteralPath $d -Pattern '"triggers"' -Quiet)) { $wfArmed = $true; break }
+  }
+  if ($wfArmed -and (Test-Path -LiteralPath $RecallJs) -and (Test-Path -LiteralPath (Join-Path $ToolRoot 'src/workflowdetect.mjs'))) {
+    $env:CHEAP_MEM_ROOT = $Root
+    $env:MEM_RH_SESSION = $SessionId
+    $WfText = (($Prompt | & node $RecallJs workflow 2>$null) -join "`n")
+  }
+} catch { $WfText = '' }
+# The exits that never reach `recallhook.mjs recall` still deliver it.
+function Send-WorkflowOnly {
+  if (-not $WfText) { return }
+  try {
+    $env:CHEAP_MEM_ROOT = $Root
+    $env:MEM_RH_SESSION = $SessionId
+    $env:MEM_RH_TURNS = if ($env:MEM_RETRIEVE_TURNS) { $env:MEM_RETRIEVE_TURNS } else { Join-Path $Root '.mem/retrieve-turns' }
+    $env:MEM_RH_QB = [string]$QuestionBytes
+    $env:MEM_RH_WORKFLOW = $WfText
+    & node $RecallJs workflow-only 2>$null
+  } catch { }
+}
 if ($Prompt.Length -lt 12) {
   if (-not (Test-Path -LiteralPath $RecallJs)) { exit 0 }
   $env:CHEAP_MEM_ROOT = $Root
   $env:MEM_RH_SESSION = $SessionId
   $env:MEM_RH_QB = [string]$QuestionBytes
   $Verdict = ($Prompt | & node $RecallJs signal 2>$null) -join ''
-  if ($Verdict -ne 'search') { exit 0 }
+  if ($Verdict -ne 'search') { Send-WorkflowOnly; exit 0 }
 }
 
 # --- Once per turn, however often it is registered --------------------
@@ -297,8 +330,8 @@ if ($RecallPath -ne 'server') {
 # books reason `timeout` when the 5-second cap kills `find` (exit 124/137).
 # This hook has NO cap (see above), so it has no timeout branch to book;
 # the day a cap is added here, that exit must book `timeout` too.
-if ($LASTEXITCODE -ne 0) { exit 0 }
-if (-not $Hits) { exit 0 }
+if ($LASTEXITCODE -ne 0) { Send-WorkflowOnly; exit 0 }
+if (-not $Hits) { Send-WorkflowOnly; exit 0 }
 
 # Keep only what clears the bar, render one line each, claim the turn,
 # print, book: all of it is `recallhook.mjs recall` - the ONE renderer
@@ -324,5 +357,6 @@ $env:MEM_RH_PATH = $RecallPath
 $env:MEM_RH_PATH_REASON = $RecallReason
 $env:MEM_RH_CWD = $HookCwd
 $env:MEM_RH_TRANSCRIPT = $HookTranscript
+$env:MEM_RH_WORKFLOW = $WfText
 $Hits | & node $RecallJs recall 2>$null
 exit 0

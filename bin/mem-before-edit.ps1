@@ -144,6 +144,34 @@ function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes) {
   } catch { }
 }
 
+# Workflows first on a Bash call (wf-bc B3 port), independent of any
+# written file: `npm test` writes none. Same module and same rule as
+# bin/mem-before-edit (src/workflowdetect.mjs decides and books); the
+# node start is paid only when a workflow drawer holds `tool_patterns`.
+if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
+  try {
+    $wfd = Join-Path $ToolRoot 'src/workflowdetect.mjs'
+    $drawers = @(Join-Path $Root 'global/workflows.jsonl')
+    $projDir = Join-Path $Root 'projects'
+    if (Test-Path -LiteralPath $projDir) {
+      $drawers += @(Get-ChildItem -LiteralPath $projDir -Directory | ForEach-Object { Join-Path $_.FullName 'workflows.jsonl' })
+    }
+    $armed = $false
+    foreach ($d in $drawers) {
+      if ((Test-Path -LiteralPath $d) -and (Select-String -LiteralPath $d -Pattern '"tool_patterns"' -Quiet)) { $armed = $true; break }
+    }
+    if ($armed -and (Test-Path -LiteralPath $wfd)) {
+      $env:CHEAP_MEM_ROOT = $Root
+      $wfOut = (($In | & node $wfd bash 2>$null) -join '')
+      if ($wfOut) {
+        [Console]::Out.Write($wfOut)
+        Write-Trace 'workflow'
+        exit 0
+      }
+    }
+  } catch { }
+}
+
 # The query is the path, but not all of it: an absolute path never
 # appears in an entry (it belongs to one machine), the last two
 # segments do - `install/claude-code.sh`, `src/search.mjs`. That is
@@ -284,12 +312,16 @@ $PickScript = @'
     // and a learning do. Either separator: on Windows the source
     // carries backslashes.
     const warning = /[\\/](errors|decisions|learnings)\.jsonl$/;
+    // A workflow row of role `works-on` (visible workflows only, see
+    // bin/mem-before-edit and src/workflowdetect.mjs).
+    const isWorkflow = (h) => /[\\/]workflows\.jsonl$/.test(String(h.source || "")) && h.form === "works-on";
     const out = [];
     for (const h of (j.hits || [])) {
-      if (!warning.test(String(h.source || ""))) continue;
+      const wf = isWorkflow(h);
+      if (!wf && !warning.test(String(h.source || ""))) continue;
       const day = String(h.ts || "").slice(0, 10);
       const text = String(h.label || "").trim();
-      if (text) out.push(`  ${day}  ${text}`);
+      if (text) out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
       if (out.length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
     }
     // Open duties and released procedures for this file, each capped
