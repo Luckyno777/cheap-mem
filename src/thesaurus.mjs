@@ -369,9 +369,25 @@ export function buildTermGraph(docs, {
     return df >= minDocFreq && df <= maxDF;
   };
 
-  // Pass 2: co-occurrence over each document's strongest usable terms.
-  const single = new Map();
-  const pairs = new Map();
+  // Pass 2: each document's strongest usable terms, as integer ids.
+  //
+  // **Memory (measured 2026-10-02, heaps corpus).** The first version of
+  // this pass counted every co-occurring pair in one Map keyed by a
+  // string: with up to `termsPerDoc` terms per document that is up to
+  // 780 distinct pairs per document, almost all of them seen once
+  // (3.34M distinct pairs for 3.9M occurrences at 5,000 documents, of
+  // which 88,750 reached `minPairs`), and the Map alone cost about
+  // 100 KB per document at build time. The pairs are now counted term
+  // by term over an inverted list instead: the counter exists for one
+  // leading term at a time, so the transient is bounded by the
+  // vocabulary, and what is held for the whole pass is two small
+  // integer lists per document. Counts, probabilities, weights and the
+  // ORDER pairs reach the graph in (first document, then position) are
+  // exactly the ones the pair Map produced, so the graph is identical.
+  const ids = new Map();
+  const names = [];
+  const single = [];
+  const docTerms = [];
   let counted = 0;
   for (const w of docs) {
     const terms = [...w.entries()]
@@ -387,31 +403,84 @@ export function buildTermGraph(docs, {
     // own sample — pAB/(pA*pB) collapses to 1, pmi to 0, and the honest
     // associations get dropped by the very filter meant to catch noise.
     counted += 1;
-    for (const t of terms) single.set(t, (single.get(t) ?? 0) + 1);
-    if (terms.length < 2) continue;
+    const row = new Int32Array(terms.length);
     for (let i = 0; i < terms.length; i += 1) {
-      for (let j = i + 1; j < terms.length; j += 1) {
-        const key = `${terms[i]}${PAIR_SEP}${terms[j]}`;
-        pairs.set(key, (pairs.get(key) ?? 0) + 1);
-      }
+      let id = ids.get(terms[i]);
+      if (id === undefined) { id = names.length; ids.set(terms[i], id); names.push(terms[i]); single.push(0); }
+      single[id] += 1;
+      row[i] = id;
     }
+    docTerms.push(row);
   }
   if (counted === 0) return new Map();
+  ids.clear();
+
+  // Inverted lists. Only terms seen in at least `minPairs` documents can
+  // be part of a pair that reaches `minPairs`, so the others are skipped.
+  // (A term's list is already in ascending document order.)
+  const V = names.length;
+  const postDoc = new Array(V);
+  const postPos = new Array(V);
+  for (let id = 0; id < V; id += 1) {
+    if (single[id] >= minPairs) { postDoc[id] = new Int32Array(single[id]); postPos[id] = new Int32Array(single[id]); }
+  }
+  const fill = new Int32Array(V);
+  for (let d = 0; d < docTerms.length; d += 1) {
+    const row = docTerms[d];
+    for (let i = 0; i < row.length; i += 1) {
+      const id = row[i];
+      if (postDoc[id] === undefined) continue;
+      postDoc[id][fill[id]] = d;
+      postPos[id][fill[id]] = i;
+      fill[id] += 1;
+    }
+  }
+
+  // For every leading term, count how often each later term shares a
+  // document with it, and remember where the pair was FIRST seen.
+  const cnt = new Int32Array(V);
+  const firstDoc = new Int32Array(V);
+  const firstI = new Int32Array(V);
+  const firstJ = new Int32Array(V);
+  const touched = [];
+  const kept = [];   // pairs that survive every filter, with where they were first seen
+  for (let a = 0; a < V; a += 1) {
+    if (postDoc[a] === undefined) continue;
+    const dA = postDoc[a];
+    const pA = single[a] / counted;
+    for (let k = 0; k < dA.length; k += 1) {
+      const d = dA[k];
+      const i = postPos[a][k];
+      const row = docTerms[d];
+      for (let j = i + 1; j < row.length; j += 1) {
+        const b = row[j];
+        if (cnt[b] === 0) { touched.push(b); firstDoc[b] = d; firstI[b] = i; firstJ[b] = j; }
+        cnt[b] += 1;
+      }
+    }
+    for (const b of touched) {
+      const nAB = cnt[b];
+      cnt[b] = 0;
+      if (nAB < minPairs) continue;
+      const pB = single[b] / counted;
+      const pAB = nAB / counted;
+      const pmi = Math.log(pAB / (pA * pB));
+      if (pmi <= 0) continue;
+      const npmi = pmi / -Math.log(pAB);
+      const weight = Math.min(weightCap, Math.max(0, npmi) * weightCap);
+      if (weight < minWeight) continue;
+      kept.push([firstDoc[b], firstI[b], firstJ[b], a, b, weight]);
+    }
+    touched.length = 0;
+  }
+  // The order the pair Map handed them over in: first document, then
+  // the position inside it. Positions are unique per pair, so no ties.
+  kept.sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]);
 
   const graph = new Map();
-  for (const [key, nAB] of pairs) {
-    if (nAB < minPairs) continue;
-    const sp = key.indexOf(PAIR_SEP);
-    const a = key.slice(0, sp);
-    const b = key.slice(sp + 1);
-    const pA = single.get(a) / counted;
-    const pB = single.get(b) / counted;
-    const pAB = nAB / counted;
-    const pmi = Math.log(pAB / (pA * pB));
-    if (pmi <= 0) continue;
-    const npmi = pmi / -Math.log(pAB);
-    const weight = Math.min(weightCap, Math.max(0, npmi) * weightCap);
-    if (weight < minWeight) continue;
+  for (const [, , , ia, ib, weight] of kept) {
+    const a = names[ia];
+    const b = names[ib];
     if (!graph.has(a)) graph.set(a, []);
     if (!graph.has(b)) graph.set(b, []);
     graph.get(a).push([b, weight]);
