@@ -239,6 +239,9 @@ const WEIGHT_BY_FIELD = Object.freeze({
   // (that is the title).
   steps: 1.0,
   body: 1.0,
+  // MEASUREMENT ONLY (agent/expand-measure-cm): write-time expansion
+  // field, weighted BELOW the note's own words. MEM_EXPAND_WEIGHT, default 0.3.
+  ...(process.env.MEM_EXPAND === '1' ? { asked_as: Number(process.env.MEM_EXPAND_WEIGHT ?? 0.3) } : {}),
 });
 
 export const FIELD_WEIGHTS = (() => {

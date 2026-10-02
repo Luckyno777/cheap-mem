@@ -85,6 +85,20 @@ function rng(seed) {
   };
 }
 
+// MEASUREMENT ONLY (agent/expand-measure-cm): write-time expansions for the
+// filler notes, so decoys are judged against a corpus where EVERY note has one.
+// Uses no rng draw, so the corpus itself stays byte-identical otherwise.
+const FILLER_EXPAND = process.env.MEM_EXPAND === '1' && process.env.MEM_EXPAND_FILLER === '1';
+const FILLER_VOCAB = FILLER_EXPAND
+  ? JSON.parse(fs.readFileSync(new URL('./expand/filler-asked-as.json', import.meta.url), 'utf8')) : null;
+function fillerAskedAs(e, topic) {
+  const v = FILLER_VOCAB;
+  const verb = Object.keys(v.verb).find((x) => e.title.startsWith(`${x} `));
+  const noun = Object.keys(v.noun).find((x) => e.title.includes(x));
+  const why = Object.keys(v.why).find((x) => e.text.startsWith(x));
+  return [...(v.topic[topic] ?? []).slice(0, 3), ...(v.verb[verb] ?? []), ...(v.noun[noun] ?? []), ...(v.why[why] ?? [])];
+}
+
 export function buildCorpus(n, seed = 42) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `cm-scale-${n}-`));
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
@@ -120,6 +134,7 @@ export function buildCorpus(n, seed = 42) {
       tags: [topic, pick(TOPICS)],
     };
     if (type === 'decision') { e.choice = pick(NOUNS); e.why = pick(WHYS); }
+    if (FILLER_EXPAND) e.asked_as = fillerAskedAs(e, topic);
     const file = `${type}s.jsonl`;
     if (!streams.has(file)) streams.set(file, []);
     streams.get(file).push(JSON.stringify(e));

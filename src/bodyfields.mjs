@@ -65,7 +65,11 @@ export const BODY_FIELDS = Object.freeze([
  * on words the reader did not ask for. `topic` is carried as its own
  * field on the claim already.
  */
-export const NON_BODY_FIELDS = Object.freeze(['topic', 'class', 'tags', 'asked', 'symbols']);
+// MEASUREMENT ONLY (agent/expand-measure-cm): `asked_as` is a write-time
+// expansion field (everyday phrasings a model added at capture/digest).
+// Indexed only behind MEM_EXPAND=1; never merged as product code.
+const EXPAND_ON = process.env.MEM_EXPAND === '1';
+export const NON_BODY_FIELDS = Object.freeze(['topic', 'class', 'tags', 'asked', 'symbols', ...(EXPAND_ON ? ['asked_as'] : [])]);
 
 // The union and the table must not drift: a field in the table missing
 // here would be neither searchable nor shown; one here no type carries

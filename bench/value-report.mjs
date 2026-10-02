@@ -250,8 +250,12 @@ export async function measureSize(n, o) {
     fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify(world.config ?? {}));
     // The gold world goes in through the real writer: these are the writes timed below.
     const w = [];
+    // MEASUREMENT ONLY (agent/expand-measure-cm): blind write-time expansions.
+    const expand = process.env.MEM_EXPAND === '1'
+      ? JSON.parse(fs.readFileSync(path.join(HERE, 'expand', 'asked-as.json'), 'utf8')) : null;
     for (const row of world.entries) {
       const t = performance.now();
+      if (expand && Array.isArray(expand[row.data?.id])) row.data = { ...row.data, asked_as: expand[row.data.id] };
       memory.logEntry(root, row.type, row.data, { project: row.project ?? null, now: new Date(row.at) });
       w.push(performance.now() - t);
     }

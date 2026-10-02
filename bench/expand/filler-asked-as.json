@@ -1,0 +1,52 @@
+{
+  "_about": "Cheap expansions for the synthetic filler notes of bench/scale.mjs, per vocabulary item (filler notes are templated: topic + verb + noun + why). Written AFTER the decoy file was read, so NOT blind; written as a generic model would, without avoiding decoy words on purpose.",
+  "topic": {
+    "billing": ["invoices", "charging customers", "billing system", "payment charges", "subscription billing"],
+    "auth": ["login", "sign in", "authentication", "user accounts", "passwords"],
+    "database": ["db", "sql", "data storage", "tables", "queries"],
+    "ci": ["build pipeline", "continuous integration", "automated builds", "test runs", "build server"],
+    "ops": ["operations", "servers", "infrastructure", "hosting", "production"],
+    "frontend": ["user interface", "web page", "browser", "ui", "javascript"],
+    "security": ["vulnerability", "safety", "attacks", "access control", "secure"],
+    "cache": ["caching", "stored copies", "memory cache", "speed up reads", "cached data"],
+    "payments": ["checkout", "card payments", "money", "paying", "transactions"],
+    "search": ["finding things", "lookup", "search box", "query results", "full text"],
+    "deploy": ["release", "rollout", "shipping", "go live", "deployment"],
+    "testing": ["tests", "qa", "test suite", "checks", "verification"],
+    "mobile": ["phone app", "ios", "android", "smartphone", "mobile app"],
+    "api": ["endpoints", "rest", "interface", "requests", "integration"],
+    "queue": ["background jobs", "job queue", "messages", "workers", "async tasks"]
+  },
+  "verb": {
+    "chose": ["decision", "picked"],
+    "reverted": ["undo", "rollback"],
+    "migrated": ["moved", "switch over"],
+    "fixed": ["repair", "bug fix"],
+    "broke": ["broken", "failure"],
+    "measured": ["benchmark", "metrics"],
+    "shipped": ["released", "delivered"],
+    "rolled back": ["undo release", "revert"],
+    "profiled": ["performance analysis", "profiling"],
+    "rewrote": ["rewrite", "refactor"]
+  },
+  "noun": {
+    "the connection pool": ["database connections", "connection limit", "too many connections", "pool size"],
+    "the token refresh": ["session expiry", "renew login", "access token", "stay logged in"],
+    "the retry policy": ["try again", "retries", "backoff", "repeated attempts"],
+    "the index build": ["indexing", "rebuild index", "search index", "slow indexing"],
+    "the migration": ["schema change", "data move", "database upgrade", "move data"],
+    "the rate limiter": ["throttling", "too many requests", "request limit", "rate limit"],
+    "the worker queue": ["background workers", "job processing", "task queue", "worker jobs"],
+    "the session store": ["user sessions", "session storage", "login state", "logged in users"],
+    "the upload path": ["file upload", "uploading files", "attachments", "upload failed"],
+    "the health check": ["service status", "liveness probe", "is it up", "monitoring"]
+  },
+  "why": {
+    "it blocked the event loop": ["app froze", "unresponsive"],
+    "the numbers did not survive review": ["bad data", "wrong numbers"],
+    "a simpler shape held the same load": ["simpler design", "less complexity"],
+    "the old one lost data on restart": ["data loss", "lost after restart"],
+    "latency doubled under real traffic": ["slow responses", "high latency"],
+    "nobody could explain the failure mode": ["mystery bug", "unclear failure"]
+  }
+}
