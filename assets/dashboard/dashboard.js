@@ -624,6 +624,7 @@ function render() {
   }
   if ($('#exportPreview')) updateExportPreview();
   if ($('#timeResult')) factsAtLoad($('#validDate').value, $('#knownDate').value);
+  if ($('#skillCatalog')) skCatalogLoad();
   decoratePage();
 }
 function pageTitle() {
@@ -998,16 +999,10 @@ const pages = {
     }).join('');
     return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.');
   },
+  // The catalogue arrives on its own from /dashboard/skills.json
+  // (skCatalogLoad, called from render()); a loading line until then.
   skills: () =>
-    `<div class="grid two">${scoped()
-      .filter((e) => ['skill', 'procedure'].includes(e.type))
-      .map((e) =>
-        panel(
-          esc(e.title),
-          `<span class="badge">${esc(types[e.type])}</span>${ruleTag(e.ruleStatus)}<p class="muted" style="margin:16px 0">${esc(e.text)}</p><div class="row"><span class="small quiet">Author</span><span class="small">${esc(e.agent)}</span></div><div class="row"><span class="small quiet">Provision</span><span class="small">${e.type === 'skill' ? 'In context · through recall' : 'Procedure (issued by a human)'}</span></div><div class="row"><span class="small quiet">Injected</span><span class="small">${e.recall ? (e.recall.sessions ? `in ${num(e.recall.sessions)} sessions` : 'never') : 'not measurable'}</span></div><div style="margin-top:17px">${open(e.id, 'Content & history ↗')}</div>`,
-        ),
-      )
-      .join('') || empty('No skill and no procedure recorded yet. A skill is acquired (<code class="mono">mem log skill …</code>), a procedure is issued by a human (<code class="mono">mem log procedure …</code>).')}</div>${note('An injected skill does not count as applied. The usage view keeps delivery and observed effect apart.')}`,
+    `<div id="skillCatalog">${skCat ? skCatalogHtml() : '<p class="small quiet sk-loading">Reading the catalogue …</p>'}</div>${note('An offered skill does not count as applied: "fetched" means requested, not "it helped". Status lines are history of their entry, never entries of their own.')}`,
   books: () =>
     panel('Books', notAvailable('books') + note('The originals stay where they are either way: every entry is reachable in the entries list, grouped by topic and project.'), 'A second condensation level over many entries'),
 
@@ -1557,6 +1552,154 @@ async function goldVerdictWrite(fields) {
   try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
   return { ok: r.status === 201, ...b };
 }
+// --- Skill catalogue from /dashboard/skills.json (src/skillcatalog.mjs); status
+// form only with a password session (task skill-status), else a CLI command to copy.
+let skCat = null;
+let skRun = 0;
+const skFilter = { q: '', status: 'all', type: 'all' };
+function skBadge(s) {
+  const tone = { released: 'good', trial: 'warn', proposed: 'warn', draft: 'warn', withdrawn: 'bad', unknown: 'unknown' }[s] || 'unknown';
+  return `<span class="badge ${tone}${s === 'released' ? '' : ' rule-status'}" data-sk-status="${esc(s)}"><i class="dot"></i>${esc(s)}</span>`;
+}
+function skEffect(w) {
+  if (!w) return 'effect unknown';
+  if (w.state === 'measured') return `${num(w.fetched)} of ${num(w.observed)} fetched (${Math.round(w.rate * 100)} %)`;
+  if (w.offered === 0) return 'never offered · too little data';
+  if (typeof w.offered === 'number') return `${num(w.offered)}× offered · ${num(w.fetched || 0)} fetched · too little data (${num(w.observed || 0)} observed)`;
+  return 'effect not measurable';
+}
+const skDay = (ts) => (ts ? String(ts).slice(0, 10) : '—');
+async function skCatalogLoad() {
+  const mine = ++skRun;
+  let b = null;
+  let ok = false;
+  try {
+    const r = await fetch('/dashboard/skills.json', { credentials: 'same-origin', cache: 'no-store' });
+    if (r.status === 401) { location.href = '/login'; return; }
+    b = await r.json();
+    ok = r.ok;
+  } catch (e) {
+    b = { state: 'unknown', reason: 'network: ' + (e?.message || e) };
+  }
+  if (mine !== skRun) return;
+  skCat = ok && Array.isArray(b?.entries) ? b : null;
+  const el = $('#skillCatalog');
+  if (el) el.innerHTML = skCat ? skCatalogHtml() : note(`Catalogue not readable: ${esc(reasonPlain(b?.reason))}. State: unknown.`, 'bad');
+}
+function skFits(x) {
+  if (skFilter.status !== 'all' && x.status !== skFilter.status) return false;
+  if (skFilter.type !== 'all' && x.type !== skFilter.type) return false;
+  const q = skFilter.q.trim().toLowerCase();
+  return !q || [x.name, x.titleFull, x.when, x.id, x.author, x.group].some((t) => String(t || '').toLowerCase().includes(q));
+}
+function skRow(x) {
+  const d = x.drift ? `<span class="badge bad" title="${esc(x.drift.text)}"><i class="dot"></i>drift</span>` : '';
+  return `<button class="sk-row" data-sk-id="${esc(x.id)}" title="${esc(x.titleFull)}" aria-label="Open ${esc(x.name)}"><span class="sk-head"><strong class="mono sk-name">${esc(x.name)}</strong>${skBadge(x.status)}${d}</span><span class="sk-when">${esc(x.when)}</span><span class="sk-meta"><span>${esc(x.author)}</span><span>${esc(skEffect(x.effect))}</span><span>changed ${esc(skDay(x.changed))}</span></span></button>`;
+}
+function skListHtml() {
+  const byId = new Map(skCat.entries.map((x) => [x.id, x]));
+  let hits = 0;
+  const parts = skCat.types.map((t) => {
+    const groups = t.groups.map((g) => {
+      const xs = g.ids.map((id) => byId.get(id)).filter((x) => x && skFits(x));
+      hits += xs.length;
+      return xs.length ? `<div class="sk-group"><div class="label">${esc(g.name)} · ${num(xs.length)}</div>${xs.map(skRow).join('')}</div>` : '';
+    }).join('');
+    return groups ? `<section class="sk-type"><h2>${esc(t.name)}</h2>${groups}</section>` : '';
+  }).join('');
+  if (!skCat.entries.length) return empty('No skill, workflow, snippet or procedure recorded yet. A skill: <code class="mono">mem log skill …</code>; its status is set by a human: <code class="mono">mem skills status &lt;id&gt; released --issued-by owner</code>.');
+  return parts ? `${parts}<p class="small quiet" style="margin-top:10px">${num(hits)} of ${num(skCat.entries.length)} entries.</p>` : empty('No entry matches the filter and the search.');
+}
+const skCopy = (cmd) => `<div class="sk-cmd"><code class="mono">${esc(cmd)}</code><button class="btn small ghost" data-sk-copy="${esc(cmd)}">Copy</button></div>`;
+function skInstalledHtml() {
+  const k = skCat;
+  const places = k.installed.places.map((o) => {
+    const files = k.installed.files.filter((d) => d.place === o.place);
+    const head = `<strong>${esc(o.title)}</strong> ${o.state === 'ok' ? badge('good', num(o.count) + ' SKILL.md') : badge('unknown', o.state === 'missing' ? 'folder missing' : 'incomplete')}${o.reason ? `<p class="small quiet">${esc(o.reason)}</p>` : ''}`;
+    if (!files.length) return `<div class="sk-place">${head}</div>`;
+    const rows = files.map((d) => `<div class="sk-inst"><strong class="mono">${esc(d.name)}</strong>${d.memExport ? `<span class="badge good"><i class="dot"></i>from mem export${d.memExport.id ? ' · ' + esc(d.memExport.id) : ''}</span>` : '<span class="badge"><i class="dot"></i>foreign</span>'}<span class="small quiet sk-path">${esc(d.path)}</span>${d.description ? `<span class="small muted sk-when">${esc(d.description)}</span>` : ''}</div>`).join('');
+    return `<details class="sk-place"${files.length <= 6 ? ' open' : ''}><summary>${head}</summary>${rows}</details>`;
+  }).join('');
+  const dr = k.drift;
+  const drHtml = dr.length
+    ? dr.map((a) => `<div class="row"><div><strong class="mono">${esc(a.name || a.id || '?')}</strong><p>${esc(a.text)}${a.status ? ' · status ' + esc(a.status) : ''}</p></div>${a.id && k.entries.some((x) => x.id === a.id) ? `<button class="btn small ghost" data-sk-id="${esc(a.id)}">Open</button>` : ''}</div>`).join('')
+    : note('No drift: everything released is installed as SKILL.md, nothing withdrawn is still installed.', 'good');
+  return `<div class="grid two sk-bottom">${panel('Installed', places + `<div style="margin-top:14px"><div class="small muted">Roll out (CLI only — ${esc(k.manage.exportReason)}):</div>${skCopy(k.manage.exportCommand)}</div>`, 'SKILL.md files the server sees in the skill folders of Claude Code')}${panel(`Drift · ${num(dr.length)}`, drHtml, 'Registry against installed: released but not rolled out, rolled out but withdrawn or outdated')}</div>`;
+}
+function skCatalogHtml() {
+  const k = skCat;
+  const z = k.counts || {};
+  const metrics = `<div class="metrics sk-metrics">${[
+    ['Entries', k.entries.length, 'skills, workflows, snippets, procedures'],
+    ['Released', z.released || 0, 'in force, exported'],
+    ['Trial', z.trial || 0, 'exported with a mark'],
+    ['Drift', k.drift.length, 'registry ≠ installed'],
+  ].map(([n, v, sub]) => `<div class="metric"><div class="name">${n}</div><strong>${num(v)}</strong><small>${sub}</small></div>`).join('')}</div>`;
+  const statuses = ['all', 'released', 'trial', 'proposed', 'unknown', 'draft', 'withdrawn'];
+  const typeOpts = [['all', 'All types'], ...k.types.filter((t) => t.count).map((t) => [t.type, `${t.name} · ${t.count}`])];
+  const bar = `<div class="toolbar sk-bar"><input class="field searchfield" id="skSearch" type="search" placeholder="Name, trigger, author …" aria-label="Search the skills" value="${esc(skFilter.q)}"><select class="field" id="skStatus" aria-label="Filter by status">${statuses.map((s) => `<option value="${s}" ${skFilter.status === s ? 'selected' : ''}>${s === 'all' ? 'All statuses' : esc(s) + (z[s] ? ' · ' + z[s] : '')}</option>`).join('')}</select><select class="field" id="skType" aria-label="Filter by type">${typeOpts.map(([v, n]) => `<option value="${v}" ${skFilter.type === v ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>`;
+  const eff = k.effect?.state === 'measured' ? '' : note(`Effect (offered → fetched): ${esc(k.effect?.reason || 'unknown')}. Below ${num(k.effect?.minN ?? 10)} observed offers it reads "too little data", never a zero rate.`);
+  return `${metrics}${bar}<div id="skList">${skListHtml()}</div>${eff}${skInstalledHtml()}`;
+}
+function skDetail(id) {
+  const x = skCat?.entries.find((e) => e.id === id);
+  if (!x) return;
+  const m = skCat.manage;
+  const hist = x.history.map((g) => `<div class="event"><time>${esc(g.ts || '—')}</time><h3>${g.kind === 'status' ? `Status → ${esc(g.status)}` : g.kind === 'version' ? 'New version' : 'Created'}${g.counts ? '' : ' <span class="badge unknown"><i class="dot"></i>skipped: not a human</span>'}</h3><p>${esc(g.by || 'unknown')}${g.agent && g.agent !== g.by ? ' · written down by ' + esc(g.agent) : ''} · ${esc(g.id)}</p>${g.why ? `<p class="small muted">${esc(g.why)}</p>` : ''}</div>`).join('');
+  let manage;
+  if (!x.transitions.length) manage = note('Withdrawn is final — a successor is filed as a new entry, not revived.');
+  else if (m.canSetStatus) {
+    manage = `<form data-sk-form="${esc(x.id)}"><label class="formfield">New status<select class="field" name="status" required>${x.transitions.map((s) => `<option value="${s}">${esc(s)}</option>`).join('')}</select></label><label class="formfield">Why (required)<textarea class="field" name="why" required minlength="3" maxlength="2000" placeholder="e.g. tried in three sessions, release it"></textarea></label><p class="small quiet">Issued by: owner (from the password session, not selectable). One status line is appended; nothing is overwritten.</p><div class="drawer-actions"><button class="btn primary" type="submit">Set status …</button></div><div id="skStatusResult"></div></form>`;
+  } else {
+    manage = `${note(`No status button: ${esc(m.noButtonReason || 'no password session')}. The CLI writes the change — the same function, the same transition rules:`)}${x.transitions.map((s) => skCopy(x.commands[s])).join('')}`;
+  }
+  const l = x.label || {};
+  $('#detail').innerHTML = `<div class="drawer-head"><div class="top"><span class="label">${esc(x.typeName)} / ${esc(x.id)}</span><button class="iconbtn" data-close="detail" aria-label="Close the detail">✕</button></div><h2 id="detailTitle" class="mono sk-detail-name">${esc(x.name)}</h2><p class="muted">${esc(x.title)}</p><div style="margin-top:10px">${skBadge(x.status)}${x.legacy ? ' <span class="badge"><i class="dot"></i>legacy</span>' : ''}${x.drift ? ` <span class="badge bad"><i class="dot"></i>${esc(x.drift.text)}</span>` : ''}</div></div><div class="drawer-body"><h3>Capability label</h3><div class="metadata" style="margin-top:8px"><div><span>What</span><b>${esc(l.what)}</b></div><div><span>For whom</span><b>${esc(l.for_whom)}</b></div><div><span>Cost</span><b>${esc(l.cost)}</b></div><div><span>Author</span><b>${esc(x.author)}</b></div><div><span>Effect</span><b>${esc(skEffect(x.effect))}${x.effect?.state === 'measured' ? '' : ` (minimum ${num(skCat.effect?.minN ?? 10)})`}</b></div><div><span>Installed as</span><b>${x.installedAs.length ? x.installedAs.map((i) => esc(i.path)).join(', ') : 'not rolled out'}</b></div><div><span>Project</span><b>${esc(x.project || 'global')}</b></div><div><span>Group</span><b>${esc(x.group)}</b></div></div><h3 style="margin-top:22px">When to use</h3><p class="muted" style="margin-top:6px">${esc(x.when)}</p>${x.triggers.slice(1).map((a) => `<span class="tag">${esc(a)}</span>`).join('')}<h3 style="margin-top:22px">Manage</h3>${manage}<h3 style="margin-top:22px">Status history</h3><div class="timeline" style="margin-top:12px">${hist || '<p class="small quiet">No lines.</p>'}</div><h3 style="margin-top:22px">Full text</h3><pre>${esc(x.fullText)}</pre></div>`;
+  if (!$('#detail').open) $('#detail').showModal();
+}
+async function skStatusSet(form) {
+  const id = form.dataset.skForm;
+  const status = form.elements.status.value;
+  const why = form.elements.why.value.trim();
+  const outEl = $('#skStatusResult');
+  if (why.length < 3) { outEl.innerHTML = note('Please give a reason (at least 3 characters).', 'bad'); return; }
+  const x = skCat.entries.find((e) => e.id === id);
+  if (!confirm(`${x ? x.name : id}: ${x ? x.status : '?'} → ${status}\n\nWhy: ${why}\n\nAppend the status line now?`)) return;
+  outEl.innerHTML = '<p class="small quiet">Writing …</p>';
+  let s;
+  try { s = await taskStart({ kind: 'skill-status', id, status, why }); } catch (e) { s = { ok: false, reason: 'network: ' + (e?.message || e) }; }
+  if (!s.ok) { outEl.innerHTML = note('Refused: ' + esc(reasonPlain(s.reason)) + '. Nothing was written.', 'bad'); return; }
+  const done = await waitForTask(s.id, { maxMs: 30000 });
+  if (done.state !== 'ok') { outEl.innerHTML = note('Not confirmed: ' + esc(done.reason || done.state || 'unknown') + '.', 'bad'); return; }
+  toast(`Status set: ${status}`);
+  await skCatalogLoad();
+  skDetail(id);
+}
+document.addEventListener('click', (ev) => {
+  const c = ev.target.closest('[data-sk-copy]');
+  if (c) {
+    const t = c.dataset.skCopy;
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(t).then(() => toast('Command copied'), () => toast('Copying not allowed — select the command and copy it'));
+    else toast('Copying not available — select the command and copy it');
+    return;
+  }
+  const z = ev.target.closest('[data-sk-id]');
+  if (z && skCat) skDetail(z.dataset.skId);
+});
+document.addEventListener('submit', (ev) => {
+  const f = ev.target.closest('[data-sk-form]');
+  if (!f) return;
+  ev.preventDefault();
+  skStatusSet(f);
+});
+document.addEventListener('input', (ev) => {
+  const t = ev.target;
+  if (!t || !['skSearch', 'skStatus', 'skType'].includes(t.id) || !skCat) return;
+  if (t.id === 'skSearch') skFilter.q = t.value;
+  if (t.id === 'skStatus') skFilter.status = t.value;
+  if (t.id === 'skType') skFilter.type = t.value;
+  if ($('#skList')) $('#skList').innerHTML = skListHtml();
+});
 async function taskOverview() {
   const r = await fetch('/task.json', { credentials: 'same-origin', cache: 'no-store' });
   try { return await r.json(); } catch { return null; }

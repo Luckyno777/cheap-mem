@@ -167,6 +167,9 @@ directory. The section number in brackets is where it is explained.
 | `shrink.mjs` | an append-only memory must not get smaller |
 | `sibling.mjs` | where the sister house's clone lives, if it sits beside us at all — dependency-free so nothing that needs it has to import `doctor.mjs` |
 | `skillusage.mjs` | W10: which skills get used — Skill tool calls and /command marks counted from the raw-capture archive, always with coverage; a skill without a hit is "not observed", never "unused"; names and counts only, never removes anything (`mem skills usage`, finding `skill-usage`) |
+| `skillregistry.mjs` | ONE registry over skill, workflow, snippet and procedure with a status (`proposed`/`trial`/`released`/`withdrawn`, plus `unknown` and `draft`) from `procedure.mjs`; status lines are history, only a human writes them; exports to Claude Code `SKILL.md` (marker file, never `~/.claude`) and one text file; the hook offer (`mem skills list|export|status|fetch`, MCP `mem_skill_find`/`mem_skill_fetch`) |
+| `skilleffect.mjs` | the rate "offered -> fetched" of the hook's skill offer from the injection journal and the raw capture, with a minimum count and a Wilson interval; below it unknown, never 0 (`mem skills effect`) |
+| `skillcatalog.mjs` | the dashboard's "Skills & procedures" catalogue from the registry: groups, history per entry, installed `SKILL.md` files and drift (`GET /dashboard/skills.json`; status change only via the `skill-status` task with a password session) |
 | `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
 | `state.mjs` | the derived state, and nothing else derives it |
@@ -634,6 +637,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_questions` | what is open — and with `all`, what was answered |
 | `mem_answer` | close a question by naming the entry that answers it |
 | `mem_procedures` | the procedures in force, each with its author |
+| `mem_skill_find` / `mem_skill_fetch` | read only: released (and [trial]) skills, workflows, snippets, procedures for a task as short cards; the full text of one (`src/skillregistry.mjs`) |
 | `mem_component` | everything about one file, across both spellings |
 | `mem_source` | take in an address as a source (no local paths) |
 | `mem_bridge_report` | report which checkout this server is serving |

@@ -795,6 +795,7 @@ export function capturesWithState(root) {
       project: rec.stamp?.project ?? null,
       surface: rec.stamp?.surface ?? null,
       session: rec.stamp?.session_id ?? null,
+      fingerprint: rec.stamp?.session_fingerprint ?? null,
       lines: typeof rec.lines === 'number' ? rec.lines : null,
       bytes: typeof rec.stored_bytes === 'number' ? rec.stored_bytes
         : (typeof rec.source_bytes === 'number' ? rec.source_bytes : null),

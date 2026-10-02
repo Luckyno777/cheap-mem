@@ -47,6 +47,10 @@ export const PATHS = Object.freeze({
   // 2026-10-01): read-only GET, ?project=&global=1|0&history=1|0[&preview=1].
   // src/projectpackage.mjs.
   projectPackage: '/dashboard/project-package.json',
+  // The skill catalogue (src/skillcatalog.mjs, parity with lucky-mem
+  // 2026-10-01): read-only GET. A status is written only through /task
+  // (kind `skill-status`), never here.
+  skills: '/dashboard/skills.json',
   css: '/dashboard/app.css',
   script: '/dashboard/app.js',
   three: '/dashboard/three.js',

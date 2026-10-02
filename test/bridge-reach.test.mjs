@@ -358,7 +358,7 @@ const TOOLS = [
   'mem_inbox_ack', 'mem_inbox_claim', 'mem_inbox_claims', 'mem_inbox_done', 'mem_inbox_failed', 'mem_inbox_new',
   'mem_inbox_renew', 'mem_inbox_show', 'mem_inbox_write',
   'mem_ledger', 'mem_links', 'mem_log', 'mem_procedures', 'mem_project_init',
-  'mem_questions', 'mem_retrieve', 'mem_show', 'mem_source',
+  'mem_questions', 'mem_retrieve', 'mem_show', 'mem_skill_fetch', 'mem_skill_find', 'mem_source',
   'mem_store_get', 'mem_store_list', 'mem_store_put', 'mem_topics',
   'mem_user_habits',
 ];
