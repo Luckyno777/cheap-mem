@@ -89,6 +89,21 @@ function Invoke-Handler {
       return $false
     }
 
+    # Block S: the ONE wake rule decides on the local tree whether a paid
+    # model run may start, and charges the user's grant or budget once.
+    # `mem inbox wake` exits 1 = may wake, 0 = nothing may, else unknown.
+    $wake = & node $MemCli inbox wake --as $env:MEM_WATCH_WHO --root $env:CHEAP_MEM_ROOT 2>&1
+    $wakeCode = $LASTEXITCODE
+    Add-Content -LiteralPath $LogPath -Value ($wake -join "`n")
+    if ($wakeCode -eq 0) {
+      Write-Note "handler: nothing may wake a model (information only, or waiting for permission) - not started"
+      return $true
+    }
+    if ($wakeCode -ne 1) {
+      Write-Note "handler: wake decision failed (exit $wakeCode) - not started"
+      return $false
+    }
+
     if (-not (Test-Path $Handler)) {
       Write-Note "handler: no handler script at $Handler - post remains for a human to process"
       return $false

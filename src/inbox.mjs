@@ -31,6 +31,12 @@ import * as redaction from './redaction.mjs';
 // belongs in `read()`, because every reader goes through it.
 import * as claim from './claim.mjs';
 import { appendLine } from './append.mjs';
+// Block S (ported from lucky-mem): intent + turn budget, the one wake
+// rule, permission/budget, routes. None of the three imports this file.
+import * as envelope from './envelope.mjs';
+import * as mailpermit from './mailpermit.mjs';
+import * as routes from './routes.mjs';
+import { isHuman } from './config.mjs';
 
 /** Where messages live under the memory root. */
 export const INBOX_DIR = path.join('inbox');
@@ -114,6 +120,7 @@ const IN_REPLY_TO_PATTERN = /^[0-9TZ-]+--[A-Za-z0-9._-]+-to-[A-Za-z0-9._-]+(?:~[
 
 export function build(participants, {
   from, to, time, subject, state = STATE.OPEN, text, requestId = null, inReplyTo = null,
+  intent = null, turn = null, turnMax = null, fromRoute = null, toRoute = null,
 }) {
   checkParticipant(participants, from, 'From');
   checkParticipant(participants, to, 'To');
@@ -141,6 +148,8 @@ export function build(participants, {
     `Subject: ${subject}`, `State: ${state}`,
     ...(requestId !== null ? [`Client-Request-Id: ${requestId}`] : []),
     ...(inReplyTo !== null ? [`In-Reply-To: ${inReplyTo}`] : []),
+    // Block S: Intent, Turn, From-Route, To-Route — optional, validated there.
+    ...envelope.headerLines({ intent, turn, turnMax, fromRoute, toRoute }),
   ].join('\n');
   return `${header}\n\n${text.replace(/\s+$/, '')}\n`;
 }
@@ -196,6 +205,8 @@ export function parse(content) {
     // unreadable.
     requestId: Object.hasOwn(header, 'Client-Request-Id') ? header['Client-Request-Id'] : null,
     inReplyTo: Object.hasOwn(header, 'In-Reply-To') ? header['In-Reply-To'] : null,
+    // Block S: intent (derived when absent), turn, routes — see envelope.mjs.
+    ...envelope.fromHeader(header),
   };
 }
 
@@ -358,18 +369,21 @@ export class RequestConflictError extends Error {
  */
 export function write(root, participants, {
   from, to, subject: rawSubject, text: rawText, now = new Date(), requestId = null, inReplyTo = null,
+  intent = null, toRoute = null, env = process.env,
 }) {
   // Z3/A7: a reference must point at a real message, in the right
   // direction — the original went TO the one answering and FROM the one
   // being answered. Checked before redaction and before anything is
   // reserved, so a bad reference writes nothing.
+  let original = null;
   if (inReplyTo !== null && inReplyTo !== undefined) {
-    const original = parse(readMessage(root, String(inReplyTo)));
+    original = parse(readMessage(root, String(inReplyTo)));
     if (original.to !== from || original.from !== to) {
       throw new Error(`In-Reply-To '${inReplyTo}' went from '${original.from}' to '${original.to}' — `
         + `a reply to it goes from '${original.to}' to '${original.from}', not from '${from}' to '${to}'`);
     }
   }
+  const fields = envelopeFields(root, { from, to, intent, toRoute, original, env });
   // **O1: redaction HERE, not in the caller.** Neither `mem inbox write`
   // nor `mem_inbox_write` redacted a message before the disk; both
   // leaned on the commit scan. One place for every write path — a
@@ -390,17 +404,50 @@ export function write(root, participants, {
   const text = clean(rawText);
   const findings = [...counts].map(([type, count]) => ({ type, count }));
   const res = writeUnredacted(root, participants, {
-    from, to, subject, text, now, requestId, inReplyTo: inReplyTo ?? null,
+    from, to, subject, text, now, requestId, inReplyTo: inReplyTo ?? null, fields,
   });
-  return { ...res, findings };
+  return { ...res, findings, envelope: fields };
 }
 
-function writeUnredacted(root, participants, { from, to, subject, text, now, requestId, inReplyTo }) {
+/**
+ * Block S: the envelope the WRITE path sets — never the caller.
+ *
+ *   Turn       a reply is one turn deeper than its original (envelope.replyTurn);
+ *              past the maximum nothing in the chain wakes anyone again.
+ *   From-Route this process's own registered route for role `from`
+ *              (routes.ownRoute). Nobody writes in another session's name.
+ *   To-Route   on a reply, ALWAYS the original's From-Route when that
+ *              route is known and belongs to role `to`. Otherwise only an
+ *              explicit, checked route of role `to`. The text never
+ *              re-addresses a message.
+ *
+ * One place, so the CLI, the MCP bridge and the dashboard reply share it.
+ */
+function envelopeFields(root, { from, to, intent, toRoute, original, env }) {
+  if (intent !== null && intent !== undefined && !envelope.INTENTS.includes(intent)) {
+    throw new Error(`Intent is one of ${envelope.INTENTS.join('|')}, not: ${JSON.stringify(intent)}`);
+  }
+  const out = { intent: intent ?? null, turn: null, turnMax: null, fromRoute: null, toRoute: null };
+  if (original) Object.assign(out, envelope.replyTurn(original));
+  const own = routes.ownRoute(root, { role: from, env });
+  if (own) out.fromRoute = own.routeId;
+  if (original) {
+    const r = original.fromRoute ? routes.find(root, original.fromRoute) : null;
+    if (r && r.role === to) out.toRoute = r.routeId;
+  } else if (toRoute !== null && toRoute !== undefined) {
+    const r = routes.find(root, toRoute);
+    if (!r || r.role !== to) throw new Error(`To-Route '${toRoute}' is not a registered route of role '${to}'`);
+    out.toRoute = r.routeId;
+  }
+  return out;
+}
+
+function writeUnredacted(root, participants, { from, to, subject, text, now, requestId, inReplyTo, fields }) {
   if (requestId === null || requestId === undefined) {
-    return writeMessage(root, participants, { from, to, subject, text, now, requestId: null, inReplyTo });
+    return writeMessage(root, participants, { from, to, subject, text, now, requestId: null, inReplyTo, fields });
   }
   // Validate before anything is reserved: a bad message must not leave a marker behind.
-  build(participants, { from, to, time: new Date(now).toISOString(), subject, text, requestId, inReplyTo });
+  build(participants, { from, to, time: new Date(now).toISOString(), subject, text, requestId, inReplyTo, ...fields });
   const seenPrior = () => {
     const c = classifyRequest(root, participants, { from, to, requestId, text });
     if (c === REQUEST.NEW) return null;
@@ -435,14 +482,14 @@ function writeUnredacted(root, participants, { from, to, subject, text, now, req
       sleepMs(50);
     }
   }
-  return writeMessage(root, participants, { from, to, subject, text, now, requestId, inReplyTo });
+  return writeMessage(root, participants, { from, to, subject, text, now, requestId, inReplyTo, fields });
 }
 
 function writeMessage(root, participants, {
-  from, to, subject, text, now, requestId, inReplyTo = null,
+  from, to, subject, text, now, requestId, inReplyTo = null, fields = {},
 }) {
   const time = new Date(now).toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const content = build(participants, { from, to, time, subject, text, requestId, inReplyTo });
+  const content = build(participants, { from, to, time, subject, text, requestId, inReplyTo, ...fields });
   const mark = cloneMark(root);
   const base = fileName(participants, { time, from, to, mark });
   const dir = inboxDir(root);
@@ -513,7 +560,7 @@ export function replySubject(subject) {
  * The original is left as it is. Marking it `replied` is a separate,
  * deliberate step (`mem inbox ack`), as it is on the command line.
  */
-export function reply(root, participants, { name, as, text, now = new Date() }) {
+export function reply(root, participants, { name, as, text, now = new Date(), intent = null, env = process.env }) {
   const original = parse(readMessage(root, name));
   if (typeof as !== 'string' || original.to !== as) {
     throw new Error(`'${name}' is addressed to '${original.to}', not to '${as}' — `
@@ -523,7 +570,8 @@ export function reply(root, participants, { name, as, text, now = new Date() }) 
     ...write(root, participants, {
       from: original.to, to: original.from, subject: replySubject(original.subject), text, now,
       // Z3/A7: the stable reference, not only the `Re:` subject.
-      inReplyTo: name,
+      // Block S: without an intent a reply is a `result` and wakes nobody.
+      inReplyTo: name, intent, env,
     }),
     to: original.from,
   };
@@ -913,7 +961,9 @@ export function inboxMtime(root) {
 /**
  * What has arrived since the last look. "New" = "not in the seen list".
  */
-export function newFor(root, participants, { to, now = new Date(), retryAfterMin = RETRY_MIN }) {
+export function newFor(root, participants, {
+  to, now = new Date(), retryAfterMin = RETRY_MIN, holdWaiting = false, mine = null, permit = null,
+}) {
   checkParticipant(participants, to, 'To');
   const { dir, messages, duplicates, broken, eventsBroken } = read(root, participants, { to });
   const tried = attempts(loadSeen(root), to);
@@ -925,12 +975,31 @@ export function newFor(root, participants, { to, now = new Date(), retryAfterMin
   const due = (m) => (Object.hasOwn(tried, m.name)
     ? dueAgain(m, tried[m.name], now, retryAfterMin)
     : !isDone(m.state));
-  const fresh = messages.filter(due);
+  const candidates = messages.filter(due);
+  // Block S4 (routes): a message addressed to ANOTHER registered session
+  // of this role is not offered here; it is counted, not dropped.
+  const elsewhere = candidates.filter((m) => routes.forAnotherSession(root, m, mine));
+  // Block S1: a headless run (the watcher's handler) is only handed what
+  // may cost it a model run. A request still waiting for permission stays
+  // unlisted — and unmarked, so it wakes later once permitted.
+  const waiting = [];
+  let fresh = candidates.filter((m) => !elsewhere.includes(m));
+  if (holdWaiting) {
+    const pm = permit ?? mailpermit.checker(root, { now });
+    const human = (n) => isHuman(participants[n]);
+    fresh = fresh.filter((m) => {
+      const d = envelope.wakes(m, { permit: pm, human });
+      if (d.reason === envelope.WAITING) { waiting.push({ ...m, waitingReason: d.detail ?? null }); return false; }
+      return true;
+    });
+  }
   return {
     dir,
     duplicates,
     new: fresh,
-    known: messages.length - fresh.length,
+    elsewhere,
+    waiting,
+    known: messages.length - candidates.length,
     // Z3/A9: unreadable messages travel along instead of vanishing here.
     // `read()` counted them; newFor threw the list away, and every surface
     // above it (CLI, MCP) showed a healthy empty inbox. Not filtered by
@@ -940,6 +1009,46 @@ export function newFor(root, participants, { to, now = new Date(), retryAfterMin
     eventsBroken: eventsBroken ?? [],
     mtime: inboxMtime(root),
   };
+}
+
+/**
+ * Block S2/S4: which UNSEEN messages to `to` may wake a model now, on the
+ * local tree — the decision `mem inbox wake` makes after the watcher's
+ * pull, right before the handler (a paid model run) would start.
+ *
+ * Same rule as everywhere (`envelope.wakes`): waking intent, turn budget
+ * left, and permission or budget (`mailpermit.checker`). Seen messages
+ * never wake again — the same line `remoteNew` draws on the remote.
+ *
+ * `{ wake, waiting, quiet, broken }`, each entry `{ message, decision }`.
+ */
+export function wakeDecisions(root, participants, { to, now = new Date(), permit = null }) {
+  checkParticipant(participants, to, 'To');
+  const { messages, broken } = read(root, participants, { to });
+  const seen = new Set(Object.keys(attempts(loadSeen(root), to)));
+  const pm = permit ?? mailpermit.checker(root, { now });
+  const human = (n) => isHuman(participants[n]);
+  const wake = [];
+  const waiting = [];
+  const quiet = [];
+  for (const m of messages) {
+    if (seen.has(m.name)) continue;
+    const d = envelope.wakes(m, { forRole: to, permit: pm, human });
+    if (d.wakes) wake.push({ message: m, decision: d });
+    else if (d.reason === envelope.WAITING) waiting.push({ message: m, decision: d });
+    else quiet.push({ message: m, decision: d });
+  }
+  return { wake, waiting, quiet, broken };
+}
+
+/** Charge each woken message to its grant or budget — at most once per message. */
+export function chargeWakes(root, wake, { via = 'watcher', now = new Date() } = {}) {
+  const lines = [];
+  for (const { message, decision } of wake) {
+    const z = mailpermit.spend(root, message, decision.permit, { via, now });
+    if (z) lines.push(z);
+  }
+  return lines;
 }
 
 /**
@@ -1018,9 +1127,10 @@ export function remoteNew(root, participants, { to, names }) {
  * The watcher — looks at the remote for messages to `to`, does not
  * touch the working tree.
  *
- * Returns three states:
+ * Returns four states:
  *   { status: 'nothing',   known: N }
- *   { status: 'new',       new: [names], known: N, unreadable: [names] }
+ *   { status: 'quiet',     known: N, waiting: [...], quiet: [...] }   new mail, none may wake
+ *   { status: 'new',       new: [names that may wake], known: N, unreadable: [names], waiting, quiet }
  *   { status: 'broken',    reason: '...', detail: '...' }
  */
 export function watch(root, participants, {
@@ -1049,7 +1159,35 @@ export function watch(root, participants, {
   }
   const { new: fresh, known, unreadable } = remoteNew(root, participants, { to, names });
   if (!fresh.length) return { status: 'nothing', known, unreadable };
-  return { status: 'new', new: fresh, known, unreadable };
+  // Block S2/S4: a new NAME is not yet a reason to wake. Read each new
+  // message from the remote (no checkout, no model) and ask the one wake
+  // rule, with the remote copy of the permission ledger folded in — a
+  // budget granted on another clone counts before it is pulled.
+  const ref = `${remote}/${branch}`;
+  let ledgerText = '';
+  try {
+    ledgerText = run('git', ['-C', root, 'show', `${ref}:${INBOX_DIR}/${path.basename(mailpermit.FILE)}`]);
+  } catch { ledgerText = ''; } // no ledger on the remote yet: nothing granted there
+  const pm = mailpermit.checker(root, { extraText: ledgerText });
+  const human = (n) => isHuman(participants[n]);
+  const wake = [];
+  const waiting = [];
+  const quiet = [];
+  for (const name of fresh) {
+    let m;
+    try {
+      m = { name, ...parse(run('git', ['-C', root, 'show', `${ref}:${INBOX_DIR}/${name}`])) };
+    } catch {
+      unreadable.push(name);
+      continue;
+    }
+    const d = envelope.wakes(m, { forRole: to, permit: pm, human });
+    if (d.wakes) wake.push(name);
+    else if (d.reason === envelope.WAITING) waiting.push({ name, reason: d.detail ?? null });
+    else quiet.push({ name, reason: d.reason });
+  }
+  if (!wake.length) return { status: 'quiet', known, unreadable, waiting, quiet };
+  return { status: 'new', new: wake, known, unreadable, waiting, quiet };
 }
 
 function standardExec(cmd, args) {

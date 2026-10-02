@@ -112,12 +112,23 @@ test('watch returns nothing when remote has no new', (t) => {
 });
 
 test('watch returns new list when remote has new mail', (t) => {
+  // Block S (2026-10-02): a new NAME alone no longer wakes. The remote
+  // message is read and must ask for work (Intent: request) with the
+  // user's permission — here a grant in the remote ledger copy. Mail
+  // that may not wake is `quiet`: test/s1-cm-mail-permission.test.mjs.
   const root = tmpRoot(t);
+  const name = '2026-01-01T00-00-00Z--session-to-librarian.md';
+  const content = inbox.build(PARTS, {
+    from: 'session', to: 'librarian', time: '2026-01-01T00:00:00Z', subject: 's', text: 'do x', intent: 'request',
+  });
+  const grant = JSON.stringify({ kind: 'grant', id: 'abcdef012345', ts: '2026-01-01T00:01:00Z', message: name, authority: 'user' });
   const r = inbox.watch(root, PARTS, {
     to: 'librarian',
     exec: (cmd, args) => {
       if (args[2] === 'fetch') return '';
-      if (args[2] === 'ls-tree') return 'inbox/2026-01-01T00-00-00Z--session-to-librarian.md\n';
+      if (args[2] === 'ls-tree') return `inbox/${name}\n`;
+      if (args[2] === 'show' && args[3].endsWith(`:inbox/${name}`)) return content;
+      if (args[2] === 'show' && args[3].endsWith(':inbox/permissions.jsonl')) return `${grant}\n`;
       return '';
     },
   });

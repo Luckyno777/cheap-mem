@@ -98,11 +98,18 @@ mem context
 ## 7. Send a message to another session
 
 ```bash
-mem inbox write --as user --to librarian --subject "please update FACTS.md" <<'EOF'
+mem inbox write --as user --to librarian --intent request --subject "please update FACTS.md" <<'EOF'
 Add: preferred deploy target is Fly.io (moved from Vercel last week).
 EOF
+mem inbox permit <the file name it printed> --authority user
 git add -A && git commit -m "inbox: FACTS update ask" && git push
 ```
+
+A request wakes the librarian's watcher (a paid model run) only with
+your permission: `mem inbox permit` for one message, or a budget with
+`mem inbox allow --letters N --authority user`. A message without
+`--intent request` is information: it is read at the next pickup and
+never starts a model on its own.
 
 The librarian on any of your machines will see it via `mem inbox watch`
 and act on it (see [docs/install-linux.md](install-linux.md) or

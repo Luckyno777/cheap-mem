@@ -17,6 +17,10 @@ import path from 'node:path';
 import * as memory from '../../memory.mjs';
 import * as agents from '../../agents.mjs';
 import * as inbox from '../../inbox.mjs';
+import * as envelope from '../../envelope.mjs';
+import * as mailpermit from '../../mailpermit.mjs';
+import * as routes from '../../routes.mjs';
+import { isHuman } from '../../config.mjs';
 import * as claim from '../../claim.mjs';
 import * as heartbeat from '../../heartbeat.mjs';
 import * as broadcast from '../../broadcast.mjs';
@@ -51,6 +55,22 @@ function brokenLines(broken, eventsBroken) {
 }
 import { countLines } from '../display.mjs';
 
+/** No machine wakes the human: mail to them never waits for permission. */
+function isHumanName(cfg, name) { return isHuman(cfg.participants?.[name]); }
+
+/**
+ * Block S "way 1": a session that picks up its mail registers its route
+ * (once). Said on stderr, so the listing on stdout stays as it was.
+ */
+function routeOnPickup(root, role) {
+  const r = routes.registerOnPickup(root, { role });
+  if (r.fresh) {
+    warn(`route registered: ${r.route.alias} (${r.route.routeId}) — your messages carry From-Route `
+      + `from now on, and replies come back to this session (commit ${routes.FILE} with your next push)`);
+  }
+  return r.route ?? null;
+}
+
 /** 12 commands. */
 export const COMMANDS = {
   inbox: async ({ rest, args }) => {
@@ -68,12 +88,24 @@ export const COMMANDS = {
         '                     with an id, the same send twice is ONE message (replay);',
         '                     the same id with other text is refused (exit 1)',
         '                     --in-reply-to <name>: the message this answers (checked)',
+        '                     --intent information|request|read|result|clarification|cancel',
+        '                       (default: information; with --in-reply-to: result).',
+        '                       request/read/clarification wake the recipient only with the',
+        '                       user\'s permission or a budget; the rest never wake anyone.',
+        '                     --to-route <id>: one registered session of that role',
         'mem inbox show <name> [--as N]',
         'mem inbox ack <name> [state] [--expected S] [--reason "..."]',
         '                     state -> replied (default), as an event line in',
         '                     inbox/states.jsonl; reopening needs --reason',
         'mem inbox watch      [--as N] [--branch main] [--remote origin] [--skip-fetch]',
-        '                     exit 0/1/3, for shell pollers',
+        '                     exit 0/1/3, for shell pollers; 1 only for mail that may wake',
+        'mem inbox wake       [--as N] [--dry-run]   after the pull: which unseen mail may wake',
+        '                     a model now; charges grants/budgets once. exit 1 = run handler',
+        'mem inbox allow      --letters N | --tokens N [--until DATE] [--to N] --authority user',
+        '                     a budget for waking messages (user only, append-only ledger)',
+        'mem inbox permit <name> --authority user    permit one waking message (user only)',
+        'mem inbox permissions                       budgets, grants, messages waiting',
+        'mem inbox routes                            registered sessions per role',
         'mem inbox claim <name> [--as N] [--minutes 30]   take a message, with an expiry',
         'mem inbox renew <name> --claim-id ID [--as N] [--minutes 30]  still working: new deadline (holder, before expiry, capped)',
         'mem inbox done <name> --claim-id ID [--as N]     finished (holder only, with the id claim printed)',
@@ -92,10 +124,16 @@ export const COMMANDS = {
     const cfg = requireConfig(root);
 
     if (sub === 'write') {
-      checkFlags(args, ['as', 'to', 'subject', 'text', 'request-id', 'in-reply-to'], 'inbox write');
+      checkFlags(args, ['as', 'to', 'subject', 'text', 'request-id', 'in-reply-to', 'intent', 'to-route'], 'inbox write');
       const from = whoAmIOrDie(root, args, cfg);
       if (!args.to) die("Missing --to");
       if (!args.subject) die("Missing --subject");
+      // Block S: the intent decides whether this message may wake anyone.
+      let intent = null;
+      if (args.intent !== undefined) {
+        intent = String(args.intent === true ? '' : args.intent).trim().toLowerCase();
+        if (!envelope.INTENTS.includes(intent)) die(`--intent is one of ${envelope.INTENTS.join('|')}, not '${args.intent}'`);
+      }
       const text = args.text ?? await readStdin();
       if (!text.trim()) die("Empty text (neither --text nor stdin)");
       let res;
@@ -104,10 +142,12 @@ export const COMMANDS = {
           from, to: args.to, subject: args.subject, text, requestId: args['request-id'] ?? null,
           // Z3/A7: the stable reference to the message answered.
           inReplyTo: typeof args['in-reply-to'] === 'string' ? args['in-reply-to'] : null,
+          intent,
+          toRoute: typeof args['to-route'] === 'string' ? args['to-route'] : null,
         });
       } catch (e) {
         if (e.code === 'REQUEST_CONFLICT') die(e.message);
-        if (/In-Reply-To|No message/.test(e.message)) die(e.message);
+        if (/In-Reply-To|No message|To-Route|Intent/.test(e.message)) die(e.message);
         throw e;
       }
       if (res.replay) {
@@ -119,6 +159,18 @@ export const COMMANDS = {
       out(`Written: ${path.relative(root, p)}`);
       // O1: the redaction runs in inbox.write(); it is SAID here, as on the bridge.
       if (res.findings?.length) warn(memory.findingsLine(res.findings));
+      // Block S: say whether this message WILL wake anyone — otherwise an
+      // agent waits for an answer that nobody is ever started for.
+      try {
+        const m = { name: res.name, ...inbox.parse(inbox.readMessage(root, res.name)) };
+        const d = envelope.wakes(m, { permit: mailpermit.checker(root), human: (n) => isHumanName(cfg, n) });
+        if (d.reason === envelope.WAITING) {
+          out(`Note: ${envelope.WAITING} — this message lies in the inbox but wakes nobody until the user`
+            + ` permits it (mem inbox permit ${res.name} --authority user) or gives a budget (mem inbox allow).`);
+        } else if (d.reason === 'turn-budget-spent') {
+          out(`Note: turn ${m.turn} of ${m.turnMax} — the reply budget of this chain is spent; it wakes nobody.`);
+        }
+      } catch { /* a hint that fails must not fail the write */ }
       out('');
       out(`Delivered only after:  git add . && git commit -m "inbox: ${args.subject}" && git push`);
       return;
@@ -127,6 +179,7 @@ export const COMMANDS = {
     if (sub === 'all') {
       checkFlags(args, ['as'], 'inbox all');
       const to = whoAmIOrDie(root, args, cfg);
+      routeOnPickup(root, to);
       const { dir, messages, duplicates, broken, eventsBroken } = inbox.read(root, cfg.participants, { to });
       if (dir === null) { out(`No inbox dir yet under ${inbox.INBOX_DIR}.`); return; }
       brokenLines(broken, eventsBroken);
@@ -148,11 +201,21 @@ export const COMMANDS = {
     if (sub === 'new') {
       checkFlags(args, ['as', 'no-mark'], 'inbox new');
       const to = whoAmIOrDie(root, args, cfg);
-      const { new: fresh, known, duplicates, broken, eventsBroken } = inbox.newFor(root, cfg.participants, { to });
+      const mine = routeOnPickup(root, to);
+      const {
+        new: fresh, known, duplicates, broken, eventsBroken, elsewhere, waiting,
+      } = inbox.newFor(root, cfg.participants, {
+        to, mine,
+        // Block S: a headless run (the watcher's handler) only gets what
+        // may cost it a model run; a human-started session sees all.
+        holdWaiting: Boolean(process.env.MEM_HEADLESS),
+      });
       // Z3/A9: ALWAYS name unreadable messages — especially when nothing
       // else is new. An inbox with a broken message is not a healthy
       // empty one.
       brokenLines(broken, eventsBroken);
+      if (elsewhere.length) warn(`${elsewhere.length} message(s) for another session of '${to}' (To-Route), not listed here`);
+      if (waiting.length) warn(`${waiting.length} message(s) ${envelope.WAITING}, held back from this headless run`);
       if (fresh.length === 0) {
         out(`Nothing new for '${to}'. ${known} known.`);
         duplicateLines(duplicates);
@@ -176,6 +239,7 @@ export const COMMANDS = {
       const to = whoAmIOrDie(root, args, cfg);
       const name = rest[1];
       if (!name) die("Missing name (inbox show <name>)");
+      routeOnPickup(root, to);
       // Audit 2026-09-30, B4: joining the name ourselves let `../../x`
       // read any file. readMessage() is the one guarded way in.
       try { inbox.checkMessageName(name); } catch (e) { die(e.message); }
@@ -240,9 +304,111 @@ export const COMMANDS = {
         out(`nothing new for '${to}' (${r.known} known)`);
         process.exit(0);
       }
+      // Block S: new mail that may not wake anyone is reported, not woken for.
+      for (const w of (r.waiting ?? [])) out(`  ${envelope.WAITING}: ${w.name}${w.reason ? ` (${w.reason})` : ''}`);
+      for (const q of (r.quiet ?? [])) out(`  does not wake (${q.reason}): ${q.name}`);
+      if (r.status === 'quiet') {
+        out(`new mail for '${to}', none may wake a model (${r.known} known)`);
+        process.exit(0);
+      }
       out(`${r.new.length} new for '${to}':`);
       for (const n of r.new) out(`  ${n}`);
       process.exit(1);
+    }
+
+    if (sub === 'wake') {
+      checkFlags(args, ['as', 'dry-run'], 'inbox wake');
+      const to = whoAmIOrDie(root, args, cfg);
+      const d = inbox.wakeDecisions(root, cfg.participants, { to });
+      brokenLines(d.broken, []);
+      for (const w of d.waiting) out(`  ${envelope.WAITING}: ${w.message.name}${w.decision.detail ? ` (${w.decision.detail})` : ''}`);
+      for (const q of d.quiet) out(`  does not wake (${q.decision.reason}): ${q.message.name}`);
+      if (!d.wake.length) {
+        out(`nothing may wake a model for '${to}'`);
+        process.exit(0);
+      }
+      const charged = args['dry-run'] ? [] : inbox.chargeWakes(root, d.wake, { via: 'watcher' });
+      out(`${d.wake.length} message(s) may wake '${to}'${args['dry-run'] ? ' (dry run, nothing charged)' : ''}:`);
+      for (const w of d.wake) out(`  ${w.message.name} (${w.decision.permit.reason})`);
+      if (charged.length) out(`charged: ${charged.length} line(s) in ${mailpermit.FILE} (token figures are estimates)`);
+      process.exit(1);
+    }
+
+    if (sub === 'allow') {
+      checkFlags(args, ['letters', 'tokens', 'until', 'to', 'authority'], 'inbox allow');
+      if (args.to !== undefined && !Object.hasOwn(cfg.participants, String(args.to))) {
+        die(`--to '${args.to}' has no inbox. Known: ${Object.keys(cfg.participants).join(', ')}`);
+      }
+      let z;
+      try {
+        z = mailpermit.grantBudget(root, {
+          letters: numberFlag('letters', args.letters, { min: 1 }),
+          tokens: numberFlag('tokens', args.tokens, { min: 1 }),
+          until: typeof args.until === 'string' ? args.until : null,
+          to: typeof args.to === 'string' ? args.to : null,
+          authority: typeof args.authority === 'string' ? args.authority : null,
+          by: inbox.whoAmI(root),
+        });
+      } catch (e) { die(e.message); }
+      out(`Budget ${z.id}: ${z.letters !== null ? `${z.letters} message(s)` : `${z.tokens} tokens (estimate)`}`
+        + `${z.to ? ` to ${z.to}` : ''}${z.until ? ` until ${z.until}` : ''}`);
+      out(`Ledger: ${mailpermit.FILE} — commit and push it like a message.`);
+      return;
+    }
+
+    if (sub === 'permit') {
+      checkFlags(args, ['authority'], 'inbox permit');
+      const name = rest[1];
+      if (!name) die('Missing name (inbox permit <name> --authority user)');
+      let z;
+      try {
+        z = mailpermit.grantMessage(root, {
+          message: String(name),
+          authority: typeof args.authority === 'string' ? args.authority : null,
+          by: inbox.whoAmI(root),
+        });
+      } catch (e) { die(e.message); }
+      out(`Permit ${z.id}: ${z.message}`);
+      out(`Ledger: ${mailpermit.FILE} — commit and push it like a message.`);
+      return;
+    }
+
+    if (sub === 'permissions') {
+      checkFlags(args, [], 'inbox permissions');
+      const st = mailpermit.status(root);
+      const est = mailpermit.estimate(root);
+      out(`Tokens per woken session: ~${est.tokens} (${est.source}${est.runs ? `, ${est.runs} runs` : ''}) — an ESTIMATE, not a measurement`);
+      if (!st.budgets.length && !st.grants.length) out('No permission granted.');
+      for (const b of st.budgets) {
+        const what = b.letters !== null && b.letters !== undefined
+          ? `${b.spentLetters}/${b.letters} messages` : `~${b.spentTokens}/${b.tokens} tokens (estimate)`;
+        out(`  budget ${b.id} [${b.status}] ${what}${b.to ? ` to ${b.to}` : ''}${b.until ? ` until ${b.until}` : ''}`);
+      }
+      for (const g of st.grants) out(`  permit ${g.id} ${g.message}`);
+      for (const d of st.disputed) out(`  DISPUTED (no authority user, does not count): ${d.kind} ${d.id}`);
+      for (const b of st.broken) warn(`unreadable line ${mailpermit.FILE}:${b.line}: ${b.reason}`);
+      const pm = mailpermit.checker(root);
+      let n = 0;
+      for (const role of Object.keys(cfg.participants)) {
+        if (isHumanName(cfg, role)) continue;
+        for (const m of inbox.read(root, cfg.participants, { to: role }).messages) {
+          const d = envelope.wakes(m, { permit: pm });
+          if (d.reason !== envelope.WAITING) continue;
+          n += 1;
+          out(`  ${envelope.WAITING}: ${m.name} (to ${m.to}${d.detail ? `: ${d.detail}` : ''})`);
+        }
+      }
+      out(`${n} message(s) ${envelope.WAITING}`);
+      return;
+    }
+
+    if (sub === 'routes') {
+      checkFlags(args, [], 'inbox routes');
+      const { routes: list, broken } = routes.all(root);
+      if (!list.length) out('No route registered. A session registers one when it picks up its mail.');
+      for (const r of list) out(`  ${r.alias}  ${r.routeId}  role ${r.role}, since ${r.ts}`);
+      for (const b of broken) warn(`unreadable line ${routes.FILE}:${b.line}: ${b.reason}`);
+      return;
     }
 
     if (sub === 'claim' || sub === 'renew' || sub === 'done' || sub === 'failed' || sub === 'claims') {
@@ -302,7 +468,8 @@ export const COMMANDS = {
 
     die([
       `inbox: unknown subcommand '${sub}'`,
-      'Known: new (default), all, write, show, ack, watch, claim, renew, done, failed, claims',
+      'Known: new (default), all, write, show, ack, watch, wake, allow, permit, permissions, routes,',
+      '       claim, renew, done, failed, claims',
     ].join('\n'));
   },
 
