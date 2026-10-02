@@ -104,6 +104,9 @@ test('CLI: mem inbox permit --json names the new line (what the task classifies)
   assert.equal(j.new, j.id);
   assert.equal(j.message, name);
   assert.deepEqual(tasks.KINDS['inbox-permit'].classify(j), { state: 'ok', reason: null });
+  const b = run(r, 'inbox', 'allow', '--letters', '2', '--authority', 'user', '--json');
+  assert.equal(b.status, 0, b.stderr);
+  assert.equal(JSON.parse(b.stdout).letters, 2);
 });
 
 // --- picked-up events -------------------------------------------------------------

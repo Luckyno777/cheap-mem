@@ -101,7 +101,7 @@ export const COMMANDS = {
         '                     exit 0/1/3, for shell pollers; 1 only for mail that may wake',
         'mem inbox wake       [--as N] [--dry-run]   after the pull: which unseen mail may wake',
         '                     a model now; charges grants/budgets once. exit 1 = run handler',
-        'mem inbox allow      --letters N | --tokens N [--until DATE] [--to N] --authority user',
+        'mem inbox allow      --letters N | --tokens N [--until DATE] [--to N] --authority user [--json]',
         '                     a budget for waking messages (user only, append-only ledger)',
         'mem inbox permit <name> --authority user [--json]   permit one waking message (user only)',
         'mem inbox permissions                       budgets, grants, messages waiting',
@@ -338,7 +338,7 @@ export const COMMANDS = {
     }
 
     if (sub === 'allow') {
-      checkFlags(args, ['letters', 'tokens', 'until', 'to', 'authority'], 'inbox allow');
+      checkFlags(args, ['letters', 'tokens', 'until', 'to', 'authority', 'json'], 'inbox allow');
       if (args.to !== undefined && !Object.hasOwn(cfg.participants, String(args.to))) {
         die(`--to '${args.to}' has no inbox. Known: ${Object.keys(cfg.participants).join(', ')}`);
       }
@@ -353,6 +353,7 @@ export const COMMANDS = {
           by: inbox.whoAmI(root),
         });
       } catch (e) { die(e.message); }
+      if (args.json) { out(JSON.stringify({ ...z, new: z.id })); return; }
       out(`Budget ${z.id}: ${z.letters !== null ? `${z.letters} message(s)` : `${z.tokens} tokens (estimate)`}`
         + `${z.to ? ` to ${z.to}` : ''}${z.until ? ` until ${z.until}` : ''}`);
       out(`Ledger: ${mailpermit.FILE} — commit and push it like a message.`);
