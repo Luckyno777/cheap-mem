@@ -244,6 +244,64 @@ const WEIGHT_BY_FIELD = Object.freeze({
   ...(process.env.MEM_EXPAND === '1' ? { asked_as: Number(process.env.MEM_EXPAND_WEIGHT ?? 0.3) } : {}),
 });
 
+// --- MEASUREMENT ONLY (agent/expand-fair-cm): the expansion field's fix ---
+//
+// The earlier measurement (agent/expand-measure-cm) found three causes for
+// the decoy rise with `asked_as` on. This answers them, all behind
+// MEM_EXPAND=1, nothing changes without it:
+//   (1) question-shaped phrases: a GENERIC English function/question-word
+//       list is stripped from `asked_as` before it is indexed;
+//   (2) an expansion word covers HALF a typed word in the coordination
+//       factor (like a bridged word), never a whole one;
+//   (3) the H3 gate's "whole question covered" rule never counts it.
+// The field weight stays MEM_EXPAND_WEIGHT (above).
+const EXPAND_ON = process.env.MEM_EXPAND === '1';
+/**
+ * The Snowball English stop word list (snowballstem.org,
+ * algorithms/english/stop.txt, BSD-3-Clause), copied as published, with
+ * the apostrophe forms included. It was NOT chosen or edited against any
+ * decoy question; it is the standard list of the stemmer family this
+ * module's English pack follows.
+ */
+export const EXPAND_STOP = Object.freeze(new Set((
+  'i me my myself we our ours ourselves you your yours yourself yourselves he him his himself '
+  + 'she her hers herself it its itself they them their theirs themselves what which who whom '
+  + 'this that these those am is are was were be been being have has had having do does did doing '
+  + "would should could ought i'm you're he's she's it's we're they're i've you've we've they've "
+  + "i'd you'd he'd she'd we'd they'd i'll you'll he'll she'll we'll they'll isn't aren't wasn't "
+  + "weren't hasn't haven't hadn't doesn't don't didn't won't wouldn't shan't shouldn't can't "
+  + "cannot couldn't mustn't let's that's who's what's here's there's when's where's why's how's "
+  + 'a an the and but if or because as until while of at by for with about against between into '
+  + 'through during before after above below to from up down in out on off over under again '
+  + 'further then once here there when where why how all any both each few more most other some '
+  + 'such no nor not only own same so than too very').split(' ')));
+
+/** One expansion phrase without the stop words above (MEM_EXPAND=1 only). */
+export function stripExpansion(text) {
+  return String(text).split(/\s+/)
+    .filter((w) => w && !EXPAND_STOP.has(w.toLowerCase().replace(/[^\p{L}\p{N}']+/gu, '')))
+    .join(' ');
+}
+
+/**
+ * The index terms a document carries ONLY through `asked_as` — null when
+ * expansion is off or the entry has none. Stored on the document as an
+ * array (it survives the index cache like every other plain field).
+ */
+export function expansionOnlyTerms(entry, weights, opts) {
+  if (!EXPAND_ON || !entry || !entry.asked_as) return null;
+  const own = fieldsOfEntry({ ...entry, asked_as: undefined }, opts);
+  const only = [...weights.keys()].filter((t) => !own.has(t));
+  return only.length ? only : null;
+}
+const EXP_SETS = new WeakMap();
+function isExpansionOnly(doc, t) {
+  if (!doc.expOnly) return false;
+  let s = EXP_SETS.get(doc);
+  if (!s) { s = new Set(doc.expOnly); EXP_SETS.set(doc, s); }
+  return s.has(t);
+}
+
 export const FIELD_WEIGHTS = (() => {
   const set = new Set([...BODY_FIELDS, ...NON_BODY_FIELDS]);
   const unweighted = [...set].filter((f) => !(f in WEIGHT_BY_FIELD));
@@ -588,7 +646,11 @@ export function fieldsOfEntry(entry, { lexicon = null, lang = pack('en'), lexico
   for (const [field, weight] of Object.entries(FIELD_WEIGHTS)) {
     const value = entry[field];
     if (!value) continue;
-    const text = Array.isArray(value) ? value.join(' ') : String(value);
+    let text = Array.isArray(value) ? value.join(' ') : String(value);
+    // MEASUREMENT ONLY (agent/expand-fair-cm): see EXPAND_STOP.
+    if (EXPAND_ON && field === 'asked_as') {
+      text = (Array.isArray(value) ? value : [value]).map(stripExpansion).join(' ');
+    }
     for (const p of packs) {
       for (const t of tokenizeGroupsMulti(text, { lexicons: lex, langs: [p] }).flat()) {
         weights.set(t, (weights.get(t) ?? 0) + weight * share);
@@ -826,11 +888,15 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     // correctly-configured single-language memory already got.
     // UNCERTAIN gets every detectable pack — see `packsFor`.
     const langInfo = detectEntryLanguage(r.entry, { fieldWeights: FIELD_WEIGHTS });
+    const wOpts = { langs: packsFor(langInfo), lexicons };
+    const weights = fieldsOfEntry(r.entry, wOpts);
+    const expOnly = expansionOnlyTerms(r.entry, weights, wOpts);
     addDoc({
       ...r,
       lang: langInfo.language,
       langCertain: langInfo.certain,
-      weights: fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons }),
+      weights,
+      ...(expOnly ? { expOnly } : {}),
       ...(r.entry.body_enc ? { enc: true } : {}),
       ...(info ? { retired: info } : {}),
     });
@@ -1681,10 +1747,17 @@ export function search(index, query, {
     // and lost a third of its score, which is the opposite of what the
     // compound splitter is for.
     let coveredShare = null;
+    // MEASUREMENT ONLY (agent/expand-fair-cm): a typed word the document
+    // carries only through `asked_as` is a guess someone wrote about the
+    // note, not the note's own word: HALF in the coordination factor
+    // (like a bridged word), NOTHING for the gate's "whole question".
+    const own = (t) => doc.weights.has(t) && !isExpansionOnly(doc, t);
+    const viaExp = (packVariants) => !!doc.expOnly
+      && packVariants.some((forms) => forms.some((t) => isExpansionOnly(doc, t)));
     if (withCoverage) {
       let c = 0;
       for (const packVariants of groups) {
-        if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) c += 1;
+        if (packVariants.some((forms) => forms.some(own))) c += 1;
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
           || packVariants.rewritten?.some((t) => doc.weights.has(t))) c += 0.5;
       }
@@ -1693,13 +1766,14 @@ export function search(index, query, {
     if (coverage > 0 && groups.length > 1) {
       let covered = 0;
       for (const packVariants of groups) {
-        if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) covered += 1;
+        if (packVariants.some((forms) => forms.some(own))) covered += 1;
         // M18b: a bridged word covers HALF — a translation is a guess
         // about the typed word, not the word itself (lucky-mem M18
         // measured full coverage: same hit rate, more risk).
         // A rewritten word (src/rewrites.mjs) likewise: learned, not typed.
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
           || packVariants.rewritten?.some((t) => doc.weights.has(t))) covered += 0.5;
+        else if (viaExp(packVariants)) covered += 0.5;
       }
       // **The floor (2026-09-20).** Until this day the line read
       //
@@ -2149,11 +2223,15 @@ function appendToIndex(root, index, before, now) {
     // entry gets its OWN rule set immediately, not the rule set the
     // rest of the corpus happened to be built with.
     const langInfo = detectEntryLanguage(d.entry, { fieldWeights: FIELD_WEIGHTS });
+    const wOpts = { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() };
+    const weights = fieldsOfEntry(d.entry, wOpts);
+    const expOnly = expansionOnlyTerms(d.entry, weights, wOpts);
     push({
       ...d,
       lang: langInfo.language,
       langCertain: langInfo.certain,
-      weights: fieldsOfEntry(d.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() }),
+      weights,
+      ...(expOnly ? { expOnly } : {}),
       ...(d.entry.body_enc ? { enc: true } : {}),
       ...(info ? { retired: info } : {}),
     });
@@ -2428,7 +2506,9 @@ function revealEncrypted(root, index, { cow = false } = {}) {
       }
     }
     const langInfo = detectEntryLanguage(r.entry, { fieldWeights: FIELD_WEIGHTS });
-    const weights = fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() });
+    const wOpts = { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() };
+    const weights = fieldsOfEntry(r.entry, wOpts);
+    const expOnly = expansionOnlyTerms(r.entry, weights, wOpts);
     let length = 0;
     for (const g of weights.values()) length += g;
     if (weights.size > 0) {
@@ -2443,6 +2523,7 @@ function revealEncrypted(root, index, { cow = false } = {}) {
     Object.assign(doc, {
       entry: r.entry, weights, length, encState: 'ok',
       lang: langInfo.language, langCertain: langInfo.certain,
+      expOnly: expOnly ?? undefined,
     });
     for (const b of entity.identifiers(entityText(doc))) {
       let set = index.entityIndex.get(b);
