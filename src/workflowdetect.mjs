@@ -2,55 +2,25 @@
 // SPDX-License-Identifier: MIT
 /**
  * workflowdetect — find the workflow a moment calls for, without a model.
+ * Port of lucky-mem's wf-bc B1-B3. Nothing read a workflow's `triggers`,
+ * `path_patterns` or `tool_patterns` before; three occasions do now:
  *
- * **The gap this closes.** `workflow` has been a type here since A1-A3:
- * a human writes down "this is how a task like this goes", with
- * `triggers`, `path_patterns` and `tool_patterns` saying WHEN it
- * applies. Nothing ever read those three fields. A workflow was only
- * ever seen by whoever already knew its id — the one person who did not
- * need reminding.
+ *   1. question and subagent hooks: `triggers` against the text, on the
+ *      search's own tokens (`search.tokenize`) — no second stemmer;
+ *   2. before-edit hook on Bash: `tool_patterns` as plain substrings of
+ *      the command (no parser, nothing executed);
+ *   3. component table: role `works-on` for each tracked file a
+ *      `path_patterns` item names (`pathPatternMatches`).
  *
- * **Three fixed occasions, one shared basis here.** Parity build for
- * lucky-mem's wf-bc B1-B3 (`bauteil-tabelle.sichtbareWorkflows`, the
- * workflow block in its `hook.mjs`):
+ * Only VISIBLE workflows: in force (`readLog`+`retiredMap`+`holds`),
+ * issued by a human (`workflow.isHuman`), not `status: 'draft'` (no draft
+ * stage exists here; such a line is excluded anyway). A tie is never
+ * guessed: titles only. No match: `null`. The full card once per session
+ * and workflow, then a pointer (`src/pointer.mjs`); the marks are shared
+ * across the three occasions, and a mark write failure shows the card.
  *
- *   1. the question hook (UserPromptSubmit, `src/recallhook.mjs`) and
- *      the subagent hook (SubagentStart, `src/subagentstart.mjs`) match
- *      `triggers` against the text, word by word on the SAME tokens the
- *      search uses (`search.tokenize`: lower case, stop words out, base
- *      forms) — so "releasing" meets a trigger "release" the way a search
- *      would, and no second stemmer exists to drift from the first;
- *   2. the before-edit hook on a Bash call (`bin/mem-before-edit`)
- *      matches `tool_patterns` against the command text as plain
- *      substrings — no shell parser, nothing executed, the same blunt
- *      text check `prepush.mjs` applies to a push command;
- *   3. the component table (`src/component-table.mjs`) maps every
- *      tracked file a workflow's `path_patterns` names to that workflow,
- *      role `works-on`, through `pathPatternMatches()` below.
- *
- * **Only VISIBLE workflows.** In force (not retired, not superseded —
- * the same `readLog` + `retiredMap` + `holds` every procedure lane uses),
- * issued by a human (`workflow.isHuman`, the one authority check), and
- * not a draft (`status: 'draft'`). This house has no draft stage — a
- * workflow is issued by a human or not written at all (`workflow.mjs`'s
- * head comment) — but a line carrying `status: 'draft'` (imported, or
- * written around the CLI) is excluded anyway, so a later draft stage
- * cannot leak into the hooks without this file being asked.
- *
- * **A tie is never guessed.** Two or more workflows with the same,
- * highest number of matches yield a title list and NO card text of any
- * of them. No match yields `null` — never a "closest" substitute.
- *
- * **Full card once per session, then a pointer** (`src/pointer.mjs`,
- * the same watermark/fingerprint mechanism the before-edit hook uses).
- * The marks are per session and workflow, SHARED across all three
- * occasions: the same workflow seen first at a question and then at a
- * Bash call is "already shown". A write failure on the mark directory
- * shows the full card every time — failing open towards showing.
- *
- * Env: `MEM_WORKFLOW_MARKS` — where the once-per-session marks live
- * (default `<root>/.mem/workflow-marks`). Internal to the hooks and the
- * tests, like `MEM_BEFORE_EDIT_MARKS`.
+ * Env: `MEM_WORKFLOW_MARKS` — the marks directory (default
+ * `<root>/.mem/workflow-marks`), internal like `MEM_BEFORE_EDIT_MARKS`.
  */
 
 import fs from 'node:fs';
@@ -67,11 +37,7 @@ export const DRAFT_STATUS = 'draft';
 /** The role the component table gives a file a workflow's `path_patterns` names. */
 export const WORKS_ON = 'works-on';
 
-/**
- * Every workflow a hook may show: in force, issued by a human, not a
- * draft, with a title and at least one step. Across every project, the
- * first occurrence of an id wins (global first).
- */
+/** Workflows a hook may show (see head), over every project, global first. */
 export function visibleWorkflows(root) {
   const out = [];
   const seen = new Set();
@@ -116,14 +82,9 @@ export function listOf(value) {
 }
 
 /**
- * Does `pattern` (one `path_patterns` item) name `filePath` (a tracked
- * repo file)? No new path logic: the file is treated like a component
- * QUESTION (`component.forms()`/`prefix()`), the pattern like the TEXT
- * that has to name its base name compatibly (`component.compatible()`).
- * So `bin/mem-before-edit` and bare `mem-before-edit` both match that
- * file; a bare directory (`src/`) matches nothing — the same deliberate
- * limit every other use of `compatible()` in this house keeps: a narrower,
- * honest hit set over a guessed directory reach.
+ * Does a `path_patterns` item name this tracked file? `component.compatible()`
+ * decides, as for any path mention: `bin/x` and bare `x` match, a bare
+ * directory (`src/`) never does — no second path logic.
  */
 export function pathPatternMatches(filePath, pattern) {
   const forms = component.forms(filePath);
@@ -138,12 +99,7 @@ async function tokenizer() {
   return tokenizeFn;
 }
 
-/**
- * Trigger matches per visible workflow. A trigger counts when EVERY one
- * of its tokens is among the text's tokens (a one-word trigger is a
- * plain stem match; "release notes" needs both words). A trigger made
- * only of stop words has no tokens and never counts. `[]` = no match.
- */
+/** Per workflow, the triggers whose tokens ALL occur in the text's tokens. */
 export async function triggerHits(root, text, { workflows = null } = {}) {
   const tokenize = await tokenizer();
   const have = new Set(tokenize(String(text ?? '')));
@@ -199,11 +155,7 @@ function marksDir(root, env) {
   return env?.MEM_WORKFLOW_MARKS || path.join(root, '.mem', 'workflow-marks');
 }
 
-/**
- * Full card the first time this workflow is shown in this session, a
- * one-line pointer after that (unless the memory changed AND the card
- * with it). See the head comment for why the marks are shared.
- */
+/** The card the first time in a session, then the pointer (unless the card changed). */
 export function cardOrPointer(root, entry, session, env = process.env) {
   const full = () => cardText(entry);
   const dir = marksDir(root, env);
@@ -220,11 +172,7 @@ export function cardOrPointer(root, entry, session, env = process.env) {
   return verdict.action === pointer.ACTION.POINTER ? pointerText(entry) : text;
 }
 
-/**
- * From a hit list `{w, count}[]` to the text a hook adds: the card (or
- * its pointer) for a single winner, the title list for a tie, `null`
- * for no hit. The one decision rule for all three occasions.
- */
+/** Hits -> card/pointer for one winner, titles for a tie, `null` for none. */
 export function fromHits(root, hits, { session = null, env = process.env } = {}) {
   if (!hits.length) return null;
   const best = Math.max(...hits.map((h) => h.count));
@@ -249,11 +197,7 @@ export function forCommand(root, command, { session = null, env = process.env } 
   return fromHits(root, toolPatternHits(root, command, { workflows }), { session, env });
 }
 
-/**
- * The before-edit hook's Bash branch, as one call: hook JSON in, the
- * PreToolUse answer out (or `null`), and the journal line booked
- * (occasion `before-edit`, `reason: null` — something WAS shown).
- */
+/** Bash branch of the before-edit hook: hook JSON in, PreToolUse answer out, journal line booked. */
 export async function bashHookResult(root, rawJson, env = process.env) {
   let j;
   try { j = JSON.parse(String(rawJson ?? '')); } catch { return null; }

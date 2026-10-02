@@ -54,6 +54,7 @@
     "!docs/value-report/*.json",
     "!docs/*-2026-*.md",
     "!docs/*-proposal.md",
+    "!docs/viewer-design*",
     "DIGEST.md",
     "README.md",
     "LICENSE",

@@ -1049,17 +1049,10 @@ export const COMMANDS = {
     process.stdout.write('\n');
   },
 
-  // --- wf-bc C1 port: `mem workflow` / `mem snippet` ----------------------
-  //
-  // `mem log workflow` already writes a workflow under the authority
-  // check, but it cannot set `triggers`/`path_patterns`/`tool_patterns`:
-  // `fieldsFrom()` stores a comma list as ONE string and `workflow.check()`
-  // rightly refuses a string where it wants a list. So the three fields
-  // that make a workflow findable at all had no way in from the keyboard.
-  // `mem workflow new` takes them comma-separated (`--steps` semicolon-
-  // separated: a step is a sentence and may hold a comma) and runs the
-  // SAME check and completion as `mem log workflow` — not a second copy.
-
+  // wf-bc C1 port. `mem log workflow` cannot set the three list fields
+  // (`fieldsFrom()` keeps a comma list as one string, which
+  // `workflow.check()` refuses); `mem workflow new` takes them as lists
+  // and runs the same check and completion.
   workflow: async ({ rest, args }) => {
     const sub = rest[0];
     if (isHelp(args) || !sub) {

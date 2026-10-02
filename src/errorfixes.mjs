@@ -2,39 +2,20 @@
 // SPDX-License-Identifier: MIT
 /**
  * errorfixes — link errors to what fixed them and to what was learned
- * from them, WITHOUT a new graph.
+ * from them, on the link drawer that already exists (`resolves`,
+ * `generalizes` in `memory.LINK_KINDS`); no new graph. Port of lucky-mem's
+ * L2a (`src/fehlerloesung.mjs`; its trailer is the German twin of `Fixes:`).
  *
- * **The gap.** An error entry says what went wrong. The fix lives in a
- * commit, the lesson in a learning, and nothing joined the three. Whoever
- * hits the same error again finds the error — not what fixed it.
+ *   1. Commit trailer `Fixes: <error-id>[, ...]`: `mem error-fixes backfill`
+ *      writes ONE `resolves` link per known id, from and `evidence:
+ *      commit:<hash>`. An unknown id is a warning, never a link.
+ *   2. `mem log learning --from <error-id>` writes `generalizes` links;
+ *      without it a note names up to three fitting errors.
+ *   3. `mem log error` names learnings, procedures and fixes for the same
+ *      class or file (output only).
+ *   4. Doctor finding `error-linked`.
  *
- * **Everything here sits on the link drawer that already exists.**
- * `memory.LINK_KINDS` already holds `resolves` ("the source closed the
- * target out") and `generalizes` ("the source is the lesson drawn from
- * the target"). Only entries of type `link` are written; `mem links`,
- * `memory.standing()` and the doctor's orphan check read them already.
- * Parity build for lucky-mem's L2a (`src/fehlerloesung.mjs`), with this
- * house's English names: the trailer is `Fixes:` (lucky-mem's is its
- * German twin), the edge kinds are `resolves`/`generalizes`, the CLI is
- * `mem error-fixes backfill` and `mem log learning --from`.
- *
- *   1. Commit trailer `Fixes: <error-id>[, <error-id>...]`. `mem
- *      error-fixes backfill` reads the history (`git log --all`) and
- *      writes ONE `resolves` edge per known id, `evidence:
- *      commit:<hash>`, from `commit:<hash>`. An unknown id is a loud
- *      warning and no edge — nothing is guessed.
- *   2. `mem log learning ... --from <error-id[,...]>` writes `generalizes`
- *      edges (learning -> error); without `--from` a note names up to
- *      three fitting errors and the ready command to link them.
- *   3. `mem log error` names what already exists for the same class or
- *      file: learnings, procedures, fixes. Output only.
- *   4. The doctor finding `error-linked` counts how many errors carry a
- *      `resolves` and a `generalizes` edge.
- *
- * **Idempotent and append-only.** The key of a `resolves` edge is
- * (error id, evidence); asking for the same edge twice writes nothing,
- * and no line is ever changed. **Only evidenced edges:** every `resolves`
- * edge written here carries `evidence` (`commit:<hash>` or `duty:<id>`).
+ * Idempotent (key: error id + evidence), append-only, evidence only.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -53,15 +34,9 @@ export const NOTE_MAX = 3;
 /** The window of the "last 30 days" metric. */
 export const WINDOW_DAYS = 30;
 /**
- * Targets of the doctor finding `error-linked` (share of the errors of
- * the last 30 days with an edge). Taken over from the sibling house,
- * which measured them on its own store on 2026-09-30 (872 errors, 0.6 %
- * with a fix edge, 1.5 % with a lesson edge): not every error has a fix
- * commit (observations, process slips, false alarms) and not every one
- * a lesson, so 100 % would be a goal only guessing reaches. A quarter
- * of errors with a fix is what a house that keeps the trailer rule
- * reaches; a tenth with a lesson is less than half of what that house's
- * learning count would allow. Targets, not a measurement of this house.
+ * Targets of `error-linked`, taken over from the sibling house (measured
+ * there 2026-09-30): not every error has a fix commit or a lesson, so
+ * 100 % only guessing reaches. Targets, not a measurement of this house.
  */
 export const TARGET_RESOLVES = 0.25;
 export const TARGET_GENERALIZES = 0.10;
@@ -72,12 +47,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // --- the trailer ---------------------------------------------------------
 
-/**
- * The error ids on the `Fixes:` lines of a commit message. A line starts
- * with `Fixes:` (any case); the ids follow, separated by commas or
- * spaces; a token starting with `(` or `-` ends the list (a remark). No
- * check here whether the id exists.
- */
+/** Ids on the `Fixes:` lines (any case); a token starting `(` or `-` ends the list. */
 export function fixesIds(text) {
   const out = [];
   for (const m of String(text ?? '').matchAll(/^[ \t]*Fixes:[ \t]*(.*)$/gim)) {
@@ -96,12 +66,7 @@ export function commitEvidence(hash) {
 
 // --- reading the store ---------------------------------------------------
 
-/**
- * Every error that still counts, id -> entry (with `_project`). A done
- * or obsolete error still counts — being closed is exactly what a fix
- * does to it; a superseded (corrected), discarded or disputed one does
- * not: its successor, or nobody, stands for it.
- */
+/** Errors that count, id -> entry: done/obsolete still do (a fix closes); superseded/discarded/disputed not. */
 export function errorMap(root) {
   const map = new Map();
   for (const project of [null, ...memory.listProjects(root)]) {
@@ -146,11 +111,7 @@ export function existingResolvesKeys(root) {
 
 // --- writing ----------------------------------------------------------------
 
-/**
- * ONE `resolves` edge: `from` closed `errorId` out, proven by `evidence`.
- * `known` is the key set (updated as it goes). Nothing is written when the
- * error is unknown, the evidence is missing or the edge already exists.
- */
+/** ONE `resolves` link, unless the error is unknown, evidence missing or the key known. */
 export function writeResolves(root, { from, errorId, evidence, why }, { errors, known, checkOnly = false }) {
   const e = errors.get(errorId);
   if (!e) return { written: false, reason: 'unknown' };
@@ -165,11 +126,7 @@ export function writeResolves(root, { from, errorId, evidence, why }, { errors, 
   return { written: true, entry };
 }
 
-/**
- * The `Fixes:` trailers of a list of commits `[{hash, body}]` -> edges.
- * Returns the bookkeeping; `unknown` is the list of warnings (commit +
- * id) the caller makes VISIBLE.
- */
+/** `Fixes:` trailers of `[{hash, body}]` -> links; `unknown` holds the warnings to show. */
 export function edgesFromCommits(root, commits, { checkOnly = false, errors = null, known = null } = {}) {
   const f = errors ?? errorMap(root);
   const k = known ?? existingResolvesKeys(root);
@@ -215,12 +172,9 @@ const ID_TOKEN = new RegExp(`\\b[0-9a-z]{${memory.ID_LENGTH}}\\b`, 'g');
 const TRAILER_LINE = /^[ \t]*Fixes:/i;
 
 /**
- * Known error ids named in a commit message the NARROW way: a fix verb
- * directly before the id ("fixes <id>"). Only that counts as evidence.
- * The sibling house measured the wide reading (a fix word anywhere on
- * the line) on its own history: of 13 such lines only about 4 were real
- * fixes ("not fixed, entry X", "half resolved" ...) — the wide reading
- * guesses more than it proves. `textCandidates` only counts the rest.
+ * Known ids after a fix verb ("fixes <id>") — the narrow reading, the only
+ * evidence. The sibling house found the wide one (a fix word anywhere on
+ * the line) right in about 4 of 13 cases; `textCandidates` only counts it.
  */
 export function textMentions(body, errors) {
   const out = [];
@@ -248,16 +202,10 @@ export function textCandidates(body, errors) {
 }
 
 /**
- * Search the whole history for evidenced edges:
- *   (a) `Fixes:` trailers in every commit (`git log --all`),
- *   (b) error ids in a commit message with a fix verb directly before
- *       them (narrow reading; the wide reading is only counted),
- *   (c) closed duties with `error_ids` whose evidence holds for THAT id
- *       (`memory.dutyHasEvidence`, the F4 rule) — edge from the duty.
- * `since` (a revision) limits (a)/(b) to commits not reachable from it.
- * `repo` is the git checkout whose commits are read — by default the
- * memory root, but the fixes usually live in the CODE repository.
- * Writes only without `checkOnly`. Idempotent over (error id, evidence).
+ * Evidenced links from history: `Fixes:` trailers (`git log --all` of
+ * `repo`), the narrow "fixes <id>" text, and closed duties whose F4
+ * evidence (`memory.dutyHasEvidence`) holds for the id. `since` limits
+ * the commits; `checkOnly` writes nothing.
  */
 export function backfill(root, { repo = root, since = null, checkOnly = false } = {}) {
   const errors = errorMap(root);
@@ -338,10 +286,7 @@ export function checkFrom(root, ids) {
   return { ok: ids.filter((i) => f.has(i)), unknown: ids.filter((i) => !f.has(i)) };
 }
 
-/**
- * After a learning is written: one `generalizes` edge per id (from the
- * learning, to the error). Idempotent: an edge already there is skipped.
- */
+/** One `generalizes` link per id (learning -> error), skipping existing ones. */
 export function writeGeneralizes(root, learningId, ids, { project = null } = {}) {
   const f = errorMap(root);
   const have = new Set(allLinks(root).filter((l) => l.kind === 'generalizes').map((l) => `${l.from}|${l.to}`));
@@ -381,13 +326,7 @@ function share(a, b) {
   return a.some((x) => b.includes(x));
 }
 
-/**
- * A learning written without `--from`: up to NOTE_MAX fitting errors —
- * the same class (the learning names it in tags/text), the same file
- * (a path in both) or word overlap of the titles. Display only; `newId`
- * is the entry just written, `via` 'cli' or 'mcp' (the spelling of the
- * command it prints).
- */
+/** Learning without `--from`: up to NOTE_MAX errors by class, file or title words; display only. */
 export function noteForLearning(root, learning, { max = NOTE_MAX, newId = '<new-id>', via = 'cli' } = {}) {
   let f;
   let links;
@@ -422,11 +361,7 @@ export function noteForLearning(root, learning, { max = NOTE_MAX, newId = '<new-
   return lines;
 }
 
-/**
- * Logging an error: what already exists for the same class and file —
- * learnings, procedures, fixes (`resolves` edges onto related errors).
- * Display only: writes nothing, injects nothing.
- */
+/** Logging an error: learnings, procedures and fixes for its class/file; display only. */
 export function noteForError(root, errorEntry, { max = NOTE_MAX } = {}) {
   let all;
   let links;
@@ -445,8 +380,6 @@ export function noteForError(root, errorEntry, { max = NOTE_MAX } = {}) {
     + (names(e, cls) ? 1 : 0) + (files.length && share(files, errorfile.files(e)) ? 1 : 0);
   const newestFirst = (x, y) => (y.r - x.r) || String(y.e.ts ?? '').localeCompare(String(x.e.ts ?? ''));
 
-  // Learnings/procedures: through a generalizes edge onto a related error,
-  // or naming the class / the same file.
   const viaEdge = new Set(links.filter((l) => l.kind === 'generalizes' && related.has(l.to)).map((l) => l.from));
   const learn = [];
   const proc = [];
@@ -476,10 +409,7 @@ export function noteForError(root, errorEntry, { max = NOTE_MAX } = {}) {
 
 // --- metric ----------------------------------------------------------------------
 
-/**
- * Share of errors with a `resolves` and a `generalizes` edge, overall and
- * in the last 30 days. Read-only.
- */
+/** Errors with a `resolves`/`generalizes` link, overall and in the window. */
 export function metric(root, { now = Date.now() } = {}) {
   const f = errorMap(root);
   const links = allLinks(root);

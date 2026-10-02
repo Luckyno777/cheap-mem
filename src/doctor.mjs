@@ -733,18 +733,10 @@ export function checkClosedWithoutEvidence(root) {
 }
 
 /**
- * `workflow-without-trigger` (parity with lucky-mem's
- * `workflow-ohne-ausloeser`, wf-bc C2): a workflow in force with no
- * `triggers`, no `path_patterns` and no `tool_patterns` can never be
- * found by any of the three hook occasions (src/workflowdetect.mjs) —
- * built, but unreachable. Deliberately over EVERY workflow in force, not
- * only the visible ones: "no way to be found" is a different question
- * from "who issued it".
- *
- *   unknown  no workflow in force at all (nothing to judge is not a pass)
- *   good     every workflow has at least one of the three
- *   warn     at least one has none — never error: it is incompletely
- *            kept, not broken (`mem workflow show <id>` still reads it)
+ * `workflow-without-trigger` (lucky-mem `workflow-ohne-ausloeser`, wf-bc
+ * C2): a workflow in force with no triggers, path or tool patterns no hook
+ * can ever find. Over every workflow in force, visible or not. unknown =
+ * none in force; warn (never error: kept incompletely, not broken).
  */
 export function checkWorkflowWithoutTrigger(root) {
   const all = workflowdetect.workflowsInForce(root);
@@ -768,17 +760,10 @@ export function checkWorkflowWithoutTrigger(root) {
 }
 
 /**
- * `snippet-without-redaction` (parity with lucky-mem's
- * `baustein-ohne-redaktion`, wf-bc C2): a text/mail/letter snippet whose
- * body would NOT pass the redaction check today — legacy, imported, or
- * written before a redaction pattern was added. The write path already
- * refuses such a snippet (`snippet.check()`); this is the same check
- * (`snippet.checkRedaction()`), run afterwards over what is there.
- *
- *   unknown  no snippet at all
- *   good     none of kind text/mail/letter, or all of them pass
- *   error    at least one fails — a real data-protection finding, not
- *            an upkeep hint: the write rule says it is never written
+ * `snippet-without-redaction` (lucky-mem `baustein-ohne-redaktion`, wf-bc
+ * C2): a text/mail/letter snippet that fails `snippet.checkRedaction()`
+ * TODAY (legacy, imported, or older than a pattern). unknown = no
+ * snippets; error, not warn: a real data-protection finding.
  */
 export function checkSnippetWithoutRedaction(root) {
   const all = [];
@@ -813,18 +798,11 @@ export function checkSnippetWithoutRedaction(root) {
 }
 
 /**
- * `error-linked` (parity with lucky-mem's `fehler-verknuepft`, L2a): the
- * share of errors with a `resolves` edge (a commit with the trailer
- * `Fixes: <error-id>`, or a closed duty with evidence, closed it out —
- * src/errorfixes.mjs) and with a `generalizes` edge (a learning was drawn
- * from it), overall and over the last 30 days. Writes nothing.
- *
- *   unknown  fewer than 5 errors in the window (a share of 3 is no
- *            statement), or the store is unreadable
- *   good     in the window, at least 25 % resolves AND 10 % generalizes
- *   warn     below either
- * Never error: it counts link density, not a failure. The two targets
- * and their reasons are in src/errorfixes.mjs.
+ * `error-linked` (lucky-mem `fehler-verknuepft`, L2a): share of errors
+ * with a `resolves` link (fix commit `Fixes: <id>`, or a closed duty with
+ * evidence) and a `generalizes` link (a learning), overall and in 30 days.
+ * unknown below 5 errors in the window; good at 25 % and 10 % (targets in
+ * src/errorfixes.mjs); warn below; never error. Writes nothing.
  */
 export function checkErrorLinked(root, { now = new Date() } = {}) {
   let k;
