@@ -14,6 +14,59 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — a store the full build cannot handle gets a real answer and a condensed 3D atlas (atlas-pass)
+
+- **ONE pass replaces the light head above 64 MB of drawers.** The compact
+  build (`src/dashboard-compact.mjs`, `src/dashboard-pass.mjs`) reads every
+  drawer once, line by line, and keeps counters, bounded lists and a
+  fingerprint table of about 14 bytes an entry — no entry list in memory. It
+  yields the line total, the counters, the net, the open questions, the
+  agents, the projects, the newest 30,000 entries and the condensed atlas;
+  the same `collectDashboard()` as the full build builds the rest, so the
+  answer has the same shape. A drawer with retiring or correcting lines is read
+  a second time, only for those lines and their targets. Port of the sibling's
+  dash-tempo2 work.
+- **The 3D atlas is condensed**: the 240 largest topics, every drawer, the 600
+  strongest topic pairs and the newest 60 entries of each as the first page,
+  fixed size, no free text. Zooming in loads the entries of a topic or drawer
+  60 at a time (`/dashboard/part.json?part=atlas`), from the pass's sample, the
+  window of the newest entries, or a search in the build worker; the page says
+  "searching", never an empty list. An entry counts in every topic it carries.
+- **Modules that read the whole store themselves** (integrity scan, duties,
+  facts, topics, learnings) run up to 128 MB of drawers; above, each is
+  unknown with its reason. The doctor and the today card (measured: the doctor
+  needs 8.6 s at 20,000 and 98 s at 250,000 entries) never run in the compact build. The project
+  package is refused there (503).
+- **The heap guard starts the build safely.** The worker reports `ready` and
+  starts its build one turn later (`setImmediate`): stopping a worker in the
+  middle of the evaluation of an ES module crashed V8 on Node 22.22. With
+  `NODE_OPTIONS=--max-old-space-size` the worker's own limit does not hold at
+  all, so tests that rely on a cap run without it. If the compact build with
+  its modules goes over the cap, it is built again without them.
+- **Measured** (`node bench/board-tempo.mjs --synthetic N`, 4 cores shared with other work, load average 6 to 10; server = cold process with no head on disk, first `GET /dashboard.json`, then polled until the first real build; `env -u NODE_OPTIONS`; before = commit 4d746f6, after = this change):
+
+  | store | build | first answer | counters shown | first real build done | peak RSS of the server |
+  |---|---|---|---|---|---|
+  | 100,000 entries (26 MB) before | full (below the 64 MB line) | 46 ms placeholder | 1.1 s (light head) | 42.4 s | 1.39 GB |
+  | 100,000 after (same line, unchanged) | full | 60 ms placeholder | 1.1 s (light head) | 41.7 s | 1.21 GB |
+  | 100,000 after, line forced down (`CHEAP_MEM_SERVE_FULL_BUILD_MB=1`) | compact | 58 ms placeholder | 8.6 s (the compact build itself) | 8.6 s | 0.68 GB |
+  | 1,000,000 (263 MB) before | light head only, tiles and atlas unknown | 40 ms placeholder | 4.1 s | 7.7 s (light head) | 0.23 GB |
+  | 1,000,000 after | compact (net, questions, agents, condensed atlas) | 40 ms placeholder | 10.9 s | 10.9 s | 0.69 GB |
+
+  The 100,000-entry store stays on the full build by default (26 MB is under the
+  64 MB line); the forced row shows what the compact build does with it: 8.6 s
+  and 0.68 GB instead of 41.7 s and 1.21 GB, with the net, the questions and the
+  agents but without the doctor and the 3D view of single entries. At 1,000,000
+  entries the compact build costs 3.2 s more than the light head and 0.46 GB
+  more, and in return the page has the net, the open questions, the agents, the
+  projects and the condensed atlas instead of "unknown". Measured per
+  module on 250,000 entries (66 MB): pass 3.3 s and 235 MB, integrity scan 2.3 s
+  and 287 MB, topics 12.0 s and 765 MB, learnings 3.1 s and 469 MB; on 500,000
+  entries (132 MB): pass 4.2 s and 279 MB, integrity 4.2 s and 427 MB, topics
+  23.3 s and 1.24 GB, learnings 7.7 s and 810 MB (maximum RSS of a process
+  running the one call). The doctor: 8.6 s at 20,000 entries, 97.8 s and 1.43 GB at 250,000. Not measured: the
+  browser's first display at these sizes, 10,000,000 entries.
+
 ### Changed — the dashboard's first page no longer waits for the store (board-tempo)
 
 - **The first answer of `/dashboard.json` is a small head** (newest 120 entries,

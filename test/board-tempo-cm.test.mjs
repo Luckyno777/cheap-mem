@@ -459,24 +459,25 @@ test('light head: the same counters as the full list, bounded entries, no free t
   });
 });
 
-test('server: over the full-build size only the light head is served — with the reason, never fresh-and-complete', async () => {
+test('server: over the full-build size the COMPACT build is served (it replaced the light head) — with the reason, never fresh-and-complete', async () => {
   const root = bigWorld();
   const s = await start(root, { CHEAP_MEM_SERVE_FULL_BUILD_MB: '0.5' });
   try {
-    const d = await until(async () => { const x = await s.json('/dashboard.json'); return x.light && x.cache.source === 'build' && x; }, 'light head as the build');
+    const d = await until(async () => { const x = await s.json('/dashboard.json'); return x.compact && x.cache.source === 'build' && x; }, 'compact build');
     assert.equal(d.state, 'warning');
-    assert.match(d.reasons[0], /full build runs only up to/);
+    assert.equal(d.light, undefined, 'the light head is gone above the line');
+    assert.match(d.reasons[0], /compact build runs/);
     assert.equal(d.overview.count, 4000);
-    assert.equal(d.parts.entries.head_only, true);
+    assert.equal(d.parts.entries.head_only, undefined);
     const part = await s.json('/dashboard/part.json?part=entries');
-    assert.equal(part.head_only, true);
-    assert.equal(part.data, null, 'no invented list');
+    assert.equal(part.state, 'ok');
+    assert.equal(part.total, 4000);
     const pkg = await fetch(`${s.base}/dashboard/project-package.json?project=global&preview=1`);
     assert.ok([503, 404].includes(pkg.status));
     // positive control: the same store under the limit builds in full
     const s2 = await start(root, { CHEAP_MEM_SERVE_FULL_BUILD_MB: '500' });
     try {
-      const f = await until(async () => { const x = await s2.json('/dashboard.json'); return x.cache.source === 'build' && !x.light && x; }, 'full build');
+      const f = await until(async () => { const x = await s2.json('/dashboard.json'); return x.cache.source === 'build' && !x.light && !x.compact && x; }, 'full build');
       assert.equal(f.overview.count, 4000);
     } finally { await s2.stop(); }
   } finally { await s.stop(); }

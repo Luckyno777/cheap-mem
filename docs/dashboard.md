@@ -18,7 +18,7 @@ mem serve --allow-writes  # allow the page to write, for this run only
 | `/`, `/dashboard` | the page |
 | `/pult`, `/pult.json` | 308 to `/dashboard` and `/desk.json` (old German names, kept for bookmarks) |
 | `/dashboard.json` | everything the views show, collected live (gzip when asked) |
-| `/dashboard/part.json?part=` | what the first answer leaves out: `inbox`, `raw`, `experiences` as lists; `entries` page by page (`&from=&n=`, at most 5000 a page) |
+| `/dashboard/part.json?part=` | what the first answer leaves out: `inbox`, `raw`, `experiences` as lists; `entries` page by page (`&from=&n=`, at most 5000 a page); `atlas` (compact build only): the entries of a topic or drawer, 60 at a time (`&theme=` or `&drawer=project/type`, `&project=`, `&from=&n=`) |
 | `/dashboard/entry.json?id=` | one entry, whole |
 | `/dashboard/message.json?id=` | one inbox message, whole |
 | `/dashboard/probe.json` | the retrieval probe: what `mem retrieve` would inject for a question. It is read-only and never logged |
@@ -50,13 +50,40 @@ empty list.
   unknown, no invented figure), then within seconds a light head (counters and
   newest titles, one pass over the drawers, bounded memory), then the full build.
 - **Above 64 MB of drawers** (`CHEAP_MEM_SERVE_FULL_BUILD_MB` changes the line)
-  the full build does not run at all: the page says it shows counters and the
-  newest entries only, and the tiles of the full build are unknown, not zero.
-  Measured: 100,000 entries (26 MB) need 26 s and 1.1 GB for the full build,
-  250,000 (66 MB) need 99 s and 2.9 GB.
-- The full build runs in a worker thread whose heap the server caps (at most
+  the full build does not run. The **compact build** runs instead (it replaced
+  the light head there; the light head stays only as the quick first state of a
+  store the full build still handles):
+  - **One pass** over the drawers (`src/dashboard-pass.mjs`) feeds the line
+    total, the counters per type and project, the net (boxes, box pairs, links,
+    dangling), the open questions, the agents, the projects and the newest
+    entries (30,000, `CHEAP_MEM_SERVE_WINDOW_ENTRIES`). It keeps counters,
+    bounded lists and a fingerprint table of about 14 bytes an entry — no entry
+    list. A drawer with retiring or correcting lines is read a second time,
+    only for those lines and their targets. The same `collectDashboard()` as
+    the full build builds the rest of the answer, so every view that does not
+    need the whole store works unchanged. Entries carry no free text there;
+    citation counts, contested marks and derived links are not computed.
+  - **The 3D atlas is condensed**: the 240 largest topics (tags), every drawer
+    with its counter, the strongest 600 topic pairs, fixed size, no free text,
+    in the head on disk too. The entries of a topic or a drawer come when the
+    page zooms in: the newest 60 at once, "Load 60 more" for the next 60, from
+    the sample of the pass, the window of the newest entries, or beyond them a
+    search in the build worker (the page says "searching", never an empty
+    list). An entry counts in every topic it carries.
+  - **Modules that read the whole store themselves** (integrity scan, duties,
+    facts, topics, learnings) run up to 128 MB of drawers; above, each is
+    "unknown" with the reason. The doctor and the today card read the store
+    several times and never run in the compact build (`mem doctor` does).
+  - The project package is refused (503): it would be silently incomplete.
+  Measured: see the changelog entry of 2026-10-02 (atlas-pass).
+- The build runs in a worker thread whose heap the server caps (at most
   4 GB, half the RAM) and enforces itself: Node's `resourceLimits` alone did
-  not hold on Node 22.22 (a 64 MB limit ran on to 2 GB). A build over the cap
+  not hold on Node 22.22 (a 64 MB limit ran on to 2 GB; with `NODE_OPTIONS`
+  setting `--max-old-space-size` it does not hold at all). The guard starts when
+  the worker reports `ready`, and the build starts one turn later: stopping a
+  worker in the middle of the evaluation of an ES module crashed V8 on
+  Node 22.22. If the compact build with its modules goes over the cap, it is
+  built again without them. A build over the cap
   fails the worker only; the server keeps answering with the last head and says
   why. The cache counts a result's age from the END of its build and waits at
   least four times a build's duration before the next background build.

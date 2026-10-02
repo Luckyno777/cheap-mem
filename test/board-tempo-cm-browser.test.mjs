@@ -9,7 +9,8 @@
 //      empty list: the banner stays, no error panel, and the page asks again.
 //   3. Before the first build (placeholder) every view says "state unknown" —
 //      never "this memory holds no entry yet".
-//   4. A light head (store too large for the full build) draws every view
+//   4. A compact build (store too large for the full build; it replaced the
+//      light head) draws every view
 //      without a script error and says that only a head is there.
 // Positive controls: the held request WAS asked for; the probe store really
 // has more entries than the head carries.
@@ -163,8 +164,8 @@ test('browser: the first real state is drawn by itself after the placeholder (no
   });
 });
 
-test('browser: a light head draws every view without a script error and says it is only a head', { skip: SKIP }, async () => {
-  const root = store(4000); // over 0.5 MB -> light head with CHEAP_MEM_SERVE_FULL_BUILD_MB=0.5
+test('browser: a compact build draws every view without a script error and says so', { skip: SKIP }, async () => {
+  const root = store(4000); // over 0.5 MB -> compact build with CHEAP_MEM_SERVE_FULL_BUILD_MB=0.5
   await withServer(root, { CHEAP_MEM_SERVE_FULL_BUILD_MB: '0.5' }, async (base) => {
     const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
     const errors = [];
@@ -172,7 +173,7 @@ test('browser: a light head draws every view without a script error and says it 
     try {
       await page.goto(`${base}/dashboard`);
       await waitReady(page);
-      await page.waitForFunction(() => /only the counters and the newest entries|Only counters/.test(document.body.textContent) && !!document.querySelector('#screen .metrics'), null, { timeout: 60000 });
+      await page.waitForFunction(() => /the compact build runs/.test(document.body.textContent) && !!document.querySelector('#screen .metrics'), null, { timeout: 60000 });
       assert.match(await metric(page, 'Knowledge in view'), /4,000/);
       const routes = await page.evaluate(() => Object.entries(sections).flatMap(([area, s]) => (s.tabs || []).map(([tab]) => `${area}/${tab}`)));
       assert.ok(routes.length > 20, `only ${routes.length} routes found — the probe sees too little`);
@@ -182,8 +183,8 @@ test('browser: a light head draws every view without a script error and says it 
         await page.waitForTimeout(60);
         if (await page.evaluate(() => /View cannot be drawn/.test(document.querySelector('#screen')?.textContent || ''))) broken.push(route);
       }
-      assert.deepEqual(errors, [], 'script errors while drawing views over a light head');
-      assert.deepEqual(broken, [], 'views that could not be drawn over a light head');
+      assert.deepEqual(errors, [], 'script errors while drawing views over a compact build');
+      assert.deepEqual(broken, [], 'views that could not be drawn over a compact build');
     } finally { await page.close(); }
   });
 });

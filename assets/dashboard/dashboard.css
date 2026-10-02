@@ -160,3 +160,6 @@ fieldset.read-only-fields{border:0;padding:0;margin:0;min-width:0;opacity:.62}
 .sk-cmd{display:flex;gap:8px;align-items:center;margin-top:8px;min-width:0}.sk-cmd code{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:7px 9px;overflow-wrap:anywhere;white-space:normal}
 .sk-detail-name{font-size:22px!important;overflow-wrap:anywhere}
 @media(max-width:720px){.sk-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.sk-metrics .metric:nth-child(2){border-right:0}.sk-metrics .metric:nth-child(-n+2){border-bottom:1px solid var(--line)}.sk-bar select.field{max-width:none;flex:1 1 45%}.sk-bottom{grid-template-columns:1fr}.sk-group{padding:10px 12px 2px}.sk-when{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.sk-cmd{flex-direction:column;align-items:stretch}}
+
+/* atlas-pass-cm: condensed atlas — state of the page in focus and "Load more" */
+.atlas-state{color:#a9cdbf;font-size:10px}.atlas-state:empty{display:none}.atlas-more{border:1px solid #68938570;background:#1c3430;color:#d3ead7;border-radius:5px;padding:4px 7px;font-size:10px}.atlas-more[hidden]{display:none}

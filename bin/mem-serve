@@ -57,6 +57,7 @@ import * as entriesPage from '../src/entries-page.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
 import * as dashboardHead from '../src/dashboard-head.mjs';
+import * as dashboardPass from '../src/dashboard-pass.mjs';
 import * as fulltext from '../src/fulltext.mjs';
 import * as pwa from '../src/pwa.mjs';
 import * as icon from '../src/icon.mjs';
@@ -331,28 +332,60 @@ export function buildHandler(root, cfg, env = process.env) {
   const lightBuild = (reason) => dashboardCache.buildInWorker(root, {
     kind: 'head', title: cfg.title, writesAllowed: writesAllowed(), reason, types: dashboardData.typesList(), route: entriesRoute,
   });
+  // atlas-pass-cm: above the line (or when the full build fails at its heap cap)
+  // the server builds COMPACT: one pass over the drawers, bounded memory, the
+  // condensed 3D atlas (src/dashboard-compact.mjs). The topics of the last atlas
+  // get their sample from the first line on.
+  // How many of the newest entries the compact build lists (default 30,000; the variable is for the probes).
+  const windowEnv = Number(env.CHEAP_MEM_SERVE_WINDOW_ENTRIES);
+  const compactWindow = Number.isFinite(windowEnv) && windowEnv >= 1 ? Math.floor(windowEnv) : dashboardPass.WINDOW;
+  let lastThemes = [];
+  let modulesFailed = null; // the size at which the modules that read the whole store hit the heap cap
+  const compactBuild = async (bytes, why = null) => {
+    const run = (extra) => dashboardCache.buildInWorker(root, {
+      ...dashOptions(writesAllowed()), kind: 'compact', env: { ...env }, bytes, themeHints: lastThemes, window: compactWindow, ...extra,
+    });
+    let data;
+    if (modulesFailed !== null && bytes !== null && bytes >= modulesFailed) {
+      data = await run({ modulesUpTo: 0, ...(why ? { why } : {}) });
+    } else {
+      try {
+        data = await run(why ? { why } : {});
+      } catch (e) {
+        // The modules that read the whole store on their own took the worker over
+        // its memory cap: once more without them, and not again at this size.
+        if (bytes !== null) modulesFailed = bytes;
+        data = await run({ modulesUpTo: 0, why: `${why ? `${why} ` : ''}The compact build with its modules failed (${e?.message || e}); built without the modules that read the whole store.` });
+      }
+    }
+    lastThemes = (data.atlas?.themes || []).map((t) => t.tag);
+    return data;
+  };
   const dashCache = dashboardCache.createCache({
     build: () => dashboardData.collectDashboard(root, dashOptions(writesAllowed())),
     // Over FULL_BUILD_UP_TO_BYTES, or when the full build already failed at
-    // this size in the worker (heap cap): only the light head, with a
-    // reason — not minutes and gigabytes again with every rebuild.
+    // this size in the worker (heap cap): the compact build — not minutes and
+    // gigabytes again with every rebuild.
     buildInBackground: async () => {
       const bytes = dashboardCache.storeBytes(root, { env });
       const b = bytes?.build ?? null;
-      if (b !== null && b > fullBuildMax) {
-        return lightBuild(`Drawers ${Math.round(b / 1048576)} MB: the full build runs only up to ${Math.round(fullBuildMax / 1048576)} MB. Only counters and newest entries; the tiles are unknown.`);
-      }
-      if (fullFailed && b !== null && b >= fullFailed.bytes) return lightBuild(fullFailed.reason);
+      if (b !== null && b > fullBuildMax) return compactBuild(b);
+      if (fullFailed && b !== null && b >= fullFailed.bytes) return compactBuild(b, fullFailed.reason);
       try {
         return await dashboardCache.buildInWorker(root, { ...dashOptions(writesAllowed()), env: { ...env } });
       } catch (e) {
-        const reason = `Full build failed (${e?.message || e}). Only counters and newest entries; the tiles are unknown.`;
+        const reason = `Full build failed (${e?.message || e}); the compact build runs instead.`;
         if (b !== null) fullFailed = { bytes: b, reason };
-        return lightBuild(reason);
+        return compactBuild(b, reason);
       }
     },
     // The quick head BEFORE the full build, while only the placeholder stands.
-    buildHead: () => lightBuild('First state since the start: only counters and newest entries, the full build is still running.'),
+    // Not for a store the compact build serves: that one is built at once.
+    buildHead: () => {
+      const b = dashboardCache.storeBytes(root, { env })?.build ?? null;
+      if (b !== null && b > fullBuildMax) return null;
+      return lightBuild('First state since the start: only counters and newest entries, the full build is still running.');
+    },
     // The write gate is part of the data (`writesAllowed`) — part of the stamp too.
     stamp: () => `${dashboardCache.generationStamp(root)}|w=${writesAllowed()}`,
     ...(syncUpToMsTest !== undefined ? { syncUpToMs: Number(syncUpToMsTest), minGapMs: 0 } : {}),
@@ -362,7 +395,11 @@ export function buildHandler(root, cfg, env = process.env) {
     // Cold start without waiting for the full build: the head of the last
     // run from disk, otherwise (a small store) synchronously as before,
     // otherwise the placeholder.
-    fromDisk: () => dashboardHead.readHead(root),
+    fromDisk: () => {
+      const h = dashboardHead.readHead(root);
+      if (h?.data?.atlas?.themes && !lastThemes.length) lastThemes = h.data.atlas.themes.map((t) => t.tag);
+      return h;
+    },
     syncAllowed: () => {
       const b = dashboardCache.storeBytes(root, { env })?.build ?? null;
       return b !== null && b <= dashboardCache.SYNC_UP_TO_BYTES;
@@ -395,7 +432,10 @@ export function buildHandler(root, cfg, env = process.env) {
       if (st.source === 'build' || st.source === 'head') layDown(st, headState.head);
       return headState;
     }
-    const head = { ...data, parts: {} };
+    // atlas-pass-cm: the pages of the condensed atlas and the rows outside the
+    // window stay here, never in the answer (`samples`, `extras`).
+    const { samples = null, extras = [], ...plain } = data;
+    const head = { ...plain, parts: {} };
     // The deferred parts: list out, path and count in (readable ones only —
     // an unreadable section keeps its reason and has no list).
     for (const [name, p] of Object.entries(DEFERRED_PARTS)) {
@@ -414,13 +454,72 @@ export function buildHandler(root, cfg, env = process.env) {
       head.topics = { ...head.topics, list: head.topics.list.map((t) => (Array.isArray(t.trail) && t.trail.length > 8 ? { ...t, trail: t.trail.slice(0, 8), trailTotal: t.trail.length } : t)) };
     }
     const open = new Set([...(data.openDuties || []), ...(data.openQuestions || [])].map((x) => x.id));
-    const e = dashboardHead.headEntries(data.entries || [], { open, max: headMax, route: entriesRoute });
+    const e = dashboardHead.headEntries(data.entries || [], { open, max: headMax, route: entriesRoute, overview: data.compact ? data.overview : null });
     head.entries = e.entries;
     head.overview = e.overview;
+    // The open duties and questions older than the compact window (the page names them).
+    if (extras.length) {
+      const inside = new Set(head.entries.map((x) => x.id));
+      for (const x of extras) if (open.has(x.id) && !inside.has(x.id) && head.entries.length < headMax + 150) head.entries.push(x);
+    }
     if (e.part) head.parts.entries = e.part;
-    headState = { id: st.id, head, sorted: e.sorted };
+    if (data.compact && data.atlas) head.parts.atlas = { path: `${dashboardPage.PATHS.part}?part=atlas`, page: dashboardPass.SAMPLE };
+    headState = { id: st.id, head, sorted: e.sorted, samples, total: e.overview.count };
     layDown(st, head);
     return headState;
+  }
+  // --- atlas-pass-cm: pages of the condensed atlas ------------------------------
+  // Zooming into a topic or a drawer asks for its entries, page by page. Order of
+  // the sources: the sample of the pass (at once), the window of the newest
+  // entries (at once, exact as soon as it holds enough hits — everything outside
+  // is older), otherwise a search over the store in the build worker (memory
+  // bounded); until it is done the answer is `searching`, never an empty list.
+  const ATLAS_PAGE_MAX = 500;
+  const ATLAS_DEPTH_MAX = 5000;
+  const atlasSearches = new Map(); // key -> { result, error }
+  function atlasAnswer(st, q) {
+    const theme = q.get('theme') || null;
+    const drawer = q.get('drawer') || null;
+    const pq = q.get('project');
+    const project = pq && pq !== 'all' ? pq : null;
+    const base = { part: 'atlas', theme, drawer, project, cache: st.meta };
+    const unknown = (reason, extra = {}) => ({ state: 'unknown', ...base, data: null, reason, ...extra });
+    if (!theme === !drawer) return unknown('give exactly one of theme or drawer');
+    const from = Math.max(0, Math.floor(Number(q.get('from')) || 0));
+    const n = Math.min(ATLAS_PAGE_MAX, Math.max(1, Math.floor(Number(q.get('n')) || dashboardPass.SAMPLE)));
+    if (from + n > ATLAS_DEPTH_MAX) return unknown(`deeper than ${ATLAS_DEPTH_MAX} entries of one topic only through the search`);
+    const hs = headOf(st);
+    if (!hs.sorted) return unknown((st.data.reasons || [])[0] || 'head only', { head_only: true });
+    const fits = (r) => (theme
+      ? (theme === dashboardPass.NO_THEME ? !(r.tags || []).length : (r.tags || []).includes(theme))
+      : `${r.project}/${r.type}` === drawer) && (!project || r.project === project);
+    const pageOf = (list, total, source) => {
+      const data = list.slice(from, from + n);
+      return { state: 'ok', ...base, from, n: data.length, data, total, next: from + data.length < total ? from + data.length : null, source, state_id: st.id };
+    };
+    if (!st.data.compact) {
+      const list = hs.sorted.filter(fits);
+      return pageOf(list, list.length, 'list');
+    }
+    const at = st.data.atlas || {};
+    const node = theme ? (at.themes || []).find((t) => t.tag === theme) : (at.drawers || []).find((d) => d.drawer === drawer);
+    const count = node ? (project && theme ? (node.perProject?.[project] ?? 0) : node.count) : null;
+    const sample = (hs.samples?.get(theme ? `theme:${theme}` : `drawer:${drawer}`) || []).filter(fits);
+    if (node?.sampleWhole !== false && (from + n <= sample.length || (count !== null && sample.length >= count))) return pageOf(sample, count ?? sample.length, 'sample');
+    const inWindow = hs.sorted.filter(fits);
+    if (inWindow.length >= from + n || (count !== null && inWindow.length >= count)) return pageOf(inWindow, count ?? inWindow.length, 'window');
+    const key = JSON.stringify([st.id, theme, drawer, project, from + n]);
+    const found = atlasSearches.get(key);
+    if (found?.result) return pageOf(found.result.rows.map((z) => dashboardData.entryRow(z, null, z.count ?? null)), found.result.total, 'search');
+    if (found?.error) return unknown(`search failed: ${found.error}`);
+    if (!found) {
+      while (atlasSearches.size >= 50) atlasSearches.delete(atlasSearches.keys().next().value);
+      const slot = { result: null, error: null };
+      atlasSearches.set(key, slot);
+      dashboardCache.buildInWorker(root, { kind: 'atlasPage', theme, drawer, project, max: from + n })
+        .then((r) => { slot.result = r; }, (err) => { slot.error = err?.message || String(err); });
+    }
+    return unknown('the page is being searched in the store', { searching: true });
   }
   let dashText = null; // { key, plain, gzip() } — the last serialized text
   const packedPerVersion = new Map(); // 'path:version' -> gzip of a page file (tempo)
@@ -710,9 +809,9 @@ export function buildHandler(root, cfg, env = process.env) {
     if (url.pathname === dashboardPage.PATHS.part) {
       const name = url.searchParams.get('part') || '';
       const p = Object.hasOwn(DEFERRED_PARTS, name) ? DEFERRED_PARTS[name] : null;
-      if (!p && name !== 'entries') {
+      if (!p && name !== 'entries' && name !== 'atlas') {
         res.writeHead(404, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-          .end(JSON.stringify({ state: 'unknown', reason: `no deferred part '${name}' (known: ${[...Object.keys(DEFERRED_PARTS), 'entries'].join(', ')})` }));
+          .end(JSON.stringify({ state: 'unknown', reason: `no deferred part '${name}' (known: ${[...Object.keys(DEFERRED_PARTS), 'entries', 'atlas'].join(', ')})` }));
         return;
       }
       let st;
@@ -727,13 +826,15 @@ export function buildHandler(root, cfg, env = process.env) {
       let found;
       if (st.source !== 'build') {
         found = { state: 'unknown', part: name, data: null, building: true, reason: st.meta.reason || 'list not built yet', cache: st.meta };
+      } else if (name === 'atlas') {
+        found = atlasAnswer(st, url.searchParams);
       } else if (name === 'entries' && !headOf(st).sorted) {
         // Light head: this state has no full list.
         found = { state: 'unknown', part: name, data: null, head_only: true, reason: (st.data.reasons || [])[0] || 'head only', cache: st.meta };
       } else if (name === 'entries') {
         // Page by page from the sorted list of THIS state; `state_id` lets
         // the page notice when a rebuild happened between two pages.
-        found = { state: 'ok', part: name, ...dashboardHead.page(headOf(st).sorted, url.searchParams.get('from'), url.searchParams.get('n')), state_id: st.id, cache: st.meta };
+        found = { state: 'ok', part: name, ...dashboardHead.page(headOf(st).sorted, url.searchParams.get('from'), url.searchParams.get('n'), { total: headOf(st).total }), state_id: st.id, cache: st.meta };
       } else {
         const list = partList(st.data, p);
         found = p.readable(st.data) && Array.isArray(list)
@@ -786,6 +887,9 @@ export function buildHandler(root, cfg, env = process.env) {
       // board-tempo-cm: a head from disk / a quick head / the placeholder (or
       // a light head) does not carry every entry — a package from it would be
       // silently incomplete. Refused honestly, the caller asks again.
+      // atlas-pass-cm: the compact build holds only the newest window, without free
+      // text — a package from it would be silently incomplete.
+      if (st.source === 'build' && st.data.compact) { json(503, { state: 'unknown', reason: 'the project package needs the full build; this store is built compact (drawers over the full-build line, or the full build failed)', cache: st.meta }); return; }
       if (st.source !== 'build' || st.data.light) { json(503, { state: 'unknown', building: true, reason: st.meta.reason || (st.data.reasons || [])[0] || 'not built yet', cache: st.meta }); return; }
       if (url.searchParams.get('preview') === '1') {
         json(200, { ...projectPackage.preview(st.data, a), cache: st.meta });

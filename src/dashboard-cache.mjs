@@ -198,7 +198,7 @@ export function storeBytes(root, { env = process.env } = {}) {
  * without blocking the server. `options.kind === 'head'` builds only the
  * light head (dashboard-head.mjs). The heap is capped (`WORKER_HEAP_MB`).
  */
-export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_MB } = {}) {
+export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_MB, guardMs = GUARD_MS } = {}) {
   // The worker imports the data module fresh; without this it would
   // measure ITS OWN start as "the code at start" and `stale` could never
   // be true. This (server) process's start head goes along.
@@ -214,8 +214,14 @@ export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_M
     w.unref();
     let done = false;
     // The parent's guard (see WORKER_HEAP_MB): over the cap -> terminate, reject.
+    // It starts only when the worker reports `ready` (the modules are loaded):
+    // `terminate()` in the middle of the evaluation of an ES module crashed V8
+    // on Node 22.22 ("Check failed: (location_) != nullptr", measured
+    // 2026-10-02). The worker starts its build one turn later (see the end of
+    // this file), so the guard never meets a module that is still being evaluated.
     let guard = null;
-    if (typeof w.getHeapStatistics === 'function') {
+    const startGuard = () => {
+      if (guard || done || typeof w.getHeapStatistics !== 'function') return;
       guard = setInterval(async () => {
         try {
           const h = await w.getHeapStatistics();
@@ -226,10 +232,12 @@ export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_M
             w.terminate();
           }
         } catch { /* the worker is gone: its exit/error event reports it */ }
-      }, GUARD_MS);
+      }, guardMs);
       guard.unref();
-    }
-    w.once('message', (m) => {
+    };
+    w.on('message', (m) => {
+      if (m?.ready) { startGuard(); return; }
+      if (done) return;
       done = true;
       clearInterval(guard);
       if (m?.ok) resolve(m.data); else reject(new Error(m?.reason || 'worker without a result'));
@@ -293,9 +301,12 @@ export function createCache({
         if (buildHead && current?.source === 'placeholder') {
           const t1 = now();
           try {
+            // `null`: no quick head needed (a store the compact build serves is built at once).
             const h = await buildHead();
-            store(h, s, start, Math.max(0, Math.round(now() - t1)), 'head');
-            if (afterBackgroundBuild) { try { afterBackgroundBuild(); } catch { /* pre-work only */ } }
+            if (h) {
+              store(h, s, start, Math.max(0, Math.round(now() - t1)), 'head');
+              if (afterBackgroundBuild) { try { afterBackgroundBuild(); } catch { /* pre-work only */ } }
+            }
           } catch { /* the full build follows anyway */ }
         }
         return buildInBackground();
@@ -364,15 +375,42 @@ export function createCache({
 // --- the worker thread: the background build of `/dashboard.json` ----------
 // The same call as in the server (`collectDashboard`), no second version of
 // the data. Runs only inside a worker started by `buildInWorker()`.
+//
+// `options.kind`: 'head' (the light head), 'compact' (the compact build,
+// src/dashboard-compact.mjs), 'atlasPage' (one page of the condensed atlas,
+// src/dashboard-pass.mjs), otherwise the full build.
+//
+// The build starts one turn AFTER the modules are loaded and `ready` is
+// reported (`setImmediate`), not inside the evaluation of this module: the
+// parent stops a worker over its memory cap, and `terminate()` in the middle
+// of an ES module's evaluation crashed V8 on Node 22.22 (see buildInWorker).
 if (!isMainThread && workerData?.dashboardCacheBuild) {
   const { root, options } = workerData;
-  Promise.all([import('./dashboard-data.mjs'), import('./dashboard-head.mjs')])
-    .then(([dashboardData, dashboardHead]) => {
-      const { kind, ...rest } = options;
-      const data = kind === 'head'
-        ? dashboardHead.lightHead(root, rest)
-        : dashboardData.collectDashboard(root, { ...rest, env: rest.env ?? process.env });
-      parentPort.postMessage({ ok: true, data });
+  const { kind } = options;
+  Promise.all([
+    import('./dashboard-data.mjs'),
+    import('./dashboard-head.mjs'),
+    kind === 'compact' ? import('./dashboard-compact.mjs') : null,
+    kind === 'atlasPage' ? Promise.all([import('./dashboard-pass.mjs'), import('./injection.mjs')]) : null,
+  ])
+    .then(([dashboardData, dashboardHead, compact, atlas]) => {
+      parentPort.postMessage({ ready: true });
+      setImmediate(() => {
+        try {
+          const { kind: _kind, ...rest } = options;
+          let data;
+          if (kind === 'head') data = dashboardHead.lightHead(root, rest);
+          else if (kind === 'compact') data = compact.collectCompact(root, { ...rest, env: rest.env ?? process.env });
+          else if (kind === 'atlasPage') {
+            const [pass, injection] = atlas;
+            const recall = dashboardData.recallCount(root, { read: injection.read });
+            data = pass.atlasSearch(root, { ...rest, recall });
+          } else data = dashboardData.collectDashboard(root, { ...rest, env: rest.env ?? process.env });
+          parentPort.postMessage({ ok: true, data });
+        } catch (e) {
+          parentPort.postMessage({ ok: false, reason: e?.message || String(e) });
+        }
+      });
     })
     .catch((e) => parentPort.postMessage({ ok: false, reason: e?.message || String(e) }));
 }
