@@ -17,9 +17,9 @@ import * as raw from './raw.mjs';
 import * as skillregistry from './skillregistry.mjs';
 
 /** Minutes "after the offer" (one or two answer rounds). A setting, printed with every display. */
-export const WINDOW_MIN = 30;
+const WINDOW_MIN = 30;
 /** Minimum OBSERVED offers for a rate (0 of 9 still reaches ~30 % upper bound). */
-export const MIN_N = 10;
+const MIN_N = 10;
 const Z95 = 1.96;
 
 /** Wilson interval (95 %) for k of n; null for n = 0. */

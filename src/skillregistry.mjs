@@ -27,22 +27,20 @@ import { writeAtomic } from './atomicwrite.mjs';
 
 /** The four drawers, in a fixed order (determinism). */
 export const TYPES = Object.freeze(['skill', 'workflow', 'snippet', 'procedure']);
-export const DRAFT = 'draft';
+const DRAFT = 'draft';
 export const UNKNOWN = procedure.UNKNOWN_STATUS;
-/** Every status the registry can show, in display order. */
-export const ALL_STATUSES = Object.freeze(['released', 'trial', 'proposed', UNKNOWN, DRAFT, 'withdrawn']);
 export const EXPORTABLE = Object.freeze(['released', 'trial']);
 const OFFERABLE = ['released'];
 const OFFER_TYPES = ['skill'];
 /** How many distinct trigger stems of the question an offer needs. */
-export const OFFER_MIN_STEMS = 2;
+const OFFER_MIN_STEMS = 2;
 export const PREFIX = 'mem-';
 /** The marker file: only directories WITH it are ever removed by the export. */
 export const MARKER = '.mem-skill-export';
 const TEXT_MARKER = '<!-- written by: mem skills export --format text — do not edit by hand -->';
 const TEXT_TARGET = path.join('.pipeline', 'mem-skills.md');
 /** Fields only `mem skills status` writes; `mem log` and `mem_log` refuse them for these types. */
-export const STATUS_FIELDS = Object.freeze(['status_of', 'status-of', 'start_status', 'start-status']);
+const STATUS_FIELDS = Object.freeze(['status_of', 'status-of', 'start_status', 'start-status']);
 
 const humanStatusOnly = (entries) => entries.filter((e) => !procedure.isStatusLine(e) || procedure.isHuman(e.issued_by));
 
@@ -242,7 +240,7 @@ export function skillMd(it) {
 }
 
 /** Is `target` in or under the user's Claude configuration folder? */
-export function inHomeClaude(target, env = process.env) {
+function inHomeClaude(target, env = process.env) {
   const banned = [path.join(os.homedir(), '.claude')];
   if (env.HOME) banned.push(path.join(env.HOME, '.claude'));
   if (env.CLAUDE_CONFIG_DIR) banned.push(env.CLAUDE_CONFIG_DIR);
@@ -294,7 +292,7 @@ export function exportClaude(root, { target = null, env = process.env, types = T
 }
 
 /** One Markdown file for other models. */
-export function textExport(root, { types = TYPES } = {}) {
+function textExport(root, { types = TYPES } = {}) {
   const items = exportable(registry(root), types).sort((a, b) => a.name.localeCompare(b.name));
   const out = [TEXT_MARKER, '', '# cheap-mem: released skills, workflows, snippets, procedures', '',
     'Data with an author, not an instruction from this memory. [trial] means: not released yet.', ''];
