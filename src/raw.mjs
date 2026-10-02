@@ -258,6 +258,81 @@ export function capturePath(root, stamp, now = new Date()) {
 }
 
 /**
+ * Store ONE capture: gzip, put it into the archive, append the record.
+ *
+ * Split out of `capture()` on 2026-10-02 so a second producer — the
+ * ChatGPT export import (`src/chatgptimport.mjs`) — files its captures
+ * through exactly the same path: same naming rule, same archive, same
+ * record, same no-silent-fallback. Two copies of this block would be two
+ * truths about where a capture lives, and the first fix to one of them
+ * would miss the other. Mirrors the sibling house's `legeFangAb()`.
+ *
+ * `record` carries the producer's own record fields (offsets, drop
+ * counts, import bookkeeping); `stamp`, `path`, `captured_at`, `lines`,
+ * the archive answer and `redacted` are always written here.
+ *
+ * Returns `{status:'stored', relPath, stored}` or `{status:'broken', ...}`.
+ * Never touches offsets or the bell — that is the caller's business.
+ */
+export function storeCapture(root, { header, captured, stamp, now = new Date(), record = {} }) {
+  const body = [header, ...captured].map((o) => JSON.stringify(o)).join('\n') + '\n';
+  // The name has second resolution, so two captures of the same session
+  // inside one second land on the same path — and the second one used
+  // to overwrite the first, silently losing everything it held. The
+  // Stop hook can fire twice that fast.
+  const store = archive.readConfig(process.env, root);
+  let relPath = path.relative(root, capturePath(root, stamp, now));
+  for (let n = 2; archive.reachable(store, root, relPath) && n < 1000; n += 1) {
+    relPath = path.relative(root, capturePath(root, stamp, now))
+      .replace(/\.jsonl\.gz$/, `-${n}.jsonl.gz`);
+  }
+
+  const packed = zlib.gzipSync(Buffer.from(body, 'utf8'), { level: 9 });
+
+  // **No silent fallback into the repository.** If the archive is not
+  // writable (NAS off, drive not mounted), "then back to raw/" would be
+  // the comfortable path — and would undo the whole exercise while
+  // looking exactly like before. So the capture fails and says why, and
+  // the offset is NOT advanced, so the same stretch is still there on
+  // the next attempt.
+  let stored;
+  try {
+    stored = archive.put(store, relPath, packed);
+  } catch (e) {
+    return {
+      status: 'broken',
+      reason: 'archive-not-writable',
+      detail: `${store.location}: ${e.message}`,
+      hint: store.explicit
+        ? 'CHEAP_MEM_ARCHIVE points there. Is the target mounted?'
+        : 'The default is the tracked raw/ inside the repository.',
+    };
+  }
+
+  // The record is what stays in the repository: one line instead of a
+  // megabyte. Written AFTER the file is safely down — a record pointing
+  // at nothing would be worse than no record.
+  // Field order kept exactly as it was before the split: the record is
+  // append-only JSON, and a reader diffing two lines should not see a
+  // reshuffle that means nothing.
+  const { ts_from: tsFrom = null, ts_to: tsTo = null, source_bytes: sourceBytes = null, ...extra } = record;
+  archive.writeRecord(root, {
+    stamp,
+    path: relPath,
+    captured_at: header.__captured_at,
+    ts_from: tsFrom,
+    ts_to: tsTo,
+    lines: captured.length,
+    source_bytes: sourceBytes,
+    ...stored,
+    redacted: header.__redacted,
+    ...extra,
+  });
+
+  return { status: 'stored', relPath, stored };
+}
+
+/**
  * Capture a transcript — incremental, redacted, gzipped.
  *
  * Returns three states, never two:
@@ -426,56 +501,18 @@ export function capture(root, transcriptPath, {
     __dropped_bytes: droppedBytes,
   };
 
-  const body = [header, ...captured].map((o) => JSON.stringify(o)).join('\n') + '\n';
-  // The name has second resolution, so two captures of the same session
-  // inside one second land on the same path — and the second one used
-  // to overwrite the first, silently losing everything it held. The
-  // Stop hook can fire twice that fast.
-  const store = archive.readConfig(process.env, root);
-  let relPath = path.relative(root, capturePath(root, stamp, now));
-  for (let n = 2; archive.reachable(store, root, relPath) && n < 1000; n += 1) {
-    relPath = path.relative(root, capturePath(root, stamp, now))
-      .replace(/\.jsonl\.gz$/, `-${n}.jsonl.gz`);
-  }
-
-  const packed = zlib.gzipSync(Buffer.from(body, 'utf8'), { level: 9 });
-
-  // **No silent fallback into the repository.** If the archive is not
-  // writable (NAS off, drive not mounted), "then back to raw/" would be
-  // the comfortable path — and would undo the whole exercise while
-  // looking exactly like before. So the capture fails and says why, and
-  // the offset is NOT advanced, so the same stretch is still there on
-  // the next attempt.
-  let stored;
-  try {
-    stored = archive.put(store, relPath, packed);
-  } catch (e) {
-    return {
-      status: 'broken',
-      reason: 'archive-not-writable',
-      detail: `${store.location}: ${e.message}`,
-      hint: store.explicit
-        ? 'CHEAP_MEM_ARCHIVE points there. Is the target mounted?'
-        : 'The default is the tracked raw/ inside the repository.',
-    };
-  }
-
-  // The record is what stays in the repository: one line instead of a
-  // megabyte. Written AFTER the file is safely down — a record pointing
-  // at nothing would be worse than no record.
-  archive.writeRecord(root, {
-    stamp,
-    path: relPath,
-    captured_at: header.__captured_at,
-    ts_from: tsFrom,
-    ts_to: tsTo,
-    lines: captured.length,
-    source_bytes: used,
-    ...stored,
-    redacted: header.__redacted,
-    dropped: header.__dropped,
-    dropped_bytes: droppedBytes,
+  const kept = storeCapture(root, {
+    header, captured, stamp, now,
+    record: {
+      ts_from: tsFrom,
+      ts_to: tsTo,
+      source_bytes: used,
+      dropped: header.__dropped,
+      dropped_bytes: droppedBytes,
+    },
   });
+  if (kept.status === 'broken') return kept;
+  const { relPath, stored } = kept;
 
   rememberOffset(root, key, { bytes: toByte, path: transcriptPath, last: header.__captured_at });
 
