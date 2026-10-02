@@ -633,7 +633,10 @@ export function beforeEditHits(root, queryPath, { cap = 3 } = {}) {
     if (!row || !row.id || !row.type || !row.role) continue;
     const rank = (row.type === 'error' ? HOOK_ROLE_RANK[row.role] : null) ?? 1;
     const have = best.get(row.id);
-    if (have && have.rank >= rank) continue;
+    // At equal rank the `works-on` row wins: a workflow both MENTIONS a
+    // file and names it in `path_patterns` — the role carries that the
+    // workflow is visible and claims the file (the hook shows only that).
+    if (have && (have.rank > rank || (have.rank === rank && row.role !== workflowdetect.WORKS_ON))) continue;
     best.set(row.id, { type: row.type, rank, role: row.role });
   }
   const candidates = [...best.entries()].sort((a, b) => b[1].rank - a[1].rank).slice(0, cap * 3);
