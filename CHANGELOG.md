@@ -14,6 +14,22 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — mail between agents needs permission to wake anyone (breaking)
+
+- **A message wakes the watcher only if it asks for something and the
+  user allowed it.** Messages now carry an optional `Intent`
+  (information, request, read, result, clarification, cancel). Only
+  request, read and clarification can wake a recipient, and only with
+  the user's permission for that message (`mem inbox permit`) or a
+  budget (`mem inbox allow`). **Messages without an `Intent`, including
+  broadcasts, no longer wake the watcher.** If you relied on "every
+  message wakes", send with `--intent request` and grant a permit or a
+  budget. Replies are results by default and carry `Turn: n of 6`; past
+  turn 6 nothing in a chain wakes anyone. Mail to the human never waits.
+- **Routes:** a session that picks up mail registers in
+  `inbox/routes.jsonl` (a fingerprint, never the raw session id), and a
+  reply goes back to the session that asked.
+
 ### Changed — English throughout: the last German names
 
 - **`/desk.json` replaces `/pult.json`; `/pult` redirects.** The old
