@@ -448,7 +448,11 @@ export const COMMANDS = {
     const gated = !args.weak && levers.active('h3')
       && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) });
     const withheld = gated ? listed.length : 0;
-    for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
+    // MEASUREMENT ONLY (agent/expand-fair-cm): MEM_FAIR_TRACE=1 keeps the
+    // gate's input on the hits and puts the bar in the JSON answer, so the
+    // gate can be replayed offline with other parameters.
+    const fairTrace = process.env.MEM_FAIR_TRACE === '1';
+    if (!fairTrace) for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
     const hits = gated ? [] : listed;
     const ms = Date.now() - t0;
 
@@ -500,6 +504,7 @@ export const COMMANDS = {
       // time.
       out(JSON.stringify(sanitizeForDisplay({
         query, ms, asOf, hits: hits.map((h) => ({ ...h, ...statusOf(root, h.entry, h.source), entry: markedEntry(h.entry, { root }) })),
+        ...(fairTrace ? { fairTrace: { bar: levers.findBar(index.statsN ?? index.N), n: index.statsN ?? index.N, gated } } : {}),
         // Only when something was withheld: a consumer must be able to
         // tell "nothing found" from "nothing confident".
         ...(withheld ? { withheld } : {}),
