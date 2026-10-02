@@ -2829,7 +2829,8 @@ export function checkIntegrationContract(root, { settingsPaths = null, codeRoot 
  *   warn     N wait (oldest since ...) — waiting is the intended state
  *            without permission, but the owner should see it, or the
  *            sender waits for an answer nobody triggers
- *   unknown  inbox or ledger unreadable (a broken ledger line may hide a budget)
+ *   unknown  inbox or ledger unreadable (a broken ledger line may hide a budget),
+ *            or no message at all (this house's rule: no green over zero)
  */
 export function checkInboxWaitingPermission(root, { now = new Date() } = {}) {
   let messages;
@@ -2837,7 +2838,7 @@ export function checkInboxWaitingPermission(root, { now = new Date() } = {}) {
   let participants = {};
   try {
     try { participants = cfgmod.readConfig(root)?.participants ?? {}; } catch { participants = {}; }
-    messages = inbox.read(root, {}).messages ?? [];
+    messages = inbox.read(root, participants).messages ?? [];
     broken = mailpermit.status(root, { now }).broken;
   } catch (e) {
     return finding('inbox-waiting-permission', LEVEL.UNKNOWN, `not readable: ${e?.message || e}`);
@@ -2846,9 +2847,11 @@ export function checkInboxWaitingPermission(root, { now = new Date() } = {}) {
     return finding('inbox-waiting-permission', LEVEL.UNKNOWN, `${broken.length} unreadable line(s) in ${mailpermit.FILE} — a budget may be missing`,
       'mem inbox permissions');
   }
+  // No message at all: nothing was measured — not green over a zero denominator.
+  if (!messages.length) return finding('inbox-waiting-permission', LEVEL.UNKNOWN, 'the inbox holds no message — nothing to measure');
   const pm = mailpermit.checker(root, { now });
   const waiting = messages.filter((m) => envelope.wakes(m, { permit: pm, human: (n) => cfgmod.isHuman(participants[n]) }).reason === envelope.WAITING);
-  if (!waiting.length) return finding('inbox-waiting-permission', LEVEL.GOOD, 'no message waits for permission');
+  if (!waiting.length) return finding('inbox-waiting-permission', LEVEL.GOOD, `none of ${messages.length} message(s) waits for permission`);
   const oldest = waiting.map((m) => String(m.time ?? '')).filter(Boolean).sort()[0];
   return finding('inbox-waiting-permission', LEVEL.WARN, `${waiting.length} message(s) ${envelope.WAITING}${oldest ? `, oldest since ${oldest}` : ''} — they wake nobody`,
     'See: mem inbox permissions. Permit one: mem inbox permit <name> --authority user '

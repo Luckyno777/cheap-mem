@@ -784,7 +784,7 @@ export function readStateLines(root) {
  * S2b/S2c (lucky-mem `abgeholt`): delivery EVENTS as their own lines in
  * states.jsonl. `picked-up`: the RECIPIENT actually got the message
  * (`mem inbox new` / `mem inbox show` as that participant) — never the
- * watcher's poll and never `markSeen()`. An event changes no state line;
+ * watcher's poll and never the seen-marker. An event changes no state line;
  * the one exception is in the projection: a message with intent `read`
  * (wakes, asks for no answer) counts as `processed` once its recipient
  * picked it up. No fifth state. Append-only.

@@ -44,6 +44,7 @@ const run = (r, ...a) => spawnSync(process.execPath, [MEM, '--root', r, ...a], {
 
 test('inbox-waiting-permission: good without waiting mail, warn with a request, good again once permitted', (t) => {
   const r = tempDir('cm-l3-in-', t);
+  assert.equal(doctor.checkInboxWaitingPermission(r).level, 'unknown', 'an empty inbox measures nothing — no green over zero');
   send(r, { intent: 'information' });
   const quiet = doctor.checkInboxWaitingPermission(r);
   assert.equal(quiet.name, 'inbox-waiting-permission');
