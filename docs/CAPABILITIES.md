@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 82 CLI commands, 37 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3428 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3452 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -130,6 +130,7 @@ directory. The section number in brackets is where it is explained.
 | `mcpprofile.mjs` | the read-only bridge profile: unknown counts as writing |
 | `mcpvisibility.mjs` | which MCP client saw or called which tool, and when — name, client, time only, never call content, machine-local under `.pipeline/` (7.5) |
 | `memory.mjs` | the log itself: types, entries, links, topics, projects (1) |
+| `missgold.mjs` | a LOCAL, git-ignored file (`.mem/local/miss-gold.jsonl`, 0600) with the question text of real recall misses, read off the same vetted evidence as `askedlearn.mjs`; scored from 20 cases on (rank 1, top-K, MRR), never a number below that; cases the paraphrase learner already used are left out; numbers-only output; collected at most once per UTC day by the digest tick (`mem gold miss collect|daily|status|score`) |
 | `modelcost.mjs` | reads the token/cost fields a headless `claude -p --output-format json` run already returns; machine-local, never a second model call (7.5) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
 | `net.mjs` | what points at what — from declared links, not from similarity |

@@ -29,6 +29,9 @@
 #   MEM_DIGEST_TIMEOUT    seconds for the model call (default 600)
 #   MEM_DIGEST_CMD        model CLI (default: claude -p)
 #   MEM_DIGEST_LOG        log file (default: $ROOT/.mem/digest.log)
+#   MEM_GOLD_DAILY        "no" switches off the daily miss-gold collection
+#                         (default yes; at most once per UTC day, see below)
+#   MEM_GOLD_TIMEOUT      its own time cap in seconds (default 300)
 #
 # Exit codes:
 #   0  ran, or nothing to do
@@ -93,6 +96,20 @@ export CHEAP_MEM_MAX_AUTHORITY="${CHEAP_MEM_MAX_AUTHORITY:-inferred}"
 mkdir -p "$(dirname "$LOG")"
 
 note() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*" | tee -a "$LOG"; }
+
+# --- Miss gold, at most once per UTC day ---------------------------
+#
+# `mem gold miss daily` collects the question text of real recall misses
+# into a LOCAL, git-ignored file (src/missgold.mjs). It piggybacks on this
+# tick because it reads the same raw captures: no new timer, no installer
+# step. The day stamp makes the call a no-op on every tick but the first
+# of a UTC day. Its OWN time cap (MEM_GOLD_TIMEOUT, default 300 s), output
+# discarded (a question must never reach a log; the outcome sits in the
+# stamp and `mem gold miss status` shows it), failure ignored: neither
+# this job's exit code nor its course changes.
+if [ "${MEM_GOLD_DAILY:-yes}" != "no" ]; then
+  capped "${MEM_GOLD_TIMEOUT:-300}" node "$MEM" --root "$ROOT" gold miss daily >/dev/null 2>&1 || true
+fi
 
 # --- Check dueness BEFORE taking the lock ---------------------------
 #

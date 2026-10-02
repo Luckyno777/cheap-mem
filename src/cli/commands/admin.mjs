@@ -940,11 +940,65 @@ export const COMMANDS = {
         '  gold today`. [hit-id]: which id counts as the hit — optional',
         '  for correct/wrong (defaults to the candidate\'s own `expected`',
         '  ids); required has no default for empty-correct (always []).',
+        '',
+        'mem gold miss collect [--write] [--shown] [--json]',
+        'mem gold miss status [--json]',
+        'mem gold miss daily',
+        '  collect at most once per UTC day (stamp .mem/local/miss-gold.run);',
+        '  the digest tick calls it; exit is always 0, output is numbers only.',
+        'mem gold miss score [--top <n>] [--json]',
+        '  LOCAL, never committed file (.mem/local/miss-gold.jsonl, 0600, ignored',
+        '  by git) with the question text of real recall misses (src/missgold.mjs).',
+        '  Scored from 20 cases on, below that no number. Cases the paraphrase',
+        '  learner already used are left out (circular). The output carries',
+        '  numbers only, never a question. Encrypted entries and questions',
+        '  with a secret are skipped. Exit 2 when there is no number.',
       ].join('\n'));
       return;
     }
     const root = findRoot(args);
     requireConfig(root);
+
+    if (sub === 'miss') {
+      checkFlags(args, ['json', 'write', 'shown', 'top', 'root'], 'gold miss');
+      const missgold = await import('../../missgold.mjs');
+      const what = rest[1];
+      if (what === 'collect') {
+        const levers = await import('../../searchlevers.mjs');
+        let b;
+        try { b = missgold.collect(root, { write: Boolean(args.write), includeShown: Boolean(args.shown) || levers.active('h4') }); } catch (e) { die(`gold miss: ${e?.message || e}`); }
+        if (args.json) { out(JSON.stringify(b, null, 2)); return; }
+        const k = b.counts;
+        out(`Misses: ${k.misses} in the journal, ${k.withCapture} with a capture, ${k.withQuestion} with the question, ${k.withMention} with a mention; `
+          + `left out: ${k.selfShown} shown by the memory itself, ${k.sensitive} sensitive, ${k.secret} secret, ${k.tooLong} too long.`);
+        out(`${b.fresh} new case(s) (so far ${b.before}); ${b.written ? `written to ${b.path}` : '(dry run — --write adds them)'}`);
+        return;
+      }
+      if (what === 'daily') {
+        const t = missgold.dailyRun(root);
+        out(t.skipped ? `Miss gold daily: ${t.day} already done (${t.result})`
+          : `Miss gold daily: ${t.day} ${t.result}${t.result === 'ok' ? `, ${t.fresh} new case(s) (now ${t.cases})` : ` (${t.class})`}`);
+        return;
+      }
+      if (what === 'status') {
+        const st = missgold.status(root);
+        if (args.json) { out(JSON.stringify(st, null, 2)); return; }
+        const la = st.run;
+        out(`Last collection: ${la ? `${la.day} ${la.result}${la.result === 'ok' ? `, ${la.fresh} new case(s)` : la.class ? ` (${la.class})` : la.result === 'running' ? ' (never finished: time cap or abort)' : ''}` : 'never (no stamp)'}`);
+        out(`Miss gold: ${st.cases} case(s) (scored from ${st.min}), ${st.broken} broken line(s), ${st.present ? st.path : 'file missing'}`);
+        if (st.present && !st.modeOk) out('WARNING: the file is readable by group/others (should be 0600).');
+        if (!st.ignored) out('WARNING: the path sits inside the work tree and git does NOT ignore it.');
+        return;
+      }
+      if (what === 'score') {
+        const top = numberFlag('top', args.top, { fallback: 3, min: 1, max: 1000 });
+        const e = missgold.score(root, { top });
+        if (args.json) out(JSON.stringify(e, null, 2)); else out(missgold.scoreAsText(e));
+        if (!e.measurable) process.exitCode = 2;
+        return;
+      }
+      die('gold miss: collect, daily, status or score');
+    }
 
     if (sub === 'today') {
       checkFlags(args, ['json', 'draw', 'root'], 'gold today');
@@ -1002,7 +1056,7 @@ export const COMMANDS = {
       return;
     }
 
-    die(`gold: unknown subcommand '${sub}'. Known: today, rate`);
+    die(`gold: unknown subcommand '${sub}'. Known: today, rate, miss`);
   },
 
   skills: async ({ rest, args }) => {

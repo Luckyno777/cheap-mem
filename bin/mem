@@ -194,6 +194,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  today [--json]                               operations, decisions & facts to verify — one source, three surfaces");
   out("  gold today [--json] [--draw]                 N9 parity: real gold questions to rate today");
   out("  gold rate <id> <verdict> [hit-id]             append one verdict (correct/wrong/empty-correct)");
+  out("  gold miss collect|daily|status|score         local, never-committed question text of real misses; scored from 20 cases");
   out("  modelcost [--days N] [--json]                 token/cost journal from a real --output-format json run — estimate, not a bill");
   out("  skills usage [--json]                         W10: skill calls from the raw captures, with coverage (nothing is removed)");
   out("  skills account|sharpen|version              L3: experience account, sharpening package, new version (trial)");
