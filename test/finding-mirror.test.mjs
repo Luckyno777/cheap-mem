@@ -229,7 +229,7 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-09-30',
+  capturedAt: '2026-10-02',
   source: 'lucky-mem/src/doktor.mjs',
   // P11 (2026-09-28/29): 'korrektur-verliert-inhalt' added on the
   // lucky-mem side (paired in shared/finding-map.jsonl with this
@@ -277,6 +277,9 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // offered skills that were fetched), mapped as a gap: no registry here yet.
   // Riegel C (2026-10-01): 'main-ungeprueft' added on the lucky-mem side (code
   // commits on main without a tested-tree line), mapped as a gap.
+  // Categories (2026-10-02): 'kategorien' added on the lucky-mem side (share
+  // of topics without a category, open category proposals), mapped as a gap
+  // until this house gets the category layer.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -286,7 +289,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt', 'fehler-verknuepft',
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
     'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
-    'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kennzahlen-gleich',
+    'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kategorien', 'kennzahlen-gleich',
     'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
     'post-liegt', 'post-stau', 'post-ungepusht', 'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag', 'riegel-prueft-das-falsche-verdacht', 'rohfang',
