@@ -232,7 +232,8 @@ test('POSITIVE: switched on, a reply lands in inbox/ exactly as `mem inbox write
     const viaCli = fs.readFileSync(path.join(r, 'inbox', cliName), 'utf8');
 
     assert.equal(withoutTime(viaDesk), withoutTime(viaCli), 'desk and CLI wrote different messages');
-    assert.match(viaDesk, /^From: user\nTo: scribe\nTime: \S+\nSubject: Re: ping\nState: open\nIn-Reply-To: \S+\.md\n\nYes, here\.\nSecond line\.\n$/);
+    // Block S: a reply is one turn deeper than its original (envelope.replyTurn).
+    assert.match(viaDesk, /^From: user\nTo: scribe\nTime: \S+\nSubject: Re: ping\nState: open\nIn-Reply-To: \S+\.md\nTurn: 1 of 6\n\nYes, here\.\nSecond line\.\n$/);
     // Same file-name scheme: <time>--<from>-to-<to>~<clone mark>[.-n].md
     const scheme = /^[0-9TZ-]+--user-to-scribe~[a-z0-9]{1,12}(?:-[0-9]{1,3})?\.md$/;
     assert.match(added[0], scheme);
