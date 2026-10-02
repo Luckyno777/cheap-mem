@@ -57,17 +57,17 @@ import { fileURLToPath } from 'node:url';
 export const STATES = Object.freeze(['green', 'red', 'pending', 'none', 'unknown']);
 
 /** The marker the hook script waits for: no marker, no answer (reported as unknown). */
-export const END_MARK = 'PREPUSH-END';
+const END_MARK = 'PREPUSH-END';
 
 /** How long one `gh` call may take before the answer is "unknown". */
-export const GH_TIMEOUT_MS = 15000;
+const GH_TIMEOUT_MS = 15000;
 
 const ZERO_SHA = /^0+$/;
 const FAILED = new Set(['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale']);
 const PASSED = new Set(['success', 'skipped', 'neutral']);
 
 /** The lines git hands a pre-push hook on stdin: `<local ref> <local sha> <remote ref> <remote sha>`. */
-export function parsePushLines(text) {
+function parsePushLines(text) {
   const out = [];
   for (const line of String(text ?? '').split('\n')) {
     const parts = line.trim().split(/\s+/);
@@ -118,7 +118,7 @@ export function verdictFromRuns(runs) {
  * Ask `gh` for the CI runs of one commit. Never throws.
  * Returns `{state, runs, detail}`.
  */
-export function ciStatus(root, sha, { repo = null, gh = 'gh', timeoutMs = GH_TIMEOUT_MS } = {}) {
+function ciStatus(root, sha, { repo = null, gh = 'gh', timeoutMs = GH_TIMEOUT_MS } = {}) {
   const args = ['run', 'list', '--commit', sha, '--json', 'status,conclusion,workflowName,url', '--limit', '100'];
   if (repo) args.push('--repo', repo);
   let r;

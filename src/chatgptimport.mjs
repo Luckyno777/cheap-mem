@@ -95,11 +95,11 @@ export const SOURCE = 'chatgpt-export';
 /** Roles kept as conversation. */
 const KEPT_ROLES = new Set(['user', 'assistant']);
 
-export const HINT = 'ChatGPT conversation from the data export: "user" is the person who exported it, '
+const HINT = 'ChatGPT conversation from the data export: "user" is the person who exported it, '
   + '"assistant" is ChatGPT (not Claude). Images and files appear as placeholders only.';
 
 /** One import at a time: two would both read the same inventory and file every conversation twice. */
-export const LOCK_FILE = path.join('.mem', 'import-chatgpt.lock');
+const LOCK_FILE = path.join('.mem', 'import-chatgpt.lock');
 
 // --- reading the ZIP (only what is needed, no extra package) ----------
 //
@@ -123,7 +123,7 @@ function readRange(fd, pos, length) {
 function u64(b, o) { return Number(b.readBigUInt64LE(o)); }
 
 /** The bytes of `conversations.json` inside a ZIP. Throws with a readable message if it is not there. */
-export function conversationsFromZip(zipPath) {
+function conversationsFromZip(zipPath) {
   const fd = fs.openSync(zipPath, 'r');
   try {
     const size = fs.fstatSync(fd).size;
@@ -201,7 +201,7 @@ export function conversationsFromZip(zipPath) {
 }
 
 /** Read the export — a ZIP or `conversations.json` itself. Returns the array of conversations; throws if it is not one. */
-export function readExport(file) {
+function readExport(file) {
   if (!file || !fs.existsSync(file)) throw new Error(`file not found: ${file}`);
   const fd = fs.openSync(file, 'r');
   let head;
@@ -221,7 +221,7 @@ export function readExport(file) {
  * `null` when `current_node` is missing or not in `mapping` — then
  * nothing is guessed (nothing rather than a wrong branch).
  */
-export function currentPath(conversation) {
+function currentPath(conversation) {
   const m = conversation?.mapping;
   let id = conversation?.current_node;
   if (!m || typeof m !== 'object' || typeof id !== 'string' || !m[id]) return null;
@@ -236,13 +236,13 @@ export function currentPath(conversation) {
 }
 
 /** Unix seconds -> ISO without milliseconds; anything else -> null. */
-export function isoFromSeconds(sec) {
+function isoFromSeconds(sec) {
   if (typeof sec !== 'number' || !Number.isFinite(sec) || sec <= 0) return null;
   return new Date(Math.round(sec * 1000)).toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 /** Text of a message; images/files as placeholders. `null` = no `parts` at all. */
-export function textFromContent(content, metadata) {
+function textFromContent(content, metadata) {
   const parts = content?.parts;
   if (!Array.isArray(parts)) return null;
   const pieces = [];
@@ -263,7 +263,7 @@ export function textFromContent(content, metadata) {
  * One node -> `{line}` or `{reason}` (why it was left out). The reasons
  * are a closed vocabulary so the header and the dry run can count them.
  */
-export function nodeToLine(node) {
+function nodeToLine(node) {
   const msg = node?.message;
   if (!msg || typeof msg !== 'object') return { reason: 'placeholder' };
   const role = msg.author?.role;
@@ -292,8 +292,8 @@ export function nodeToLine(node) {
 /** Stable short fingerprint — sha256, NOT for security. */
 function sha16(s) { return crypto.createHash('sha256').update(String(s)).digest('hex').slice(0, 16); }
 
-export function conversationFingerprint(id) { return sha16(`chatgpt:${id}`); }
-export function pathFingerprint(ids) { return sha16(ids.join('\n')); }
+function conversationFingerprint(id) { return sha16(`chatgpt:${id}`); }
+function pathFingerprint(ids) { return sha16(ids.join('\n')); }
 
 // --- inventory: what is already imported ------------------------------
 
@@ -302,7 +302,7 @@ export function pathFingerprint(ids) { return sha16(ids.join('\n')); }
  * Reads EVERY capture row, including those whose bytes were deleted —
  * a deleted capture must not come back with the next import.
  */
-export function inventory(root) {
+function inventory(root) {
   const per = new Map();
   for (const rec of archive.records(root)) {
     if (rec?.record === archive.DELETED_MARK || rec?.stamp?.surface !== SOURCE || !rec?.chatgpt) continue;
@@ -317,7 +317,7 @@ export function inventory(root) {
 }
 
 /** Read `--since`: YYYY-MM-DD or ISO. Returns Unix seconds, `null` for none, or throws. */
-export function sinceFrom(text) {
+function sinceFrom(text) {
   if (text == null) return null;
   const ms = Date.parse(String(text));
   if (!Number.isFinite(ms)) throw new Error(`--since: not a date: ${text}`);
@@ -329,7 +329,7 @@ export function sinceFrom(text) {
  * nothing. Kinds: new | continuation | new-version | already-imported |
  * unchanged | nothing-new | no-path | before-since | unreadable.
  */
-export function plan(root, conversations, { since = null } = {}) {
+function plan(root, conversations, { since = null } = {}) {
   const known = inventory(root);
   const out = [];
   for (const c of conversations) {

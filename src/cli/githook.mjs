@@ -65,7 +65,7 @@ exec bash ${shellPath(path.join(PKG_ROOT, 'hooks', 'pre-commit'))} "$@"
  * and rarely has CI of its own, so a default-on warning there would
  * mostly say "no CI run" on every push — a warning nobody reads anymore.
  */
-export function prePushBody() {
+function prePushBody() {
   const shellPath = (p) => JSON.stringify(p.split(path.sep).join('/'));
   return `#!/usr/bin/env bash
 # pre-push — warns (never blocks) when the default branch gets a commit
