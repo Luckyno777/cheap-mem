@@ -256,6 +256,7 @@ const WEIGHT_BY_FIELD = Object.freeze({
 //   (3) the H3 gate's "whole question covered" rule never counts it.
 // The field weight stays MEM_EXPAND_WEIGHT (above).
 const EXPAND_ON = process.env.MEM_EXPAND === '1';
+const EXPAND_NEWONLY = EXPAND_ON && process.env.MEM_EXPAND_NEWONLY === '1';
 /**
  * The Snowball English stop word list (snowballstem.org,
  * algorithms/english/stop.txt, BSD-3-Clause), copied as published, with
@@ -643,7 +644,9 @@ export function fieldsOfEntry(entry, { lexicon = null, lang = pack('en'), lexico
   const lex = lexicons ?? (lexicon ? new Map([[lang.name, lexicon]]) : new Map());
   const share = 1 / packs.length;
   const weights = new Map();
+  let ownTerms = null;
   for (const [field, weight] of Object.entries(FIELD_WEIGHTS)) {
+    if (field === 'asked_as' && EXPAND_NEWONLY) ownTerms = new Set(weights.keys());
     const value = entry[field];
     if (!value) continue;
     let text = Array.isArray(value) ? value.join(' ') : String(value);
@@ -653,6 +656,10 @@ export function fieldsOfEntry(entry, { lexicon = null, lang = pack('en'), lexico
     }
     for (const p of packs) {
       for (const t of tokenizeGroupsMulti(text, { lexicons: lex, langs: [p] }).flat()) {
+        // POST-HOC variant (MEM_EXPAND_NEWONLY=1, labelled as fitted after
+        // the held-out read): asked_as adds only words the note lacks, it
+        // never repeats (and so boosts) one of the note's own words.
+        if (EXPAND_NEWONLY && field === 'asked_as' && ownTerms.has(t)) continue;
         weights.set(t, (weights.get(t) ?? 0) + weight * share);
       }
     }
