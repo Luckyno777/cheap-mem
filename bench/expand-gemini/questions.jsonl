@@ -1,0 +1,241 @@
+{"kind":"everyday","query":"Why did the system blow past its memory limits when reading a spreadsheet file?","expected":["g-oom"]}
+{"kind":"everyday","query":"How did we discover our safety copies were completely broken and missing tables?","expected":["g-backup"]}
+{"kind":"everyday","query":"What caused our public website to go dark over the weekend because of an expired security credential?","expected":["g-tls"]}
+{"kind":"everyday","query":"Why do we buffer outbound notifications in a background worker instead of sending them right away?","expected":["g-queue"]}
+{"kind":"everyday","query":"How should we represent currency balances to prevent fractional math errors?","expected":["g-money"]}
+{"kind":"everyday","query":"What allowed a buyer to get double charged when they pressed the button repeatedly?","expected":["g-race"]}
+{"kind":"everyday","query":"Why did our host run out of storage space because textual output accumulated?","expected":["g-disk"]}
+{"kind":"everyday","query":"Why did we decide against using a complicated container orchestrator for our three little backends?","expected":["g-k8s"]}
+{"kind":"everyday","query":"Why did our preview environment fail to talk to our backend endpoints?","expected":["g-cors"]}
+{"kind":"everyday","query":"Why did looking up past customer purchases take almost ten seconds?","expected":["g-index"]}
+{"kind":"everyday","query":"What caused our primary data store to reject connections during a massive flash promotion?","expected":["g-pool"]}
+{"kind":"everyday","query":"Why did automated cron tasks trigger a second time in the middle of the night when the clocks moved?","expected":["g-dst"]}
+{"kind":"everyday","query":"Why did our engineers stop doing morning sync video calls every day?","expected":["g-standup"]}
+{"kind":"everyday","query":"Why did our frontend download size swell up over two megabytes?","expected":["g-bundle"]}
+{"kind":"everyday","query":"Why did browsing our storefront grind to a halt in the afternoon for every visitor?","expected":["g-c-slow"]}
+{"kind":"everyday","query":"What prevented all staff members from accessing their accounts at the start of the week?","expected":["g-c-locked"]}
+{"kind":"everyday","query":"Why did buyers never get their purchase receipts or confirmation notes?","expected":["g-c-mail"]}
+{"kind":"everyday","query":"What was draining smartphone juice so rapidly in our mobile client?","expected":["g-c-phone"]}
+{"kind":"everyday","query":"Are engineers allowed to push software updates into production right before the weekend?","expected":["g-rule-freeze"]}
+{"kind":"everyday","query":"Under what condition is rolling out software permitted on any weekday?","expected":["g-rule-canary"]}
+{"kind":"everyday","query":"Why is our strict ban on pushing code before the weekend no longer in effect?","expected":["g-rule-freeze-off"]}
+{"kind":"everyday","query":"Who needs to look over table alterations before they get applied?","expected":["g-rule-review"]}
+{"kind":"everyday","query":"Where do we gather proof documents for our security and governance examination?","expected":["g-duty-soc2"]}
+{"kind":"everyday","query":"Did our organization clear our external security and governance evaluation without deficiencies?","expected":["g-soc2-passed"]}
+{"kind":"everyday","query":"Is the task to prepare records for our external security review finished?","expected":["g-duty-soc2-done"]}
+{"kind":"everyday","query":"Who is responsible for hiring outside ethical hackers to test our defenses?","expected":["g-duty-pentest"]}
+{"kind":"everyday","query":"How long does our product directory temporary storage keep items before throwing them out?","expected":["g-cache-ttl"]}
+{"kind":"everyday","query":"How do we make sure visitors immediately see modified prices instead of an old view?","expected":["g-cache-key"]}
+{"kind":"everyday","query":"Why did we abandon our sixty-minute expiration period on item listings?","expected":["g-cache-ttl-off"]}
+{"kind":"everyday","query":"What networking entry point did our test environment listen on by default?","expected":["g-port-old"]}
+{"kind":"everyday","query":"Why did our pre-production gateway switch to listening on ninety-ninety?","expected":["g-port-new"]}
+{"kind":"everyday","query":"Which major JavaScript engine baseline did all our backend microservices use originally?","expected":["g-node-old"]}
+{"kind":"everyday","query":"Why did our infrastructure team bump all backend services up to version twenty-two?","expected":["g-node-new"]}
+{"kind":"everyday","query":"Which sole merchant processing company handled credit purchases when we launched?","expected":["g-vendor-old"]}
+{"kind":"everyday","query":"Why did we decide to route transactions across two different payment processors?","expected":["g-vendor-new"]}
+{"kind":"everyday","query":"Wie lange muessen Kaufbelege gemaess den Vorschriften aufbewahrt werden?","expected":["g-de-invoice"]}
+{"kind":"everyday","query":"Warum funktionierte das Ausgabegeraet in der Versandhalle nach dem Einspielen nicht mehr?","expected":["g-de-printer"]}
+{"kind":"everyday","query":"Warum brechen die mobilen Lesegeraete im Lager staendig den Kontakt zum Netzwerk ab?","expected":["g-de-scanner"]}
+{"kind":"everyday","query":"Why did the buying step freeze under heavy visitor traffic because of synchronous processing?","expected":["a-err"]}
+{"kind":"everyday","query":"Why did the buying flow stall when customers had an unstable cellular connection?","expected":["b-err"]}
+{"kind":"everyday","query":"How do our servers switch over traffic during a release without downtime?","expected":["a-deploy"]}
+{"kind":"everyday","query":"How do we gradually push out phone app versions so faulty releases don't hit everyone?","expected":["b-deploy"]}
+{"kind":"everyday","query":"Why do we let members sign into their accounts using disposable links sent to their inbox?","expected":["a-login"]}
+{"kind":"everyday","query":"Why does our handset software allow unlocking via fingertip touch rather than typing numbers?","expected":["b-login"]}
+{"kind":"everyday","query":"Where do our server instances save temporary user authentication state so they all see the same state?","expected":["a-session"]}
+{"kind":"everyday","query":"How can our portable client keep someone logged in without an active internet connection?","expected":["b-session"]}
+{"kind":"everyday","query":"Who was carrying the pager for incidents in the first week of January?","expected":["g-oncall-old"]}
+{"kind":"everyday","query":"Who took over first-responder pager duties starting in February?","expected":["g-oncall-new"]}
+{"kind":"everyday","query":"Why did we initially style our user interface with a utility stylesheet framework?","expected":["g-css-old"]}
+{"kind":"everyday","query":"Why did our developers throw out utility styling and write native stylesheets for the UI?","expected":["g-css-new"]}
+{"kind":"everyday","query":"What interactive viewer did we originally pick to display our interface documentation?","expected":["g-apidocs-old"]}
+{"kind":"everyday","query":"Why did we swap our endpoint manual to an unalterable single flat page?","expected":["g-apidocs-new"]}
+{"kind":"everyday","query":"Which ticket tracks the search query health checker rewrite whose metrics failed review?","expected":["s0"]}
+{"kind":"everyday","query":"Where was the billing pool adjustment flagged under refca5 also observed?","expected":["s4"]}
+{"kind":"everyday","query":"Which payments index fix lost state after a machine reboot under ref2i1?","expected":["s8"]}
+{"kind":"everyday","query":"What issue occurred when our team clocked file transfer speed in the cache subsystem?","expected":["sc"]}
+{"kind":"everyday","query":"What happened to the release index build that was rolled out in the deployment pipeline?","expected":["sg"]}
+{"kind":"everyday","query":"Which service inspection ticket in the API layer was tracked under ref14a?","expected":["sk"]}
+{"kind":"everyday","query":"Which continuous build system fix involving a database transition had an unexplainable fault?","expected":["so"]}
+{"kind":"everyday","query":"Why did investigating user session tracking in ops reveal an event loop block?","expected":["ss"]}
+{"kind":"everyday","query":"Which health checker overhaul in infrastructure lost information upon being rebooted?","expected":["sw"]}
+{"kind":"everyday","query":"Which frontend indexing change managed to sustain identical traffic with a simpler structure?","expected":["s10"]}
+{"kind":"everyday","query":"What slowdown happened when benchmarking schema transitions inside the messaging pipeline?","expected":["s14"]}
+{"kind":"everyday","query":"What blocked execution threads when benchmarking request throttling in transaction handling?","expected":["s18"]}
+{"kind":"everyday","query":"Which portable device rollback involving user state storage choked the main thread?","expected":["s1c"]}
+{"kind":"everyday","query":"What ticket marks the rollback of credential rejuvenation in the persistent storage layer?","expected":["s1g"]}
+{"kind":"everyday","query":"Which continuous integration rollback was rejected during numerical evaluation?","expected":["s1k"]}
+{"kind":"everyday","query":"Which security regression doubled response times during real visitor traffic?","expected":["s1o"]}
+{"kind":"everyday","query":"What caused execution delays when examining background tasks in the search cluster?","expected":["s1s"]}
+{"kind":"everyday","query":"Why was the media upload pathway undone on mobile devices?","expected":["s1w"]}
+{"kind":"everyday","query":"Which search query ingestion rollback handled identical volume with less complexity?","expected":["s20"]}
+{"kind":"everyday","query":"What mystery failure caused the rollback of background processors in our deployment scripts?","expected":["s24"]}
+{"kind":"everyday","query":"Which transaction connection pool reversion held the workload with a lighter layout?","expected":["s28"]}
+{"kind":"everyday","query":"Which background runner correction in billing resolved a frozen event loop?","expected":["s2c"]}
+{"kind":"everyday","query":"Why did the database media transmission speed test lose persisted records when restarting?","expected":["s2g"]}
+{"kind":"everyday","query":"What stalled the event loop during schema transition measurements in deployment?","expected":["s2k"]}
+{"kind":"everyday","query":"Which interface alive-check repair handled identical volume with a cleaner structure?","expected":["s2o"]}
+{"kind":"everyday","query":"Which queue transition correction lost stored state whenever the service restarted?","expected":["s2s"]}
+{"kind":"everyday","query":"Which mobile schema restructuring failed to pass review scrutiny under ref5es?","expected":["s2w"]}
+{"kind":"everyday","query":"Which operations session profiling ticket had an unexplained failure mode tracked as refbjj?","expected":["s30"]}
+{"kind":"everyday","query":"Why do we persist financial purchase history in a relational database rather than an eventually consistent store?","expected":["g-postgres"]}
+{"kind":"technical","query":"Which RDBMS guarantees ACID properties and serializability for purchase records?","expected":["g-postgres"]}
+{"kind":"technical","query":"How did chunked iterative parsing resolve the heap allocation exhaustion during delimited text ingestion?","expected":["g-oom"]}
+{"kind":"technical","query":"What disaster recovery rehearsal exposed the omission of DDL definitions from snapshot archives?","expected":["g-backup"]}
+{"kind":"technical","query":"What PKI x509 credential expiration induced an unhandled transport layer handshake failure?","expected":["g-tls"]}
+{"kind":"technical","query":"Why decouple asynchronous SMTP dispatching through an AMQP message broker?","expected":["g-queue"]}
+{"kind":"technical","query":"How does IEEE 754 precision loss necessitate fixed-point integer cent representation?","expected":["g-money"]}
+{"kind":"technical","query":"What deduplication token mitigates concurrency anomalies caused by redundant HTTP POST mutations?","expected":["g-race"]}
+{"kind":"technical","query":"How does log file daemon truncation prevent file system inode and block exhaustion?","expected":["g-disk"]}
+{"kind":"technical","query":"Why was lightweight container runtime virtualization selected over complex cloud-native orchestration?","expected":["g-k8s"]}
+{"kind":"technical","query":"What preflight OPTIONS pre-authorization failure obstructed Cross-Origin Resource Sharing on ephemeral environments?","expected":["g-cors"]}
+{"kind":"technical","query":"What B-tree index deficiency resulted in full table sequential scans during order retrieval?","expected":["g-index"]}
+{"kind":"technical","query":"What unreleased database transactions triggered socket pool starvation and client timeout cascades?","expected":["g-pool"]}
+{"kind":"technical","query":"How did wall-clock offset recalculations trigger duplicated cron scheduler execution?","expected":["g-dst"]}
+{"kind":"technical","query":"Why did distributed asynchronous communication replace synchronous standup ceremonies across dispersed chronozones?","expected":["g-standup"]}
+{"kind":"technical","query":"What static analysis tree-shaking oversight caused payload bloating via transitive temporal dependencies?","expected":["g-bundle"]}
+{"kind":"technical","query":"How did uncompressed bitmap payloads and missing lazy-loading degrade initial render latency?","expected":["g-c-slow"]}
+{"kind":"technical","query":"What widespread authentication failure caused systemic false credential rejections across all principals?","expected":["g-c-locked"]}
+{"kind":"technical","query":"What silent asynchronous worker stall prevented fulfillment notification event dispatch?","expected":["g-c-mail"]}
+{"kind":"technical","query":"What aggressive polling frequency prevented CPU deep sleep states and triggered excessive battery depletion?","expected":["g-c-phone"]}
+{"kind":"technical","query":"What policy dictates deployment embargoes prior to weekend operational cycles?","expected":["g-rule-freeze"]}
+{"kind":"technical","query":"What telemetry metric validation enables continuous deployment via canary analysis?","expected":["g-rule-canary"]}
+{"kind":"technical","query":"Why was the static deployment moratorium revoked in favor of canary health checks?","expected":["g-rule-freeze-off"]}
+{"kind":"technical","query":"What governance policy enforces peer-reviewed DDL scripts prior to execution?","expected":["g-rule-review"]}
+{"kind":"technical","query":"Where is compliance artifact aggregation tracked for Trust Services Criteria evaluation?","expected":["g-duty-soc2"]}
+{"kind":"technical","query":"What audit report validates organizational adherence to AICPA security standards without non-conformities?","expected":["g-soc2-passed"]}
+{"kind":"technical","query":"Which record confirms resolution of our compliance control attestation tasks?","expected":["g-duty-soc2-done"]}
+{"kind":"technical","query":"What ticket schedules black-box penetration testing for vulnerability assessment?","expected":["g-duty-pentest"]}
+{"kind":"technical","query":"What expiration-based eviction strategy maintains temporal caching for our SKU taxonomy?","expected":["g-cache-ttl"]}
+{"kind":"technical","query":"How does targeted event-driven cache purging remediate data inconsistency during price mutations?","expected":["g-cache-key"]}
+{"kind":"technical","query":"Why was passive TTL expiry deprecated in favor of proactive cache eviction?","expected":["g-cache-ttl-off"]}
+{"kind":"technical","query":"What TCP socket configuration initially bound the staging HTTP listener?","expected":["g-port-old"]}
+{"kind":"technical","query":"Why was port remapping required to eliminate socket contention with Prometheus instrumentation?","expected":["g-port-new"]}
+{"kind":"technical","query":"Which JavaScript V8 runtime environment served as our initial microservice baseline?","expected":["g-node-old"]}
+{"kind":"technical","query":"What upstream deprecation prompted our runtime migration to the newest LTS branch?","expected":["g-node-new"]}
+{"kind":"technical","query":"What single-point-of-failure payment gateway configuration supported initial transaction settlement?","expected":["g-vendor-old"]}
+{"kind":"technical","query":"How does dual PSP multi-homing provide fault tolerance against third-party gateway downtime?","expected":["g-vendor-new"]}
+{"kind":"technical","query":"Welche steuerrechtliche Richtlinie verpflichtet zur zehnjaehrigen revisionssicheren Aufbewahrung digitaler Abrechnungsdokumente?","expected":["g-de-invoice"]}
+{"kind":"technical","query":"Welcher Firmware-Konflikt verursachte den Spooler-Ausfall nach der Betriebssystem-Aktualisierung?","expected":["g-de-printer"]}
+{"kind":"technical","query":"Welche Roaming-Hysterese-Problematik fuehrte zum Verbindungsverlust zwischen den WLAN-Basisstationen?","expected":["g-de-scanner"]}
+{"kind":"technical","query":"How did offloading synchronous blocking I/O to worker threads remediate checkout event-loop latency?","expected":["a-err"]}
+{"kind":"decoy-far","query":"What temperature should sourdough bread be baked at in a Dutch oven?"}
+{"kind":"decoy-far","query":"How do honeybees communicate the location of nectar using the waggle dance?"}
+{"kind":"decoy-far","query":"What are the primary rules for scoring points in Gaelic football?"}
+{"kind":"decoy-far","query":"How many liters of water does a camel drink after crossing the desert?"}
+{"kind":"decoy-far","query":"What is the best itinerary for visiting Kyoto temples in three days?"}
+{"kind":"decoy-far","query":"Why do red wines need to breathe before being served with dinner?"}
+{"kind":"decoy-far","query":"What is the molecular mechanism of chlorophyll during photosynthesis?"}
+{"kind":"decoy-far","query":"How do deep-sea anglerfish produce bioluminescence in the midnight zone?"}
+{"kind":"decoy-far","query":"What hiking gear is essential for trekking Mount Kilimanjaro in winter?"}
+{"kind":"decoy-far","query":"How does yeast fermentation convert glucose into ethanol and carbon dioxide?"}
+{"kind":"decoy-far","query":"What are the typical symptoms of iron deficiency anemia in marathon runners?"}
+{"kind":"decoy-far","query":"How do volcanic eruptions create obsidian and pumice rocks?"}
+{"kind":"decoy-far","query":"What are the architectural differences between Baroque and Gothic cathedrals?"}
+{"kind":"decoy-far","query":"How should one properly prune tomato plants for maximum fruit yield?"}
+{"kind":"decoy-far","query":"What causes the northern lights to appear in high-latitude skies?"}
+{"kind":"decoy-far","query":"How do marine iguanas adapt to swimming in cold ocean currents?"}
+{"kind":"decoy-far","query":"What is the traditional recipe for authentic Spanish seafood paella?"}
+{"kind":"decoy-far","query":"How does a carburetor regulate air and fuel mixture in lawnmowers?"}
+{"kind":"decoy-far","query":"What are the basic finger positions for playing an F major chord on guitar?"}
+{"kind":"decoy-far","query":"How does the human lymphatic system circulate fluids without a dedicated heart pump?"}
+{"kind":"decoy-far","query":"What is the migration route of monarch butterflies through North America?"}
+{"kind":"decoy-far","query":"How do alpine plants survive sub-zero temperatures under heavy snow?"}
+{"kind":"decoy-far","query":"What are the standard dimensions of an Olympic badminton court?"}
+{"kind":"decoy-far","query":"How is artisanal goat cheese aged and cured in stone caves?"}
+{"kind":"decoy-far","query":"What geological forces created the Grand Canyon over millions of years?"}
+{"kind":"decoy-far","query":"How do modern jet engines generate reverse thrust upon landing?"}
+{"kind":"decoy-far","query":"What are the main differences between classical dressage and western show jumping?"}
+{"kind":"decoy-far","query":"How does cellular mitosis divide genetic material between daughter cells?"}
+{"kind":"decoy-far","query":"What materials were traditionally used to construct Viking longships?"}
+{"kind":"decoy-far","query":"How do Emperor penguins regulate heat during Antarctic blizzards?"}
+{"kind":"decoy-far","query":"What spices make up a traditional Moroccan ras el hanout blend?"}
+{"kind":"decoy-far","query":"How does a mechanical grandfather clock utilize a weighted pendulum?"}
+{"kind":"decoy-far","query":"What are the main stages of human embryonic development during the first trimester?"}
+{"kind":"decoy-far","query":"How do coral reefs build their calcium carbonate exoskeletons?"}
+{"kind":"decoy-far","query":"What are the most popular diving spots along Australia's Great Barrier Reef?"}
+{"kind":"decoy-far","query":"How do trees transport water from roots to leaves via xylem tension?"}
+{"kind":"decoy-far","query":"What techniques do watercolor artists use for wet-on-wet background washes?"}
+{"kind":"decoy-far","query":"How did ancient Roman engineers build durable aqueducts across valleys?"}
+{"kind":"decoy-far","query":"What are the symptoms and stages of altitude sickness among climbers?"}
+{"kind":"decoy-far","query":"How does a sous vide precision cooker maintain exact water temperatures?"}
+{"kind":"decoy-far","query":"What are the courtship displays of birds of paradise in New Guinea?"}
+{"kind":"decoy-far","query":"How does the digestive tract of a cow break down fibrous cellulose?"}
+{"kind":"decoy-far","query":"What are the best methods for composting organic food scraps in an apartment?"}
+{"kind":"decoy-far","query":"How do desert reptiles prevent water loss through their skin?"}
+{"kind":"decoy-far","query":"What are the key differences between espresso roast and blonde roast beans?"}
+{"kind":"decoy-far","query":"How does plate tectonics drive the formation of deep ocean trenches?"}
+{"kind":"decoy-far","query":"What is the history behind the invention of the printing press by Gutenberg?"}
+{"kind":"decoy-far","query":"How do sea turtles navigate back to their natal beaches to lay eggs?"}
+{"kind":"decoy-far","query":"What equipment is necessary for cold-water spearfishing in kelp forests?"}
+{"kind":"decoy-far","query":"How do fungal mycorrhizae exchange nutrients with vascular plant roots?"}
+{"kind":"decoy-far","query":"What are the fundamental rules of curling in the Winter Olympics?"}
+{"kind":"decoy-far","query":"How is maple syrup harvested and boiled down from tree sap?"}
+{"kind":"decoy-far","query":"What causes the formation of tornadoes during supercell thunderstorms?"}
+{"kind":"decoy-far","query":"How do bats use echolocation to track flying insects in total darkness?"}
+{"kind":"decoy-far","query":"What are the primary cultural differences between matcha tea and sencha tea?"}
+{"kind":"decoy-far","query":"How do glaciers carve U-shaped valleys across mountainous terrain?"}
+{"kind":"decoy-far","query":"What are the standard weight classes in professional freestyle wrestling?"}
+{"kind":"decoy-far","query":"How does an acoustic violin project sound through its hollow wooden body?"}
+{"kind":"decoy-far","query":"What is the lifecycle of a dragonfly from aquatic nymph to adult?"}
+{"kind":"decoy-far","query":"How do hot air balloons control altitude using propane burners and vents?"}
+{"kind":"decoy-near","query":"How much cash should a traveler exchange before visiting a foreign country?"}
+{"kind":"decoy-near","query":"What caused the train crash near the central railway junction?"}
+{"kind":"decoy-near","query":"Why did the city library backup generator fail during the hurricane?"}
+{"kind":"decoy-near","query":"How do you renew an expired library card at the local municipal branch?"}
+{"kind":"decoy-near","query":"What was the longest queue at the amusement park roller coaster yesterday?"}
+{"kind":"decoy-near","query":"Can an athlete run two hundred meters under twenty seconds in track competitions?"}
+{"kind":"decoy-near","query":"What causes an automobile brake disk to warp from severe overheating?"}
+{"kind":"decoy-near","query":"How many wooden storage containers fit inside a standard shipping vessel?"}
+{"kind":"decoy-near","query":"What is the proper domain registration procedure for a non-profit youth charity?"}
+{"kind":"decoy-near","query":"How many pages does the average index section contain at the back of a cookbook?"}
+{"kind":"decoy-near","query":"What is the proper chemical balance for a backyard swimming pool in midsummer?"}
+{"kind":"decoy-near","query":"Which federal jobs require applicants to take a physical fitness test?"}
+{"kind":"decoy-near","query":"What is the proper etiquette when meeting a business team for the first time?"}
+{"kind":"decoy-near","query":"Where can I buy a bundle of fresh firewood for a camping trip?"}
+{"kind":"decoy-near","query":"Which flower shop offers the best bouquet arrangements for graduation day?"}
+{"kind":"decoy-near","query":"How can someone become a locked room puzzle mystery writer?"}
+{"kind":"decoy-near","query":"How do you track incoming international parcel mail that has no barcode?"}
+{"kind":"decoy-near","query":"What is the average battery life of an electric lawn mower?"}
+{"kind":"decoy-near","query":"How do farmers protect citrus orchards when temperatures drop to freeze levels?"}
+{"kind":"decoy-near","query":"What did the canary bird traditionally signify to miners working underground?"}
+{"kind":"decoy-near","query":"How do movie critics review independent film festival entries?"}
+{"kind":"decoy-near","query":"Who is the rightful owner of lost treasure found on public beaches?"}
+{"kind":"decoy-near","query":"How long does a tax audit investigation typically take for small businesses?"}
+{"kind":"decoy-near","query":"What are the main requirements of a clean audit opinion for charities?"}
+{"kind":"decoy-near","query":"What happens if someone ignores their jury duty summons letter?"}
+{"kind":"decoy-near","query":"How do locksmiths test residential doors for pick resistance?"}
+{"kind":"decoy-near","query":"Where did hikers hide the geocaching cache box in the state park?"}
+{"kind":"decoy-near","query":"What is the key difference between acoustic guitars and electric guitars?"}
+{"kind":"decoy-near","query":"Why did the historic port town transition from whaling to recreational sailing?"}
+{"kind":"decoy-near","query":"How many miles apart is each node along a cross-country power grid?"}
+{"kind":"decoy-near","query":"Which street food vendor serves the crispiest falafel sandwiches in town?"}
+{"kind":"decoy-near","query":"Wie viele Kopien druckt ein moderner Drucker pro Minute im Buero?"}
+{"kind":"decoy-near","query":"Welche Software wird beim Scanner fuer alte Familienfotos empfohlen?"}
+{"kind":"decoy-near","query":"How long does the checkout procedure take when returning a rental vehicle?"}
+{"kind":"decoy-near","query":"What causes an old brick load bearing wall to develop structural cracks?"}
+{"kind":"decoy-near","query":"How do gardeners deploy compost tea to enrich depleted vegetable soil?"}
+{"kind":"decoy-near","query":"Why do birds store extra seeds inside tree bark before winter arrives?"}
+{"kind":"decoy-near","query":"How does biometric facial recognition compare to handwriting analysis in forensics?"}
+{"kind":"decoy-near","query":"What keeps a brass keychain from tarnishing when exposed to humid climates?"}
+{"kind":"decoy-near","query":"What should a residential doctor oncall pack in their overnight emergency bag?"}
+{"kind":"decoy-near","query":"Who is Anna Karenina and what happens to her in the classic novel?"}
+{"kind":"decoy-near","query":"Where is Ben Nevis located among the Scottish highland mountain peaks?"}
+{"kind":"decoy-near","query":"How do you sew a plain cotton pillowcase using a sewing machine?"}
+{"kind":"decoy-near","query":"What historical event does this museum tour guide docs describe?"}
+{"kind":"decoy-near","query":"How do rescue dogs conduct an avalanche search in deep powdery snow?"}
+{"kind":"decoy-near","query":"What is the proper way to dispute an incorrect medical billing invoice?"}
+{"kind":"decoy-near","query":"How do musicians calibrate string payments before an orchestra recital?"}
+{"kind":"decoy-near","query":"What is the best way to clean an oven build up of burnt grease?"}
+{"kind":"decoy-near","query":"How does a mountaineering team deploy safety ropes along a narrow ridge?"}
+{"kind":"decoy-near","query":"What is the ideal upload speed for streaming high definition video?"}
+{"kind":"decoy-near","query":"How often should an adult schedule an annual dental health cleaning checkup?"}
+{"kind":"decoy-near","query":"What causes the seasonal migration of caribou across Arctic tundra?"}
+{"kind":"decoy-near","query":"How does a home security alarm detect broken glass in a window?"}
+{"kind":"decoy-near","query":"What is the history of the postal worker union strike in nineteen seventy?"}
+{"kind":"decoy-near","query":"What are the most popular mobile homes available for cross-country retirees?"}
+{"kind":"decoy-near","query":"How do citrus growers refresh soil nitrogen levels between harvest seasons?"}
+{"kind":"decoy-near","query":"What happens to the retry count when a baseball pitcher throws three balls?"}
+{"kind":"decoy-near","query":"What is the best fertilizer to stimulate root numbers on climbing roses?"}
+{"kind":"decoy-near","query":"How do archaeologists restore ancient Roman pottery pieces found in ruins?"}
+{"kind":"decoy-near","query":"What causes a bicycle chain to slip off its gear cogs during sprints?"}
