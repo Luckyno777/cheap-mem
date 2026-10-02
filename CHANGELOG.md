@@ -14,6 +14,50 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — the dashboard's first page no longer waits for the store (board-tempo)
+
+- **The first answer of `/dashboard.json` is a small head** (newest 120 entries,
+  the open duties and questions, `overview` counters per type and project, the
+  paths of the parts), whatever the store size. The rest of the entries comes
+  page by page through `/dashboard/part.json?part=entries&from=&n=`; the page
+  says "x of y entries loaded" and takes its counters from the server, never
+  from the part it holds. `experiences` (the learnings with their citation
+  counts) is a deferred part now too, and the unused per-topic `trail` lists are
+  cut in the head. A part that is not built yet answers `building`; the page
+  never shows it as an empty list. Port of the sibling's dash-tempo work.
+- **A restart answers at once.** The head lies in `.mem/dashboard-head.json`
+  (0600, atomic, machine-local) without any `text`, `fact` or `why`; a cold
+  start serves it as `cache.source: "disk"`, never fresh, with its reason, and
+  rebuilds in the background. Without a head a large store gets a placeholder,
+  then a light head (one pass over the drawers, bounded memory), then the full
+  build. Over 64 MB of drawers (`CHEAP_MEM_SERVE_FULL_BUILD_MB`) only the light
+  head is built, and the page says so.
+- **The build worker's heap cap now holds.** `resourceLimits` alone did not on
+  Node 22.22 (a 64 MB limit ran on to 2 GB); the parent polls
+  `worker.getHeapStatistics()` and stops a worker over the cap (at most 4 GB).
+  The cache's age counts from the END of a build, and the gap to the next
+  background build is at least four times the last build's duration. The size of
+  the store counts the archive manifest and the archived shards
+  (`storeBytes`); only the manifest and the drawers decide whether the full
+  build runs.
+- **Measured** (`node bench/board-tempo.mjs --synthetic N`, 4 cores shared with
+  other work, load average 3 to 5; server = cold process, first `GET
+  /dashboard.json`; browser = Chromium with software GL, first display with the
+  start page's counters):
+
+  | store | old: first answer | old: bytes (packed) | new: first answer | new: bytes (packed) | new: counters shown | new: full build |
+  |---|---|---|---|---|---|---|
+  | demo world, 213 entries | 0.48 s | 169 KB (23 KB) | 0.49 s (sync, small store) | 128 KB (20 KB) | = first answer | 0.5 s |
+  | 10,000 | 3.6 s | 4.3 MB (521 KB) | 0.04 s placeholder | 1.6 KB | 0.56 s | 4.6 s |
+  | 100,000 | 34.8 s | 43.0 MB (5.1 MB) | 0.03 s placeholder; 0.04 s with the head on disk (75 KB, 16 KB packed) | 1.6 KB | 0.54 s; 0.05 s with the head | 26 s |
+  | 1,000,000 | 494 s | 432 MB (51 MB), peak 8.1 GB | 0.04 s placeholder; 0.04 s with the head on disk (29 KB, 4 KB packed) | 1.6 KB | 3.6 s (light head); 0.04 s with the head | light head only, peak 0.23 GB |
+
+  Browser first display: 100,000 entries 45 s before, 2.7 s without a head,
+  0.8 s with the head on disk (warm 0.9 to 1.5 s); 1,000,000 entries 0.7 s
+  placeholder and 3.8 s with counters without a head, 0.7 s with the head (warm
+  0.2 to 1.3 s). The old state could not show 1,000,000 entries at all within a
+  sensible time (the server alone took 494 s and 8.1 GB).
+
 ### Added — command guard: the before-edit hook warns before a Bash command that hurt before
 
 - **An error of the class `mishandling` may carry a `command_pattern`**
