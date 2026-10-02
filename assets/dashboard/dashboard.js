@@ -2147,7 +2147,7 @@ function graphModel(es, mode) {
     stored = allEdges(es).filter((e) => ids.has(e.to)),
     // The third kind (src/netderive.mjs): auto-tier derived links, drawn dashed. They join the
     // drawing, never the bundling (adjacency) and never the loops: nobody wrote them.
-    derived = mode === 'trail' ? [] : (D?.net?.derived?.auto || []).filter((d) => ids.has(d.from) && ids.has(d.to)).map((d) => ({ from: d.from, to: d.to, kind: 'derived', derived: d })),
+    derived = mode === 'trail' || typeof D !== 'object' ? [] : (D?.net?.derived?.auto || []).filter((d) => ids.has(d.from) && ids.has(d.to)).map((d) => ({ from: d.from, to: d.to, kind: 'derived', derived: d })),
     edges = stored.concat(derived),
     adj = new Map(es.map((e) => [e.id, new Set()]));
   stored.forEach((e) => {
@@ -4151,7 +4151,7 @@ function initGraph() {
       mainNodes: model.groups.length,
       strands: edgeVisuals.map((e) => {
         const m = toScreen(e.pts[7]);
-        return { count: e.count, from: e.a.key, to: e.b.key, dashed: !!e.dashed, x: m.x, y: m.y, visible: m.visible, edges: e.edges.map((k) => ({ from: k.from, to: k.to, kind: k.kind, source: edgeEvidence(k) })) };
+        return { count: e.count, from: e.a.key, to: e.b.key, dashed: !!e.dashed, x: m.x, y: m.y, visible: m.visible, path: e.pts.map((q) => { const c = toScreen(q); return [c.x, c.y, c.visible]; }), edges: e.edges.map((k) => ({ from: k.from, to: k.to, kind: k.kind, source: edgeEvidence(k) })) };
       }),
       camera: { distance, baseDistance, angle, tilt, transitioning: !!transition, look: look.toArray() },
       fps: fps.value,

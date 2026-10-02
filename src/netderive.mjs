@@ -39,11 +39,11 @@ import { BODY_FIELDS } from './bodyfields.mjs';
 export const RARE_DF = 6;
 const FILE_DF_MAX = 12;
 /** From this strength (sum of IDF) a kind of evidence is STRONG. */
-export const STRONG = Object.freeze({ terms: 12, file: 5.5 });
+const STRONG = Object.freeze({ terms: 12, file: 5.5 });
 /** At most this many borderline pairs are listed, strongest first. */
-export const BORDERLINE_MAX = 60;
+const BORDERLINE_MAX = 60;
 /** The drawers that carry content (not links, sources, timelines or building blocks). */
-export const CONTENT_TYPES = Object.freeze(['decision', 'error', 'event', 'thought', 'learning', 'duty', 'question', 'skill', 'procedure', 'update']);
+const CONTENT_TYPES = Object.freeze(['decision', 'error', 'event', 'thought', 'learning', 'duty', 'question', 'skill', 'procedure', 'update']);
 const FILE_FIELDS = ['file', 'files'];
 // Longer extensions first, or `js` cuts `jsonl` short.
 const FILE_RE = /(?:[\w.-]+\/)+[\w.-]+\.(?:test\.mjs|jsonl|json|mjs|cjs|html|yaml|yml|css|tsv|md|sh|ps1|js|ts|py)\b/g;
@@ -61,7 +61,7 @@ export function features(entry) {
 }
 
 /** Which rows go in: content drawers, held, not closing lines, not replaced. */
-export function selectRows(rows) {
+function selectRows(rows) {
   const replaced = new Set();
   for (const { entry: e } of rows) if (e?.replaces_id) replaced.add(String(e.replaces_id));
   return rows.filter(({ drawer, entry: e, held }) => CONTENT_TYPES.includes(drawer) && held !== false

@@ -129,6 +129,7 @@ directory. The section number in brackets is where it is explained.
 | `modelcost.mjs` | reads the token/cost fields a headless `claude -p --output-format json` run already returns; machine-local, never a second model call (7.5) |
 | `neighbours.mjs` | what stood next to this at write time (10.8) |
 | `net.mjs` | what points at what — from declared links, not from similarity |
+| `netderive.mjs` | derived links, apart from the declared ones: pairs sharing rare terms and a file (auto, dashed in the atlas) or strong rare terms alone (borderline, listed for a human, never decided); deterministic, no model, nothing written (`mem net --derived`, dashboard `net.derived`) |
 | `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking |
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
 | `pages.mjs` | filtered, cursor-paged lists over the drawers — never the whole desk (`/entries.json`, E1.3) |
