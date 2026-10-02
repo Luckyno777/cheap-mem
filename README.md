@@ -577,6 +577,11 @@ mem inbox write --to N --subject ...   send a message
 mem inbox show <name>          read one message
 mem inbox ack <name> [state]   set state (replied|processed|closed)
 mem inbox watch --as N         poll remote (exit 0/1/3 for shells)
+                               --intent request|read|clarification wakes the
+                               recipient's watcher, only with your permission:
+mem inbox permit <name> --authority user        permit one waking message
+mem inbox allow --letters N --authority user    or give a budget
+mem inbox permissions | routes                  budgets, waiting mail, sessions
 mem inbox claim <name> [--minutes M]            claim a message, with expiry
 mem inbox renew|done <name> --claim-id ID       renew / finish YOUR claim
                                (bridge: mem_inbox_claim / _renew / _done)
