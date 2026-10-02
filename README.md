@@ -139,7 +139,7 @@ build step:
 memory). The network on the left groups entries by project; the panel
 on the right lists the next open duties and questions.*
 
-![The Knowledge space tab: the same 3D network shown larger, with a group strip below the canvas and a breadcrumb above it.](docs/images/02-knowledge-space.webp)
+![The Knowledge space tab: the same 3D network shown larger, each project core labelled with its name and entry count (labels never overlap), with a group strip below the canvas and a breadcrumb above it.](docs/images/02-knowledge-space.webp)
 
 *`Knowledge -> Knowledge space`: the same network, full size, with 50
 stored relations (`link` drawer) between entries across projects, and
