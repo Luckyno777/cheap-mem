@@ -916,6 +916,8 @@ export function collectDashboard(root, {
     net: {
       boxes: d.net.boxes, pairs: d.net.pairs, links: d.net.links, dangling: d.net.dangling,
       layers: d.net.layers,
+      // Derived links (src/netderive.mjs): auto ones drawn dashed, borderline ones listed for review.
+      derived: d.net.derived ?? { unknown: true, reason: 'not computed' },
     },
     work: d.work,
     openDuties,

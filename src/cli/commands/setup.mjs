@@ -699,7 +699,7 @@ export const COMMANDS = {
   net: async ({ args }) => {
     if (isHelp(args)) {
       out([
-        'mem net [--json]',
+        'mem net [--json] [--derived]',
         '',
         '  What points at what — from the DECLARED links, not from',
         '  similarity.',
@@ -714,10 +714,15 @@ export const COMMANDS = {
         '',
         '  Cycles are REPORTED, not cut: a map that quietly cuts a cycle',
         '  shows a direction that does not exist.',
+        '',
+        '  --derived  the third kind, apart from the declared links: pairs that',
+        '             share rare terms and a file (auto, dashed in the atlas) and',
+        '             pairs with strong shared terms alone (borderline, listed',
+        '             for you to judge). Deterministic, no model, nothing written.',
       ].join('\n'));
       return;
     }
-    checkFlags(args, ['json', 'root'], 'net');
+    checkFlags(args, ['json', 'root', 'derived'], 'net');
     const root = findRoot(args);
     const net = await import('../../net.mjs');
     const readAll = () => {
@@ -738,6 +743,17 @@ export const COMMANDS = {
       }
       return acc;
     };
+    if (args.derived) {
+      // Retired entries drop out (`held`), as on the dashboard's one pass.
+      const rows = readAll();
+      const retired = memory.retiredMap(rows.map((r) => r.entry));
+      for (const r of rows) r.held = memory.holds(r.entry, retired);
+      const netderive = await import('../../netderive.mjs');
+      const d = netderive.derive(rows);
+      const title = new Map(rows.map((r) => [r.entry.id, String(r.entry.title ?? '').slice(0, 50)]));
+      out(args.json ? JSON.stringify(d, null, 2) : netderive.asText(d, (id) => title.get(id) || id));
+      return;
+    }
     const n = net.build({ readAll });
     if (args.json) out(JSON.stringify({ ...n, ...net.layers(n) }, null, 2));
     else out(net.asText(n));

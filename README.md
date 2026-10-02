@@ -405,8 +405,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **80 CLI commands, 37 MCP tools, 162 modules, 3345
-tests**; as of 2026-09-20, about 66534 lines in `bin/` and `src/`, at
+As of 2026-09-26: **80 CLI commands, 37 MCP tools, 163 modules, 3363
+tests**; as of 2026-09-20, about 66735 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
