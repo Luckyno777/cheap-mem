@@ -30,6 +30,7 @@ import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import * as levers from '../../searchlevers.mjs';
 import * as questionsplit from '../../questionsplit.mjs';
+import * as variants from '../../variants.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
@@ -50,7 +51,7 @@ export const COMMANDS = {
       out([
         'mem find "<query>" [--type <t>] [--project <name>|global]',
         '          [--since 7d|24h|ISO] [--as-of <ISO>] [--top N] [--literal]',
-        '          [--fresh] [--no-raw] [--only-raw]',
+        '          [--fresh] [--no-raw] [--only-raw] [--variants "a|b|c"]',
         '',
         '  Ranked search, no model, no network. BM25 over weighted',
         '  fields, widened by a curated thesaurus and by a tag graph',
@@ -90,13 +91,18 @@ export const COMMANDS = {
         '             a list in which no hit clears the bar by a clear gap',
         '             (a flat field of near-equal scores) is withheld as a',
         '             whole: "nothing confident" instead of noise.',
+        '  --variants "a|b|c"  up to 4 rewordings the CALLER (an agent, itself a',
+        '             model) writes - everyday word / technical term, symptom /',
+        '             cause. Each is searched on its own, the hit lists are merged',
+        '             by Reciprocal Rank Fusion (src/variants.mjs). No model here;',
+        '             without it the search is unchanged.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
       ].join('\n'));
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak'], 'find');
+      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak', 'variants'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -291,7 +297,15 @@ export const COMMANDS = {
         }
       }
     }
-    const hits0 = search.search(index, rankedQuery, {
+    // Caller-supplied rewordings (src/variants.mjs): each searched with
+    // the same options, merged by rank fusion. Without them this is the
+    // plain `search.search` call it always was.
+    if (args.variants === true) die('find: --variants needs text — mem find "<query>" --variants "a|b|c"');
+    const variantList = args.variants ? variants.variantsFromText(args.variants) : [];
+    const searchFind = variantList.length
+      ? (idx, q, opt) => variants.searchWithVariants(idx, q, variantList, opt)
+      : search.search;
+    const hits0 = searchFind(index, rankedQuery, {
       // Fetch wider, so enough remains after filtering.
       top: args['with-echo'] ? wanted : wanted * 3,
       type: args.type ?? null,

@@ -178,6 +178,7 @@ directory. The section number in brackets is where it is explained.
 | `timesearch.mjs` | retrieval by time window, no model |
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
 | `goldlog.mjs` | the owner's rating of a real retrieval question (hit / near miss / no hit, from the journal's recorded reason — no invented scores), appended OUTSIDE the memory root; `mem gold today`/`mem gold rate` and the dashboard's Rate-today card share it (7.5) |
+| `variants.mjs` | variant fusion: up to 4 rewordings the CALLING agent writes are each searched with the same options and merged by Reciprocal Rank Fusion; the score stays a real search score; no model in the recall path (`mem find --variants "a\|b"`, `mem_find` field `variants`) |
 | `verifylog.mjs` | a human's verdict on an uncertain fact, appended OUTSIDE the memory root — never a correction, never inside the repo (7.5) |
 | `viewer.mjs` | one self-contained HTML page to rummage through it all |
 | `webauth.mjs` | the door in front of any HTTP service (7.4) |
@@ -599,7 +600,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_source` | take in an address as a source (no local paths) |
 | `mem_bridge_report` | report which checkout this server is serving |
 | `mem_board` | the operating state on one screen |
-| `mem_find` | ranked search |
+| `mem_find` | ranked search; optional `variants` (caller-written rewordings, rank-fused) |
 | `mem_retrieve` | ranked retrieval returning structured claims |
 | `mem_show` | one entry in full |
 | `mem_links` | what an entry points at, and what points at it |
