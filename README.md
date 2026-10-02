@@ -147,6 +147,14 @@ the four grouping modes (drawers, topics, relations, entry type). A thin
 fog hull with a scattering of glitter surrounds the nodes -- pure
 orientation, no data of its own; it parts to the sides as you zoom in.*
 
+Topics and relation bundles have no cap: every one is a node, and with
+more than 16 the heaviest become main nodes with the others blooming
+outward as their subtopics. Loops of stored links are drawn as a golden
+path. Pairs that share rare terms and a file appear as dashed **derived**
+links, counted apart from the declared ones; pairs with strong shared
+terms alone are only listed for you (`mem net --derived`, and the review
+panel under the network). Deterministic, no model, nothing written.
+
 `mem serve` sits behind a password by default (`src/login.mjs`) -- a
 black sign-in page, one field, before any content renders:
 
