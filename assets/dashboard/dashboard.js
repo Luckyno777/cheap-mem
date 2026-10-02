@@ -629,7 +629,12 @@ async function loadData({ quiet = false } = {}) {
     if (D?.cache && !D.cache.fresh && !refetchTimer && !document.hidden) {
       refetchTimer = setTimeout(async () => {
         refetchTimer = 0;
+        // board-tempo-cm: what stands on the screen while only the placeholder
+        // is there is NOTHING — the first real state is drawn at once (unlike a
+        // later background refresh, which only sets the marker).
+        const wasPlaceholder = Boolean(D?.placeholder);
         await loadData({ quiet: true });
+        if (wasPlaceholder && D && !D.placeholder) render();
       }, TEMPO_TEST_MS ?? (D.placeholder ? 1000 : D.cache.refreshing ? 5000 : 20000));
     }
   } catch (e) {
@@ -710,7 +715,9 @@ function render() {
   const partBanner = !D.placeholder && !entriesLoad.full && D.overview
     ? '<div id="entriesLoad">' + note(`${num(entriesLoad.loaded)} of ${num(entriesLoad.total || D.overview.count)} entries loaded${D.parts?.entries?.head_only ? ' — the server only has the counters and the newest entries for a store this large' : entriesLoad.loaded >= ENTRIES_CAP ? ' — lists and net show the newest, all through the search' : ' — the rest is loading, the lists are not complete yet'}.`) + '</div>'
     : '';
-  $('#screen').innerHTML = `<div class="screen-enter">${partBanner}${state.missing ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
+  // A light head is no unreadable source but a limit: say that instead.
+  const lightNote = D.light ? note('Only counters and the newest entries are shown: ' + esc((D.reasons || [])[0] || 'the full build did not run') + ' — the tiles of the full build are unknown, not zero.') : '';
+  $('#screen').innerHTML = `<div class="screen-enter">${partBanner}${lightNote}${state.missing && !D.placeholder && !D.light ? note('Not every source was readable: ' + esc((D.reasons || []).join(' · ') || entries.filter((e) => !e.readable).length + ' entries without a readable line') + '. Completeness unknown.', 'bad') : ''}${html}</div>`;
   // tempo (2026-09-28): draw the overview FIRST, the 3-D network one frame
   // later. `initGraph()` compiles the shaders (measured in the sibling's
   // Chromium profile: ~4–6 s with software GL under load) — synchronous

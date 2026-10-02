@@ -57,10 +57,13 @@ const HEAD_VERSION = 1;
 
 /**
  * Above this size of the drawers (bytes) the full build is not even tried,
- * only `lightHead()`. Measured on the old state: 100,000 entries = 95 MB of
- * drawers took 35 s and 1.3 GB for the full build; 1M did not finish.
+ * only `lightHead()`. Measured (bench/board-tempo.mjs, synthetic stores of
+ * bench/scale.mjs, one build worker): 100,000 entries = 26 MB of drawers: 26 s
+ * and 1.1 GB peak; 250,000 entries = 66 MB: 99 s and 2.9 GB peak; the old
+ * state needed 494 s and 8.1 GB at 1M entries (263 MB). The worker's cap is
+ * 4 GB (`WORKER_HEAP_MB`), so 64 MB keeps the full build inside it with room.
  */
-export const FULL_BUILD_UP_TO_BYTES = 128 * 1024 * 1024;
+export const FULL_BUILD_UP_TO_BYTES = 64 * 1024 * 1024;
 
 /** Free text fields of an entry — they never go to disk (see above). */
 const FREE_TEXT = ['text', 'fact', 'why'];
