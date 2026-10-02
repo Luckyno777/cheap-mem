@@ -450,13 +450,18 @@ function importGraphReachable(root) {
  * comment — is treated as a live wire.
  */
 function literalPathReachable(root, moduleFileName) {
-  const binDir = path.join(root, 'bin');
-  if (!fs.existsSync(binDir)) return false;
   const needle = new RegExp(`src[\\\\/]${moduleFileName.replace('.', '\\.')}\\b`);
-  for (const f of fs.readdirSync(binDir)) {
-    const full = path.join(binDir, f);
-    if (!fs.statSync(full).isFile()) continue;
-    if (needle.test(stripForKind(full, fs.readFileSync(full, 'utf8')))) return true;
+  // bin/ holds the agent hooks; hooks/ holds the git hooks the installer
+  // copies into a checkout (hooks/pre-push -> src/prepush.mjs). Both are
+  // hook scripts that run in production.
+  for (const dir of ['bin', 'hooks']) {
+    const hookDir = path.join(root, dir);
+    if (!fs.existsSync(hookDir)) continue;
+    for (const f of fs.readdirSync(hookDir)) {
+      const full = path.join(hookDir, f);
+      if (!fs.statSync(full).isFile()) continue;
+      if (needle.test(stripForKind(full, fs.readFileSync(full, 'utf8')))) return true;
+    }
   }
   return false;
 }
