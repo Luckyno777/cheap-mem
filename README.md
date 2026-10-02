@@ -523,6 +523,8 @@ mem links <id>                 typed edges in and out (causes, generalizes, ...)
 mem experiences [--all]        lessons ranked by how much of the memory leans on them
 mem viewer [--out f.html]      one self-contained HTML page to browse it all
 mem raw pending|show|digested  the captured material
+mem raw import-chatgpt <zip>   a ChatGPT data export in as raw captures (redacted,
+                               no model call, safe to re-run; --dry-run counts)
 mem user [--json]              generic, code-only habit meter over YOUR OWN
                                captures (delegated decision, correction,
                                pasted terminal output, language) -- patterns
@@ -536,6 +538,8 @@ mem effect                     share of injections named/opened/edited afterward
                                with a Wilson interval; "not measurable" under 1000
                                pairs. A finding, never a ranking signal.
 mem hooks install|check        arm and prove the secret check
+mem hooks install --pre-push   also warn (never block) when a push to the default
+                               branch has no green CI run (reads CI via gh)
 mem doctor                     is this memory healthy?
 mem doctor --alarm             ONLY what is down right now; silent when
                                nothing is. The session-start hook prints it.
@@ -751,6 +755,34 @@ CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/bin/mem-digest
 
 Nothing captured means no bell, and no bell means no call — a week away
 costs exactly zero. See [docs/architecture.md](docs/architecture.md).
+
+### Bring in your ChatGPT history
+
+Conversations you had in ChatGPT can go through the same lane. Export
+them (ChatGPT: Settings -> Data controls -> Export data; the mail brings
+a ZIP), then:
+
+```bash
+mem raw import-chatgpt ~/Downloads/chatgpt-export.zip --dry-run   # counts only, writes nothing
+mem raw import-chatgpt ~/Downloads/chatgpt-export.zip
+```
+
+Each conversation becomes one raw capture — the branch you last saw,
+redacted before it touches disk, images and files as placeholders. No
+entry is written and **no model is called** on import; the next digest
+decides what is worth keeping, exactly as for a Claude session. Running
+it again with a newer export files only what is new; nothing is filed
+twice, and a capture you deleted stays deleted. `conversations.json` on
+its own works too, and `--since 2026-01-01` limits by last update.
+
+### A CI warning before you push (opt-in)
+
+`mem hooks install --pre-push` adds a pre-push hook that, for a push to
+the remote's default branch, asks CI through `gh` whether that exact
+commit has a green run, and warns if it is red, still running, has no
+run, or cannot be asked (no `gh`, offline, not GitHub). It never blocks
+and never says green unless CI did. In a checkout of cheap-mem itself,
+`git config core.hooksPath hooks` arms it together with the secret check.
 
 ## Autostart on macOS / Linux / Windows
 

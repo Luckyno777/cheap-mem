@@ -91,6 +91,13 @@ export const COMMANDS = {
         '                                to the register. Without --yes this only',
         '                                shows what would happen and how many bytes',
         '                                — nothing is deleted.',
+        'mem raw import-chatgpt <export.zip|conversations.json> [--dry-run]',
+        '               [--since <date>] [--json]',
+        '                                read a ChatGPT data export in as raw',
+        '                                captures (one per conversation, redacted,',
+        '                                no model call). Re-running is safe: what',
+        '                                is already there is not filed twice.',
+        '                                --dry-run counts and writes nothing.',
         '',
         '  A capture can hold thousands of lines. Read a big one in',
         '  windows: --head reports __lines, then --from/--count.',
@@ -545,7 +552,32 @@ export const COMMANDS = {
       out(`  at: ${r.at}`);
       return;
     }
-    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check, review, delete, exclude`);
+    if (sub === 'import-chatgpt') {
+      // A product feature, not an admin tool: anyone with a ChatGPT
+      // history can read it in. Raw captures only — the digest decides
+      // what becomes an entry, and no model is called here.
+      checkFlags(args, ['since', 'dry-run', 'json'], 'raw import-chatgpt');
+      const file = rest[1];
+      if (!file) die('raw import-chatgpt: path to the export ZIP or to conversations.json is missing');
+      const imp = await import('../../chatgptimport.mjs');
+      let r;
+      try {
+        r = imp.importExport(root, file, {
+          since: typeof args.since === 'string' ? args.since : null,
+          dryRun: Boolean(args['dry-run']),
+        });
+      } catch (e) {
+        die(`raw import-chatgpt: ${e.message}`);
+      }
+      if (r.status === 'already-running') die('raw import-chatgpt: another import is running right now');
+      if (r.reason === 'redaction-failed') {
+        die(`raw import-chatgpt: redaction self-test failed (${r.detail}) — nothing imported`);
+      }
+      out(args.json ? JSON.stringify(r, null, 2) : imp.reportLines(r, file).join('\n'));
+      if (r.status === 'broken') process.exitCode = 1;
+      return;
+    }
+    die(`raw: unknown subcommand '${sub}'. Known: pending, show, digested, check, review, delete, exclude, import-chatgpt`);
   },
 
   'raw-capture': async ({ args }) => {

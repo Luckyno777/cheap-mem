@@ -31,6 +31,17 @@ been weakened once to let something through has stopped being a check.
    the line does. If a future reader would reasonably remove it, the
    comment has to tell them why not.
 
+## Hooks in this checkout
+
+```bash
+git config core.hooksPath hooks   # pre-commit secret check + pre-push CI warning
+```
+
+The pre-push hook only warns: before a push to the default branch it asks
+CI (via `gh`) whether that exact commit has a green run, and says so if
+not — or that it could not ask. It never blocks. The safe route to main is
+still: push the branch, let CI run green, then move main.
+
 ## Running things
 
 ```bash
