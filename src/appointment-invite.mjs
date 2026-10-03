@@ -67,7 +67,6 @@ import os from 'node:os';
 import path from 'node:path';
 import tls from 'node:tls';
 import { createSign, randomBytes } from 'node:crypto';
-import { appendLine } from './append.mjs';
 import { LockTimeoutError, withLock } from './filelock.mjs';
 import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
@@ -458,10 +457,8 @@ const journalPath = (root) => path.join(root, A.DIR, JOURNAL_FILE);
 const keyOf = (route, appointment, sequence, method) => `${route}|${appointment}|${sequence}|${method}`;
 const FIRST_ROUTE = 'smtp';
 
-function journalAppend(root, line) {
-  fs.mkdirSync(path.join(root, A.DIR), { recursive: true });
-  appendLine(journalPath(root), `${JSON.stringify(line)}\n`);
-}
+// One append path for the whole drawer: the same primitive and the same folder as appointments.jsonl.
+const journalAppend = (root, line) => A.append(root, JOURNAL_FILE, line);
 
 /** Fold the journal: per key route|appointment|SEQUENCE|method the state, plus which appointments have an invitation. */
 function loadJournal(root) {

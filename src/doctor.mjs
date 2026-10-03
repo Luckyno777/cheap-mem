@@ -2914,7 +2914,7 @@ export function checkAppointmentInvite(root, { now = new Date() } = {}) {
   try { st = appointmentInvite.status(root, { now: nowMs }); } catch (e) {
     return finding('appointment-invite', LEVEL.UNKNOWN, `outlet state not readable: ${String(e.message).split('\n')[0]}`);
   }
-  if (!st.active) return finding('appointment-invite', LEVEL.GOOD, `calendar outlet off (${st.reason})`);
+  if (!st.active) return finding('appointment-invite', LEVEL.GOOD, `calendar outlet off (${st.reason}); 2 routes available: smtp, google`);
   const head = `calendar outlet on (route ${st.config.route}), ${st.sentTotal} sent, ${st.open.length} open, ${st.gaveUp} given up`;
   const advice = 'mem appointment calendar status; then mem appointment calendar retry (setup: docs/appointments.md, "Calendar outlet")';
   if (!st.credential.ok) return finding('appointment-invite', LEVEL.ERROR, `${head}; ${st.credential.reason}`, advice);

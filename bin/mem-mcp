@@ -1765,7 +1765,7 @@ async function handleCall(name, args) {
         r = appointments.create(root, {
           title: String(args.title ?? ''), text: args.text ? String(args.text) : '', atMs: z.ms, repeat, beforeMin: before,
           wake: args.wake ? String(args.wake) : null, task: args.task ? String(args.task) : null,
-          maxMinutes: args.max_minutes === undefined ? null : Number(args.max_minutes), kind: args.briefing === true ? 'briefing' : 'reminder',
+          maxMinutes: args.max_minutes ?? null, kind: args.briefing === true ? 'briefing' : 'reminder',
           source: 'mcp', requestedBy: wish, reminderActive: Boolean(wish), isPrivate: args.private === true,
           // A bridge is never a human: it cannot arm anything.
           actor: { name: me, human: false, reason: 'MCP bridge' }, now: Date.now(),
