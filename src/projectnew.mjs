@@ -275,12 +275,16 @@ export function confirmProject(root, name, { by = null, now = new Date() } = {})
     throw new Error(`The project '${name}' does not exist. Known: ${memory.listProjects(root).join(', ') || '(none)'}.`);
   }
   const st = projectStatus(root, name);
-  if (!st.isNew) {
+  // A project made by hand (`handmade`) never carried the mark but waits for
+  // a person just the same (Today card): confirming it must work too, or the
+  // button there is dead.
+  if (!st.isNew && !handmade(root).some((h) => h.name === name)) {
     throw new Error(`The project '${name}' is not marked new (status: ${st.status ?? 'not set'}) — nothing to confirm.`);
   }
   const who = by ?? memory.agentDefault();
   const file = path.join(root, 'projects', name, 'facts.yaml');
-  const old = fs.readFileSync(file, 'utf8');
+  let old = '';
+  try { old = fs.readFileSync(file, 'utf8'); } catch { /* made by hand, without facts.yaml */ }
   const lines = old.split('\n').filter((l) => !/^status:\s/.test(l));
   while (lines.length && lines[lines.length - 1] === '') lines.pop();
   lines.push(`status: ${JSON.stringify(STATUS_CONFIRMED)}`);
@@ -292,6 +296,55 @@ export function confirmProject(root, name, { by = null, now = new Date() } = {})
     agent: who, origin: { via: 'project-new' },
   }, { project: name, now });
   return { entry };
+}
+
+/** Since this day a project arises only through `createProject` (owner decision 2026-10-02). */
+const RULE_FROM = '2026-10-02';
+
+/** Parsed lines of one JSONL file; unreadable file or line: skipped, never thrown. */
+function readJsonl(file) {
+  let text;
+  try { text = memory.withoutBom(fs.readFileSync(file, 'utf8')); } catch { return []; }
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line)); } catch { /* a broken line is the doctor's business */ }
+  }
+  return out;
+}
+
+/** Earliest `ts` of all entries of a project (its drawer files `*.jsonl`), or null. */
+function firstEntry(root, name) {
+  let first = null;
+  let files;
+  try { files = fs.readdirSync(path.join(root, 'projects', name)); } catch { return null; }
+  for (const f of files.filter((x) => x.endsWith('.jsonl'))) {
+    for (const e of readJsonl(path.join(root, 'projects', name, f))) {
+      if (typeof e?.ts === 'string' && (first === null || e.ts < first)) first = e.ts;
+    }
+  }
+  return first;
+}
+
+/**
+ * Projects that arose PAST THE COMMAND: first entry on or after
+ * {@link RULE_FROM}, but no `Project created` event and no `status` in
+ * facts.yaml. Such a project never carries the mark `new`, so nobody sees in
+ * the dashboard or anywhere else that it exists and that no person has
+ * confirmed it (port of lucky-mem `handangelegt`). Read only.
+ * `[{ name, firstEntry }]`.
+ */
+export function handmade(root) {
+  const out = [];
+  for (const name of memory.listProjects(root)) {
+    if (projectStatus(root, name).status) continue;
+    const first = firstEntry(root, name);
+    if (!first || first.slice(0, 10) < RULE_FROM) continue;
+    const has = readJsonl(path.join(root, 'projects', name, memory.TYPES.event))
+      .some((e) => e?.title === TITLE_CREATED);
+    if (!has) out.push({ name, firstEntry: first });
+  }
+  return out;
 }
 
 /** The capture paths of an entry (`origin.raw`: a path or a list; `unknown` does not count). */
@@ -354,7 +407,7 @@ export function suggestions(root) {
   const candidates = [...byName.values()]
     .filter((z) => z.met)
     .sort((a, b) => b.captures - a.captures || b.days - a.days || a.name.localeCompare(b.name));
-  return { entriesRead: entries.length, topics: byTopic.size, candidates };
+  return { entriesRead: entries.length, topics: byTopic.size, candidates, handmade: handmade(root) };
 }
 
 /** The dry run as text: names and numbers only. */
@@ -371,6 +424,12 @@ export function suggestionsText(r) {
       out.push(`${k.name} | ${k.captures} | ${k.days} | ${k.entries}`
         + (k.similar ? `   (would be refused: similar to '${k.similar}')` : ''));
     }
+  }
+  if (r.handmade?.length) {
+    out.push('');
+    out.push(`Made past the command (no "${TITLE_CREATED}" event, no status, first entry on or after ${RULE_FROM}) `
+      + '— confirmed by nobody:');
+    for (const h of r.handmade) out.push(`  ${h.name} (first entry ${h.firstEntry})`);
   }
   return out.join('\n');
 }

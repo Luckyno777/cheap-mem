@@ -215,6 +215,34 @@ export function authorityArg(args, command) {
   return t;
 }
 
+/**
+ * The scope of a skill, workflow, snippet or procedure (`src/experience.mjs`) and the files of an
+ * error are LISTS like `tags`: `--topics '["mcp","skill"]'` used to stay one string that the reader
+ * tore apart at its commas (port of lucky-mem `skill-geltung`, 2026-10-03: the skill's account
+ * showed 0 cases because of it), and `errorfile.files()` ignored a comma string of `--files`.
+ */
+const SCOPE_LISTS = new Set(['classes', 'files', 'topics']);
+
+/** One scope list from `--<k>`: a JSON list or a comma list, as an array; half-JSON is refused like for `--tags`. */
+function scopeList(command, k, v) {
+  if (/^\s*\[/.test(v)) {
+    let list;
+    try { list = JSON.parse(v); }
+    catch (e) { die(`${command}: --${k} looks like JSON but is not: ${e.message}`); }
+    if (!Array.isArray(list) || list.some((x) => typeof x !== 'string')) {
+      die(`${command}: --${k} as JSON must be a list of strings.`);
+    }
+    return list.map((x) => x.trim()).filter(Boolean);
+  }
+  const parts = v.split(',').map((x) => x.trim()).filter(Boolean);
+  const bent = parts.filter((x) => /["[\]{}]/.test(x));
+  if (bent.length) {
+    die(`${command}: --${k} contains brackets or quotes (${JSON.stringify(bent[0])}). `
+      + 'Write it comma-separated, or as a JSON list — both work, half JSON does not.');
+  }
+  return parts;
+}
+
 export function fieldsFrom(command, args, except = []) {
   const data = {};
   // `help` is the parser's, the rest are `src/switches.mjs`'s — the same
@@ -236,6 +264,13 @@ export function fieldsFrom(command, args, except = []) {
       const parts = v.split(';').map((x) => x.trim()).filter(Boolean);
       if (!parts.length) die(`${command}: --rejected is empty.`);
       data[k] = parts;
+      continue;
+    }
+
+    // The scope lists have a branch of their own (the `--tags` / `--asked` lines below stay as the
+    // mutation anchors in bench/mutation.mjs expect them).
+    if (SCOPE_LISTS.has(k) && typeof v === 'string') {
+      data[k] = scopeList(command, k, v);
       continue;
     }
 

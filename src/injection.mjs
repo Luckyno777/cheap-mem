@@ -167,6 +167,28 @@ const PATH_REASONS = new Set(Object.values(PATH_REASON));
 const OCCASIONS = new Set(Object.values(OCCASION));
 
 /**
+ * `file` of a before-edit line (L1, port of lucky-mem 2026-10-03): the
+ * repo-relative path a tool call touched, so that "too weak" can be checked
+ * afterwards. Never absolute (a path outside the repository drops out whole
+ * instead of standing as a machine path in the journal), never `..`, never
+ * content, at most 200 characters, path characters only. `undefined` (the
+ * field is left out) for anything else.
+ */
+export function fileNormal(file) {
+  if (typeof file !== 'string') return undefined;
+  const f = file.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (!f || f.length > 200 || f.startsWith('/') || /^[A-Za-z]:/.test(f)) return undefined;
+  if (!/^[A-Za-z0-9_.@+~ /-]+$/.test(f)) return undefined;
+  if (f.split('/').some((x) => x === '..' || x === '')) return undefined;
+  return f;
+}
+
+/** `tool` of a before-edit line: the tool's name (Edit, Write, Bash, mcp__x__y), else the field is left out. */
+function toolNormal(tool) {
+  return typeof tool === 'string' && /^[A-Za-z][A-Za-z0-9_:.-]{0,59}$/.test(tool) ? tool : undefined;
+}
+
+/**
  * Build one journal line — without writing it.
  *
  * Separate from writing so the shape is testable without a file
@@ -185,6 +207,9 @@ export function buildLine({
   hits = 0,
   searched = null,
   sources = [],
+  ids = undefined,
+  file = undefined,
+  tool = undefined,
   questionBytes = null,
   durationMs = null,
   recallPath = undefined,
@@ -208,6 +233,15 @@ export function buildLine({
     // The locations, so the allocation can be worked out later: which
     // injected hit was actually touched afterwards.
     sources: Array.isArray(sources) ? sources.slice(0, 20).map(String) : [],
+    // The ENTRY ids behind `sources` plus the ids of what an attachment brought
+    // (a solution under its error, an account line under a skill offer;
+    // src/recallattach.mjs). Only ids, never text. Left out when not given, so
+    // every other writer's line stays byte-identical.
+    ids: Array.isArray(ids) && ids.length ? [...new Set(ids.map(String))].slice(0, 40) : undefined,
+    // L1: which file and which tool set a before-edit hook off. Only path and name, never
+    // content; left out when absent, so other lines stay byte-identical.
+    file: fileNormal(file),
+    tool: toolNormal(tool),
     question_bytes: Number.isFinite(questionBytes) ? questionBytes : null,
     // Wall time of the process that booked the line, from its start to
     // the booking (Bauplan P2; the latency budget reads this). `null`

@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3692 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3756 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -113,7 +113,8 @@ directory. The section number in brackets is where it is explained.
 | `errorfixes.mjs` | errors linked to their fixes and lessons on the existing link drawer: commit trailer `Fixes: <id>` -> `resolves` (`mem error-fixes backfill`), `mem log learning --from <id>` -> `generalizes`, notes at write time, doctor `error-linked` (10.26) |
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
 | `experience.mjs` | the experience of a skill/workflow/snippet/procedure inside its DECLARED scope: account (traps, fixes, learnings), the causality gate, the sharpening package (proposal only), versions as trial correction lines (owner only), review marks, test<->error guards, procedure effect; doctor `skill-sharpen`, `guard-suspicion`, `procedure-effect` (10.29) |
-| `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, stale lock taken over by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
+| `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, a lock whose holder is provably dead (gone, or a zombie) taken over at once, otherwise by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
+| `processalive.mjs` | does a process really live? `kill(pid, 0)` also succeeds for a zombie (`<defunct>`); on Linux the state in `/proc/<pid>/stat` counts (`Z`, `X` = dead) — read by the file lock's orphan takeover and the doctor's running-code check |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `fulltext.mjs` | full-text search behind the knowledge view's search field: `GET /api/fulltext?q=` returns the ids whose WHOLE entry (every string field, tags, nested) contains the query; index kept per store state under the dashboard cache's generation stamp; a failure is `measurable:false`, never an empty list (7.5) |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
@@ -160,6 +161,7 @@ directory. The section number in brackets is where it is explained.
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `readview.mjs` | the offline reading view: the project package as ONE self-contained HTML file (`project-package.json?format=html`) with search, list, detail and references, no network call, no outside address; encrypted entries stay encrypted |
+| `recallattach.mjs` | two attachments to recalled lines (L3, L4): the newest valid solution (`resolves` link or commit proof) as ONE line `↳ Solution <id>: <core>` directly under a shown error (question, after-failure, before-edit, subagent), and the two most important lines of a skill's experience account under a skill offer; never encrypted or `personal` entries; `MEM_SOLUTION_ATTACH=0`, `MEM_SKILL_ACCOUNT_OFFER=0` |
 | `recallhook.mjs` | Z1c: what `bin/mem-retrieve` and `bin/mem-catch-fail` (bash and PowerShell) hand their work to: decide short prompts, claim the turn, print the answer, book the journal line AFTER the write |
 | `recallrender.mjs` | Z1c: the one renderer of the recalled lines — real content from `retrieval.BODY_FIELDS`, the entry ID per hit, cuts on a sentence or clause boundary with a visible marker |
 | `recallserver.mjs` | M10: the warm recall server `mem serve` starts — a Unix socket (Windows: named pipe) under `.pipeline/recall/`, key file 0600, that runs the SAME `find` handler as `mem find --json`; answers `stale` and stops listening when `src/` changed |
@@ -174,7 +176,7 @@ directory. The section number in brackets is where it is explained.
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
 | `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
-| `projectnew.mjs` | a NEW project, the guarded way: `mem project new` refuses a name too like a project or a topic alias (distance, word part, spelling) and names the existing one, writes a reason and an event, marks `facts.yaml` `status: new` until a person confirms (`mem project confirm`); an unattended run needs 2 evidenced captures on 2 days; `mem project suggestions` is the dry run; `mem log --project <unknown>` is refused. Merging two projects is not built (see the head of the file) |
+| `projectnew.mjs` | a NEW project, the guarded way: `mem project new` refuses a name too like a project or a topic alias (distance, word part, spelling) and names the existing one, writes a reason and an event, marks `facts.yaml` `status: new` until a person confirms (`mem project confirm`); an unattended run needs 2 evidenced captures on 2 days; `mem project suggestions` is the dry run and also lists projects made past the command (`handmade`: folder and entries after 2026-10-02, no creation event, no status), which `mem project confirm` accepts too; `mem log --project <unknown>` is refused. Merging two projects is not built (see the head of the file) |
 | `categories.mjs` | categories ABOVE topics, shipped empty: four append-only tables under `global/` (`categories`, `topic-category`, `category-aliases`, `category-wishes`), applied on read; `mem category list/open/assign/confirm/create/acknowledge/rename/merge`; a new category creates itself from 3 different topics with the project-name similarity protection (a near-duplicate lands on the existing one, a project name is refused); `mem find --category`; the doctor finding `categories`; `categories` and `topics.list[].category` in the dashboard data. `create --suggested` adopts a neutral starter list, nothing is baked in |
 | `categories-initial.mjs` | `mem category initial-assign`: deterministic keyword rules propose a category for topics without one (clear lead only, never guessed); a person confirms |
 | `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
@@ -189,7 +191,7 @@ directory. The section number in brackets is where it is explained.
 | `sibling.mjs` | where the sister house's clone lives, if it sits beside us at all — dependency-free so nothing that needs it has to import `doctor.mjs` |
 | `skillusage.mjs` | W10: which skills get used — Skill tool calls and /command marks counted from the raw-capture archive, always with coverage; a skill without a hit is "not observed", never "unused"; names and counts only, never removes anything (`mem skills usage`, finding `skill-usage`) |
 | `skillregistry.mjs` | ONE registry over skill, workflow, snippet and procedure with a status (`proposed`/`trial`/`released`/`withdrawn`, plus `unknown` and `draft`) from `procedure.mjs`; status lines are history, only a human writes them; exports to Claude Code `SKILL.md` (marker file, never `~/.claude`) and one text file; the hook offer (`mem skills list|export|status|fetch`, MCP `mem_skill_find`/`mem_skill_fetch`) |
-| `skilleffect.mjs` | the rate "offered -> fetched" of the hook's skill offer from the injection journal and the raw capture, with a minimum count and a Wilson interval; below it unknown, never 0 (`mem skills effect`) |
+| `skilleffect.mjs` | the rate "offered -> fetched" of the hook's skill offer from the injection journal and the raw capture, with a minimum count and a Wilson interval; below it unknown, never 0; an offer counts as observed only when the capture began before it AND reaches past its window, pieces only as far as they join (`mem skills effect`) |
 | `skillcatalog.mjs` | the dashboard's "Skills & procedures" catalogue from the registry: groups, history per entry, installed `SKILL.md` files and drift (`GET /dashboard/skills.json`; status change only via the `skill-status` task with a password session) |
 | `snippet.mjs` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS — a `text`/`mail`/`letter` body must clear redaction before write (10.27) |
 | `source.mjs` | knowledge that already exists, indexed rather than copied (10.10) |
@@ -197,11 +199,12 @@ directory. The section number in brackets is where it is explained.
 | `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
-| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped |
+| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped, plus the block for the assignment (`subagenttask.mjs`) |
+| `subagenttask.mjs` | the assignment text of a subagent (read, fail-soft, from its own transcript; the hook input documents none) and the choice of what the memory hands it FOR THAT TASK: at most 4 hits and 1,500 bytes of errors (with their solution line), learnings, duties, procedures and skills, found by the files and content words of the task; nothing encrypted, `personal` or naming a person |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections |
-| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this (7) |
+| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this; part (f) lists the projects awaiting a person's confirmation (7) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
@@ -573,7 +576,7 @@ return, so a flood cannot become a denial of service or a context bill.
 | `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
 | `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
 | `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |
-| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start` and a context recap — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
+| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start`, a context recap and — read from the subagent's own transcript — the errors, learnings, duties, procedures and skills that fit ITS TASK (4 hits, 1,500 bytes, nothing personal; `MEM_SUBAGENT_TASK_OFF=1`) — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
 
 **Why the PreToolUse hook exists**, measured 2026-09-08: recall used to
 hang only on `UserPromptSubmit`, so it fired when the person typed and
@@ -1875,6 +1878,16 @@ workflow new|check|list|show` writes the three list fields
 warns); `mem log learning --from <error-id>` writes `generalizes`;
 `mem doctor` reports `error-linked`.
 
+**The solution under its error** (`src/recallattach.mjs`, L3): wherever an
+automatic path shows an error that has a valid solution, one line stands
+directly below it: `  ↳ Solution <id>: <core>`. The newest valid `resolves`
+link wins; its source is an entry in force (not superseded, discarded or
+disputed) or a commit proof (`commit:<hash>`, the core taken from the link's
+`why`). The line counts in the byte budget of the short form (H5) and in the
+subagent block, where another hit gives way first. The journal's new field `ids`
+carries the hit ids and the solution ids (ids only, never text).
+`MEM_SOLUTION_ATTACH=0` is the emergency stop.
+
 ### 10.27 Snippets — `src/snippet.mjs`, `mem log snippet`
 
 A `snippet` is a reusable code/script/text/mail/letter building block
@@ -1975,6 +1988,14 @@ declares: `classes` (error classes; a procedure's `on_class` counts),
 gets no errors at all — an error that only sounds similar is no
 experience of it. Whether a use helped is written nowhere, so it stays
 unknown and is never a trigger.
+
+**The account in the offer** (`src/recallattach.mjs`, L4): when the recall hook
+offers a released skill that DECLARES a scope, the offer brings the two most
+important lines of its account, e.g. `  ↳ Error (open, repeated) <id>: [class]
+<core>`: open or repeated errors first (open AND repeated before only open
+before only repeated, newest first), then the newest learnings in force; at most
+400 bytes. A skill without a scope has no account and the store is not even read.
+Never encrypted or `personal` entries. `MEM_SKILL_ACCOUNT_OFFER=0` is the stop.
 
 **Account and package.** `mem skills account [<name>]` lists traps,
 fixes, learnings, contradictions and open traps. Two cases in scope in

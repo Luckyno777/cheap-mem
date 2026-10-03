@@ -69,6 +69,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { processAlive } from './processalive.mjs';
 
 /** Default bound on waiting for a held lock, milliseconds. */
 export const DEFAULT_WAIT_MS = 5000;
@@ -265,7 +266,8 @@ export function takeOverIfStale(lockPath, staleS) {
 /**
  * Is the holder of this lock PROVABLY dead? `true` only if the content
  * carries pid and host, the host is this one, the pid is not ours, and
- * `process.kill(pid, 0)` answers ESRCH. Anything else (alive, EPERM,
+ * `process.kill(pid, 0)` answers ESRCH or the process is a zombie
+ * (`processalive.mjs`). Anything else (alive, EPERM,
  * other host, unreadable, empty) is `false` — then age decides.
  */
 function holderIsDead(content) {
@@ -277,7 +279,7 @@ function holderIsDead(content) {
   if (pid === process.pid || host !== os.hostname()) return false;
   try {
     process.kill(pid, 0);
-    return false; // alive
+    return !processAlive(pid); // a zombie (<defunct>) is dead, too
   } catch (e) {
     return Boolean(e && e.code === 'ESRCH');
   }

@@ -10,6 +10,14 @@
  * "Fetched" means requested, not "it helped"; subagents are invisible.
  * Not measurable is not zero: an offer whose window the capture does not
  * cover is `unobserved`; below MIN_N observed offers the rate is null.
+ *
+ * **"Covers" means both ends (L5, port of lucky-mem 2026-10-03).** The window
+ * counts as covered only when the capture BEGAN at or before the offer AND
+ * reaches at least to offer + window. Before, only the end counted, and every
+ * offer made before the start of the one readable capture of its session
+ * counted as "not fetched": in the sibling house "0 of 87" was a measuring
+ * artefact (really observed: 0 of 95). Several capture pieces of a session count
+ * only as far as they join without a gap (a gap in between is unmeasured).
  */
 
 import * as injection from './injection.mjs';
@@ -54,11 +62,33 @@ export function fetchesIn(z) {
 
 const ms = (t) => { const n = Date.parse(t); return Number.isNaN(n) ? null : n; };
 
+/** Pieces `[{from, to}]` sorted and merged where they touch or overlap. */
+function merged(pieces) {
+  const list = pieces.filter((x) => x && Number.isFinite(x.from) && Number.isFinite(x.to) && x.to >= x.from)
+    .map((x) => ({ from: x.from, to: x.to })).sort((a, b) => a.from - b.from);
+  const out = [];
+  for (const x of list) {
+    const last = out[out.length - 1];
+    if (last && x.from <= last.to) last.to = Math.max(last.to, x.to); else out.push(x);
+  }
+  return out;
+}
+
+/** Does `c` (a number = only the end known, or pieces) cover the whole window [from, to]? */
+function covers(c, from, to) {
+  if (c == null) return false;
+  if (typeof c === 'number') return c >= to;
+  return Array.isArray(c) && merged(c).some((x) => x.from <= from && x.to >= to);
+}
+
 /**
  * Pure evaluation over data already read (for probes without a disk).
  *   offers:   [{ts, session, ids[]}]
  *   fetches:  [{session, skill(id), ms}]
- *   coverage: Map session -> last observed time (ms) of its captures
+ *   coverage: Map session -> [{from, to}] (ms) of its readable capture pieces. A
+ *             bare number means "only the end is known, the start is not" and
+ *             covers everything up to it as before L5 (old callers and probes;
+ *             `measure()` always supplies the start).
  *   names:    Map id -> name
  */
 export function compute({ offers, fetches, coverage, names, windowMin = WINDOW_MIN, minN = MIN_N }) {
@@ -89,8 +119,7 @@ export function compute({ offers, fetches, coverage, names, windowMin = WINDOW_M
   single.forEach((e, i) => {
     const s = row(e.id);
     s.offered += 1;
-    const end = coverage.get(e.session);
-    const covered = e.t !== null && e.session && end != null && end >= e.t + win;
+    const covered = Boolean(e.t !== null && e.session && covers(coverage.get(e.session), e.t, e.t + win));
     if (!covered) { if (fetched.has(i)) s.fetchedUnobserved += 1; else s.unobserved += 1; return; }
     if (fetched.has(i)) s.fetched += 1; else s.notFetched += 1;
   });
@@ -139,13 +168,20 @@ export function measure(root, { since = null } = {}) {
       try { cp = raw.readCapture(root, c.path); } catch { continue; }
       read += 1;
       let end = ms(cp.header?.__stamp?.ts_to);
+      let begin = null;
       for (const z of cp.lines) {
         const t = ms(z?.timestamp);
         if (t === null) continue;
         if (end === null || t > end) end = t;
+        if (begin === null || t < begin) begin = t;
         for (const f of fetchesIn(z)) { const id = idOf(f); if (id) fetches.push({ session: c.fingerprint, skill: id, ms: t }); }
       }
-      if (end !== null && (!coverage.has(c.fingerprint) || end > coverage.get(c.fingerprint))) coverage.set(c.fingerprint, end);
+      // A capture without one readable line has no start and covers nothing.
+      if (end !== null && begin !== null) {
+        const pieces = coverage.get(c.fingerprint) ?? [];
+        pieces.push({ from: begin, to: end });
+        coverage.set(c.fingerprint, pieces);
+      }
     }
   } catch (e) { why = `raw capture unreadable: ${e?.message || e}`; }
   const r = compute({ offers, fetches, coverage, names });

@@ -125,11 +125,13 @@ $BookScript = @'
       occasion: m.OCCASION.BEFORE_EDIT, reason: reason === "-" ? null : reason,
       bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
       searched: null, sources: [],
+      ids: (process.env.MEM_J_IDS || "").split(",").filter(Boolean),
+      file: process.env.MEM_J_FILE || undefined, tool: process.env.MEM_J_TOOL || undefined,
       durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
     });
   }).catch(() => {});
 '@
-function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes) {
+function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes, [string]$Ids = '') {
   try {
     $inj = Join-Path $ToolRoot 'src/injection.mjs'
     if (-not (Test-Path -LiteralPath $inj)) { return }
@@ -139,6 +141,9 @@ function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes) {
     $env:MEM_J_REASON = $Reason
     $env:MEM_J_HITS = [string]$Hits
     $env:MEM_J_BYTES = [string]$Bytes
+    $env:MEM_J_IDS = $Ids
+    $env:MEM_J_FILE = $Query
+    $env:MEM_J_TOOL = $ToolName
     $env:MEM_J_START = [string]$HookStartMs
     & node -e $BookScript 2>$null | Out-Null
   } catch { }
@@ -228,10 +233,13 @@ if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
 # agent hands this hook on Windows carries backslashes.
 $Query = ''
 $Session = 'none'
+$ToolName = ''
 if ($In) {
   try {
     $j = $In | ConvertFrom-Json
     if ($j.session_id) { $Session = [string]$j.session_id }
+    # L1: the tool that sets the hook off goes into the journal line next to the file.
+    if ($j.tool_name) { $ToolName = [string]$j.tool_name }
     $p = ''
     if ($j.tool_input) {
       if ($j.tool_input.file_path) { $p = [string]$j.tool_input.file_path }
@@ -280,6 +288,11 @@ $Mark = Join-Path $Marks "$Safe.json"
 # is simpler than the POSIX original, not more complicated.
 $PtrPath = [System.IO.Path]::GetFullPath((Join-Path $HookDir '../src/pointer.mjs'))
 $PtrUrl = ([System.Uri]::new($PtrPath)).AbsoluteUri
+
+# The attachment module (L3, src/recallattach.mjs: the solution of an error stands
+# directly below it), reached the same way as pointer.mjs.
+$RaPath = [System.IO.Path]::GetFullPath((Join-Path $HookDir '../src/recallattach.mjs'))
+$RaUrl = ([System.Uri]::new($RaPath)).AbsoluteUri
 
 $LevelScript = @'
   import(process.argv[1]).then((p) => {
@@ -354,8 +367,17 @@ if (-not $Hits) { Add-JournalLine 'empty' 0 0; Write-Trace 'no-hits'; exit 0 }
 # (bin/mem-before-edit says which), and a second spelling of it here
 # would be a second place for it to change.
 $PickScript = @'
-  let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",async()=>{
     let j; try { j = JSON.parse(d); } catch { process.exit(0); }
+    // L3: the solution of a shown error, one line directly below it. A failure here
+    // is an extra and leaves the lines as they were.
+    let att = null;
+    // Imported only when an error hit stands among the hits: nothing extra is loaded otherwise.
+    try {
+      if ((j.hits || []).some((h) => /[\\/]errors\.jsonl$/.test(String(h.source || "")))) {
+        att = (await import(process.argv[1])).attacher(process.env.CHEAP_MEM_ROOT, j.hits || []);
+      }
+    } catch { att = null; }
     // Only the lanes that WARN. A thought or an event about this file
     // does not change how it should be changed; an error, a decision
     // and a learning do. Either separator: on Windows the source
@@ -370,8 +392,12 @@ $PickScript = @'
       if (!wf && !warning.test(String(h.source || ""))) continue;
       const day = String(h.ts || "").slice(0, 10);
       const text = String(h.label || "").trim();
-      if (text) out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
-      if (out.length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
+      if (text) {
+        out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
+        const a = att && att(h);
+        if (a) out.push(a.line);
+      }
+      if (out.filter((l) => !l.startsWith("  \u21b3")).length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
     }
     // Open duties and released procedures for this file, each capped
     // by `mem component --hook` itself (errorcontext.beforeEditDuties):
@@ -387,14 +413,17 @@ $PickScript = @'
   })
 '@
 if (-not $env:MEM_BEFORE_EDIT_TOP) { $env:MEM_BEFORE_EDIT_TOP = '3' }
-$Pick = ($Hits | & node -e $PickScript 2>$null) -join "`n"
+$env:CHEAP_MEM_ROOT = $Root
+$Pick = ($Hits | & node -e $PickScript $RaUrl 2>$null) -join "`n"
 
 if (-not $Pick) { Add-JournalLine 'empty' 0 0; Write-Trace 'no-pick'; exit 0 }
 
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
 # about this answer - then it stays a pointer.
-$Count = @($Pick -split "`n" | Where-Object { $_.Trim() }).Count
+# A solution line (L3) hangs on its error and is not an entry of its own.
+$Arrow = [string][char]0x21B3
+$Count = @($Pick -split "`n" | Where-Object { $_.Trim() -and -not $_.StartsWith("  $Arrow") }).Count
 #
 # **The selection travels in an environment variable, not on stdin, and
 # PowerShell forces that.** Piping a string to a native command appends
@@ -457,12 +486,13 @@ $FinalScript = @'
       + `what went wrong here before, was decided, or is still owed:\n${d}`;
     process.stdout.write(JSON.stringify({
       suppressOutput: true,
-      systemMessage: (() => { const n = d.trim().split("\n").length;
+      systemMessage: (() => { const n = d.trim().split("\n").filter((l) => !l.startsWith("  \u21b3")).length;
         return `memory knows ${q}: ${n} ${n === 1 ? "entry" : "entries"}`; })(),
       hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: text },
     }));
   }
 '@
-Add-JournalLine '-' $Count ([System.Text.Encoding]::UTF8.GetByteCount($Pick))
+$SolIds = @($Pick -split "`n" | ForEach-Object { if ($_ -match "^  $Arrow Solution ([^:]*):") { $Matches[1] -replace '^commit:', '' } }) -join ','
+Add-JournalLine '-' $Count ([System.Text.Encoding]::UTF8.GetByteCount($Pick)) $SolIds
 [Console]::Out.Write(((& node -e $FinalScript 2>$null) -join ''))
 exit 0

@@ -20,6 +20,12 @@
 #   CHEAP_MEM_ROOT           absolute path to the memory
 #   MEM_HOOK_OFF=1           turn ALL cheap-mem hooks off
 #   MEM_SUBAGENT_START_OFF=1 disable this hook only
+#   MEM_SUBAGENT_TASK_OFF=1  only the block for the assignment off
+#   MEM_SUBAGENT_TASK_SECONDS cap of that block (default 2). Here it is the
+#                            in-process cap only (a result past it is
+#                            dropped): PowerShell has no portable `timeout`
+#                            that could stop the search itself, which the
+#                            POSIX hook does with a first, tighter pass.
 #   MEM_STOP_ROOTS           fallback roots to probe
 
 $ErrorActionPreference = 'Continue'

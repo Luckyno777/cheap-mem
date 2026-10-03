@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 183 modules, 3692
-tests**; as of 2026-09-20, about 76110 lines in `bin/` and `src/`, at
+As of 2026-09-26: **85 CLI commands, 42 MCP tools, 186 modules, 3756
+tests**; as of 2026-09-20, about 77320 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -606,8 +606,10 @@ mem project new <name> --title "..." --reason "..." [--captures p1,p2]
                                the name is too like a project or a topic
                                alias; marked new until confirmed. An
                                unknown `--project` in `mem log` is refused.
-mem project confirm <name>     a person removes the "new" mark
-mem project suggestions [--json]  dry run: topics on 2 captures, 2 days
+mem project confirm <name>     a person removes the "new" mark (also for a project
+                               made by hand past the command)
+mem project suggestions [--json]  dry run: topics on 2 captures, 2 days; also
+                               lists projects made past the command
 mem category list|open [--json]   categories ABOVE topics (the memory ships
                                with none): topic and entry counts, open
                                proposals, topics without a category
@@ -620,7 +622,9 @@ mem category assign|confirm|create|acknowledge|rename|merge ...
 mem category initial-assign [--write]  keyword rules propose a category for
                                topics without one (a person confirms)
 mem find "<q>" --category <key>  only entries whose topic is in the category
-mem correction <type> <id> ... append a correction linked to the old entry
+mem correction <type> <id> ... append a correction linked to the old entry; it
+                               inherits every content field it does not name,
+                               --without <field>,... deletes one explicitly
 mem correction intended <old> <new> [--reason ...]   a human confirms a
                                flagged correction-content-loss pair was
                                intentional (mem doctor); refused for an
@@ -721,7 +725,13 @@ the needed permissions into `~/.claude/settings.json`:
 - **SubagentStart** — a subagent is its own thread and gets neither
   `SessionStart` nor `UserPromptSubmit`, so this shows it any procedure
   tagged `subagent-start` (a norm only a human can issue — see
-  `mem log procedure --help`; `src/gauges.mjs`) plus a context recap.
+  `mem log procedure --help`; `src/gauges.mjs`) plus a context recap, and
+  the errors, learnings, duties, procedures and skills that fit the
+  subagent's own task (read from its transcript; 4 hits, 1,500 bytes,
+  nothing encrypted or personal).
+- Below an error the recall hooks show, one line gives its newest valid
+  solution (`↳ Solution <id>: ...`); a skill offer brings two lines of its
+  experience account.
 
 Some things are missing on purpose — usage counters, a `confidence`
 field, decay-as-deletion, a graph store, an LLM per fact. Each was

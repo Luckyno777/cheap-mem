@@ -2106,6 +2106,10 @@ export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } 
   return { kept, omitted: Math.max(0, stable.length - kept.length), total: stable.length };
 }
 
+/** The rule for work without a project, as ONE line in the core (before the facts, so no budget cut drops it). */
+const PROJECT_RULE_LINE = 'Work without a project: `mem project new <name> --title ... --reason ...` '
+  + '(status new until a person confirms). Never create project folders by hand.';
+
 export function core(root, {
   now = new Date(), staleDays = 120, max = 40, maxExperiences = 8,
 } = {}) {
@@ -2113,6 +2117,9 @@ export function core(root, {
   const out = [];
   out.push('=== cheap-mem core (stable facts, always-load) ===');
   out.push('# Current, non-stale, non-conflicting timeline facts. Deterministic, no model.');
+  // The project rule (port of lucky-mem, 2026-10-03): one line, before the
+  // facts, so a byte budget downstream never cuts it.
+  out.push(PROJECT_RULE_LINE);
   out.push('');
   if (kept.length === 0) {
     out.push('(no stable facts yet — log some with '
@@ -2535,12 +2542,46 @@ function evidenceOrThrow(root, type, state, target, { origin }) {
 }
 
 /**
+ * **Administration fields: a correction NEVER inherits these (2026-10-03,
+ * port of lucky-mem's `korrektur-erbt-lm`).**
+ *
+ * A correction line takes over every CONTENT field of its predecessor
+ * (title, text, tags, asked, ...); the fields it names override, `without`
+ * deletes explicitly. Administration belongs to the NEW line: identity
+ * (`id`, `ts`, `replaces_id`, `agent`, `project`), life cycle (`state`,
+ * `closes_id`, `retires_id`, `by_id`, `valid_from`), the authority stamp, the
+ * provenance stamp (`origin` - it also feeds the agent derivation in
+ * `logEntry`, so an inherited one would sign the new line with the old
+ * writer), the event markers of a restore or merge, and the envelope of a
+ * crypto-shredded line (`body_enc`).
+ */
+const NOT_INHERITED = frozenSet([
+  ...MACHINE_FIELDS, 'origin', 'valid_from', 'body_enc',
+  'restored_from', 'restored_why', 'merged_from', 'merged_why',
+]);
+
+/**
+ * The fields `correctionEntry` takes over from the predecessor for the new
+ * line: everything except `NOT_INHERITED`, `_` display fields and the ones
+ * named in `without`. Pure, no I/O.
+ */
+function inheritedFields(old, without = []) {
+  const drop = new Set(without);
+  const inherited = {};
+  for (const [k, v] of Object.entries(old ?? {})) {
+    if (NOT_INHERITED.has(k) || k.startsWith('_') || drop.has(k)) continue;
+    inherited[k] = v;
+  }
+  return inherited;
+}
+
+/**
  * Write a correction entry that supersedes an earlier one.
  *
  * Backwards-editing is forbidden: the wrong line stays visible; the
  * correction is a NEW line with `replaces_id: <old-id>`.
  */
-export function correctionEntry(root, type, oldId, newData, { project = null } = {}) {
+export function correctionEntry(root, type, oldId, newData, { project = null, without = [], inherit = true } = {}) {
   if (typeof oldId !== 'string' || !oldId) {
     throw new Error('Correction needs an old id');
   }
@@ -2565,7 +2606,33 @@ export function correctionEntry(root, type, oldId, newData, { project = null } =
   if (newData && newData.closes_id) {
     evidenceOrThrow(root, type, newData.state, old, { origin: 'correction' });
   }
+  // **Inheriting (2026-10-03).** Twice in one day in the sibling house a
+  // correction naming only `--topics` lost title, tags and asked-words of
+  // its predecessor and dropped out of the recall. The new line still
+  // stands COMPLETE (append-only, readers resolve no chain): it is built
+  // from the predecessor plus what is named. Exempt: closing corrections
+  // (a tombstone rightly carries no content) and a crypto-shredded
+  // predecessor (its plaintext fields are not readable without the key,
+  // and the envelope does not transfer).
+  const withoutList = [...new Set((Array.isArray(without) ? without : [])
+    .map((x) => String(x).trim().replace(/-/g, '_')).filter(Boolean))];
+  const clash = withoutList.filter((f) => Object.hasOwn(newData ?? {}, f));
+  if (clash.length) {
+    throw new Error(`Correction: '${clash.join("', '")}' is set and deleted with --without at the same time. Pick one.`);
+  }
   const closing = isClosingCorrection({ ...newData, replaces_id: oldId });
+  let base = {};
+  if (inherit && !closing) {
+    if (old.body_enc) {
+      process.emitWarning(
+        `'${oldId}' is encrypted: its fields are NOT inherited (a correction does not decrypt). `
+        + 'The correction carries only what is named - everything else is missing, as before inheriting.',
+        { code: 'CM_CORRECTION_NO_INHERIT_ENCRYPTED' });
+    } else {
+      base = inheritedFields(old, withoutList);
+    }
+  }
+  newData = { ...base, ...newData };
   // P11: hand back `old` and `closing` too — a caller applying the
   // content-loss check (search.lostCorrectionContent(), doctor's
   // `checkCorrectionContentLoss`) needs both and would otherwise have to

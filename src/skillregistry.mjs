@@ -202,7 +202,11 @@ export function find(root, task, { top = 5 } = {}) {
   return out.sort((a, b) => b.points - a.points || a.it.name.localeCompare(b.it.name)).slice(0, top);
 }
 
-/** Hook offer: released skills whose triggers hit >= OFFER_MIN_STEMS stems; `{ line, ids, names }` or null. */
+/**
+ * Hook offer: released skills whose triggers hit >= OFFER_MIN_STEMS stems;
+ * `{ line, ids, names, items }` or null (`items`: the registry entries, for the
+ * account lines of `src/recallattach.mjs`). The line names only names, never full text.
+ */
 export function offer(root, question) {
   const q = stems(question);
   if (q.size < OFFER_MIN_STEMS) return null;
@@ -218,7 +222,7 @@ export function offer(root, question) {
   const line = win.length === 1
     ? `Skill ${win[0].name} fits (mem_skill_fetch ${win[0].name})`
     : `Skills ${win.map((s) => s.name).join(', ')} fit equally (mem_skill_fetch <name>)`;
-  return { line, ids: win.map((s) => s.id), names: win.map((s) => s.name) };
+  return { line, ids: win.map((s) => s.id), names: win.map((s) => s.name), items: win };
 }
 
 const yamlText = (s) => JSON.stringify(String(s));

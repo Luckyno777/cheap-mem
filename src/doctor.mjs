@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { processAlive } from './processalive.mjs';
 import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import * as integrity from './integrity.mjs';
@@ -252,7 +253,7 @@ export const RUNNING_SERVICES = Object.freeze(['serve', 'mcp-http']);
  *  permission error that says nothing about whether it runs). */
 function pidAlive(pid) {
   if (!Number.isFinite(pid) || pid <= 0) return null;
-  try { process.kill(pid, 0); return true; }
+  try { process.kill(pid, 0); return processAlive(pid); } // a zombie (<defunct>) does not run
   catch (e) { return e && e.code === 'ESRCH' ? false : null; }
 }
 

@@ -6,7 +6,7 @@
  * dashboard's "Today" card, the session-start line) reading the SAME
  * answer instead of each computing its own.
  *
- * Five parts, `a`-`e`, matching the sibling's own lettering:
+ * Six parts, `a`-`f`, matching the sibling's own lettering:
  *
  *   (a) operations   `doctor.checkAll()` — only the findings at WARN or
  *                     ERROR (a `good`/`unknown` finding has nothing
@@ -25,6 +25,11 @@
  *                     function for what would be needed and why it is
  *                     honestly "unknown", not invented.
  *   (e) word pairs    NOT BUILT — same reasoning, own function.
+ *   (f) projects      awaiting a person's confirmation
+ *                     ({@link projectsAwaiting}): status `new` (made with
+ *                     `mem project new`) and those made past the command
+ *                     (`projectnew.handmade`). Read only; nothing open =
+ *                     an empty list and the card takes no room.
  *
  * **What does NOT go in here.** `question.open()` (this house's
  * `questions.jsonl`, no address field — same reasoning the sibling's
@@ -40,6 +45,7 @@ import * as cfgmod from './config.mjs';
 import * as verifylog from './verifylog.mjs';
 import * as goldlog from './goldlog.mjs';
 import * as injection from './injection.mjs';
+import * as projectnew from './projectnew.mjs';
 import { isoWeek } from './measurements.mjs';
 
 /** At most this many verify candidates shown at once (N9 parity: "up to 3"). */
@@ -355,6 +361,34 @@ export function wordPairSuggestions() {
 }
 
 // =========================================================================
+// (f) Projects awaiting confirmation
+// =========================================================================
+
+/**
+ * Projects that wait for a person: status `new` (`kind: 'new'`, made with
+ * `mem project new`) and projects made past the command (`kind: 'hand'`,
+ * `projectnew.handmade`). Read only. Nothing open: `list` is empty and the
+ * card shows nothing. Unreadable: `readable: false` with a reason — never
+ * an invented 0.
+ */
+function projectsAwaiting(root) {
+  try {
+    const list = [];
+    for (const name of memory.listProjects(root)) {
+      const st = projectnew.projectStatus(root, name);
+      if (st.isNew) list.push({ name, kind: 'new', createdOn: st.created_on, createdBy: st.created_by });
+    }
+    for (const h of projectnew.handmade(root)) {
+      list.push({ name: h.name, kind: 'hand', createdOn: String(h.firstEntry ?? '').slice(0, 10) || null, createdBy: null });
+    }
+    list.sort((a, b) => String(a.createdOn ?? '').localeCompare(String(b.createdOn ?? '')) || a.name.localeCompare(b.name));
+    return { readable: true, reason: null, list };
+  } catch (e) {
+    return { readable: false, reason: `not measurable: projects not readable (${e?.message || e})`, list: [] };
+  }
+}
+
+// =========================================================================
 // Everything together, and the one-line summary
 // =========================================================================
 
@@ -378,6 +412,7 @@ export function counts(result) {
       : (result.gold?.drawn?.readable ? 0 : null),
     review: null,
     wordPairs: null,
+    projectsAwaiting: result.projects?.readable ? result.projects.list.length : null,
   };
 }
 
@@ -388,12 +423,14 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
   const review = reviewSuggestions();
   const wordPairs = wordPairSuggestions();
   const gold = goldQuestions(root, { env, now });
+  const projects = projectsAwaiting(root);
 
   const reasons = [
     ...(ops.readable ? [] : [ops.reason]),
     ...(decisions.readable ? [] : [decisions.reason]),
     ...(verify.readable ? [] : [verify.reason]),
     ...(gold.drawn.readable ? [] : [gold.drawn.reason]),
+    ...(projects.readable ? [] : [projects.reason]),
   ];
 
   const result = {
@@ -410,6 +447,7 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
     gold,
     review,
     wordPairs,
+    projects,
     verifyTarget: verifylog.targetPath(env),
   };
   result.counts = counts(result);
@@ -441,6 +479,8 @@ export function line(result) {
 
   if (c.goldQuestions === null) { parts.push('gold questions unknown'); notable = true; }
   else if (c.goldQuestions > 0) { parts.push(`${c.goldQuestions} gold question${c.goldQuestions === 1 ? '' : 's'}`); notable = true; }
+
+  if (c.projectsAwaiting > 0) { parts.push(`${c.projectsAwaiting} project${c.projectsAwaiting === 1 ? '' : 's'} awaiting confirmation`); notable = true; }
 
   if (!notable || !parts.length) return null;
   const text = `Today: ${parts.join(' · ')}`;
@@ -480,6 +520,13 @@ export function asText(result) {
   if (!result.gold.drawn.readable) lines.push(`  ${result.gold.drawn.reason}`);
   for (const c of result.gold.candidates) {
     lines.push(`  [${c.source?.split(':')[1] ?? '?'}] ${c.id}  ${c.question ?? '(no question text known)'}`);
+  }
+  lines.push('');
+
+  lines.push(`PROJECTS AWAITING CONFIRMATION: ${result.projects?.readable ? result.projects.list.length : 'unknown'}`);
+  for (const p of result.projects?.list ?? []) {
+    lines.push(`  [${p.kind === 'hand' ? 'by hand' : 'new'}] ${p.name}  `
+      + `${p.kind === 'hand' ? '(made past the command, see mem project suggestions)' : `mem project confirm ${p.name}`}`);
   }
   lines.push('');
 

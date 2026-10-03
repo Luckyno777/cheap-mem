@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 import * as injection from './injection.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
-import { renderHits } from './recallrender.mjs';
+import { renderHits, lazyAttach } from './recallrender.mjs';
 import { judge, isForeignTurn } from './recallsignal.mjs';
 import * as levers from './searchlevers.mjs';
 
@@ -198,7 +198,7 @@ async function workflowFor(root, prompt, env = process.env) {
  * object (or null) and a function that writes the journal line — the
  * caller calls it AFTER the answer went out.
  */
-export function recall(root, hitsJson, env = process.env, { offer = null } = {}) {
+export function recall(root, hitsJson, env = process.env, { offer = null, attach = null } = {}) {
   const hits = parseHits(hitsJson);
   const min = num(env.MEM_RH_MIN, 5.0);
   // The skill offer: one line naming released skills, booked as `skill-offer`.
@@ -206,6 +206,7 @@ export function recall(root, hitsJson, env = process.env, { offer = null } = {})
     if (offer && env.MEM_RH_SESSION) {
       injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, reason: null,
         bytes: Buffer.byteLength(offer.line, 'utf8'), hits: offer.ids.length, searched: null, sources: offer.ids,
+        ...(offer.accountIds?.length ? { ids: [...offer.ids, ...offer.accountIds] } : {}),
         recallPath: undefined, pathReason: undefined }));
     }
   };
@@ -235,9 +236,11 @@ export function recall(root, hitsJson, env = process.env, { offer = null } = {})
   // H5: shorter lines, more of them, the same byte budget; the header says
   // how to load the full entry.
   const short = levers.active('h5', env);
+  // L3 (src/recallattach.mjs): below an error with a valid solution stands that solution, one line
+  // (`attach`, worked out by `recallWith` before this synchronous renderer runs).
   const r = short
-    ? levers.coreLines(shown.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length)))
-    : renderHits(shown, { min });
+    ? levers.coreLines(shown.filter((h) => Number(h.score) >= min || (h.exact && h.exact.length)), { attach })
+    : renderHits(shown, { min, attach });
   if (!r.lines.length) {
     return withWorkflow(nothing(hits.length || parseWithheld(hitsJson)
       ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY));
@@ -260,11 +263,21 @@ export function recall(root, hitsJson, env = process.env, { offer = null } = {})
     book: () => {
       injection.book(root, booking(env, {
         reason: null, bytes: Buffer.byteLength(json, 'utf8'),
-        hits: r.lines.length, searched: null, sources: r.sources,
+        hits: r.lines.length, searched: null, sources: r.sources, ids: [...r.ids, ...r.attached],
       }));
       bookOffer();
     },
   };
+}
+
+/**
+ * `recall` with its attachments: loads the solution lines on demand (`lazyAttach`: only when an
+ * error hit is shown) and hands them to the synchronous `recall`. What the hook calls.
+ */
+export async function recallWith(root, hitsJson, env = process.env, { offer = null } = {}) {
+  const hits = parseHits(hitsJson);
+  const attach = hits ? await lazyAttach(root, hits, { env }) : null;
+  return recall(root, hitsJson, env, { offer, attach });
 }
 
 /** The skill drawer's file name; test/hookcost-cm pins it to `memory.TYPES.skill`. */
@@ -303,16 +316,20 @@ export async function skillOffer(root, env = process.env) {
     if (!mayOffer(root)) return null;
     const reg = await import('./skillregistry.mjs');
     await reg.loadTokenizer();
-    return reg.offer(root, env.MEM_RH_PROMPT);
+    const o = reg.offer(root, env.MEM_RH_PROMPT);
+    if (!o) return null;
+    // L4 (src/recallattach.mjs): the two most important lines of the skill's experience account.
+    const acc = (await import('./recallattach.mjs')).accountLines(root, o.items, { env });
+    return acc.lines.length ? { ...o, line: `${o.line}\n${acc.lines.join('\n')}`, accountIds: acc.ids } : o;
   } catch { return null; }
 }
 
 /** `catch` mode as a function. */
-export function catchFail(hitsJson, env = process.env) {
+export function catchFail(hitsJson, env = process.env, { attach = null } = {}) {
   const hits = parseHits(hitsJson);
   if (!hits) return null;
   const min = num(env.MEM_RH_MIN, 2.0);
-  const r = renderHits(shownHits(hits, { env }), { min });
+  const r = renderHits(shownHits(hits, { env }), { min, attach });
   if (!r.lines.length) return null;
   return {
     suppressOutput: true,
@@ -340,7 +357,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     } else if (mode === 'machine') {
       if (machine(root, raw)) process.stdout.write('machine');
     } else if (mode === 'recall') {
-      const { out, book } = recall(root, raw, process.env, { offer: await skillOffer(root) });
+      const { out, book } = await recallWith(root, raw, process.env, { offer: await skillOffer(root) });
       if (out) process.stdout.write(JSON.stringify(out), () => book());
       else book();
     } else if (mode === 'workflow') {
@@ -350,7 +367,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       const { out, book } = workflowOnly(root);
       if (out) process.stdout.write(JSON.stringify(out), () => book());
     } else if (mode === 'catch') {
-      const out = catchFail(raw);
+      const out = catchFail(raw, process.env, { attach: await lazyAttach(root, parseHits(raw) ?? [], { env: process.env }) });
       if (out) process.stdout.write(JSON.stringify(out));
     }
   }).catch(() => {});

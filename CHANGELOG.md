@@ -14,6 +14,129 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the before-edit journal names file and tool (L1); Changed — the skill-effect window (L5) (port of lucky-mem `vorher-hook`, 2026-10-03)
+
+- **L1:** a before-edit journal line carries `file` (the relative path, two segments, never
+  absolute, never `..`, never content) and `tool` (Edit, Write, Bash, ...), in the bash and the
+  PowerShell hook. Without them "too weak" could never be checked afterwards. Other lines stay
+  byte-identical (`injection.fileNormal`). `test/before-edit-journal-file.test.mjs`.
+- **L5:** `mem skills effect` counted an offer as "not fetched" when the capture reached past its
+  window, whatever its start. Every offer made before the start of the one readable capture of its
+  session therefore counted (in the sibling house "0 of 87" was a measuring artefact, really
+  observed: 0 of 95). Now the capture must have BEGUN before the offer too, and several pieces
+  count only as far as they join without a gap. `test/skill-effect-coverage.test.mjs`.
+
+### Added — a subagent gets what fits its task (port of lucky-mem `unteragent: Auftragsabruf`)
+
+- **`src/subagenttask.mjs`:** at SubagentStart a second block next to the old
+  one (which stays byte-identical): at most 4 hits and 1,500 bytes of errors
+  (with their solution line), learnings, duties, procedures and skills that
+  fit the subagent's task. Lane 0: files the task names (component table, read
+  only); lane 1: the task's content words, the recall hook's bar
+  (`MEM_RETRIEVE_MIN`). Never encrypted entries, entries of the category
+  `personal`, entries naming a person of `global/people.yaml`, a closed duty or
+  any other type.
+- **The task text is not in the documented hook input** (only `agent_id` and
+  `agent_type`; the old `j.prompt` was an unproven assumption, and the workflow
+  trigger that hung on it ran into nothing). It is read, fail-soft, from the
+  subagent's own transcript (`<parent transcript>/<session>/subagents/agent-<id>.jsonl`,
+  first user line; observed, not documented). The workflow match uses it too.
+- **Time:** `MEM_SUBAGENT_TASK_SECONDS` (default 2). `bin/mem-subagent-start`
+  runs a first pass under that cap and, on rc 124 or a failure, the old block
+  alone; `MEM_SUBAGENT_TASK_OFF=1` switches only the extra off. (The PowerShell
+  twin has the in-process cap only.)
+- `test/subagent-task.test.mjs`; red proof against the fixed base commit, a
+  positive control beside every "never".
+
+### Added — the solution under its error, the account under a skill offer (port of lucky-mem `abrufanhang`, L3 + L4)
+
+- **L3, `src/recallattach.mjs`:** where the question recall, the after-failure
+  recall, the swallowed-failure recall, the before-edit hook (bash and
+  PowerShell) or the subagent block show an error that has a valid solution,
+  one line stands directly under it: `  ↳ Solution <id>: <core>`. The newest valid
+  `resolves` link wins; its source is an entry in force or a commit proof
+  (`commit:<hash>`); a replaced solution never shows. It counts in the byte
+  budget of the short form (H5), where another hit gives way first.
+- **L4:** a skill offer for a skill that declares a scope brings the two most
+  important lines of its experience account (open or repeated errors first,
+  then the newest learnings; at most 400 bytes). A skill without scope costs
+  nothing: the store is not read. `experience.stock(root, { light: true })`
+  reads only errors and learnings.
+- **Loaded on demand:** the module (and what it pulls in, the link reading and the search
+  module) is imported only when an error hit is shown (`recallrender.lazyAttach`,
+  `recallhook.recallWith`, `afterfailure.finishWith`; the before-edit hook imports it only when an
+  error hit stands among its hits), so a recall without an error costs nothing extra
+  (`test/hookcost-cm.test.mjs` stays green).
+- **The journal's new field `ids`** (only ids, never text): the hit ids and the
+  ids an attachment brought; left out when empty, so other lines stay
+  byte-identical. A before-edit line carries the solution ids.
+- Switches `MEM_SOLUTION_ATTACH=0`, `MEM_SKILL_ACCOUNT_OFFER=0` (registered).
+  Never encrypted entries or the category `personal`.
+- `test/recall-attach.test.mjs`; red proofs against the fixed base commit for L3
+  and L4, positive controls for every "never".
+
+### Fixed — the scope of a skill and the files of an error are lists (port of lucky-mem `skill-geltung`)
+
+- `mem log skill --topics '["mcp","skill"]'` stayed ONE string and the reader tore it apart at its
+  commas into `["mcp"` and `"skill"]`, so the skill's experience account counted 0 cases. `--classes`,
+  `--files` and `--topics` are now stored as lists (from a JSON list or a comma list, like `--tags`;
+  half-JSON is refused), in `mem log` and `mem correction` alike. Old stock: a list stored as JSON
+  text is read as a list (`experience.scopeOf`).
+- The same change makes `errorfile.files()` see an error's `--files`: it reads arrays only and ignored
+  the comma string. A lucky-mem finding for `--gefragt-als` as JSON does not apply here: `asked_as` was
+  already stored as a list.
+- `test/skill-scope-list.test.mjs`; red proof against the fixed base commit, positive controls.
+
+### Fixed — a zombie holds no lock (port of lucky-mem `prozess-zombie`, `nachlese-sperre-zombie`)
+
+- `process.kill(pid, 0)` also succeeds for a `<defunct>` process (ended, not collected by its
+  parent). In the sibling house such a zombie held a night run's lock for eleven hours and made a
+  resume path take an old build for a running one. **`src/processalive.mjs`**: on Linux the state
+  in `/proc/<pid>/stat` counts (`Z`, `X` are dead); without `/proc` the signal decides as before.
+- Read by the two places here that decided "alive" by the bare signal: the file lock's orphan
+  takeover (`src/filelock.mjs`: a zombie holder's lock is taken over at once instead of waited out)
+  and the doctor's running-code check (`src/doctor.mjs`). `test/process-alive-zombie.test.mjs`
+  builds a real zombie; red proof against the fixed base commit, positive controls with a living
+  and a gone pid.
+
+### Added — the project rule: hand-made projects are visible, Today lists projects awaiting confirmation (port of lucky-mem `projekt-regel-lm`, `projekt-auto-lm`)
+
+- **`projectnew.handmade(root)`:** a project that arose past the command (first
+  entry on or after 2026-10-02, no `Project created` event, no `status` in
+  `facts.yaml`) never carried the mark `new` and was invisible. It is now
+  listed by `mem project suggestions` (also `--json`, key `handmade`). Read
+  only.
+- **`mem project confirm`** accepts such a project (also without a
+  `facts.yaml`); otherwise the button on the Today card would be dead.
+- **`mem today` / the Today card:** new part (f) "projects awaiting
+  confirmation" (status `new` plus hand-made), with the existing confirm task
+  of the Projects tab; nothing waiting takes no room. `counts.projectsAwaiting`
+  and one clause in the session line.
+- **The rule as one line** in `mem core` (before the facts, no budget cut drops
+  it) and in the closing hint of the subagent start: a new project only through
+  `mem project new ... --reason ...`, never a folder by hand. A session creates
+  directly with status `new`; only an unattended run (`MEM_HEADLESS`) needs
+  evidence (unchanged, now pinned by a test).
+- `test/project-rule.test.mjs`; red proof against the fixed base commit with a
+  positive control on today's tree.
+
+### Changed — `mem correction` inherits what it does not name (port of lucky-mem `korrektur-erbt-lm`)
+
+- **The new line takes over every content field of its predecessor.** Named
+  fields override, `--without <field>[,<field>]` deletes one explicitly. The
+  finding behind it: a correction naming only `--topic` replaced the entry
+  whole; title, tags and asked-words were gone and the entry dropped out of
+  the recall.
+- **Never inherited (administration):** `id`, `ts`, `replaces_id`, `agent`,
+  `project`, `state`, the life-cycle ids, the authority stamp, `origin`,
+  `valid_from`, the restore/merge markers and the envelope of an encrypted
+  line. A closing correction and an encrypted predecessor inherit nothing (the
+  latter with a warning). The old line stays byte-identical, the new one
+  stands complete. `memory.correctionEntry(..., { without })`,
+  `memory.inheritedFields`, `memory.NOT_INHERITED`.
+- `test/correction-inherits.test.mjs`; red proof against the fixed base
+  commit, positive control on today's tree.
+
 ### Added — a register of every environment variable, with a guard (port of lucky-mem `schalterregister`, n20)
 
 - **`src/envregister.mjs`.** One row per environment variable cheap-mem reads

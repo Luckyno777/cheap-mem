@@ -871,6 +871,13 @@ function todayGoldPart(gold) {
     + list.map((c, i) => todayGoldRow(c, i)).join('')
     + '<p class="small quiet" style="margin-top:8px">A verdict appends ONE line to a file OUTSIDE this memory — never a change here, never the question text.</p>';
 }
+// Projects that wait for a person (src/today.mjs part f): made with `mem project new` (status new) or past
+// the command. The same button and task as in the Projects tab. Nothing open = nothing shown.
+function todayProjectsPart(list) {
+  if (!list.length) return '';
+  return `<div class="label" style="margin:16px 0 6px">Projects awaiting confirmation (${num(list.length)})</div>${list
+    .map((p) => `<div class="row"><div><strong>${esc(p.name)}</strong><p class="small quiet">${p.kind === 'hand' ? 'Made by hand, not through the command' : 'Newly created'}${p.createdOn ? ' · ' + esc(p.createdOn) : ''}${p.createdBy ? ' · ' + esc(p.createdBy) : ''}</p></div>${state.readonly ? `<span class="small mono quiet">mem project confirm ${esc(p.name)}</span>` : btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}"`, 'small ghost')}</div>`).join('')}`;
+}
 function todayCard() {
   const t = D.today;
   if (!t) return '';
@@ -878,9 +885,10 @@ function todayCard() {
   const decisions = t.decisions?.list || [];
   const verify = t.verify?.list || [];
   const gold = t.gold?.candidates || [];
+  const projects = t.projects?.list || [];
   const c = t.counts || {};
   const anyUnknown = c.decisions === null || c.operations === null || c.verify === null || c.goldQuestions === null;
-  const nothingPressing = !anyUnknown && !ops.length && !decisions.length && !verify.length && !gold.length;
+  const nothingPressing = !anyUnknown && !ops.length && !decisions.length && !verify.length && !gold.length && !projects.length;
   const unknownNote = [['decisions', 'Decisions'], ['operations', 'Operations'], ['verify', 'Verify'], ['goldQuestions', 'Gold questions']]
     .filter(([k]) => c[k] === null).map(([, n]) => n);
   const body = (t.line ? `<p class="small mono" data-today-line>${esc(t.line)}</p>` : '')
@@ -888,9 +896,9 @@ function todayCard() {
     + todayUnknownPart('Login', t.login)
     + (nothingPressing
     ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
-    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayVerifyPart(verify) + todayGoldPart(t.gold))
+    : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayProjectsPart(projects) + todayVerifyPart(verify) + todayGoldPart(t.gold))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
-  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
 }
 
 // The day strip above the figures. cheap-mem has no appointment clock yet, so there is nothing to
@@ -2286,7 +2294,7 @@ function taskState(v) {
   return v.state === 'ok' ? 'finished' : v.state;
 }
 const TASK_STARTABLE = ['export', 'integrity'];
-const TASK_WHERE = { 'raw-delete': 'Started in Raw capture, per capture', 'project-confirm': 'Started in Projects, per new project' };
+const TASK_WHERE = { 'raw-delete': 'Started in Raw capture, per capture', 'project-confirm': 'Started on the overview under Today and in Projects, per waiting project' };
 // no-jump point 6: the pieces per task kind, computed once — used by
 // operationsPage() for the first draw AND by taskUpdate() for the quiet
 // 2 s repatch, without redrawing the whole page.

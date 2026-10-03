@@ -151,15 +151,31 @@ export function renderHit(hit, { budget = LINE_BUDGET } = {}) {
 }
 
 /**
+ * The attacher for these hits (`src/recallattach.mjs`, L3: the solution of an error
+ * stands directly below it), or `null`. LOADED ON DEMAND: only when a hit comes from the
+ * error drawer is the module (and what it pulls in: the link reading, the search module)
+ * imported, so a recall without an error costs nothing extra (test/hookcost-cm.test.mjs).
+ * Async because of the import; the renderers stay synchronous and take the result as `attach`.
+ */
+export async function lazyAttach(root, hits, { env = process.env } = {}) {
+  if (!root) return null;
+  const list = Array.isArray(hits) ? hits : [];
+  if (!list.some((h) => /(?:^|[\\/])errors\.jsonl$/.test(String(h?.source ?? '')))) return null;
+  try { return (await import('./recallattach.mjs')).attacher(root, list, { env }); } catch { return null; }
+}
+
+/**
  * The hits that clear the bar (or are exact), rendered.
+ * `attach` (optional) puts a line below a hit; `attached` lists the ids it brought.
  * `lanes` (a RegExp) restricts by source path; `seen` counts the hits
  * the search returned inside those lanes, so `too-weak` can be told
  * from `empty` by the caller.
  */
-export function renderHits(hits, { min, top = Infinity, lanes = null, budget = LINE_BUDGET } = {}) {
+export function renderHits(hits, { min, top = Infinity, lanes = null, budget = LINE_BUDGET, attach = null } = {}) {
   const lines = [];
   const sources = [];
   const ids = [];
+  const attached = [];
   let seen = 0;
   for (const h of Array.isArray(hits) ? hits : []) {
     if (lanes && !lanes.test(String(h?.source ?? ''))) continue;
@@ -167,9 +183,12 @@ export function renderHits(hits, { min, top = Infinity, lanes = null, budget = L
     if (!(Number(h.score) >= min) && !(h.exact && h.exact.length)) continue;
     if (lines.length >= top) continue;
     const r = renderHit(h, { budget });
-    lines.push(r.line);
+    // `attach(hit)` (src/recallattach.mjs): a line directly below this one, e.g. the solution of an error.
+    const a = attach ? attach(h) : null;
+    lines.push(a ? `${r.line}\n${a.line}` : r.line);
     sources.push(r.source);
     if (r.id) ids.push(r.id);
+    if (a) attached.push(a.id);
   }
-  return { lines, sources, ids, seen };
+  return { lines, sources, ids, seen, attached };
 }
