@@ -215,6 +215,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  paths [--json]                               do the files named in entries still exist?");
   out("  maintenance dedupe [--dry-run]               merge identical entries, keep the authority");
   out("  raw-capture --transcript <path>              capture one transcript by hand");
+  out("  envvars [--json] [--markdown]                every environment variable cheap-mem reads, with default and current value");
   out("  version                                      which cheap-mem this is");
   out("");
   out("Global flags: --root <path>   memory root (else CHEAP_MEM_ROOT or walk cwd)");

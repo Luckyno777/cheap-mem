@@ -31,6 +31,7 @@ import * as observations from '../../observations.mjs';
 import * as agentledger from '../../agentledger.mjs';
 import * as today from '../../today.mjs';
 import * as modelcost from '../../modelcost.mjs';
+import * as envregister from '../../envregister.mjs';
 import * as goldlog from '../../goldlog.mjs';
 import * as gap from '../../gap.mjs';
 import * as skillusage from '../../skillusage.mjs';
@@ -1291,6 +1292,40 @@ export const COMMANDS = {
     for (const s of summary) {
       const cost = s.costUsd != null ? `$${s.costUsd.toFixed(4)}` : 'cost not reported by this CLI';
       lines.push(`  ${s.who}: ${s.runs} run(s), ${s.inputTokens} in / ${s.outputTokens} out tokens, ${cost}`);
+    }
+    out(lines.join('\n'));
+  },
+
+
+  envvars: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem envvars [--json] [--markdown]',
+        '',
+        '  Every environment variable cheap-mem reads (src/envregister.mjs): what it',
+        '  does, what happens when it is not set, and its value in this shell.',
+        '  A secret shows only `set` or `not set`.',
+        '',
+        '  --json       the register as JSON, with the current values',
+        '  --markdown   the generated table of docs/environment-variables.md',
+        '',
+        '  Read-only; needs no memory root.',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['json', 'markdown'], 'envvars');
+    if (args.markdown) { out(envregister.renderTable()); return; }
+    const shown = (s) => {
+      const v = process.env[s.name];
+      if (v === undefined) return null;
+      return s.kind === envregister.KINDS.SECRET ? 'set' : v;
+    };
+    const rows = envregister.REGISTER.map((s) => ({ ...s, current: shown(s) }));
+    if (args.json) { out(JSON.stringify(rows, null, 2)); return; }
+    const user = rows.filter((s) => s.kind !== envregister.KINDS.INTERNAL);
+    const lines = [`${user.length} environment variables are read (${rows.length - user.length} more are handed between cheap-mem's own processes):`, ''];
+    for (const s of user) {
+      lines.push(`${s.name}  [${s.kind}]`, `  default:  ${s.default}`, `  now:      ${s.current ?? '(not set)'}`, `  ${s.meaning}`, '');
     }
     out(lines.join('\n'));
   },

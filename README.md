@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **84 CLI commands, 42 MCP tools, 182 modules, 3651
-tests**; as of 2026-09-20, about 75457 lines in `bin/` and `src/`, at
+As of 2026-09-26: **85 CLI commands, 42 MCP tools, 183 modules, 3661
+tests**; as of 2026-09-20, about 75888 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -555,6 +555,8 @@ mem gold miss collect|daily|status|score
                                from 20 cases on, numbers only (daily via the digest tick)
 mem search-levers              Block H search levers (MEM_SEARCH_LEVERS): which are
                                on; h3 withholds a flat field of weak hits
+mem envvars [--markdown]       every environment variable cheap-mem reads, with its
+                               default and current value (docs/environment-variables.md)
 mem effect                     share of injections named/opened/edited afterwards,
                                with a Wilson interval; "not measurable" under 1000
                                pairs. A finding, never a ranking signal.
