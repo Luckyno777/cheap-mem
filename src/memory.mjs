@@ -2106,6 +2106,10 @@ export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } 
   return { kept, omitted: Math.max(0, stable.length - kept.length), total: stable.length };
 }
 
+/** The rule for work without a project, as ONE line in the core (before the facts, so no budget cut drops it). */
+const PROJECT_RULE_LINE = 'Work without a project: `mem project new <name> --title ... --reason ...` '
+  + '(status new until a person confirms). Never create project folders by hand.';
+
 export function core(root, {
   now = new Date(), staleDays = 120, max = 40, maxExperiences = 8,
 } = {}) {
@@ -2113,6 +2117,9 @@ export function core(root, {
   const out = [];
   out.push('=== cheap-mem core (stable facts, always-load) ===');
   out.push('# Current, non-stale, non-conflicting timeline facts. Deterministic, no model.');
+  // The project rule (port of lucky-mem, 2026-10-03): one line, before the
+  // facts, so a byte budget downstream never cuts it.
+  out.push(PROJECT_RULE_LINE);
   out.push('');
   if (kept.length === 0) {
     out.push('(no stable facts yet — log some with '

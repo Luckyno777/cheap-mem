@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 183 modules, 3701
-tests**; as of 2026-09-20, about 76184 lines in `bin/` and `src/`, at
+As of 2026-09-26: **85 CLI commands, 42 MCP tools, 183 modules, 3712
+tests**; as of 2026-09-20, about 76298 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -606,8 +606,10 @@ mem project new <name> --title "..." --reason "..." [--captures p1,p2]
                                the name is too like a project or a topic
                                alias; marked new until confirmed. An
                                unknown `--project` in `mem log` is refused.
-mem project confirm <name>     a person removes the "new" mark
-mem project suggestions [--json]  dry run: topics on 2 captures, 2 days
+mem project confirm <name>     a person removes the "new" mark (also for a project
+                               made by hand past the command)
+mem project suggestions [--json]  dry run: topics on 2 captures, 2 days; also
+                               lists projects made past the command
 mem category list|open [--json]   categories ABOVE topics (the memory ships
                                with none): topic and entry counts, open
                                proposals, topics without a category

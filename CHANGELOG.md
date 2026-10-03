@@ -14,6 +14,27 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the project rule: hand-made projects are visible, Today lists projects awaiting confirmation (port of lucky-mem `projekt-regel-lm`, `projekt-auto-lm`)
+
+- **`projectnew.handmade(root)`:** a project that arose past the command (first
+  entry on or after 2026-10-02, no `Project created` event, no `status` in
+  `facts.yaml`) never carried the mark `new` and was invisible. It is now
+  listed by `mem project suggestions` (also `--json`, key `handmade`). Read
+  only.
+- **`mem project confirm`** accepts such a project (also without a
+  `facts.yaml`); otherwise the button on the Today card would be dead.
+- **`mem today` / the Today card:** new part (f) "projects awaiting
+  confirmation" (status `new` plus hand-made), with the existing confirm task
+  of the Projects tab; nothing waiting takes no room. `counts.projectsAwaiting`
+  and one clause in the session line.
+- **The rule as one line** in `mem core` (before the facts, no budget cut drops
+  it) and in the closing hint of the subagent start: a new project only through
+  `mem project new ... --reason ...`, never a folder by hand. A session creates
+  directly with status `new`; only an unattended run (`MEM_HEADLESS`) needs
+  evidence (unchanged, now pinned by a test).
+- `test/project-rule.test.mjs`; red proof against the fixed base commit with a
+  positive control on today's tree.
+
 ### Changed — `mem correction` inherits what it does not name (port of lucky-mem `korrektur-erbt-lm`)
 
 - **The new line takes over every content field of its predecessor.** Named

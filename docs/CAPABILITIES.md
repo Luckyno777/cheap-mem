@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3701 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3712 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -174,7 +174,7 @@ directory. The section number in brackets is where it is explained.
 | `retrieval.mjs` | the gateway: structured claims out, never prose (5) |
 | `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
 | `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
-| `projectnew.mjs` | a NEW project, the guarded way: `mem project new` refuses a name too like a project or a topic alias (distance, word part, spelling) and names the existing one, writes a reason and an event, marks `facts.yaml` `status: new` until a person confirms (`mem project confirm`); an unattended run needs 2 evidenced captures on 2 days; `mem project suggestions` is the dry run; `mem log --project <unknown>` is refused. Merging two projects is not built (see the head of the file) |
+| `projectnew.mjs` | a NEW project, the guarded way: `mem project new` refuses a name too like a project or a topic alias (distance, word part, spelling) and names the existing one, writes a reason and an event, marks `facts.yaml` `status: new` until a person confirms (`mem project confirm`); an unattended run needs 2 evidenced captures on 2 days; `mem project suggestions` is the dry run and also lists projects made past the command (`handmade`: folder and entries after 2026-10-02, no creation event, no status), which `mem project confirm` accepts too; `mem log --project <unknown>` is refused. Merging two projects is not built (see the head of the file) |
 | `categories.mjs` | categories ABOVE topics, shipped empty: four append-only tables under `global/` (`categories`, `topic-category`, `category-aliases`, `category-wishes`), applied on read; `mem category list/open/assign/confirm/create/acknowledge/rename/merge`; a new category creates itself from 3 different topics with the project-name similarity protection (a near-duplicate lands on the existing one, a project name is refused); `mem find --category`; the doctor finding `categories`; `categories` and `topics.list[].category` in the dashboard data. `create --suggested` adopts a neutral starter list, nothing is baked in |
 | `categories-initial.mjs` | `mem category initial-assign`: deterministic keyword rules propose a category for topics without one (clear lead only, never guessed); a person confirms |
 | `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
@@ -201,7 +201,7 @@ directory. The section number in brackets is where it is explained.
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections |
-| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this (7) |
+| `today.mjs` | one source for "what does the owner need today" — `mem today`, the dashboard's Today card and the session-start line all read this; part (f) lists the projects awaiting a person's confirmation (7) |
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
