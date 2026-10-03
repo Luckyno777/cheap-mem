@@ -157,14 +157,14 @@ function appendFromHandler(file, line) {
 export function statePath(root, id) { return path.join(tasksDir(root), `${id}.jsonl`); }
 function exportTarget(root, id) { return path.join(tasksDir(root), id, 'export'); }
 
+// Category task parameters: a word never starts with a dash (it would read as a CLI flag).
+const CAT_WORD = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:-]{0,79}$/u.test(v);
 /**
  * The closed list of kinds this route can start. Leaving a kind out of
  * here means it cannot be reached over `/task` at all — the same
  * pattern `src/console.mjs`'s `SETTINGS` already uses: a fixed table,
  * never an open field name.
  */
-// Category task parameters: a word never starts with a dash (it would read as a CLI flag).
-const CAT_WORD = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:-]{0,79}$/u.test(v);
 const CAT_TOPIC = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:/-]{0,119}$/u.test(v);
 const CAT_LABEL = (v) => { const t = v.trim(); return t === v && t.length >= 2 && t.length <= 40 && !/[\u0000-\u001f]/.test(t) && !t.startsWith('-'); };
 function classifyCategory(json) {

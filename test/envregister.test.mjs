@@ -1,6 +1,6 @@
 // test/envregister.test.mjs — every environment variable cheap-mem reads is registered.
 //
-// Port of lucky-mem's n20 riegel. Measure: environment variables read in
+// Port of lucky-mem's n20 guard. Measure: environment variables read in
 // src/, bin/, install/ and hooks/ that have no row in src/envregister.mjs
 // (and rows nothing reads). Expected: 0 and 0 on the real tree, and a
 // planted, unregistered read of every spelling turns the check red.
