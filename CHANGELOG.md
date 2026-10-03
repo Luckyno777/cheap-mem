@@ -14,6 +14,27 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — a register of every environment variable, with a guard (port of lucky-mem `schalterregister`, n20)
+
+- **`src/envregister.mjs`.** One row per environment variable cheap-mem reads
+  (200 in all): kind (switch, tuning, path, connection, identity, secret,
+  internal, test hook), default, one-sentence meaning. Standard variables
+  (`HOME`, `PATH`, `TMPDIR`, ...) are not registered. The finding behind it:
+  `MEM_EXPAND` was read through a constant (`env[ENV]`) and could be written
+  down nowhere.
+- **The scan sees every spelling:** `process.env.X`, `env.X`, `env['X']`, a
+  constant `...ENV = 'X'` later read as `env[ENV]`, `$X` / `${X}` in shell
+  scripts, `$env:X` in PowerShell, over `src/`, `bin/`, `install/` and `hooks/`;
+  comments are not reads.
+- **`test/envregister.test.mjs`** fails when a variable is read but has no row,
+  and when a row is read nowhere. Red proof: a planted, unregistered read of
+  each spelling turns it red (fixture trees, and once in the real tree);
+  a fixture with only registered names stays green.
+- **`mem envvars [--json] [--markdown]`** prints the register with the value each
+  variable has in the current shell; a secret shows `set` or `not set`, never
+  a value. **`docs/environment-variables.md`** carries the same table, generated
+  by `--markdown` and compared byte for byte by the test, so it cannot drift.
+
 ### Added — document expansion: the field `asked_as`, read by the search only behind `MEM_EXPAND=1` (port of lucky-mem `gefragt_als`)
 
 - **`mem log --asked-as 'a|b|c'`** (and the MCP bridge) stores 8 to 12 short
