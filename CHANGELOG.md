@@ -14,6 +14,18 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed — a zombie holds no lock (port of lucky-mem `prozess-zombie`, `nachlese-sperre-zombie`)
+
+- `process.kill(pid, 0)` also succeeds for a `<defunct>` process (ended, not collected by its
+  parent). In the sibling house such a zombie held a night run's lock for eleven hours and made a
+  resume path take an old build for a running one. **`src/processalive.mjs`**: on Linux the state
+  in `/proc/<pid>/stat` counts (`Z`, `X` are dead); without `/proc` the signal decides as before.
+- Read by the two places here that decided "alive" by the bare signal: the file lock's orphan
+  takeover (`src/filelock.mjs`: a zombie holder's lock is taken over at once instead of waited out)
+  and the doctor's running-code check (`src/doctor.mjs`). `test/process-alive-zombie.test.mjs`
+  builds a real zombie; red proof against the fixed base commit, positive controls with a living
+  and a gone pid.
+
 ### Added — the project rule: hand-made projects are visible, Today lists projects awaiting confirmation (port of lucky-mem `projekt-regel-lm`, `projekt-auto-lm`)
 
 - **`projectnew.handmade(root)`:** a project that arose past the command (first

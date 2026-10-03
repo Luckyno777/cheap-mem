@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3712 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3717 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -113,7 +113,8 @@ directory. The section number in brackets is where it is explained.
 | `errorfixes.mjs` | errors linked to their fixes and lessons on the existing link drawer: commit trailer `Fixes: <id>` -> `resolves` (`mem error-fixes backfill`), `mem log learning --from <id>` -> `generalizes`, notes at write time, doctor `error-linked` (10.26) |
 | `errorsignature.mjs` | a line-anchored failure signature in Bash output, for a hook to catch what an exit code hid |
 | `experience.mjs` | the experience of a skill/workflow/snippet/procedure inside its DECLARED scope: account (traps, fixes, learnings), the causality gate, the sharpening package (proposal only), versions as trial correction lines (owner only), review marks, test<->error guards, procedure effect; doctor `skill-sharpen`, `guard-suspicion`, `procedure-effect` (10.29) |
-| `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, stale lock taken over by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
+| `filelock.mjs` | one small leaf lock for read-modify-write on a file (`withLock`): O_EXCL lock file with pid and host, bounded wait, a lock whose holder is provably dead (gone, or a zombie) taken over at once, otherwise by age only, nesting throws — used by the keyring, the drawer append/archive and the component-table rebuild |
+| `processalive.mjs` | does a process really live? `kill(pid, 0)` also succeeds for a zombie (`<defunct>`); on Linux the state in `/proc/<pid>/stat` counts (`Z`, `X` = dead) — read by the file lock's orphan takeover and the doctor's running-code check |
 | `findingmirror.mjs` | which doctor findings this house knows and the sister house does not — mapped pair, reasoned one-sided, or unjudged |
 | `fulltext.mjs` | full-text search behind the knowledge view's search field: `GET /api/fulltext?q=` returns the ids whose WHOLE entry (every string field, tags, nested) contains the query; index kept per store state under the dashboard cache's generation stamp; a failure is `measurable:false`, never an empty list (7.5) |
 | `freshness.mjs` | living facts, deterministic, no model (3) |
