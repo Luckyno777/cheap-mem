@@ -298,7 +298,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz',
     'post-anfragen', 'post-liegt', 'post-stau', 'post-ungepusht',
     'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag',
-    'riegel-prueft-das-falsche-verdacht', 'rohfang', 'rueckstand', 'sicherung',
+    'riegel-prueft-das-falsche-verdacht', 'rohfang', 'rohfang-abgewiesen', 'rueckstand', 'sicherung',
     'skill-nachschaerfen', 'skill-nutzung', 'skill-wirkung', 'startlast', 'stop-hook',
     'tagform', 'termin-mail', 'themen-guete', 'transkript-schema',
     'uebernahme-verwaist', 'verfahren-wirkung', 'waechter', 'waechter-fassung',

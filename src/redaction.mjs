@@ -499,6 +499,28 @@ function envValueHarmless(v) {
 }
 
 /**
+ * A session's own id is not a secret (error 1rmp6w45nul6, mirrored from
+ * lucky-mem d341ee2b: the raw capture of cloud sessions never reached the
+ * repo).
+ *
+ * In cloud sessions the id sits in CLAUDE_CODE_SESSION_ID (a UUID) and
+ * CLAUDE_CODE_REMOTE_SESSION_ID (`session_01...` / `cse_01...`). The raw
+ * capture carries it by design (stamp and file name in raw-record.jsonl,
+ * raw/...--<uuid>.jsonl.gz); the env match took it for a secret and the
+ * pre-commit rejected every raw-capture commit.
+ *
+ * Deliberately a pair of name AND shape: exactly these two names, and only
+ * when the value has the id shape. Anything else in those names (a token)
+ * stays a secret; every other variable (CONTAINER_ID, *_UUID, *_TOKEN)
+ * stays untouched. The pattern layer (`redact`) is not involved.
+ */
+const SESSION_ID_NAMES = /^CLAUDE_CODE_(?:REMOTE_)?SESSION_ID$/;
+const SESSION_ID_SHAPE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?:session|cse)_01[A-Za-z0-9]{16,40})$/;
+function isSessionId(name, value) {
+  return SESSION_ID_NAMES.test(name) && SESSION_ID_SHAPE.test(value);
+}
+
+/**
  * Collect the values to match against.
  *
  * Every env value that is long enough and not obviously harmless is
@@ -514,6 +536,7 @@ export function envSecrets(env = process.env) {
     if (typeof value !== 'string') continue;
     if (envNameHarmless(name)) continue;
     if (envValueHarmless(value)) continue;
+    if (isSessionId(name, value)) continue;
     out.push({ name, value });
   }
   out.sort((a, b) => b.value.length - a.value.length);
