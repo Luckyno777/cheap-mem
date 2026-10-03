@@ -286,6 +286,10 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // Plaintext count (2026-10-03): 'klartext-sensibel' added on the lucky-mem
   // side (lines with a sensitive tag stored in plaintext), mapped as a gap:
   // this house ships no encryption layer and no sensitive-tag list.
+  // Capture checksum (2026-10-03): 'nachweis-pruefsumme' added on the
+  // lucky-mem side (capture file vs. its recorded sha256, with an
+  // append-only re-redaction line), mapped as a gap: this house records
+  // sha256 but does not check file against record yet.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -298,7 +302,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'hook-doppelt', 'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag',
     'kategorien', 'kennzahlen-gleich', 'klartext-sensibel', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
     'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
-    'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz',
+    'nachweis-luecke', 'nachweis-pruefsumme', 'offene-funde', 'paritaetsschuld', 'plattenplatz',
     'post-anfragen', 'post-liegt', 'post-stau', 'post-ungepusht',
     'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag',
     'riegel-prueft-das-falsche-verdacht', 'rohfang', 'rohfang-abgewiesen', 'rueckstand', 'sicherung',
