@@ -32,6 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { appendLine } from './append.mjs';
+import { originFrom, originNormal } from './origin.mjs';
 
 /** Where the journal lives, relative to the memory root. */
 export const JOURNAL_FILE = path.join('.pipeline', 'injections.jsonl');
@@ -188,6 +189,7 @@ export function buildLine({
   durationMs = null,
   recallPath = undefined,
   pathReason = undefined,
+  origin = undefined,
 } = {}) {
   return {
     ts,
@@ -222,6 +224,10 @@ export function buildLine({
       ? undefined
       : (pathReason == null || pathReason === '' ? null
         : (PATH_REASONS.has(pathReason) ? pathReason : 'unknown')),
+    // **origin: where the session ran — cloud | ssh | local | unknown.**
+    // Only the class value (src/origin.mjs), never a hostname or
+    // identifier. Lines written before this field read as `unknown`.
+    origin: originNormal(origin !== undefined ? origin : originFrom()),
   };
 }
 

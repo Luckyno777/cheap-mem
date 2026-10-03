@@ -55,6 +55,11 @@ const STOP = new Set(('der die das und oder ein eine einen dem den des ist sind 
   .split(' '));
 
 const entries = [];
+// A correction line (`replaces_id`) IS the new version of its original, so the
+// pair original/correction is history, not a duplicate. Only the current
+// version is counted. Collected over ALL lines, even ones too short to be
+// measured, because a short correction still replaces its original.
+const replaced = new Set();
 for (const f of files) {
   // Raw captures out: they are uncurated transcripts in which everything
   // repeats. Counting them measures how people talk, not how the digest
@@ -72,6 +77,7 @@ for (const f of files) {
   for (let i = 0; i < lines.length; i += 1) {
     if (!lines[i].trim()) continue;
     let e; try { e = JSON.parse(lines[i]); } catch { continue; }
+    if (e && e.replaces_id) replaced.add(e.replaces_id);
     const text = [e.title, e.titel, e.text, e.choice, e.wahl, e.why, e.warum]
       .filter(Boolean).join(' ').toLowerCase();
     const words = new Set(text.replace(/[^a-z0-9äöüß ]+/gi, ' ').split(/\s+/)
@@ -83,6 +89,10 @@ for (const f of files) {
     entries.push({ source: `${rel}:${i + 1}`, id: e.id ?? null, ts: e.ts ?? '', words, text });
   }
 }
+
+const live = entries.filter((e) => !(e.id && replaced.has(e.id)));
+entries.length = 0;
+entries.push(...live);
 
 const pairs = [];
 for (let i = 0; i < entries.length; i += 1) {

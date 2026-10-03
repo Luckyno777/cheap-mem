@@ -52,7 +52,7 @@
  "src/probescaffold.mjs": 1,
  "src/procedure.mjs": 2,
  "src/pwa.mjs": 2,
- "src/raw.mjs": 3,
+ "src/raw.mjs": 2,
  "src/recallhook.mjs": 2,
  "src/recallrender.mjs": 4,
  "src/recallserver-place.mjs": 4,

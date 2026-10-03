@@ -108,12 +108,16 @@ export function compute({ offers, fetches, coverage, names, windowMin = WINDOW_M
 }
 
 /** The measurement: `{ state: 'measured'|'unknown'|'empty', reason, skills[], overall, capturesRead }`. Never throws. */
-export function measure(root) {
-  const none = (state, reason) => ({ state, reason, windowMin: WINDOW_MIN, minN: MIN_N, skills: [], overall: null, capturesRead: 0 });
+export function measure(root, { since = null } = {}) {
+  const sinceIso = since ? new Date(since).toISOString() : null;
+  const none = (state, reason) => ({ state, reason, windowMin: WINDOW_MIN, minN: MIN_N, skills: [], overall: null, capturesRead: 0, since: sinceIso });
   let j;
   try { j = injection.read(root); } catch (e) { return none('unknown', `journal unreadable: ${e?.message || e}`); }
   if (!j.present) return none('unknown', 'no injection journal on this machine');
+  // --since: only offers from this moment on (fetches stay; they are matched to an offer by session).
+  const sinceMs = since ? new Date(since).getTime() : null;
   const offers = j.lines.filter((z) => z?.occasion === injection.OCCASION.SKILL_OFFER && Array.isArray(z.sources))
+    .filter((z) => sinceMs === null || (ms(z.ts) !== null && ms(z.ts) >= sinceMs))
     .map((z) => ({ ts: z.ts, session: z.session ? raw.sessionFingerprint(z.session) : null, ids: z.sources.filter((q) => typeof q === 'string') }));
   if (!offers.length) return none('empty', 'no skill offer in the journal yet (the hook offered nothing)');
 
@@ -146,24 +150,24 @@ export function measure(root) {
   } catch (e) { why = `raw capture unreadable: ${e?.message || e}`; }
   const r = compute({ offers, fetches, coverage, names });
   const g = r.overall;
-  return { ...r, capturesRead: read, state: g.state, reason: g.state === 'measured' ? null : (why ? `${g.reason}; ${why}` : g.reason) };
+  return { ...r, capturesRead: read, since: sinceIso, state: g.state, reason: g.state === 'measured' ? null : (why ? `${g.reason}; ${why}` : g.reason) };
 }
 
 const pct = (x) => `${Math.round(x * 100)} %`;
 function line(s) {
-  const q = s.rate === null ? 'unknown' : `${pct(s.rate)} (95 % interval ${pct(s.interval.low)}..${pct(s.interval.high)})`;
+  const q = s.rate === null ? 'too little data' : `${pct(s.rate)} (95 % interval ${pct(s.interval.low)}..${pct(s.interval.high)})`;
   const rest = [];
-  if (s.unobserved) rest.push(`${s.unobserved} unobserved`);
+  if (s.unobserved) rest.push(`${s.unobserved} not measurable (no capture of the session covers the window, or the offer has no session)`);
   if (s.fetchedUnobserved) rest.push(`${s.fetchedUnobserved} fetched without coverage (not in the rate)`);
   return `${s.name}: ${s.offered} offered, ${s.fetched} of ${s.observed} observed fetched -> ${q}${rest.length ? `; ${rest.join(', ')}` : ''}`;
 }
 
 export function asText(e) {
-  const out = [`Skill effect: offered -> fetched, window ${e.windowMin} min, minimum ${e.minN} observed offers`];
+  const out = [`Skill effect: offered -> fetched, window ${e.windowMin} min, minimum ${e.minN} observed offers${e.since ? `, since ${e.since}` : ''}`];
   if (!e.overall) { out.push(`  ${e.state}: ${e.reason}`); return out.join('\n'); }
   out.push(`  ${line(e.overall)}`);
   for (const s of e.skills) out.push(`  - ${line(s)}`);
-  if (e.state !== 'measured') out.push(`  Overall unknown: ${e.reason}`);
+  if (e.state !== 'measured') out.push(`  Overall: too little data — ${e.reason}`);
   out.push('  "fetched" means requested (mem_skill_fetch / mem skills fetch), not "it helped". '
     + 'Subagents are not captured; an offer counts as "not fetched" only when the capture covers the window.');
   return out.join('\n');
