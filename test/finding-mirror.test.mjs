@@ -290,28 +290,33 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // lucky-mem side (capture file vs. its recorded sha256, with an
   // append-only re-redaction line), mapped as a gap: this house records
   // sha256 but does not check file against record yet.
+  // Capture straight to archive (2026-10-03): 'rohfang-direkt' and
+  // 'rohkopie' added on the lucky-mem side (capture bypasses git; an
+  // encrypted second copy), mapped as gaps: this house has no git capture
+  // path and no encryption layer.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
-    'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise', 'befund-gleichstand',
-    'behauptung-ohne-beleg', 'bestand', 'bestritten', 'briefkasten', 'bruecke',
-    'dispatcher', 'doku-bilder-frische', 'dubletten', 'eintragsform',
-    'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
-    'fasser', 'fasser-ausbeute', 'fasser-timer', 'fehler-verknuepft', 'frageworte',
-    'geheimnis-altfaenge', 'git', 'git-hook', 'haken-fehlen', 'haken-wurzel-stau',
-    'hook-doppelt', 'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag',
-    'kategorien', 'kennzahlen-gleich', 'klartext-sensibel', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
+    'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise',
+    'befund-gleichstand', 'behauptung-ohne-beleg', 'bestand', 'bestritten',
+    'briefkasten', 'bruecke', 'dispatcher', 'doku-bilder-frische', 'dubletten',
+    'eintragsform', 'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl',
+    'fakt-konflikte', 'fang-doppelt', 'fasser', 'fasser-ausbeute', 'fasser-timer',
+    'fehler-verknuepft', 'frageworte', 'geheimnis-altfaenge', 'git', 'git-hook',
+    'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt', 'hook-kopie', 'hook-stand',
+    'index', 'integrationsvertrag', 'kategorien', 'kennzahlen-gleich',
+    'klartext-sensibel', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
     'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
-    'nachweis-luecke', 'nachweis-pruefsumme', 'offene-funde', 'paritaetsschuld', 'plattenplatz',
-    'post-anfragen', 'post-liegt', 'post-stau', 'post-ungepusht',
+    'nachweis-luecke', 'nachweis-pruefsumme', 'offene-funde', 'paritaetsschuld',
+    'plattenplatz', 'post-anfragen', 'post-liegt', 'post-stau', 'post-ungepusht',
     'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag',
-    'riegel-prueft-das-falsche-verdacht', 'rohfang', 'rohfang-abgewiesen', 'rueckstand', 'sicherung',
-    'skill-nachschaerfen', 'skill-nutzung', 'skill-wirkung', 'startlast', 'stop-hook',
-    'tagform', 'termin-mail', 'themen-guete', 'transkript-schema',
-    'uebernahme-verwaist', 'verfahren-wirkung', 'waechter', 'waechter-fassung',
-    'waisen', 'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit',
-    'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff', 'zustellnachweis',
-    'zustellschuld', 'zustellung',
+    'riegel-prueft-das-falsche-verdacht', 'rohfang', 'rohfang-abgewiesen',
+    'rohfang-direkt', 'rohkopie', 'rueckstand', 'sicherung', 'skill-nachschaerfen',
+    'skill-nutzung', 'skill-wirkung', 'startlast', 'stop-hook', 'tagform',
+    'termin-mail', 'themen-guete', 'transkript-schema', 'uebernahme-verwaist',
+    'verfahren-wirkung', 'waechter', 'waechter-fassung', 'waisen', 'wiederholung',
+    'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel',
+    'zeilenzugriff', 'zustellnachweis', 'zustellschuld', 'zustellung'
   ]),
 });
 
