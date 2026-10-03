@@ -16,6 +16,7 @@
  * only takes what is new.
  */
 
+import { originFrom, ORIGINS } from './origin.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
@@ -241,10 +242,11 @@ export function buildStamp({
 /** Where is this session running? Rough, but enough for provenance. */
 export function detectSurface() {
   if (process.env.MEM_SURFACE) return process.env.MEM_SURFACE;
-  if (process.env.CLAUDE_CODE_REMOTE) return 'cloud';
+  // Cloud/ssh/local come from src/origin.mjs (one truth, also for the journal).
+  const origin = originFrom();
+  if (origin === ORIGINS.CLOUD) return 'cloud';
   if (process.env.MEM_HEADLESS) return `headless:${process.env.MEM_HEADLESS}`;
-  if (process.env.SSH_CONNECTION) return 'ssh';
-  return 'local';
+  return origin === ORIGINS.SSH ? 'ssh' : 'local';
 }
 
 /** Storage path for a capture: raw/YYYY/MM/<time>--<session>.jsonl.gz */
