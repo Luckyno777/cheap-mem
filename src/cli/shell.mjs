@@ -223,6 +223,26 @@ export function authorityArg(args, command) {
  */
 const SCOPE_LISTS = new Set(['classes', 'files', 'topics']);
 
+/** One scope list from `--<k>`: a JSON list or a comma list, as an array; half-JSON is refused like for `--tags`. */
+function scopeList(command, k, v) {
+  if (/^\s*\[/.test(v)) {
+    let list;
+    try { list = JSON.parse(v); }
+    catch (e) { die(`${command}: --${k} looks like JSON but is not: ${e.message}`); }
+    if (!Array.isArray(list) || list.some((x) => typeof x !== 'string')) {
+      die(`${command}: --${k} as JSON must be a list of strings.`);
+    }
+    return list.map((x) => x.trim()).filter(Boolean);
+  }
+  const parts = v.split(',').map((x) => x.trim()).filter(Boolean);
+  const bent = parts.filter((x) => /["[\]{}]/.test(x));
+  if (bent.length) {
+    die(`${command}: --${k} contains brackets or quotes (${JSON.stringify(bent[0])}). `
+      + 'Write it comma-separated, or as a JSON list — both work, half JSON does not.');
+  }
+  return parts;
+}
+
 export function fieldsFrom(command, args, except = []) {
   const data = {};
   // `help` is the parser's, the rest are `src/switches.mjs`'s — the same
@@ -247,7 +267,14 @@ export function fieldsFrom(command, args, except = []) {
       continue;
     }
 
-    if ((k === 'tags' || k === 'asked' || k === 'rejected' || SCOPE_LISTS.has(k)) && typeof v === 'string' && /^\s*\[/.test(v)) {
+    // The scope lists have a branch of their own (the `--tags` / `--asked` lines below stay as the
+    // mutation anchors in bench/mutation.mjs expect them).
+    if (SCOPE_LISTS.has(k) && typeof v === 'string') {
+      data[k] = scopeList(command, k, v);
+      continue;
+    }
+
+    if ((k === 'tags' || k === 'asked' || k === 'rejected') && typeof v === 'string' && /^\s*\[/.test(v)) {
       let list;
       try { list = JSON.parse(v); }
       catch (e) { die(`${command}: --${k} looks like JSON but is not: ${e.message}`); }
@@ -258,7 +285,7 @@ export function fieldsFrom(command, args, except = []) {
       continue;
     }
 
-    if ((k === 'tags' || k === 'asked' || SCOPE_LISTS.has(k)) && typeof v === 'string') {
+    if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
       // `asked` are QUESTION WORDS: what someone would search for
       // without using the entry's own words. Comma-separated like tags,
       // because that is what they are — access words for questions
