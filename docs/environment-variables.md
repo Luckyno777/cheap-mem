@@ -200,6 +200,7 @@ A variable that is not in the table is not a switch: there is none.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS` | 0 | Probes only (with the sync switch): the minimum gap between two background builds of the viewer's cache. |
 | `CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS` | not set | Probes only: the sync window of the viewer's cache. |
 | `CHEAP_MEM_SERVE_TEMPO_TEST_MS` | not set | Probes only: delays the viewer's build so a test can watch the tempo. |
 | `TRANSCRIPT_PATH_ENV` | not set | Reflector (Windows): a way to hand the transcript in by hand. |

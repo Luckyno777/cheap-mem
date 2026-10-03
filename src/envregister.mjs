@@ -194,6 +194,7 @@ export const REGISTER = Object.freeze([
   sw('CHEAP_MEM_SERVE_WINDOW_ENTRIES', TUNING, '30000', 'How many of the newest entries the compact build lists.'),
   sw('CHEAP_MEM_SERVE_TEMPO_TEST_MS', TEST, 'not set', 'Probes only: delays the viewer\'s build so a test can watch the tempo.'),
   sw('CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS', TEST, 'not set', 'Probes only: the sync window of the viewer\'s cache.'),
+  sw('CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS', TEST, '0', 'Probes only (with the sync switch): the minimum gap between two background builds of the viewer\'s cache.'),
   sw('CHEAP_MEM_MCP_HOST', CONNECTION, '127.0.0.1', 'Address the HTTP MCP bridge binds to.'),
   sw('CHEAP_MEM_MCP_PORT', CONNECTION, '8849', 'Port of the HTTP MCP bridge.'),
   sw('CHEAP_MEM_MCP_HOSTS', CONNECTION, 'not set', 'Extra host names the MCP bridge answers to.'),
