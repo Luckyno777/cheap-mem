@@ -30,6 +30,7 @@ import * as memory from './memory.mjs';
 import * as workflow from './workflow.mjs';
 import * as component from './component.mjs';
 import * as pointer from './pointer.mjs';
+import { maskText } from './outputguard.mjs';
 
 /** The status value that keeps a workflow out of every hook. */
 const DRAFT_STATUS = 'draft';
@@ -209,7 +210,7 @@ async function bashHookResult(root, rawJson, env = process.env) {
   const out = {
     suppressOutput: true,
     systemMessage: r.tie ? `memory: ${r.count} workflows match this command (tie)` : 'memory: a workflow matches this command',
-    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: r.text },
+    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: maskText(r.text) },
   };
   try {
     const injection = await import('./injection.mjs');

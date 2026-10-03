@@ -29,6 +29,7 @@ import { withLock } from './filelock.mjs';
 import * as capabilityMod from './capability.mjs';
 import * as probescaffold from './probescaffold.mjs';
 import * as redaction from './redaction.mjs';
+import { maskEntry } from './outputguard.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -995,7 +996,7 @@ export function tailEntries(root, type, { project = null, tailBytes = 512 * 1024
   let raw;
   let whole;
   if (size <= tailBytes) {
-    try { raw = fs.readFileSync(p, 'utf8'); whole = true; }
+    try { raw = withoutBom(fs.readFileSync(p, 'utf8')); whole = true; }
     catch { return { entries: [], scannedWholeFile: true, scannedEntries: 0 }; }
   } else {
     let fd;
@@ -1174,10 +1175,24 @@ export function findingsLine(findings) {
   return `redacted: ${findings.map((f) => `${f.type}x${f.count}`).join(', ')}`;
 }
 
+/**
+ * Strip a UTF-8 BOM (U+FEFF) from the start of a text.
+ *
+ * A BOM at the front of a JSONL drawer (Windows editors and some exports
+ * add one) made the FIRST line unparseable: the first entry was invisible
+ * to `find`, `when`, `show` and the viewer, and `mem doctor` called it a
+ * broken line. Reading tolerates it now; nothing ever WRITES one, and the
+ * file on disk is never changed. A BOM in the middle of a file stays what
+ * it was: damage.
+ */
+export function withoutBom(text) {
+  return typeof text === 'string' && text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+}
+
 export function readLog(root, type, { project = null } = {}) {
   const p = logPath(root, type, project);
   if (!fs.existsSync(p)) return { path: p, missing: true, entries: [] };
-  const raw = fs.readFileSync(p, 'utf8');
+  const raw = withoutBom(fs.readFileSync(p, 'utf8'));
   const entries = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
@@ -1253,12 +1268,15 @@ export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
     const decoder = new StringDecoder('utf8');
     const buf = Buffer.alloc(chunkBytes);
     let pending = '';
+    let atStart = true;
     for (;;) {
       let bytesRead;
       try { bytesRead = fs.readSync(fd, buf, 0, chunkBytes, null); }
       catch { break; }
       if (bytesRead === 0) break;
       pending += decoder.write(buf.subarray(0, bytesRead));
+      // A BOM only stands at the very start of the file: strip it from the first block.
+      if (atStart && pending.length > 0) { pending = withoutBom(pending); atStart = false; }
       let start = 0;
       let nl = pending.indexOf('\n', start);
       while (nl !== -1) {
@@ -1392,7 +1410,7 @@ export function find(root, pattern, capability, {
     for (const type of types) {
       const p = logPath(root, type, project);
       if (!fs.existsSync(p)) continue;
-      const lines = fs.readFileSync(p, 'utf8').split('\n');
+      const lines = withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         const line = lines[i];
         if (!line.trim()) continue;
@@ -2312,7 +2330,7 @@ export function recentEntries(root, type, n) {
   for (const project of [null, ...listProjects(root)]) {
     const p = logPath(root, type, project);
     if (!fs.existsSync(p)) continue;
-    const lines = fs.readFileSync(p, 'utf8').split('\n');
+    const lines = withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (!line.trim()) continue;
@@ -2349,7 +2367,9 @@ export function recentEntries(root, type, n) {
  * memory, so a Trojan-Source reorder landing here is the worst place it
  * could land.
  */
-function shortText(e) {
+function shortText(e0) {
+  // Output guard: this line is what a SessionStart hook hands to a fresh agent.
+  const e = maskEntry(e0);
   const parts = [];
   if (e.title) parts.push(e.title);
   if (e.topic) parts.push(`[${e.topic}]`);
@@ -2575,7 +2595,7 @@ export function openDuties(root, { project = undefined } = {}) {
   for (const p of targets) {
     const file = logPath(root, 'duty', p);
     if (!fs.existsSync(file)) continue;
-    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    const lines = withoutBom(fs.readFileSync(file, 'utf8')).split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       if (!lines[i].trim()) continue;
       let e;

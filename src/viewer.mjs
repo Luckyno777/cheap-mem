@@ -45,6 +45,7 @@ import * as agentsModule from './agents.mjs';
 import * as storeModule from './store.mjs';
 import * as procedure from './procedure.mjs';
 import * as bidi from './bidi.mjs';
+import { maskText } from './outputguard.mjs';
 import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
@@ -431,7 +432,8 @@ function summarize(rows) {
  * pattern that left an eighth (this one) with none at all.
  */
 function sanitizeDeep(value) {
-  if (typeof value === 'string') return bidi.visible(value);
+  // The output guard rides along: the viewer file is an output surface too.
+  if (typeof value === 'string') return bidi.visible(maskText(value));
   if (Array.isArray(value)) return value.map(sanitizeDeep);
   if (value && typeof value === 'object') {
     const out = {};

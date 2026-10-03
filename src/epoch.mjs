@@ -64,7 +64,7 @@ export function observe(root) {
 
   for (const f of integrity.logFiles(root)) {
     let raw;
-    try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { continue; }
+    try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
     const entries = [];
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;

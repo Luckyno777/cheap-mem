@@ -148,7 +148,7 @@ export function scanIntegrity(root) {
 
   for (const f of logFiles(root)) {
     let raw;
-    try { raw = fs.readFileSync(f.abs, 'utf8'); }
+    try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); }
     catch { broken.push({ file: f.rel, line: 0, why: 'unreadable' }); continue; }
     chainFiles.push({ rel: f.rel, raw, project: f.project, type: f.type });
 
@@ -241,7 +241,7 @@ export function scanIntegrity(root) {
 export function checkChain(root) {
   const files = logFiles(root).map((f) => {
     let raw = '';
-    try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { /* absent/unreadable: an empty file has no chain either */ }
+    try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { /* absent/unreadable: an empty file has no chain either */ }
     return { rel: f.rel, raw, project: f.project, type: f.type };
   });
   return chain.verifyChain(files);

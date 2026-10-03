@@ -23,6 +23,7 @@
 
 import * as search from './search.mjs';
 import * as bidi from './bidi.mjs';
+import { maskText, maskEntry } from './outputguard.mjs';
 
 // --- Terminal escapes (all of them) -------------------------------------
 const ALT_ON = '\x1b[?1049h';
@@ -64,14 +65,14 @@ export function fit(s, width) {
   // Stripping ANSI codes is the PURPOSE of this line; the control
   // character is what is being searched for, not an accident.
   // eslint-disable-next-line no-control-regex
-  const flat = bidi.visible(String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\x1b\[[0-9;]*m/g, ''));
+  const flat = bidi.visible(maskText(String(s ?? '')).replace(/[\r\n\t]+/g, ' ').replace(/\x1b\[[0-9;]*m/g, ''));
   if (width <= 0) return '';
   return flat.length <= width ? flat : `${flat.slice(0, Math.max(0, width - 1))}…`;
 }
 
 /** One line per hit: type, date, and whatever the entry actually says. */
 export function hitLine(hit) {
-  const e = hit.entry ?? {};
+  const e = maskEntry(hit.entry ?? {});
   const when = (e.ts ?? '').slice(0, 10) || '----------';
   const parts = [];
   if (e.class) parts.push(`[${e.class}]`);
@@ -86,7 +87,7 @@ export function hitLine(hit) {
 /** The full entry, as the lines the detail pane shows. */
 export function detailLines(hit, width) {
   if (!hit) return ['(nothing selected)'];
-  const e = hit.entry ?? {};
+  const e = maskEntry(hit.entry ?? {});
   const out = [`${hit.type}  ${e.id ?? '(no id)'}  ${e.ts ?? ''}`, ''];
   const skip = new Set(['id', 'ts', 'type']);
   for (const [k, v] of Object.entries(e)) {

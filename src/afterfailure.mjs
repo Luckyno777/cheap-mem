@@ -41,8 +41,16 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as injection from './injection.mjs';
-import { visible } from './bidi.mjs';
+import { visible as bidiVisible } from './bidi.mjs';
+import { maskText } from './outputguard.mjs';
 import { renderHits } from './recallrender.mjs';
+
+/**
+ * Every text this file hands to a session passes here: the Trojan-Source
+ * marking (`bidi.visible`) and the output guard (known key shapes become
+ * `[REDACTED:type]`, src/outputguard.mjs) on the one path into the context.
+ */
+const visible = (t) => bidiVisible(maskText(t));
 
 /** At most this many hits are shown (MEM_AFTER_FAILURE_TOP overrides). */
 export const TOP_DEFAULT = 3;

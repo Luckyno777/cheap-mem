@@ -21,6 +21,7 @@ import * as timesearch from '../timesearch.mjs';
 import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
+import { maskText, maskEntry } from '../outputguard.mjs';
 import * as bodyfields from '../bodyfields.mjs';
 import * as injection from '../injection.mjs';
 import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig, authorityArg } from './shell.mjs';
@@ -184,14 +185,19 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
     });
     out('');
     out(`--- raw conversation in window (${lines.length} lines from ${files} captures${capped ? ', capped' : ''}) ---`);
-    for (const l of lines) out(`  [${l.ts}] ${l.type || ''}: ${bidi.visible(String(l.text ?? ''))}`);
+    for (const l of lines) out(`  [${l.ts}] ${l.type || ''}: ${bidi.visible(maskText(String(l.text ?? '')))}`);
   }
 }
 
 /** Body fields `compactLine` renders in a form of its own; the rest comes from `bodyfields.restOfBody`. */
 export const OWN_FORM = Object.freeze(['title', 'choice', 'text', 'why', 'rule', 'question']);
 
-export function compactLine(e, { root = null } = {}) {
+export function compactLine(e0, { root = null } = {}) {
+  // Output guard: known key shapes are masked BEFORE anything is cut. A cut
+  // in the middle of a key would leave a rest no pattern recognises any more.
+  // This is the shared renderer behind `mem find`, `mem when`, the hooks and
+  // the bridge; one place protects all of them.
+  const e = e0 && typeof e0 === 'object' ? maskEntry(e0) : e0;
   const parts = [];
   // **A procedure never comes out without its marking.**
   //
@@ -285,9 +291,11 @@ export function markedEntry(e, { root = null } = {}) {
  * `--json` payload harder to grep for no security gain.
  */
 export function sanitizeForDisplay(value) {
-  if (typeof value === 'string') return bidi.visible(value);
+  // The output guard (src/outputguard.mjs) rides on the same function: every
+  // string a surface shows is also masked for known key shapes.
+  if (typeof value === 'string') return bidi.visible(maskText(value));
   if (value === null || value === undefined) return value;
-  return JSON.parse(bidi.visible(JSON.stringify(value)));
+  return JSON.parse(bidi.visible(JSON.stringify(maskEntry(value))));
 }
 
 /**

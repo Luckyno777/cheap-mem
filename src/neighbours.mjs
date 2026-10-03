@@ -91,7 +91,7 @@ function readTail(absPath, tailBytes = TAIL_BYTES) {
   try { size = fs.statSync(absPath).size; } catch { return null; }
   if (size <= tailBytes) {
     // Small enough to read whole: no window, no partial answer.
-    try { return { raw: fs.readFileSync(absPath, 'utf8'), whole: true }; }
+    try { return { raw: memory.withoutBom(fs.readFileSync(absPath, 'utf8')), whole: true }; }
     catch { return null; }
   }
   let fd;

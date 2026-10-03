@@ -45,6 +45,7 @@
 
 import * as memory from './memory.mjs';
 import * as procedure from './procedure.mjs';
+import { maskText } from './outputguard.mjs';
 
 /**
  * Total cap for the SubagentStart block, in characters (this file
@@ -104,7 +105,7 @@ export function hookResult(root, { n = 10, workflowBlock = null } = {}) {
   let text = '';
   try { text = buildContext(root, { n, workflowBlock }); } catch { text = ''; }
   if (!text) return null;
-  return { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: text } };
+  return { hookSpecificOutput: { hookEventName: 'SubagentStart', additionalContext: maskText(text) } };
 }
 
 /**

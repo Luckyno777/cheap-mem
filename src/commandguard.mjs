@@ -52,6 +52,7 @@ import { fileURLToPath } from 'node:url';
 import * as memory from './memory.mjs';
 import * as errorclass from './errorclass.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
+import { maskText } from './outputguard.mjs';
 
 export const FIELD = 'command_pattern';
 /** Separator between several patterns in ONE field value. */
@@ -305,7 +306,7 @@ export async function hookResult(root, rawJson, env = process.env) {
   const out = {
     suppressOutput: true,
     systemMessage: `memory: command guard (${r.ids.length} ${r.ids.length === 1 ? 'error' : 'errors'})`,
-    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: r.text },
+    hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: maskText(r.text) },
   };
   try {
     const injection = await import('./injection.mjs');

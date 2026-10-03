@@ -73,7 +73,7 @@
 import fs from 'node:fs';
 import * as integrity from './integrity.mjs';
 import { writerOf } from './chain.mjs';
-import { agentDefault } from './memory.mjs';
+import { agentDefault, withoutBom } from './memory.mjs';
 
 export const STATE = Object.freeze({
   GOOD: 'good',
@@ -106,7 +106,7 @@ export function collectTimestampedEntries(root) {
   const out = [];
   for (const f of integrity.logFiles(root)) {
     let raw;
-    try { raw = fs.readFileSync(f.abs, 'utf8'); } catch { continue; }
+    try { raw = withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       let e;

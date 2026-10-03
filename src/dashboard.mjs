@@ -778,7 +778,7 @@ export function getEntryFast(root, id) {
 
   const file = memory.logPath(root, drawer.type, drawer.project);
   let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch (err) {
+  try { raw = memory.withoutBom(fs.readFileSync(file, 'utf8')); } catch (err) {
     return { state: 'error', id, reason: `Drawer not readable: ${err?.message || err}` };
   }
 

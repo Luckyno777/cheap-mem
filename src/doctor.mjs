@@ -2322,6 +2322,8 @@ export function checkGitignoreEffective(root) {
  *       --text "global/errors.jsonl:41 (id <id>) carries no content field. ..."
  */
 export const EMPTY_ENTRY_CLASS = 'empty-entry';
+/** The class of a finding line that puts a line WITHOUT an id on the record, naming its place `<file>:<line>`. */
+const IDLESS_LINE_CLASS = 'idless-line';
 
 export function checkEntryForm(root) {
   const TEXT_FIELDS = ['title', 'text', 'topic', 'choice', 'why', 'fact', 'summary'];
@@ -2333,6 +2335,7 @@ export function checkEntryForm(root) {
   // rescue a malformed-but-present field, never a missing one, so this
   // is per-id, not per-timestamp.
   const contentAcked = new Set();
+  const idlessAcked = new Set();
 
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const type of Object.keys(memory.TYPES)) {
@@ -2347,6 +2350,14 @@ export function checkEntryForm(root) {
         if (e.class === EMPTY_ENTRY_CLASS) {
           for (const m of `${e.title ?? ''} ${e.text ?? ''}`.matchAll(/\b([0-9a-z]{7,12})\b/g)) {
             contentAcked.add(m[1]);
+          }
+        }
+        // A line WITHOUT an id has nothing a correction (`replaces_id`) could
+        // hang on. It is on the record when a finding line of class
+        // `idless-line` names its place `<file>:<line>`.
+        if (e.class === IDLESS_LINE_CLASS) {
+          for (const m of `${e.title ?? ''} ${e.text ?? ''}`.matchAll(/[A-Za-z0-9_./\\-]+\.jsonl:\d+/g)) {
+            idlessAcked.add(m[0]);
           }
         }
         const where = `${rel}:${i + 1}`;
@@ -2370,6 +2381,13 @@ export function checkEntryForm(root) {
           });
           return;
         }
+        // No id (2026-10-02): the check used to look only at entries it could
+        // name, so a line without one counted nowhere and the finding said
+        // "no malformed entries". No tombstone and no correction can reach it.
+        if (typeof e.id !== 'string' || !e.id) {
+          broken.push({ where, ts, id: null, kind: IDLESS_LINE_CLASS, what: 'no id' });
+          return;
+        }
         if (Array.isArray(e.tags)
           && e.tags.some((t) => typeof t === 'string' && /["[\]{}]/.test(t))) {
           broken.push({ where, ts, what: 'half-parsed JSON in tags' });
@@ -2383,6 +2401,7 @@ export function checkEntryForm(root) {
   // acknowledgement, matched by id rather than by the cap's timestamp —
   // see the doc comment above for why a cap alone cannot cover this case.
   const open = broken.filter((b) => {
+    if (b.kind === IDLESS_LINE_CLASS) return !idlessAcked.has(b.where);
     if (b.kind === EMPTY_ENTRY_CLASS && b.id && contentAcked.has(b.id)) return false;
     return !cap || !b.ts || b.ts > cap;
   });
@@ -2413,7 +2432,12 @@ export function checkEntryForm(root) {
     + '`mem log error --class entry-form --title "..." --text "..."` — that caps '
     + 'everything written before it. An entry with NO content field cannot be '
     + `corrected that way; name its id in a \`mem log error --class ${EMPTY_ENTRY_CLASS}\` `
-    + 'finding instead — see checkEntryForm\'s doc comment.');
+    + 'finding instead — see checkEntryForm\'s doc comment.'
+    + (open.some((b) => b.kind === IDLESS_LINE_CLASS)
+      ? ' A line without an id cannot be corrected (there is no id for `replaces_id` to hang on): '
+        + 'leave it and put it on the record with '
+        + `\`mem log error --class ${IDLESS_LINE_CLASS} --title "..." --text "<file>:<line>"\`.`
+      : ''));
 }
 
 /**
