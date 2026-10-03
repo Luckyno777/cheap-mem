@@ -1,11 +1,11 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 //
-// test/dash-paket-cm.test.mjs — the dashboard package ported from lucky-mem
+// test/dash-package-cm.test.mjs — the dashboard package ported from lucky-mem
 // (task dash-paket-cm, 2026-10-03; lm commits c92a2eb2, c2d19731, 11274653,
 // 42950344, b7bff3f4, 07da6811).
 //
-// What is secured (the browser side is in dash-paket-cm-browser.test.mjs):
+// What is secured (the browser side is in dash-package-cm-browser.test.mjs):
 //   (1) the task `project-confirm`: persons only, a closed parameter, the
 //       CLI call with --json, `mem project confirm --json` names the event.
 //   (2) the offline reading view (src/readview.mjs): one file, no address,
@@ -126,7 +126,9 @@ test('(3) entryRow carries the alias-resolved topic; none stays absent', () => {
 });
 
 // --- (4) the stylesheet ---------------------------------------------------------
-const block = CSS.slice(CSS.indexOf('/* dash-paket-cm (2026-10-03)'));
+const OPEN = '/' + '*'; // never a literal comment opener inside a string (english-only's extractor)
+const MARK = `${OPEN} dash-paket-cm (2026-10-03)`;
+const block = CSS.slice(CSS.indexOf(MARK));
 const lum = (hex) => {
   const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -134,7 +136,7 @@ const lum = (hex) => {
 const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 const tokens = (src) => Object.fromEntries([...src.matchAll(/--([a-z]+):(#[0-9a-f]{6})/g)].map((m) => [m[1], m[2]]));
 test('(4) added CSS: no new hex colour; every new text/background pair is AA in both themes', () => {
-  assert.ok(block.length > 500 && block.startsWith('/* dash-paket-cm'), 'the block exists');
+  assert.ok(block.length > 500 && block.startsWith(`${OPEN} dash-paket-cm`), 'the block exists');
   assert.deepEqual(block.match(/#[0-9a-fA-F]{3,8}\b/g) || [], [], 'tokens only');
   const dark = tokens(CSS.slice(CSS.indexOf(':root{'), CSS.indexOf('}', CSS.indexOf(':root{'))));
   const light = tokens(CSS.slice(CSS.indexOf('body.light{'), CSS.indexOf('}', CSS.indexOf('body.light{'))));
@@ -161,7 +163,7 @@ test('(5) overview order, two-paragraph legend, a working reading-view button, c
   assert.match(JS, /<strong>Controls<\/strong>/);
   assert.match(JS, /const cd = atlasCondensed\(\)/, 'the condensed atlas is named only under its own condition');
   assert.match(JS, /if \(!topicsAreTopics\(\) \|\| !k \|\| k\.error \|\| !Array\.isArray\(k\.list\)\) return \{ on: false/, 'no data, no categories');
-  assert.ok(!/[äöüßÄÖÜ]/.test(CSS.slice(CSS.indexOf('/* dash-paket-cm'))) , 'English only');
+  assert.ok(!/[äöüßÄÖÜ]/.test(CSS.slice(CSS.indexOf(MARK))) , 'English only');
 });
 
 test('(5b) red proof against the fixed base: the old files lack every one of these', (t) => {

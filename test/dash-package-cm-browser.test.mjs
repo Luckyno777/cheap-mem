@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 //
-// test/dash-paket-cm-browser.test.mjs — the ported dashboard package in a real
+// test/dash-package-cm-browser.test.mjs — the ported dashboard package in a real
 // Chromium (task dash-paket-cm, 2026-10-03; the sibling's
 // dash-bedienbar-lm-browser.test.mjs).
 //

@@ -911,7 +911,7 @@ function home() {
       'One place for memories, decisions and the people and agents who work with them.',
       `<div class="hero-actions">${btn('Drawers in the network ↗', 'show-shards', '', 'ghost')}${btn('Project package ↗', 'goto-export', '', 'ghost')}</div>`,
     ) +
-    // dash-paket-cm: the overview's order (parity with lucky-mem): title, the day strip (a slot the
+    // dash-paket-cm: the overview's order (same order in both houses): title, the day strip (a slot the
     // calendar port fills; empty it takes no room), figures, the network with the next look, Today
     // across the full width, recently connected, system state.
     `<div class="overview-head" id="homeDay">${homeDayHtml()}</div>` +
@@ -1063,7 +1063,7 @@ function integrityPanel() {
     `${num(k.lines)} lines · ${num(k.entries)} entries`,
   );
 }
-// --- Topics list (dash-paket-cm, 2026-10-03; parity with lucky-mem's topic list) ---------
+// --- Topics list (dash-paket-cm, 2026-10-03; same list in both houses) ---------
 // A list instead of one big tile per topic: topic, entries, types, "Open thread". Sortable,
 // filterable, 30 rows + "Show more"; a small switch to tiles, remembered in the browser.
 // The source is the real topic (field `topic`, aliases resolved; the server counts it over the
