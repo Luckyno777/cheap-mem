@@ -37,6 +37,7 @@ import * as skillusage from '../../skillusage.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
 import * as skilleffect from '../../skilleffect.mjs';
 import * as experience from '../../experience.mjs';
+import { sinceOf } from '../display.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 
 /** 13 commands. */
@@ -1067,7 +1068,7 @@ export const COMMANDS = {
         'mem skills export --format claude|text [--target <path>] [--types skill,workflow,snippet,procedure]',
         'mem skills status <id> <proposed|trial|released|withdrawn> --issued-by owner [--why "..."] [--json]',
         'mem skills fetch <name|id>',
-        'mem skills effect [--json]',
+        'mem skills effect [--since <date|7d|24h>] [--json]',
         'mem skills account [<name>] [--json]          L3: traps, fixes, learnings in the declared scope',
         'mem skills sharpen <name> [--json]            L3: "new since the last version", proposal only',
         'mem skills version <name> [--text "..."] [--title "..."] [--classes a,b] [--files p/] [--topics t]',
@@ -1090,7 +1091,7 @@ export const COMMANDS = {
     const known = ['usage', 'list', 'export', 'status', 'fetch', 'effect', 'account', 'sharpen', 'version'];
     if (!known.includes(sub)) die(`skills: unknown subcommand '${sub}'. Known: ${known.join(', ')}`);
     const flags = { usage: ['json'], list: ['json'], export: ['format', 'target', 'types'],
-      status: ['issued-by', 'why', 'agent', 'json'], fetch: [], effect: ['json'],
+      status: ['issued-by', 'why', 'agent', 'json'], fetch: [], effect: ['json', 'since'],
       account: ['json'], sharpen: ['json'],
       version: ['text', 'title', 'why', 'issued-by', 'authority', 'agent', 'classes', 'files', 'topics', 'json'] }[sub];
     checkFlags(args, [...flags, 'root'], `skills ${sub}`);
@@ -1195,7 +1196,12 @@ export const COMMANDS = {
       out(r.text.trimEnd());
       return;
     }
-    const e = skilleffect.measure(root);
+    let since = null;
+    if (args.since !== undefined) {
+      since = args.since === true ? new Date(NaN) : sinceOf(String(args.since));
+      if (Number.isNaN(since.getTime())) die('skills effect: --since needs a date (2026-10-01) or 7d/24h.');
+    }
+    const e = skilleffect.measure(root, { since });
     out(args.json ? JSON.stringify(e, null, 2) : skilleffect.asText(e));
   },
 
