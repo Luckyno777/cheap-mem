@@ -117,6 +117,7 @@ import { randomBytes } from 'node:crypto';
 import { appendLine } from './append.mjs';
 import * as procedure from './procedure.mjs';
 import * as skillregistry from './skillregistry.mjs';
+import * as categoriesMod from './categories.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MEM_BIN = path.join(HERE, '..', 'bin', 'mem');
@@ -162,6 +163,14 @@ function exportTarget(root, id) { return path.join(tasksDir(root), id, 'export')
  * pattern `src/console.mjs`'s `SETTINGS` already uses: a fixed table,
  * never an open field name.
  */
+// Category task parameters: a word never starts with a dash (it would read as a CLI flag).
+const CAT_WORD = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:-]{0,79}$/u.test(v);
+const CAT_TOPIC = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:/-]{0,119}$/u.test(v);
+const CAT_LABEL = (v) => { const t = v.trim(); return t === v && t.length >= 2 && t.length <= 40 && !/[\u0000-\u001f]/.test(t) && !t.startsWith('-'); };
+function classifyCategory(json) {
+  return json?.ok === true ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no ok' };
+}
+
 export const KINDS = Object.freeze({
   export: {
     title: 'Raw capture export',
@@ -359,6 +368,90 @@ export const KINDS = Object.freeze({
     classify(json) {
       return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new event' };
     },
+  },
+  // dash-kat-klicks-cm (2026-10-03, parity with lucky-mem `kategorie-*`): the
+  // category click actions. One CLI call each (`mem category ... --json`, answer
+  // `{ok, text}`), a person only (password session): the CLI itself refuses an
+  // unattended run. Everything is appended, nothing is rewritten (src/categories.mjs).
+  'category-assign': {
+    title: 'Assign a topic to a category',
+    description: 'mem category assign <topic> <category> --json — a confirmed assignment as a new line.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      topic: { required: true, check: CAT_TOPIC, why: 'a topic name' },
+      category: { required: true, check: CAT_WORD, why: 'a category key' },
+    },
+    command(root, id, p) { return { file: MEM_BIN, args: ['category', 'assign', p.topic, p.category, '--json'] }; },
+    progressPattern: null,
+    classify: classifyCategory,
+  },
+  'category-confirm': {
+    title: 'Confirm category proposals',
+    description: 'mem category confirm <topic> | --all-proposals --json — proposals become confirmed, nothing is rewritten.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      topic: { required: false, check: CAT_TOPIC, why: 'a topic name' },
+      all: { required: false, check: (v) => v === 'yes', why: "'yes'" },
+    },
+    precheck(root, p) {
+      if (!p.topic && !p.all) throw new Error("either 'topic' or all=yes is needed");
+      if (p.topic && p.all) throw new Error("either 'topic' or all=yes, not both");
+    },
+    command(root, id, p) { return { file: MEM_BIN, args: ['category', 'confirm', ...(p.all ? ['--all-proposals'] : [p.topic]), '--json'] }; },
+    progressPattern: null,
+    classify: classifyCategory,
+  },
+  'category-acknowledge': {
+    title: 'Acknowledge a new category',
+    description: 'mem category acknowledge <key> --json — an automatically created category becomes confirmed.',
+    resume: 'restart',
+    humanOnly: true,
+    params: { key: { required: true, check: CAT_WORD, why: 'a category key' } },
+    command(root, id, p) { return { file: MEM_BIN, args: ['category', 'acknowledge', p.key, '--json'] }; },
+    progressPattern: null,
+    classify: classifyCategory,
+  },
+  'category-rename': {
+    title: 'Rename a category',
+    description: 'mem category rename <key> "<Label>" --json — a new line, same key.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      key: { required: true, check: CAT_WORD, why: 'a category key' },
+      label: { required: true, check: CAT_LABEL, why: '2 to 40 characters, one line, not starting with a dash' },
+    },
+    command(root, id, p) { return { file: MEM_BIN, args: ['category', 'rename', p.key, p.label, '--json'] }; },
+    progressPattern: null,
+    classify: classifyCategory,
+  },
+  'category-merge': {
+    title: 'Merge two categories',
+    description: 'mem category merge <from> <to> --why Dashboard --json — an alias line, nothing is deleted.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      // not `from`: the task route reserves that field name (the page it came from)
+      source: { required: true, check: CAT_WORD, why: 'a category key' },
+      target: { required: true, check: CAT_WORD, why: 'a category key' },
+    },
+    precheck(root, p) { if (p.source === p.target) throw new Error('a category cannot be merged into itself'); },
+    command(root, id, p) { return { file: MEM_BIN, args: ['category', 'merge', p.source, p.target, '--why=Dashboard', '--json'] }; },
+    progressPattern: null,
+    classify: classifyCategory,
+  },
+  'category-create': {
+    title: 'Create a category',
+    description: 'mem category create <key> "<Label>" --json — the key is the label in key form (lower case, hyphens).',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      label: { required: true, check: (v) => CAT_LABEL(v) && categoriesMod.keyOf(v).length >= 2, why: '2 to 40 characters, one line, with at least two letters or digits' },
+    },
+    command(root, id, p) { return { file: MEM_BIN, args: ['category', 'create', categoriesMod.keyOf(p.label), p.label, '--json'] }; },
+    progressPattern: null,
+    classify: classifyCategory,
   },
   // Registry status (lucky-mem `skill-status`): the CLI's `mem skills
   // status`. `--issued-by` only from `context.user` (password session),
