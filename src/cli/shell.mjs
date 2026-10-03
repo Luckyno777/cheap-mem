@@ -215,6 +215,14 @@ export function authorityArg(args, command) {
   return t;
 }
 
+/**
+ * The scope of a skill, workflow, snippet or procedure (`src/experience.mjs`) and the files of an
+ * error are LISTS like `tags`: `--topics '["mcp","skill"]'` used to stay one string that the reader
+ * tore apart at its commas (port of lucky-mem `skill-geltung`, 2026-10-03: the skill's account
+ * showed 0 cases because of it), and `errorfile.files()` ignored a comma string of `--files`.
+ */
+const SCOPE_LISTS = new Set(['classes', 'files', 'topics']);
+
 export function fieldsFrom(command, args, except = []) {
   const data = {};
   // `help` is the parser's, the rest are `src/switches.mjs`'s — the same
@@ -239,7 +247,7 @@ export function fieldsFrom(command, args, except = []) {
       continue;
     }
 
-    if ((k === 'tags' || k === 'asked' || k === 'rejected') && typeof v === 'string' && /^\s*\[/.test(v)) {
+    if ((k === 'tags' || k === 'asked' || k === 'rejected' || SCOPE_LISTS.has(k)) && typeof v === 'string' && /^\s*\[/.test(v)) {
       let list;
       try { list = JSON.parse(v); }
       catch (e) { die(`${command}: --${k} looks like JSON but is not: ${e.message}`); }
@@ -250,7 +258,7 @@ export function fieldsFrom(command, args, except = []) {
       continue;
     }
 
-    if ((k === 'tags' || k === 'asked') && typeof v === 'string') {
+    if ((k === 'tags' || k === 'asked' || SCOPE_LISTS.has(k)) && typeof v === 'string') {
       // `asked` are QUESTION WORDS: what someone would search for
       // without using the entry's own words. Comma-separated like tags,
       // because that is what they are — access words for questions

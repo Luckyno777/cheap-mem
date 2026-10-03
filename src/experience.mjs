@@ -61,7 +61,15 @@ export const EFFECT_MIN_BEFORE = 3;
 export const EFFECT_MIN_AFTER = 3;
 
 const time = (ts) => { const t = Date.parse(ts ?? ''); return Number.isFinite(t) ? t : null; };
-const list = (v) => (Array.isArray(v) ? v : (typeof v === 'string' && v.trim() ? v.split(',') : []));
+const list = (v) => {
+  if (Array.isArray(v)) return v;
+  if (typeof v !== 'string' || !v.trim()) return [];
+  // Old stock: a list stored as JSON TEXT (`"[\"mcp\",\"skill\"]"`) is a list, not two fragments at the comma.
+  if (/^\s*\[/.test(v)) {
+    try { const j = JSON.parse(v); if (Array.isArray(j)) return j; } catch { /* not JSON: a comma list as before */ }
+  }
+  return v.split(',');
+};
 
 // --- scope -----------------------------------------------------------------
 

@@ -14,6 +14,18 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed — the scope of a skill and the files of an error are lists (port of lucky-mem `skill-geltung`)
+
+- `mem log skill --topics '["mcp","skill"]'` stayed ONE string and the reader tore it apart at its
+  commas into `["mcp"` and `"skill"]`, so the skill's experience account counted 0 cases. `--classes`,
+  `--files` and `--topics` are now stored as lists (from a JSON list or a comma list, like `--tags`;
+  half-JSON is refused), in `mem log` and `mem correction` alike. Old stock: a list stored as JSON
+  text is read as a list (`experience.scopeOf`).
+- The same change makes `errorfile.files()` see an error's `--files`: it reads arrays only and ignored
+  the comma string. A lucky-mem finding for `--gefragt-als` as JSON does not apply here: `asked_as` was
+  already stored as a list.
+- `test/skill-scope-list.test.mjs`; red proof against the fixed base commit, positive controls.
+
 ### Fixed — a zombie holds no lock (port of lucky-mem `prozess-zombie`, `nachlese-sperre-zombie`)
 
 - `process.kill(pid, 0)` also succeeds for a `<defunct>` process (ended, not collected by its
