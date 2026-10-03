@@ -294,9 +294,12 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // 'rohkopie' added on the lucky-mem side (capture bypasses git; an
   // encrypted second copy), mapped as gaps: this house has no git capture
   // path and no encryption layer.
+  // Wake model (2026-10-03): 'agent-modell' added on the lucky-mem side
+  // (an AGENT.yaml model value that --model does not understand), mapped
+  // as a gap: this house's watcher has no per-agent model field.
   names: Object.freeze([
-    'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
-    'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
+    'abrufquote', 'agent-modell', 'altlast', 'anhang', 'anmeldung', 'ansicht',
+    'archiv-haltbar', 'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise',
     'befund-gleichstand', 'behauptung-ohne-beleg', 'bestand', 'bestritten',
     'briefkasten', 'bruecke', 'dispatcher', 'doku-bilder-frische', 'dubletten',
