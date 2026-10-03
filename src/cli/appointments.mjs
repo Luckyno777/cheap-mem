@@ -9,6 +9,7 @@
  * words around them: parsing the switches and printing, in one place so the
  * handler stays short.
  */
+import { execFileSync } from 'node:child_process';
 import * as memory from '../memory.mjs';
 import { out, die, warn, numberFlag } from './shell.mjs';
 import * as A from '../appointments.mjs';
@@ -27,7 +28,7 @@ export const FLAGS = Object.freeze({
   move: ['at', 'relative-to', 'authority', 'json'],
   confirm: ['authority', 'json'],
   due: ['json'],
-  tick: ['json'],
+  tick: ['json', 'sync'],
   cap: ['proposals', 'authority', 'json'],
   today: ['date', 'json'],
   calendar: ['json'],
@@ -45,7 +46,7 @@ export const HELP = [
   'mem appointment move <id> --at "<time>" [--authority user]',
   'mem appointment confirm <id> --authority user      (only a human: arms an agent\'s proposal)',
   'mem appointment due [--json]                       (dry run: what the clock would do NOW)',
-  'mem appointment tick [--json]                      (let the clock tick once; mem-watch does this on every poll)',
+  'mem appointment tick [--sync] [--json]             (let the clock tick once; mem-watch does this on every poll; --sync: commit and push what it wrote)',
   'mem appointment cap [<n> [--proposals] --authority user]  (agent wake-ups per day, default 10; --proposals: agent proposals without the user\'s request per day, default 10)',
   'mem appointment today [--date YYYY-MM-DD] [--json]  (the day list "Today in the calendar", no model; --json: machine-readable with `empty`)',
   'mem appointment calendar status|test|retry [--json]  (invitations into your calendar, route smtp|google: state without network | a test appointment in 20 min | send what is open now)',
@@ -92,6 +93,23 @@ function catchFail(sub, fn) {
 }
 
 const json = (o) => out(JSON.stringify(o, null, 2));
+
+/**
+ * `tick --sync`: commit and push what a tick wrote (letters, the fired log, the grant), nothing else.
+ * Only the two folders the clock writes to; a rejected push is reported and retried by the next tick.
+ */
+function syncTick(root) {
+  const git = (...a) => execFileSync('git', ['-C', root, ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    if (!git('status', '--porcelain', '--', A.DIR, 'inbox').trim()) return 'nothing to sync';
+    git('add', '--', A.DIR, 'inbox');
+    git('commit', '-q', '-m', 'appointments: clock tick', '--', A.DIR, 'inbox');
+    git('push', '-q');
+    return 'synced';
+  } catch (e) {
+    return `sync failed: ${String(e.stderr || e.message).split('\n')[0]}`;
+  }
+}
 
 /** Run one subcommand. `rest` is what follows the subcommand name. */
 export async function run(sub, { root, args, rest }) {
@@ -236,7 +254,9 @@ export async function run(sub, { root, args, rest }) {
   if (sub === 'tick') {
     const r = clockMod.tick(root, { now });
     const mail = await invite.tick(root, { now });
-    if (args.json) { json({ clock: r, calendar: mail }); return; }
+    const synced = args.sync === true && r.state !== 'empty' ? syncTick(root) : null;
+    if (args.json) { json({ clock: r, calendar: mail, ...(synced ? { sync: synced } : {}) }); return; }
+    if (synced) out(`Sync: ${synced}.`);
     if (r.state === 'empty') out(`No appointments (${A.DIR}/ does not exist).`);
     else {
       for (const a of r.fired) out(`  ${a.outcome}${a.late ? ' (late)' : ''}  ${a.title}  [${a.appointment ?? '-'}]${a.skipped ? `  ${a.skipped} skipped` : ''}`);

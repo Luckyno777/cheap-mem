@@ -91,6 +91,9 @@ import * as claim from '../src/claim.mjs';
 import * as component from '../src/component.mjs';
 import * as source from '../src/source.mjs';
 import * as projectnew from '../src/projectnew.mjs';
+import * as appointments from '../src/appointments.mjs';
+import * as appointmentToday from '../src/appointment-today.mjs';
+import * as appointmentTime from '../src/appointment-time.mjs';
 import * as board from '../src/board.mjs';
 import * as webauth from '../src/webauth.mjs';
 import * as agentledger from '../src/agentledger.mjs';
@@ -864,6 +867,70 @@ const TOOLS = [
       'Dry run: which topics without a project hang on at least 2 captures on 2 different ' +
       'days and would come into question as a new project. Reads, counts, creates nothing.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  // --- The calendar (appointments/, see docs/appointments.md) ----------
+  //
+  // An agent can SUGGEST and list; it can never arm an action, confirm a
+  // proposal or set a cap (those need `--authority user` at the CLI, and a
+  // bridge is never a human). Whatever it creates here is a proposal unless it
+  // brings the user's own sentence as evidence AND it is a plain reminder.
+  {
+    name: 'mem_appointment_new',
+    description:
+      'Propose an appointment: a reminder for the human, or a scheduled action for an agent ' +
+      '(wake + task). It is a PROPOSAL and does nothing until a human confirms it ' +
+      '(`mem appointment confirm <id> --authority user`, CLI only) - except a plain reminder the user ' +
+      'asked for in their own words (requested_by "user" + a verbatim quote), which is active at once. ' +
+      'Time expressions are English ("tomorrow 9:00", "friday 3pm", "in 2 hours", "2026-10-25 14:30"); ' +
+      'relative ones count from relative_to (pass the moment of the user\'s line, not now). ' +
+      'Refuses a duplicate (same title, time within 10 minutes). An agent may make only a few proposals a day.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        at: { type: 'string', description: 'When, e.g. "tomorrow 9:00", "weekdays 7:00" (leading repeat word sets the repeat)' },
+        title: { type: 'string', description: 'Short title (at most 200 characters)' },
+        text: { type: 'string', description: 'Optional note' },
+        repeat: { type: 'string', enum: ['daily', 'weekly', 'monthly', 'weekdays'], description: 'Optional repetition (weekdays = Mon-Fri, no holiday calendar)' },
+        remind_before: { type: 'string', description: 'Optional lead, e.g. "15m", "2h", "1d"' },
+        wake: { type: 'string', description: 'Optional: an agent (participant) to wake with a task at that time' },
+        task: { type: 'string', description: 'The task for the woken agent (required with wake)' },
+        max_minutes: { type: 'number', description: 'Time budget written into the letter (default 30, at most 240); not enforced' },
+        briefing: { type: 'boolean', description: 'A day list "Today in the calendar" as a letter to the human (wakes nobody)' },
+        relative_to: { type: 'string', description: 'ISO time that relative expressions count from (default now)' },
+        requested_by: { type: 'string', enum: ['user'], description: 'Set when the user asked for it in a conversation; needs quote' },
+        quote: { type: 'string', description: 'The user\'s sentence, verbatim (at most 200 characters)' },
+        private: { type: 'boolean', description: 'Store only "Private appointment", no text' },
+      },
+      required: ['at', 'title'],
+    },
+  },
+  {
+    name: 'mem_appointment_list',
+    description:
+      'Read only: the calendar - occurrences in a window (default: today and the next 14 days), or with all: true every ' +
+      'appointment with its status (active, proposed, cancelled, missed); today: true returns the day list ' +
+      '"Today in the calendar" instead. Creates nothing.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        all: { type: 'boolean', description: 'Every appointment, not only the window' },
+        today: { type: 'boolean', description: 'The day list for today' },
+      },
+    },
+  },
+  {
+    name: 'mem_appointment_cancel',
+    description:
+      'Cancel an appointment you proposed yourself (or your own plain reminder). An armed appointment is the ' +
+      'user\'s and only they cancel it (`mem appointment cancel <id> --authority user`).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: 'The appointment id' },
+        why: { type: 'string', description: 'Optional reason' },
+      },
+      required: ['id'],
+    },
   },
   // --- Three more that existed as a CLI command already -------------
   //
@@ -1677,6 +1744,70 @@ async function handleCall(name, args) {
     case 'mem_project_suggestions': {
       const res = projectnew.suggestions(root);
       return structuredResult(res, projectnew.suggestionsText(res).split('\n'));
+    }
+    case 'mem_appointment_new': {
+      const me = resolveAgent();
+      const zone = appointments.zoneOf(root);
+      const base = args.relative_to ? Date.parse(String(args.relative_to)) : Date.now();
+      if (!Number.isFinite(base)) throw new Error(`relative_to '${args.relative_to}' is not an ISO time.`);
+      const z = appointmentTime.parse(String(args.at ?? ''), { now: base, zone });
+      if (!z) throw new Error(`No time recognised in '${args.at}'. Examples: "tomorrow 9:00", "friday 3pm", "2026-10-25 14:30", "in 2 hours".`);
+      const repeat = args.repeat ? String(args.repeat) : (z.repeat ?? null);
+      if (args.repeat && z.repeat && z.repeat !== repeat) throw new Error(`at says '${z.repeat}' but repeat says '${repeat}'.`);
+      let before = null;
+      if (args.remind_before !== undefined && args.remind_before !== null && args.remind_before !== '') {
+        before = appointmentTime.durationMinutes(String(args.remind_before));
+        if (before === null) throw new Error('remind_before is a duration like 15m, 2h, 1d.');
+      }
+      const wish = args.requested_by === 'user' ? { by: 'user', quote: String(args.quote ?? '') } : null;
+      let r;
+      try {
+        r = appointments.create(root, {
+          title: String(args.title ?? ''), text: args.text ? String(args.text) : '', atMs: z.ms, repeat, beforeMin: before,
+          wake: args.wake ? String(args.wake) : null, task: args.task ? String(args.task) : null,
+          maxMinutes: args.max_minutes === undefined ? null : Number(args.max_minutes), kind: args.briefing === true ? 'briefing' : 'reminder',
+          source: 'mcp', requestedBy: wish, reminderActive: Boolean(wish), isPrivate: args.private === true,
+          // A bridge is never a human: it cannot arm anything.
+          actor: { name: me, human: false, reason: 'MCP bridge' }, now: Date.now(),
+        });
+      } catch (e) {
+        if (e && e.name === 'AppointmentError') throw new Error(e.message);
+        throw e;
+      }
+      const text = appointmentTime.clockFor(zone).text(z.ms);
+      const lines = r.dropped ? ['NOT created: daily limit for agent proposals reached.']
+        : [r.duplicate ? `Already there: appointment ${r.id} (${r.status}) - nothing created.` : `Appointment ${r.id} ${r.status === 'proposed' ? 'proposed' : 'created'}: ${text}${repeat ? ` (${repeat})` : ''} [${r.status}]`];
+      for (const w of r.warnings) lines.push(`  ${w}`);
+      if (r.status === 'proposed') lines.push(`  Does nothing until a human confirms: mem appointment confirm ${r.id} --authority user`);
+      return structuredResult({ id: r.id, status: r.status, duplicate: r.duplicate, dropped: r.dropped, at: new Date(z.ms).toISOString(), atText: text, warnings: r.warnings }, lines);
+    }
+    case 'mem_appointment_list': {
+      const now = Date.now();
+      if (args.today === true) {
+        const h = appointmentToday.today(root, { now });
+        return structuredResult(appointmentToday.machine(h), appointmentToday.briefingText(h).split('\n'));
+      }
+      const v = appointmentToday.overview(root, { now });
+      if (args.all === true) {
+        return structuredResult({ appointments: v.appointments, proposed: v.proposed, cap: v.cap }, v.appointments.length
+          ? v.appointments.map((a) => appointmentToday.shortLine(a)) : ['No appointments.']);
+      }
+      const clock = appointmentTime.clockFor(v.zone);
+      const to = clock.dayStart(now, 14);
+      const list = v.occurrences.filter((o) => Date.parse(o.at) >= clock.dayStart(now, 0) && Date.parse(o.at) < to);
+      return structuredResult({ occurrences: list, proposed: v.proposed, zone: v.zone }, list.length
+        ? list.map((o) => `${o.text}  ${o.title}  [${o.id}${o.wake ? `, wakes ${o.wake}` : ''}${o.status !== 'active' ? `, ${o.status}` : ''}]`) : ['Nothing in the next 14 days.']);
+    }
+    case 'mem_appointment_cancel': {
+      const me = resolveAgent();
+      let r;
+      try {
+        r = appointments.cancel(root, String(args.id ?? ''), { actor: { name: me, human: false, reason: 'MCP bridge' }, why: args.why ? String(args.why) : null, now: Date.now() });
+      } catch (e) {
+        if (e && e.name === 'AppointmentError') throw new Error(e.message);
+        throw e;
+      }
+      return structuredResult(r, [r.already ? `Appointment ${r.id} was already cancelled.` : `Appointment ${r.id} cancelled.`]);
     }
     case 'mem_store_put': {
       const source = String(args.source ?? '').trim();
