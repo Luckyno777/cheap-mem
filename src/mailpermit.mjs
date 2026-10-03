@@ -162,6 +162,26 @@ export function grantBudget(root, {
   });
 }
 
+/**
+ * The calendar's one grant: a scheduled agent action was ARMED by the user (`mem appointment
+ * confirm|new --authority user`), so its letter may wake the recipient without drawing on a
+ * budget. Called only by the appointment clock (src/appointment-clock.mjs), which has checked
+ * the arming; it is a plain `grant` line for exactly one message, `by: appointment:<id>`.
+ * Idempotent: a message already granted gets no second line. The grant carries no extra
+ * rights for the woken agent — it only answers "may this letter wake someone".
+ */
+export function grantScheduled(root, { message, appointment, now = new Date() } = {}) {
+  if (typeof message !== 'string' || !/^[A-Za-z0-9TZ._~-]+\.md$/.test(message)) {
+    throw new Error(`Not a message file name: ${JSON.stringify(message)}`);
+  }
+  if (!fs.existsSync(path.join(root, 'inbox', message))) throw new Error(`No message '${message}' in the inbox`);
+  if (readLines(root).lines.some((z) => z.kind === 'grant' && z.message === message)) return null;
+  return append(root, {
+    kind: 'grant', id: newId(`grant\0${message}`), ts: new Date(now).toISOString(),
+    message, authority: 'user', by: `appointment:${String(appointment ?? '')}`,
+  });
+}
+
 /** Permit one message by name. Throws without authority user. */
 export function grantMessage(root, {
   message, authority: claimed = null, by = null, env = process.env, now = new Date(),

@@ -30,6 +30,7 @@ import * as onboarding from '../../onboarding.mjs';
 import * as errorclass from '../../errorclass.mjs';
 import * as repetitionhint from '../../repetitionhint.mjs';
 import * as board from '../../board.mjs';
+import * as appointmentCli from '../appointments.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding } from '../shell.mjs';
 
 /** Duplicates are shown, never dropped: same id sent twice, folded into the older message. */
@@ -1043,6 +1044,18 @@ export const COMMANDS = {
     if (!c.total) { out('No error entries yet — nothing to count.'); return; }
     out(`${c.mapped} of ${c.total} entries countable.`);
     if (c.open) out(`${c.open} in ${c.openNames.length} names not mapped — see them with: mem classes --open`);
+  },
+
+  appointment: async ({ rest, args }) => {
+    const sub = rest[0];
+    if (isHelp(args) || !sub) { out(appointmentCli.HELP); return; }
+    if (!Object.hasOwn(appointmentCli.FLAGS, sub)) {
+      die(`appointment: unknown subcommand '${sub}'. Known: ${appointmentCli.SUBCOMMANDS.join(', ')}.`);
+    }
+    checkFlags(args, appointmentCli.FLAGS[sub], `appointment ${sub}`);
+    const root = findRoot(args);
+    requireConfig(root);
+    await appointmentCli.run(sub, { root, args, rest: rest.slice(1) });
   },
 
 };
