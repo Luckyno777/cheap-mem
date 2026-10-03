@@ -27,6 +27,13 @@
 // leaves the old result standing, but NOT as fresh: `fresh:false` with the
 // failure as `reason`, and a later request tries again.
 //
+// **After a write (cat-confirm-cm, 2026-10-03).** A click that finished (a
+// task) calls `invalidate()`: the stored state counts as stale (`fresh:false`,
+// reason "a write finished since the build"), the next build starts WITHOUT the
+// minimum gap, and a build that began before the call does not make it fresh
+// (it may have read before the write). Without it a reload right after a click
+// got the old state back for up to max(20 s, 4 x build time).
+//
 // **The stamp.** Three parts, each cheap:
 //   1. `backlinks.stamp()` — size+mtime of EVERY drawer file of every
 //      project (a new entry always changes it),
@@ -274,6 +281,10 @@ export function createCache({
   let failure = null; // reason of the last failed background build
   let lastStart = -Infinity;
   let counter = 0;
+  // cat-confirm-cm: a write finished since the last build that the stamp does not see (a click on "confirm
+  // project": projects/<p>/facts.yaml lies in no stamped place). Holds until a build STARTS after the write.
+  let invalidSince = null;
+  let invalidCounter = 0;
 
   const store = (data, s, start, durationMs, source = 'build') => {
     counter += 1;
@@ -284,6 +295,7 @@ export function createCache({
     const start = now();
     const data = build();
     store(data, s, start, Math.max(0, Math.round(now() - start)));
+    invalidSince = null; // built synchronously, so after every write
   };
   const background = (s) => {
     if (running) return;
@@ -291,9 +303,11 @@ export function createCache({
     // A build that takes longer than the TTL (100k entries: ~35 s, 1M: much
     // more) would otherwise follow itself without a pause. So at most a
     // quarter of the time is spent building. 0 (probes only) stays 0.
-    const gap = minGapMs > 0 ? Math.max(minGapMs, (current?.durationMs ?? 0) * 4) : 0;
+    // After a write a person waits for the answer: no gap then.
+    const gap = minGapMs > 0 && invalidSince === null ? Math.max(minGapMs, (current?.durationMs ?? 0) * 4) : 0;
     if (start - lastStart < gap) return;
     lastStart = start;
+    const startedAt = invalidCounter;
     running = Promise.resolve()
       .then(async () => {
         // Only the placeholder stands: first the quick head (seconds), then
@@ -311,7 +325,11 @@ export function createCache({
         }
         return buildInBackground();
       })
-      .then((data) => { store(data, s, start, Math.max(0, Math.round(now() - start))); })
+      .then((data) => {
+        store(data, s, start, Math.max(0, Math.round(now() - start)));
+        // Only a build that BEGAN after the last write lifts the mark (an earlier one may have read before the write).
+        if (invalidSince !== null && startedAt >= invalidSince) invalidSince = null;
+      })
       .catch((e) => { failure = `rebuild failed: ${e?.message || e}`; })
       .finally(() => {
         running = null;
@@ -336,7 +354,7 @@ export function createCache({
         if (current.source !== 'build') background(s);
       } else {
         const tooOld = age() > ttlMs;
-        if ((current.source !== 'build' || current.stamp !== s || tooOld) && !running) {
+        if ((current.source !== 'build' || current.stamp !== s || tooOld || invalidSince !== null) && !running) {
           if (current.source === 'build' && current.durationMs <= syncUpToMs) synchronous(s);
           else background(s);
         }
@@ -344,13 +362,14 @@ export function createCache({
       const tooOld = age() > ttlMs;
       // A head from disk or a placeholder is NEVER fresh: it lacks the
       // deferred lists, and this process did not build it.
-      const fresh = current.source === 'build' && current.stamp === s && !tooOld && !failure;
+      const fresh = current.source === 'build' && current.stamp === s && !tooOld && !failure && invalidSince === null;
       let reason = null;
       if (failure) reason = failure;
       else if (current.source === 'disk') reason = 'state of the last run (from disk), rebuild running';
       else if (current.source === 'placeholder') reason = 'first build since the start is running, no stored state yet';
       else if (current.source === 'head') reason = 'head only (counters, newest entries), full build running';
       else if (current.stamp !== s) reason = 'store changed since the build';
+      else if (invalidSince !== null) reason = 'a write finished since the build';
       else if (tooOld) reason = `older than ${Math.round(ttlMs / 1000)} s`;
       return {
         id: current.id,
@@ -367,6 +386,11 @@ export function createCache({
         },
       };
     },
+    /**
+     * A write (a finished task) is done: the stored state counts as stale, the next build starts
+     * without the minimum gap, and a build that began before this call does not make it fresh.
+     */
+    invalidate() { invalidCounter += 1; invalidSince = invalidCounter; lastStart = -Infinity; },
     /** For probes only: wait for a running background build. */
     async waitForRebuild() { if (running) await running; },
   };

@@ -317,8 +317,9 @@ export function buildHandler(root, cfg, env = process.env) {
   // (see the "small store" positive control in
   // test/tempo-dashboard-cache.test.mjs); a probe needs real "not fresh"
   // answers to trigger the quiet refetch at all. Set forces the
-  // background path (syncUpToMs=0) and lifts the minimum gap between two
-  // background builds (otherwise 20 s). Without this variable (normal
+  // background path (syncUpToMs=0) and sets the minimum gap between two
+  // background builds to CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS (default 0;
+  // otherwise 20 s; cat-confirm-cm needs a long one). Without this variable (normal
   // operation) unchanged.
   const syncUpToMsTest = env.CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS;
   // board-tempo-cm: the route of the paged `entries` part, and the light
@@ -393,7 +394,7 @@ export function buildHandler(root, cfg, env = process.env) {
     },
     // The write gate is part of the data (`writesAllowed`) — part of the stamp too.
     stamp: () => `${dashboardCache.generationStamp(root)}|w=${writesAllowed()}`,
-    ...(syncUpToMsTest !== undefined ? { syncUpToMs: Number(syncUpToMsTest), minGapMs: 0 } : {}),
+    ...(syncUpToMsTest !== undefined ? { syncUpToMs: Number(syncUpToMsTest), minGapMs: Number(env.CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS ?? 0) } : {}),
     // Serialize and pack the new state right away — otherwise the first
     // request afterwards would pay for packing.
     afterBackgroundBuild: () => { dashboardAnswerText(dashCache.get()).gzip(); },
@@ -526,6 +527,7 @@ export function buildHandler(root, cfg, env = process.env) {
     }
     return unknown('the page is being searched in the store', { searching: true });
   }
+  const taskEndSeen = new Set(); // task ids whose end already invalidated the cache
   let dashText = null; // { key, plain, gzip() } — the last serialized text
   const packedPerVersion = new Map(); // 'path:version' -> gzip of a page file (tempo)
   function dashboardAnswerText(st) {
@@ -574,11 +576,15 @@ export function buildHandler(root, cfg, env = process.env) {
     } catch (e) {
       if (data.catalog?.mcp) mcpNew = { ...data.catalog.mcp, liveReason: e?.message || String(e) };
     }
+    // cat-confirm-cm: the categories come LIVE from the small category logs, not from the cache (which
+    // trails a click until the next build). The stamp is a stat on five files.
+    const catStamp = dashboardData.categoriesStamp(root);
     const key = JSON.stringify([st.id, mcpNew && {
       live: mcpNew.live, at: mcpNew.liveCheckedAt, reason: mcpNew.liveReason, seen: mcpNew.clientVisible,
-    }, st.meta]);
+    }, st.meta, catStamp]);
     if (dashText?.key === key) return dashText;
     const whole = mcpNew ? { ...data, catalog: { ...data.catalog, mcp: mcpNew } } : { ...data };
+    try { if (whole.categories) whole.categories = dashboardData.categoriesLive(root, whole.categories); } catch { /* the stored state stays */ }
     whole.cache = st.meta;
     const plain = JSON.stringify(whole);
     let packed = null;
@@ -1403,6 +1409,13 @@ export function buildHandler(root, cfg, env = process.env) {
       const id = url.searchParams.get('id');
       if (id) {
         const found = tasks.read(root, id);
+        // cat-confirm-cm: a finished task has written (confirm a project, a category ...), and the stamp
+        // does not see every place — the stored dashboard counts as stale from here, once per task.
+        if (found.running === false && !taskEndSeen.has(id)) {
+          taskEndSeen.add(id);
+          if (taskEndSeen.size > 500) taskEndSeen.delete(taskEndSeen.values().next().value);
+          dashCache.invalidate();
+        }
         const code = { ok: 200, warning: 200, unknown: 404, error: 500 }[found.state] ?? 500;
         res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify(found));

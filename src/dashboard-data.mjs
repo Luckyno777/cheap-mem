@@ -1029,10 +1029,29 @@ export function collectDashboard(root, {
  * `wishes`: [{key, label, topics}] (below the threshold). Read only; never throws
  * (a read error becomes `{error}`). A memory that ships empty: all lists empty.
  */
-function categoriesState(root) {
+function categoriesState(root, { topicList } = {}) {
   try {
-    return categoriesMod.view(root);
+    return categoriesMod.view(root, topicList ? { topicList } : {});
   } catch (e) { return { error: String(e?.message ?? e) }; }
+}
+
+/**
+ * The categories view LIVE on top of a stored state (cat-confirm-cm, 2026-10-03). The cache holds
+ * `categories` until the next build; a click (confirm, assign ...) used to be invisible after a reload
+ * for up to a minute and more. Computed from the four small category logs only; the topic list (name,
+ * count) stays that of the stored state. Without a usable stored state it comes back unchanged.
+ */
+export function categoriesLive(root, stored) {
+  if (!stored || stored.error || !Array.isArray(stored.topics)) return stored;
+  const live = categoriesState(root, { topicList: stored.topics.map((t) => ({ topic: t.topic, count: t.count })) });
+  return live.error ? stored : live;
+}
+
+/** Stamp of the files `categoriesLive` reads: a change in any of them changes the answer. */
+export function categoriesStamp(root) {
+  return [...Object.values(memory.CATEGORY_TABLES), memory.ALIAS_LOG].map((rel) => {
+    try { const s = fs.statSync(path.join(root, rel)); return `${s.size}:${s.mtimeMs}`; } catch { return '-'; }
+  }).join('|');
 }
 
 /**

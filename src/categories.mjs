@@ -163,7 +163,8 @@ export function findCategory(state, name) {
 }
 
 /**
- * Topic -> category, the last line per (resolved) topic.
+ * Topic -> category, the last line per (resolved) topic. A proposal never overrides a
+ * confirmation: only a later confirmation (a person) changes a confirmed topic.
  * Returns Map topic -> {topic, category (resolved), source, status, ts}.
  */
 export function readAssignments(root, { state = readCategories(root), topicAliases = memory.topicAliases(root) } = {}) {
@@ -177,7 +178,11 @@ export function readAssignments(root, { state = readCategories(root), topicAlias
     const old = per.get(canon);
     // A line on an alias name never displaces one on the target itself: the alias inherits.
     if (old && old.direct && !direct) continue;
-    per.set(canon, { topic: canon, category: k, source: l.source ?? null, status: l.status === 'confirmed' ? 'confirmed' : 'proposal', ts: l.ts ?? null, direct });
+    const status = l.status === 'confirmed' ? 'confirmed' : 'proposal';
+    // cat-confirm-cm (2026-10-03): the wish pass may have read its topic before a person's click and
+    // write its proposal after it; that must not undo the confirmation (and must not show it again after a reload).
+    if (old && old.status === 'confirmed' && status !== 'confirmed') continue;
+    per.set(canon, { topic: canon, category: k, source: l.source ?? null, status, ts: l.ts ?? null, direct });
   }
   for (const v of per.values()) delete v.direct;
   return per;
