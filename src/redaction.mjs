@@ -53,6 +53,32 @@ export const SEP = '[:=\\uFF1D\\uFF1A\\u2236\\u02D0\\u205D]';
 export const SP = '[\\s\\u00A0\\u1680\\u2000-\\u200D\\u202F\\u205F\\u2060\\u3000\\uFEFF]';
 
 export const PATTERNS = Object.freeze([
+  // --- Signed URLs (presigned upload/download links) -----------------
+  // A presigned URL carries its credential in the query string:
+  // `X-Amz-Signature` is the signature, `X-Amz-Credential` names the
+  // access key, `X-Amz-Security-Token` the session token. Measured on a
+  // dummy: `X-Amz-Signature=<64 hex>` survived raw capture untouched,
+  // `X-Amz-Credential` lost only its AKIA prefix (aws-key-id), and in the
+  // URL-encoded (`%3D`/`%26`) or JSON-escaped (`\u0026`) form nothing hit.
+  //
+  // Listed FIRST so the whole value falls. The parameter name and the
+  // equals sign (also `%3D`) stay, only the value becomes the marker. The
+  // value ends at `&`, `%26`, `&amp;`, `\u0026`, a quote, whitespace, an
+  // angle bracket or a backslash (`\/` inside the value is allowed).
+  //
+  // The names are provider-specific (X-Amz-*, X-Goog-*) and appear only in
+  // signed URLs, so false positives are rare. NOT included: a bare
+  // `Signature=` / `GoogleAccessId=` (SigV2, GCS V2, CloudFront) - too
+  // general a name; `AWSAccessKeyId=AKIA...` is caught by aws-key-id.
+  // Azure SAS `sig=` is below, but only together with `sv=<date>` in the
+  // same query text (both orders, 800-character window, linear).
+  ['signed-url',
+    /(?<=^|[^A-Za-z0-9]|%[0-9A-Fa-f]{2}|\\u0026)(X-(?:Amz-(?:Security-Token|Signature|Credential)|Goog-(?:Signature|Credential))(?:=|%3D|%253D))((?:\\\/|(?!%26|&amp;)[^&\s"'`<>\\]){8,4096})/gi],
+  ['signed-url',
+    /(?<=^|[^A-Za-z0-9]|%[0-9A-Fa-f]{2}|\\u0026)(sv(?:=|%3D)\d{4}-\d{2}-\d{2}(?:[^\s"'`<>\\]|\\u0026){0,800}?(?:&|%26|\\u0026|&amp;)sig(?:=|%3D))((?:\\\/|(?!%26|&amp;)[^&\s"'`<>\\]){16,4096})/gi],
+  ['signed-url',
+    /(?<=[?&]|%26|\\u0026|&amp;)(sig(?:=|%3D))((?:\\\/|(?!%26|&amp;)[^&\s"'`<>\\]){16,4096})(?=(?:[^\s"'`<>\\]|\\u0026){0,800}?(?:[?&]|%26|\\u0026|&amp;)sv(?:=|%3D)\d{4}-\d{2}-\d{2})/gi],
+
   // --- Provider keys with an unambiguous prefix ----------------------
   ['anthropic-key',   /\bsk-ant-[A-Za-z0-9_-]{20,}/g],
   ['openai-key',      /\bsk-(?!ant-)[A-Za-z0-9_-]{20,}/g],
@@ -388,6 +414,13 @@ export function redact(text) {
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return replaceValue(match, value, `[REDACTED:${type}]`);
       }
+      // Signed URL: the name and the equals sign stay, the value falls.
+      if (type === 'signed-url' && real.length >= 2) {
+        const [head, value] = real;
+        if (isHarmless(value)) return match;
+        counter.set(type, (counter.get(type) ?? 0) + 1);
+        return `${head}[REDACTED:${type}]`;
+      }
       if (type === 'url-credentials' && real.length >= 1) {
         counter.set(type, (counter.get(type) ?? 0) + 1);
         return `${real[0]}://[REDACTED:${type}]@`;
@@ -597,6 +630,7 @@ export const CANARIES = Object.freeze([
   ['json-blob',     `eyJ${'K'.repeat(60)}`],
   ['url-credentials', 'postgres://user:SecretWord99@host:5432/db'],
   ['pem-block',     '-----BEGIN RSA PRIVATE KEY-----\nKKKK==\n-----END RSA PRIVATE KEY-----'],
+  ['signed-url',    `https://example.test/x?X-Amz-Signature=${'k7'.repeat(32)}&X-Amz-Expires=60`],
 ]);
 
 /**
@@ -608,7 +642,7 @@ export const CANARIES = Object.freeze([
  * that is exactly the point: whoever removes a canary has to say so
  * here.
  */
-export const CANARY_COUNT = 12;
+export const CANARY_COUNT = 13;
 
 /**
  * Check that the redaction still does what it claims.
