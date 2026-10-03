@@ -98,6 +98,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_CATCH_FAIL_OFF', SWITCH, 'off', OFF('The swallowed-failure hook')),
   sw('MEM_BEFORE_EDIT_OFF', SWITCH, 'off', OFF('The before-edit hook (what the memory knows about a file about to change)')),
   sw('MEM_SUBAGENT_START_OFF', SWITCH, 'off', OFF('The sub-agent start hook')),
+  sw('MEM_SUBAGENT_TASK_OFF', SWITCH, 'off', 'With `1` the sub-agent start no longer adds the block for the assignment (errors, learnings, duties, procedures, skills that fit the task); the base block stays.'),
   sw('MEM_SOLUTION_ATTACH', SWITCH, 'on (`0` switches it off)', 'With `0` the recall hooks no longer put the newest valid solution (a `resolves` link) as one line under a shown error.'),
   sw('MEM_SKILL_ACCOUNT_OFFER', SWITCH, 'on (`0` switches it off)', 'With `0` a skill offer no longer brings the two most important lines of the skill\'s experience account.'),
   sw('MEM_CAPTURE_OFF', SWITCH, 'off', OFF('The raw capture of a session transcript')),
@@ -130,6 +131,7 @@ export const REGISTER = Object.freeze([
   // --- tuning ------------------------------------------------------------------
   sw('MEM_RETRIEVE_MIN', TUNING, '5.0', 'Score a hit needs before the recall hook shows it.'),
   sw('MEM_RETRIEVE_TOP', TUNING, '3', 'How many hits the recall hook shows at most.'),
+  sw('MEM_SUBAGENT_TASK_SECONDS', TUNING, '2 seconds', 'Time budget of the sub-agent start block for the assignment; past it the base block comes alone (the POSIX hook runs a first, tighter pass and falls back).'),
   sw('MEM_RETRIEVE_TIME', TUNING, '5 seconds', 'Time budget of one recall search, server and direct fallback alike.'),
   sw('MEM_RETRIEVE_FRESH_MIN', TUNING, '10', 'Minutes the clone counts as fresh before the recall hook pulls.'),
   sw('MEM_RETRIEVE_REMOTE', TUNING, 'origin', 'Remote the recall hook pulls from.'),

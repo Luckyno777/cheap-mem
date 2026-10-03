@@ -59,6 +59,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_SOLUTION_ATTACH` | on (`0` switches it off) | With `0` the recall hooks no longer put the newest valid solution (a `resolves` link) as one line under a shown error. |
 | `MEM_STOP_NO_PUSH` | off (the stop hook commits and pushes) | With `1` the stop hook does not push. |
 | `MEM_SUBAGENT_START_OFF` | off | The sub-agent start hook is switched off by `1` |
+| `MEM_SUBAGENT_TASK_OFF` | off | With `1` the sub-agent start no longer adds the block for the assignment (errors, learnings, duties, procedures, skills that fit the task); the base block stays. |
 | `MEM_WATCH_APPOINTMENTS` | on (when an appointments file exists) | With `off` the watcher's clock does not tick the appointments. |
 | `MEM_WATCH_APPOINTMENTS_SYNC` | off | With `1` the appointment tick also syncs to the outside calendar. |
 
@@ -105,6 +106,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
 | `MEM_SKILLUSAGE_DAYS` | 30 | Days of capture coverage `mem skills usage` needs before it gives a verdict. |
 | `MEM_SKILLUSAGE_TIME_MS` | 8000 | Time cap, in milliseconds, for reading the captures. |
+| `MEM_SUBAGENT_TASK_SECONDS` | 2 seconds | Time budget of the sub-agent start block for the assignment; past it the base block comes alone (the POSIX hook runs a first, tighter pass and falls back). |
 | `MEM_TODAY_SECONDS` | 5 | Session-start hook: seconds `mem today --line` may take. |
 | `MEM_WATCH_BROKEN_WAIT` | 60 | Seconds the watcher waits after a failed poll. |
 | `MEM_WATCH_HANDLER_TIMEOUT` | 300 | Seconds the letter handler may take. |

@@ -62,7 +62,7 @@ const ACCOUNT_LINES_MAX = 2;
 /** … and at most this many bytes (line breaks included). */
 export const ACCOUNT_BYTES_MAX = 400;
 /** The types a subagent may be shown (shared with `subagenttask.mjs`). */
-const SUBAGENT_TYPES = Object.freeze(['error', 'learning', 'duty', 'procedure', 'skill']);
+export const SUBAGENT_TYPES = Object.freeze(['error', 'learning', 'duty', 'procedure', 'skill']);
 
 /** Retirement states after which an entry is no solution any more (a fix `done`/`obsolete` still is one). */
 const GONE = new Set(['superseded', 'discarded', 'disputed']);
@@ -98,7 +98,7 @@ function entryCore(e, type) {
 }
 
 /** Encrypted, or of the category `personal`: never shown by an attachment. In doubt: yes. */
-function isPrivate(ctx, e) {
+export function isPrivate(ctx, e) {
   if (!e || typeof e !== 'object' || e.body_enc) return true;
   if (typeof e.topic === 'string' && e.topic) {
     try {
@@ -167,7 +167,7 @@ function resolvesLinks(root, ids) {
  * `state` being its retirement state (`done`, `obsolete`) or null. Else null. One lookup per id and
  * call (`ctx.entries` remembers).
  */
-function standingEntry(ctx, id) {
+export function standingEntry(ctx, id) {
   if (!ctx.entries) ctx.entries = new Map();
   if (ctx.entries.has(id)) return ctx.entries.get(id);
   let found = null;

@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3738 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3748 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -199,7 +199,8 @@ directory. The section number in brackets is where it is explained.
 | `statequestion.mjs` | freshness for questions that ask "what holds now": a state signal word ("current", "still", "latest", ...; file/config-extensible, English default) dampens older same-`topic` hits among a query's own results — the newest, and anything with no readable `ts`, untouched (M9 parity) |
 | `store.mjs` | generated files provable by hash, without bloating the repo |
 | `stores.mjs` | the usual places people keep files, found by name (10.11) |
-| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped |
+| `subagentstart.mjs` | the SubagentStart hook: any procedure tagged `subagent-start` (a norm only a human can issue) plus a context recap, capped, plus the block for the assignment (`subagenttask.mjs`) |
+| `subagenttask.mjs` | the assignment text of a subagent (read, fail-soft, from its own transcript; the hook input documents none) and the choice of what the memory hands it FOR THAT TASK: at most 4 hits and 1,500 bytes of errors (with their solution line), learnings, duties, procedures and skills, found by the files and content words of the task; nothing encrypted, `personal` or naming a person |
 | `switches.mjs` | which switch names the CLI keeps for itself, and how close a typo may come |
 | `tasks.mjs` | long CLI work as tasks — progress/result/cancel over a real child process (E1.7, 7.4) |
 | `teach.mjs` | what the memory has to say to a newcomer, in five sections |
@@ -575,7 +576,7 @@ return, so a flood cannot become a denial of service or a context bill.
 | `Stop` | after a turn | captures the transcript (model-free) and persists it; checks the last answer against patterns tied to a logged error (see `docs/answer-check.md`) |
 | `PostToolUse` (Bash only) | after a Bash call that exited 0 | when the call's own output carries a failure signature (`# fail 3`, `npm test \| tail`), recalls matching memory — the failure the exit code hid |
 | `PostToolUseFailure` (Bash, Edit, Write) | after a tool call that really failed | recalls earlier errors and learnings of the same class, once per failure per session |
-| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start` and a context recap — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
+| `SubagentStart` | a subagent begins | shows the procedures tagged `subagent-start`, a context recap and — read from the subagent's own transcript — the errors, learnings, duties, procedures and skills that fit ITS TASK (4 hits, 1,500 bytes, nothing personal; `MEM_SUBAGENT_TASK_OFF=1`) — a subagent gets neither `SessionStart` nor `UserPromptSubmit` |
 
 **Why the PreToolUse hook exists**, measured 2026-09-08: recall used to
 hang only on `UserPromptSubmit`, so it fired when the person typed and

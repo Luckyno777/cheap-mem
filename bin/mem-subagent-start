@@ -21,6 +21,10 @@ set -u
 to_slashes() { printf '%s' "${1//\\//}"; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 [ "${MEM_SUBAGENT_START_OFF:-}" = "1" ] && exit 0
+# The time caps below (`capped`) come from the one portable place for them.
+SELF_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
+# shellcheck source=bin/_portable.sh
+. "$SELF_DIR/_portable.sh"
 
 PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
 
@@ -68,7 +72,17 @@ case "$MODULE_FS" in
   *)  MODULE_URL="file:///$MODULE_FS" ;;
 esac
 
-printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" node -e '
+# **The block for the assignment (src/subagenttask.mjs) runs under its own, tighter cap**
+# (MEM_SUBAGENT_TASK_SECONDS, default 2, never above what a start may take). If it
+# overruns (rc 124) or the run fails, the old block (procedures, recap, hint) comes
+# once more WITHOUT the assignment lookup: the extra must never cost the start that
+# existed before it. `env` carries the variables because `timeout` runs a program,
+# not an assignment. MEM_SUBAGENT_TASK_OFF=1 switches only the extra off.
+# (The script text stands twice, once per pass, so that each call keeps the shape
+# `node -e '...' "$..._URL"` that test/before-edit.test.mjs holds every hook to.)
+TASK_SECS="${MEM_SUBAGENT_TASK_SECONDS:-2}"
+case "$TASK_SECS" in ''|*[!0-9]*) TASK_SECS=2 ;; esac
+OUT="$(printf '%s' "$IN" | capped "$TASK_SECS" env CHEAP_MEM_ROOT="$ROOT" node -e '
   let d = "";
   process.stdin.on("data", (c) => { d += c; }).on("end", () => {
     import(process.argv[1]).then(async (m) => {
@@ -76,6 +90,19 @@ printf '%s' "$IN" | CHEAP_MEM_ROOT="$ROOT" node -e '
       if (r) process.stdout.write(JSON.stringify(r));
     }).catch(() => {});
   });
-' "$MODULE_URL" 2>/dev/null
+' "$MODULE_URL" 2>/dev/null)"
+RC=$?
+if [ "$RC" -ne 0 ]; then
+  OUT="$(printf '%s' "$IN" | env CHEAP_MEM_ROOT="$ROOT" MEM_SUBAGENT_TASK_OFF=1 node -e '
+  let d = "";
+  process.stdin.on("data", (c) => { d += c; }).on("end", () => {
+    import(process.argv[1]).then(async (m) => {
+      const r = await m.hookResultFor(process.env.CHEAP_MEM_ROOT, d);
+      if (r) process.stdout.write(JSON.stringify(r));
+    }).catch(() => {});
+  });
+' "$MODULE_URL" 2>/dev/null)"
+fi
+[ -n "$OUT" ] && printf '%s' "$OUT"
 
 exit 0

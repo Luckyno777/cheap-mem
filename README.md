@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 185 modules, 3738
-tests**; as of 2026-09-20, about 76808 lines in `bin/` and `src/`, at
+As of 2026-09-26: **85 CLI commands, 42 MCP tools, 186 modules, 3748
+tests**; as of 2026-09-20, about 77217 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -725,7 +725,10 @@ the needed permissions into `~/.claude/settings.json`:
 - **SubagentStart** — a subagent is its own thread and gets neither
   `SessionStart` nor `UserPromptSubmit`, so this shows it any procedure
   tagged `subagent-start` (a norm only a human can issue — see
-  `mem log procedure --help`; `src/gauges.mjs`) plus a context recap.
+  `mem log procedure --help`; `src/gauges.mjs`) plus a context recap, and
+  the errors, learnings, duties, procedures and skills that fit the
+  subagent's own task (read from its transcript; 4 hits, 1,500 bytes,
+  nothing encrypted or personal).
 - Below an error the recall hooks show, one line gives its newest valid
   solution (`↳ Solution <id>: ...`); a skill offer brings two lines of its
   experience account.

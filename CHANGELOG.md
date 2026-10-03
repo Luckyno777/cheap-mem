@@ -14,6 +14,28 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — a subagent gets what fits its task (port of lucky-mem `unteragent: Auftragsabruf`)
+
+- **`src/subagenttask.mjs`:** at SubagentStart a second block next to the old
+  one (which stays byte-identical): at most 4 hits and 1,500 bytes of errors
+  (with their solution line), learnings, duties, procedures and skills that
+  fit the subagent's task. Lane 0: files the task names (component table, read
+  only); lane 1: the task's content words, the recall hook's bar
+  (`MEM_RETRIEVE_MIN`). Never encrypted entries, entries of the category
+  `personal`, entries naming a person of `global/people.yaml`, a closed duty or
+  any other type.
+- **The task text is not in the documented hook input** (only `agent_id` and
+  `agent_type`; the old `j.prompt` was an unproven assumption, and the workflow
+  trigger that hung on it ran into nothing). It is read, fail-soft, from the
+  subagent's own transcript (`<parent transcript>/<session>/subagents/agent-<id>.jsonl`,
+  first user line; observed, not documented). The workflow match uses it too.
+- **Time:** `MEM_SUBAGENT_TASK_SECONDS` (default 2). `bin/mem-subagent-start`
+  runs a first pass under that cap and, on rc 124 or a failure, the old block
+  alone; `MEM_SUBAGENT_TASK_OFF=1` switches only the extra off. (The PowerShell
+  twin has the in-process cap only.)
+- `test/subagent-task.test.mjs`; red proof against the fixed base commit, a
+  positive control beside every "never".
+
 ### Added — the solution under its error, the account under a skill offer (port of lucky-mem `abrufanhang`, L3 + L4)
 
 - **L3, `src/recallattach.mjs`:** where the question recall, the after-failure
