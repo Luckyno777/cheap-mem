@@ -400,6 +400,7 @@ export function checkAll(root) {
   f.push(checkBehind(root));
   f.push(checkGitState(root));
   f.push(checkHookRootStranded(root));
+  f.push(checkCaptureRejected(root));
   f.push(checkIntegrity(root));
   f.push(checkEntryForm(root));
   f.push(checkGitignoreEffective(root));
@@ -1999,6 +2000,47 @@ function checkHookRootStranded(root) {
   return finding('hook-root-stranded', LEVEL.WARN,
     `${text} — fast-forwardable`,
     `git -C ${root} push origin HEAD:${b}`);
+}
+
+/**
+ * Does a raw capture sit staged in the index without ever having been
+ * committed? (error 1rmp6w45nul6, mirrored from lucky-mem's
+ * `rohfang-abgewiesen`.)
+ *
+ * **The incident (2026-10-02/03, lucky-mem side).** The stop hook runs
+ * `git add raw/ raw-record.jsonl` and commits at once. When the pre-commit
+ * rejects the commit, the hook swallows the error (a stop hook must never
+ * block). Two cloud sessions lost their whole raw capture that way,
+ * silently: the pre-commit took the session's own id for an env secret.
+ * `hook-root-stranded` sees the leftover only as "unstaged" and advises a
+ * push, which cannot save anything here: there is no commit.
+ *
+ * **What this measures.** Paths under `raw/` and `raw-record.jsonl` that
+ * are in the index (`git diff --cached`). The stop hook commits them in
+ * the same breath; whatever still stands there was rejected. The index IS
+ * the count, no marker file.
+ *
+ *   good     nothing staged.
+ *   warning  capture paths staged and not committed; the advice shows how
+ *            to SEE the reason (type names only, never values).
+ *   unknown  git not runnable.
+ *
+ * Read-only.
+ */
+function checkCaptureRejected(root) {
+  const out = quietRun('git', ['-C', root, 'diff', '--cached', '--name-only', '--',
+    'raw/', 'raw-record.jsonl']);
+  if (out === null) return finding('capture-rejected', LEVEL.UNKNOWN, 'git not runnable');
+  const paths = out.split('\n').filter(Boolean);
+  if (paths.length === 0) {
+    return finding('capture-rejected', LEVEL.GOOD, 'no raw capture staged and uncommitted');
+  }
+  return finding('capture-rejected', LEVEL.WARN,
+    `${paths.length} raw-capture path(s) staged but not committed: the commit was probably `
+    + 'rejected by the pre-commit (the stop hook swallows the error). The capture stays out until this is fixed',
+    `See the reason (commits nothing): cd ${root} && bash hooks/pre-commit  `
+    + '(it names only file and type, never the value). A real secret: do not commit, rotate the key. '
+    + 'A false alarm (session id): check the hook state (hooks/pre-commit, src/redaction.mjs), then commit again.');
 }
 
 // --- integrity of the log itself -------------------------------------------
