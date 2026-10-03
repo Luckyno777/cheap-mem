@@ -748,7 +748,7 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
       try { p = memory.logPath(root, type, project); }
       catch { continue; }
       if (!fs.existsSync(p)) continue;
-      const lines = fs.readFileSync(p, 'utf8').split('\n');
+      const lines = memory.withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         if (!lines[i].trim()) continue;
         let e;

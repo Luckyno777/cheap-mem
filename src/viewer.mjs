@@ -45,6 +45,7 @@ import * as agentsModule from './agents.mjs';
 import * as storeModule from './store.mjs';
 import * as procedure from './procedure.mjs';
 import * as bidi from './bidi.mjs';
+import { maskText } from './outputguard.mjs';
 import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
@@ -105,6 +106,12 @@ function projectOfEntry(e) {
 // above: a pure function of ONE entry that `getEntryFast()` needs
 // without writing the headline rule out a second time.
 export function headline(e) {
+  // Output guard: the headline feeds the viewer, the dashboard, the pages and
+  // the compact pass, so known key shapes are masked here, once, before any caller cuts it.
+  return maskText(buildHeadline(e));
+}
+
+function buildHeadline(e) {
   const bits = [];
   // **A procedure does not come out of the viewer without its author
   // either.** The viewer is the third display path next to CLI and
@@ -431,7 +438,8 @@ function summarize(rows) {
  * pattern that left an eighth (this one) with none at all.
  */
 function sanitizeDeep(value) {
-  if (typeof value === 'string') return bidi.visible(value);
+  // The output guard rides along: the viewer file is an output surface too.
+  if (typeof value === 'string') return bidi.visible(maskText(value));
   if (Array.isArray(value)) return value.map(sanitizeDeep);
   if (value && typeof value === 'object') {
     const out = {};

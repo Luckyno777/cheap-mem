@@ -7,7 +7,7 @@ installation — it is the tool that creates memories.
 
 - `bin/mem`            — the CLI's entry point (Node, ESM, no dependencies):
                          argument pre-scan, the merge of the six command
-                         groups, dispatch. About 200 lines, and it stays
+                         groups, dispatch. About 233 lines, and it stays
                          that way — a handler that lands back in here
                          belongs in its group. It was 4503 before the
                          split on 2026-09-18, the largest file here.

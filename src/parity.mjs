@@ -81,7 +81,22 @@ function git(args, root) {
   // maxBuffer raised (default 1 MB): readDoneLines (W9) scans the WHOLE
   // history with full commit bodies, no cutoff — lucky-mem alone is
   // past 5000 commits and blew the default (ENOBUFS, 2026-09-29).
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  //
+  // **stderr stays in the process (2026-10-02).** Without `stdio` an
+  // `execFileSync` child INHERITS its stderr: an expected failure such as
+  // `cat-file -e <cutoff>^{commit}` in a fresh or shallow clone printed a raw
+  // `fatal: Not a valid object name ...` line from `mem doctor`, although the
+  // finding reports the case properly as "not measurable". The caller sees the
+  // failure as an exception; the child's message sits in `e.stderr`.
+  return execFileSync('git', args, {
+    cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+/** The reason when the cutoff is missing from this history (fresh or shallow clone). */
+function cutoffMissingReason(cutoff) {
+  return `cutoff ${cutoff.slice(0, 12)} not reachable in local history (fresh or shallow clone: `
+    + '`git fetch --unshallow` makes the parity debt measurable) — not measurable, not zero';
 }
 
 /**
@@ -202,7 +217,7 @@ export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   if (!cutoffMeasurable(root, cutoff)) {
     return {
       measurable: false,
-      reason: `cutoff ${cutoff.slice(0, 12)} not reachable in local history (shallow?)`,
+      reason: cutoffMissingReason(cutoff),
     };
   }
   const commits = commitsSince(root, cutoff);
@@ -234,7 +249,7 @@ export function evaluate(root = DEFAULT_ROOT, cutoff = CUTOFF) {
  */
 export function openItems(root = DEFAULT_ROOT, cutoff = CUTOFF) {
   if (!cutoffMeasurable(root, cutoff)) {
-    return { measurable: false, reason: `cutoff ${cutoff.slice(0, 12)} not reachable in local history (shallow?)` };
+    return { measurable: false, reason: cutoffMissingReason(cutoff) };
   }
   const commits = commitsSince(root, cutoff);
   const codeCommits = commits.filter(needsLine);

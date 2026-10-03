@@ -37,6 +37,7 @@ import path from 'node:path';
 // O2: straight from the leaf module that is the ONE source for every
 // display and for the indexed field set (`retrieval.mjs` re-exports it).
 import { BODY_FIELDS, NON_BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
+import { maskEntry } from './outputguard.mjs';
 
 /** Characters of text per hit (the line's prefix — day, id, lane — not counted). */
 export const LINE_BUDGET = 300;
@@ -90,7 +91,8 @@ function laneOf(source) {
  * Returns `{ line, cut, id, source }`.
  */
 export function renderHit(hit, { budget = LINE_BUDGET } = {}) {
-  const e = (hit && hit.entry) ? hit.entry : (hit || {});
+  // Output guard: key shapes are masked before any cut (src/outputguard.mjs).
+  const e = maskEntry((hit && hit.entry) ? hit.entry : (hit || {}));
   const source = (hit && hit.entry && hit.source) ? `${hit.source}:${hit.line ?? 0}` : '';
   const day = String(e.ts || '').slice(0, 10);
   const id = typeof e.id === 'string' && e.id ? e.id : null;

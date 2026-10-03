@@ -14,6 +14,24 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — an output guard, BOM-tolerant reading, id-less lines in the doctor (port of the lucky-mem atlas B14 fixes)
+
+- **Output guard (`src/outputguard.mjs`).** A secret that got into a drawer past
+  the write path used to come out in the clear of `mem find`, `show`, `when`,
+  `context`, `retrieve`, the viewer file, the recall hook and the MCP bridge.
+  Every render path now masks known key shapes as `[REDACTED:type]` through
+  `redaction.redact` (one pattern list, no second one), before any cut. The
+  line on disk is untouched; `mem doctor` still reports it. Red proof against
+  the pinned old state in `test/output-guard.test.mjs`.
+- **A UTF-8 BOM at the start of a drawer is tolerated when reading**
+  (`memory.withoutBom`): the first entry was invisible to `find`, `show`,
+  `when` and the viewer, and the doctor called it a broken line. Nothing writes
+  a BOM, the file is never changed. `test/read-bom.test.mjs`.
+- **Doctor: `entry-form` reports a line without an id** (warning, with
+  `<file>:<line>`; handled by a finding of class `idless-line`), and `mem
+  doctor` prints no raw `fatal:` line on stderr in a fresh or shallow clone
+  (the parity cutoff is "not measurable, not zero"). `test/doctor-idless-and-quiet.test.mjs`.
+
 ### Changed — a store the full build cannot handle gets a real answer and a condensed 3D atlas (atlas-pass)
 
 - **ONE pass replaces the light head above 64 MB of drawers.** The compact

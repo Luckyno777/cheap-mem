@@ -23,6 +23,7 @@ import * as inbox from '../inbox.mjs';
 import * as switches from '../switches.mjs';
 import * as authority from '../authority.mjs';
 import * as onboarding from '../onboarding.mjs';
+import { maskOutput } from '../outputguard.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** The root of the PACKAGE (not of the memory): src/cli -> .. -> .. */
@@ -80,10 +81,30 @@ export async function captureOutput(fn) {
   return buffer.join('');
 }
 
+// **Output guard (src/outputguard.mjs).** The commands that show entry
+// content turn this on once, before the handler runs; everything they print
+// then passes the mask for known key shapes. Commands that show no entry
+// content (help, doctor, counts) pay nothing.
+let guardOutput = false;
+/**
+ * The commands that print entry content. They run with the output guard on:
+ * known key shapes come out as `[REDACTED:type]`, even when the entry sits
+ * in a drawer past the write path. A new read command that prints entry
+ * content belongs in this list.
+ */
+const READ_COMMANDS = new Set([
+  'find', 'find-embed', 'find-hybrid', 'retrieve', 'explain', 'when', 'show', 'browse', 'topics', 'topic',
+  'context', 'digest', 'core', 'workflow', 'snippet', 'links', 'facts', 'experiences', 'duties',
+  'procedures', 'today', 'board', 'questions', 'error-fixes', 'component', 'viewer', 'raw', 'user',
+]);
+/** Switch the output guard on for a read command (bin/mem calls this once, before the handler). */
+export function guardOutputFor(command) { guardOutput = READ_COMMANDS.has(command); }
+
 export function out(t) {
+  const text = guardOutput ? maskOutput(t) : t;
   const c = CAPTURE.getStore();
-  if (c) { c.push(`${t}\n`); return; }
-  process.stdout.write(`${t}\n`);
+  if (c) { c.push(`${text}\n`); return; }
+  process.stdout.write(`${text}\n`);
 }
 export function die(t) {
   if (CAPTURE.getStore()) throw new CapturedDie(String(t));

@@ -11,11 +11,14 @@
 import * as procedure from './procedure.mjs';
 import * as bidi from './bidi.mjs';
 import * as bodyfields from './bodyfields.mjs';
+import { maskEntry } from './outputguard.mjs';
 
 /** Body fields `shortLine` renders in a form of its own; the rest comes from `bodyfields.restOfBody`. */
 const SHORT_LINE_OWN_FORM = Object.freeze(['title', 'choice', 'text', 'why', 'rule', 'question']);
 
-export function shortLine(e) {
+export function shortLine(e0) {
+  // Output guard: key shapes are masked before the line is cut (src/outputguard.mjs).
+  const e = e0 && typeof e0 === 'object' ? maskEntry(e0) : e0;
   const parts = [];
   // **A procedure never comes out without its marking.**
   //

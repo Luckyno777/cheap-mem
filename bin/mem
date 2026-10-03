@@ -19,7 +19,7 @@ import * as memory from '../src/memory.mjs';
 
 import {
 
-  parseArgs, out, die, } from '../src/cli/shell.mjs';
+  parseArgs, out, die, guardOutputFor, } from '../src/cli/shell.mjs';
 import {
 
 } from '../src/cli/githook.mjs';
@@ -215,6 +215,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
 
 const cmd = Object.hasOwn(COMMANDS, head) ? COMMANDS[head] : undefined;
 if (!cmd) die(`Unknown command: '${head}'. Run 'mem' with no args for help.`);
+guardOutputFor(head); // the read commands run with the output guard on (src/cli/shell.mjs)
 try {
   await cmd({ rest: leftover, args });
 } catch (e) {
