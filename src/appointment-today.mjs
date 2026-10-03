@@ -34,7 +34,6 @@ const NO_RESPONSE_MS = 2 * 3600000;
 export const LINE_MAX_BYTES = 160;
 const ACTION_WINDOW_MS = 72 * 3600000;
 const WEEKDAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-const pad = (n) => String(n).padStart(2, '0');
 
 function letters(root) {
   const participants = A.participantsOf(root);
@@ -42,7 +41,7 @@ function letters(root) {
 }
 
 /** The state of each action fired in the last 72 h (a wake-up), from the inbox states. */
-export function actionStates(root, state, nowMs, zone) {
+function actionStates(root, state, nowMs, zone) {
   const fired = state.intents.filter((a) => a.outcome === 'woke' && nowMs - Date.parse(a.ts) <= ACTION_WINDOW_MS);
   if (!fired.length) return [];
   const mail = letters(root);

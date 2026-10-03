@@ -14,6 +14,33 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — a calendar inside the memory: reminders, a day briefing, planned agent actions, and an outlet into your own calendar (kalender-cm)
+
+- **`mem appointment new|list|show|cancel|move|confirm|due|tick|cap|today|calendar`**
+  (`src/appointments.mjs`, `appointment-clock.mjs`, `appointment-time.mjs`,
+  `appointment-today.mjs`, `appointment-invite.mjs`), ported from lucky-mem's
+  appointment clock in English. Append-only `appointments/`. Reminders are notes to
+  the human participant; an action is a letter with a task to an agent; a briefing
+  is the day list as a letter, by code. Time expressions are English ("tomorrow
+  9:00", "weekdays 7:00"), the zone is `timezone` in `.mem/config.json` (else
+  `CHEAP_MEM_TZ`, else the system zone), UTC is stored.
+- **Rights.** Only `--authority user` arms an action, confirms a proposal or sets a
+  cap; agents and headless runs only propose. The human's own planning is the
+  permission for the action's one letter (a single grant line in
+  `inbox/permissions.jsonl`), with no extra rights for the woken agent.
+- **Exactly once**, late instead of a storm, a past action never fires, a daily cap
+  on agent wake-ups and another on agent proposals. `bin/mem-watch` ticks the clock;
+  `MEM_WATCH_APPOINTMENTS=off|MEM_WATCH_APPOINTMENTS_SYNC=1`.
+- **Calendar outlet** (off until configured): SMTP with an `.ics` (RFC 5545, a
+  `VTIMEZONE` derived for any zone) or the Google Calendar API with a service
+  account; journal with backoff and idempotence; secrets only from 0600 files; the
+  doctor finding `appointment-invite`. Microsoft 365 often has SMTP AUTH disabled; a
+  Graph route is not built. On the Google route the calendar owner's default
+  reminders apply, not the service account's.
+- **Surfaces**: MCP tools `mem_appointment_new|list|cancel`, a Calendar tab and a
+  "Today in the calendar" card in the dashboard (read only,
+  `/dashboard/appointments.json`), a digest-prompt section. See `docs/appointments.md`.
+
 ### Changed — a store the full build cannot handle gets a real answer and a condensed 3D atlas (atlas-pass)
 
 - **ONE pass replaces the light head above 64 MB of drawers.** The compact

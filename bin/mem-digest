@@ -291,6 +291,13 @@ Work like this:
    command names an existing project (name too alike), use that one. A
    'mem log --project <unknown>' is refused: log the same entry again,
    without --project or with the nearest project - never drop it.
+   Appointments (DIGEST.md, section 'Appointments'): ONLY when the user
+   asked, in their own words, to be reminded of something at a time.
+   Record it as a PROPOSAL (nothing in a digest run is ever armed):
+     mem appointment new --at '<time expression>' --title '<short>' --relative-to '<ISO time of the user line>' --requested-by user --quote '<their sentence, verbatim>'
+   Relative times count from the time of that line, not from now. Check
+   'mem appointment list --all' for the same thing first. If in doubt,
+   record nothing.
 4. Close any duty that is now fulfilled (mem duties lists them)
 5. Synthesise — ONLY when a pattern is genuinely there (usually none):
    If, across the entries you just wrote and ones you find with

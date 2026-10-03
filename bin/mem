@@ -179,6 +179,11 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  store put|list|get|verify                    files the memory keeps by hash");
   out("  observations [--last N]                      what it injected, and when (local, never committed)");
   out("");
+  out("Calendar (appointments, reminders, planned agent actions):");
+  out("  appointment new --at \"tomorrow 9:00\" --title \"...\" [--repeat R] [--remind-before 15m] [--wake A --task \"...\"]");
+  out("  appointment list|show|cancel|move|confirm|due|tick|cap|today|calendar   see `mem appointment --help`");
+  out("                    a human arms an action with --authority user; agents only propose; the watcher ticks the clock");
+  out("");
   out("Health and limits:");
   out("  guard run [--duty]                           every latch: is the error back?");
   out("  guard quote                                  share of errors with a guard, empty test scaffolds");

@@ -190,6 +190,7 @@ function readPassword(config) {
 
 // --- iCalendar (RFC 5545) ------------------------------------------------------------
 
+// eslint-disable-next-line no-control-regex
 const STRIP_CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
 /** TEXT value escaped: backslash, semicolon, comma, newline. */
 function icsText(s) {
@@ -197,7 +198,7 @@ function icsText(s) {
 }
 
 /** Fold a content line to at most 75 octets (UTF-8 characters stay whole); a continuation starts with a space. */
-export function foldLine(line) {
+function foldLine(line) {
   const out = []; let cur = ''; let len = 0;
   for (const ch of line) {
     const b = Buffer.byteLength(ch);
@@ -278,7 +279,7 @@ export function vtimezone(zone, startMs) {
 }
 
 /** Stable UID per appointment id (tests and cancellations rely on it). */
-export const uidOf = (id) => `${id}@cheap-mem`;
+const uidOf = (id) => `${id}@cheap-mem`;
 
 const isPrivate = (a) => a.private === true || a.title === A.PRIVATE_TITLE;
 
@@ -316,7 +317,7 @@ const b64 = (s) => Buffer.from(s, 'utf8').toString('base64').replace(/(.{76})/g,
 const headerWord = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`);
 
 /** Short plain text to go with the invitation; private: no details. */
-export function plainText({ a, method, sequence, zone, beforeMin }) {
+function plainText({ a, method, sequence, zone, beforeMin }) {
   const priv = isPrivate(a);
   const n = Number.isInteger(a.beforeMin) && a.beforeMin > 0 ? a.beforeMin : beforeMin;
   const head = method === 'CANCEL' ? 'Cancelled' : (sequence > 0 ? 'Moved / changed' : 'Reminder');
@@ -414,6 +415,7 @@ export async function sendSmtp({ config, password, from, to, raw, timeLimitMs = 
       sock.removeAllListeners('data'); sock.removeAllListeners('close'); sock.removeAllListeners('error');
       sock = tls.connect({ socket: sock, ...tlsOpt });
       await new Promise((ok, no) => { sock.once('secureConnect', ok); sock.once('error', (e) => no(new InviteError(/cert|self.signed|unable to verify|hostname/i.test(e.message) ? 'certificate' : 'connection', 'TLS handshake failed'))); });
+      // eslint-disable-next-line require-atomic-updates
       wire = new Wire(sock);
       caps = await ehlo();
     }
@@ -517,7 +519,7 @@ function dueList(state, journal, nowMs, route) {
 }
 
 /** Wait after the n-th failed attempt, in minutes: 1, 2, 4 ... up to 60. */
-export const backoffMin = (n) => Math.min(2 ** Math.max(0, n - 1), BACKOFF_MAX_MIN);
+const backoffMin = (n) => Math.min(2 ** Math.max(0, n - 1), BACKOFF_MAX_MIN);
 
 function ready(e, nowMs, noBackoff) {
   if (!e) return true;
@@ -565,7 +567,7 @@ function readKey(config) {
 }
 
 /** JWT (RS256) for the token exchange, signed with node:crypto. */
-export function buildJwt({ email, key }, nowMs, tokenUrl = GOOGLE_TOKEN_URL) {
+function buildJwt({ email, key }, nowMs, tokenUrl = GOOGLE_TOKEN_URL) {
   const iat = Math.floor(nowMs / 1000);
   const head = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claims = b64url(JSON.stringify({ iss: email, scope: GOOGLE_SCOPE, aud: tokenUrl, iat, exp: iat + 3600 }));

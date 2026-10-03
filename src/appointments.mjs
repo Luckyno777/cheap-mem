@@ -93,6 +93,7 @@ const MAX_TITLE = 200;
 const MAX_TEXT = 2000;
 const MAX_TASK = 1000;
 const MAX_QUOTE = 200;
+// eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/;
 const SOURCES = ['cli', 'dashboard', 'mcp', 'session', 'reflector'];
 
@@ -370,7 +371,7 @@ function checkField(name, value, max, { required = false, single = true } = {}) 
 const titleKey = (t) => String(t ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
 /** Is there already an appointment with the same title and (at most 10 min apart) time — whoever made it? */
-export function findDuplicate(state, { title, atMs, kind = 'reminder' }, zone) {
+function findDuplicate(state, { title, atMs, kind = 'reminder' }, zone) {
   const t = titleKey(title);
   for (const x of state.items.values()) {
     if (x.status === 'cancelled' || x.kind !== kind || titleKey(x.title) !== t) continue;
@@ -384,7 +385,8 @@ export function findDuplicate(state, { title, atMs, kind = 'reminder' }, zone) {
  * Returns `{ id, status, duplicate, dropped, line, warnings }`. `actor` comes from `actorFrom`.
  *
  *   kind          reminder (default) | briefing
- *   source        cli | dashboard | mcp | session | reflector (for checking, not for permission)
+ *   source        cli | dashboard | mcp | session | reflector (for checking, not for permission); a headless run
+ *                 (MEM_HEADLESS) is always `reflector` and always makes a proposal, quote or not
  *   requestedBy   { by: 'user', quote } — a session records the user's explicit request; a
  *                 reminder is then active at once, an action stays `proposed` all the same
  *   reminderActive  false: even a reminder is only a proposal (an agent without the user's request)
@@ -401,6 +403,9 @@ export function create(root, {
 }) {
   const nowMs = now instanceof Date ? now.getTime() : Number(now);
   const zone = zoneOf(root, env);
+  // A headless run (the digest, the reflector, a woken session) cannot verify the user's words against
+  // anything: it records the quote as evidence, but even a plain reminder stays a PROPOSAL for a human to see.
+  if (env.MEM_HEADLESS) { source = 'reflector'; reminderActive = false; }
   if (kind !== 'reminder' && kind !== 'briefing') throw new AppointmentError('INVALID', `kind is reminder or briefing, not '${kind}'`);
   if (!SOURCES.includes(source)) throw new AppointmentError('INVALID', `source is one of ${SOURCES.join(' | ')}, not '${source}'`);
   let t = checkField('title', title || (kind === 'briefing' ? 'Today in the calendar' : ''), MAX_TITLE, { required: true });

@@ -53,7 +53,7 @@
  "src/procedure.mjs": 2,
  "src/pwa.mjs": 2,
  "src/raw.mjs": 3,
- "src/recallhook.mjs": 3,
+ "src/recallhook.mjs": 2,
  "src/recallrender.mjs": 4,
  "src/recallserver-place.mjs": 4,
  "src/recallsignal.mjs": 1,

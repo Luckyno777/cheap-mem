@@ -113,7 +113,7 @@ test('every fetch() in the script goes to a closed list of this server\'s routes
     // gold (2026-09-29, N9): one rating of today's retrieval questions — write gate + Origin/Host + login, off-git file.
     '/dashboard/gold-verdict',
     // project package (2026-10-01, parity with lucky-mem): read-only GET, the same build and gates as /dashboard.json.
-    '/dashboard/project-package.json', '/dashboard/skills.json']);
+    '/dashboard/project-package.json', '/dashboard/skills.json', '/dashboard/appointments.json']);
   const calls = [...JS.matchAll(/fetch\(\s*([`'])([^`'?$]*)/g)].map((m) => m[2]);
   // formPost(path, …) is the one wrapper for form writes.
   const posts = [...JS.matchAll(/formPost\('([^']+)'/g)].map((m) => m[1]);

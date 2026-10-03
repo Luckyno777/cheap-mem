@@ -44,7 +44,7 @@ export function systemZone() {
 }
 
 /** True when Intl knows the zone. */
-export function isZone(name) {
+function isZone(name) {
   if (typeof name !== 'string' || !name) return false;
   try { new Intl.DateTimeFormat('en-US', { timeZone: name }); return true; } catch { return false; }
 }
@@ -215,8 +215,8 @@ function parseRaw(input, { now, zone }) {
   // A leading repeat word.
   let repeat = null;
   let m;
-  if ((m = /^(?:every )?(daily|day|weekdays|weekday|weekly|week|monthly|month)\b/.exec(s))) {
-    const w = m[1];
+  if ((m = /^(?:(?:every )?(daily|weekdays|weekday|weekly|monthly)|every (day|week|month))\b/.exec(s))) {
+    const w = m[1] ?? m[2];
     repeat = /^(daily|day)$/.test(w) ? 'daily' : /^weekday/.test(w) ? 'weekdays' : /^(weekly|week)$/.test(w) ? 'weekly' : 'monthly';
     s = s.slice(m[0].length).trim();
     if (!s) return null;
@@ -237,7 +237,7 @@ function parseRaw(input, { now, zone }) {
 
   // Date.
   let date = null; // { year, month, day, noYear }
-  if ((m = /\b(\d{4})-(\d{2})-(\d{2})\b/.exec(s))) {
+  if ((m = /\b(\d{4})-(\d{2})-(\d{2})(?!\d)/.exec(s))) {
     if (!realDay(+m[1], +m[2], +m[3])) return null;
     date = { year: +m[1], month: +m[2], day: +m[3], noYear: false };
     s = s.replace(m[0], ' ');
