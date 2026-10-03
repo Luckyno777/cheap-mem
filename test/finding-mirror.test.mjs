@@ -229,7 +229,7 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-10-02',
+  capturedAt: '2026-10-03',
   source: 'lucky-mem/src/doktor.mjs',
   // P11 (2026-09-28/29): 'korrektur-verliert-inhalt' added on the
   // lucky-mem side (paired in shared/finding-map.jsonl with this
@@ -280,23 +280,31 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // Categories (2026-10-02): 'kategorien' added on the lucky-mem side (share
   // of topics without a category, open category proposals), mapped as a gap
   // until this house gets the category layer.
+  // Calendar out (2026-10-03): 'termin-mail' added on the lucky-mem side
+  // (calendar invitations/entries from the appointment clock), mapped as a
+  // lucky-mem-only finding until this house gets the mechanism.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise', 'befund-gleichstand',
     'behauptung-ohne-beleg', 'bestand', 'bestritten', 'briefkasten', 'bruecke',
-    'dispatcher', 'doku-bilder-frische', 'dubletten', 'eintragsform', 'erledigt-ohne-beleg',
-    'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt', 'fehler-verknuepft',
-    'fasser', 'fasser-ausbeute', 'fasser-timer', 'frageworte', 'geheimnis-altfaenge', 'git',
-    'git-hook', 'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt',
-    'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag', 'kategorien', 'kennzahlen-gleich',
-    'klingel', 'korrektur-verliert-inhalt', 'latenz', 'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
-    'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz', 'post-anfragen',
-    'post-liegt', 'post-stau', 'post-ungepusht', 'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag', 'riegel-prueft-das-falsche-verdacht', 'rohfang',
-    'rueckstand', 'sicherung', 'skill-nachschaerfen', 'skill-nutzung', 'skill-wirkung', 'startlast', 'stop-hook', 'tagform', 'themen-guete',
-    'transkript-schema', 'uebernahme-verwaist', 'verfahren-wirkung', 'waechter', 'waechter-fassung', 'waisen',
-    'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit', 'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff',
-    'zustellnachweis', 'zustellschuld', 'zustellung',
+    'dispatcher', 'doku-bilder-frische', 'dubletten', 'eintragsform',
+    'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl', 'fakt-konflikte', 'fang-doppelt',
+    'fasser', 'fasser-ausbeute', 'fasser-timer', 'fehler-verknuepft', 'frageworte',
+    'geheimnis-altfaenge', 'git', 'git-hook', 'haken-fehlen', 'haken-wurzel-stau',
+    'hook-doppelt', 'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag',
+    'kategorien', 'kennzahlen-gleich', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
+    'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
+    'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz',
+    'post-anfragen', 'post-liegt', 'post-stau', 'post-ungepusht',
+    'post-wartet-erlaubnis', 'redaktion', 'regel-vorschlag',
+    'riegel-prueft-das-falsche-verdacht', 'rohfang', 'rueckstand', 'sicherung',
+    'skill-nachschaerfen', 'skill-nutzung', 'skill-wirkung', 'startlast', 'stop-hook',
+    'tagform', 'termin-mail', 'themen-guete', 'transkript-schema',
+    'uebernahme-verwaist', 'verfahren-wirkung', 'waechter', 'waechter-fassung',
+    'waisen', 'wiederholung', 'wiederholungs-hinweis', 'wirksamkeit',
+    'workflow-ohne-ausloeser', 'wurzel', 'zeilenzugriff', 'zustellnachweis',
+    'zustellschuld', 'zustellung',
   ]),
 });
 
