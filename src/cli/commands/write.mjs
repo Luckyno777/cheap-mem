@@ -31,6 +31,7 @@ import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
 import * as errorfixes from '../../errorfixes.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
+import * as expand from '../../expand.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -368,9 +369,10 @@ export const COMMANDS = {
     // function, the same one mem_log over the bridge uses. Until then
     // this path wrote a secret pattern to disk unredacted and leaned on
     // the commit scan.
-    const { path: p, entry, findings } = memory.logCheckedEntry(root, type, data, { project: args.project ?? null });
+    const { path: p, entry, findings, askedAsDropped } = memory.logCheckedEntry(root, type, data, { project: args.project ?? null });
     out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
     if (findings.length) warn(memory.findingsLine(findings));
+    { const w = expand.droppedLine(askedAsDropped); if (w) warn(w); }
     out(`  id: ${entry.id}`);
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);

@@ -30,6 +30,8 @@ import * as capabilityMod from './capability.mjs';
 import * as probescaffold from './probescaffold.mjs';
 import * as redaction from './redaction.mjs';
 import { maskEntry } from './outputguard.mjs';
+import * as expand from './expand.mjs';
+import { BODY_FIELDS } from './bodyfields.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1165,9 +1167,26 @@ export function logCheckedEntry(root, type, data, options = {}) {
     if (MACHINE_FIELDS.has(k)) stamps[k] = v;
     else content[k] = v;
   }
+  // `asked_as` (src/expand.mjs): `--asked-as` arrives hyphenated, the entry
+  // stores the underscore form. Length, count, question form and copies
+  // from the entry are checked BEFORE the redaction, so it sees the cleaned
+  // list. Never a refusal: what does not fit is dropped and reported.
+  if (Object.hasOwn(content, 'asked-as')) {
+    content[expand.FIELD] ??= content['asked-as'];
+    delete content['asked-as'];
+  }
+  let askedAsDropped = [];
+  if (content[expand.FIELD] !== undefined) {
+    const own = BODY_FIELDS.map((f) => (Array.isArray(content[f]) ? content[f].join(' ') : content[f]))
+      .filter((v) => typeof v === 'string').join('\n');
+    const c = expand.check(content[expand.FIELD], own);
+    askedAsDropped = c.dropped;
+    if (c.list.length) content[expand.FIELD] = c.list;
+    else delete content[expand.FIELD];
+  }
   const { object, found } = redaction.redactEntry(content);
   const { path: p, entry } = logEntry(root, type, { ...object, ...stamps }, options);
-  return { path: p, entry, findings: found };
+  return { path: p, entry, findings: found, askedAsDropped };
 }
 
 /** A redaction's findings as one line, the same for the CLI and the bridge. */
