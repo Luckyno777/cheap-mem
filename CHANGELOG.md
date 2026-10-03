@@ -14,6 +14,18 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the before-edit journal names file and tool (L1); Changed — the skill-effect window (L5) (port of lucky-mem `vorher-hook`, 2026-10-03)
+
+- **L1:** a before-edit journal line carries `file` (the relative path, two segments, never
+  absolute, never `..`, never content) and `tool` (Edit, Write, Bash, ...), in the bash and the
+  PowerShell hook. Without them "too weak" could never be checked afterwards. Other lines stay
+  byte-identical (`injection.fileNormal`). `test/before-edit-journal-file.test.mjs`.
+- **L5:** `mem skills effect` counted an offer as "not fetched" when the capture reached past its
+  window, whatever its start. Every offer made before the start of the one readable capture of its
+  session therefore counted (in the sibling house "0 of 87" was a measuring artefact, really
+  observed: 0 of 95). Now the capture must have BEGUN before the offer too, and several pieces
+  count only as far as they join without a gap. `test/skill-effect-coverage.test.mjs`.
+
 ### Added — a subagent gets what fits its task (port of lucky-mem `unteragent: Auftragsabruf`)
 
 - **`src/subagenttask.mjs`:** at SubagentStart a second block next to the old

@@ -155,6 +155,7 @@ journal_book() {
   # `$4` (optional): the ids of the solutions shown below errors (L3), comma separated.
   MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION:-}" \
     MEM_J_REASON="$1" MEM_J_HITS="$2" MEM_J_BYTES="$3" MEM_J_IDS="${4:-}" MEM_J_START="$MEM_BE_START_MS" \
+    MEM_J_FILE="${QUERY:-}" MEM_J_TOOL="${TOOL_NAME:-}" \
     node -e '
       import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
         const start = Number(process.env.MEM_J_START);
@@ -165,6 +166,7 @@ journal_book() {
           bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
           searched: null, sources: [],
           ids: (process.env.MEM_J_IDS || "").split(",").filter(Boolean),
+          file: process.env.MEM_J_FILE || undefined, tool: process.env.MEM_J_TOOL || undefined,
           durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
         });
       }).catch(() => {});' >/dev/null 2>&1 || true
@@ -267,13 +269,15 @@ READING="$(printf '%s' "$IN" | node -e '
     const parts = String(p).split(/[\\/]/).filter(Boolean);
     const query = parts.slice(-2).join("/");
     if (query.length < 4) process.exit(0);
-    process.stdout.write(JSON.stringify({ query, session: String(j.session_id ?? "none") }));
+    process.stdout.write(JSON.stringify({ query, session: String(j.session_id ?? "none"), tool: String(j.tool_name ?? "") }));
   })' "$BT_URL" 2>/dev/null)"
 [ -z "$READING" ] && { trace "no-readable-path${IS_BASH:+ (bash: no written file)}"; exit 0; }
 
 field() { printf '%s' "$READING" | node -e "let d=\"\";process.stdin.on(\"data\",c=>d+=c).on(\"end\",()=>process.stdout.write(String(JSON.parse(d).$1 ?? \"\")))" 2>/dev/null; }
 QUERY="$(field query)"
 SESSION="$(field session)"
+# L1: the tool that set the hook off goes into the journal line next to the file (`QUERY`, two segments, relative).
+TOOL_NAME="$(field tool)"
 [ -z "$QUERY" ] && { trace "no-query"; exit 0; }
 
 # Once per file per session — but not SILENTLY.

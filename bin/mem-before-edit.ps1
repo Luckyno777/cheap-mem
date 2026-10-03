@@ -126,6 +126,7 @@ $BookScript = @'
       bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
       searched: null, sources: [],
       ids: (process.env.MEM_J_IDS || "").split(",").filter(Boolean),
+      file: process.env.MEM_J_FILE || undefined, tool: process.env.MEM_J_TOOL || undefined,
       durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
     });
   }).catch(() => {});
@@ -141,6 +142,8 @@ function Add-JournalLine([string]$Reason, [int]$Hits, [int]$Bytes, [string]$Ids 
     $env:MEM_J_HITS = [string]$Hits
     $env:MEM_J_BYTES = [string]$Bytes
     $env:MEM_J_IDS = $Ids
+    $env:MEM_J_FILE = $Query
+    $env:MEM_J_TOOL = $ToolName
     $env:MEM_J_START = [string]$HookStartMs
     & node -e $BookScript 2>$null | Out-Null
   } catch { }
@@ -230,10 +233,13 @@ if ($In -and $In -match '"tool_name"\s*:\s*"Bash"') {
 # agent hands this hook on Windows carries backslashes.
 $Query = ''
 $Session = 'none'
+$ToolName = ''
 if ($In) {
   try {
     $j = $In | ConvertFrom-Json
     if ($j.session_id) { $Session = [string]$j.session_id }
+    # L1: the tool that sets the hook off goes into the journal line next to the file.
+    if ($j.tool_name) { $ToolName = [string]$j.tool_name }
     $p = ''
     if ($j.tool_input) {
       if ($j.tool_input.file_path) { $p = [string]$j.tool_input.file_path }

@@ -228,6 +228,8 @@ export const REGISTER = Object.freeze([
   sw('MEM_HOOK_START_MS', INTERNAL, 'set by the hook script', 'Recall hook: start time for the latency figure.'),
   sw('MEM_J_BYTES', INTERNAL, 'set by the hook script', 'Before-edit journal line: bytes shown.'),
   sw('MEM_J_HITS', INTERNAL, 'set by the hook script', 'Before-edit journal line: number of hits.'),
+  sw('MEM_J_FILE', INTERNAL, 'set by the hook script', 'Before-edit journal line: the path the tool touched (two segments, relative).'),
+  sw('MEM_J_TOOL', INTERNAL, 'set by the hook script', 'Before-edit journal line: the name of the tool that set the hook off.'),
   sw('MEM_J_IDS', INTERNAL, 'set by the hook script', 'Before-edit journal line: ids of the solutions shown below errors, comma separated.'),
   sw('MEM_J_PATH', INTERNAL, 'set by the hook script', 'Recall journal line: which path answered.'),
   sw('MEM_J_PATH_REASON', INTERNAL, 'set by the hook script', 'Recall journal line: why that path.'),
