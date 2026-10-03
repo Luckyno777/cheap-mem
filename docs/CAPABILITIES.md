@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 84 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3642 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3651 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -59,6 +59,7 @@ directory. The section number in brackets is where it is explained.
 | `askedlearn.mjs` | query words learned from recall misses: a miss the same session then fetched by id teaches the entry the words it was asked with, in any language (`mem asked-learn`, M18b) |
 | `searchlevers.mjs` | Block H search levers, one switch `MEM_SEARCH_LEVERS` (`mem search-levers`): threshold by score gap (h3: a flat field of weak hits is withheld), context reorder (h2), short recall lines with counted loads (h5) |
 | `questionsplit.mjs` | Block H lever h1: the question split into core words (searched) and common words (damped by-catch that does not count in coverage) |
+| `expand.mjs` | document expansion: the field `asked_as` (8 to 12 everyday phrasings written at capture time, checked at write time), read by the search only behind the switch `MEM_EXPAND=1` (weight 0.3, half coverage, stop words stripped, its own index cache) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
 | `authority.mjs` | who is entitled to overrule whom |
 | `atomicwrite.mjs` | the one way to write a state file: a unique temp file in the same directory, then `rename` (with a Windows retry) — a reader never sees half a file, two writers never share a temp file (F5, suggestion 14) |
@@ -350,6 +351,14 @@ milliseconds.
   Deliberately weak — recency is a hint, not a truth claim.
 - **MMR diversity** by default, so the top-k does not fill with
   near-duplicates. `--no-mmr` restores pure BM25 order.
+
+- **Document expansion, off by default (`MEM_EXPAND=1`).** The digest model
+  writes `--asked-as` (8 to 12 short everyday phrasings) next to each entry;
+  with the switch on the search indexes them at weight 0.3, counts a word the
+  entry carries only through them as half a typed word, and keeps them out of
+  the gate's "whole question covered" rule and out of the exact-identifier lane.
+  Off, the field is never read and the index is bit-identical. Measured in
+  branch `agent/expand-gemini-cm` (`bench/expand-gemini/results.md` there); `src/expand.mjs`.
 
 ### 2.2 The exact-identifier lane
 

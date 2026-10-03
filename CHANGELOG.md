@@ -14,6 +14,20 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — document expansion: the field `asked_as`, read by the search only behind `MEM_EXPAND=1` (port of lucky-mem `gefragt_als`)
+
+- **`mem log --asked-as 'a|b|c'`** (and the MCP bridge) stores 8 to 12 short
+  everyday phrasings next to an entry as `asked_as`. At write time what does not
+  fit (a question, more than 8 words or 60 characters, a copy from the entry,
+  a duplicate, the 13th and later) is dropped and named on stderr; the entry is
+  always written. The digest prompt asks for it in the same call, next to `--asked`.
+- **Search, off by default (`MEM_EXPAND=1`).** Weight 0.3, stop words stripped,
+  a word the entry carries only through the field covers half a typed word and
+  never counts for the gate's "whole question covered"; the exact-identifier
+  lane and the recall fallback do not see it; its own index cache directory
+  (`.mem/search-index-expand`). Off: bit-identical. `src/expand.mjs`,
+  `test/expand-asked-as.test.mjs` (red proof against the pinned old state).
+
 ### Added — an output guard, BOM-tolerant reading, id-less lines in the doctor (port of the lucky-mem atlas B14 fixes)
 
 - **Output guard (`src/outputguard.mjs`).** A secret that got into a drawer past

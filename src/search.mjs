@@ -40,6 +40,7 @@ import * as raw from './raw.mjs';
 import * as archive from './archive.mjs';
 import { deriveState } from './state.mjs';
 import * as indexcache from './indexcache.mjs';
+import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
 import { dateAnchors } from './timeexpr.mjs';
 
@@ -592,7 +593,39 @@ export function fieldsOfEntry(entry, { lexicon = null, lang = pack('en'), lexico
       }
     }
   }
+  // Document expansion (src/expand.mjs): only with MEM_EXPAND=1. The field
+  // is NOT in FIELD_WEIGHTS (it would then always be indexed); without the
+  // switch it is never read and the index stays bit-identical.
+  if (expand.on()) {
+    for (const phrase of expand.phrases(entry)) {
+      for (const p of packs) {
+        for (const t of tokenizeGroupsMulti(phrase, { lexicons: lex, langs: [p] }).flat()) {
+          weights.set(t, (weights.get(t) ?? 0) + expand.WEIGHT * share);
+        }
+      }
+    }
+  }
   return weights;
+}
+
+/**
+ * The index terms a document carries ONLY through `asked_as`: for the half
+ * coverage in `search`. Null when the expansion is off or the entry has no
+ * such field. Stored on the document (`expOnly`, a plain array, so it
+ * survives the index cache).
+ */
+function expansionOnlyTerms(entry, weights, opts) {
+  if (!expand.on() || !entry || !entry[expand.FIELD]) return null;
+  const own = fieldsOfEntry({ ...entry, [expand.FIELD]: undefined }, opts);
+  const only = [...weights.keys()].filter((t) => !own.has(t));
+  return only.length ? only : null;
+}
+const EXP_SETS = new WeakMap();
+function isExpansionOnly(doc, t) {
+  if (!doc.expOnly) return false;
+  let set = EXP_SETS.get(doc);
+  if (!set) { set = new Set(doc.expOnly); EXP_SETS.set(doc, set); }
+  return set.has(t);
 }
 
 /**
@@ -823,11 +856,15 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
     // correctly-configured single-language memory already got.
     // UNCERTAIN gets every detectable pack — see `packsFor`.
     const langInfo = detectEntryLanguage(r.entry, { fieldWeights: FIELD_WEIGHTS });
+    const wOpts = { langs: packsFor(langInfo), lexicons };
+    const weights = fieldsOfEntry(r.entry, wOpts);
+    const expOnly = expansionOnlyTerms(r.entry, weights, wOpts);
     addDoc({
       ...r,
       lang: langInfo.language,
       langCertain: langInfo.certain,
-      weights: fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons }),
+      weights,
+      ...(expOnly ? { expOnly } : {}),
       ...(r.entry.body_enc ? { enc: true } : {}),
       ...(info ? { retired: info } : {}),
     });
@@ -928,7 +965,10 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
 export function entityText(doc) {
   const e = doc?.entry ?? {};
   const textParts = [];
-  for (const v of Object.values(e)) {
+  for (const [k, v] of Object.entries(e)) {
+    // `asked_as` (src/expand.mjs) acts only behind MEM_EXPAND=1: the exact
+    // identifier lane must not see it without the switch either.
+    if (k === expand.FIELD && !expand.on()) continue;
     if (typeof v === 'string') textParts.push(v);
     else if (Array.isArray(v)) for (const x of v) if (typeof x === 'string') textParts.push(x);
   }
@@ -1687,10 +1727,18 @@ export function search(index, query, {
     // and lost a third of its score, which is the opposite of what the
     // compound splitter is for.
     let coveredShare = null;
+    // Expansion (src/expand.mjs): a typed word the document carries only
+    // through `asked_as` is a guess someone wrote about the note, not its
+    // own word: HALF in the coordination factor, NOTHING for the gate's
+    // "whole question". Without the switch `doc.expOnly` is absent and the
+    // arithmetic is unchanged.
+    const own = (t) => doc.weights.has(t) && !isExpansionOnly(doc, t);
+    const viaExp = (packVariants) => !!doc.expOnly
+      && packVariants.some((forms) => forms.some((t) => isExpansionOnly(doc, t)));
     if (withCoverage) {
       let c = 0;
       for (const packVariants of groups) {
-        if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) c += 1;
+        if (packVariants.some((forms) => forms.some(own))) c += 1;
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
           || packVariants.rewritten?.some((t) => doc.weights.has(t))) c += 0.5;
       }
@@ -1699,13 +1747,14 @@ export function search(index, query, {
     if (coverage > 0 && groups.length > 1) {
       let covered = 0;
       for (const packVariants of groups) {
-        if (packVariants.some((forms) => forms.some((t) => doc.weights.has(t)))) covered += 1;
+        if (packVariants.some((forms) => forms.some(own))) covered += 1;
         // M18b: a bridged word covers HALF — a translation is a guess
         // about the typed word, not the word itself (lucky-mem M18
         // measured full coverage: same hit rate, more risk).
         // A rewritten word (src/rewrites.mjs) likewise: learned, not typed.
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
           || packVariants.rewritten?.some((t) => doc.weights.has(t))) covered += 0.5;
+        else if (viaExp(packVariants)) covered += 0.5;
       }
       // **The floor (2026-09-20).** Until this day the line read
       //
@@ -2155,11 +2204,15 @@ function appendToIndex(root, index, before, now) {
     // entry gets its OWN rule set immediately, not the rule set the
     // rest of the corpus happened to be built with.
     const langInfo = detectEntryLanguage(d.entry, { fieldWeights: FIELD_WEIGHTS });
+    const wOpts = { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() };
+    const weights = fieldsOfEntry(d.entry, wOpts);
+    const expOnly = expansionOnlyTerms(d.entry, weights, wOpts);
     push({
       ...d,
       lang: langInfo.language,
       langCertain: langInfo.certain,
-      weights: fieldsOfEntry(d.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() }),
+      weights,
+      ...(expOnly ? { expOnly } : {}),
       ...(d.entry.body_enc ? { enc: true } : {}),
       ...(info ? { retired: info } : {}),
     });
@@ -2434,7 +2487,9 @@ function revealEncrypted(root, index, { cow = false } = {}) {
       }
     }
     const langInfo = detectEntryLanguage(r.entry, { fieldWeights: FIELD_WEIGHTS });
-    const weights = fieldsOfEntry(r.entry, { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() });
+    const wOpts = { langs: packsFor(langInfo), lexicons: index.lexicons ?? new Map() };
+    const weights = fieldsOfEntry(r.entry, wOpts);
+    const expOnly = expansionOnlyTerms(r.entry, weights, wOpts);
     let length = 0;
     for (const g of weights.values()) length += g;
     if (weights.size > 0) {
@@ -2449,6 +2504,7 @@ function revealEncrypted(root, index, { cow = false } = {}) {
     Object.assign(doc, {
       entry: r.entry, weights, length, encState: 'ok',
       lang: langInfo.language, langCertain: langInfo.certain,
+      expOnly: expOnly ?? undefined,
     });
     for (const b of entity.identifiers(entityText(doc))) {
       let set = index.entityIndex.get(b);
@@ -2689,7 +2745,8 @@ export function loadIndex(root, opts = {}) {
 }
 
 function loadIndexCached(root, { fresh = false, language = 'en', wantState = false } = {}) {
-  const cacheDir = path.join(root, CACHE_DIR);
+  // With MEM_EXPAND=1 the index carries `asked_as`: its own cache directory.
+  const cacheDir = path.join(root, CACHE_DIR + expand.cacheSuffix());
   const legacyCachePath = path.join(root, CACHE_FILE);
   const lang = pack(language);
 

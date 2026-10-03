@@ -38,6 +38,7 @@ import path from 'node:path';
 // display and for the indexed field set (`retrieval.mjs` re-exports it).
 import { BODY_FIELDS, NON_BODY_FIELDS, bodyAsText } from './bodyfields.mjs';
 import { maskEntry } from './outputguard.mjs';
+import { FIELD as EXPAND_FIELD } from './expand.mjs';
 
 /** Characters of text per hit (the line's prefix — day, id, lane — not counted). */
 export const LINE_BUDGET = 300;
@@ -120,7 +121,7 @@ export function renderHit(hit, { budget = LINE_BUDGET } = {}) {
   // has, never an empty line and never its raw JSON.
   if (!headParts.length && !bodyParts.length && !why) {
     for (const [k, v] of Object.entries(e)) {
-      if (META_FIELDS.has(k) || NON_BODY_FIELDS.includes(k)) continue;
+      if (META_FIELDS.has(k) || NON_BODY_FIELDS.includes(k) || k === EXPAND_FIELD) continue;
       const t = text(v);
       if (t) bodyParts.push(`${k}: ${t}`);
     }

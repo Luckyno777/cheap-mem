@@ -272,6 +272,7 @@ Work like this:
 3. Sort into drawers, every entry WITH --origin AND --asked:
      mem log <type> --title ... --text ... --tags ... \\
        --asked '<3-6 phrasings someone would LATER ask with, in other words than the title (everyday word instead of jargon, symptom instead of cause, activity instead of object)>' \\
+       --asked-as '<8-12 short phrasings, separated by |, the way someone would LATER ask for this in everyday words>' \\
        --origin '{\"raw\":\"<path>\",\"session_id\":\"<id>\"}'
    --asked is the one place you add words that are NOT in the entry.
    Ask yourself: months from now, in what words would someone come
@@ -283,6 +284,14 @@ Work like this:
    only other words for the same thing. If nothing genuinely different comes to mind, leave it off —
    an empty field is honest, a padded one is noise in every future
    search.
+   --asked-as is a second field of its own (it goes NEXT TO --asked and
+   does not replace it) and is written in the same call, never in an extra
+   one. 8 to 12 short phrasings (at most 8 words, 60 characters), separated
+   by |: everyday words, synonyms and broader terms for what the entry is
+   about. NO questions (no ?), NO sentences or sentence parts copied from
+   the entry, no invented facts, no time words. The code drops what breaks
+   these rules and says so. If nothing genuinely different comes to mind,
+   leave it off.
    New project (DIGEST.md, section 'A new project'): ONLY when an
    undertaking or topic appears in at least 2 captures on 2 different
    days and fits no existing project. Then:
