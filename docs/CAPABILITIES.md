@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 83 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 84 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3622 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3642 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -173,6 +173,8 @@ directory. The section number in brackets is where it is explained.
 | `rewrites.mjs` | the learned rewrite table, read side: question word -> entry word from vetted misses, active from 2 sessions, decays after 90 days, lockable per pair, weight 0.5 below thesaurus and bridge, switch `MEM_REWRITES=off`, shipped empty (`mem rewrites`) |
 | `rewritecare.mjs` | the rewrite table's write side: turns `mem asked-learn` cases into pairs, append-only to `.mem/rewrites.jsonl` (`mem rewrites care --write`) |
 | `projectnew.mjs` | a NEW project, the guarded way: `mem project new` refuses a name too like a project or a topic alias (distance, word part, spelling) and names the existing one, writes a reason and an event, marks `facts.yaml` `status: new` until a person confirms (`mem project confirm`); an unattended run needs 2 evidenced captures on 2 days; `mem project suggestions` is the dry run; `mem log --project <unknown>` is refused. Merging two projects is not built (see the head of the file) |
+| `categories.mjs` | categories ABOVE topics, shipped empty: four append-only tables under `global/` (`categories`, `topic-category`, `category-aliases`, `category-wishes`), applied on read; `mem category list/open/assign/confirm/create/acknowledge/rename/merge`; a new category creates itself from 3 different topics with the project-name similarity protection (a near-duplicate lands on the existing one, a project name is refused); `mem find --category`; the doctor finding `categories`; `categories` and `topics.list[].category` in the dashboard data. `create --suggested` adopts a neutral starter list, nothing is baked in |
+| `categories-initial.mjs` | `mem category initial-assign`: deterministic keyword rules propose a category for topics without one (clear lead only, never guessed); a person confirms |
 | `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
@@ -612,7 +614,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 83 commands
+### 7.1 CLI — 84 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -624,7 +626,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience command-guard appointment
+experience command-guard appointment category
 ```
 
 `mem appointment` is the calendar: reminders, a day briefing and agent actions

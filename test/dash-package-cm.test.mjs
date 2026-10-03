@@ -162,7 +162,7 @@ test('(5) overview order, two-paragraph legend, a working reading-view button, c
   assert.match(JS, /<strong>What you see<\/strong>/);
   assert.match(JS, /<strong>Controls<\/strong>/);
   assert.match(JS, /const cd = atlasCondensed\(\)/, 'the condensed atlas is named only under its own condition');
-  assert.match(JS, /if \(!topicsAreTopics\(\) \|\| !k \|\| k\.error \|\| !Array\.isArray\(k\.list\)\) return \{ on: false/, 'no data, no categories');
+  assert.match(JS, /if \(!topicsAreTopics\(\) \|\| !k \|\| k\.error \|\| !Array\.isArray\(k\.list\) \|\| !k\.list\.length\) return \{ on: false/, 'no data, no categories');
   assert.ok(!/[äöüßÄÖÜ]/.test(CSS.slice(CSS.indexOf(MARK))) , 'English only');
 });
 

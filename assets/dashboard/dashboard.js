@@ -1102,11 +1102,12 @@ function topicsBase() {
 // Categories (contract of the categories port): `D.categories` = { list:[{key,label,status,topics,entries}],
 // topics:[{topic,count,category:{key,label,status,source}|null}], unassigned, proposals:[{topic,category,label}],
 // new:[{key,label}], wishes, threshold } or { error }. Absent or carrying `error`: no column, no filter,
-// no overview — never an error on the page. (The click actions for categories follow with the CLI.)
+// no overview — never an error on the page. cheap-mem ships empty: an empty `list` counts as no data.
+// (The click actions for categories follow with the CLI.)
 const isProposal = (c) => c?.status === 'proposal' || c?.status === 'proposed';
 function topicCategories() {
   const k = D?.categories;
-  if (!topicsAreTopics() || !k || k.error || !Array.isArray(k.list)) return { on: false, assigned: new Map(), all: new Map(), list: [], proposals: [], isNew: new Set(), unassigned: { topics: 0, entries: 0 } };
+  if (!topicsAreTopics() || !k || k.error || !Array.isArray(k.list) || !k.list.length) return { on: false, assigned: new Map(), all: new Map(), list: [], proposals: [], isNew: new Set(), unassigned: { topics: 0, entries: 0 } };
   const assigned = new Map();
   for (const t of k.topics || []) if (t?.topic && t.category?.key) assigned.set(String(t.topic), t.category);
   const u = k.unassigned;

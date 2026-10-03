@@ -81,6 +81,28 @@ are the day the work landed on `main`.
   "Today in the calendar" card in the dashboard (read only,
   `/dashboard/appointments.json`), a digest-prompt section. See `docs/appointments.md`.
 
+### Added — categories above topics (port of the sibling's kategorien work)
+
+- **A layer above topics, shipped empty.** Four append-only tables under
+  `global/` (`categories`, `topic-category`, `category-aliases`,
+  `category-wishes`), applied on read; entries are never touched.
+  `mem category list|open|assign|confirm|create|acknowledge|rename|merge|initial-assign`.
+  `mem category create --suggested` adopts a neutral list (coding, design,
+  testing, operations, security, ai-agents, media, personal); nothing reads
+  that list unless a person asks, and the sibling's ten starter categories
+  are NOT carried over.
+- **Categories create themselves** when 3 different topics were proposed the
+  same new one (spelling variants count together, wishes persist across
+  runs), protected like `mem project new`: a near-duplicate lands on the
+  existing category, a project name is refused. A person acknowledges,
+  renames or merges. `mem log --category <key>` / `--category-new "key|Label"`
+  carry the digest's proposal; DIGEST.md has the rule.
+- `mem find --category <key>`; doctor finding `categories` (good while the
+  layer is unused, warning when more than half of the topics are unassigned
+  or more than 100 proposals wait, never an error); dashboard data
+  `categories` and `category` on each topic (contract in `categoriesState()`).
+- The orphan-drawer check no longer reports the four tables.
+
 ### Changed — a store the full build cannot handle gets a real answer and a condensed 3D atlas (atlas-pass)
 
 - **ONE pass replaces the light head above 64 MB of drawers.** The compact

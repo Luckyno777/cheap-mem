@@ -96,6 +96,22 @@ mem log decision --project garden --topic beds --choice raised --why "drainage"
 one (or like a topic alias) — use that one. For a quick skeleton with no
 checks, `mem project init <name>` still exists.
 
+Topics can be grouped under categories, a layer above them. A fresh
+memory has none; make your own or adopt a neutral starter list:
+```bash
+mem category create --suggested     # coding, design, testing, operations, ...
+mem category create beekeeping "Beekeeping"
+mem category initial-assign --write # keyword rules PROPOSE a category per topic
+mem category open                   # proposals, unassigned topics, new categories
+mem category confirm --all-proposals
+mem find "kiln" --category design   # search inside one category
+```
+Entries are never changed; the layer is four append-only files under
+`global/`. The digest may propose a category for a new topic
+(`mem log ... --category <key>`); a brand-new category only comes into
+being when three different topics were proposed it independently, and
+a person confirms, renames or merges it (`mem category --help`).
+
 Search:
 ```bash
 mem find "auth"

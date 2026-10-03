@@ -1358,6 +1358,10 @@ export function admits(doc, {
   noRaw = false,
   onlyRaw = false,
   withRetired = false,
+  // Category filter (`mem find --category`): the set of RAW topic names
+  // (target and alias names) of one category, see categories.topicsOfCategory.
+  // Raw captures and encrypted entries carry no readable topic and drop out.
+  topics = null,
   // **Optional, and that word is load-bearing (P13 repair half).**
   //
   // The measurement that led here (test/scope-lattice-redteam.test.mjs,
@@ -1396,6 +1400,10 @@ export function admits(doc, {
   if (noRaw && isRaw) return false;
   if (onlyRaw && !isRaw) return false;
   if (type && doc.type !== type) return false;
+  if (topics) {
+    const t = doc.entry?.topic;
+    if (typeof t !== 'string' || !topics.has(t.trim())) return false;
+  }
   if (authority !== null) {
     const t = String(doc.entry?.authority ?? 'unknown').toLowerCase();
     if ((TIERS_KNOWN.has(t) ? t : 'unknown') !== authority) return false;
@@ -1423,6 +1431,7 @@ export function search(index, query, {
   noRaw = false,
   onlyRaw = false,
   withRetired = false,   // include retired (done/discarded/superseded)?
+  topics = null,         // only entries with one of these raw topic names (category filter, see admits)
   language = null,
   mmr = false,           // re-rank the top for diversity (MMR)
   mmrLambda = 0.7,       // 1 = pure relevance, 0 = pure diversity
@@ -1506,7 +1515,7 @@ export function search(index, query, {
       // `if (doc.retired && !withRetired) break;` and nothing else, so
       // an id lookup answered across projects and types that the caller
       // had explicitly excluded.
-      if (!admits(doc, { type, project, authority, since, noRaw, onlyRaw, withRetired, capability })) break;
+      if (!admits(doc, { type, project, authority, since, noRaw, onlyRaw, withRetired, topics, capability })) break;
       return [{
         score: 1000,
         type: doc.type,
@@ -1614,7 +1623,7 @@ export function search(index, query, {
     }
   }
 
-  const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired, capability };
+  const limits = { type, project, authority, since, noRaw, onlyRaw, withRetired, topics, capability };
 
   // Typed forms that stand in at most RARE_DF documents of the WHOLE
   // index (captures included — a word in many captures is not rare, even

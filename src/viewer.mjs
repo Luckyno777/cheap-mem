@@ -46,6 +46,7 @@ import * as storeModule from './store.mjs';
 import * as procedure from './procedure.mjs';
 import * as bidi from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
+import * as categories from './categories.mjs';
 import { markLink } from './icon.mjs';
 
 // Human labels for the fächer, so the chips read like language, not
@@ -189,10 +190,15 @@ export function topicsLens(root) {
     if (!idsByTopic.has(e._topic)) idsByTopic.set(e._topic, []);
     idsByTopic.get(e._topic).push(e.id || null);
   }
-  const topics = memory.topics(root).map((t) => {
+  const topicList = memory.topics(root);
+  // Category per topic (src/categories.mjs): {key, label, status, source} or null.
+  let categoryOf = new Map();
+  try { categoryOf = new Map(categories.view(root, { topicList }).topics.map((x) => [x.topic, x.category])); } catch { /* the layer is optional */ }
+  const topics = topicList.map((t) => {
     const ids = idsByTopic.get(t.topic) || [];
     return {
       topic: t.topic,
+      category: categoryOf.get(t.topic) ?? null,
       count: t.count,
       last: t.last,
       types: t.types,

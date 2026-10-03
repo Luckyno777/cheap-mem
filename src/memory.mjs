@@ -3237,6 +3237,18 @@ export function getEntry(root, id) {
 // about writing changes. Whoever opens the raw file still sees what stood
 // there at the time — and, beside it, how it reads today.
 
+/**
+ * The four category tables (src/categories.mjs): append-only lines applied
+ * on read, like the topic aliases. They live in `global/`, are not
+ * drawers, and must not be reported as orphan drawers (src/integrity.mjs).
+ */
+export const CATEGORY_TABLES = Object.freeze({
+  categories: 'global/categories.jsonl',
+  assignments: 'global/topic-category.jsonl',
+  aliases: 'global/category-aliases.jsonl',
+  wishes: 'global/category-wishes.jsonl',
+});
+
 export const ALIAS_LOG = 'global/topic-aliases.jsonl';
 
 /**

@@ -35,7 +35,7 @@ import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, req
 import { compactLine, countLines } from '../display.mjs';
 import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore } from '../githook.mjs';
 
-/** 14 commands. */
+/** 15 commands. */
 export const COMMANDS = {
   init: async ({ args }) => {
     // **`--help` used to fall straight through into the body below.**
@@ -757,6 +757,120 @@ export const COMMANDS = {
     const n = net.build({ readAll });
     if (args.json) out(JSON.stringify({ ...n, ...net.layers(n) }, null, 2));
     else out(net.asText(n));
+  },
+
+  category: async ({ rest, args }) => {
+    const sub = rest[0];
+    const SUBS = ['list', 'assign', 'confirm', 'open', 'create', 'acknowledge', 'rename', 'merge', 'initial-assign'];
+    if (isHelp(args) || !SUBS.includes(sub)) {
+      out([
+        'mem category list [--json]                    categories with topic and entry counts',
+        'mem category open [--json]                    proposals, topics without a category, new categories, wishes',
+        'mem category assign <topic> <category>        a person assigns (status confirmed)',
+        'mem category confirm <topic>|--all-proposals  a person confirms proposals',
+        'mem category create <key> "<Label>"           a person creates a category',
+        'mem category create --suggested               adopt the neutral suggested list (coding, design, ...)',
+        'mem category acknowledge <key>                a person confirms an automatically created category',
+        'mem category rename <key> "<Label>"           a new line, same key',
+        'mem category merge <from> <to> [--why "..."]  an alias line, nothing is deleted',
+        'mem category initial-assign [--write]         rules for topics without a category (shows only, without --write)',
+        '',
+        '  Categories are a layer ABOVE topics; entries are never changed. The memory ships',
+        '  with NONE: create your own or adopt the suggested list. Logs (append only):',
+        '  global/categories.jsonl, topic-category.jsonl, category-aliases.jsonl,',
+        '  category-wishes.jsonl. A new category creates itself when at least 3 different',
+        '  topics were independently proposed it (src/categories.mjs, head); near-duplicates',
+        '  of an existing one and project names are refused. assign, confirm, create,',
+        '  acknowledge, rename and merge are for a person: an unattended run (MEM_HEADLESS)',
+        '  is refused. Digest and reflector propose with `mem log ... --category <key>`.',
+        '  Search: mem find "..." --category <key>.',
+      ].join('\n'));
+      return;
+    }
+    const root = findRoot(args);
+    requireConfig(root);
+    const categories = await import('../../categories.mjs');
+    const personOnly = () => {
+      if (process.env.MEM_HEADLESS) die(`category ${sub}: only a person does this - an unattended run (${process.env.MEM_HEADLESS}) cannot.`);
+    };
+    try {
+      if (sub === 'list') {
+        checkFlags(args, ['json'], 'category list');
+        const v = categories.view(root);
+        if (args.json) { out(JSON.stringify({ list: v.list, unassigned: { topics: v.unassigned.topics, entries: v.unassigned.entries } }, null, 2)); return; }
+        if (!v.list.length) out('No categories yet. Create one (mem category create <key> "<Label>") or adopt the suggested list (mem category create --suggested).');
+        for (const k of v.list) out(`${k.key.padEnd(24)} ${String(k.topics).padStart(4)} topics ${String(k.entries).padStart(5)} entries  [${k.status}]  ${k.label}`);
+        out(`${'(unassigned)'.padEnd(24)} ${String(v.unassigned.topics).padStart(4)} topics ${String(v.unassigned.entries).padStart(5)} entries`);
+        return;
+      }
+      if (sub === 'open') {
+        checkFlags(args, ['json'], 'category open');
+        const v = categories.view(root);
+        const o = { proposals: v.proposals, unassigned: v.unassigned.names, new: v.new, wishes: v.wishes, threshold: v.threshold };
+        if (args.json) { out(JSON.stringify(o, null, 2)); return; }
+        out(`Open proposals (${o.proposals.length}), confirm with: mem category confirm <topic> | --all-proposals`);
+        for (const p of o.proposals) out(`  ${p.topic} -> ${p.category}  (${p.source})`);
+        out(`New categories, not yet acknowledged (${o.new.length}): ${o.new.map((k) => k.key).join(', ') || '-'}`);
+        out(`Wishes for new categories, below the threshold ${o.threshold} (${o.wishes.length}): ${o.wishes.map((w) => `${w.key} (${w.topics})`).join(', ') || '-'}`);
+        out(`Without a category (${o.unassigned.length}): ${o.unassigned.slice(0, 40).join(', ')}${o.unassigned.length > 40 ? ', ...' : ''}`);
+        return;
+      }
+      if (sub === 'assign') {
+        checkFlags(args, [], 'category assign');
+        personOnly();
+        const [topic, category] = [rest[1], rest[2]];
+        if (!topic || !category) die('category assign: mem category assign <topic> <category>');
+        const canon = memory.topicAliases(root).get(topic) ?? topic;
+        if (!memory.topics(root).some((t) => t.topic === canon)) die(`category assign: no topic '${topic}' (mem topics --names-only). Nothing written.`);
+        const r = categories.assign(root, topic, category);
+        out(`Topic '${r.topic}' -> ${r.category} (${r.label}), confirmed.`);
+        return;
+      }
+      if (sub === 'confirm') {
+        checkFlags(args, ['all-proposals'], 'category confirm');
+        personOnly();
+        if (args['all-proposals']) {
+          out(`${categories.confirm(root, null).length} proposals confirmed.`);
+        } else {
+          if (!rest[1]) die('category confirm: topic missing (or --all-proposals).');
+          out(`Topic '${categories.confirm(root, rest[1])[0]}' confirmed.`);
+        }
+        return;
+      }
+      if (sub === 'create' && args.suggested) {
+        checkFlags(args, ['suggested'], 'category create');
+        personOnly();
+        const made = categories.adoptSuggested(root);
+        out(made.length ? `Adopted the suggested list: ${made.join(', ')}.` : 'Nothing to adopt: every suggested category already exists.');
+        return;
+      }
+      if (sub === 'create' || sub === 'acknowledge' || sub === 'rename') {
+        checkFlags(args, [], `category ${sub}`);
+        personOnly();
+        if (!rest[1]) die(`category ${sub}: key missing.`);
+        if (sub !== 'acknowledge' && !rest[2]) die(`category ${sub}: label missing.`);
+        const known = categories.findCategory(categories.readCategories(root), rest[1]);
+        if (sub !== 'create' && !known) die(`category ${sub}: no category '${rest[1]}'.`);
+        const r = categories.createCategory(root, known ? known.key : rest[1], rest[2] ?? known.label);
+        out(`Category ${r.key} (${r.label}) ${r.fresh ? 'created' : sub === 'rename' ? 'renamed' : 'confirmed'}.`);
+        return;
+      }
+      if (sub === 'merge') {
+        checkFlags(args, ['why'], 'category merge');
+        personOnly();
+        if (!rest[1] || !rest[2]) die('category merge: mem category merge <from> <to>');
+        const r = categories.mergeCategories(root, rest[1], rest[2], { why: args.why ?? '' });
+        out(`Category '${r.from}' counts as '${r.to}' from now on (alias, nothing deleted).`);
+        return;
+      }
+      // initial-assign
+      checkFlags(args, ['write'], 'category initial-assign');
+      const ini = await import('../../categories-initial.mjs');
+      const e = ini.initialAssign(root, { write: Boolean(args.write) });
+      if (e.noCategories) { out('No categories yet - nothing to assign to. Create some first (mem category create --suggested).'); return; }
+      out(`${args.write ? 'Written' : 'Shown only'}: ${e.assigned.length} topics as proposals (source initial-assign), ${e.unassigned.length} stay without a category.`);
+      for (const [k, n] of Object.entries(e.perCategory).sort((a, b) => b[1] - a[1])) out(`  ${k}: ${n}`);
+    } catch (e) { die(`category ${sub}: ${e && e.message ? e.message : e}`); }
   },
 
   project: async ({ rest, args }) => {

@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **83 CLI commands, 42 MCP tools, 179 modules, 3622
-tests**; as of 2026-09-20, about 74394 lines in `bin/` and `src/`, at
+As of 2026-09-26: **84 CLI commands, 42 MCP tools, 181 modules, 3642
+tests**; as of 2026-09-20, about 75197 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -606,6 +606,18 @@ mem project new <name> --title "..." --reason "..." [--captures p1,p2]
                                unknown `--project` in `mem log` is refused.
 mem project confirm <name>     a person removes the "new" mark
 mem project suggestions [--json]  dry run: topics on 2 captures, 2 days
+mem category list|open [--json]   categories ABOVE topics (the memory ships
+                               with none): topic and entry counts, open
+                               proposals, topics without a category
+mem category assign|confirm|create|acknowledge|rename|merge ...
+                               a person organises them; `create --suggested`
+                               adopts a neutral starter list. A new category
+                               creates itself when 3 different topics were
+                               proposed it independently; near-duplicates and
+                               project names are refused. Nothing is deleted
+mem category initial-assign [--write]  keyword rules propose a category for
+                               topics without one (a person confirms)
+mem find "<q>" --category <key>  only entries whose topic is in the category
 mem correction <type> <id> ... append a correction linked to the old entry
 mem correction intended <old> <new> [--reason ...]   a human confirms a
                                flagged correction-content-loss pair was
