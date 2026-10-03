@@ -58,7 +58,8 @@ function tmpRoot() {
 // resolving it from the sandboxed `memory.mjs`, not a version-guard
 // finding at all).
 const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs', 'append.mjs',
-  'capability.mjs', 'probescaffold.mjs', 'filelock.mjs', 'redaction.mjs', 'frozenset.mjs', 'outputguard.mjs'];
+  'capability.mjs', 'probescaffold.mjs', 'filelock.mjs', 'redaction.mjs', 'frozenset.mjs', 'outputguard.mjs', 'expand.mjs',
+  'bodyfields.mjs', 'chain.mjs', 'processalive.mjs'];
 
 /**
  * A private, disposable copy of memory.mjs (with `patch` applied to its

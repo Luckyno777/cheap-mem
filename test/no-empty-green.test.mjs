@@ -118,6 +118,8 @@ const EXEMPT = new Map([
   ['archive-backlog', 'inspected the folder and found it empty, which answers "is anything '
     + 'piling up"; and if captures stop arriving, `capture` warns — a finding that stays '
     + 'quiet because a neighbour speaks hides nothing'],
+  ['capture-rejected', 'asked git for staged, uncommitted raw captures and got an empty list — '
+    + 'measurably nothing stuck; git not runnable is `unknown`, never this ok'],
 ]);
 
 const EXEMPT_FROM_COUNT_RULE = new Set(EXEMPT.keys());
@@ -301,7 +303,8 @@ test('CONTROL: every exemption carries a reason that argues', () => {
   }
   // And it must not grow without anyone noticing.
   // 12 -> 13 on 2026-09-30 (Z2/A12): 'claim-orphaned', argued above.
-  assert.equal(EXEMPT.size, 13,
+  // 13 -> 14 on 2026-10-03: 'capture-rejected', argued above.
+  assert.equal(EXEMPT.size, 14,
     `the exemption list is now ${EXEMPT.size} long. Every addition needs an argument in `
     + 'the file and a deliberate change here — that is the point of pinning the number.');
 });

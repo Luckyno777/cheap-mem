@@ -32,7 +32,9 @@
 // bit-identical to a memory without it. The field is written whenever
 // somebody supplies it.
 //
-// A leaf module on purpose: no imports.
+// Nearly a leaf on purpose: its only import is the tiny frozenSet helper.
+
+import { frozenSet } from './frozenset.mjs';
 
 /** The field name on the entry. */
 export const FIELD = 'asked_as';
@@ -69,7 +71,7 @@ export function cacheSuffix(env = process.env) {
  * english/stop.txt, BSD-3-Clause), apostrophe forms included. Not chosen
  * or edited against any decoy question.
  */
-export const STOP = Object.freeze(new Set((
+export const STOP = frozenSet((
   'i me my myself we our ours ourselves you your yours yourself yourselves he him his himself '
   + 'she her hers herself it its itself they them their theirs themselves what which who whom '
   + 'this that these those am is are was were be been being have has had having do does did doing '
@@ -80,7 +82,7 @@ export const STOP = Object.freeze(new Set((
   + 'a an the and but if or because as until while of at by for with about against between into '
   + 'through during before after above below to from up down in out on off over under again '
   + 'further then once here there when where why how all any both each few more most other some '
-  + 'such no nor not only own same so than too very').split(' ')));
+  + 'such no nor not only own same so than too very').split(' '));
 
 /** One phrasing without the stop words above (word order stays). */
 function stripStops(text) {

@@ -487,7 +487,7 @@ test('google: 409 on insert becomes a patch; 404 on patch becomes an insert; 404
   A.cancel(r, a.id, { actor: HUMAN, now: NOW });
   const t = await I.tick(r, { now: NOW + 2000, config: c, google });
   assert.equal(t.sent, 1, 'delete of an already missing event counts as done');
-  const denied = { ...google, fetcher: async (url) => (new URL(url).pathname === '/token' ? { status: 200, ok: true, json: async () => ({ access_token: 'x', expires_in: 3600 }) } : { status: 403, ok: false, json: async () => ({}) }) };
+  const denied = { ...google, fetcher: async (url) => (String(url).split('?')[0].endsWith('/token') ? { status: 200, ok: true, json: async () => ({ access_token: 'x', expires_in: 3600 }) } : { status: 403, ok: false, json: async () => ({}) }) };
   const b = make(r, { title: 'Another', atMs: wall(2026, 10, 9, 10, 0) });
   const t2 = await I.tick(r, { now: NOW + 3000, config: c, google: denied });
   assert.match(t2.failures.join(), new RegExp(`${b.id} REQUEST auth 403`));
