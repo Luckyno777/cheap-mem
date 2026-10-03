@@ -17,6 +17,8 @@
 #   MEM_WATCH_HANDLER_TIMEOUT seconds max for one handler run (default 300)
 #   MEM_WATCH_BRANCH         remote branch (default: config defaultBranch)
 #   MEM_WATCH_REMOTE         remote name (default: config defaultRemote)
+#   MEM_WATCH_APPOINTMENTS   "off": do not tick the appointment clock on this machine (default on)
+#   MEM_WATCH_APPOINTMENTS_SYNC "1": commit and push what a tick wrote (mem appointment tick --sync)
 #
 # Wired via Task Scheduler by install/windows.ps1. Restart-on-failure is
 # handled by the scheduler, not the script itself.
@@ -164,6 +166,15 @@ if ($env:MEM_WATCH_BRANCH) { $watchArgs += @('--branch', $env:MEM_WATCH_BRANCH) 
 if ($env:MEM_WATCH_REMOTE) { $watchArgs += @('--remote', $env:MEM_WATCH_REMOTE) }
 
 while ($true) {
+  # The appointment clock ticks here (see bin/mem-watch): a no-op until appointments/appointments.jsonl exists.
+  if ($env:MEM_WATCH_APPOINTMENTS -ne 'off' -and (Test-Path (Join-Path $env:CHEAP_MEM_ROOT 'appointments/appointments.jsonl'))) {
+    $tickArgs = @('appointment', 'tick', '--root', $env:CHEAP_MEM_ROOT)
+    if ($env:MEM_WATCH_APPOINTMENTS_SYNC -eq '1') { $tickArgs += '--sync' }
+    $tick = & node $MemCli @tickArgs 2>&1
+    Add-Content -LiteralPath $LogPath -Value ($tick -join "`n")
+    if ($LASTEXITCODE -ne 0) { Write-Note "appointments: tick exit $LASTEXITCODE" }
+  }
+
   $output = & node $MemCli @watchArgs 2>&1
   Add-Content -LiteralPath $LogPath -Value ($output -join "`n")
   $code = $LASTEXITCODE

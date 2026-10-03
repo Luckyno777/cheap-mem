@@ -72,6 +72,8 @@ import * as projectPackage from '../src/projectpackage.mjs';
 import * as readview from '../src/readview.mjs';
 import * as skillcatalog from '../src/skillcatalog.mjs';
 import * as skilleffect from '../src/skilleffect.mjs';
+import * as appointmentToday from '../src/appointment-today.mjs';
+import * as appointmentInvite from '../src/appointment-invite.mjs';
 import * as memoryModule from '../src/memory.mjs';
 
 /** The package root — where `assets/` lives, whatever the memory root is. */
@@ -182,6 +184,8 @@ export const HOST_GUARDED = Object.freeze([
   dashboardPage.PATHS.projectPackage,
   // The skill catalogue (src/skillcatalog.mjs): entry texts and history.
   dashboardPage.PATHS.skills,
+  // The calendar: appointment titles and states.
+  dashboardPage.PATHS.appointments,
   // D3b: the list as a page, and its JSON twin, read the same memory.
   entriesPage.PATH, '/entries.json',
 ]);
@@ -872,6 +876,24 @@ export function buildHandler(root, cfg, env = process.env) {
           env, effect: skillEffect(), canSetStatus: w && person,
           noButtonReason: !w ? 'writing from the page is off (mem serve --allow-writes)' : (person ? null : 'no password session (a token is not a person)'),
         });
+      } catch (e) { json(500, { state: 'error', reason: e?.message || String(e) }); return; }
+      json(200, body);
+      return;
+    }
+    // The calendar: read only (appointments/ is written by `mem appointment` and the MCP tools).
+    // One answer: the overview (appointments, occurrences, banner, today, cap) plus the outlet's state.
+    if (url.pathname === dashboardPage.PATHS.appointments) {
+      const json = (code, o) => res.writeHead(code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(o));
+      if (req.method !== 'GET' && req.method !== 'HEAD') { json(405, { state: 'error', reason: 'GET only' }); return; }
+      let body;
+      try {
+        const v = appointmentToday.overview(root, {});
+        let outlet = null;
+        try {
+          const st = appointmentInvite.status(root, { env });
+          outlet = { active: st.active, reason: st.reason, route: st.config?.route ?? null, sent: st.sentTotal, open: st.open.length, gaveUp: st.gaveUp, credentialOk: st.credential ? st.credential.ok : null };
+        } catch { outlet = null; }
+        body = { ...v, outlet, empty: v.appointments.length === 0 };
       } catch (e) { json(500, { state: 'error', reason: e?.message || String(e) }); return; }
       json(200, body);
       return;

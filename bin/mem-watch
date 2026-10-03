@@ -25,6 +25,9 @@
 #   MEM_WATCH_HANDLER_TIMEOUT  Seconds — max time for one handler run (default 300)
 #   MEM_WATCH_BRANCH     Remote branch to watch (default: config defaultBranch)
 #   MEM_WATCH_REMOTE     Remote name (default: config defaultRemote)
+#   MEM_WATCH_APPOINTMENTS       "off": this machine does not tick the appointment clock (default: on,
+#                                and only once appointments/appointments.jsonl exists)
+#   MEM_WATCH_APPOINTMENTS_SYNC  "1": commit and push what a tick wrote (mem appointment tick --sync)
 
 set -u
 
@@ -171,6 +174,17 @@ if [ -n "${MEM_WATCH_BRANCH:-}" ]; then WATCH_ARGS+=(--branch "$MEM_WATCH_BRANCH
 if [ -n "${MEM_WATCH_REMOTE:-}" ]; then WATCH_ARGS+=(--remote "$MEM_WATCH_REMOTE"); fi
 
 while true; do
+  # The appointment clock ticks HERE: this loop already runs all day, so the calendar needs no
+  # unit of its own. A no-op (no process started) until `appointments/appointments.jsonl` exists.
+  # One machine should tick: `MEM_WATCH_APPOINTMENTS=off` keeps this one out of it.
+  # `MEM_WATCH_APPOINTMENTS_SYNC=1` also commits and pushes what a tick wrote (the letters, the
+  # fired log, the grant) so the recipient's watcher on another machine sees it.
+  if [ "${MEM_WATCH_APPOINTMENTS:-on}" != "off" ] && [ -f "$CHEAP_MEM_ROOT/appointments/appointments.jsonl" ]; then
+    TICK_ARGS=(appointment tick --root "$CHEAP_MEM_ROOT")
+    if [ "${MEM_WATCH_APPOINTMENTS_SYNC:-}" = "1" ]; then TICK_ARGS+=(--sync); fi
+    node "$MEM_CLI" "${TICK_ARGS[@]}" >>"$LOG" 2>&1 || note "appointments: tick exit $?"
+  fi
+
   # `mem inbox watch` exits 0 (nothing) / 1 (new) / 3 (unreachable).
   # Any other code is treated like 3 — not measurable.
   node "$MEM_CLI" "${WATCH_ARGS[@]}" --root "$CHEAP_MEM_ROOT" >>"$LOG" 2>&1

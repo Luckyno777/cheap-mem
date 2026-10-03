@@ -99,8 +99,12 @@ The measurements (`bench/board-tempo.mjs`, synthetic stores of
 - **Overview**: state, attention, the board's tiles (the same as
   `mem board`, which stays on the CLI), and the 3D network.
 - **Knowledge**: entries, network, topics, facts, learnings, skills.
-- **Work**: duties and questions, agents, inbox, agent context, usage,
-  and the user and ledger view. The agents page is a table: a summary
+- **Work**: duties and questions, agents, inbox, a calendar (today, the next
+  days, proposals waiting for you, fired reminders, scheduled agent actions
+  with their state, the cap, the calendar outlet; read only, from
+  `/dashboard/appointments.json`, see [appointments.md](appointments.md);
+  the overview also carries a card "Today in the calendar"), agent context,
+  usage, and the user and ledger view. The agents page is a table: a summary
   bar on top, then one row per agent, grouped into needs attention,
   active (last 7 days) and idle.
 - **Sources**: projects, files and store, raw captures, digest, and the

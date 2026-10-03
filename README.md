@@ -51,7 +51,7 @@ code.
 | tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search latency | cold and warm, median and P95, per corpus size: see [Latency](#latency) | `node bench/cold-find.mjs` |
-| what you download | **1372 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+| what you download | **1624 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
@@ -413,8 +413,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **82 CLI commands, 39 MCP tools, 172 modules, 3551
-tests**; as of 2026-09-20, about 71330 lines in `bin/` and `src/`, at
+As of 2026-09-26: **83 CLI commands, 42 MCP tools, 178 modules, 3610
+tests**; as of 2026-09-20, about 74335 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -579,6 +579,15 @@ mem board [--html --json]      the operating state on one screen: archive,
                                digest, error classes, agents, questions,
                                installation, bridge. A tile that could NOT
                                be measured shows as "unmeasured", not calm.
+mem appointment new|list|show|cancel|move|confirm|due|tick|cap|today|calendar
+                               a calendar inside the memory: reminders, a
+                               day briefing, and agent actions planned for a
+                               time ("tomorrow 9:00", "weekdays 7:00"); the
+                               watcher fires them as inbox letters, once.
+                               Only a human (--authority user) arms an
+                               action; agents propose. Optional outlet into
+                               your own calendar (SMTP .ics or the Google
+                               Calendar API). docs/appointments.md
 mem status                     which of the five install steps have happened
 mem classes [--open]           the twelve error classes, and how much of
                                this memory they actually cover

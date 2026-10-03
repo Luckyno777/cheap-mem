@@ -49,7 +49,7 @@ const sections = {
   },
   work: {
     name: 'Work & agents',
-    tabs: [['tasks', 'Duties & questions'], ['agents', 'Agents'], ['inbox', 'Inbox'], ['context', 'Agent context'], ['usage', 'Usage'], ['understanding', 'User & ledger']],
+    tabs: [['tasks', 'Duties & questions'], ['agents', 'Agents'], ['inbox', 'Inbox'], ['calendar', 'Calendar'], ['context', 'Agent context'], ['usage', 'Usage'], ['understanding', 'User & ledger']],
   },
   sources: {
     name: 'Sources & archive',
@@ -746,6 +746,7 @@ function render() {
   if ($('#exportPreview')) updateExportPreview();
   if ($('#timeResult')) factsAtLoad($('#validDate').value, $('#knownDate').value);
   if ($('#skillCatalog')) skCatalogLoad();
+  if ($('#calendarView') || $('#homeDay')) calendarLoad();
   decoratePage();
 }
 function pageTitle() {
@@ -753,7 +754,7 @@ function pageTitle() {
     {
       entries: 'Everything that stays.', network: 'Knowledge has connections.', topics: 'The common thread.', facts: 'What holds. And since when.',
       learnings: 'Better from experience.', skills: 'Knowledge that turns into doing.', books: 'Many entries. One context.',
-      tasks: 'What still needs someone.', agents: 'Thinking further, together.', inbox: 'Every handover traceable.',
+      tasks: 'What still needs someone.', agents: 'Thinking further, together.', inbox: 'Every handover traceable.', calendar: 'What is coming up.',
       context: 'Before the next step.', usage: 'What really arrives.', understanding: 'Understanding needs observation.',
       projects: 'A place for every project.', files: 'The sources behind it.', raw: 'Back to the original.', digest: 'From transcript to knowledge.',
       export: 'Your project. To take along.', shards: 'Many parts. One memory.', operations: 'Work that visibly moves forward.',
@@ -770,6 +771,7 @@ function pageDesc() {
       entries: 'All types, sources and states. One click opens the full entry.',
       network: 'Structure, declared relations and storage are three different perspectives.',
       inbox: 'Every recipient\'s messages: read, reply, acknowledge — through the same routes as the command line.',
+      calendar: 'Appointments, reminders and scheduled agent actions, read from appointments/ - the same list as mem appointment today. Written by the CLI and the agents\' proposals, never from this page.',
       context: 'What the hooks really injected last — from the injection journal, no simulation.',
       export: 'Check the scope, understand the dependencies and load the project package as JSON.',
       shards: 'The drawers of this memory: project × type. Counted from the store, not estimated.',
@@ -892,7 +894,8 @@ function todayCard() {
 
 // The day strip above the figures. cheap-mem has no appointment clock yet, so there is nothing to
 // show and the slot stays empty (CSS `:empty` removes it); the calendar port returns its markup here.
-function homeDayHtml() { return ''; }
+// The day strip holds the calendar card once the store has appointments; empty it takes no room.
+function homeDayHtml() { return calCache && !calCache.empty ? calendarTodayCard() : ''; }
 function home() {
   // Before the first build (a cold start without a stored head) nothing is measured.
   if (D?.placeholder) {
@@ -1235,6 +1238,7 @@ const pages = {
       `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${esc(e.project)}</div><h3 style="margin:6px 0">${esc(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + esc(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${badge(statusOf(e.id))}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
     return panel('Open and finished work', (openOnes.map(row).join('') || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
   },
+  calendar: () => `<div id="calendarView">${calCache ? calendarHtml() : '<p class="small quiet">Reading the calendar …</p>'}</div>`,
   agents: () => {
     const as = D.agents || [];
     const bell = D.bell || {};
@@ -1772,6 +1776,81 @@ async function goldVerdictWrite(fields) {
   let b = null;
   try { b = await r.json(); } catch { b = { state: 'error', reason: await answerErrorText(r) }; }
   return { ok: r.status === 201, ...b };
+}
+
+// --- Calendar (src/appointment-today.mjs overview, /dashboard/appointments.json) ----------
+// Read only: appointments are written by `mem appointment` and the MCP tools. The Calendar tab and the
+// "Today in the calendar" card on the overview read the SAME answer; it is fetched after the first draw.
+let calCache = null;
+let calRun = 0;
+let calError = null;
+const calKindWord = { reminder: 'reminder', before: 'ahead', briefing: 'briefing', missed: 'missed', cap: 'held (cap)', undeliverable: 'not deliverable' };
+function calTag(t) {
+  const bits = [];
+  if (t.wake) bits.push(`<span class="badge"><i class="dot"></i>wakes ${esc(t.wake)}</span>`);
+  if (t.private) bits.push('<span class="badge"><i class="dot"></i>private</span>');
+  if (t.status === 'proposed') bits.push('<span class="badge warn"><i class="dot"></i>proposed</span>');
+  if (t.state && t.status !== 'proposed') bits.push(`<span class="badge ${/done/.test(t.state) ? 'good' : /no-response|held|missed/.test(t.state) ? 'warn' : ''}"><i class="dot"></i>${esc(t.state)}</span>`);
+  return bits.join(' ');
+}
+function calTodayRows(c, max) {
+  const list = c.today.appointments.slice(0, max);
+  if (!list.length) return empty(c.empty ? 'No appointments yet. <code class="mono">mem appointment new --at "tomorrow 9:00" --title "…"</code> makes the first one.' : 'No appointments today.');
+  const more = c.today.appointments.length - list.length;
+  return list.map((t) => `<div class="row"><div><strong><span class="mono">${esc(t.time)}</span> ${esc(t.title)}</strong></div><div>${calTag(t)}</div></div>`).join('')
+    + (more > 0 ? `<p class="small quiet">${num(more)} more in the Calendar tab.</p>` : '');
+}
+function calendarTodayCard() {
+  if (!D?.parts && !D) return '';
+  const body = calCache ? calTodayRows(calCache, 5) + `<p style="margin-top:12px">${link('Open the calendar', 'work/calendar')}</p>`
+    : (calError ? note('Calendar not readable: ' + esc(calError) + '. State: unknown.', 'bad') : '<p class="small quiet">Reading the calendar …</p>');
+  return `<div id="calendarToday" style="margin-bottom:22px">${panel('Today in the calendar', body, calCache ? `${esc(calCache.today.weekday)} ${esc(calCache.today.dateText)} · ${esc(calCache.zone)}` : 'Appointments, reminders and scheduled agent actions — the same source as `mem appointment today`.')}</div>`;
+}
+function calendarHtml() {
+  const c = calCache;
+  const byDay = new Map();
+  for (const o of c.occurrences) {
+    if (o.status === 'cancelled' || o.kind === 'briefing' || Date.parse(o.at) < Date.parse(c.now) - 3600000) continue;
+    if (!byDay.has(o.day)) byDay.set(o.day, []);
+    byDay.get(o.day).push(o);
+  }
+  const days = [...byDay.entries()].slice(0, 14).map(([d, os]) => `<div class="label" style="margin:14px 0 4px">${esc(d)}</div>${os.map((o) => `<div class="row"><div><strong><span class="mono">${esc(o.time)}</span> ${esc(o.title)}</strong>${o.repeat ? `<p>repeats ${esc(o.repeat)}</p>` : ''}</div><div>${calTag(o)}</div></div>`).join('')}`).join('');
+  const waiting = c.appointments.filter((a) => a.status === 'proposed');
+  const waitingHtml = waiting.length ? waiting.map((a) => `<div class="row"><div><strong>${esc(a.title)}</strong><p>${esc(a.atText)} · proposed by ${esc(a.by || '?')}${a.wake ? ' · wakes ' + esc(a.wake) : ''}${a.quote ? ' · quote: “' + esc(a.quote) + '”' : ''}</p><p><code class="mono">mem appointment confirm ${esc(a.id)} --authority user</code></p></div></div>`).join('')
+    : empty('Nothing waits for you.');
+  const recent = c.banner.slice(0, 8).map((b) => `<div class="row"><div><strong>${esc(b.title)}</strong><p>${esc(b.text)}${b.late ? ' · late' : ''}</p></div><span class="badge ${b.kind === 'reminder' || b.kind === 'before' || b.kind === 'briefing' ? '' : 'warn'}"><i class="dot"></i>${esc(calKindWord[b.kind] || b.kind)}</span></div>`).join('') || empty('No fired reminder is waiting to be seen.');
+  const acts = c.actions.length ? c.actions.map((a) => `<div class="row"><div><strong>${esc(a.title)}</strong><p>${esc(a.when)} → ${esc(a.to || '?')}</p></div>${badge(a.state === 'done' ? 'done' : /no-response|expired/.test(a.state) ? 'warn' : 'open', a.state)}</div>`).join('') : empty('No scheduled action fired in the last three days.');
+  const o = c.outlet;
+  const outlet = !o ? note('Outlet state not readable.', 'bad')
+    : !o.active ? `<p class="small muted">Off (${esc(o.reason || 'not set up')}). Reminders arrive as letters only. Setup: docs/appointments.md.</p>`
+      : `<p class="small muted">Route ${esc(o.route)} · ${num(o.sent)} sent · ${num(o.open)} open · ${num(o.gaveUp)} given up${o.credentialOk === false ? ' · credential file problem' : ''}</p>`;
+  return metrics([
+    ['Now', esc(c.nowText.split(' ')[2] || '—'), esc(c.nowText.split(' ').slice(0, 2).join(' ') + ' · ' + c.zone)],
+    ['Today', num(c.today.appointments.length), 'appointments on this calendar day'],
+    ['Waiting for you', num(c.proposed), 'proposals from agents (CLI: confirm)'],
+    ['Wake-ups today', `${num(c.cap.today)} of ${num(c.cap.value)}`, 'daily cap for agent wake-ups'],
+  ]) + `<div class="grid two">${panel('Today', calTodayRows(c, 30))}${panel('Waiting for you', waitingHtml, 'An agent only proposes; a human arms it')}</div>`
+    + `<div class="grid two" style="margin-top:17px">${panel('Next days', days || empty('Nothing planned in the next two weeks.'))}${panel('Fired and not yet seen', recent)}</div>`
+    + `<div class="grid two" style="margin-top:17px">${panel('Scheduled agent actions', acts, 'State from the inbox: delivered, taken, done')}${panel('Calendar outlet', outlet, 'Invitations into your own calendar (smtp or google)')}</div>`;
+}
+async function calendarLoad() {
+  const mine = ++calRun;
+  let b = null; let ok = false;
+  try {
+    const r = await fetch('/dashboard/appointments.json', { credentials: 'same-origin', cache: 'no-store' });
+    if (r.status === 401) { location.href = '/login'; return; }
+    b = await r.json();
+    ok = r.ok;
+  } catch (e) { b = { reason: 'network: ' + (e?.message || e) }; }
+  if (mine !== calRun) return;
+  const fresh = ok && Array.isArray(b?.appointments);
+  calError = fresh ? null : (b?.reason || 'unknown');
+  const changed = fresh && JSON.stringify(b) !== JSON.stringify(calCache);
+  if (fresh) calCache = b;
+  const view = $('#calendarView');
+  if (view) view.innerHTML = fresh ? calendarHtml() : note('Calendar not readable: ' + esc(calError) + '. State: unknown.', 'bad');
+  const slot = $('#homeDay');
+  if (slot && (changed || !fresh)) slot.innerHTML = homeDayHtml();
 }
 // --- Skill catalogue from /dashboard/skills.json (src/skillcatalog.mjs); status
 // form only with a password session (task skill-status), else a CLI command to copy.

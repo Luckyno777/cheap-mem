@@ -128,6 +128,19 @@ The librarian on any of your machines will see it via `mem inbox watch`
 and act on it (see [docs/install-linux.md](install-linux.md) or
 [install-macos.md](install-macos.md) to set up the auto-runner).
 
+## 7b. Plan something for a time
+
+```bash
+mem appointment new --at "tomorrow 9:00" --title "Call the dentist" --remind-before 15m
+mem appointment new --at "weekdays 7:00" --briefing --authority user
+```
+
+The watcher (`bin/mem-watch`) ticks the calendar's clock and writes a reminder as
+an inbox letter at the time, once. Agents may only propose; an action for an agent
+is armed by `--authority user`. Set `"timezone"` in `.mem/config.json`
+(else the system zone). Everything about it, including putting reminders into your
+own calendar: [appointments.md](appointments.md).
+
 ## 8. Wire your AI
 
 See [docs/mcp-setup.md](mcp-setup.md) for per-model setup:

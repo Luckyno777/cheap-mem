@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 82 CLI commands, 39 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 83 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3551 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3610 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -46,6 +46,11 @@ directory. The section number in brackets is where it is explained.
 
 | Module | What it is |
 |---|---|
+| `appointment-clock.mjs` | the calendar's clock: what is due now becomes a letter, exactly once (intent, letter, delivered, under a file lock; repair after a dead run; the cap; the daily proposal summary) |
+| `appointment-invite.mjs` | the calendar outlet: reminders as RFC 5545 invitations over SMTP or the Google Calendar API (service account), journal with backoff and idempotence, secrets only from 0600 files, the doctor's `appointment-invite` state |
+| `appointment-time.mjs` | points in time for appointments: any IANA zone, UTC stored, English expressions, repeats in wall time, clock-change rules |
+| `appointment-today.mjs` | "Today in the calendar": the day list, the briefing text, the session-start line, the state of fired actions, the dashboard's overview |
+| `appointments.mjs` | the calendar's store: append-only `appointments/`, the fold, who may do what, the plan, the caps (`docs/appointments.md`) |
 | `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
 | `afterfailure.mjs` | X2b: the after-error occasion — what the PostToolUseFailure hook (`bin/mem-after-failure`, bash and PowerShell) asks and shows after a tool call really failed: parse the failure, pick the error and learning lanes, book the journal line with its reason |
 | `agents.mjs` | registered agents: who exists, what each is for |
@@ -606,7 +611,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 82 commands
+### 7.1 CLI — 83 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -618,8 +623,13 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience command-guard
+experience command-guard appointment
 ```
+
+`mem appointment` is the calendar: reminders, a day briefing and agent actions
+planned for a time, fired by a clock that ticks inside `bin/mem-watch`, once, as
+inbox letters; a human arms, agents only propose; an optional outlet puts
+reminders into a real calendar (`docs/appointments.md`).
 
 `mem gaps` lists open and closed knowledge gaps (a retrieval miss later
 answered by a new entry) and `gaps rate` the weekly rate; `mem suggest
@@ -638,7 +648,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 39 tools
+### 7.2 MCP — 42 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio (or `--http`).
@@ -647,6 +657,9 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 |---|---|
 | `mem_log` | append an entry |
 | `mem_heartbeat` | report that this agent is running (hourly quiet period) |
+| `mem_appointment_new` | propose an appointment: a reminder, or an action for an agent at a time. Always a proposal until a human confirms; only a plain reminder carrying the user's quoted request is active at once |
+| `mem_appointment_list` | read only: the next 14 days, or every appointment, or the day list |
+| `mem_appointment_cancel` | cancel your own proposal (an armed appointment is the user's) |
 | `mem_questions` | what is open — and with `all`, what was answered |
 | `mem_answer` | close a question by naming the entry that answers it |
 | `mem_procedures` | the procedures in force, each with its author |

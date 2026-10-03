@@ -61,6 +61,8 @@ export const READING = Object.freeze([
   'mem_project_suggestions',
   // Z3/A11 (2026-09-30): reads the claim file, writes nothing.
   'mem_inbox_claims',
+  // 2026-10-03: the calendar's list reads appointments/ and the inbox, writes nothing.
+  'mem_appointment_list',
 ]);
 
 /**
@@ -91,6 +93,8 @@ export const WRITING = Object.freeze([
   // into the memory under a read-only profile. The other two append to
   // operational files. All three are classified by what the code does.
   'mem_heartbeat', 'mem_bridge_report', 'mem_source',
+  // 2026-10-03: the calendar's two writers (appointments/appointments.jsonl, fired.jsonl) - a proposal and its cancellation.
+  'mem_appointment_new', 'mem_appointment_cancel',
 ]);
 
 /**

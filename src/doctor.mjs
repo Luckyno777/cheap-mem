@@ -62,6 +62,7 @@ import * as errorfixes from './errorfixes.mjs';
 import * as experience from './experience.mjs';
 import * as envelope from './envelope.mjs';
 import * as mailpermit from './mailpermit.mjs';
+import * as appointmentInvite from './appointment-invite.mjs';
 
 export const LEVEL = Object.freeze({
   GOOD: 'good',
@@ -388,6 +389,7 @@ export function checkAll(root) {
   f.push(checkOrphanedClaims(root));
   f.push(checkInboxWaitingPermission(root));
   f.push(checkInboxUnpushed(root));
+  f.push(checkAppointmentInvite(root));
   f.push(checkIndex(root));
   f.push(checkCorrectionContentLoss(root));
   f.push(checkSynonyms(root));
@@ -2921,6 +2923,34 @@ export function checkOrphanedClaims(root, { now = new Date() } = {}) {
     `Nothing was run. To take over again: mem inbox claim ${oldest.message} --as <you> — but check FIRST `
     + 'whether the effect already happened (reply written, files changed, commit); '
     + `if it did, close it: mem inbox done ${oldest.message} --claim-id ${oldest.id} --as ${oldest.holder}.`);
+}
+
+/**
+ * Finding `appointment-invite` (the calendar outlet, src/appointment-invite.mjs): invitations into an
+ * outside calendar on or off, open and given-up sendings, permissions of the credential file (SMTP password /
+ * service-account key). Only state and numbers: no network, never the secret, never an appointment's content.
+ * Off (not configured) is good: the calendar then works as before, with letters only.
+ */
+const INVITE_ERROR_BACKLOG_MIN = 360;
+export function checkAppointmentInvite(root, { now = new Date() } = {}) {
+  const nowMs = now instanceof Date ? now.getTime() : Number(now);
+  let st;
+  try { st = appointmentInvite.status(root, { now: nowMs }); } catch (e) {
+    return finding('appointment-invite', LEVEL.UNKNOWN, `outlet state not readable: ${String(e.message).split('\n')[0]}`);
+  }
+  if (!st.active) return finding('appointment-invite', LEVEL.GOOD, `calendar outlet off (${st.reason}); 2 routes available: smtp, google`);
+  const head = `calendar outlet on (route ${st.config.route}), ${st.sentTotal} sent, ${st.open.length} open, ${st.gaveUp} given up`;
+  const advice = 'mem appointment calendar status; then mem appointment calendar retry (setup: docs/appointments.md, "Calendar outlet")';
+  if (!st.credential.ok) return finding('appointment-invite', LEVEL.ERROR, `${head}; ${st.credential.reason}`, advice);
+  if (st.gaveUp > 0) return finding('appointment-invite', LEVEL.ERROR, head, advice);
+  const failing = st.open.filter((o) => o.attempts > 0 && o.lastFailure);
+  if (failing.length) {
+    const oldest = Math.max(...failing.map((o) => (nowMs - Date.parse(o.since ?? o.lastFailure.ts)) / 60000));
+    const codes = [...new Set(failing.map((o) => o.lastFailure.code))].join(', ');
+    return finding('appointment-invite', oldest >= INVITE_ERROR_BACKLOG_MIN ? LEVEL.ERROR : LEVEL.WARN, `${head}; last failures: ${codes}`, advice);
+  }
+  if (st.broken) return finding('appointment-invite', LEVEL.WARN, `${head}; ${st.broken} broken journal line(s)`, advice);
+  return finding('appointment-invite', LEVEL.GOOD, head);
 }
 
 /**

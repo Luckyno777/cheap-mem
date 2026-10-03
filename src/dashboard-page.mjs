@@ -51,6 +51,9 @@ export const PATHS = Object.freeze({
   // 2026-10-01): read-only GET. A status is written only through /task
   // (kind `skill-status`), never here.
   skills: '/dashboard/skills.json',
+  // The calendar (src/appointment-today.mjs overview): read-only GET. Appointments are written
+  // by the CLI (`mem appointment`) and the MCP tools, never from this page.
+  appointments: '/dashboard/appointments.json',
   css: '/dashboard/app.css',
   script: '/dashboard/app.js',
   three: '/dashboard/three.js',
