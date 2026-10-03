@@ -14,6 +14,10 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — redaction knows signed-URL parameters (port of lucky-mem `signierte-url`)
+
+`src/redaction.mjs` gets the rule `signed-url`: the value of `X-Amz-Security-Token`, `X-Amz-Signature`, `X-Amz-Credential`, `X-Goog-Signature`, `X-Goog-Credential` and of an Azure SAS `sig=` (only together with `sv=<date>`) is replaced by `[REDACTED:signed-url]`; the name and the equals sign stay. Plain, `%3D`/`%26`, `&amp;` and JSON-escaped (`\u0026`) forms are covered. Before this, `X-Amz-Signature=<64 hex>` survived raw capture and `X-Amz-Credential` lost only its `AKIA` prefix. Canary count 12 -> 13. Probe: `test/redaction-signed-url.test.mjs` (real capture path and real pre-commit hook).
+
 ### Added — the before-edit journal names file and tool (L1); Changed — the skill-effect window (L5) (port of lucky-mem `vorher-hook`, 2026-10-03)
 
 - **L1:** a before-edit journal line carries `file` (the relative path, two segments, never
