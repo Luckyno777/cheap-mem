@@ -139,6 +139,7 @@ directory. The section number in brackets is where it is explained.
 | `netderive.mjs` | derived links, apart from the declared ones: pairs sharing rare terms and a file (auto, dashed in the atlas) or strong rare terms alone (borderline, listed for a human, never decided); deterministic, no model, nothing written (`mem net --derived`, dashboard `net.derived`) |
 | `observations.mjs` | per-machine ledger of what was shown — never read by retrieval or ranking |
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
+| `outputguard.mjs` | the output guard: every render path (find, show, when, context, retrieve, viewer, recall hook, MCP bridge, read commands) masks known key shapes as `[REDACTED:type]` through `redaction.redact` before any cut; the line on disk is untouched |
 | `pages.mjs` | filtered, cursor-paged lists over the drawers — never the whole desk (`/entries.json`, E1.3) |
 | `parity.mjs` | the parity core (mem-admin_02 L5/W9): the cutoff, the `Parity:` trailer shape, merge coverage, addenda, and the W9 debt list against the sibling house — `bench/parity.mjs` is the thin CLI over this |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree |
@@ -150,6 +151,7 @@ directory. The section number in brackets is where it is explained.
 | `provenance.mjs` | which clone answered, and how old it is |
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
+| `readview.mjs` | the offline reading view: the project package as ONE self-contained HTML file (`project-package.json?format=html`) with search, list, detail and references, no network call, no outside address; encrypted entries stay encrypted |
 | `recallhook.mjs` | Z1c: what `bin/mem-retrieve` and `bin/mem-catch-fail` (bash and PowerShell) hand their work to: decide short prompts, claim the turn, print the answer, book the journal line AFTER the write |
 | `recallrender.mjs` | Z1c: the one renderer of the recalled lines — real content from `retrieval.BODY_FIELDS`, the entry ID per hit, cuts on a sentence or clause boundary with a visible marker |
 | `recallserver.mjs` | M10: the warm recall server `mem serve` starts — a Unix socket (Windows: named pipe) under `.pipeline/recall/`, key file 0600, that runs the SAME `find` handler as `mem find --json`; answers `stale` and stops listening when `src/` changed |
