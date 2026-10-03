@@ -261,7 +261,13 @@ test('disk: the head is laid down 0600 without decrypted content; a cold start a
   const drawerReads = [];
   const realOpen = fs.openSync;
   const realRead = fs.readFileSync;
-  const isDrawer = (p) => typeof p === 'string' && /[\\/](global|projects[\\/][^\\/]+)[\\/][a-z-]+\.jsonl$/.test(p) && p.startsWith(root);
+  // The four category tables (global/categories.jsonl, ...) are small side
+  // files the dashboard reads live on EVERY answer (a click on a category
+  // must show at once, and they hold no entries). They are not drawers:
+  // verified by instrumenting the cold call — those four were the only
+  // .jsonl files under global/ it touched; no entry drawer was read.
+  const sideFiles = new Set(Object.values(memory.CATEGORY_TABLES).map((f) => path.join(root, f)));
+  const isDrawer = (p) => typeof p === 'string' && /[\\/](global|projects[\\/][^\\/]+)[\\/][a-z-]+\.jsonl$/.test(p) && p.startsWith(root) && !sideFiles.has(p);
   fs.openSync = (p, ...a) => { if (isDrawer(p)) drawerReads.push(p); return realOpen(p, ...a); };
   fs.readFileSync = (p, ...a) => { if (isDrawer(p)) drawerReads.push(p); return realRead(p, ...a); };
   let first;
