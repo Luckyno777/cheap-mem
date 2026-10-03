@@ -764,7 +764,7 @@ export const COMMANDS = {
       out([
         'mem project init <name> [--title "Display name"]',
         'mem project new <name> --title "<title>" --reason "<reason>" [--captures p1,p2]',
-        'mem project confirm <name>',
+        'mem project confirm <name> [--json]',
         'mem project suggestions [--json]',
         "",
         "  `init` creates projects/<name>/ idempotently.",
@@ -806,7 +806,7 @@ export const COMMANDS = {
       return;
     }
     if (sub === 'confirm') {
-      checkFlags(args, ['agent'], 'project confirm');
+      checkFlags(args, ['agent', 'json'], 'project confirm');
       const root = findRoot(args);
       requireConfig(root);
       const name = rest[1];
@@ -818,6 +818,8 @@ export const COMMANDS = {
       const pn = await import('../../projectnew.mjs');
       try {
         const { entry } = pn.confirmProject(root, name, { by: args.agent ?? null });
+        // --json: the dashboard task `project-confirm` reads `new`.
+        if (args.json) { out(JSON.stringify({ project: name, new: entry.id })); return; }
         out(`Project ${name} confirmed (event ${entry.id}).`);
       } catch (e) { die(String(e.message ?? e)); }
       return;

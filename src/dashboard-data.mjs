@@ -705,7 +705,9 @@ function safe(fn, what) {
  * Shared with the pages of the condensed atlas (bin/mem-serve), which hold
  * the same rows without a raw line.
  */
-export function entryRow(z, e, count, capture = z.capture ?? null) {
+export function entryRow(z, e, count, capture = z.capture ?? null, aliases = null) {
+  // dash-paket-cm: the entry's topic (alias-resolved), so the Topics page can filter a thread.
+  const rawTopic = typeof e?.topic === 'string' ? e.topic.trim() : '';
   return withoutEmpty({
     id: z.id,
     type: z.type,
@@ -714,6 +716,7 @@ export function entryRow(z, e, count, capture = z.capture ?? null) {
     status: z.status ?? null,
     project: z.project || 'global',
     tags: z.tags ?? [],
+    topic: rawTopic ? (aliases?.get(rawTopic) ?? rawTopic) : null,
     ts: z.ts ?? null,
     agent: z.author ?? (e?.agent ?? null),
     state: z.retired?.state ?? 'active',
@@ -776,6 +779,8 @@ export function collectDashboard(root, {
   const topicsByCapture = new Map();
   const entriesByCapture = new Map();
 
+  let topicAliases = new Map();
+  try { topicAliases = memory.topicAliases(root); } catch { /* without aliases: the raw name */ }
   const entries = d.entries.map((z) => {
     const e = rawById.get(z.id) ?? null;
     let count = null;
@@ -790,7 +795,7 @@ export function collectDashboard(root, {
       if (e?.topic) topicsByCapture.get(capture).add(String(e.topic));
       entriesByCapture.set(capture, [...(entriesByCapture.get(capture) ?? []), z.id]);
     }
-    return entryRow(z, e, count, capture);
+    return entryRow(z, e, count, capture, topicAliases);
   });
 
   // --- 3. work: what is open is decided by memory/question, not here ----
