@@ -54,7 +54,9 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_OFF` | off | The recall hook (the relevant entries shown on a question) is switched off by `1` |
 | `MEM_REWRITES` | on (the table ships empty) | `off` switches the whole query-rewrite table off. |
 | `MEM_SEARCH_LEVERS` | the levers' own defaults | `off`, `all` or a list such as `h1,h3`: which Block H search levers are on (`mem search-levers`). |
+| `MEM_SKILL_ACCOUNT_OFFER` | on (`0` switches it off) | With `0` a skill offer no longer brings the two most important lines of the skill's experience account. |
 | `MEM_SKIP_DIGEST` | off | Windows installer: with `1` the digest task is not registered. |
+| `MEM_SOLUTION_ATTACH` | on (`0` switches it off) | With `0` the recall hooks no longer put the newest valid solution (a `resolves` link) as one line under a shown error. |
 | `MEM_STOP_NO_PUSH` | off (the stop hook commits and pushes) | With `1` the stop hook does not push. |
 | `MEM_SUBAGENT_START_OFF` | off | The sub-agent start hook is switched off by `1` |
 | `MEM_WATCH_APPOINTMENTS` | on (when an appointments file exists) | With `off` the watcher's clock does not tick the appointments. |
@@ -208,6 +210,6 @@ A variable that is not in the table is not a switch: there is none.
 ### Internal — handed from one cheap-mem process to the next
 
 Set by a hook script for the program it starts, or plain shell variables that only look like environment
-variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_START_MS`, `MEM_BT_CMD`, `MEM_CAP`, `MEM_CLI`, `MEM_COUNT`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_FP`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_LEVEL`, `MEM_MARK`, `MEM_PICK`, `MEM_Q`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_ROOT_ARG`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
+variables. Nothing to configure: `CM_REBUILD_LOCK`, `MAX`, `MEM_AF_REASON`, `MEM_AF_SESSION`, `MEM_AF_START_MS`, `MEM_ALARM_RC`, `MEM_ALARM`, `MEM_BE_START_MS`, `MEM_BT_CMD`, `MEM_CAP`, `MEM_CLI`, `MEM_COUNT`, `MEM_DETOUR_REASON`, `MEM_ERRSIG`, `MEM_FP`, `MEM_HOOK_START_MS`, `MEM_J_BYTES`, `MEM_J_HITS`, `MEM_J_IDS`, `MEM_J_PATH_REASON`, `MEM_J_PATH`, `MEM_J_QB`, `MEM_J_REASON`, `MEM_J_ROOT`, `MEM_J_SESSION`, `MEM_J_SRC`, `MEM_J_START`, `MEM_LEVEL`, `MEM_MARK`, `MEM_PICK`, `MEM_Q`, `MEM_RECALL_SERVER_PARENT`, `MEM_RH_CWD`, `MEM_RH_MIN`, `MEM_RH_PATH_REASON`, `MEM_RH_PATH`, `MEM_RH_PROMPT`, `MEM_RH_QB`, `MEM_RH_SESSION`, `MEM_RH_START_MS`, `MEM_RH_TRANSCRIPT`, `MEM_RH_TURNS`, `MEM_RH_WORKFLOW`, `MEM_ROOT_ARG`, `MEM_SS_CODE`, `MEM_SS_INPUT`, `MEM_SS_IN`, `MEM_SS_SRC`, `MEM_SS_START_MS`, `MEM_START`, `MEM_TODAY`, `MEM_USER_HABITS`, `RESERVE`, `ROOT`, `TRANSCRIPT_PATH`.
 
 <!-- envvars:end -->

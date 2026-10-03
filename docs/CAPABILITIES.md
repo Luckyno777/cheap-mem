@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3723 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3738 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -161,6 +161,7 @@ directory. The section number in brackets is where it is explained.
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `readview.mjs` | the offline reading view: the project package as ONE self-contained HTML file (`project-package.json?format=html`) with search, list, detail and references, no network call, no outside address; encrypted entries stay encrypted |
+| `recallattach.mjs` | two attachments to recalled lines (L3, L4): the newest valid solution (`resolves` link or commit proof) as ONE line `↳ Solution <id>: <core>` directly under a shown error (question, after-failure, before-edit, subagent), and the two most important lines of a skill's experience account under a skill offer; never encrypted or `personal` entries; `MEM_SOLUTION_ATTACH=0`, `MEM_SKILL_ACCOUNT_OFFER=0` |
 | `recallhook.mjs` | Z1c: what `bin/mem-retrieve` and `bin/mem-catch-fail` (bash and PowerShell) hand their work to: decide short prompts, claim the turn, print the answer, book the journal line AFTER the write |
 | `recallrender.mjs` | Z1c: the one renderer of the recalled lines — real content from `retrieval.BODY_FIELDS`, the entry ID per hit, cuts on a sentence or clause boundary with a visible marker |
 | `recallserver.mjs` | M10: the warm recall server `mem serve` starts — a Unix socket (Windows: named pipe) under `.pipeline/recall/`, key file 0600, that runs the SAME `find` handler as `mem find --json`; answers `stale` and stops listening when `src/` changed |
@@ -1876,6 +1877,16 @@ workflow new|check|list|show` writes the three list fields
 warns); `mem log learning --from <error-id>` writes `generalizes`;
 `mem doctor` reports `error-linked`.
 
+**The solution under its error** (`src/recallattach.mjs`, L3): wherever an
+automatic path shows an error that has a valid solution, one line stands
+directly below it: `  ↳ Solution <id>: <core>`. The newest valid `resolves`
+link wins; its source is an entry in force (not superseded, discarded or
+disputed) or a commit proof (`commit:<hash>`, the core taken from the link's
+`why`). The line counts in the byte budget of the short form (H5) and in the
+subagent block, where another hit gives way first. The journal's new field `ids`
+carries the hit ids and the solution ids (ids only, never text).
+`MEM_SOLUTION_ATTACH=0` is the emergency stop.
+
 ### 10.27 Snippets — `src/snippet.mjs`, `mem log snippet`
 
 A `snippet` is a reusable code/script/text/mail/letter building block
@@ -1976,6 +1987,14 @@ declares: `classes` (error classes; a procedure's `on_class` counts),
 gets no errors at all — an error that only sounds similar is no
 experience of it. Whether a use helped is written nowhere, so it stays
 unknown and is never a trigger.
+
+**The account in the offer** (`src/recallattach.mjs`, L4): when the recall hook
+offers a released skill that DECLARES a scope, the offer brings the two most
+important lines of its account, e.g. `  ↳ Error (open, repeated) <id>: [class]
+<core>`: open or repeated errors first (open AND repeated before only open
+before only repeated, newest first), then the newest learnings in force; at most
+400 bytes. A skill without a scope has no account and the store is not even read.
+Never encrypted or `personal` entries. `MEM_SKILL_ACCOUNT_OFFER=0` is the stop.
 
 **Account and package.** `mem skills account [<name>]` lists traps,
 fixes, learnings, contradictions and open traps. Two cases in scope in

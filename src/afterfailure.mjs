@@ -43,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 import * as injection from './injection.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
-import { renderHits } from './recallrender.mjs';
+import { renderHits, lazyAttach } from './recallrender.mjs';
 
 /**
  * Every text this file hands to a session passes here: the Trojan-Source
@@ -105,14 +105,15 @@ export function parseHook(raw) {
  * `{ lines, sources, seen }`. `seen` is how many hits the search
  * returned in those lanes (so `too-weak` can be told from `empty`).
  */
-export function pick(hitsJson, { min = MIN_DEFAULT, top = TOP_DEFAULT } = {}) {
+export function pick(hitsJson, { min = MIN_DEFAULT, top = TOP_DEFAULT, attach = null } = {}) {
   let hits = [];
-  try { hits = JSON.parse(hitsJson).hits || []; } catch { return { lines: [], sources: [], seen: 0 }; }
+  try { hits = JSON.parse(hitsJson).hits || []; } catch { return { lines: [], sources: [], seen: 0, ids: [], attached: [] }; }
   // One renderer for every recall hook (Z1c): real content per type, the
   // entry ID, a marked cut. The three copies of the short field list
   // that used to live here and in the two bash hooks are gone.
-  const { lines, sources, seen } = renderHits(hits, { min, top, lanes: LANES });
-  return { lines, sources, seen };
+  // L3 (src/recallattach.mjs): the solution of an error stands directly below it (`attach`).
+  const { lines, sources, seen, ids, attached } = renderHits(hits, { min, top, lanes: LANES, attach });
+  return { lines, sources, seen, ids, attached };
 }
 
 /** The hook answer for the picked lines. */
@@ -133,10 +134,10 @@ function booking(env, extra) {
 }
 
 /** `finish` mode as a function: books the journal line, returns the answer object or `null`. */
-export function finish(root, hitsJson, env = process.env) {
+export function finish(root, hitsJson, env = process.env, { attach = null } = {}) {
   const min = Number(env.MEM_AFTER_FAILURE_MIN) || MIN_DEFAULT;
   const top = Number(env.MEM_AFTER_FAILURE_TOP) || TOP_DEFAULT;
-  const p = pick(hitsJson, { min, top });
+  const p = pick(hitsJson, { min, top, attach });
   if (!p.lines.length) {
     injection.book(root, booking(env, {
       reason: p.seen ? injection.REASON.TOO_WEAK : injection.REASON.EMPTY,
@@ -147,9 +148,16 @@ export function finish(root, hitsJson, env = process.env) {
   const out = answer(p.lines);
   injection.book(root, booking(env, {
     reason: null, bytes: Buffer.byteLength(JSON.stringify(out), 'utf8'),
-    hits: p.lines.length, searched: null, sources: p.sources,
+    hits: p.lines.length, searched: null, sources: p.sources, ids: [...p.ids, ...p.attached],
   }));
   return out;
+}
+
+/** `finish` with its attachments: the solution lines are loaded on demand (`lazyAttach`). What the hook calls. */
+export async function finishWith(root, hitsJson, env = process.env) {
+  let hits = [];
+  try { hits = JSON.parse(hitsJson).hits || []; } catch { hits = []; }
+  return finish(root, hitsJson, env, { attach: await lazyAttach(root, hits, { env }) });
 }
 
 /** `book` mode as a function. */
@@ -169,12 +177,12 @@ function readStdin() {
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
-  readStdin().then((raw) => {
+  readStdin().then(async (raw) => {
     if (mode === 'parse') {
       const r = parseHook(raw);
       if (r) process.stdout.write(JSON.stringify(r));
     } else if (mode === 'finish') {
-      const out = finish(root, raw);
+      const out = await finishWith(root, raw);
       if (out) process.stdout.write(JSON.stringify(out));
     } else if (mode === 'book') {
       bookReason(root, process.env.MEM_AF_REASON);

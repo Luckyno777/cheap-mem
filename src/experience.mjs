@@ -115,12 +115,25 @@ export function inScope(err, scope) {
  * is exactly experience; superseded ones drop out, errorfixes' reading),
  * the links, and an id index for the times of link sources.
  */
-export function stock(root) {
+export function stock(root, { light = false } = {}) {
   const errors = [...errorfixes.errorMap(root).values()];
   const links = errorfixes.allLinks(root);
   let byId;
-  try { byId = memory.entriesById(root); } catch { byId = new Map(); }
-  return { root, errors, links, byId, errorById: new Map(errors.map((f) => [f.id, f])), commitTimes: new Map() };
+  if (light) {
+    // `light` (the skill offer in a hook, under a time cap): no index over every drawer
+    // (`entriesById` reads them all), only errors and the learnings in force. `account()` reads
+    // nothing else; the time of a fix source falls back to the link's own time (no `git show`).
+    byId = new Map(errors.map((f) => [f.id, f]));
+    for (const project of [null, ...memory.listProjects(root)]) {
+      let entries;
+      try { ({ entries } = memory.readLog(root, 'learning', { project })); } catch { continue; }
+      const retired = memory.retiredMap(entries);
+      for (const e of entries) if (e && e.id && memory.holds(e, retired) && !byId.has(e.id)) byId.set(e.id, e);
+    }
+  } else {
+    try { byId = memory.entriesById(root); } catch { byId = new Map(); }
+  }
+  return { root, errors, links, byId, light, errorById: new Map(errors.map((f) => [f.id, f])), commitTimes: new Map() };
 }
 
 /**
@@ -134,7 +147,7 @@ function sourceTime(s, l) {
   const t = s.byId.get(l.from)?.ts;
   if (t) return t;
   const m = new RegExp(`^${memory.COMMIT_EVIDENCE_PREFIX}([0-9a-f]{7,40})$`).exec(String(l.evidence ?? l.from ?? ''));
-  if (m && s.root) {
+  if (m && s.root && !s.light) {
     if (!s.commitTimes.has(m[1])) {
       const r = spawnSync('git', ['show', '-s', '--format=%cI', m[1]], { cwd: s.root, encoding: 'utf8', timeout: 10000 });
       s.commitTimes.set(m[1], !r.error && r.status === 0 && r.stdout.trim() ? r.stdout.trim() : null);

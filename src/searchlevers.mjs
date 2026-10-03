@@ -341,18 +341,41 @@ function coreLine(hit) {
  * when the next line would break {@link H5_BUDGET_BYTES} (but never under
  * {@link H5_MIN} lines).
  */
-export function coreLines(hits) {
-  const lines = []; const sources = []; const ids = [];
+export function coreLines(hits, { attach = null } = {}) {
+  const units = []; // per shown hit: line, source, id, bytes, and the id a solution line below it brought
   let bytes = 0;
+  const size = (line) => Buffer.byteLength(line, 'utf8') + 1;
   for (const h of hits ?? []) {
-    if (lines.length >= H5_MAX) break;
+    if (units.length >= H5_MAX) break;
     const r = coreLine(h);
-    const b = Buffer.byteLength(r.line, 'utf8') + 1;
-    if (lines.length >= H5_MIN && bytes + b > H5_BUDGET_BYTES) break;
-    lines.push(r.line); sources.push(r.source); if (r.id) ids.push(r.id);
+    // `attach(hit)` (src/recallattach.mjs): a line directly below this one; it counts in the budget.
+    const a = attach ? attach(h) : null;
+    const line = a ? `${r.line}\n${a.line}` : r.line;
+    const b = size(line);
+    if (units.length >= H5_MIN && bytes + b > H5_BUDGET_BYTES) {
+      // A line WITH a solution gives way last: further down, hits without a solution go first
+      // (the last one first) - but only when clearing is enough, or a hit would give way for nothing.
+      if (a) {
+        const free = units.reduce((n, u) => n + (u.attached ? 0 : u.bytes), 0);
+        if (bytes - free + b <= H5_BUDGET_BYTES) {
+          for (let i = units.length - 1; i >= 0 && bytes + b > H5_BUDGET_BYTES; i -= 1) {
+            if (units[i].attached) continue;
+            bytes -= units[i].bytes;
+            units.splice(i, 1);
+          }
+        }
+      }
+      if (units.length >= H5_MIN && bytes + b > H5_BUDGET_BYTES) break;
+    }
+    units.push({ line, source: r.source, id: r.id, bytes: b, attached: a ? a.id : null });
     bytes += b;
   }
-  return { lines, sources, ids };
+  return {
+    lines: units.map((u) => u.line),
+    sources: units.map((u) => u.source),
+    ids: units.filter((u) => u.id).map((u) => u.id),
+    attached: units.filter((u) => u.attached).map((u) => u.attached),
+  };
 }
 
 /**

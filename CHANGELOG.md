@@ -14,6 +14,33 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the solution under its error, the account under a skill offer (port of lucky-mem `abrufanhang`, L3 + L4)
+
+- **L3, `src/recallattach.mjs`:** where the question recall, the after-failure
+  recall, the swallowed-failure recall, the before-edit hook (bash and
+  PowerShell) or the subagent block show an error that has a valid solution,
+  one line stands directly under it: `  ↳ Solution <id>: <core>`. The newest valid
+  `resolves` link wins; its source is an entry in force or a commit proof
+  (`commit:<hash>`); a replaced solution never shows. It counts in the byte
+  budget of the short form (H5), where another hit gives way first.
+- **L4:** a skill offer for a skill that declares a scope brings the two most
+  important lines of its experience account (open or repeated errors first,
+  then the newest learnings; at most 400 bytes). A skill without scope costs
+  nothing: the store is not read. `experience.stock(root, { light: true })`
+  reads only errors and learnings.
+- **Loaded on demand:** the module (and what it pulls in, the link reading and the search
+  module) is imported only when an error hit is shown (`recallrender.lazyAttach`,
+  `recallhook.recallWith`, `afterfailure.finishWith`; the before-edit hook imports it only when an
+  error hit stands among its hits), so a recall without an error costs nothing extra
+  (`test/hookcost-cm.test.mjs` stays green).
+- **The journal's new field `ids`** (only ids, never text): the hit ids and the
+  ids an attachment brought; left out when empty, so other lines stay
+  byte-identical. A before-edit line carries the solution ids.
+- Switches `MEM_SOLUTION_ATTACH=0`, `MEM_SKILL_ACCOUNT_OFFER=0` (registered).
+  Never encrypted entries or the category `personal`.
+- `test/recall-attach.test.mjs`; red proofs against the fixed base commit for L3
+  and L4, positive controls for every "never".
+
 ### Fixed — the scope of a skill and the files of an error are lists (port of lucky-mem `skill-geltung`)
 
 - `mem log skill --topics '["mcp","skill"]'` stayed ONE string and the reader tore it apart at its

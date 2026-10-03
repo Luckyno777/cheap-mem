@@ -152,8 +152,9 @@ IN="$(cat)"
 # Best-effort and silent: a measurement must not stop what it measures.
 journal_book() {
   [ -f "$TOOL_ROOT/src/injection.mjs" ] || return 0
+  # `$4` (optional): the ids of the solutions shown below errors (L3), comma separated.
   MEM_J_ROOT="$ROOT" MEM_J_SRC="$TOOL_ROOT/src/injection.mjs" MEM_J_SESSION="${SESSION:-}" \
-    MEM_J_REASON="$1" MEM_J_HITS="$2" MEM_J_BYTES="$3" MEM_J_START="$MEM_BE_START_MS" \
+    MEM_J_REASON="$1" MEM_J_HITS="$2" MEM_J_BYTES="$3" MEM_J_IDS="${4:-}" MEM_J_START="$MEM_BE_START_MS" \
     node -e '
       import(require("node:url").pathToFileURL(process.env.MEM_J_SRC).href).then((m) => {
         const start = Number(process.env.MEM_J_START);
@@ -163,6 +164,7 @@ journal_book() {
           occasion: m.OCCASION.BEFORE_EDIT, reason: reason === "-" ? null : reason,
           bytes: Number(process.env.MEM_J_BYTES), hits: Number(process.env.MEM_J_HITS),
           searched: null, sources: [],
+          ids: (process.env.MEM_J_IDS || "").split(",").filter(Boolean),
           durationMs: Number.isFinite(start) && start > 0 ? Date.now() - start : null,
         });
       }).catch(() => {});' >/dev/null 2>&1 || true
@@ -325,6 +327,16 @@ case "$PTR_FS" in
   *)  PTR_URL="file:///$PTR_FS" ;;
 esac
 
+# The attachment module (L3, src/recallattach.mjs: the solution of an error stands
+# directly below it), reached the same way as pointer.mjs.
+RA="$HOOK_DIR/../src/recallattach.mjs"
+RA_FS="$RA"
+command -v cygpath >/dev/null 2>&1 && RA_FS="$(cygpath -m "$RA")"
+case "$RA_FS" in
+  /*) RA_URL="file://$RA_FS" ;;
+  *)  RA_URL="file:///$RA_FS" ;;
+esac
+
 LEVEL="$(MEM_ROOT_ARG="$ROOT" node -e '
   import(process.argv[1]).then((p) => {
     process.stdout.write(String(p.watermark(process.env.MEM_ROOT_ARG).bytes));
@@ -400,9 +412,18 @@ fi
 HITS="$(capped 5 "${RUN_MEM[@]}" component "$QUERY" --hook --json 2>/dev/null)" || { journal_book rebuild 0 0; trace "search-failed"; exit 0; }
 [ -z "$HITS" ] && { journal_book empty 0 0; trace "no-hits"; exit 0; }
 
-PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '
-  let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
+PICK="$(printf '%s' "$HITS" | CHEAP_MEM_ROOT="$ROOT" MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" node -e '
+  let d=""; process.stdin.on("data",c=>d+=c).on("end",async()=>{
     let j; try { j = JSON.parse(d); } catch { process.exit(0); }
+    // L3: the solution of a shown error, one line directly below it. A failure here
+    // is an extra and leaves the lines as they were.
+    let att = null;
+    // Imported only when an error hit stands among the hits: nothing extra is loaded otherwise.
+    try {
+      if ((j.hits || []).some((h) => /[\\/]errors\.jsonl$/.test(String(h.source || "")))) {
+        att = (await import(process.argv[1])).attacher(process.env.CHEAP_MEM_ROOT, j.hits || []);
+      }
+    } catch { att = null; }
     // Only the lanes that WARN. A thought or an event about this file
     // does not change how it should be changed; an error, a decision
     // and a learning do.
@@ -424,8 +445,12 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
       if (!wf && !warning.test(String(h.source || ""))) continue;
       const day = String(h.ts || "").slice(0, 10);
       const text = String(h.label || "").trim();
-      if (text) out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
-      if (out.length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
+      if (text) {
+        out.push(`  ${day}  ${wf ? "(workflow) " : ""}${text}`);
+        const a = att && att(h);
+        if (a) out.push(a.line);
+      }
+      if (out.filter((l) => !l.startsWith("  \u21b3")).length >= Number(process.env.MEM_BEFORE_EDIT_TOP)) break;
     }
     // Open duties and released procedures for this file, each capped
     // by `mem component --hook` itself (errorcontext.beforeEditDuties):
@@ -438,7 +463,7 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
       }
     }
     process.stdout.write(out.join("\n"));
-  })' 2>/dev/null)"
+  })' "$RA_URL" 2>/dev/null)"
 
 # Hits, but none in a lane that warns: the search ran and there was
 # nothing to say — `empty`, not silence.
@@ -447,7 +472,9 @@ PICK="$(printf '%s' "$HITS" | MEM_BEFORE_EDIT_TOP="${MEM_BEFORE_EDIT_TOP:-3}" no
 # Second round: the watermark grew, so the FINGERPRINT decides. An
 # entry about a different file moves the level but changes nothing
 # about this answer — then it stays a pointer.
-COUNT="$(printf '%s' "$PICK" | grep -c . || true)"
+# A solution line (L3) hangs on its error and is not an entry of its own.
+ARROW=$'\xe2\x86\xb3'
+COUNT="$(printf '%s' "$PICK" | grep -v "^  $ARROW" | grep -c . || true)"
 VERDICT="$(printf '%s' "$PICK" | MEM_MARK="$MARK" MEM_LEVEL="$LEVEL" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
     import(process.argv[1]).then((p) => {
@@ -482,7 +509,8 @@ if printf '%s' "$VERDICT" | grep -q '"action":"pointer"'; then
   exit 0
 fi
 
-journal_book - "$COUNT" "$(printf '%s' "$PICK" | wc -c | tr -d ' ')"
+SOLIDS="$(printf '%s' "$PICK" | sed -n "s/^  $ARROW Solution \([^:]*\):.*/\1/p" | sed 's/^commit://' | paste -sd, - 2>/dev/null)"
+journal_book - "$COUNT" "$(printf '%s' "$PICK" | wc -c | tr -d ' ')" "$SOLIDS"
 printf '%s' "$PICK" | MEM_Q="$QUERY" node -e '
   let d=""; process.stdin.on("data",c=>d+=c).on("end",()=>{
     const q = process.env.MEM_Q;
@@ -490,7 +518,7 @@ printf '%s' "$PICK" | MEM_Q="$QUERY" node -e '
       + `what went wrong here before, was decided, or is still owed:\n${d}`;
     process.stdout.write(JSON.stringify({
       suppressOutput: true,
-      systemMessage: (() => { const n = d.trim().split("\n").length;
+      systemMessage: (() => { const n = d.trim().split("\n").filter((l) => !l.startsWith("  \u21b3")).length;
         return `memory knows ${q}: ${n} ${n === 1 ? "entry" : "entries"}`; })(),
       hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: text },
     }));

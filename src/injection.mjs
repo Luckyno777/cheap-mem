@@ -185,6 +185,7 @@ export function buildLine({
   hits = 0,
   searched = null,
   sources = [],
+  ids = undefined,
   questionBytes = null,
   durationMs = null,
   recallPath = undefined,
@@ -208,6 +209,11 @@ export function buildLine({
     // The locations, so the allocation can be worked out later: which
     // injected hit was actually touched afterwards.
     sources: Array.isArray(sources) ? sources.slice(0, 20).map(String) : [],
+    // The ENTRY ids behind `sources` plus the ids of what an attachment brought
+    // (a solution under its error, an account line under a skill offer;
+    // src/recallattach.mjs). Only ids, never text. Left out when not given, so
+    // every other writer's line stays byte-identical.
+    ids: Array.isArray(ids) && ids.length ? [...new Set(ids.map(String))].slice(0, 40) : undefined,
     question_bytes: Number.isFinite(questionBytes) ? questionBytes : null,
     // Wall time of the process that booked the line, from its start to
     // the booking (Bauplan P2; the latency budget reads this). `null`
