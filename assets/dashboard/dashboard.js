@@ -606,6 +606,15 @@ function partNotice(name, title) {
   if (partState[name] === 'error') return panel(title, note('Not loaded: ' + esc(partReason[name] || 'unknown') + ' — an empty list would be a false statement here.', 'bad') + `<p style="margin-top:12px">${btn('Load again', 'reload', '', 'primary')}</p>`);
   return panel(title, note(`Loading … (${num(D.parts[name].count)} items)`));
 }
+// Confirmed projects: the server's cache may trail the write (under load it rebuilds in the background).
+// What a click just confirmed stays confirmed on the page, also after a quiet reload with the old state:
+// a project never becomes "new" again. Applied to the Today card and to the project shelf.
+const projectsConfirmed = new Set();
+function projectsConfirmedApply() {
+  if (!projectsConfirmed.size || !D) return;
+  if (D.today?.projects && Array.isArray(D.today.projects.list)) D.today.projects.list = D.today.projects.list.filter((p) => !projectsConfirmed.has(p.name));
+  for (const p of D.projectShelf?.projects || []) if (projectsConfirmed.has(p.name) && p.isNew) p.isNew = false;
+}
 async function loadData({ quiet = false } = {}) {
   try {
     const r = await fetch('/dashboard.json', { credentials: 'same-origin', cache: 'no-store' });
@@ -622,6 +631,7 @@ async function loadData({ quiet = false } = {}) {
     if (newKey !== null) lastContentKey = newKey;
     prepare(body);
     catReapply();
+    projectsConfirmedApply();
     loadError = null;
     loadParts();
     // Whether THIS call gets drawn is always the caller's decision (a user
@@ -5353,7 +5363,10 @@ document.addEventListener('click', async (ev) => {
       el.textContent = 'confirmed ✓';
       if (status) status.textContent = 'Confirmed.';
       toast(`Project ${name} confirmed.`);
-      if (await loadData({ quiet: true })) render();
+      projectsConfirmed.add(name);
+      projectsConfirmedApply();
+      await loadData({ quiet: true });
+      render();
       break;
     }
     case 'save-config': {
