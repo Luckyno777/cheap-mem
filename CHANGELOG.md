@@ -14,6 +14,23 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — `mem correction` inherits what it does not name (port of lucky-mem `korrektur-erbt-lm`)
+
+- **The new line takes over every content field of its predecessor.** Named
+  fields override, `--without <field>[,<field>]` deletes one explicitly. The
+  finding behind it: a correction naming only `--topic` replaced the entry
+  whole; title, tags and asked-words were gone and the entry dropped out of
+  the recall.
+- **Never inherited (administration):** `id`, `ts`, `replaces_id`, `agent`,
+  `project`, `state`, the life-cycle ids, the authority stamp, `origin`,
+  `valid_from`, the restore/merge markers and the envelope of an encrypted
+  line. A closing correction and an encrypted predecessor inherit nothing (the
+  latter with a warning). The old line stays byte-identical, the new one
+  stands complete. `memory.correctionEntry(..., { without })`,
+  `memory.inheritedFields`, `memory.NOT_INHERITED`.
+- `test/correction-inherits.test.mjs`; red proof against the fixed base
+  commit, positive control on today's tree.
+
 ### Added — a register of every environment variable, with a guard (port of lucky-mem `schalterregister`, n20)
 
 - **`src/envregister.mjs`.** One row per environment variable cheap-mem reads

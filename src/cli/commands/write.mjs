@@ -634,6 +634,17 @@ export const COMMANDS = {
         `  standing in the log, but memory.holds() no longer counts it.`,
         '  Same field rules as `mem log` (see `mem log --help`) — --tags,',
         '  --origin, --valid_from/--valid_until, the swallowed-value guard.',
+        '',
+        '  The new line INHERITS every content field of the old one (title, text,',
+        '  tags, asked, ...): what you name overrides, what you leave out stays.',
+        '  Name only what changes; the new line still stands complete.',
+        '  --without <field>[,<field>]  deletes an inherited field explicitly.',
+        '  Never inherited (administration): id, ts, replaces_id, agent, project,',
+        '  state, authority, origin, valid_from, closes_id/retires_id/by_id and the',
+        '  restore/merge markers. Not inherited either: from an encrypted entry',
+        '  (warning) and in a closing correction (--state, --closes_id, --retires_id).',
+        '  `mem doctor` still reports `correction-content-loss` (--without, cuts).',
+        '',
         '  --authority <tier> stamps the correction (default: agent). A correction',
         '  the authority rule refuses is still written, warned about on stderr,',
         '  read as disputed, and the original keeps holding.',
@@ -705,7 +716,10 @@ export const COMMANDS = {
     // Same rules as `mem log` — they used to be written out a second time
     // here and had already drifted: no JSON form, no guard against a
     // swallowed value.
-    const data = fieldsFrom('correction', args);
+    const data = fieldsFrom('correction', args, ['without']);
+    if (args.without === true) die('correction: --without needs a field (e.g. --without why,tags).');
+    const without = args.without === undefined ? []
+      : String(args.without).split(',').map((x) => x.trim()).filter(Boolean);
     // Y4b: `--authority` is a field like any other here, but a checked
     // one — a name that is no tier would otherwise become `unknown` on
     // the write path without a word.
@@ -713,9 +727,9 @@ export const COMMANDS = {
     if (Object.hasOwn(data, 'valid_until')) {
       data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'correction');
     }
-    if (Object.keys(data).length === 0) die("correction: no fields");
+    if (Object.keys(data).length === 0 && without.length === 0) die("correction: no fields");
     const { path: p, entry, old, closing } = memory.correctionEntry(
-      root, type, oldId, data, { project: args.project ?? null });
+      root, type, oldId, data, { project: args.project ?? null, without });
     out(`Correction: ${path.relative(root, p)}`);
     out(`  new id:     ${entry.id}`);
     out(`  replaces:   ${entry.replaces_id}`);
