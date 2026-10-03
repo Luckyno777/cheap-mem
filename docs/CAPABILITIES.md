@@ -141,6 +141,7 @@ directory. The section number in brackets is where it is explained.
 | `onboarding.mjs` | evidenced, not ticked (10.9) |
 | `pages.mjs` | filtered, cursor-paged lists over the drawers — never the whole desk (`/entries.json`, E1.3) |
 | `parity.mjs` | the parity core (mem-admin_02 L5/W9): the cutoff, the `Parity:` trailer shape, merge coverage, addenda, and the W9 debt list against the sibling house — `bench/parity.mjs` is the thin CLI over this |
+| `origin.mjs` | where the session ran (cloud, ssh, local, unknown): the closed vocabulary of the injection journal's `origin` field; `raw.detectSurface` asks here |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree |
 | `pointer.mjs` | a pointer instead of silence when something was already shown |
 | `prepush.mjs` | the opt-in pre-push WARNING: before a push to the default branch, asks CI (via `gh`) whether that exact commit has a green run — green/red/pending/none/unknown, never blocks, never says green without CI saying so ([6.2](#62-the-pre-push-ci-warning)) |
