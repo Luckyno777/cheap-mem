@@ -58,6 +58,7 @@ import * as heartbeatModule from './heartbeat.mjs';
 import * as inboxModule from './inbox.mjs';
 import * as cfgmod from './config.mjs';
 import * as tasksModule from './tasks.mjs';
+import { maskEntry } from './outputguard.mjs';
 
 export const VIEWS = Object.freeze(['desk', 'knowledge', 'space', 'projects', 'agents', 'net', 'set']);
 
@@ -115,7 +116,7 @@ export function readPass(root) {
         rows.push({
           project: project ?? 'global',
           drawer,
-          entry: reveal(e).entry,
+          entry: maskEntry(reveal(e).entry),
           held: memory.holds(e, retired),
         });
       }
@@ -800,7 +801,8 @@ export function getEntryFast(root, id) {
     return { state: 'unknown', id };
   }
   // Shown decrypted in memory only (decision 2026-09-30); see `readPass`.
-  const e = shred.makeReveal(root)(hit.entry).entry;
+  // Output guard: key shapes are masked in what the dashboard shows (in memory only).
+  const e = maskEntry(shred.makeReveal(root)(hit.entry).entry);
   const { line } = hit;
   const retired = memory.retiredMap(rows.map((r) => r.entry)).get(id) ?? null;
 

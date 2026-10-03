@@ -106,6 +106,12 @@ function projectOfEntry(e) {
 // above: a pure function of ONE entry that `getEntryFast()` needs
 // without writing the headline rule out a second time.
 export function headline(e) {
+  // Output guard: the headline feeds the viewer, the dashboard, the pages and
+  // the compact pass, so known key shapes are masked here, once, before any caller cuts it.
+  return maskText(buildHeadline(e));
+}
+
+function buildHeadline(e) {
   const bits = [];
   // **A procedure does not come out of the viewer without its author
   // either.** The viewer is the third display path next to CLI and

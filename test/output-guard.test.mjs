@@ -18,6 +18,8 @@ import { maskText, maskEntry, maskOutput } from '../src/outputguard.mjs';
 import { compactLine } from '../src/cli/display.mjs';
 import { shortLine } from '../src/shortline.mjs';
 import { redact } from '../src/redaction.mjs';
+import * as dashboard from '../src/dashboard.mjs';
+import * as viewer from '../src/viewer.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The state before the output guard (cheap-mem main). Pinned, never `merge-base`. */
@@ -240,6 +242,19 @@ test('the MCP bridge: show and find print the entry, never the key', { skip: has
     assert.ok(res.get(i).includes(MARK), `${calls[i].name}: shows the entry`);
     assert.ok(!res.get(i).includes(key), `${calls[i].name}: no key`);
   }
+});
+
+test('the dashboard (readPass, the entry card) and the viewer headline mask the key; the in-process surfaces show the entry', (t) => {
+  const { root, key } = plantedRoot(t, BIN);
+  const rows = dashboard.readPass(root).rows;
+  assert.ok(rows.length >= 1);
+  assert.ok(!JSON.stringify(rows).includes(key), 'readPass rows carry no key');
+  assert.ok(JSON.stringify(rows).includes(MARK), 'positive control: the rows hold the entry');
+  const card = dashboard.getEntryFast(root, 'plantlear');
+  assert.ok(!JSON.stringify(card).includes(key), 'the entry card carries no key');
+  assert.ok(JSON.stringify(card).includes(MARK), 'positive control: the card holds the entry');
+  const head = viewer.headline({ id: 'x', title: `t ${key}`, text: 'y' });
+  assert.ok(head.includes(MASK) && !head.includes(key));
 });
 
 // ---- red proof on the old state ---------------------------------------------
