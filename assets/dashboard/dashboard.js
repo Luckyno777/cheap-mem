@@ -621,6 +621,7 @@ async function loadData({ quiet = false } = {}) {
     const changed = lastContentKey !== null && newKey !== null && newKey !== lastContentKey;
     if (newKey !== null) lastContentKey = newKey;
     prepare(body);
+    catReapply();
     loadError = null;
     loadParts();
     // Whether THIS call gets drawn is always the caller's decision (a user
@@ -1103,7 +1104,7 @@ function topicsBase() {
 // topics:[{topic,count,category:{key,label,status,source}|null}], unassigned, proposals:[{topic,category,label}],
 // new:[{key,label}], wishes, threshold } or { error }. Absent or carrying `error`: no column, no filter,
 // no overview — never an error on the page. cheap-mem ships empty: an empty `list` counts as no data.
-// (The click actions for categories follow with the CLI.)
+// Click actions (task kinds `category-*`, password session only): see catRun() below.
 const isProposal = (c) => c?.status === 'proposal' || c?.status === 'proposed';
 function topicCategories() {
   const k = D?.categories;
@@ -1146,17 +1147,119 @@ function topicListHtml() {
   const act = topicsAreTopics() ? 'topic-thread' : 'topic';
   const core = topicsUi.view === 'tiles'
     ? `<div class="tl-tiles">${shown.map((t) => `<button class="tl-tile" data-action="${act}" data-value="${esc(t.name)}" aria-label="Open thread: ${esc(t.name)}, ${t.count} entries"><strong>${esc(t.name)}</strong><span class="tl-count">${num(t.count)}</span><span class="small quiet">${t.types.length} ${t.types.length === 1 ? 'type' : 'types'}</span></button>`).join('')}</div>`
-    : `<ul class="tl-list">${shown.map((t, i) => `${topicsUi.group && cats.on && (i === 0 || topicCatKey(shown[i - 1], cats) !== topicCatKey(t, cats)) ? `<li class="tl-group" role="presentation">${esc(cats.all.get(topicCatKey(t, cats)) || 'No category')}</li>` : ''}<li class="tl-row"><strong class="tl-name">${esc(t.name)}</strong>${cats.on ? `<span class="tl-cat">${topicCatHtml(cats.assigned.get(t.name))}</span>` : ''}<span class="tl-count"><span class="tl-lbl">Entries </span>${num(t.count)}</span><span class="tl-types">${topicTypesHtml(t, 4)}</span><span class="tl-action">${btn('Open thread ↗', act, `data-value="${esc(t.name)}" aria-label="Open thread: ${esc(t.name)}"`, 'small ghost')}</span></li>`).join('')}</ul>`;
+    : `<ul class="tl-list">${shown.map((t, i) => `${topicsUi.group && cats.on && (i === 0 || topicCatKey(shown[i - 1], cats) !== topicCatKey(t, cats)) ? `<li class="tl-group" role="presentation">${esc(cats.all.get(topicCatKey(t, cats)) || 'No category')}</li>` : ''}<li class="tl-row"><strong class="tl-name">${esc(t.name)}</strong>${cats.on ? `<span class="tl-cat">${topicCatCell(t, cats)}</span>` : ''}<span class="tl-count"><span class="tl-lbl">Entries </span>${num(t.count)}</span><span class="tl-types">${topicTypesHtml(t, 4)}</span><span class="tl-action">${btn('Open thread ↗', act, `data-value="${esc(t.name)}" aria-label="Open thread: ${esc(t.name)}"`, 'small ghost')}</span></li>`).join('')}</ul>`;
   const rest = all.length - shown.length;
   return `${core}<div class="tablefoot tl-foot"><span role="status">${num(shown.length)} of ${num(all.length)} ${all.length === 1 ? 'topic' : 'topics'}${topicsUi.q.trim() ? ' (filtered)' : ''}</span>${rest > 0 ? btn(`Show more (${num(Math.min(rest, topicsWindow()))})`, 'topic-more', '', 'small ghost') : ''}</div>`;
 }
-// The categories overview above the list: category, topics, entries, status. Read-only until the CLI's click actions exist.
+// Category click actions need a password session: only then is the sign-in on and the server accepts the
+// `humanOnly` task kinds. Without one the CLI commands to copy stand in their place (topicCatCommands()).
+const catMayClick = () => loginEnabled && serverWrites;
+// The topic's category cell: the tag, or (password session) a select that assigns; a proposal gets "Confirm".
+function topicCatCell(t, cats) {
+  const c = cats.assigned.get(t.name);
+  if (!catMayClick()) return topicCatHtml(c);
+  const ro = state.readonly ? 'disabled' : '';
+  const options = [...cats.all].map(([id, label]) => `<option value="${esc(id)}" ${c?.key === id ? 'selected' : ''}>${esc(label)}</option>`).join('');
+  return `<select class="field tl-assign" data-cat-assign="${esc(t.name)}" data-was="${esc(c?.key || '')}" aria-label="Category of topic ${esc(t.name)}" ${ro}>${c ? '' : '<option value="" selected>— assign —</option>'}${options}</select>${isProposal(c) ? `<span class="badge warn" title="A proposal, not yet confirmed">Proposal</span>${btn('Confirm', 'cat-confirm', `data-topic="${esc(t.name)}" aria-label="Confirm the proposal for ${esc(t.name)}" ${ro}`, 'small ghost')}` : ''}`;
+}
+// The commands behind every click, to copy (always offered; the only route without a password session).
+function topicCatCommands() {
+  const cmds = ['node bin/mem category confirm <topic>', 'node bin/mem category confirm --all-proposals', 'node bin/mem category assign <topic> <category>',
+    'node bin/mem category create <key> "<Label>"', 'node bin/mem category acknowledge <key>', 'node bin/mem category rename <key> "<Label>"', 'node bin/mem category merge <from> <to>'];
+  return `<details class="cmd-fallback tl-cat-cmds"><summary class="small quiet">${catMayClick() ? 'Details · commands to copy' : 'Commands to copy · changing categories needs a password session'}</summary>${cmds.map(skCopy).join('')}</details>`;
+}
+// Create a category: one name field; the key is the name in key form (lower case, hyphens).
+function topicCatCreateForm() {
+  if (!catMayClick()) return '';
+  const ro = state.readonly ? 'disabled' : '';
+  return `<div class="tl-cat-new"><input class="field" id="catNewLabel" type="text" maxlength="40" placeholder="New category, e.g. Infrastructure" aria-label="Name of a new category" ${ro}>${btn('Create category', 'cat-create', ro, 'small ghost')}</div>`;
+}
+// The categories overview above the list: category, topics, entries, status; click actions with a password session.
 function topicCatOverview() {
   const cats = topicCategories();
   if (!cats.on) return '';
-  const rows = cats.list.map((x) => `<li class="tl-cat-row"><button class="tl-cat-name" data-action="cat-filter" data-value="${esc(x.key)}" aria-pressed="${topicsUi.cat === x.key}" title="Show only this category"><strong>${esc(x.label || x.key)}</strong></button><span class="tl-count"><span class="tl-lbl">Topics </span>${num(x.topics ?? 0)}</span><span class="tl-count"><span class="tl-lbl">Entries </span>${num(x.entries ?? 0)}</span><span class="tl-cat-status">${cats.isNew.has(x.key) ? '<span class="badge warn">new · created automatically</span>' : x.status === 'seed' || x.status === 'start' ? '<span class="badge">Seed</span>' : '<span class="badge good">confirmed</span>'}</span></li>`).join('');
+  const ro = state.readonly ? 'disabled' : '';
+  const may = catMayClick();
+  const rows = cats.list.map((x) => {
+    const isNew = cats.isNew.has(x.key);
+    const label = x.label || x.key;
+    const others = cats.list.filter((y) => y.key !== x.key);
+    const tools = may ? `<div class="tl-cat-tools">${isNew ? btn('Acknowledge', 'cat-acknowledge', `data-key="${esc(x.key)}" aria-label="Acknowledge category ${esc(label)}" ${ro}`, 'small ghost') : ''}${btn('Rename', 'cat-rename', `data-key="${esc(x.key)}" data-label="${esc(label)}" aria-label="Rename category ${esc(label)}" ${ro}`, 'small ghost')}${others.length ? `<select class="field" data-cat-merge="${esc(x.key)}" aria-label="Merge ${esc(label)} into" ${ro}><option value="">Merge into …</option>${others.map((y) => `<option value="${esc(y.key)}">${esc(y.label || y.key)}</option>`).join('')}</select>` : ''}</div>` : '';
+    return `<li class="tl-cat-row"><button class="tl-cat-name" data-action="cat-filter" data-value="${esc(x.key)}" aria-pressed="${topicsUi.cat === x.key}" title="Show only this category"><strong>${esc(label)}</strong></button><span class="tl-count"><span class="tl-lbl">Topics </span>${num(x.topics ?? 0)}</span><span class="tl-count"><span class="tl-lbl">Entries </span>${num(x.entries ?? 0)}</span><span class="tl-cat-status">${isNew ? '<span class="badge warn">new · created automatically</span>' : x.status === 'seed' || x.status === 'start' ? '<span class="badge">Seed</span>' : '<span class="badge good">confirmed</span>'}</span>${tools}</li>`;
+  }).join('');
   const open = cats.proposals.length;
-  return `<article class="panel tl-panel tl-overview"><div class="tl-overview-head"><div><h2>Categories</h2><p class="small quiet">One level above the topics. ${num(cats.unassigned.topics)} topics (${num(cats.unassigned.entries)} entries) without a category${open ? ` · ${num(open)} proposals await confirmation` : ''}.</p></div></div><ul class="tl-cat-list">${rows}</ul></article>`;
+  return `<article class="panel tl-panel tl-overview"><div class="tl-overview-head"><div><h2>Categories</h2><p class="small quiet">One level above the topics. ${num(cats.unassigned.topics)} topics (${num(cats.unassigned.entries)} entries) without a category${open ? ` · ${num(open)} proposals await confirmation` : ''}.</p></div>${open && may ? btn(`Confirm all proposals (${num(open)})`, 'cat-confirm-all', ro, 'small ghost') : ''}</div><ul class="tl-cat-list">${rows}</ul>${topicCatCreateForm()}<p class="small quiet tl-cat-status-line" id="catStatus" role="status" aria-live="polite"></p>${topicCatCommands()}</article>`;
+}
+// Shipped empty: with a password session the overview's place offers the first category (the list stays hidden otherwise).
+function topicCatSetup() {
+  const k = D?.categories;
+  if (!catMayClick() || !topicsAreTopics() || !k || k.error || !Array.isArray(k.list) || k.list.length) return '';
+  return `<article class="panel tl-panel tl-setup"><div class="tl-overview-head"><div><h2>Categories</h2><p class="small quiet">None yet. A category sits one level above the topics; create the first one here.</p></div></div>${topicCatCreateForm()}<p class="small quiet tl-cat-status-line" id="catStatus" role="status" aria-live="polite"></p>${topicCatCommands()}</article>`;
+}
+// After a write, bring the loaded state in line at once: the server's cache may trail the write for a moment
+// (it rebuilds in the background), and a page that still shows the old state would look like a failed click.
+const catOps = [];
+function catPatch(kind, f) { catOps.push([kind, f]); catApply(kind, f); }
+// A later quiet refetch may still carry the old state (the server rebuilds in the background): put the writes
+// back on top of it until the server's answer is fresh, i.e. built after them.
+function catReapply() {
+  if (!catOps.length) return;
+  if (D?.cache?.fresh) { catOps.length = 0; return; }
+  for (const [kind, f] of catOps) catApply(kind, f);
+}
+function catApply(kind, f) {
+  const k = D?.categories;
+  if (!k || !Array.isArray(k.list)) return;
+  const topics = k.topics || (k.topics = []);
+  const find = (key) => k.list.find((x) => x.key === key);
+  const put = (topic, key, status) => { const x = find(key), t = topics.find((y) => y.topic === topic); if (x && t) t.category = { key, label: x.label, status, source: 'person' }; };
+  if (kind === 'category-assign') put(f.topic, f.category, 'confirmed');
+  else if (kind === 'category-confirm') for (const t of topics) if (isProposal(t.category) && (f.all || t.topic === f.topic)) put(t.topic, t.category.key, 'confirmed');
+  else if (kind === 'category-acknowledge') { const x = find(f.key); if (x) x.status = 'confirmed'; k.new = (k.new || []).filter((y) => y.key !== f.key); }
+  else if (kind === 'category-rename') { const x = find(f.key); if (x) x.label = f.label; for (const t of topics) if (t.category?.key === f.key) t.category.label = f.label; }
+  else if (kind === 'category-merge') {
+    const to = find(f.target);
+    for (const t of topics) if (t.category?.key === f.source && to) t.category = { ...t.category, key: to.key, label: to.label };
+    k.list = k.list.filter((x) => x.key !== f.source);
+    k.new = (k.new || []).filter((y) => y.key !== f.source);
+  } else if (kind === 'category-create') {
+    const key = f.label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    if (!find(key)) k.list.push({ key, label: f.label, status: 'confirmed', topics: 0, entries: 0 });
+  }
+  for (const x of k.list) { const mine = topics.filter((t) => t.category?.key === x.key); x.topics = mine.length; x.entries = mine.reduce((n, t) => n + (t.count || 0), 0); }
+  const none = topics.filter((t) => !t.category);
+  k.unassigned = { topics: none.length, entries: none.reduce((n, t) => n + (t.count || 0), 0) };
+  k.proposals = topics.filter((t) => isProposal(t.category)).map((t) => ({ topic: t.topic, category: t.category.key, label: t.category.label }));
+}
+// One category write: a task (password session only), feedback in the button or the status line, errors name the reason.
+async function catRun(el, kind, fields, doneWord) {
+  if (state.readonly) return toast('Read only is on.');
+  const say = (t, tone) => { const st = $('#catStatus'); if (st) { st.textContent = t; st.className = 'small tl-cat-status-line ' + (tone || 'quiet'); } };
+  const isButton = el.tagName === 'BUTTON';
+  const rest = el.textContent;
+  el.disabled = true;
+  if (isButton) el.textContent = 'writing …';
+  say('Writing …');
+  let s;
+  try { s = await taskStart({ kind, ...fields }); } catch (e) { s = { ok: false, reason: 'network: ' + (e?.message || e) }; }
+  let done = null;
+  if (s.ok) done = await waitForTask(s.id, { maxMs: 30000 });
+  if (!s.ok || done.state !== 'ok') {
+    const why = s.ok ? (done.reason || done.state || 'unknown') : reasonPlain(s.reason);
+    el.disabled = false;
+    if (isButton) { el.textContent = 'Error'; setTimeout(() => { if (el.isConnected) el.textContent = rest; }, 4000); } else el.value = el.dataset.was ?? '';
+    say('Not saved: ' + why + '. Nothing was written.', 'red');
+    toast('Not saved: ' + why);
+    return false;
+  }
+  const text = done.result?.text || 'Saved.';
+  if (isButton) el.textContent = doneWord;
+  await loadData({ quiet: true });
+  catPatch(kind, fields);
+  render();
+  say(text, 'green');
+  toast(text);
+  return true;
 }
 const pages = {
   entries: () => {
@@ -1196,7 +1299,7 @@ const pages = {
     const sortHead = (field, text, cls) => `<button class="tl-sort ${cls}" data-action="topic-sort" data-value="${field}" aria-label="Sort by ${text}" ${topicsUi.sort === field ? `aria-pressed="true" data-dir="${topicsUi.dir > 0 ? 'asc' : 'desc'}"` : 'aria-pressed="false"'}>${text}<i aria-hidden="true">${topicsUi.sort === field ? (topicsUi.dir > 0 ? '↑' : '↓') : ''}</i></button>`;
     const cats = topicCategories();
     const noun = topicsAreTopics() ? 'Topic' : 'Tag';
-    return topicCatOverview() + `<div class="toolbar tl-bar"><input class="field searchfield" id="topicSearch" type="search" placeholder="Filter ${noun.toLowerCase()}s …" aria-label="Filter ${noun.toLowerCase()}s" value="${esc(topicsUi.q)}"><select class="field" id="topicSortSelect" aria-label="Sort topics"><option value="count" ${topicsUi.sort === 'count' ? 'selected' : ''}>By count</option><option value="name" ${topicsUi.sort === 'name' ? 'selected' : ''}>By name</option></select>${cats.on ? `<select class="field" id="topicCat" aria-label="Filter by category"><option value="">All categories</option><option value="__none" ${topicsUi.cat === '__none' ? 'selected' : ''}>No category</option>${[...cats.all].map(([id, label]) => `<option value="${esc(id)}" ${topicsUi.cat === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>` : ''}<div class="seg tl-source" role="group" aria-label="What is counted">${btn('Topics', 'topic-source', `data-value="topics" aria-pressed="${topicsAreTopics()}"`, 'small ghost')}${btn('Tags', 'topic-source', `data-value="tags" aria-pressed="${!topicsAreTopics()}"`, 'small ghost')}</div>${cats.on ? btn('Group by category', 'topic-group', `aria-pressed="${topicsUi.group}"`, 'small ghost tl-group-btn') : ''}<div class="seg tl-view" role="group" aria-label="Display">${btn('List', 'topic-view', `data-value="list" aria-pressed="${topicsUi.view === 'list'}"`, 'small ghost')}${btn('Tiles', 'topic-view', `data-value="tiles" aria-pressed="${topicsUi.view === 'tiles'}"`, 'small ghost')}</div></div>`
+    return (topicCatOverview() || topicCatSetup()) + `<div class="toolbar tl-bar"><input class="field searchfield" id="topicSearch" type="search" placeholder="Filter ${noun.toLowerCase()}s …" aria-label="Filter ${noun.toLowerCase()}s" value="${esc(topicsUi.q)}"><select class="field" id="topicSortSelect" aria-label="Sort topics"><option value="count" ${topicsUi.sort === 'count' ? 'selected' : ''}>By count</option><option value="name" ${topicsUi.sort === 'name' ? 'selected' : ''}>By name</option></select>${cats.on ? `<select class="field" id="topicCat" aria-label="Filter by category"><option value="">All categories</option><option value="__none" ${topicsUi.cat === '__none' ? 'selected' : ''}>No category</option>${[...cats.all].map(([id, label]) => `<option value="${esc(id)}" ${topicsUi.cat === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>` : ''}<div class="seg tl-source" role="group" aria-label="What is counted">${btn('Topics', 'topic-source', `data-value="topics" aria-pressed="${topicsAreTopics()}"`, 'small ghost')}${btn('Tags', 'topic-source', `data-value="tags" aria-pressed="${!topicsAreTopics()}"`, 'small ghost')}</div>${cats.on ? btn('Group by category', 'topic-group', `aria-pressed="${topicsUi.group}"`, 'small ghost tl-group-btn') : ''}<div class="seg tl-view" role="group" aria-label="Display">${btn('List', 'topic-view', `data-value="list" aria-pressed="${topicsUi.view === 'list'}"`, 'small ghost')}${btn('Tiles', 'topic-view', `data-value="tiles" aria-pressed="${topicsUi.view === 'tiles'}"`, 'small ghost')}</div></div>`
       + `<article class="panel tl-panel${cats.on ? ' tl-withcat' : ''}"><div class="tl-head${topicsUi.view === 'list' ? '' : ' tl-head-off'}">${sortHead('name', noun, 'tl-k-name')}${cats.on ? '<span class="tl-k-cat">Category</span>' : ''}${sortHead('count', 'Entries', 'tl-k-count')}<span class="tl-k-types">Types</span><span class="tl-k-action"></span></div><div id="topicList">${topicListHtml()}</div></article>`
       + `<p class="small quiet" style="margin-top:14px">${topicsAreTopics() ? `Topics are the threads of the entries (field topic); ${num(all.length)} in total. The free tags are under "Tags".` : `Tags are the free keywords of the entries (${num(all.length)} in total); topics and categories are under "Topics".`}</p>`
       + `<div class="grid two" style="margin-top:18px">${panel('Topic tree', (tp.areas || []).map((a) => `<div class="row"><div><strong>${esc(a.area)}</strong><p>${(a.children || []).slice(0, 8).map(esc).join(', ')}${(a.children || []).length > 8 ? ' …' : ''}</p></div><span class="small">${num(a.count)} · ${a.orphan ? badge('warning', 'one child') : badge('good', num((a.children || []).length) + ' children')}</span></div>`).join('') || empty('No topic yet.'), 'Grouped by area from the topic names alone (mem topics)')}${panel('Topic quality', tp.quality ? `<div class="row"><span class="small">Topics / entries with a topic</span><span class="small">${num(tp.quality.topics)} / ${num(tp.quality.entriesWithTopic)}</span></div><div class="row"><span class="small">Entries per topic</span><span class="small">${tp.quality.topics ? Number(tp.quality.entriesPerTopic).toFixed(2) : '—'}</span></div><div class="row"><span class="small">Single-entry topics</span><span class="small">${num(tp.quality.singleTopics)}${tp.quality.topics ? ` (${Math.round(tp.quality.singleShare * 100)} %)` : ''}</span></div><div class="row"><span class="small">Areas / orphan areas / malformed</span><span class="small">${num(tp.quality.areas)} / ${num(tp.quality.orphanAreas)} / ${num(tp.quality.malformed)}</span></div><p class="small quiet" style="margin-top:10px">A topic with exactly one entry is not a topic but a second title field — the doctor's topic-quality finding reads the same numbers.</p>` : badge('unknown'), 'The same measure as mem doctor')}</div>${note('Merging topics needs its own traceable step ("mem topic-merge").')}`;
@@ -5106,6 +5209,24 @@ document.addEventListener('click', async (ev) => {
       render();
       setTimeout(() => document.querySelector('.tl-group-btn')?.focus(), 0);
       break;
+    case 'cat-confirm': return catRun(el, 'category-confirm', { topic: d.topic }, 'confirmed ✓');
+    case 'cat-confirm-all': {
+      const n = topicCategories().proposals.length;
+      if (!confirm(`Confirm all ${n} proposals?\n\nEvery topic gets its proposed category as a confirmed assignment (new lines in the record, nothing is rewritten). Single ones can still be moved afterwards.`)) return;
+      return catRun(el, 'category-confirm', { all: 'yes' }, 'all confirmed ✓');
+    }
+    case 'cat-acknowledge': return catRun(el, 'category-acknowledge', { key: d.key }, 'acknowledged ✓');
+    case 'cat-rename': {
+      const label = (prompt('New display name (2 to 40 characters). The key stays the same.', d.label) || '').trim();
+      if (!label || label === d.label) return;
+      return catRun(el, 'category-rename', { key: d.key, label }, 'renamed ✓');
+    }
+    case 'cat-create': {
+      const field = $('#catNewLabel');
+      const label = (field?.value || '').trim();
+      if (!label) { const st = $('#catStatus'); if (st) { st.textContent = 'Not saved: type a name for the new category first.'; st.className = 'small tl-cat-status-line red'; } return field?.focus(); }
+      return catRun(el, 'category-create', { label }, 'created ✓');
+    }
     case 'cat-filter':
       topicsUi.cat = topicsUi.cat === d.value ? '' : d.value;
       topicsUi.more = 0;
@@ -5378,6 +5499,13 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', (e) => {
   const id = e.target.id, v = e.target.value;
+  if (e.target.dataset?.catAssign !== undefined && v) { catRun(e.target, 'category-assign', { topic: e.target.dataset.catAssign, category: v }, null); return; }
+  if (e.target.dataset?.catMerge !== undefined && v) {
+    const from = e.target.dataset.catMerge, all = topicCategories().all;
+    if (!confirm(`Merge category "${all.get(from)}" into "${all.get(v)}"?\n\nThe topics of the first count under the second from now on (an alias; nothing is deleted).`)) { e.target.value = ''; return; }
+    catRun(e.target, 'category-merge', { source: from, target: v }, null);
+    return;
+  }
   if (id === 'topicCat') { topicsUi.cat = v; topicsUi.more = 0; $('#topicList').innerHTML = topicListHtml(); }
   if (id === 'topicSortSelect') {
     topicsUi.sort = v;
@@ -5540,6 +5668,7 @@ document.addEventListener('keydown', (e) => {
     e.preventDefault();
     search();
   }
+  if (e.key === 'Enter' && e.target.id === 'catNewLabel') { e.preventDefault(); $('[data-action=cat-create]')?.click(); }
   if (e.key === 'Escape') {
     document.body.classList.remove('nav-open');
     $('#mobileMenu').setAttribute('aria-expanded', 'false');

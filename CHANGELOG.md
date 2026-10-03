@@ -35,6 +35,20 @@ are the day the work landed on `main`.
   a value. **`docs/environment-variables.md`** carries the same table, generated
   by `--markdown` and compared byte for byte by the test, so it cannot drift.
 
+### Added — category click actions in the dashboard (port of lucky-mem `kategorie-*`)
+
+- **Topics page, with a password session:** assign a topic by the select in its
+  category cell; confirm one proposal or all of them (dialog); acknowledge an
+  automatically created category; rename (dialog) and merge (dialog) a category;
+  create a category by name. Six task kinds (`category-assign`, `category-confirm`,
+  `category-acknowledge`, `category-rename`, `category-merge`, `category-create`),
+  persons only, each one the CLI call `mem category ... --json` (answer
+  `{ok, text}`; the write actions of `mem category` take `--json` now). Feedback
+  in the button and a status line, a refusal names its reason. Without a password
+  session the commands to copy stand in their place.
+- Tests: `test/kat-klicks-cm.test.mjs`, `test/kat-klicks-cm-browser.test.mjs`
+  (red proof pinned to `5f9170b`).
+
 ### Added — document expansion: the field `asked_as`, read by the search only behind `MEM_EXPAND=1` (port of lucky-mem `gefragt_als`)
 
 - **`mem log --asked-as 'a|b|c'`** (and the MCP bridge) stores 8 to 12 short

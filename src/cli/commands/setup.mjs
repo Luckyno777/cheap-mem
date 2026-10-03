@@ -790,6 +790,8 @@ export const COMMANDS = {
     const root = findRoot(args);
     requireConfig(root);
     const categories = await import('../../categories.mjs');
+    // --json (the dashboard tasks `category-*` read `ok` and `text`): one line, the same sentence as the plain output.
+    const say = (text) => out(args.json ? JSON.stringify({ ok: true, text }) : text);
     const personOnly = () => {
       if (process.env.MEM_HEADLESS) die(`category ${sub}: only a person does this - an unattended run (${process.env.MEM_HEADLESS}) cannot.`);
     };
@@ -816,51 +818,51 @@ export const COMMANDS = {
         return;
       }
       if (sub === 'assign') {
-        checkFlags(args, [], 'category assign');
+        checkFlags(args, ['json'], 'category assign');
         personOnly();
         const [topic, category] = [rest[1], rest[2]];
         if (!topic || !category) die('category assign: mem category assign <topic> <category>');
         const canon = memory.topicAliases(root).get(topic) ?? topic;
         if (!memory.topics(root).some((t) => t.topic === canon)) die(`category assign: no topic '${topic}' (mem topics --names-only). Nothing written.`);
         const r = categories.assign(root, topic, category);
-        out(`Topic '${r.topic}' -> ${r.category} (${r.label}), confirmed.`);
+        say(`Topic '${r.topic}' -> ${r.category} (${r.label}), confirmed.`);
         return;
       }
       if (sub === 'confirm') {
-        checkFlags(args, ['all-proposals'], 'category confirm');
+        checkFlags(args, ['all-proposals', 'json'], 'category confirm');
         personOnly();
         if (args['all-proposals']) {
-          out(`${categories.confirm(root, null).length} proposals confirmed.`);
+          say(`${categories.confirm(root, null).length} proposals confirmed.`);
         } else {
           if (!rest[1]) die('category confirm: topic missing (or --all-proposals).');
-          out(`Topic '${categories.confirm(root, rest[1])[0]}' confirmed.`);
+          say(`Topic '${categories.confirm(root, rest[1])[0]}' confirmed.`);
         }
         return;
       }
       if (sub === 'create' && args.suggested) {
-        checkFlags(args, ['suggested'], 'category create');
+        checkFlags(args, ['suggested', 'json'], 'category create');
         personOnly();
         const made = categories.adoptSuggested(root);
-        out(made.length ? `Adopted the suggested list: ${made.join(', ')}.` : 'Nothing to adopt: every suggested category already exists.');
+        say(made.length ? `Adopted the suggested list: ${made.join(', ')}.` : 'Nothing to adopt: every suggested category already exists.');
         return;
       }
       if (sub === 'create' || sub === 'acknowledge' || sub === 'rename') {
-        checkFlags(args, [], `category ${sub}`);
+        checkFlags(args, ['json'], `category ${sub}`);
         personOnly();
         if (!rest[1]) die(`category ${sub}: key missing.`);
         if (sub !== 'acknowledge' && !rest[2]) die(`category ${sub}: label missing.`);
         const known = categories.findCategory(categories.readCategories(root), rest[1]);
         if (sub !== 'create' && !known) die(`category ${sub}: no category '${rest[1]}'.`);
         const r = categories.createCategory(root, known ? known.key : rest[1], rest[2] ?? known.label);
-        out(`Category ${r.key} (${r.label}) ${r.fresh ? 'created' : sub === 'rename' ? 'renamed' : 'confirmed'}.`);
+        say(`Category ${r.key} (${r.label}) ${r.fresh ? 'created' : sub === 'rename' ? 'renamed' : 'confirmed'}.`);
         return;
       }
       if (sub === 'merge') {
-        checkFlags(args, ['why'], 'category merge');
+        checkFlags(args, ['why', 'json'], 'category merge');
         personOnly();
         if (!rest[1] || !rest[2]) die('category merge: mem category merge <from> <to>');
         const r = categories.mergeCategories(root, rest[1], rest[2], { why: args.why ?? '' });
-        out(`Category '${r.from}' counts as '${r.to}' from now on (alias, nothing deleted).`);
+        say(`Category '${r.from}' counts as '${r.to}' from now on (alias, nothing deleted).`);
         return;
       }
       // initial-assign
