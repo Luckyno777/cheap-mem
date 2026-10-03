@@ -283,6 +283,9 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // Calendar out (2026-10-03): 'termin-mail' added on the lucky-mem side
   // (calendar invitations/entries from the appointment clock), mapped as a
   // lucky-mem-only finding until this house gets the mechanism.
+  // Plaintext count (2026-10-03): 'klartext-sensibel' added on the lucky-mem
+  // side (lines with a sensitive tag stored in plaintext), mapped as a gap:
+  // this house ships no encryption layer and no sensitive-tag list.
   names: Object.freeze([
     'abrufquote', 'altlast', 'anhang', 'anmeldung', 'ansicht', 'archiv-haltbar',
     'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
@@ -293,7 +296,7 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
     'fasser', 'fasser-ausbeute', 'fasser-timer', 'fehler-verknuepft', 'frageworte',
     'geheimnis-altfaenge', 'git', 'git-hook', 'haken-fehlen', 'haken-wurzel-stau',
     'hook-doppelt', 'hook-kopie', 'hook-stand', 'index', 'integrationsvertrag',
-    'kategorien', 'kennzahlen-gleich', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
+    'kategorien', 'kennzahlen-gleich', 'klartext-sensibel', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
     'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
     'nachweis-luecke', 'offene-funde', 'paritaetsschuld', 'plattenplatz',
     'post-anfragen', 'post-liegt', 'post-stau', 'post-ungepusht',
