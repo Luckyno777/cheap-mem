@@ -32,6 +32,28 @@ are the day the work landed on `main`.
   doctor` prints no raw `fatal:` line on stderr in a fresh or shallow clone
   (the parity cutoff is "not measurable, not zero"). `test/doctor-idless-and-quiet.test.mjs`.
 
+### Changed — the dashboard package ported from the sibling house (dash-paket-cm, 2026-10-03)
+
+- **Topics as a list, not one tile per topic.** Topic, entries, types, "Open
+  thread"; sortable, filterable, 30 rows and "Show more", a small switch to
+  tiles (remembered in the browser). The list counts the real topic (field
+  `topic`, aliases resolved, counted over the whole store); "Open thread"
+  filters the entries page; the free tags are the second tab. A category
+  column, filter and overview appear only when `D.categories` carries data.
+- **Offline reading view.** The export studio's button now downloads the
+  SAME project package as ONE self-contained HTML file (`src/readview.mjs`,
+  `?format=html`): search, list, detail and references, no network call, no
+  outside address; encrypted entries stay "encrypted".
+- **New project: confirm by a click** (task `project-confirm`, password
+  session only; `mem project confirm <name> --json`). The copy-command stays
+  under "Details".
+- **Settings save** reports in the button and a status line (saved / not
+  saved and why); **raw capture review** explains an empty digest instead of
+  saying nothing was found; the **network legend** is two short paragraphs
+  and names the condensed atlas only when it is on.
+- **Overview order:** title, (day slot for the calendar), figures, network
+  with "Your next look", Today across the full width, recently connected.
+
 ### Changed — a store the full build cannot handle gets a real answer and a condensed 3D atlas (atlas-pass)
 
 - **ONE pass replaces the light head above 64 MB of drawers.** The compact

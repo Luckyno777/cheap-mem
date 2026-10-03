@@ -40,7 +40,7 @@
  "src/integrationcontract.mjs": 4,
  "src/langbridge.mjs": 2,
  "src/latencybudget.mjs": 7,
- "src/login.mjs": 11,
+ "src/login.mjs": 10,
  "src/maintenance.mjs": 3,
  "src/mcplive.mjs": 3,
  "src/measurements.mjs": 1,

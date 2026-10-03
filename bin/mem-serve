@@ -69,6 +69,7 @@ import * as verifylog from '../src/verifylog.mjs';
 import * as goldlog from '../src/goldlog.mjs';
 import * as login from '../src/login.mjs';
 import * as projectPackage from '../src/projectpackage.mjs';
+import * as readview from '../src/readview.mjs';
 import * as skillcatalog from '../src/skillcatalog.mjs';
 import * as skilleffect from '../src/skilleffect.mjs';
 import * as memoryModule from '../src/memory.mjs';
@@ -900,10 +901,13 @@ export function buildHandler(root, cfg, env = process.env) {
       try { pkg = projectPackage.build(root, st.data, a, { cache: st.meta, now }); } catch (e) {
         json(500, { state: 'error', reason: e?.message || String(e) }); return;
       }
-      const text = JSON.stringify(pkg, null, 1);
+      // Offline reading view (dash-paket-cm): the SAME package as one self-contained
+      // HTML file (src/readview.mjs) — same selection, redaction and count.
+      const asHtml = url.searchParams.get('format') === 'html';
+      const text = asHtml ? readview.buildHtml(pkg) : JSON.stringify(pkg, null, 1);
       const head = {
-        ...HEAD, 'content-type': 'application/json; charset=utf-8',
-        'content-disposition': `attachment; filename="${projectPackage.fileName(a.project, now)}"`,
+        ...HEAD, 'content-type': asHtml ? 'text/html; charset=utf-8' : 'application/json; charset=utf-8',
+        'content-disposition': `attachment; filename="${asHtml ? readview.fileName(a.project, now) : projectPackage.fileName(a.project, now)}"`,
       };
       if (/\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))) {
         res.writeHead(200, { ...head, 'content-encoding': 'gzip', vary: 'accept-encoding' }).end(zlib.gzipSync(text));

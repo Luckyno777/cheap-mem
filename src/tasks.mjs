@@ -340,6 +340,26 @@ export const KINDS = Object.freeze({
       return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new line' };
     },
   },
+  // dash-paket-cm (2026-10-03, parity with lucky-mem `projekt-bestaetigen`):
+  // the dashboard button on a new, unconfirmed project. The same CLI call as
+  // on the command line (`mem project confirm <name> --json`); a person only —
+  // the CLI itself refuses an unattended run, and a token is not a person.
+  'project-confirm': {
+    title: 'Confirm a new project',
+    description: 'mem project confirm <name> --json — removes the "new" mark, one event in the project.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      name: { required: true, check: (v) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(v), why: 'a project name' },
+    },
+    command(root, id, p) {
+      return { file: MEM_BIN, args: ['project', 'confirm', p.name, '--json'] };
+    },
+    progressPattern: null,
+    classify(json) {
+      return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new event' };
+    },
+  },
   // Registry status (lucky-mem `skill-status`): the CLI's `mem skills
   // status`. `--issued-by` only from `context.user` (password session),
   // never from the form; without it refused before any child

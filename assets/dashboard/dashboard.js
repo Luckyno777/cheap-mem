@@ -109,7 +109,7 @@ const state = {
   area: 'home', tab: '', memory: 'local', project: 'all', query: '', type: 'all', status: 'all', sort: 'new', page: 1,
   graphMode: 'storage', motion: !matchMedia('(prefers-reduced-motion: reduce)').matches, light: false,
   readonly: !serverWrites, missing: false, drawerTab: 'content', selected: null, context: 'all', trail: null,
-  inboxTo: null, inboxAll: false, inboxQuery: '',
+  inboxTo: null, inboxAll: false, inboxQuery: '', topic: '',
 };
 // Full-text search (src/fulltext.mjs): the server's answer always belongs to ONE
 // query (`q`). Only an answer to the CURRENT input counts; anything else is dropped.
@@ -452,14 +452,14 @@ function prepare(d) {
 // One entry from the server's shape into the page's (list, net, atlas pages).
 function entryOf(e) {
   const x = {
-    id: e.id, type: e.type, title: e.title, project: e.project, text: e.text || '', tags: e.tags || [], rels: e.out || [],
+    id: e.id, type: e.type, title: e.title, project: e.project, text: e.text || '', tags: e.tags || [], topic: e.topic || null, rels: e.out || [],
     refs: (e.out || []).map((r) => r[1]), agent: e.agent || '—', ts: e.ts || '', memory: 'local', state: e.state || 'active',
     why: e.why || null, source: e.source ? e.source + (e.line ? ':' + e.line : '') : '—', readable: !!e.readable, recall: e.recall ?? null,
     capture: e.capture || null, validFrom: e.validFrom || null, validUntil: e.validUntil || null, fact: e.fact || null, replaces: e.replaces || null,
     cited: e.cited || 0, contested: !!e.contested, basis: e.basis || null, authority: e.authority || null, scope: e.scope || null,
     derivedFrom: e.derivedFrom || [], key: e.key || null, ruleStatus: e.status || null,
   };
-  x._s = (x.id + ' ' + x.title + ' ' + x.text + ' ' + x.tags.join(' ') + ' ' + x.agent + ' ' + x.project + ' ' + (types[x.type] || '')).toLowerCase();
+  x._s = (x.id + ' ' + x.title + ' ' + x.text + ' ' + x.tags.join(' ') + ' ' + (x.topic || '') + ' ' + x.agent + ' ' + x.project + ' ' + (types[x.type] || '')).toLowerCase();
   return x;
 }
 function setEntries(list) {
@@ -890,6 +890,9 @@ function todayCard() {
   return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
 }
 
+// The day strip above the figures. cheap-mem has no appointment clock yet, so there is nothing to
+// show and the slot stays empty (CSS `:empty` removes it); the calendar port returns its markup here.
+function homeDayHtml() { return ''; }
 function home() {
   // Before the first build (a cold start without a stored head) nothing is measured.
   if (D?.placeholder) {
@@ -908,7 +911,10 @@ function home() {
       'One place for memories, decisions and the people and agents who work with them.',
       `<div class="hero-actions">${btn('Drawers in the network ↗', 'show-shards', '', 'ghost')}${btn('Project package ↗', 'goto-export', '', 'ghost')}</div>`,
     ) +
-    todayCard() +
+    // dash-paket-cm: the overview's order (same order in both houses): title, the day strip (a slot the
+    // calendar port fills; empty it takes no room), figures, the network with the next look, Today
+    // across the full width, recently connected, system state.
+    `<div class="overview-head" id="homeDay">${homeDayHtml()}</div>` +
     metrics([
       ['Knowledge in view', num(z.count), 'entries in the chosen scope'],
       ['Open work', num(todo.length), 'duties & unanswered questions'],
@@ -923,7 +929,7 @@ function home() {
             `<button class="attention" data-entry="${esc(e.id)}"><span class="sym">${e.type === 'question' ? '?' : '↗'}</span><div><strong>${esc(e.title)}</strong><p>${esc(e.text.slice(0, 110))}</p><span class="label">${esc(e.project)}${D._dutyWho.get(e.id) ? ' · ' + esc(D._dutyWho.get(e.id)) : ''}</span></div><span class="arrow">↗</span></button>`,
         )
         .join('') || empty(es.length ? 'No duty and no question is open right now.' : 'Nothing is open — this memory holds no entry yet. <code class="mono">mem log duty "…"</code> records the first duty.')
-    }<div class="smallstats"><span>Originals stay intact</span><span class="green">Append-only</span></div></article></div><div class="sectionline"><h2>Recently connected</h2>${link('See all', 'knowledge/entries')}</div><div class="grid two">${panel('Memories with origin', entryRows(es.slice(0, 3), 'Your first entries will appear here. <code class="mono">mem log learning "…"</code> writes one.'))}${panel(
+    }<div class="smallstats"><span>Originals stay intact</span><span class="green">Append-only</span></div></article></div><div class="overview-today">${todayCard()}</div><div class="sectionline"><h2>Recently connected</h2>${link('See all', 'knowledge/entries')}</div><div class="grid two">${panel('Memories with origin', entryRows(es.slice(0, 3), 'Your first entries will appear here. <code class="mono">mem log learning "…"</code> writes one.'))}${panel(
       'From occasion to memory',
       `<div class="flow"><span>Question</span><i>→</i><span>Fitting context</span><i>→</i><span>Evidence</span></div><p class="muted small">See what an agent last really received before a change – and what can be observed from it.</p><div style="margin-top:22px">${btn('Explore agent context ↗', 'goto-context', '', 'ghost')}</div>`,
       D.recall?.measurable ? `${num(D.usage?.shown)} injections in the journal since ${when(D.recall.since)}` : 'Injection journal not measurable — nothing injected on this machine yet',
@@ -976,7 +982,7 @@ function fulltextAsk(source = fulltext) {
 function filtered() {
   const q = state.query.toLocaleLowerCase();
   const es = scoped().filter(
-    (e) => (state.type === 'all' || e.type === state.type) && (state.status === 'all' || statusOf(e.id) === state.status) && (!q || e._s.includes(q) || fulltextHits(e.id)),
+    (e) => (!state.topic || e.topic === state.topic) && (state.type === 'all' || e.type === state.type) && (state.status === 'all' || statusOf(e.id) === state.status) && (!q || e._s.includes(q) || fulltextHits(e.id)),
   );
   return es.sort((a, b) => (state.sort === 'title' ? a.title.localeCompare(b.title, 'en') : state.sort === 'old' ? a.ts.localeCompare(b.ts) : b.ts.localeCompare(a.ts)));
 }
@@ -1057,6 +1063,97 @@ function integrityPanel() {
     `${num(k.lines)} lines · ${num(k.entries)} entries`,
   );
 }
+// --- Topics list (dash-paket-cm, 2026-10-03; same list in both houses) ---------
+// A list instead of one big tile per topic: topic, entries, types, "Open thread". Sortable,
+// filterable, 30 rows + "Show more"; a small switch to tiles, remembered in the browser.
+// The source is the real topic (field `topic`, aliases resolved; the server counts it over the
+// whole store in D.topics.list); "Tags" is the small second tab with the free tags. Categories
+// (`D.categories`, contract below) appear only when the data carry them.
+const topicsUi = { sort: 'count', dir: -1, q: '', view: 'list', more: 0, cat: '', group: false, source: 'topics' };
+try { const v = localStorage.getItem('cm-dash-topics-view'); if (v === 'list' || v === 'tiles') topicsUi.view = v; } catch { /* without storage the list stays */ }
+let topicsMemo = { key: null, list: [] };
+const topicsAreTopics = () => topicsUi.source === 'topics';
+function topicsBase() {
+  const server = topicsAreTopics() && state.project === 'all' && Array.isArray(D?.topics?.list) ? D.topics.list : null;
+  const key = `${topicsUi.source}|${state.project}|${entries.length}|${entries[0]?.id ?? ''}|${entries[entries.length - 1]?.id ?? ''}|${server ? server.length : '-'}`;
+  if (topicsMemo.key === key) return topicsMemo.list;
+  let list;
+  if (server) {
+    list = server.map((t) => ({ name: String(t.topic), count: Number(t.count) || 0, types: [...(t.types || [])].sort() }));
+  } else {
+    const map = new Map();
+    for (const e of entries) {
+      if (!scope(e)) continue;
+      for (const name of topicsAreTopics() ? (e.topic ? [e.topic] : []) : e.tags || []) {
+        let z = map.get(name);
+        if (!z) { z = { name, count: 0, types: new Set() }; map.set(name, z); }
+        z.count += 1;
+        z.types.add(e.type);
+      }
+    }
+    list = [...map.values()].map((z) => ({ name: z.name, count: z.count, types: [...z.types].sort() }));
+  }
+  topicsMemo = { key, list };
+  return list;
+}
+// Categories (contract of the categories port): `D.categories` = { list:[{key,label,status,topics,entries}],
+// topics:[{topic,count,category:{key,label,status,source}|null}], unassigned, proposals:[{topic,category,label}],
+// new:[{key,label}], wishes, threshold } or { error }. Absent or carrying `error`: no column, no filter,
+// no overview — never an error on the page. (The click actions for categories follow with the CLI.)
+const isProposal = (c) => c?.status === 'proposal' || c?.status === 'proposed';
+function topicCategories() {
+  const k = D?.categories;
+  if (!topicsAreTopics() || !k || k.error || !Array.isArray(k.list)) return { on: false, assigned: new Map(), all: new Map(), list: [], proposals: [], isNew: new Set(), unassigned: { topics: 0, entries: 0 } };
+  const assigned = new Map();
+  for (const t of k.topics || []) if (t?.topic && t.category?.key) assigned.set(String(t.topic), t.category);
+  const u = k.unassigned;
+  return {
+    on: true, assigned, all: new Map(k.list.map((x) => [x.key, x.label || x.key])), list: k.list, proposals: k.proposals || [],
+    isNew: new Set((k.new || []).map((x) => x.key)),
+    unassigned: typeof u === 'number' ? { topics: u, entries: 0 } : { topics: u?.topics ?? 0, entries: u?.entries ?? 0 },
+  };
+}
+function topicsFiltered() {
+  const q = topicsUi.q.trim().toLowerCase();
+  const cats = topicCategories();
+  const list = topicsBase().filter((t) => (!q || t.name.toLowerCase().includes(q)) && (!topicsUi.cat || !cats.on || (topicsUi.cat === '__none' ? !cats.assigned.has(t.name) : cats.assigned.get(t.name)?.key === topicsUi.cat)));
+  const r = topicsUi.dir;
+  const rank = topicsUi.group && cats.on ? (t) => { const key = cats.assigned.get(t.name)?.key; return key ? cats.list.findIndex((x) => x.key === key) : 9999; } : null;
+  return list.sort((a, b) => (rank ? rank(a) - rank(b) : 0) || (topicsUi.sort === 'name'
+    ? r * a.name.localeCompare(b.name, 'en') || b.count - a.count
+    : r * (a.count - b.count) || a.name.localeCompare(b.name, 'en')));
+}
+const topicsWindow = () => (topicsUi.view === 'tiles' ? 48 : 30);
+function topicTypesHtml(t, max) {
+  const word = (k) => esc(types[k] || k);
+  return t.types.slice(0, max).map((k) => `<span class="tag">${word(k)}</span>`).join('')
+    + (t.types.length > max ? `<span class="tag tl-more-types" title="${esc(t.types.slice(max).map((k) => types[k] || k).join(', '))}">+${t.types.length - max}</span>` : '');
+}
+function topicCatHtml(c) {
+  if (!c) return '<span class="small quiet">—</span>';
+  return `<span class="tag">${esc(c.label || c.key)}</span>${isProposal(c) ? '<span class="badge warn" title="A proposal, not yet confirmed">Proposal</span>' : ''}`;
+}
+const topicCatKey = (t, cats) => cats.assigned.get(t.name)?.key || '';
+function topicListHtml() {
+  const all = topicsFiltered();
+  const shown = all.slice(0, topicsWindow() * (1 + topicsUi.more));
+  if (!all.length) return empty(topicsUi.q ? 'No topic matches the filter.' : 'No topics in this scope yet.');
+  const cats = topicCategories();
+  const act = topicsAreTopics() ? 'topic-thread' : 'topic';
+  const core = topicsUi.view === 'tiles'
+    ? `<div class="tl-tiles">${shown.map((t) => `<button class="tl-tile" data-action="${act}" data-value="${esc(t.name)}" aria-label="Open thread: ${esc(t.name)}, ${t.count} entries"><strong>${esc(t.name)}</strong><span class="tl-count">${num(t.count)}</span><span class="small quiet">${t.types.length} ${t.types.length === 1 ? 'type' : 'types'}</span></button>`).join('')}</div>`
+    : `<ul class="tl-list">${shown.map((t, i) => `${topicsUi.group && cats.on && (i === 0 || topicCatKey(shown[i - 1], cats) !== topicCatKey(t, cats)) ? `<li class="tl-group" role="presentation">${esc(cats.all.get(topicCatKey(t, cats)) || 'No category')}</li>` : ''}<li class="tl-row"><strong class="tl-name">${esc(t.name)}</strong>${cats.on ? `<span class="tl-cat">${topicCatHtml(cats.assigned.get(t.name))}</span>` : ''}<span class="tl-count"><span class="tl-lbl">Entries </span>${num(t.count)}</span><span class="tl-types">${topicTypesHtml(t, 4)}</span><span class="tl-action">${btn('Open thread ↗', act, `data-value="${esc(t.name)}" aria-label="Open thread: ${esc(t.name)}"`, 'small ghost')}</span></li>`).join('')}</ul>`;
+  const rest = all.length - shown.length;
+  return `${core}<div class="tablefoot tl-foot"><span role="status">${num(shown.length)} of ${num(all.length)} ${all.length === 1 ? 'topic' : 'topics'}${topicsUi.q.trim() ? ' (filtered)' : ''}</span>${rest > 0 ? btn(`Show more (${num(Math.min(rest, topicsWindow()))})`, 'topic-more', '', 'small ghost') : ''}</div>`;
+}
+// The categories overview above the list: category, topics, entries, status. Read-only until the CLI's click actions exist.
+function topicCatOverview() {
+  const cats = topicCategories();
+  if (!cats.on) return '';
+  const rows = cats.list.map((x) => `<li class="tl-cat-row"><button class="tl-cat-name" data-action="cat-filter" data-value="${esc(x.key)}" aria-pressed="${topicsUi.cat === x.key}" title="Show only this category"><strong>${esc(x.label || x.key)}</strong></button><span class="tl-count"><span class="tl-lbl">Topics </span>${num(x.topics ?? 0)}</span><span class="tl-count"><span class="tl-lbl">Entries </span>${num(x.entries ?? 0)}</span><span class="tl-cat-status">${cats.isNew.has(x.key) ? '<span class="badge warn">new · created automatically</span>' : x.status === 'seed' || x.status === 'start' ? '<span class="badge">Seed</span>' : '<span class="badge good">confirmed</span>'}</span></li>`).join('');
+  const open = cats.proposals.length;
+  return `<article class="panel tl-panel tl-overview"><div class="tl-overview-head"><div><h2>Categories</h2><p class="small quiet">One level above the topics. ${num(cats.unassigned.topics)} topics (${num(cats.unassigned.entries)} entries) without a category${open ? ` · ${num(open)} proposals await confirmation` : ''}.</p></div></div><ul class="tl-cat-list">${rows}</ul></article>`;
+}
 const pages = {
   entries: () => {
     const es = filtered(),
@@ -1069,7 +1166,7 @@ const pages = {
       .map((x) => `<option value="${x}" ${state.status === x ? 'selected' : ''}>${x === 'all' ? 'All states' : x}</option>`)
       .join('')}</select><select class="field" id="sortFilter" aria-label="Sort">${[['new', 'Newest first'], ['old', 'Oldest first'], ['title', 'Title A–Z']]
       .map(([k, n]) => `<option value="${k}" ${state.sort === k ? 'selected' : ''}>${n}</option>`)
-      .join('')}</select>${btn('Reset filters', 'reset-filters', '', 'ghost')}<a class="btn ghost" id="entriesPageLink" href="/entries${state.type && state.type !== 'all' ? '?type=' + encodeURIComponent(state.type) : ''}" target="_blank" rel="noopener" title="The same list, rendered by the server, in a new tab">Full list page ↗</a></div><article class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>Entry / origin</th><th>Type</th><th>Project</th><th>State</th><th>Date</th></tr></thead><tbody>${es
+      .join('')}</select>${btn('Reset filters', 'reset-filters', '', 'ghost')}${state.topic ? `<span class="badge good tl-active" role="status">Topic: ${esc(state.topic)}</span>` : ''}<a class="btn ghost" id="entriesPageLink" href="/entries${state.type && state.type !== 'all' ? '?type=' + encodeURIComponent(state.type) : ''}" target="_blank" rel="noopener" title="The same list, rendered by the server, in a new tab">Full list page ↗</a></div><article class="panel"><div class="tablewrap"><table class="table"><thead><tr><th>Entry / origin</th><th>Type</th><th>Project</th><th>State</th><th>Date</th></tr></thead><tbody>${es
       .slice((pg - 1) * n, pg * n)
       .map(
         (e) =>
@@ -1090,19 +1187,15 @@ const pages = {
     )}${panel('Project matrix', projectMatrix(), 'Stored links between the projects, from the drawer pairs')}</div><div class="grid two" style="margin-top:18px">${panel('Drawers · project × type', drawerMatrix(), `${num(D.net?.boxes?.length)} drawers · one click shows their entries (the old net view's overview)`)}${panel('Layers', netLayers(), `depth ${num(D.net?.layers?.depth)} · what points at others stands on top (net.layers)`)}</div><div style="margin-top:18px">${panel('Hand-drawn links', (D.links || []).slice(0, 40).map((l) => `<div class="row"><div><strong>${esc(edgeLabels[l.kind] || l.kind)}</strong><p>${byId(l.from) ? open(l.from, byId(l.from).title, 'textlink') : esc(l.from)} → ${byId(l.to) ? open(l.to, byId(l.to).title, 'textlink') : esc(l.to)}${l.why ? ' · ' + esc(l.why) : ''}</p></div>${l.fromKnown && l.toKnown ? badge('present', 'both ends known') : badge('missing', 'dangling')}</div>`).join('') || empty('No link has been drawn by hand yet. <code class="mono">mem log link --from … --to … --kind causes</code> draws one.'), 'Typed relations from the links drawer, with their reason')}</div><div style="margin-top:18px">${derivedPanel()}</div>`;
   },
   topics: () => {
-    const counts = new Map();
-    for (const e of scoped()) for (const t of e.tags) counts.set(t, (counts.get(t) || 0) + 1);
-    const tags = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'en'));
-    const shown = tags.slice(0, 24);
     const tp = D.topics || {};
-    return `<div class="grid three">${shown
-      .map(([t, c]) =>
-        panel(
-          esc(t),
-          `<div class="number">${num(c)}</div><p class="small muted" style="margin:8px 0 18px">entries from ${new Set(scoped().filter((e) => e.tags.includes(t)).map((e) => e.type)).size} types</p>${btn('Open thread ↗', 'topic', `data-value="${esc(t)}"`, 'ghost')}`,
-        ),
-      )
-      .join('') || empty('No entry carries a tag yet — topics appear with the first tagged entry.')}</div>${tags.length > shown.length ? `<p class="small quiet" style="margin-top:14px">The ${shown.length} most frequent of ${num(tags.length)} topics. Every topic is reachable through the search.</p>` : ''}<div class="grid two" style="margin-top:18px">${panel('Topic tree', (tp.areas || []).map((a) => `<div class="row"><div><strong>${esc(a.area)}</strong><p>${(a.children || []).slice(0, 8).map(esc).join(', ')}${(a.children || []).length > 8 ? ' …' : ''}</p></div><span class="small">${num(a.count)} · ${a.orphan ? badge('warning', 'one child') : badge('good', num((a.children || []).length) + ' children')}</span></div>`).join('') || empty('No topic yet.'), 'Grouped by area from the topic names alone (mem topics)')}${panel('Topic quality', tp.quality ? `<div class="row"><span class="small">Topics / entries with a topic</span><span class="small">${num(tp.quality.topics)} / ${num(tp.quality.entriesWithTopic)}</span></div><div class="row"><span class="small">Entries per topic</span><span class="small">${tp.quality.topics ? Number(tp.quality.entriesPerTopic).toFixed(2) : '—'}</span></div><div class="row"><span class="small">Single-entry topics</span><span class="small">${num(tp.quality.singleTopics)}${tp.quality.topics ? ` (${Math.round(tp.quality.singleShare * 100)} %)` : ''}</span></div><div class="row"><span class="small">Areas / orphan areas / malformed</span><span class="small">${num(tp.quality.areas)} / ${num(tp.quality.orphanAreas)} / ${num(tp.quality.malformed)}</span></div><p class="small quiet" style="margin-top:10px">A topic with exactly one entry is not a topic but a second title field — the doctor's topic-quality finding reads the same numbers.</p>` : badge('unknown'), 'The same measure as mem doctor')}</div>${note('Topics here are the entries\' tags and topic names. Merging topics needs its own traceable step ("mem topic-merge").')}`;
+    const all = topicsBase();
+    const sortHead = (field, text, cls) => `<button class="tl-sort ${cls}" data-action="topic-sort" data-value="${field}" aria-label="Sort by ${text}" ${topicsUi.sort === field ? `aria-pressed="true" data-dir="${topicsUi.dir > 0 ? 'asc' : 'desc'}"` : 'aria-pressed="false"'}>${text}<i aria-hidden="true">${topicsUi.sort === field ? (topicsUi.dir > 0 ? '↑' : '↓') : ''}</i></button>`;
+    const cats = topicCategories();
+    const noun = topicsAreTopics() ? 'Topic' : 'Tag';
+    return topicCatOverview() + `<div class="toolbar tl-bar"><input class="field searchfield" id="topicSearch" type="search" placeholder="Filter ${noun.toLowerCase()}s …" aria-label="Filter ${noun.toLowerCase()}s" value="${esc(topicsUi.q)}"><select class="field" id="topicSortSelect" aria-label="Sort topics"><option value="count" ${topicsUi.sort === 'count' ? 'selected' : ''}>By count</option><option value="name" ${topicsUi.sort === 'name' ? 'selected' : ''}>By name</option></select>${cats.on ? `<select class="field" id="topicCat" aria-label="Filter by category"><option value="">All categories</option><option value="__none" ${topicsUi.cat === '__none' ? 'selected' : ''}>No category</option>${[...cats.all].map(([id, label]) => `<option value="${esc(id)}" ${topicsUi.cat === id ? 'selected' : ''}>${esc(label)}</option>`).join('')}</select>` : ''}<div class="seg tl-source" role="group" aria-label="What is counted">${btn('Topics', 'topic-source', `data-value="topics" aria-pressed="${topicsAreTopics()}"`, 'small ghost')}${btn('Tags', 'topic-source', `data-value="tags" aria-pressed="${!topicsAreTopics()}"`, 'small ghost')}</div>${cats.on ? btn('Group by category', 'topic-group', `aria-pressed="${topicsUi.group}"`, 'small ghost tl-group-btn') : ''}<div class="seg tl-view" role="group" aria-label="Display">${btn('List', 'topic-view', `data-value="list" aria-pressed="${topicsUi.view === 'list'}"`, 'small ghost')}${btn('Tiles', 'topic-view', `data-value="tiles" aria-pressed="${topicsUi.view === 'tiles'}"`, 'small ghost')}</div></div>`
+      + `<article class="panel tl-panel${cats.on ? ' tl-withcat' : ''}"><div class="tl-head${topicsUi.view === 'list' ? '' : ' tl-head-off'}">${sortHead('name', noun, 'tl-k-name')}${cats.on ? '<span class="tl-k-cat">Category</span>' : ''}${sortHead('count', 'Entries', 'tl-k-count')}<span class="tl-k-types">Types</span><span class="tl-k-action"></span></div><div id="topicList">${topicListHtml()}</div></article>`
+      + `<p class="small quiet" style="margin-top:14px">${topicsAreTopics() ? `Topics are the threads of the entries (field topic); ${num(all.length)} in total. The free tags are under "Tags".` : `Tags are the free keywords of the entries (${num(all.length)} in total); topics and categories are under "Topics".`}</p>`
+      + `<div class="grid two" style="margin-top:18px">${panel('Topic tree', (tp.areas || []).map((a) => `<div class="row"><div><strong>${esc(a.area)}</strong><p>${(a.children || []).slice(0, 8).map(esc).join(', ')}${(a.children || []).length > 8 ? ' …' : ''}</p></div><span class="small">${num(a.count)} · ${a.orphan ? badge('warning', 'one child') : badge('good', num((a.children || []).length) + ' children')}</span></div>`).join('') || empty('No topic yet.'), 'Grouped by area from the topic names alone (mem topics)')}${panel('Topic quality', tp.quality ? `<div class="row"><span class="small">Topics / entries with a topic</span><span class="small">${num(tp.quality.topics)} / ${num(tp.quality.entriesWithTopic)}</span></div><div class="row"><span class="small">Entries per topic</span><span class="small">${tp.quality.topics ? Number(tp.quality.entriesPerTopic).toFixed(2) : '—'}</span></div><div class="row"><span class="small">Single-entry topics</span><span class="small">${num(tp.quality.singleTopics)}${tp.quality.topics ? ` (${Math.round(tp.quality.singleShare * 100)} %)` : ''}</span></div><div class="row"><span class="small">Areas / orphan areas / malformed</span><span class="small">${num(tp.quality.areas)} / ${num(tp.quality.orphanAreas)} / ${num(tp.quality.malformed)}</span></div><p class="small quiet" style="margin-top:10px">A topic with exactly one entry is not a topic but a second title field — the doctor's topic-quality finding reads the same numbers.</p>` : badge('unknown'), 'The same measure as mem doctor')}</div>${note('Merging topics needs its own traceable step ("mem topic-merge").')}`;
   },
   facts: () => {
     const today = new Date().toISOString().slice(0, 10);
@@ -1196,7 +1289,7 @@ const pages = {
         const r = shelf.get(p.name);
         return panel(
           esc(p.name) + (r?.isNew ? ' ' + badge('warning', 'new · unconfirmed') : ''),
-          `${r?.isNew ? `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation (mem project confirm ${esc(p.name)}).</p>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
+          `${r?.isNew ? `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p><div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
           p.last ? 'Newest entry ' + when(p.last) : '',
         );
       })
@@ -1237,9 +1330,9 @@ const pages = {
   export: () =>
     `<div class="grid two">${panel(
       'Assemble a package',
-      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓', 'export-json', '', 'primary')}${btn('Offline reading view ↓ (not built)', 'export-html', 'aria-disabled="true"', 'ghost')}</div>`,
+      `<label class="formfield">Project<select class="field" id="exportProject">${['global', ...(D.projects || []).map((p) => p.name).filter((n) => n !== 'global')].map((n) => `<option ${n === (state.project === 'all' ? 'global' : state.project) ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label><label class="check"><input type="checkbox" id="exportGlobal" checked> Add the global foundations</label><label class="check"><input type="checkbox" id="exportHistory" checked> Include historical / retired entries</label><p class="muted small" style="margin:12px 0">Raw captures, messages and file bytes stay excluded. Relations across the package boundary appear as references.</p><div class="drawer-actions">${btn('Load JSON package ↓', 'export-json', '', 'primary')}${btn('Offline reading view ↓', 'export-html', '', 'ghost')}</div>`,
       'Preview and package count from the same data state.',
-    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('The JSON package holds the chosen entries with their relations; entries outside the package appear only as references (id, type, title). The header names the format version, creation time, commit, counts and completeness. Encrypted entries stay encrypted (ciphertext unchanged), every plaintext runs through the redaction. Not included: raw captures, inbox mail, file bytes, key material. The offline reading view is <code class="mono">mem viewer</code>, a file to take along; raw captures are exported by their own flow below (also under Sources › Raw capture and Operations › Tasks).')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
+    )}${panel('Content preview', '<div id="exportPreview"></div>', 'State of the loaded data')}</div>${note('The JSON package holds the chosen entries with their relations; entries outside the package appear only as references (id, type, title). The header names the format version, creation time, commit, counts and completeness. Encrypted entries stay encrypted (ciphertext unchanged), every plaintext runs through the redaction. Not included: raw captures, inbox mail, file bytes, key material. The offline reading view is the same package as one single HTML file: search, list, detail and references, readable without a network; encrypted entries appear there only as "encrypted". (<code class="mono">mem viewer</code> writes the file for the whole memory.) Raw captures are exported by their own flow below (also under Sources › Raw capture and Operations › Tasks).')}<div style="margin-top:18px">${rawExportPanel()}</div>`,
 
   // --- Operations -------------------------------------------------------------
   shards: () => {
@@ -1383,7 +1476,7 @@ function systemPage() {
   const steps = (D.setup || []).map((s) => `<div class="row"><div><strong>${esc(s.title)}</strong><p>${esc(s.detail || '')}${s.fix ? ` → <code class="mono">${esc(s.fix)}</code>` : ''}</p></div>${badge(s.state === 'done' ? 'done' : s.state === 'open' ? 'open' : s.state === 'broken' ? 'broken' : 'unknown', s.state)}</div>`).join('');
   return `${panel(
     'Settings with origin and effect',
-    `<div class="row"><div><strong>Writing from the dashboard</strong><p>${esc(w.reason || 'unknown')}${w.howTo ? ' ' + esc(w.howTo) : ''}</p></div>${badge(w.state === 'on' ? 'on' : w.state === 'off' ? 'off' : w.state === 'error' ? 'error' : 'unknown', w.state || 'unknown')}</div>${rows}${btn('Save settings', 'save-config', state.readonly ? 'disabled' : '', 'primary')}${note('Saved through POST /setting — the same route as the console, behind the write switch, the Host check and the Origin check, with a closed field list. No folder is created beyond the one a setting names, no service is switched.')}<div id="configHistory">${(D.log || []).map((x) => `<p class="small muted">${esc(whenTime(x.ts))} · ${esc(x.id || '')}: ${esc(x.before ?? '—')} → ${esc(x.after ?? '—')} · ${esc(x.by || '')}</p>`).join('') || '<p class="small quiet">Nothing changed yet.</p>'}</div>`,
+    `<div class="row"><div><strong>Writing from the dashboard</strong><p>${esc(w.reason || 'unknown')}${w.howTo ? ' ' + esc(w.howTo) : ''}</p></div>${badge(w.state === 'on' ? 'on' : w.state === 'off' ? 'off' : w.state === 'error' ? 'error' : 'unknown', w.state || 'unknown')}</div>${rows}<div class="drawer-actions">${btn('Save settings', 'save-config', state.readonly ? 'disabled' : '', 'primary')}</div><p class="small quiet" id="configStatus" role="status" aria-live="polite" style="margin-top:8px"></p>${note('Saved through POST /setting — the same route as the console, behind the write switch, the Host check and the Origin check, with a closed field list. No folder is created beyond the one a setting names, no service is switched.')}<div id="configHistory">${(D.log || []).map((x) => `<p class="small muted">${esc(whenTime(x.ts))} · ${esc(x.id || '')}: ${esc(x.before ?? '—')} → ${esc(x.after ?? '—')} · ${esc(x.by || '')}</p>`).join('') || '<p class="small quiet">Nothing changed yet.</p>'}</div>`,
   )}<div class="grid two" style="margin-top:18px">${panel('Installation', steps || empty('No setup step readable.'), `${num((D.setup || []).filter((s) => s.state !== 'done').length)} of ${num((D.setup || []).length)} still open`)}${panel('Stores on this machine', (D.stores || []).length ? (D.stores || []).map((x) => `<div class="row"><span class="mono small">${esc(x.id)}</span><span class="small">${esc(x.label)}${x.found.length > 1 ? ` · ${num(x.found.length)} candidates — ambiguous` : ''}</span></div>`).join('') + '<p class="small quiet" style="margin-top:10px">Usable as a raw-archive value above.</p>' : empty('No cloud store found on this machine. A folder path works.'), 'Only what was actually found')}</div>`;
 }
 
@@ -1959,7 +2052,7 @@ function rawReview(path) {
   const es = (r.entries || []).map(byId).filter(Boolean);
   showInfo(
     'Review · ' + esc(r.session || path.split('/').pop()),
-    `<p class="muted">${esc(r.project ?? 'no project')} · ${esc((r.topics || []).join(', ') || 'no topic')} · ${esc(rawWord[r.state] || r.state)}</p><div class="row"><span>Path</span><span class="mono small">${esc(r.path)}</span></div><div class="row"><span>Captured</span><span>${esc(r.at ? whenTime(r.at) : 'no date')}</span></div><div class="row"><span>Surface / session</span><span>${esc(r.surface || '—')} / ${esc(r.session || '—')}</span></div><div class="row"><span>Lines / bytes</span><span>${num(r.lines)} / ${num(r.bytes)}</span></div>${r.deleted ? `<div class="row"><span>Deleted</span><span>${esc(r.deleted.at || '')} · ${esc(r.deleted.reason || 'no reason')} (${esc(r.deleted.by || '—')})</span></div>` : ''}<div class="row"><span>Digested from it</span><strong>${num(es.length)} entries</strong></div>${entryRows(es.slice(0, 8), 'No entry was digested from this capture.')}${
+    `<p class="muted">${esc(r.project ?? 'no project')} · ${esc((r.topics || []).join(', ') || 'no topic')} · ${esc(rawWord[r.state] || r.state)}</p><div class="row"><span>Path</span><span class="mono small">${esc(r.path)}</span></div><div class="row"><span>Captured</span><span>${esc(r.at ? whenTime(r.at) : 'no date')}</span></div><div class="row"><span>Surface / session</span><span>${esc(r.surface || '—')} / ${esc(r.session || '—')}</span></div><div class="row"><span>Lines / bytes</span><span>${num(r.lines)} / ${num(r.bytes)}</span></div>${r.deleted ? `<div class="row"><span>Deleted</span><span>${esc(r.deleted.at || '')} · ${esc(r.deleted.reason || 'no reason')} (${esc(r.deleted.by || '—')})</span></div>` : ''}<div class="row"><span>Digested from it</span><strong>${num((r.entries || []).length)} entries</strong></div>${es.length ? entryRows(es.slice(0, 8)) : note((r.entries || []).length ? `${num(r.entries.length)} entries were digested from it, but none of them is in the loaded part of this view.` : 'Nothing was digested from this capture (yet). The raw text itself is never shown in the dashboard — it does not leave the server; it is readable only there, with "mem raw show".')}${
       r.state === 'elsewhere' ? note('The bytes live, according to the register, on another machine (its store). They are readable only there ("mem raw show").') : r.state === 'unreachable' ? note('Recorded, bytes not reachable right now.', 'bad') : ''
     }${r.state !== 'deleted' ? `<div class="drawer-actions">${btn('Delete preview', 'raw-delete-preview', `data-id="${esc(r.path)}" ${state.readonly ? 'disabled' : ''}`, 'ghost danger')}</div>` : ''}`,
   );
@@ -2010,6 +2103,7 @@ function taskState(v) {
   return v.state === 'ok' ? 'finished' : v.state;
 }
 const TASK_STARTABLE = ['export', 'integrity'];
+const TASK_WHERE = { 'raw-delete': 'Started in Raw capture, per capture', 'project-confirm': 'Started in Projects, per new project' };
 // no-jump point 6: the pieces per task kind, computed once — used by
 // operationsPage() for the first draw AND by taskUpdate() for the quiet
 // 2 s repatch, without redrawing the whole page.
@@ -2025,7 +2119,7 @@ function taskPieces(k, a) {
             : `${esc(whenTime(v.ended || v.started))}${v.reason ? ' · ' + esc(v.reason) : ''}`;
   const button = TASK_STARTABLE.includes(k)
     ? btn(z === 'running' ? 'Running …' : 'Start', 'operation-step', `data-value="${k}" ${state.readonly || z === 'running' ? 'disabled' : ''}`, 'primary')
-    : `<span class="small quiet">${k === 'raw-delete' ? 'Started in Raw capture, per capture' : 'Started at the entry (detail)'}</span>`;
+    : `<span class="small quiet">${TASK_WHERE[k] || 'Started at the entry (detail)'}</span>`;
   return {
     z, orbitRunning: z === 'running', orbitGlyph: z === 'running' ? '↻' : z === 'finished' ? '✓' : '◇', text,
     actions: `${button}${z === 'running' ? btn('Cancel', 'operation-stop', `data-value="${k}" ${state.readonly ? 'disabled' : ''}`, 'ghost') : ''}`,
@@ -2853,6 +2947,16 @@ function recallLegend() {
     ? `Brightness = sessions with an injection (injection journal since ${when(a.since)})`
     : 'Brightness not measurable: ' + esc(a?.reason || 'no injection journal');
 }
+// The legend under the network: two short paragraphs, every statement checked against the code.
+// "What you see" (graphCaption + recallLegend + strands/fog) and "Controls". The condensed atlas
+// (entries only appear when zooming in, "Load more" = atlas-more) is named ONLY when
+// atlasCondensed() holds — the same condition as the button itself; full screen = the button
+// `graph-fullscreen` (Escape closes).
+function graphLegend() {
+  const cd = atlasCondensed();
+  return `<p class="graph-description"><strong>What you see</strong><br>${graphCaption()} ${recallLegend()}. Solid strands = stored relations; finely dashed strands between entries = derived links (guessed, not stored, see "Derived links to review"); dashed branches at the project cores = the storage hierarchy. The fog is orientation only, not an entry.</p>`
+    + `<p class="graph-description" data-graph-controls><strong>Controls</strong><br>${cd ? 'Click a group or zoom in: entries appear only then, "Load more" fetches the next ones.' : 'Large groups open through drawers and subgroups down to the single entry.'} The full-screen button in the toolbar enlarges the network, Escape closes it. Touch: tap, zoom with two fingers; "Whole view" leads back. Bundled strands keep every relation, the list shows them one by one.</p>`;
+}
 function brainBlock(large = false) {
   // atlas-pass-cm: condensed, the full list exists only as a number (the server's overview) —
   // `es` then stands for exactly that number, never for the part that is loaded.
@@ -2862,7 +2966,7 @@ function brainBlock(large = false) {
   const emptyHint = es.length ? '' : `<div class="graph-empty" role="note"><strong>Your first entries will appear here.</strong><span>One calm core is waiting. Every entry you log becomes an energy core around it — <code class="mono">mem log learning "…"</code></span></div>`;
   return `<article class="panel brain-panel neural-v4 ${large ? 'network-large' : ''}"><div class="brain-top"><div><div class="label">${esc(coreName())} / NEURAL ATLAS</div><h2>One memory. Many stores.</h2><p>${num(es.length)} entries incl. history · ${num(ks)} drawers · ${cd ? 'condensed: topics and drawers, entries when zooming in' : 'one shared knowledge structure'}</p></div>${btn(state.motion ? 'Ⅱ' : '▶', 'motion', 'aria-label="Toggle motion"', 'small ghost')}</div><div class="graph-tools"><select id="graphModeSelect" aria-label="Bundle the network by"><optgroup label="Knowledge network">${['storage', 'topics', 'relations', 'structure']
     .map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`)
-    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span><span id="atlasState" class="atlas-state" aria-live="polite"></span><button data-action="atlas-more" class="atlas-more ghost small" hidden>Load more</button></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div><p class="graph-description">${graphCaption()}<br>${recallLegend()}. Solid strands = stored relations; finely dashed strands between entries = derived links (guessed by the system from shared rare terms and a file, not stored, see "Derived links to review"); dashed branches at the project cores = the storage hierarchy. A golden loop = stored links that run in a circle. The light fog is a decorative orientation hull around all nodes, not entries; its glitter only reflects the light of the cores. Large groups open through drawers and subgroups down to the single entry. Bundled strands keep every relation; the list shows them one by one. Touch: tap, zoom with two fingers; "Whole view" leads back.</p>`;
+    .join('')}</optgroup><optgroup label="Further modes">${['overview', 'trail'].map((k) => `<option value="${k}" ${state.graphMode === k ? 'selected' : ''}>${graphModes[k]}</option>`).join('')}</optgroup></select><div class="zoom-tools"><button data-action="graph-fullscreen" aria-label="Knowledge space in full screen" title="Full screen · Escape to close"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4"/></svg></button><button data-action="graph-zoom-out" aria-label="Zoom out">−</button><output id="graphZoom" aria-live="polite">100%</output><button data-action="graph-zoom-in" aria-label="Zoom in">+</button><button data-action="graph-reset" aria-label="Fit the whole network" title="Whole view · right click or 0">↺</button></div></div><div class="graph-context"><button data-action="graph-reset" class="atlas-back" hidden>← Whole view</button><span id="graphBreadcrumb" aria-live="polite">${esc(coreSlug())} / all projects</span><span class="atlas-mode">3D · PERSPECTIVE</span><span id="atlasState" class="atlas-state" aria-live="polite"></span><button data-action="atlas-more" class="atlas-more ghost small" hidden>Load more</button></div><div class="brain-viewport"><canvas id="brain" class="brain-canvas" tabindex="0" aria-label="Spatial knowledge network. Click a group to fly in, click an entry in focus to open it. Right click or zero resets the view. Drag rotates, shift and drag pans, plus and minus zoom."></canvas><div id="graphLabels" class="graph-labels"></div><div id="graphHover" class="graph-hover" role="status" hidden></div>${emptyHint}<div class="atlas-axis" aria-hidden="true"><i></i><span>X</span><span>Y</span><span>Z</span></div><div class="graph-fallback" hidden>3D is not available here. Every entry and every link stays reachable through the lists below the view.</div></div><div class="brain-bottom"><span id="graphEdgeCount"></span><span class="core-legend" title="${recallLegend()}"><i class="cl-bright"></i>often injected<i class="cl-faint"></i>never<i class="cl-matte"></i>not measurable</span><span class="graphhint">Left click: focus · Right click: everything · Drag: rotate</span></div></article><div class="cluster-strip" id="graphGroups" aria-label="Focus groups"></div>${graphLegend()}`;
 }
 
 // The energy-core shader. One point per node; `aBright` < 0 means "not
@@ -4656,17 +4760,18 @@ async function updateExportPreview() {
   const z = b.counts, c = b.completeness || {}, list = b.list || [];
   $('#exportPreview').innerHTML = `<div class="number" id="exportCount">${num(z.entries)}</div><p class="muted small">entries for ${esc(x.project)}</p><div class="row"><span class="small">Global foundations</span><span class="small">${x.global ? 'Included' + (x.project === 'global' ? '' : ' · ' + num(z.global)) : 'As references only'}</span></div><div class="row"><span class="small">Historical / retired</span><span class="small">${x.hist ? num(z.historical) : 'Excluded'}</span></div><div class="row"><span class="small">External entry references</span><span id="exportRefs">${num(z.externalRefs)}</span></div><div class="row"><span class="small">Completeness</span>${badge(c.state === 'good' ? 'complete' : 'unknown')}</div>${c.reasons?.length ? `<p class="small quiet">${esc(c.reasons.join(' · '))}</p>` : ''}<div style="max-height:200px;overflow:auto;margin-top:15px">${list.map((e) => `<p class="small muted" style="padding:5px 0">${esc(e.id)} · ${esc(e.title)}</p>`).join('')}${z.entries > list.length ? `<p class="small quiet">… and ${num(z.entries - list.length)} more</p>` : ''}</div>`;
 }
-async function exportJson() {
+async function exportJson(format = 'json') {
   const x = getExport();
-  toast('Building the project package …');
+  const html = format === 'html';
+  toast(html ? 'Building the offline reading view …' : 'Building the project package …');
   try {
-    const r = await fetch(`/dashboard/project-package.json?${x.query}`, { credentials: 'same-origin', cache: 'no-store' });
+    const r = await fetch(`/dashboard/project-package.json?${x.query}${html ? '&format=html' : ''}`, { credentials: 'same-origin', cache: 'no-store' });
     if (!r.ok) {
       let reason = 'answer ' + r.status;
       try { reason = (await r.json()).reason || reason; } catch { /* the status stays the reason */ }
       throw new Error(reason);
     }
-    const name = (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || `cheap-mem-${x.project}.json`;
+    const name = (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || `cheap-mem-${x.project}.${html ? 'html' : 'json'}`;
     const url = URL.createObjectURL(await r.blob());
     const a = document.createElement('a');
     a.href = url;
@@ -4675,9 +4780,9 @@ async function exportJson() {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-    toast('Project package loaded: ' + name);
+    toast((html ? 'Offline reading view loaded: ' : 'Project package loaded: ') + name);
   } catch (e) {
-    toast('Project package not built: ' + (e?.message || e));
+    toast((html ? 'Offline reading view not built: ' : 'Project package not built: ') + (e?.message || e));
   }
 }
 
@@ -4878,17 +4983,62 @@ document.addEventListener('click', async (ev) => {
       render();
       break;
     case 'reset-filters':
-      state.query = ''; fulltextAsk();
+      state.query = ''; state.topic = ''; fulltextAsk();
       state.type = state.status = 'all';
       state.page = 1;
       render();
       break;
+    case 'topic-thread':
+      state.topic = d.value; state.query = ''; fulltextAsk();
+      state.type = state.status = 'all'; state.page = 1;
+      route('knowledge/entries');
+      break;
+    case 'topic-source':
+      topicsUi.source = d.value; topicsUi.cat = ''; topicsUi.group = false; topicsUi.more = 0; topicsUi.q = '';
+      render();
+      setTimeout(() => document.querySelector(`.tl-source [data-value="${d.value}"]`)?.focus(), 0);
+      break;
+    case 'topic-sort': {
+      if (topicsUi.sort === d.value) topicsUi.dir = -topicsUi.dir;
+      else { topicsUi.sort = d.value; topicsUi.dir = d.value === 'name' ? 1 : -1; }
+      topicsUi.more = 0;
+      render();
+      setTimeout(() => document.querySelector(`.tl-sort[data-value="${d.value}"]`)?.focus(), 0);
+      break;
+    }
+    case 'topic-view':
+      topicsUi.view = d.value;
+      topicsUi.more = 0;
+      try { localStorage.setItem('cm-dash-topics-view', d.value); } catch { /* without storage it stays with the tab */ }
+      render();
+      setTimeout(() => document.querySelector(`.tl-view [data-value="${d.value}"]`)?.focus(), 0);
+      break;
+    case 'topic-more': {
+      topicsUi.more += 1;
+      const at = $('#topicList').querySelectorAll('.tl-row,.tl-tile').length;
+      $('#topicList').innerHTML = topicListHtml();
+      $('#topicList').querySelectorAll('.tl-row button,.tl-tile')[at]?.focus();
+      break;
+    }
+    case 'topic-group':
+      topicsUi.group = !topicsUi.group;
+      topicsUi.more = 0;
+      render();
+      setTimeout(() => document.querySelector('.tl-group-btn')?.focus(), 0);
+      break;
+    case 'cat-filter':
+      topicsUi.cat = topicsUi.cat === d.value ? '' : d.value;
+      topicsUi.more = 0;
+      render();
+      break;
     case 'topic':
+      state.topic = '';
       state.query = d.value; fulltextAsk();
       state.type = state.status = 'all';
       route('knowledge/entries');
       break;
     case 'agent-entries':
+      state.topic = '';
       state.query = d.value; fulltextAsk();
       route('knowledge/entries');
       break;
@@ -4950,7 +5100,7 @@ document.addEventListener('click', async (ev) => {
       await exportJson();
       break;
     case 'export-html':
-      toast('The offline reading view is not built here — mem viewer writes one as a file.');
+      await exportJson('html');
       break;
     case 'shard-detail': {
       const es = scoped().filter((e) => drawerOf(e) === d.value);
@@ -4971,21 +5121,69 @@ document.addEventListener('click', async (ev) => {
       location.href = '/login?signedout=1';
       break;
     }
+    case 'project-confirm': {
+      if (state.readonly) return toast('Read only is on.');
+      const name = d.value;
+      const status = document.querySelector(`[data-confirm-status="${CSS.escape(name)}"]`);
+      if (!confirm(`Mark project "${name}" as confirmed?\n\nThe "new" mark goes away and one event is recorded in the project.`)) return;
+      el.disabled = true;
+      const rest = el.textContent;
+      el.textContent = 'writing …';
+      let s;
+      try { s = await taskStart({ kind: 'project-confirm', name }); } catch (e) { s = { ok: false, reason: 'network: ' + (e?.message || e) }; }
+      let done = null;
+      if (s.ok) done = await waitForTask(s.id, { maxMs: 30000 });
+      if (!s.ok || done.state !== 'ok') {
+        const why = s.ok ? (done.reason || done.state || 'unknown') : reasonPlain(s.reason);
+        el.disabled = false;
+        el.textContent = 'Error';
+        setTimeout(() => { if (el.isConnected) el.textContent = rest; }, 4000);
+        if (status) status.textContent = 'Not confirmed: ' + why + '. Nothing was written.';
+        return toast('Not confirmed: ' + why);
+      }
+      el.textContent = 'confirmed ✓';
+      if (status) status.textContent = 'Confirmed.';
+      toast(`Project ${name} confirmed.`);
+      if (await loadData({ quiet: true })) render();
+      break;
+    }
     case 'save-config': {
-      if (state.readonly) return;
+      if (state.readonly) return toast('Read only is on.');
+      const status = $('#configStatus');
+      const say = (t, tone) => { if (status) { status.textContent = t; status.className = 'small ' + (tone || 'quiet'); } };
       const current = Object.fromEntries((D.settings || []).map((x) => [x.id, x]));
       const changes = [];
       for (const f of $$('.setting-field')) {
+        if (f.disabled) continue;
         const id = f.dataset.id, value = f.value.trim();
         if (String(value) !== String(current[id]?.value ?? '')) changes.push([id, value]);
       }
-      if (!changes.length) return toast('Nothing changed.');
+      if (!changes.length) { say('Nothing changed — nothing to save.'); return toast('Nothing changed.'); }
+      el.disabled = true;
+      const rest = el.textContent;
+      el.textContent = 'saving …';
+      say('Saving …');
+      const saved = [];
+      let failure = null;
       for (const [id, value] of changes) {
-        const r = await formPost('/setting', { id, value });
-        if (!r.ok) return toast('Not set: ' + r.reason);
+        let r;
+        try { r = await formPost('/setting', { id, value }); } catch (x) { r = { ok: false, reason: 'network: ' + (x?.message || x) }; }
+        if (!r.ok) { failure = `${current[id]?.title || id}: ${r.reason}`; break; }
+        saved.push(current[id]?.title || id);
       }
+      el.disabled = false;
+      if (failure) {
+        el.textContent = 'Error — try again';
+        setTimeout(() => { if (el.isConnected) el.textContent = rest; }, 5000);
+        say(`Not saved: ${failure}.${saved.length ? ' Already saved: ' + saved.join(', ') + '.' : ''}`, 'red');
+        return toast('Not saved: ' + failure);
+      }
+      el.textContent = 'saved ✓';
+      setTimeout(() => { if (el.isConnected) el.textContent = rest; }, 3000);
       toast('Settings saved and logged.');
       if (await loadData({ quiet: true })) render();
+      const after = $('#configStatus');
+      if (after) { after.textContent = 'Saved and logged: ' + saved.join(', ') + '.'; after.className = 'small green'; }
       break;
     }
     case 'probe-ask': {
@@ -5080,6 +5278,7 @@ document.addEventListener('click', async (ev) => {
   }
 });
 document.addEventListener('input', (e) => {
+  if (e.target.id === 'topicSearch') { topicsUi.q = e.target.value; topicsUi.more = 0; $('#topicList').innerHTML = topicListHtml(); }
   if (e.target.id === 'commandInput') { fulltextAsk(fulltextPalette); renderSearch(e.target.value); }
   if (e.target.id === 'entrySearch') {
     state.query = e.target.value;
@@ -5099,6 +5298,14 @@ document.addEventListener('input', (e) => {
 });
 document.addEventListener('change', (e) => {
   const id = e.target.id, v = e.target.value;
+  if (id === 'topicCat') { topicsUi.cat = v; topicsUi.more = 0; $('#topicList').innerHTML = topicListHtml(); }
+  if (id === 'topicSortSelect') {
+    topicsUi.sort = v;
+    topicsUi.dir = v === 'name' ? 1 : -1;
+    topicsUi.more = 0;
+    render();
+    document.getElementById('topicSortSelect')?.focus();
+  }
   if (id === 'graphModeSelect') {
     state.graphMode = v;
     camera.focus = null;
