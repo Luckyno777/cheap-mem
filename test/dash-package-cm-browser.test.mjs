@@ -12,6 +12,7 @@
 //   (2) Settings: saving gives feedback in the button and a status line; a refused
 //       value says why.
 //   (3) Confirm a new project by a click (password session, dialog).
+//   (3b) The same with a cache that trails the write (forced background build).
 //   (4) Offline reading view: a download, opened from file:// without a single
 //       outside request; search and detail work; no sideways scroll at 390 px.
 //   (5) Overview order (day slot, figures, network, Today, recently) and the
@@ -56,9 +57,9 @@ function world() {
   return r;
 }
 
-async function start(root, { withLogin = false } = {}) {
+async function start(root, { withLogin = false, extraEnv = {} } = {}) {
   const mod = await import(`${pathToFileURL(SERVE).href}?dpcb=${Math.random()}`);
-  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' };
+  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '', ...extraEnv };
   let session = null;
   if (withLogin) {
     const dir = login.dirFor(root, env);
@@ -211,6 +212,38 @@ test('(3) a new project is confirmed by a click (password session, dialog)', { s
     await page.click('[data-action=project-confirm]');
     await page.waitForFunction(() => !document.querySelector('[data-action=project-confirm]'), null, { timeout: 40000 });
     assert.ok(!/status:\s*new/.test(fs.readFileSync(path.join(root, 'projects', 'garden', 'facts.yaml'), 'utf8')), 'the new-mark is gone on disk');
+    assert.ok(!/new · unconfirmed/.test(await page.textContent('#screen')));
+    await ctx.close();
+  } finally { await s.stop(); }
+});
+
+// (3b) The cache trails the write: after the click the page's reload gets the OLD state (under load the normal case:
+// the finished task invalidates the cache, but the rebuild is not done when the page asks). The page must show the
+// project as confirmed at once, on the overview (Today card) and in the Projects tab, also after quiet reloads.
+// The server runs with the two cache test switches (background path, long gap). The stale answer is made
+// deterministic by serving, after the click, the /dashboard.json body captured BEFORE it (the real stale state
+// of the real server) — a rebuild that is fast enough would otherwise hide the gap.
+// Red proof: without projectsConfirmedApply() in dashboard.js the button stays (timeout).
+test('(3b) a confirmed project stays confirmed when the reload brings the old state (Today card and Projects tab)', { skip: SKIP, timeout: 400000 }, async () => {
+  const root = world();
+  const s = await start(root, { withLogin: true, extraEnv: { CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0', CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS: '600000' } });
+  try {
+    const { ctx, page } = await open(s, 'home');
+    const buttons = () => page.locator('[data-action=project-confirm][data-value=garden]');
+    await buttons().first().waitFor({ timeout: 60000 });
+    assert.ok(await buttons().count() >= 1, 'positive control: the Today card offers the button');
+    const stale = await (await fetch(`${s.base}/dashboard.json`, { headers: { cookie: `${login.COOKIE}=${s.session}` } })).text();
+    assert.equal(JSON.parse(stale).projectShelf.projects.find((p) => p.name === 'garden').isNew, true, 'positive control: the captured state still has the project as new');
+    let served = 0;
+    await page.route(/\/dashboard\.json(\?|$)/, (r) => { served += 1; return r.fulfill({ status: 200, contentType: 'application/json', body: stale }); });
+    await buttons().first().click();
+    await page.waitForFunction(() => !document.querySelector('[data-action=project-confirm]'), null, { timeout: 30000 });
+    assert.ok(!/status:\s*new/.test(fs.readFileSync(path.join(root, 'projects', 'garden', 'facts.yaml'), 'utf8')), 'written to disk');
+    assert.ok(served >= 1, 'positive control: the page reloaded and got the old state');
+    await page.evaluate(() => { location.hash = '#sources/projects'; });
+    await page.waitForSelector('.panel', { timeout: 30000 });
+    await page.waitForTimeout(500);
+    assert.equal(await buttons().count(), 0, 'no confirm button in the Projects tab');
     assert.ok(!/new · unconfirmed/.test(await page.textContent('#screen')));
     await ctx.close();
   } finally { await s.stop(); }
