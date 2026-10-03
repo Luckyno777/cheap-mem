@@ -49,6 +49,7 @@ import * as writegate from './writegate.mjs';
 import * as dashboard from './dashboard.mjs';
 import * as memory from './memory.mjs';
 import { projectStatus } from './projectnew.mjs';
+import * as categoriesMod from './categories.mjs';
 import * as question from './question.mjs';
 import * as inbox from './inbox.mjs';
 import * as injection from './injection.mjs';
@@ -1000,6 +1001,8 @@ export function collectDashboard(root, {
     user,
     ledger,
     topics: { list: lenses.topics ?? [], areas: lenses.areas ?? [], quality: lenses.quality ?? null },
+    // Categories above topics (src/categories.mjs): contract in categoriesState().
+    categories: categoriesState(root),
     experiences: lenses.experiences ?? [],
     links: lenses.links ?? [],
     catalog: {
@@ -1009,6 +1012,22 @@ export function collectDashboard(root, {
       findings: Array.isArray(doc.result?.findings) ? doc.result.findings.length : null,
     },
   };
+}
+
+/**
+ * The categories view for the dashboard:
+ * `{list, topics, unassigned, proposals, new, wishes, threshold}`.
+ * `list`: [{key, label, status automatic|confirmed, source, topics, entries}];
+ * `topics`: [{topic, count, category: {key, label, status confirmed|proposal, source} | null}];
+ * `unassigned`: {topics, entries, names}; `proposals`: [{topic, category, label, source}];
+ * `new`: [{key, label}] (created automatically, not yet acknowledged);
+ * `wishes`: [{key, label, topics}] (below the threshold). Read only; never throws
+ * (a read error becomes `{error}`). A memory that ships empty: all lists empty.
+ */
+function categoriesState(root) {
+  try {
+    return categoriesMod.view(root);
+  } catch (e) { return { error: String(e?.message ?? e) }; }
 }
 
 /**

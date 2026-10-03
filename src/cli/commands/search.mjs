@@ -35,6 +35,7 @@ import * as workflow from '../../workflow.mjs';
 import * as snippet from '../../snippet.mjs';
 import * as workflowdetect from '../../workflowdetect.mjs';
 import * as commandguard from '../../commandguard.mjs';
+import * as categories from '../../categories.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { asOfOf, sinceOf, showWindow, compactLine, markedEntry, sanitizeForDisplay } from '../display.mjs';
 
@@ -131,12 +132,14 @@ export const COMMANDS = {
         '             by Reciprocal Rank Fusion (src/variants.mjs). No model here;',
         '             without it the search is unchanged.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
+        '  --category only entries whose topic is assigned to this category',
+        '             (confirmed or proposal; see `mem category list`)',
       ].join('\n'));
       return;
     }
     checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak', 'variants'], 'find');
+      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak', 'variants', 'category'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -156,6 +159,15 @@ export const COMMANDS = {
     if (args['content-words']) {
       const shortened = search.retrievalQuery(query, { root });
       if (shortened && shortened !== query) query = shortened;
+    }
+    // --category: only entries whose topic is assigned to the category (src/categories.mjs).
+    let categoryTopics = null;
+    if (args.category !== undefined) {
+      if (args.category === true) die('find: --category needs a value, e.g. --category coding (mem category list).');
+      if (args.literal) die('find: --category applies to the ranked search only, not to --literal.');
+      const r = categories.topicsOfCategory(root, String(args.category));
+      if (!r) die(`find: no category '${args.category}' (mem category list).`);
+      categoryTopics = r.topics;
     }
     const since = args.since ? sinceOf(args.since) : null;
     // **Until 2026-09-17 `--as-of` existed only on `mem retrieve`.** The
@@ -185,7 +197,7 @@ export const COMMANDS = {
     // test/timeexpr.test.mjs already proves it, byte for byte; `mem
     // when` (an explicit, human-typed command) calls it directly and is
     // not gated — a person who typed a bare date already meant it.
-    if (!args.literal && !args.since && !timeexpr.beginsWithHarnessMarker(rawQuery)
+    if (!args.literal && !args.since && categoryTopics === null && !timeexpr.beginsWithHarnessMarker(rawQuery)
       && timeexpr.hasTimeIntent(query)) {
       const zone = process.env.MEM_TZ || cfg.timezone || undefined;
       const window = timeexpr.windowFor(query, { zone });
@@ -345,6 +357,7 @@ export const COMMANDS = {
       type: args.type ?? null,
       project: args.project ?? null,
       capability: findCapability,
+      topics: categoryTopics,
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),
@@ -416,6 +429,7 @@ export const COMMANDS = {
       type: args.type ?? null,
       project: args.project ?? null,
       capability: findCapability,
+      topics: categoryTopics,
       since,
       noRaw: Boolean(args['no-raw']),
       onlyRaw: Boolean(args['only-raw']),

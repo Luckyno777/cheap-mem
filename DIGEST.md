@@ -107,6 +107,29 @@ rule. It reports GOOD only when the ratio is at or above 1.2 **and**
 `malformed` is zero — so a single prefixed topic keeps the whole check
 amber until it is folded away.
 
+## `category` — the level above topics
+
+Topics have a layer above them: categories (`mem category list`). A
+memory ships with **none**; a person makes them (or adopts a neutral
+list with `mem category create --suggested`). If the list is empty, skip
+this section entirely.
+
+When an entry creates a NEW topic, you also propose its category, spelled
+exactly as in the list (the key), otherwise you leave the option out:
+
+    mem log <type> ... --topic new-topic --category coding
+
+If no existing category fits, you MAY propose a NEW short one:
+`--category-new "key|Label"` (key lower case a-z0-9 with hyphens, no
+project name, look at the list first). Whether it comes into being is
+decided by code: only when at least three different topics have proposed
+it independently (spelling variants count together; near-duplicates of an
+existing category go to the existing one). A category outside the list
+without `--category-new` is dropped. When in doubt, leave it out: a topic
+without a category is harmless, a person assigns it later
+(`mem category assign`). You never confirm, rename or merge categories -
+those are for a person.
+
 ## A new project
 
 Since 2026-10-02 the digest may create a project - but only with

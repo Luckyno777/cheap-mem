@@ -75,6 +75,8 @@ export function logFiles(root) {
  *   - `global/topic-aliases.jsonl` (`memory.ALIAS_LOG`) — a second,
  *     append-only log with its own reader (`memory.topicAliases`),
  *     read on every topic lookup. Not a mistyped drawer.
+ *   - the four category tables (`memory.CATEGORY_TABLES`, src/categories.mjs)
+ *     — the same kind of file: append-only lines with their own reader.
  *
  * Every other `.jsonl` this codebase writes on purpose — `digested.jsonl`,
  * `raw-record.jsonl` / the legacy `raw-nachweis.jsonl`, `heartbeat.jsonl`,
@@ -97,7 +99,7 @@ export function logFiles(root) {
  */
 export function orphanJsonlFiles(root) {
   const known = new Set(Object.values(memory.TYPES));
-  const exempt = new Set([path.basename(memory.ALIAS_LOG)]);
+  const exempt = new Set([memory.ALIAS_LOG, ...Object.values(memory.CATEGORY_TABLES)].map((x) => path.basename(x)));
   const out = [];
   const scan = (dir, project) => {
     let entries;

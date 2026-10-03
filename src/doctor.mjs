@@ -58,6 +58,7 @@ import * as injection from './injection.mjs';
 import * as contract from './integrationcontract.mjs';
 import * as workflowdetect from './workflowdetect.mjs';
 import * as snippet from './snippet.mjs';
+import * as categories from './categories.mjs';
 import * as errorfixes from './errorfixes.mjs';
 import * as experience from './experience.mjs';
 import * as envelope from './envelope.mjs';
@@ -374,6 +375,7 @@ export function checkAll(root) {
   f.push(checkOrphans(root));
   f.push(checkContestedClaims(root));
   f.push(checkTopicQuality(root));
+  f.push(checkCategories(root));
   f.push(checkRepetition(root));
   f.push(checkRepetitionHint(root));
   f.push(checkClosedWithoutEvidence(root));
@@ -566,6 +568,47 @@ export function checkTopicQuality(root) {
     + `${q.orphanAreas ? `, ${q.orphanAreas} areas have a single child` : ''}. `
     + 'The digest should reuse existing topics instead of inventing new ones: '
     + 'run `mem topics --names-only` before a pass, rule in the digest spec.');
+}
+
+/**
+ * Categories above topics (src/categories.mjs): how many topics have none
+ * (yet), how many proposals wait for a person's yes? Never an error - a
+ * missing category breaks nothing, it only leaves the topic list less
+ * readable. Warning above half the topics unassigned or more than 100
+ * open proposals.
+ *
+ * **The layer ships empty and is optional.** A memory in which nobody
+ * has made a category is not "all topics unassigned": it does not use
+ * the layer, and that is good, not a warning that could never be
+ * silenced. So no category and no assignment at all reads GOOD with that
+ * said in the text; the warning thresholds apply once the layer is in
+ * use. (The sibling house ships ten starter categories, so there the
+ * same finding is always in use.) No topics at all is UNKNOWN.
+ */
+const CATEGORIES_UNASSIGNED_WARN = 0.5;
+const CATEGORIES_OPEN_WARN = 100;
+function checkCategories(root) {
+  let v;
+  try { v = categories.view(root); }
+  catch { return finding('categories', LEVEL.UNKNOWN, 'categories unreadable'); }
+  const n = v.topics.length;
+  if (n === 0) return finding('categories', LEVEL.UNKNOWN, 'no topics yet - nothing to say about their categories');
+  if (v.list.length === 0 && v.proposals.length === 0 && v.wishes.length === 0) {
+    return finding('categories', LEVEL.GOOD, 'categories not in use (optional: `mem category create --suggested` or `mem category create <key> "<Label>"`)');
+  }
+  const un = v.unassigned.topics;
+  const share = un / n;
+  const open = v.proposals.length;
+  const text = `${n - un} of ${n} topics have a category, ${un} without (${Math.round(share * 100)} %); `
+    + `${open} proposal${open === 1 ? ' awaits' : 's await'} confirmation`
+    + (v.new.length ? `; ${v.new.length} automatically created categor${v.new.length === 1 ? 'y' : 'ies'} not acknowledged` : '');
+  if (share > CATEGORIES_UNASSIGNED_WARN || open > CATEGORIES_OPEN_WARN) {
+    return finding('categories', LEVEL.WARN, text,
+      'See what is open: `mem category open`; confirm proposals: `mem category confirm <topic>` '
+      + 'or `--all-proposals`; without a category: `mem category assign <topic> <category>`, '
+      + 'or `mem category initial-assign --write` for rule-based proposals.');
+  }
+  return finding('categories', LEVEL.GOOD, text);
 }
 
 /**

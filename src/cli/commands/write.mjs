@@ -31,6 +31,7 @@ import * as doctor from '../../doctor.mjs';
 import * as entryops from '../../entryops.mjs';
 import * as errorfixes from '../../errorfixes.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
+import * as categories from '../../categories.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -51,6 +52,9 @@ export const COMMANDS = {
         "  --file <path>  for `log error`: lays down test/error-<id>.test.mjs",
         "             (marker, three test.todo sections) unless one is already",
         "             there. Never overwritten. --without-scaffold turns it off.",
+        "  --category <key>  propose a category for the entry's NEW topic (an own",
+        "             line, never an entry field); --category-new \"key|Label\" proposes",
+        "             a new one. Code decides: see `mem category --help`.",
         "  --valid_from / --valid_until  when the content HOLDS (not when it was",
         "             written — that is --ts). --valid_until is refused if it is",
         "             not a readable date. State it only when you know a real end",
@@ -73,7 +77,7 @@ export const COMMANDS = {
     let data = {};
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
-    Object.assign(data, fieldsFrom('log', args));
+    Object.assign(data, fieldsFrom('log', args, ['category', 'category-new']));
 
     // `valid_until` is refused, not silently accepted, if it cannot be
     // read as a date — see `dateFieldOf`. `valid_from` had this exact
@@ -375,6 +379,25 @@ export const COMMANDS = {
     out(`  ts: ${entry.ts}`);
     for (const l of neighbours.hint(around)) out(l);
     for (const l of neighbours.similarHint(alike, { newId: entry.id })) out(l);
+    // Category proposal (DIGEST.md, section "Category"): the entry itself stays as it is, the
+    // proposal is its own line (status proposal). Code rejects categories that do not exist and
+    // decides on creating a new one by the rule in src/categories.mjs.
+    if ((args.category !== undefined || args['category-new'] !== undefined)
+      && typeof data.topic === 'string' && data.topic.trim()) {
+      try {
+        const wish = { topic: data.topic.trim(), source: categories.writerSource(process.env.MEM_HEADLESS) };
+        if (typeof args.category === 'string') wish.category = args.category;
+        if (typeof args['category-new'] === 'string') {
+          const [k, ...l] = args['category-new'].split('|');
+          wish.fresh = l.length ? { key: k, label: l.join('|') } : { key: categories.keyOf(k), label: k };
+        }
+        const r = categories.decide(root, [wish], { write: true });
+        for (const c of r.created) out(`  category created: ${c.key} (${c.label}), ${c.topics.length} topics`);
+        for (const a of r.assigned) out(`  category proposal: ${a.topic} -> ${a.category}`);
+        for (const w of r.waiting) out(`  category wish '${w.key}' noted (${w.topics} of ${categories.CREATE_THRESHOLD} topics)`);
+        for (const x of r.rejected) if (x.reason !== 'already-assigned') warn(`category rejected (${x.reason}): mem category list shows the valid ones.`);
+      } catch (e) { warn(`category not noted: ${e.message}`); }
+    }
     // L2a port: learning <- error. With --from: edges; without: up to
     // three fitting errors as a note with the ready command.
     if (type === 'learning') {
