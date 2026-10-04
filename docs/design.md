@@ -61,7 +61,9 @@ unreachable). Shell-friendly.
 ## The reflector (throttled Stop hook)
 
 The Stop hook fires after every assistant turn. Firing a fresh model
-run each time is expensive. Throttle: only actually run when the
+run each time is expensive, so the model-backed reflector is **off unless
+`MEM_REFLECT=1`**; the default Stop hook only captures, with no model.
+When it is on, the throttle: only actually run when the
 transcript has grown by ≥ 400KB (~100k tokens) since the last reflect.
 Marker file per transcript. The threshold is the one setting we tuned;
 smaller and the model gets called on trivial edits, larger and it
@@ -75,12 +77,16 @@ You might think a separate "messages" repo would be cleaner. In practice:
 - The watcher only needs one remote.
 - Backups are one repo.
 
-## Why there's no encryption
+## Encryption: off by default, per entry when asked
 
-Because your memory belongs on a private git remote and git has no
-mainstream encryption story. If you need field-level encryption, add it
-around `mem log` — it's a shell wrapper away. But the honest advice is:
-use a private repo, don't put secrets in.
+Your memory belongs on a private git remote, and nothing is encrypted unless
+a caller asks for it. The one mechanism is crypto-shredding (`src/shred.mjs`):
+an entry written with `shred: true` through `memory.appendEntry` has its body
+encrypted with a key of its own, kept in `.mem/keyring.json` outside the
+append-only logs, so deleting the entry means destroying one key without
+rewriting history. There is no CLI switch for it yet. What it protects
+against, and what stays legible, is in `docs/CAPABILITIES.md` section 10.23. The honest advice stands: use a private repo
+and do not put secrets in.
 
 ## What we ported from lucky-mem
 
@@ -93,8 +99,8 @@ use a private repo, don't put secrets in.
 
 ## What we left out (yet)
 
-- The bibliothekar's "PROMPT.md" curator role (application-specific)
-- lucky-mem's `mem post ich` dedup memory (not carried over; cheap-mem's cross-session messages are `mem inbox`)
+- A curator role with its own prompt, specific to one application (an agent can have its own `PROMPT.md` through `mem agent new`)
+- The sibling's mail dedup memory (not carried over; cheap-mem's cross-session messages are `mem inbox`)
 - Vector / embedding search as a default (it is an optional add-on, see docs/semantic-search.md)
 - Multi-remote / conflict-avoidance mechanics (not needed at 1 user)
 

@@ -36,6 +36,10 @@ Every claim below has a command. Run it rather than believe it.
 | Values compared against the actual environment | `redactAgainstEnv` | `node --test test/redaction.test.mjs` |
 | A pre-commit hook scans staged content | `hooks/pre-commit` | `mem doctor --strict` |
 | A project name cannot walk out of the memory root | `src/memory.mjs` (`logPath`) | `node --test test/guards.test.mjs` |
+| Signed-URL parameters (AWS, GCS, Azure SAS) redacted in captures | `src/redaction.mjs` | `node --test test/redaction-signed-url.test.mjs` |
+| A secret that got past the write path is masked where entries are shown | `src/outputguard.mjs` | `node --test test/output-guard.test.mjs` |
+| The dashboard writes nothing until its owner allows it | `src/writegate.mjs` | `node --test test/writegate.test.mjs` |
+| The dashboard and any HTTP service sit behind a door (token or password, localhost by default) | `src/webauth.mjs`, `src/login.mjs` | `node --test test/webauth.test.mjs test/login.test.mjs` |
 
 **The canary matters more than the pattern list.** If the redaction
 stops doing what it claims, the capture does not happen — a gap in the
