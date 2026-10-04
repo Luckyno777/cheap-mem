@@ -14,6 +14,29 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the injection journal says where the session ran (`origin`), and `bench/injection-by-origin.mjs`
+
+A line of `.pipeline/injections.jsonl` carries `origin`: `cloud`, `ssh`, `local` or
+`unknown` (the closed vocabulary lives in `src/origin.mjs`; only the class is
+recorded, never a host; old lines without the field read as `unknown`).
+`node bench/injection-by-origin.mjs [--root DIR] [--before ISO] [--after ISO]
+[--occasion a,b] [--json]` evaluates the journal per occasion and per origin:
+line count, p50/p95 of `duration_ms`, the share served by the recall server and
+why not. Read-only.
+
+### Changed — documentation sweep (2026-10-04)
+
+No behaviour change. The README's file tree and command list now cover every
+drawer and every command `mem --help` prints; the install pages list all seven
+Claude Code hooks; `docs/design.md` no longer says there is no encryption (it is
+off by default, per entry, `src/shred.mjs`) and says the reflector is opt-in;
+`docs/dashboard.md` lists every read route; `SECURITY.md` lists the output guard,
+the signed-URL rule, the write switch and the door in front of the dashboard;
+`CLAUDE.md` and `CONTRIBUTING.md` name the `Parity:` trailer and the rules for
+numbers and environment variables. The environment register's descriptions of
+`MEM_DIGEST_VOLUME_NOW_KB` and `MEM_DIGEST_VOLUME_MIN_KB` now say what the code
+does (the digest's volume threshold and floor, not a test hook).
+
 ### Added — redaction knows signed-URL parameters (port of lucky-mem `signierte-url`)
 
 `src/redaction.mjs` gets the rule `signed-url`: the value of `X-Amz-Security-Token`, `X-Amz-Signature`, `X-Amz-Credential`, `X-Goog-Signature`, `X-Goog-Credential` and of an Azure SAS `sig=` (only together with `sv=<date>`) is replaced by `[REDACTED:signed-url]`; the name and the equals sign stay. Plain, `%3D`/`%26`, `&amp;` and JSON-escaped (`\u0026`) forms are covered. Before this, `X-Amz-Signature=<64 hex>` survived raw capture and `X-Amz-Credential` lost only its `AKIA` prefix. Canary count 12 -> 13. Probe: `test/redaction-signed-url.test.mjs` (real capture path and real pre-commit hook).

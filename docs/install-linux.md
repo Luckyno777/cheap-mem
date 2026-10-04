@@ -72,8 +72,15 @@ CHEAP_MEM_ROOT=~/my-memory bash ~/cheap-mem/install/claude-code.sh
 
 Every subsequent Claude Code session on this box will:
 
-- Print `FACTS.md` + `mem context` at start
-- Run the reflector (byte-delta throttled) at Stop
+- Print `FACTS.md` + `mem context` at start (and whatever `mem doctor --alarm`
+  finds down right now)
+- Recall matching memory on every message, before a file is edited, after a
+  failed tool call and when a subagent starts — no model call
+- Capture the transcript at Stop, model-free; the model-backed reflector
+  runs only with `MEM_REFLECT=1`
+
+The seven hooks, and what each one does, are listed in the README under
+"Claude Code (hooks + MCP)".
 
 ## Wire other MCP clients
 

@@ -77,7 +77,9 @@ That does three things:
    to pick it up.
 3. **Wires Claude Code** — drops PowerShell hooks into
    `%USERPROFILE%\.claude\hooks\` (`cheap-mem-session-start.ps1`,
-   `cheap-mem-session-stop.ps1`) and merges hook + permission entries
+   `cheap-mem-session-stop.ps1`, `cheap-mem-user-prompt.ps1`,
+   `cheap-mem-pre-edit.ps1`, `cheap-mem-catch-fail.ps1`,
+   `cheap-mem-after-failure.ps1`, `cheap-mem-subagent-start.ps1`) and merges hook + permission entries
    into `%USERPROFILE%\.claude\settings.json`.
 
 You can skip individual pieces:
@@ -117,7 +119,7 @@ You should see a `[UTC-time] watcher awake` line within seconds.
 Unregister-ScheduledTask -TaskName cheap-mem-watch -Confirm:$false
 
 # remove Claude Code hooks
-Remove-Item $HOME\.claude\hooks\cheap-mem-session-*.ps1
+Remove-Item $HOME\.claude\hooks\cheap-mem-*.ps1
 
 # unset user env
 [Environment]::SetEnvironmentVariable('CHEAP_MEM_ROOT', $null, 'User')

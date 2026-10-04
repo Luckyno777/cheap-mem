@@ -23,6 +23,13 @@ mem serve --allow-writes  # allow the page to write, for this run only
 | `/dashboard/message.json?id=` | one inbox message, whole |
 | `/dashboard/probe.json` | the retrieval probe: what `mem retrieve` would inject for a question. It is read-only and never logged |
 | `/dashboard/facts-at.json?known=&valid=` | the bitemporal comparison (Knowledge / Facts) |
+| `/dashboard/project-package.json?project=&global=&history=` | the project package export (Sources / Export studio); `&format=html` gives the offline reading view as one file; `&preview=1` the selection only |
+| `/dashboard/skills.json` | the skill catalogue, read-only (a status is written only through a task) |
+| `/dashboard/appointments.json` | the calendar overview behind the Today card and the calendar tab (`docs/appointments.md`) |
+| `/api/fulltext` | full-text search of the knowledge view, read-only |
+| `/entries.json`, `/entries` | one cursor page of entries, as JSON or rendered by the server (`docs/dashboard-entries-list.md`) |
+| `/entry.json?id=` | one entry through the fast path (`docs/dashboard-single-entry.md`) |
+| `/health` | liveness only, reveals nothing |
 | `/console.json`, `/desk.json` | the console's and the board's numbers, for tools |
 | `/console`, `/viewer` | 303 into the dashboard (`#settings/system`, `#knowledge/entries`) |
 | `/manifest.webmanifest`, `/sw.js`, `/favicon.ico` | the installable shell (PWA) |
@@ -126,8 +133,11 @@ read "not available in cheap-mem, by design", each saying why: Books (a
 stored, model-written condensation would be a second truth beside the
 logs), the digester's yield per run (no background digest service here;
 the doctor's digest-yield finding is what is measured) and the
-1M/5M/10M scale gate (VM tooling; the corpus-size finding, the hook-time
-finding and the weekly series run on your own memory instead).
+1M/5M/10M scale gate (the sibling's VM tooling; the corpus-size finding, the
+hook-time finding and the weekly series run on your own memory instead). The
+repository has its own, smaller pass/fail ladder for developers
+(`node bench/scale-gate.mjs`, up to 1,000,000 entries, `docs/scale.md`); the
+dashboard does not show its result.
 
 **Built, and reading only the journal or the append-only logs:** hook time
 per day and per occasion against one budget (`src/latencybudget.mjs`,

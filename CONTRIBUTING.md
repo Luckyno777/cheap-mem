@@ -31,6 +31,19 @@ been weakened once to let something through has stopped being a check.
    the line does. If a future reader would reasonably remove it, the
    comment has to tell them why not.
 
+5. **Mark the parity.** A commit that changes `src/` or `bin/` ends with a
+   trailer line `Parity: lm=yes`, `lm=no` or `lm=open` — whether the same
+   change exists in the sibling house, was deliberately not built (say why in
+   the message), or is still pending. A later commit can supply the line for
+   an earlier one with `Parity-Addendum: <hash> lm=yes|no|open`; pushed
+   history is never rewritten. `test/parity-gate.test.mjs` checks the line is
+   there, `node bench/parity.mjs` counts, `node bench/parity.mjs --debt` lists
+   what is still open. See `BUILDING.md`, rule 17.
+6. **Keep the documentation in step.** The README's numbers come from
+   `node bench/readme-numbers.mjs --write`, never from the keyboard. A new
+   environment variable is registered in `src/envregister.mjs` and appears
+   in `docs/environment-variables.md`. All shipped text is English.
+
 ## Hooks in this checkout
 
 ```bash
@@ -46,10 +59,25 @@ still: push the branch, let CI run green, then move main.
 
 ```bash
 npm test          # the full suite
+node --test test/<name>.test.mjs   # one file — the quick loop while working
 npm run lint      # style
 npm run coverage  # which lines the tests actually reach
 node bin/mem doctor --strict
 ```
+
+Measuring instruments under `bench/` that no `npm` script calls (each prints
+its own usage in its header; none changes the memory):
+
+| script | what it answers |
+|---|---|
+| `bench/gold-compare.mjs` | the fixed retrieval gold set on one code state, or on two git refs side by side (`--base`, `--gate`) |
+| `bench/injection-by-origin.mjs` | the injection journal per occasion and per origin (cloud, ssh, local, unknown) |
+| `bench/consumption-funnel.mjs` | per channel: how much is produced, delivered, consumed (`null` = not measured) |
+| `bench/field-without-writer.mjs` | fields that a guard reads and no write path ever sets |
+| `bench/claim-double.mjs` | how often two parallel observers both act on the same open message |
+| `bench/coverage-floor-sweep.mjs` | the search's coverage floor on a Heaps-law corpus |
+| `bench/scale-gate.mjs` | the pass/fail ladder at 10k, 100k and 1M entries (`docs/scale.md`) |
+| `bench/add-spdx.mjs` | puts the licence header on files that lack one |
 
 ## Scope
 

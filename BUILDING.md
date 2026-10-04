@@ -241,11 +241,14 @@ costs they actually caused. Ten on 2026-09-06, the eleventh added on
     installed version.
 
 17. **"Both houses always kept level" is a claim until it is counted**
-    (BAUPLAN-mem-admin_02.md L5, lucky-mem's own house). Every commit
+    (the rule comes from the sibling house, lucky-mem). Every commit
     since 2026-09-26 that changes `src/` or `bin/` carries
     `Parity: lm=yes|no|open` — whether the lucky-mem counterpart is
     built, deliberately not built (with a reason in the message), or
-    still pending. The gate (`test/parity-gate.test.mjs`) checks ONLY
+    still pending. A later commit can supply the line for an earlier
+    one (`Parity-Addendum: <hash> lm=yes|no|open`), because pushed history
+    is never rewritten; `node bench/parity.mjs --debt` lists what is
+    still open and `mem doctor` reports it as `finding-parity`. The gate (`test/parity-gate.test.mjs`) checks ONLY
     that the line is present and holds one of the three values, not
     whether it is true — no code can judge that, which is rule 5 turned
     around: a machine judges even less than a person does. Per rule 14

@@ -7,7 +7,7 @@ installation — it is the tool that creates memories.
 
 - `bin/mem`            — the CLI's entry point (Node, ESM, no dependencies):
                          argument pre-scan, the merge of the six command
-                         groups, dispatch. About 233 lines, and it stays
+                         groups, dispatch. About 232 lines, and it stays
                          that way — a handler that lands back in here
                          belongs in its group. It was 4503 before the
                          split on 2026-09-18, the largest file here.
@@ -19,13 +19,26 @@ installation — it is the tool that creates memories.
                          refusal, finding the root, knowing who writes
   - `display.mjs`      — how handlers print, and how `--as-of` is read
   - `githook.mjs`      — installing the pre-commit hook, proving it fires
+  - `appointments.mjs` — the words around `mem appointment <sub>`
 - `bin/mem-mcp`        — MCP server (uses `@modelcontextprotocol/sdk`)
-- `bin/mem-watch`      — Bash poller (systemd/launchd wrap this)
+- `bin/mem-serve`      — the dashboard server behind `mem serve` (the only UI;
+                         writes from the page are off unless allowed)
+- `bin/mem-watch`      — Bash poller (systemd/launchd wrap this); also ticks
+                         the appointment clock
+- `bin/mem-retrieve`, `bin/mem-before-edit`, `bin/mem-after-failure`,
+  `bin/mem-subagent-start` — the recall hooks (each with a `.ps1` twin)
+- `bin/mem-release`    — the release rail for a service install
 - `bin/mem-reflect`    — Stop-hook style transcript reflector
 - `bin/mem-handle-post`— default AI handler for new inbox mail
 - `src/config.mjs`     — `.mem/config.json` reader/writer, `findRoot()`
 - `src/memory.mjs`     — JSONL logs (append-only)
 - `src/inbox.mjs`      — file-based cross-session inbox
+- `shared/`            — the finding map, calculation and invariant registers
+                         the benches and the doctor read
+- `bench/`             — measurements and guards (`npm run verify`,
+                         `bench/readme-numbers.mjs`, `bench/parity.mjs`)
+- `eval/`              — the paired model evaluation (see `eval/README.md`)
+- `hooks/`             — the repository's own git hooks (pre-commit, pre-push)
 - `install/`           — macOS, Linux, Windows and Claude Code installers,
                          the `mem serve` service installer, and `hooks/`
 - `test/*.test.mjs`    — node:test suites (run: `node --test test/*.test.mjs`)
@@ -52,6 +65,17 @@ installation — it is the tool that creates memories.
 ## When you change something
 
 - Update tests. `node --test test/*.test.mjs` must be green.
+- A commit that changes `src/` or `bin/` carries a trailer line
+  `Parity: lm=yes|no|open` (is the counterpart in the sibling house built,
+  deliberately not built, or pending). `test/parity-gate.test.mjs` checks it
+  is present; `node bench/parity.mjs` counts it (BUILDING.md, rule 17).
+- A new environment variable goes into `src/envregister.mjs` and into
+  `docs/environment-variables.md` (`mem envvars --markdown` prints the table;
+  a test compares the two).
+- Numbers in `README.md` come from `bench/readme-numbers.mjs`; do not type
+  them by hand: `node bench/readme-numbers.mjs --write` pulls them forward
+  (`test/readme-numbers.test.mjs`).
+- Everything shipped is English (`test/english-ratchet.test.mjs`).
 - Update `README.md` if a user-facing surface changed.
 - Update `docs/` for the affected client.
 - Do not rename `.mem/config.json` — old memories exist.

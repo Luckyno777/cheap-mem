@@ -89,8 +89,8 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_DIGEST_QUIET_MIN` | not set (the due check's own default) | Minutes without a new capture before a digest becomes due. |
 | `MEM_DIGEST_STALE_MIN` | 120 | Minutes after which a digest lock counts as stale. |
 | `MEM_DIGEST_TIMEOUT` | 600 | Seconds one digest run may take. |
-| `MEM_DIGEST_VOLUME_MIN_KB` | not set (the due check's own default) | Raw volume in KB at which a digest becomes due. |
-| `MEM_DIGEST_VOLUME_NOW_KB` | not set | Test hook of the digest's "is a run due" decision: the raw volume now, in KB. |
+| `MEM_DIGEST_VOLUME_MIN_KB` | not set (the due check's own default, 32 KB) | Pending raw volume in KB below which a digest is not worth a call, until the ceiling. |
+| `MEM_DIGEST_VOLUME_NOW_KB` | not set (the due check's own default, 500 KB) | Pending raw volume in KB at which a digest is due at once, however fresh the last capture. |
 | `MEM_GOLD_TIMEOUT` | 300 | Seconds the digest gives the daily gold-miss collection. |
 | `MEM_HANDLER_PROMPT` | the built-in prompt | The prompt the letter handler gives the model. |
 | `MEM_RECALL_SERVER_RESTART_MS` | 60000 | Shortest gap between two automatic restarts of the recall server after a code change. |
@@ -118,7 +118,7 @@ A variable that is not in the table is not a switch: there is none.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHEAP_MEM_ARCHIVE` | not set (`raw/YYYY/MM/` inside the root, or the place `mem archive` recorded) | Where the raw archive is kept; a mount outside the repository. |
-| `CHEAP_MEM_CHECK_FILE` | `<root>/checked.jsonl` | Where `mem check-record` writes its rows. |
+| `CHEAP_MEM_CHECK_FILE` | `<root>/checked.jsonl` | Where `bin/mem-check-record` writes its rows. |
 | `CHEAP_MEM_CODE` | not set (the hook uses the root as the code directory) | Where the cheap-mem code lives when it is not the memory root itself (the sub-agent and session-start hooks). |
 | `CHEAP_MEM_GOLD_FILE` | `~/.cheap-mem-gold/...` outside the repository | The gold-question log; kept outside the repository on purpose. |
 | `CHEAP_MEM_MISS_GOLD` | `<root>/.mem/local/miss-gold.jsonl` | The local, never-committed file of real retrieval misses. |
