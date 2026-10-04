@@ -133,8 +133,11 @@ read "not available in cheap-mem, by design", each saying why: Books (a
 stored, model-written condensation would be a second truth beside the
 logs), the digester's yield per run (no background digest service here;
 the doctor's digest-yield finding is what is measured) and the
-1M/5M/10M scale gate (VM tooling; the corpus-size finding, the hook-time
-finding and the weekly series run on your own memory instead).
+1M/5M/10M scale gate (the sibling's VM tooling; the corpus-size finding, the
+hook-time finding and the weekly series run on your own memory instead). The
+repository has its own, smaller pass/fail ladder for developers
+(`node bench/scale-gate.mjs`, up to 1,000,000 entries, `docs/scale.md`); the
+dashboard does not show its result.
 
 **Built, and reading only the journal or the append-only logs:** hook time
 per day and per occasion against one budget (`src/latencybudget.mjs`,

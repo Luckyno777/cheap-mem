@@ -65,6 +65,7 @@ in the dueness check, not in the schedule:
 | volume | 500 KB pending | `--volume-now` | `MEM_DIGEST_VOLUME_NOW_KB` |
 | quiet | 45 min since the **last** capture | `--quiet` | `MEM_DIGEST_QUIET_MIN` |
 | ceiling | 8 h since the **first** | `--ceiling` | `MEM_DIGEST_CEILING_H` |
+| floor | below 32 KB pending a call is not worth it, until the ceiling | `--volume-min` | `MEM_DIGEST_VOLUME_MIN_KB` |
 
 **No capture means no bell, and no bell means no call.** A week away
 costs exactly zero.
