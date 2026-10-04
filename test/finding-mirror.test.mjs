@@ -229,7 +229,7 @@ test('POSITIVE: against this repository, readHouse actually finds names', () => 
 // and replace the `names` array below with the result, as its own
 // reviewed change — never silently.
 const LUCKY_MEM_SNAPSHOT = Object.freeze({
-  capturedAt: '2026-10-03',
+  capturedAt: '2026-10-04',
   source: 'lucky-mem/src/doktor.mjs',
   // P11 (2026-09-28/29): 'korrektur-verliert-inhalt' added on the
   // lucky-mem side (paired in shared/finding-map.jsonl with this
@@ -297,16 +297,20 @@ const LUCKY_MEM_SNAPSHOT = Object.freeze({
   // Wake model (2026-10-03): 'agent-modell' added on the lucky-mem side
   // (an AGENT.yaml model value that --model does not understand), mapped
   // as a gap: this house's watcher has no per-agent model field.
+  // Cloud wake and hook silence (2026-10-04): 'cloud-zustellung' (failed
+  // delivery into an existing cloud session) and 'haken-stumm' (a registered
+  // hook that stopped firing) added on the lucky-mem side, mapped as gaps:
+  // this house has neither a cloud route nor a per-event hook journal check.
   names: Object.freeze([
     'abrufquote', 'agent-modell', 'altlast', 'anhang', 'anmeldung', 'ansicht',
     'archiv-haltbar', 'archiv-heil', 'archiv-rueckstau', 'auffindbar', 'auftragslage',
     'auto-pflichten-alter', 'baustein-ohne-redaktion', 'bauweise',
     'befund-gleichstand', 'behauptung-ohne-beleg', 'bestand', 'bestritten',
-    'briefkasten', 'bruecke', 'dispatcher', 'doku-bilder-frische', 'dubletten',
+    'briefkasten', 'bruecke', 'cloud-zustellung', 'dispatcher', 'doku-bilder-frische', 'dubletten',
     'eintragsform', 'erledigt-ohne-beleg', 'faecher', 'faecher-jsonl',
     'fakt-konflikte', 'fang-doppelt', 'fasser', 'fasser-ausbeute', 'fasser-timer',
     'fehler-verknuepft', 'frageworte', 'geheimnis-altfaenge', 'git', 'git-hook',
-    'haken-fehlen', 'haken-wurzel-stau', 'hook-doppelt', 'hook-kopie', 'hook-stand',
+    'haken-fehlen', 'haken-stumm', 'haken-wurzel-stau', 'hook-doppelt', 'hook-kopie', 'hook-stand',
     'index', 'integrationsvertrag', 'kategorien', 'kennzahlen-gleich',
     'klartext-sensibel', 'klingel', 'korrektur-verliert-inhalt', 'latenz',
     'laufender-code', 'main-ungeprueft', 'modell-start', 'nachher-haken',
