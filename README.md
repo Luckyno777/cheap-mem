@@ -158,7 +158,7 @@ panel under the network). Deterministic, no model, nothing written.
 `mem serve` sits behind a password by default (`src/login.mjs`) -- a
 black sign-in page, one field, before any content renders:
 
-![The cheap-mem sign-in page in front of the dashboard: a black background and a password field.](docs/images/08-login.png)
+![The cheap-mem sign-in page in front of the dashboard: a black background, shown in the first-run state with a setup code and two password fields.](docs/images/08-login.png)
 
 *Shown here in its setup state (no password set yet) -- after the first
 password is set, the same route shows only the password field. Turn it
