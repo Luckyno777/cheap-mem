@@ -60,6 +60,13 @@ git push -u origin main
 
 **Use a private repo.** Your memory belongs to you.
 
+Arm the secret check before the first real entry. `core.hooksPath` is local
+git config, so every clone needs this once:
+
+```bash
+mem hooks install     # installs the pre-commit scan and proves it with a decoy token
+```
+
 ## 5. Edit FACTS.md
 
 Put things a session should know without asking:
@@ -156,6 +163,14 @@ an inbox letter at the time, once. Agents may only propose; an action for an age
 is armed by `--authority user`. Set `"timezone"` in `.mem/config.json`
 (else the system zone). Everything about it, including putting reminders into your
 own calendar: [appointments.md](appointments.md).
+
+## 7c. Look at it, and check it
+
+```bash
+mem serve            # the dashboard at one fixed link (reads only; see dashboard-writes.md)
+mem board            # the operating state on one screen, in the terminal
+mem doctor --strict  # is the memory healthy, and which layer owns each guarantee
+```
 
 ## 8. Wire your AI
 

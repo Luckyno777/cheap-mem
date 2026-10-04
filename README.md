@@ -48,7 +48,7 @@ code.
 
 | | measured | how you check it |
 |---|---|---|
-| tokens per session | **96.6 % fewer** than pasting the memory in | `npm run bench` |
+| tokens per session | **96.8 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search latency | cold and warm, median and P95, per corpus size: see [Latency](#latency) | `node bench/cold-find.mjs` |
 | what you download | **1624 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
@@ -489,6 +489,12 @@ your-memory/
     duties.jsonl           what is owed — the only type with a lifecycle
     skills.jsonl           a capability acquired, with evidence
     updates.jsonl          a version, a dependency, a config change
+    questions.jsonl        what we do NOT know (closed by naming the answer)
+    procedures.jsonl       a norm for everyone (issued by a person only)
+    sources.jsonl          a pointer at knowledge that already exists
+    links.jsonl            a typed relation between two entries
+    workflows.jsonl        a named sequence (issued by a person only)
+    snippets.jsonl         a reusable block with {{PLACEHOLDERS}}
   projects/<name>/         same shape, per project
   inbox/                   messages between sessions (git-synced)
   raw/YYYY/MM/*.jsonl.gz   captured transcripts, redacted
@@ -648,6 +654,36 @@ mem inbox renew|done <name> --claim-id ID       renew / finish YOUR claim
 mem embed setup|backfill|status    optional: semantic escalation
 mem find-embed "<query>"           pure semantic search (needs embeddings)
 mem find-hybrid "<query>"          BM25 + semantic, fused (RRF)
+```
+
+More commands, one line each (`mem --help` is the complete, current list;
+the files appear on first write, `mem init` creates only the first few):
+
+```
+mem supersede <old> --by <new>     retire an entry that a newer one replaces
+mem restore <id>                   take a closed entry up again (a new line)
+mem merge <id> <id> ...            merge entries of one drawer (append-only)
+mem when "<time expression>"       time-range recall, no model
+mem component <path>               everything about ONE file
+mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
+mem questions / mem answer <q> --with <entry>   what we do not know, and closing it
+mem procedures / mem teach         recorded steps; what a newcomer needs to hear
+mem sources add|bridge|list        where a claim came from
+mem store put|list|get|verify      files the memory keeps by hash
+mem agents / mem agent new|show    who is registered, an address per agent
+mem onboarding <agent>             five checks, each evidenced by an entry
+mem broadcast <error-id>           tell the agents who touched the same file
+mem heartbeat                      this agent was running and could write
+mem today                          operations, decisions and facts to verify
+mem guard run|quote|gaps           every latch: is the error back, which has none
+mem gaps [rate]                    open and closed knowledge gaps
+mem suggest procedure <class>      draft a procedure for a repeated error class
+mem raw review|delete|archive|migrate|export   audit, remove, relocate captures
+mem observations                   what the memory injected, and when (local)
+mem ledger | mem gauges | mem modelcost   what agents did, occupancy, token estimate
+mem rewrites | mem net | mem paths | mem chain | mem archive | mem shrink
+                                   health views, each read-only (see `mem --help`)
+mem maintenance dedupe [--dry-run] merge identical entries, keep the authority
 ```
 
 `mem find` is the one you want. The other two only matter for the case
