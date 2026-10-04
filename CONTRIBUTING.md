@@ -65,6 +65,20 @@ npm run coverage  # which lines the tests actually reach
 node bin/mem doctor --strict
 ```
 
+Measuring instruments under `bench/` that no `npm` script calls (each prints
+its own usage in its header; none changes the memory):
+
+| script | what it answers |
+|---|---|
+| `bench/gold-compare.mjs` | the fixed retrieval gold set on one code state, or on two git refs side by side (`--base`, `--gate`) |
+| `bench/injection-by-origin.mjs` | the injection journal per occasion and per origin (cloud, ssh, local, unknown) |
+| `bench/consumption-funnel.mjs` | per channel: how much is produced, delivered, consumed (`null` = not measured) |
+| `bench/field-without-writer.mjs` | fields that a guard reads and no write path ever sets |
+| `bench/claim-double.mjs` | how often two parallel observers both act on the same open message |
+| `bench/coverage-floor-sweep.mjs` | the search's coverage floor on a Heaps-law corpus |
+| `bench/scale-gate.mjs` | the pass/fail ladder at 10k, 100k and 1M entries (`docs/scale.md`) |
+| `bench/add-spdx.mjs` | puts the licence header on files that lack one |
+
 ## Scope
 
 Additive and corrective changes are low risk: a new module, a fix, a
