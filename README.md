@@ -169,10 +169,22 @@ off with `CHEAP_MEM_SERVE_LOGIN=off` (tests, local use only).*
 *`Operations -> Diagnosis`: the same `mem doctor` findings as the CLI,
 read live from the dashboard.*
 
+![The Settings page, Appearance tab: colour scheme, motion, read-only and print, each with one control.](docs/images/05-settings.png)
+
+*`Settings -> Appearance`: switch between light and dark, pause all
+motion, lock every writing button in this tab with "Read only" (the
+server checks on its own regardless), or print the current view. Further
+tabs: Access, System settings, Function catalogue and Project state.*
+
 ![The dashboard overview on a phone, 390x844: the same network and duties list, reflowed for a narrow screen.](docs/images/06-mobile-overview.png)
 
 *The dashboard is responsive — same routes, same data, no separate
 mobile build.*
+
+![The duties list on a phone: the Work & agents page, Duties & questions tab, showing 31 open duties with project, title, owner, an "open" status and an Open button.](docs/images/07-mobile-duties.png)
+
+*`Work & agents -> Duties & questions` on a phone: each duty shows its
+project, title, owner and status. The tab strip scrolls sideways.*
 
 ## Try it in two minutes
 
