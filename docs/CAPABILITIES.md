@@ -157,7 +157,7 @@ directory. The section number in brackets is where it is explained.
 | `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |
 | `profile.mjs` | switchable measuring points that land in the ordinary log — finds where time went without a hand-written report script |
-| `provenance.mjs` | which clone answered, and how old it is |
+| `provenance.mjs` | which clone answered, and how old it is; STALE only when older than 90 min AND behind origin or lag unknown (an old but level clone is fresh); wired as doctor finding `provenance` (`behindOrigin` is also what `behind` uses) |
 | `question.mjs` | what we do NOT know (10.7) |
 | `raw.mjs` | capture, drop filter, digest bell, pending work |
 | `readview.mjs` | the offline reading view: the project package as ONE self-contained HTML file (`project-package.json?format=html`) with search, list, detail and references, no network call, no outside address; encrypted entries stay encrypted |

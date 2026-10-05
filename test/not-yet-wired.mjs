@@ -46,23 +46,6 @@ export const NOT_YET_WIRED = Object.freeze({
   // declaration immediately, as designed — see this file's own comment
   // on why TRUTH expiry does not wait for the 14-day clock. Removed
   // rather than left dated-but-wrong.
-  provenance: {
-    since: '2026-09-20',
-    reason: 'checked whether `mem doctor` already has a home for this and found two — '
-      + "'behind' (checkBehind, HEAD..origin/branch) and 'git' (dirty tree) — so a naive "
-      + 'wire-in would be a two-truths risk on those two fields. The genuinely new part, '
-      + 'STATE.STALE at age_minutes > LIMIT_MINUTES, is age-only: it does NOT look at '
-      + '`behind`, so a fully-synced, clean clone (behind=0, not dirty) whose last commit '
-      + 'simply predates a quiet stretch — nobody logged anything for 90+ minutes, which '
-      + 'is normal, not broken — reads as STALE. That is exactly this task\'s own abort '
-      + 'condition: a barrier that reports the innocent gets shut off. Wiring it into '
-      + '`mem doctor`\'s default findings would fire on a healthy-but-idle memory root, '
-      + "not only a broken one. It is not a missing caller, it is a missing gate — the "
-      + 'check needs "age > limit AND (behind > 0 OR behind is unknown)" before a caller '
-      + 'can trust it, and adding that gate is a change to provenance.mjs\'s own tested '
-      + 'contract (test/provenance.test.mjs asserts pure age-based STALE), out of scope '
-      + 'for a wiring pass. Declared rather than forced in.',
-  },
 });
 
 /**
