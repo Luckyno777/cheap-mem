@@ -30,6 +30,7 @@ import * as memory from './memory.mjs';
 import * as authority from './authority.mjs';
 import * as integrity from './integrity.mjs';
 import * as mirror from './findingmirror.mjs';
+import * as provenanceMod from './provenance.mjs';
 import * as environment from './environment.mjs';
 import * as clock from './clock.mjs';
 import * as epoch from './epoch.mjs';
@@ -399,6 +400,7 @@ export function checkAll(root) {
   f.push(checkStopHook(root));
   f.push(checkLegacyLeaks(root));
   f.push(checkBehind(root));
+  f.push(checkProvenance(root));
   f.push(checkGitState(root));
   f.push(checkHookRootStranded(root));
   f.push(checkCaptureRejected(root));
@@ -1891,20 +1893,45 @@ function checkLegacyLeaks(root) {
  * network, so doctor does not hang offline.
  */
 function checkBehind(root) {
-  const branch = quietRun('git', ['-C', root, 'rev-parse', '--abbrev-ref', 'HEAD']);
-  if (branch === null) return finding('behind', LEVEL.UNKNOWN, 'git not runnable');
-  const b = branch.trim();
-  const count = quietRun('git', ['-C', root, 'rev-list', '--count', `HEAD..origin/${b}`]);
-  if (count === null) {
+  const { branch: b, behind: n, why } = provenanceMod.behindOrigin(root);
+  if (why === 'git-not-runnable') return finding('behind', LEVEL.UNKNOWN, 'git not runnable');
+  if (why === 'no-origin-ref') {
     return finding('behind', LEVEL.UNKNOWN, `no origin/${b} known — never fetched?`,
       `git -C ${root} fetch origin ${b}`);
   }
-  const n = Number(count.trim());
-  if (!Number.isFinite(n)) return finding('behind', LEVEL.UNKNOWN, 'count unreadable');
+  if (n === null) return finding('behind', LEVEL.UNKNOWN, 'count unreadable');
   if (n === 0) return finding('behind', LEVEL.GOOD, `up to date with origin/${b}`);
   return finding('behind', LEVEL.WARN, `${n} commits behind origin/${b}`,
     'Capture uses the redaction from THIS clone. While it lags, it captures with '
     + `old rules: git -C ${root} pull`);
+}
+
+/**
+ * Which clone answers, and is its state still worth anything? Reports
+ * ONLY what 'behind' and 'git' do not: the clone's identity and the AGE
+ * of its state. The lag count (behind) and the dirty tree (git) stay
+ * with their own findings — no second truth.
+ *
+ * Gate (src/provenance.mjs): stale only when older than the limit AND
+ * (behind > 0 OR lag unknown). An old clone level with origin is good.
+ * No git tree or no answer is `unknown`, never `good`.
+ */
+export function checkProvenance(root, opts = {}) {
+  const p = provenanceMod.provenance(root, opts);
+  if (p.state === provenanceMod.STATE.NO_GIT) {
+    return finding('provenance', LEVEL.UNKNOWN, `${p.root} answers without provenance (not a git tree)`);
+  }
+  if (p.state === provenanceMod.STATE.UNKNOWN) {
+    return finding('provenance', LEVEL.UNKNOWN, `${p.root}: provenance unknown (${p.why})`);
+  }
+  const who = `${p.root} at ${p.head}, ${p.age_minutes} min old`;
+  if (p.state === provenanceMod.STATE.FRESH) {
+    return finding('provenance', LEVEL.GOOD,
+      p.age_minutes > p.limit_minutes ? `${who}, level with origin` : who);
+  }
+  return finding('provenance', LEVEL.WARN,
+    `${who} — older than ${p.limit_minutes} min and ${p.behind === null ? 'lag behind origin unknown' : 'behind origin'}`,
+    `This clone may answer from a frozen state. Refresh it: git -C ${p.root} fetch origin && git -C ${p.root} merge --ff-only @{u}`);
 }
 
 /**

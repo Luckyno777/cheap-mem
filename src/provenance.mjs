@@ -17,8 +17,14 @@
  * So provenance becomes a finding with FOUR states, not a reassurance
  * with two:
  *
- *   fresh     the state is younger than the limit
- *   stale     it is older — with how much
+ *   fresh     the state is younger than the limit, OR it is older but
+ *             the clone is level with what it last saw of its origin
+ *             (behind = 0): a quiet stretch with nothing new to pull is
+ *             not a defect, and a barrier that reports the innocent
+ *             gets switched off
+ *   stale     older than the limit AND (behind > 0 OR behind unknown) —
+ *             with how much. Unknown lag counts against it: "old and
+ *             cannot tell whether anything newer exists" is not fine
  *   no_git    a memory directory without provenance
  *   unknown   git does not answer (and that does not mean "fine")
  *
@@ -47,11 +53,30 @@ function git(root, ...a) {
 }
 
 /**
+ * How many commits is the clone behind what it last saw of its origin?
+ *
+ * The ONE implementation of `HEAD..origin/<branch>`: `mem doctor`'s
+ * `behind` finding and the provenance gate both use it, so there is no
+ * second truth about "behind". No network — only the already-fetched
+ * ref. Returns `{ branch, behind, why }`; `behind` is `null` (never 0)
+ * whenever it cannot be told, and `why` says which step failed:
+ * 'git-not-runnable' | 'no-origin-ref' | 'count-unreadable'.
+ */
+export function behindOrigin(root) {
+  const branch = git(root, 'rev-parse', '--abbrev-ref', 'HEAD');
+  if (branch === null) return { branch: null, behind: null, why: 'git-not-runnable' };
+  const count = git(root, 'rev-list', '--count', `HEAD..origin/${branch}`);
+  if (count === null) return { branch, behind: null, why: 'no-origin-ref' };
+  if (!/^\d+$/.test(count)) return { branch, behind: null, why: 'count-unreadable' };
+  return { branch, behind: Number(count), why: null };
+}
+
+/**
  * The provenance of a memory directory.
  *
  * It does NOT go to the network. The comparison is against what the
- * clone last saw of `origin/main` — without a call it knows no more,
- * and claiming more would be guessing. If `origin/main` is ahead of
+ * clone last saw of its own branch on origin — without a call it knows no more,
+ * and claiming more would be guessing. If origin is ahead of
  * `HEAD`, that is already a finding without a call.
  */
 export function provenance(root, { now = Date.now(), limit = LIMIT_MINUTES } = {}) {
@@ -65,17 +90,16 @@ export function provenance(root, { now = Date.now(), limit = LIMIT_MINUTES } = {
 
   const ageMin = Math.round((now - Date.parse(when)) / 60000);
 
-  // How many commits is the clone behind what it last saw of origin?
-  // `null` means there is no remote tracking at all.
-  let behind = null;
-  const count = git(root, 'rev-list', '--count', 'HEAD..origin/main');
-  if (count != null && /^\d+$/.test(count)) behind = Number(count);
+  // `null` means the lag cannot be told (no remote tracking, ...).
+  const { behind } = behindOrigin(root);
 
   const dirty = (git(root, 'status', '--porcelain') ?? '') !== '';
 
   return {
     ...base,
-    state: ageMin > limit ? STATE.STALE : STATE.FRESH,
+    // The gate: age alone never makes a clone stale. Old AND level with
+    // origin is a quiet stretch; old AND behind (or unable to tell) is not.
+    state: ageMin > limit && (behind === null || behind > 0) ? STATE.STALE : STATE.FRESH,
     head,
     when,
     age_minutes: ageMin,
@@ -96,8 +120,10 @@ export function asLine(p) {
   if (p.state === STATE.NO_GIT) return `Memory: ${where} — no provenance (not a git tree)`;
   if (p.state === STATE.UNKNOWN) return `Memory: ${where} — provenance UNKNOWN (${p.why})`;
   const parts = [`Memory: ${where}`, `${p.head}`, `${p.age_minutes} min old`];
-  if (p.behind) parts.push(`${p.behind} commits behind origin/main`);
+  if (p.behind) parts.push(`${p.behind} commits behind origin`);
   if (p.dirty) parts.push('tree dirty — the hook does NOT pull then');
+  if (p.state === STATE.FRESH && p.age_minutes > p.limit_minutes) parts.push('old but level with origin');
+  if (p.state === STATE.STALE && p.behind === null) parts.push('lag unknown');
   if (p.state === STATE.STALE) parts.push(`STALE (limit ${p.limit_minutes} min)`);
   return parts.join(' \u00b7 ');
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import zlib from 'node:zlib';
 import * as doctor from '../src/doctor.mjs';
 import * as memory from '../src/memory.mjs';
@@ -49,7 +50,32 @@ test('the behind check makes no network call', () => {
   const end = block.indexOf('\nfunction ');
   const fn = end === -1 ? block : block.slice(0, end);
   assert.ok(!/'fetch'|"fetch"/.test(fn), 'checkBehind must not run git fetch');
-  assert.match(fn, /rev-list/);
+  // The rev-list itself lives in the ONE shared implementation, which
+  // must not fetch either.
+  assert.match(fn, /behindOrigin/);
+  const prov = fs.readFileSync(new URL('../src/provenance.mjs', import.meta.url), 'utf8');
+  const impl = prov.slice(prov.indexOf('export function behindOrigin'));
+  const implFn = impl.slice(0, impl.indexOf('\n}\n'));
+  assert.match(implFn, /rev-list/);
+  assert.ok(!/'fetch'|"fetch"/.test(implFn), 'behindOrigin must not run git fetch');
+});
+
+test('doctor finding provenance: old but level is good, old and unknown lag warns, never doubles behind', () => {
+  const { checkProvenance, LEVEL } = doctor;
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'doc-prov-'));
+  try {
+    const g = (...a) => spawnSync('git', ['-C', d, ...a], { encoding: 'utf8' });
+    g('init', '-q', '-b', 'main'); g('config', 'user.email', 't@example.invalid'); g('config', 'user.name', 'T');
+    fs.writeFileSync(path.join(d, 'f'), '1'); g('add', '-A'); g('commit', '-qm', 'c');
+    const later = Date.now() + 3 * 3600 * 1000;
+    const f = checkProvenance(d, { now: later });
+    assert.equal(f.name, 'provenance');
+    assert.equal(f.level, LEVEL.WARN, 'old + no origin ref = lag unknown = warn');
+    assert.ok(f.advice);
+    assert.doesNotMatch(f.text, /commits behind/, 'the lag count belongs to the behind finding');
+    assert.equal(checkProvenance(d).level, LEVEL.GOOD);
+    assert.equal(checkProvenance('/does/not/exist').level, LEVEL.UNKNOWN);
+  } finally { fs.rmSync(d, { recursive: true, force: true }); }
 });
 
 // --- Digest yield (point 2) -----------------------------------------
