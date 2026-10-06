@@ -175,7 +175,10 @@ test('an encrypted predecessor: nothing inherited, one clear warning', async () 
     const { entry: b } = memory.correctionEntry(w, 'learning', a.id, { title: 'Only a title' });
     await new Promise((ok) => setImmediate(ok));
     process.off('warning', h);
-    assert.equal(b.body_enc, undefined);
+    // Since the shared write path (correction-write-path.test.mjs) the named
+    // title is encrypted too: nothing inherited, nothing in the clear.
+    assert.ok(b.body_enc);
+    assert.equal(b.title, undefined);
     assert.equal(b.learning, undefined);
     assert.equal(warnings.length, 1);
   } finally { drop(w); }
