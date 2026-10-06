@@ -24,6 +24,8 @@
 // building) must never hang for it either.
 export const PROBE_TIMEOUT_MS = 1500;
 export const PROBE_TTL_MS = 3 * 60 * 1000;
+/** How long closing the probe client is waited for at most (ms). */
+export const PROBE_CLOSE_LIMIT_MS = 500;
 // A property write, not a rebind of this binding across the await
 // boundaries in probe() below (require-atomic-updates) -- the box
 // itself never changes identity, only cache.entry does.
@@ -42,6 +44,21 @@ export function probeConfig(env = process.env) {
 }
 
 /**
+ * Close the probe client, with a short limit; a failure (also a throw from
+ * `close`) NEVER overwrites the probe's original error.
+ */
+async function closeProbeClient(client, limitMs = PROBE_CLOSE_LIMIT_MS) {
+  if (!client || typeof client.close !== 'function') return;
+  let timer = null;
+  try {
+    await Promise.race([
+      Promise.resolve().then(() => client.close()).catch(() => {}),
+      new Promise((ok) => { timer = setTimeout(ok, limitMs); }),
+    ]);
+  } catch { /* never outwards */ } finally { if (timer) clearTimeout(timer); }
+}
+
+/**
  * The probe itself. `getClient` is swappable so tests can hand in a
  * fake SDK client without a real HTTP server; in production it is the
  * MCP SDK.
@@ -55,6 +72,7 @@ export async function probe({
   const cfg = probeConfig(env);
   let names = null;
   let reason = null;
+  let client = null; // F22: closed in every case (also on an error)
   try {
     let Client;
     let StreamableHTTPClientTransport;
@@ -66,15 +84,16 @@ export async function probe({
         await import('@modelcontextprotocol/sdk/client/streamableHttp.js'));
     }
     const url = new URL(`http://${cfg.host}:${cfg.port}${cfg.urlPath}`);
-    const client = new Client({ name: 'cheap-mem-dashboard-probe', version: '1' }, { capabilities: {} });
+    client = new Client({ name: 'cheap-mem-dashboard-probe', version: '1' }, { capabilities: {} });
     const requestInit = cfg.token ? { headers: { Authorization: `Bearer ${cfg.token}` } } : {};
     const signal = AbortSignal.timeout(timeoutMs);
     await client.connect(new StreamableHTTPClientTransport(url, { requestInit }), { signal });
     const { tools } = await client.listTools(undefined, { signal, timeout: timeoutMs });
     names = tools.map((t) => t.name);
-    client.close().catch(() => {});
   } catch (e) {
     reason = e?.message ? String(e.message).split('\n')[0] : String(e || 'unknown error');
+  } finally {
+    await closeProbeClient(client);
   }
   const result = names
     ? { reachable: true, names, checkedAt: new Date(now).toISOString() }
