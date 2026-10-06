@@ -1239,6 +1239,45 @@ function stableKey(hit) {
   return `${hit.source ?? ''}:${String(hit.line ?? 0).padStart(9, '0')}`;
 }
 
+/**
+ * A scored candidate, slim (memory, 2026-10-06 port of lucky-mem fadd11f8):
+ * `search()` scores EVERY admitted document, but only a few dozen reach the
+ * answer. The candidate keeps just the score and a reference to the document
+ * (which the index holds anyway); `entry`, `source`, `line` and the term
+ * vector `__w` are prototype getters, so MMR, the topic freshness and the
+ * sort read them exactly as before. `finish()` builds the plain hit, same
+ * fields in the same order as the object that used to be pushed per document.
+ * No entry text is read here that the index does not already hold.
+ */
+class SlimHit {
+  constructor(doc, score, covered) { this.doc = doc; this.score = score; this.covered = covered; }
+  get entry() { return this.doc.entry; }
+  get source() { return this.doc.source; }
+  get line() { return this.doc.line; }
+  get __w() { return this.doc.weights; }
+  finish() {
+    const doc = this.doc;
+    return {
+      score: this.score,
+      type: doc.type,
+      project: doc.project,
+      source: doc.source,
+      line: doc.line,
+      entry: doc.entry,
+      raw: doc.type === 'raw',
+      pending: doc.pending ?? false,
+      // The detected language this document was actually indexed with —
+      // exposed rather than kept internal, so "which rule set answered
+      // this" is checkable instead of assumed. `lang` is UNCERTAIN when
+      // both rule sets were applied; see `langdetect.mjs`.
+      lang: doc.lang ?? UNCERTAIN,
+      langCertain: doc.langCertain ?? false,
+      ...(doc.retired ? { retired: doc.retired } : {}),
+      ...(this.covered === null ? {} : { covered: this.covered }),
+    };
+  }
+}
+
 /** Descending by score, ties broken by identity. Total order, always. */
 export function byScoreThenIdentity(a, b) {
   if (b.score !== a.score) return b.score - a.score;
@@ -1685,7 +1724,6 @@ export function search(index, query, {
     // policy applied afterwards can recover a claim that was never a
     // candidate. Measured 2026-09-05 (bench/byzantine.mjs).
     if (!admits(doc, limits)) continue;
-    const isRaw = doc.type === 'raw';
 
     let score = 0;
     // **Literal terms: MAX across packs, SUM across everything else
@@ -1842,25 +1880,7 @@ export function search(index, query, {
       }
     }
 
-    hits.push({
-      score,
-      type: doc.type,
-      project: doc.project,
-      source: doc.source,
-      line: doc.line,
-      entry: doc.entry,
-      raw: isRaw,
-      pending: doc.pending ?? false,
-      // The detected language this document was actually indexed with —
-      // exposed rather than kept internal, so "which rule set answered
-      // this" is checkable instead of assumed. `lang` is UNCERTAIN when
-      // both rule sets were applied; see `langdetect.mjs`.
-      lang: doc.lang ?? UNCERTAIN,
-      langCertain: doc.langCertain ?? false,
-      ...(doc.retired ? { retired: doc.retired } : {}),
-      ...(coveredShare === null ? {} : { covered: coveredShare }),
-      __w: doc.weights,   // internal: term vector for MMR; stripped below
-    });
+    hits.push(new SlimHit(doc, score, coveredShare));
   }
 
   // State-question freshness: only when the QUESTION carries a signal
@@ -1881,8 +1901,9 @@ export function search(index, query, {
   const out = (mmr && kept.length > 1)
     ? mmrRerank(kept.slice(0, mmrPoolFor(top, true)), { lambda: mmrLambda, top, simOf: (a, b) => docSimilarity(a.__w, b.__w) })
     : kept.slice(0, top);
-  for (const t of out) delete t.__w;   // internal helper never leaves search()
-  return out;
+  // The scored candidates were slim (score + document reference); only the
+  // answer is turned into full hits, in the field order of old.
+  return out.map((t) => t.finish());
 }
 
 // --- Index cache -----------------------------------------------------
