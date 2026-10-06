@@ -1394,12 +1394,15 @@ export function iterLog(root, type, { project = null } = {}) {
  * test.mjs` for the callers that mint the capabilities this function
  * now consumes.
  */
-export function find(root, pattern, capability, {
-  types = Object.keys(TYPES),
-  projects = null,   // narrows WITHIN what `capability` admits; null = everything it admits
-  since = null,
-  withRetired = false,  // include retired (done/discarded/superseded)?
-} = {}) {
+export function find(root, pattern, capability, opts = {}) {
+  const {
+    types = Object.keys(TYPES),
+    projects = null,   // narrows WITHIN what `capability` admits; null = everything it admits
+    since = null,
+    withRetired = false,  // include retired (done/discarded/superseded)?
+    windowMs = null,   // { from, to } in ms, half-open [from, to): cheap pre-filter, no parse
+    accept = null,     // check on the finished hit; false = do not keep it
+  } = opts;
   if (!(capability instanceof capabilityMod.Capability)) {
     throw new TypeError(
       "memory.find(root, pattern, capability, opts) — 'capability' is required and must be "
@@ -1421,45 +1424,154 @@ export function find(root, pattern, capability, {
     : projects.filter((p) => admitted.includes(p));
   const needle = String(pattern).toLowerCase();
 
-  // Pass 1: parse every line of the target logs. Only after that is it
-  // known what is retired — a tombstone sits in the same log as its
-  // target, but possibly further down.
-  const raw = [];
+  const sinceTs = since ? (since instanceof Date ? since.toISOString() : String(since)) : null;
+  const fromMs = windowMs?.from ?? -Infinity;
+  const toMs = windowMs?.to ?? Infinity;
+  const hasWindow = fromMs !== -Infinity || toMs !== Infinity;
+
+  const files = [];
   for (const project of scopes) {
     for (const type of types) {
       const p = logPath(root, type, project);
-      if (!fs.existsSync(p)) continue;
-      const lines = withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
-      for (let i = 0; i < lines.length; i += 1) {
-        const line = lines[i];
-        if (!line.trim()) continue;
-        let entry;
-        try { entry = JSON.parse(line); }
-        catch { entry = { __broken: true, raw: line }; }
-        raw.push({ entry, p, line: i + 1, text: line });
-      }
+      if (fs.existsSync(p)) files.push(p);
     }
   }
-  const retired = retiredMap(raw.map((r) => r.entry));
 
-  // Pass 2: filter and emit. Tombstone lines never surface as hits;
-  // retired entries only with withRetired (then annotated _retired).
+  // Pass 1 (STREAMING, the mass is never parsed): only lines that carry a
+  // state field (tombstones, corrections) are parsed. A tombstone may sit far
+  // below its target, so the whole log is walked, but as a text search; only
+  // the few state lines and the ids they name are kept.
+  const neededIds = new Set();
+  for (const p of files) {
+    for (const { text } of rawLinesOfFile(p)) {
+      if (!hasStateField(text)) continue;
+      let e;
+      try { e = JSON.parse(text); } catch { continue; }
+      for (const f of authority.STATE_FIELDS) if (e?.[f]) neededIds.add(String(e[f]));
+      if (e?.by_id) neededIds.add(String(e.by_id));
+    }
+  }
+
+  // Pass 2: decide per line what is kept. For the retired map (in file
+  // order): state lines and the FIRST line of every named id (as `byId` in
+  // `retiredMap`). As a hit candidate: whatever passes pattern and window.
+  // Everything else is dropped at once.
+  const forMap = [];
+  const candidates = [];
+  const seenIds = new Set();
+  for (const p of files) {
+    for (const { text, nr } of rawLinesOfFile(p)) {
+      let needsMap = hasStateField(text);
+      if (!needsMap && neededIds.size) {
+        const id = idOfLine(text);
+        // undefined: line not unambiguously readable, parse to be safe.
+        if (id === undefined) needsMap = true;
+        else if (id !== null && neededIds.has(id) && !seenIds.has(id)) needsMap = true;
+      }
+      const patternOk = !needle || text.toLowerCase().includes(needle);
+      const windowOk = !hasWindow || tsMayBeInWindow(text, fromMs, toMs);
+      const candidate = patternOk && windowOk;
+      if (!needsMap && !candidate) continue;
+      let entry;
+      try { entry = JSON.parse(text); }
+      catch { entry = { __broken: true, raw: text }; }
+      if (needsMap) {
+        if (typeof entry?.id === 'string' && entry.id) seenIds.add(entry.id);
+        forMap.push(entry);
+      } else if (typeof entry?.id === 'string' && entry.id && neededIds.has(entry.id)) {
+        seenIds.add(entry.id);
+        forMap.push(entry);
+      }
+      if (candidate) candidates.push({ entry, p, line: nr });
+    }
+  }
+  const retired = retiredMap(forMap);
+
+  // Tombstone lines never surface as hits; retired entries only with
+  // withRetired (then annotated _retired).
   const hits = [];
-  const sinceTs = since ? (since instanceof Date ? since.toISOString() : String(since)) : null;
-  for (const { entry, p, line, text } of raw) {
+  for (const { entry, p, line } of candidates) {
     if (isClosingLine(entry)) continue;
-    if (needle && !text.toLowerCase().includes(needle)) continue;
     if (sinceTs && (!entry.ts || entry.ts < sinceTs)) continue;
     const info = entry.id ? retired.get(entry.id) : null;
     if (info && !withRetired) continue;
-    hits.push({
+    const hit = {
       ...entry,
       _source: asSource(root, p),
       _line: line,
       ...(info ? { _retired: info } : {}),
-    });
+    };
+    if (accept && !accept(hit)) continue;
+    hits.push(hit);
   }
   return hits;
+}
+
+// Line by line (number 1-based over ALL lines, empty ones too, like
+// `split('\n')`), BOM stripped, blank lines not delivered. Never holds more
+// than one block plus one line.
+function* rawLinesOfFile(p, chunkBytes = 256 * 1024) {
+  const fd = fs.openSync(p, 'r');
+  try {
+    const decoder = new StringDecoder('utf8');
+    const buf = Buffer.alloc(chunkBytes);
+    let pending = '';
+    let atStart = true;
+    let nr = 0;
+    for (;;) {
+      const n = fs.readSync(fd, buf, 0, chunkBytes, null);
+      if (n === 0) break;
+      pending += decoder.write(buf.subarray(0, n));
+      if (atStart && pending.length > 0) { pending = withoutBom(pending); atStart = false; }
+      let start = 0;
+      let nl = pending.indexOf('\n', start);
+      while (nl !== -1) {
+        nr += 1;
+        const text = pending.slice(start, nl);
+        if (text.trim()) yield { text, nr };
+        start = nl + 1;
+        nl = pending.indexOf('\n', start);
+      }
+      pending = pending.slice(start);
+    }
+    pending += decoder.end();
+    nr += 1;
+    if (pending.trim()) yield { text: pending, nr };
+  } finally { fs.closeSync(fd); }
+}
+
+const STATE_MARKS = authority.STATE_FIELDS.map((f) => `"${f}"`);
+// Real keys always appear as "field" in JSON; a false hit (text inside a
+// value) costs one parse, a missed one is impossible.
+function hasStateField(text) {
+  for (const m of STATE_MARKS) { if (text.includes(m)) return true; }
+  return false;
+}
+
+// id of a line without parsing: string = read unambiguously, null = no id,
+// undefined = ambiguous (then parse).
+function idOfLine(text) {
+  const count = text.split('"id"').length - 1;
+  if (count === 0) return null;
+  const m = /"id"\s*:\s*"([^"\\]*)"/.exec(text);
+  if (count === 1 && m) return m[1];
+  return undefined;
+}
+
+// Can this line's ts lie in the window [fromMs, toMs)? False only when
+// CERTAINLY not (every "ts" occurrence is a readable string outside it).
+function tsMayBeInWindow(text, fromMs, toMs) {
+  const count = text.split('"ts"').length - 1;
+  if (count === 0) return false;           // no ts key: no ts, NaN, out
+  const re = /"ts"\s*:\s*"([^"\\]*)"/g;
+  let found = 0;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    found += 1;
+    const t = new Date(m[1]).getTime();
+    if (!Number.isNaN(t) && t >= fromMs && t < toMs) return true;
+  }
+  return found !== count;
 }
 
 /** Does the project exist (directory `projects/<name>/`)? An invalid name: no. */

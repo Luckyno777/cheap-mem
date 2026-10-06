@@ -56,12 +56,16 @@ export function keywordsOf(query) {
 export function entriesInWindow(root, capability, {
   from, to, words = [],
 } = {}) {
-  const all = find(root, '', capability, { since: from || null, withRetired: true });
   const fMs = from ? new Date(from).getTime() : -Infinity;
   const tMs = to ? new Date(to).getTime() : Infinity;
   const w = words.map((x) => x.toLowerCase());
-  return all
-    .filter((e) => {
+  // STREAMING: `find` keeps only what the window and filters pass. It used to
+  // load every line into one array and filter afterwards (memory grew with the
+  // entry count).
+  const hits = find(root, '', capability, {
+    since: from || null, withRetired: true,
+    windowMs: { from: fMs, to: tMs },
+    accept: (e) => {
       const t = e.ts ? new Date(e.ts).getTime() : NaN;
       if (Number.isNaN(t) || t < fMs || t >= tMs) return false;
       if (w.length) {
@@ -69,8 +73,9 @@ export function entriesInWindow(root, capability, {
         if (!w.some((x) => hay.includes(x))) return false;
       }
       return true;
-    })
-    .sort((a, b) => new Date(a.ts) - new Date(b.ts));
+    },
+  });
+  return hits.sort((a, b) => new Date(a.ts) - new Date(b.ts));
 }
 
 // "2026-09-01T18-35-16Z" (filename) → ms. The capture time is the UPPER bound of
