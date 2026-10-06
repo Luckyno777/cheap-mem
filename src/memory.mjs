@@ -519,7 +519,41 @@ export function adaptEntry(entry) {
   return ENTRY_ADAPTERS.get(v)(entry);
 }
 
+/** Valid id: string, 2..64 characters of letters, digits, `._:-`, alphanumeric first. */
+const ID_FORM = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
+/** Valid time: ISO-8601 with a zone (`Z` or +hh:mm) that also parses as a date. */
+const TS_FORM = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Reserved fields `id` and `ts` (audit F03). Absent (undefined) is the
+ * normal case: the write core makes them itself. Whoever passes them
+ * (import, correction copy) must supply VALID original values; null,
+ * empty, object or an invalid time are refused before anything is written.
+ * Without this, `{ id: null, ts: null }` overwrote the generated values and
+ * the line landed without a usable id or time.
+ */
+function checkReservedFields(data) {
+  if (data === null || typeof data !== 'object') return;
+  const bad = (field, reason) => {
+    const err = new Error(`Reserved field '${field}' is invalid (${reason}); nothing was written. `
+      + 'Leave it out: cheap-mem makes it itself. Pass it only as a valid original value (import).');
+    err.code = 'RESERVED_FIELD';
+    return err;
+  };
+  if (data.id !== undefined) {
+    if (typeof data.id !== 'string') throw bad('id', 'not a string');
+    if (!ID_FORM.test(data.id)) throw bad('id', 'empty or not an allowed form');
+  }
+  if (data.ts !== undefined) {
+    if (typeof data.ts !== 'string') throw bad('ts', 'not a string');
+    if (!TS_FORM.test(data.ts) || !Number.isFinite(Date.parse(data.ts))) throw bad('ts', 'not a valid ISO time');
+  }
+}
+
 export function logEntry(root, type, data, { project = null, now = new Date() } = {}) {
+  // F03: protect the reserved fields (id, ts) at the write core, BEFORE
+  // anything else, so a refusal has never written anything.
+  checkReservedFields(data);
   // The agent comes from the origin stamp when it is not set explicitly.
   // Two routes, so the second axis fills itself without every caller
   // having to remember:
@@ -670,6 +704,9 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
     shred.putKey(root, id, key, { now });
   }
   const entry = { id, ts, v: ENTRY_VERSION, ...rest };
+  // `...rest` must not overwrite the checked values with `undefined`.
+  entry.id = id;
+  entry.ts = ts;
 
   fs.mkdirSync(path.dirname(p), { recursive: true });
 
