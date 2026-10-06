@@ -166,7 +166,7 @@ test('memory: 50 000 generated entries — OLD dies at 128 MiB heap, NEW runs; O
   const ne = JSON.parse(fresh.out.trim().split('\n').pop());
   assert.ok(ne.entries > 40000, `entries ${ne.entries}`); // content drawers of the 50 000 lines
   const small = child(old, corpus, 128, 'array');
-  assert.notEqual(small.rc, 0, 'OLD must die at 128 MiB (otherwise the probe does not bite)');
+  assert.notEqual(small.rc, 0, 'OLD must fail at 128 MiB (otherwise the probe does not bite)');
   assert.match(small.err, /heap out of memory|Allocation failed|Invalid string length|Map maximum size/i);
   const big = child(old, corpus, 1024, 'array');
   assert.equal(big.rc, 0, `positive control: OLD runs at 1024 MiB: ${big.err.slice(-300)}`);
