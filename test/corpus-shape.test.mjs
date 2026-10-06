@@ -90,7 +90,13 @@ function analyze(dir) {
       if (Number.isFinite(t)) timestamps.push(t);
     }
   }
-  const now = Date.now();
+  // Measured against the generator's fixed calendar (CORPUS_AS_OF), not the
+  // wall clock. buildCorpus pins its timestamps to that day on purpose (same
+  // seed, same bytes forever); measuring the 30-day window against Date.now()
+  // turned this guarantee into a calendar time bomb: every day pushed more
+  // generated entries out of the window, and on 2026-10-06 the ratio crossed
+  // 1.5x (66.4% vs 100%) with no code change at all.
+  const now = CORPUS_AS_OF;
   const rankShares = [...perFile.values()].sort((a, b) => b - a)
     .map((n) => (total ? (n / total) * 100 : null));
   const sortedSizes = [...sizes].sort((a, b) => a - b);
