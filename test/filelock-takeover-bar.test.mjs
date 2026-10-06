@@ -135,14 +135,14 @@ test('a bar just under the limit still counts as held', () => {
   assert.ok(fs.existsSync(lock));
 });
 
-test('stale lock (live holder, other host) under the bar: only by age, then exactly once', () => {
+test('an ancient lock of another host is never taken over (age is no proof, audit F02)', () => {
   const dir = mkTmp('takeoverbar-'); const lock = path.join(dir, 'x.lock');
   fs.writeFileSync(lock, `${process.ppid} other-host ${new Date().toISOString()} foreign\n`);
   assert.throws(() => withLock(lock, () => 1, { waitMs: 150, staleS: 5 }), LockTimeoutError, 'fresh: never taken');
   const old = new Date(Date.now() - 30000);
   fs.utimesSync(lock, old, old);
-  assert.equal(withLock(lock, () => 2, { waitMs: 1000, staleS: 5 }), 2);
-  assert.deepEqual(fs.readdirSync(dir), []);
+  assert.throws(() => withLock(lock, () => 2, { waitMs: 150, staleS: 5 }), LockTimeoutError, 'ancient: still never');
+  assert.deepEqual(fs.readdirSync(dir), ['x.lock']);
 });
 
 test('release while someone else holds the bar: free after a short wait anyway (as before)', () => {
