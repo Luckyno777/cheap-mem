@@ -2631,7 +2631,7 @@ const camera = { zoom: 1, angle: 0.47, tilt: 0.4, panX: 0, panY: 0, focus: null,
 const CONDENSED_MODES = new Set(['storage', 'overview', 'topics', 'structure']);
 const atlasCondensed = (mode = state.graphMode) => Boolean(D?.atlas?.condensed) && CONDENSED_MODES.has(mode);
 const ATLAS_PAGE = 60;
-const atlasPages = new Map(); // key -> { list, total, next, loading, searching, error, source }
+const atlasPages = new Map(); // key -> { list, total, next, loading, searching, error, source, state }
 const atlasKey = (kind, value, project) => kind + ':' + value + (kind === 'theme' ? '|' + project : '');
 const atlasPageOf = (kind, value) => atlasPages.get(atlasKey(kind, value, state.project)) || null;
 // The context for graphModel(): null = the full view.
@@ -2643,25 +2643,49 @@ function atlasContext(mode) {
   for (const [k, pg] of atlasPages) if (k.startsWith('drawer:') || k.endsWith('|' + proj)) for (const e of pg.list) if (scope(e)) seen.set(e.id, e);
   return { atlas: D.atlas, proj, loaded, scope, focus: camera.focus, entries: [...seen.values()] };
 }
+// F20: states per page: 'loading' | 'ok' | 'error' | 'expired' (deadline/budget). Only 'loading' and 'ok' keep a
+// new attempt from starting; 'error' and 'expired' can be repeated (button "Try again"). A page that is still
+// being built is asked for within a budget (requests) and a deadline (time) and ends visibly, never as an empty
+// apparent success.
+const ATLAS_DEADLINE_MS = 90000;
+const ATLAS_REQUESTS = 150;
 async function atlasLoad(kind, value, { more = false } = {}) {
   const project = state.project;
   const k = atlasKey(kind, value, project);
   const old = atlasPages.get(k);
   if (old?.loading) return;
-  if (old && !more) return;
-  if (old && more && old.next === null) return;
-  const pg = old || { list: [], total: null, next: 0, loading: false, searching: false, error: null, source: null };
-  pg.loading = true; pg.error = null;
+  const retry = old && (old.state === 'error' || old.state === 'expired');
+  if (old && !more && !retry) return;
+  if (old && more && !retry && old.next === null) return;
+  const pg = old || { list: [], total: null, next: 0, loading: false, searching: false, error: null, source: null, state: 'loading' };
+  pg.loading = true; pg.error = null; pg.state = 'loading';
   atlasPages.set(k, pg);
+  const run = runStart('atlas:' + k);
+  const selection = () => state.project === project && atlasPages.get(k) === pg;
+  const budget = runBudget({ deadlineMs: ATLAS_DEADLINE_MS, requests: ATLAS_REQUESTS });
   atlasStateShow();
+  let done = false;
   try {
-    for (let attempt = 0; attempt < 400; attempt++) {
+    while (!done) {
+      const limit = budget.take();
+      if (limit) {
+        pg.state = 'expired';
+        pg.error = limit === 'deadline'
+          ? 'The store is still being built — the time limit (' + Math.round(ATLAS_DEADLINE_MS / 1000) + ' s) ran out.'
+          : 'The store is still being built — the budget of ' + budget.requests + ' requests is used up.';
+        break;
+      }
       // Literal, not t.path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
-      const r = await fetch('/dashboard/part.json?part=atlas&' + kind + '=' + encodeURIComponent(value) + '&project=' + encodeURIComponent(project) + '&from=' + (pg.next || 0) + '&n=' + ATLAS_PAGE, { credentials: 'same-origin', cache: 'no-store' });
+      const r = await fetch('/dashboard/part.json?part=atlas&' + kind + '=' + encodeURIComponent(value) + '&project=' + encodeURIComponent(project) + '&from=' + (pg.next || 0) + '&n=' + ATLAS_PAGE, { credentials: 'same-origin', cache: 'no-store', signal: run.signal });
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
-      // Not built yet, or the search over the store is running: ask again, never show it empty.
-      if (b.searching || b.building) { pg.searching = true; atlasStateShow(); await new Promise((ok) => setTimeout(ok, TEMPO_TEST_MS ?? 700)); continue; }
+      if (!run.holds(selection)) break;
+      // Not built yet, or the search over the store is running: ask again (within the budget), never show it empty as a success.
+      if (b.searching || b.building) {
+        pg.searching = true; atlasStateShow();
+        if (!(await runWait(run, TEMPO_TEST_MS ?? 700))) break;
+        continue;
+      }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
       for (const e of b.data) {
         if (!entryIndex.has(e.id)) entryIndex.set(e.id, entryOf(e));
@@ -2669,15 +2693,22 @@ async function atlasLoad(kind, value, { more = false } = {}) {
         if (!pg.list.includes(x)) pg.list.push(x);
       }
       pg.total = b.total; pg.next = b.next; pg.source = b.source || null;
-      break;
+      pg.state = 'ok';
+      done = true;
     }
   } catch (e) {
-    pg.error = e?.message || String(e);
+    if (!runAborted(e) && run.holds(selection)) { pg.error = e?.message || String(e); pg.state = 'error'; }
   } finally {
     pg.loading = false; pg.searching = false;
   }
+  if (!run.holds(selection)) {
+    // Aborted or selection changed: no state is taken over; an empty page is dropped (a new attempt stays possible).
+    if (pg.state === 'loading') { pg.state = pg.list.length ? 'ok' : 'error'; if (!pg.list.length && atlasPages.get(k) === pg) atlasPages.delete(k); }
+    atlasStateShow();
+    return;
+  }
   // Redraw only when the page still shows the same view.
-  if ($('#brain') && atlasCondensed() && state.project === project) render();
+  if (pg.state === 'ok' && $('#brain') && atlasCondensed() && state.project === project) render();
   else atlasStateShow();
 }
 // What the group/cell in focus would load: { kind, value } or null.
@@ -2696,7 +2727,12 @@ function atlasStateShow() {
   if (!m?.condensed) { el.textContent = ''; more.hidden = true; return; }
   if (!z) { el.textContent = `Condensed: ${num(D.overview?.count ?? 0)} entries in ${num(D.atlas.themesTotal)} topics · entries appear when zooming in`; more.hidden = true; return; }
   if (!pg || (pg.loading && !pg.list.length)) { el.textContent = pg?.searching ? 'Searching the store for entries …' : 'Loading entries …'; more.hidden = true; return; }
-  if (pg.error && !pg.list.length) { el.textContent = 'Entries could not be loaded: ' + pg.error; more.hidden = true; return; }
+  if (pg.error) {
+    // End state with a button to repeat (also when a partial list is already there).
+    el.textContent = (pg.state === 'expired' ? 'Entries not finished: ' : 'Entries could not be loaded: ') + pg.error + (pg.list.length ? ` · ${num(pg.list.length)} loaded` : '');
+    more.hidden = false; more.textContent = 'Try again';
+    return;
+  }
   el.textContent = `${num(pg.list.length)} of ${num(pg.total ?? countOf(g))} entries loaded` + (pg.loading ? (pg.searching ? ' · searching for more …' : ' · loading …') : '');
   more.hidden = pg.next === null || pg.loading;
   more.textContent = 'Load ' + num(ATLAS_PAGE) + ' more';

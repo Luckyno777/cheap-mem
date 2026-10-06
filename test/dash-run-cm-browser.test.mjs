@@ -208,3 +208,72 @@ test(`F19 RED on the fixed old state (${OLD}): the loop runs until the fixture e
     assert.equal(r.text, '', 'the old state shows no notice');
   });
 });
+
+// ---------------------------------------------------------------- F20
+// A condensed atlas (the store is too large for the full build), controlled answers of the atlas pages.
+async function openAtlas(page, base, answers) {
+  await page.route('**/dashboard/part.json?part=atlas*', (rt) => {
+    answers.n += 1;
+    if (answers.mode === 'real') return release(rt);
+    if (answers.mode === 'error') return rt.fulfill({ status: 500, body: 'broken' });
+    return rt.fulfill({ json: { building: true } });
+  });
+  await page.goto(`${base}/dashboard#home`, { waitUntil: 'load' });
+  await waitReady(page);
+  await page.waitForFunction(() => !!document.querySelector('#screen .metrics') && D?.atlas?.condensed === true && D?.cache?.source === 'build', null, { timeout: 90000 });
+  await page.evaluate(() => { state.graphMode = 'topics'; render(); });
+  await page.waitForFunction(() => document.querySelector('#brain')?.dataset.condensed === '1', null, { timeout: 60000 });
+}
+const atlasText = (page) => page.evaluate(() => document.querySelector('#atlasState')?.textContent || '');
+const moreButton = (page) => page.evaluate(() => { const b = document.querySelector('.atlas-more'); return { hidden: !b || b.hidden, text: b?.textContent || '' }; });
+const LOADED = () => /^\d+ of [\d,]+ entries loaded/.test(document.querySelector('#atlasState')?.textContent || '');
+
+test('F20: atlas — an error can be repeated, a permanently building store ends visibly instead of empty', { skip: SKIP, timeout: 600000 }, async () => {
+  await withPage(world({ n: 4000, textLength: 200 }), { env: { CHEAP_MEM_SERVE_FULL_BUILD_MB: '0.2' } }, async (page, base, errors) => {
+    const answers = { mode: 'error', n: 0 };
+    await openAtlas(page, base, answers);
+    await page.evaluate(() => graphAPI.focus('tag:alpha'));
+    await page.waitForFunction(() => /could not be loaded/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 30000 });
+    let b = await moreButton(page);
+    assert.ok(!b.hidden, 'the repeat button is visible');
+    assert.match(b.text, /Try again/);
+    await shots(page, 'f20-atlas-error-after', '#atlasState');
+    answers.mode = 'real';
+    await page.locator('.atlas-more').click();
+    await page.waitForFunction(LOADED, null, { timeout: 60000 });
+
+    // second topic: permanently being built
+    answers.mode = 'building'; answers.n = 0;
+    await page.evaluate(() => graphAPI.focus('tag:beta'));
+    await page.waitForFunction(() => /not finished/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 60000 });
+    assert.ok(answers.n >= 2 && answers.n <= 200, `requests while building: ${answers.n}`);
+    b = await moreButton(page);
+    assert.ok(!b.hidden && /Try again/.test(b.text), 'the repeat button is visible');
+    assert.match(await atlasText(page), /still being built/);
+    await shots(page, 'f20-atlas-building-after', '#atlasState');
+    answers.mode = 'real';
+    await page.locator('.atlas-more').click();
+    await page.waitForFunction(LOADED, null, { timeout: 60000 });
+    assert.deepEqual(errors, []);
+  });
+});
+
+test(`F20 RED on the fixed old state (${OLD}): the error stays stuck, a building store ends as an empty "0 of" (positive control: green on the new state)`, { skip: SKIP || NO_OLD, timeout: 600000 }, async () => {
+  await withPage(world({ n: 4000, textLength: 200 }), { script: oldScript, env: { CHEAP_MEM_SERVE_FULL_BUILD_MB: '0.2' } }, async (page, base) => {
+    const answers = { mode: 'error', n: 0 };
+    await openAtlas(page, base, answers);
+    await page.evaluate(() => graphAPI.focus('tag:alpha'));
+    await page.waitForFunction(() => /could not be loaded/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 30000 });
+    assert.ok((await moreButton(page)).hidden, 'the old state offers no repeat button');
+    await shots(page, 'f20-atlas-error-before', '#atlasState');
+    answers.mode = 'real';
+    await page.evaluate(() => { graphAPI.focus('tag:gamma'); graphAPI.focus('tag:alpha'); });
+    await page.waitForTimeout(1500);
+    assert.match(await atlasText(page), /could not be loaded/, 'the error stays stuck');
+    answers.mode = 'building'; answers.n = 0;
+    await page.evaluate(() => graphAPI.focus('tag:beta'));
+    await page.waitForFunction(() => /^0 of [\d,]+ entries loaded/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 60000 });
+    assert.ok(answers.n > 200, `the old state gave up only after ${answers.n} requests`);
+    await shots(page, 'f20-atlas-building-before', '#atlasState');
+  });
+});

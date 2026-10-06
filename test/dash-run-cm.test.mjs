@@ -179,3 +179,60 @@ test('F19: a whole list is already there + a state that keeps changing -> the ol
   assert.equal(w.raw.partState.entries, 'ok');
   assert.match(w.raw.entriesDisturbance, /changing/);
 });
+
+// ---------------------------------------------------------------- F20: atlas
+function atlasWorld(reply, { clock = null } = {}) {
+  const log = { n: 0, urls: [] };
+  const fetchStub = async (url) => { log.n += 1; log.urls.push(url); const a = await reply(log.n, url); return a.notOk ? { ok: false, status: a.notOk } : { ok: true, json: async () => a }; };
+  const preamble = `
+    const state = { project: 'p' }; const atlasPages = new Map(); const atlasKey = (a, w, p) => a + ':' + w + '|' + p;
+    const atlasStateShow = () => {}; const TEMPO_TEST_MS = 0; const entryIndex = new Map(); const entryOf = (e) => e;
+    const ATLAS_PAGE = 50; const $ = () => null; const atlasCondensed = () => false; const render = () => {};`;
+  const api = build({ preamble, functions: ['atlasLoad'], constants: ['ATLAS_DEADLINE_MS', 'ATLAS_REQUESTS'], expose: ['atlasLoad', 'atlasPages', 'ATLAS_REQUESTS', 'state'], stubs: { fetch: fetchStub, ...(clock ? { Date: { now: clock } } : {}) } });
+  return { api, log };
+}
+const good = (data = [{ id: 'x1' }], next = null) => ({ state: 'ok', data, next, total: data.length });
+
+test('F20: error -> opening again fetches again -> success', async () => {
+  let mode = 'error';
+  const w = atlasWorld(async () => (mode === 'error' ? { notOk: 500 } : good()));
+  await w.api.atlasLoad('theme', 'x');
+  const pg = w.api.atlasPages.get('theme:x|p');
+  assert.match(pg.error, /500/); assert.equal(pg.state, 'error');
+  const n1 = w.log.n; mode = 'ok';
+  await w.api.atlasLoad('theme', 'x');
+  assert.ok(w.log.n > n1, 'old state: 0 follow-up requests, the error stays stuck');
+  assert.equal(pg.error, null); assert.equal(pg.list.length, 1); assert.equal(pg.state, 'ok');
+});
+test('F20: permanently being built -> end state "expired" with a message, bounded requests, no silent success', async () => {
+  const w = atlasWorld(async () => ({ building: true }));
+  await w.api.atlasLoad('theme', 'y');
+  const pg = w.api.atlasPages.get('theme:y|p');
+  assert.ok(pg.error && /still being built/.test(pg.error), 'visible message instead of an empty success: ' + pg.error);
+  assert.equal(pg.state, 'expired');
+  assert.ok(w.log.n <= 200, 'requests: ' + w.log.n);
+  // repeatable
+  const n1 = w.log.n; await w.api.atlasLoad('theme', 'y'); assert.ok(w.log.n > n1);
+});
+test('F20: the deadline is separate from the budget (few requests, time runs out)', async () => {
+  let now = 0;
+  const w = atlasWorld(async () => { now += 40000; return { building: true }; }, { clock: () => now });
+  await w.api.atlasLoad('theme', 'z');
+  const pg = w.api.atlasPages.get('theme:z|p');
+  assert.equal(pg.state, 'expired'); assert.match(pg.error, /time limit/);
+  assert.ok(w.log.n <= 4, 'requests: ' + w.log.n);
+});
+test('F20: a project switch during the run -> no state is taken over', async () => {
+  let api;
+  const w = atlasWorld(async (n) => { if (n === 1) api.state.project = 'q'; return good(); });
+  api = w.api;
+  await api.atlasLoad('theme', 'x');
+  const pg = api.atlasPages.get('theme:x|p');
+  assert.ok(!pg || (pg.list.length === 0 && pg.state !== 'ok'), 'nothing taken over');
+});
+test('F20: "building" first, then data -> list there', async () => {
+  const w = atlasWorld(async (n) => (n < 4 ? { building: true } : good([{ id: 'a' }, { id: 'b' }], 2)));
+  await w.api.atlasLoad('drawer', 'k');
+  const pg = w.api.atlasPages.get('drawer:k|p');
+  assert.equal(pg.list.length, 2); assert.equal(pg.state, 'ok'); assert.equal(pg.next, 2);
+});
