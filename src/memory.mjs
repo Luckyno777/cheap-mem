@@ -2632,7 +2632,38 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
       base = inheritedFields(old, withoutList);
     }
   }
-  newData = { ...base, ...newData };
+  // **Same write path as `mem log` (2026-10-03, port of lucky-mem 49e28bdc).**
+  // A correction used to go through the bare `logEntry`: a secret pattern in
+  // a named field stayed unredacted, and the correction of a crypto-shredded
+  // entry ended in plaintext next to its ciphertext predecessor. Now: the
+  // redaction self test (fail closed, nothing written), redaction of the
+  // NAMED content fields (inherited ones stood already so), and the
+  // predecessor's `body_enc` carries over as `shred: true` - whoever
+  // corrects an encrypted entry never writes plaintext beside it. A line
+  // without any body field (tombstone) has nothing to hide and stays plain.
+  const selfTest = redaction.selfTest();
+  if (!selfTest.ok) {
+    const e = new Error(
+      `Redaction failed its self test (${(selfTest.failed ?? []).map((x) => x.type).join(', ')}) `
+      + '- nothing is written.');
+    e.code = 'REDACTION_DOWN';
+    throw e;
+  }
+  const named = {};
+  const named_stamps = {};
+  for (const [k, v] of Object.entries(newData ?? {})) {
+    if (MACHINE_FIELDS.has(k)) named_stamps[k] = v; else named[k] = v;
+  }
+  const { object: redactedNamed, found: findings } = redaction.redactEntry(named);
+  newData = { ...base, ...redactedNamed, ...named_stamps };
+  if (old.body_enc && !closing) {
+    if (!shred) {
+      throw new Error('The corrected entry is encrypted but src/shred.mjs is not available - '
+        + 'refusing to write the correction in the clear.');
+    }
+    const bodyFields = shred.extractBodyFields(newData);
+    if (bodyFields.any) newData.shred = true;
+  }
   // P11: hand back `old` and `closing` too — a caller applying the
   // content-loss check (search.lostCorrectionContent(), doctor's
   // `checkCorrectionContentLoss`) needs both and would otherwise have to
@@ -2644,7 +2675,7 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   // but does NOT replace the original; the writer hears it now, not at
   // the next recall. Judged on the line as WRITTEN (default tier and
   // ceiling already applied), so the warning and the replay agree.
-  return { ...written, old, closing, verdict: warnIfRefused(written.entry, old, 'replaces_id') };
+  return { ...written, old, closing, findings, encrypted: newData.shred === true, verdict: warnIfRefused(written.entry, old, 'replaces_id') };
 }
 
 

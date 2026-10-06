@@ -728,9 +728,11 @@ export const COMMANDS = {
       data.valid_until = dateFieldOf(data.valid_until, 'valid_until', 'correction');
     }
     if (Object.keys(data).length === 0 && without.length === 0) die("correction: no fields");
-    const { path: p, entry, old, closing } = memory.correctionEntry(
+    const { path: p, entry, old, closing, findings, encrypted } = memory.correctionEntry(
       root, type, oldId, data, { project: args.project ?? null, without });
     out(`Correction: ${path.relative(root, p)}`);
+    if (findings?.length) warn(memory.findingsLine(findings));
+    if (encrypted) out('  encrypted:  yes (the corrected entry is crypto-shredding-encrypted)');
     out(`  new id:     ${entry.id}`);
     out(`  replaces:   ${entry.replaces_id}`);
 
