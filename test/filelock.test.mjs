@@ -72,20 +72,14 @@ test('a held fresh lock: waiting is bounded, then LockTimeoutError', () => {
   assert.ok(fs.existsSync(lock), 'a fresh lock must not be removed');
 });
 
-test('a stale lock (mtime older than staleS) is taken over; a fresh one is not', () => {
+test('age alone never takes over (audit F02): another host / unknown owner stays, however old', () => {
   const dir = mkTmp('fl-'); const lock = path.join(dir, 'x.lock');
   fs.writeFileSync(lock, '4242 elsewhere 2020-01-01T00:00:00Z tok\n');
   const old = new Date(Date.now() - 120 * 1000);
   fs.utimesSync(lock, old, old);
-  assert.equal(withLock(lock, () => 'ran', { waitMs: 200, staleS: 60 }), 'ran');
-  assert.ok(!fs.existsSync(lock), 'released after the run');
-
-  // Same age, but staleS larger than the age: NOT taken.
-  fs.writeFileSync(lock, '4242 elsewhere 2020-01-01T00:00:00Z tok\n');
-  fs.utimesSync(lock, old, old);
-  assert.throws(() => withLock(lock, () => 'ran', { waitMs: 100, staleS: 600 }), LockTimeoutError);
-  assert.ok(fs.existsSync(lock));
-  assert.deepEqual(fs.readdirSync(dir), ['x.lock'], 'no stale-grave files left behind');
+  assert.throws(() => withLock(lock, () => 'ran', { waitMs: 100, staleS: 60 }), /unknown/);
+  assert.ok(fs.existsSync(lock), 'never deleted blindly');
+  assert.deepEqual(fs.readdirSync(dir), ['x.lock'], 'no grave files left behind');
 });
 
 test('the lock file carries pid and host while held', () => {

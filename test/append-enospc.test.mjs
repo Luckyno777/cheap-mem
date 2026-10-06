@@ -89,26 +89,33 @@ test('POSITIVE CONTROL: a normal append is still exactly one writeSync call', (t
 // RED -> GREEN: short write, no throw (the common ENOSPC shape)
 // ---------------------------------------------------------------
 
-test('short write with no throw: the file is rolled back byte-identical to before the call', (t) => {
+test('short write with no throw: the fragment stays (never truncated), torn:true and written name it (audit F01)', (t) => {
   const p = tempFile(t);
   const before = '{"a":1}\n{"a":2}\n';
   fs.writeFileSync(p, before, 'utf8');
-  const beforeBytes = fs.readFileSync(p);
 
   const line = `${JSON.stringify({ a: 3, text: 'x'.repeat(200) })}\n`;
   const restore = stubShortWrite({ upToBytes: 47 });
+  const realTruncate = fs.ftruncateSync;
+  let truncates = 0;
+  fs.ftruncateSync = (...x) => { truncates += 1; return realTruncate(...x); };
   let error;
   try {
     try { appendLine(p, line); } catch (e) { error = e; }
   } finally {
     restore();
+    fs.ftruncateSync = realTruncate;
   }
 
   assert.ok(error instanceof AppendError, 'a failed append must throw, never fail silently');
-  assert.equal(error.torn, false, 'no foreign writer was involved — this must not be reported as a tear');
+  assert.equal(error.torn, true, 'a fragment stands: no clean-rollback acquittal');
+  assert.equal(error.written, 47);
   assert.equal(error.filePath, p);
-  assert.deepEqual(fs.readFileSync(p), beforeBytes,
-    'the file must be BYTE-IDENTICAL to its state before the failed append');
+  assert.equal(truncates, 0, 'never ftruncate');
+  assert.equal(fs.readFileSync(p, 'utf8'), before + line.slice(0, 47));
+  // The next append does not glue onto the fragment.
+  appendLine(p, '{"a":4}\n');
+  assert.ok(fs.readFileSync(p, 'utf8').endsWith(`${line.slice(0, 47)}\n{"a":4}\n`));
 });
 
 // ---------------------------------------------------------------
@@ -176,64 +183,36 @@ test('total failure with zero bytes written: file unchanged, still throws', (t) 
 // Concurrency: rolling back our own fragment must NEVER cut a foreign line
 // ---------------------------------------------------------------
 
-test('CONCURRENCY: a foreign writer between the short write and the truncate check — no truncation, tear reported, foreign line intact', (t) => {
+test('CONCURRENCY: a confirmed foreign line right behind our short write survives (the old truncate cut it)', (t) => {
   const p = tempFile(t);
   fs.writeFileSync(p, '{"a":1}\n', 'utf8');
-  const beforeSize = fs.statSync(p).size;
-
   const line = `${JSON.stringify({ a: 2, text: 'z'.repeat(300) })}\n`;
   const foreignLine = `${JSON.stringify({ a: 'FOREIGN', by: 'another-process' })}\n`;
 
-  // `fs.fstatSync` is stubbed so that, between OUR failed write (the
-  // measurement of what actually landed) and OUR truncate check (is the
-  // file still exactly at our own end position?), a second, independent
-  // fd appends a full, unrelated line — the exact window
-  // `writeAtomicAppend`'s concurrency rule (src/append.mjs) is about.
-  const realFstatSync = fs.fstatSync;
-  let fstatCalls = 0;
-  let foreignWritten = false;
-  fs.fstatSync = (fd) => {
-    fstatCalls += 1;
-    // 1st call = size-before (inside writeAtomicAppend). The write
-    // below is a short write with NO throw, so no extra "measure bytes
-    // on disk" fstat call happens in between — the 2nd call is the
-    // "is the file still at our own end position" check. That is
-    // exactly where the foreign writer must land to exercise the rule.
-    if (fstatCalls === 2 && !foreignWritten) {
-      foreignWritten = true;
-      const foreignFd = fs.openSync(p, 'a');
-      try { fs.writeSync(foreignFd, Buffer.from(foreignLine, 'utf8')); }
-      finally { fs.closeSync(foreignFd); }
-    }
-    return realFstatSync(fd);
+  // Our short write lands 30 bytes; right after it (the window the old
+  // fstat + ftruncate pair was exposed to) an independent writer appends a
+  // full, confirmed line. Nothing may remove it.
+  const real = fs.writeSync;
+  let first = true;
+  fs.writeSync = (fd, buffer, offset, length, ...rest) => {
+    if (!first) return real(fd, buffer, offset, length, ...rest);
+    first = false;
+    const n = real(fd, buffer, offset, 30);
+    const foreignFd = fs.openSync(p, 'a');
+    try { real(foreignFd, Buffer.from(foreignLine, 'utf8')); } finally { fs.closeSync(foreignFd); }
+    return n;
   };
-  const restore = stubShortWrite({ upToBytes: 30, mode: 'short' });
   let error;
   try {
-    // checkNewline: false — endsWithoutNewline() would spend its own
-    // fstatSync call, and this test counts calls precisely to land the
-    // foreign write on the exact one that matters.
     try { appendLine(p, line, { checkNewline: false }); } catch (e) { error = e; }
   } finally {
-    restore();
-    fs.fstatSync = realFstatSync;
+    fs.writeSync = real;
   }
 
   assert.ok(error instanceof AppendError, 'the tear case must still throw');
-  assert.equal(error.torn, true, 'a foreign writer was already ahead of us — this MUST be reported as a tear');
-
+  assert.equal(error.torn, true);
   const content = fs.readFileSync(p, 'utf8');
-  assert.ok(content.startsWith('{"a":1}\n'), 'the pre-existing line must not be touched');
-  // Our own fragment (the first 30 bytes of the new line) is still
-  // there — NOT truncated, because truncating would have cut into the
-  // foreign line that landed right behind it:
-  const ownFragment = line.slice(0, 30);
-  assert.ok(content.includes(ownFragment),
-    'our own fragment must not disappear — a truncate here would have cut the foreign line');
-  // And the foreign line is whole and untouched:
-  assert.ok(content.includes(foreignLine), 'the foreign line must survive completely intact');
-  assert.equal(content.endsWith(foreignLine), true);
-  assert.equal(fs.statSync(p).size, beforeSize + 30 + Buffer.byteLength(foreignLine, 'utf8'));
+  assert.equal(content, `{"a":1}\n${line.slice(0, 30)}${foreignLine}`, 'fragment and the foreign line both stand');
 });
 
 // ---------------------------------------------------------------

@@ -519,7 +519,41 @@ export function adaptEntry(entry) {
   return ENTRY_ADAPTERS.get(v)(entry);
 }
 
+/** Valid id: string, 2..64 characters of letters, digits, `._:-`, alphanumeric first. */
+const ID_FORM = /^[A-Za-z0-9][A-Za-z0-9._:-]{1,63}$/;
+/** Valid time: ISO-8601 with a zone (`Z` or +hh:mm) that also parses as a date. */
+const TS_FORM = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Reserved fields `id` and `ts` (audit F03). Absent (undefined) is the
+ * normal case: the write core makes them itself. Whoever passes them
+ * (import, correction copy) must supply VALID original values; null,
+ * empty, object or an invalid time are refused before anything is written.
+ * Without this, `{ id: null, ts: null }` overwrote the generated values and
+ * the line landed without a usable id or time.
+ */
+function checkReservedFields(data) {
+  if (data === null || typeof data !== 'object') return;
+  const bad = (field, reason) => {
+    const err = new Error(`Reserved field '${field}' is invalid (${reason}); nothing was written. `
+      + 'Leave it out: cheap-mem makes it itself. Pass it only as a valid original value (import).');
+    err.code = 'RESERVED_FIELD';
+    return err;
+  };
+  if (data.id !== undefined) {
+    if (typeof data.id !== 'string') throw bad('id', 'not a string');
+    if (!ID_FORM.test(data.id)) throw bad('id', 'empty or not an allowed form');
+  }
+  if (data.ts !== undefined) {
+    if (typeof data.ts !== 'string') throw bad('ts', 'not a string');
+    if (!TS_FORM.test(data.ts) || !Number.isFinite(Date.parse(data.ts))) throw bad('ts', 'not a valid ISO time');
+  }
+}
+
 export function logEntry(root, type, data, { project = null, now = new Date() } = {}) {
+  // F03: protect the reserved fields (id, ts) at the write core, BEFORE
+  // anything else, so a refusal has never written anything.
+  checkReservedFields(data);
   // The agent comes from the origin stamp when it is not set explicitly.
   // Two routes, so the second axis fills itself without every caller
   // having to remember:
@@ -670,6 +704,9 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
     shred.putKey(root, id, key, { now });
   }
   const entry = { id, ts, v: ENTRY_VERSION, ...rest };
+  // `...rest` must not overwrite the checked values with `undefined`.
+  entry.id = id;
+  entry.ts = ts;
 
   fs.mkdirSync(path.dirname(p), { recursive: true });
 
@@ -993,20 +1030,32 @@ function takenIds(root) {
  */
 export function tailEntries(root, type, { project = null, tailBytes = 512 * 1024 } = {}) {
   const p = logPath(root, type, project);
+  // Audit F04: missing (ENOENT/ENOTDIR) is its own named state; any other
+  // error throws `ReadError` (before: "whole file scanned, nothing in it").
   let size;
-  try { size = fs.statSync(p).size; } catch { return { entries: [], scannedWholeFile: true, scannedEntries: 0 }; }
+  try {
+    const st = fs.statSync(p);
+    if (!st.isFile()) { const e = new Error('not a regular file'); e.code = 'EISDIR'; throw e; }
+    size = st.size;
+  } catch (e) {
+    if (isMissing(e)) return { entries: [], scannedWholeFile: true, scannedEntries: 0, missing: true };
+    throw (e instanceof ReadError ? e : new ReadError(p, e));
+  }
   let raw;
   let whole;
   if (size <= tailBytes) {
     try { raw = withoutBom(fs.readFileSync(p, 'utf8')); whole = true; }
-    catch { return { entries: [], scannedWholeFile: true, scannedEntries: 0 }; }
+    catch (e) {
+      if (isMissing(e)) return { entries: [], scannedWholeFile: true, scannedEntries: 0, missing: true }; // vanished between stat and read
+      throw new ReadError(p, e);
+    }
   } else {
     let fd;
     try {
       fd = fs.openSync(p, 'r');
       const buf = Buffer.alloc(tailBytes);
-      fs.readSync(fd, buf, 0, tailBytes, size - tailBytes);
-      const text = buf.toString('utf8');
+      const n = fs.readSync(fd, buf, 0, tailBytes, size - tailBytes);
+      const text = buf.subarray(0, n).toString('utf8');
       // The first line of a mid-file read is almost always cut in half —
       // drop it, never parse it. Safe because it is the OLDEST line in
       // the window, and a bounded reader only ever needs to protect the
@@ -1014,8 +1063,8 @@ export function tailEntries(root, type, { project = null, tailBytes = 512 * 1024
       const cut = text.indexOf('\n');
       raw = cut >= 0 ? text.slice(cut + 1) : '';
       whole = false;
-    } catch {
-      return { entries: [], scannedWholeFile: true, scannedEntries: 0 };
+    } catch (e) {
+      throw new ReadError(p, e);
     } finally {
       if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already gone */ } }
     }
@@ -1026,13 +1075,17 @@ export function tailEntries(root, type, { project = null, tailBytes = 512 * 1024
     try { entries.push(JSON.parse(line)); }
     catch { entries.push({ __broken: true, raw: line }); }
   }
-  return { entries, scannedWholeFile: whole, scannedEntries: entries.length };
+  return { entries, scannedWholeFile: whole, scannedEntries: entries.length, missing: false };
 }
 
 export function sameClass(root, className, { except = null, max = 3 } = {}) {
   const wanted = String(className ?? '').trim();
   if (!wanted) return { className: wanted, count: 0, latest: [] };
   const hits = [];
+  // Audit F04: drawers that could NOT be read (EIO/EACCES/EISDIR, not
+  // "missing") are not silently counted as "no hit" but named: `count` is
+  // then only a LOWER BOUND.
+  const unreadable = [];
   for (const project of [null, ...listProjects(root)]) {
     // Fast path: a bounded tail read (see `tailEntries`) — most drawers
     // sit well under the window (the same 512 KB `neighbours.mjs`
@@ -1050,17 +1103,25 @@ export function sameClass(root, className, { except = null, max = 3 } = {}) {
     // the "silent partial answer" this house forbids — see
     // `test/p12-bounded-read.test.mjs`'s sabotage case, which forces
     // `scannedWholeFile` to lie and shows the count go wrong.
-    const tail = tailEntries(root, 'error', { project });
-    const entries = tail.scannedWholeFile ? tail.entries : iterLog(root, 'error', { project });
-    for (const e of entries) {
-      if (e?.class !== wanted) continue;
-      if (except && e.id === except) continue;
-      hits.push({ id: e.id, ts: e.ts ?? '', title: e.title ?? '', project });
+    try {
+      const tail = tailEntries(root, 'error', { project });
+      const entries = tail.scannedWholeFile ? tail.entries : iterLog(root, 'error', { project });
+      for (const e of entries) {
+        if (e?.class !== wanted) continue;
+        if (except && e.id === except) continue;
+        hits.push({ id: e.id, ts: e.ts ?? '', title: e.title ?? '', project });
+      }
+    } catch (e) {
+      if (!(e instanceof ReadError)) throw e;
+      unreadable.push({ project, code: e.code, path: e.path, reason: e.message });
     }
   }
   // Newest first: the last case is the one still likely to hold.
   hits.sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
-  return { className: wanted, count: hits.length, latest: hits.slice(0, max) };
+  return {
+    className: wanted, count: hits.length, latest: hits.slice(0, max),
+    ...(unreadable.length ? { unreadable, lowerBound: true } : {}),
+  };
 }
 
 /**
@@ -1208,10 +1269,48 @@ export function withoutBom(text) {
   return typeof text === 'string' && text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
 }
 
+/**
+ * A read error on a log file that does NOT mean "the file does not exist"
+ * (audit F04, 2026-10-06).
+ *
+ * **Four states, unknown is not good.** A log file is read (empty or with
+ * lines, broken lines counted), MISSING (ENOENT/ENOTDIR: there is none: a
+ * legitimate, nameable state), or NOT READABLE (EIO, EACCES, EISDIR, ...:
+ * what stands in it is unknown). The third used to be silently an empty or
+ * cut-off store: a directory in the place of the file read as "there, empty",
+ * an EIO after the first chunk delivered only the beginning, and
+ * callers drew conclusions from "not read" ("no error of this class",
+ * "store empty").
+ *
+ * The readers therefore throw this error. `code` is the system code, `path`
+ * the file, `partial` is true when lines were already delivered BEFORE the
+ * error (an iterator has then handed out a beginning that says nothing about
+ * the whole). At the boundaries (CLI, doctor, dashboard) it becomes
+ * "unknown/error" with this reason, never "empty", never "ok".
+ */
+export class ReadError extends Error {
+  constructor(file, cause, { partial = false } = {}) {
+    super(`Log '${file}' not readable${partial ? ' (aborted mid-read, only a beginning was delivered)' : ''}: `
+      + `${cause?.code ?? 'ERROR'} ${cause?.message ?? String(cause)}`);
+    this.name = 'ReadError';
+    this.code = cause?.code ?? 'EUNKNOWN';
+    this.path = file;
+    this.partial = partial;
+    this.cause = cause;
+  }
+}
+
+/** Does this system error mean "the file does not exist"? Only ENOENT/ENOTDIR; everything else is an error. */
+function isMissing(e) { return Boolean(e) && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
+
 export function readLog(root, type, { project = null } = {}) {
   const p = logPath(root, type, project);
-  if (!fs.existsSync(p)) return { path: p, missing: true, entries: [] };
-  const raw = withoutBom(fs.readFileSync(p, 'utf8'));
+  let text;
+  try { text = fs.readFileSync(p, 'utf8'); } catch (e) {
+    if (isMissing(e)) return { path: p, missing: true, entries: [] };
+    throw new ReadError(p, e); // EISDIR/EACCES/EIO: not "missing", not "empty"
+  }
+  const raw = withoutBom(text);
   const entries = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
@@ -1282,8 +1381,16 @@ export function readLog(root, type, { project = null } = {}) {
  */
 export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
   let fd;
-  try { fd = fs.openSync(absPath, 'r'); } catch { return; }
+  // Audit F04: only ENOENT/ENOTDIR is "there is none" (an empty sequence, as
+  // before). Any other error throws `ReadError`; before: an empty sequence.
+  try { fd = fs.openSync(absPath, 'r'); } catch (e) { if (isMissing(e)) return; throw new ReadError(absPath, e); }
+  let delivered = false;
   try {
+    // A directory can be opened for reading; only the read fails (EISDIR),
+    // and that used to be swallowed as "empty". Check up front.
+    let st;
+    try { st = fs.fstatSync(fd); } catch (e) { throw new ReadError(absPath, e); }
+    if (!st.isFile()) { const e = new Error('not a regular file'); e.code = 'EISDIR'; throw new ReadError(absPath, e); }
     const decoder = new StringDecoder('utf8');
     const buf = Buffer.alloc(chunkBytes);
     let pending = '';
@@ -1291,7 +1398,7 @@ export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
     for (;;) {
       let bytesRead;
       try { bytesRead = fs.readSync(fd, buf, 0, chunkBytes, null); }
-      catch { break; }
+      catch (e) { throw new ReadError(absPath, e, { partial: delivered }); } // EIO mid-stream: never "the end"
       if (bytesRead === 0) break;
       pending += decoder.write(buf.subarray(0, bytesRead));
       // A BOM only stands at the very start of the file: strip it from the first block.
@@ -1301,6 +1408,7 @@ export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
       while (nl !== -1) {
         const line = pending.slice(start, nl);
         if (line.trim()) {
+          delivered = true;
           try { yield JSON.parse(line); }
           catch { yield { __broken: true, raw: line }; }
         }
@@ -1325,7 +1433,15 @@ export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
 /** {@link iterLogFile}, addressed the way every other reader is: by
  * (root, type, project) rather than an absolute path. */
 export function iterLog(root, type, { project = null } = {}) {
-  return iterLogFile(logPath(root, type, project));
+  const p = logPath(root, type, project);
+  // Only ENOENT/ENOTDIR means "missing"; any other error (EACCES, EIO) is NOT
+  // missing, and iterating then throws `ReadError` (audit F04).
+  let missing;
+  try { fs.statSync(p); missing = false; } catch (e) { missing = isMissing(e); }
+  const gen = iterLogFile(p);
+  gen.path = p;
+  gen.missing = missing;
+  return gen;
 }
 
 /**
@@ -1511,7 +1627,9 @@ export function find(root, pattern, capability, opts = {}) {
 // `split('\n')`), BOM stripped, blank lines not delivered. Never holds more
 // than one block plus one line.
 function* rawLinesOfFile(p, chunkBytes = 256 * 1024) {
-  const fd = fs.openSync(p, 'r');
+  let fd;
+  try { fd = fs.openSync(p, 'r'); } catch (e) { throw new ReadError(p, e); }
+  let delivered = false;
   try {
     const decoder = new StringDecoder('utf8');
     const buf = Buffer.alloc(chunkBytes);
@@ -1519,7 +1637,8 @@ function* rawLinesOfFile(p, chunkBytes = 256 * 1024) {
     let atStart = true;
     let nr = 0;
     for (;;) {
-      const n = fs.readSync(fd, buf, 0, chunkBytes, null);
+      let n;
+      try { n = fs.readSync(fd, buf, 0, chunkBytes, null); } catch (e) { throw new ReadError(p, e, { partial: delivered }); }
       if (n === 0) break;
       pending += decoder.write(buf.subarray(0, n));
       if (atStart && pending.length > 0) { pending = withoutBom(pending); atStart = false; }
@@ -1528,7 +1647,7 @@ function* rawLinesOfFile(p, chunkBytes = 256 * 1024) {
       while (nl !== -1) {
         nr += 1;
         const text = pending.slice(start, nl);
-        if (text.trim()) yield { text, nr };
+        if (text.trim()) { delivered = true; yield { text, nr }; }
         start = nl + 1;
         nl = pending.indexOf('\n', start);
       }
@@ -2555,8 +2674,12 @@ export function recentEntries(root, type, n) {
   const all = [];
   for (const project of [null, ...listProjects(root)]) {
     const p = logPath(root, type, project);
-    if (!fs.existsSync(p)) continue;
-    const lines = withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
+    let text;
+    try { text = fs.readFileSync(p, 'utf8'); } catch (e) {
+      if (isMissing(e)) continue;
+      throw new ReadError(p, e); // F04: unreadable is not "no entries"
+    }
+    const lines = withoutBom(text).split('\n');
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (!line.trim()) continue;

@@ -94,42 +94,40 @@
  * already used for the success path; only the handling after a
  * short/failed write is new.
  *
- * **The rollback is not an edit of an existing line.** Design
- * commitment 1 in `CLAUDE.md` ("Append-only. No function may modify an
- * existing JSONL line.") governs a line that a write already handed
- * back as committed — content a reader could already have seen. A
- * short write or a write that threw never reached that point: nothing
- * was returned to the caller, nothing became a readable entry, and the
- * promise this module makes ("a call lands the WHOLE line or none of
- * it") was not kept. `fs.ftruncateSync(fd, sizeBefore)` undoes only the
- * bytes THIS call itself just placed, back to the size the file had the
- * instant before this one `writeSync`. That is the same operation as an
- * editor's undo on its own last, unfinished keystroke — not the
- * backward correction on a landed line that this house forbids and
- * that `memory.correctionEntry()` exists to do properly instead.
+ * **NEVER truncated (audit F01, 2026-10-06).** Earlier, after a short
+ * write the append measured the file (`fstat`: still at my own end?) and
+ * then `ftruncate`d back to the size before. The two steps are not
+ * atomic: another process could append successfully between the `fstat`
+ * and the `ftruncate`, and the truncate cut off its CONFIRMED line — with
+ * the error saying `torn: false`. The old claim "a full foreign append can
+ * never be lost" was disproved (reproduced with two processes); a second
+ * `fstat` does not close the window.
  *
- * **The one way that rollback could go wrong, and why it does not.** If
- * another writer appends its own full line in the gap between our
- * short/failed write and the truncate, a truncate to `sizeBefore` would
- * cut off part of THEIR line too — worse than leaving our own fragment
- * in place. So the truncate only fires when the file, measured again
- * right before truncating, is still sitting at EXACTLY this call's own
- * end position (`sizeBefore` + the bytes this call actually placed). If
- * it is higher, a foreign write landed in between; nothing is
- * truncated, the file keeps our fragment, and the thrown error carries
- * `torn: true` so the caller can name the fragment instead of it living
- * unnamed in the corpus (see `test/append-enospc.test.mjs`,
- * "a foreign writer between the short write and the truncate"). A race
- * can therefore never erase a foreign line that fully landed — a
- * truncate only ever removes exactly the bytes this one failed call
- * itself just added, nothing that arrived before or after it.
+ * A truncate is safe only with guaranteed exclusive write rights, and
+ * those cannot be had here: (a) many writers in this house append
+ * directly (`fs.appendFileSync`, hooks, scripts, `git`), a lock inside
+ * `appendLine` does not bind them; (b) `withLock` is a leaf lock — a
+ * caller that already holds one would get `NestedLockError`; (c) every
+ * append would pay lock create, bar and release instead of one `write()`.
  *
- * **A throw never truncates (y0, 2026-09-30).** A `writeSync` that throws
+ * **Chosen (append-only, as the house holds it elsewhere): never cut.** A
+ * short write leaves its fragment standing and throws `AppendError` with
+ * `torn: true` and `written` (bytes on disk); nothing is reported as
+ * committed. That the NEXT writer never glues its line to the fragment is
+ * already ensured BEFORE writing (`endsWithoutNewline` -> a leading `\n`
+ * in the same `write()`); the fragment becomes a broken line of its own,
+ * which readers count as broken (never silently dropped). Only a write of
+ * 0 bytes without a throw leaves nothing behind: `torn: false`.
+ *
+ * Consequence for multi-line blocks: if the break falls behind an inner
+ * `\n`, the WHOLE lines before it stand valid in the file although the
+ * call reports "not committed"; a retry books them twice. Twice is the
+ * smaller evil than lost, and `torn: true` names it.
+ *
+ * **A throw never cuts either (y0, 2026-09-30).** A `writeSync` that throws
  * wrote nothing (POSIX); size growth measured afterwards may be a foreign
- * line that landed in the gap, so measuring "our" bytes by size difference
- * would truncate someone else's line. Only a SHORT write (a real return
- * value) is rolled back, under the sizeNow === ownEnd guard above. Growth
- * after a throw is reported as `torn: true` and left alone.
+ * line that landed in the gap. Growth after a throw is reported as
+ * `torn: true` and left alone.
  *
  * **Considered and dropped: checking free space first
  * (`fs.statfsSync`).** Cheap (single-digit microseconds), but useless as
@@ -153,34 +151,32 @@ import fs from 'node:fs';
  * (`ENOSPC` and kin) or a bare short write. The caller always gets an
  * exception, never a swallowed `undefined`.
  *
- * `torn: false` — the common case. The file is back at EXACTLY the size
- * it had before this call; nothing was committed, nothing was damaged.
+ * `torn: false` — nothing of this attempt is in the file (a throw without
+ * growth, or 0 bytes written): nothing committed, nothing damaged.
  *
- * `torn: true` — the rare, expensive case: a foreign writer appended
- * between our failed write and the attempt to roll it back. Truncating
- * now would cut off part of THEIR line too, which is worse than leaving
- * our own fragment in place. The file is left unchanged (fragment and
- * all); the caller learns about it through this field and can name it
- * (e.g. a `*-tears.jsonl` record), instead of it sitting unnamed in the
- * corpus.
+ * `torn: true` — a fragment of this attempt (`written` > 0) or an
+ * ambiguous growth stands in the file. It is NEVER truncated (audit F01:
+ * a truncate could cut off a foreign, confirmed line); the caller learns
+ * about it through this field and can name it (e.g. a `*-tears.jsonl`
+ * record). The next `appendLine` puts a newline in front, readers count
+ * the fragment as a broken line.
  */
 export class AppendError extends Error {
-  constructor(message, { filePath, torn, cause } = {}) {
+  constructor(message, { filePath, torn, cause, written } = {}) {
     super(message, cause !== undefined ? { cause } : undefined);
     this.name = 'AppendError';
     this.filePath = filePath;
     this.torn = !!torn;
+    this.written = written ?? 0; // bytes of this attempt that are on disk
   }
 }
 
 /**
  * Append `buffer` (finished bytes, including any leading-newline repair)
  * to `filePath` in EXACTLY ONE `fs.writeSync` call. On error or short
- * write: roll back to the size the file had immediately before this
- * call, then throw `AppendError` — see the "ENOSPC-safe" section in the
- * module docstring above for the full reasoning (why one write, why the
- * rollback does not break append-only, and the concurrency rule that
- * stops it from ever truncating a foreign line).
+ * write: never truncate (audit F01), throw `AppendError` with `torn` and
+ * `written` — see the "ENOSPC-safe" and "NEVER truncated" sections in the
+ * module docstring above.
  */
 function writeAtomicAppend(filePath, buffer) {
   let fd;
@@ -216,28 +212,16 @@ function writeAtomicAppend(filePath, buffer) {
 
     // A THROW means, per POSIX, that nothing was written (write() failed
     // with -1). Any growth we see afterwards cannot be told apart from a
-    // foreign writer's line that landed in the gap, so a throw NEVER
-    // truncates: cutting to `sizeBefore` could erase someone else's line.
-    // Only a SHORT write (a real return value, `written` < length) is
-    // rolled back, and only under the guard sizeNow === ownEnd.
-    let bytesOnDisk = written;
+    // foreign writer's line: name it, never cut it. A SHORT write leaves its
+    // fragment standing (never `ftruncate`, see the header, audit F01).
+    const bytesOnDisk = writeError ? 0 : written;
     let torn;
     if (writeError) {
       let grew = 0;
       try { grew = Math.max(0, fs.fstatSync(fd).size - sizeBefore); } catch { grew = 0; }
-      bytesOnDisk = 0;
       torn = grew > 0; // ambiguous growth: name it, never cut it
     } else {
-      const ownEnd = sizeBefore + bytesOnDisk;
-      let sizeNow;
-      try { sizeNow = fs.fstatSync(fd).size; } catch { sizeNow = null; }
-      torn = true;
-      if (sizeNow === ownEnd) {
-        try {
-          fs.ftruncateSync(fd, sizeBefore);
-          torn = false;
-        } catch { /* the truncate itself failed: the tear stands */ }
-      }
+      torn = bytesOnDisk > 0; // 0 bytes without a throw: nothing stands there
     }
 
     const reason = writeError
@@ -245,15 +229,13 @@ function writeAtomicAppend(filePath, buffer) {
       : `only ${bytesOnDisk} of ${buffer.length} bytes were written`;
     throw new AppendError(
       torn
-        ? `appendLine: write to '${filePath}' aborted (${reason}) — the file grew during the `
-          + 'attempt (another writer was ahead of us, or a fragment landed), so nothing is '
-          + 'truncated. Nothing was committed; the growth must be named as a tear.'
-        : (writeError
-          ? `appendLine: write to '${filePath}' failed (${reason}) — a failed write wrote nothing, `
-            + 'the file is untouched. Nothing was committed.'
-          : `appendLine: write to '${filePath}' aborted (${reason}) — truncated back to ${sizeBefore} `
-            + 'bytes, the file is byte-identical to before this call. Nothing was committed.'),
-      { filePath, torn, cause: writeError },
+        ? `appendLine: write to '${filePath}' aborted (${reason}) — a fragment or growth `
+          + 'stands in the file and is NEVER truncated (a truncate could cut off a foreign, '
+          + 'confirmed line). Nothing was committed; the next append puts a line break in front, '
+          + 'readers count the fragment as a broken line.'
+        : `appendLine: write to '${filePath}' failed (${reason}) — no byte arrived, the file `
+          + 'is untouched. Nothing was committed.',
+      { filePath, torn, cause: writeError, written: bytesOnDisk },
     );
   } finally {
     try { fs.closeSync(fd); } catch { /* already closed */ }
@@ -298,10 +280,10 @@ export function endsWithoutNewline(filePath) {
  * without the check.
  *
  * **ENOSPC-safe since 2026-09-27:** the write itself goes through
- * `writeAtomicAppend()` above — a single low-level write, rolled back
- * to this call's own pre-write size on error or short write. A failed
- * append throws `AppendError` (with `.torn`) rather than leaving a
- * fragment behind unannounced; every caller already let the previous
+ * `writeAtomicAppend()` above — a single low-level write; on error or
+ * short write it never truncates (audit F01): the fragment stays and the
+ * thrown `AppendError` carries `.torn` and `.written`, so it is never
+ * left behind unannounced; every caller already let the previous
  * primitive's failures propagate with no `try`/`catch` of its own (see
  * `src/memory.mjs`, `src/heartbeat.mjs`, `src/board.mjs` and the rest of
  * the ~12 callers), so nothing here changes who catches what — only

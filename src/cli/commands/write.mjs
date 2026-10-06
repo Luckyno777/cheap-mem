@@ -454,6 +454,12 @@ export const COMMANDS = {
     // is a different message from "an error".
     if (type === 'error' && entry.class) {
       const seen = memory.sameClass(root, entry.class, { except: entry.id });
+      if (seen.unreadable) {
+        // Audit F04: an unreadable drawer is unknown, not "no hit".
+        out('');
+        out(`  Class '${seen.className}': UNKNOWN whether it happened before — ${seen.unreadable.length} drawer(s) not readable `
+          + `(${seen.unreadable.map((u) => `${u.code}: ${u.path}`).join('; ')}); at least ${seen.count} so far.`);
+      }
       if (seen.count > 0) {
         out('');
         out(`  Class '${seen.className}': this is number ${seen.count + 1}. Most recent:`);

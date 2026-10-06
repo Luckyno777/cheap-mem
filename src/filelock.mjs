@@ -19,18 +19,38 @@
 //  - **Bounded waiting.** A held lock is retried with a short, growing
 //    sleep until `waitMs` has passed, then `LockTimeoutError` is thrown.
 //    Never an unbounded wait.
-//  - **A stale lock is taken over only by age** (mtime older than
-//    `staleS`), and never by deleting it blindly. A fresh lock is never
-//    taken.
-//  - **An orphaned lock is taken over AT ONCE (2026-10-01).** If the lock
-//    names a pid on THIS host and `process.kill(pid, 0)` answers ESRCH,
-//    the holder is provably dead (SIGKILL, crash) and we do not wait for
-//    `staleS`. Why: bench/value-report.mjs killed the writer 30 times with
-//    SIGKILL, and 5 times the next write failed or waited out its bound
-//    because the lock first had to go stale. If the holder lives, the host
-//    differs, the pid is unreadable, or `kill` answers anything but ESRCH
-//    (EPERM: alive, just someone else's), age decides as before. A reused
-//    pid looks alive — then too only age, so never one takeover too many.
+//  - **Age alone is NEVER proof for a takeover (2026-10-06, audit F02).**
+//    Until now a lock was taken over after `staleS` even if its owner was
+//    alive (mtime 61 s back -> a second process inside the protected
+//    section; long critical sections ran concurrently). Now only the
+//    OWNER IDENTITY the lock carries decides: pid, host, process start
+//    time and boot context. Three verdicts, `unknown` is never `dead`:
+//      dead     the pid is gone (ESRCH), a zombie, OR (Linux) the pid is
+//               alive with a DIFFERENT start time (pid reused), OR (Linux)
+//               the lock comes from another boot. Only then it is taken.
+//      alive    (Linux) the pid lives with the same start time. Never taken,
+//               however old the lock is: wait, then LockTimeoutError.
+//      unknown  another host, another PID namespace (Linux), a lock without
+//               start time (old format) whose pid lives, unreadable/empty,
+//               EPERM without /proc, and ANY living pid on a platform
+//               without /proc. Never taken: wait, then LockTimeoutError
+//               naming the owner and the verdict, for a human to look at.
+//    PLATFORMS, honestly. The start time (field 22 of `/proc/<pid>/stat`)
+//    and the boot context (`boot_id`, PID namespace) exist only on Linux.
+//    On macOS and Windows there is no `/proc`: a pid that is gone (ESRCH)
+//    still counts as dead and is taken over at once; a pid that lives can
+//    be the owner or a reused pid and cannot be told apart, so the verdict
+//    is `unknown` and the lock is never taken (safe, but a lock whose owner
+//    died and whose pid got reused there needs a human). `staleS` stays as
+//    an option only for compatibility and for the message (the age is
+//    shown); it is never a reason to take over, except through
+//    `takeOverIfStale`, which is for markers (see there).
+//  - **Semantics: ONE HOST (and one PID namespace) only.** The lock is a
+//    local file; its proof that the owner lives is a local pid. On a
+//    network/cloud file system shared by several hosts it does NOT protect:
+//    a foreign host is `unknown` and never taken over (safe, but without
+//    self-healing). Multi-host use needs a real lease protocol; that is not
+//    built here and not claimed.
 //  - **Every removal of someone else's lock goes through the takeover
 //    bar `<lock>.takeover` (2026-10-02).** Finding: four simultaneous
 //    takers of an orphan — two processes inside at once. The old takeover
@@ -69,7 +89,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { processAlive } from './processalive.mjs';
 
 /** Default bound on waiting for a held lock, milliseconds. */
 export const DEFAULT_WAIT_MS = 5000;
@@ -90,8 +109,27 @@ export function lockAgeS(lockPath) {
   return (Date.now() - st.mtimeMs) / 1000;
 }
 
+/** Start time (ticks since boot, field 22) from /proc/<pid>/stat as text; `null` without /proc or if unreadable. */
+function processStart(pid) {
+  let stat;
+  try { stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch { return null; }
+  const rest = stat.slice(stat.lastIndexOf(')') + 2).split(' '); // from field 3 (state)
+  const t = rest[19]; // field 22
+  return /^[0-9]+$/.test(t ?? '') ? t : null;
+}
+
+/** Boot context: boot_id and PID namespace, `boot/ns`; missing parts as `-` (no /proc: `-/-`). */
+function bootContext() {
+  let boot = '-';
+  let ns = '-';
+  try { boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || '-'; } catch { /* no /proc */ }
+  try { ns = fs.readlinkSync('/proc/self/ns/pid').replace(/[^0-9A-Za-z:\[\]]/g, '') || '-'; } catch { /* no /proc */ }
+  return `${boot}/${ns}`;
+}
+
+/** Line: `pid host iso start context token` (the token is always last). */
 function ownerText(token) {
-  return `${process.pid} ${os.hostname()} ${new Date().toISOString()} ${token}\n`;
+  return `${process.pid} ${os.hostname()} ${new Date().toISOString()} ${processStart(process.pid) ?? '-'} ${bootContext()} ${token}\n`;
 }
 
 /** Error codes where `link` cannot work by design: fall back to `wx`. */
@@ -195,6 +233,9 @@ function breakOrphanedBar(bar) {
   // just created (seen in the stress probe: two bar holders, a bar left behind).
   if (age === Infinity) return true;
   if (age <= TAKEOVER_ORPHAN_S) return false;
+  // A living bar holder (SIGSTOP, slow) is never broken; only dead or
+  // unknown (old format, other host) plus age breaks it.
+  if (ownerVerdict(readOwner(bar)) === 'alive') return false;
   const grave = `${bar}.orphan-${process.pid}-${randomBytes(4).toString('hex')}`;
   try { fs.renameSync(bar, grave); } catch { return false; }
   const moved = lockAgeS(grave);
@@ -249,7 +290,11 @@ function removeUnderBar(lockPath, content, stillValid = () => true) {
 }
 
 /**
- * Take over a lock file only if it is older than `staleS`. `true` means
+ * FOR MARKERS, NOT FOR MUTEX LOCKS (audit F02): take over a lock/marker
+ * only if it is older than `staleS` — without looking at the owner. Meant
+ * for the rebuild marker (`component-table.mjs`), where a double run is
+ * harmless and the owner ends on purpose. `withLock` does NOT use it any
+ * more. `true` means
  * the lock is gone (taken away or already vanished) and the caller may
  * try to create it again. Never removes a fresh lock on purpose. Removal
  * happens only under the takeover bar, and only of the same lock (same
@@ -264,37 +309,52 @@ export function takeOverIfStale(lockPath, staleS) {
 }
 
 /**
- * Is the holder of this lock PROVABLY dead? `true` only if the content
- * carries pid and host, the host is this one, the pid is not ours, and
- * `process.kill(pid, 0)` answers ESRCH or the process is a zombie
- * (`processalive.mjs`). Anything else (alive, EPERM,
- * other host, unreadable, empty) is `false` — then age decides.
+ * Verdict on the owner of a lock: `'dead'`, `'alive'` or `'unknown'` (rules
+ * in the header comment, including the platform differences). Only
+ * `'dead'` allows a takeover. Never throws.
  */
-function holderIsDead(content) {
+export function ownerVerdict(content) {
   const parts = String(content ?? '').trim().split(/\s+/);
-  if (parts.length < 4) return false;
+  if (parts.length < 4) return 'unknown';
   const [pidText, host] = parts;
-  if (!/^[1-9][0-9]{0,9}$/.test(pidText)) return false;
+  if (!/^[1-9][0-9]{0,9}$/.test(pidText)) return 'unknown';
+  if (host !== os.hostname()) return 'unknown'; // one host only
   const pid = Number(pidText);
-  if (pid === process.pid || host !== os.hostname()) return false;
-  try {
-    process.kill(pid, 0);
-    return !processAlive(pid); // a zombie (<defunct>) is dead, too
-  } catch (e) {
-    return Boolean(e && e.code === 'ESRCH');
+  // New format: pid host iso start context token (6 parts). Old format: 4.
+  const newFormat = parts.length >= 6;
+  const start = newFormat ? parts[3] : '-';
+  const context = newFormat ? parts[4] : '-';
+  if (context !== '-') {
+    const [boot, ns] = context.split('/');
+    const [myBoot, myNs] = bootContext().split('/');
+    if (boot !== '-' && myBoot !== '-' && boot !== myBoot) return 'dead'; // other boot: process is gone
+    if (ns !== '-' && myNs !== '-' && ns !== myNs) return 'unknown'; // pid from another namespace
   }
+  try { process.kill(pid, 0); } catch (e) {
+    if (e && e.code === 'ESRCH') return 'dead'; // all platforms
+    // EPERM: alive, someone else's: the start time below decides
+  }
+  let stat;
+  try { stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch {
+    // No readable /proc/<pid>/stat (macOS, Windows, hidepid, or just gone):
+    // without a start time there is no proof. unknown, never dead.
+    return 'unknown';
+  }
+  const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3);
+  if (state === 'Z' || state === 'X') return 'dead'; // zombie / dead
+  if (start === '-') return 'unknown'; // old format, pid lives: reuse cannot be ruled out
+  return processStart(pid) === start ? 'alive' : 'dead'; // other start time = reused pid
 }
 
 /**
- * Take a lock over at once if its holder is provably dead (see
- * `holderIsDead`). `true` means the lock is gone and the caller may create
+ * Take a lock over if its holder is provably dead (see `ownerVerdict`). `true` means the lock is gone and the caller may create
  * it again. Removal happens only under the takeover bar and only if the
  * lock there still carries EXACTLY the content judged dead (its token is
  * unique: same content = the same dead lock).
  */
 function takeOverIfOrphaned(lockPath) {
   const content = readOwner(lockPath);
-  if (!content || !holderIsDead(content)) return false;
+  if (!content || ownerVerdict(content) !== 'dead') return false;
   return removeUnderBar(lockPath, content);
 }
 
@@ -327,12 +387,16 @@ export function withLock(lockPath, fn, { waitMs = DEFAULT_WAIT_MS, staleS = DEFA
   for (;;) {
     if (createLock(lockPath, token)) break;
     if (takeOverIfOrphaned(lockPath)) continue;
-    if (takeOverIfStale(lockPath, staleS)) continue;
     const left = deadline - Date.now();
     if (left <= 0) {
+      const owner = readOwner(lockPath);
+      const age = lockAgeS(lockPath);
       throw new LockTimeoutError(
-        `lock '${lockPath}' still held after ${waitMs} ms (owner: ${readOwner(lockPath) || 'unknown'}); `
-        + `a lock older than ${staleS} s would be taken over.`);
+        `lock '${lockPath}' still held after ${waitMs} ms (owner: ${owner || 'unknown'}, `
+        + `verdict: ${ownerVerdict(owner)}, age: ${age === Infinity ? '?' : Math.round(age)} s). `
+        + 'Age alone never releases a lock; only a provably dead owner is replaced '
+        + '(pid + start time, this host only). On "unknown" (other host, old format, no /proc, unreadable) '
+        + 'please look, and remove the lock file by hand only if the owner is surely gone.');
     }
     sleepMs(Math.min(delay, left));
     delay = Math.min(delay * 2, 50);
