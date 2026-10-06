@@ -151,7 +151,7 @@ export function scanIntegrity(root) {
   for (const f of logFiles(root)) {
     let raw;
     try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); }
-    catch { broken.push({ file: f.rel, line: 0, why: 'unreadable' }); continue; }
+    catch (e) { broken.push({ file: f.rel, line: 0, why: `unreadable: ${e?.code ?? 'ERROR'} ${e?.message ?? e}` }); continue; }
     chainFiles.push({ rel: f.rel, raw, project: f.project, type: f.type });
 
     const rows = raw.split('\n');

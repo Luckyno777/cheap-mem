@@ -363,6 +363,35 @@ export const OK_OVER_ZERO = Object.freeze({
   root: 'checked that the directory exists, which is the whole of its question',
 });
 
+/**
+ * Audit F04 / F28 (2026-10-06): ONE shell around every partial check. A check
+ * that could not read a log file (`memory.ReadError`: EIO, EACCES, a directory
+ * in the place of the file; not "missing") becomes an ERROR finding with the
+ * reason, never "good"/"empty"; any other throw becomes an ERROR finding with
+ * its reason too. The doctor runs on: one broken check never takes the others
+ * down. (ERROR, not UNKNOWN: the exit code for "unknown" is 0, and an
+ * unreadable store must not give 0.)
+ */
+function findingNameOf(fnName) {
+  return fnName.replace(/^check/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+}
+function guarded(fnName, check) {
+  try { return check(); } catch (e) {
+    const name = findingNameOf(fnName);
+    if (e instanceof memory.ReadError) {
+      return finding(name, LEVEL.ERROR, `store not readable — unknown, not empty: ${e.message}`,
+        'Check permissions and the disk; a directory in the place of a log file has to go. Rewrite nothing.');
+    }
+    return finding(name, LEVEL.ERROR, `check aborted (${e?.name || 'Error'}): ${e?.message || e}`,
+      'Fix the cause; the other findings are not affected by this.');
+  }
+}
+/** {@link guarded} for a check that returns a list of findings. */
+function guardedAll(fnName, checks) {
+  const r = guarded(fnName, checks);
+  return Array.isArray(r) ? r : [r];
+}
+
 export function checkAll(root) {
   // One doctor run = one index context: the full index is built AT MOST
   // ONCE, however many findings read it (see `doctorIndex`).
@@ -373,60 +402,60 @@ export function checkAll(root) {
 
 function checkAllCore(root) {
   const f = [];
-  f.push(checkRoot(root));
-  f.push(checkConfig(root));
-  f.push(checkRedaction());
-  f.push(checkGitHook(root));
-  f.push(...checkDrawers(root));
-  f.push(checkOrphanDrawers(root));
-  f.push(checkCaptures(root));
-  f.push(checkArchiveBacklog(root));
-  f.push(checkDigest(root));
-  f.push(checkDigestYield(root));
-  f.push(checkFactConflicts(root));
-  f.push(checkOrphans(root));
-  f.push(checkContestedClaims(root));
-  f.push(checkTopicQuality(root));
-  f.push(checkCategories(root));
-  f.push(checkRepetition(root));
-  f.push(checkRepetitionHint(root));
-  f.push(checkClosedWithoutEvidence(root));
-  f.push(checkAutoDutyAge(root));
-  f.push(checkErrorLinked(root));
-  f.push(checkSkillSharpen(root));
-  f.push(checkGuardSuspicion(root));
-  f.push(checkProcedureEffect(root));
-  f.push(checkWorkflowWithoutTrigger(root));
-  f.push(checkSnippetWithoutRedaction(root));
-  f.push(checkDelivery(root));
-  f.push(checkOrphanedClaims(root));
-  f.push(checkInboxWaitingPermission(root));
-  f.push(checkInboxUnpushed(root));
-  f.push(checkAppointmentInvite(root));
-  f.push(checkIndex(root));
-  f.push(checkCorrectionContentLoss(root));
-  f.push(checkSynonyms(root));
-  f.push(checkStopHook(root));
-  f.push(checkLegacyLeaks(root));
-  f.push(checkBehind(root));
-  f.push(checkProvenance(root));
-  f.push(checkGitState(root));
-  f.push(checkHookRootStranded(root));
-  f.push(checkCaptureRejected(root));
-  f.push(checkIntegrity(root));
-  f.push(checkEntryForm(root));
-  f.push(checkGitignoreEffective(root));
-  f.push(checkRollback(root));
-  f.push(...checkEnvironmentContract(root));
-  f.push(checkCorpusSize(root));
-  f.push(checkAppendOnlyGit(root));
-  f.push(checkFindingParity(root));
-  f.push(checkParityDebt(root));
-  f.push(checkSkillUsage(root));
-  f.push(checkRunningCode(root));
-  f.push(checkDocsImagesFresh());
-  f.push(checkIntegrationContract(root));
-  f.push(checkHookLatency(root));
+  f.push(guarded('checkRoot', () => checkRoot(root)));
+  f.push(guarded('checkConfig', () => checkConfig(root)));
+  f.push(guarded('checkRedaction', () => checkRedaction()));
+  f.push(guarded('checkGitHook', () => checkGitHook(root)));
+  f.push(...guardedAll('checkDrawers', () => [...checkDrawers(root)]));
+  f.push(guarded('checkOrphanDrawers', () => checkOrphanDrawers(root)));
+  f.push(guarded('checkCaptures', () => checkCaptures(root)));
+  f.push(guarded('checkArchiveBacklog', () => checkArchiveBacklog(root)));
+  f.push(guarded('checkDigest', () => checkDigest(root)));
+  f.push(guarded('checkDigestYield', () => checkDigestYield(root)));
+  f.push(guarded('checkFactConflicts', () => checkFactConflicts(root)));
+  f.push(guarded('checkOrphans', () => checkOrphans(root)));
+  f.push(guarded('checkContestedClaims', () => checkContestedClaims(root)));
+  f.push(guarded('checkTopicQuality', () => checkTopicQuality(root)));
+  f.push(guarded('checkCategories', () => checkCategories(root)));
+  f.push(guarded('checkRepetition', () => checkRepetition(root)));
+  f.push(guarded('checkRepetitionHint', () => checkRepetitionHint(root)));
+  f.push(guarded('checkClosedWithoutEvidence', () => checkClosedWithoutEvidence(root)));
+  f.push(guarded('checkAutoDutyAge', () => checkAutoDutyAge(root)));
+  f.push(guarded('checkErrorLinked', () => checkErrorLinked(root)));
+  f.push(guarded('checkSkillSharpen', () => checkSkillSharpen(root)));
+  f.push(guarded('checkGuardSuspicion', () => checkGuardSuspicion(root)));
+  f.push(guarded('checkProcedureEffect', () => checkProcedureEffect(root)));
+  f.push(guarded('checkWorkflowWithoutTrigger', () => checkWorkflowWithoutTrigger(root)));
+  f.push(guarded('checkSnippetWithoutRedaction', () => checkSnippetWithoutRedaction(root)));
+  f.push(guarded('checkDelivery', () => checkDelivery(root)));
+  f.push(guarded('checkOrphanedClaims', () => checkOrphanedClaims(root)));
+  f.push(guarded('checkInboxWaitingPermission', () => checkInboxWaitingPermission(root)));
+  f.push(guarded('checkInboxUnpushed', () => checkInboxUnpushed(root)));
+  f.push(guarded('checkAppointmentInvite', () => checkAppointmentInvite(root)));
+  f.push(guarded('checkIndex', () => checkIndex(root)));
+  f.push(guarded('checkCorrectionContentLoss', () => checkCorrectionContentLoss(root)));
+  f.push(guarded('checkSynonyms', () => checkSynonyms(root)));
+  f.push(guarded('checkStopHook', () => checkStopHook(root)));
+  f.push(guarded('checkLegacyLeaks', () => checkLegacyLeaks(root)));
+  f.push(guarded('checkBehind', () => checkBehind(root)));
+  f.push(guarded('checkProvenance', () => checkProvenance(root)));
+  f.push(guarded('checkGitState', () => checkGitState(root)));
+  f.push(guarded('checkHookRootStranded', () => checkHookRootStranded(root)));
+  f.push(guarded('checkCaptureRejected', () => checkCaptureRejected(root)));
+  f.push(guarded('checkIntegrity', () => checkIntegrity(root)));
+  f.push(guarded('checkEntryForm', () => checkEntryForm(root)));
+  f.push(guarded('checkGitignoreEffective', () => checkGitignoreEffective(root)));
+  f.push(guarded('checkRollback', () => checkRollback(root)));
+  f.push(...guardedAll('checkEnvironmentContract', () => checkEnvironmentContract(root)));
+  f.push(guarded('checkCorpusSize', () => checkCorpusSize(root)));
+  f.push(guarded('checkAppendOnlyGit', () => checkAppendOnlyGit(root)));
+  f.push(guarded('checkFindingParity', () => checkFindingParity(root)));
+  f.push(guarded('checkParityDebt', () => checkParityDebt(root)));
+  f.push(guarded('checkSkillUsage', () => checkSkillUsage(root)));
+  f.push(guarded('checkRunningCode', () => checkRunningCode(root)));
+  f.push(guarded('checkDocsImagesFresh', () => checkDocsImagesFresh()));
+  f.push(guarded('checkIntegrationContract', () => checkIntegrationContract(root)));
+  f.push(guarded('checkHookLatency', () => checkHookLatency(root)));
 
   // UNKNOWN ranks BELOW good. Some checks are permanently unmeasurable
   // where they run — a timer on the host is invisible from inside a
@@ -1360,6 +1389,7 @@ function* checkDrawers(root) {
     if (tooBig) { yield tooBig; return; }
     scan = scanIntegrityOnce(root);
   } catch (e) {
+    if (e instanceof memory.ReadError) throw e; // F04: becomes an ERROR finding with the reason (`guarded`)
     // Not measurable is not zero drawers, and not health.
     yield finding('drawers', LEVEL.UNKNOWN, `logs unreadable: ${e.message}`);
     return;

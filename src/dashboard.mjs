@@ -102,6 +102,8 @@ export function word(state) {
 export function readPass(root) {
   const rows = [];
   let broken = 0;
+  // Audit F04: a drawer that could not be read (not "missing") is named, not skipped as empty.
+  const unreadable = [];
   // Encrypted entries are shown decrypted to the signed-in user, IN MEMORY
   // ONLY (decision 2026-09-30): every row here feeds an answer, never a
   // file. Key gone or unreachable -> a title that says so, never empty.
@@ -109,7 +111,10 @@ export function readPass(root) {
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const drawer of Object.keys(memory.TYPES)) {
       let res;
-      try { res = memory.readLog(root, drawer, { project }); } catch { continue; }
+      try { res = memory.readLog(root, drawer, { project }); } catch (e) {
+        if (e instanceof memory.ReadError) unreadable.push(`${project ?? 'global'}/${drawer}: ${e.message}`);
+        continue;
+      }
       const retired = memory.retiredMap(res.entries);
       for (const e of res.entries) {
         if (e.__broken) { broken += 1; continue; }
@@ -122,7 +127,7 @@ export function readPass(root) {
       }
     }
   }
-  return { rows, broken };
+  return { rows, broken, unreadable };
 }
 
 /**

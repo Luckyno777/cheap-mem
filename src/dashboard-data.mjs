@@ -767,6 +767,7 @@ export function collectDashboard(root, {
   const rawById = new Map();
   let pass = { rows: [], broken: 0 };
   try { pass = readPass(root); } catch (e) { reasons.push(`drawers not readable: ${e?.message || e}`); }
+  for (const u of pass.unreadable ?? []) reasons.push(`drawer not readable (unknown, not empty): ${u}`);
   for (const { entry } of pass.rows) if (entry?.id && !rawById.has(entry.id)) rawById.set(entry.id, entry);
 
   // --- 2. the injection journal ------------------------------------------

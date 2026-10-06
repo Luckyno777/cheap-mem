@@ -87,23 +87,33 @@ export const TAIL_BYTES = 512 * 1024;
  * entries, which is what a hint is about, are at the other end.
  */
 function readTail(absPath, tailBytes = TAIL_BYTES) {
+  // Audit F04: `null` only for a drawer that does not exist (ENOENT/ENOTDIR);
+  // any other error throws `memory.ReadError`: unknown, not "no neighbours".
+  const gone = (e) => e && (e.code === 'ENOENT' || e.code === 'ENOTDIR');
   let size;
-  try { size = fs.statSync(absPath).size; } catch { return null; }
+  try {
+    const st = fs.statSync(absPath);
+    if (!st.isFile()) { const e = new Error('not a regular file'); e.code = 'EISDIR'; throw e; }
+    size = st.size;
+  } catch (e) {
+    if (gone(e)) return null;
+    throw new memory.ReadError(absPath, e);
+  }
   if (size <= tailBytes) {
     // Small enough to read whole: no window, no partial answer.
     try { return { raw: memory.withoutBom(fs.readFileSync(absPath, 'utf8')), whole: true }; }
-    catch { return null; }
+    catch (e) { if (gone(e)) return null; throw new memory.ReadError(absPath, e); }
   }
   let fd;
   try {
     fd = fs.openSync(absPath, 'r');
     const buf = Buffer.alloc(tailBytes);
-    fs.readSync(fd, buf, 0, tailBytes, size - tailBytes);
-    const text = buf.toString('utf8');
+    const n = fs.readSync(fd, buf, 0, tailBytes, size - tailBytes);
+    const text = buf.subarray(0, n).toString('utf8');
     const cut = text.indexOf('\n');
     return { raw: cut >= 0 ? text.slice(cut + 1) : '', whole: false };
-  } catch {
-    return null;
+  } catch (e) {
+    throw new memory.ReadError(absPath, e);
   } finally {
     if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* already gone */ } }
   }
@@ -127,7 +137,12 @@ export function neighbours(root, type, data = {}, {
 
   // Only the tail of the drawer, for the reasons on `TAIL_BYTES`.
   const abs = memory.logPath(root, type, project);
-  const tail = readTail(abs, tailBytes);
+  let tail;
+  try { tail = readTail(abs, tailBytes); } catch (e) {
+    if (!(e instanceof memory.ReadError)) throw e;
+    // Audit F04: not readable is UNKNOWN, not "no neighbours": `unreadable` carries the reason.
+    return { field, value, hits: [], scannedWholeFile: false, unreadable: e.message };
+  }
   if (!tail) return { field, value, hits: [], scannedWholeFile: false, unreadable: true };
   const res = { entries: [] };
   let broken = 0;
@@ -191,6 +206,10 @@ export function line(e) {
  * know that and cannot. It says what is there, and what you CAN do.
  */
 export function hint(found) {
+  // Audit F04: a drawer that could not be read says UNKNOWN, never "nothing there".
+  if (found && found.value && typeof found.unreadable === 'string') {
+    return ['', `  Under ${found.field} '${found.value}': UNKNOWN — the drawer could not be read (${found.unreadable}).`];
+  }
   // **Nothing found, and only part of the drawer read.** This is the
   // one case the bound could turn into a lie: silence would read as
   // "nothing stands under this subject yet", when the truth is "nothing
@@ -282,7 +301,11 @@ export function similarDecisions(root, type, data = {}, {
   const mine = subjectWords(data);
   if (mine.size < SIMILAR_MIN_SHARED) return none;
 
-  const tail = readTail(memory.logPath(root, type, project), tailBytes);
+  let tail;
+  try { tail = readTail(memory.logPath(root, type, project), tailBytes); } catch (e) {
+    if (!(e instanceof memory.ReadError)) throw e;
+    return { hits: [], unreadable: e.message };
+  }
   if (!tail) return none;
   const entries = [];
   for (const rawLine of tail.raw.split('\n')) {
