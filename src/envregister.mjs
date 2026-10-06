@@ -147,6 +147,8 @@ export const REGISTER = Object.freeze([
   sw('MEM_BEFORE_EDIT_TRACE', TUNING, 'off', 'With `1` the before-edit hook says on stderr where it exited.'),
   sw('MEM_CAPTURE_MIN', TUNING, '4096', 'Smallest transcript, in bytes, the capture hook keeps (Windows hook).'),
   sw('MEM_CORRECTION_RARE_DF', TUNING, '3', 'Document frequency at or below which a word counts as rare in the correction warning.'),
+  sw('MEM_DOCTOR_FULLBUILD_MAX_MIB', TUNING, '32 (never above 1/40 of the heap limit)', 'Source MiB up to which the doctor builds a full search index; above it the index findings say "not measurable".'),
+  sw('MEM_DOCTOR_FULLREAD_FACTOR', TUNING, '5', 'Factor of source bytes to heap limit above which whole-corpus doctor findings say "not measurable" instead of dying.'),
   sw('MEM_SKILLUSAGE_DAYS', TUNING, '30', 'Days of capture coverage `mem skills usage` needs before it gives a verdict.'),
   sw('MEM_SKILLUSAGE_TIME_MS', TUNING, '8000', 'Time cap, in milliseconds, for reading the captures.'),
   sw('MEM_ANSWER_CHECK_PATTERNS', PATH, 'not set (`.mem/answer-check-patterns.json` or the built-ins)', 'A JSON file of the answer-check patterns.'),
