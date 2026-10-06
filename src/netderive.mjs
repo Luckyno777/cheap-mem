@@ -60,28 +60,86 @@ export function features(entry) {
   return { id: entry.id, ts: String(entry.ts ?? ''), files, words };
 }
 
-/** Which rows go in: content drawers, held, not closing lines, not replaced. */
-function selectRows(rows) {
-  const replaced = new Set();
-  for (const { entry: e } of rows) if (e?.replaces_id) replaced.add(String(e.replaces_id));
-  return rows.filter(({ drawer, entry: e, held }) => CONTENT_TYPES.includes(drawer) && held !== false
-    && typeof e?.id === 'string' && !e.closes_id && !e.retires_id && !replaced.has(e.id));
+/** Is this row one that goes in: content drawer, held, with an id, not a closing line, not replaced. */
+function chosenRow({ drawer, entry: e, held }, replaced) {
+  return CONTENT_TYPES.includes(drawer) && held !== false
+    && typeof e?.id === 'string' && !e.closes_id && !e.retires_id && !replaced.has(e.id);
 }
 
-function index(ms, field, dfMax, kind, pairs, N) {
-  const byKey = new Map();
-  for (const m of ms) for (const k of m[field]) { if (!byKey.has(k)) byKey.set(k, []); byKey.get(k).push(m.id); }
-  for (const [k, ids] of byKey) {
-    if (ids.length < 2 || ids.length > dfMax) continue;
-    const w = Math.log(N / ids.length);
-    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
-      const key = pairKey(ids[i], ids[j]);
-      let p = pairs.get(key);
-      if (!p) pairs.set(key, (p = { key, kinds: {} }));
-      const e = (p.kinds[kind] ??= { strength: 0, evidence: [] });
-      e.strength += w;
-      e.evidence.push(k);
+// --- Bounded memory ------------------------------------------------------
+// The first version held every entry's feature object (two Sets), every
+// index list and every pair with its evidence: ~10 KiB per entry. Now
+// `derive` makes several passes over a REPEATABLE row source (an array or
+// any object with `[Symbol.iterator]`, re-read per pass) and keeps only:
+//   - an id -> number table (the one thing that stays linear with ids),
+//   - word/file indexes whose lists stop at the document-frequency cap
+//     (a word in more entries than the cap says nothing and costs no list),
+//   - the pairs in typed arrays (key, strength per kind, bit mask),
+//   - evidence words and timestamps only for pairs that are not dropped.
+// The result is the same JSON as before, byte for byte.
+
+const TOP = -1; // marker: the cap is broken (a singleton is >= 0)
+const SHIFT = 2 ** 26; // ids < 67 M: lo * 2^26 + hi stays below 2^53
+const M_FILE = 1; const M_TERMS = 2; const M_LINKED = 4;
+
+function take(map, key, idx, max) {
+  const v = map.get(key);
+  if (v === undefined) { map.set(key, idx); return; }
+  if (v === TOP) return;
+  if (typeof v === 'number') { if (max < 2) map.set(key, TOP); else map.set(key, [v, idx]); return; }
+  if (v.length >= max) map.set(key, TOP); else v.push(idx);
+}
+
+class PairTable {
+  constructor() { this.n = 0; this.#alloc(1 << 15); }
+  #alloc(cap) {
+    this.cap = cap; this.mask = cap - 1;
+    this.key = new Float64Array(cap).fill(-1);
+    this.file = new Float64Array(cap);
+    this.terms = new Float64Array(cap);
+    this.flags = new Uint8Array(cap);
+  }
+  static hash(lo, hi) { return (Math.imul(lo, 0x9E3779B1) ^ Math.imul(hi + 0x7F4A7C15, 0x85EBCA6B)) >>> 0; }
+  /** Slot of the pair (a, b), or -1 when `create` is false and it is absent. */
+  find(a, b, create) {
+    const lo = a < b ? a : b; const hi = a < b ? b : a;
+    const k = lo * SHIFT + hi;
+    let i = PairTable.hash(lo, hi) & this.mask;
+    for (;;) {
+      const cur = this.key[i];
+      if (cur === k) return i;
+      if (cur === -1) {
+        if (!create) return -1;
+        if ((this.n + 1) * 2 > this.cap) { this.#grow(); return this.find(a, b, true); }
+        this.key[i] = k; this.n += 1; return i;
+      }
+      i = (i + 1) & this.mask;
     }
+  }
+  #grow() {
+    const { key, file, terms, flags, cap } = this;
+    this.#alloc(cap * 2); this.n = 0;
+    for (let s = 0; s < cap; s++) {
+      if (key[s] === -1) continue;
+      const lo = Math.floor(key[s] / SHIFT); const hi = key[s] - lo * SHIFT;
+      const i = this.find(lo, hi, true);
+      this.file[i] = file[s]; this.terms[i] = terms[s]; this.flags[i] = flags[s];
+    }
+  }
+  static parts(k) { const lo = Math.floor(k / SHIFT); return [lo, k - lo * SHIFT]; }
+}
+
+function strongOf(t, s) {
+  const f = (t.flags[s] & M_FILE) && t.file[s] >= STRONG.file;
+  const w = (t.flags[s] & M_TERMS) && t.terms[s] >= STRONG.terms;
+  return f && w ? 'auto' : w ? 'borderline' : 'dropped';
+}
+
+/** Pairs of every index list (2..cap entries), in index order — the order the sums are made in. */
+function eachPair(indexMap, fn) {
+  for (const [k, ids] of indexMap) {
+    if (!Array.isArray(ids)) continue;
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) fn(k, ids, ids[i], ids[j]);
   }
 }
 
@@ -102,33 +160,79 @@ function reason(kinds) {
 
 /**
  * Derived links over `rows` (`[{ project, drawer, entry, held }]`, the
- * dashboard's one pass). Pure and deterministic. Returns
+ * dashboard's one pass; an array, or any repeatable iterable that is read
+ * again for each pass). Pure and deterministic. Returns
  * `{ entries, auto: [...], borderline: [...], borderlineTotal, dropped, linked }`;
  * each link `{ from, to, kind: 'derived', tier, reason, strength }`, from
  * the younger entry to the older (as a learning points at its error).
  */
 export function derive(rows) {
-  const chosen = selectRows(rows);
-  const ms = chosen.map(({ entry }) => features(entry));
-  const N = ms.length;
+  if (rows && typeof rows[Symbol.iterator] === 'function' && rows[Symbol.iterator]() === rows) rows = Array.from(rows);
+  // Pass 1: which ids are replaced.
+  const replaced = new Set();
+  for (const { entry: e } of rows) if (e?.replaces_id) replaced.add(String(e.replaces_id));
+  // Pass 2: ids as numbers, the two indexes (the feature object is dropped at once).
+  const idNum = new Map(); const idList = [];
+  const fileIdx = new Map(); const wordIdx = new Map();
+  let N = 0;
+  for (const r of rows) {
+    if (!chosenRow(r, replaced)) continue;
+    const m = features(r.entry);
+    let num = idNum.get(m.id);
+    if (num === undefined) { num = idList.length; idNum.set(m.id, num); idList.push(m.id); }
+    N += 1;
+    for (const f of m.files) take(fileIdx, f, num, FILE_DF_MAX);
+    for (const w of m.words) take(wordIdx, w, num, RARE_DF);
+  }
   const out = { entries: N, auto: [], borderline: [], borderlineTotal: 0, dropped: 0, linked: 0 };
   if (N < 2) return out;
-  const pairs = new Map();
-  index(ms, 'files', FILE_DF_MAX, 'file', pairs, N);
-  index(ms, 'words', RARE_DF, 'terms', pairs, N);
-  const linked = new Set();
-  for (const { entry } of rows) for (const l of linksOf(entry)) linked.add(pairKey(l.from, l.to));
-  const ts = new Map(ms.map((m) => [m.id, m.ts]));
-  const border = [];
-  for (const p of [...pairs.values()].sort((a, b) => (a.key < b.key ? -1 : 1))) {
-    if (linked.has(p.key)) { out.linked += 1; continue; }
-    const tier = tierOf(p.kinds);
+  if (idList.length >= SHIFT) throw new Error(`netderive: more than ${SHIFT} distinct ids`);
+  // Pair table: strength per kind, summed in the order the lists were built.
+  const t = new PairTable();
+  eachPair(fileIdx, (k, ids, a, b) => { const s = t.find(a, b, true); t.file[s] += Math.log(N / ids.length); t.flags[s] |= M_FILE; });
+  eachPair(wordIdx, (k, ids, a, b) => { const s = t.find(a, b, true); t.terms[s] += Math.log(N / ids.length); t.flags[s] |= M_TERMS; });
+  // Entries that sit in a pair that is not dropped need a timestamp.
+  const wanted = new Uint8Array(idList.length);
+  for (let s = 0; s < t.cap; s++) {
+    if (t.key[s] === -1 || strongOf(t, s) === 'dropped') continue;
+    const [lo, hi] = PairTable.parts(t.key[s]); wanted[lo] = 1; wanted[hi] = 1;
+  }
+  // Pass 3: declared links (any row, any direction) and the timestamps (last row of an id wins).
+  const tsOf = new Map();
+  for (const r of rows) {
+    for (const l of linksOf(r.entry)) {
+      const a = idNum.get(l.from); const b = idNum.get(l.to);
+      if (a === undefined || b === undefined) continue;
+      const s = t.find(a, b, false);
+      if (s >= 0) t.flags[s] |= M_LINKED;
+    }
+    if (chosenRow(r, replaced)) { const num = idNum.get(r.entry.id); if (wanted[num]) tsOf.set(num, String(r.entry.ts ?? '')); }
+  }
+  // Candidates: not linked, not dropped. The rest is only counted.
+  const cand = [];
+  for (let s = 0; s < t.cap; s++) {
+    if (t.key[s] === -1) continue;
+    if (t.flags[s] & M_LINKED) { out.linked += 1; continue; }
+    const tier = strongOf(t, s);
     if (tier === 'dropped') { out.dropped += 1; continue; }
-    const [a, b] = p.key.split('\u001f');
-    const [from, to] = ts.get(a) >= ts.get(b) ? [a, b] : [b, a];
-    const strength = Math.round(Object.values(p.kinds).reduce((s, k) => s + Math.min(k.strength, 30), 0) * 100) / 100;
-    const link = { from, to, kind: 'derived', tier, reason: reason(p.kinds), strength };
-    if (tier === 'auto') out.auto.push(link); else border.push(link);
+    const [lo, hi] = PairTable.parts(t.key[s]);
+    cand.push({ slot: s, tier, key: pairKey(idList[lo], idList[hi]) });
+  }
+  // Evidence words, only for candidates.
+  const ev = new Map(); // slot -> { file: [], terms: [] }
+  for (const c of cand) ev.set(c.slot, { file: [], terms: [] });
+  const gather = (idx, kind) => eachPair(idx, (k, ids, a, b) => { const e = ev.get(t.find(a, b, false)); if (e) e[kind].push(k); });
+  gather(fileIdx, 'file'); gather(wordIdx, 'terms');
+  const border = [];
+  for (const c of cand.sort((x, y) => (x.key < y.key ? -1 : 1))) {
+    const [a, b] = c.key.split('\u001f');
+    const [from, to] = tsOf.get(idNum.get(a)) >= tsOf.get(idNum.get(b)) ? [a, b] : [b, a];
+    const kinds = {};
+    if (t.flags[c.slot] & M_FILE) kinds.file = { strength: t.file[c.slot], evidence: ev.get(c.slot).file };
+    if (t.flags[c.slot] & M_TERMS) kinds.terms = { strength: t.terms[c.slot], evidence: ev.get(c.slot).terms };
+    const strength = Math.round(Object.values(kinds).reduce((s, k) => s + Math.min(k.strength, 30), 0) * 100) / 100;
+    const link = { from, to, kind: 'derived', tier: c.tier, reason: reason(kinds), strength };
+    if (c.tier === 'auto') out.auto.push(link); else border.push(link);
   }
   border.sort((x, y) => y.strength - x.strength || (x.from + x.to < y.from + y.to ? -1 : 1));
   out.borderlineTotal = border.length;

@@ -744,13 +744,35 @@ export const COMMANDS = {
       return acc;
     };
     if (args.derived) {
-      // Retired entries drop out (`held`), as on the dashboard's one pass.
-      const rows = readAll();
-      const retired = memory.retiredMap(rows.map((r) => r.entry));
-      for (const r of rows) r.held = memory.holds(r.entry, retired);
+      // Bounded memory: the rows are a repeatable stream (each pass re-reads the
+      // drawers, one parsed entry at a time) and `held` comes from the retirement
+      // map over the same files, not from an array of every entry.
+      const files = [];
+      const drawers = [];
+      for (const project of [null, ...memory.listProjects(root)]) {
+        for (const type of Object.keys(memory.TYPES)) {
+          try { const abs = memory.logPath(root, type, project); files.push(abs); drawers.push({ project: project ?? 'global', type, project0: project }); } catch { continue; }
+        }
+      }
+      const retired = memory.retiredMapFromFiles(files);
+      const rows = {
+        *[Symbol.iterator]() {
+          for (const d of drawers) {
+            try {
+              for (const e of memory.iterLog(root, d.type, { project: d.project0 })) {
+                if (e.__broken) continue;
+                yield { project: d.project, drawer: d.type, entry: e, held: memory.holds(e, retired) };
+              }
+            } catch { continue; }
+          }
+        },
+      };
       const netderive = await import('../../netderive.mjs');
       const d = netderive.derive(rows);
-      const title = new Map(rows.map((r) => [r.entry.id, String(r.entry.title ?? '').slice(0, 50)]));
+      // Titles only for the entries that are listed.
+      const want = new Set([...d.auto, ...d.borderline].flatMap((l) => [l.from, l.to]));
+      const title = new Map();
+      if (want.size) for (const r of rows) if (want.has(r.entry.id)) title.set(r.entry.id, String(r.entry.title ?? '').slice(0, 50));
       out(args.json ? JSON.stringify(d, null, 2) : netderive.asText(d, (id) => title.get(id) || id));
       return;
     }
