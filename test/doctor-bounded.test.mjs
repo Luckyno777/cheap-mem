@@ -180,9 +180,9 @@ test('static red proof: the old doctor loaded the index in three places, the new
   const old = execFileSync('git', ['show', `${OLD_STATE}:src/doctor.mjs`], { cwd: REPO, encoding: 'utf8' });
   const count = (text) => (text.match(/search\.loadIndex\(/g) ?? []).length;
   assert.equal(count(old), 3);
-  const neu = fs.readFileSync(path.join(REPO, 'src/doctor.mjs'), 'utf8');
-  assert.equal(count(neu), 1);
-  const body = neu.slice(neu.indexOf('export function doctorIndex('));
+  const current = fs.readFileSync(path.join(REPO, 'src/doctor.mjs'), 'utf8');
+  assert.equal(count(current), 1);
+  const body = current.slice(current.indexOf('export function doctorIndex('));
   assert.ok(body.indexOf('search.loadIndex(') < body.indexOf('\n}\n'), 'the one call sits inside doctorIndex');
 });
 
@@ -266,14 +266,14 @@ test(`memory gate: mem doctor on ${GATE_N} entries at ${GATE_HEAP_MIB} MiB heap 
     assert.match(String(a.r.stderr), /heap out of memory|Allocation failed|Map maximum size/i,
       `RED must be a memory failure, not some other one: ${String(a.r.stderr).slice(-300)}`);
 
-    const n = doctorChild(REPO, root);
-    assert.equal(n.r.signal, null);
-    assert.ok([0, 1, 2].includes(n.r.status),
-      `NEW runs through (findings may be red, the process may not die): status=${n.r.status} ${String(n.r.stderr).slice(-300)}`);
-    const line = (name) => String(n.r.stdout).split('\n').find((l) => new RegExp(`^\\S+\\s+${name}\\s`).test(l));
+    const fresh = doctorChild(REPO, root);
+    assert.equal(fresh.r.signal, null);
+    assert.ok([0, 1, 2].includes(fresh.r.status),
+      `NEW runs through (findings may be red, the process may not die): status=${fresh.r.status} ${String(fresh.r.stderr).slice(-300)}`);
+    const line = (name) => String(fresh.r.stdout).split('\n').find((l) => new RegExp(`^\\S+\\s+${name}\\s`).test(l));
     assert.match(line('index') ?? '', /^\?\s+index\s+not measurable/, 'no register: not measurable, not a number');
     assert.match(line('correction-content-loss') ?? '', /^\?\s+correction-content-loss\s+not measurable/);
-    assert.ok(n.sec < 90, `NEW took ${n.sec} s`);
+    assert.ok(fresh.sec < 90, `NEW took ${fresh.sec} s`);
 
     // Positive control: lift the cap and NEW dies as well — the heap limit is what bites.
     const p = doctorChild(REPO, root, { MEM_DOCTOR_FULLBUILD_MAX_MIB: '4096', MEM_DOCTOR_FULLREAD_FACTOR: '0.000001' });
