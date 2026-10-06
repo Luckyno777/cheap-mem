@@ -11,6 +11,7 @@
 // Red proof: the scenario also runs against the dashboard.js of the FIXED old state 4bbca61 (git show,
 // played in through page.route as /dashboard/app.js) and must show the old fault there.
 // Screenshots (1920/390, dark/light, overflow measured) only with DASH_RUN_IMAGES=<folder>.
+/* global document, localStorage, messages, loadData, D, entries, state, render, graphAPI, window */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -122,6 +123,7 @@ async function scenarioF18(page, base, { images = null } = {}) {
   assert.ok(held.route, 'positive control: the request for A is held');
   await page.keyboard.press('Escape'); // close A while its answer is pending
   await page.waitForFunction(() => !document.querySelector('#info').open);
+  // eslint-disable-next-line require-atomic-updates -- the route handler only reads held.name; the probe owns the writes
   held.name = '';
   await page.locator(`[data-action="message"][data-id="${b}"]`).first().click();
   await page.waitForFunction(() => /Store the reply/.test(document.querySelector('#info')?.textContent || '') && /Message B/.test(document.querySelector('#infoTitle')?.textContent || ''));

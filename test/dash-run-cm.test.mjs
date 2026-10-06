@@ -223,9 +223,8 @@ test('F20: the deadline is separate from the budget (few requests, time runs out
   assert.ok(w.log.n <= 4, 'requests: ' + w.log.n);
 });
 test('F20: a project switch during the run -> no state is taken over', async () => {
-  let api;
-  const w = atlasWorld(async (n) => { if (n === 1) api.state.project = 'q'; return good(); });
-  api = w.api;
+  const w = atlasWorld(async (n) => { if (n === 1) w.api.state.project = 'q'; return good(); });
+  const api = w.api;
   await api.atlasLoad('theme', 'x');
   const pg = api.atlasPages.get('theme:x|p');
   assert.ok(!pg || (pg.list.length === 0 && pg.state !== 'ok'), 'nothing taken over');
