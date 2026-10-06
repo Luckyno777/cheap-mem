@@ -127,3 +127,55 @@ test('F18 loadData: A before B stays B; the older call returns the result of the
   assert.equal(await pa, true); assert.equal(await pb, true);
   assert.equal(w.api.taken.at(-1), 'B');
 });
+
+// ---------------------------------------------------------------- F19: entry list
+function entriesWorld({ state, cap = 2, page = 10, clock = null, alreadyThere = false }) {
+  const log = { n: 0, urls: [] };
+  const fetchStub = async (url) => {
+    log.n += 1; log.urls.push(url);
+    if (log.n > 500) throw new Error('fixture stops');
+    return { ok: true, json: async () => state(log.n) };
+  };
+  const preamble = `
+    let D = { parts: { entries: { page: ${page} } }, cache: { built_at: 'x', source: 'q' } };
+    let entriesLoad = { full: true, loaded: 0, total: 0, key: null }; let entriesLoadingFor = null; let entriesDisturbance = null; let entriesRun = 0; // entriesRun: old state only
+    const partState = { entries: ${alreadyThere ? "'ok'" : 'undefined'} }, partReason = {}; let entries = [];
+    const setEntries = (l) => { entries = l; }; const partLaterAgain = () => {};
+    const ENTRIES_CAP = ${cap};`;
+  const stubs = { fetch: fetchStub, log, ...(clock ? { Date: { now: clock } } : {}) };
+  const raw = build({ preamble, functions: ['loadEntriesPart', 'entriesDisturbanceSet'], constants: ['ENTRIES_RESTARTS', 'ENTRIES_DEADLINE_MS', 'ENTRIES_STATE_TEXT', 'stateKey'], expose: ['loadEntriesPart', 'partState', 'partReason', 'entries', 'entriesLoad', 'entriesDisturbance'], stubs });
+  return { raw, log };
+}
+const pageWith = (n, stateId, next = 1) => ({ state: 'ok', data: [{ id: 'e' + n }], state_id: stateId, next, total: 99, window: false });
+
+test('F19: state_id changes on every second page -> bounded and visible, no mixed list', async () => {
+  const w = entriesWorld({ state: (n) => pageWith(n, n % 2) });
+  const r = await w.raw.loadEntriesPart();
+  assert.equal(r, 'error', 'loadParts gets the end state to draw');
+  assert.ok(w.log.n <= 40, `requests: ${w.log.n} (old state: unbounded)`);
+  assert.equal(w.raw.partState.entries, 'error');
+  assert.match(w.raw.partReason.entries, /changing|load again/i);
+  assert.equal(w.raw.entries.length, 0, 'nothing mixed was taken over as the list');
+  assert.match(w.raw.entriesDisturbance, /changing/, 'visible text for the surface');
+});
+test('F19: one single state change -> restart, then a whole list of one state', async () => {
+  const w = entriesWorld({ state: (n) => (n === 2 ? pageWith(n, 'new') : pageWith(n, n < 2 ? 'old' : 'new', n >= 4 ? null : 1)), cap: 6, page: 2 });
+  await w.raw.loadEntriesPart();
+  assert.equal(w.raw.partState.entries, 'ok');
+  const ids = w.raw.entries.map((e) => e.id);
+  assert.ok(!ids.includes('e1'), 'the page of the old state is not in it: ' + ids);
+});
+test('F19: deadline exceeded (separate from the budget) -> end state', async () => {
+  let now = 0;
+  const w = entriesWorld({ state: (n) => { now += 70000; return pageWith(n, 'same'); }, cap: 30, page: 1, clock: () => now });
+  await w.raw.loadEntriesPart();
+  assert.equal(w.raw.partState.entries, 'error');
+  assert.match(w.raw.partReason.entries, /Time limit/);
+  assert.ok(w.log.n <= 3, 'requests: ' + w.log.n);
+});
+test('F19: a whole list is already there + a state that keeps changing -> the old list stays, notice visible', async () => {
+  const w = entriesWorld({ state: (n) => pageWith(n, n % 2), alreadyThere: true });
+  await w.raw.loadEntriesPart();
+  assert.equal(w.raw.partState.entries, 'ok');
+  assert.match(w.raw.entriesDisturbance, /changing/);
+});

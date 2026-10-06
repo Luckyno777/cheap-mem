@@ -519,9 +519,14 @@ function setEntries(list) {
 // goes through the server (palette and full-text search).
 const ENTRIES_CAP = 30000;
 let entriesLoad = { full: true, loaded: 0, total: 0, key: null };
-let entriesRun = 0;
+let entriesDisturbance = null; // F19: visible end state when loading the list did not come to an end (text or null)
 let entriesLoadingFor = null; // state key of the running load (no second run for the same one)
 let partRetryTimer = 0;
+// F19: the page loop must not start over endlessly when the state (state_id) changes between
+// the pages. Restarts and deadline are separate from the request budget.
+const ENTRIES_RESTARTS = 3;
+const ENTRIES_DEADLINE_MS = 120000;
+const ENTRIES_STATE_TEXT = 'The data is changing right now, the list was not taken over — please load again.';
 const stateKey = (d) => (d?.cache ? d.cache.built_at + '|' + d.cache.source : null);
 // A part that is still being built (`building`) is no error: ask again soon
 // (at most one timer) — and the page never shows it as an empty list.
@@ -529,12 +534,18 @@ function partLaterAgain() {
   if (partRetryTimer) return;
   partRetryTimer = setTimeout(() => { partRetryTimer = 0; loadParts(); }, TEMPO_TEST_MS ?? 3000);
 }
+// Reports 'error' only when the text changes (loadParts then draws once), never on every retry.
+function entriesDisturbanceSet(text) {
+  const fresh = entriesDisturbance !== text;
+  entriesDisturbance = text;
+  return fresh ? 'error' : null;
+}
 async function loadEntriesPart() {
   const t = D?.parts?.entries;
   const key = stateKey(D);
   // `head_only`: the server has no full list (light head for a very large store).
   if (!t || t.head_only || !key || key === entriesLoad.key || key === entriesLoadingFor) return null;
-  const run = ++entriesRun;
+  const run = runStart('entries');
   entriesLoadingFor = key;
   const wasThere = partState.entries === 'ok';
   if (!wasThere) partState.entries = 'loading';
@@ -542,17 +553,29 @@ async function loadEntriesPart() {
   let from = 0;
   let stateId = null;
   let windowed = false; // atlas-pass-cm: the compact build lists only the newest window of the store
+  let restarts = 0;
+  const pagesMax = Math.ceil(ENTRIES_CAP / Math.max(1, t.page || 5000)) + 1;
+  const budget = runBudget({ deadlineMs: ENTRIES_DEADLINE_MS, requests: pagesMax * (ENTRIES_RESTARTS + 1) });
+  let end = null; // end state without an exception: 'state' | 'deadline' | 'budget'
   try {
     while (from !== null && list.length < ENTRIES_CAP) {
+      const limit = budget.take();
+      if (limit) { end = limit; break; }
       const n = Math.min(t.page || 5000, ENTRIES_CAP - list.length);
       // Literal, not t.path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
-      const r = await fetch('/dashboard/part.json?part=entries&from=' + from + '&n=' + n, { credentials: 'same-origin', cache: 'no-store' });
+      const r = await fetch('/dashboard/part.json?part=entries&from=' + from + '&n=' + n, { credentials: 'same-origin', cache: 'no-store', signal: run.signal });
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
-      if (run !== entriesRun) return null; // a newer run took over
+      if (!run.holds()) return null; // a newer run took over
       if (b.building) { partLaterAgain(); return null; }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
-      if (stateId !== null && b.state_id !== stateId) { list.length = 0; from = 0; stateId = null; continue; }
+      // Another state in the middle of the run: never mix pages of different states, at most restart a bounded number of times.
+      if (stateId !== null && b.state_id !== stateId) {
+        list.length = 0; from = 0; stateId = null;
+        restarts += 1;
+        if (restarts > ENTRIES_RESTARTS) { end = 'state'; break; }
+        continue;
+      }
       stateId = b.state_id;
       list.push(...b.data);
       from = b.next;
@@ -560,12 +583,21 @@ async function loadEntriesPart() {
       entriesLoad.total = b.total;
     }
   } catch (e) {
+    if (runAborted(e) || !run.holds()) return null;
     partReason.entries = e?.message || String(e);
     if (partState.entries !== 'ok') partState.entries = 'error';
-    return null;
+    return entriesDisturbanceSet('The entry list could not be loaded: ' + partReason.entries);
   } finally {
-    if (run === entriesRun) entriesLoadingFor = null;
+    if (run.holds()) entriesLoadingFor = null;
   }
+  if (!run.holds()) return null;
+  if (end) {
+    // End state instead of a silent loop or a mixed list: a list that is already whole stays in place.
+    partReason.entries = end === 'state' ? ENTRIES_STATE_TEXT : end === 'deadline' ? 'Time limit for loading the entries exceeded — please load again.' : 'Request budget for loading the entries used up — please load again.';
+    if (!wasThere) partState.entries = 'error';
+    return entriesDisturbanceSet(partReason.entries);
+  }
+  entriesDisturbance = null;
   const before = entries.length;
   setEntries(list);
   entriesLoad = { full: from === null && !windowed, loaded: entries.length, total: entriesLoad.total, key };
@@ -636,7 +668,7 @@ async function loadParts() {
   // The entries concern every view (start page, net, lists): draw once when
   // they are complete for the first time, afterwards only the marker.
   const e = await entriesRun1;
-  if (e === 'first' || firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
+  if (e === 'first' || e === 'error' || firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
   else if (otherChanged || e === 'changed') showNewDataMark();
 }
 function partNotice(name, title) {
@@ -783,9 +815,10 @@ function render() {
     }
   }
   // board-tempo-cm: only a part of the entries is loaded -> every view says so (never a part as the whole).
-  const partBanner = !D.placeholder && !entriesLoad.full && D.overview
+  const disturbanceHtml = entriesDisturbance ? `<div id="entriesDisturbance">${note(esc(entriesDisturbance), 'bad')}<p style="margin:8px 0 12px">${btn('Load again', 'reload', '', 'small ghost')}</p></div>` : '';
+  const partBanner = disturbanceHtml + (!D.placeholder && !entriesLoad.full && D.overview
     ? '<div id="entriesLoad">' + note(`${num(entriesLoad.loaded)} of ${num(entriesLoad.total || D.overview.count)} entries loaded${D.parts?.entries?.head_only ? ' — the server only has the counters and the newest entries for a store this large' : D.parts?.entries?.window || entriesLoad.loaded >= ENTRIES_CAP ? ' — lists show the newest, all through the search' + (D.atlas?.condensed ? '; the atlas shows all of them as topics' : '') : ' — the rest is loading, the lists are not complete yet'}.`) + '</div>'
-    : '';
+    : '');
   // The compact build (a store the full build cannot handle) is no unreadable source but a limit: say that.
   const compactNote = D.compact ? note(esc((D.reasons || [])[0] || 'The compact build runs.') + ' What needs the whole store is unknown, not zero — each view says why.') : '';
   // A light head is no unreadable source but a limit: say that instead.

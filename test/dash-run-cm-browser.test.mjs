@@ -160,3 +160,51 @@ test(`F18 RED on the fixed old state (${OLD}): the late answer A overwrites B (p
     assert.ok(r.title !== 'Message B' || r.probe !== 'B', `the old state showed no fault (${JSON.stringify(r)}) — the probe would not catch it`);
   });
 });
+
+// ---------------------------------------------------------------- F19
+// The state of the entry list changes on every second page. `images` names the screenshots; `old` waits
+// for the end of the endless fixture instead of for the visible notice (the old state has none).
+async function scenarioF19(page, base, { images = null, old = false } = {}) {
+  let mode = 'change';
+  let n = 0;
+  const row = (i) => ({ id: 'fake-' + i, ts: '2026-09-01T00:00:00Z', title: 'Probe ' + i, text: 't', tags: [], agent: 'probe', type: 'learning', project: 'global', readable: true });
+  await page.route('**/dashboard/part.json?part=entries*', (rt) => {
+    n += 1;
+    if (mode === 'stable') return rt.fulfill({ json: { state: 'ok', part: 'entries', data: [row(1), row(2)], state_id: 'fixed', next: null, total: 2, window: false } });
+    // old state: endless; the probe ends it itself after 400 requests
+    return rt.fulfill({ json: { state: 'ok', part: 'entries', data: [row(n)], state_id: n % 2, next: n > 400 ? null : 1, total: 400, window: false } });
+  });
+  await page.goto(`${base}/dashboard#home`, { waitUntil: 'load' });
+  await waitReady(page);
+  if (old) await page.waitForFunction(() => document.querySelector('#entriesLoad') !== null, null, { timeout: 30000 }).catch(() => {});
+  else await page.waitForSelector('#entriesDisturbance', { timeout: 30000 });
+  if (old) for (let i = 0; i < 200 && n <= 400; i += 1) await page.waitForTimeout(100);
+  const asked = n;
+  const text = await page.evaluate(() => document.querySelector('#entriesDisturbance')?.textContent || '');
+  const mixed = await page.evaluate(() => entries.filter((e) => e.id.startsWith('fake-')).length);
+  if (images) await shots(page, images, '#entriesDisturbance, #entriesLoad');
+  return { asked, text, mixed, setStable: () => { mode = 'stable'; } };
+}
+
+test('F19: the state changes on every second page -> bounded, visible notice, one click fetches the list', { skip: SKIP, timeout: 300000 }, async () => {
+  await withPage(world({ n: 400 }), {}, async (page, base, errors) => {
+    const r = await scenarioF19(page, base, { images: 'f19-entries-after' });
+    assert.ok(r.asked >= 2, 'positive control: the page asks for the entry list');
+    assert.ok(r.asked <= 40, `requests ${r.asked} (old state: until the fixture ends)`);
+    assert.match(r.text, /changing/, 'visible end state: ' + r.text);
+    assert.match(r.text, /Load again/, 'the notice carries the button');
+    assert.equal(r.mixed, 0, 'no mixed list was taken over as the state');
+    r.setStable();
+    await page.locator('#entriesDisturbance [data-action="reload"]').click();
+    await page.waitForFunction(() => !document.querySelector('#entriesDisturbance') && entries.length === 2 && entries.every((e) => e.id.startsWith('fake-')), null, { timeout: 30000 });
+    assert.deepEqual(errors, []);
+  });
+});
+
+test(`F19 RED on the fixed old state (${OLD}): the loop runs until the fixture ends, no notice (positive control: green on the new state)`, { skip: SKIP || NO_OLD, timeout: 300000 }, async () => {
+  await withPage(world({ n: 400 }), { script: oldScript }, async (page, base) => {
+    const r = await scenarioF19(page, base, { images: 'f19-entries-before', old: true });
+    assert.ok(r.asked > 40, `the old state asked only ${r.asked} times — the probe would not catch the endless loop`);
+    assert.equal(r.text, '', 'the old state shows no notice');
+  });
+});
