@@ -320,10 +320,12 @@ test('inventory: every body-reading route calls writegate.refusal(), and WRITE_P
   assert.ok(at > 0, 'the probe handler moved — re-read this exception');
   const end = src.indexOf('if (url.pathname ===', at + 10);
   const probe = src.slice(at, end);
-  assert.equal((probe.match(/req\.on\('data'/g) || []).length, 1, 'the probe handler reads more than its question');
+  // F21: since the shared reader (src/body-reader.mjs) a "body reader" is a call of it (or, as before, a raw req.on('data')).
+  const READER = /req\.on\('data'|readBoundedBody\(req/g;
+  assert.equal((probe.match(READER) || []).length, 1, 'the probe handler reads more than its question');
   assert.equal((probe.match(/writegate\.refusal\(/g) || []).length, 0);
   const rest = src.slice(0, at) + src.slice(end);
-  const readers = (rest.match(/req\.on\('data'/g) || []).length;
+  const readers = (rest.match(READER) || []).length;
   const gates = (rest.match(/writegate\.refusal\(/g) || []).length;
   assert.ok(readers >= 2, 'no body reader found — the probe measures nothing');
   assert.equal(gates, readers, `${readers} body readers, but ${gates} gate calls`);
