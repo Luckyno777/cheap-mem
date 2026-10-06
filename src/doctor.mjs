@@ -24,6 +24,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import v8 from 'node:v8';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { processAlive } from './processalive.mjs';
 import * as memory from './memory.mjs';
@@ -363,6 +364,14 @@ export const OK_OVER_ZERO = Object.freeze({
 });
 
 export function checkAll(root) {
+  // One doctor run = one index context: the full index is built AT MOST
+  // ONCE, however many findings read it (see `doctorIndex`).
+  const before = RUN_INDEX;
+  RUN_INDEX = { root, result: null };
+  try { return checkAllCore(root); } finally { RUN_INDEX = before; }
+}
+
+function checkAllCore(root) {
   const f = [];
   f.push(checkRoot(root));
   f.push(checkConfig(root));
@@ -551,6 +560,8 @@ export function checkFactConflicts(root) {
 // rule is in the spec now; this check measures whether it works.
 // Deterministic.
 export function checkTopicQuality(root) {
+  const tooBig = fullReadLimit(root, 'topic-quality');
+  if (tooBig) return tooBig;
   let q;
   try { q = memory.topicQuality(root); }
   catch { return finding('topic-quality', LEVEL.UNKNOWN, 'topics unreadable'); }
@@ -594,6 +605,8 @@ export function checkTopicQuality(root) {
 const CATEGORIES_UNASSIGNED_WARN = 0.5;
 const CATEGORIES_OPEN_WARN = 100;
 function checkCategories(root) {
+  const tooBig = fullReadLimit(root, 'categories');
+  if (tooBig) return tooBig;
   let v;
   try { v = categories.view(root); }
   catch { return finding('categories', LEVEL.UNKNOWN, 'categories unreadable'); }
@@ -899,6 +912,8 @@ export function checkErrorLinked(root, { now = new Date() } = {}) {
  *   good     none ripe
  */
 export function checkSkillSharpen(root, { now = new Date() } = {}) {
+  const tooBig = fullReadLimit(root, 'skill-sharpen');
+  if (tooBig) return tooBig;
   let ps;
   try { ps = experience.packages(root, { now }); }
   catch (e) { return finding('skill-sharpen', LEVEL.UNKNOWN, `registry unreadable: ${e?.message || e}`); }
@@ -954,6 +969,8 @@ export function checkGuardSuspicion(root) {
  * Numbers, not a causal proof; nothing is withdrawn.
  */
 export function checkProcedureEffect(root, { now = new Date() } = {}) {
+  const tooBig = fullReadLimit(root, 'procedure-effect');
+  if (tooBig) return tooBig;
   let w;
   try { w = experience.procedureEffect(root, { now }); }
   catch (e) { return finding('procedure-effect', LEVEL.UNKNOWN, `not checkable: ${e?.message || e}`); }
@@ -1185,16 +1202,37 @@ export function checkContestedClaims(root) {
   try { projects = memory.listProjects(root); } catch { projects = []; }
   for (const project of [null, ...projects]) {
     for (const type of Object.keys(memory.TYPES)) {
+      // Two passes per drawer (memory-bounded doctor, ported from lucky-mem):
+      // pass 1 counts the pointers and notes only the ids they NAME (plus
+      // `by_id` of a late supersession, as `retiredMapFromFiles` does);
+      // pass 2 (only when pointers exist) keeps just the pointer lines and
+      // those named targets. `retiredMap` sees every line that can change
+      // its answer, in file order — never the whole drawer.
+      let any = false;
+      let hasPointer = false;
+      const wanted = new Set();
+      try {
+        for (const e of memory.iterLog(root, type, { project })) {
+          if (!e || e.__broken) continue;
+          any = true;
+          let pointer = false;
+          for (const f of authority.STATE_FIELDS) {
+            if (e[f]) { pointers += 1; pointer = true; wanted.add(e[f]); }
+          }
+          if (e.retires_id && e.state === 'superseded' && e.by_id) wanted.add(e.by_id);
+          if (pointer) hasPointer = true;
+        }
+      } catch { continue; }
+      read += 1;
+      if (!any || !hasPointer) continue;
       const entries = [];
       try {
         for (const e of memory.iterLog(root, type, { project })) {
           if (!e || e.__broken) continue;
-          entries.push(e);
-          for (const f of authority.STATE_FIELDS) if (e[f]) pointers += 1;
+          if (typeof e.id === 'string' && wanted.has(e.id)) entries.push(e);
+          else if (authority.STATE_FIELDS.some((f) => e[f])) entries.push(e);
         }
       } catch { continue; }
-      read += 1;
-      if (!entries.length) continue;
       for (const [id, rec] of memory.retiredMap(entries)) {
         if (rec.state !== 'disputed') continue;
         contested.push({ id, ts: rec.ts ?? null, why: rec.why, target: rec.by,
@@ -1318,7 +1356,9 @@ function* checkDrawers(root) {
   let scan;
   try {
     files = integrity.logFiles(root);
-    scan = integrity.scanIntegrity(root);
+    const tooBig = fullReadLimit(root, 'drawers');
+    if (tooBig) { yield tooBig; return; }
+    scan = scanIntegrityOnce(root);
   } catch (e) {
     // Not measurable is not zero drawers, and not health.
     yield finding('drawers', LEVEL.UNKNOWN, `logs unreadable: ${e.message}`);
@@ -1374,8 +1414,10 @@ function checkOrphanDrawers(root) {
     // them. The real question this finding answers ("did anything get
     // filed under a name nothing reads") only has an answer once
     // something has been filed at all.
+    const tooBig = fullReadLimit(root, 'orphan-drawers');
+    if (tooBig) return tooBig;
     let entries = 0;
-    try { ({ entries } = integrity.scanIntegrity(root)); } catch { /* fall through to unknown below */ }
+    try { ({ entries } = scanIntegrityOnce(root)); } catch { /* fall through to unknown below */ }
     if (entries === 0) {
       return finding('orphan-drawers', LEVEL.UNKNOWN,
         'no entries in any log yet — nothing has been filed anywhere to check for orphans');
@@ -1527,8 +1569,11 @@ function checkDigest(root) {
 function checkSynonyms(root) {
   let cfg; try { cfg = cfgmod.readConfig(root); } catch { cfg = { language: 'en' }; }
   let idx;
-  try { idx = search.loadIndex(root, { language: cfg.language }); }
-  catch { return finding('synonyms', LEVEL.UNKNOWN, 'index not readable'); }
+  try {
+    const q = doctorIndex(root);
+    if (q.kind === 'none') return finding('synonyms', LEVEL.UNKNOWN, `not measurable — ${q.reason}`);
+    idx = q.index;
+  } catch { return finding('synonyms', LEVEL.UNKNOWN, 'index not readable'); }
   const docs = idx.documents ?? [];
   if (docs.length < 5) return finding('synonyms', LEVEL.UNKNOWN, 'too few entries to judge');
 
@@ -1566,10 +1611,16 @@ function checkSynonyms(root) {
 
 function checkIndex(root) {
   try {
-    const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
     const t0 = Date.now();
-    const idx = search.loadIndex(root, { language: cfg.language });
+    const q = doctorIndex(root);
     const ms = Date.now() - t0;
+    if (q.kind === 'none') {
+      // Not measurable is neither "good" nor "empty".
+      return finding('index', LEVEL.UNKNOWN, `not measurable — ${q.reason}`,
+        'Run the doctor with more heap (node --max-old-space-size=...), or raise '
+        + 'MEM_DOCTOR_FULLBUILD_MAX_MIB if the machine can take a full index build.');
+    }
+    const idx = q.index;
     if (idx.N === 0) {
       return finding('index', LEVEL.WARN, 'empty index — nothing to search',
         'Normal for a fresh memory. Otherwise check that the drawers are really filled.');
@@ -1580,6 +1631,91 @@ function checkIndex(root) {
   } catch (e) {
     return finding('index', LEVEL.ERROR, e.message, '`mem find --fresh` forces a rebuild.');
   }
+}
+
+/**
+ * The index for the doctor's findings — with a fixed memory ceiling.
+ *
+ * Measured (lucky-mem, betrieb/messung/speicher-breite-10m-2026-10-06.md):
+ * the doctor loaded a full index in `index`, again in
+ * `correction-content-loss`, and several findings read the whole corpus;
+ * at 100k entries that took 2.6 GiB and died with "Map maximum size
+ * exceeded". So:
+ *
+ *  - small corpus (source bytes <= `MEM_DOCTOR_FULLBUILD_MAX_MIB`,
+ *    default 32 MiB, never above 1/40 of this process's heap limit):
+ *    one full index, built AT MOST ONCE per doctor run (`RUN_INDEX`);
+ *  - large corpus: `kind: 'none'` — the caller reports "not measurable",
+ *    never a zero. (lucky-mem reads its on-disk register read-only
+ *    here; cheap-mem has no register, so there is nothing cheaper to
+ *    read, and saying so is the honest answer.)
+ */
+const FULLBUILD_MAX_MIB_DEFAULT = 32;
+let RUN_INDEX = null;
+let FULL_INDEX_BUILDS = 0;
+/** How many full indexes the doctor has built since process start (probes). */
+export function fullIndexBuildCount() { return FULL_INDEX_BUILDS; }
+
+/** `integrity.scanIntegrity` reads every log whole; within one doctor run, once is enough. */
+function scanIntegrityOnce(root) {
+  const run = RUN_INDEX && RUN_INDEX.root === root ? RUN_INDEX : null;
+  if (run?.integrity) return run.integrity;
+  const r = integrity.scanIntegrity(root);
+  if (run) run.integrity = r;
+  return r;
+}
+
+function sourceBytes(root) {
+  let sum = 0;
+  for (const info of search.indexedFiles(root).values()) sum += info.bytes ?? 0;
+  return sum;
+}
+
+export function doctorIndex(root, { bounded = true } = {}) {
+  const run = RUN_INDEX && RUN_INDEX.root === root ? RUN_INDEX : null;
+  if (run?.result) return run.result;
+  const maxMib = Number(process.env.MEM_DOCTOR_FULLBUILD_MAX_MIB);
+  const explicit = process.env.MEM_DOCTOR_FULLBUILD_MAX_MIB !== undefined
+    && process.env.MEM_DOCTOR_FULLBUILD_MAX_MIB !== '' && Number.isFinite(maxMib) && maxMib >= 0;
+  const cap = explicit
+    ? maxMib * 1024 * 1024
+    : Math.min(FULLBUILD_MAX_MIB_DEFAULT * 1024 * 1024, v8.getHeapStatistics().heap_size_limit / 40);
+  const bytes = sourceBytes(root);
+  let result;
+  if (!bounded || bytes <= cap) {
+    const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
+    FULL_INDEX_BUILDS += 1;
+    result = { kind: 'full', index: search.loadIndex(root, { language: cfg.language }), bytes };
+  } else {
+    result = {
+      kind: 'none', bytes,
+      reason: `the corpus (${Math.round(bytes / 1048576)} MiB) is too large for a full index inside the doctor `
+        + `(ceiling ${Math.round(cap / 1048576)} MiB) and there is no register to read instead`,
+    };
+  }
+  if (run) run.result = result;
+  return result;
+}
+
+/**
+ * Ceiling for findings that load the WHOLE corpus into memory. They need
+ * roughly two to three times the source bytes as heap; rather than let
+ * the process die, the finding says "not measurable" once
+ * `source bytes * factor` exceeds this process's heap limit. Ordinary
+ * corpora (heap in GiB) never notice. `MEM_DOCTOR_FULLREAD_FACTOR`
+ * moves the factor (probes). Returns a finding, or null when it fits.
+ */
+const FULLREAD_FACTOR_DEFAULT = 5;
+function fullReadLimit(root, name) {
+  const factor = Number(process.env.MEM_DOCTOR_FULLREAD_FACTOR) || FULLREAD_FACTOR_DEFAULT;
+  const limit = v8.getHeapStatistics().heap_size_limit;
+  let bytes;
+  try { bytes = sourceBytes(root); } catch { return null; }
+  if (bytes * factor <= limit) return null;
+  return finding(name, LEVEL.UNKNOWN,
+    `not measurable — this finding reads the whole corpus (${Math.round(bytes / 1048576)} MiB) into memory, `
+    + `which does not fit this process's heap limit (${Math.round(limit / 1048576)} MiB); it did not run, there is no result`,
+    'Run again with more heap (node --max-old-space-size=...) or move the finding to a streaming reader.');
 }
 
 /**
@@ -1619,38 +1755,70 @@ function checkIndex(root) {
  */
 export function correctionLossHits(root, opts = {}) {
   const rareDf = opts.rareDf ?? (Number(process.env.MEM_CORRECTION_RARE_DF) || search.RARE_DF);
-  const cfg = (() => { try { return cfgmod.readConfig(root); } catch { return { language: 'en' }; } })();
-  const idx = search.loadIndex(root, { language: cfg.language });
+  // `bounded` (the doctor finding): the memory ceiling of `doctorIndex`
+  // applies. Without it (`mem correction intended`, one pair, one
+  // process) the full index is loaded as it always was.
+  const q = doctorIndex(root, { bounded: opts.bounded === true });
+  if (q.kind === 'none') {
+    const err = new Error(q.reason);
+    err.code = 'INDEX_NOT_MEASURABLE';
+    throw err;
+  }
+  const idx = q.index;
 
-  const byId = new Map();
+  // Streaming over the documents (2026-10-06, memory-bounded doctor): not a
+  // second map of EVERY entry by id. Pass 1 keeps only the corrections as
+  // small triples (id, replaces_id, closing); pass 2 fetches the few
+  // entries those triples point at (predecessors and chain members).
+  // Same result as the old `byId` map over all documents, a later
+  // duplicate id still wins.
+  const corr = new Map(); // id -> { id, replaces_id, closing }
+  const need = new Set();
   for (const d of idx.documents) {
-    if (d?.entry?.id) byId.set(d.entry.id, d.entry);
+    const e = d?.entry;
+    if (!e?.id) continue;
+    if (e.replaces_id) {
+      corr.set(e.id, { id: e.id, replaces_id: e.replaces_id, closing: memory.isClosingCorrection(e) });
+      need.add(e.id);
+      need.add(e.replaces_id);
+    } else if (corr.has(e.id)) {
+      corr.delete(e.id); // a later line with this id carries no correction: it wins
+    }
+  }
+  const byId = new Map(); // only the entries pass 1 named
+  if (need.size) {
+    for (const d of idx.documents) {
+      const e = d?.entry;
+      if (e?.id && need.has(e.id)) byId.set(e.id, e);
+    }
   }
 
-  const successor = new Map(); // id -> the entry that supersedes it (content-carrying only)
-  for (const e of byId.values()) {
-    if (e.replaces_id && !memory.isClosingCorrection(e)) successor.set(e.replaces_id, e);
+  const successor = new Map(); // id -> id of the entry that supersedes it (content-carrying only)
+  for (const c of corr.values()) {
+    if (!c.closing) successor.set(c.replaces_id, c.id);
   }
-  const headOf = (e) => {
-    let h = e;
+  const headIdOf = (id) => {
+    let h = id;
     const seen = new Set();
-    while (successor.has(h.id) && !seen.has(h.id)) { seen.add(h.id); h = successor.get(h.id); }
+    while (successor.has(h) && !seen.has(h)) { seen.add(h); h = successor.get(h); }
     return h;
   };
 
   let checked = 0;
   const hits = [];
-  for (const entry of byId.values()) {
-    if (!entry.replaces_id) continue;
-    const original = byId.get(entry.replaces_id);
+  for (const c of corr.values()) {
+    const original = byId.get(c.replaces_id);
     // Predecessor not (or no longer) in the corpus — a different finding
     // (orphans) covers that; nothing to compare here.
     if (!original) continue;
-    if (memory.isClosingCorrection(entry)) continue;
+    if (c.closing) continue;
+    const entry = byId.get(c.id);
+    if (!entry) continue;
     checked += 1;
     const lost = search.lostCorrectionContent(original, entry, { docFreq: idx.docFreq, rareDf });
     if (!lost.lost) continue;
-    const head = headOf(entry);
+    const headId = headIdOf(entry.id);
+    const head = headId === entry.id ? entry : (byId.get(headId) ?? entry);
     if (head.id !== entry.id
       && !search.lostCorrectionContent(original, head, { docFreq: idx.docFreq, rareDf }).lost) {
       // A later link in the chain already restored it — the head holds
@@ -1662,11 +1830,15 @@ export function correctionLossHits(root, opts = {}) {
   return { checked, hits, rareDf };
 }
 
-function checkCorrectionContentLoss(root) {
+export function checkCorrectionContentLoss(root) {
   let result;
   try {
-    result = correctionLossHits(root);
+    result = correctionLossHits(root, { bounded: true });
   } catch (e) {
+    if (e?.code === 'INDEX_NOT_MEASURABLE') {
+      return finding('correction-content-loss', LEVEL.UNKNOWN, `not measurable — ${e.message}`,
+        'Run the doctor with more heap (node --max-old-space-size=...) or raise MEM_DOCTOR_FULLBUILD_MAX_MIB.');
+    }
     return finding('correction-content-loss', LEVEL.UNKNOWN,
       `could not build the index (${e.message})`, 'Retry once `mem find --fresh` works again.');
   }
@@ -2087,8 +2259,10 @@ function checkCaptureRejected(root) {
  * leak.
  */
 export function checkIntegrity(root) {
+  const tooBig = fullReadLimit(root, 'integrity');
+  if (tooBig) return tooBig;
   let r;
-  try { r = integrity.scanIntegrity(root); }
+  try { r = scanIntegrityOnce(root); }
   catch { return finding('integrity', LEVEL.UNKNOWN, 'logs unreadable'); }
 
   const parts = [`${r.entries} entries in ${r.lines} lines`];
@@ -2755,8 +2929,10 @@ export const CORPUS_WARN_THRESHOLD = 50000;
  * growing towards one.
  */
 export function checkCorpusSize(root) {
+  const tooBig = fullReadLimit(root, 'corpus-size');
+  if (tooBig) return tooBig;
   let entries;
-  try { ({ entries } = integrity.scanIntegrity(root)); }
+  try { ({ entries } = scanIntegrityOnce(root)); }
   catch { return finding('corpus-size', LEVEL.UNKNOWN, 'logs unreadable'); }
 
   let threshold = CORPUS_WARN_THRESHOLD;

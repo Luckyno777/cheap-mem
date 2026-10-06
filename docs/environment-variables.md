@@ -91,6 +91,8 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_DIGEST_TIMEOUT` | 600 | Seconds one digest run may take. |
 | `MEM_DIGEST_VOLUME_MIN_KB` | not set (the due check's own default, 32 KB) | Pending raw volume in KB below which a digest is not worth a call, until the ceiling. |
 | `MEM_DIGEST_VOLUME_NOW_KB` | not set (the due check's own default, 500 KB) | Pending raw volume in KB at which a digest is due at once, however fresh the last capture. |
+| `MEM_DOCTOR_FULLBUILD_MAX_MIB` | 32 (never above 1/40 of the heap limit) | Source MiB up to which the doctor builds a full search index; above it the index findings say "not measurable". |
+| `MEM_DOCTOR_FULLREAD_FACTOR` | 5 | Factor of source bytes to heap limit above which whole-corpus doctor findings say "not measurable" instead of dying. |
 | `MEM_GOLD_TIMEOUT` | 300 | Seconds the digest gives the daily gold-miss collection. |
 | `MEM_HANDLER_PROMPT` | the built-in prompt | The prompt the letter handler gives the model. |
 | `MEM_RECALL_SERVER_RESTART_MS` | 60000 | Shortest gap between two automatic restarts of the recall server after a code change. |
