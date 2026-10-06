@@ -44,15 +44,17 @@ async function startServer() {
 
 async function openExport(base, oldScript = null) {
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
-  const page = await ctx.newPage();
-  if (oldScript) await page.route(/\/dashboard\/app\.js(\?|$)/, (r) => r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: oldScript }));
-  await page.goto(base + '/dashboard', { waitUntil: 'load', timeout: 60000 });
-  await waitReady(page);
-  await page.evaluate(() => { location.hash = '#sources/export'; });
-  await page.waitForSelector('#exportProject');
-  await page.selectOption('#exportProject', 'demo');
-  await page.dispatchEvent('#exportProject', 'change');
-  return { ctx, page };
+  try {
+    const page = await ctx.newPage();
+    if (oldScript) await page.route(/\/dashboard\/app\.js(\?|$)/, (r) => r.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: oldScript }));
+    await page.goto(base + '/dashboard', { waitUntil: 'load', timeout: 60000 });
+    await waitReady(page);
+    await page.evaluate(() => { location.hash = '#sources/export'; });
+    await page.waitForSelector('#exportProject');
+    await page.selectOption('#exportProject', 'demo');
+    await page.dispatchEvent('#exportProject', 'change');
+    return { ctx, page };
+  } catch (e) { await ctx.close(); throw e; }
 }
 
 test(`RED on the fixed old state (${OLD.slice(0, 8)}): the button gives no download (positive control: the button is there)`, NEEDS, async (t) => {
@@ -62,19 +64,25 @@ test(`RED on the fixed old state (${OLD.slice(0, 8)}): the button gives no downl
     return;
   }
   const s = await startServer();
-  const { ctx, page } = await openExport(s.base, old);
+  let ctx = null;
   try {
+    const opened = await openExport(s.base, old);
+    ctx = opened.ctx;
+    const page = opened.page;
     assert.equal(await page.locator('#screen button[data-action="export-json"]').count(), 1, 'positive control');
     const dl = page.waitForEvent('download', { timeout: 4000 }).then(() => true, () => false);
     await page.locator('#screen button[data-action="export-json"]').click({ force: true });
     assert.equal(await dl, false, 'RED: the old state downloads nothing');
-  } finally { await ctx.close(); await s.stop(); }
+  } finally { await ctx?.close(); await s.stop(); }
 });
 
 test('GREEN: the click downloads the package; preview number = package header number', NEEDS, async () => {
   const s = await startServer();
-  const { ctx, page } = await openExport(s.base);
+  let ctx = null;
   try {
+    const opened = await openExport(s.base);
+    ctx = opened.ctx;
+    const page = opened.page;
     await page.waitForSelector('#exportCount');
     const shown = Number((await page.textContent('#exportCount')).replace(/\D/g, ''));
     assert.equal(shown, 11, 'demo (7) plus the global foundations (4)');
@@ -87,5 +95,5 @@ test('GREEN: the click downloads the package; preview number = package header nu
     await page.uncheck('#exportGlobal');
     await page.dispatchEvent('#exportGlobal', 'change');
     await page.waitForFunction(() => document.querySelector('#exportCount')?.textContent.trim() === '7');
-  } finally { await ctx.close(); await s.stop(); }
+  } finally { await ctx?.close(); await s.stop(); }
 });
