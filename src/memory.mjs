@@ -1637,39 +1637,112 @@ export function linksOfMany(root, ids, { withRetired = false, byId: prebuilt = n
  * experience you cannot argue with is a dogma.
  */
 export function standing(root) {
-  const byId = entriesById(root);
+  return standingStreaming(root, { withTargets: false }).rec;
+}
+
+/**
+ * The held drawers of the memory in the exact order `entriesById()` walks
+ * them, with only the set of retired ids kept per drawer (not the entries).
+ */
+function heldDrawers(root) {
+  const drawers = [];
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      const p = logPath(root, type, project);
+      if (!fs.existsSync(p)) continue;
+      drawers.push({ project, type, path: p, retired: new Set(retiredMapFromFiles([p]).keys()) });
+    }
+  }
+  return drawers;
+}
+
+function* heldEntries(drawers) {
+  for (const { project, type, path: p, retired } of drawers) {
+    for (const e of iterLogFile(p)) {
+      if (!e.id || !holds(e, retired)) continue;
+      yield { e, type, project };
+    }
+  }
+}
+
+/**
+ * `standing()` without the map of ALL entries (memory finding, 10M gate
+ * 2026-10-06: `entriesById()` holds ~1 KiB per entry, and the session-start
+ * block `core()` -> `experiences()` -> `standing()` died on it). Streams
+ * the drawers in three passes; only citing entries (with provenance), the
+ * cited ids and, with `withTargets`, the entries of the cited ids are kept.
+ *
+ *   1. Who cites whom (provenance and link targets).
+ *   2. First-found rank per concerned id (`seq` = rank among all held
+ *      entries with an id), so the first-found rule of `entriesById()`
+ *      survives duplicate ids; the cited entries are kept.
+ *   3. Count the link edges against the found ids.
+ *
+ * Same counts, same insertion order of `rec` as before.
+ */
+function standingStreaming(root, { withTargets }) {
+  const drawers = heldDrawers(root);
+  const citers = [];                 // { id, seq, srcs } in reading order
+  const targets = new Set();         // cited ids (candidates)
+  const citerIds = new Set();
+  let seq = 0;
+  for (const { e } of heldEntries(drawers)) {
+    seq += 1;
+    const srcs = derivedFrom(e);
+    if (!srcs.length) continue;
+    citers.push({ id: e.id, seq, srcs });
+    citerIds.add(e.id);
+    for (const x of srcs) targets.add(x);
+  }
+  const linkLines = function* () {
+    for (const project of [null, ...listProjects(root)]) {
+      const p = logPath(root, 'link', project);
+      if (!fs.existsSync(p)) continue;
+      yield* iterLogFile(p);
+    }
+  };
+  for (const l of linkLines()) {
+    if (l.__broken || isClosingLine(l)) continue;
+    const to = l.to ?? l.target ?? null;
+    if (to) targets.add(to);
+  }
+
+  const first = new Map();           // id -> seq of the first held entry
+  const entries = new Map();         // id -> { e, seq } (cited ids only, withTargets)
+  seq = 0;
+  for (const { e, type, project } of heldEntries(drawers)) {
+    seq += 1;
+    if (first.has(e.id)) continue;
+    const isTarget = targets.has(e.id);
+    if (!isTarget && !citerIds.has(e.id)) continue;
+    first.set(e.id, seq);
+    if (withTargets && isTarget) entries.set(e.id, { e: { ...e, _type: type, _project: project }, seq });
+  }
+
   const rec = new Map();
   const of = (id) => {
     if (!rec.has(id)) rec.set(id, { id, cited: 0, contested: false, by: [] });
     return rec.get(id);
   };
-
-  for (const [, e] of byId) {
-    // Both spellings, via derivedFrom — previously `standing` only
-    // counted `origin.derived_from`, and an origin written in the other
-    // form gave the cited entry no weight at all.
-    for (const src of derivedFrom(e)) {
-      if (!byId.has(src)) continue;
+  for (const c of citers) {
+    if (first.get(c.id) !== c.seq) continue;   // duplicate id: only the first-found counts
+    for (const src of c.srcs) {
+      if (!first.has(src)) continue;
       const r = of(src);
       r.cited += 1;
-      r.by.push(e.id);
+      r.by.push(c.id);
     }
   }
-
-  for (const project of [null, ...listProjects(root)]) {
-    let res;
-    try { res = readLog(root, 'link', { project }); } catch { continue; }
-    for (const l of res.entries) {
-      if (l.__broken || isClosingLine(l)) continue;
-      const to = l.to ?? l.target ?? null;
-      const fromId = l.from ?? l.source ?? null;
-      if (!to || !byId.has(to)) continue;
-      const r = of(to);
-      if (l.kind === 'contradicts') r.contested = true;
-      else { r.cited += 1; if (fromId) r.by.push(fromId); }
-    }
+  for (const l of linkLines()) {
+    if (l.__broken || isClosingLine(l)) continue;
+    const to = l.to ?? l.target ?? null;
+    const fromId = l.from ?? l.source ?? null;
+    if (!to || !first.has(to)) continue;
+    const r = of(to);
+    if (l.kind === 'contradicts') r.contested = true;
+    else { r.cited += 1; if (fromId) r.by.push(fromId); }
   }
-  return rec;
+  return { rec, entries };
 }
 
 /**
@@ -1678,6 +1751,22 @@ export function standing(root) {
  * it. Deterministic — no model, no telemetry.
  */
 export function experiences(root, { minCited = 0, type = 'learning' } = {}) {
+  const byCitedThenTs = (a, b) => (b.cited - a.cited)
+    || String(b.ts ?? '').localeCompare(String(a.ts ?? ''));
+  if (minCited >= 1) {
+    // Only cited entries qualify: load just those ids, never the whole memory.
+    const { rec, entries } = standingStreaming(root, { withTargets: true });
+    const cands = [];
+    for (const [id, r] of rec) {
+      const t = entries.get(id);
+      if (!t || t.e._type !== type || r.cited < minCited) continue;
+      cands.push({ seq: t.seq, e: t.e, r });
+    }
+    cands.sort((a, b) => a.seq - b.seq);   // order of entriesById()
+    const out = cands.map(({ e, r }) => ({ ...e, cited: r.cited, contested: r.contested, backedBy: r.by }));
+    out.sort(byCitedThenTs);
+    return out;
+  }
   const back = standing(root);
   const out = [];
   for (const [, e] of entriesById(root)) {
@@ -1686,8 +1775,7 @@ export function experiences(root, { minCited = 0, type = 'learning' } = {}) {
     if (r.cited < minCited) continue;
     out.push({ ...e, cited: r.cited, contested: r.contested, backedBy: r.by });
   }
-  out.sort((a, b) => (b.cited - a.cited)
-    || String(b.ts ?? '').localeCompare(String(a.ts ?? '')));
+  out.sort(byCitedThenTs);
   return out;
 }
 
