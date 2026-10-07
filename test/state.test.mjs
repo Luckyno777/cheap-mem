@@ -151,6 +151,41 @@ test('a tampered cache cannot suppress a genuine claim', () => {
   rm(root);
 });
 
+// The two tests above tamper with the cache FILE, and `loadIndex` repairs that
+// before retrieval sees it. These two hand `retrieve()` an already-loaded index
+// (its `index` option) whose documents disagree with the log, which is the only
+// way to reach the line `claimState = statusOf(state, e.id)` itself. Without
+// them the mutant "status read from the RESULT SET" survived `retrieval` and
+// `state` and every other suite stayed quiet about it as well: the sweep then ran
+// the whole suite for it and the CI job `guarantees` ran past its 25 minutes.
+test('an index handed in with a stripped `retired` field cannot resurrect a superseded claim', () => {
+  const root = fixture([A, B]);
+  const index = loadIndex(root);
+  let stripped = 0;
+  for (const d of index.documents) { if (d.retired) { delete d.retired; stripped += 1; } }
+  assert.ok(stripped > 0, 'the fixture must actually have a retired document to strip');
+  const r = retrieve(root, 'Server X steht', grantProject('a'), { top: 5, index });
+  assert.ok(r.claims.some((x) => x.id === 'B'), 'positive control: the live claim is found');
+  assert.ok(!r.claims.some((x) => x.id === 'A'),
+    'the index said "active" and the status followed the index, not the log: a superseded claim came back');
+  rm(root);
+});
+
+test('an index handed in with a forged `retired` field cannot suppress a genuine claim', () => {
+  const root = fixture([
+    { id: 'u1', ts: '2026-01-01T00:00:00Z', author: 'lucky', authority: 'user',
+      topic: 'pay', choice: 'zahlung nur per vorkasse', why: 'meine entscheidung' },
+  ]);
+  const index = loadIndex(root);
+  for (const d of index.documents) {
+    if (d.entry?.id === 'u1') d.retired = { state: 'superseded', by: 'nobody', ts: '2026-06-01T00:00:00Z' };
+  }
+  const r = retrieve(root, 'zahlung vorkasse entscheidung', grantProject('a'), { top: 5, index, withDisputed: true });
+  assert.ok(r.claims.some((x) => x.id === 'u1' && x.status === 'active'),
+    'the index said "superseded" and the status followed the index, not the log');
+  rm(root);
+});
+
 test('a deleted cache changes speed, never meaning', () => {
   const root = fixture([A, B, M]);
   const withCache = retrieve(root, 'Server X steht', grantProject('a'),
