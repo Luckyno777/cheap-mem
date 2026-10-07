@@ -94,6 +94,28 @@ function packsFor(langInfo) {
 }
 
 /**
+ * Conversational filler of a QUESTION, as people type it to an assistant:
+ * "tell me about ...", "what did we ...", "please explain ...". These
+ * words are not in the English stopword list on purpose (that list is
+ * short because it also thins the INDEX, where a title's every word is
+ * load-bearing), but a question word that the entry does not carry says
+ * nothing about whether the entry answers: "tell me about the routine
+ * note on deploys and builds" is fully answered by an entry about routine
+ * notes on deploys and builds. Used only by the answer gate's `covered`
+ * (never for scoring or the coordination factor), and only for a word the
+ * document does NOT carry - a document that does carry "about" still
+ * counts it as covered.
+ *
+ * Minimal on purpose: request verbs addressed to the assistant, the
+ * pronoun they come with, politeness, and the seven question words. Any
+ * word that can name a topic (show, find, give, say, know) stays out.
+ */
+export const QUERY_FILLER = new Set([
+  'tell', 'me', 'explain', 'please', 'remind', 'about',
+  'what', 'how', 'why', 'when', 'where', 'which', 'who',
+]);
+
+/**
  * Is this typed word filler FOR THIS DOCUMENT - would the document's own
  * rule sets have dropped it at index time?
  *
@@ -1821,7 +1843,8 @@ export function search(index, query, {
     // numbers sit on it. That is a separate, measured decision.
     let fillers = 0;
     const isFiller = (packVariants) => !packVariants.some((forms) => forms.some(own))
-      && packVariants.word !== undefined && fillerForDoc(doc, packVariants.word, fillerCache);
+      && packVariants.word !== undefined
+      && (QUERY_FILLER.has(packVariants.word) || fillerForDoc(doc, packVariants.word, fillerCache));
     for (const packVariants of groups) if (isFiller(packVariants)) fillers += 1;
     const counted = Math.max(1, groups.length - fillers);
     if (withCoverage) {

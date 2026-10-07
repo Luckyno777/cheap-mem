@@ -55,3 +55,23 @@ test('COUNTER-PROBE: a content word the entry lacks still counts as uncovered', 
     for (const h of hits) assert.ok(h.covered < 1, `kubernetes is not carried, covered=${h.covered}`);
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('conversational filler of a question ("tell me about ...") does not count as uncovered', () => {
+  const root = world(NOTES);
+  try {
+    const index = loadIndex(root);
+    const asked = search(index, 'tell me about the routine note on deploys and builds', { top: 10, withCoverage: true });
+    assert.equal(asked.length, 6);
+    for (const h of asked) assert.equal(h.covered, 1);
+    assert.ok(asked.every((h) => passes(h, asked, { occasion: 'find' })), 'the gate lets the field out');
+    const please = search(index, 'please explain what the routine note about deploys is', { top: 10, withCoverage: true });
+    for (const h of please) assert.equal(h.covered, 1);
+    // COUNTER-PROBE: a topic word the entry lacks is still uncovered, filler or not.
+    const missing = search(index, 'tell me about the routine note on kubernetes', { top: 10, withCoverage: true });
+    assert.ok(missing.length > 0);
+    for (const h of missing) assert.ok(h.covered < 1);
+    // Scores are untouched by the filler list: the same question without the filler words, same order.
+    const bare = search(index, 'routine note deploys builds', { top: 10 });
+    assert.equal(asked.length, bare.length);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
