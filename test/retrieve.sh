@@ -232,13 +232,11 @@ echo "8c) a later turn with DIFFERENT material is injected again"
 # The phrasing matters: the first attempt at this probe used a
 # question that scored 0.53 against a threshold of 1.0 and was cut
 # correctly — the probe blamed the claim for the threshold's work.
-# The same trap again with the answer gate (h3): the six routine notes are a
-# flat field of equals, and a field passes only when one entry carries EVERY
-# typed word. The old phrasing ("tell me about the routine note on deploys
-# and builds") typed words no note carries (tell, me, and ...), so the gate
-# withheld all of it and this probe went red on CI ("recall" job). The
-# question below types only words every routine note carries.
-OTHER='{"session_id":"lane-1","prompt":"routine note about deploys builds"}'
+# KNOWN RED until the stop-word fix in src/search.mjs (branch agent/ci-gruen-cm):
+# the answer gate (h3) counts stop words ("and", "tell", "me" ...) as typed words
+# no note carries, so it withholds this realistic question. The probe is kept as
+# the user would ask it - do not reword it to dodge the gate.
+OTHER='{"session_id":"lane-1","prompt":"tell me about the routine note on deploys and builds"}'
 THREE="$(printf '%s' "$OTHER" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
   CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
 if [ -n "$THREE" ]; then ok "a new question with new material is served"
