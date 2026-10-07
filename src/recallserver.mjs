@@ -42,6 +42,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as place from './recallserver-place.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -149,8 +150,7 @@ export async function start(root, {
     safeDir(where.dir);
     if (where.fallback) {
       // The pointer for bin/mem-retrieve (bash): the default dir says where the server really is.
-      fs.mkdirSync(path.dirname(where.pointer), { recursive: true });
-      fs.writeFileSync(where.pointer, `${where.dir}\n`, { mode: 0o600 });
+      writeAtomic(where.pointer, `${where.dir}\n`, { mode: 0o600 });
     }
   } catch (e) {
     say(`not started: ${e.message}`);
