@@ -339,6 +339,14 @@ fi
 # (`path` / `path_reason`, src/injection.mjs).
 TIME="${MEM_RETRIEVE_TIME:-5}"
 RECALL_DIR="${MEM_RECALL_SERVER_DIR:-$ROOT/.pipeline/recall}"
+# A root whose default socket path is too long for sun_path (macOS temp
+# dirs): the server lives in a short dir of its own and leaves one line
+# in the default dir saying where (src/recallserver-place.mjs POINTER_NAME).
+if [ -z "${MEM_RECALL_SERVER_DIR:-}" ] && [ -f "$RECALL_DIR/where" ]; then
+  IFS= read -r _w < "$RECALL_DIR/where" || true
+  [ -n "${_w:-}" ] && RECALL_DIR="$_w"
+  unset _w
+fi
 RECALL_PATH=direct
 RECALL_REASON=""
 FIND_RC=1

@@ -22,11 +22,14 @@
  */
 
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 
 export const DIR_NAME = 'recall';
 export const SOCKET_NAME = 'recall.sock';
 export const KEY_NAME = 'key';
+/** In the default dir, when the server lives elsewhere: one line, the real dir. */
+export const POINTER_NAME = 'where';
 
 /** Protocol version. Another version is refused, never guessed. */
 export const VERSION = 1;
@@ -56,16 +59,32 @@ export function rootId(root) {
 
 /**
  * Where the server for this memory root listens. `MEM_RECALL_SERVER_DIR`
- * moves the directory (tests, or a root whose path is too long for
- * `sun_path`); bin/mem-retrieve reads the same name with the same
- * default and only checks whether the file is a socket.
+ * moves the directory (tests, or a root of your own choosing); it is
+ * never second-guessed. bin/mem-retrieve reads the same name with the
+ * same default and only checks whether the file is a socket.
+ *
+ * **A root whose path is too long for `sun_path` (macOS: temp dirs live
+ * under /var/folders/..., 104 bytes in all) no longer means "no server".**
+ * Without an explicit dir, the place then moves to a short one the
+ * product picks itself: `<base>/cheap-mem-<uid>/<root hash>/`, base
+ * `/tmp` (`MEM_RECALL_SERVER_SHORT_BASE` moves it, tests). Per user and
+ * per root by name; the server creates the parent 0700 and refuses one
+ * that belongs to someone else (src/recallserver.mjs). `fallback: true`
+ * tells the server to leave a pointer in the default dir, which is how
+ * bin/mem-retrieve (bash, no hashing) finds the short one.
  */
 export function place(root, env = process.env, platform = process.platform) {
-  const dir = env.MEM_RECALL_SERVER_DIR
-    ? path.resolve(env.MEM_RECALL_SERVER_DIR)
-    : path.join(path.resolve(String(root)), '.pipeline', DIR_NAME);
+  const dflt = path.join(path.resolve(String(root)), '.pipeline', DIR_NAME);
+  let dir = env.MEM_RECALL_SERVER_DIR ? path.resolve(env.MEM_RECALL_SERVER_DIR) : dflt;
+  let fallback = false;
+  if (!env.MEM_RECALL_SERVER_DIR && platform !== 'win32'
+      && Buffer.byteLength(path.join(dir, SOCKET_NAME)) > MAX_SOCKET_PATH) {
+    const uid = typeof process.getuid === 'function' ? process.getuid() : (os.userInfo().username || 'u');
+    dir = path.join(env.MEM_RECALL_SERVER_SHORT_BASE || '/tmp', `cheap-mem-${uid}`, rootId(root));
+    fallback = true;
+  }
   const socket = platform === 'win32'
     ? `\\\\.\\pipe\\cheap-mem-recall-${rootId(root)}`
     : path.join(dir, SOCKET_NAME);
-  return { dir, socket, key: path.join(dir, KEY_NAME) };
+  return { dir, socket, key: path.join(dir, KEY_NAME), fallback, pointer: path.join(dflt, POINTER_NAME) };
 }
