@@ -117,11 +117,15 @@ const state = {
 //   One path for every search input: each source (knowledge field, quick search) has its
 //   own state but asks through the same function fulltextAsk().
 function fulltextSource(current, redraw) {
-  return { q: null, ids: null, measurable: null, reason: null, timer: 0, run: 0, current, redraw };
+  // F23: the answer comes in pages. more/cursor = there are more hits (the cursor holds only for the
+  // server's index generation); loading = "load more" is running; fresh:false = the server answers from an
+  // old index and rebuilds (we ask again after a short while, at most FULLTEXT_RETRIES times).
+  return { q: null, ids: null, measurable: null, reason: null, timer: 0, run: 0, current, redraw, more: false, cursor: null, loading: false, fresh: true, tries: 0, triesQ: null };
 }
 const fulltext = fulltextSource(() => state.query, () => { if ($('#entrySearch')) redrawSearchField(); });
 const fulltextPalette = fulltextSource(() => $('#commandInput')?.value ?? '', () => redrawPalette());
 const FULLTEXT_DEBOUNCE_MS = 150;
+const FULLTEXT_RETRIES = 6, FULLTEXT_RETRY_MS = 1500;
 let raf = 0, graphCleanup = () => {}, toastTimer;
 let graphRun = 0; // tempo: counter for the deferred initGraph() in render()
 let refetchTimer = 0; // tempo: quiet refetch while the server rebuilds
@@ -1090,28 +1094,71 @@ function fulltextHits(id, source = fulltext) {
 function fulltextNotice(source = fulltext) {
   return Boolean(source.current().trim()) && source.q === source.current() && source.measurable === false;
 }
+function fulltextUrl(q, cursor) {
+  return '/api/fulltext?q=' + encodeURIComponent(q) + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+}
+// Fetch one page: { measurable:true, ids:[…], more, cursor, fresh } | { expired:true } | { measurable:false, reason }.
+async function fulltextFetch(q, cursor) {
+  try {
+    const r = await fetch(fulltextUrl(q, cursor), { credentials: 'same-origin', cache: 'no-store' });
+    if (r.status === 401) { location.href = '/login'; return null; }
+    const b = await r.json().catch(() => null);
+    if (b && b.measurable === true && b.expired === true) return { expired: true };
+    return b && b.measurable === true && Array.isArray(b.ids)
+      ? { measurable: true, ids: b.ids, more: b.more === true, cursor: typeof b.cursor === 'string' ? b.cursor : null, fresh: b.fresh !== false }
+      : { measurable: false, reason: (b && b.reason) || 'answer ' + r.status };
+  } catch (e) {
+    return { measurable: false, reason: e?.message || String(e) };
+  }
+}
 function fulltextAsk(source = fulltext) {
   clearTimeout(source.timer);
   const q = source.current();
-  if (!q.trim()) { source.q = null; source.ids = null; source.measurable = null; source.reason = null; return; }
+  if (!q.trim()) { source.q = null; source.ids = null; source.measurable = null; source.reason = null; source.more = false; source.cursor = null; source.loading = false; source.fresh = true; source.tries = 0; source.triesQ = null; ++source.run; return; }
+  if (source.triesQ !== q) { source.triesQ = q; source.tries = 0; }
   const run = ++source.run;
   source.timer = setTimeout(async () => {
-    let answer;
-    try {
-      const r = await fetch('/api/fulltext?q=' + encodeURIComponent(q), { credentials: 'same-origin', cache: 'no-store' });
-      if (r.status === 401) { location.href = '/login'; return; }
-      const b = await r.json().catch(() => null);
-      answer = b && b.measurable === true && Array.isArray(b.ids)
-        ? { measurable: true, ids: new Set(b.ids), reason: null }
-        : { measurable: false, ids: null, reason: (b && b.reason) || 'answer ' + r.status };
-    } catch (e) {
-      answer = { measurable: false, ids: null, reason: e?.message || String(e) };
-    }
+    const b = await fulltextFetch(q, null);
+    if (b === null) return;
     // Stale: typing went on since the question (or a newer one was asked).
     if (run !== source.run || q !== source.current()) return;
-    source.q = q; source.ids = answer.ids; source.measurable = answer.measurable; source.reason = answer.reason;
+    if (b.expired) { fulltextAsk(source); return; } // not expected without a cursor; ask again to be safe
+    source.q = q; source.measurable = b.measurable; source.loading = false;
+    source.ids = b.measurable ? new Set(b.ids) : null;
+    source.reason = b.measurable ? null : b.reason;
+    source.more = b.measurable ? b.more : false; source.cursor = b.measurable ? b.cursor : null;
+    source.fresh = b.measurable ? b.fresh : true;
     source.redraw();
+    // Old index ("is being refreshed"): ask again from the start after a short while, until the new one stands.
+    if (b.measurable && !b.fresh && source.tries < FULLTEXT_RETRIES) {
+      source.tries++;
+      source.timer = setTimeout(() => { if (q === source.current()) fulltextAsk(source); }, FULLTEXT_RETRY_MS);
+    }
   }, FULLTEXT_DEBOUNCE_MS);
+}
+// "Load more": append the next page for the CURRENT input. If the cursor no longer holds
+// (a new index on the server), the question starts again from the front.
+async function fulltextMore(source = fulltext) {
+  const q = source.current();
+  if (!source.more || !source.cursor || source.loading || source.q !== q || source.measurable !== true) return;
+  const run = source.run;
+  source.loading = true;
+  source.redraw();
+  const b = await fulltextFetch(q, source.cursor);
+  if (b === null || run !== source.run || q !== source.current()) return;
+  source.loading = false;
+  if (b.expired) { fulltextAsk(source); source.redraw(); return; }
+  if (!b.measurable) { source.measurable = false; source.reason = b.reason; source.more = false; source.cursor = null; source.redraw(); return; }
+  for (const id of b.ids) source.ids.add(id);
+  source.more = b.more; source.cursor = b.cursor; source.fresh = b.fresh;
+  source.redraw();
+}
+// The line under the table: load more full-text hits / the note "is being refreshed".
+function fulltextFoot(source = fulltext) {
+  if (!source.current().trim() || source.q !== source.current() || source.measurable !== true) return '';
+  const note = source.fresh ? '' : '<span class="small quiet" id="fulltextRefreshing" role="status">Full text is being refreshed …</span> ';
+  const more = source.more ? btn(source.loading ? 'Loading …' : 'Load more full-text hits', 'fulltext-more', source.loading ? 'disabled' : '', 'small ghost') : '';
+  return note || more ? `<div class="tablefoot" id="fulltextFoot">${note}${more}</div>` : '';
 }
 function filtered() {
   const q = state.query.toLocaleLowerCase();
@@ -1409,7 +1456,7 @@ const pages = {
         (e) =>
           `<tr><td>${open(e.id, e.title, 'open-entry')}${ruleTag(e.ruleStatus)}<span class="sub">${esc(e.id)} · ${esc(e.agent)} · ${esc(e.memory)} / ${esc(drawerOf(e))}</span></td><td><span class="type">${esc(types[e.type])}</span></td><td>${esc(e.project)}</td><td>${badge(statusOf(e.id))}</td><td class="quiet small">${when(e.ts)}</td></tr>`,
       )
-      .join('')}</tbody></table>${!es.length ? empty(entries.length ? undefined : 'This memory holds no entry yet. <code class="mono">mem log learning "…"</code> writes the first one; it appears here on the next load.') : ''}</div><div class="tablefoot"><span>${num(es.length)} hits · page ${pg} / ${Math.max(1, Math.ceil(es.length / n))}</span><div>${btn('←', 'prev', pg === 1 ? 'disabled' : '', 'small ghost')} ${btn('→', 'next', pg >= Math.ceil(es.length / n) ? 'disabled' : '', 'small ghost')}</div></div></article>`;
+      .join('')}</tbody></table>${!es.length ? empty(entries.length ? undefined : 'This memory holds no entry yet. <code class="mono">mem log learning "…"</code> writes the first one; it appears here on the next load.') : ''}</div><div class="tablefoot"><span>${num(es.length)} hits · page ${pg} / ${Math.max(1, Math.ceil(es.length / n))}</span><div>${btn('←', 'prev', pg === 1 ? 'disabled' : '', 'small ghost')} ${btn('→', 'next', pg >= Math.ceil(es.length / n) ? 'disabled' : '', 'small ghost')}</div></div>${fulltextFoot()}</article>`;
   },
   network: () => {
     const focus = graphListEntries();
@@ -5337,6 +5384,9 @@ document.addEventListener('click', async (ev) => {
     case 'next':
       state.page++;
       render();
+      break;
+    case 'fulltext-more':
+      fulltextMore();
       break;
     case 'reset-filters':
       state.query = ''; state.topic = ''; fulltextAsk();
