@@ -84,7 +84,30 @@ jobs:
       # PowerShell does not expand globs, so the glob form passes on
       # Linux and fails on Windows for a reason that has nothing to do
       # with the code.
-      - run: npm test
+      #
+      # And the run has to SAY what was red. The raw log of this job is
+      # hundreds of thousands of characters; read through the API, only
+      # the end arrives, and a red probe at number 900 is nowhere anyone
+      # reads it. So on failure every `not ok` line is repeated at the end
+      # and raised as an annotation (`red probe: <name>`), which survives
+      # where the log does not. The exit code stays the one of `npm test`
+      # -- nothing is swallowed. bash on every runner (Git Bash on
+      # Windows), so the same lines run everywhere.
+      - name: npm test (red probes are named again at the end)
+        shell: bash
+        run: |
+          rc=0
+          npm test 2>&1 | tee "$RUNNER_TEMP/testrun.log" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo ""
+            echo "::group::red probes of this run"
+            grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" || \
+              echo "(no 'not ok' line found -- the run died before the first test)"
+            echo "::endgroup::"
+            grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" | head -40 \
+              | sed -E 's/^ *not ok [0-9]+ - /::error::red probe: /' || true
+          fi
+          exit "$rc"
 
   # The one number in the README that no unit test can re-derive, because
   # having it means running the whole suite. It was written once on
@@ -116,7 +139,13 @@ jobs:
       - name: measure, enforce the floor, and hold the README to it
         run: |
           set -o pipefail
-          npx c8 --reporter=text-summary node --test 2>&1 | tee /tmp/cov.txt
+          # Red probes are named as annotations here too (see the tests job).
+          npx c8 --reporter=text-summary node --test 2>&1 | tee /tmp/cov.txt || {
+            rc=$?
+            grep -E '^ *not ok [0-9]+ - ' /tmp/cov.txt | head -40 \
+              | sed -E 's/^ *not ok [0-9]+ - /::error::red probe: /' || true
+            exit "$rc"
+          }
           node - <<'EOF'
           const fs = require('node:fs');
           const out = fs.readFileSync('/tmp/cov.txt', 'utf8');
