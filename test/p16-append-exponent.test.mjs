@@ -118,6 +118,21 @@ const away = (r) => fs.rmSync(r, { recursive: true, force: true });
 
 const RUNGS = [1000, 10000, 60000];
 
+/**
+ * The stand-in for "the write path grew a corpus scan": read the whole drawer
+ * and parse every line, the way `memory.readLog` does. Linear in the corpus in
+ * CPU as well as in I/O - a fast disk or a warm cache (macOS APFS) cannot
+ * hide it, because JSON.parse of n lines costs n parses whatever the cache
+ * holds. Returns a number derived from the parse so nothing can be elided.
+ */
+function corpusScan(drawer) {
+  let acc = 0;
+  for (const line of fs.readFileSync(drawer, 'utf8').split('\n')) {
+    if (line) acc += JSON.parse(line).title.length;
+  }
+  return acc;
+}
+
 /** log-log least-squares fit of t = a * n^b. Returns b (the exponent). A
  * flat cost fits b near 0; a linear-in-corpus cost fits b near 1. */
 function fitExponent(points) {
@@ -148,7 +163,7 @@ function measureAt(n, { sabotageExtraReads = 0 } = {}) {
     // times before the real call, standing in for "logEntry grew a
     // corpus-scan it should not have". Zero in every real measurement
     // below; only flipped on inside the RED half of the sabotage test.
-    for (let s = 0; s < sabotageExtraReads; s += 1) fs.readFileSync(drawer, 'utf8');
+    for (let s = 0; s < sabotageExtraReads; s += 1) corpusScan(drawer);
     memory.logEntry(r, 'learning', { title: 'probe', text: 'measuring logEntry cost alone' });
     const logEntryMs = performance.now() - t0;
 
@@ -251,8 +266,12 @@ function logEntryMedianAt(n, reps = LOG_ENTRY_MEDIAN_REPS, { sabotageExtraReads 
     const drawer = path.join(r, 'global', 'learnings.jsonl');
     const samples = [];
     for (let i = 0; i < reps; i += 1) {
-      for (let s = 0; s < sabotageExtraReads; s += 1) fs.readFileSync(drawer, 'utf8');
       const t0 = performance.now();
+      // Inside the timed window, and real work: see `corpusScan`. (It used to
+      // sit BEFORE t0 as a bare readFileSync - warming the page cache, costing
+      // the timed call nothing: CI run 37692975754 on macOS fitted 0.17 and
+      // the sabotage "did not turn red".)
+      for (let s = 0; s < sabotageExtraReads; s += 1) corpusScan(drawer);
       memory.logEntry(r, 'learning', { title: 'probe', text: 'measuring logEntry cost alone' });
       samples.push(performance.now() - t0);
     }
