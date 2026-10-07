@@ -335,8 +335,13 @@ export const MUTANTS=[
 
  { name:'ARCH state derived from only the first drawer',
    file:'src/state.mjs',
-   from:'  for (const f of integrity.logFiles(root)) {',
-   to:'  for (const f of integrity.logFiles(root).slice(0, 1)) {  // MUTANT',
+   // Anchored on deriveState itself. It used to sit on the `for` loop of
+   // deriveStateMaterialized, the oracle that p11-equivalence compares
+   // against: after the P11 rewrite that is not what the product calls, so
+   // the mutant changed nothing the suites below look at, survived, and made
+   // the sweep run the whole suite for it (the guarantees job, 25 minutes).
+   from:'  const files = integrity.logFiles(root).map((f) => f.abs);',
+   to:'  const files = integrity.logFiles(root).slice(0, 1).map((f) => f.abs);  // MUTANT',
    tests:['test/state.test.mjs','test/properties.test.mjs'] },
 
  { name:'SEM curatedCoverage stops stemming its input',
@@ -706,7 +711,7 @@ export const MUTANTS=[
    file:'src/filelock.mjs',
    from:'  if (age <= staleS) return false;',
    to:'  if (true) return false;  // MUTANT',
-   tests:['test/filelock.test.mjs'] },
+   tests:['test/filelock.test.mjs','test/audit-lock-owner.test.mjs'] },
 
  { name:'filelock: nested locks are allowed',
    file:'src/filelock.mjs',

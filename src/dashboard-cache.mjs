@@ -74,6 +74,7 @@ import * as archive from './archive.mjs';
 
 /** How often the parent checks the build worker's heap against its cap (ms). */
 const GUARD_MS = 100;
+const V8_LIMIT_FLOOR_MB = 64;
 
 /** Maximum age of a cached result, even without a detected change. */
 export const TTL_MS = 60 * 1000;
@@ -216,7 +217,11 @@ export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_M
     // no second module, so nothing here is out of the CLI's reach.
     const w = new Worker(new URL(import.meta.url), {
       workerData: { dashboardCacheBuild: true, root, options, codeHeadAtStart: headAtStart },
-      resourceLimits: { maxOldGenerationSizeMb: heapMb },
+      // The guard below enforces `heapMb` exactly. V8's own limit is only the
+      // second line, and a few MB of old space is below what V8 can start a
+      // worker on, where it may abort instead of failing the worker alone. So it
+      // is never handed less than a floor (it can only be looser than the guard).
+      resourceLimits: { maxOldGenerationSizeMb: Math.max(heapMb, V8_LIMIT_FLOOR_MB) },
     });
     w.unref();
     let done = false;
@@ -228,11 +233,20 @@ export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_M
     // this file), so the guard never meets a module that is still being evaluated.
     let guard = null;
     const startGuard = () => {
-      if (guard || done || typeof w.getHeapStatistics !== 'function') return;
+      if (guard || done) return;
+      // `worker.getHeapStatistics()` exists from Node 22.16 / 24 on. Node 20
+      // (measured 2026-10-07, v20.20.2) has neither it NOR an enforced
+      // `resourceLimits`: a worker limited to 1 MB built 3 million objects.
+      // There the parent measures what it can see of the worker: the growth of
+      // the process's resident memory since the worker reported `ready`. That
+      // over-counts (the server's own growth in the same time counts too), so
+      // it can only stop a build early, never let one run on past the cap.
+      const hasHeap = typeof w.getHeapStatistics === 'function';
+      const rssAtReady = hasHeap ? 0 : process.memoryUsage().rss;
       guard = setInterval(async () => {
         try {
-          const h = await w.getHeapStatistics();
-          if (!done && h.used_heap_size > heapMb * 1024 * 1024) {
+          const used = hasHeap ? (await w.getHeapStatistics()).used_heap_size : process.memoryUsage().rss - rssAtReady;
+          if (!done && used > heapMb * 1024 * 1024) {
             done = true;
             clearInterval(guard);
             reject(new Error(`the build used more than its ${heapMb} MB memory cap (worker stopped)`));
