@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { startBrowser, waitReady } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import * as memory from '../src/memory.mjs';
@@ -46,11 +46,11 @@ async function loadOld() {
     .replaceAll("from './dashboard-cache.mjs'", `from '${pathToFileURL(path.join(REPO, 'src/dashboard-cache.mjs')).href}'`);
   const file = path.join(tmpDir('fulltext-old-'), 'fulltext-old.mjs');
   fs.writeFileSync(file, source);
-  return import(pathToFileURL(file).href);
+  OLD_URL = pathToFileURL(file).href;
+  return import(OLD_URL);
 }
+let OLD_URL = null;
 const OLD = await loadOld();
-
-const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
 /** All pages of a query in a row; checks finiteness and page size on the way. */
 async function allPages(r, q, opt, limit) {
@@ -223,51 +223,96 @@ test('fulltext-pages: pagination finite and complete; limit is clamped; foreign 
 
 // ---------------------------------------------------------------- (3) event loop
 
-/** Longest gap between two 1 ms ticks while `run()` runs. */
-async function loopDelay(run) {
-  let last = performance.now(), max = 0;
-  const watch = setInterval(() => { const t = performance.now(); max = Math.max(max, t - last); last = t; }, 1);
-  try {
-    await wait(20);
-    max = 0; last = performance.now();
-    await run();
-    await wait(3); // a blocked tick only reports after the run
-    return max;
-  } finally {
-    clearInterval(watch);
-  }
+/**
+ * **The measurement runs in a fresh child process and counts the CPU time of the main thread
+ * (mirror of the sibling's CI round 3, 2026-10-07).** The old probe measured the wall-clock gap
+ * between two 1 ms timers. Under machine load that gap (hundreds of ms to seconds) is the
+ * scheduler not letting the process run, not the code holding the loop; and in the test process
+ * itself the heap is dirtied by the old state, the equality probes and the browser set-up, so GC
+ * pauses push the CPU time over the limit too. In a fresh child with only the 100k entries the
+ * maximum stays far under the limit even under load; the old state sits well above it. The limit
+ * of 60 ms stays. What is counted is how long JS REALLY held the loop: the main thread's run time
+ * from /proc/thread-self/schedstat (ns; NOT process.cpuUsage(), which includes the GC helper
+ * threads). Without schedstat it falls back to the wall clock (then the probe measures the
+ * machine again, and the message says so). The wall gap is reported in every message.
+ */
+const MEASURE_CHILD = `
+import fs from 'node:fs';
+const [, , moduleUrl, kind] = process.argv;
+const m = await import(moduleUrl);
+const N = 100000;
+const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
+let schedstat = true;
+const cpuMs = () => {
+  if (schedstat) { try { return Number(fs.readFileSync('/proc/thread-self/schedstat', 'utf8').split(' ')[0]) / 1e6; } catch { schedstat = false; } }
+  return performance.now();
+};
+const Z = Array.from({ length: N }, (_, i) => ({ entry: { id: 'i' + i, title: 'Entry ' + i + ' lucky probe', text: 'x'.repeat(60) } }));
+let key = 1;
+const opt = { key: () => key, readAll: () => Z };
+async function measure(run) {
+  globalThis.gc(); globalThis.gc(); // test data and old load stay out of the measurement
+  let last = performance.now(), lastCpu = cpuMs(), cpu = 0, wall = 0;
+  const watch = setInterval(() => {
+    const t = performance.now(), c = cpuMs();
+    cpu = Math.max(cpu, c - lastCpu); wall = Math.max(wall, t - last);
+    last = t; lastCpu = c;
+  }, 1);
+  await wait(20);
+  cpu = 0; wall = 0; last = performance.now(); lastCpu = cpuMs();
+  await run();
+  await wait(3); // a blocked tick only reports after the run
+  clearInterval(watch);
+  return { cpu, wall, schedstat };
+}
+const out = {};
+m.forget();
+if (kind === 'old') {
+  let r;
+  out.m = await measure(async () => { r = await m.answer('/r', 'e', opt); });
+  out.ids = r.ids.length;
+} else {
+  let s;
+  out.cold = await measure(async () => { s = await m.answer('/r', 'e', opt); });
+  out.coldIds = s.ids.length; out.coldMore = s.more; out.coldBytes = JSON.stringify(s).length;
+  key = 2;
+  let w2;
+  out.change = await measure(async () => { w2 = await m.answer('/r', 'e', opt); await m.waitForBuild('/r'); });
+  out.changeFresh = w2.fresh; out.changeIds = w2.ids.length;
+  out.rare = await measure(async () => { await m.answer('/r', 'nowhere-to-be-found', opt); });
+  out.rareIds = (await m.page('/r', 'nowhere-to-be-found', opt)).ids.length;
+}
+process.stdout.write(JSON.stringify(out));
+`;
+
+function measureInChild(moduleUrl, kind) {
+  const dir = tmpDir('fulltext-measure-');
+  const script = path.join(dir, 'measure.mjs');
+  fs.writeFileSync(script, MEASURE_CHILD);
+  const r = spawnSync(process.execPath, ['--expose-gc', script, moduleUrl, kind], { encoding: 'utf8', maxBuffer: 1 << 24, timeout: 300000 });
+  assert.equal(r.status, 0, `measuring child (${kind}) ended with ${r.status}/${r.signal}: ${r.stderr}`);
+  return JSON.parse(r.stdout);
 }
 const DELAY_LIMIT_MS = 60;
 const N_GATE = 100000;
-const big = () => Array.from({ length: N_GATE }, (_, i) => ({ entry: { id: 'i' + i, title: 'Entry ' + i + ' lucky probe', text: 'x'.repeat(60) } }));
+const show = (g) => `${g.cpu.toFixed(0)} ms ${g.schedstat ? 'main-thread CPU' : 'WALL CLOCK (no schedstat)'}, wall gap ${g.wall.toFixed(0)} ms`;
 
-test('fulltext-pages: event-loop gate at 100k — cold build and generation change keep the timer under the limit; the old state does not', async () => {
-  const Z = big();
-  let key = 1;
-  const opt = { key: () => key, readAll: () => Z };
+test('fulltext-pages: event-loop gate at 100k — cold build and generation change keep the timer under the limit; the old state does not', () => {
   // old state (RED): cold build + search with a hit in every entry
-  OLD.forget();
-  let r;
-  const oldDelay = await loopDelay(async () => { r = await OLD.answer('/r', 'e', opt); });
-  assert.equal(r.ids.length, N_GATE, 'positive control: the old state really returns ALL ids in one answer');
-  assert.ok(oldDelay > DELAY_LIMIT_MS, `RED: the old state holds the timer back (${oldDelay.toFixed(0)} ms > ${DELAY_LIMIT_MS})`);
+  const a = measureInChild(OLD_URL, 'old');
+  assert.equal(a.ids, N_GATE, 'positive control: the old state really returns ALL ids in one answer');
+  assert.ok(a.m.cpu > DELAY_LIMIT_MS, `RED: the old state holds the timer back (${show(a.m)} > ${DELAY_LIMIT_MS})`);
   // new state (GREEN)
-  fulltext.forget();
-  let s;
-  const coldDelay = await loopDelay(async () => { s = await fulltext.answer('/r', 'e', opt); });
-  assert.equal(s.ids.length, fulltext.LIMIT_DEFAULT);
-  assert.equal(s.more, true);
-  assert.ok(coldDelay < DELAY_LIMIT_MS, `cold build: timer delay ${coldDelay.toFixed(0)} ms < ${DELAY_LIMIT_MS}`);
-  assert.ok(JSON.stringify(s).length < 5000, 'the answer stays small (' + JSON.stringify(s).length + ' bytes instead of ~0.9 MB)');
-  key = 2;
-  let w2;
-  const changeDelay = await loopDelay(async () => { w2 = await fulltext.answer('/r', 'e', opt); await fulltext.waitForBuild('/r'); });
-  assert.equal(w2.fresh, true, 'generation change: the answer waits for the new index');
-  assert.equal(w2.ids.length, fulltext.LIMIT_DEFAULT);
-  assert.ok(changeDelay < DELAY_LIMIT_MS, `generation change with rebuild: timer delay ${changeDelay.toFixed(0)} ms < ${DELAY_LIMIT_MS}`);
-  const rareDelay = await loopDelay(async () => { await fulltext.answer('/r', 'nowhere-to-be-found', opt); });
-  assert.ok(rareDelay < DELAY_LIMIT_MS, `full pass without a hit: timer delay ${rareDelay.toFixed(0)} ms < ${DELAY_LIMIT_MS}`);
-  assert.equal((await fulltext.page('/r', 'nowhere-to-be-found', opt)).ids.length, 0);
+  const n = measureInChild(pathToFileURL(path.join(REPO, 'src/fulltext.mjs')).href, 'new');
+  assert.equal(n.coldIds, fulltext.LIMIT_DEFAULT);
+  assert.equal(n.coldMore, true);
+  assert.ok(n.cold.cpu < DELAY_LIMIT_MS, `cold build: ${show(n.cold)} < ${DELAY_LIMIT_MS} (old state: ${show(a.m)})`);
+  assert.ok(n.coldBytes < 5000, 'the answer stays small (' + n.coldBytes + ' bytes instead of ~0.9 MB)');
+  assert.equal(n.changeFresh, true, 'generation change: the answer waits for the new index');
+  assert.equal(n.changeIds, fulltext.LIMIT_DEFAULT);
+  assert.ok(n.change.cpu < DELAY_LIMIT_MS, `generation change with rebuild: ${show(n.change)} < ${DELAY_LIMIT_MS}`);
+  assert.ok(n.rare.cpu < DELAY_LIMIT_MS, `full pass without a hit: ${show(n.rare)} < ${DELAY_LIMIT_MS}`);
+  assert.equal(n.rareIds, 0);
 });
 
 // ---------------------------------------------------------------- (4) route, (5) browser

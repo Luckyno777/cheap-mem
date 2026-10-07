@@ -128,12 +128,17 @@ test('idle (no input): keeps drawing at <= ~10 frames/s per loop, input lifts to
     assert.ok(idle.medGap >= GAP, `throttled: frames of one loop at least ${GAP} ms apart (median gap ${idle.medGap.toFixed(1)} ms)`);
     const full = await measure(base, { idleMs: 600000, small: true, sample: 24 });
     assert.ok(full.reached, `positive control: the unthrottled loop draws (${full.count} frames seen)`);
-    assert.ok(full.minGap < GAP && full.medGap < idle.medGap, `full rate: frames closer than the idle gap (smallest gap ${full.minGap.toFixed(1)}, median ${full.medGap.toFixed(1)} ms against idle ${idle.medGap.toFixed(1)})`);
+    // Smallest gaps on both sides: under CPU starvation the medians come close (seen: full 98 ms against
+    // idle 115 ms), the closest pair of frames does not (59-67 ms against 89-93 ms).
+    assert.ok(full.minGap < GAP && full.minGap < idle.minGap, `full rate: frames closer than the idle gap (smallest gap ${full.minGap.toFixed(1)}, median ${full.medGap.toFixed(1)} ms against idle smallest ${idle.minGap.toFixed(1)}, median ${idle.medGap.toFixed(1)})`);
     const palette = await measure(base, { idleMs: 1500, before: PALETTE });
     assert.ok(palette.draws <= NOISE, `idle + palette (${palette.draws}/s)`);
     const hidden = await measure(base, { idleMs: 1500, before: HIDDEN });
     assert.ok(hidden.draws <= NOISE, `idle + hidden (${hidden.draws}/s)`);
     const stopped = await measure(base, { idleMs: 1500, small: true, sample: 24, client: old('assets/dashboard/dashboard.js') });
-    assert.ok(stopped.reached && stopped.medGap < GAP, `RED: the old stand does not throttle in idle (median gap ${stopped.medGap.toFixed(1)} ms)`);
+    // Smallest gap, not median: the throttle is a MINIMUM gap and load only lengthens gaps, so under
+    // CPU starvation the median of an unthrottled loop can exceed GAP (seen: 88 ms), while the closest
+    // pair of frames of an unthrottled loop stays under it and a throttled loop never gets there.
+    assert.ok(stopped.reached && stopped.minGap < GAP, `RED: the old stand does not throttle in idle (smallest gap ${stopped.minGap.toFixed(1)}, median ${stopped.medGap.toFixed(1)} ms)`);
   });
 });
