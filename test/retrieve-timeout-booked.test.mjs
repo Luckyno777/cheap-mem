@@ -28,7 +28,11 @@ function build() {
     '--text', 'the probe failed because two test runs overwrote the same lock file at once', '--class', 'race'], { stdio: 'ignore' });
   const fake = path.join(root, 'fakebin');
   fs.mkdirSync(fake);
-  const script = ["#!/bin/bash", 'for a in "$@"; do [ "$a" = find ] && exit "${FAKE_FIND_RC:-124}"; done', `exec ${REAL_TIMEOUT} "$@"`, ""].join("\n");
+  // No real `timeout` (macOS): the fake still has to run everything that is not
+// `find`, so it drops the seconds argument and execs the rest. (It used to
+// exec an empty path there, and the whole hook went silent - which is not
+// what this file measures.)
+  const script = ["#!/bin/bash", 'for a in "$@"; do [ "$a" = find ] && exit "${FAKE_FIND_RC:-124}"; done', REAL_TIMEOUT ? `exec ${REAL_TIMEOUT} "$@"` : 'shift; exec "$@"', ""].join("\n");
   fs.writeFileSync(path.join(fake, 'timeout'), script, { mode: 0o755 });
   return { root, fake };
 }

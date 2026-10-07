@@ -30,8 +30,15 @@ const MASK = '[REDACTED:github-token]';
 /** A github-token-shaped plant, built at run time. */
 const plant = () => ['gh', 'p_'].join('') + 'Q'.repeat(10) + 'z9'.repeat(10) + 'ab';
 
+// The REAL temp dir, not the one the OS names: on macOS os.tmpdir() is
+// /var/folders/..., a symlink to /private/var/..., and the pinned OLD state's
+// entry check (`argv[1] === import.meta.url`) is false below any symlink, so
+// its recall hook ran as a silent no-op there (CI run 37692975754: "the old
+// recall hook injects the key" failed on macOS only). The old code cannot be
+// fixed; the place it runs in can.
+const REAL_TMP = fs.realpathSync(os.tmpdir());
 const tmp = (t, prefix) => {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const d = fs.mkdtempSync(path.join(REAL_TMP, prefix));
   t.after(() => fs.rmSync(d, { recursive: true, force: true }));
   return d;
 };

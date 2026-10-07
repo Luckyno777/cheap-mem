@@ -40,6 +40,7 @@
 
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
+import { isMain } from '../src/ismain.mjs';
 import path from 'node:path';
 import * as consolePage from '../src/console.mjs';
 import * as dashboard from '../src/dashboard.mjs';
@@ -1648,7 +1649,7 @@ export function serve(root, env = process.env, { allowWrites = false, measure: m
 }
 
 // Started directly rather than imported: run it.
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) {
+if (isMain(import.meta.url)) {
   const root = process.env.CHEAP_MEM_ROOT || process.cwd();
   const flags = process.argv.slice(2);
   serve(root, process.env, { allowWrites: flags.includes('--allow-writes'), measure: true, recall: true }).then(({ server, cfg }) => {

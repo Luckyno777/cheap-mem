@@ -25,7 +25,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMain } from './ismain.mjs';
 import * as memory from './memory.mjs';
 import * as workflow from './workflow.mjs';
 import * as component from './component.mjs';
@@ -233,7 +233,7 @@ function readStdin() {
 }
 
 // `node src/workflowdetect.mjs bash` — the hooks' entry (sh and ps1 alike).
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
   readStdin().then(async (raw) => {

@@ -42,6 +42,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as place from './recallserver-place.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 
 const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -83,6 +84,17 @@ export function codeState(codeRoot = CODE_ROOT) {
   };
   walk(path.join(codeRoot, 'src'), 0);
   return `${n}|${newest}|${total}`;
+}
+
+/** The per-user parent of a short fallback dir: ours, a real directory, 0700. */
+function safeParent(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const st = fs.lstatSync(dir);
+  if (!st.isDirectory() || st.isSymbolicLink()) throw new Error(`${dir} is not a directory`);
+  if (typeof process.getuid === 'function' && st.uid !== process.getuid()) {
+    throw new Error(`${dir} belongs to another user (uid ${st.uid})`);
+  }
+  if ((st.mode & 0o077) !== 0) fs.chmodSync(dir, 0o700);
 }
 
 function safeDir(dir) {
@@ -129,11 +141,18 @@ export async function start(root, {
   const say = log ?? ((t) => process.stderr.write(`recall server: ${t}\n`));
   const where = place.place(root, env);
   if (process.platform !== 'win32' && Buffer.byteLength(where.socket) > place.MAX_SOCKET_PATH) {
-    const reason = `socket path too long (${Buffer.byteLength(where.socket)} bytes > ${place.MAX_SOCKET_PATH}); set MEM_RECALL_SERVER_DIR`;
+    const reason = `socket path too long (${Buffer.byteLength(where.socket)} bytes > ${place.MAX_SOCKET_PATH}); set MEM_RECALL_SERVER_DIR to a shorter place`;
     say(`not started: ${reason}`);
     return { running: false, reason };
   }
-  try { safeDir(where.dir); } catch (e) {
+  try {
+    if (where.fallback) safeParent(path.dirname(where.dir));
+    safeDir(where.dir);
+    if (where.fallback) {
+      // The pointer for bin/mem-retrieve (bash): the default dir says where the server really is.
+      writeAtomic(where.pointer, `${where.dir}\n`, { mode: 0o600 });
+    }
+  } catch (e) {
     say(`not started: ${e.message}`);
     return { running: false, reason: e.message };
   }
