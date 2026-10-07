@@ -56,7 +56,15 @@ test('search: same hits as the old state (MMR, state question, minScore, retired
     const n = child(REPO, 'same', root);
     assert.equal(a.rc, 0, a.err);
     assert.equal(n.rc, 0, n.err);
-    assert.equal(n.out, a.out, 'hits differ from the old state');
+    // Since 2026-10-07 the gate's `covered` leaves out conversational filler
+    // words of the question (QUERY_FILLER in src/search.mjs: what, how, tell,
+    // me, ...). For a question containing one, `covered` is allowed to differ
+    // from the pinned old state; every other field (score, order, source,
+    // entry) and every other question stays byte-identical.
+    const FILLER = /\b(tell|me|explain|please|remind|about|what|how|why|when|where|which|who)\b/i;
+    const normal = (out) => JSON.stringify(JSON.parse(out).results.map((r) => (FILLER.test(r.q)
+      ? { ...r, hits: r.hits.map(({ covered: _covered, ...h }) => h) } : r)));
+    assert.equal(normal(n.out), normal(a.out), 'hits differ from the old state');
     // Positive control: the probe compares real, varied hits and reaches the special paths.
     const results = JSON.parse(n.out).results;
     assert.ok(results.length >= 70);

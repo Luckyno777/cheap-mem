@@ -110,7 +110,7 @@ function packsFor(langInfo) {
  * pronoun they come with, politeness, and the seven question words. Any
  * word that can name a topic (show, find, give, say, know) stays out.
  */
-export const QUERY_FILLER = new Set([
+const QUERY_FILLER = new Set([
   'tell', 'me', 'explain', 'please', 'remind', 'about',
   'what', 'how', 'why', 'when', 'where', 'which', 'who',
 ]);
