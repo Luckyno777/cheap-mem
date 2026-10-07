@@ -49,6 +49,7 @@ import * as pages from '../src/pages.mjs';
 import * as tasks from '../src/tasks.mjs';
 import * as writegate from '../src/writegate.mjs';
 import * as inbox from '../src/inbox.mjs';
+import { readBoundedBody, BODY_TOO_BIG, BODY_ABORTED } from '../src/body-reader.mjs';
 import * as memConfig from '../src/config.mjs';
 import fs from 'node:fs';
 import zlib from 'node:zlib';
@@ -982,10 +983,11 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(JSON.stringify(found));
       };
       if (req.method === 'GET') { answer(url.searchParams.get('question') || ''); return; }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => { if (body.length > 8192) { tooBig = true; return; } body += chunk; });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      readBoundedBody(req, res, 8192, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) {
           res.writeHead(413, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
             .end(JSON.stringify({ state: 'error', reason: 'too-big' }));
@@ -1025,10 +1027,11 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       const no = writegate.refusal(root, cfg, req);
       if (no) { short(res, no.code, no.text); return; }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => { if (body.length > 4096) { tooBig = true; return; } body += chunk; });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      readBoundedBody(req, res, 4096, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) { short(res, 413, 'Too much.'); return; }
         const form = new URLSearchParams(body);
         const name = form.get('name') ?? '';
@@ -1074,15 +1077,13 @@ export function buildHandler(root, cfg, env = process.env) {
       // function (`src/writegate.mjs`), shared by every writing route.
       const no = writegate.refusal(root, cfg, req);
       if (no) { short(res, no.code, no.text); return; }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => {
-        // A cap, so a form cannot fill the process. Two named fields do
-        // not need a kilobyte.
-        if (body.length > 8192) { tooBig = true; return; }
-        body += chunk;
-      });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      // A cap, so a form cannot fill the process. Two named fields do
+      // not need a kilobyte.
+      readBoundedBody(req, res, 8192, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) { short(res, 413, 'Too much.'); return; }
         const p = new URLSearchParams(body);
         try {
@@ -1128,15 +1129,13 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(JSON.stringify({ state: 'error', reason: no.text }));
         return;
       }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => {
-        // A verdict is a key, a verdict word and a couple of small
-        // fields — nowhere near a kilobyte.
-        if (body.length > 4096) { tooBig = true; return; }
-        body += chunk;
-      });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      // A verdict is a key, a verdict word and a couple of small
+      // fields — nowhere near a kilobyte.
+      readBoundedBody(req, res, 4096, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) {
           res.writeHead(413, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
             .end(JSON.stringify({ state: 'error', reason: 'Too much.' }));
@@ -1193,13 +1192,11 @@ export function buildHandler(root, cfg, env = process.env) {
           .end(JSON.stringify({ state: 'error', reason: no.text }));
         return;
       }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => {
-        if (body.length > 4096) { tooBig = true; return; }
-        body += chunk;
-      });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      readBoundedBody(req, res, 4096, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) {
           res.writeHead(413, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
             .end(JSON.stringify({ state: 'error', reason: 'Too much.' }));
@@ -1271,15 +1268,13 @@ export function buildHandler(root, cfg, env = process.env) {
       // function (`src/writegate.mjs`), shared by every writing route.
       const no = writegate.refusal(root, cfg, req);
       if (no) { short(res, no.code, no.text); return; }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => {
-        // A reply is a few paragraphs; 16 KB is room for that and a cap
-        // so a form cannot fill the process.
-        if (body.length > 16384) { tooBig = true; return; }
-        body += chunk;
-      });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      // A reply is a few paragraphs; 16 KB is room for that and a cap
+      // so a form cannot fill the process.
+      readBoundedBody(req, res, 16384, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) { short(res, 413, 'Too much.'); return; }
         const form = new URLSearchParams(body);
         const text = form.get('text') ?? '';
@@ -1440,14 +1435,12 @@ export function buildHandler(root, cfg, env = process.env) {
       // function (`src/writegate.mjs`), shared by every writing route.
       const no = writegate.refusal(root, cfg, req);
       if (no) { short(res, no.code, no.text); return; }
-      let body = '';
-      let tooBig = false;
-      req.on('data', (chunk) => {
-        // A reason and a path are the largest parameters; 16 KB, URL-encoded.
-        if (body.length > 16384) { tooBig = true; return; }
-        body += chunk;
-      });
-      req.on('end', () => {
+      // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
+      // A reason and a path are the largest parameters; 16 KB, URL-encoded.
+      readBoundedBody(req, res, 16384, (read) => {
+        if (read.status === BODY_ABORTED) return; // client gone: no answer, no mutation
+        const tooBig = read.status === BODY_TOO_BIG;
+        const body = read.body ?? '';
         if (tooBig) { short(res, 413, 'Too much.'); return; }
         const form = new URLSearchParams(body);
         const kind = form.get('kind') ?? '';

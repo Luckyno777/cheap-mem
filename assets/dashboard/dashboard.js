@@ -140,6 +140,44 @@ let newDataReady = false;
 // head (normal operation) this stays null. See src/switches.mjs
 // CHEAP_MEM_SERVE_TEMPO_TEST_MS.
 const TEMPO_TEST_MS = Number(document.body.dataset.tempoTestMs || 0) || null;
+// --- run-helper-cm: request runs (audit F18-F20) --------------------------------
+// No framework. One monotonically rising run number and one AbortController per
+// view/request family: whoever starts a new run aborts the old one. A run may only
+// take over its state while `run.holds(selectionHolds)` is true (no newer run, not
+// aborted, selection still the same). Deadline (absolute time) and budget (number
+// of requests) are two separate quantities: `runBudget().take()` returns null,
+// 'deadline' or 'budget' — the caller then shows an end state.
+const runs = new Map(); // family -> { nr, abort, signal, holds, result }
+function runStart(family) {
+  const old = runs.get(family);
+  if (old) old.abort.abort();
+  const abort = new AbortController();
+  const run = { family, nr: (old?.nr || 0) + 1, abort, signal: abort.signal, result: null };
+  run.holds = (selectionHolds) => runs.get(family) === run && !abort.signal.aborted && (selectionHolds ? Boolean(selectionHolds()) : true);
+  runs.set(family, run);
+  return run;
+}
+const runCancel = (family) => { runs.get(family)?.abort.abort(); };
+const runResult = (family) => runs.get(family)?.result ?? null;
+function runBudget({ deadlineMs, requests }) {
+  const until = Date.now() + deadlineMs;
+  let n = 0;
+  return {
+    get requests() { return n; },
+    take() { if (Date.now() >= until) return 'deadline'; if (n >= requests) return 'budget'; n += 1; return null; },
+  };
+}
+// Waits ms; false when the run was aborted in the meantime.
+function runWait(run, ms) {
+  return new Promise((ok) => {
+    if (run.signal.aborted) { ok(false); return; }
+    const t = setTimeout(() => { run.signal.removeEventListener('abort', ab); ok(true); }, ms);
+    const ab = () => { clearTimeout(t); ok(false); };
+    run.signal.addEventListener('abort', ab, { once: true });
+  });
+}
+const runAborted = (e) => e?.name === 'AbortError';
+// --- end run-helper-cm -----------------------------------------------------------
 // Fields in the /dashboard.json answer that do NOT count when asking
 // "did the content really change" — they change on EVERY fetch, even
 // without a real change in the memory (the build timestamp, the MCP
@@ -481,9 +519,14 @@ function setEntries(list) {
 // goes through the server (palette and full-text search).
 const ENTRIES_CAP = 30000;
 let entriesLoad = { full: true, loaded: 0, total: 0, key: null };
-let entriesRun = 0;
+let entriesDisturbance = null; // F19: visible end state when loading the list did not come to an end (text or null)
 let entriesLoadingFor = null; // state key of the running load (no second run for the same one)
 let partRetryTimer = 0;
+// F19: the page loop must not start over endlessly when the state (state_id) changes between
+// the pages. Restarts and deadline are separate from the request budget.
+const ENTRIES_RESTARTS = 3;
+const ENTRIES_DEADLINE_MS = 120000;
+const ENTRIES_STATE_TEXT = 'The data is changing right now, the list was not taken over — please load again.';
 const stateKey = (d) => (d?.cache ? d.cache.built_at + '|' + d.cache.source : null);
 // A part that is still being built (`building`) is no error: ask again soon
 // (at most one timer) — and the page never shows it as an empty list.
@@ -491,12 +534,18 @@ function partLaterAgain() {
   if (partRetryTimer) return;
   partRetryTimer = setTimeout(() => { partRetryTimer = 0; loadParts(); }, TEMPO_TEST_MS ?? 3000);
 }
+// Reports 'error' only when the text changes (loadParts then draws once), never on every retry.
+function entriesDisturbanceSet(text) {
+  const fresh = entriesDisturbance !== text;
+  entriesDisturbance = text;
+  return fresh ? 'error' : null;
+}
 async function loadEntriesPart() {
   const t = D?.parts?.entries;
   const key = stateKey(D);
   // `head_only`: the server has no full list (light head for a very large store).
   if (!t || t.head_only || !key || key === entriesLoad.key || key === entriesLoadingFor) return null;
-  const run = ++entriesRun;
+  const run = runStart('entries');
   entriesLoadingFor = key;
   const wasThere = partState.entries === 'ok';
   if (!wasThere) partState.entries = 'loading';
@@ -504,17 +553,29 @@ async function loadEntriesPart() {
   let from = 0;
   let stateId = null;
   let windowed = false; // atlas-pass-cm: the compact build lists only the newest window of the store
+  let restarts = 0;
+  const pagesMax = Math.ceil(ENTRIES_CAP / Math.max(1, t.page || 5000)) + 1;
+  const budget = runBudget({ deadlineMs: ENTRIES_DEADLINE_MS, requests: pagesMax * (ENTRIES_RESTARTS + 1) });
+  let end = null; // end state without an exception: 'state' | 'deadline' | 'budget'
   try {
     while (from !== null && list.length < ENTRIES_CAP) {
+      const limit = budget.take();
+      if (limit) { end = limit; break; }
       const n = Math.min(t.page || 5000, ENTRIES_CAP - list.length);
       // Literal, not t.path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
-      const r = await fetch('/dashboard/part.json?part=entries&from=' + from + '&n=' + n, { credentials: 'same-origin', cache: 'no-store' });
+      const r = await fetch('/dashboard/part.json?part=entries&from=' + from + '&n=' + n, { credentials: 'same-origin', cache: 'no-store', signal: run.signal });
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
-      if (run !== entriesRun) return null; // a newer run took over
+      if (!run.holds()) return null; // a newer run took over
       if (b.building) { partLaterAgain(); return null; }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
-      if (stateId !== null && b.state_id !== stateId) { list.length = 0; from = 0; stateId = null; continue; }
+      // Another state in the middle of the run: never mix pages of different states, at most restart a bounded number of times.
+      if (stateId !== null && b.state_id !== stateId) {
+        list.length = 0; from = 0; stateId = null;
+        restarts += 1;
+        if (restarts > ENTRIES_RESTARTS) { end = 'state'; break; }
+        continue;
+      }
       stateId = b.state_id;
       list.push(...b.data);
       from = b.next;
@@ -522,12 +583,21 @@ async function loadEntriesPart() {
       entriesLoad.total = b.total;
     }
   } catch (e) {
+    if (runAborted(e) || !run.holds()) return null;
     partReason.entries = e?.message || String(e);
     if (partState.entries !== 'ok') partState.entries = 'error';
-    return null;
+    return entriesDisturbanceSet('The entry list could not be loaded: ' + partReason.entries);
   } finally {
-    if (run === entriesRun) entriesLoadingFor = null;
+    if (run.holds()) entriesLoadingFor = null;
   }
+  if (!run.holds()) return null;
+  if (end) {
+    // End state instead of a silent loop or a mixed list: a list that is already whole stays in place.
+    partReason.entries = end === 'state' ? ENTRIES_STATE_TEXT : end === 'deadline' ? 'Time limit for loading the entries exceeded — please load again.' : 'Request budget for loading the entries used up — please load again.';
+    if (!wasThere) partState.entries = 'error';
+    return entriesDisturbanceSet(partReason.entries);
+  }
+  entriesDisturbance = null;
   const before = entries.length;
   setEntries(list);
   entriesLoad = { full: from === null && !windowed, loaded: entries.length, total: entriesLoad.total, key };
@@ -598,7 +668,7 @@ async function loadParts() {
   // The entries concern every view (start page, net, lists): draw once when
   // they are complete for the first time, afterwards only the marker.
   const e = await entriesRun1;
-  if (e === 'first' || firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
+  if (e === 'first' || e === 'error' || firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
   else if (otherChanged || e === 'changed') showNewDataMark();
 }
 function partNotice(name, title) {
@@ -615,14 +685,25 @@ function projectsConfirmedApply() {
   if (D.today?.projects && Array.isArray(D.today.projects.list)) D.today.projects.list = D.today.projects.list.filter((p) => !projectsConfirmed.has(p.name));
   for (const p of D.projectShelf?.projects || []) if (projectsConfirmed.has(p.name) && p.isNew) p.isNew = false;
 }
-async function loadData({ quiet = false } = {}) {
+// F18: a late answer of an older request must not overwrite the newer state.
+// A new call aborts the old one; the old one then returns the result of the new one
+// (whoever does `await loadData()` and then render() so always draws the newest state).
+function loadData({ quiet = false } = {}) {
+  const run = runStart('data');
+  run.result = loadDataRun(run, quiet);
+  return run.result;
+}
+async function loadDataRun(run, quiet) {
+  const newer = () => runResult('data');
   try {
-    const r = await fetch('/dashboard.json', { credentials: 'same-origin', cache: 'no-store' });
+    const r = await fetch('/dashboard.json', { credentials: 'same-origin', cache: 'no-store', signal: run.signal });
+    if (!run.holds()) return newer();
     // Session expired or ended (another device, a password change): go to
     // the sign-in instead of an error over empty data.
     if (r.status === 401) { location.href = '/login'; return false; }
     if (!r.ok) throw new Error('answer ' + r.status);
     const body = await r.json();
+    if (!run.holds()) return newer();
     // no-jump: build the content key BEFORE prepare() (that mutates fields
     // onto `d` itself) and only flag a real change once there is already
     // a baseline to compare against (not on the very first load).
@@ -659,6 +740,7 @@ async function loadData({ quiet = false } = {}) {
       }, TEMPO_TEST_MS ?? (D.placeholder ? 1000 : D.cache.refreshing ? 5000 : 20000));
     }
   } catch (e) {
+    if (runAborted(e) || !run.holds()) return newer();
     loadError = e?.message || String(e);
     if (!D) {
       $('#screen').innerHTML = `<div class="screen-enter">${note('The data could not be loaded: ' + esc(loadError) + '. Nothing invented is shown.', 'bad')}${btn('Load again', 'reload', '', 'primary')}</div>`;
@@ -733,9 +815,10 @@ function render() {
     }
   }
   // board-tempo-cm: only a part of the entries is loaded -> every view says so (never a part as the whole).
-  const partBanner = !D.placeholder && !entriesLoad.full && D.overview
+  const disturbanceHtml = entriesDisturbance ? `<div id="entriesDisturbance">${note(esc(entriesDisturbance), 'bad')}<p style="margin:8px 0 12px">${btn('Load again', 'reload', '', 'small ghost')}</p></div>` : '';
+  const partBanner = disturbanceHtml + (!D.placeholder && !entriesLoad.full && D.overview
     ? '<div id="entriesLoad">' + note(`${num(entriesLoad.loaded)} of ${num(entriesLoad.total || D.overview.count)} entries loaded${D.parts?.entries?.head_only ? ' — the server only has the counters and the newest entries for a store this large' : D.parts?.entries?.window || entriesLoad.loaded >= ENTRIES_CAP ? ' — lists show the newest, all through the search' + (D.atlas?.condensed ? '; the atlas shows all of them as topics' : '') : ' — the rest is loading, the lists are not complete yet'}.`) + '</div>'
-    : '';
+    : '');
   // The compact build (a store the full build cannot handle) is no unreadable source but a limit: say that.
   const compactNote = D.compact ? note(esc((D.reasons || [])[0] || 'The compact build runs.') + ' What needs the whole store is unknown, not zero — each view says why.') : '';
   // A light head is no unreadable source but a limit: say that instead.
@@ -1810,15 +1893,19 @@ function inboxPage() {
 async function showMessageLatest(name) {
   const m = messages.find((x) => x.name === name);
   if (!m) return;
+  const run = runStart('message');
   showInfo(esc(m.subject), `<p class="small muted">${esc(m.from)} → ${esc(m.to)} · ${esc(m.state)}</p><div class="loading compact"><span class="loading-core" aria-hidden="true"></span><p>Reading the message …</p></div>`);
+  // Selection: the same dialog content as after our own showInfo (another dialog or closing invalidates it).
+  const myInfo = infoStamp;
+  const selection = () => infoStamp === myInfo && $('#info').open;
   let b;
   try {
-    const r = await fetch('/dashboard/message.json?name=' + encodeURIComponent(name), { credentials: 'same-origin', cache: 'no-store' });
+    const r = await fetch('/dashboard/message.json?name=' + encodeURIComponent(name), { credentials: 'same-origin', cache: 'no-store', signal: run.signal });
     b = await r.json();
   } catch (e) {
     b = { state: 'error', reason: e?.message || String(e) };
   }
-  if (!$('#info').open) return;
+  if (!run.holds(selection)) return;
   if (b.state !== 'ok') {
     showInfo(esc(m.subject), note('Message not readable: ' + esc(b.reason || 'unknown'), 'bad'));
     return;
@@ -2544,7 +2631,7 @@ const camera = { zoom: 1, angle: 0.47, tilt: 0.4, panX: 0, panY: 0, focus: null,
 const CONDENSED_MODES = new Set(['storage', 'overview', 'topics', 'structure']);
 const atlasCondensed = (mode = state.graphMode) => Boolean(D?.atlas?.condensed) && CONDENSED_MODES.has(mode);
 const ATLAS_PAGE = 60;
-const atlasPages = new Map(); // key -> { list, total, next, loading, searching, error, source }
+const atlasPages = new Map(); // key -> { list, total, next, loading, searching, error, source, state }
 const atlasKey = (kind, value, project) => kind + ':' + value + (kind === 'theme' ? '|' + project : '');
 const atlasPageOf = (kind, value) => atlasPages.get(atlasKey(kind, value, state.project)) || null;
 // The context for graphModel(): null = the full view.
@@ -2556,25 +2643,49 @@ function atlasContext(mode) {
   for (const [k, pg] of atlasPages) if (k.startsWith('drawer:') || k.endsWith('|' + proj)) for (const e of pg.list) if (scope(e)) seen.set(e.id, e);
   return { atlas: D.atlas, proj, loaded, scope, focus: camera.focus, entries: [...seen.values()] };
 }
+// F20: states per page: 'loading' | 'ok' | 'error' | 'expired' (deadline/budget). Only 'loading' and 'ok' keep a
+// new attempt from starting; 'error' and 'expired' can be repeated (button "Try again"). A page that is still
+// being built is asked for within a budget (requests) and a deadline (time) and ends visibly, never as an empty
+// apparent success.
+const ATLAS_DEADLINE_MS = 90000;
+const ATLAS_REQUESTS = 150;
 async function atlasLoad(kind, value, { more = false } = {}) {
   const project = state.project;
   const k = atlasKey(kind, value, project);
   const old = atlasPages.get(k);
   if (old?.loading) return;
-  if (old && !more) return;
-  if (old && more && old.next === null) return;
-  const pg = old || { list: [], total: null, next: 0, loading: false, searching: false, error: null, source: null };
-  pg.loading = true; pg.error = null;
+  const retry = old && (old.state === 'error' || old.state === 'expired');
+  if (old && !more && !retry) return;
+  if (old && more && !retry && old.next === null) return;
+  const pg = old || { list: [], total: null, next: 0, loading: false, searching: false, error: null, source: null, state: 'loading' };
+  pg.loading = true; pg.error = null; pg.state = 'loading';
   atlasPages.set(k, pg);
+  const run = runStart('atlas:' + k);
+  const selection = () => state.project === project && atlasPages.get(k) === pg;
+  const budget = runBudget({ deadlineMs: ATLAS_DEADLINE_MS, requests: ATLAS_REQUESTS });
   atlasStateShow();
+  let done = false;
   try {
-    for (let attempt = 0; attempt < 400; attempt++) {
+    while (!done) {
+      const limit = budget.take();
+      if (limit) {
+        pg.state = 'expired';
+        pg.error = limit === 'deadline'
+          ? 'The store is still being built — the time limit (' + Math.round(ATLAS_DEADLINE_MS / 1000) + ' s) ran out.'
+          : 'The store is still being built — the budget of ' + budget.requests + ' requests is used up.';
+        break;
+      }
       // Literal, not t.path — the closed route list (test/dashboard-page.test.mjs) sees literal ones only.
-      const r = await fetch('/dashboard/part.json?part=atlas&' + kind + '=' + encodeURIComponent(value) + '&project=' + encodeURIComponent(project) + '&from=' + (pg.next || 0) + '&n=' + ATLAS_PAGE, { credentials: 'same-origin', cache: 'no-store' });
+      const r = await fetch('/dashboard/part.json?part=atlas&' + kind + '=' + encodeURIComponent(value) + '&project=' + encodeURIComponent(project) + '&from=' + (pg.next || 0) + '&n=' + ATLAS_PAGE, { credentials: 'same-origin', cache: 'no-store', signal: run.signal });
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
-      // Not built yet, or the search over the store is running: ask again, never show it empty.
-      if (b.searching || b.building) { pg.searching = true; atlasStateShow(); await new Promise((ok) => setTimeout(ok, TEMPO_TEST_MS ?? 700)); continue; }
+      if (!run.holds(selection)) break;
+      // Not built yet, or the search over the store is running: ask again (within the budget), never show it empty as a success.
+      if (b.searching || b.building) {
+        pg.searching = true; atlasStateShow();
+        if (!(await runWait(run, TEMPO_TEST_MS ?? 700))) break;
+        continue;
+      }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
       for (const e of b.data) {
         if (!entryIndex.has(e.id)) entryIndex.set(e.id, entryOf(e));
@@ -2582,15 +2693,22 @@ async function atlasLoad(kind, value, { more = false } = {}) {
         if (!pg.list.includes(x)) pg.list.push(x);
       }
       pg.total = b.total; pg.next = b.next; pg.source = b.source || null;
-      break;
+      pg.state = 'ok';
+      done = true;
     }
   } catch (e) {
-    pg.error = e?.message || String(e);
+    if (!runAborted(e) && run.holds(selection)) { pg.error = e?.message || String(e); pg.state = 'error'; }
   } finally {
     pg.loading = false; pg.searching = false;
   }
+  if (!run.holds(selection)) {
+    // Aborted or selection changed: no state is taken over; an empty page is dropped (a new attempt stays possible).
+    if (pg.state === 'loading') { pg.state = pg.list.length ? 'ok' : 'error'; if (!pg.list.length && atlasPages.get(k) === pg) atlasPages.delete(k); }
+    atlasStateShow();
+    return;
+  }
   // Redraw only when the page still shows the same view.
-  if ($('#brain') && atlasCondensed() && state.project === project) render();
+  if (pg.state === 'ok' && $('#brain') && atlasCondensed() && state.project === project) render();
   else atlasStateShow();
 }
 // What the group/cell in focus would load: { kind, value } or null.
@@ -2609,7 +2727,12 @@ function atlasStateShow() {
   if (!m?.condensed) { el.textContent = ''; more.hidden = true; return; }
   if (!z) { el.textContent = `Condensed: ${num(D.overview?.count ?? 0)} entries in ${num(D.atlas.themesTotal)} topics · entries appear when zooming in`; more.hidden = true; return; }
   if (!pg || (pg.loading && !pg.list.length)) { el.textContent = pg?.searching ? 'Searching the store for entries …' : 'Loading entries …'; more.hidden = true; return; }
-  if (pg.error && !pg.list.length) { el.textContent = 'Entries could not be loaded: ' + pg.error; more.hidden = true; return; }
+  if (pg.error) {
+    // End state with a button to repeat (also when a partial list is already there).
+    el.textContent = (pg.state === 'expired' ? 'Entries not finished: ' : 'Entries could not be loaded: ') + pg.error + (pg.list.length ? ` · ${num(pg.list.length)} loaded` : '');
+    more.hidden = false; more.textContent = 'Try again';
+    return;
+  }
   el.textContent = `${num(pg.list.length)} of ${num(pg.total ?? countOf(g))} entries loaded` + (pg.loading ? (pg.searching ? ' · searching for more …' : ' · loading …') : '');
   more.hidden = pg.next === null || pg.loading;
   more.textContent = 'Load ' + num(ATLAS_PAGE) + ' more';
@@ -4835,7 +4958,9 @@ async function showDetail(id, tab = 'content') {
   else body = `<pre>${esc(JSON.stringify({ line: k.raw ?? null, card: k.entry ?? null, state: k.state, derivedState: statusOf(id) }, null, 2))}</pre>`;
   $('#detail .drawer-body').innerHTML = body;
 }
+let infoStamp = 0; // counts every refill of the dialog (run-helper-cm: selection of a late message run)
 function showInfo(title, body) {
+  infoStamp += 1;
   $('#info').innerHTML = `<header><h2 id="infoTitle">${title}</h2><button class="iconbtn" data-close="info" aria-label="Close the dialog">✕</button></header>${body}`;
   if (!$('#info').open) $('#info').showModal();
 }
@@ -5845,6 +5970,8 @@ try {
     document.body.classList.add('light');
   }
 } catch { /* without storage: dark like the mockup */ }
+// Closing the dialog aborts a running message run (run-helper-cm).
+$('#info').addEventListener('close', () => runCancel('message'));
 initAtmosphere();
 document.body.classList.toggle('reduce-motion', !state.motion);
 render();
