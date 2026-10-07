@@ -46,11 +46,35 @@
 
 # --- A time cap, or none -------------------------------------------
 #
-# GNU timeout, else gtimeout (coreutils via brew), else run it plain.
-# Losing the cap is worse than having it, and far better than a command
-# that never runs: a capped call that cannot start protects nothing.
+# GNU timeout, else gtimeout (coreutils via brew), else the perl
+# watchdog below, else run it plain.
+#
+# **The plain run used to be the answer on a stock Mac, and it was wrong
+# (CI run 37692975754).** A "cap" that does not cap is not a cap: the
+# K3 probe (a hanging `find` must come back as exit 124 plus a journal
+# line with reason `timeout`) and the digest probe (a hanging collection
+# is ended by its cap) both got no 124 on macOS-latest, because nothing
+# ended the call. perl ships with macOS (and with git for Windows), so
+# a stock Mac now has a real cap: `mem_cap_perl` below, same contract as
+# GNU timeout - exit 124 when it expired, the command's own code
+# otherwise, 128+n when it died of a signal.
+mem_cap_perl() {
+  perl -MTime::HiRes=alarm -e '
+    my $s = shift @ARGV; my $p = fork();
+    defined $p or exit 125;
+    if (!$p) { exec { $ARGV[0] } @ARGV; exit 127 }
+    my $hit = 0;
+    $SIG{ALRM} = sub { if (!$hit) { $hit = 1; kill "TERM", $p; alarm 2 } else { kill "KILL", $p } };
+    alarm $s;
+    my $r; while (($r = waitpid($p, 0)) < 0) { last unless $!{EINTR} }
+    alarm 0;
+    exit 124 if $hit;
+    exit(($? & 127) ? 128 + ($? & 127) : ($? >> 8));
+  ' "$@"
+}
 if command -v timeout > /dev/null 2>&1; then MEM_CAP=(timeout)
 elif command -v gtimeout > /dev/null 2>&1; then MEM_CAP=(gtimeout)
+elif command -v perl > /dev/null 2>&1; then MEM_CAP=(mem_cap_perl)
 else MEM_CAP=(); fi
 
 # capped <seconds> <cmd...>
