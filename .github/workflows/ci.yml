@@ -80,10 +80,10 @@ jobs:
       # exactly the path most users take.
       - run: npm ci --omit=optional
 
-      # `npm test` runs bench/run-tests.mjs, which expands test/*.test.mjs
-      # itself: PowerShell and Node 20 do not expand globs, and a bare
-      # `node --test` also runs the fixtures and child helpers under
-      # test/ (they are not tests and exit non-zero without arguments).
+      # `node --test` with no argument, never `test/*.test.mjs`:
+      # PowerShell does not expand globs, so the glob form passes on
+      # Linux and fails on Windows for a reason that has nothing to do
+      # with the code.
       - run: npm test
 
   # The one number in the README that no unit test can re-derive, because
@@ -116,7 +116,7 @@ jobs:
       - name: measure, enforce the floor, and hold the README to it
         run: |
           set -o pipefail
-          npx c8 --reporter=text-summary node bench/run-tests.mjs 2>&1 | tee /tmp/cov.txt
+          npx c8 --reporter=text-summary node --test 2>&1 | tee /tmp/cov.txt
           node - <<'EOF'
           const fs = require('node:fs');
           const out = fs.readFileSync('/tmp/cov.txt', 'utf8');
