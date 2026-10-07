@@ -93,6 +93,63 @@ function packsFor(langInfo) {
   return langInfo.certain ? [pack(langInfo.language)] : DETECTABLE_PACKS;
 }
 
+/**
+ * Conversational filler of a QUESTION, as people type it to an assistant:
+ * "tell me about ...", "what did we ...", "please explain ...". These
+ * words are not in the English stopword list on purpose (that list is
+ * short because it also thins the INDEX, where a title's every word is
+ * load-bearing), but a question word that the entry does not carry says
+ * nothing about whether the entry answers: "tell me about the routine
+ * note on deploys and builds" is fully answered by an entry about routine
+ * notes on deploys and builds. Used only by the answer gate's `covered`
+ * (never for scoring or the coordination factor), and only for a word the
+ * document does NOT carry - a document that does carry "about" still
+ * counts it as covered.
+ *
+ * Minimal on purpose: request verbs addressed to the assistant, the
+ * pronoun they come with, politeness, and the seven question words. Any
+ * word that can name a topic (show, find, give, say, know) stays out.
+ */
+const QUERY_FILLER = new Set([
+  'tell', 'me', 'explain', 'please', 'remind', 'about',
+  'what', 'how', 'why', 'when', 'where', 'which', 'who',
+]);
+
+/**
+ * Is this typed word filler FOR THIS DOCUMENT - would the document's own
+ * rule sets have dropped it at index time?
+ *
+ * **Why per document (2026-10-07).** A query is tokenised against every
+ * detectable pack and a word is dropped only if ALL of them call it a
+ * stopword (`tokenizeGroupsPacked`) - correct for scoring, because the
+ * query's language is unknown. But English "the", "and", "on", "of" are
+ * not German stopwords, so they survived as typed words, and no English
+ * document can ever carry them (its pack dropped them when it was
+ * indexed). Coverage then read "7 of 10 words", and the answer gate (h3,
+ * "the entry carries EVERY typed word") withheld an entry that held every
+ * word that could be held: "routine note deploys builds" passed,
+ * "the routine note on deploys and builds" was withheld, and the
+ * benchmark's "tests that fail at random" lost the same way.
+ *
+ * Judging the word by the document's own packs (CERTAIN: its language;
+ * UNCERTAIN: every detectable pack, the same `every` rule as the query)
+ * takes the word out of numerator and denominator for that document
+ * only, in the share the answer gate reads (`covered`); the coordination
+ * factor is deliberately left as it was (see the call site). Nothing else
+ * about the gate moves: a content word
+ * the document lacks still counts as uncovered.
+ */
+function fillerForDoc(doc, word, cache) {
+  const key = `${doc.langCertain ? doc.lang : '?'}\u0000${word}`;
+  let v = cache.get(key);
+  if (v === undefined) {
+    const packs = doc.langCertain && doc.lang ? [pack(doc.lang)] : DETECTABLE_PACKS;
+    v = packs.every((l) => l.stopwords.has(word));
+    cache.set(key, v);
+  }
+  return v;
+}
+
 const K1 = 1.2;
 const B = 0.75;
 
@@ -158,7 +215,10 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 // 13: O2 — `steps` (workflow) and `body` (snippet) are body fields and so
 //     indexed; the field set comes from src/bodyfields.mjs. A version-12
 //     cache knows neither.
-export const CACHE_VERSION = 13;
+// 14: the learned term graph needs `minDistinct` documents that are not
+//     near-copies of each other behind every pair (thesaurus.buildTermGraph).
+//     A version-13 cache holds a graph learned from repeated notes.
+export const CACHE_VERSION = 14;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -1636,6 +1696,7 @@ export function search(index, query, {
   // see its own comment for why an alternate spelling from a second
   // rule set must never be allowed to add a SECOND match for one word.
   const groups = tokenizeGroupsPacked(query, { lexicons: queryLexicons, langs: queryPacks });
+  const fillerCache = new Map();   // (doc language, typed word) -> filler for that document?
   const own = groups.flatMap((packVariants) => packVariants.flat());
   if (own.length === 0) return [];
   const ownSet = new Set(own);
@@ -1773,6 +1834,19 @@ export function search(index, query, {
     const own = (t) => doc.weights.has(t) && !isExpansionOnly(doc, t);
     const viaExp = (packVariants) => !!doc.expOnly
       && packVariants.some((forms) => forms.some((t) => isExpansionOnly(doc, t)));
+    // Typed words this document could never carry (see `fillerForDoc`)
+    // leave the count for this document, on both sides of the division -
+    // for the answer gate's `covered` only. The coordination factor below
+    // keeps counting them: changing it moves every score of a question
+    // with filler words, which test/wildcard-prefix.test.mjs pins
+    // byte-for-byte against a historic commit, and the atlas/README
+    // numbers sit on it. That is a separate, measured decision.
+    let fillers = 0;
+    const isFiller = (packVariants) => !packVariants.some((forms) => forms.some(own))
+      && packVariants.word !== undefined
+      && (QUERY_FILLER.has(packVariants.word) || fillerForDoc(doc, packVariants.word, fillerCache));
+    for (const packVariants of groups) if (isFiller(packVariants)) fillers += 1;
+    const counted = Math.max(1, groups.length - fillers);
     if (withCoverage) {
       let c = 0;
       for (const packVariants of groups) {
@@ -1780,7 +1854,7 @@ export function search(index, query, {
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
           || packVariants.rewritten?.some((t) => doc.weights.has(t))) c += 0.5;
       }
-      coveredShare = c / groups.length;
+      coveredShare = fillers === groups.length ? 0 : c / counted;
     }
     if (coverage > 0 && groups.length > 1) {
       let covered = 0;

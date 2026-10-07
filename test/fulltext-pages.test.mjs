@@ -16,6 +16,7 @@
 //       state RED; positive control: the same setup sees the delay of the old state at all).
 //   (4) Route: ?limit=/&cursor=, answer size bounded.
 //   (5) Browser: "load more" (new client GREEN, the client of c74adca has no button = RED).
+/* global document, getComputedStyle, location -- these run inside the page (browser), not in Node */
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

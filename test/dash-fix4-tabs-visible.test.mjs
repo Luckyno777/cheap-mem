@@ -32,6 +32,7 @@
 // Without Playwright/Chromium the tests are SKIPPED with a reason
 // (visible as `# SKIP`), never silently green.
 // invariant: dashboard-reiter-sichtbar
+/* global D, document, getComputedStyle, location, pages, requestAnimationFrame, sections -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

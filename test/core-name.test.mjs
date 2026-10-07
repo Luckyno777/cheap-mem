@@ -11,6 +11,7 @@
 // Three layers, same as console.test.mjs's split: the module (`apply()`
 // directly), the real HTTP route (door, origin, redirect, log), and the
 // rendered page (Playwright — SKIPPED, not failed, without a Chromium).
+/* global document, route -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

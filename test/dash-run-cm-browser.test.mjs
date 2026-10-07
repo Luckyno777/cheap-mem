@@ -11,6 +11,7 @@
 // Red proof: the scenario also runs against the dashboard.js of the FIXED old state 4bbca61 (git show,
 // played in through page.route as /dashboard/app.js) and must show the old fault there.
 // Screenshots (1920/390, dark/light, overflow measured) only with DASH_RUN_IMAGES=<folder>.
+/* global requestAnimationFrame -- these run inside the page (browser), not in Node */
 /* global document, localStorage, messages, loadData, D, entries, state, render, graphAPI, window */
 import test from 'node:test';
 import assert from 'node:assert/strict';

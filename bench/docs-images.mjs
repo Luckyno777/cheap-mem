@@ -8,6 +8,7 @@
 // that guard is checked again by test/docs-images-guard.test.mjs.
 //
 // Usage: node bench/docs-images.mjs
+/* global document, getComputedStyle, location, state, window -- these run inside the page (browser), not in Node */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

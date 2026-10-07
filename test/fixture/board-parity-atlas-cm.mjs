@@ -10,6 +10,7 @@
 // rebuilds exactly that: one topic with 220 entries (-> twelve subgroups),
 // a few more topics, and a bundle whose hub has 140 neighbours and a long
 // title (-> the breadcrumb runs as a paragraph).
+/* global Event, document, getComputedStyle, graphAPI -- these run inside the page (browser), not in Node */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

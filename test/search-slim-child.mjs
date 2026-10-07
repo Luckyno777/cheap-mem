@@ -15,6 +15,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [, , tree, mode, root, nArg] = process.argv;
+// A bare `node --test` (the CI form, see test/packaging.test.mjs) also runs
+// every .mjs under test/. Called without its arguments this file is not a
+// probe but a stray target: stand down with success instead of crashing.
+if (!tree) process.exit(0);
 const imp = (f) => import(pathToFileURL(path.join(tree, 'src', f)).href);
 const out = (o) => process.stdout.write(`${JSON.stringify(o)}\n`);
 

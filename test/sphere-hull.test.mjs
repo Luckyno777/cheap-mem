@@ -56,7 +56,7 @@ function between(q, from, to) {
 }
 function graphModelFrom(q) {
   const src = between(q, 'function graphModel(', 'function graphCaption(');
-  // eslint-disable-next-line no-new-func
+   
   return new Function('allEdges', 'byId', 'neuralPalette', 'types', 'incomingIndex', 'trailCenter', `${src}\nreturn graphModel;`)(
     () => [], () => null, ['#8fd694', '#8fb8f0', '#7fe0d0', '#c9a8f0', '#f0c890', '#f09090', '#d0d0d0'], {}, new Map(), () => null,
   );
@@ -100,7 +100,7 @@ function collect(run) {
 }
 function hull(model, source = SOURCE) {
   const src = between(source, ANCHOR, 'function initGraph() {');
-  // eslint-disable-next-line no-new-func
+   
   const build = new Function('T', 'cortex', 'v', 'own', 'model', 'clock', `${src}\nreturn buildHull(T, cortex, own, v, model, clock);`);
   return collect((cortex, v, own) => build(T, cortex, v, own, model, { uTime: { value: 0 }, uMotion: { value: 1 } }));
 }
@@ -119,9 +119,9 @@ const darkens = (objects) => objects.filter((o) => {
 const smoothstep = (a, b, x) => { const t = Math.max(0, Math.min(1, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 /** A GLSL formula from the block as a JS function (the very string the shader uses). */
 function formula(name, args) {
-  // eslint-disable-next-line no-new-func
+   
   const expr = new Function(`${BLOCK}\nreturn ${name};`)();
-  // eslint-disable-next-line no-new-func
+   
   return { expr, f: new Function('smoothstep', ...args, `return ${expr};`).bind(null, smoothstep) };
 }
 function monotonicFalling(f, from, to, steps = 400) {
@@ -174,7 +174,7 @@ test('GREEN: density falls monotonically to 0 outwards, thin, never empty inside
   assert.ok(monotonicFalling(f, from, 1.3), `from r=${from} the density falls monotonically (${expr})`);
   assert.ok(Math.abs(f(1)) < 1e-9 && Math.abs(f(1.2)) < 1e-9, 'exactly 0 at the fog edge — no rim');
   assert.ok(f(0) >= 0.4, 'the middle is not empty');
-  // eslint-disable-next-line no-new-func
+   
   const cap = new Function(`${BLOCK}\nreturn CLOUD_CAP;`)();
   assert.ok(cap > 0 && cap <= 0.35, `fog at most ${cap} bright per pixel`);
   assert.match(BLOCK, /\(1\.0 - exp\(-acc \* [\d.]+\)\) \* \$\{CLOUD_CAP/, 'soft saturation under the cap');
@@ -233,7 +233,7 @@ test('GREEN: glitter does not glow itself — colour only from the light of the 
 test('GREEN: the cores glow as in the cloud version, not harsher (CORE_GLOW dims the colour, not the opacity)', () => {
   // Measured (demo store, 1440x900, no motion): blown-out pixels in the network picture,
   // lucky-mem: cloud 5.45 ‰, fog undamped 11.35 ‰, with 0.62 5.16 ‰; here cloud 0.95 ‰, now 0.37 ‰.
-  const glow = new Function(`${between(SOURCE, 'const CORE_GLOW', 'const CORE_FS')}\nreturn CORE_GLOW;`)(); // eslint-disable-line no-new-func
+  const glow = new Function(`${between(SOURCE, 'const CORE_GLOW', 'const CORE_FS')}\nreturn CORE_GLOW;`)();  
   assert.ok(glow >= 0.5 && glow <= 0.8, `CORE_GLOW ${glow}`);
   assert.match(between(SOURCE, 'const CORE_FS', 'const STRAND_VS'), /gl_FragColor = vec4\(c \* \$\{CORE_GLOW\.toFixed\(2\)\}, clamp\(a, 0\.0, 1\.0\) \* vDim\);/);
   assert.doesNotMatch(OLD_SOURCE(), /CORE_GLOW/, 'RED: the old state had no damping');

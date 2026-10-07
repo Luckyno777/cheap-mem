@@ -80,7 +80,7 @@ function homeFromEnv(text) {
     .filter(({ line }) => /process\.env\.HOME\b/.test(line));
 }
 
-test('no shipped module resolves a home directory through process.env.HOME', (testCtx) => {
+test('no shipped module resolves a home directory through process.env.HOME', () => {
   const offenders = [];
   for (const { rel, text } of shippedSources()) {
     for (const { line, nr } of homeFromEnv(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
@@ -92,7 +92,7 @@ test('no shipped module resolves a home directory through process.env.HOME', (te
     + 'reads $HOME on POSIX and USERPROFILE on Windows.');
 });
 
-test('POSITIVE CONTROL: the probe really reads these files', (testCtx) => {
+test('POSITIVE CONTROL: the probe really reads these files', () => {
   // Without this the guard above passes by walking an empty tree, which
   // is how a vacuous check looks from the outside.
   const files = shippedSources();
@@ -147,7 +147,7 @@ test('the stop-hook check follows the home directory, not the current one', (tes
   }
 });
 
-test('with HOME unset — the Windows condition — the home directory is still found', (testCtx) => {
+test('with HOME unset — the Windows condition — the home directory is still found', () => {
   // This is the closest a Linux machine gets to the real failure, and
   // it is close enough to be a measurement rather than a reading.
   //

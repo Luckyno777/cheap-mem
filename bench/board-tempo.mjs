@@ -29,6 +29,7 @@
 // Output: one JSON line on stdout. Only measures; writes into the store
 // nothing but what the server itself writes (start marker, derived caches,
 // the head file).
+/* global document -- these run inside the page (browser), not in Node */
 import fs from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';

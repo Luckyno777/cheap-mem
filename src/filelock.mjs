@@ -123,7 +123,7 @@ function bootContext() {
   let boot = '-';
   let ns = '-';
   try { boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim() || '-'; } catch { /* no /proc */ }
-  try { ns = fs.readlinkSync('/proc/self/ns/pid').replace(/[^0-9A-Za-z:\[\]]/g, '') || '-'; } catch { /* no /proc */ }
+  try { ns = fs.readlinkSync('/proc/self/ns/pid').replace(/[^0-9A-Za-z:[\]]/g, '') || '-'; } catch { /* no /proc */ }
   return `${boot}/${ns}`;
 }
 
@@ -375,7 +375,7 @@ export function heldLock() { return heldPath; }
  * return its result. Throws `LockTimeoutError` after `waitMs`,
  * `NestedLockError` if this process already holds a lock.
  */
-export function withLock(lockPath, fn, { waitMs = DEFAULT_WAIT_MS, staleS = DEFAULT_STALE_S } = {}) {
+export function withLock(lockPath, fn, { waitMs = DEFAULT_WAIT_MS, staleS: _staleS = DEFAULT_STALE_S } = {}) {
   if (heldPath !== null) {
     throw new NestedLockError(
       `withLock('${lockPath}') while already holding '${heldPath}': only leaf locks are allowed `

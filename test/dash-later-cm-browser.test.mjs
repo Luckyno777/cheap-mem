@@ -9,6 +9,7 @@
 // Red proof: the same scenario against the dashboard.js of the FIXED old state 4ed3a08 (git show, played in
 // through page.route) keeps asking and never shows an end state; positive control: green on the new state.
 // Server, context and page are torn down in finally.
+/* global requestAnimationFrame -- these run inside the page (browser), not in Node */
 /* global document, messages */
 import test from 'node:test';
 import assert from 'node:assert/strict';

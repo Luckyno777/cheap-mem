@@ -24,6 +24,7 @@
 // (2 of 9, reproducible, orchestrator-confirmed). So: whoever calls the
 // fixture picks the args -- `startBrowser({ args: [] })` for dash-fix4,
 // every other caller unchanged (no argument = default).
+/* global document -- these run inside the page (browser), not in Node */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -95,6 +96,7 @@ export async function startBrowser({ args = DEFAULT_ARGS } = {}) {
   if (!browser) {
     const p = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
     if (fs.existsSync(p)) {
+      // eslint-disable-next-line require-atomic-updates -- `browser` is local to this call, nobody else writes it
       try { browser = await pw.chromium.launch({ executablePath: p, args }); } catch { /* fall through */ }
     }
   }

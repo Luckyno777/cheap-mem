@@ -40,6 +40,9 @@ export default [
         setImmediate: 'readonly',
         structuredClone: 'readonly',
         crypto: 'readonly',
+        // Node globals since 16 / always; used by the timing code.
+        performance: 'readonly',
+        global: 'readonly',
       },
     },
     rules: {

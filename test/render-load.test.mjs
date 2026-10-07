@@ -10,6 +10,7 @@
 // on with the palette open (a probe loads its client through page.route).
 // Positive control: a visible, moving network draws on both stands.
 // Without Chromium the browser probes are SKIPPED (not measured is not passed).
+/* global Event, document, window -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

@@ -55,7 +55,7 @@ export function germanIdentifiers(text) {
   // other: a regex literal is data (the frozen eval grades German
   // answers with `/nicht eindeutig/`), not a name.
   const code = stripComments(text)
-    .replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`|([(\[,=:!&|?{};]|\breturn)\s*\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n])+\/[a-z]*/g,
+    .replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\.|[^`\\])*`|([([,=:!&|?{};]|\breturn)\s*\/(?![*/])(?:\\.|\[(?:\\.|[^\]\\\n])*\]|[^/\\\n])+\/[a-z]*/g,
       (m, lead) => (lead === undefined ? ' ' : `${lead} `))
     .replace(/\/\/.*$/gm, ''); // trailing line comments (whole-line ones are gone already)
   const found = new Set();

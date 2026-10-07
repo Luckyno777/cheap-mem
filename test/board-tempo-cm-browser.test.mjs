@@ -14,6 +14,7 @@
 //      without a script error and says that only a head is there.
 // Positive controls: the held request WAS asked for; the probe store really
 // has more entries than the head carries.
+/* global document, entries, location, sections -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

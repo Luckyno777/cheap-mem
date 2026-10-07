@@ -11,8 +11,6 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import path from 'node:path';
 import * as inbox from '../src/inbox.mjs';
 import { tempDir } from './temp-dir.mjs';
 

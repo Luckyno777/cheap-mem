@@ -20,6 +20,7 @@
 // Red proof: on the old state 6154cd0 (origin/main before this change) the
 // check finds the German pattern name, "mockup" and "brain" (task report). Positive
 // control below: an injected visible text is found, a hidden one is not.
+/* global document, location -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

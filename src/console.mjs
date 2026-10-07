@@ -170,6 +170,7 @@ export const SETTINGS = Object.freeze({
       const v = String(value ?? '').trim();
       // 1-32 printable characters, no control characters or line breaks —
       // this text sits in a page header, not a log line.
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       if (!v || v.length > 32 || /[\x00-\x1F\x7F]/.test(v)) {
         throw new Error('Core name must be 1–32 printable characters, with no line breaks or control characters.');
       }

@@ -14,6 +14,7 @@
 // Red-proof (hand-run, 2026-09-30, on the pinned old commit 241a8aa):
 // the file run against the tree before D3b — /entries answers 404, the
 // module does not exist. Positive controls sit in the tests below.
+/* global document, getComputedStyle -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

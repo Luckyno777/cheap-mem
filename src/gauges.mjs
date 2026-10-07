@@ -105,7 +105,7 @@ const HEREDOC = /<<\s*['"]?[A-Za-z_]/;
 // placeholder, not deleted. It used to be `>>?\s*\S`, which hit `2>&1`,
 // `2>/dev/null` and `=>` and turned every read command with an error
 // redirect into a "write" (audit A.5).
-const REDIRECT_TO_FILE = /(?:^|[^=>\-])(?:\d*|&)>>?(?!&)\s*(?!\/dev\/(?:null|stdout|stderr|tty)(?![\w/.-]))(?![(])\S/;
+const REDIRECT_TO_FILE = /(?:^|[^=>-])(?:\d*|&)>>?(?!&)\s*(?!\/dev\/(?:null|stdout|stderr|tty)(?![\w/.-]))(?![(])\S/;
 const QUOTED_TEXT = /'[^']*'|"(?:[^"\\]|\\.)*"/g;
 
 /** Does this shell command write to a file via redirection? */

@@ -8,6 +8,7 @@
 // The truth about the status stays ONE function (procedure.statusFor); nothing is
 // recomputed here, only read back against `procedure.statusOf`.
 // Visibility only through getComputedStyle, browser only through test/fixture/browser.mjs.
+/* global document, location -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

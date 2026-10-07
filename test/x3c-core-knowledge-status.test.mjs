@@ -19,6 +19,7 @@
 // proposed rule in the panel — also the positive control that the probe
 // sees the rule at all.
 // invariant: kernwissen-nur-geltendes
+/* global document, getComputedStyle, location -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

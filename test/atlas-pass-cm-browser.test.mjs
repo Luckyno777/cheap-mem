@@ -11,6 +11,7 @@
 //   3. A script error anywhere in this flow fails the probe.
 // Positive control: a small store keeps the full view (no `condensed`, no
 // atlas request, every entry in the net).
+/* global D, countOf, document, entries, graphAPI, render, state -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

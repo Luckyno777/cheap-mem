@@ -148,7 +148,7 @@ export function beforeEditDuties(root, queryPath, hits = [], { cap = 2, project 
   if (candidates.length) {
     const lines = [];
     let projects = [null];
-    try { projects = [null, ...memory.listProjects(root)]; } catch { /* global only */ }
+    try { projects = [null, ...memory.listProjects(root)]; } catch { /* fall back to the global lane only */ }
     for (const p of projects) {
       try { lines.push(...memory.readLog(root, 'procedure', { project: p }).entries); } catch { /* skip */ }
     }

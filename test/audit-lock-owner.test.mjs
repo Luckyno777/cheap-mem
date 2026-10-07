@@ -63,7 +63,7 @@ function startOf(pid) {
 }
 const context = () => {
   const boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
-  const ns = fs.readlinkSync('/proc/self/ns/pid').replace(/[^0-9A-Za-z:\[\]]/g, '');
+  const ns = fs.readlinkSync('/proc/self/ns/pid').replace(/[^0-9A-Za-z:[\]]/g, '');
   return `${boot}/${ns}`;
 };
 const line = (pid, start, token = 'foreigntoken', host = os.hostname(), ctx = context()) =>

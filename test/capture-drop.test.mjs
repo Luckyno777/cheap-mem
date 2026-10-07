@@ -24,7 +24,6 @@ import test from 'node:test';
 import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as raw from '../src/raw.mjs';
@@ -172,7 +171,7 @@ test('NEVER SILENT: the header books what was left out', (testCtx) => {
   assert.ok(r.droppedBytes > 0);
 });
 
-test('an unknown attachment subtype is dropped, a known one is kept', (testCtx) => {
+test('an unknown attachment subtype is dropped, a known one is kept', () => {
   // The safe default for a SIZE problem: drop what we do not recognise.
   // Stated as a test so the direction is a decision, not an accident.
   assert.equal(raw.dropReason({ type: 'attachment', attachment: { type: 'brand_new_harness_thing' } }),

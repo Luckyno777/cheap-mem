@@ -31,7 +31,6 @@ import test from 'node:test';
 import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';

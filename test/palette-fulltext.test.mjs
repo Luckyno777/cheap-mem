@@ -10,6 +10,7 @@
 // Positive control: a title word is found in both states. Visibility only via getComputedStyle.
 // The search is a fragment from the middle of a word: the old palette finds the entry neither in the
 // excerpt nor via the ranked search (word search), the full text finds it as a substring.
+/* global document, getComputedStyle -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

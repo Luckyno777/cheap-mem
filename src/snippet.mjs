@@ -81,7 +81,7 @@ export function placeholdersOf(body) {
   const out = [];
   const re = /\{\{\s*([A-Za-z0-9_]+)\s*\}\}/g;
   let m;
-  // eslint-disable-next-line no-cond-assign
+   
   while ((m = re.exec(text))) if (!out.includes(m[1])) out.push(m[1]);
   return out;
 }

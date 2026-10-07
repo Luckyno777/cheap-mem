@@ -47,7 +47,9 @@ async function oldMem() {
     const d = path.join(tmp, 'old'); fs.mkdirSync(d);
     execFileSync('git', ['-C', REPO, 'archive', '-o', path.join(d, 's.tar'), OLD, 'src', 'package.json']);
     execFileSync('tar', ['-xf', path.join(d, 's.tar'), '-C', d]);
+    // eslint-disable-next-line require-atomic-updates -- memoised import; a second caller would store the same module
     oldMemory = await import(pathToFileURL(path.join(d, 'src', 'memory.mjs')).href);
+  // eslint-disable-next-line require-atomic-updates -- memoised import; a second caller would store the same module
   } catch { oldMemory = null; }
   return oldMemory;
 }

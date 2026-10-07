@@ -166,6 +166,7 @@ const CAT_WORD = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:-]{0,79}$/u.test(v);
  * never an open field name.
  */
 const CAT_TOPIC = (v) => /^[\p{L}\p{N}][\p{L}\p{N}_.:/-]{0,119}$/u.test(v);
+// eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
 const CAT_LABEL = (v) => { const t = v.trim(); return t === v && t.length >= 2 && t.length <= 40 && !/[\u0000-\u001f]/.test(t) && !t.startsWith('-'); };
 function classifyCategory(json) {
   return json?.ok === true ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no ok' };
@@ -244,6 +245,7 @@ export const KINDS = Object.freeze({
     params: {
       path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/') && !v.startsWith('-'),
         why: 'a relative capture path as `mem raw review` lists it' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       reason: { required: true, check: (v) => v.trim().length >= 3 && v.length <= 500 && !/[\u0000-\u001f]/.test(v),
         why: 'a reason of 3 to 500 characters, one line' },
     },
@@ -267,6 +269,7 @@ export const KINDS = Object.freeze({
     resume: 'restart',
     params: {
       id: { required: true, check: (v) => /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/.test(v), why: 'an entry id' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
     },
     // **A parameter value must never become a flag** (audit 2026-09-30,
@@ -296,6 +299,7 @@ export const KINDS = Object.freeze({
     resume: 'restart',
     params: {
       id: { required: true, check: (v) => ENTRY_ID.test(v), why: 'an entry id' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
     },
     command(root, id, p) {
@@ -313,8 +317,11 @@ export const KINDS = Object.freeze({
     params: {
       ids: { required: true, check: (v) => { const l = mergeIds(v); return l.length >= 2 && l.length <= 20 && l.every((x) => ENTRY_ID.test(x)); },
         why: 'two to twenty different entry ids, comma separated' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       title: { required: false, check: (v) => v.length <= 500 && !/[\u0000-\u001f]/.test(v), why: 'up to 500 characters, one line' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       text: { required: false, check: (v) => v.length <= 8000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 8000 characters' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
     },
     command(root, id, p) {
@@ -465,6 +472,7 @@ export const KINDS = Object.freeze({
     params: {
       id: { required: true, check: (v) => ENTRY_ID.test(v), why: 'an entry id' },
       status: { required: true, check: (v) => procedure.STATUSES.includes(v), why: `one of ${procedure.STATUSES.join(', ')}` },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
       why: { required: true, check: (v) => v.trim().length >= 3 && v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: '3 to 2000 characters' },
     },
     precheck(root, p) {

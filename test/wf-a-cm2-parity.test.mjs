@@ -50,7 +50,7 @@ test('RED PROOF: at the fixed commit, an unknown references kind was DROPPED, no
   assert.ok(wf.ok);
   assert.match(wf.text, /Unknown keys are dropped rather than rejected/,
     'the fixed commit no longer has the drop-not-reject comment — pick an earlier hash');
-  // eslint-disable-next-line no-new-func
+   
   assert.doesNotMatch(wf.text, /is not a known kind/,
     'the fixed commit already rejected unknown kinds — the red proof is stale');
 });
