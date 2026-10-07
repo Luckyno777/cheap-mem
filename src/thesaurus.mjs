@@ -352,6 +352,11 @@ export function buildTermGraph(docs, {
   weightCap = 0.35,
   minWeight = 0.10,
   stopwords = null,
+  // A pair must be supported by this many DISTINCT documents: documents
+  // that are near-copies of each other count once (see `nearCopy`).
+  // Defaults to `minPairs`, i.e. "minPairs independent pieces of evidence".
+  minDistinct = minPairs,
+  copyOverlap = 0.8,
 } = {}) {
   const n = docs.length;
   if (n < 4) return new Map();   // too little corpus to learn anything honest
@@ -388,8 +393,10 @@ export function buildTermGraph(docs, {
   const names = [];
   const single = [];
   const docTerms = [];
+  const docOrigin = [];   // docTerms[k] came from docs[docOrigin[k]]
   let counted = 0;
-  for (const w of docs) {
+  for (let origin = 0; origin < docs.length; origin += 1) {
+    const w = docs[origin];
     const terms = [...w.entries()]
       .filter(([t]) => usable(t))
       .sort((a, b) => b[1] - a[1])
@@ -411,6 +418,7 @@ export function buildTermGraph(docs, {
       row[i] = id;
     }
     docTerms.push(row);
+    docOrigin.push(origin);
   }
   if (counted === 0) return new Map();
   ids.clear();
@@ -435,6 +443,50 @@ export function buildTermGraph(docs, {
       fill[id] += 1;
     }
   }
+
+  // **Distinct support (2026-10-07).** `cnt` counts documents, and a
+  // memory full of near-copies (the same note logged every round, a
+  // template with a counter in the title) lets one fact reach `minPairs`
+  // alone: every word of an entry then "co-occurs" with every other word
+  // of it at nPMI near 1, and the graph expands a query word to the
+  // unrelated words of whichever entry happens to hold it. Measured on
+  // bench/tokens.mjs (38 templates, 6 rounds each): "random" expanded to
+  // login/user/some/app, "embed" to model/path/retrieval, and two answers
+  // fell out of the top five (14/15 -> 11/15, a9bca14). So a pair that
+  // survived the counting must also be found in `minDistinct` documents
+  // that are not near-copies of each other. Greedy: documents holding
+  // the pair, in order, are compared to the representatives found so far.
+  // Compared on the WHOLE term sets, not on the usable terms only: two
+  // entries that share deploy+staging and differ in their rare words are
+  // different entries, even though the rare words are not usable here.
+  const nearCopy = (k1, k2) => {
+    const s1 = docs[docOrigin[k1]];
+    const s2 = docs[docOrigin[k2]];
+    let shared = 0;
+    for (const t of s1.keys()) if (s2.has(t)) shared += 1;
+    return shared >= copyOverlap * Math.max(s1.size, s2.size);
+  };
+  const distinctSupport = (a, b) => {
+    if (minDistinct <= 1) return true;
+    const da = postDoc[a];
+    const db = postDoc[b];
+    const reps = [];
+    let i = 0;
+    let j = 0;
+    while (i < da.length && j < db.length) {
+      if (da[i] < db[j]) i += 1;
+      else if (da[i] > db[j]) j += 1;
+      else {
+        const d = da[i];
+        if (!reps.some((r) => nearCopy(r, d))) {
+          reps.push(d);
+          if (reps.length >= minDistinct) return true;
+        }
+        i += 1; j += 1;
+      }
+    }
+    return false;
+  };
 
   // For every leading term, count how often each later term shares a
   // document with it, and remember where the pair was FIRST seen.
@@ -469,6 +521,7 @@ export function buildTermGraph(docs, {
       const npmi = pmi / -Math.log(pAB);
       const weight = Math.min(weightCap, Math.max(0, npmi) * weightCap);
       if (weight < minWeight) continue;
+      if (!distinctSupport(a, b)) continue;
       kept.push([firstDoc[b], firstI[b], firstJ[b], a, b, weight]);
     }
     touched.length = 0;

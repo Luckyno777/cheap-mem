@@ -347,6 +347,35 @@ test('buildTermGraph learns a real pair and ignores a coincidence', () => {
   assert.ok(!neighbours('deploy').includes('moon'), 'a single co-occurrence must not stick');
 });
 
+test('buildTermGraph: one note repeated is one piece of evidence, not many', () => {
+  // The same two notes logged six times each (a counter in the title is the
+  // only difference). Counted per document, every word of a note "co-occurs"
+  // with every other at nPMI ~1 and 'random' would expand to 'login'.
+  const note = (extra) => ['tests', 'flaky', 'random', 'rerun', 'quarantine', 'retry', 'fail', ...extra];
+  const other = (extra) => ['login', 'session', 'expired', 'random', 'users', 'cookie', 'auth', ...extra];
+  // Letters only: the graph ignores words with digits.
+  const PAD = 'alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu'.split(' ');
+  const copies = [];
+  for (let i = 0; i < 6; i += 1) { copies.push(note(['round'])); copies.push(other(['round'])); }
+  for (let i = 0; i < 40; i += 1) copies.push([PAD[i % 7], PAD[7 + (i % 5)], PAD[12 + (i % 3)], PAD[15 + (i % 4)], PAD[19 + (i % 6)]]);
+  const opts = { minDocFreq: 2, minPairs: 3, maxDocFraction: 0.9, maxNeighbours: 50 };
+  const repeated = thesaurus.buildTermGraph(docsOf(...copies), opts);
+  assert.ok(!(repeated.get('random') ?? []).some(([n]) => n === 'login'),
+    'a pair seen in six copies of ONE note must not be learned');
+  assert.equal(thesaurus.buildTermGraph(docsOf(...copies), { ...opts, minDistinct: 1 }).get('random')
+    ?.some(([n]) => n === 'login'), true, 'COUNTER-PROBE: with the distinct-support rule off, the pair is learned');
+  // Three genuinely different notes carrying the same pair do teach it.
+  const distinct = docsOf(
+    ['deploy', 'staging', 'alpha', 'beta', 'gamma', 'delta'],
+    ['deploy', 'staging', 'epsilon', 'zeta', 'eta', 'theta'],
+    ['deploy', 'staging', 'iota', 'kappa', 'lambda', 'mu'],
+    ['unrelated', 'nu', 'xi', 'omicron', 'pi', 'rho'],
+    ['unrelated', 'sigma', 'tau', 'upsilon', 'phi', 'chi'],
+  );
+  const g = thesaurus.buildTermGraph(distinct, { ...opts, maxDocFraction: 0.9 });
+  assert.ok((g.get('deploy') ?? []).some(([n]) => n === 'staging'), 'three distinct notes are enough');
+});
+
 test('buildTermGraph drops de-facto stopwords (too common to mean anything)', () => {
   // 'the' is in every document: it carries no association, only noise.
   const docs = docsOf(

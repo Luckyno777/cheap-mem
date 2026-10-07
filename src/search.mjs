@@ -193,7 +193,10 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 // 13: O2 — `steps` (workflow) and `body` (snippet) are body fields and so
 //     indexed; the field set comes from src/bodyfields.mjs. A version-12
 //     cache knows neither.
-export const CACHE_VERSION = 13;
+// 14: the learned term graph needs `minDistinct` documents that are not
+//     near-copies of each other behind every pair (thesaurus.buildTermGraph).
+//     A version-13 cache holds a graph learned from repeated notes.
+export const CACHE_VERSION = 14;
 
 /**
  * Field weights. The same word means more in a title than in a body:
