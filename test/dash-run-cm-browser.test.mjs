@@ -270,8 +270,17 @@ test(`F20 RED on the fixed old state (${OLD}): the error stays stuck, a building
     await shots(page, 'f20-atlas-error-before', '#atlasState');
     answers.mode = 'real';
     await page.evaluate(() => { graphAPI.focus('tag:gamma'); graphAPI.focus('tag:alpha'); });
-    await page.waitForTimeout(1500);
-    assert.match(await atlasText(page), /could not be loaded/, 'the error stays stuck');
+    // No fixed sleep: the text is briefly empty while the panel re-renders, so a single sample is a race.
+    // Wait for the render to settle (frames, not milliseconds), then require the error text to be back and
+    // never replaced by a loaded state across a window of samples.
+    await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(res, 300)))));
+    await page.waitForFunction(() => /could not be loaded/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 30000 });
+    for (let i = 0; i < 15; i += 1) {
+      assert.ok(!(await page.evaluate(LOADED)), 'the old state recovered by itself — the error does not stay stuck');
+      await page.waitForTimeout(100);
+    }
+    await page.waitForFunction(() => /could not be loaded/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 30000 });
+    assert.ok((await moreButton(page)).hidden, 'the error stays stuck: still no repeat button');
     answers.mode = 'building'; answers.n = 0;
     await page.evaluate(() => graphAPI.focus('tag:beta'));
     await page.waitForFunction(() => /^0 of [\d,]+ entries loaded/.test(document.querySelector('#atlasState')?.textContent || ''), null, { timeout: 60000 });

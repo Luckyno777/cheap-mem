@@ -69,6 +69,7 @@ directory. The section number in brackets is where it is explained.
 | `bidi.mjs` | the nine Trojan-Source bidi-override characters (CVE-2021-42574), neutralised at display time — `mem find`, `mem browse`, `mem context`, the retrieval hook |
 | `board.mjs` | the operating state on one screen (10.17) |
 | `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
+| `body-reader.mjs` | audit F21: the ONE bounded body reader of the dashboard server's writing routes — counts bytes including the current chunk, refuses a too-large Content-Length unread, and delivers exactly one of `ok` / `too-big` (the caller answers 413) / `aborted` |
 | `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
