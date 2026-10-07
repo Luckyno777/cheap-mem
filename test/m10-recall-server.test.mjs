@@ -319,20 +319,28 @@ test('M10-10: code change -> stale -> the server restarts itself, the rate limit
   fs.writeFileSync(file, 'export const a = 1;\n');
   const said = [];
   const GAP = 2000;
+  // **The keeper's clock stands still until the probe advances it (chain,
+  // 2026-10-07).** With the wall clock the rate limit only bit if the new
+  // server reported the next change less than GAP after its start. Under load
+  // the start takes longer than 2 s; the gap has then already passed, the
+  // "restart in N s" line never comes, and the probe went red although the
+  // keeper works. Now the rate limit is a matter of the clock, not of the
+  // machine: the probe advances the clock by exactly GAP and waits on events
+  // (log line, start), not on ticks.
+  let clock = 1_000_000;
   const k = keeper.keep(root, {
     env: { ...process.env, MEM_RECALL_SERVER_CODE_STATE: code, MEM_RECALL_SERVER_RESTART_MS: String(GAP) },
     log: (t) => said.push(t),
+    now: () => clock,
   });
   const sock = place.place(root, {}).socket;
-  const waitSocket = async () => {
-    const until = Date.now() + 15000;
-    while (!fs.existsSync(sock) && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
-    return fs.existsSync(sock);
+  const until = async (f) => {
+    const end = Date.now() + 15000;
+    while (!f() && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
+    return f();
   };
-  const waitStarts = async (n) => {
-    const until = Date.now() + 15000;
-    while (k.starts.length < n && Date.now() < until) await new Promise((r) => setTimeout(r, 25));
-  };
+  const waitSocket = () => until(() => fs.existsSync(sock));
+  const limitLines = (n) => said.filter((t) => /restart in \d+ s/.test(t)).length >= n;
   try {
     assert.ok(await waitSocket(), 'the first start listens');
     await hookAsync(root, 's-1');
@@ -343,17 +351,25 @@ test('M10-10: code change -> stale -> the server restarts itself, the rate limit
     assert.match(r2.out, /Recalled automatically/, 'the stale turn is answered direct');
     assert.equal(lines(root).at(-1).path, 'direct');
     assert.equal(lines(root).at(-1).path_reason, 'server-stale');
-    await waitStarts(2);
+    // ... the keeper holds the restart back until the clock is GAP further ...
+    assert.ok(await until(() => limitLines(1)), `no rate-limit line for change 1: ${said.join(' | ')}`);
+    assert.equal(k.starts.length, 1, 'no second start before the gap has passed');
+    clock += GAP;
+    // ... and then, without a manual step, a server with the new state listens again.
+    assert.ok(await until(() => k.starts.length >= 2), `second start missing: ${said.join(' | ')}`);
     assert.ok(await waitSocket(), 'after the restart a server listens again');
     await hookAsync(root, 's-3');
     assert.equal(lines(root).at(-1).path, 'server', 'warm again, no manual step');
 
+    // Rate limit: the next change right away - the third start does not come
+    // before GAP after the second (the clock stands still, so surely not).
     fs.writeFileSync(file, 'export const a = 333;\n');
     await hookAsync(root, 's-4');
-    await waitStarts(3);
-    assert.equal(k.starts.length, 3, `third start missing: ${said.join(' | ')}`);
+    assert.ok(await until(() => limitLines(2)), `no rate-limit line for change 2: ${said.join(' | ')}`);
+    assert.equal(k.starts.length, 2, 'the rate limit holds the third start back');
+    clock += GAP;
+    assert.ok(await until(() => k.starts.length >= 3), `third start missing: ${said.join(' | ')}`);
     assert.ok(k.starts[2] - k.starts[1] >= GAP, `gap ${k.starts[2] - k.starts[1]} ms < ${GAP}`);
-    assert.ok(said.some((t) => /restart in \d+ s/.test(t)), `no rate-limit line: ${said.join(' | ')}`);
     assert.ok(said.some((t) => /restart \(code under src\/ changed\)/.test(t)), 'a log line for the restart');
   } finally { await k.stop(); }
 });
