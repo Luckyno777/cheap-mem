@@ -3068,7 +3068,19 @@ export function checkAppendOnlyGit(root) {
     return finding('append-only-git', LEVEL.UNKNOWN,
       'not a git clone (or git missing) — append-only cannot be checked against history');
   }
-  const toplevel = top.trim();
+  // The prefix of `root` inside the repo, as git itself spells it
+  // ("child/" or ""). Asking git instead of path.relative(toplevel, abs)
+  // because the two spell the same directory differently on two hosted
+  // runners: macOS tmpdir is /var/... while git answers /private/var/...,
+  // and Windows tmpdir is C:\Users\RUNNER~1\... while git answers the
+  // long C:/Users/runneradmin/... name. path.relative across those gives
+  // "../../..", every file reads as untracked. (UNVERIFIED on CI.)
+  const prefixOut = quietRun('git', ['-C', root, 'rev-parse', '--show-prefix']);
+  if (prefixOut === null) {
+    return finding('append-only-git', LEVEL.UNKNOWN,
+      'not a git clone (or git missing) — append-only cannot be checked against history');
+  }
+  const prefix = prefixOut.replace(/[\r\n]+$/, '');
 
   const files = integrity.logFiles(root);
   if (!files.length) return finding('append-only-git', LEVEL.GOOD, 'no append-only logs yet');
@@ -3078,22 +3090,28 @@ export function checkAppendOnlyGit(root) {
   const capped = [];      // rel
   let checked = 0;
 
-  for (const f of files) {
+  for (const f0 of files) {
+    // Shown with '/' on every platform (path.relative gives '\\' on Windows).
+    const f = { ...f0, rel: f0.rel.split(path.sep).join('/') };
     let stat;
     try { stat = fs.statSync(f.abs); } catch { untracked.push(f.rel); continue; }
     if (stat.size > APPEND_ONLY_GIT_CAP_BYTES) { capped.push(f.rel); continue; }
 
-    const gitRel = path.relative(toplevel, f.abs).split(path.sep).join('/');
+    const gitRel = prefix + path.relative(root, f.abs).split(path.sep).join('/');
     const committed = quietRun('git', ['-C', root, 'show', `HEAD:${gitRel}`]);
     if (committed === null) { untracked.push(f.rel); continue; }
 
     let current;
     try { current = fs.readFileSync(f.abs, 'utf8'); } catch { untracked.push(f.rel); continue; }
 
+    // core.autocrlf on a Windows checkout: the blob is LF, the working
+    // file CRLF. Line endings are not an edit of a line. (UNVERIFIED.)
+    current = current.replace(/\r\n/g, '\n');
+    const committedLf = committed.replace(/\r\n/g, '\n');
     checked += 1;
-    if (current.startsWith(committed)) continue;   // only appended — good
+    if (current.startsWith(committedLf)) continue;   // only appended — good
 
-    const oldLines = committed.split('\n');
+    const oldLines = committedLf.split('\n');
     const newLines = current.split('\n');
     let bad = 1;
     while (bad <= oldLines.length && newLines[bad - 1] === oldLines[bad - 1]) bad += 1;
