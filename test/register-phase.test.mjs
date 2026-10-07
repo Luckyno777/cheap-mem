@@ -36,6 +36,17 @@ import {
 
 const atlas = new Atlas({ label: 'register-phase-test' });
 await run(atlas, { quick: true });
+
+// A real platform limit, stated: `node:sqlite` ships from Node 22.5. On Node 20
+// (CI matrix, measured 2026-10-07 on v20.20.2) the phase correctly answers with
+// ONE `not-measured` record, so the tests that read the real run's measurements
+// have nothing to read. They are skipped there WITH this notice, and the test
+// right below proves the run on such a runtime is not-measured, never a pass.
+const SQLITE = await loadSqlite().then(() => true, () => false);
+const NEEDS_SQLITE = SQLITE ? {} : {
+  skip: `node:sqlite is not available on Node ${process.versions.node} (needs >= 22.5): the real register run is not-measured here`,
+};
+if (!SQLITE) console.log(`# NOTICE register-phase: node:sqlite missing on Node ${process.versions.node} - measurement tests skipped, not passed`);
 const phase = atlas.phases.find((p) => p.id === 'register');
 
 /** Every record whose `measured` block is expected to carry a latency. */
@@ -79,7 +90,7 @@ test('CONTROL: an empty phase is caught, not passed', () => {
   assert.throws(() => assertPhaseProducedRecords(empty, 'register'), /ZERO records/);
 });
 
-test('the register phase actually runs at quick scale and writes real records', () => {
+test('the register phase actually runs at quick scale and writes real records', NEEDS_SQLITE, () => {
   assert.doesNotThrow(() => assertPhaseProducedRecords(atlas, 'register'));
   // Not just "more than zero" — a real run touches every stage: build,
   // correctness, four selectivity bands (times two engines, times a
@@ -101,6 +112,13 @@ test('the register phase actually runs at quick scale and writes real records', 
 // 2. The selectivity rule: no latency without its matched-row count
 // =========================================================================
 
+test('without node:sqlite the real run is one not-measured record, never a pass', { skip: SQLITE && 'node:sqlite is available here' }, () => {
+  assert.equal(phase.records.length, 1);
+  assert.equal(phase.records[0].id, 'register.availability');
+  assert.equal(phase.records[0].verdict, VERDICT.NOT_MEASURED);
+  assert.equal(atlas.counts().pass, 0);
+});
+
 test('withSelectivity() refuses to build a record missing matched or selectivity', () => {
   assert.throws(() => withSelectivity({ selectivity: 0.01, p50Ms: 1 }), /matched-row count/);
   assert.throws(() => withSelectivity({ matched: 5, p50Ms: 1 }), /matched-row count/);
@@ -113,7 +131,7 @@ test('withSelectivity() refuses to build a record missing matched or selectivity
   assert.equal(ok.p50Ms, 0.02);
 });
 
-test('every latency record the real run produced carries its matched-row count and selectivity', () => {
+test('every latency record the real run produced carries its matched-row count and selectivity', NEEDS_SQLITE, () => {
   const latencyRecords = phase.records.filter(isLatencyRecord);
   assert.ok(latencyRecords.length >= 20,
     `only ${latencyRecords.length} latency-shaped records found — the id prefixes may have drifted`);
@@ -183,7 +201,7 @@ test('the generated Zipf vocabulary is genuinely not degenerate: rare really is 
   assert.equal(bands.noMatch.matched, 0, 'the no-match control term must match zero rows');
 });
 
-test('the real run\'s own non-degenerate check passed', () => {
+test('the real run\'s own non-degenerate check passed', NEEDS_SQLITE, () => {
   assert.equal(recordOf('register.corpus.non-degenerate').verdict, VERDICT.PASS);
 });
 
@@ -253,7 +271,7 @@ test('an unavailable node:sqlite makes the phase record not-measured, never a pa
 // The phase now measures that floor with a command that loads the same
 // modules and never opens a drawer, and reports both factors.
 
-test('the phase measures what a `mem` call costs before it searches', () => {
+test('the phase measures what a `mem` call costs before it searches', NEEDS_SQLITE, () => {
   const floors = phase.records.filter((r) => r.id.startsWith('register.today.floor.'));
   assert.ok(floors.length >= 1, 'no startup-floor record was produced at any rung');
   for (const r of floors) {
@@ -264,7 +282,7 @@ test('the phase measures what a `mem` call costs before it searches', () => {
   }
 });
 
-test('every comparison states both factors, or says why the second is not measurable', () => {
+test('every comparison states both factors, or says why the second is not measurable', NEEDS_SQLITE, () => {
   const comparisons = phase.records.filter((r) => r.id.startsWith('register.comparison.'));
   assert.ok(comparisons.length >= 4, `only ${comparisons.length} comparison records found`);
   for (const r of comparisons) {
