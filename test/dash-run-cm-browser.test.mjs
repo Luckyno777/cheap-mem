@@ -20,7 +20,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
 import * as inbox from '../src/inbox.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -68,6 +68,7 @@ async function withPage(root, { script = null, env = {} } = {}, fn) {
   const base = `http://127.0.0.1:${server.address().port}`;
   let ctx = null;
   try {
+    await warmView(base); // the cold start of the server is not part of the browser deadlines
     ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
     await ctx.addInitScript(() => { try { localStorage.setItem('cm-dash-light', '0'); } catch { /* without storage */ } });
     const page = await ctx.newPage();

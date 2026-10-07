@@ -17,7 +17,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -40,7 +40,9 @@ async function startServer() {
   for (let i = 0; i < 7; i++) memory.logEntry(r, 'learning', { title: `Demo ${i}`, text: 'x' }, { project: 'demo' });
   const mod = await import(`${pathToFileURL(SERVE).href}?pkgb=${Math.random()}`);
   const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
-  return { base: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
+  const base = `http://127.0.0.1:${server.address().port}`;
+  await warmView(base); // the cold start of the server is not part of the browser deadlines
+  return { base, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
 }
 
 async function openExport(base, oldScript = null) {

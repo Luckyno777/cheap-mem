@@ -15,7 +15,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as A from '../src/appointments.mjs';
 import * as C from '../src/appointment-clock.mjs';
 import * as tm from '../src/appointment-time.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SERVE = path.join(REPO, 'bin', 'mem-serve');
@@ -44,7 +44,9 @@ async function startServer() {
   C.tick(r, { now, env });
   const mod = await import(`${pathToFileURL(SERVE).href}?cal=${Math.random()}`);
   const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
-  return { base: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
+  const base = `http://127.0.0.1:${server.address().port}`;
+  await warmView(base); // the cold start of the server is not part of the browser deadlines
+  return { base, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
 }
 
 async function open(base, { width, light, oldScript = null }) {
