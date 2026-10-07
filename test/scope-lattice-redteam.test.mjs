@@ -370,12 +370,16 @@ test('LANE hook mem-retrieve (UserPromptSubmit): RED — leaks alpha into the in
   const root = buildScopedMemory();
   try {
     const prompt = `tell me everything you know about ${ALPHA_SECRET} right now please`;
+    // This lane is about SCOPE, not speed: the hook's own search budget (MEM_RETRIEVE_TIME,
+    // default 5 s) ran out on a loaded machine, the hook then injected nothing, and the
+    // lane read that silence as "no leak". The budget is raised here so only scope decides;
+    // the budget itself is pinned by the m10 recall tests.
     const r = spawnSync('bash', [HOOK_RETRIEVE], {
       input: JSON.stringify({ prompt, session_id: 'redteam-p13' }),
-      encoding: 'utf8', timeout: 20000,
+      encoding: 'utf8', timeout: 60000,
       env: {
         ...process.env, CHEAP_MEM_ROOT: root,
-        MEM_RETRIEVE_NO_PULL: '1', MEM_HEADLESS: '1', MEM_RETRIEVE_MIN: '0',
+        MEM_RETRIEVE_NO_PULL: '1', MEM_HEADLESS: '1', MEM_RETRIEVE_MIN: '0', MEM_RETRIEVE_TIME: '45',
       },
     });
     assert.equal(r.status, 0, `hook exited ${r.status}: ${r.stderr}`);
