@@ -12,6 +12,7 @@
 //
 // Red proof pinned to this worktree's starting commit
 // (1d8adccfbc3d62f4a3a51edfdc2da3ab9b793de6, never `git merge-base`).
+// invariant: nie-fragetext-im-repo
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

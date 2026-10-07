@@ -18,6 +18,7 @@
 // its dashboard.js, put under the page with page.route, shows the
 // proposed rule in the panel — also the positive control that the probe
 // sees the rule at all.
+// invariant: kernwissen-nur-geltendes
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
