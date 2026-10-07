@@ -400,12 +400,23 @@ export function runAppendAtomicityProbe(root, opts = {}) {
  * does not make the verdict any less strict.
  */
 export function checkAppendAtomicity(root, opts = {}) {
-  const { probe: probeFn = runAppendAtomicityProbe, ...probeOpts } = opts;
+  const { probe: probeFn = runAppendAtomicityProbe, fsTypeOf = null, ...probeOpts } = opts;
   let fsType = null;
   try {
-    const out = execFileSync('stat', ['-f', '-c', '%T', root],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-    fsType = out || null;
+    if (fsTypeOf) {
+      // A collaborator for tests on a platform where a fake `stat` ahead
+      // on PATH cannot work (Windows: no script is found by a bare
+      // `execFile('stat')`, and PATH is ';'-separated). Nothing in the
+      // product passes it. UNVERIFIED on CI.
+      fsType = fsTypeOf(root) || null;
+    } else {
+      // GNU `stat -f -c %T`. On macOS (BSD stat: `-c` is illegal) and on
+      // Windows (no stat) this throws, and the honest answer is the one
+      // below: the name is unavailable, so a clean run stays UNKNOWN.
+      const out = execFileSync('stat', ['-f', '-c', '%T', root],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      fsType = out || null;
+    }
   } catch { /* stat -f is not portable; absence is not a failure to measure */ }
   const key = fsType ? fsType.toLowerCase() : null;
 

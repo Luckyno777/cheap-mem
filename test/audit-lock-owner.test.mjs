@@ -62,6 +62,10 @@ function startOf(pid) {
   return s.slice(s.lastIndexOf(')') + 2).split(' ')[19];
 }
 const context = () => {
+  // No /proc (macOS, Windows): the product writes '-/-'; reading boot_id
+  // here threw ENOENT inside the default argument of `line` on macOS.
+  // UNVERIFIED until the macos runner confirms.
+  if (!LINUX) return '-/-';
   const boot = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
   const ns = fs.readlinkSync('/proc/self/ns/pid').replace(/[^0-9A-Za-z:[\]]/g, '');
   return `${boot}/${ns}`;

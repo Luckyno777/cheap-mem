@@ -104,8 +104,45 @@ jobs:
             grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" || \
               echo "(no 'not ok' line found -- the run died before the first test)"
             echo "::endgroup::"
-            grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" | head -40 \
-              | sed -E 's/^ *not ok [0-9]+ - /::error::red probe: /' || true
+            # Each annotation also carries the first 3 lines of the probe's
+            # own error text, read from its TAP diagnostic block (the lines
+            # after `error:` up to the next key at the same indent). A name
+            # alone says WHAT was red; on a runner nobody can reproduce
+            # locally, the message says WHY. awk, not grep -P/sed -z: the
+            # same script runs on GNU (Linux, Git Bash) and BSD (macOS).
+            # Newlines go out as %0A, % as %25, CR is dropped (Windows).
+            tr -d '\r' < "$RUNNER_TEMP/testrun.log" | awk '
+              function flush(   m) {
+                if (name == "") return
+                m = msg; gsub(/%/, "%25", m); gsub(/\n/, "%0A", m)
+                printf "::error::red probe: %s%s\n", name, (m == "" ? "" : "%0A" m)
+                name = ""; msg = ""; inerr = 0; n = 0; count++
+              }
+              /^ *not ok [0-9]+ - / {
+                flush()
+                if (count >= 40) next
+                name = $0; sub(/^ *not ok [0-9]+ - /, "", name)
+                gsub(/%/, "%25", name); gsub(/\n/, "%0A", name)
+                next
+              }
+              /^ *ok [0-9]+ - / { flush(); next }
+              name != "" && inerr == 0 && /^ *error: / {
+                inerr = 1; match($0, /^ */); keyind = RLENGTH
+                line = $0; sub(/^ *error: *\|?[-+]?/, "", line)
+                if (line != "") { msg = substr(line, 1, 300); n = 1 }
+                next
+              }
+              name != "" && inerr == 1 {
+                match($0, /^ */)
+                if (RLENGTH <= keyind) { inerr = 2; next }   # next key: block over
+                if (n < 3) {
+                  line = $0; sub(/^ +/, "", line)
+                  if (line != "") { msg = msg (n ? "\n" : "") substr(line, 1, 300); n++ }
+                }
+                next
+              }
+              END { flush() }
+            ' || true
           fi
           exit "$rc"
 
@@ -251,9 +288,22 @@ jobs:
       # that it never blocks the prompt — against a git that hangs on
       # pull. The rest guards the throttle, the dirty-tree skip, and the
       # score threshold.
+      #
+      # Named on failure (UNVERIFIED): a bare "exit code 1" told nobody
+      # which of the 26 checks failed on macOS. Every `FAIL` line, and the
+      # `hook said` line under it, is raised as an annotation; the exit
+      # code stays the script's own.
       - name: recall runs on every turn without ever waiting
         shell: bash
-        run: bash test/retrieve.sh
+        run: |
+          rc=0
+          bash test/retrieve.sh 2>&1 | tee "$RUNNER_TEMP/retrieve.log" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            grep -E -A1 '^  (FAIL|!!) ' "$RUNNER_TEMP/retrieve.log" | grep -v '^--$' \
+              | sed -E 's/^ +/::error::recall probe: /' | head -20 || true
+            echo "bash: $(bash --version | head -1)"
+          fi
+          exit "$rc"
 
       # Lane 1 must be environment-independent: the Stop hook captures
       # model-free AND persists it (push), because nothing else pushes
