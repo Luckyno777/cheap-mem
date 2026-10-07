@@ -273,6 +273,19 @@ test('GUARANTEE: no finding is ok over an empty memory without naming a positive
 
 // --- THE INNOCENCE COUNTER-PROBE -----------------------------------------
 
+// **unknown is not a false FAIL (macOS, CI run 37692975754).** BSD stat has no
+// `-f -c %T`, so `env/append-atomicity` cannot name the filesystem and says
+// UNKNOWN - honestly: "measured, nothing torn, but no documentation affirms
+// it". That is the layer being truthful about what it cannot establish, not
+// an innocent flagged. What stays strict: every other level (warn/error/
+// missing) fails this probe, and `unknown` is accepted ONLY for this one
+// guarantee and ONLY with the measured-clean wording - an unknown that is
+// "could not measure" or says anything else still counts as flagged.
+function honestUnknown(x) {
+  return x.name === 'env/append-atomicity' && x.level === doctor.LEVEL.UNKNOWN
+    && /none torn, none missing, none duplicated/.test(String(x.text ?? ''));
+}
+
 test('INNOCENCE COUNTER-PROBE: the six environment guarantees stay ok on the same empty memory', () => {
   // "A bolt that reports the innocent gets switched off." If fixing
   // the ten above pushed one of these into `unknown` too, this is where
@@ -286,7 +299,7 @@ test('INNOCENCE COUNTER-PROBE: the six environment guarantees stay ok on the sam
     const broken = SIX_INNOCENTS.map((name) => {
       const f = findings.find((x) => x.name === name);
       return { name, level: f ? f.level : 'MISSING', text: f ? f.text : null };
-    }).filter((x) => x.level !== doctor.LEVEL.GOOD);
+    }).filter((x) => !(x.level === doctor.LEVEL.GOOD || honestUnknown(x)));
     assert.deepEqual(broken, [],
       `an innocent got flagged: ${broken.map((x) => `${x.name}=${x.level}`).join(', ')}`);
   } finally { gone(root); }
@@ -335,4 +348,31 @@ test('FILLED-MEMORY CONTROL: the same ten report their normal levels, with a pos
       `finding(s) report a normal level but name no positive count over real content: ${
         noCount.map((n) => `${n} (${byName[n].text})`).join('; ')}`);
   } finally { gone(root); }
+});
+
+test('INNOCENCE COUNTER-PROBE bites: unknown is honest only with the measured-clean wording; any other level is flagged', () => {
+  const U = doctor.LEVEL.UNKNOWN;
+  const clean = { name: 'env/append-atomicity', level: U, text: 'measured: 4 writers x 50 lines - none torn, none missing, none duplicated, but x is not one whose documentation affirms' };
+  assert.equal(honestUnknown(clean), true);
+  assert.equal(honestUnknown({ ...clean, text: 'could not measure concurrent O_APPEND writes' }), false, 'could-not-measure is flagged');
+  assert.equal(honestUnknown({ ...clean, name: 'config' }), false, 'only append-atomicity may be unknown');
+  for (const level of [doctor.LEVEL.ERROR, doctor.LEVEL.WARN, 'MISSING']) {
+    if (level !== undefined) assert.equal(honestUnknown({ ...clean, level }), false, `${level} is a false FAIL`);
+  }
+});
+
+test('INNOCENCE COUNTER-PROBE, macOS simulated: with a BSD-like `stat` (no -f -c %T) the guarantee is honest-unknown, never a false fail', async () => {
+  const fsx = await import('node:fs'); const osx = await import('node:os'); const pathx = await import('node:path');
+  const bin = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'cm-bsdstat-'));
+  fsx.writeFileSync(pathx.join(bin, 'stat'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const root = buildEmptyMemory();
+  const saved = process.env.PATH;
+  try {
+    process.env.PATH = `${bin}${pathx.delimiter}${saved}`;
+    const f = doctor.checkAll(root).findings.find((x) => x.name === 'env/append-atomicity');
+    assert.ok(f, 'finding present');
+    assert.ok(f.level === doctor.LEVEL.GOOD || honestUnknown({ name: f.name, level: f.level, text: f.text }),
+      `${f.level}: ${f.text}`);
+    assert.notEqual(f.level, doctor.LEVEL.ERROR);
+  } finally { process.env.PATH = saved; gone(root); fsx.rmSync(bin, { recursive: true, force: true }); }
 });
