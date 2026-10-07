@@ -530,9 +530,37 @@ const ENTRIES_STATE_TEXT = 'The data is changing right now, the list was not tak
 const stateKey = (d) => (d?.cache ? d.cache.built_at + '|' + d.cache.source : null);
 // A part that is still being built (`building`) is no error: ask again soon
 // (at most one timer) — and the page never shows it as an empty list.
-function partLaterAgain() {
+// Bounded (wackler repair 2026-10-07, like F20): the retries of one waiting spell share a
+// deadline and a request budget (run helper); when they run out the part ends in a VISIBLE
+// state with the button "Load again" instead of asking every 3 s forever.
+const PART_LATER_DEADLINE_MS = 120000;
+const PART_LATER_REQUESTS = 40;
+let partLater = null; // { run, budget, names, ended } of the current waiting spell, null when nothing waits (reset when every part is there or by a click on "Load again")
+function partLaterAgain(name) {
+  if (!partLater) partLater = { run: runStart('part-later'), budget: runBudget({ deadlineMs: PART_LATER_DEADLINE_MS, requests: PART_LATER_REQUESTS }), names: new Set() };
+  const spell = partLater;
+  // Already ended in this round: the other parts of the same round end the same way, no new spell with a new budget.
+  if (spell.ended) { partLaterEnd({ names: new Set(name ? [name] : []) }, spell.ended); return; }
+  if (name) spell.names.add(name);
   if (partRetryTimer) return;
-  partRetryTimer = setTimeout(() => { partRetryTimer = 0; loadParts(); }, TEMPO_TEST_MS ?? 3000);
+  const limit = spell.budget.take();
+  if (limit) { spell.ended = limit; partLaterEnd(spell, limit); return; }
+  partRetryTimer = 1;
+  runWait(spell.run, TEMPO_TEST_MS ?? 3000).then((ok) => { if (partLater !== spell) return; partRetryTimer = 0; if (ok) loadParts(); });
+}
+function partLaterEnd(spell, limit) {
+  const text = 'The part is still being built — ' + (limit === 'deadline' ? 'the time limit (' + Math.round(PART_LATER_DEADLINE_MS / 1000) + ' s) ran out.' : 'the budget of ' + PART_LATER_REQUESTS + ' requests is used up.') + ' Please load again.';
+  let changed = false;
+  for (const name of spell.names) {
+    if (partReason[name] !== text) changed = true;
+    partReason[name] = text;
+    if (name === 'entries') { if (partState.entries !== 'ok') partState.entries = 'error'; if (entriesDisturbanceSet(text)) changed = true; } else if (partState[name] !== 'ok') partState[name] = 'error';
+  }
+  if (changed) render(); // an ended spell that is hit again by a quiet refresh draws nothing new
+}
+// Every part of the deferred set is there: a later "building" starts a new waiting spell with a new budget.
+function partsAllThere() {
+  return Object.keys(D?.parts || {}).filter((n) => n !== 'atlas').every((n) => partState[n] === 'ok' || (n === 'entries' && D.parts.entries.head_only));
 }
 // Reports 'error' only when the text changes (loadParts then draws once), never on every retry.
 function entriesDisturbanceSet(text) {
@@ -567,7 +595,7 @@ async function loadEntriesPart() {
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
       if (!run.holds()) return null; // a newer run took over
-      if (b.building) { partLaterAgain(); return null; }
+      if (b.building) { partLaterAgain('entries'); return null; }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
       // Another state in the middle of the run: never mix pages of different states, at most restart a bounded number of times.
       if (stateId !== null && b.state_id !== stateId) {
@@ -648,7 +676,7 @@ async function loadParts() {
       if (!r.ok) throw new Error('answer ' + r.status);
       const b = await r.json();
       // Not built yet (a head from disk) — no error, ask again soon.
-      if (b.building) { partLaterAgain(); return; }
+      if (b.building) { partLaterAgain(name); return; }
       if (b.state !== 'ok' || !Array.isArray(b.data)) throw new Error(b.reason || 'state ' + b.state);
       const key = JSON.stringify(b.data);
       const changed = partContentKey[name] !== undefined && partContentKey[name] !== key;
@@ -668,6 +696,7 @@ async function loadParts() {
   // The entries concern every view (start page, net, lists): draw once when
   // they are complete for the first time, afterwards only the marker.
   const e = await entriesRun1;
+  if (!partRetryTimer && partsAllThere()) partLater = null; // everything arrived: the next spell gets a new deadline and budget (an ended spell stays until the click on "Load again")
   if (e === 'first' || e === 'error' || firstOk.some((name) => (PART_TAB[name] || []).includes(state.tab))) render();
   else if (otherChanged || e === 'changed') showNewDataMark();
 }
@@ -5212,6 +5241,7 @@ document.addEventListener('click', async (ev) => {
   if (!a) return;
   switch (a) {
     case 'reload':
+      if (partLater) { runCancel('part-later'); partLater = null; partRetryTimer = 0; }
       if (await loadData()) render();
       break;
     case 'new-data':

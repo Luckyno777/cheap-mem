@@ -235,3 +235,54 @@ test('F20: "building" first, then data -> list there', async () => {
   const pg = w.api.atlasPages.get('drawer:k|p');
   assert.equal(pg.list.length, 2); assert.equal(pg.state, 'ok'); assert.equal(pg.next, 2);
 });
+
+// ---------------------------------------------------------------- wackler repair: deferred parts ask again bounded
+// `partLaterAgain` (a part that is still `building`) asked every 3 s without end. Now: deadline + budget of the run
+// helper, then a visible end state (button "Load again"). Red proof: DASH_JS=<dashboard.js of 4ed3a08>.
+function laterWorld({ stepMs = 0, stopAfter = 300, building = () => true } = {}) {
+  let now = 0;
+  const log = { calls: 0, renders: 0 };
+  const preamble = `
+    const TEMPO_TEST_MS = 0; let partRetryTimer = 0; let partLater = null; let entriesDisturbance = null;
+    const partState = { inbox: 'loading', entries: 'loading' }; const partReason = {};
+    function loadParts() { log.calls += 1; advance(${stepMs}); if (log.calls < ${stopAfter} && building(log.calls)) { partLaterAgain('inbox'); partLaterAgain('entries'); } }
+    function render() { log.renders += 1; }`;
+  const api = build({
+    preamble, functions: ['partLaterAgain', 'partLaterEnd', 'entriesDisturbanceSet'], constants: ['PART_LATER_DEADLINE_MS', 'PART_LATER_REQUESTS'],
+    expose: ['partLaterAgain', 'partState', 'partReason', 'entriesDisturbance', 'partLater'], stubs: { log, building, advance: (ms) => { now += ms; }, Date: { now: () => now } },
+  });
+  return { api, log };
+}
+async function settle(w, ms = 4000) {
+  const t0 = Date.now();
+  let last = -1;
+  while (Date.now() - t0 < ms) {
+    if (w.log.calls === last && w.log.calls > 0) return;
+    last = w.log.calls;
+    await new Promise((r) => setTimeout(r, 40));
+  }
+}
+test('later: a part that stays "building" ends bounded in a visible state, not an endless loop', async () => {
+  const w = laterWorld();
+  w.api.partLaterAgain('inbox'); w.api.partLaterAgain('entries'); // the first sighting; every timer then runs loadParts
+  await settle(w);
+  assert.ok(w.log.calls <= 41, 'requests: ' + w.log.calls + ' (old state: runs until the probe stops it at 300)');
+  assert.equal(w.api.partState.inbox, 'error'); assert.equal(w.api.partState.entries, 'error');
+  assert.match(w.api.partReason.inbox, /still being built/); assert.match(w.api.partReason.inbox, /budget/);
+  assert.match(w.api.entriesDisturbance, /Please load again/);
+  assert.ok(w.log.renders >= 1, 'the end state is drawn');
+});
+test('later: the deadline is separate from the budget (few requests, time runs out)', async () => {
+  const w = laterWorld({ stepMs: 50000 });
+  w.api.partLaterAgain('inbox');
+  await settle(w);
+  assert.ok(w.log.calls <= 4, 'requests: ' + w.log.calls);
+  assert.match(w.api.partReason.inbox, /time limit/); assert.equal(w.api.partState.inbox, 'error');
+});
+test('later: "building" first, then data -> no end state, nothing drawn extra', async () => {
+  const w = laterWorld({ building: (n) => n < 3 });
+  w.api.partLaterAgain('inbox');
+  await settle(w);
+  assert.equal(w.log.calls, 3);
+  assert.equal(w.api.partState.inbox, 'loading'); assert.equal(w.log.renders, 0);
+});
