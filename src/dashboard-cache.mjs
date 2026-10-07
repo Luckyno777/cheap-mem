@@ -74,6 +74,7 @@ import * as archive from './archive.mjs';
 
 /** How often the parent checks the build worker's heap against its cap (ms). */
 const GUARD_MS = 100;
+const V8_LIMIT_FLOOR_MB = 64;
 
 /** Maximum age of a cached result, even without a detected change. */
 export const TTL_MS = 60 * 1000;
@@ -216,7 +217,11 @@ export async function buildInWorker(root, options = {}, { heapMb = WORKER_HEAP_M
     // no second module, so nothing here is out of the CLI's reach.
     const w = new Worker(new URL(import.meta.url), {
       workerData: { dashboardCacheBuild: true, root, options, codeHeadAtStart: headAtStart },
-      resourceLimits: { maxOldGenerationSizeMb: heapMb },
+      // The guard below enforces `heapMb` exactly. V8's own limit is only the
+      // second line, and a few MB of old space is below what V8 can start a
+      // worker on, where it may abort instead of failing the worker alone. So it
+      // is never handed less than a floor (it can only be looser than the guard).
+      resourceLimits: { maxOldGenerationSizeMb: Math.max(heapMb, V8_LIMIT_FLOOR_MB) },
     });
     w.unref();
     let done = false;
