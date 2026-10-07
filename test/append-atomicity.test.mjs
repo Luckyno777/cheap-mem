@@ -46,8 +46,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  checkAppendAtomicity, analyzeAppendProbe, runAppendAtomicityProbe, LAYER,
+  checkAppendAtomicity as realCheckAppendAtomicity, analyzeAppendProbe, runAppendAtomicityProbe, LAYER,
 } from '../src/environment.mjs';
+
+// The fake file-system name `withFakeStat` is currently asserting, or
+// undefined outside it. On Windows a fake `stat` cannot be found through
+// PATH (CreateProcess runs .exe only, PATH is ';'-separated), so there
+// the same name is handed to the check through its `fsTypeOf`
+// collaborator instead. UNVERIFIED until the windows runner confirms.
+let activeFake;
+function checkAppendAtomicity(root, opts = {}) {
+  if (process.platform === 'win32' && activeFake !== undefined && !opts.fsTypeOf) {
+    return realCheckAppendAtomicity(root, { ...opts, fsTypeOf: () => activeFake });
+  }
+  return realCheckAppendAtomicity(root, opts);
+}
 
 function tmpRoot() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'cm-append-atomicity-'));
@@ -58,10 +71,14 @@ function tmpRoot() {
 // its own, so a fake `stat` ahead of it on PATH is the only way to name a
 // filesystem type this machine does not actually have.
 function withFakeStat(fsType, fn) {
+  if (process.platform === 'win32') {
+    activeFake = fsType;
+    try { return fn(); } finally { activeFake = undefined; }
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-append-fakestat-'));
   fs.writeFileSync(path.join(dir, 'stat'), `#!/bin/sh\nprintf '%s' '${fsType}'\n`, { mode: 0o755 });
   const before = process.env.PATH;
-  process.env.PATH = `${dir}:${before}`;
+  process.env.PATH = `${dir}${path.delimiter}${before}`;
   try {
     return fn();
   } finally {
@@ -77,6 +94,24 @@ function withFakeStat(fsType, fn) {
 // spurious red.
 const GENEROUS = { timeoutMs: 4000 };
 
+// A definite ok/error needs two sources: the measured run AND a file-system
+// name. Where the platform cannot give the name (GNU `stat -f -c %T` is
+// Linux; BSD stat on macOS rejects `-c`, Windows has no stat) the product
+// says "[filesystem name unavailable]" and the verdict stays UNKNOWN —
+// honest, and asserted here as exactly that, not skipped. Where the name is
+// available (Linux) it must be definite. UNVERIFIED on macOS/Windows.
+function assertDefiniteWhereNameKnown(c) {
+  if (process.platform === 'linux') {
+    assert.notEqual(c.ok, null, `expected a definite ok/error, got unknown: ${c.detail}`);
+    return;
+  }
+  if (/\[filesystem name unavailable\]/.test(c.detail)) {
+    assert.equal(c.ok, null, 'without a file-system name a clean run must stay UNKNOWN');
+  } else {
+    assert.notEqual(c.ok, null, `a name was found yet the verdict is unknown: ${c.detail}`);
+  }
+}
+
 // --- positive control: the probe can produce a definite answer at all -----
 
 test('positive control: on the local filesystem the check returns a definite verdict', () => {
@@ -84,8 +119,8 @@ test('positive control: on the local filesystem the check returns a definite ver
   try {
     const c = checkAppendAtomicity(root, GENEROUS);
     assert.equal(c.layer, LAYER.OS);
-    assert.notEqual(c.ok, null, `expected a definite ok/error, got unknown: ${c.detail}`);
-    assert.match(c.detail, /^measured:/, 'a definite verdict must say it was measured');
+    assert.match(c.detail, /^measured:/, 'the run must say it was measured');
+    assertDefiniteWhereNameKnown(c);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -102,7 +137,8 @@ test('the check performs real work, not a name lookup — timing evidence', () =
     const t0 = Date.now();
     const c = checkAppendAtomicity(root, GENEROUS);
     const elapsed = Date.now() - t0;
-    assert.notEqual(c.ok, null);
+    assert.match(c.detail, /^measured:/, 'it must have measured, whatever the verdict');
+    assertDefiniteWhereNameKnown(c);
     assert.ok(elapsed >= 5, `finished in ${elapsed}ms — too fast to have measured anything`);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
