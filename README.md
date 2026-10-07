@@ -746,7 +746,10 @@ the needed permissions into `~/.claude/settings.json`:
   (no model, a few ms) and feeds it to the turn as context. This is the
   difference between a memory you *can* query and one that just
   *remembers*. It also refreshes the clone in the background (at most
-  every 10 min, detached — the prompt never waits).
+  every 10 min, detached — the prompt never waits). In a linked git
+  worktree it does not pull at all (agents control their own state); it
+  leaves a note in the git dir, `mem-retrieve-worktree-no-pull`, and the
+  recall runs as usual.
 - **PreToolUse** (Edit/Write/NotebookEdit, and Bash commands that write a
   file via `sed -i`, `tee`, `>`, `cp` or `mv`) — before a file is changed,
   searches the memory for that PATH, literally, and shows the errors,

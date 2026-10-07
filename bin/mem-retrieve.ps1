@@ -147,6 +147,16 @@ function Update-Clone {
   if (-not (Test-Path -LiteralPath (Join-Path $Root '.git'))) { return }
   $gitDir = (& git -C $Root rev-parse --absolute-git-dir 2>$null)
   if (-not $gitDir) { return }
+  # Worktree (`.git` is a FILE): no automatic pull (same rule as lucky-mem,
+  # R10c - agents control their own state). Leave a note in the git dir so the
+  # skip is not silent; the recall itself runs.
+  if (Test-Path -LiteralPath (Join-Path $Root '.git') -PathType Leaf) {
+    try {
+      $stamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+      Set-Content -LiteralPath (Join-Path $gitDir 'mem-retrieve-worktree-no-pull') -Value "$stamp worktree: .git is a file -> no automatic pull here (agents control their own state)" -ErrorAction Stop
+    } catch { }
+    return
+  }
 
   $minutes = if ($env:MEM_RETRIEVE_FRESH_MIN) { [int]$env:MEM_RETRIEVE_FRESH_MIN } else { 10 }
   # A marker inside the git dir never shows up in `git status`

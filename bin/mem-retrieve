@@ -145,17 +145,27 @@ refresh() {
   local marker minutes remote branch gitdir
   [ "${MEM_RETRIEVE_NO_PULL:-}" = "1" ] && return 0
   [ -n "${MEM_HEADLESS:-}" ] && return 0
-  # `.git` is a FILE ("gitdir: ...") in a linked git worktree, so `-d`
-  # would skip the refresh there without a word. `-e` takes both.
   [ -e "$ROOT/.git" ] || return 0
 
-  minutes="${MEM_RETRIEVE_FRESH_MIN:-10}"
-  # A marker inside the git dir never shows up in `git status`. In a
-  # worktree the git dir is the per-worktree one, not "$ROOT/.git" (a
-  # file there). `find -mmin` rather than `stat` because stat speaks
-  # different dialects on GNU and BSD; find does not.
+  # A linked git WORKTREE has a `.git` FILE ("gitdir: ..."), a normal clone
+  # a directory. Same rule as lucky-mem (R10c): an agent's worktree is not
+  # pulled behind its back - the agent controls its own state, and a pull
+  # in mid-build would change the code under it. Not a silent skip: a
+  # note goes into the real git dir (never shows in `git status`) so
+  # "why does it never pull here" has an answer. The recall itself runs.
   gitdir="$(git -C "$ROOT" rev-parse --absolute-git-dir 2>/dev/null)" || return 0
   [ -n "$gitdir" ] || return 0
+  if [ -f "$ROOT/.git" ]; then
+    printf '%s worktree: .git is a file -> no automatic pull here (agents control their own state)\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '?')" \
+      > "$gitdir/mem-retrieve-worktree-no-pull" 2>/dev/null
+    return 0
+  fi
+
+  minutes="${MEM_RETRIEVE_FRESH_MIN:-10}"
+  # The throttle marker lives in the git dir, so it never shows up in
+  # `git status`. `find -mmin` rather than `stat` because stat speaks
+  # different dialects on GNU and BSD; find does not.
   marker="$gitdir/mem-retrieve-pull"
   if [ -f "$marker" ] && [ -z "$(find "$marker" -mmin "+$minutes" 2>/dev/null)" ]; then
     return 0

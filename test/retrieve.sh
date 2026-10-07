@@ -232,7 +232,13 @@ echo "8c) a later turn with DIFFERENT material is injected again"
 # The phrasing matters: the first attempt at this probe used a
 # question that scored 0.53 against a threshold of 1.0 and was cut
 # correctly — the probe blamed the claim for the threshold's work.
-OTHER='{"session_id":"lane-1","prompt":"tell me about the routine note on deploys and builds"}'
+# The same trap again with the answer gate (h3): the six routine notes are a
+# flat field of equals, and a field passes only when one entry carries EVERY
+# typed word. The old phrasing ("tell me about the routine note on deploys
+# and builds") typed words no note carries (tell, me, and ...), so the gate
+# withheld all of it and this probe went red on CI ("recall" job). The
+# question below types only words every routine note carries.
+OTHER='{"session_id":"lane-1","prompt":"routine note about deploys builds"}'
 THREE="$(printf '%s' "$OTHER" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
   CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
 if [ -n "$THREE" ]; then ok "a new question with new material is served"
@@ -325,24 +331,31 @@ else
   echo "  ??   --no-experimental-require-module unavailable — Node 20 path not measured here"
 fi
 
-echo "11) the hook root is a linked git worktree (.git is a file) -> the refresh still runs"
+echo "11) the hook root is a linked git worktree (.git is a file) -> never pulled, noted, recall still runs"
 build_memory
 git -C "$WORK/mem" worktree add -q -b wt-branch "$WORK/wt" main
 [ -f "$WORK/wt/.git" ] || bad "fixture: worktree .git is not a file"
-# .mem/config.json is not tracked, so a fresh worktree lacks it; give it one.
+# .mem/config.json and the memory files are untracked, so a fresh worktree lacks them; copy.
 mkdir -p "$WORK/wt/.mem" && cp "$WORK/mem/.mem/config.json" "$WORK/wt/.mem/config.json"
+cp -R "$WORK/mem/global" "$WORK/wt/global"
 remote_ahead
-[ "$(git -C "$WORK/wt" rev-parse HEAD)" != "$REMOTE_HEAD" ] || bad "fixture: worktree is already at the remote head"
+BEFORE="$(git -C "$WORK/wt" rev-parse HEAD)"
+[ "$BEFORE" != "$REMOTE_HEAD" ] || bad "fixture: worktree is already at the remote head"
 # MEM_RETRIEVE_ROOTS points nowhere, so the probe list can never fall back to a real clone.
-printf '%s' "$QUESTION" | env CHEAP_MEM_ROOT="$WORK/wt" MEM_RETRIEVE_ROOTS="$WORK/none" HOME="$WORK" bash "$HOOK" >/dev/null 2>&1
-WT_PULLED=""
-for _ in $(seq 1 40); do
-  [ "$(git -C "$WORK/wt" rev-parse HEAD)" = "$REMOTE_HEAD" ] && { WT_PULLED=1; break; }
-  sleep 0.25
-done
-[ -n "$WT_PULLED" ] && ok "worktree root refreshed" || bad "worktree root never pulled (silent skip)"
-[ -f "$(git -C "$WORK/wt" rev-parse --absolute-git-dir)/mem-retrieve-pull" ] \
-  && ok "throttle marker sits in the worktree git dir" || bad "no throttle marker in the worktree git dir"
+OUT="$(printf '%s' "$QUESTION" | env CHEAP_MEM_ROOT="$WORK/wt" MEM_RETRIEVE_ROOTS="$WORK/none" MEM_RETRIEVE_MIN=1 \
+  MEM_RETRIEVE_FRESH_MIN=0 HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+sleep 2
+[ "$(git -C "$WORK/wt" rev-parse HEAD)" = "$BEFORE" ] \
+  && ok "worktree is not pulled" || bad "worktree was pulled behind the agent's back"
+[ -s "$(git -C "$WORK/wt" rev-parse --absolute-git-dir)/mem-retrieve-worktree-no-pull" ] \
+  && ok "skip is noted in the worktree git dir" || bad "silent skip: no note in the worktree git dir"
+printf '%s' "$OUT" | grep -q "Recalled automatically from memory" \
+  && ok "recall still runs in the worktree" || bad "no recall output in the worktree"
+# Positive control: the main clone, same remote state, IS pulled.
+run MEM_RETRIEVE_FRESH_MIN=0 >/dev/null
+pulled && ok "main clone still refreshes (control)" || bad "main clone did not refresh"
+[ ! -e "$WORK/mem/.git/mem-retrieve-worktree-no-pull" ] \
+  && ok "main clone carries no worktree note" || bad "main clone got the worktree note"
 
 echo
 echo "green=$GREEN red=$RED"
