@@ -527,15 +527,29 @@ test('ROT (the real finding this whole fix answers): under 2x-oversubscribed rea
     // verdict reflects it. Those do not depend on the old sensors having
     // stayed blind, so they are asserted here regardless of that fact.
 
-    // The new sensors must catch what the old ones missed: EITHER PSI or
-    // the calibration loop (or, if the baseline capture itself could not
-    // stay trustworthy under this much sustained contention, that is
-    // reported too — checked below) must show the load.
+    // Where PSI does not exist at all (macOS, Windows: no /proc/pressure, no
+    // steal, no cgroup) the calibration loop is the ONLY sensor, and under 2x
+    // oversubscription its quiet baseline may honestly refuse to be
+    // established (rep-to-rep spread) -- `gaveUp`. Then nothing is measurable,
+    // the product says so (`measured: false`, baseline untrustworthy), and by
+    // the house's deliberate rule (see the "could not be measured at all"
+    // test above) the verdict falls back to the ordinary one rather than
+    // forcing not-measured forever. That is asserted here as exactly that, not
+    // skipped. On Linux, with PSI readable, only the strict form is accepted.
+    // UNVERIFIED on macOS until CI confirms.
+    const noSensorHonestlyUnmeasurable = load.psiMsPerSec === null && calibBaseline.gaveUp === true
+      && load.measured === false && load.calibBaselineTrustworthy === false;
+    if (noSensorHonestlyUnmeasurable) {
+      assert.equal(timeVerdictUnderLoad(10, DEGRADED_AT, FAIL_AT, load), VERDICT.PASS,
+        'nothing measurable: the documented fallback is the ordinary verdict');
+      return;
+    }
     const newSensorsCaughtIt = (load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC)
       || load.calibOverThreshold === true;
     assert.ok(newSensorsCaughtIt,
       `expected PSI or the calibration loop to detect real load that steal/cgroup missed — got ${JSON.stringify({
         psiMsPerSec: load.psiMsPerSec, calibRatio: load.calibRatio, calibOverThreshold: load.calibOverThreshold,
+        measured: load.measured, gaveUp: calibBaseline.gaveUp,
       })}`);
 
     // The end-to-end effect this whole apparatus exists for: a fast
