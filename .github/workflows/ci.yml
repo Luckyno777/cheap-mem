@@ -288,9 +288,22 @@ jobs:
       # that it never blocks the prompt — against a git that hangs on
       # pull. The rest guards the throttle, the dirty-tree skip, and the
       # score threshold.
+      #
+      # Named on failure (UNVERIFIED): a bare "exit code 1" told nobody
+      # which of the 26 checks failed on macOS. Every `FAIL` line, and the
+      # `hook said` line under it, is raised as an annotation; the exit
+      # code stays the script's own.
       - name: recall runs on every turn without ever waiting
         shell: bash
-        run: bash test/retrieve.sh
+        run: |
+          rc=0
+          bash test/retrieve.sh 2>&1 | tee "$RUNNER_TEMP/retrieve.log" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            grep -E -A1 '^  (FAIL|!!) ' "$RUNNER_TEMP/retrieve.log" | grep -v '^--$' \
+              | sed -E 's/^ +/::error::recall probe: /' | head -20 || true
+            echo "bash: $(bash --version | head -1)"
+          fi
+          exit "$rc"
 
       # Lane 1 must be environment-independent: the Stop hook captures
       # model-free AND persists it (push), because nothing else pushes
