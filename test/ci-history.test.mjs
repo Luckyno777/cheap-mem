@@ -9,8 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-const HERE = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = path.join(HERE, 'bench', 'ci-history-check.mjs');
 const childEnv = (extra = {}) => { const e = { ...process.env, ...extra }; delete e.NODE_TEST_CONTEXT; return e; };
 const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.test', ...a],

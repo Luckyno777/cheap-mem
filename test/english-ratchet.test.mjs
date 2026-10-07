@@ -114,13 +114,26 @@ function isExempt(rel) {
 }
 
 /** German-flagged lines of one file's text, same rule as the dictionary's callers. */
-function germanLinesOf(text) {
+// A shared invariant id (shared/invariants.jsonl "id", and the
+// `invariant: <id>` marker a test carries) is a cross-house KEY that
+// must stay byte-equal with lucky-mem, not prose — the same rule
+// germanCommentWords() already applies to `invariant:` comments. The id
+// token is blanked before measuring; the rest of the line still counts.
+const INVARIANT_ID_MARK = /invariant:\s*[a-z0-9]+(?:-[a-z0-9]+)+/g;
+const INVARIANT_ID_FIELD = /"id":\s*"[a-z0-9]+(?:-[a-z0-9]+)+"/g;
+export function withoutInvariantIds(raw, rel = '') {
+  let s = raw.replace(INVARIANT_ID_MARK, 'invariant:');
+  if (rel === 'shared/invariants.jsonl') s = s.replace(INVARIANT_ID_FIELD, '"id": ""');
+  return s;
+}
+
+function germanLinesOf(text, rel = '') {
   const offenders = [];
   text.split('\n').forEach((raw, i) => {
     const trimmed = raw.trim();
     if (!trimmed) return;
     if (KNOWN_VERBATIM_QUOTES.some((q) => raw.includes(q))) return;
-    const hits = germanHits(asProse(raw));
+    const hits = germanHits(asProse(withoutInvariantIds(raw, rel)));
     if (hits.length >= 2) offenders.push({ number: i + 1, hits, text: trimmed });
   });
   return offenders;
@@ -140,7 +153,7 @@ function scan() {
     let buf;
     try { buf = fs.readFileSync(full); } catch { continue; }
     if (isBinary(rel, buf)) { skippedBinary.push(rel); continue; }
-    const offenders = germanLinesOf(buf.toString('utf8'));
+    const offenders = germanLinesOf(buf.toString('utf8'), rel);
     if (offenders.length) perFile.set(rel, offenders);
   }
   return { files, perFile, skippedBinary };
@@ -397,4 +410,21 @@ test('every commentWordCeilings entry still names a tracked file', () => {
   const tracked = new Set(trackedFiles());
   const stale = Object.keys(RATCHET.commentWordCeilings ?? {}).filter((rel) => !tracked.has(rel));
   assert.deepEqual(stale, []);
+});
+
+test('shared invariant ids are keys, not prose: blanked before measuring, the rest still counts', () => {
+  // The sample is a REAL id taken from shared/invariants.jsonl at run time,
+  // so this file carries no German line itself and the probe also proves
+  // the catalogue holds such ids (otherwise the rule would guard nothing).
+  const ids = fs.readFileSync(path.join(REPO, 'shared', 'invariants.jsonl'), 'utf8')
+    .split('\n').filter(Boolean).map((l) => JSON.parse(l).id);
+  const id = ids.find((x) => germanHits(asProse(x.replace(/-/g, ' '))).length >= 2);
+  assert.ok(id, 'positive control: shared/invariants.jsonl holds at least one id that reads as German prose');
+  const prose = id.replace(/-/g, ' ');
+  const mark = ['//', 'invariant:'].join(' ');
+  assert.equal(germanHits(asProse(withoutInvariantIds(`${mark} ${id}`))).length, 0);
+  assert.equal(germanHits(asProse(withoutInvariantIds(`{"id": "${id}", "x": "y"}`, 'shared/invariants.jsonl'))).length, 0);
+  // the same id outside shared/invariants.jsonl is NOT blanked, and prose next to a marker still counts
+  assert.ok(germanHits(asProse(withoutInvariantIds(`{"id": "${id}"}`, 'other.jsonl'))).length >= 2);
+  assert.ok(germanHits(asProse(withoutInvariantIds(`${mark} x-y ${prose}`))).length >= 2);
 });

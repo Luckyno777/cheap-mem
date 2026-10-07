@@ -113,7 +113,7 @@
     "eval/pair-evaluate.mjs": 1,
     "eval/tasks.mjs": 85,
     "eval/world.mjs": 26,
-    "shared/invariants.jsonl": 10,
+    "shared/invariants.jsonl": 5,
     "src/cli/commands/write.mjs": 1,
     "src/language.mjs": 7,
     "src/search.mjs": 2,
