@@ -165,6 +165,8 @@ jobs:
         run: |
           set -euo pipefail
           MEMDIR="$(mktemp -d)"
+          # Clean up even when the step fails.
+          trap 'rm -rf "'"$MEMDIR"'"' EXIT
           node bin/mem --root "$MEMDIR" init
           node bin/mem --root "$MEMDIR" log decision \
             --topic ci --choice "run on three platforms" --why "windows breaks differently"
@@ -181,6 +183,8 @@ jobs:
         run: |
           set -euo pipefail
           MEMDIR="$(mktemp -d)"
+          # Clean up even when the step fails.
+          trap 'rm -rf "'"$MEMDIR"'"' EXIT
           cd "$MEMDIR"
           git init -q .
           git config user.email ci@example.test
@@ -869,6 +873,8 @@ jobs:
         run: |
           set -euo pipefail
           W="$(mktemp -d)"
+          # Clean up even when the step fails.
+          trap 'rm -rf "'"$W"'"' EXIT
           node bin/mem --root "$W" init > /dev/null
           TALLY="$W/calls"
           printf '#!/bin/sh\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
@@ -905,6 +911,8 @@ jobs:
         run: |
           set -euo pipefail
           W="$(mktemp -d)"
+          # Clean up even when the step fails.
+          trap 'rm -rf "'"$W"'"' EXIT
           node bin/mem --root "$W" init > /dev/null
           L="$W/transcript.jsonl"; : > "$L"
           i=0
@@ -926,9 +934,35 @@ jobs:
             echo "::error::precondition does not hold — nothing is due (exit $DUE)"; exit 1
           fi
 
-          # The fake model dawdles, so the two ticks really overlap.
+          # **The overlap is FORCED, not hoped for.** The fake model used
+          # to hold the lock for `sleep 2` and the measurement assumed the
+          # second tick had reached the lock by then. That is a race
+          # against node's start-up time: on a loaded runner the second
+          # tick needed up to 10 s before the lock and legitimately took
+          # the freshly released lock a second time (sibling memory:
+          # measured 11 calls instead of 10, round 1). No lock bug, but a
+          # probe that did not establish its own condition (both ticks at
+          # once).
+          #
+          # Now the model holds the lock until the other tick has written
+          # "already running" (round counter in $W/round), 30 s at most.
+          # The lock must really say no BEFORE it is released. If it does
+          # not hold, both models run, wait out the 30 s, and the count
+          # below fails.
           TALLY="$W/calls"
-          printf '#!/bin/sh\nsleep 2\necho x >> "%s"\nexit 0\n' "$TALLY" > "$W/fake-model"
+          printf '1\n' > "$W/round"
+          cat > "$W/fake-model" <<MODEL
+          #!/bin/sh
+          echo x >> "$TALLY"
+          i=0
+          while [ \$i -lt 150 ]; do
+            n=\$(cat "$W/log1" "$W/log2" 2>/dev/null | grep -c 'already running')
+            [ "\$n" -ge "\$(cat "$W/round")" ] && exit 0
+            sleep 0.2
+            i=\$((i+1))
+          done
+          exit 0
+          MODEL
           chmod +x "$W/fake-model"
 
           # **Ten rounds, not one.** A lock bug is a RACE, and a race
@@ -953,6 +987,7 @@ jobs:
           # honest reading is "a race here will be noticed within a PR or
           # two", not "cannot get through".
           for try_no in 1 2 3 4 5 6 7 8 9 10; do
+            printf '%s\n' "$try_no" > "$W/round"
             for n in 1 2; do
               env CHEAP_MEM_ROOT="$W" MEM_DIGEST_CMD="$W/fake-model" \
                 MEM_DIGEST_LOG="$W/log$n" MEM_DIGEST_VOLUME_NOW_KB=1 \
@@ -963,6 +998,11 @@ jobs:
             # state: the digested marks, not the captures.
             rm -rf "$W/.mem/digest.lock.d"
             node bin/mem --root "$W" raw pending --json > /dev/null 2>&1 || true
+            # Stop early: more calls than rounds means a tick broke the
+            # lock - further rounds only cost runner minutes.
+            if [ -e "$TALLY" ] && [ "$(wc -l < "$TALLY" | tr -d ' ')" -gt "$try_no" ]; then
+              echo "round $try_no: more model calls than rounds"; break
+            fi
           done
 
           CALLS=0
@@ -995,6 +1035,8 @@ jobs:
         run: |
           set -euo pipefail
           W="$(mktemp -d)"
+          # Clean up even when the step fails.
+          trap 'rm -rf "'"$W"'"' EXIT
           node bin/mem --root "$W" init > /dev/null
 
           # Real material, made the way the capture hook makes it.
