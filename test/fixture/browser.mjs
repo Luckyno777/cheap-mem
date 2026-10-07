@@ -122,3 +122,33 @@ export async function waitReady(page) {
     { timeout: 30000 },
   );
 }
+
+/**
+ * Pay the cold start of the view server BEFORE the browser opens the page
+ * (chain, 2026-10-07; mirrors lucky-mem commit 748f4b1e `waermeAnsicht`).
+ *
+ * **Cause.** Server and Playwright client (with the `page.route` handlers)
+ * live in ONE process. The first page pays the whole cold start of the server
+ * synchronously on that event loop: the first `/dashboard.json` build, the
+ * part routes (raw, inbox, experiences, appointments), the gzip of the page
+ * files. Everything inside the browser deadlines (`waitReady` 30 s, the
+ * probe's own waits) -- and under load the cost scales 10 to 20 fold, while
+ * the mocked answers wait on the same blocked loop.
+ *
+ * **Fix.** Make the same requests once with Node `fetch` before the page is
+ * opened: caches and gzip marks are warm, the deadlines measure only the
+ * page. No deadline was widened, nothing is repeated. Do NOT use it in a
+ * probe that tests the cold start itself (board-tempo, dash-later).
+ * `MEM_PROBE_NO_WARMUP` skips it -- only for the red proof.
+ */
+export async function warmView(base) {
+  if (process.env.MEM_PROBE_NO_WARMUP) return;
+  const html = await (await fetch(base + '/dashboard')).text();
+  const ways = [...html.matchAll(/(?:src|href)="(\/[^"#]+)"/g)].map((m) => m[1]);
+  const first = await fetch(base + '/dashboard.json', { headers: { 'accept-encoding': 'gzip' } });
+  let parts = [];
+  try { parts = Object.values((await first.json()).parts || {}).map((p) => p.path).filter(Boolean); } catch { /* no parts: warm the rest */ }
+  for (const way of [...ways, ...parts, '/dashboard/appointments.json']) {
+    try { const r = await fetch(base + way, { headers: { 'accept-encoding': 'gzip' } }); await r.arrayBuffer(); } catch { /* a warm-up is never a probe */ }
+  }
+}

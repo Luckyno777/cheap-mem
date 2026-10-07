@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -80,6 +80,7 @@ async function everyScreen(base, before) {
     // 'load' + loading marker gone, NOT 'networkidle': since tempo the page
     // fetches deferred parts and polls the MCP probe — under full load the
     // network never went quiet for 30 s (cm suite 2026-09-29, navigation timeout).
+    await warmView(base); // the cold start of the server is not part of the browser deadlines
     await page.goto(base + '/dashboard', { waitUntil: 'load' });
     await waitReady(page);
     if (before) await page.evaluate(before);
