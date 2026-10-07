@@ -72,6 +72,24 @@ test('a held fresh lock: waiting is bounded, then LockTimeoutError', () => {
   assert.ok(fs.existsSync(lock), 'a fresh lock must not be removed');
 });
 
+test('without hard links the plain create still refuses a held lock (O_EXCL on the fallback route)', () => {
+  // On a file system that cannot `link` (EPERM and kin) createLock falls back to
+  // creating the lock name itself. There 'wx' is the only thing between a held
+  // lock and a silent overwrite; on the link route the temp name is unique, so
+  // no test that leaves `link` alone can tell 'wx' from 'w'.
+  const dir = mkTmp('fl-'); const lock = path.join(dir, 'x.lock');
+  const held = `${process.pid} ${os.hostname()} ${new Date().toISOString()} tok\n`;
+  fs.writeFileSync(lock, held);
+  const realLink = fs.linkSync;
+  fs.linkSync = () => { throw Object.assign(new Error('no links here'), { code: 'EPERM' }); };
+  try {
+    assert.throws(() => withLock(lock, () => 'ran', { waitMs: 100, staleS: 60 }), LockTimeoutError);
+    assert.equal(fs.readFileSync(lock, 'utf8'), held, 'the held lock was overwritten');
+    fs.rmSync(lock);
+    assert.equal(withLock(lock, () => 'ran', { waitMs: 100 }), 'ran', 'positive control: a free lock is taken on this route');
+  } finally { fs.linkSync = realLink; }
+});
+
 test('age alone never takes over (audit F02): another host / unknown owner stays, however old', () => {
   const dir = mkTmp('fl-'); const lock = path.join(dir, 'x.lock');
   fs.writeFileSync(lock, '4242 elsewhere 2020-01-01T00:00:00Z tok\n');

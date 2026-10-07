@@ -711,7 +711,7 @@ export const MUTANTS=[
    file:'src/filelock.mjs',
    from:'  if (age <= staleS) return false;',
    to:'  if (true) return false;  // MUTANT',
-   tests:['test/filelock.test.mjs'] },
+   tests:['test/filelock.test.mjs','test/audit-lock-owner.test.mjs'] },
 
  { name:'filelock: nested locks are allowed',
    file:'src/filelock.mjs',
