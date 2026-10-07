@@ -138,7 +138,7 @@ test('fulltext-pages: real store — pages == old full scan, readRowsLazy == rea
   }
 });
 
-test('fulltext-pages: generation change — the old cursor expires, the old index keeps serving, afterwards == full scan of the new state', async () => {
+test('fulltext-pages: generation change — the old index is never served (a removed entry must vanish), the old cursor expires, afterwards == full scan of the new state', async () => {
   let Z = corpus();
   let key = 'a';
   const opt = { key: () => key, readAll: () => Z };
@@ -147,15 +147,16 @@ test('fulltext-pages: generation change — the old cursor expires, the old inde
   const s1 = await fulltext.page(r, 'e', { ...opt, limit: 5 });
   assert.equal(s1.more, true);
   assert.equal(s1.fresh, true);
+  const Z0 = Z[0];
   // The store changes: a new entry with the word, an old one gone
   Z = [{ project: 'global', drawer: 'learning', entry: { id: 'new1', title: 'Fresh', text: 'onlyinthenew' } }, ...Z.slice(1)];
   key = 'b';
-  const stale = await fulltext.page(r, 'onlyinthenew', opt);
-  assert.deepEqual(stale.ids, [], 'while the rebuild runs, the OLD index serves (it does not know the new entry)');
-  assert.equal(stale.fresh, false, 'and says so');
-  const stillOld = await fulltext.page(r, 'e', { ...opt, cursor: s1.cursor, limit: 5 });
-  assert.ok(!stillOld.expired, 'the cursor holds as long as the same index serves');
-  await fulltext.waitForBuild(r);
+  // The request waits for the rebuild: the answer knows the new entry, and the entry that is gone (Z[0]) is not shown.
+  const gone = Z0.entry.id;
+  const waited = await fulltext.page(r, 'onlyinthenew', opt);
+  assert.deepEqual(waited.ids, ['new1'], 'a generation change is answered from the NEW index, never the old one');
+  assert.equal(waited.fresh, true);
+  assert.ok(!(await fulltext.page(r, 'e', { ...opt, limit: 1000 })).ids.includes(gone), 'a removed entry does not outlive its generation');
   const expired = await fulltext.answer(r, 'e', { ...opt, cursor: s1.cursor, limit: 5 });
   assert.deepEqual([expired.expired, expired.ids, expired.more, expired.measurable], [true, [], false, true], 'cursor of the old generation: expired');
   const fresh = await fulltext.page(r, 'onlyinthenew', opt);
@@ -168,7 +169,7 @@ test('fulltext-pages: generation change — the old cursor expires, the old inde
   }
 });
 
-test('fulltext-pages: build fails — the first build says measurable:false, a later rebuild leaves the old index standing', async () => {
+test('fulltext-pages: build fails — the first build says measurable:false, a later rebuild fails loudly (never the old index)', async () => {
   fulltext.forget();
   const r = '/r-fail';
   const b = await fulltext.answer(r, 'x', { key: () => 'k', readAll: () => { throw new Error('broken'); } });
@@ -179,11 +180,13 @@ test('fulltext-pages: build fails — the first build says measurable:false, a l
   const opt = { key: () => key, readAll: () => { if (broken) throw new Error('broken later'); return [{ entry: { id: 'a1', text: 'hello' } }]; } };
   assert.deepEqual((await fulltext.page(r, 'hello', opt)).ids, ['a1']);
   key = 'b'; broken = true;
-  const x = await fulltext.page(r, 'hello', opt);
-  assert.deepEqual([x.ids, x.fresh], [['a1'], false]);
-  await fulltext.waitForBuild(r);
-  const x2 = await fulltext.page(r, 'hello', opt); // tries again, keeps serving
-  assert.deepEqual([x2.ids, x2.fresh], [['a1'], false]);
+  const x = await fulltext.answer(r, 'hello', opt);
+  assert.equal(x.measurable, false, 'no old index as a fallback: it could show what was removed');
+  assert.match(x.reason, /broken later/);
+  assert.ok(!('ids' in x));
+  broken = false;
+  const x2 = await fulltext.page(r, 'hello', opt); // tries again, now succeeds
+  assert.deepEqual([x2.ids, x2.fresh], [['a1'], true]);
 });
 
 // ---------------------------------------------------------------- (2) pagination
@@ -258,7 +261,8 @@ test('fulltext-pages: event-loop gate at 100k — cold build and generation chan
   key = 2;
   let w2;
   const changeDelay = await loopDelay(async () => { w2 = await fulltext.answer('/r', 'e', opt); await fulltext.waitForBuild('/r'); });
-  assert.equal(w2.fresh, false, 'generation change: at once from the old index');
+  assert.equal(w2.fresh, true, 'generation change: the answer waits for the new index');
+  assert.equal(w2.ids.length, fulltext.LIMIT_DEFAULT);
   assert.ok(changeDelay < DELAY_LIMIT_MS, `generation change with rebuild: timer delay ${changeDelay.toFixed(0)} ms < ${DELAY_LIMIT_MS}`);
   const rareDelay = await loopDelay(async () => { await fulltext.answer('/r', 'nowhere-to-be-found', opt); });
   assert.ok(rareDelay < DELAY_LIMIT_MS, `full pass without a hit: timer delay ${rareDelay.toFixed(0)} ms < ${DELAY_LIMIT_MS}`);

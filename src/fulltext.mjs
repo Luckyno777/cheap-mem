@@ -32,11 +32,11 @@
 //     the caller asks again from the start.
 //  2. Time slices. The build (row by row from `dashboard.readRowsLazy`) and the search
 //     hand the event loop back every ~SLICE_MS (`setImmediate`).
-//  3. The old index keeps serving. When the key changes, a request is
-//     answered at once from the old index with `fresh:false` ("is being
-//     refreshed"); ONE rebuild (shared, `build`) runs in slices in the
-//     background and swaps the index at the end. Only the very first build
-//     (no old index) is awaited — also in slices. Chosen over a worker
+//  3. ONE shared rebuild (`build`) per key change, in slices. A request waits
+//     for it (the loop stays free). The old index is NOT served meanwhile:
+//     it would still show an entry that the new generation removed or made
+//     unreadable (crypto-shred). `fresh` is therefore always true. Chosen
+//     over a worker
 //     thread: a worker must either ship the index back (a structured clone,
 //     itself a block) or hold the search there too, and the probes inject
 //     `readAll`/`key` (not transferable). Slices need none of that, and the
@@ -144,16 +144,22 @@ function startBuild(root, state, key, readAll) {
   return build.promise;
 }
 
-/** The index for `key`: current, or (old, fresh:false) with a running rebuild. */
-async function getState(root, key, readAll) {
+/**
+ * The index for the CURRENT key. Never an old one: an old index would still
+ * show an entry that a newer generation removed or made unreadable (a
+ * destroyed key, a shredded body) — a leak of exactly what was just
+ * destroyed. A generation change therefore waits for the rebuild (one shared
+ * build, in slices: the event loop stays free, only this request waits).
+ * The key is read again per round, so a build that lapsed for a newer key
+ * is followed instead of restarted with a stale key.
+ */
+async function getState(root, keyOf, readAll) {
   let state = STORE.get(root);
   if (!state) { state = { key: null, gen: null, ids: null, texts: null, build: null }; STORE.set(root, state); }
   for (;;) {
+    const key = keyOf();
     if (state.ids && state.key === key) return { state, fresh: true };
-    const build = startBuild(root, state, key, readAll);
-    if (state.ids) { build.catch(() => {}); return { state, fresh: false }; } // the old index keeps serving
-    await build; // the very first build: wait (throws on a read failure); if it lapsed, try again
-    if (state.ids) return { state, fresh: state.key === key };
+    await startBuild(root, state, key, readAll); // throws on a read failure
   }
 }
 
@@ -191,7 +197,7 @@ export async function page(root, query, {
 } = {}) {
   const q = normalize(query);
   if (q === null) return null;
-  const { state, fresh } = await getState(root, key(), readAll);
+  const { state, fresh } = await getState(root, key, readAll);
   let from = 0;
   if (cursor !== null && cursor !== undefined && cursor !== '') {
     const m = /^(g\d+)\.(\d+)$/.exec(String(cursor));
