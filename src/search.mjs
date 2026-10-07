@@ -93,6 +93,39 @@ function packsFor(langInfo) {
   return langInfo.certain ? [pack(langInfo.language)] : DETECTABLE_PACKS;
 }
 
+/**
+ * Is this typed word filler FOR THIS DOCUMENT - would the document's own
+ * rule sets have dropped it at index time?
+ *
+ * **Why per document (2026-10-07).** A query is tokenised against every
+ * detectable pack and a word is dropped only if ALL of them call it a
+ * stopword (`tokenizeGroupsPacked`) - correct for scoring, because the
+ * query's language is unknown. But English "the", "and", "on", "of" are
+ * not German stopwords, so they survived as typed words, and no English
+ * document can ever carry them (its pack dropped them when it was
+ * indexed). Coverage then read "7 of 10 words", and the answer gate (h3,
+ * "the entry carries EVERY typed word") withheld an entry that held every
+ * word that could be held: "routine note deploys builds" passed,
+ * "the routine note on deploys and builds" was withheld, and the
+ * benchmark's "tests that fail at random" lost the same way.
+ *
+ * Judging the word by the document's own packs (CERTAIN: its language;
+ * UNCERTAIN: every detectable pack, the same `every` rule as the query)
+ * takes the word out of numerator and denominator for that document
+ * only. Nothing else about the gate or the factor moves: a content word
+ * the document lacks still counts as uncovered.
+ */
+function fillerForDoc(doc, word, cache) {
+  const key = `${doc.langCertain ? doc.lang : '?'}\u0000${word}`;
+  let v = cache.get(key);
+  if (v === undefined) {
+    const packs = doc.langCertain && doc.lang ? [pack(doc.lang)] : DETECTABLE_PACKS;
+    v = packs.every((l) => l.stopwords.has(word));
+    cache.set(key, v);
+  }
+  return v;
+}
+
 const K1 = 1.2;
 const B = 0.75;
 
@@ -1636,6 +1669,7 @@ export function search(index, query, {
   // see its own comment for why an alternate spelling from a second
   // rule set must never be allowed to add a SECOND match for one word.
   const groups = tokenizeGroupsPacked(query, { lexicons: queryLexicons, langs: queryPacks });
+  const fillerCache = new Map();   // (doc language, typed word) -> filler for that document?
   const own = groups.flatMap((packVariants) => packVariants.flat());
   if (own.length === 0) return [];
   const ownSet = new Set(own);
@@ -1773,6 +1807,13 @@ export function search(index, query, {
     const own = (t) => doc.weights.has(t) && !isExpansionOnly(doc, t);
     const viaExp = (packVariants) => !!doc.expOnly
       && packVariants.some((forms) => forms.some((t) => isExpansionOnly(doc, t)));
+    // Typed words this document could never carry (see `fillerForDoc`)
+    // leave the count for this document, on both sides of the division.
+    let fillers = 0;
+    const isFiller = (packVariants) => !packVariants.some((forms) => forms.some(own))
+      && packVariants.word !== undefined && fillerForDoc(doc, packVariants.word, fillerCache);
+    for (const packVariants of groups) if (isFiller(packVariants)) fillers += 1;
+    const counted = Math.max(1, groups.length - fillers);
     if (withCoverage) {
       let c = 0;
       for (const packVariants of groups) {
@@ -1780,9 +1821,9 @@ export function search(index, query, {
         else if (packVariants.bridged?.some((t) => doc.weights.has(t))
           || packVariants.rewritten?.some((t) => doc.weights.has(t))) c += 0.5;
       }
-      coveredShare = c / groups.length;
+      coveredShare = fillers === groups.length ? 0 : c / counted;
     }
-    if (coverage > 0 && groups.length > 1) {
+    if (coverage > 0 && groups.length - fillers > 1) {
       let covered = 0;
       for (const packVariants of groups) {
         if (packVariants.some((forms) => forms.some(own))) covered += 1;
@@ -1829,7 +1870,7 @@ export function search(index, query, {
       // Note the floor does NOT weaken the ordering: covering more still
       // scores strictly higher. It only stops a partial cover from being
       // multiplied down to nothing.
-      const share = (covered / groups.length) ** coverage;
+      const share = (covered / (groups.length - fillers)) ** coverage;
       score *= coverageFloor + (1 - coverageFloor) * share;
     }
 
