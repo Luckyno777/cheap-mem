@@ -143,11 +143,15 @@ if (-not $env:MEM_RETRIEVE_TOP -and (",$($env:MEM_SEARCH_LEVERS)," -match ',(h5|
 function Update-Clone {
   if ($env:MEM_RETRIEVE_NO_PULL -eq '1') { return }
   if ($env:MEM_HEADLESS) { return }
+  # Test-Path takes a file too: in a linked worktree `.git` is a file.
   if (-not (Test-Path -LiteralPath (Join-Path $Root '.git'))) { return }
+  $gitDir = (& git -C $Root rev-parse --absolute-git-dir 2>$null)
+  if (-not $gitDir) { return }
 
   $minutes = if ($env:MEM_RETRIEVE_FRESH_MIN) { [int]$env:MEM_RETRIEVE_FRESH_MIN } else { 10 }
-  # A marker inside .git never shows up in `git status`.
-  $marker = Join-Path $Root '.git/mem-retrieve-pull'
+  # A marker inside the git dir never shows up in `git status`
+  # (in a worktree that is the per-worktree dir, not $Root/.git).
+  $marker = Join-Path $gitDir 'mem-retrieve-pull'
   if (Test-Path -LiteralPath $marker) {
     $age = (Get-Date).ToUniversalTime() - (Get-Item -LiteralPath $marker).LastWriteTimeUtc
     if ($age.TotalMinutes -le $minutes) { return }

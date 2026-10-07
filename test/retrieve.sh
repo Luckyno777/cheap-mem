@@ -67,9 +67,13 @@ remote_ahead() {
   git clone -q "$WORK/remote" "$WORK/second"
   ( cd "$WORK/second" && git config user.email t@t && git config user.name T \
     && git config core.hooksPath /dev/null \
-    && node bin/mem --root . log event --title "from another session" --tags x >/dev/null 2>&1 \
+    && echo "from another session $RANDOM" > "another-session-$RANDOM.txt" \
     && git add -A && git commit -qm second && git push -q origin main ) >/dev/null 2>&1
   REMOTE_HEAD="$(git -C "$WORK/remote" rev-parse main)"
+  # The commit used to be a `mem log` in the clone; the memory files are gitignored
+  # there, so nothing was committed, the remote never moved and every "pulled" check
+  # held vacuously. A plain tracked file moves it for real.
+  [ "$REMOTE_HEAD" != "$(git -C "$WORK/mem" rev-parse HEAD)" ] || echo "  !!   remote_ahead did not advance the remote"
 }
 
 run() { printf '%s' "$QUESTION" | env "$@" CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null; }
@@ -153,7 +157,7 @@ sleep 2
 echo "4) dirty tree -> no pull"
 build_memory
 remote_ahead
-echo '{"ts":"local"}' >> "$WORK/mem/global/events.jsonl"
+echo '# local edit' >> "$WORK/mem/.gitattributes"  # a TRACKED file (global/ is gitignored, would not count as dirty)
 BEFORE="$(git -C "$WORK/mem" rev-parse HEAD)"
 run MEM_RETRIEVE_FRESH_MIN=0 >/dev/null
 sleep 2
@@ -320,6 +324,25 @@ else
   # cannot answer this question, and saying nothing is not saying yes.
   echo "  ??   --no-experimental-require-module unavailable — Node 20 path not measured here"
 fi
+
+echo "11) the hook root is a linked git worktree (.git is a file) -> the refresh still runs"
+build_memory
+git -C "$WORK/mem" worktree add -q -b wt-branch "$WORK/wt" main
+[ -f "$WORK/wt/.git" ] || bad "fixture: worktree .git is not a file"
+# .mem/config.json is not tracked, so a fresh worktree lacks it; give it one.
+mkdir -p "$WORK/wt/.mem" && cp "$WORK/mem/.mem/config.json" "$WORK/wt/.mem/config.json"
+remote_ahead
+[ "$(git -C "$WORK/wt" rev-parse HEAD)" != "$REMOTE_HEAD" ] || bad "fixture: worktree is already at the remote head"
+# MEM_RETRIEVE_ROOTS points nowhere, so the probe list can never fall back to a real clone.
+printf '%s' "$QUESTION" | env CHEAP_MEM_ROOT="$WORK/wt" MEM_RETRIEVE_ROOTS="$WORK/none" HOME="$WORK" bash "$HOOK" >/dev/null 2>&1
+WT_PULLED=""
+for _ in $(seq 1 40); do
+  [ "$(git -C "$WORK/wt" rev-parse HEAD)" = "$REMOTE_HEAD" ] && { WT_PULLED=1; break; }
+  sleep 0.25
+done
+[ -n "$WT_PULLED" ] && ok "worktree root refreshed" || bad "worktree root never pulled (silent skip)"
+[ -f "$(git -C "$WORK/wt" rev-parse --absolute-git-dir)/mem-retrieve-pull" ] \
+  && ok "throttle marker sits in the worktree git dir" || bad "no throttle marker in the worktree git dir"
 
 echo
 echo "green=$GREEN red=$RED"
