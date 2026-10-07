@@ -16,6 +16,7 @@
 // every module be reachable from the CLI. It asks one narrow question
 // about logs specifically — something that APPENDS lines to a file on
 // every run must also have a way to show them, or it should not exist.
+// invariant: kein-log-ohne-leser
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

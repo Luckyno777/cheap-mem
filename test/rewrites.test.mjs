@@ -12,6 +12,7 @@
 // and a DIFFERENT entry carrying the same characteristic stems becomes
 // reachable by the everyday word — the generalisation over asked-learn.
 // Red on the tree before this branch (deca5ad): no module, the import fails.
+// invariant: lieber-nichts-als-falsches
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
