@@ -112,7 +112,9 @@ function packsFor(langInfo) {
  * Judging the word by the document's own packs (CERTAIN: its language;
  * UNCERTAIN: every detectable pack, the same `every` rule as the query)
  * takes the word out of numerator and denominator for that document
- * only. Nothing else about the gate or the factor moves: a content word
+ * only, in the share the answer gate reads (`covered`); the coordination
+ * factor is deliberately left as it was (see the call site). Nothing else
+ * about the gate moves: a content word
  * the document lacks still counts as uncovered.
  */
 function fillerForDoc(doc, word, cache) {
@@ -1808,7 +1810,12 @@ export function search(index, query, {
     const viaExp = (packVariants) => !!doc.expOnly
       && packVariants.some((forms) => forms.some((t) => isExpansionOnly(doc, t)));
     // Typed words this document could never carry (see `fillerForDoc`)
-    // leave the count for this document, on both sides of the division.
+    // leave the count for this document, on both sides of the division -
+    // for the answer gate's `covered` only. The coordination factor below
+    // keeps counting them: changing it moves every score of a question
+    // with filler words, which test/wildcard-prefix.test.mjs pins
+    // byte-for-byte against a historic commit, and the atlas/README
+    // numbers sit on it. That is a separate, measured decision.
     let fillers = 0;
     const isFiller = (packVariants) => !packVariants.some((forms) => forms.some(own))
       && packVariants.word !== undefined && fillerForDoc(doc, packVariants.word, fillerCache);
@@ -1823,7 +1830,7 @@ export function search(index, query, {
       }
       coveredShare = fillers === groups.length ? 0 : c / counted;
     }
-    if (coverage > 0 && groups.length - fillers > 1) {
+    if (coverage > 0 && groups.length > 1) {
       let covered = 0;
       for (const packVariants of groups) {
         if (packVariants.some((forms) => forms.some(own))) covered += 1;
@@ -1870,7 +1877,7 @@ export function search(index, query, {
       // Note the floor does NOT weaken the ordering: covering more still
       // scores strictly higher. It only stops a partial cover from being
       // multiplied down to nothing.
-      const share = (covered / (groups.length - fillers)) ** coverage;
+      const share = (covered / groups.length) ** coverage;
       score *= coverageFloor + (1 - coverageFloor) * share;
     }
 

@@ -43,8 +43,6 @@ test('stopwords in the question do not count as uncovered words', () => {
     for (const h of worded) assert.equal(h.covered, 1, 'every word the entry could carry is carried');
     // The gate: a flat field of full covers is an answer, with or without filler words.
     assert.ok(worded.every((h) => passes(h, worded, { occasion: 'find' })), 'the gate lets the field out');
-    // Same scores either way: filler words add nothing and take nothing away.
-    assert.deepEqual(worded.map((h) => h.score), plain.map((h) => h.score));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
