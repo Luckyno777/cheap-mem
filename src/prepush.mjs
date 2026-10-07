@@ -49,9 +49,8 @@
  *
  * Rule: nothing rather than wrong.
  */
-import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { isMain } from './ismain.mjs';
 
 /** Every state the hook can report — the list, in one place. */
 export const STATES = Object.freeze(['green', 'red', 'pending', 'none', 'unknown']);
@@ -188,7 +187,7 @@ export function checkPush(root, { remote = '', url = '', input = '', gh = 'gh', 
 
 // Hook entry: `node src/prepush.mjs <remote-name> <remote-url>` with git's
 // push lines on stdin. Prints to stdout, ends with END_MARK, always exit 0.
-const direct = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+const direct = isMain(import.meta.url);
 if (direct) {
   const chunks = [];
   process.stdin.on('data', (c) => chunks.push(c));

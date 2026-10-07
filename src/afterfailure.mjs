@@ -38,8 +38,7 @@
  * nothing" must not look the same.
  */
 
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMain } from './ismain.mjs';
 import * as injection from './injection.mjs';
 import { visible as bidiVisible } from './bidi.mjs';
 import { maskText } from './outputguard.mjs';
@@ -174,7 +173,7 @@ function readStdin() {
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isMain(import.meta.url)) {
   const mode = process.argv[2];
   const root = process.env.CHEAP_MEM_ROOT;
   readStdin().then(async (raw) => {

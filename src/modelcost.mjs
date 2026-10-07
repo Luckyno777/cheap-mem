@@ -50,7 +50,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isMain } from './ismain.mjs';
 import { appendLine } from './append.mjs';
 
 export const LOG = path.join('.pipeline', 'model-cost.jsonl');
@@ -175,8 +175,7 @@ export function sumByCaller(root, { sinceDays = 7, now = new Date() } = {}) {
 // calling shell script writes into its own log as before (see the
 // header comment). Errors go to STDERR ONLY — a broken journal must
 // never fail a model run.
-const isDirect = process.argv[1]
-  && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+const isDirect = isMain(import.meta.url);
 
 async function readStdin() {
   let input = '';

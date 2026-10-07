@@ -62,6 +62,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isMain } from './ismain.mjs';
 
 export const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -505,7 +506,7 @@ export function withBlock(docText, matrix = MATRIX) {
 }
 
 // `node src/integrationcontract.mjs --write` regenerates the block.
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+if (isMain(import.meta.url)
     && process.argv.includes('--write')) {
   const doc = path.join(CODE_ROOT, 'docs', 'integration-contract.md');
   fs.writeFileSync(doc, withBlock(fs.readFileSync(doc, 'utf8')));
