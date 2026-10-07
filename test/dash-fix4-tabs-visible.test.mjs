@@ -90,19 +90,22 @@ async function visibility(page, route) {
     const active = document.querySelector('#screen nav.tabs button.active');
     return t ? active?.dataset.route === h : document.body.dataset.area === a && !document.querySelector('#screen .loading, #screen .laden');
   }, route, { timeout: 15000 });
-  await page.waitForTimeout(150);
+  await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res)))); // the screen is drawn
   const n = await page.evaluate(() => document.querySelectorAll('#screen .panel, #screen .metrics').length);
   for (let i = 0; i < n; i += 1) {
     await page.evaluate((k) => document.querySelectorAll('#screen .panel, #screen .metrics')[k]?.scrollIntoView({ block: 'start', behavior: 'instant' }), i);
-    await page.waitForTimeout(60);
+    // Event, not clock: two rendering updates after the scroll guarantee that an
+    // IntersectionObserver delivery cycle has run (it is notified in the
+    // rendering step). A fixed 60 ms was too short on a loaded machine.
+    await page.evaluate(() => new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(res))));
   }
-  // Wait for running reveal animations (0.7 s + at most 275 ms delay). A
-  // PAUSED one (never revealed) never finishes and stays at opacity 0 —
-  // exactly what must show up below.
-  await page.evaluate(() => Promise.race([
-    Promise.all(document.getAnimations().filter((a) => a.playState === 'running' && Number.isFinite(a.effect?.getComputedTiming?.().endTime)).map((a) => a.finished.catch(() => null))),
-    new Promise((res) => setTimeout(res, 2000)),
-  ]));
+  // Wait until EVERY panel that was revealed has finished its reveal animation
+  // (state, not a time slice). A panel that was never revealed has a PAUSED
+  // animation, is not waited for, and stays at opacity 0 -- exactly what must
+  // show up below.
+  await page.waitForFunction(() => [...document.querySelectorAll('#screen .panel, #screen .metrics')]
+    .filter((el) => el.classList.contains('revealed'))
+    .every((el) => el.getAnimations().every((a) => a.playState !== 'running')), null, { timeout: 30000, polling: 50 });
   return page.evaluate(() => {
     const scr = document.querySelector('#screen');
     const tabs = scr.querySelector('nav.tabs');
