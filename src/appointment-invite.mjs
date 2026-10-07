@@ -173,7 +173,9 @@ export function credentialState(config) {
   let st;
   try { st = fs.statSync(file); } catch (e) { return { ok: false, reason: e.code === 'ENOENT' ? `${name} is missing` : `${name} is not readable` }; }
   if (!st.isFile()) return { ok: false, reason: `${name} is not a file` };
-  if ((st.mode & 0o077) !== 0) return { ok: false, reason: `${name} has permissions that are too wide (${(st.mode & 0o777).toString(8)}), expected 600` };
+  // Windows has no POSIX modes: stat reports 0666 for every file and chmod is a no-op, so the
+  // check would refuse every credential there. Access is governed by the ACL of the user profile.
+  if (process.platform !== 'win32' && (st.mode & 0o077) !== 0) return { ok: false, reason: `${name} has permissions that are too wide (${(st.mode & 0o777).toString(8)}), expected 600` };
   if (st.size === 0) return { ok: false, reason: `${name} is empty` };
   return { ok: true, reason: null };
 }

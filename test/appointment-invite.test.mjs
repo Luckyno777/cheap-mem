@@ -358,7 +358,7 @@ test('smtp: a bad login is a short "auth" code, never the server text or the pas
   } finally { await smtp.close(); }
 });
 
-test('credential files: wider than 600 is refused WITHOUT any network access; the doctor says error', async () => {
+test('credential files: wider than 600 is refused WITHOUT any network access; the doctor says error', { skip: process.platform === 'win32' && 'no POSIX permission bits on Windows' }, async () => {
   const r = world();
   const smtp = await fakeSmtp();
   try {
@@ -499,9 +499,11 @@ test('google: a key file with wide permissions or without the key fields is refu
   let calls = 0;
   const google = { fetcher: async () => { calls += 1; return { status: 500, ok: false }; }, tokenUrl: 'http://fake.test/token', apiUrl: 'http://fake.test/calendar/v3' };
   make(r, { title: 'Dentist', atMs: wall(2026, 10, 7, 10, 0) });
-  const wide = secretFile(r, 'wide.json', JSON.stringify({ client_email: g.email, private_key: g.privateKey }), 0o640);
-  const t = await I.tick(r, { now: NOW, config: configOf(r, { route: 'google', google: { calendarId: 'o@example.test', keyFile: wide } }), google });
-  assert.match(t.failures[0], /credential/);
+  if (process.platform !== 'win32') { // Windows has no POSIX permission bits: only the missing-fields half applies there
+    const wide = secretFile(r, 'wide.json', JSON.stringify({ client_email: g.email, private_key: g.privateKey }), 0o640);
+    const t = await I.tick(r, { now: NOW, config: configOf(r, { route: 'google', google: { calendarId: 'o@example.test', keyFile: wide } }), google });
+    assert.match(t.failures[0], /credential/);
+  }
   const junk = secretFile(r, 'junk.json', '{"nothing":1}');
   const t2 = await I.tick(r, { now: NOW + 1000000, config: configOf(r, { route: 'google', google: { calendarId: 'o@example.test', keyFile: junk } }), google });
   assert.match(t2.failures[0], /credential/);
