@@ -810,8 +810,9 @@ export function buildHandler(root, cfg, env = process.env) {
     // reason } — never an empty list for "not read". Empty query: ids:null.
     // The index hangs on the same generation stamp as the dashboard cache.
     // F23: paged (?limit=, ?cursor=; the answer carries more/cursor/generation),
-    // the event loop stays free; on a new store state the old index keeps
-    // serving (fresh:false) until the rebuild in the background is done.
+    // the event loop stays free; on a new store state the request waits
+    // for the rebuild (in slices) - the old index is never served, it could
+    // still show a destroyed or removed entry.
     if (url.pathname === fulltext.PATH) {
       fulltext.answer(root, url.searchParams.get('q') || '', {
         limit: url.searchParams.get('limit'),

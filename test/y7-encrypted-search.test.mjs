@@ -82,7 +82,7 @@ test('finding: an entry appended AFTER a cache exists is found through the appen
   } finally { away(root); }
 });
 
-test('no plaintext on disk: nothing under the root holds the word after search and dashboard', () => {
+test('no plaintext on disk: nothing under the root holds the word after search and dashboard', async () => {
   const root = mkRoot();
   try {
     seed(root);
@@ -90,7 +90,7 @@ test('no plaintext on disk: nothing under the root holds the word after search a
     search.loadIndex(root);
     hits(search.loadIndex(root), WORD);
     fulltext.forget();
-    const ft = fulltext.answer(root, WORD);
+    const ft = await fulltext.answer(root, WORD);
     assert.equal(ft.measurable, true);
     assert.equal(ft.ids.length, 1, 'the dashboard full-text search finds it in memory');
     const data = dashboardData.collectDashboard(root);
@@ -107,14 +107,14 @@ test('no plaintext on disk: nothing under the root holds the word after search a
   } finally { away(root); }
 });
 
-test('key destroyed: gone from search, display and full text at once', () => {
+test('key destroyed: gone from search, display and full text at once', async () => {
   const root = mkRoot();
   try {
     const id = seed(root);
     let idx = search.loadIndex(root);
     assert.equal(hits(idx, WORD), 1);
     fulltext.forget();
-    assert.equal(fulltext.answer(root, WORD).ids.length, 1);
+    assert.equal((await fulltext.answer(root, WORD)).ids.length, 1);
     const res = memory.shredEntry(root, 'decision', id, { reason: 'test' });
     assert.equal(res.destroyed.destroyed ?? res.destroyed, true);
     idx = search.loadIndex(root);
@@ -124,7 +124,10 @@ test('key destroyed: gone from search, display and full text at once', () => {
     assert.match(doc.entry.title, /not readable/);
     assert.match(doc.entry.title, /destroyed|shredded/);
     // same process, no forget(): the in-memory full-text store must notice the key change
-    assert.equal(fulltext.answer(root, WORD).ids.length, 0);
+    const after = await fulltext.answer(root, WORD);
+    assert.equal(after.measurable, true);
+    assert.deepEqual(after.ids, [], 'the destroyed entry is gone from the full text at once');
+    assert.equal(after.fresh, true, 'answered from the NEW generation, never from the old index');
     const row = dashboard.readPass(root).rows.find((x) => x.entry.id === id);
     assert.match(row.entry.title, /not readable/);
     assert.equal(row.entry.text, undefined);

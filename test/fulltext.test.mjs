@@ -117,7 +117,7 @@ test('fulltext: nested objects and arrays are searched, numbers are not', () => 
   assert.ok(!idx.get('x1').includes('424242'));
 });
 
-test('fulltext: the index is kept per store state; on a change the old one keeps serving, the new one arises in the background', async () => {
+test('fulltext: the index is kept per store state; on a change the request waits for ONE rebuild, the old index is never served', async () => {
   const r = world('fulltext-cache-');
   fulltext.forget();
   let reads = 0;
@@ -128,9 +128,8 @@ test('fulltext: the index is kept per store state; on a change the old one keeps
   assert.equal(reads, 1, 'same key: not read again');
   key = 'b';
   const old1 = await fulltext.page(r, 'first', opt);
-  assert.deepEqual(old1.ids, ['e1'], 'answered at once from the old index');
-  assert.equal(old1.fresh, false, 'and marked "is being refreshed"');
-  await fulltext.waitForBuild(r);
+  assert.deepEqual(old1.ids, [], 'answered from the NEW state: the old word is gone');
+  assert.equal(old1.fresh, true);
   assert.equal(reads, 2, 'new key: exactly ONE rebuild');
   const fresh = await fulltext.page(r, 'second', opt);
   assert.deepEqual(fresh.ids, ['e1']);
