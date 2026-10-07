@@ -175,7 +175,11 @@ test('the finding wraps the verdict, and checkAll runs it', () => {
   // comments removed first: a commented-out call must not count as a proof
   const src = fs.readFileSync(path.join(REPO, 'src', 'doctor.mjs'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-  assert.match(src, /f\.push\(checkIntegrationContract\(root\)\)/, 'checkAll does not run the finding');
+  // checkAll wraps each sub-check in guarded(name, () => ...): the call counts bare or inside that wrapper,
+  // but only as f.push(...) of exactly this call with the matching name, not via some other function.
+  assert.match(src,
+    /f\.push\((?:checkIntegrationContract\(root\)|guarded\('checkIntegrationContract',\s*\(\)\s*=>\s*checkIntegrationContract\(root\)\))\)/,
+    'checkAll does not run the finding');
 });
 
 // --- the map: same numbers in both languages -------------------------------
