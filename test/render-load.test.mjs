@@ -18,7 +18,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startBrowser, waitReady } from './fixture/browser.mjs';
-import { COUNTER, measureLoad } from './fixture/renderload.mjs';
+import { COUNTER, measureLoad, sampleFrames } from './fixture/renderload.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -62,7 +62,7 @@ async function withServer(run) {
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 }
 
-async function measure(base, { client = null, before = null, opt = {}, idleMs = 0, small = false } = {}) {
+async function measure(base, { client = null, before = null, opt = {}, idleMs = 0, small = false, sample = 0 } = {}) {
   // `small`: software GL (swiftshader) renders the full size at only a handful of
   // frames/s, which would hide a throttle; a small viewport lets the loops run
   // at the rate they are ALLOWED to.
@@ -77,6 +77,7 @@ async function measure(base, { client = null, before = null, opt = {}, idleMs = 
     await page.waitForFunction(() => !!document.querySelector('#brain'), null, { timeout: 60000 }).catch(() => null);
     if (before) await before(page);
     await page.waitForTimeout(1500); // let a running callback chain run out
+    if (sample) return await sampleFrames(page, sample); // event: N frames drawn, then the smallest gap
     return await measureLoad(page, 3000);
   } finally { await page.close(); }
 }
@@ -115,16 +116,23 @@ test('after Escape the view draws again; hidden page and reduced motion draw not
 
 test('idle (no input): keeps drawing at <= ~10 frames/s per loop, input lifts to full rate; palette/hidden stay at 0', { skip: REASON, timeout: DEADLINE }, async () => {
   await withServer(async (base) => {
-    const idle = await measure(base, { idleMs: 1500, small: true });
-    assert.ok(idle.frames > 3, `idle still draws (${idle.frames} frames/s)`);
-    assert.ok(idle.frames <= 24, `throttled: network + background together <= ~24 frames/s (${idle.frames}/s)`);
-    const full = await measure(base, { idleMs: 600000, small: true });
-    assert.ok(full.frames > idle.frames * 1.25, `full rate is clearly higher (${full.frames} against ${idle.frames}/s)`);
+    // Load-proof: no frames-per-second in a fixed window (a loaded machine draws
+    // fewer frames than allowed). Instead: wait for N frames (still draws) and
+    // read the gaps between two frames of one canvas. The idle throttle is a
+    // MINIMUM gap (IDLE_FRAME_MS = 95), load only lengthens gaps; the draw call
+    // time jitters against the rAF stamp, so idle is judged by the MEDIAN gap.
+    const GAP = 80; // ms; below IDLE_FRAME_MS (timer jitter), above the 45/60 ms full-rate gaps
+    const idle = await measure(base, { idleMs: 1500, small: true, sample: 24 });
+    assert.ok(idle.reached, `idle still draws (${idle.count} frames seen)`);
+    assert.ok(idle.medGap >= GAP, `throttled: frames of one loop at least ${GAP} ms apart (median gap ${idle.medGap.toFixed(1)} ms)`);
+    const full = await measure(base, { idleMs: 600000, small: true, sample: 24 });
+    assert.ok(full.reached, `positive control: the unthrottled loop draws (${full.count} frames seen)`);
+    assert.ok(full.minGap < GAP && full.medGap < idle.medGap, `full rate: frames closer than the idle gap (smallest gap ${full.minGap.toFixed(1)}, median ${full.medGap.toFixed(1)} ms against idle ${idle.medGap.toFixed(1)})`);
     const palette = await measure(base, { idleMs: 1500, before: PALETTE });
     assert.ok(palette.draws <= NOISE, `idle + palette (${palette.draws}/s)`);
     const hidden = await measure(base, { idleMs: 1500, before: HIDDEN });
     assert.ok(hidden.draws <= NOISE, `idle + hidden (${hidden.draws}/s)`);
-    const stopped = await measure(base, { idleMs: 1500, small: true, client: old('assets/dashboard/dashboard.js') });
-    assert.ok(stopped.frames > idle.frames * 1.25, `RED: the old stand does not throttle in idle (${stopped.frames} against ${idle.frames}/s)`);
+    const stopped = await measure(base, { idleMs: 1500, small: true, sample: 24, client: old('assets/dashboard/dashboard.js') });
+    assert.ok(stopped.reached && stopped.medGap < GAP, `RED: the old stand does not throttle in idle (median gap ${stopped.medGap.toFixed(1)} ms)`);
   });
 });
