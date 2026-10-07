@@ -67,9 +67,13 @@ remote_ahead() {
   git clone -q "$WORK/remote" "$WORK/second"
   ( cd "$WORK/second" && git config user.email t@t && git config user.name T \
     && git config core.hooksPath /dev/null \
-    && node bin/mem --root . log event --title "from another session" --tags x >/dev/null 2>&1 \
+    && echo "from another session $RANDOM" > "another-session-$RANDOM.txt" \
     && git add -A && git commit -qm second && git push -q origin main ) >/dev/null 2>&1
   REMOTE_HEAD="$(git -C "$WORK/remote" rev-parse main)"
+  # The commit used to be a `mem log` in the clone; the memory files are gitignored
+  # there, so nothing was committed, the remote never moved and every "pulled" check
+  # held vacuously. A plain tracked file moves it for real.
+  [ "$REMOTE_HEAD" != "$(git -C "$WORK/mem" rev-parse HEAD)" ] || echo "  !!   remote_ahead did not advance the remote"
 }
 
 run() { printf '%s' "$QUESTION" | env "$@" CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null; }
@@ -153,7 +157,7 @@ sleep 2
 echo "4) dirty tree -> no pull"
 build_memory
 remote_ahead
-echo '{"ts":"local"}' >> "$WORK/mem/global/events.jsonl"
+echo '# local edit' >> "$WORK/mem/.gitattributes"  # a TRACKED file (global/ is gitignored, would not count as dirty)
 BEFORE="$(git -C "$WORK/mem" rev-parse HEAD)"
 run MEM_RETRIEVE_FRESH_MIN=0 >/dev/null
 sleep 2
@@ -228,6 +232,10 @@ echo "8c) a later turn with DIFFERENT material is injected again"
 # The phrasing matters: the first attempt at this probe used a
 # question that scored 0.53 against a threshold of 1.0 and was cut
 # correctly — the probe blamed the claim for the threshold's work.
+# KNOWN RED until the stop-word fix in src/search.mjs (branch agent/ci-gruen-cm):
+# the answer gate (h3) counts stop words ("and", "tell", "me" ...) as typed words
+# no note carries, so it withholds this realistic question. The probe is kept as
+# the user would ask it - do not reword it to dodge the gate.
 OTHER='{"session_id":"lane-1","prompt":"tell me about the routine note on deploys and builds"}'
 THREE="$(printf '%s' "$OTHER" | env MEM_RETRIEVE_MIN=1 MEM_RETRIEVE_NO_PULL=1 \
   CHEAP_MEM_ROOT="$WORK/mem" HOME="$WORK" bash "$HOOK" 2>/dev/null)"
@@ -320,6 +328,32 @@ else
   # cannot answer this question, and saying nothing is not saying yes.
   echo "  ??   --no-experimental-require-module unavailable — Node 20 path not measured here"
 fi
+
+echo "11) the hook root is a linked git worktree (.git is a file) -> never pulled, noted, recall still runs"
+build_memory
+git -C "$WORK/mem" worktree add -q -b wt-branch "$WORK/wt" main
+[ -f "$WORK/wt/.git" ] || bad "fixture: worktree .git is not a file"
+# .mem/config.json and the memory files are untracked, so a fresh worktree lacks them; copy.
+mkdir -p "$WORK/wt/.mem" && cp "$WORK/mem/.mem/config.json" "$WORK/wt/.mem/config.json"
+cp -R "$WORK/mem/global" "$WORK/wt/global"
+remote_ahead
+BEFORE="$(git -C "$WORK/wt" rev-parse HEAD)"
+[ "$BEFORE" != "$REMOTE_HEAD" ] || bad "fixture: worktree is already at the remote head"
+# MEM_RETRIEVE_ROOTS points nowhere, so the probe list can never fall back to a real clone.
+OUT="$(printf '%s' "$QUESTION" | env CHEAP_MEM_ROOT="$WORK/wt" MEM_RETRIEVE_ROOTS="$WORK/none" MEM_RETRIEVE_MIN=1 \
+  MEM_RETRIEVE_FRESH_MIN=0 HOME="$WORK" bash "$HOOK" 2>/dev/null)"
+sleep 2
+[ "$(git -C "$WORK/wt" rev-parse HEAD)" = "$BEFORE" ] \
+  && ok "worktree is not pulled" || bad "worktree was pulled behind the agent's back"
+[ -s "$(git -C "$WORK/wt" rev-parse --absolute-git-dir)/mem-retrieve-worktree-no-pull" ] \
+  && ok "skip is noted in the worktree git dir" || bad "silent skip: no note in the worktree git dir"
+printf '%s' "$OUT" | grep -q "Recalled automatically from memory" \
+  && ok "recall still runs in the worktree" || bad "no recall output in the worktree"
+# Positive control: the main clone, same remote state, IS pulled.
+run MEM_RETRIEVE_FRESH_MIN=0 >/dev/null
+pulled && ok "main clone still refreshes (control)" || bad "main clone did not refresh"
+[ ! -e "$WORK/mem/.git/mem-retrieve-worktree-no-pull" ] \
+  && ok "main clone carries no worktree note" || bad "main clone got the worktree note"
 
 echo
 echo "green=$GREEN red=$RED"
