@@ -19,9 +19,31 @@
 //
 // **Freshness.** The index (id -> search text) is kept per store state,
 // under the same key as the dashboard cache (`generationStamp`,
-// src/dashboard-cache.mjs) — no second freshness logic. While the store
-// is unchanged a request costs only the substring pass; otherwise the
-// index is rebuilt once (a single pass over the drawers).
+// src/dashboard-cache.mjs) — no second freshness logic.
+//
+// **F23 (2026-10-07): nothing here blocks the event loop any more.**
+// Measured on the old state (synthetic, Node 24, in the sibling house): with
+// 100k entries a cold build plus search held a timer back by ~140 ms, and a
+// frequent substring returned every id in ONE answer (1.4 MB). Now:
+//  1. Pages. `page()` returns at most `limit` ids (default 200, cap 1000)
+//     and a cursor `<generation>.<position>`; the answer says `more:true/false`
+//     (exact: the pass searches up to the (limit+1)-th hit). The cursor holds
+//     only for the generation that issued it; afterwards `expired:true` and
+//     the caller asks again from the start.
+//  2. Time slices. The build (row by row from `dashboard.readRowsLazy`) and the search
+//     hand the event loop back every ~SLICE_MS (`setImmediate`).
+//  3. The old index keeps serving. When the key changes, a request is
+//     answered at once from the old index with `fresh:false` ("is being
+//     refreshed"); ONE rebuild (shared, `build`) runs in slices in the
+//     background and swaps the index at the end. Only the very first build
+//     (no old index) is awaited — also in slices. Chosen over a worker
+//     thread: a worker must either ship the index back (a structured clone,
+//     itself a block) or hold the search there too, and the probes inject
+//     `readAll`/`key` (not transferable). Slices need none of that, and the
+//     semantics stay the same `includes` search over the same text.
+//
+// Semantics are unchanged: literal substring search (lower-cased) over the
+// full text of every entry, in order of creation; only the delivery is paged.
 //
 // **Not measurable is not null.** `answer()` returns `{ measurable:false,
 // reason }` on a failure, never an empty list; an empty query means
@@ -55,19 +77,31 @@ export function searchText(entry) {
   return parts.join('\n').toLowerCase();
 }
 
-/** The index from the rows of `readPass`: id -> search text (same id: merged). */
+/** The index from the rows of `dashboard.readRowsLazy`: id -> search text (same id: merged). */
 export function buildIndex(rows) {
   const index = new Map();
-  for (const row of rows) {
-    const e = row?.entry;
-    if (!e || typeof e.id !== 'string' || !e.id) continue;
-    const t = searchText(e);
-    index.set(e.id, index.has(e.id) ? `${index.get(e.id)}\n${t}` : t);
-  }
+  for (const row of rows) take(index, row);
   return index;
 }
 
-const STORE = new Map(); // root -> { key, index }
+function take(index, row) {
+  const e = row?.entry;
+  if (!e || typeof e.id !== 'string' || !e.id) return;
+  const t = searchText(e);
+  index.set(e.id, index.has(e.id) ? `${index.get(e.id)}\n${t}` : t);
+}
+
+const STORE = new Map(); // root -> { key, gen, ids, texts, build }
+
+/** Page size: default and cap (a request's `limit` is clamped to these). */
+export const LIMIT_DEFAULT = 200;
+export const LIMIT_MAX = 1000;
+/** How long a pass may compute at a stretch before the event loop gets its turn. */
+const SLICE_MS = 5;
+const CHECK_EVERY = 64; // rows between two clock reads
+
+const yieldLoop = () => new Promise((ok) => setImmediate(ok));
+let generations = 0;
 
 /** The query as it is searched: cut, lower-cased; `null` when empty. */
 export function normalize(query) {
@@ -75,35 +109,115 @@ export function normalize(query) {
   return q === '' ? null : q;
 }
 
+/** `limit` from the request: an integer in 1..LIMIT_MAX, else the default. */
+function clampLimit(limit) {
+  const n = Number.parseInt(limit, 10);
+  return Number.isFinite(n) && n >= 1 ? Math.min(n, LIMIT_MAX) : LIMIT_DEFAULT;
+}
+
+/** Builds in slices from a (possibly lazy) sequence of rows; the same id is merged. */
+async function buildIndexSliced(rows) {
+  const index = new Map();
+  let t0 = performance.now(), n = 0;
+  for (const row of rows) {
+    take(index, row);
+    if (++n % CHECK_EVERY === 0 && performance.now() - t0 > SLICE_MS) { await yieldLoop(); t0 = performance.now(); }
+  }
+  return { ids: [...index.keys()], texts: [...index.values()] };
+}
+
+/** Start the rebuild for `key` (or return the running one). */
+function startBuild(root, state, key, readAll) {
+  if (state.build && state.build.key === key) return state.build.promise;
+  const build = { key };
+  build.promise = (async () => {
+    try {
+      await yieldLoop(); // compute only after the triggering request has been answered
+      const { ids, texts } = await buildIndexSliced(readAll(root));
+      // Only the newest rebuild may swap (if a newer key came meanwhile, this one lapses).
+      if (state.build === build) { state.key = key; state.gen = `g${++generations}`; state.ids = ids; state.texts = texts; }
+    } finally {
+      if (state.build === build) state.build = null;
+    }
+  })();
+  state.build = build;
+  return build.promise;
+}
+
+/** The index for `key`: current, or (old, fresh:false) with a running rebuild. */
+async function getState(root, key, readAll) {
+  let state = STORE.get(root);
+  if (!state) { state = { key: null, gen: null, ids: null, texts: null, build: null }; STORE.set(root, state); }
+  for (;;) {
+    if (state.ids && state.key === key) return { state, fresh: true };
+    const build = startBuild(root, state, key, readAll);
+    if (state.ids) { build.catch(() => {}); return { state, fresh: false }; } // the old index keeps serving
+    await build; // the very first build: wait (throws on a read failure); if it lapsed, try again
+    if (state.ids) return { state, fresh: state.key === key };
+  }
+}
+
+/** The pass over the index from `from`: up to the (limit+1)-th hit, in slices. */
+async function pass(state, q, from, limit, aborted) {
+  const { ids: all, texts } = state;
+  const n = all.length, ids = [];
+  let t0 = performance.now();
+  for (let pos = from; pos < n; pos++) {
+    if (texts[pos].includes(q)) {
+      if (ids.length === limit) return { ids, more: true, cursor: pos };
+      ids.push(all[pos]);
+    }
+    if ((pos + 1) % CHECK_EVERY === 0 && performance.now() - t0 > SLICE_MS) {
+      await yieldLoop();
+      if (aborted?.()) throw new Error('aborted');
+      t0 = performance.now();
+    }
+  }
+  return { ids, more: false, cursor: null };
+}
+
 /**
- * The ids of every entry whose full text contains `query`. `null` for an
- * empty query. Throws when the store is unreadable (the caller turns that
- * into `measurable:false`).
+ * One page of hits: `{ ids, more, cursor, generation, fresh }`, or
+ * `{ expired:true }` (the cursor belongs to another generation / is
+ * unreadable), or `null` for an empty query. Throws when the store is
+ * unreadable (the caller turns that into `measurable:false`).
  */
-export function fulltextIds(root, query, {
+export async function page(root, query, {
+  limit = LIMIT_DEFAULT,
+  cursor = null,
   key = () => cache.generationStamp(root),
-  readAll = (r) => dashboard.readPass(r).rows,
+  readAll = (r) => dashboard.readRowsLazy(r),
+  aborted = null,
 } = {}) {
   const q = normalize(query);
   if (q === null) return null;
-  const k = key();
-  let state = STORE.get(root);
-  if (!state || state.key !== k) {
-    state = { key: k, index: buildIndex(readAll(root)) };
-    STORE.set(root, state);
+  const { state, fresh } = await getState(root, key(), readAll);
+  let from = 0;
+  if (cursor !== null && cursor !== undefined && cursor !== '') {
+    const m = /^(g\d+)\.(\d+)$/.exec(String(cursor));
+    if (!m || m[1] !== state.gen || Number(m[2]) > state.ids.length) return { expired: true, generation: state.gen, fresh };
+    from = Number(m[2]);
   }
-  const ids = [];
-  for (const [id, text] of state.index) if (text.includes(q)) ids.push(id);
-  return ids;
+  const r = await pass(state, q, from, clampLimit(limit), aborted);
+  return { ids: r.ids, more: r.more, cursor: r.more ? `${state.gen}.${r.cursor}` : null, generation: state.gen, fresh };
 }
 
 /** The route's answer. A failure is `measurable:false` with a reason, never `ids:[]`. */
-export function answer(root, query, options = {}) {
+export async function answer(root, query, options = {}) {
   try {
-    return { ids: fulltextIds(root, query, options), measurable: true };
+    const p = await page(root, query, options);
+    if (p === null) return { ids: null, measurable: true };
+    if (p.expired) return { ...p, ids: [], more: false, cursor: null, measurable: true };
+    return { ...p, measurable: true };
   } catch (e) {
     return { measurable: false, reason: `full text not readable: ${e?.message || e}` };
   }
+}
+
+/** For probes only: waits until a running rebuild of this root is done (errors are swallowed). */
+export async function waitForBuild(root) {
+  const b = STORE.get(root)?.build;
+  if (b) await b.promise.catch(() => {});
 }
 
 /** For probes only: forget the index. */

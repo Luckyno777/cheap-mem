@@ -131,6 +131,31 @@ export function readPass(root) {
 }
 
 /**
+ * The rows of `readPass`, one at a time (F23): whoever consumes them can hand
+ * the event loop back in between (src/fulltext.mjs). Same drawers, same order,
+ * same reveal/mask as `readPass`, without `held` (the full-text index does not
+ * need it) and streamed (`iterLog`) instead of materialised (`readLog`). A
+ * drawer that is not readable is skipped, like in `readPass`; one that fails
+ * MID-stream keeps the rows already yielded.
+ */
+export function* readRowsLazy(root) {
+  const reveal = shred.makeReveal(root);
+  for (const project of [null, ...memory.listProjects(root)]) {
+    for (const drawer of Object.keys(memory.TYPES)) {
+      try {
+        for (const e of memory.iterLog(root, drawer, { project })) {
+          if (e.__broken) continue;
+          yield { project: project ?? 'global', drawer, entry: maskEntry(reveal(e).entry) };
+        }
+      } catch (e) {
+        if (e instanceof memory.ReadError) continue;
+        throw e;
+      }
+    }
+  }
+}
+
+/**
  * One count with its denominator, or an honest nothing.
  *
  * Zero-of-zero is the trap: a drawer nobody has ever written to answers

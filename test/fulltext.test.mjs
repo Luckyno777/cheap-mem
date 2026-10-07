@@ -11,7 +11,7 @@
 //       /api/fulltext in the client;
 //   (2) unit — the old local filter (title + `text` from the dashboard
 //       build) does NOT find the `why` word or the word after character
-//       220, `fulltextIds` does;
+//       220, `fulltext.page` does;
 //   (3) browser — the same flow with the client of 4e9a7a4 (played in by
 //       page.route) does not find the `why` entry (RED), the current
 //       client does (GREEN).
@@ -56,6 +56,19 @@ function world(prefix) {
   memory.logEntry(r, 'learning', { agent: 'builder', title: 'Decoy', text: 'None of it is here.' }, { now: now() });
   return r;
 }
+/** All pages together (small pages, so several arise); `null` for an empty query. */
+async function allIds(r, q, opt = {}) {
+  const ids = [];
+  let cursor = null;
+  for (;;) {
+    const s = await fulltext.page(r, q, { ...opt, cursor, limit: opt.limit ?? 2 });
+    if (s === null) return null;
+    assert.ok(!s.expired, 'the cursor holds within one state');
+    ids.push(...s.ids);
+    if (!s.more) return ids;
+    cursor = s.cursor;
+  }
+}
 function idOf(r, title) {
   const d = dashboardData.collectDashboard(r, {});
   const e = d.entries.find((x) => x.title === title || x.title.startsWith(`${title} — `) || x.title.endsWith(` — ${title}`));
@@ -73,20 +86,20 @@ test('fulltext: the fixed old state has neither the search nor the call', () => 
 
 // --- (2) unit ----------------------------------------------------------------
 
-test('fulltext: the why entry and the word after character 220 are found, the decoy is not', () => {
+test('fulltext: the why entry and the word after character 220 are found, the decoy is not', async () => {
   const r = world('fulltext-unit-');
   fulltext.forget();
   const why = idOf(r, 'First choice'), long = idOf(r, 'Long text'), title = idOf(r, 'Penguinpath in the title'), decoy = idOf(r, 'Decoy');
-  assert.deepEqual(fulltext.fulltextIds(r, 'zebrafinchcouncil'), [why]);
-  assert.deepEqual(fulltext.fulltextIds(r, 'QUOKKASIGNAL'), [long], 'case-insensitive');
-  assert.deepEqual(fulltext.fulltextIds(r, 'penguinpath'), [title], 'positive control: title word');
-  assert.ok(!fulltext.fulltextIds(r, 'fillerword').includes(decoy), 'the decoy does not carry the word');
-  assert.deepEqual(fulltext.fulltextIds(r, 'nowhereatall'), [], 'no hit is [] (measurable), not null');
-  assert.equal(fulltext.fulltextIds(r, ''), null, 'empty query: ids null');
-  assert.equal(fulltext.fulltextIds(r, '   '), null);
+  assert.deepEqual(await allIds(r, 'zebrafinchcouncil'), [why]);
+  assert.deepEqual(await allIds(r, 'QUOKKASIGNAL'), [long], 'case-insensitive');
+  assert.deepEqual(await allIds(r, 'penguinpath'), [title], 'positive control: title word');
+  assert.ok(!(await allIds(r, 'fillerword')).includes(decoy), 'the decoy does not carry the word');
+  assert.deepEqual(await allIds(r, 'nowhereatall'), [], 'no hit is [] (measurable), not null');
+  assert.equal(await allIds(r, ''), null, 'empty query: ids null');
+  assert.equal(await allIds(r, '   '), null);
 });
 
-test('fulltext: RED in the old state — the local filter (title + excerpt) sees neither word', () => {
+test('fulltext: RED in the old state — the local filter (title + excerpt) sees neither word', async () => {
   const r = world('fulltext-red-');
   const d = dashboardData.collectDashboard(r, {});
   const local = (q) => d.entries.filter((e) => `${e.title} ${e.text ?? ''}`.toLowerCase().includes(q)).map((e) => e.title.split(' — ')[0]);
@@ -94,7 +107,7 @@ test('fulltext: RED in the old state — the local filter (title + excerpt) sees
   assert.deepEqual(local('quokkasignal'), [], 'searched in the excerpt only: the word after character 220 is missing');
   assert.deepEqual(local('penguinpath'), ['Penguinpath in the title'], 'positive control: the local filter sees the title word too');
   fulltext.forget();
-  assert.equal(fulltext.fulltextIds(r, 'zebrafinchcouncil').length, 1, 'the full text finds it');
+  assert.equal((await allIds(r, 'zebrafinchcouncil')).length, 1, 'the full text finds it');
 });
 
 test('fulltext: nested objects and arrays are searched, numbers are not', () => {
@@ -104,26 +117,33 @@ test('fulltext: nested objects and arrays are searched, numbers are not', () => 
   assert.ok(!idx.get('x1').includes('424242'));
 });
 
-test('fulltext: the index is kept per store state and rebuilt on a change', () => {
+test('fulltext: the index is kept per store state; on a change the old one keeps serving, the new one arises in the background', async () => {
   const r = world('fulltext-cache-');
   fulltext.forget();
   let reads = 0;
   let key = 'a';
   const opt = { key: () => key, readAll: () => { reads += 1; return [{ entry: { id: 'e1', text: reads === 1 ? 'first' : 'second' } }]; } };
-  assert.deepEqual(fulltext.fulltextIds(r, 'first', opt), ['e1']);
-  assert.deepEqual(fulltext.fulltextIds(r, 'fir', opt), ['e1']);
+  assert.deepEqual(await allIds(r, 'first', opt), ['e1']);
+  assert.deepEqual(await allIds(r, 'fir', opt), ['e1']);
   assert.equal(reads, 1, 'same key: not read again');
   key = 'b';
-  assert.deepEqual(fulltext.fulltextIds(r, 'second', opt), ['e1']);
-  assert.equal(reads, 2, 'new key: rebuilt');
+  const old1 = await fulltext.page(r, 'first', opt);
+  assert.deepEqual(old1.ids, ['e1'], 'answered at once from the old index');
+  assert.equal(old1.fresh, false, 'and marked "is being refreshed"');
+  await fulltext.waitForBuild(r);
+  assert.equal(reads, 2, 'new key: exactly ONE rebuild');
+  const fresh = await fulltext.page(r, 'second', opt);
+  assert.deepEqual(fresh.ids, ['e1']);
+  assert.equal(fresh.fresh, true);
+  assert.equal(reads, 2);
 });
 
-test('fulltext: a read failure is measurable:false with a reason, never an empty list', () => {
-  const b = fulltext.answer('/does/not/exist', 'x', { key: () => 'k', readAll: () => { throw new Error('broken'); } });
+test('fulltext: a read failure is measurable:false with a reason, never an empty list', async () => {
+  const b = await fulltext.answer('/does/not/exist', 'x', { key: () => 'k', readAll: () => { throw new Error('broken'); } });
   assert.equal(b.measurable, false);
   assert.match(b.reason, /broken/);
   assert.ok(!('ids' in b));
-  assert.deepEqual(fulltext.answer('/x', '', { key: () => 'k' }), { ids: null, measurable: true });
+  assert.deepEqual(await fulltext.answer('/x', '', { key: () => 'k' }), { ids: null, measurable: true });
 });
 
 test('fulltext: the query is capped at 200 characters', () => {
@@ -152,10 +172,11 @@ test('fulltext: the route answers { ids, measurable:true }, ids:null for an empt
   await withServer(r, {}, async (base) => {
     const why = idOf(r, 'First choice');
     const b = await (await fetch(`${base}/api/fulltext?q=Zebrafinchcouncil`)).json();
-    assert.deepEqual(b, { ids: [why], measurable: true });
+    assert.deepEqual({ ...b, generation: undefined }, { ids: [why], measurable: true, more: false, cursor: null, fresh: true, generation: undefined });
+    assert.match(b.generation, /^g\d+$/);
     assert.deepEqual(await (await fetch(`${base}/api/fulltext?q=`)).json(), { ids: null, measurable: true });
     const long = await (await fetch(`${base}/api/fulltext?q=${'x'.repeat(5000)}`)).json();
-    assert.deepEqual(long, { ids: [], measurable: true }, 'a long query is cut, not refused');
+    assert.deepEqual([long.ids, long.measurable, long.more], [[], true, false], 'a long query is cut, not refused');
     const foreign = await new Promise((res, rej) => {
       const rq = http.request(`${base}/api/fulltext?q=zebra`, { headers: { host: 'evil.example' } }, (rs) => { rs.resume(); res(rs.statusCode); });
       rq.on('error', rej); rq.end();

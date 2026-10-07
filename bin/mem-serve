@@ -809,10 +809,19 @@ export function buildHandler(root, cfg, env = process.env) {
     // { ids, measurable:true } or, on a failure, { measurable:false,
     // reason } — never an empty list for "not read". Empty query: ids:null.
     // The index hangs on the same generation stamp as the dashboard cache.
+    // F23: paged (?limit=, ?cursor=; the answer carries more/cursor/generation),
+    // the event loop stays free; on a new store state the old index keeps
+    // serving (fresh:false) until the rebuild in the background is done.
     if (url.pathname === fulltext.PATH) {
-      const found = fulltext.answer(root, url.searchParams.get('q') || '');
-      res.writeHead(found.measurable ? 200 : 500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
-        .end(JSON.stringify(found));
+      fulltext.answer(root, url.searchParams.get('q') || '', {
+        limit: url.searchParams.get('limit'),
+        cursor: url.searchParams.get('cursor'),
+        aborted: () => res.destroyed || res.socket?.destroyed === true,
+      }).then((found) => {
+        if (res.destroyed) return;
+        res.writeHead(found.measurable ? 200 : 500, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
+          .end(JSON.stringify(found));
+      });
       return;
     }
     // tempo: one deferred part — the same gates as /dashboard.json (the
