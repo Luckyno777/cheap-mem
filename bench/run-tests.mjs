@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 /**
- * run-tests.mjs - run every test/*.test.mjs, on every OS and Node version.
+ * run-tests.mjs - run every *.test.mjs file in test/, on every OS and Node version.
  *
  * Usage: node bench/run-tests.mjs [extra node --test flags]
  * Exit code: the exit code of `node --test`.
@@ -11,7 +11,7 @@
  * test/search-slim-child.mjs): files that are not tests, need arguments
  * and exit non-zero without them, so the suite went red on all six CI
  * cells for files nobody meant to run on their own. The glob form
- * `node --test test/*.test.mjs` is right on Linux and macOS, but
+ * (a star pattern over test/) is right on Linux and macOS, but
  * PowerShell/cmd do not expand globs and Node 20 does not either. This
  * script expands the list itself and hands node explicit files, so the
  * same command works everywhere. Nothing is skipped: every *.test.mjs in
@@ -30,7 +30,7 @@ const files = fs.readdirSync(dir)
   .map((f) => path.join('test', f));
 
 if (files.length === 0) {
-  console.error('run-tests: no test/*.test.mjs found - refusing to pass with nothing run');
+  console.error('run-tests: no *.test.mjs file found in test/ - refusing to pass with nothing run');
   process.exit(1);
 }
 
