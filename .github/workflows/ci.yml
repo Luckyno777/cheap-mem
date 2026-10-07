@@ -104,8 +104,45 @@ jobs:
             grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" || \
               echo "(no 'not ok' line found -- the run died before the first test)"
             echo "::endgroup::"
-            grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" | head -40 \
-              | sed -E 's/^ *not ok [0-9]+ - /::error::red probe: /' || true
+            # Each annotation also carries the first 3 lines of the probe's
+            # own error text, read from its TAP diagnostic block (the lines
+            # after `error:` up to the next key at the same indent). A name
+            # alone says WHAT was red; on a runner nobody can reproduce
+            # locally, the message says WHY. awk, not grep -P/sed -z: the
+            # same script runs on GNU (Linux, Git Bash) and BSD (macOS).
+            # Newlines go out as %0A, % as %25, CR is dropped (Windows).
+            tr -d '\r' < "$RUNNER_TEMP/testrun.log" | awk '
+              function flush(   m) {
+                if (name == "") return
+                m = msg; gsub(/%/, "%25", m); gsub(/\n/, "%0A", m)
+                printf "::error::red probe: %s%s\n", name, (m == "" ? "" : "%0A" m)
+                name = ""; msg = ""; inerr = 0; n = 0; count++
+              }
+              /^ *not ok [0-9]+ - / {
+                flush()
+                if (count >= 40) next
+                name = $0; sub(/^ *not ok [0-9]+ - /, "", name)
+                gsub(/%/, "%25", name); gsub(/\n/, "%0A", name)
+                next
+              }
+              /^ *ok [0-9]+ - / { flush(); next }
+              name != "" && inerr == 0 && /^ *error: / {
+                inerr = 1; match($0, /^ */); keyind = RLENGTH
+                line = $0; sub(/^ *error: *\|?[-+]?/, "", line)
+                if (line != "") { msg = substr(line, 1, 300); n = 1 }
+                next
+              }
+              name != "" && inerr == 1 {
+                match($0, /^ */)
+                if (RLENGTH <= keyind) { inerr = 2; next }   # next key: block over
+                if (n < 3) {
+                  line = $0; sub(/^ +/, "", line)
+                  if (line != "") { msg = msg (n ? "\n" : "") substr(line, 1, 300); n++ }
+                }
+                next
+              }
+              END { flush() }
+            ' || true
           fi
           exit "$rc"
 
