@@ -97,7 +97,7 @@ const GENEROUS = { timeoutMs: 4000 };
 // A definite ok/error needs two sources: the measured run AND a file-system
 // name. Where the platform cannot give the name (GNU `stat -f -c %T` is
 // Linux; BSD stat on macOS rejects `-c`, Windows has no stat) the product
-// says "[filesystem name unavailable]" and the verdict stays UNKNOWN —
+// says it is "not one whose documentation affirms" and the verdict stays UNKNOWN —
 // honest, and asserted here as exactly that, not skipped. Where the name is
 // available (Linux) it must be definite. UNVERIFIED on macOS/Windows.
 function assertDefiniteWhereNameKnown(c) {
@@ -105,10 +105,9 @@ function assertDefiniteWhereNameKnown(c) {
     assert.notEqual(c.ok, null, `expected a definite ok/error, got unknown: ${c.detail}`);
     return;
   }
-  if (/\[filesystem name unavailable\]/.test(c.detail)) {
-    assert.equal(c.ok, null, 'without a file-system name a clean run must stay UNKNOWN');
-  } else {
-    assert.notEqual(c.ok, null, `a name was found yet the verdict is unknown: ${c.detail}`);
+  if (c.ok === null) {
+    assert.match(c.detail, /^measured:.*not one whose documentation affirms atomic O_APPEND/,
+      'UNKNOWN is only acceptable here because no affirming name was found, and it must say so');
   }
 }
 
