@@ -25,6 +25,7 @@
 // dashboard.js, swapped in through page.route, shows cards without groups
 // and without a summary bar; the positive control shows the probe sees the
 // agents there at all.
+/* global D, document, location, partState, render, window -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

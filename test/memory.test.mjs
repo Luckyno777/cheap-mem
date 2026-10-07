@@ -221,7 +221,7 @@ test('an edge into nothing is reported, not silently skipped', (t) => {
   assert.equal(g.dangling[0].to, 'ghost-id-999');
 });
 
-test('the link vocabulary stays closed', (t) => {
+test('the link vocabulary stays closed', () => {
   // An open vocabulary makes the graph untraversable by code.
   assert.deepEqual(Object.keys(memory.LINK_KINDS).sort(),
     ['causes', 'contradicts', 'generalizes', 'resolves']);

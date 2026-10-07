@@ -17,6 +17,7 @@
 // client caps topics at five plus "Other topics" and bundles at seven plus
 // "Other relations", knows no loops and no dashed strand. POSITIVE control:
 // with three topics (under the old cap) old and new count the same.
+/* global Event, document, graphAPI -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

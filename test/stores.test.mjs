@@ -115,7 +115,7 @@ test('a sibling folder is not "inside" the store', (t) => {
   assert.equal(stores.syncingStoreFor(path.join(home, 'Dropbox-backup'), opts), null);
 });
 
-test('the warning names all three consequences', (t) => {
+test('the warning names all three consequences', () => {
   // A warning that only says "this is a cloud folder" is decoration.
   // The three facts are what the user actually has to weigh.
   const text = stores.SYNC_WARNING.join(' ');

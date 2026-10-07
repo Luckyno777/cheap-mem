@@ -272,8 +272,10 @@ test('disk: the head is laid down 0600 without decrypted content; a cold start a
   fs.readFileSync = (p, ...a) => { if (isDrawer(p)) drawerReads.push(p); return realRead(p, ...a); };
   let first;
   try {
+    // eslint-disable-next-line require-atomic-updates -- the test swaps fs functions on purpose and restores them in `finally`; it runs alone
     s = await start(root);
     first = await s.json('/dashboard.json');
+  // eslint-disable-next-line require-atomic-updates -- the test swaps fs functions on purpose and restores them in `finally`; it runs alone
   } finally { fs.openSync = realOpen; fs.readFileSync = realRead; }
   try {
     assert.equal(first.cache.source, 'disk');
@@ -307,6 +309,7 @@ test('disk: positive control — a synchronous build DOES read the drawers (the 
   try {
     s = await start(root);
     await s.json('/dashboard.json');
+  // eslint-disable-next-line require-atomic-updates -- the test swaps fs functions on purpose and restores them in `finally`; it runs alone
   } finally { fs.openSync = realOpen; fs.readFileSync = realRead; if (s) await s.stop(); }
   assert.ok(reads.length > 0, 'the build read no drawer — the counter would be blind');
 });

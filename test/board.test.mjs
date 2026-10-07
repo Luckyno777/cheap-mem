@@ -19,7 +19,6 @@ import test from 'node:test';
 import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import * as board from '../src/board.mjs';
 import * as archive from '../src/archive.mjs';
@@ -221,7 +220,7 @@ test('state is legible without colour', (testCtx) => {
   assert.ok(!text.includes(ESC), 'ANSI escapes in text meant for a phone');
 });
 
-test('since() distinguishes never from long ago', (testCtx) => {
+test('since() distinguishes never from long ago', () => {
   assert.equal(board.since(null), 'never');
   assert.equal(board.since(0), 'just now');
   assert.equal(board.since(30), '30 min ago');

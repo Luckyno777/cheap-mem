@@ -2,6 +2,7 @@
 // (parity with the sibling's test/fixture/renderlast.mjs): counts real draw
 // calls (WebGL draw*, both contexts), frames and requestAnimationFrame calls
 // per time window, in a real page.
+/* global window -- these run inside the page (browser), not in Node */
 export const COUNTER = () => {
   window.__load = { draws: 0, raf: 0, frames: 0, ts: [] }; // ts: [canvas no., time] per frame
   const ids = new Map();

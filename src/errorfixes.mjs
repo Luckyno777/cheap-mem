@@ -158,6 +158,7 @@ function git(repo, args) {
 function parseLog(rawLog) {
   return rawLog.split('\x02').filter((x) => x.trim()).map((b) => {
     const [headPart, ...restParts] = b.split('\x1f');
+    // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
     return { hash: headPart.trim(), body: restParts.join('\x1f').replace(/\x03\s*$/, '') };
   });
 }

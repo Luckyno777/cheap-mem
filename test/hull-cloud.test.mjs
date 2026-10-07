@@ -50,7 +50,7 @@ function between(q, from, to) {
 // (edges play no part in the positions).
 function graphModelFrom(q) {
   const src = between(q, 'function graphModel(', 'function graphCaption(');
-  // eslint-disable-next-line no-new-func
+   
   return new Function('allEdges', 'byId', 'neuralPalette', 'types', 'incomingIndex', 'trailCenter', `${src}\nreturn graphModel;`)(
     () => [], () => null, ['#a', '#b', '#c', '#d', '#e', '#f', '#g'], {}, new Map(), () => null,
   );
@@ -110,14 +110,14 @@ function collect(run) {
 const NEW_ANCHOR = '// --- The network hull: ONE cloud';
 function newHull(model) {
   const src = between(fs.readFileSync(FILE, 'utf8'), NEW_ANCHOR, 'function initGraph() {');
-  // eslint-disable-next-line no-new-func
+   
   const build = new Function('T', 'cortex', 'v', 'own', 'model', 'clock', `${src}\nreturn buildHull(T, cortex, own, v, model, clock);`);
   return collect((cortex, v, own) => build(T, cortex, v, own, model, { uTime: { value: 0 }, uMotion: { value: 1 } }));
 }
 function oldHull() {
   const q = execFileSync('git', ['show', `${OLD_STATE}:assets/dashboard/dashboard.js`], { cwd: ROOT, encoding: 'utf8' });
   const src = between(q, 'function buildHull(T, cortex, own, v) {', 'function initGraph() {');
-  // eslint-disable-next-line no-new-func
+   
   const build = new Function('T', 'cortex', 'v', 'own', `${src}\nreturn buildHull(T, cortex, own, v);`);
   return collect((cortex, v, own) => build(T, cortex, v, own));
 }
@@ -215,7 +215,7 @@ for (const [name, n, projects, mode] of CASES) {
 
 test('GREEN: the cloud grows with the store and stays a calm sphere when empty', () => {
   const src = between(fs.readFileSync(FILE, 'utf8'), NEW_ANCHOR, 'function initGraph() {');
-  // eslint-disable-next-line no-new-func
+   
   const cloudShape = new Function(`${src}\nreturn cloudShape;`)();
   const empty = cloudShape(graphModel([], 'storage'));
   const full = cloudShape(graphModel(store(64, ['a', 'b', 'c', 'd', 'e']), 'storage'));

@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import * as injection from '../src/injection.mjs';
 import * as memory from '../src/memory.mjs';
 import { BODY_FIELDS } from '../src/retrieval.mjs';
-import { renderHit, renderHits, cutAtBoundary } from '../src/recallrender.mjs';
+import { renderHit, cutAtBoundary } from '../src/recallrender.mjs';
 import { judge, isConfirmation, shapeSignal } from '../src/recallsignal.mjs';
 
 const START = 'e50c6b7a229574dfc48c2251bb99e8bb7e8cb89e';

@@ -15,6 +15,7 @@
 // RED proof against the FIXED commit deca5ad7 (never merge-base): there is no
 // placement there, refreshProjected reads layout per frame (offsetWidth), and
 // in a focus the labels cover each other.
+/* global document, getComputedStyle -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -33,7 +34,7 @@ const SOURCE = fs.readFileSync(path.join(REPO, 'assets/dashboard/dashboard.js'),
 function loadPlacement(source) {
   const m = source.match(/\/\/ <labelplace>[^\n]*\n([\s\S]*?)\/\/ <\/labelplace>/);
   assert.ok(m, 'block // <labelplace> missing in assets/dashboard/dashboard.js');
-  // eslint-disable-next-line no-new-func
+   
   return new Function(`${m[1]}; return { LABEL_PLACE, placeLabels };`)();
 }
 /** A function's body from `function name(` to its matching closing brace. */

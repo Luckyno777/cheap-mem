@@ -39,6 +39,7 @@
 // is present at the pinned commit, gone at the current state) and
 // behaviourally (the very same call, run against the CURRENT global
 // functions, throws away scroll/details/the 3-D marker — see GREEN below).
+/* global Event, document, getComputedStyle, location, window -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -59,6 +60,7 @@ async function root(prefix) {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'notes', participants: { alex: { human: true }, builder: {} }, language: 'en' }));
+  // eslint-disable-next-line require-atomic-updates -- memoised import; a second caller would store the same module
   if (!memory) memory = await import(pathToFileURL(path.join(REPO, 'src', 'memory.mjs')).href);
   const t0 = Date.parse('2026-09-01T09:00:00Z');
   for (let i = 0; i < 10; i++) {

@@ -48,7 +48,6 @@
 // invariant: no-fallback-to-invented-data
 
 import fs from 'node:fs';
-import path from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import * as memory from './memory.mjs';
 import * as net from './net.mjs';

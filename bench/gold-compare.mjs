@@ -407,7 +407,9 @@ async function main() {
     }
     if (o.gate && cmp) {
       const verdicts = Object.values(cmp.byCategory);
+      // eslint-disable-next-line require-atomic-updates -- only this function sets the exit code; nothing interleaves
       if (verdicts.includes('worse')) process.exitCode = 1;
+      // eslint-disable-next-line require-atomic-updates -- only this function sets the exit code; nothing interleaves
       else if (verdicts.includes('unknown')) process.exitCode = 2;
     }
   } finally {

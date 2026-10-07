@@ -15,6 +15,7 @@
 //   (6) red proof, pinned to the FIXED base commit 5f9170b: its script has no
 //       click controls; positive control: the new one has.
 // Without Playwright/Chromium the tests are SKIPPED with a reason, never green.
+/* global document, getComputedStyle, localStorage -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -141,7 +142,7 @@ test('(2) acknowledge, rename (dialog), merge (dialog)', { skip: SKIP, timeout: 
     assert.equal(view(root).list.find((k) => k.key === 'gardening').label, 'Kitchen garden');
     // merge (a confirmation naming both)
     await page.selectOption('[data-cat-merge=design]', 'infrastructure');
-    await waitStatus(page, /counts as/).catch(async (e) => { throw new Error('status: ' + (await status(page)) + ' dialogs: ' + JSON.stringify(seen)); });
+    await waitStatus(page, /counts as/).catch(async () => { throw new Error('status: ' + (await status(page)) + ' dialogs: ' + JSON.stringify(seen)); });
     assert.ok(seen.some((d) => d.type === 'confirm' && /Merge category "Design" into "Infrastructure"/.test(d.message)));
     assert.ok(!view(root).list.some((k) => k.key === 'design'), 'design is an alias now');
     assert.equal(lines(root, 'global/category-aliases.jsonl').length, 1);

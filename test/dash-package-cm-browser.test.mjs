@@ -23,6 +23,7 @@
 // script swapped in through page.route has no topic list (positive control: the
 // new one has).
 // Without Playwright/Chromium the tests are SKIPPED with a reason, never green.
+/* global D, document, getComputedStyle, localStorage, location, rawReview, rawSamples, render, route, scrollY -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -112,7 +113,7 @@ test('(1) topics: a list of 30, sort, filter, show more, tiles remembered, threa
     assert.equal(await page.locator('#topicCat, .tl-overview, .tl-k-cat').count(), 0, 'no categories without data');
     // tiles, remembered
     await page.click('.tl-view [data-value=tiles]');
-    assert.equal(await page.locator('.tl-tile').count(), 41 > 48 ? 48 : 41);
+    assert.equal(await page.locator('.tl-tile').count(), Math.min(41, 48));
     await page.reload(); await waitReady(page);
     await page.waitForSelector('.tl-tile');
     assert.equal(await page.evaluate(() => localStorage.getItem('cm-dash-topics-view')), 'tiles');

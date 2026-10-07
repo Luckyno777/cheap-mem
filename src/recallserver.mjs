@@ -194,7 +194,7 @@ export async function start(root, {
     try {
       const stdout = await shell.captureOutput(() => COMMANDS.find({ rest: [query], args }));
       return { ok: true, stdout };
-    } catch (e) {
+    } catch {
       // `die()` inside `find` (bad input): the direct path would exit 1
       // with nothing on stdout. Say `error`; the client falls back, and
       // the direct path fails the same way and books `error`.

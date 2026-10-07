@@ -18,6 +18,7 @@
 // **Positive control:** a word in the title is found in both states.
 // Visibility is always checked through getComputedStyle, never through
 // the hidden attribute.
+/* global document, getComputedStyle, location -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

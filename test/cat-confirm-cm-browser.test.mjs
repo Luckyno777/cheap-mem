@@ -18,6 +18,7 @@
 //   (4) project-confirm through the server: after the finished task the next build runs without the gap
 //   (5) red proof: the same browser scenario against the FIXED base commit (plus only the test switch) fails
 // Without Playwright/Chromium the browser tests are SKIPPED with a reason, never green.
+/* global document -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

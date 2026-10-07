@@ -20,7 +20,6 @@ import test from 'node:test';
 import { tempDir } from './temp-dir.mjs';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import * as archive from '../src/archive.mjs';
@@ -178,7 +177,7 @@ test('UNREACHABLE is not EMPTY', (testCtx) => {
   assert.equal(archive.records(r).length, 1);
 });
 
-test('the identifier does NOT change during the move', (testCtx) => {
+test('the identifier does NOT change during the move', () => {
   // The digest ledger and every stored citation hang off the identifier.
   // If it changes, the entire existing corpus points at nothing.
   assert.equal(archive.pathInArchive('raw/2026/09/x.jsonl.gz'),
@@ -210,7 +209,7 @@ test('migrate copies, verifies, and only then removes', (testCtx) => {
   assert.equal(archive.records(r).length, 1, 'record written twice');
 });
 
-test('range: from/to and the hour window clip independently', (testCtx) => {
+test('range: from/to and the hour window clip independently', () => {
   const rows = [
     { path: 'a', ts_to: '2026-09-01T08:30:00Z' },
     { path: 'b', ts_to: '2026-09-01T14:00:00Z' },
@@ -228,7 +227,7 @@ test('range: from/to and the hour window clip independently', (testCtx) => {
   assert.equal(got({}).length, 4);
 });
 
-test('a row without a time drops out instead of widening the range', (testCtx) => {
+test('a row without a time drops out instead of widening the range', () => {
   assert.deepEqual(
     archive.inRange([{ path: 'x' }, { path: 'y', ts_to: '2026-09-01T10:00:00Z' }],
       { from: '2026-09-01' }).map((r) => r.path),

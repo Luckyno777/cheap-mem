@@ -301,6 +301,7 @@ test('server: the pages of a topic are gap-free — sample, window, and beyond t
       assert.equal(b.state, 'ok', b.reason);
       seenSources.add(b.source);
       got.push(...b.data.map((e) => e.id));
+      // eslint-disable-next-line require-atomic-updates -- single sequential loop, `from` is not shared
       from = b.next;
     }
     assert.deepEqual(got, expected, 'every entry of the topic once, newest first');
@@ -412,8 +413,7 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): over the line only a ligh
 
 test('cache: a quick head may be skipped (buildHead answers null) — nothing null is stored as a state', async () => {
   let during = null;
-  let c;
-  c = cache.createCache({
+  const c = cache.createCache({
     build: () => ({ kind: 'full' }), buildInBackground: async () => { during = c.get(); return { kind: 'bg' }; },
     stamp: () => 's', syncAllowed: () => false, buildHead: async () => null, minGapMs: 0,
   });

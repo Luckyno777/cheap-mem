@@ -207,7 +207,7 @@ export const HARNESS_MARKERS = Object.freeze([
 
 /** Does `text` begin (after leading whitespace) with a harness wrapper tag? */
 export function beginsWithHarnessMarker(text) {
-  const s = String(text ?? '').replace(/^[\s​﻿]+/, '');
+  const s = String(text ?? '').replace(/^[\s\u200b\ufeff]+/, '');
   if (!s) return false;
   const m = /^<([a-z_][a-z0-9_-]*)[\s>]/i.exec(s);
   return Boolean(m && HARNESS_MARKERS.includes(m[1].toLowerCase()));

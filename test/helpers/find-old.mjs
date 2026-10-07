@@ -4,7 +4,6 @@
 // filtered afterwards. Only for tests (equality, memory ratchet); never use it
 // in production code.
 import fs from 'node:fs';
-import path from 'node:path';
 import * as capabilityMod from '../../src/capability.mjs';
 import {
   TYPES, logPath, listProjects, withoutBom, retiredMap, isClosingLine, asSource,

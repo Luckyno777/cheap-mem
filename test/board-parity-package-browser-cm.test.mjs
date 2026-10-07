@@ -8,6 +8,7 @@
 //   * the number in the content preview is the number in the package header,
 //   * RED on the fixed base commit deca5ad7 (its dashboard.js through
 //     page.route): the old button only shows a toast, no download.
+/* global document, location -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

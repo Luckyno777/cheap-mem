@@ -233,7 +233,7 @@ test('no file exceeds its English-ratchet ceiling, and no un-ceilinged file carr
     // Progress, not failure — see the file header. Printed so an agent
     // or Lucky can tighten test/english-ratchet.json without re-deriving
     // which files improved.
-    // eslint-disable-next-line no-console
+     
     console.log(`HINT: ${hints.length} file(s) improved past their ratchet ceiling:\n${hints.map((h) => `  ${h}`).join('\n')}`);
   }
   assert.deepEqual(failures, [], `${failures.length} file(s) violate the English ratchet:\n${failures.map((f) => `  ${f}`).join('\n')}`);
@@ -246,7 +246,7 @@ test('the measured total is reported', () => {
   const { files, perFile } = scan();
   let total = 0;
   for (const offenders of perFile.values()) total += offenders.length;
-  // eslint-disable-next-line no-console
+   
   console.log(`English ratchet: ${total} German line(s) across ${perFile.size} of ${files.length} tracked files`);
   assert.ok(total >= 0);
 });
@@ -401,7 +401,7 @@ test('no file exceeds its comment-word ceiling, and no other file has a lone Ger
     else if (n < cap) hints.push(`${rel}: down to ${n}, ceiling ${cap} — lower it`);
   }
   for (const rel of Object.keys(ceilings)) if (!(rel in per)) hints.push(`${rel}: down to 0 — remove its ceiling`);
-  // eslint-disable-next-line no-console
+   
   if (hints.length) console.log(`HINT:\n${hints.map((h) => `  ${h}`).join('\n')}`);
   assert.deepEqual(bad, [], `translate the comment, or cite the name in backticks:\n${bad.join('\n')}`);
 });

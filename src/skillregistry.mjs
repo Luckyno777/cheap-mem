@@ -84,7 +84,10 @@ function baseName(e) {
 /** Stems of a text through the SAME tokenizer the search indexes with. */
 let tokenizer = null;
 export async function loadTokenizer() {
-  if (!tokenizer) tokenizer = (await import('./search.mjs')).tokenize;
+  if (!tokenizer) {
+    const loaded = (await import('./search.mjs')).tokenize;
+    tokenizer ??= loaded;
+  }
   return tokenizer;
 }
 const QUESTION_WORDS = new Set(['how', 'what', 'why', 'when', 'where', 'which', 'who']);

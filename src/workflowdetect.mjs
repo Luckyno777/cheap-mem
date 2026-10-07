@@ -96,7 +96,10 @@ export function pathPatternMatches(filePath, pattern) {
 
 let tokenizeFn = null;
 async function tokenizer() {
-  if (!tokenizeFn) tokenizeFn = (await import('./search.mjs')).tokenize;
+  if (!tokenizeFn) {
+    const loaded = (await import('./search.mjs')).tokenize;
+    tokenizeFn ??= loaded;
+  }
   return tokenizeFn;
 }
 
