@@ -125,6 +125,20 @@ test('hook: an error without a pattern, or a retired one, never warns (positive 
   } finally { done(root); }
 });
 
+test('the booklet follows the data even when drawer and booklet share one mtime second (bash 3.2 granularity)', () => {
+  const root = world();
+  try {
+    const a = err(root, 'checkout --ours took a whole file', 'git checkout --ours');
+    assert.match(said(bash(root, 'git checkout --ours x', 'q1')), new RegExp(a.id));
+    const b = err(root, 'force push over a shared branch', 'git push --force');
+    // Simulate a whole-second mtime comparison: same instant on both files.
+    const t = new Date(Math.floor(Date.now() / 1000) * 1000);
+    fs.utimesSync(path.join(root, '.pipeline', 'command-guard', 'rules.json'), t, t);
+    fs.utimesSync(path.join(root, 'global', 'errors.jsonl'), t, t);
+    assert.match(said(bash(root, 'git push --force origin x', 'q2')), new RegExp(b.id), 'a tie counts as stale');
+  } finally { done(root); }
+});
+
 test('the booklet follows the data: a new error is guarded at once, a correction replaces the old pattern', () => {
   const root = world();
   try {

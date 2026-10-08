@@ -332,6 +332,18 @@ test('append-atomicity: this machine — not faked, cross-checked against the re
   // gated the same way, only for the allow-listed branch (the detail
   // match does not depend on the timed probe and stays ungated).
   const root = tmp();
+  if (process.platform !== 'linux') {
+    // BSD/macOS `stat` has no filesystem-type format (`-f` is the format
+    // flag there, `-c` is illegal), and no other tool gives an independent
+    // name. Without an independent source there is nothing honest to cross
+    // check: assert the product's decided answer (UNKNOWN) and say so.
+    const gate0 = measureUnderLoadGate(() => checkAppendAtomicity(root));
+    fs.rmSync(root, { recursive: true, force: true });
+    console.log(`NOTICE: no independent filesystem-type source on ${process.platform}; cross-check skipped, asserting UNKNOWN`);
+    if (gate0.notMeasuredReason) { t.skip(`not measured: ${gate0.notMeasuredReason}`); return; }
+    assert.equal(gate0.result.ok, null, 'without a verifiable fs name the product must say UNKNOWN');
+    return;
+  }
   const realType = execFileSync('stat', ['-f', '-c', '%T', root], { encoding: 'utf8' }).trim();
   const allowListed = ['ext2/ext3', 'ext4', 'xfs', 'btrfs', 'f2fs', 'tmpfs'].includes(realType);
   const gate = measureUnderLoadGate(() => checkAppendAtomicity(root));

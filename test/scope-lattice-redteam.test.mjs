@@ -155,6 +155,17 @@ function idOf(logResult) {
   return m[1];
 }
 
+/** Why did the hook print nothing? The hook books every silent exit it can
+ * reach in `.pipeline/injections.jsonl`; put the tail in the failure text. */
+function hookJournalTail(root) {
+  const jf = path.join(root, '.pipeline', 'injections.jsonl');
+  let tail;
+  try { tail = fs.readFileSync(jf, 'utf8').trim().split('\n').slice(-3).join(' | '); } catch { tail = '(no journal file)'; }
+  const f = spawnSync('node', [MEM_BIN, '--root', root, 'find', `tell me everything you know about ${ALPHA_SECRET} right now please`, '--top', '3', '--json'],
+    { encoding: 'utf8', timeout: 30000 });
+  return `; hook journal tail: ${tail.slice(-900)}; same find, default levers: ${String(f.stdout).replace(/\s+/g, ' ').slice(0, 500)}`;
+}
+
 function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
 
 // --- MCP bridge helper (same shape as test/bridge-reach.test.mjs) -------
@@ -380,12 +391,18 @@ test('LANE hook mem-retrieve (UserPromptSubmit): RED — leaks alpha into the in
       env: {
         ...process.env, CHEAP_MEM_ROOT: root,
         MEM_RETRIEVE_NO_PULL: '1', MEM_HEADLESS: '1', MEM_RETRIEVE_MIN: '0', MEM_RETRIEVE_TIME: '45',
+        // This lane is about SCOPE. The h3 lever (withhold a flat field of near-equal scores) is
+        // not: the fixture's two alpha hits score within 0.3 % of each other and, depending on the
+        // random ids/timestamps, the answer was sometimes withheld whole (CI: "printed 0 chars",
+        // journal `too-weak`, `mem find` -> hits [] withheld 3). Pinned by the search-lever tests.
+        MEM_SEARCH_LEVERS: 'none',
       },
     });
     assert.equal(r.status, 0, `hook exited ${r.status}: ${r.stderr}`);
     assert.ok(r.stdout.includes(ALPHA_SECRET),
       'expected today\'s real hole: the retrieval hook has no notion of scope and injects across every project'
-      + ` -- hook printed ${r.stdout.length} chars, stderr: ${String(r.stderr).slice(-400) || '(empty)'}`);
+      + ` -- hook printed ${r.stdout.length} chars, stderr: ${String(r.stderr).slice(-400) || '(empty)'}`
+      + hookJournalTail(root));
   } finally { cleanup(root); }
 });
 
