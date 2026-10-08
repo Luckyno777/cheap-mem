@@ -73,6 +73,22 @@ PRE=$?
 [ "$PRE" -eq 126 ] && ok "setup yields 126" \
   || bad "setup yields $PRE, not 126 — every 126 case below checks nothing"
 
+echo "0b) the perl time cap (macOS has no timeout) also says 126, not 127"
+# Found on macOS CI 2026-10-08: with perl as the cap an unstartable file gave
+# 127, so check 0 failed there and the detour could never fire in production.
+if command -v perl >/dev/null 2>&1; then
+  SAVE_CAP=("${MEM_CAP[@]}"); MEM_CAP=(mem_cap_perl)
+  shop perlcap
+  unstartable claude
+  capped 10 "$BIN/claude" --version > /dev/null 2>&1; PC=$?
+  [ "$PC" -eq 126 ] && ok "perl cap: unstartable file -> 126" || bad "perl cap: unstartable file -> $PC, not 126"
+  capped 10 definitely-not-a-command-here > /dev/null 2>&1; PN=$?
+  [ "$PN" -eq 127 ] && ok "perl cap: missing command -> 127" || bad "perl cap: missing command -> $PN, not 127"
+  MEM_CAP=("${SAVE_CAP[@]}")
+else
+  echo "  ??   no perl here - the perl cap is not measured"
+fi
+
 echo "1) mem_never_started reads the message, it does not weigh bytes"
 printf '' > "$WORK/empty"; printf 'the session said something\n' > "$WORK/spoke"
 printf "timeout: failed to run command 'claude': Permission denied\n" > "$WORK/wrapper"

@@ -299,8 +299,12 @@ jobs:
           rc=0
           bash test/retrieve.sh 2>&1 | tee "$RUNNER_TEMP/retrieve.log" || rc=$?
           if [ "$rc" -ne 0 ]; then
-            grep -E -A1 '^  (FAIL|!!) ' "$RUNNER_TEMP/retrieve.log" | grep -v '^--$' \
-              | sed -E 's/^ +/::error::recall probe: /' | head -20 || true
+            if grep -qE '^  (FAIL|!!) ' "$RUNNER_TEMP/retrieve.log"; then
+              grep -E -A1 '^  (FAIL|!!) ' "$RUNNER_TEMP/retrieve.log" | grep -v '^--$' \
+                | sed -E 's/^ +/::error::recall probe: /' | head -20 || true
+            else
+              echo "::error::recall probe: exit $rc with no FAIL line; last output: $(tail -n 3 "$RUNNER_TEMP/retrieve.log" | tr '\n' '|')"
+            fi
             echo "bash: $(bash --version | head -1)"
           fi
           exit "$rc"
@@ -310,7 +314,21 @@ jobs:
       # captures. Without this an ephemeral environment loses the capture.
       - name: the Stop hook persists the capture (push)
         shell: bash
-        run: bash test/stop-persists.sh
+        run: |
+          rc=0
+          bash test/stop-persists.sh 2>&1 | tee "$RUNNER_TEMP/stop-persists.log" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            # Every exit path names a reason: the FAIL lines, or, if there are
+            # none, the tail of the log and the bash that ran it.
+            if grep -qE '^  (FAIL|!!) ' "$RUNNER_TEMP/stop-persists.log"; then
+              grep -E -A1 '^  (FAIL|!!) ' "$RUNNER_TEMP/stop-persists.log" | grep -v '^--$' \
+                | sed -E 's/^ +/::error::stop-persists: /' | head -20 || true
+            else
+              echo "::error::stop-persists: exit $rc with no FAIL line; last output: $(tail -n 3 "$RUNNER_TEMP/stop-persists.log" | tr '\n' '|')"
+            fi
+            echo "bash: $(bash --version | head -1)"
+          fi
+          exit "$rc"
 
       # On 2026-09-18 the AI CLI in the sister house sat on a mount
       # flagged `noexec`. Every tick ended with exit 126, all night,
@@ -319,7 +337,21 @@ jobs:
       # through node and the log names the wrong problem.
       - name: the start command detours only on noexec
         shell: bash
-        run: bash test/start-command.sh
+        run: |
+          rc=0
+          bash test/start-command.sh 2>&1 | tee "$RUNNER_TEMP/start-command.log" || rc=$?
+          if [ "$rc" -ne 0 ]; then
+            # Every exit path names a reason: the FAIL lines, or, if there are
+            # none, the tail of the log and the bash that ran it.
+            if grep -qE '^  (FAIL|!!) ' "$RUNNER_TEMP/start-command.log"; then
+              grep -E -A1 '^  (FAIL|!!) ' "$RUNNER_TEMP/start-command.log" | grep -v '^--$' \
+                | sed -E 's/^ +/::error::start-command: /' | head -20 || true
+            else
+              echo "::error::start-command: exit $rc with no FAIL line; last output: $(tail -n 3 "$RUNNER_TEMP/start-command.log" | tr '\n' '|')"
+            fi
+            echo "bash: $(bash --version | head -1)"
+          fi
+          exit "$rc"
 
   powershell:
     name: powershell · windows
