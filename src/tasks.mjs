@@ -681,7 +681,7 @@ export function start(root, kind, params = {}, context = {}) {
     ...(context?.user === true ? { user: true } : {}),
   })}\n`);
 
-  const entry = { id, child, epoch: SERVER_EPOCH, ended: false, cancelReason: null };
+  const entry = { id, child, epoch: SERVER_EPOCH, ended: false, cancelReason: null, root: path.resolve(root) };
   ACTIVE.set(kind, entry);
 
   // Decode as one UTF-8 stream: `+= chunk` on raw Buffers decoded each
@@ -867,7 +867,8 @@ export function overview(root) {
   const result = {};
   for (const kind of Object.keys(KINDS)) {
     const running = ACTIVE.get(kind);
-    if (running && running.epoch === SERVER_EPOCH && !running.ended) {
+    // A running task of ANOTHER memory root is not this root's task: its id has no state file here.
+    if (running && running.epoch === SERVER_EPOCH && !running.ended && (!running.root || running.root === path.resolve(root))) {
       result[kind] = { id: running.id, ...read(root, running.id) };
       continue;
     }

@@ -260,6 +260,18 @@ test('overview() names both kinds even when nothing was ever started', () => {
   } finally { gone(r); }
 });
 
+test('overview() of another root does not show a task that runs in this one (and still shows it here)', async () => {
+  const a = world(); const b = world();
+  try {
+    writeLargeDrawer(a, 8);
+    const { id } = tasks.start(a, 'integrity');
+    assert.equal(tasks.overview(b).integrity, null, 'a task of root A is not root B\'s task');
+    assert.equal(tasks.overview(a).integrity?.id, id, 'positive control: root A sees its own running task');
+    await tasks.cancel(a, 'integrity').catch(() => {});
+    await waitForTerminal(a, id).catch(() => {});
+  } finally { gone(a); gone(b); }
+});
+
 // =========================================================================
 // HTTP layer: bin/mem-serve's /task, /task.json, /task/cancel
 // =========================================================================
