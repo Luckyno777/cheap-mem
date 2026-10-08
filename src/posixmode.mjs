@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2026 Lucky H.
+// SPDX-License-Identifier: MIT
 // src/posixmode.mjs — what a file mode may be claimed to say, and where it may not.
 //
 // POSIX mode bits (0600, 0700) exist on Linux and macOS. On Windows `stat`
