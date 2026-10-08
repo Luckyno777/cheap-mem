@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as source from '../src/source.mjs';
@@ -106,7 +107,7 @@ function bridgeInvocationLines() {
       // Look at this line and the next two: a call is sometimes spread
       // over a couple of lines (`spawn(\n  entry.bridge_tool, ...)`).
       const window = lines.slice(i, i + 3).join('\n');
-      if (RUNNERISH.test(window)) hits.push({ file: path.relative(REPO, file), line: i + 1, window });
+      if (RUNNERISH.test(window)) hits.push({ file: relPosix(REPO, file), line: i + 1, window });
     }
   }
   return hits;

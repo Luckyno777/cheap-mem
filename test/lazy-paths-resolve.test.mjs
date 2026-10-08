@@ -39,6 +39,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -99,7 +100,7 @@ function computedPaths(file, text) {
   for (const re of relative) {
     for (const m of body.matchAll(re)) {
       found.push({
-        where: path.relative(REPO, file),
+        where: relPosix(REPO, file),
         spec: m[1],
         target: path.resolve(path.dirname(file), m[1]),
       });
@@ -112,7 +113,7 @@ function computedPaths(file, text) {
     // visible rather than silently shrinking what this test covers.
     if (parts.some((p) => !/^[\w.-]+$/.test(p))) continue;
     found.push({
-      where: path.relative(REPO, file),
+      where: relPosix(REPO, file),
       spec: `PKG_ROOT/${parts.join('/')}`,
       target: path.resolve(REPO, ...parts),
     });
@@ -186,7 +187,7 @@ test('COMMENT CONTROL: a path written in prose is not read as code', () => {
 test('every lazily imported module and root-anchored file exists', () => {
   const missing = ALL
     .filter((p) => !fs.existsSync(p.target))
-    .map((p) => `${p.where}: ${p.spec} -> ${path.relative(REPO, p.target)}`);
+    .map((p) => `${p.where}: ${p.spec} -> ${relPosix(REPO, p.target)}`);
   assert.deepEqual(missing, [],
     `${missing.length} computed path(s) point at nothing. This is the `
     + '`mem serve` class: a lazy import inside a handler is not resolved '

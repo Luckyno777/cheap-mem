@@ -69,6 +69,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { fileURLToPath } from 'node:url';
 import { NEARLY_MARKER } from '../bench/invariants.mjs';
 import {
@@ -201,7 +202,7 @@ function scanRepo() {
   for (const d of SCAN_DIRS) listFiles(path.join(REPO, d), files);
   const offenders = [];
   for (const file of files) {
-    const rel = path.relative(REPO, file);
+    const rel = relPosix(REPO, file);
     const text = fs.readFileSync(file, 'utf8');
     for (const { number, raw, text: lineText } of commentLines(text, hasBlocks(file, text))) {
       const trimmed = lineText.trim();
@@ -345,7 +346,7 @@ test('no scanned file ends inside an unterminated block comment', () => {
   for (const file of files) {
     const text = fs.readFileSync(file, 'utf8');
     const lines = commentLines(text, hasBlocks(file, text));
-    if (lines.unterminated) bad.push(path.relative(REPO, file));
+    if (lines.unterminated) bad.push(relPosix(REPO, file));
   }
   assert.deepEqual(bad, [],
     `the comment extractor never leaves a block comment in: ${bad.join(', ')}. `
@@ -478,7 +479,7 @@ function scanSrcOutput() {
   const offenders = [];
   const unterminated = [];
   for (const file of files) {
-    const rel = path.relative(REPO, file);
+    const rel = relPosix(REPO, file);
     const text = fs.readFileSync(file, 'utf8');
     const lines = codeLines(text, hasBlocks(file, text));
     if (lines.unterminated) unterminated.push(rel);

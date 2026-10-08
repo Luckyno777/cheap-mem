@@ -30,7 +30,7 @@ function reachable(entries) {
     let text;
     try { text = fs.readFileSync(path.join(REPO, rel), 'utf8'); } catch { continue; }
     for (const m of text.matchAll(/from\s+'(\.[^']+)'/g)) {
-      const target = path.relative(REPO, path.resolve(path.dirname(path.join(REPO, rel)), m[1]));
+      const target = path.relative(REPO, path.resolve(path.dirname(path.join(REPO, rel)), m[1])); // rel-ok: next line splits on path.sep
       queue.push(target.split(path.sep).join('/'));
     }
   }

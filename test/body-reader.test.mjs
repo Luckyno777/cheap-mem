@@ -98,7 +98,7 @@ async function start(moduleRoot) {
 const stop = (srv) => new Promise((res) => { srv.closeAllConnections?.(); srv.close(res); });
 const tree = (root) => {
   const out = [];
-  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else out.push(`${path.relative(root, p)}:${fs.statSync(p).size}`); } };
+  const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else out.push(`${path.relative(root, p)}:${fs.statSync(p).size}`); } }; // rel-ok: snapshot key compared only with itself
   walk(root);
   return out.sort().join('|');
 };

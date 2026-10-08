@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
@@ -34,7 +35,7 @@ test('(a) no networkidle in test/ or the doc-image script', () => {
   const hits = [];
   for (const f of files) {
     const content = fs.readFileSync(f, 'utf8');
-    if (/waitUntil\s*:\s*['"]networkidle['"]/.test(content)) hits.push(path.relative(REPO, f));
+    if (/waitUntil\s*:\s*['"]networkidle['"]/.test(content)) hits.push(relPosix(REPO, f));
   }
   assert.deepEqual(hits, [], `networkidle is forbidden, found in: ${hits.join(', ')}`);
 });
@@ -47,7 +48,7 @@ test('(b) no test file calls chromium.launch directly -- only the fixture may', 
   for (const f of allTestFiles()) {
     if (f === path.join(TEST_DIR, 'browser-guard.test.mjs')) continue;
     const content = fs.readFileSync(f, 'utf8');
-    if (/chromium\.launch/.test(content)) hits.push(path.relative(REPO, f));
+    if (/chromium\.launch/.test(content)) hits.push(relPosix(REPO, f));
   }
   assert.deepEqual(hits, [], `chromium.launch belongs only in test/fixture/browser.mjs, found in: ${hits.join(', ')}`);
 });

@@ -25,6 +25,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -63,7 +64,7 @@ function violations(root) {
   for (const file of [...walk(path.join(root, 'src')), ...walk(path.join(root, 'bin'))]) {
     const text = fs.readFileSync(file, 'utf8');
     const code = withoutComments(text);
-    if (BENCH_IMPORT.test(code) || BENCH_BUILT.test(code)) found.push(path.relative(root, file));
+    if (BENCH_IMPORT.test(code) || BENCH_BUILT.test(code)) found.push(relPosix(root, file));
   }
   return found;
 }

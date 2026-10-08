@@ -34,7 +34,7 @@ test('inbox show refuses a name that walks out of the inbox', () => {
     const plain = path.join(base, 'plain.txt');
     fs.writeFileSync(plain, 'FIRSTLINE-SENTINEL-5520\n');
     for (const [file, sentinel] of [[outside, /OUTSIDE-SENTINEL-7731/], [plain, /FIRSTLINE-SENTINEL-5520/]]) {
-      const rel = path.relative(path.join(root, 'inbox'), file);
+      const rel = path.relative(path.join(root, 'inbox'), file); // rel-ok: handed straight back to the OS-native CLI argument, startsWith("..") only
       assert.ok(rel.startsWith('..'), `probe setup: ${rel}`);
       const r = mem(root, ['inbox', 'show', rel, '--as', 'librarian']);
       assert.doesNotMatch(r.stdout + r.stderr, sentinel, `content of ${rel} leaked`);

@@ -158,6 +158,33 @@ test('no stored `source` is a raw path.relative (host separator travels into the
   assert.ok(/\bsources?\s*:\s*path\.relative\(/.test('  source: path.relative(root, p),'), 'positive control');
 });
 
+/** A test-side path.relative whose result keeps the host separator. */
+function rawRelative(text) {
+  return code(text).filter(({ line }) =>
+    /\bpath\.relative\(/.test(line)
+    && !/\.split\(path\.sep\)|\bposix\(|\brelPosix\(|rel-ok:/.test(line));
+}
+
+test('test helpers do not hand out raw path.relative (caps/allowlists/git keys are posix)', () => {
+  // CI run 37757849359 (windows): "src\\chain.mjs ... cap 0", `bin\\mem-mcp:1033`.
+  // The shared walker joined with the host separator, so every per-file cap
+  // keyed 'src/chain.mjs' missed. Use relPosix()/posix() from
+  // test/helpers/relpath.mjs, or mark a self-consistent use with `rel-ok: why`.
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    if (!rel.startsWith('test/') || rel === 'test/helpers/relpath.mjs') continue;
+    for (const { line, nr } of rawRelative(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+  }
+  assert.deepEqual(offenders, []);
+  assert.equal(rawRelative('  const rel = path.relative(REPO, f);\n').length, 1, 'positive control');
+  assert.equal(rawRelative('  const rel = relPosix(REPO, f);\n').length, 0);
+});
+
+test('the shared f5 walker answers forward slashes', async () => {
+  const src = fs.readFileSync(path.join(REPO, 'test', 'f5-source.mjs'), 'utf8');
+  assert.ok(!/path\.join\(rel,/.test(src), 'files() must not join with the host separator');
+});
+
 test('POSITIVE CONTROL: the probe reads a real tree and both patterns fire', () => {
   // Two guards that walk an empty tree pass forever, and two patterns
   // that match nothing pass forever. Both halves are checked here,

@@ -30,6 +30,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { nearReserved, editDistance, nearMissThreshold, RESERVED_SWITCHES }
@@ -103,7 +104,7 @@ function corpusSwitches() {
     for (const m of text.matchAll(/--([a-z][a-z0-9-]{1,24})\b/g)) {
       const n = m[1];
       if (!names.has(n)) names.set(n, new Set());
-      names.get(n).add(path.relative(REPO, f));
+      names.get(n).add(relPosix(REPO, f));
     }
   }
   return names;
