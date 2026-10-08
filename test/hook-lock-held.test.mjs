@@ -46,6 +46,8 @@ const bash = (script, input, root) => spawnSync('bash', [script], {
     ...process.env, CHEAP_MEM_ROOT: root, MEM_RETRIEVE_ROOTS: root, MEM_STOP_ROOTS: root, MEM_STOP_NO_PUSH: '1',
     MEM_RETRIEVE_MIN: '0.1', MEM_RETRIEVE_NO_PULL: '1', MEM_HOOK_OFF: '', MEM_BEFORE_EDIT_OFF: '', MEM_CATCH_FAIL_OFF: '', MEM_BEFORE_EDIT_MARKS: path.join(root, '.mem', 'marks'),
     MEM_AFTER_FAILURE_TURNS: path.join(root, '.mem', 'aft'),
+    // every early exit of mem-before-edit names itself on stderr (stdout untouched): a red run says which one
+    MEM_BEFORE_EDIT_TRACE: '1',
   },
 });
 
@@ -88,10 +90,10 @@ for (const [name, [script, input]] of Object.entries(HOOKS)) {
       // doubled-backslash first. On Linux the three coincide.
       const rootForms = (rt) => [...new Set([rt.replace(/\\/g, '\\\\'), rt, rt.replace(/\\/g, '/')])];
       const norm = (o, rt) => rootForms(rt).reduce((acc, f) => acc.split(f).join('ROOT'), o).replace(/\d{4}-\d\d-\d\dT[\d:]+Z/g, 'TS').replace(/\b[0-9a-z]{12}\b/g, 'ID');
-      assert.equal(norm(r.stdout, root), norm(free.stdout, rootFree), 'output differs when the locks are held');
+      assert.equal(norm(r.stdout, root), norm(free.stdout, rootFree), `output differs when the locks are held\nheld stderr: ${r.stderr.slice(0, 500)}\nfree stderr: ${free.stderr.slice(0, 500)}`);
       assert.doesNotMatch(r.stderr, /LockTimeout|ELOCKTIMEOUT/);
       for (const h of held) assert.ok(fs.existsSync(h), 'a hook removed a lock it does not own');
-      if (name === 'mem-retrieve' || name === 'mem-before-edit' || name === 'mem-catch-fail') assert.ok(r.stdout, `${name} gave no output (test input too weak)`);
+      if (name === 'mem-retrieve' || name === 'mem-before-edit' || name === 'mem-catch-fail') assert.ok(r.stdout, `${name} gave no output (test input too weak)\nstderr: ${r.stderr.slice(0, 600)}`);
     } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(rootFree, { recursive: true, force: true }); }
   });
 }
