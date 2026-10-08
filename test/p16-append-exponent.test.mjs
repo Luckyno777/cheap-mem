@@ -149,6 +149,20 @@ function fitExponent(points) {
   return den === 0 ? 0 : num / den;
 }
 
+/** Runs `fn` and counts the bytes every fs.readFileSync inside it returned. */
+function bytesRead(fn) {
+  const realRead = fs.readFileSync;
+  let bytes = 0;
+  fs.readFileSync = function spy(...a) {
+    const out = realRead.apply(this, a);
+    bytes += typeof out === 'string' ? Buffer.byteLength(out) : out.length;
+    return out;
+  };
+  let value;
+  try { value = fn(); } finally { fs.readFileSync = realRead; }
+  return { bytes, value };
+}
+
 /** One timed call each of `logEntryFn` and `neighboursFn`/`countLinesFn`,
  * against a fresh corpus of size `n`. A single call per fixture, not a
  * loop — see the header comment on why a loop over a large array
@@ -171,11 +185,15 @@ function measureAt(n, { sabotageExtraReads = 0 } = {}) {
     neighbours.neighbours(r, 'learning', { topic: 'topic-0' });
     const neighboursMs = performance.now() - t1;
 
+    // countLines is judged by WORK, not by ms: bytes handed back by the
+    // reads it makes. A warm page cache and a fast disk (macOS APFS) make
+    // its wall time look sub-linear at these sizes (CI: exponent 0.53),
+    // but cannot make it read fewer bytes. The wall time is still recorded.
     const t2 = performance.now();
-    countLines(drawer);
+    const { bytes: countLinesBytes, value: lines } = bytesRead(() => countLines(drawer));
     const countLinesMs = performance.now() - t2;
 
-    return { n, logEntryMs, neighboursMs, countLinesMs };
+    return { n, logEntryMs, neighboursMs, countLinesMs, countLinesBytes, countLinesResult: lines };
   } finally {
     away(r);
   }
@@ -494,6 +512,21 @@ test('the write path no longer grows with the drawer: neighbours() is bounded', 
   // branch below alongside neighbours()).
   const points = RUNGS.map((n) => measureAt(n));
 
+  // Work counts do not depend on machine load, so this is asserted even when
+  // the timing half below is not measurable.
+  // countLines() is still linear, and is NOT asserted flat — an exact
+  // line number cannot be had without seeing every line break. What
+  // changed there is the constant (16 ms -> 7 ms at 100k rows, same
+  // answer) by counting newline bytes instead of allocating one string
+  // per line. Recorded, not claimed as solved.
+  // Fitted on bytes read (work), not ms (cacheable): see measureAt.
+  const countLinesExponent = fitExponent(points.map((p) => ({ n: p.n, ms: p.countLinesBytes })));
+  assert.ok(
+    countLinesExponent > 0.6,
+    `countLines() stopped growing (exponent ${countLinesExponent.toFixed(2)} on bytes read) — if that is real, `
+    + `this comment is stale and the claim above needs re-measuring. Points: ${JSON.stringify(points)}`,
+  );
+
   if (notMeasuredReason) {
     t.skip(
       `not measured: ${notMeasuredReason} neighbours rungs (median of ${NEIGHBOURS_MEDIAN_REPS} reps each): `
@@ -509,18 +542,6 @@ test('the write path no longer grows with the drawer: neighbours() is bounded', 
     `neighbours() grows with corpus size again (exponent ${neighboursExponent.toFixed(2)}). `
     + `The tail bound in src/neighbours.mjs is the thing to look at. Rungs (median of `
     + `${NEIGHBOURS_MEDIAN_REPS} reps each): ${JSON.stringify(neighboursRungs)}`,
-  );
-
-  // countLines() is still linear, and is NOT asserted flat — an exact
-  // line number cannot be had without seeing every line break. What
-  // changed there is the constant (16 ms -> 7 ms at 100k rows, same
-  // answer) by counting newline bytes instead of allocating one string
-  // per line. Recorded, not claimed as solved.
-  const countLinesExponent = fitExponent(points.map((p) => ({ n: p.n, ms: p.countLinesMs })));
-  assert.ok(
-    countLinesExponent > 0.6,
-    `countLines() stopped growing (exponent ${countLinesExponent.toFixed(2)}) — if that is real, `
-    + `this comment is stale and the claim above needs re-measuring. Points: ${JSON.stringify(points)}`,
   );
 });
 
@@ -563,4 +584,14 @@ test('sabotage: breaking the tail bound turns neighbours() red again on a quiet 
     greenExponent < 0.4,
     `did not return to green after sabotage: exponent ${greenExponent.toFixed(2)} at ${JSON.stringify(green.result)}`,
   );
+});
+
+test('positive control: the bytes-read meter sees a bounded reader as flat and countLines as linear', () => {
+  const pts = (reader) => RUNGS.map((n) => {
+    const r = rootWith(n);
+    try { return { n, ms: bytesRead(() => reader(path.join(r, 'global', 'learnings.jsonl'))).bytes }; } finally { away(r); }
+  });
+  const tailOnly = (p) => { const fd = fs.openSync(p, 'r'); try { const b = Buffer.alloc(4096); fs.readSync(fd, b, 0, 4096, 0); return b; } finally { fs.closeSync(fd); } };
+  assert.ok(fitExponent(pts(tailOnly)) < 0.2, 'a bounded reader (no readFileSync) meters flat');
+  assert.ok(fitExponent(pts(countLines)) > 0.9, 'countLines meters linear');
 });
