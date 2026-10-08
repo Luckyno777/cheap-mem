@@ -492,12 +492,31 @@ test('decision #1, ROT: a baseline captured WHILE under real load is flagged, no
     assert.equal(baseline.trustworthy, false,
       `a baseline captured under ${cpuCount * 2} CPU fressers on ${cpuCount} cores must not be accepted as `
       + `quiet — got ${JSON.stringify(baseline)}`);
+    if (baseline.unverifiable) {
+      // darwin (loop measured insensitive, no PSI): "flagged as unverifiable" IS the correct
+      // outcome; the loop itself may well look stable (spread 1.023 in CI run 37764583209).
+      assert.equal(baseline.psiQuiet, null);
+      return;
+    }
     assert.ok(!baseline.internallyStable || baseline.psiQuiet === false,
       'a corrupted capture must be caught by internal rep-to-rep disagreement, PSI\'s avg10, or both — '
       + 'not silently pass both checks');
   } finally {
     killAll(eater);
   }
+});
+
+test('decision #1, darwin: a stable capture without PSI is flagged unverifiable, not trustworthy (simulated platform)', () => {
+  const sim = captureCalibrationBaselineOnce({ platform: 'darwin' });
+  if (sim.psiQuiet === null) {
+    assert.equal(sim.unverifiable, true);
+    assert.equal(sim.trustworthy, false, 'positive control for the flag: no PSI + insensitive platform');
+    assert.equal(captureQuietCalibrationBaseline({ platform: 'darwin' }).attempts, 1, 'no pointless retries');
+  } else {
+    assert.equal(sim.unverifiable, false, 'PSI present: the cross-check exists, nothing to flag');
+  }
+  const lin = captureCalibrationBaselineOnce({ platform: 'linux' });
+  assert.equal(lin.unverifiable, false, 'control: other platforms are not flagged');
 });
 
 test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline recovers once the load is gone', { timeout: 40000 }, async (t) => {
