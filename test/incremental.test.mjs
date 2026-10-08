@@ -74,7 +74,7 @@ test('line numbers keep counting from the start of the file', () => {
     const idx = loadIndex(r, { language: 'en' });
     const hit = search(idx, 'appended one line six', { top: 1 })[0];
     assert.equal(hit.line, 6, 'the appended entry reports the wrong line number');
-    assert.equal(hit.source, path.join('global', 'decisions.jsonl'));
+    assert.equal(hit.source, 'global/decisions.jsonl', 'the stored source is posix on every platform');
   } finally { fs.rmSync(r, { recursive: true, force: true }); }
 });
 
