@@ -19,7 +19,8 @@ export function tempDir(prefix, t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
   if (t && typeof t.after === 'function') {
     t.after(() => {
-      fs.rmSync(dir, { recursive: true, force: true });
+      // Windows: a just-exited child can still hold the directory for a moment (EBUSY/EPERM on rmdir).
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     });
   }
   return dir;
