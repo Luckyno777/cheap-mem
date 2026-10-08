@@ -16,7 +16,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   loadCriteria, boundFor, evaluateRung, rungVerdict, summarize, doneRungs, precheck, heldOut,
-  parseRungs, readRows, appendRow, underTemp, writeFiller, estimateRssBytes, latestRungRows,
+  parseRungs, readRows, appendRow, underTemp, writeFiller, estimateRssBytes, latestRungRows, freeRamBytes, parseVmStat,
   MAX_ENTRIES, CRITERIA_FILE,
 } from '../bench/scale-gate.mjs';
 
@@ -197,14 +197,20 @@ test('SIGTERM during a rung: exit 130, the rung row says aborted/unknown, a summ
   const kid = spawn(process.execPath, [GATE, '--rungs', '300', '--bytes-per-entry', '5000', '--anchors', '4', '--gold-cases', '2',
     '--out', out, '--allow-uncommitted-criteria'], { env: { ...process.env, TMPDIR: tmpdir }, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';
+  let resolveSent;
   const sent = new Promise((resolve) => {
+    resolveSent = resolve;
     kid.stderr.on('data', (b) => {
       err += b;
       if (/building the index/.test(err) && !sent.done) { sent.done = true; kid.kill('SIGTERM'); resolve(); }
     });
   });
-  const code = await new Promise((resolve) => kid.on('close', resolve));
+  const code = await new Promise((resolve) => kid.on('close', (c) => { resolve(c); resolveSent(); }));
+  // A child that ended without ever reaching the build (refused, crashed) used to leave `sent` pending
+  // forever: on macOS the loop emptied and node reported "Promise resolution is still pending" for this
+  // test and every test after it. Now it is an assertion that names what the child said.
   await sent;
+  assert.ok(sent.done, `the child never reached the index build; exit ${code}; stderr: ${err.slice(-800)}`);
   assert.equal(code, 130, err.slice(-500));
   const rows = readRows(out);
   const rung = rows.find((r) => r.kind === 'rung');
@@ -256,6 +262,28 @@ test('the resource pre-check refuses with "unknown (insufficient resources)" ins
   assert.equal(precheck({ ...roomy, n: MAX_ENTRIES + 1 }).ok, false);
   // the estimate grows with the rung
   assert.ok(precheck({ ...roomy, n: 100000 }).diskNeedBytes < precheck(roomy).diskNeedBytes);
+});
+
+test('free RAM on macOS comes from vm_stat, not os.freemem(); an unreadable source never throws or hangs', () => {
+  const GiB = 1073741824;
+  const vm = 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:                               20000.\nPages active:                            100000.\nPages inactive:                          200000.\nPages speculative:                        10000.\n';
+  assert.equal(parseVmStat(vm), 230000 * 16384);
+  assert.equal(parseVmStat('nonsense'), null);
+  const noProc = () => { throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' }); }; // macOS has no /proc, no cgroup
+  const mac = freeRamBytes({ readFile: noProc, platform: 'darwin', vmStat: () => vm, freemem: () => 300 * 1048576 });
+  assert.equal(mac, 230000 * 16384, 'the cache the OS would hand out counts');
+  assert.ok(mac > 3 * GiB);
+  // vm_stat missing or garbled: falls back to os.freemem(), never throws
+  assert.equal(freeRamBytes({ readFile: noProc, platform: 'darwin', vmStat: noProc, freemem: () => 5 }), 5);
+  assert.equal(freeRamBytes({ readFile: noProc, platform: 'darwin', vmStat: () => 'x', freemem: () => 6 }), 6);
+  // other platforms keep os.freemem(); the pre-check then sees a finite number (or refuses, never hangs)
+  assert.equal(freeRamBytes({ readFile: noProc, platform: 'win32', vmStat: () => vm, freemem: () => 7 }), 7);
+  // positive control: the real machine answers with a finite number
+  assert.ok(Number.isFinite(freeRamBytes()));
+  // and the old reading refuses a 300-entry rung that the new one admits
+  const room = { n: 300, freeDiskBytes: 50 * GiB, bytesPerEntry: 4700, rssBytesPerEntry: 7000 };
+  assert.equal(precheck({ ...room, freeRamBytes: 300 * 1048576 }).ok, false);
+  assert.equal(precheck({ ...room, freeRamBytes: mac }).ok, true);
 });
 
 test('end to end: a rung that does not fit is refused, written as unknown, nothing is built', () => {
