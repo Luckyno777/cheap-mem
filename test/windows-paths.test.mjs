@@ -161,6 +161,34 @@ test('no file turns a URL pathname into a filesystem path', () => {
     + 'Use fileURLToPath().');
 });
 
+/**
+ * `import(NAME)` where NAME is a constant in the same file built from
+ * path.join/resolve without pathToFileURL. CI run 37764583209: test/login.test.mjs
+ * had `const SERVER = path.join(...)` and `await import(SERVER)` -- the
+ * identifier hid the path from importOfAPath ("Received protocol 'd:'").
+ */
+function importOfAPathVariable(text) {
+  const defs = new Map();
+  for (const m of text.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([^;\n]*)/g)) defs.set(m[1], m[2]);
+  return code(text).filter(({ line }) => {
+    const m = /\bimport\(\s*([A-Za-z_$][\w$]*)\s*\)/.exec(line);
+    if (!m || !defs.has(m[1])) return false;
+    const rhs = defs.get(m[1]);
+    return /path\.(join|resolve)\(/.test(rhs) && !/pathToFileURL|\.href/.test(rhs);
+  });
+}
+
+test('no dynamic import is handed a path held in a variable', () => {
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    for (const { line, nr } of importOfAPathVariable(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+  }
+  assert.deepEqual(offenders, [], 'import(NAME) with NAME = path.join(...) is a raw path on Windows: use pathToFileURL(NAME).href.');
+  assert.equal(importOfAPathVariable("const S = path.join(H, 'x');\nconst m = await import(S);\n").length, 1, 'positive control');
+  assert.equal(importOfAPathVariable("const S = path.join(H, 'x');\nconst m = await import(pathToFileURL(S).href);\n").length, 0);
+  assert.equal(importOfAPathVariable("const U = pathToFileURL(path.join(H, 'x')).href;\nconst m = await import(U);\n").length, 0);
+});
+
 test('no dynamic import is handed a filesystem path', () => {
   const offenders = [];
   for (const { rel, text } of sources()) {

@@ -580,7 +580,8 @@ test('#36 .gitignore: .pipeline/shrink-baseline.json is NOT ignored, other .pipe
 // --- #37 release.yml: the changelog check reads the version literally ---
 
 function changelogStep(version, changelog, publish = 'true') {
-  const yml = read('.github/workflows/release.yml');
+  // CRLF-tolerant: a Windows checkout may hand us CRLF; bash must see LF.
+  const yml = read('.github/workflows/release.yml').replace(/\r\n/g, '\n');
   const at = yml.indexOf('the changelog has a section for this version');
   const run = yml.indexOf('run: |\n', at) + 'run: |\n'.length;
   const end = yml.indexOf('\n      - name:', run);
@@ -590,7 +591,10 @@ function changelogStep(version, changelog, publish = 'true') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-f2-rel-'));
   try {
     fs.writeFileSync(path.join(dir, 'CHANGELOG.md'), changelog);
-    return spawnSync('bash', ['-c', body], { cwd: dir, encoding: 'utf8' });
+    // A script file, not `bash -c <multi-line>`: Windows argv quoting mangles
+    // a multi-line body with quotes before Git Bash sees it.
+    fs.writeFileSync(path.join(dir, 'step.sh'), body + '\n');
+    return spawnSync('bash', ['step.sh'], { cwd: dir, encoding: 'utf8' });
   } finally { away(dir); }
 }
 
@@ -603,6 +607,13 @@ test('#37 POSITIVE CONTROL: the real section is found, bracketed or not, with or
   assert.equal(changelogStep('1.2.3', '# Changelog\n\n## [1.2.3] - 2026-09-30\n').status, 0);
   assert.equal(changelogStep('1.2.3', '# Changelog\n\n## 1.2.3\n').status, 0);
   assert.equal(changelogStep('1.2.3', '# Changelog\n\n## Unreleased\n', 'false').status, 0);
+});
+
+test('#37 CRLF: a changelog saved with Windows line endings is read the same', () => {
+  assert.equal(changelogStep('1.2.3', '# Changelog\r\n\r\n## [1.2.3] - 2026-09-30\r\n').status, 0);
+  assert.equal(changelogStep('1.2.3', '# Changelog\r\n\r\n## 1.2.3\r\n').status, 0);
+  assert.equal(changelogStep('1.2.3', '# Changelog\r\n\r\n## Unreleased\r\n', 'false').status, 0);
+  assert.notEqual(changelogStep('1.2.3', '# Changelog\r\n\r\n## 1.2.30\r\n').status, 0, 'control: CRLF does not loosen the match');
 });
 
 // --- #38 mem-before-edit.ps1 passes --hook like the POSIX hook ---

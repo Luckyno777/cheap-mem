@@ -522,6 +522,7 @@ export const CALIBRATION_BASELINE_MAX_ATTEMPTS = 3;
  */
 export function captureCalibrationBaselineOnce({
   reps = CALIBRATION_BASELINE_REPS, warmup = CALIBRATION_BASELINE_WARMUP,
+  platform = process.platform,
 } = {}) {
   const psiTotalBefore = readPsiCpuSomeTotal();
   const captureStartMs = Date.now();
@@ -546,7 +547,13 @@ export function captureCalibrationBaselineOnce({
   const psiQuiet = psiRateDuringCaptureMsPerSec === null
     ? null : psiRateDuringCaptureMsPerSec <= FOREIGN_LOAD_DENIED_MS_PER_SEC;
 
-  const trustworthy = internallyStable && psiQuiet !== false;
+  // On a platform where the loop was MEASURED to miss real oversubscription
+  // (CALIBRATION_INSENSITIVE_PLATFORMS, macOS: spread 1.023 under 6 eaters on
+  // 3 cores, CI run 37764583209), and with no PSI to cross-check, a stable
+  // capture proves nothing about the machine. It is flagged "unverifiable",
+  // never accepted as quiet.
+  const unverifiable = psiQuiet === null && CALIBRATION_INSENSITIVE_PLATFORMS.has(platform);
+  const trustworthy = internallyStable && psiQuiet !== false && !unverifiable;
   return {
     reps,
     warmup,
@@ -560,6 +567,7 @@ export function captureCalibrationBaselineOnce({
       ? +psiRateDuringCaptureMsPerSec.toFixed(2) : null,
     internallyStable,
     psiQuiet,
+    unverifiable,
     trustworthy,
   };
 }
@@ -587,14 +595,15 @@ export function captureCalibrationBaselineOnce({
  * the machine quiets down, captures cleanly again.
  */
 export function captureQuietCalibrationBaseline({
-  maxAttempts = CALIBRATION_BASELINE_MAX_ATTEMPTS, reps, warmup,
+  maxAttempts = CALIBRATION_BASELINE_MAX_ATTEMPTS, reps, warmup, platform,
 } = {}) {
   let attempt;
   let attempts = 0;
   do {
     attempts += 1;
-    attempt = captureCalibrationBaselineOnce({ reps, warmup });
-  } while (!attempt.trustworthy && attempts < maxAttempts);
+    attempt = captureCalibrationBaselineOnce({ reps, warmup, platform });
+    // Retrying cannot make an unverifiable platform verifiable.
+  } while (!attempt.trustworthy && !attempt.unverifiable && attempts < maxAttempts);
   return { ...attempt, attempts, gaveUp: !attempt.trustworthy };
 }
 
