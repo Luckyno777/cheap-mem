@@ -13,20 +13,26 @@ import * as server from '../src/recallserver.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// The sun_path limit exists on Unix sockets only (Windows listens on a named pipe), so the rule is
+// driven for the 'linux' platform explicitly: the same answer on every host.
 test('long root: the place moves to a short per-user, per-root dir; an explicit dir is never moved', () => {
   const longRoot = path.join(os.tmpdir(), 'x'.repeat(90), 'memory');
-  const w = place.place(longRoot, {});
+  const w = place.place(longRoot, {}, 'linux');
   assert.equal(w.fallback, true);
   assert.ok(Buffer.byteLength(w.socket) <= place.MAX_SOCKET_PATH, w.socket);
   assert.ok(w.dir.includes(place.rootId(longRoot)), 'per-root name');
   assert.equal(path.dirname(w.pointer), path.join(longRoot, '.pipeline', 'recall'));
-  const other = place.place(`${longRoot}2`, {});
+  const other = place.place(`${longRoot}2`, {}, 'linux');
   assert.notEqual(other.dir, w.dir);
-  assert.equal(place.place(longRoot, { MEM_RECALL_SERVER_DIR: '/tmp/zz' }).fallback, false);
-  assert.equal(place.place('/tmp/short', {}).fallback, false);
+  assert.equal(place.place(longRoot, { MEM_RECALL_SERVER_DIR: '/tmp/zz' }, 'linux').fallback, false);
+  assert.equal(place.place('/tmp/short', {}, 'linux').fallback, false);
 });
 
-test('long root: the server starts, the parent is 0700, the pointer says where, the client is served', async (t) => {
+// A Unix socket under a long path does not exist on Windows (a named pipe has no sun_path), so
+// there is nothing to measure there; the place rule itself is covered above for every host.
+test('long root: the server starts, the parent is 0700, the pointer says where, the client is served',
+  { skip: process.platform === 'win32' && 'Unix domain socket and POSIX 0700: no such thing on Windows (named pipe; see the place rule test above)' },
+  async (t) => {
   const base = fs.mkdtempSync('/tmp/crs-');
   const longRoot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cm-long-')), 'y'.repeat(90), 'memory');
   fs.mkdirSync(longRoot, { recursive: true });
