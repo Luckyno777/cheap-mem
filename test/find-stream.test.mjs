@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as capability from '../src/capability.mjs';
 import { entriesInWindow } from '../src/timesearch.mjs';
@@ -134,9 +134,9 @@ test('equality: memory.find (pattern, since, types, projects, withRetired) new =
 // ---------------------------------------------------------------------------
 
 const CHILD = `
-import { entriesInWindow } from ${JSON.stringify(path.join(HERE, '..', 'src', 'timesearch.mjs'))};
-import { entriesInWindowOld } from ${JSON.stringify(path.join(HERE, 'helpers', 'find-old.mjs'))};
-import * as capability from ${JSON.stringify(path.join(HERE, '..', 'src', 'capability.mjs'))};
+import { entriesInWindow } from ${JSON.stringify(pathToFileURL(path.join(HERE, '..', 'src', 'timesearch.mjs')).href)};
+import { entriesInWindowOld } from ${JSON.stringify(pathToFileURL(path.join(HERE, 'helpers', 'find-old.mjs')).href)};
+import * as capability from ${JSON.stringify(pathToFileURL(path.join(HERE, '..', 'src', 'capability.mjs')).href)};
 const [kind, root] = process.argv.slice(-2);
 const f = kind === 'old' ? entriesInWindowOld : entriesInWindow;
 const r = f(root, capability.grantAll('child'), { from: '2026-03-05T00:00:00Z', to: '2026-03-05T01:00:00Z' });

@@ -123,6 +123,33 @@ function importOfAPath(text) {
     && !/pathToFileURL/.test(line));
 }
 
+/**
+ * A STATIC `import ... from ${...}` inside a child-process source template
+ * whose specifier is a raw path or a path-ish constant. CI run 37757849359:
+ * test/find-stream.test.mjs wrote
+ *   import { x } from ${JSON.stringify(path.join(HERE, '..', 'src', 'x.mjs'))};
+ * into `node -e` -- the shape importOfAPath (dynamic import() only) missed.
+ * Accepted: pathToFileURL(...) on the line, or a *_URL / URL-named constant.
+ */
+function templateImportOfAPath(text) {
+  return code(text).filter(({ line }) =>
+    /\bimport\b[^;]*\bfrom\s+\$\{/.test(line)
+    && !/pathToFileURL|\.href|url/i.test(line)
+    // constants built with pathToFileURL elsewhere (concurrent-append, atlas-pass-cm)
+    && !/\$\{\s*JSON\.stringify\(\s*(MEMORY|mem|pas)\s*\)/.test(line));
+}
+
+test('no child-process source template imports from a raw path', () => {
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    for (const { line, nr } of templateImportOfAPath(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+  }
+  assert.deepEqual(offenders, [],
+    'A `from ${...}` specifier inside a spawned `node -e`/runner file is a URL: use pathToFileURL(p).href.');
+  assert.equal(templateImportOfAPath("import { a } from ${JSON.stringify(path.join(HERE, 'x.mjs'))};\n").length, 1, 'positive control');
+  assert.equal(templateImportOfAPath("import { a } from ${JSON.stringify(pathToFileURL(p).href)};\n").length, 0);
+});
+
 test('no file turns a URL pathname into a filesystem path', () => {
   const offenders = [];
   for (const { rel, text } of sources()) {

@@ -22,7 +22,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -61,7 +61,7 @@ const RUNNER_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-p12-runner-'));
 const RUNNER = path.join(RUNNER_DIR, 'bench-runner.mjs');
 function writeRunner() {
   fs.writeFileSync(RUNNER, `
-import * as memory from ${JSON.stringify(path.join(SRC, 'memory.mjs'))};
+import * as memory from ${JSON.stringify(pathToFileURL(path.join(SRC, 'memory.mjs')).href)};
 const [, , root, mode, lastId] = process.argv;
 if (global.gc) global.gc();
 const before = process.memoryUsage().rss;

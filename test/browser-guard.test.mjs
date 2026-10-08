@@ -16,7 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { relPosix } from './helpers/relpath.mjs';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -65,7 +65,7 @@ test('(c) positive control: a probe WITH the fixture ends within 10 s', () => {
     fs.writeFileSync(file, `
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { startBrowser } from ${JSON.stringify(FIXTURE)};
+import { startBrowser } from ${JSON.stringify(pathToFileURL(FIXTURE).href)};
 const { browser, reason } = await startBrowser();
 test('uses the fixture', { skip: reason }, async () => {
   const page = await browser.newPage();
