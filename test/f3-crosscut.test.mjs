@@ -113,7 +113,15 @@ test('A.4 guard expression: old fails on a space in the path, new does not (red/
   const spaced = path.join(plain, 'a folder');
   fs.mkdirSync(spaced);
   try {
-    assert.equal(run(OLD, plain), 'MAIN', 'positive control: without a space the old one works too');
+    // On win32 the OLD expression builds file://C:\\... while import.meta.url
+    // is file:///C:/..., so it misses the entry file with or without a space:
+    // the "works without a space" control is a POSIX fact, skipped there
+    // (NOTICE: UNVERIFIED on Windows here; the NEW expression is what matters).
+    if (process.platform !== 'win32') {
+      assert.equal(run(OLD, plain), 'MAIN', 'positive control: without a space the old one works too');
+    } else {
+      assert.equal(run(OLD, plain), '', 'win32: the old expression never matches a drive-letter path');
+    }
     assert.equal(run(OLD, spaced), '', 'the old expression misses the entry file when the path has a space');
     assert.equal(run(NEW, spaced), 'MAIN');
     assert.equal(run(NEW, plain), 'MAIN');
