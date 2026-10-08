@@ -28,26 +28,34 @@ const oldAlive = (pid) => { try { process.kill(pid, 0); return true; } catch (e)
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /**
- * A real zombie: bash starts a short child, then replaces itself by `sleep`, which never collects it.
- * No timing assumptions (mirror of the sibling's 1231e4b6): the parent lives until the probe ends
- * it (it used to `exec sleep 5`; whoever waited longer saw the init already reap the zombie), and
- * the state Z is awaited for 60 s instead of 50 x 50 ms. The message names the last /proc state seen.
+ * A real zombie, built without a race: bash starts a LONG child and replaces itself by `sleep`,
+ * which never collects children. Only once the parent IS `sleep` (read from /proc) does the probe
+ * kill the child -- it then stays a zombie for as long as the parent lives. Before (`sleep 0 &`,
+ * exec right after) the child could end while bash still ran; bash then collected it itself and
+ * no zombie ever existed (chain on d6a9cd5: "/proc/<pid>/stat: unreadable: ENOENT" after 79 ms).
+ * The parent lives until the probe ends it; the state Z is awaited for 60 s.
  */
 async function zombie() {
   let stderr = '';
-  const parent = spawn('bash', ['-c', 'sleep 0 & echo $!; exec sleep 600'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const parent = spawn('bash', ['-c', 'sleep 600 & echo $!; exec sleep 600'], { stdio: ['ignore', 'pipe', 'pipe'] });
   parent.stderr.on('data', (d) => { stderr += d; });
   const pid = await new Promise((resolve) => parent.stdout.once('data', (d) => resolve(Number(String(d).trim()))));
+  const deadline = Date.now() + 60_000;
+  let parentIsSleep = false;
+  while (!parentIsSleep && Date.now() < deadline) {
+    try { parentIsSleep = fs.readFileSync(`/proc/${parent.pid}/comm`, 'utf8').trim() === 'sleep'; } catch { break; }
+    if (!parentIsSleep) pause(20);
+  }
+  if (parentIsSleep) { try { process.kill(pid, 'SIGKILL'); } catch { /* gone: reported below */ } }
   let is = false;
   let last = '(never read)';
-  const deadline = Date.now() + 60_000;
-  while (!is && Date.now() < deadline) {
+  while (parentIsSleep && !is && Date.now() < deadline) {
     try { last = fs.readFileSync(`/proc/${pid}/stat`, 'utf8'); } catch (e) { last = `unreadable: ${e.code}`; break; }
     is = /\) Z /.test(last);
     if (!is) pause(50);
   }
-  if (!is) parent.kill('SIGKILL'); // the parent no longer ends by itself
-  assert.ok(is, `test set-up: the child is a zombie (last /proc/${pid}/stat: ${last.slice(0, 120)}; stderr: ${stderr})`);
+  if (!is) { parent.kill('SIGKILL'); try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ } }
+  assert.ok(is, `test set-up: the child is a zombie (parent exec'd sleep: ${parentIsSleep}; last /proc/${pid}/stat: ${last.slice(0, 120)}; stderr: ${stderr})`);
   return { pid, drop: () => parent.kill('SIGKILL') };
 }
 

@@ -384,7 +384,8 @@ test('LANE hook mem-retrieve (UserPromptSubmit): RED — leaks alpha into the in
     });
     assert.equal(r.status, 0, `hook exited ${r.status}: ${r.stderr}`);
     assert.ok(r.stdout.includes(ALPHA_SECRET),
-      'expected today\'s real hole: the retrieval hook has no notion of scope and injects across every project');
+      'expected today\'s real hole: the retrieval hook has no notion of scope and injects across every project'
+      + ` -- hook printed ${r.stdout.length} chars, stderr: ${String(r.stderr).slice(-400) || '(empty)'}`);
   } finally { cleanup(root); }
 });
 
