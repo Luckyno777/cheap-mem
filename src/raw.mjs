@@ -255,7 +255,7 @@ export function detectSurface() {
  * the capture path ended up as `raw\\2026\\10\\...` in the record
  * (CI run 37720774312, chatgpt-import probe).
  */
-export const toPosix = (p, pathApi = path) => String(p).split(pathApi.sep).join('/');
+const toPosix = (p, pathApi = path) => String(p).split(pathApi.sep).join('/');
 
 /** Storage path for a capture: raw/YYYY/MM/<time>--<session>.jsonl.gz */
 export function capturePath(root, stamp, now = new Date(), pathApi = path) {
