@@ -152,3 +152,10 @@ test('the guards import the places from the writer — one list, not two', () =>
   // The module is importable as a URL on every platform (windows-paths).
   assert.ok(pathToFileURL(path.join(REPO, 'bench', 'readme-numbers.mjs')).href.startsWith('file:'));
 });
+
+test('relative paths of the sweep use "/" whatever the platform separator is (Windows gave docs\\mcp-setup.md)', () => {
+  assert.equal(places.slashed('docs\\mcp-setup.md', '\\'), 'docs/mcp-setup.md');
+  assert.equal(places.slashed('a\\b\\c.md', '\\'), 'a/b/c.md');
+  assert.equal(places.slashed('docs/x.md', '/'), 'docs/x.md');
+  for (const rel of [...places.livingDocs(REPO), ...places.allDocs(REPO)]) assert.ok(!rel.includes('\\'), rel);
+});
