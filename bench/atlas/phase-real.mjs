@@ -1240,7 +1240,7 @@ export async function run(atlas, { quick = false } = {}) {
     const load = foreignLoadDelta(loadBefore, loadAfter, calibBaseline);
     record({
       id: 'real.load.foreign',
-      title: 'foreign load measured around this phase\'s timed CLI calls (a fixed calibration loop against its own quiet baseline, plus PSI, CPU steal and cgroup throttling — never loadavg — see core.mjs)',
+      title: 'foreign load measured around this phase\'s timed CLI calls (a fixed calibration loop against its own quiet baseline, plus PSI, CPU steal, cgroup throttling and, on macOS/BSD only, the slow load average — see core.mjs)',
       // A pure measurement, not a claim of good or bad — see the doc
       // comment on `Atlas#record` for why that is `not-measured` rather
       // than a graded verdict either way. The four timed checks below
@@ -1273,6 +1273,9 @@ export async function run(atlas, { quick = false } = {}) {
         calibBaselineMs: load.calibBaselineMs,
         calibRatio: load.calibRatio,
         calibOverThreshold: load.calibOverThreshold,
+        loadavgPerCpu: load.loadavgPerCpu,
+        loadavgOver: load.loadavgOver,
+        suddenLoadBlind: load.suddenLoadBlind,
         calibBaselineTrustworthy: calibBaseline.trustworthy,
         calibBaselineAttempts: calibBaseline.attempts,
         calibBaselineGaveUp: calibBaseline.gaveUp,
@@ -1286,6 +1289,16 @@ export async function run(atlas, { quick = false } = {}) {
       atlas.blind('foreign load during this phase\'s timed CLI calls',
         'neither the calibration loop, a PSI cpu pressure file, CPU steal nor cgroup throttling could be read '
         + 'in this container');
+    }
+    if (load.measured && load.suddenLoadBlind) {
+      // Measured nothing wrong is not the same as measured nothing: with no
+      // PSI and a calibration loop that is absent or known blind on this
+      // platform (macOS), a quiet reading says nothing about a sudden 2x
+      // oversubscription. Said, not hidden; the verdicts stay as they are.
+      atlas.blind('sudden CPU oversubscription during this phase\'s timed CLI calls',
+        'no PSI here, and the calibration loop cannot see it on this platform '
+        + `(${process.platform}); only the slow load average could, and it showed `
+        + `${load.loadavgPerCpu === null ? 'nothing readable' : `${load.loadavgPerCpu} per CPU`}`);
     }
     if (!calibBaseline.trustworthy) {
       // Not the same failure as `!load.measured` above — PSI or

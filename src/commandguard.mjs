@@ -172,6 +172,30 @@ function stamp(root) {
   return parts.join('|');
 }
 
+/**
+ * `sizes.txt`: `<bytes> <path relative to the root, "/">` per error drawer,
+ * as of the build. The hook (bin/mem-before-edit, cg_needed) compares it to
+ * `wc -c`. Why not only mtimes: bash 3.2 (macOS /bin/bash) compares them in
+ * whole seconds, so "a tie counts as stale" was the only safe reading, and
+ * that made a booklet built in the same second as its drawer look stale
+ * forever-in-that-second, i.e. start node on every command. The drawers are
+ * append-only, so a changed drawer changes its size.
+ */
+function sizesText(root) {
+  const lines = [];
+  const one = (p) => {
+    try {
+      const rel = path.relative(root, p).split(path.sep).join('/');
+      lines.push(`${fs.statSync(p).size} ${rel}`);
+    } catch { /* missing */ }
+  };
+  one(memory.logPath(root, 'error'));
+  let projects = [];
+  try { projects = memory.listProjects(root); } catch { projects = []; }
+  for (const p of projects) one(memory.logPath(root, 'error', p));
+  return lines.length ? `${lines.join('\n')}\n` : '';
+}
+
 /** Every error in force across the drawers: [{ entry, project }]. A correction replaces its original. */
 function errorsInForce(root) {
   const out = [];
@@ -207,11 +231,13 @@ function collect(root) {
 
 /** Write the booklet anew (atomic per file). Returns the rules. */
 export function build(root) {
+  const sizes = sizesText(root);
   const rules = collect(root);
   const dir = bookletDir(root);
   const booklet = { version: BOOKLET_VERSION, stamp: stamp(root), rules };
   const words = [...new Set(rules.flatMap((r) => r.patterns.map((p) => p[0].replace(/\$$/, ''))))].sort();
   try {
+    writeAtomic(path.join(dir, 'sizes.txt'), sizes);
     writeAtomic(path.join(dir, 'rules.json'), JSON.stringify(booklet));
     writeAtomic(path.join(dir, 'words.txt'), words.length ? `${words.join('\n')}\n` : '');
   } catch { /* a booklet that cannot be written is no reason to disturb the hook */ }

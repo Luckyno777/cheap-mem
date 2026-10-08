@@ -534,7 +534,7 @@ function checkDigestYield(root) {
     for (const type of Object.keys(memory.TYPES)) {
       for (const e of memory.iterLog(root, type, { project })) {
         const src = e && e.origin && e.origin.raw;
-        if (src) { withOrigin += 1; referenced.add(src); }
+        if (src) { withOrigin += 1; referenced.add(raw.captureKey(src)); }
       }
     }
   }
@@ -2660,7 +2660,7 @@ export function checkEntryForm(root) {
     for (const type of Object.keys(memory.TYPES)) {
       const { entries, path: p } = memory.readLog(root, type, { project });
       total += entries.length;
-      const rel = path.relative(root, p);
+      const rel = path.relative(root, p).replace(/\\/g, '/'); // `file:line` is posix on every platform
       entries.forEach((e, i) => {
         if (!e || typeof e !== 'object' || e.__broken) return;
         if (e.class === 'entry-form' && e.ts && (!cap || String(e.ts) > cap)) {
@@ -2676,7 +2676,7 @@ export function checkEntryForm(root) {
         // `idless-line` names its place `<file>:<line>`.
         if (e.class === IDLESS_LINE_CLASS) {
           for (const m of `${e.title ?? ''} ${e.text ?? ''}`.matchAll(/[A-Za-z0-9_./\\-]+\.jsonl:\d+/g)) {
-            idlessAcked.add(m[0]);
+            idlessAcked.add(m[0].replace(/\\/g, '/'));
           }
         }
         const where = `${rel}:${i + 1}`;

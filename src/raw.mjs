@@ -148,7 +148,7 @@ export function ledgerDigested(root) {
     if (!line.trim()) continue;
     let rec;
     try { rec = JSON.parse(line); } catch { continue; }
-    for (const c of rec.captures ?? []) done.add(c);
+    for (const c of rec.captures ?? []) done.add(captureKey(c));
   }
   return done;
 }
@@ -256,6 +256,15 @@ export function detectSurface() {
  * (CI run 37720774312, chatgpt-import probe).
  */
 const toPosix = (p, pathApi = path) => String(p).split(pathApi.sep).join('/');
+
+/**
+ * A capture KEY (ledger, watermark, `origin.raw`) is always `/`-separated.
+ * A caller on Windows may hand in `raw` + backslashes (path.join);
+ * stored as-is it never matches `listCaptures`, which lists with `/`, and a
+ * digested capture looks open again. Capture names never contain a
+ * backslash, so a plain replace is exact.
+ */
+export const captureKey = (p) => String(p).replace(/\\/g, '/');
 
 /** Storage path for a capture: raw/YYYY/MM/<time>--<session>.jsonl.gz */
 export function capturePath(root, stamp, now = new Date(), pathApi = path) {
@@ -872,7 +881,7 @@ export function pending(root) {
   // Union of the tracked ledger and the local cache. Strictly additive, so
   // a clone that has only the ledger, and a machine that has only the
   // watermark, both answer correctly.
-  const done = new Set([...(wm.digested ?? []), ...ledgerDigested(root)]);
+  const done = new Set([...(wm.digested ?? []).map(captureKey), ...ledgerDigested(root)]);
   const open = listCaptures(root).filter((f) => !done.has(f));
 
   // Sizes come from the RECORD, not from the disk.
@@ -929,7 +938,11 @@ export function pending(root) {
  * rest remains, the bell stays — otherwise the rest had no bell and
  * never became due.
  */
-export function markDigestedWithYield(root, paths, { yield: yieldMap } = {}) {
+export function markDigestedWithYield(root, paths, { yield: yieldMap0 } = {}) {
+  // Stored keys are posix whatever the caller passed (see captureKey).
+  paths = paths.map(captureKey);
+  const yieldMap = yieldMap0 === undefined ? undefined
+    : Object.fromEntries(Object.entries(yieldMap0).map(([k, v]) => [captureKey(k), v]));
   const store = archive.readConfig(process.env, root);
   const missing = paths.filter((f) => !archive.reachable(store, root, f));
   if (missing.length > 0) {
@@ -956,7 +969,7 @@ export function markDigestedWithYield(root, paths, { yield: yieldMap } = {}) {
 
   const p = path.join(root, WATERMARK_FILE);
   const wm = loadJson(p, { digested: [] });
-  const before = new Set(wm.digested ?? []);
+  const before = new Set((wm.digested ?? []).map(captureKey));
 
   // Migration, once: a memory that digested before the ledger existed has
   // its whole history only in the untracked watermark. Carry it over on the

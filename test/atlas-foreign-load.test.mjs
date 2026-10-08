@@ -44,6 +44,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import { spawn, execFileSync } from 'node:child_process';
 import {
+  readLoadavgPerCpu,
   VERDICT, timeVerdict, timeVerdictUnderLoad, foreignLoadDelta, captureForeignLoad,
   readCpuStealTicks, readCgroupThrottle, FOREIGN_LOAD_DENIED_MS_PER_SEC,
   readPsiCpuSomeTotal, readPsiCpuSomeAvg10, calibrationLoopMs,
@@ -528,28 +529,38 @@ test('ROT (the real finding this whole fix answers): under 2x-oversubscribed rea
     // stayed blind, so they are asserted here regardless of that fact.
 
     // Where PSI does not exist at all (macOS, Windows: no /proc/pressure, no
-    // steal, no cgroup) the calibration loop is the ONLY sensor, and under 2x
-    // oversubscription its quiet baseline may honestly refuse to be
-    // established (rep-to-rep spread) -- `gaveUp`. Then nothing is measurable,
-    // the product says so (`measured: false`, baseline untrustworthy), and by
-    // the house's deliberate rule (see the "could not be measured at all"
-    // test above) the verdict falls back to the ordinary one rather than
-    // forcing not-measured forever. That is asserted here as exactly that, not
-    // skipped. On Linux, with PSI readable, only the strict form is accepted.
+    // steal, no cgroup) the sensors are the calibration loop and, on
+    // macOS/BSD, the slow load average. CI run 37734741309 measured the
+    // calibration loop at 1.016x under REAL 2x oversubscription on macOS:
+    // the scheduler favours the short-lived measuring thread, so a quiet
+    // loop there is not evidence of a quiet machine. What the product owes
+    // on such a platform is one of two honest outcomes, never "measured, no
+    // load": (a) a sensor saw the load (calibration loop, or the load
+    // average, `loadavgOver`) and the verdict is not-measured; or (b) the
+    // reading declares itself blind to sudden load (`suddenLoadBlind`),
+    // which phase-real turns into a named blind spot. The old shape
+    // "baseline gave up" is a third honest case (nothing measurable at all).
     // UNVERIFIED on macOS until CI confirms.
     const noSensorHonestlyUnmeasurable = load.psiMsPerSec === null && calibBaseline.gaveUp === true
       && load.measured === false && load.calibBaselineTrustworthy === false;
     if (noSensorHonestlyUnmeasurable) {
       assert.equal(timeVerdictUnderLoad(10, DEGRADED_AT, FAIL_AT, load), VERDICT.PASS,
         'nothing measurable: the documented fallback is the ordinary verdict');
+      assert.equal(load.suddenLoadBlind, true, 'and it says it cannot see sudden load');
       return;
     }
     const newSensorsCaughtIt = (load.psiMsPerSec !== null && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC)
-      || load.calibOverThreshold === true;
+      || load.calibOverThreshold === true || load.loadavgOver === true;
+    if (!newSensorsCaughtIt && load.psiMsPerSec === null) {
+      assert.equal(load.suddenLoadBlind, true,
+        `no PSI and no sensor saw 2x oversubscription: the reading must declare sudden load unmeasurable, `
+        + `not report a quiet machine — got ${JSON.stringify(load)}`);
+      return;
+    }
     assert.ok(newSensorsCaughtIt,
-      `expected PSI or the calibration loop to detect real load that steal/cgroup missed — got ${JSON.stringify({
+      `expected PSI, the calibration loop or the load average to detect real load that steal/cgroup missed — got ${JSON.stringify({
         psiMsPerSec: load.psiMsPerSec, calibRatio: load.calibRatio, calibOverThreshold: load.calibOverThreshold,
-        measured: load.measured, gaveUp: calibBaseline.gaveUp,
+        loadavgPerCpu: load.loadavgPerCpu, measured: load.measured, gaveUp: calibBaseline.gaveUp,
       })}`);
 
     // The end-to-end effect this whole apparatus exists for: a fast
@@ -649,4 +660,38 @@ test('an unrelated, non-time-based check is untouched by real load: biasVerdict 
   } finally {
     killAll(eater);
   }
+});
+
+// --- load average + declared blindness (no PSI platforms) ----------------------
+
+test('loadavg sensor: macOS/BSD only; Linux and Windows read null (Windows loadavg is a constant zero)', () => {
+  const la = () => [8, 0, 0];
+  assert.equal(readLoadavgPerCpu({ platform: 'darwin', loadavg: la, cpus: () => 4 }), 2);
+  assert.equal(readLoadavgPerCpu({ platform: 'linux', loadavg: la, cpus: () => 4 }), null);
+  assert.equal(readLoadavgPerCpu({ platform: 'win32', loadavg: () => [0, 0, 0], cpus: () => 4 }), null);
+  assert.equal(readLoadavgPerCpu({ platform: 'darwin', loadavg: () => { throw new Error('x'); }, cpus: () => 4 }), null);
+});
+
+test('a load average above 1 per CPU forces not-measured; below it stays out of the way', () => {
+  const snap = (la) => ({
+    atMs: 0, stealTicks: null, cgroup: null, psiTotal: null, loadavgPerCpu: la, calibMs: null,
+  });
+  const hot = foreignLoadDelta(snap(0.2), { ...snap(2), atMs: 1000 }, null, { platform: 'darwin' });
+  assert.equal(hot.loadavgOver, true);
+  assert.equal(timeVerdictUnderLoad(10, DEGRADED_AT, FAIL_AT, hot), VERDICT.NOT_MEASURED);
+  const calm = foreignLoadDelta(snap(0.2), { ...snap(0.4), atMs: 1000 }, null, { platform: 'darwin' });
+  assert.equal(calm.loadavgOver, false);
+  assert.equal(timeVerdictUnderLoad(10, DEGRADED_AT, FAIL_AT, calm), VERDICT.PASS);
+});
+
+test('no PSI + a calibration loop that is absent or known blind: sudden load is declared unmeasurable', () => {
+  const snap = { atMs: 0, stealTicks: null, cgroup: null, psiTotal: null, loadavgPerCpu: 0.1, calibMs: 5 };
+  const base = { trustworthy: true, medianMs: 5 };
+  const mac = foreignLoadDelta(snap, { ...snap, atMs: 1000 }, base, { platform: 'darwin' });
+  assert.equal(mac.calibRatio, 1, 'positive control: the loop did read, quietly');
+  assert.equal(mac.suddenLoadBlind, true, 'a quiet loop on darwin is not evidence of a quiet machine');
+  const other = foreignLoadDelta(snap, { ...snap, atMs: 1000 }, base, { platform: 'freebsd' });
+  assert.equal(other.suddenLoadBlind, false, 'where the loop is not known blind, it counts');
+  const withPsi = foreignLoadDelta({ ...snap, psiTotal: 0 }, { ...snap, psiTotal: 0, atMs: 1000 }, base, { platform: 'darwin' });
+  assert.equal(withPsi.suddenLoadBlind, false, 'PSI sees sudden load');
 });

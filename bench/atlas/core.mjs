@@ -599,6 +599,46 @@ export function captureQuietCalibrationBaseline({
 }
 
 /**
+ * Load average per CPU, on platforms WITHOUT PSI that have a real
+ * `os.loadavg()` (macOS, BSD). `null` on Linux (PSI and the calibration
+ * loop are the sensors there; this house has always kept loadavg off the
+ * Linux gate) and on Windows (`os.loadavg()` is a constant [0,0,0] there,
+ * which would read as a quiet machine: not measured is not zero).
+ *
+ * **Why it exists (macOS, CI run 37734741309, node 22).** The macOS
+ * scheduler gave the short calibration thread its full share while 2x as
+ * many CPU-bound processes ran: calibRatio 1.016 under real 2x
+ * oversubscription, and no PSI. The loop cannot see that load there. The
+ * 1-minute load average can, but it is a slowly smoothed gauge: it shows
+ * sustained oversubscription, not a burst that started seconds ago. So it
+ * only ever adds NOT_MEASURED evidence; its absence proves nothing (see
+ * `suddenLoadBlind` in `foreignLoadDelta`).
+ */
+export function readLoadavgPerCpu({
+  platform = process.platform, loadavg = () => os.loadavg(), cpus = () => os.cpus().length,
+} = {}) {
+  if (platform === 'linux' || platform === 'win32') return null;
+  try {
+    const n = cpus() || 0;
+    const one = loadavg()[0];
+    return n > 0 && Number.isFinite(one) ? one / n : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A load average above this many runnable threads per CPU means oversubscribed. */
+export const LOADAVG_OVER_PER_CPU = 1.0;
+
+/**
+ * Platforms where the calibration loop was MEASURED to miss real 2x CPU
+ * oversubscription (the scheduler favours the short-lived measuring thread):
+ * macOS, ratio 1.016, CI run 37734741309. A quiet calibration reading there
+ * is not evidence of a quiet machine. UNVERIFIED beyond that one run.
+ */
+export const CALIBRATION_INSENSITIVE_PLATFORMS = new Set(['darwin']);
+
+/**
  * One snapshot of every foreign-load signal, timestamped. Take one
  * before and one after the work being measured, then pass both (plus
  * the run's calibration baseline, if one was captured) to
@@ -616,6 +656,7 @@ export function captureForeignLoad(calibBaseline = null) {
     stealTicks: readCpuStealTicks(),
     cgroup: readCgroupThrottle(),
     psiTotal: readPsiCpuSomeTotal(),
+    loadavgPerCpu: readLoadavgPerCpu(),
     calibMs: (calibBaseline && calibBaseline.trustworthy) ? calibrationLoopMs() : null,
   };
 }
@@ -649,7 +690,7 @@ export function captureForeignLoad(calibBaseline = null) {
  * one unreadable signal must not blind every other timed check to the
  * signals that DID come back.
  */
-export function foreignLoadDelta(before, after, calibBaseline = null) {
+export function foreignLoadDelta(before, after, calibBaseline = null, { platform = process.platform } = {}) {
   const wallMs = after.atMs - before.atMs;
   const stealTicks = (before.stealTicks !== null && after.stealTicks !== null)
     ? after.stealTicks - before.stealTicks : null;
@@ -687,7 +728,23 @@ export function foreignLoadDelta(before, after, calibBaseline = null) {
   const calibRatio = calibReady ? calibMsWorst / calibBaseline.medianMs : null;
   const calibOverThreshold = calibRatio !== null && calibRatio > CALIBRATION_LOAD_FACTOR;
 
-  const measured = stealOrCgroupMeasured || psiMs !== null || calibReady;
+  // Load average (macOS/BSD only, see `readLoadavgPerCpu`): the worse of
+  // the two edges. A slow gauge: over = real, sustained oversubscription.
+  const laVals = [before.loadavgPerCpu, after.loadavgPerCpu].filter((v) => typeof v === 'number');
+  const loadavgPerCpu = laVals.length ? Math.max(...laVals) : null;
+  const loadavgOver = loadavgPerCpu !== null && loadavgPerCpu > LOADAVG_OVER_PER_CPU;
+
+  // **Can this reading see a SUDDEN oversubscription at all?** Only PSI is
+  // known to (and the calibration loop on platforms where it was measured
+  // to). Without PSI, and with a calibration loop that is absent or known
+  // insensitive on this platform, a quiet reading is silence, not "no
+  // load": the honest statement is that sudden load is UNMEASURABLE here.
+  // Callers must say so (atlas.blind); the verdict itself only changes
+  // when a sensor actually saw load (loadavgOver, calibOver, ...).
+  const suddenLoadBlind = psiMsPerSec === null
+    && (!calibReady || CALIBRATION_INSENSITIVE_PLATFORMS.has(platform));
+
+  const measured = stealOrCgroupMeasured || psiMs !== null || calibReady || loadavgPerCpu !== null;
 
   return {
     wallMs,
@@ -705,6 +762,9 @@ export function foreignLoadDelta(before, after, calibBaseline = null) {
     calibBaselineTrustworthy: calibBaseline ? calibBaseline.trustworthy : null,
     calibRatio: calibRatio !== null ? +calibRatio.toFixed(3) : null,
     calibOverThreshold,
+    loadavgPerCpu: loadavgPerCpu !== null ? +loadavgPerCpu.toFixed(3) : null,
+    loadavgOver,
+    suddenLoadBlind,
     measured,
   };
 }
@@ -832,7 +892,8 @@ export function timeVerdictUnderLoad(ms, degradedAt, failAt, load) {
     const psiOver = load.psiMsPerSec !== null && load.psiMsPerSec !== undefined
       && load.psiMsPerSec > FOREIGN_LOAD_DENIED_MS_PER_SEC;
     const calibOver = load.calibOverThreshold === true;
-    if (stealOrCgroupOver || psiOver || calibOver) return VERDICT.NOT_MEASURED;
+    const loadavgOver = load.loadavgOver === true;
+    if (stealOrCgroupOver || psiOver || calibOver || loadavgOver) return VERDICT.NOT_MEASURED;
   }
   return timeVerdict(ms, degradedAt, failAt);
 }

@@ -44,6 +44,11 @@ jobs:
   test:
     name: tests · ${{ matrix.os }} · node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
+    # Slowest observed run (run 37734741309): windows node 20, 17 min.
+    # 45 = about 2.5x. A hang used to run until GitHub's 6 h cancel
+    # (windows node 22 sat 2 h+). Inside it, `--test-timeout` (see
+    # package.json) fails a hanging test FILE after 15 min, by file name.
+    timeout-minutes: 45
     strategy:
       # Do not stop the others when one fails. A Windows-only failure is
       # exactly the kind of thing worth seeing alongside a green Linux.
@@ -161,6 +166,8 @@ jobs:
   coverage:
     name: coverage · floor and README claim
     runs-on: ubuntu-latest
+    # Observed 7.4 min; 25 is >3x. Same reasoning as the tests job.
+    timeout-minutes: 25
     steps:
       # Full history: this job runs the whole suite too (see the tests job).
       - uses: actions/checkout@v5
@@ -177,7 +184,7 @@ jobs:
         run: |
           set -o pipefail
           # Red probes are named as annotations here too (see the tests job).
-          npx c8 --reporter=text-summary node --test 2>&1 | tee /tmp/cov.txt || {
+          npx c8 --reporter=text-summary node --test --test-timeout=900000 2>&1 | tee /tmp/cov.txt || {
             rc=$?
             grep -E '^ *not ok [0-9]+ - ' /tmp/cov.txt | head -40 \
               | sed -E 's/^ *not ok [0-9]+ - /::error::red probe: /' || true
