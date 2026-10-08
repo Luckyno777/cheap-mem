@@ -47,9 +47,15 @@ test('the journal line of a before-edit run names the file (relative, two segmen
 
 test('RED PROOF: at the base commit the same run books a line without file and tool', (t) => {
   const tmp = tempDir('cm-be-file-base-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'bin', 'src', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
-  fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(tmp, 'node_modules'), 'dir');
+  // Pure git + fs, no `tar` (on Windows `tar` may be GNU tar, which reads `C:\...` as a remote host)
+  // and a junction, not a symlink (a directory symlink needs a privilege on Windows).
+  const names = execFileSync('git', ['ls-tree', '-r', '--name-only', BASE, 'bin', 'src', 'package.json'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 28 }).split('\n').filter(Boolean);
+  for (const n of names) {
+    const dest = path.join(tmp, ...n.split('/'));
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.writeFileSync(dest, execFileSync('git', ['show', `${BASE}:${n}`], { cwd: REPO, maxBuffer: 1 << 28 }));
+  }
+  fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(tmp, 'node_modules'), 'junction');
   const root = world(t);
   const before = hook(tmp, root);
   assert.equal(before.length, 1);

@@ -249,7 +249,15 @@ test('disk: the head is laid down 0600 without decrypted content; a cold start a
     assert.ok(built.entries.some((e) => String(e.text ?? '').includes(SECRET)), 'positive control: the live answer shows the decrypted text');
   } finally { await s.stop(); }
   const file = head.headPath(root);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the head on disk must be 0600');
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'the head on disk must be 0600');
+  } else {
+    // Windows has no POSIX modes (stat says 0666, chmod is a no-op): the mode cannot be asserted, and
+    // the product must not claim it there. What protects the head on Windows is that it carries no
+    // decrypted content (asserted below) - and the docs say so instead of promising 0600.
+    const doc = fs.readFileSync(path.join(HERE, '..', 'docs', 'dashboard.md'), 'utf8');
+    assert.match(doc, /dashboard-head\.json[^]{0,400}Windows[^]{0,200}(not checkable|cannot be checked|no POSIX)/, 'docs/dashboard.md must say that the 0600 is not checkable on Windows');
+  }
   const text = fs.readFileSync(file, 'utf8');
   assert.ok(!text.includes(SECRET), 'decrypted content of an entry reached the disk');
   const onDisk = JSON.parse(text).data;
