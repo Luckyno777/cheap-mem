@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as login from '../src/login.mjs';
 import * as pwa from '../src/pwa.mjs';
 
@@ -28,7 +28,7 @@ const newRoot = () => fs.mkdtempSync(path.join(os.tmpdir(), 'cm-login-'));
 
 /** Server in-process; the log is captured (for "never plain text in the log"). */
 async function start(root, env = {}) {
-  const mod = await import(SERVER);
+  const mod = await import(pathToFileURL(SERVER).href);
   const log = [];
   const real = process.stderr.write.bind(process.stderr);
   process.stderr.write = (z, ...r) => { log.push(String(z)); return real(z, ...r); };

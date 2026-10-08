@@ -35,6 +35,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   Atlas, VERDICT, REPO, writeOut, nodeStartupMs,
 } from './atlas/core.mjs';
@@ -208,7 +209,7 @@ async function main() {
     process.stderr.write(`atlas: phase ${id} ...\n`);
     const t0 = Date.now();
     try {
-      const m = await import(abs);
+      const m = await import(pathToFileURL(abs).href);
       if (typeof m.run !== 'function') throw new Error('module exports no run()');
       await m.run(atlas, { quick: opt.quick });
     } catch (e) {

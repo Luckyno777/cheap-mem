@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as search from '../src/search.mjs';
 import { buildCorpus, QUERIES } from '../bench/scale.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
@@ -34,7 +34,7 @@ async function loadOld() {
   // Same directory, so its relative imports resolve to the same modules.
   const file = path.join(ROOT, 'src', `.search-${FIXED}-${process.pid}.mjs`);
   fs.writeFileSync(file, text);
-  try { return await import(file); } finally { fs.rmSync(file, { force: true }); }
+  try { return await import(pathToFileURL(file).href); } finally { fs.rmSync(file, { force: true }); }
 }
 
 test('mmrPoolFor: n without MMR, 10 x n with MMR, at least 50', () => {
