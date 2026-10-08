@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import {
-  checkMergeDriver, checkPreCommitHook, checkClock, checkAppendAtomicity,
+  checkMergeDriver, checkPreCommitHook, checkClock, checkAppendAtomicity as realCheckAppendAtomicity,
   checkEnvironment, environmentOk, LAYER,
 } from '../src/environment.mjs';
 import {
@@ -77,7 +77,23 @@ const git = (root, ...a) => execFileSync('git', ['-C', root, ...a], { stdio: 'ig
 // put a fake `stat` ahead of it on PATH — the same technique a real
 // deployment's PATH manipulation would achieve by accident, which is
 // exactly the failure mode worth testing against.
+//
+// On Windows a fake `stat` cannot be found through PATH (CreateProcess
+// runs .exe only, PATH is ';'-separated), so there the same name goes in
+// through the check's opt-in `fsTypeOf` collaborator and then takes the
+// SAME classification as on POSIX (same pattern as append-atomicity.test).
+let activeFake;
+function checkAppendAtomicity(root, opts = {}) {
+  if (process.platform === 'win32' && activeFake !== undefined && !opts.fsTypeOf) {
+    return realCheckAppendAtomicity(root, { ...opts, fsTypeOf: () => activeFake });
+  }
+  return realCheckAppendAtomicity(root, opts);
+}
 function withFakeStat(fsType, fn) {
+  if (process.platform === 'win32') {
+    activeFake = fsType;
+    try { return fn(); } finally { activeFake = undefined; }
+  }
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-fakestat-'));
   fs.writeFileSync(path.join(dir, 'stat'), `#!/bin/sh\nprintf '%s' '${fsType}'\n`, { mode: 0o755 });
   const before = process.env.PATH;
