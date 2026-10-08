@@ -174,6 +174,34 @@ test('prefilter: node starts only on a keyword hit (nothing armed: never)', () =
   } finally { done(root); fs.rmSync(shim, { recursive: true, force: true }); }
 });
 
+test('prefilter: a booklet built in the same second as its drawer is fresh, not stale (bash 3.2 granularity)', () => {
+  // macOS bash 3.2 compares mtimes in whole seconds; the booklet is built
+  // right after the drawer, so they tie. A tie must not start node on every
+  // command; only a changed drawer (size) does. The tie is forced here.
+  const root = world();
+  const shim = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-cg-shim-'));
+  const log = path.join(shim, 'calls.log');
+  fs.writeFileSync(path.join(shim, 'node'),
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 });
+  const env = { PATH: `${shim}:${process.env.PATH}` };
+  const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter((l) => l.includes('commandguard.mjs')).length : 0);
+  const tie = () => {
+    const t = new Date(Math.floor(Date.now() / 1000) * 1000);
+    for (const f of [path.join(cg.bookletDir(root), 'rules.json'), path.join(root, 'global', 'errors.jsonl')]) fs.utimesSync(f, t, t);
+  };
+  try {
+    err(root, 'pkill hit the wrong processes', 'pkill');
+    mem(root, 'command-guard', 'build');
+    tie();
+    bash(root, 'ls -la', 't1', env);
+    assert.equal(calls(), 0, 'tie, same size, no keyword: no guard process');
+    err(root, 'force push over a shared branch', 'git push --force');
+    tie();
+    bash(root, 'ls -la', 't2', env);
+    assert.equal(calls(), 1, 'tie but the drawer grew: stale, node rebuilds (positive control)');
+  } finally { done(root); fs.rmSync(shim, { recursive: true, force: true }); }
+});
+
 test('prefilter: a missing booklet with a pattern in a drawer is built by the first guard run', () => {
   const root = world();
   try {

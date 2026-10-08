@@ -198,14 +198,22 @@ if printf '%s' "$IN" | grep -qE '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; th
   # (except two spaces in the raw text, see the module head).
   CGD="$TOOL_ROOT/src/commandguard.mjs"
   cg_needed() {
-    local dir="$ROOT/.pipeline/command-guard" f stale=""
+    local dir="$ROOT/.pipeline/command-guard" f sz stale=""
     if [ -f "$dir/rules.json" ]; then
       for f in "$ROOT/global/errors.jsonl" "$ROOT"/projects/*/errors.jsonl; do
-        # NOT newer-than is not "older": bash 3.2 (macOS /bin/bash) compares
-        # mtimes in whole seconds, so a drawer written in the same second as
-        # the booklet looked fresh and a new error went unguarded. Treat a
-        # tie as stale (cost: one node start; node's own stamp decides).
-        if [ -f "$f" ] && ! [ "$dir/rules.json" -nt "$f" ]; then stale=1; break; fi
+        # Strictly newer = stale. bash 3.2 (macOS /bin/bash) compares mtimes in
+        # whole seconds, so a drawer appended in the same second as the booklet
+        # does NOT look newer; the size decides that case (sizes.txt, written by
+        # the build; the drawers are append-only so a change changes the size).
+        # A tie alone must not count as stale: the booklet is normally built
+        # right after the drawer, and a tie-as-stale started node on every
+        # command (macOS, test "prefilter: node starts only on a keyword hit").
+        # A missing sizes.txt (older booklet) is stale: one node start, which
+        # writes it.
+        [ -f "$f" ] || continue
+        if [ "$f" -nt "$dir/rules.json" ] || [ ! -f "$dir/sizes.txt" ]; then stale=1; break; fi
+        sz="$(wc -c < "$f" | tr -d ' ')"
+        if ! grep -qxF "$sz ${f#"$ROOT"/}" "$dir/sizes.txt"; then stale=1; break; fi
       done
       if [ -z "$stale" ]; then
         [ -s "$dir/words.txt" ] && printf '%s' "$IN" | grep -qFf "$dir/words.txt"
