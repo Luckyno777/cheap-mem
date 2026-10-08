@@ -106,7 +106,10 @@ function run(guard, dir) {
 }
 
 test('A.4 guard expression: old fails on a space in the path, new does not (red/green + positive control)', () => {
-  const plain = fs.mkdtempSync(path.join(os.tmpdir(), 'f3-guard-'));
+  // realpath: on macOS os.tmpdir() is under the /var -> /private/var symlink;
+  // node resolves the entry file's real path for import.meta.url but leaves
+  // argv[1] as typed, so the OLD guard fails even without a space there.
+  const plain = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'f3-guard-'));
   const spaced = path.join(plain, 'a folder');
   fs.mkdirSync(spaced);
   try {
