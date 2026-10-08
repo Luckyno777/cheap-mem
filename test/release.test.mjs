@@ -8,7 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 import * as release from '../src/release.mjs';
 import * as checkrecord from '../src/checkrecord.mjs';
 
@@ -250,6 +251,51 @@ test('rollback: after two releases, returns "current" to the first one', () => {
     assert.equal(r.kurzhash, first.kurzhash);
     assert.equal(fs.realpathSync(path.join(base, 'current')), fs.realpathSync(path.join(base, first.kurzhash)));
   } finally { away(root); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+/** Windows refuses `rename(link, existing directory link)`; this stub does the same on any platform. */
+function refusingRename() {
+  const real = fs.renameSync;
+  fs.renameSync = (from, to) => {
+    let exists = false;
+    try { exists = fs.lstatSync(to).isSymbolicLink(); } catch { /* not there */ }
+    if (exists) { const e = new Error(`EPERM: operation not permitted, rename '${from}' -> '${to}'`); e.code = 'EPERM'; throw e; }
+    return real(from, to);
+  };
+  return () => { fs.renameSync = real; };
+}
+
+test('switching "current" works where the OS refuses to rename a link over a link (Windows EPERM), also rollback', () => {
+  const { root, base } = releasedFixture();
+  const restore = refusingRename();
+  try {
+    const first = release.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    fs.writeFileSync(path.join(root, 'README.md'), 'second state\n');
+    gitc(root, 'add', '-A');
+    gitc(root, 'commit', '--quiet', '-m', 'innocent change');
+    const second = release.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    assert.equal(fs.realpathSync(path.join(base, 'current')), fs.realpathSync(path.join(base, second.kurzhash)));
+    const r = release.rollback(root, { env: { CHEAP_MEM_RELEASE_BASE: base } });
+    assert.equal(r.rolledBack, true);
+    assert.equal(fs.realpathSync(path.join(base, 'current')), fs.realpathSync(path.join(base, first.kurzhash)));
+    assert.deepEqual(fs.readdirSync(base).filter((n) => n.startsWith('.current-')), [], 'no temp link left behind');
+  } finally { restore(); away(root); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('red proof: at the base commit the second createRelease dies when the OS refuses the link rename', async (t) => {
+  const dest = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-release-old-'));
+  t.after(() => fs.rmSync(dest, { recursive: true, force: true }));
+  exportCommit(path.join(path.dirname(fileURLToPath(import.meta.url)), '..'), 'b2b5db1b1af138a53ee426b4fce2fdf597b34b6d', ['src', 'package.json'], dest);
+  const old = await import(pathToFileURL(path.join(dest, 'src', 'release.mjs')).href);
+  const { root, base } = releasedFixture();
+  const restore = refusingRename();
+  try {
+    old.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    fs.writeFileSync(path.join(root, 'README.md'), 'second state\n');
+    gitc(root, 'add', '-A');
+    gitc(root, 'commit', '--quiet', '-m', 'innocent change');
+    assert.throws(() => old.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } }), /EPERM/);
+  } finally { restore(); away(root); fs.rmSync(base, { recursive: true, force: true }); }
 });
 
 // ---------------------------------------------------------------------

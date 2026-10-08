@@ -162,7 +162,24 @@ function readHistory(base) {
 function switchCurrent(base, targetDir) {
   const tmp = path.join(base, `.current-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   fs.symlinkSync(targetDir, tmp);
-  fs.renameSync(tmp, currentLink(base));
+  try {
+    fs.renameSync(tmp, currentLink(base));
+  } catch (e) {
+    // Windows refuses to rename a link over an existing directory link (EPERM/EACCES/EEXIST): there the
+    // swap is "remove the old link, then rename" -- a moment without `current`, never a half-written one.
+    // On POSIX the rename does not fail this way, and any other error is not ours to hide.
+    if (!['EPERM', 'EACCES', 'EEXIST'].includes(e?.code) || !fs.existsSync(currentLink(base))) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+      throw e;
+    }
+    try {
+      fs.unlinkSync(currentLink(base));
+      fs.renameSync(tmp, currentLink(base));
+    } catch (e2) {
+      try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+      throw e2;
+    }
+  }
 }
 
 /** Keep only the last `keep` distinct short-hash directories (by history order) plus whichever is current. */
