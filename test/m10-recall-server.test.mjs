@@ -69,7 +69,7 @@ async function startServer(root, env = {}) {
   while (!/listening on/.test(err) && Date.now() < until && kid.exitCode == null) {
     await new Promise((r) => setTimeout(r, 25));
   }
-  const sock = place.place(root, env).socket;
+  const sock = place.place(root, env).listed;
   assert.ok(fs.existsSync(sock), `server not listening: ${err}`);
   const stop = async (signal = 'SIGTERM') => {
     if (kid.exitCode != null) return;
@@ -141,6 +141,7 @@ test('M10-3: server hangs -> direct, total time stays inside the ONE budget', as
   // spawnSync blocks this loop) and never answers.
   const hang = net.createServer(() => {});
   await new Promise((r) => hang.listen(w.socket, r));
+  if (w.marker) fs.writeFileSync(w.marker, `${w.socket}\n`); // Windows: a pipe is no file, the marker is what the hook sees
   try {
     const r = hook(root, 's-b', { MEM_RETRIEVE_TIME: '3', MEM_RECALL_SERVER_WAIT_MS: '60000' });
     assert.equal(r.out, direct.out, 'after the hang the direct path delivers');
@@ -186,8 +187,8 @@ test('M10-5: code changed -> the server answers stale, the client delivers nothi
     assert.equal(old.out, '', 'stale means: NOTHING delivered, never old results');
     // And afterwards it no longer listens: without a socket the hook never asks it again.
     const until = Date.now() + 2000;
-    while (fs.existsSync(s.where.socket) && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
-    assert.equal(fs.existsSync(s.where.socket), false, 'a stale server removes its socket');
+    while (fs.existsSync(s.where.listed) && Date.now() < until) await new Promise((r) => setTimeout(r, 20));
+    assert.equal(fs.existsSync(s.where.listed), false, 'a stale server removes its socket');
   } finally { await s.close(); }
 });
 
@@ -196,9 +197,16 @@ test('M10-6: strangers get nothing (key, modes, another user)', async (t) => {
   const s = await startServer(root);
   try {
     const w = place.place(root, {});
-    assert.equal(fs.statSync(w.dir).mode & 0o777, 0o700);
-    assert.equal(fs.statSync(w.socket).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(w.key).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(w.dir).mode & 0o777, 0o700);
+      assert.equal(fs.statSync(w.socket).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(w.key).mode & 0o777, 0o600);
+    } else {
+      // No POSIX modes on Windows (UNVERIFIED there): the docs must say so; the key remains the guard.
+      const doc = fs.readFileSync(path.join(CODE, 'docs', 'dashboard.md'), 'utf8');
+      assert.match(doc, /Windows POSIX modes\s+mean nothing and cannot be checked|On Windows POSIX modes\s+mean nothing and cannot be checked/);
+      process.stderr.write('NOTICE: recall dir/key modes not asserted on Windows; docs say they cannot be checked\n');
+    }
     const ign = spawnSync('git', ['-C', CODE, 'check-ignore', '-q', '.pipeline/recall/key']);
     assert.equal(ign.status, 0, '.pipeline/recall is gitignored');
 
@@ -235,7 +243,7 @@ test('M10-7: without a server socket the path from before M10 runs', () => {
   // A plain FILE at the socket place is no server: `[ -S ]` says no.
   const w = place.place(root, {});
   fs.mkdirSync(w.dir, { recursive: true });
-  fs.writeFileSync(w.socket, '');
+  if (!w.marker) fs.writeFileSync(w.socket, ''); // Windows: no marker, no server (a pipe path cannot be written as a file)
   const r = hook(root, 's-a');
   assert.match(r.out, /Recalled automatically/);
   const l = lines(root);
@@ -333,7 +341,7 @@ test('M10-10: code change -> stale -> the server restarts itself, the rate limit
     log: (t) => said.push(t),
     now: () => clock,
   });
-  const sock = place.place(root, {}).socket;
+  const sock = place.place(root, {}).listed;
   const until = async (f) => {
     const end = Date.now() + 15000;
     while (!f() && Date.now() < end) await new Promise((r) => setTimeout(r, 25));
@@ -372,4 +380,16 @@ test('M10-10: code change -> stale -> the server restarts itself, the rate limit
     assert.ok(k.starts[2] - k.starts[1] >= GAP, `gap ${k.starts[2] - k.starts[1]} ms < ${GAP}`);
     assert.ok(said.some((t) => /restart \(code under src\/ changed\)/.test(t)), 'a log line for the restart');
   } finally { await k.stop(); }
+});
+
+test('M10-9: simulated win32 place: a pipe plus a marker FILE the hook can see (UNVERIFIED on real Windows)', () => {
+  const w = place.place('/some/root', {}, 'win32');
+  assert.match(w.socket, /^\\\\\.\\pipe\\cheap-mem-recall-[0-9a-f]{16}$/);
+  assert.equal(path.basename(w.marker), place.MARKER_NAME);
+  assert.equal(w.listed, w.marker, 'the hook looks at the marker, never at the pipe path');
+  const p = place.place('/some/root', {}, 'linux');
+  assert.equal(p.marker, null);
+  assert.equal(p.listed, p.socket);
+  // the hook's gate accepts the marker (bash side)
+  assert.match(fs.readFileSync(path.join(CODE, 'bin', 'mem-retrieve'), 'utf8'), /-f "\$RECALL_DIR\/recall\.pipe"/);
 });

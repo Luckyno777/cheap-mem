@@ -230,9 +230,14 @@ old UI had and where it lives now.
 
 `mem serve` also starts a **recall server** as a child process
 (`src/recallserver.mjs`, `bin/mem-recall-server.mjs`): a Unix socket at
-`<memory>/.pipeline/recall/recall.sock` (Windows: a named pipe). The
-recall hook (`bin/mem-retrieve`, and `bin/mem-retrieve.ps1`) asks it
-first; with no socket it runs `mem find` itself, exactly as before.
+`<memory>/.pipeline/recall/recall.sock` (Windows: a named pipe, plus a
+marker file `recall.pipe` in the same directory, because a pipe is no file
+and the hook's bash test needs something to look for; a dead server leaves
+the marker, the client's connect then fails and the hook goes direct with
+`server-gone`). The
+recall hook `bin/mem-retrieve` (bash, also under Git Bash on Windows) asks it
+first; the PowerShell hook `bin/mem-retrieve.ps1` does not ask it yet and
+always searches direct; with no socket it runs `mem find` itself, exactly as before.
 
 - **One search path.** The server runs the same `find` handler as
   `mem find <prompt> --top N --json`; the hook renders and books as
@@ -240,7 +245,14 @@ first; with no socket it runs `mem find` itself, exactly as before.
 - **Local only.** No TCP, no port. Directory mode 0700, socket and key
   file 0600, all under `.pipeline/` (gitignored); the key never reaches
   a log. Another user reaches neither (probe
-  `test/m10-recall-server.test.mjs`, M10-6).
+  `test/m10-recall-server.test.mjs`, M10-6). **On Windows POSIX modes
+  mean nothing and cannot be checked**: the 0700/0600 above hold on
+  POSIX only; there the random key is the guard, the server prints a
+  NOTICE at start, and NTFS ACLs of your profile (`icacls`) do the rest.
+  Unverified on real Windows.
+- **Password and setup-code files** (`serve-password.json`,
+  `serve-setup-code`) are 0600 on POSIX; on Windows the same applies:
+  POSIX modes cannot be checked there, protect them with NTFS ACLs.
 - **Fresh.** No index is kept in the server; every question loads it
   through `search.loadIndex()`, which checks the file state. If code
   under `src/` changes, the server answers `stale`, the hook runs

@@ -362,7 +362,14 @@ test('mem serve reset-password: hash and sessions gone, the next visit asks for 
     const c = spawnSync(process.execPath, [MEM, 'serve', 'setup-code', '--root', root], { encoding: 'utf8' });
     assert.equal(c.status, 0);
     assert.match(c.stdout, /Setup code: [A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}/);
-    assert.equal(fs.statSync(path.join(root, '.pipeline', 'serve-setup-code')).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(path.join(root, '.pipeline', 'serve-setup-code')).mode & 0o777, 0o600);
+    } else {
+      // No POSIX modes on Windows (UNVERIFIED there): assert the honest statement instead.
+      const doc = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'dashboard.md'), 'utf8');
+      assert.match(doc, /serve-setup-code[^]{0,300}Windows[^]{0,200}(cannot be checked|not checkable)/, 'docs must say modes are not checkable on Windows');
+      process.stderr.write('NOTICE: serve-setup-code mode (0600) not asserted on Windows; docs say it cannot be checked\n');
+    }
   } finally { await s.stop(); }
 });
 
