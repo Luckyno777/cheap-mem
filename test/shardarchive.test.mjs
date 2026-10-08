@@ -251,12 +251,17 @@ test('SABOTAGE: archiveStatus tells "some unreachable" (DEGRADED) apart from "al
 // 4. SIZE: a fresh clone with and without the archived shards
 // ---------------------------------------------------------------------
 
+// A file that vanishes between readdir and stat (git's detached background
+// maintenance removes `objects/maintenance.lock` and temp files) is not part
+// of the steady state: skip it instead of failing the walk.
 function du(p) {
   let total = 0;
-  for (const entry of fs.readdirSync(p, { withFileTypes: true })) {
+  let entries;
+  try { entries = fs.readdirSync(p, { withFileTypes: true }); } catch (e) { if (e.code === 'ENOENT') return 0; throw e; }
+  for (const entry of entries) {
     const full = path.join(p, entry.name);
     if (entry.isDirectory()) total += du(full);
-    else total += fs.statSync(full).size;
+    else { try { total += fs.statSync(full).size; } catch (e) { if (e.code !== 'ENOENT') throw e; } }
   }
   return total;
 }
@@ -281,11 +286,15 @@ function du(p) {
 function freshRepoGitSize(buildFn) {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-shardarchive-freshrepo-'));
   buildFn(repo);
-  execFileSync('git', ['init', '-q'], { cwd: repo });
-  execFileSync('git', ['config', 'user.email', 'p17@localhost'], { cwd: repo });
-  execFileSync('git', ['config', 'user.name', 'p17-fixture'], { cwd: repo });
-  execFileSync('git', ['add', '-A'], { cwd: repo });
-  execFileSync('git', ['commit', '-q', '-m', 'fresh state'], { cwd: repo });
+  // No background work in the fixture: it would change .git while we measure it.
+  const g = (...a) => execFileSync('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', ...a], { cwd: repo });
+  g('init', '-q');
+  g('config', 'gc.auto', '0');
+  g('config', 'maintenance.auto', 'false');
+  g('config', 'user.email', 'p17@localhost');
+  g('config', 'user.name', 'p17-fixture');
+  g('add', '-A');
+  g('commit', '-q', '-m', 'fresh state');
   const size = du(path.join(repo, '.git'));
   fs.rmSync(repo, { recursive: true, force: true, maxRetries: 5 });
   return size;
