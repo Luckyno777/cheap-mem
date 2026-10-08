@@ -36,7 +36,7 @@ function cap(root, name, buf) {
   const dir = path.join(root, 'raw', '2026', '09');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, name), buf);
-  return path.join('raw', '2026', '09', name);
+  return `raw/2026/09/${name}`; // stored keys are posix whatever the platform (raw.captureKey)
 }
 
 // --- B17 ---------------------------------------------------------------

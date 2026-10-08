@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as procedure from '../src/procedure.mjs';
 import * as memory from '../src/memory.mjs';
@@ -48,7 +48,7 @@ const statusOfRule = (r, id) => {
   return procedure.statusOf(entries.find((e) => e.id === id), procedure.statusIndex(entries));
 };
 const shown = (r) => procedure.forSubagentStart(r).map((e) => e.title);
-const fault = (n) => ({ NODE_OPTIONS: `--import ${FAIL}`, Z1B_FAIL_APPEND_AT: String(n) });
+const fault = (n) => ({ NODE_OPTIONS: `--import ${pathToFileURL(FAIL).href}`, Z1B_FAIL_APPEND_AT: String(n) });
 
 test('B15 RED on the old state: a failed second write leaves the rule released (legacy); the injection hits the second write (positive control)', () => {
   const r = house();
