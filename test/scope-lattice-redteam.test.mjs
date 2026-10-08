@@ -413,11 +413,14 @@ test('LANE hook mem-before-edit (PreToolUse): RED — leaks alpha into the pre-e
     const r = spawnSync('bash', [HOOK_BEFORE_EDIT], {
       input: JSON.stringify({ tool_input: { file_path: filePath }, session_id: 'redteam-p13' }),
       encoding: 'utf8', timeout: 20000,
-      env: { ...process.env, CHEAP_MEM_ROOT: root },
+      // TRACE: every early exit of the hook names itself on stderr (stdout is untouched), so a red run on a
+      // platform nobody can reproduce locally says WHICH exit it took.
+      env: { ...process.env, CHEAP_MEM_ROOT: root, MEM_BEFORE_EDIT_TRACE: '1' },
     });
     assert.equal(r.status, 0, `hook exited ${r.status}: ${r.stderr}`);
     assert.ok(r.stdout.includes(ALPHA_SECRET),
-      'expected today\'s real hole: `mem component` (which this hook calls, unscoped) has no project concept for the hook to use');
+      'expected today\'s real hole: `mem component` (which this hook calls, unscoped) has no project concept for the hook to use'
+      + `\nstdout: ${r.stdout.slice(0, 300)}\nstderr: ${r.stderr.slice(0, 600)}`);
   } finally { cleanup(root); }
 });
 
