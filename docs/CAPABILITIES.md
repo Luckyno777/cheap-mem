@@ -155,6 +155,7 @@ directory. The section number in brackets is where it is explained.
 | `origin.mjs` | where the session ran (cloud, ssh, local, unknown): the closed vocabulary of the injection journal's `origin` field; `raw.detectSurface` asks here |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree |
 | `pointer.mjs` | a pointer instead of silence when something was already shown |
+| `posixmode.mjs` | what a file mode may be claimed to say: POSIX bits are judged on Linux/macOS, and on Windows (where stat says 0666 and chmod does nothing) every report says "not checkable on this platform" instead of a verdict; `platform` is a parameter so the Windows answer is testable on Linux; used by `missgold.mjs` and `login.mjs` |
 | `prepush.mjs` | the opt-in pre-push WARNING: before a push to the default branch, asks CI (via `gh`) whether that exact commit has a green run — green/red/pending/none/unknown, never blocks, never says green without CI saying so ([6.2](#62-the-pre-push-ci-warning)) |
 | `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |

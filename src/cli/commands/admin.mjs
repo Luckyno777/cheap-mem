@@ -988,7 +988,8 @@ export const COMMANDS = {
         const la = st.run;
         out(`Last collection: ${la ? `${la.day} ${la.result}${la.result === 'ok' ? `, ${la.fresh} new case(s)` : la.class ? ` (${la.class})` : la.result === 'running' ? ' (never finished: time cap or abort)' : ''}` : 'never (no stamp)'}`);
         out(`Miss gold: ${st.cases} case(s) (scored from ${st.min}), ${st.broken} broken line(s), ${st.present ? st.path : 'file missing'}`);
-        if (st.present && !st.modeOk) out('WARNING: the file is readable by group/others (should be 0600).');
+        const modeLine = missgold.modeNote(st);
+        if (modeLine) out(modeLine);
         if (!st.ignored) out('WARNING: the path sits inside the work tree and git does NOT ignore it.');
         return;
       }

@@ -38,6 +38,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import { writeAtomic } from './atomicwrite.mjs';
+import * as posixmode from './posixmode.mjs';
 
 export const PATHS = Object.freeze({
   page: '/login',
@@ -83,6 +84,25 @@ export function files(dir) {
     sessions: path.join(dir, 'serve-sessions.json'),
     code: path.join(dir, 'serve-setup-code'),
   };
+}
+
+/**
+ * Do the secret files in `dir` have the mode they were written with (0600)?
+ * `{ hash, sessions, code }`, each 'private', 'open', 'missing' or
+ * 'not-checkable' (Windows: POSIX modes mean nothing there, see posixmode.mjs).
+ */
+export function modeReport(dir, { platform = process.platform } = {}) {
+  const f = files(dir);
+  return {
+    hash: posixmode.fileState(f.hash, platform),
+    sessions: posixmode.fileState(f.sessions, platform),
+    code: posixmode.fileState(f.code, platform),
+  };
+}
+
+/** One line for the user about those modes, or null. */
+export function modeNote(dir, opts) {
+  return posixmode.note(Object.values(modeReport(dir, opts)), 'the password files');
 }
 
 function writePrivate(file, body) {

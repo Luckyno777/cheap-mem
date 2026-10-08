@@ -35,7 +35,14 @@ test('positive control: the first call collects and writes a 0600 stamp with day
   const st = mg.readRun(root);
   assert.equal(st.day, '2026-10-02');
   assert.equal(st.result, 'ok');
-  assert.equal(fs.statSync(mg.runPath(root)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') {
+    assert.equal(fs.statSync(mg.runPath(root)).mode & 0o777, 0o600);
+    assert.equal(mg.status(root).runModeOk, true);
+  } else {
+    // No POSIX modes on Windows (stat says 0666): the product must say "not checkable", not claim 0600.
+    assert.equal(mg.status(root).runModeOk, null, 'Windows: the stamp mode must be reported as not checkable');
+    assert.match(mg.modeNote(mg.status(root)), /not checkable on this platform/);
+  }
   assert.ok(!fs.readdirSync(path.dirname(mg.runPath(root))).some((n) => n.endsWith('.tmp')), 'no temp file');
   assert.equal(mg.read(mg.filePath(root)).rows.length, 1);
 });
@@ -173,4 +180,14 @@ test('red proof: the digest tick before this build leaves no stamp (the probe bi
     assert.throws(() => execFileSync('git', ['cat-file', '-e', `${BEFORE}:src/missgold.mjs`], { cwd: REPO, stdio: 'ignore' }),
       'and the module did not exist there');
   });
+});
+
+test('the stamp mode, win32 behaviour driven on every platform: no verdict (control: a real stamp is there)', () => {
+  const root = world();
+  mg.dailyRun(root, { now: DAY1 });
+  assert.ok(fs.existsSync(mg.runPath(root)), 'positive control: the stamp exists');
+  const st = mg.status(root, process.env, { platform: 'win32' });
+  assert.equal(st.runModeOk, null);
+  assert.equal(st.modeOk, null);
+  assert.match(mg.modeNote(st), /not checkable on this platform/);
 });

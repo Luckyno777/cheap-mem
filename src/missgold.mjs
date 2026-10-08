@@ -52,6 +52,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { writeAtomic } from './atomicwrite.mjs';
+import * as posixmode from './posixmode.mjs';
 import * as askedlearn from './askedlearn.mjs';
 import * as memory from './memory.mjs';
 import * as raw from './raw.mjs';
@@ -83,12 +84,16 @@ function gitIgnores(root, target) {
   }
 }
 
-/** Read the lines; broken ones are counted, never thrown. `modeOk`: no rights for group/others. */
-export function read(target) {
+/**
+ * Read the lines; broken ones are counted, never thrown. `modeOk`: true = no
+ * rights for group/others, false = open, null = the platform cannot say
+ * (Windows: see posixmode.mjs) -- never a verdict from numbers that mean nothing.
+ */
+export function read(target, { platform = process.platform } = {}) {
   const out = { present: false, rows: [], broken: 0, modeOk: true };
   let text;
   try {
-    out.modeOk = (fs.statSync(target).mode & 0o077) === 0;
+    out.modeOk = posixmode.isPrivate(fs.statSync(target).mode, platform);
     text = fs.readFileSync(target, 'utf8');
   } catch { return out; }
   out.present = true;
@@ -242,14 +247,30 @@ export function dailyRun(root, { env = process.env, now = new Date(), ...opt } =
   return { skipped: false, day, ...res };
 }
 
-/** State of the file — counts only. */
-export function status(root, env = process.env) {
+/**
+ * The user-facing line about the modes in a `status` result, or null. Open is a
+ * WARNING; "cannot be judged here" (Windows) is said, not left out.
+ */
+export function modeNote(st) {
+  const state = (ok) => (ok === null ? 'not-checkable' : ok ? 'private' : 'open');
+  const states = [];
+  if (st.present) states.push(state(st.modeOk));
+  if (st.runModeOk !== undefined) states.push(state(st.runModeOk));
+  return posixmode.note(states, 'the miss-gold files');
+}
+
+/** State of the file — counts only. `runModeOk`: the same verdict for the daily stamp (null when there is none). */
+export function status(root, env = process.env, { platform = process.platform } = {}) {
   const target = filePath(root, env);
-  const r = read(target);
+  const r = read(target, { platform });
+  const stamp = runPath(root, env);
+  const runState = posixmode.fileState(stamp, platform);
   return {
     run: readRun(root, env),
     path: target, present: r.present, cases: r.rows.length, broken: r.broken,
-    modeOk: r.modeOk, ignored: gitIgnores(root, target), min: MIN_CASES,
+    modeOk: r.modeOk,
+    runModeOk: runState === 'missing' ? undefined : runState === 'not-checkable' ? null : runState === 'private',
+    ignored: gitIgnores(root, target), min: MIN_CASES,
   };
 }
 

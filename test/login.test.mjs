@@ -217,8 +217,18 @@ test('stored is a salted scrypt hash, mode 600, never plain text — not in the 
     const j = JSON.parse(text);
     assert.equal(j.method, 'scrypt');
     assert.ok(Buffer.from(j.salt, 'base64').length >= 16);
-    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-    assert.equal(fs.statSync(path.join(root, '.pipeline', 'serve-sessions.json')).mode & 0o777, 0o600);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+      assert.equal(fs.statSync(path.join(root, '.pipeline', 'serve-sessions.json')).mode & 0o777, 0o600);
+      assert.deepEqual(login.modeReport(path.join(root, '.pipeline')), { hash: 'private', sessions: 'private', code: 'missing' });
+    } else {
+      // No POSIX modes on Windows (stat says 0666): not asserted. The product has to say so instead.
+      const rep = login.modeReport(path.join(root, '.pipeline'));
+      assert.equal(rep.hash, 'not-checkable');
+      assert.equal(rep.sessions, 'not-checkable');
+      assert.match(login.modeNote(path.join(root, '.pipeline')), /not checkable on this platform/);
+      process.stderr.write('NOTICE: serve-password.json mode (0600) not asserted on Windows; the product reports it as not checkable\n');
+    }
     assert.ok(!s.log.join('').includes(PW) && !s.log.join('').includes('wrong-wrong-wrong'));
     assert.equal(login.matches(PW, j), true);
     assert.equal(login.matches(PW + '!', j), false);
@@ -366,6 +376,7 @@ test('mem serve reset-password: hash and sessions gone, the next visit asks for 
       assert.equal(fs.statSync(path.join(root, '.pipeline', 'serve-setup-code')).mode & 0o777, 0o600);
     } else {
       // No POSIX modes on Windows (UNVERIFIED there): assert the honest statement instead.
+      assert.match(c.stdout, /not checkable on this platform/, 'the CLI must say that the mode cannot be judged');
       const doc = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'docs', 'dashboard.md'), 'utf8');
       assert.match(doc, /serve-setup-code[^]{0,300}Windows[^]{0,200}(cannot be checked|not checkable)/, 'docs must say modes are not checkable on Windows');
       process.stderr.write('NOTICE: serve-setup-code mode (0600) not asserted on Windows; docs say it cannot be checked\n');
@@ -394,5 +405,20 @@ test('sign-in page: black, no script, nothing from outside, CSP header', async (
     const signin = await (await fetch(s.base + '/login')).text();
     assert.match(signin, /type="password" name="password"/);
     assert.ok(!/name="code"/.test(signin));
+  } finally { await s.stop(); }
+});
+
+test('the password files modes, win32 behaviour driven on every platform: no verdict, "not checkable on this platform"', async () => {
+  const root = newRoot();
+  const s = await start(root);
+  try {
+    await setUp(s.base, root);
+    const dir = path.join(root, '.pipeline');
+    assert.ok(fs.existsSync(path.join(dir, 'serve-password.json')), 'positive control: the hash file is there');
+    const rep = login.modeReport(dir, { platform: 'win32' });
+    assert.equal(rep.hash, 'not-checkable');
+    assert.equal(rep.sessions, 'not-checkable');
+    assert.equal(rep.code, 'missing', 'a file that is not there is missing, not "not checkable"');
+    assert.match(login.modeNote(dir, { platform: 'win32' }), /not checkable on this platform/);
   } finally { await s.stop(); }
 });
