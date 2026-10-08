@@ -9,8 +9,9 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 export const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const NEW_SRC = path.join(HERE, '..', 'src');
@@ -26,9 +27,7 @@ export function oldSrc() {
   if (oldDir !== null) return oldDir || null;
   try {
     const tmp = mkTmp('prelock-');
-    const tar = path.join(tmp, 'src.tar');
-    execFileSync('git', ['-C', path.join(HERE, '..'), 'archive', '-o', tar, PRE_LOCK_COMMIT, 'src']);
-    execFileSync('tar', ['-xf', tar, '-C', tmp]);
+    exportCommit(path.join(HERE, '..'), PRE_LOCK_COMMIT, ['src'], tmp);
     oldDir = path.join(tmp, 'src');
   } catch { oldDir = ''; }
   return oldDir || null;

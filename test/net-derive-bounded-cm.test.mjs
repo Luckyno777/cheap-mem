@@ -19,10 +19,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as memory from '../src/memory.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -33,9 +34,7 @@ let oldCache = null;
 function oldTree(t) {
   if (oldCache && fs.existsSync(oldCache)) return oldCache;
   const dir = tempDir('nd-old-', t);
-  const tar = path.join(dir, 'old.tar');
-  execFileSync('git', ['-C', REPO, 'archive', '-o', tar, OLD_COMMIT, 'src', 'bin', 'package.json']);
-  execFileSync('tar', ['-x', '-C', dir, '-f', tar]);
+  exportCommit(REPO, OLD_COMMIT, ['src', 'bin', 'package.json'], dir);
   oldCache = dir;
   return dir;
 }

@@ -14,8 +14,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(import.meta.dirname, '..');
 const START = '3d89195';
@@ -127,8 +127,7 @@ test('refill: with a second author the quota cut is filled from that author', ()
 test('red proof: the probes FAIL against the start commit', async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-z1d-base-'));
   try {
-    execFileSync('git', ['-C', REPO, 'archive', '-o', path.join(tmp, 'a.tar'), START, 'src']);
-    execFileSync('tar', ['-x', '-C', tmp, '-f', path.join(tmp, 'a.tar')]);
+    exportCommit(REPO, START, ['src'], tmp);
     const old = probes(await load(path.join(tmp, 'src')));
     assert.deepEqual(old.scope[1], [], 'old code: top=1 misses the hit');
     assert.ok(old.single[3].n < old.single[2].n, 'old code: top=3 returns less than top=2');
