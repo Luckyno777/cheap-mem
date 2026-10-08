@@ -21,9 +21,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import * as procedure from '../src/procedure.mjs';
 import * as memory from '../src/memory.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -54,9 +55,7 @@ test('B15 RED on the old state: a failed second write leaves the rule released (
   const r = house();
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-z1b-old-'));
   try {
-    execFileSync('tar', ['-x', '-C', old], {
-      input: execFileSync('git', ['-C', REPO, 'archive', OLD_STATE], { maxBuffer: 256 * 1024 * 1024 }),
-    });
+    exportCommit(REPO, OLD_STATE, ['.'], old);
     try { fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(old, 'node_modules')); } catch { /* none needed */ }
     const o = mem(path.join(old, 'bin', 'mem'), r, fault(2), ...RULE('Old rule', '--start-as', 'proposed'));
     assert.match(o.stderr, /NOT written/, 'positive control: the injected failure hit the status write');

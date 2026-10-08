@@ -9,7 +9,7 @@
 // fragments. Positive controls: a plain single value and a real list are read as before.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,7 @@ import * as memory from '../src/memory.mjs';
 import * as experience from '../src/experience.mjs';
 import * as errorfile from '../src/errorfile.mjs';
 import * as skillregistry from '../src/skillregistry.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -33,8 +34,7 @@ const lastOf = (root, file) => JSON.parse(fs.readFileSync(path.join(root, 'globa
 
 test('RED PROOF: at the base commit the JSON list is stored as a string and the reader tears it apart', (t) => {
   const tmp = tempDir('cm-scope-list-base-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'bin', 'src', 'shared', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
+  exportCommit(REPO, BASE, ['bin', 'src', 'shared', 'package.json'], tmp);
   fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(tmp, 'node_modules'), 'dir');
   const root = world(t);
   const r = run(path.join(tmp, 'bin', 'mem'), root, ['log', 'skill', '--title', 'A skill', '--text', 'x', '--topics', '["mcp","skill"]']);

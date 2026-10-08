@@ -11,9 +11,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** cheap-mem main before the BOM tolerance. */
@@ -103,8 +104,7 @@ test('a BOM in the MIDDLE of a drawer is still a broken line (it is damage, not 
 
 test('RED: on the pinned old state the BOM entry is invisible and the doctor calls it broken; the control without a BOM is found there', (t) => {
   const old = tmp(t, 'cm-bom-old-');
-  const tar = execFileSync('git', ['-C', REPO, 'archive', OLD_STATE], { maxBuffer: 256 * 1024 * 1024 });
-  execFileSync('tar', ['-x', '-C', old], { input: tar });
+  exportCommit(REPO, OLD_STATE, ['.'], old);
   try { fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(old, 'node_modules')); } catch { /* none needed */ }
   const oldBin = path.join(old, 'bin', 'mem');
   const control = surfaces(oldBin, root(t, oldBin, { bom: false }));

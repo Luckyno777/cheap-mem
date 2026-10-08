@@ -11,7 +11,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as memory from '../src/memory.mjs';
@@ -19,6 +19,7 @@ import * as categories from '../src/categories.mjs';
 import * as subagentstart from '../src/subagentstart.mjs';
 import * as subagenttask from '../src/subagenttask.mjs';
 import * as componentTable from '../src/component-table.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -60,8 +61,7 @@ test('RED PROOF: at the base commit the same input gives no block for the task (
   const e = error(root, 'Frobnicate widget crash in the lockfile writer');
   const j = payload(t);
   const tmp = tempDir('cm-subtask-base-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'src', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
+  exportCommit(REPO, BASE, ['src', 'package.json'], tmp);
   const old = await import(pathToFileURL(path.join(tmp, 'src', 'subagentstart.mjs')).href);
   const before = textOf(await old.hookResultFor(root, JSON.stringify(j), { env: { ...process.env, ...LOW } }));
   assert.ok(!before.includes(e.id), 'the base already showed the error');

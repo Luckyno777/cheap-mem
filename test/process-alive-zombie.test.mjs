@@ -15,11 +15,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import { processAlive } from '../src/processalive.mjs';
 import { withLock, LockTimeoutError } from '../src/filelock.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '0cec5683212e9721fdac0813f1561e50dbb6081f';
@@ -105,8 +106,7 @@ test('positive control: a lock held by a LIVING pid still blocks; one held by a 
 
 test('RED PROOF for the lock: at the base commit the same zombie lock times out (positive control: today it does not)', { skip: !hasProc && 'no /proc' }, async (t) => {
   const tmp = tempDir('cm-zombie-base-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'src', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
+  exportCommit(REPO, BASE, ['src', 'package.json'], tmp);
   const old = await import(pathToFileURL(path.join(tmp, 'src', 'filelock.mjs')).href);
   const dir = tempDir('cm-zombie-base-lock-', t);
   const z = await zombie();

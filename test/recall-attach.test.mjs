@@ -8,8 +8,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { exportCommit } from './helpers/export-commit.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as memory from '../src/memory.mjs';
@@ -49,8 +50,7 @@ test('RED PROOF: at the base commit the same recall shows no solution line (posi
   const l = learning(root, 'Delete the stale lock file first');
   resolves(root, l.id, e.id);
   const tmp = tempDir('cm-attach-base-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'src', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
+  exportCommit(REPO, BASE, ['src', 'package.json'], tmp);
   const old = await import(pathToFileURL(path.join(tmp, 'src', 'recallhook.mjs')).href);
   const before = textOf(old.recall(root, hitsJson(e), env()));
   assert.doesNotMatch(before, /Solution/, 'the base already showed a solution');
@@ -280,8 +280,7 @@ test('RED PROOF L4: at the base commit the offer for a scoped skill has no accou
   error(root, 'First publish failure');
   error(root, 'Second publish failure');
   const tmp = tempDir('cm-attach-base4-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'src', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
+  exportCommit(REPO, BASE, ['src', 'package.json'], tmp);
   const old = await import(pathToFileURL(path.join(tmp, 'src', 'recallhook.mjs')).href);
   const before = await old.skillOffer(root, { ...process.env, ...PROMPT });
   assert.equal(before.line.split('\n').length, 1, 'the base already brought account lines');
