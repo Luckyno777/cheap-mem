@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 import * as memory from '../src/memory.mjs';
 import * as state from '../src/state.mjs';
 import * as maintenance from '../src/maintenance.mjs';
@@ -182,7 +183,7 @@ let oldTree = null;
 try {
   execFileSync('git', ['-C', REPO, 'cat-file', '-e', `${OLD}^{commit}`], { stdio: 'ignore' });
   oldTree = tmp();
-  execFileSync('bash', ['-c', `git -C "${REPO}" archive ${OLD} src | tar -x -C "${oldTree}"`]);
+  exportCommit(REPO, OLD, ['src'], oldTree);
 } catch { oldTree = null; }
 
 test('RED on the pinned pre-fix commit: retires_id and closes_id let the digest through, replaces_id did not',
