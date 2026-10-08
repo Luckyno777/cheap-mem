@@ -136,15 +136,21 @@ test('POSITIVE CONTROL: a DIFFERENT signature, or a different session, still fir
 
 test('SIEVE: a large harmless output returns fast, without a working memory root at all', () => {
   const big = `${'nothing wrong here, all good\n'.repeat(2000)}0 failures, 0 errors`;
-  const t0 = Date.now();
-  const r = run(bashJson({ stdout: big }), '/no/such/cheap-mem-root');
-  const ms = Date.now() - t0;
+  // Relative, not absolute (CI: 165ms on a Windows runner, where merely starting bash
+  // costs more than the old 150ms bound). Baseline = the bare start of the same shell on the
+  // same machine in the same moment; what the sieve adds to it must stay small. Best of
+  // three each, so one scheduler hiccup does not decide.
+  const best = (f) => { let m = Infinity; for (let i = 0; i < 3; i++) { const t0 = process.hrtime.bigint(); f(); m = Math.min(m, Number(process.hrtime.bigint() - t0) / 1e6); } return m; };
+  const baseline = best(() => spawnSync('bash', ['-c', ':'], { encoding: 'utf8', timeout: 30000 }));
+  let r;
+  const ms = best(() => { r = run(bashJson({ stdout: big }), '/no/such/cheap-mem-root'); });
   assert.equal(r.status, 0);
   assert.equal(r.stdout, '');
-  // A node start plus `mem find` measured 200-400ms in the CLI probes
-  // above; the sieve alone on 60KB of harmless text must stay well under
-  // that, or it is not doing its one job (avoiding exactly that cost).
-  assert.ok(ms < 150, `sieve took ${ms}ms on harmless input — no longer cheap`);
+  // A node start plus `mem find` measured 200-400ms in the CLI probes above; the sieve alone
+  // on 60KB of harmless text must add well under that to a bare shell start, or it is not
+  // doing its one job (avoiding exactly that cost).
+  const added = ms - baseline;
+  assert.ok(added < 120, `sieve took ${ms.toFixed(0)}ms (bare bash ${baseline.toFixed(0)}ms, +${added.toFixed(0)}ms) on harmless input — no longer cheap`);
 });
 
 test('SIEVE: a candidate substring only in the command line, not the output, stays silent', () => {
