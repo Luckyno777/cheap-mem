@@ -156,12 +156,17 @@ export async function start(root, {
     say(`not started: ${e.message}`);
     return { running: false, reason: e.message };
   }
-  if (process.platform !== 'win32' && fs.existsSync(where.socket)) {
+  // POSIX: a socket file may be there, live or dead. Windows: a pipe leaves no file, so ask the pipe
+  // itself (a missing pipe answers at once with an error). Without this a second server on Windows
+  // replaced the live one's key file below, then failed to listen and removed it: the first server
+  // kept running, but no client could authenticate to it any more.
+  const win = process.platform === 'win32';
+  if (win || fs.existsSync(where.socket)) {
     if (await someoneListens(where.socket)) {
       say(`not started: a server already listens on ${where.socket}`);
       return { running: false, reason: 'busy' };
     }
-    try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
+    if (!win) { try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ } }
   }
 
   const { COMMANDS } = await import('./cli/commands/search.mjs');
