@@ -79,6 +79,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_AFTER_FAILURE_TURNS', PATH, '`<root>/.mem/after-failure-turns`', 'Directory of the once-per-turn claims of the after-failure hook.'),
   sw('MEM_CATCH_FAIL_TURNS', PATH, '`<root>/.mem/catch-fail-turns`', 'Directory of the once-per-turn claims of the swallowed-failure hook.'),
   sw('MEM_RECALL_SERVER_DIR', PATH, '`.pipeline/` of the root', 'Where the warm recall server keeps its socket and key; set it when the root path is too long for a Unix socket.'),
+  sw('MEM_RECALL_SERVER_SHORT_BASE', PATH, '`/tmp`', 'Base directory for the short socket directory the recall server picks on its own when the default socket path is too long (macOS temp dirs); only used when MEM_RECALL_SERVER_DIR is unset.'),
   sw('MEM_RECALL_SERVER_CODE_STATE', PATH, 'the server\'s own code directory', 'Tests only: which directory\'s `src/` the server watches to restart itself after a code change.'),
   sw('MEM_RETRIEVE_ROOTS', PATH, '`~/cheap-mem /work/cheap-mem /home/user/cheap-mem`', 'Space-separated roots the recall and after-failure hooks probe when `CHEAP_MEM_ROOT` is not set.'),
   sw('MEM_STOP_ROOTS', PATH, '`~/cheap-mem /work/cheap-mem /home/user/cheap-mem`', 'The same probe list for the stop hook.'),

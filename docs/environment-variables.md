@@ -144,6 +144,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_HANDLER_CMD` | `claude -p` | The model command that handles an incoming letter. |
 | `MEM_RECALL_SERVER_CODE_STATE` | the server's own code directory | Tests only: which directory's `src/` the server watches to restart itself after a code change. |
 | `MEM_RECALL_SERVER_DIR` | `.pipeline/` of the root | Where the warm recall server keeps its socket and key; set it when the root path is too long for a Unix socket. |
+| `MEM_RECALL_SERVER_SHORT_BASE` | `/tmp` | Base directory for the short socket directory the recall server picks on its own when the default socket path is too long (macOS temp dirs); only used when MEM_RECALL_SERVER_DIR is unset. |
 | `MEM_REFLECT_CMD` | `claude -p` | The model command of the reflector. |
 | `MEM_RETRIEVE_ROOTS` | `~/cheap-mem /work/cheap-mem /home/user/cheap-mem` | Space-separated roots the recall and after-failure hooks probe when `CHEAP_MEM_ROOT` is not set. |
 | `MEM_RETRIEVE_TURNS` | `<root>/.mem/retrieve-turns` | Directory of the once-per-turn claims of the recall hook. |

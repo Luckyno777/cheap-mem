@@ -131,6 +131,7 @@ directory. The section number in brackets is where it is explained.
 | `indexcache.mjs` | the search index cache as shards, never as one JSON string — the old cache broke past ~978,000 entries |
 | `injection.mjs` | the journal of what the hook put into a turn, and what it did not |
 | `integrity.mjs` | what is wrong with the log itself (4) |
+| `ismain.mjs` | "was this module started as the program?" by real path, so an entry point under a symlinked directory (every macOS temp dir) still runs instead of silently doing nothing |
 | `langdetect.mjs` | cheap, deterministic per-entry language detection — one memory can hold German and English text without a mismatched stemmer |
 | `language.mjs` | stemming and stop words, per language |
 | `langbridge.mjs` | optional starter dictionaries from the language a person asks in to the language the agents wrote in, as files (`src/langbridge/*.tsv`), off by default (`languageBridges` in `.mem/config.json`, M18b) |
