@@ -302,18 +302,31 @@ test('#18 dashboard-data: a worker build reports the server\'s start head, so a 
     const root = path.join(dir, 'mem');
     fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
     fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'd', participants: { bot: {} }, language: 'en' }));
-    // A `git` that answers `rev-parse --short` from a file we can change.
-    const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
-    const shim = path.join(dir, 'shim');
-    fs.mkdirSync(shim);
-    const state = path.join(dir, 'head');
-    fs.writeFileSync(state, 'aaa1111\n');
-    fs.writeFileSync(path.join(shim, 'git'), `#!/bin/sh\ncase "$*" in *rev-parse*--short*) cat "${state}"; exit 0;; esac\nexec "${realGit}" "$@"\n`, { mode: 0o755 });
+    // The package under test is a COPY of src/ in a real git repository of its own, so the head can
+    // be moved with a plain commit. (The probe used a `git` shell shim on PATH for this; Windows does
+    // not run an extension-less script as `git`, found the real git and the checkout's real head,
+    // and the expected 'aaa1111' could never appear there.)
+    const pkg = path.join(dir, 'pkg');
+    fs.mkdirSync(pkg);
+    for (const d of ['src', 'shared', 'assets']) fs.cpSync(path.join(REPO, d), path.join(pkg, d), { recursive: true });
+    fs.copyFileSync(path.join(REPO, 'package.json'), path.join(pkg, 'package.json'));
+    const git = (...a) => execFileSync('git', ['-C', pkg, '-c', 'user.name=probe', '-c', 'user.email=probe@example.invalid',
+      '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', ...a], { encoding: 'utf8', env: cleanEnv() }).trim();
+    git('init', '-q');
+    git('add', '-A');
+    git('commit', '-q', '-m', 'start');
+    const startHead = git('rev-parse', '--short', 'HEAD');
+    const movedMarker = path.join(dir, 'moved');
+    // The module reads its start head at import; the commit that moves the head comes AFTER the import,
+    // and before the worker is started: a worker that measured its own start would report the new head.
     const script = `
       import fs from 'node:fs';
-      const dd = await import(${JSON.stringify(pathToFileURL(path.join(REPO, 'src', 'dashboard-data.mjs')).href)});
-      const cache = await import(${JSON.stringify(pathToFileURL(path.join(REPO, 'src', 'dashboard-cache.mjs')).href)});
-      fs.writeFileSync(${JSON.stringify(state)}, 'bbb2222\\n');
+      import { execFileSync } from 'node:child_process';
+      const dd = await import(${JSON.stringify(pathToFileURL(path.join(pkg, 'src', 'dashboard-data.mjs')).href)});
+      const cache = await import(${JSON.stringify(pathToFileURL(path.join(pkg, 'src', 'dashboard-cache.mjs')).href)});
+      execFileSync('git', ['-C', ${JSON.stringify(pkg)}, '-c', 'user.name=probe', '-c', 'user.email=probe@example.invalid',
+        '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=', 'commit', '-q', '--allow-empty', '-m', 'moved']);
+      fs.writeFileSync(${JSON.stringify(movedMarker)}, 'x');
       const direct = dd.collectDashboard(${JSON.stringify(root)}).versions.code;
       const viaWorker = (await cache.buildInWorker(${JSON.stringify(root)}, {})).versions.code;
       console.log(JSON.stringify({ direct, viaWorker }));
@@ -321,18 +334,19 @@ test('#18 dashboard-data: a worker build reports the server\'s start head, so a 
     // A file, not `-e`: a worker inherits the parent's `-e` arguments.
     const scriptFile = path.join(dir, 'probe.mjs');
     fs.writeFileSync(scriptFile, script);
-    const r = spawnSync('node', [scriptFile], {
-      encoding: 'utf8', timeout: 120000,
-      env: cleanEnv({ PATH: `${shim}${path.delimiter}${process.env.PATH}` }),
-    });
+    const r = spawnSync('node', [scriptFile], { encoding: 'utf8', timeout: 120000, env: cleanEnv() });
     assert.equal(r.status, 0, both(r));
+    assert.ok(fs.existsSync(movedMarker), 'positive control: the head was moved after the import');
+    const movedHead = git('rev-parse', '--short', 'HEAD');
+    assert.notEqual(movedHead, startHead, 'positive control: the commit moved the head');
     const { direct, viaWorker } = JSON.parse(r.stdout.trim().split('\n').pop());
-    // Positive control: the shim works and the direct route sees the move.
-    assert.equal(direct.headAtStart, 'aaa1111');
-    assert.equal(direct.headNow, 'bbb2222');
+    // Positive control: the direct route sees the move.
+    assert.equal(direct.headAtStart, startHead);
+    assert.equal(direct.headNow, movedHead);
     assert.equal(direct.stale, true);
     // The worker route must say the same.
-    assert.equal(viaWorker.headAtStart, 'aaa1111', 'the worker measured its OWN start');
+    assert.equal(viaWorker.headAtStart, startHead, 'the worker reports the SERVER\'s start head, not its own');
+    assert.equal(viaWorker.headNow, movedHead);
     assert.equal(viaWorker.stale, true);
   } finally { away(dir); }
 });
