@@ -201,7 +201,11 @@ if printf '%s' "$IN" | grep -qE '"tool_name"[[:space:]]*:[[:space:]]*"Bash"'; th
     local dir="$ROOT/.pipeline/command-guard" f stale=""
     if [ -f "$dir/rules.json" ]; then
       for f in "$ROOT/global/errors.jsonl" "$ROOT"/projects/*/errors.jsonl; do
-        if [ -f "$f" ] && [ "$f" -nt "$dir/rules.json" ]; then stale=1; break; fi
+        # NOT newer-than is not "older": bash 3.2 (macOS /bin/bash) compares
+        # mtimes in whole seconds, so a drawer written in the same second as
+        # the booklet looked fresh and a new error went unguarded. Treat a
+        # tie as stale (cost: one node start; node's own stamp decides).
+        if [ -f "$f" ] && ! [ "$dir/rules.json" -nt "$f" ]; then stale=1; break; fi
       done
       if [ -z "$stale" ]; then
         [ -s "$dir/words.txt" ] && printf '%s' "$IN" | grep -qFf "$dir/words.txt"
