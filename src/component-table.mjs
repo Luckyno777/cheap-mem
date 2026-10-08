@@ -705,6 +705,26 @@ export function rebuildRunning(root) {
 }
 
 /**
+ * Block (bounded) until no background rebuild holds the lock any more.
+ * For tests and maintenance that must remove or move the tree: the
+ * detached child runs with the repository as its cwd and writes into
+ * `.mem/`, and on Windows an `rmdir` under it fails with ENOTEMPTY/EBUSY
+ * (CI run 37720774312). Returns true once idle, false on timeout. A short
+ * grace after the lock is gone lets the child process actually exit.
+ * Never throws; production paths never call it.
+ */
+export function waitForRebuildIdle(root, timeoutMs = 15000, graceMs = 150) {
+  const nap = (ms) => { try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); } catch { /* no wait */ } };
+  const deadline = Date.now() + timeoutMs;
+  while (rebuildRunning(root)) {
+    if (Date.now() >= deadline) return false;
+    nap(25);
+  }
+  nap(graceMs);
+  return true;
+}
+
+/**
  * Kick off a background rebuild if none is running — the one shared
  * function `mem-before-edit` (the pre-edit hook, on `warning`/`error`)
  * and any maintenance path use. Never builds itself (see above), never

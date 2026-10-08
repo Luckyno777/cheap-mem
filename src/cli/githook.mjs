@@ -223,6 +223,15 @@ export function proveHook(root) {
 export function writeMergeDriver(root) {
   const p = path.join(root, '.gitattributes');
   const rule = '*.jsonl merge=union';
+  // **Line endings are pinned.** The hash chain (src/chain.mjs) is
+  // computed over LF-terminated lines. With `core.autocrlf=true` (the
+  // Windows default in Git for Windows and on GitHub's windows runners)
+  // git rewrites the working copy to CRLF on checkout, the next append
+  // hashes different bytes, and every writer chain "breaks" after a
+  // clone or merge (CI run 37720774312, MERGE PROBE). `text eol=lf`
+  // keeps the working tree LF on every platform. Own line, so the
+  // `merge=union` line keeps its exact shape.
+  const eolRule = '*.jsonl text eol=lf';
   const note = [
     '# Every drawer is append-only: two sessions independently add lines at',
     '# the end of a file. A normal merge sees a conflict ("both changed the',
@@ -232,6 +241,8 @@ export function writeMergeDriver(root) {
     '# Do NOT use this for structured files (JSON, YAML): union would glue',
     '# two halves of an object together and destroy the file.',
     rule,
+    '# The hash chain is computed over LF bytes: never let git turn them into CRLF.',
+    eolRule,
     '',
   ].join('\n');
   // Returns whether anything was written. Previously the function
@@ -239,10 +250,14 @@ export function writeMergeDriver(root) {
   // was already in place or had just been created.
   if (!fs.existsSync(p)) { fs.writeFileSync(p, note, 'utf8'); return { added: 1, path: p }; }
   const cur = fs.readFileSync(p, 'utf8');
-  if (new RegExp(`^\\s*\\*\\.jsonl\\s+merge=union\\s*$`, 'm').test(cur)) {
-    return { added: 0, path: p };
-  }
-  fs.writeFileSync(p, `${cur.replace(/\n*$/, '')}\n\n${note}`, 'utf8');
+  const hasUnion = /^\s*\*\.jsonl\s+merge=union\s*$/m.test(cur);
+  const hasEol = /^\s*\*\.jsonl\s+(?:\S+\s+)*eol=lf(?:\s|$)/m.test(cur);
+  if (hasUnion && hasEol) return { added: 0, path: p };
+  const add = hasUnion ? [
+    '# The hash chain is computed over LF bytes: never let git turn them into CRLF.',
+    eolRule, '',
+  ].join('\n') : note;
+  fs.writeFileSync(p, `${cur.replace(/\n*$/, '')}\n\n${add}`, 'utf8');
   return { added: 1, path: p };
 }
 

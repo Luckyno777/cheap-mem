@@ -62,7 +62,12 @@ function world() {
   return r;
 }
 
-function gone(r) { fs.rmSync(r, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }); }
+function gone(r) {
+  // A background rebuild (detached child, cwd = r) may still be writing: on
+  // Windows rmdir then fails with ENOTEMPTY. Wait for it first.
+  ct.waitForRebuildIdle(r);
+  fs.rmSync(r, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+}
 
 function writeErrors(r, rows) {
   fs.writeFileSync(path.join(r, 'global', 'errors.jsonl'),
@@ -307,6 +312,8 @@ test('triggerBackgroundRebuild(): never blocks the caller (returns fast)', () =>
     ct.triggerBackgroundRebuild(r);
     const ms = Date.now() - t0;
     assert.ok(ms < 500, `triggerBackgroundRebuild should return immediately, took ${ms} ms`);
+    assert.equal(ct.waitForRebuildIdle(r), true, 'the background child finishes and releases the lock');
+    assert.equal(ct.rebuildRunning(r), false);
   } finally { gone(r); }
 });
 

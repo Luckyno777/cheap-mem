@@ -20,7 +20,7 @@ import os from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as place from '../src/recallserver-place.mjs';
 import * as recallserver from '../src/recallserver.mjs';
 import * as keeper from '../src/recallserver-keeper.mjs';
@@ -60,7 +60,7 @@ const lines = (root) => injection.read(root).lines.filter((l) => l.occasion === 
 
 async function startServer(root, env = {}) {
   const kid = spawn(process.execPath, ['-e', `
-    import(${JSON.stringify(path.join(CODE, 'src', 'recallserver.mjs'))}).then((r) => r.start(${JSON.stringify(root)}))
+    import(${JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
       .then((x) => { if (!x.running) process.exit(1); process.on('SIGTERM', () => x.close().then(() => process.exit(0))); });
   `], { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';

@@ -66,7 +66,7 @@ export async function embedEntry(root, file, line, entry) {
 
   try {
     const id = store.save(db, {
-      sourceFile: path.relative(root, file),
+      sourceFile: path.relative(root, file).split(path.sep).join('/'),
       lineNumber: line,
       jsonlId: entry.id,
       ts: entry.ts,

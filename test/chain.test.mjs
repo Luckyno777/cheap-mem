@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import * as chain from '../src/chain.mjs';
 import * as integrity from '../src/integrity.mjs';
 import * as memory from '../src/memory.mjs';
+import * as githook from '../src/cli/githook.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -357,12 +358,25 @@ test('THE NAMED GAP: entries appended after the most recent seal are not protect
 // The merge probe — the property that decided per-writer over global
 // ---------------------------------------------------------------------
 
-test('MERGE PROBE: two clones append under DIFFERENT writers; after a real merge=union merge both writers\' chains still verify', () => {
+/**
+ * Two clones, two writers, a real merge=union merge. `autocrlf` forces
+ * git's `core.autocrlf` (what a Windows checkout does by default) via
+ * the environment; `attrs` writes the .gitattributes.
+ * Returns the chain report of the merged file.
+ */
+function mergeProbe({ autocrlf = null, ownAttributes = null } = {}) {
+  const saved = { c: process.env.GIT_CONFIG_COUNT, k: process.env.GIT_CONFIG_KEY_0, v: process.env.GIT_CONFIG_VALUE_0 };
+  if (autocrlf !== null) {
+    process.env.GIT_CONFIG_COUNT = '1';
+    process.env.GIT_CONFIG_KEY_0 = 'core.autocrlf';
+    process.env.GIT_CONFIG_VALUE_0 = String(autocrlf);
+  }
   const a = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-chain-mergeA-'));
   const b = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-chain-mergeB-'));
   try {
     fs.mkdirSync(path.join(a, 'global'), { recursive: true });
-    fs.writeFileSync(path.join(a, '.gitattributes'), '*.jsonl merge=union\n');
+    if (ownAttributes === null) githook.writeMergeDriver(a); // the product's own .gitattributes
+    else fs.writeFileSync(path.join(a, '.gitattributes'), ownAttributes);
     const fileA = path.join(a, 'global', 'errors.jsonl');
     fs.writeFileSync(fileA, `${entry('base', 'w1')}\n`);
     chain.appendSeal(fileA, 'w1');
@@ -391,13 +405,38 @@ test('MERGE PROBE: two clones append under DIFFERENT writers; after a real merge
     gitc(a, 'pull', '-q', '--no-rebase', b, branch);
 
     const merged = fs.readFileSync(fileA, 'utf8');
-    const report = chain.verifyChain([{ rel: 'global/errors.jsonl', raw: merged }]);
-    const w1 = report.writers.find((w) => w.writer === 'w1');
-    const w2 = report.writers.find((w) => w.writer === 'w2');
-    assert.ok(w1 && w2, 'both writers should still appear as separate chains after the merge');
-    assert.equal(w1.state, 'ok', `writer w1's chain broke across the merge: ${JSON.stringify(w1.brokenAt)}`);
-    assert.equal(w2.state, 'ok', `writer w2's chain broke across the merge: ${JSON.stringify(w2.brokenAt)}`);
-  } finally { away(a); away(b); }
+    return chain.verifyChain([{ rel: 'global/errors.jsonl', raw: merged }]);
+  } finally {
+    for (const [k, v] of [['GIT_CONFIG_COUNT', saved.c], ['GIT_CONFIG_KEY_0', saved.k], ['GIT_CONFIG_VALUE_0', saved.v]]) {
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    away(a); away(b);
+  }
+}
+
+const bothOk = (report) => {
+  const w1 = report.writers.find((w) => w.writer === 'w1');
+  const w2 = report.writers.find((w) => w.writer === 'w2');
+  assert.ok(w1 && w2, 'both writers should still appear as separate chains after the merge');
+  assert.equal(w1.state, 'ok', `writer w1's chain broke across the merge: ${JSON.stringify(w1.brokenAt)}`);
+  assert.equal(w2.state, 'ok', `writer w2's chain broke across the merge: ${JSON.stringify(w2.brokenAt)}`);
+};
+
+
+test('MERGE PROBE: two clones append under DIFFERENT writers; after a real merge=union merge both writers\' chains still verify', () => {
+  bothOk(mergeProbe());
+});
+
+// Windows checkouts run with core.autocrlf=true: git rewrites LF to CRLF in the
+// working tree and the chain (hashed over LF bytes) breaks (CI run 37720774312).
+// The .gitattributes written by `mem init` pins eol=lf; simulated on Linux.
+test('MERGE PROBE under core.autocrlf=true: the init-written .gitattributes keeps the chains verifying', () => {
+  bothOk(mergeProbe({ autocrlf: true }));
+});
+
+test('MERGE PROBE control: under core.autocrlf=true WITHOUT eol=lf the chain breaks (the probe bites)', () => {
+  const report = mergeProbe({ autocrlf: true, ownAttributes: '*.jsonl merge=union\n' });
+  assert.ok(report.writers.some((w) => w.state !== 'ok'), 'expected a broken chain when git converts LF to CRLF');
 });
 
 // ---------------------------------------------------------------------

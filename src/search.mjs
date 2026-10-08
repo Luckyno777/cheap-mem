@@ -848,7 +848,7 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
         try { e = JSON.parse(lines[i]); } catch { continue; }
         rawEntries.push({
           entry: e, type, project,
-          source: path.relative(root, p),
+          source: memory.asSource(root, p),
           line: i + 1,
         });
       }
@@ -2100,7 +2100,7 @@ export function indexedFiles(root, { types = null } = {}) {
       try { p = memory.logPath(root, type, project); } catch { continue; }
       let st;
       try { st = fs.statSync(p); } catch { continue; }
-      out.set(path.relative(root, p), { bytes: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, kind: 'log', type, project });
+      out.set(memory.asSource(root, p), { bytes: st.size, mtimeMs: st.mtimeMs, ctimeMs: st.ctimeMs, kind: 'log', type, project });
     }
   }
   let captures = [];

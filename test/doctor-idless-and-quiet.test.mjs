@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkEntryForm } from '../src/doctor.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -95,7 +95,7 @@ function freshRepo(t) {
 
 /** Run parity.evaluate for the repo in a child, with the parity module of `srcDir`; returns {stderr, result}. */
 function evaluateIn(srcDir, repo) {
-  const code = `import(${JSON.stringify(path.join(srcDir, 'src', 'parity.mjs'))}).then((m) => {`
+  const code = `import(${JSON.stringify(pathToFileURL(path.join(srcDir, 'src', 'parity.mjs')).href)}).then((m) => {`
     + ` process.stdout.write(JSON.stringify(m.evaluate(${JSON.stringify(repo)}, 'a'.repeat(40)))); });`;
   const r = spawnSync(process.execPath, ['-e', code], { encoding: 'utf8', timeout: 60000 });
   return { stderr: r.stderr, result: JSON.parse(r.stdout) };

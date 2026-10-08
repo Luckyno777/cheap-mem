@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as redaction from '../src/redaction.mjs';
 import { cookieFrom } from '../src/login.mjs';
 import { windowFor } from '../src/timeexpr.mjs';
@@ -114,7 +114,7 @@ test('keeper: a busy socket is retried quietly, and taken over once free', async
   const root = tempDir('cheap-mem-w1-keeper-', t);
   spawnSync(process.execPath, [path.join(ROOT, 'bin/mem'), '--root', root, 'init'], { stdio: 'ignore' });
   const occupier = spawn(process.execPath, ['-e', `
-    import(${JSON.stringify(path.join(ROOT, 'src', 'recallserver.mjs'))}).then((r) => r.start(${JSON.stringify(root)}))
+    import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
       .then((x) => { if (!x.running) process.exit(1); process.on('SIGTERM', () => x.close().then(() => process.exit(0))); });
   `], { stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';

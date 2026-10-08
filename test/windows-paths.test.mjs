@@ -115,7 +115,7 @@ function pathnameAsPath(text) {
 /** A dynamic `import()` handed a path instead of a URL. */
 function importOfAPath(text) {
   return code(text).filter(({ line }) =>
-    /\bimport\(\s*(path\.(join|resolve)|`|['"])/.test(line)
+    /\bimport\(\s*(path\.(join|resolve)|`|['"]|\$\{\s*JSON\.stringify\(\s*path\.(join|resolve))/.test(line)
     && !/import\(\s*['"`](?:node:|\.{1,2}\/|[a-z@])/.test(line)
     // Already a URL. A cache-busting template literal built on
     // pathToFileURL(...).href is the CORRECT spelling, and three tests
@@ -145,6 +145,19 @@ test('no dynamic import is handed a filesystem path', () => {
     + 'Use pathToFileURL(p).href.');
 });
 
+test('no stored `source` is a raw path.relative (host separator travels into the journal)', () => {
+  // CI run 37720774312: the journal line carried "global\\decisions.jsonl:1" on Windows.
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    if (!rel.startsWith('src/')) continue;
+    for (const { line, nr } of code(text)) {
+      if (/\bsources?\s*:\s*path\.relative\(/.test(line)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, [], 'Use memory.asSource(root, p): a stored/printed source path is spelled with "/".');
+  assert.ok(/\bsources?\s*:\s*path\.relative\(/.test('  source: path.relative(root, p),'), 'positive control');
+});
+
 test('POSITIVE CONTROL: the probe reads a real tree and both patterns fire', () => {
   // Two guards that walk an empty tree pass forever, and two patterns
   // that match nothing pass forever. Both halves are checked here,
@@ -159,6 +172,16 @@ test('POSITIVE CONTROL: the probe reads a real tree and both patterns fire', () 
   assert.equal(
     pathnameAsPath("  const root = path.resolve(new URL('..', import.meta.url).pathname);\n").length, 1,
     'the pathname pattern does not recognise the line it was written for');
+  // The same mistake spelled inside a child-process source template
+  // (cold-index-memo, m10, parity-w1, doctor-idless; run 37720774312).
+  assert.equal(
+    importOfAPath("    import(${JSON.stringify(path.join(CODE, 'src', 'x.mjs'))}).then(f)\n").length, 1,
+    'the template-literal shape import(${JSON.stringify(path.join(...))}) is not recognised');
+  assert.equal(
+    importOfAPath("    import(${JSON.stringify(pathToFileURL(path.join(CODE, 'x.mjs')).href)}).then(f)\n").length, 0,
+    'the template-literal shape with pathToFileURL fires');
+  assert.equal(
+    importOfAPath("    import(${JSON.stringify(path.join(REPO, 'x', `${g}.mjs`))}).then(f)\n").length, 1);
   assert.equal(
     importOfAPath("    const m = await import(path.join(REPO, 'x', `${g}.mjs`));\n").length, 1,
     'the import pattern does not recognise the line it was written for');

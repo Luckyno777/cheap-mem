@@ -202,3 +202,13 @@ test('two captures in the same second keep both files', () => {
     assert.equal(lines, 402, 'no captured line may go missing');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
+
+test('the STORED capture path uses "/" on every platform (simulated with path.win32)', () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  const stamp = { session_id: 'abc' };
+  const win = raw.storedCapturePath('C:\\work\\mem', stamp, now, path.win32);
+  assert.match(win, /^raw\/2026\/10\/[^\\]+--abc\.jsonl\.gz$/, win);
+  assert.equal(win, raw.storedCapturePath('/work/mem', stamp, now, path.posix));
+  // Positive control: without the normaliser the win32 relative path has backslashes.
+  assert.match(path.win32.relative('C:\\work\\mem', raw.capturePath('C:\\work\\mem', stamp, now, path.win32)), /\\/);
+});

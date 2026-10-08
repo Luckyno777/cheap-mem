@@ -249,14 +249,27 @@ export function detectSurface() {
   return origin === ORIGINS.SSH ? 'ssh' : 'local';
 }
 
+/**
+ * A relative path as it is STORED (ledger, record, JSONL, git): always
+ * `/`. `path.relative` / `path.join` answer with `\\` on Windows, and
+ * the capture path ended up as `raw\\2026\\10\\...` in the record
+ * (CI run 37720774312, chatgpt-import probe).
+ */
+const toPosix = (p, pathApi = path) => String(p).split(pathApi.sep).join('/');
+
 /** Storage path for a capture: raw/YYYY/MM/<time>--<session>.jsonl.gz */
-export function capturePath(root, stamp, now = new Date()) {
+export function capturePath(root, stamp, now = new Date(), pathApi = path) {
   const d = new Date(now);
   const year = String(d.getUTCFullYear());
   const month = String(d.getUTCMonth() + 1).padStart(2, '0');
   const time = isoSeconds(d).replace(/[:.]/g, '-');
-  return path.join(root, RAW_DIR, year, month,
+  return pathApi.join(root, RAW_DIR, year, month,
     `${time}--${stamp.session_id}.jsonl.gz`);
+}
+
+/** The capture path as STORED: relative to the root, `/` on every platform. */
+export function storedCapturePath(root, stamp, now = new Date(), pathApi = path) {
+  return toPosix(pathApi.relative(root, capturePath(root, stamp, now, pathApi)), pathApi);
 }
 
 // ---------------------------------------------------------------------
@@ -359,9 +372,9 @@ export function storeCapture(root, { header, captured, stamp, now = new Date(), 
   // to overwrite the first, silently losing everything it held. The
   // Stop hook can fire twice that fast.
   const store = archive.readConfig(process.env, root);
-  let relPath = path.relative(root, capturePath(root, stamp, now));
+  let relPath = storedCapturePath(root, stamp, now);
   for (let n = 2; archive.reachable(store, root, relPath) && n < 1000; n += 1) {
-    relPath = path.relative(root, capturePath(root, stamp, now))
+    relPath = storedCapturePath(root, stamp, now)
       .replace(/\.jsonl\.gz$/, `-${n}.jsonl.gz`);
   }
 
@@ -726,7 +739,7 @@ export function listCaptures(root, { withDeleted = false } = {}) {
       if (!isDir(mp)) continue;
       for (const file of fs.readdirSync(mp).sort()) {
         if (!file.endsWith('.jsonl.gz')) continue;
-        const p = path.join(RAW_DIR, year, month, file);
+        const p = path.posix.join(RAW_DIR, year, month, file);
         if (seen.has(p)) continue;
         seen.add(p);
         if (gone.has(p)) continue;
