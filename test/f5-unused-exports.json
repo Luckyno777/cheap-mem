@@ -32,7 +32,6 @@
  "src/epoch.mjs": 1,
  "src/errorcontext.mjs": 1,
  "src/filelock.mjs": 2,
- "src/fulltext.mjs": 1,
  "src/goldlog.mjs": 1,
  "src/icon.mjs": 1,
  "src/inbox.mjs": 8,
