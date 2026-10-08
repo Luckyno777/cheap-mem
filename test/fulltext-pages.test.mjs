@@ -362,6 +362,15 @@ test('fulltext-pages: route — ?limit= and ?cursor= deliver finitely many pages
     cursor = b.cursor;
   }
   // The trace is only for the failure message: CI once showed `1 !== 3` with nothing to say why.
+  if (pages !== 3 || ids.length !== COUNT) {
+    // CI node 20 (ubuntu, macos): the first page was fresh and EMPTY. Say what the store and the index looked like.
+    const file = memory.logPath(WORLD, 'decision', null);
+    let disk;
+    try { const raw = fs.readFileSync(file, 'utf8'); disk = { bytes: raw.length, lines: raw.split('\n').filter(Boolean).length, withWord: raw.split('\n').filter((l) => l.includes('zebrafinchcouncil')).length, head: raw.slice(0, 300) }; } catch (e) { disk = { error: String(e.message) }; }
+    const skipped = []; let rows = 0, hits = 0;
+    try { for (const row of dashboard.readRowsLazy(WORLD, { onSkip: (s) => skipped.push(s) })) { rows += 1; if (fulltext.searchText(row.entry).includes('zebrafinchcouncil')) hits += 1; } } catch (e) { skipped.push(String(e.message)); }
+    console.log(`fulltext route diagnostics: ${JSON.stringify({ node: process.version, file, disk, directRead: { rows, hits, skipped }, index: fulltext.diagnostics(WORLD), world: fs.readdirSync(WORLD) })}`);
+  }
   assert.equal(pages, 3, `pages seen: ${JSON.stringify(trace)}`);
   assert.equal(ids.length, COUNT);
   assert.equal(new Set(ids).size, COUNT);

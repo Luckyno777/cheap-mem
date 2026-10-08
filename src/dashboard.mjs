@@ -136,9 +136,10 @@ export function readPass(root) {
  * same reveal/mask as `readPass`, without `held` (the full-text index does not
  * need it) and streamed (`iterLog`) instead of materialised (`readLog`). A
  * drawer that is not readable is skipped, like in `readPass`; one that fails
- * MID-stream keeps the rows already yielded.
+ * MID-stream keeps the rows already yielded. `onSkip({project, drawer, error})` is told about every
+ * drawer that was skipped for a ReadError (a skipped drawer is a hole in the index, not an empty one).
  */
-export function* readRowsLazy(root) {
+export function* readRowsLazy(root, { onSkip = null } = {}) {
   const reveal = shred.makeReveal(root);
   for (const project of [null, ...memory.listProjects(root)]) {
     for (const drawer of Object.keys(memory.TYPES)) {
@@ -148,7 +149,7 @@ export function* readRowsLazy(root) {
           yield { project: project ?? 'global', drawer, entry: maskEntry(reveal(e).entry) };
         }
       } catch (e) {
-        if (e instanceof memory.ReadError) continue;
+        if (e instanceof memory.ReadError) { onSkip?.({ project: project ?? 'global', drawer, error: `${e.code ?? e.cause?.code ?? ''} ${e.message}`.trim().slice(0, 200) }); continue; }
         throw e;
       }
     }
