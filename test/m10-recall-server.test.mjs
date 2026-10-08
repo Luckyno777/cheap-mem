@@ -61,8 +61,13 @@ const lines = (root) => injection.read(root).lines.filter((l) => l.occasion === 
 async function startServer(root, env = {}) {
   const kid = spawn(process.execPath, ['-e', `
     import(${JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
-      .then((x) => { if (!x.running) process.exit(1); process.on('SIGTERM', () => x.close().then(() => process.exit(0))); });
-  `], { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'pipe'] });
+      .then((x) => {
+        if (!x.running) process.exit(1);
+        const stop = () => x.close().then(() => process.exit(0));
+        process.on('SIGTERM', stop);
+        process.on('message', (m) => { if (m === 'stop') stop(); });
+      });
+  `], { env: { ...process.env, ...env }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   let err = '';
   kid.stderr.on('data', (s) => { err += s; });
   const until = Date.now() + 15000;
@@ -71,10 +76,15 @@ async function startServer(root, env = {}) {
   }
   const sock = place.place(root, env).listed;
   assert.ok(fs.existsSync(sock), `server not listening: ${err}`);
+  // 'SIGTERM' is the real signal everywhere it exists. On Windows `kill('SIGTERM')` is a hard
+  // TerminateProcess: no handler runs, so nothing could be said about close(). There (and for
+  // the 'message' mode, driven on every platform) the same graceful close() is asked for over
+  // the IPC channel; 'SIGKILL' stays a hard kill on every platform.
   const stop = async (signal = 'SIGTERM') => {
     if (kid.exitCode != null) return;
     const gone = new Promise((r) => kid.once('exit', r));
-    kid.kill(signal);
+    if (signal === 'message' || (signal === 'SIGTERM' && process.platform === 'win32')) kid.send('stop');
+    else kid.kill(signal);
     await gone;
   };
   return { sock, stop };
@@ -116,6 +126,14 @@ test('M10-1: the server delivers the same as the direct path, the journal books 
     assert.ok(Number.isFinite(l[1].duration_ms), 'duration_ms is measured');
   } finally { await s.stop(); }
   assert.equal(fs.existsSync(s.sock), false, 'after SIGTERM the server removes its socket');
+});
+
+test('M10-1b: a graceful stop over the message channel (the way Windows takes) removes the socket or marker too', async () => {
+  const root = build();
+  const s = await startServer(root);
+  assert.ok(fs.existsSync(s.sock), 'positive control: the listed file is there while the server runs');
+  await s.stop('message');
+  assert.equal(fs.existsSync(s.sock), false, 'after a graceful stop the listed file is gone');
 });
 
 test('M10-2: server dead, socket still there -> direct, reason server-gone', async () => {
