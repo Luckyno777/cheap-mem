@@ -20,6 +20,21 @@ const LINUX = path.join(CODE, 'install', 'linux.sh');
 const made = [];
 process.on('exit', () => { for (const d of made) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
 
+// Paths written INTO a shell script use "/" (a Windows drive path with backslashes is an escape trap in
+// "..." there); the PATH list uses the platform's delimiter (":" would cut `C:\...` in two).
+const slash = (p) => p.split(path.sep).join('/');
+
+/**
+ * `p` as the install script itself writes it into a unit: `cd "$CHEAP_MEM_ROOT" && pwd`, through
+ * the same environment variable and the same bash. On Linux that is `p`; under Git Bash on Windows
+ * it is `/c/Users/...` -- the notation the script (not the host's `C:\...`) puts in the unit.
+ */
+function asTheScriptWritesIt(p, env) {
+  const r = spawnSync('bash', ['-c', 'cd "$CHEAP_MEM_ROOT" && pwd'], { encoding: 'utf8', env: { ...env, CHEAP_MEM_ROOT: p } });
+  assert.equal(r.status, 0, r.stderr);
+  return r.stdout.trim();
+}
+
 function world(unameAnswer = 'Linux') {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-m10-svc-'));
   made.push(base);
@@ -31,10 +46,15 @@ function world(unameAnswer = 'Linux') {
   fs.mkdirSync(fake);
   execFileSync('node', [MEM, '--root', root, 'init'], { stdio: 'ignore' });
   for (const tool of ['systemctl', 'launchctl']) {
-    fs.writeFileSync(path.join(fake, tool), `#!/bin/sh\necho "${tool} $*" >> "${log}"\nexit 0\n`, { mode: 0o755 });
+    fs.writeFileSync(path.join(fake, tool), `#!/bin/sh\necho "${tool} $*" >> "${slash(log)}"\nexit 0\n`, { mode: 0o755 });
   }
   fs.writeFileSync(path.join(fake, 'uname'), `#!/bin/sh\necho ${unameAnswer}\n`, { mode: 0o755 });
-  const env = { ...process.env, HOME: home, PATH: `${fake}:${process.env.PATH}`, CHEAP_MEM_ROOT: root };
+  // On Windows the variable is called `Path` in the spread copy: drop every spelling, then set one,
+  // or the child gets two and may take the one without the fake tools.
+  const env = { ...process.env, HOME: home, CHEAP_MEM_ROOT: root };
+  const realPath = process.env.PATH ?? '';
+  for (const k of Object.keys(env)) if (k.toUpperCase() === 'PATH') delete env[k];
+  env.PATH = `${fake}${path.delimiter}${realPath}`;
   delete env.CHEAP_MEM_SERVE_SERVICE;
   return { base, home, root, log, env, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8') : '') };
 }
@@ -47,7 +67,9 @@ test('Linux: install writes a systemd user unit for `mem serve`, uninstall remov
   const r = run(SERVICE, ['install'], w.env);
   assert.equal(r.status, 0, r.stderr);
   const text = fs.readFileSync(unit, 'utf8');
-  assert.match(text, new RegExp(`bin/mem --root ${w.root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} serve`));
+  const root = asTheScriptWritesIt(w.root, w.env);
+  assert.match(text, new RegExp(`bin/mem --root ${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} serve`));
+  assert.ok(text.includes(`Environment=CHEAP_MEM_ROOT=${root}\n`), 'the unit names the root in the same notation twice');
   assert.match(w.calls(), /systemctl --user enable --now cheap-mem-serve\.service/);
   const u = run(SERVICE, ['uninstall'], w.env);
   assert.equal(u.status, 0, u.stderr);
