@@ -325,7 +325,8 @@ export function scanReads(root, { dirs = SCAN_DIRS } = {}) {
       try { text = fs.readFileSync(file, 'utf8'); } catch { continue; }
       if (text.includes('\u0000')) continue;
       const patterns = [...NODE_READS, ...SHELL_READS, ...(file.endsWith('.ps1') ? POWERSHELL_READS : [])];
-      const rel = path.relative(root, file);
+      // Always posix: the place is compared with registered rows and printed (Windows gave bin\\x).
+      const rel = path.relative(root, file).split(path.sep).join('/');
       text.split('\n').forEach((raw, i) => {
         const line = code(raw);
         if (!line) return;

@@ -21,6 +21,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { waitForRebuildIdle } from '../src/component-table.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(REPO, 'bin', 'mem-before-edit');
@@ -56,7 +57,12 @@ function componentJson(root) {
   return JSON.parse(r.stdout);
 }
 
-const cleanup = (root) => fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+// `mem component --hook` may start a detached rebuild inside the root; removing the tree under it
+// raced (CI run 37752425273, ubuntu node 22: ENOTEMPTY). Wait for it first, as test/temp-dir.mjs does.
+const cleanup = (root) => {
+  waitForRebuildIdle(root);
+  fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+};
 
 const ERROR = {
   id: 'e1', ts: '2026-09-07T10:00:00Z', class: 'unquoted-path', agent: 'a',
