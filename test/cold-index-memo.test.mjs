@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn, spawnSync, execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
 import * as shred from '../src/shred.mjs';
@@ -173,7 +173,7 @@ test('a log rewritten in place (same size) is not served stale', () => {
 
 async function startServer(root) {
   const kid = spawn(process.execPath, ['-e', `
-    import(${JSON.stringify(path.join(CODE, 'src', 'recallserver.mjs'))}).then((r) => r.start(${JSON.stringify(root)}))
+    import(${JSON.stringify(pathToFileURL(path.join(CODE, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
       .then((x) => { if (!x.running) process.exit(1); process.on('SIGTERM', () => x.close().then(() => process.exit(0))); });
   `], { env: { ...process.env }, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = '';

@@ -115,7 +115,7 @@ function pathnameAsPath(text) {
 /** A dynamic `import()` handed a path instead of a URL. */
 function importOfAPath(text) {
   return code(text).filter(({ line }) =>
-    /\bimport\(\s*(path\.(join|resolve)|`|['"])/.test(line)
+    /\bimport\(\s*(path\.(join|resolve)|`|['"]|\$\{\s*JSON\.stringify\(\s*path\.(join|resolve))/.test(line)
     && !/import\(\s*['"`](?:node:|\.{1,2}\/|[a-z@])/.test(line)
     // Already a URL. A cache-busting template literal built on
     // pathToFileURL(...).href is the CORRECT spelling, and three tests
@@ -159,6 +159,16 @@ test('POSITIVE CONTROL: the probe reads a real tree and both patterns fire', () 
   assert.equal(
     pathnameAsPath("  const root = path.resolve(new URL('..', import.meta.url).pathname);\n").length, 1,
     'the pathname pattern does not recognise the line it was written for');
+  // The same mistake spelled inside a child-process source template
+  // (cold-index-memo, m10, parity-w1, doctor-idless; run 37720774312).
+  assert.equal(
+    importOfAPath("    import(${JSON.stringify(path.join(CODE, 'src', 'x.mjs'))}).then(f)\n").length, 1,
+    'the template-literal shape import(${JSON.stringify(path.join(...))}) is not recognised');
+  assert.equal(
+    importOfAPath("    import(${JSON.stringify(pathToFileURL(path.join(CODE, 'x.mjs')).href)}).then(f)\n").length, 0,
+    'the template-literal shape with pathToFileURL fires');
+  assert.equal(
+    importOfAPath("    import(${JSON.stringify(path.join(REPO, 'x', `${g}.mjs`))}).then(f)\n").length, 1);
   assert.equal(
     importOfAPath("    const m = await import(path.join(REPO, 'x', `${g}.mjs`));\n").length, 1,
     'the import pattern does not recognise the line it was written for');
