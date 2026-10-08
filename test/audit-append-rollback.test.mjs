@@ -86,6 +86,11 @@ test('two processes: short write + confirmed foreign append -- every confirmed l
 });
 
 test('red proof: the old state deletes the confirmed foreign line and reports torn:false', async (t) => {
+  // The defect proved here is the old state's ftruncate cutting a confirmed foreign line. Windows opens
+  // an append-mode handle without FILE_WRITE_DATA (libuv), so there that ftruncate fails with EPERM and the
+  // old code leaves the line (reported torn:true): the finding cannot be reproduced where it does not exist.
+  // The NEW state is probed on every platform by the tests around this one.
+  if (process.platform === 'win32') return t.skip('Windows: ftruncate on an append-mode handle is refused (no FILE_WRITE_DATA), the old state cannot lose the foreign line there');
   const old = oldSrc();
   if (!old) return t.skip('fixed old state not in this clone');
   const { result, content } = await race(old);
