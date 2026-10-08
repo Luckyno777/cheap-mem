@@ -144,7 +144,7 @@ export function installed(root, env = process.env) {
           try { marker = JSON.parse(fs.readFileSync(path.join(dir, reg.MARKER), 'utf8')); } catch { marker = { broken: true }; }
         }
         files.push({
-          place: o.place, path: `${o.shown}/${path.relative(o.base, dir) || '.'}`, name: fm.name || path.basename(dir),
+          place: o.place, path: `${o.shown}/${path.relative(o.base, dir).split(path.sep).join('/') || '.'}`, name: fm.name || path.basename(dir),
           description: (fm.description || '').slice(0, 300),
           memExport: marker ? { id: typeof marker.id === 'string' ? marker.id : null, type: marker.type ?? null } : null,
           _text: text,

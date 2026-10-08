@@ -187,7 +187,7 @@ export function put(root, source, {
   };
   fs.mkdirSync(path.dirname(registerPath(root)), { recursive: true });
   appendLine(registerPath(root), `${JSON.stringify(line)}\n`);
-  return { ...line, already, at: path.relative(root, target) };
+  return { ...line, already, at: path.relative(root, target).split(path.sep).join('/') };
 }
 
 /**

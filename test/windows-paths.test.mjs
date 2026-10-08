@@ -158,6 +158,21 @@ test('no stored `source` is a raw path.relative (host separator travels into the
   assert.ok(/\bsources?\s*:\s*path\.relative\(/.test('  source: path.relative(root, p),'), 'positive control');
 });
 
+test('no printed text interpolates a raw path.relative (users paste it into `git add`)', () => {
+  // CI run 37757849359: "Written: inbox\\2026-...md" on Windows. Printed
+  // relative paths are posix: memory.asSource(root, p).
+  const re = /\$\{[^}]*\bpath\.relative\(/;
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    if (!/^(src|bin)\//.test(rel)) continue;
+    for (const { line, nr } of code(text)) {
+      if (re.test(line) && !/split\(path\.sep\)|asSource\(|rel-ok:/.test(line)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+  assert.ok(re.test('out(`Written: ${path.relative(root, p)}`);'), 'positive control');
+});
+
 /** A test-side path.relative whose result keeps the host separator. */
 function rawRelative(text) {
   return code(text).filter(({ line }) =>

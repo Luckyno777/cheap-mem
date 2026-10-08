@@ -668,7 +668,7 @@ export const COMMANDS = {
       // Read it back, so what we report is the model that will really
       // be used — writeConfig stores `null` and readConfig resolves it.
       const eff = embedmod.readConfig(root);
-      out(`Wrote ${path.relative(root, written)}`);
+      out(`Wrote ${memory.asSource(root, written)}`);
       out(`  provider: ${eff.provider}`);
       out(`  model:    ${eff.model} (${embedmod.dimensions(eff.provider, eff.model)} dim)`);
       out('');

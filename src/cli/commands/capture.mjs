@@ -168,7 +168,7 @@ export const COMMANDS = {
 
         const g = archive.setLocation(root, target);
         out(`Archive location set: ${g.location}`);
-        out(`  recorded in ${path.relative(root, g.file)} (gitignored, does not travel)`);
+        out(`  recorded in ${memory.asSource(root, g.file)} (gitignored, does not travel)`);
         out('  write probe passed.');
 
         // The warning belongs to the SITUATION, not to the command: it
