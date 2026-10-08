@@ -729,7 +729,7 @@ export const COMMANDS = {
               let e;
               try { e = JSON.parse(lines[i]); } catch { continue; }
               if (!e.id) continue;
-              const rel = path.relative(root, file);
+              const rel = path.relative(root, file).split(path.sep).join('/');
               if (!args.force && store.exists(db, rel, i + 1, e.id)) { skipped += 1; continue; }
               const r = await embedHook.embedEntry(root, file, i + 1, e);
               if (r.status === 'ok') fresh += 1;
