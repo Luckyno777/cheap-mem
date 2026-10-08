@@ -188,7 +188,11 @@ host, an address or a provider. `tls` is `ssl` (port 465, the default), `starttl
 (587) or `plain` (**only** against the local machine, for tests).
 
 **Secrets live only in files**, mode `0600` (a file with wider rights is refused
-without any network access), given by absolute path. They are never read from
+without any network access), given by absolute path. **Windows:** POSIX mode bits
+mean nothing there (every file reads as 0666, `chmod` does nothing), so the rule
+cannot be checked: sending stays allowed, but `credentialState()` carries a notice
+and the doctor finding `appointment-invite` is `unknown`, never `good`. Protect the
+file with NTFS ACLs yourself, e.g. `icacls <file> /inheritance:r /grant:r %USERNAME%:R`. They are never read from
 an argument, never written to the journal, the status, the doctor or an error
 message.
 

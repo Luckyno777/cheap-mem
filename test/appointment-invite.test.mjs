@@ -616,3 +616,34 @@ test('RED proof: without the idempotence guard the second tick sends again (the 
   assert.equal(await run(path.join(SRC, 'appointment-invite.mjs')), 1, 'the real module sends once');
   assert.equal(await run(file), 2, 'the mutant sends twice: the idempotence probe really catches a missing guard');
 });
+
+// Simulated Windows (process.platform overridden): wide mode bits are NOT checked, but never silently "fine".
+async function asWindows(fn) {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try { return await fn(); } finally { Object.defineProperty(process, 'platform', real); }
+}
+test('Windows (simulated): a wide credential file still sends, but the state says permissions cannot be checked; the doctor says unknown; POSIX stays strict', async () => {
+  const r = world();
+  const smtp = await fakeSmtp();
+  try {
+    const conf = smtpConf(r, smtp.port);
+    fs.chmodSync(conf.calendar.smtp.passwordFile, 0o644);
+    const c = configOf(r, conf.calendar);
+    const cfgPath = path.join(r, '.mem', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); cfg.calendar = conf.calendar; fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+    // POSIX (the real platform here, unless the suite itself runs on Windows): strict
+    if (process.platform !== 'win32') assert.equal(I.credentialState(c).ok, false);
+    const s = await asWindows(() => I.credentialState(c));
+    assert.equal(s.ok, true);
+    assert.match(s.notice, /cannot be checked on Windows/);
+    assert.match(s.notice, /icacls/);
+    const f = await asWindows(() => doctor.checkAppointmentInvite(r, { now: new Date(NOW) }));
+    assert.equal(f.level, 'unknown', 'not good: nothing was checked');
+    assert.match(f.text, /cannot be checked on Windows/);
+    make(r, { title: 'Dentist', atMs: wall(2026, 10, 7, 10, 0) });
+    const t = await asWindows(() => I.tick(r, { now: NOW, config: c }));
+    assert.equal(t.failures.length, 0, 'sending is allowed');
+    assert.ok(smtp.got.length >= 1, 'a letter went out');
+  } finally { await smtp.close(); }
+});
