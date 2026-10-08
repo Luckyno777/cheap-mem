@@ -329,7 +329,7 @@ fi
 # a small client asks it: the client loads Node built-ins only, and the
 # server runs the SAME `find` handler this `mem find` call runs — one
 # search path, not two. No socket: exactly the path from before M10;
-# `[ -S ]` is a bash test, not a process, and costs nothing.
+# `[ -S ]` (Windows: the marker file `recall.pipe`, a named pipe is no file) is a bash test, not a process, and costs nothing.
 #
 # **One budget, not two.** MEM_RETRIEVE_TIME (default 5 s, the cap this
 # call always had) covers the WHOLE search from MEM_HOOK_START_MS. The
@@ -351,7 +351,7 @@ RECALL_PATH=direct
 RECALL_REASON=""
 FIND_RC=1
 HITS=""
-if [ "${MEM_RECALL_SERVER:-}" != "0" ] && [ -S "$RECALL_DIR/recall.sock" ] \
+if [ "${MEM_RECALL_SERVER:-}" != "0" ] && { [ -S "$RECALL_DIR/recall.sock" ] || [ -f "$RECALL_DIR/recall.pipe" ]; } \
   && [ -f "$TOOL_ROOT/bin/mem-retrieve-client.mjs" ]; then
   RECALL_PATH=server
   HITS="$(MEM_RETRIEVE_TIME="$TIME" capped "$TIME" node "$TOOL_ROOT/bin/mem-retrieve-client.mjs" "$ROOT" "$PROMPT" "$TOP" 2>/dev/null)"

@@ -28,6 +28,8 @@ import crypto from 'node:crypto';
 export const DIR_NAME = 'recall';
 export const SOCKET_NAME = 'recall.sock';
 export const KEY_NAME = 'key';
+/** Windows only: a named pipe is no file, so the server leaves this marker file (contents: the pipe name) for bin/mem-retrieve's `[ -f ]`. */
+export const MARKER_NAME = 'recall.pipe';
 /** In the default dir, when the server lives elsewhere: one line, the real dir. */
 export const POINTER_NAME = 'where';
 
@@ -86,5 +88,7 @@ export function place(root, env = process.env, platform = process.platform) {
   const socket = platform === 'win32'
     ? `\\\\.\\pipe\\cheap-mem-recall-${rootId(root)}`
     : path.join(dir, SOCKET_NAME);
-  return { dir, socket, key: path.join(dir, KEY_NAME), fallback, pointer: path.join(dflt, POINTER_NAME) };
+  const marker = platform === 'win32' ? path.join(dir, MARKER_NAME) : null;
+  // `listed`: the FILE that shows a server is (or was) there: the socket itself, or on Windows the marker.
+  return { dir, socket, marker, listed: marker ?? socket, key: path.join(dir, KEY_NAME), fallback, pointer: path.join(dflt, POINTER_NAME) };
 }
