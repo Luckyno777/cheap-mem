@@ -145,6 +145,19 @@ test('no dynamic import is handed a filesystem path', () => {
     + 'Use pathToFileURL(p).href.');
 });
 
+test('no stored `source` is a raw path.relative (host separator travels into the journal)', () => {
+  // CI run 37720774312: the journal line carried "global\\decisions.jsonl:1" on Windows.
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    if (!rel.startsWith('src/')) continue;
+    for (const { line, nr } of code(text)) {
+      if (/\bsources?\s*:\s*path\.relative\(/.test(line)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, [], 'Use memory.asSource(root, p): a stored/printed source path is spelled with "/".');
+  assert.ok(/\bsources?\s*:\s*path\.relative\(/.test('  source: path.relative(root, p),'), 'positive control');
+});
+
 test('POSITIVE CONTROL: the probe reads a real tree and both patterns fire', () => {
   // Two guards that walk an empty tree pass forever, and two patterns
   // that match nothing pass forever. Both halves are checked here,
