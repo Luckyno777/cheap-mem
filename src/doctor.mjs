@@ -534,7 +534,7 @@ function checkDigestYield(root) {
     for (const type of Object.keys(memory.TYPES)) {
       for (const e of memory.iterLog(root, type, { project })) {
         const src = e && e.origin && e.origin.raw;
-        if (src) { withOrigin += 1; referenced.add(src); }
+        if (src) { withOrigin += 1; referenced.add(raw.captureKey(src)); }
       }
     }
   }

@@ -209,8 +209,9 @@ test('a memory that digested before the ledger existed is seeded, not restarted'
   raw.markDigested(root, [fresh]);
 
   const inLedger = raw.ledgerDigested(root);
-  assert.ok(inLedger.has(old), 'history from the watermark must be carried over');
-  assert.ok(inLedger.has(fresh));
+  // Stored keys are posix whatever form the caller used (Windows: path.join).
+  assert.ok(inLedger.has(raw.captureKey(old)), 'history from the watermark must be carried over');
+  assert.ok(inLedger.has(raw.captureKey(fresh)));
   fs.rmSync(root, { recursive: true, force: true });
 });
 
