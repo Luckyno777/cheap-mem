@@ -50,7 +50,7 @@ empty list.
 
 - **After a restart** the head from the last run answers at once (`cache.source:
   "disk"`, never fresh, with its reason) while the server rebuilds. It lies in
-  `.mem/dashboard-head.json` (0600, written atomically, machine-local, not in
+  `.mem/dashboard-head.json` (0600 on POSIX; **on Windows POSIX modes mean nothing and cannot be checked**, so the head relies on carrying no decrypted text, and NTFS ACLs of the profile do the rest; written atomically, machine-local, not in
   git) and holds no `text`, `fact` or `why` of any entry: the dashboard decrypts
   locked entries in memory only, and decrypted content never reaches the disk.
 - **A large store without a head on disk** gets a placeholder first (state
