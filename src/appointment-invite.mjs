@@ -164,7 +164,7 @@ export function readConfig(root, env = process.env, { file = undefined } = {}) {
   return { active: true, route, reason: null, host, port, tls: kind, user: String(w.user), from, to, beforeMin, passwordFile: String(w.passwordFile), calendarId: null, keyFile: null };
 }
 
-export const WINDOWS_PERMISSION_NOTICE = (name) => `${name} permissions cannot be checked on Windows (POSIX mode bits mean nothing there); protect it with NTFS ACLs, e.g. icacls <file> /inheritance:r /grant:r %USERNAME%:R`;
+const WINDOWS_PERMISSION_NOTICE = (name) => `${name} permissions cannot be checked on Windows (POSIX mode bits mean nothing there); protect it with NTFS ACLs, e.g. icacls <file> /inheritance:r /grant:r %USERNAME%:R`;
 
 /** Check the permissions of the credential file (SMTP password / service-account key) WITHOUT reading it: `{ ok, reason }`. */
 export function credentialState(config) {
