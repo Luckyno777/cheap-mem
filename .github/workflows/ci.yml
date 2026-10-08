@@ -109,6 +109,40 @@ jobs:
             grep -E '^ *not ok [0-9]+ - ' "$RUNNER_TEMP/testrun.log" || \
               echo "(no 'not ok' line found -- the run died before the first test)"
             echo "::endgroup::"
+            # ONE summary annotation first. GitHub shows at most 10 error
+            # annotations per step, so with more than 10 red probes the
+            # per-probe lines below hide the rest. This line carries every
+            # red name (leaf probes only: a parent suite that is red merely
+            # because a child is red says `failureType: 'subtestsFailed'`
+            # and is left out), each cut to 80 characters, the whole list
+            # cut at about 1500 characters with a "(+N more)" tail. % and
+            # newlines are encoded as in the awk below. POSIX awk only.
+            tr -d '\r' < "$RUNNER_TEMP/testrun.log" | awk '
+              function commit() {
+                if (pend == "") return
+                total++
+                if (length(list) < 1500) {
+                  list = list (list == "" ? "" : " | ") pend
+                  shown++
+                }
+                pend = ""
+              }
+              /^ *not ok [0-9]+ - / {
+                commit()
+                pend = $0; sub(/^ *not ok [0-9]+ - /, "", pend)
+                if (length(pend) > 80) pend = substr(pend, 1, 77) "..."
+                next
+              }
+              /^ *ok [0-9]+ - / { commit(); next }
+              pend != "" && /failureType: .subtestsFailed./ { pend = ""; next }
+              END {
+                commit()
+                if (total == 0) exit
+                gsub(/%/, "%25", list); gsub(/\n/, "%0A", list)
+                printf "::error::red probes (%d): %s%s\n", total, list, \
+                  (shown < total ? " | ... (+" (total - shown) " more)" : "")
+              }
+            ' || true
             # Each annotation also carries the first 3 lines of the probe's
             # own error text, read from its TAP diagnostic block (the lines
             # after `error:` up to the next key at the same indent). A name
