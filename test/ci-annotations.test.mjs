@@ -102,19 +102,29 @@ T('a parent suite that is red only because a child is red is not listed twice', 
   assert.equal(sum, '::error::red probes (2): child red | top level red');
 });
 
-T('names are cut to 80 characters, % is encoded, the list is bounded', () => {
+T('names are cut to 100 characters, % is encoded; 60 names of 100 characters fit whole', () => {
   const long = 'x'.repeat(200);
   let tap = tapRed(1, `50% ${long}`);
-  for (let i = 2; i <= 60; i++) tap += tapRed(i, `n${i} ${'y'.repeat(70)}`);
+  const names = [];
+  for (let i = 2; i <= 60; i++) { const n = `n${i} ${'y'.repeat(100)}`; names.push(n.slice(0, 97) + '...'); tap += tapRed(i, n); }
   const { out } = runStep(tap);
   const sum = out.split('\n').find((l) => l.startsWith('::error::red probes ('));
-  assert.ok(sum.startsWith('::error::red probes (60): 50%25 xxx'), sum.slice(0, 80));
-  assert.ok(sum.includes('...'), 'cut name ends in an ellipsis');
+  assert.ok(sum.startsWith(`::error::red probes (60): 50%25 ${'x'.repeat(93)}... | n2 `), sum.slice(0, 140));
   assert.ok(!sum.includes(long), 'no 200-character name');
+  assert.ok(!/\(\+\d+ more\)/.test(sum), 'nothing cut: all 60 are named');
+  for (const n of names) assert.ok(sum.includes(n), n);
+});
+
+T('a list far beyond that is cut visibly: "(+N more)", bounded length', () => {
+  let tap = '';
+  for (let i = 1; i <= 200; i++) tap += tapRed(i, `n${i} ${'y'.repeat(100)}`);
+  const { out } = runStep(tap);
+  const sum = out.split('\n').find((l) => l.startsWith('::error::red probes ('));
+  assert.ok(sum.startsWith('::error::red probes (200): '));
   assert.match(sum, / \| \.\.\. \(\+\d+ more\)$/);
-  assert.ok(sum.length < 1900, `bounded, got ${sum.length}`);
-  const shown = Number(sum.match(/ \(\+(\d+) more\)$/)[1]);
-  assert.ok(shown > 0 && shown < 60);
+  assert.ok(sum.length < 8400, `bounded, got ${sum.length}`);
+  const more = Number(sum.match(/ \(\+(\d+) more\)$/)[1]);
+  assert.ok(more > 0 && more < 200);
 });
 
 T('no summary when npm test is green, and none when no probe is red', () => {

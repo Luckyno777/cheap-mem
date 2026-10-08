@@ -114,14 +114,15 @@ jobs:
             # per-probe lines below hide the rest. This line carries every
             # red name (leaf probes only: a parent suite that is red merely
             # because a child is red says `failureType: 'subtestsFailed'`
-            # and is left out), each cut to 80 characters, the whole list
-            # cut at about 1500 characters with a "(+N more)" tail. % and
+            # and is left out), each cut to 100 characters, the whole list
+            # cut at about 8000 characters (60 names of 100 fit whole) with a
+            # "(+N more)" tail. An annotation message may be far longer. % and
             # newlines are encoded as in the awk below. POSIX awk only.
             tr -d '\r' < "$RUNNER_TEMP/testrun.log" | awk '
               function commit() {
                 if (pend == "") return
                 total++
-                if (length(list) < 1500) {
+                if (length(list) < 8000) {
                   list = list (list == "" ? "" : " | ") pend
                   shown++
                 }
@@ -130,7 +131,7 @@ jobs:
               /^ *not ok [0-9]+ - / {
                 commit()
                 pend = $0; sub(/^ *not ok [0-9]+ - /, "", pend)
-                if (length(pend) > 80) pend = substr(pend, 1, 77) "..."
+                if (length(pend) > 100) pend = substr(pend, 1, 97) "..."
                 next
               }
               /^ *ok [0-9]+ - / { commit(); next }
