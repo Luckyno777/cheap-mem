@@ -62,7 +62,15 @@ mem_cap_perl() {
   perl -MTime::HiRes=alarm -e '
     my $s = shift @ARGV; my $p = fork();
     defined $p or exit 125;
-    if (!$p) { exec { $ARGV[0] } @ARGV; exit 127 }
+    if (!$p) {
+      exec { $ARGV[0] } @ARGV;
+      # GNU timeout semantics: 127 = not found, 126 = found but not startable
+      # (noexec mount, bad interpreter). A flat 127 made the noexec detour
+      # (mem_never_started wants 126) never fire where perl is the cap, i.e. on macOS.
+      my $nf = $!{ENOENT}; my $e = "$!";
+      print STDERR "timeout: failed to run command \x27$ARGV[0]\x27: $e\n";
+      exit($nf ? 127 : 126);
+    }
     my $hit = 0;
     $SIG{ALRM} = sub { if (!$hit) { $hit = 1; kill "TERM", $p; alarm 2 } else { kill "KILL", $p } };
     alarm $s;

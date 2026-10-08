@@ -91,7 +91,8 @@ function take(index, row) {
   index.set(e.id, index.has(e.id) ? `${index.get(e.id)}\n${t}` : t);
 }
 
-const STORE = new Map(); // root -> { key, gen, ids, texts, build }
+const STORE = new Map(); // root -> { key, gen, ids, texts, build, log }
+const LOG_MAX = 20;
 
 /** Page size: default and cap (a request's `limit` is clamped to these). */
 export const LIMIT_DEFAULT = 200;
@@ -123,7 +124,7 @@ async function buildIndexSliced(rows) {
     take(index, row);
     if (++n % CHECK_EVERY === 0 && performance.now() - t0 > SLICE_MS) { await yieldLoop(); t0 = performance.now(); }
   }
-  return { ids: [...index.keys()], texts: [...index.values()] };
+  return { ids: [...index.keys()], texts: [...index.values()], rows: n };
 }
 
 /** Start the rebuild for `key` (or return the running one). */
@@ -131,11 +132,17 @@ function startBuild(root, state, key, readAll) {
   if (state.build && state.build.key === key) return state.build.promise;
   const build = { key };
   build.promise = (async () => {
+    const t0 = performance.now(), skipped = [], why = state.ids ? 'key changed' : 'first build';
+    const note = (o) => { state.log.push({ why, key: String(key).slice(0, 160), ms: Math.round(performance.now() - t0), skipped, ...o }); if (state.log.length > LOG_MAX) state.log.shift(); };
     try {
       await yieldLoop(); // compute only after the triggering request has been answered
-      const { ids, texts } = await buildIndexSliced(readAll(root));
+      const { ids, texts, rows } = await buildIndexSliced(readAll(root, { onSkip: (s) => skipped.push(s) }));
       // Only the newest rebuild may swap (if a newer key came meanwhile, this one lapses).
-      if (state.build === build) { state.key = key; state.gen = `g${++generations}`; state.ids = ids; state.texts = texts; }
+      if (state.build === build) { state.key = key; state.gen = `g${++generations}`; state.ids = ids; state.texts = texts; note({ gen: state.gen, rows, ids: ids.length }); }
+      else note({ gen: null, lapsed: true, rows, ids: ids.length });
+    } catch (e) {
+      note({ gen: null, error: String(e?.message || e).slice(0, 200) });
+      throw e;
     } finally {
       if (state.build === build) state.build = null;
     }
@@ -155,7 +162,7 @@ function startBuild(root, state, key, readAll) {
  */
 async function getState(root, keyOf, readAll) {
   let state = STORE.get(root);
-  if (!state) { state = { key: null, gen: null, ids: null, texts: null, build: null }; STORE.set(root, state); }
+  if (!state) { state = { key: null, gen: null, ids: null, texts: null, build: null, log: [] }; STORE.set(root, state); }
   for (;;) {
     const key = keyOf();
     if (state.ids && state.key === key) return { state, fresh: true };
@@ -192,7 +199,7 @@ export async function page(root, query, {
   limit = LIMIT_DEFAULT,
   cursor = null,
   key = () => cache.generationStamp(root),
-  readAll = (r) => dashboard.readRowsLazy(r),
+  readAll = (r, o) => dashboard.readRowsLazy(r, o),
   aborted = null,
 } = {}) {
   const q = normalize(query);
@@ -224,6 +231,16 @@ export async function answer(root, query, options = {}) {
 export async function waitForBuild(root) {
   const b = STORE.get(root)?.build;
   if (b) await b.promise.catch(() => {});
+}
+
+/**
+ * For probes and failure messages: what the last builds of this root did (why, the store key, how
+ * many rows and ids, how long, which drawers were skipped for a ReadError, whether a build lapsed
+ * or failed). A first page that comes back empty with `fresh:true` is otherwise unexplainable.
+ */
+export function diagnostics(root) {
+  const st = STORE.get(root);
+  return st ? { gen: st.gen, ids: st.ids?.length ?? null, builds: st.log.slice() } : null;
 }
 
 /** For probes only: forget the index. */

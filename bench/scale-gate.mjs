@@ -326,14 +326,31 @@ export function appendRow(file, row) {
   try { fs.writeSync(fd, `${JSON.stringify(row)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
 }
 
-/** Free RAM the gate may use: MemAvailable, or the cgroup's headroom when that is smaller. */
-export function freeRamBytes() {
+/**
+ * Memory the OS would hand out on macOS, from `vm_stat` text: free + inactive + speculative pages (the
+ * file cache is reclaimable there; `os.freemem()` counts only the truly free pages and reads a few hundred
+ * MiB on a busy runner with 7 GiB, which refused every rung). null when the text is not vm_stat's.
+ */
+export function parseVmStat(text) {
+  const size = /page size of (\d+) bytes/.exec(text);
+  if (!size) return null;
+  let pages = 0, seen = 0;
+  for (const key of ['free', 'inactive', 'speculative']) {
+    const m = new RegExp(`^Pages ${key}:\\s+(\\d+)`, 'm').exec(text);
+    if (m) { pages += Number(m[1]); seen++; }
+  }
+  return seen >= 2 ? pages * Number(size[1]) : null;
+}
+
+/** Free RAM the gate may use: MemAvailable (Linux), vm_stat (macOS) or os.freemem(), or the cgroup's headroom when that is smaller. */
+export function freeRamBytes({ readFile = (f) => fs.readFileSync(f, 'utf8'), platform = process.platform, vmStat = () => spawnSync('vm_stat', { encoding: 'utf8', timeout: 5000 }).stdout, freemem = () => os.freemem() } = {}) {
   let avail = null;
-  try { const m = /MemAvailable:\s+(\d+) kB/.exec(fs.readFileSync('/proc/meminfo', 'utf8')); if (m) avail = Number(m[1]) * 1024; } catch { /* not linux */ }
-  if (avail == null) avail = os.freemem();
+  try { const m = /MemAvailable:\s+(\d+) kB/.exec(readFile('/proc/meminfo')); if (m) avail = Number(m[1]) * 1024; } catch { /* not linux */ }
+  if (avail == null && platform === 'darwin') { try { avail = parseVmStat(String(vmStat())); } catch { /* no vm_stat: fall back */ } }
+  if (avail == null) avail = freemem();
   try {
-    const max = fs.readFileSync('/sys/fs/cgroup/memory.max', 'utf8').trim();
-    const cur = Number(fs.readFileSync('/sys/fs/cgroup/memory.current', 'utf8').trim());
+    const max = readFile('/sys/fs/cgroup/memory.max').trim();
+    const cur = Number(readFile('/sys/fs/cgroup/memory.current').trim());
     if (/^\d+$/.test(max) && Number.isFinite(cur)) avail = Math.min(avail, Number(max) - cur);
   } catch { /* no cgroup v2 limit */ }
   return avail;

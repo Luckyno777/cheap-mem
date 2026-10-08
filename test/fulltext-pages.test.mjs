@@ -52,6 +52,37 @@ async function loadOld() {
 let OLD_URL = null;
 const OLD = await loadOld();
 
+// **All top-level awaits come BEFORE the first test() (found 2026-10-08, CI node 20).** A test is
+// started the moment it is defined; the root-level `after()` hooks below run as soon as the tests
+// defined SO FAR have finished. With an `await` (browser start, server start) between the tests, that
+// moment can fall inside the await: the cleanup then deleted WORLD (created before the await ended)
+// before the route test ran, the index was built over an empty store, and the first page was "fresh"
+// and empty (`1 !== 3`). Node 22 happened to run the hooks later. Set-up first, tests after.
+const { browser, reason: REASON } = await startBrowser();
+
+const COUNT = 230; // more than LIMIT_DEFAULT: the first page is not enough
+function makeWorld() {
+  const r = tmpDir('fulltext-pages-world-');
+  fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
+  fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'notes', participants: { alex: { human: true }, builder: {} }, language: 'en' }));
+  const t0 = Date.parse('2026-09-01T09:00:00Z');
+  for (let i = 0; i < COUNT; i++) {
+    // The word sits ONLY in `why`: the local excerpt filter finds nothing, only the full text does
+    memory.logEntry(r, 'decision', { agent: 'builder', title: `Choice ${i}`, choice: 'Variant A', why: `because the zebrafinchcouncil ${i} wanted it` }, { now: new Date(t0 + i * 60e3) });
+  }
+  memory.logEntry(r, 'learning', { agent: 'builder', title: 'Decoy', text: 'None of it.' }, { now: new Date(t0 + COUNT * 60e3) });
+  return r;
+}
+const WORLD = makeWorld();
+const shared = await (async () => {
+  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
+  const { server } = await mod.serve(WORLD, {
+    ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '',
+  });
+  return { base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
+})();
+after(() => shared.close());
+
 /** All pages of a query in a row; checks finiteness and page size on the way. */
 async function allPages(r, q, opt, limit) {
   const ids = [];
@@ -317,30 +348,6 @@ test('fulltext-pages: event-loop gate at 100k — cold build and generation chan
 
 // ---------------------------------------------------------------- (4) route, (5) browser
 
-const { browser, reason: REASON } = await startBrowser();
-
-const COUNT = 230; // more than LIMIT_DEFAULT: the first page is not enough
-function makeWorld() {
-  const r = tmpDir('fulltext-pages-world-');
-  fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
-  fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'notes', participants: { alex: { human: true }, builder: {} }, language: 'en' }));
-  const t0 = Date.parse('2026-09-01T09:00:00Z');
-  for (let i = 0; i < COUNT; i++) {
-    // The word sits ONLY in `why`: the local excerpt filter finds nothing, only the full text does
-    memory.logEntry(r, 'decision', { agent: 'builder', title: `Choice ${i}`, choice: 'Variant A', why: `because the zebrafinchcouncil ${i} wanted it` }, { now: new Date(t0 + i * 60e3) });
-  }
-  memory.logEntry(r, 'learning', { agent: 'builder', title: 'Decoy', text: 'None of it.' }, { now: new Date(t0 + COUNT * 60e3) });
-  return r;
-}
-const WORLD = makeWorld();
-const shared = await (async () => {
-  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(WORLD, {
-    ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '',
-  });
-  return { base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
-})();
-after(() => shared.close());
 
 test('fulltext-pages: route — ?limit= and ?cursor= deliver finitely many pages, together all hits; answer small', async () => {
   const ids = [], trace = [];
@@ -362,6 +369,15 @@ test('fulltext-pages: route — ?limit= and ?cursor= deliver finitely many pages
     cursor = b.cursor;
   }
   // The trace is only for the failure message: CI once showed `1 !== 3` with nothing to say why.
+  if (pages !== 3 || ids.length !== COUNT) {
+    // CI node 20 (ubuntu, macos): the first page was fresh and EMPTY. Say what the store and the index looked like.
+    const file = memory.logPath(WORLD, 'decision', null);
+    let disk;
+    try { const raw = fs.readFileSync(file, 'utf8'); disk = { bytes: raw.length, lines: raw.split('\n').filter(Boolean).length, withWord: raw.split('\n').filter((l) => l.includes('zebrafinchcouncil')).length, head: raw.slice(0, 300) }; } catch (e) { disk = { error: String(e.message) }; }
+    const skipped = []; let rows = 0, hits = 0;
+    try { for (const row of dashboard.readRowsLazy(WORLD, { onSkip: (s) => skipped.push(s) })) { rows += 1; if (fulltext.searchText(row.entry).includes('zebrafinchcouncil')) hits += 1; } } catch (e) { skipped.push(String(e.message)); }
+    console.log(`fulltext route diagnostics: ${JSON.stringify({ node: process.version, file, disk, directRead: { rows, hits, skipped }, index: fulltext.diagnostics(WORLD), world: fs.readdirSync(WORLD) })}`);
+  }
   assert.equal(pages, 3, `pages seen: ${JSON.stringify(trace)}`);
   assert.equal(ids.length, COUNT);
   assert.equal(new Set(ids).size, COUNT);
