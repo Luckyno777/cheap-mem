@@ -189,20 +189,26 @@ test('every row is on disk the moment appendRow returns (an abort loses only the
   assert.throws(() => readRows(f), /not JSON/);
 });
 
-test('SIGTERM during a rung: exit 130, the rung row says aborted/unknown, a summary follows, nothing is left in TMPDIR', async () => {
+// Windows cannot deliver SIGTERM (kill('SIGTERM') is a hard kill, no handler runs): there the same abort is
+// asked for over the IPC channel (`abort:SIGTERM`), which the gate maps onto the same handler. The 'message'
+// variant runs on every platform, the real signal wherever signals exist.
+for (const via of ['signal', 'message']) {
+test(`SIGTERM during a rung (${via}): exit 130, the rung row says aborted/unknown, a summary follows, nothing is left in TMPDIR`, {
+  skip: via === 'signal' && process.platform === 'win32' ? 'Windows: kill(SIGTERM) is a hard kill, no handler can run; the message variant covers the abort there' : false,
+}, async () => {
   const home = tmp('cm-sg-abort-');
   const tmpdir = path.join(home, 'tmp');
   fs.mkdirSync(tmpdir);
   const out = path.join(home, 'out.jsonl');
   const kid = spawn(process.execPath, [GATE, '--rungs', '300', '--bytes-per-entry', '5000', '--anchors', '4', '--gold-cases', '2',
-    '--out', out, '--allow-uncommitted-criteria'], { env: { ...process.env, TMPDIR: tmpdir }, stdio: ['ignore', 'ignore', 'pipe'] });
+    '--out', out, '--allow-uncommitted-criteria'], { env: { ...process.env, TMPDIR: tmpdir, TEMP: tmpdir, TMP: tmpdir }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   let err = '';
   let resolveSent;
   const sent = new Promise((resolve) => {
     resolveSent = resolve;
     kid.stderr.on('data', (b) => {
       err += b;
-      if (/building the index/.test(err) && !sent.done) { sent.done = true; kid.kill('SIGTERM'); resolve(); }
+      if (/building the index/.test(err) && !sent.done) { sent.done = true; if (via === 'signal') kid.kill('SIGTERM'); else kid.send('abort:SIGTERM'); resolve(); }
     });
   });
   const code = await new Promise((resolve) => kid.on('close', (c) => { resolve(c); resolveSent(); }));
@@ -221,6 +227,7 @@ test('SIGTERM during a rung: exit 130, the rung row says aborted/unknown, a summ
   assert.equal(rows.at(-1).overall, 'unknown');
   assert.deepEqual(fs.readdirSync(tmpdir), [], 'the temp roots were not cleaned up');
 });
+}
 
 test('--resume with the only rung already done starts nothing; without --resume an existing output file is refused', () => {
   const dir = tmp('cm-sg-resume-');

@@ -949,6 +949,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   } else {
     process.on('SIGINT', () => onSignal('SIGINT'));
     process.on('SIGTERM', () => onSignal('SIGTERM'));
+    // Windows has no SIGTERM to deliver: `child.kill('SIGTERM')` there is a hard TerminateProcess and no
+    // handler runs. A parent that spawned this gate with an IPC channel can ask for the same abort by
+    // message instead. The channel is unref'd: it never keeps a finished gate alive.
+    if (typeof process.send === 'function') {
+      process.on('message', (m) => { if (m === 'abort:SIGTERM') onSignal('SIGTERM'); });
+      process.channel?.unref?.();
+    }
     process.on('exit', cleanupAll);
     main(argv).then((code) => { process.exitCode = code; }, (e) => { process.stderr.write(`${e.stack || e.message}\n`); cleanupAll(); process.exitCode = 1; });
   }
