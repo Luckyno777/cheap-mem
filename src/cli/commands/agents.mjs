@@ -13,7 +13,6 @@
  * about the others.
  */
 
-import path from 'node:path';
 import * as memory from '../../memory.mjs';
 import * as agents from '../../agents.mjs';
 import * as inbox from '../../inbox.mjs';
