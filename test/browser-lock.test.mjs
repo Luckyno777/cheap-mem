@@ -13,10 +13,12 @@ import { spawn } from 'node:child_process';
 
 const FIXTURE = new URL('./fixture/browser.mjs', import.meta.url).href;
 
+// os.tmpdir() reads TMPDIR on POSIX but TEMP/TMP on Windows: setting only TMPDIR left the child
+// on the real temp dir there (no wait at all; our lock never taken, never released).
 function secondTakes(tmp) {
   const k = spawn(process.execPath, ['--input-type=module', '-e',
     `const { takeLock } = await import(${JSON.stringify(FIXTURE)}); const release = await takeLock(); process.stdout.write('HAS ' + Date.now() + '\\n'); release();`,
-  ], { env: { ...process.env, TMPDIR: tmp }, stdio: ['ignore', 'pipe', 'pipe'] });
+  ], { env: { ...process.env, TMPDIR: tmp, TMP: tmp, TEMP: tmp }, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = ''; let err = '';
   k.stdout.on('data', (d) => { out += d; });
   k.stderr.on('data', (d) => { err += d; });
