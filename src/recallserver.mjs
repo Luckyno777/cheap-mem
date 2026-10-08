@@ -254,6 +254,11 @@ export async function start(root, {
   }
   if (process.platform !== 'win32') {
     try { fs.chmodSync(where.socket, 0o600); } catch { /* the 0700 directory still guards */ }
+  } else {
+    // A pipe leaves no file: the marker is what bin/mem-retrieve looks for.
+    try { writeAtomic(where.marker, `${where.socket}\n`, { mode: 0o600 }); } catch { /* the client then goes direct */ }
+    say('NOTICE: on Windows the key file cannot be protected with POSIX modes (0600/0700 are meaningless); '
+      + 'the random key is the guard, and the directory should be private to your account (NTFS ACLs, icacls). Unverified by the product.');
   }
   // The in-process index memo (search.mjs `setProcessMemo`): only a
   // long-lived process turns it on, and this is one. Off again on close.
@@ -269,6 +274,7 @@ export async function start(root, {
     // Only remove what is OURS: another key there belongs to a newer server.
     try { if (fs.readFileSync(where.key, 'utf8') === key) fs.rmSync(where.key, { force: true }); } catch { /* gone */ }
     if (process.platform !== 'win32') { try { fs.rmSync(where.socket, { force: true }); } catch { /* gone */ } }
+    else { try { fs.rmSync(where.marker, { force: true }); } catch { /* gone */ } }
   });
   return { running: true, where, close, server };
 }
