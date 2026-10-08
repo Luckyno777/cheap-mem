@@ -3287,6 +3287,7 @@ export function checkAppointmentInvite(root, { now = new Date() } = {}) {
     return finding('appointment-invite', oldest >= INVITE_ERROR_BACKLOG_MIN ? LEVEL.ERROR : LEVEL.WARN, `${head}; last failures: ${codes}`, advice);
   }
   if (st.broken) return finding('appointment-invite', LEVEL.WARN, `${head}; ${st.broken} broken journal line(s)`, advice);
+  if (st.credential.notice) return finding('appointment-invite', LEVEL.UNKNOWN, `${head}; ${st.credential.notice}`);
   return finding('appointment-invite', LEVEL.GOOD, head);
 }
 

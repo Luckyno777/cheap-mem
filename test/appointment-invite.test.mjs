@@ -358,7 +358,7 @@ test('smtp: a bad login is a short "auth" code, never the server text or the pas
   } finally { await smtp.close(); }
 });
 
-test('credential files: wider than 600 is refused WITHOUT any network access; the doctor says error', async () => {
+test('credential files: wider than 600 is refused WITHOUT any network access; the doctor says error', { skip: process.platform === 'win32' && 'no POSIX permission bits on Windows' }, async () => {
   const r = world();
   const smtp = await fakeSmtp();
   try {
@@ -499,9 +499,11 @@ test('google: a key file with wide permissions or without the key fields is refu
   let calls = 0;
   const google = { fetcher: async () => { calls += 1; return { status: 500, ok: false }; }, tokenUrl: 'http://fake.test/token', apiUrl: 'http://fake.test/calendar/v3' };
   make(r, { title: 'Dentist', atMs: wall(2026, 10, 7, 10, 0) });
-  const wide = secretFile(r, 'wide.json', JSON.stringify({ client_email: g.email, private_key: g.privateKey }), 0o640);
-  const t = await I.tick(r, { now: NOW, config: configOf(r, { route: 'google', google: { calendarId: 'o@example.test', keyFile: wide } }), google });
-  assert.match(t.failures[0], /credential/);
+  if (process.platform !== 'win32') { // Windows has no POSIX permission bits: only the missing-fields half applies there
+    const wide = secretFile(r, 'wide.json', JSON.stringify({ client_email: g.email, private_key: g.privateKey }), 0o640);
+    const t = await I.tick(r, { now: NOW, config: configOf(r, { route: 'google', google: { calendarId: 'o@example.test', keyFile: wide } }), google });
+    assert.match(t.failures[0], /credential/);
+  }
   const junk = secretFile(r, 'junk.json', '{"nothing":1}');
   const t2 = await I.tick(r, { now: NOW + 1000000, config: configOf(r, { route: 'google', google: { calendarId: 'o@example.test', keyFile: junk } }), google });
   assert.match(t2.failures[0], /credential/);
@@ -613,4 +615,35 @@ test('RED proof: without the idempotence guard the second tick sends again (the 
   };
   assert.equal(await run(path.join(SRC, 'appointment-invite.mjs')), 1, 'the real module sends once');
   assert.equal(await run(file), 2, 'the mutant sends twice: the idempotence probe really catches a missing guard');
+});
+
+// Simulated Windows (process.platform overridden): wide mode bits are NOT checked, but never silently "fine".
+async function asWindows(fn) {
+  const real = Object.getOwnPropertyDescriptor(process, 'platform');
+  Object.defineProperty(process, 'platform', { value: 'win32' });
+  try { return await fn(); } finally { Object.defineProperty(process, 'platform', real); }
+}
+test('Windows (simulated): a wide credential file still sends, but the state says permissions cannot be checked; the doctor says unknown; POSIX stays strict', async () => {
+  const r = world();
+  const smtp = await fakeSmtp();
+  try {
+    const conf = smtpConf(r, smtp.port);
+    fs.chmodSync(conf.calendar.smtp.passwordFile, 0o644);
+    const c = configOf(r, conf.calendar);
+    const cfgPath = path.join(r, '.mem', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); cfg.calendar = conf.calendar; fs.writeFileSync(cfgPath, JSON.stringify(cfg));
+    // POSIX (the real platform here, unless the suite itself runs on Windows): strict
+    if (process.platform !== 'win32') assert.equal(I.credentialState(c).ok, false);
+    const s = await asWindows(() => I.credentialState(c));
+    assert.equal(s.ok, true);
+    assert.match(s.notice, /cannot be checked on Windows/);
+    assert.match(s.notice, /icacls/);
+    const f = await asWindows(() => doctor.checkAppointmentInvite(r, { now: new Date(NOW) }));
+    assert.equal(f.level, 'unknown', 'not good: nothing was checked');
+    assert.match(f.text, /cannot be checked on Windows/);
+    make(r, { title: 'Dentist', atMs: wall(2026, 10, 7, 10, 0) });
+    const t = await asWindows(() => I.tick(r, { now: NOW, config: c }));
+    assert.equal(t.failures.length, 0, 'sending is allowed');
+    assert.ok(smtp.got.length >= 1, 'a letter went out');
+  } finally { await smtp.close(); }
 });

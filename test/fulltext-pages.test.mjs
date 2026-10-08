@@ -343,7 +343,7 @@ const shared = await (async () => {
 after(() => shared.close());
 
 test('fulltext-pages: route — ?limit= and ?cursor= deliver finitely many pages, together all hits; answer small', async () => {
-  const ids = [];
+  const ids = [], trace = [];
   let cursor = null, pages = 0;
   for (;;) {
     const u = `${shared.base}/api/fulltext?q=Zebrafinchcouncil&limit=100${cursor ? '&cursor=' + encodeURIComponent(cursor) : ''}`;
@@ -356,11 +356,13 @@ test('fulltext-pages: route — ?limit= and ?cursor= deliver finitely many pages
     assert.ok(text.length < 4000, 'a page stays small');
     ids.push(...b.ids);
     pages += 1;
+    trace.push({ page: pages, ids: b.ids.length, more: b.more, cursor: b.cursor, generation: b.generation, fresh: b.fresh, expired: b.expired });
     assert.ok(pages < 10);
     if (!b.more) { assert.equal(b.cursor, null); break; }
     cursor = b.cursor;
   }
-  assert.equal(pages, 3);
+  // The trace is only for the failure message: CI once showed `1 !== 3` with nothing to say why.
+  assert.equal(pages, 3, `pages seen: ${JSON.stringify(trace)}`);
   assert.equal(ids.length, COUNT);
   assert.equal(new Set(ids).size, COUNT);
   const standard = await (await fetch(`${shared.base}/api/fulltext?q=Zebrafinchcouncil`)).json();
