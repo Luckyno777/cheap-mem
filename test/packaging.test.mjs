@@ -141,7 +141,12 @@ test('the test script runs on every supported Node, not just this one', () => {
   // working directory and is the one form that works everywhere, PowerShell
   // included. The comment this replaces claimed the opposite, and pinned
   // the broken form in place.
-  assert.equal(pkg.scripts.test.trim(), 'node --test');
+  //
+  // Flags are fine (the per-file `--test-timeout` watchdog, 2026-10-08); what must never come
+  // back is a positional argument -- a glob or a directory.
+  const [node, flag, ...rest] = pkg.scripts.test.trim().split(/\s+/);
+  assert.deepEqual([node, flag], ['node', '--test'], pkg.scripts.test);
+  assert.deepEqual(rest.filter((a) => !a.startsWith('--')), [], `no glob or directory argument: ${pkg.scripts.test}`);
 });
 
 test('files the code READS at runtime are in the tarball', () => {
