@@ -40,7 +40,7 @@ function livingDocs() {
   for (const rel of fs.readdirSync(REPO).filter((n) => n.endsWith('.md'))) out.push(rel);
   const d = path.join(REPO, 'docs');
   if (fs.existsSync(d)) {
-    for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) out.push(path.join('docs', n));
+    for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) out.push(`docs/${n}`);
   }
   return out.filter((r) => !isArchive(r));
 }

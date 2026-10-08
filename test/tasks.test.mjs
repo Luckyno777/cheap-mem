@@ -187,6 +187,10 @@ test('cancel() really ends the child process (pid is provably gone afterwards)',
     const fresh = tasks.start(r, 'integrity');
     assert.notEqual(fresh.id, id);
     await tasks.cancel(r, 'integrity').catch(() => {}); // clean up regardless of how fast it ran
+    // cancel() returns when the pid is gone; the lock (entry.ended) is released by the child's 'close'
+    // event a moment later -- on Windows late enough for the NEXT test's start() to meet LOCK_ACTIVE.
+    // The terminal line is written after ended is set, so waiting for it is waiting for the lock.
+    await waitForTerminal(r, fresh.id);
   } finally { gone(r); }
 });
 
@@ -268,7 +272,7 @@ test('overview() of another root does not show a task that runs in this one (and
     assert.equal(tasks.overview(b).integrity, null, 'a task of root A is not root B\'s task');
     assert.equal(tasks.overview(a).integrity?.id, id, 'positive control: root A sees its own running task');
     await tasks.cancel(a, 'integrity').catch(() => {});
-    await waitForTerminal(a, id).catch(() => {});
+    await waitForTerminal(a, id);
   } finally { gone(a); gone(b); }
 });
 
