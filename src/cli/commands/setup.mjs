@@ -164,7 +164,7 @@ export const COMMANDS = {
       'Keep this short. Only what is TRUE RIGHT NOW and matters to every session.\n', 'utf8');
 
     out(`Initialized cheap-mem at ${root}`);
-    out(`  config:       ${path.relative(root, cfgPath)}`);
+    out(`  config:       ${memory.asSource(root, cfgPath)}`);
     out(`  participants: ${Object.keys(cfg.participants).join(', ')}`);
     out(``);
     out(`  merge driver: .gitattributes (*.jsonl merge=union)`);
@@ -938,9 +938,9 @@ export const COMMANDS = {
         });
       } catch (e) { die(String(e.message ?? e)); }
       for (const r of res.evidence.rejected) warn(`--captures ${r.path}: ${r.why}.`);
-      out(`Project created: ${path.relative(root, res.dir)} (status: new, awaits confirmation)`);
+      out(`Project created: ${memory.asSource(root, res.dir)} (status: new, awaits confirmation)`);
       out(`  event ${res.entry.id}; evidence: ${res.evidence.ok.length} capture(s) on ${res.evidence.days.length} day(s)`);
-      out(`It is delivered only after: git add ${path.relative(root, res.dir)} && git commit -m "project new: ${name}" && git push`);
+      out(`It is delivered only after: git add ${memory.asSource(root, res.dir)} && git commit -m "project new: ${name}" && git push`);
       return;
     }
     if (sub === 'confirm') {
@@ -983,7 +983,7 @@ export const COMMANDS = {
     const name = rest[1];
     if (!name) die("project init: name missing");
     const { dir, created, existed } = memory.projectInit(root, name, { title: args.title ?? null });
-    out(`Project: ${path.relative(root, dir)}`);
+    out(`Project: ${memory.asSource(root, dir)}`);
     if (created.length) out(`  created: ${created.join(', ')}`);
     if (existed.length) out(`  existed: ${existed.join(', ')}`);
   },
@@ -1151,7 +1151,7 @@ export const COMMANDS = {
           max: (numberFlag('max', args.max, { min: 1 }) ?? undefined),
         });
       } catch (e) { die(`sources bridge: ${e.message}`); }
-      out(`Appended: ${path.relative(root, r.path)}:${countLines(r.path)}`);
+      out(`Appended: ${memory.asSource(root, r.path)}:${countLines(r.path)}`);
       out(`  id: ${r.entry.id}   kind: bridge   tool: ${r.entry[source.BRIDGE_TOOL_FIELD]}`);
       if (r.findings.length) {
         warn(`redacted: ${r.findings.map((f) => `${f.type}x${f.count}`).join(', ')} `
@@ -1177,7 +1177,7 @@ export const COMMANDS = {
           max: (numberFlag('max', args.max, { min: 1 }) ?? undefined),
         });
       } catch (e) { die(`sources add: ${e.message}`); }
-      out(`Appended: ${path.relative(root, r.path)}:${countLines(r.path)}`);
+      out(`Appended: ${memory.asSource(root, r.path)}:${countLines(r.path)}`);
       out(`  id: ${r.entry.id}   kind: ${r.entry.kind}`);
       if (r.entry.hash) out(`  store: ${r.entry.hash.slice(0, 16)}  (${r.entry.bytes} bytes)`);
       if (r.entry.excerpt) {

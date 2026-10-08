@@ -82,7 +82,7 @@ function snapshot(root) {
       if (e.name === '.git') continue;
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else out[path.relative(root, p)] = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+      else out[path.relative(root, p)] = crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); // rel-ok: snapshot compared only with itself
     }
   };
   walk(root);

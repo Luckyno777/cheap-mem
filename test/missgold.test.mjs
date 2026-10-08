@@ -68,7 +68,7 @@ test('the question text is in no other file of the memory (not the journal, not 
   for (const f of allFiles(root)) {
     if (f === local || f.startsWith(derived)) continue;
     looked += 1;
-    assert.ok(!fs.readFileSync(f, 'latin1').includes(QUESTION), `question in ${path.relative(root, f)}`);
+    assert.ok(!fs.readFileSync(f, 'latin1').includes(QUESTION), `question in ${path.relative(root, f)}`); // rel-ok: failure message only
   }
   assert.ok(looked > 3, 'the probe looked at real files');
   assert.ok(fs.readFileSync(local, 'latin1').includes(QUESTION), 'control: the one place does hold it');

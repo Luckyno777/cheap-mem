@@ -21,6 +21,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { fileURLToPath } from 'node:url';
 import * as places from '../bench/readme-numbers.mjs';
 
@@ -132,7 +133,7 @@ test('the tool names in the docs all exist', () => {
   for (const f of docFiles()) {
     const text = fs.readFileSync(f, 'utf8');
     for (const [, name] of text.matchAll(/`(mem_[a-z_]+)`/g)) {
-      if (!names.has(name)) wrong.push(`${path.relative(ROOT, f)}: ${name}`);
+      if (!names.has(name)) wrong.push(`${relPosix(ROOT, f)}: ${name}`);
     }
   }
   assert.deepEqual(wrong, [], `\ntools named in docs that do not exist:\n${wrong.join('\n')}`);

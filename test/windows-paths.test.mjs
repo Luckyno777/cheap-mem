@@ -123,6 +123,33 @@ function importOfAPath(text) {
     && !/pathToFileURL/.test(line));
 }
 
+/**
+ * A STATIC `import ... from ${...}` inside a child-process source template
+ * whose specifier is a raw path or a path-ish constant. CI run 37757849359:
+ * test/find-stream.test.mjs wrote
+ *   import { x } from ${JSON.stringify(path.join(HERE, '..', 'src', 'x.mjs'))};
+ * into `node -e` -- the shape importOfAPath (dynamic import() only) missed.
+ * Accepted: pathToFileURL(...) on the line, or a *_URL / URL-named constant.
+ */
+function templateImportOfAPath(text) {
+  return code(text).filter(({ line }) =>
+    /\bimport\b[^;]*\bfrom\s+\$\{/.test(line)
+    && !/pathToFileURL|\.href|url/i.test(line)
+    // constants built with pathToFileURL elsewhere (concurrent-append, atlas-pass-cm)
+    && !/\$\{\s*JSON\.stringify\(\s*(MEMORY|mem|pas)\s*\)/.test(line));
+}
+
+test('no child-process source template imports from a raw path', () => {
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    for (const { line, nr } of templateImportOfAPath(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+  }
+  assert.deepEqual(offenders, [],
+    'A `from ${...}` specifier inside a spawned `node -e`/runner file is a URL: use pathToFileURL(p).href.');
+  assert.equal(templateImportOfAPath("import { a } from ${JSON.stringify(path.join(HERE, 'x.mjs'))};\n").length, 1, 'positive control');
+  assert.equal(templateImportOfAPath("import { a } from ${JSON.stringify(pathToFileURL(p).href)};\n").length, 0);
+});
+
 test('no file turns a URL pathname into a filesystem path', () => {
   const offenders = [];
   for (const { rel, text } of sources()) {
@@ -156,6 +183,48 @@ test('no stored `source` is a raw path.relative (host separator travels into the
   }
   assert.deepEqual(offenders, [], 'Use memory.asSource(root, p): a stored/printed source path is spelled with "/".');
   assert.ok(/\bsources?\s*:\s*path\.relative\(/.test('  source: path.relative(root, p),'), 'positive control');
+});
+
+test('no printed text interpolates a raw path.relative (users paste it into `git add`)', () => {
+  // CI run 37757849359: "Written: inbox\\2026-...md" on Windows. Printed
+  // relative paths are posix: memory.asSource(root, p).
+  const re = /\$\{[^}]*\bpath\.relative\(/;
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    if (!/^(src|bin)\//.test(rel)) continue;
+    for (const { line, nr } of code(text)) {
+      if (re.test(line) && !/split\(path\.sep\)|asSource\(|rel-ok:/.test(line)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+  assert.ok(re.test('out(`Written: ${path.relative(root, p)}`);'), 'positive control');
+});
+
+/** A test-side path.relative whose result keeps the host separator. */
+function rawRelative(text) {
+  return code(text).filter(({ line }) =>
+    /\bpath\.relative\(/.test(line)
+    && !/\.split\(path\.sep\)|\bposix\(|\brelPosix\(|rel-ok:/.test(line));
+}
+
+test('test helpers do not hand out raw path.relative (caps/allowlists/git keys are posix)', () => {
+  // CI run 37757849359 (windows): "src\\chain.mjs ... cap 0", `bin\\mem-mcp:1033`.
+  // The shared walker joined with the host separator, so every per-file cap
+  // keyed 'src/chain.mjs' missed. Use relPosix()/posix() from
+  // test/helpers/relpath.mjs, or mark a self-consistent use with `rel-ok: why`.
+  const offenders = [];
+  for (const { rel, text } of sources()) {
+    if (!rel.startsWith('test/') || rel === 'test/helpers/relpath.mjs') continue;
+    for (const { line, nr } of rawRelative(text)) offenders.push(`${rel}:${nr}: ${line.trim()}`);
+  }
+  assert.deepEqual(offenders, []);
+  assert.equal(rawRelative('  const rel = path.relative(REPO, f);\n').length, 1, 'positive control');
+  assert.equal(rawRelative('  const rel = relPosix(REPO, f);\n').length, 0);
+});
+
+test('the shared f5 walker answers forward slashes', async () => {
+  const src = fs.readFileSync(path.join(REPO, 'test', 'f5-source.mjs'), 'utf8');
+  assert.ok(!/path\.join\(rel,/.test(src), 'files() must not join with the host separator');
 });
 
 test('POSITIVE CONTROL: the probe reads a real tree and both patterns fire', () => {

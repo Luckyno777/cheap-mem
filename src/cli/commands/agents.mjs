@@ -157,7 +157,7 @@ export const COMMANDS = {
         return;
       }
       const { path: p } = res;
-      out(`Written: ${path.relative(root, p)}`);
+      out(`Written: ${memory.asSource(root, p)}`);
       // O1: the redaction runs in inbox.write(); it is SAID here, as on the bridge.
       if (res.findings?.length) warn(memory.findingsLine(res.findings));
       // Block S: say whether this message WILL wake anyone — otherwise an
@@ -567,7 +567,7 @@ export const COMMANDS = {
       }
       const { path: p, entry } = memory.logEntry(root, question.TYPE, data,
         { project: args.project ?? null });
-      out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
+      out(`Appended: ${memory.asSource(root, p)}:${countLines(p)}`);
       out(`  id: ${entry.id}`);
       out('  open, until an entry resolves it.');
       return;

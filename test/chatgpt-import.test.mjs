@@ -82,7 +82,7 @@ function snapshot(root) {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const v = path.join(d, e.name);
       if (e.name === '.git') continue;
-      if (e.isDirectory()) { out.push(`${path.relative(root, v)}/`); walk(v); } else out.push(`${path.relative(root, v)} ${fs.statSync(v).size}`);
+      if (e.isDirectory()) { out.push(`${path.relative(root, v)}/`); walk(v); } else out.push(`${path.relative(root, v)} ${fs.statSync(v).size}`); // rel-ok: snapshot compared only with itself
     }
   };
   walk(root);

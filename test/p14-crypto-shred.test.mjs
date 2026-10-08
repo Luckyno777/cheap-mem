@@ -23,6 +23,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { execFileSync } from 'node:child_process';
 import { performance } from 'node:perf_hooks';
 import * as memory from '../src/memory.mjs';
@@ -439,7 +440,7 @@ test('path: git history — the committed log line was ciphertext from the FIRST
     memory.shredEntry(r, 'decision', entry.id, { project: 'p', reason: 'git-history probe' });
     const c2 = commitAll(r, 'second: shredded');
 
-    const relPath = path.relative(r, memory.logPath(r, 'decision', 'p'));
+    const relPath = relPosix(r, memory.logPath(r, 'decision', 'p'));
     const atC1 = showAtCommit(r, c1, relPath);
     const atC2 = showAtCommit(r, c2, relPath);
     assert.ok(atC1 && !atC1.includes(SECRET), 'the FIRST commit already held the secret in the clear');
@@ -467,7 +468,7 @@ test('FINDING: a keyring committed to git with retained history does NOT actuall
     memory.shredEntry(r, 'decision', entry.id, { project: 'p', reason: 'x' });
     commitAll(r, 'keyring after destroyKey');
 
-    const relKeyring = path.relative(r, shred.keyringPath(r));
+    const relKeyring = relPosix(r, shred.keyringPath(r));
     const oldKeyring = JSON.parse(showAtCommit(r, c1, relKeyring));
     assert.ok(oldKeyring.keys[entry.id], 'the fixture did not actually have the key at c1 — test is broken');
 

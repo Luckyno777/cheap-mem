@@ -374,7 +374,7 @@ export const COMMANDS = {
     // this path wrote a secret pattern to disk unredacted and leaned on
     // the commit scan.
     const { path: p, entry, findings, askedAsDropped } = memory.logCheckedEntry(root, type, data, { project: args.project ?? null });
-    out(`Appended: ${path.relative(root, p)}:${countLines(p)}`);
+    out(`Appended: ${memory.asSource(root, p)}:${countLines(p)}`);
     if (findings.length) warn(memory.findingsLine(findings));
     { const w = expand.droppedLine(askedAsDropped); if (w) warn(w); }
     out(`  id: ${entry.id}`);
@@ -736,7 +736,7 @@ export const COMMANDS = {
     if (Object.keys(data).length === 0 && without.length === 0) die("correction: no fields");
     const { path: p, entry, old, closing, findings, encrypted } = memory.correctionEntry(
       root, type, oldId, data, { project: args.project ?? null, without });
-    out(`Correction: ${path.relative(root, p)}`);
+    out(`Correction: ${memory.asSource(root, p)}`);
     if (findings?.length) warn(memory.findingsLine(findings));
     if (encrypted) out('  encrypted:  yes (the corrected entry is crypto-shredding-encrypted)');
     out(`  new id:     ${entry.id}`);

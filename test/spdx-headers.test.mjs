@@ -35,6 +35,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { relPosix } from './helpers/relpath.mjs';
 import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -136,7 +137,7 @@ test('THE RULE: every shipped source file has SPDX headers', () => {
   for (const filepath of files) {
     const content = fs.readFileSync(filepath, 'utf8');
     if (!hasSpdxHeaders(content, filepath)) {
-      const relPath = path.relative(REPO, filepath);
+      const relPath = relPosix(REPO, filepath);
       missing.push(relPath);
     }
   }

@@ -1151,7 +1151,7 @@ export const COMMANDS = {
       const data = workflow.complete(fields, { agent: memory.agentDefault() });
       const project = args.project && args.project !== true ? String(args.project) : null;
       const { path: p, entry } = memory.logCheckedEntry(root, workflow.TYPE, data, { project });
-      out(`Appended: ${path.relative(root, p)}`);
+      out(`Appended: ${memory.asSource(root, p)}`);
       out(`  id: ${entry.id}`);
       out(`  ${workflow.mark(entry)}`);
       return;
@@ -1308,7 +1308,7 @@ export const COMMANDS = {
       if (!r.ok) die(`snippet new:\n  ${r.errors.join('\n  ')}`);
       const project = args.project && args.project !== true ? String(args.project) : null;
       const { path: p, entry } = memory.logCheckedEntry(root, snippet.TYPE, snippet.complete(fields), { project });
-      out(`Appended: ${path.relative(root, p)}`);
+      out(`Appended: ${memory.asSource(root, p)}`);
       out(`  id: ${entry.id}`);
       out(`  ${snippet.mark(entry)}`);
       return;

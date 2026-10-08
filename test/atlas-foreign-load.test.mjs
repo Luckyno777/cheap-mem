@@ -67,12 +67,30 @@ const FAIL_AT = 5000;
 let lastRealLoadMeasurement = null;
 
 /** Spawn `count` CPU-bound child processes that spin until killed, for tests that need REAL foreign load rather than a fabricated `foreignLoadDelta`. Always killed in the caller's `finally`. */
+// Every load child this file ever started: the positive control below must not
+// measure "the load is gone" while a SIGKILLed fresser is still dying.
+const EVERY_EATER = [];
 function spawnCpuEater(count) {
   const children = [];
   for (let i = 0; i < count; i += 1) {
-    children.push(spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += Math.sqrt(x + 1); }']));
+    const c = spawn(process.execPath, ['-e', 'let x = 0; while (true) { x += Math.sqrt(x + 1); }']);
+    children.push(c); EVERY_EATER.push(c);
   }
   return children;
+}
+/** Resolves when every load child has really exited (event-based), or says which ones did not by the deadline. */
+async function waitEatersGone(deadlineMs) {
+  const alive = () => EVERY_EATER.filter((c) => c.exitCode === null && c.signalCode === null);
+  const t0 = Date.now();
+  while (alive().length > 0) {
+    const left = deadlineMs - (Date.now() - t0);
+    if (left <= 0) return { gone: false, still: alive().map((c) => c.pid), waitedMs: Date.now() - t0 };
+    await Promise.race([
+      ...alive().map((c) => new Promise((ok) => c.once('exit', ok))),
+      new Promise((ok) => setTimeout(ok, left).unref()),
+    ]);
+  }
+  return { gone: true, still: [], waitedMs: Date.now() - t0 };
 }
 
 function killAll(children) {
@@ -482,13 +500,26 @@ test('decision #1, ROT: a baseline captured WHILE under real load is flagged, no
   }
 });
 
-test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline recovers once the load is gone', { timeout: 20000 }, (t) => {
+test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline recovers once the load is gone', { timeout: 40000 }, async (t) => {
   // Same machine, no fressers this time — proves the check above is not
   // simply broken/always-false; it responds to the actual condition. But
   // "no fressers WE spawned" is not the same fact as "no load at all" on
   // a shared container — see the long comment above this file's helper
   // section for why this is gated on PSI rather than assumed.
-  const baseline = captureQuietCalibrationBaseline();
+  // Event-based, not a fixed wait (CI coverage job + 2 of 5 local runs under foreign load): the
+  // previous test SIGKILLed 2x-cores fressers without waiting, and three ~30 ms capture attempts
+  // ran while they were still being reaped. First wait until every load child has EXITED, then
+  // capture until a baseline is trustworthy, both bounded by a deadline that names what it saw.
+  const reaped = await waitEatersGone(10000);
+  assert.ok(reaped.gone, `load children still alive after ${reaped.waitedMs} ms: pids ${reaped.still.join(', ')}`);
+  const stableDeadline = Date.now() + 15000;
+  let baseline = captureQuietCalibrationBaseline();
+  let rounds = 1;
+  while (!baseline.trustworthy && Date.now() < stableDeadline) {
+    await new Promise((ok) => setTimeout(ok, 250));
+    baseline = captureQuietCalibrationBaseline();
+    rounds += 1;
+  }
   if (baseline.psiQuiet !== true) {
     t.skip(`PSI still measured real contention on the last of ${baseline.attempts} attempt(s) `
       + `(psiRateDuringCaptureMsPerSec=${baseline.psiRateDuringCaptureMsPerSec}, threshold `
@@ -498,7 +529,8 @@ test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline rec
   }
   assert.equal(baseline.internallyStable, true,
     `expected recovery to internal rep-to-rep agreement once PSI confirms the load is gone; `
-    + `got ${JSON.stringify(baseline)}`);
+    + `got ${JSON.stringify(baseline)} after ${rounds} capture round(s); `
+    + `the load children had exited ${reaped.waitedMs} ms into the wait, the baseline never stabilised within 15 s`);
 });
 
 test('ROT (the real finding this whole fix answers): under 2x-oversubscribed real CPU load, the OLD sensors '

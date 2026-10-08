@@ -173,7 +173,7 @@ function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
  * sabotage is a no-op and the test would prove nothing.
  */
 function withSabotage(filePath, transform, fn) {
-  const rel = path.relative(PKG, filePath);
+  const rel = path.relative(PKG, filePath); // rel-ok: containment check (startsWith("..")), not a key
   assert.ok(rel && !rel.startsWith('..') && !path.isAbsolute(rel),
     `refusing to sabotage ${filePath}: only the throwaway package copy under ${PKG} may be patched`);
   const original = fs.readFileSync(filePath, 'utf8');

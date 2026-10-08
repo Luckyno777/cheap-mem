@@ -458,7 +458,7 @@ function sendPage(res, ctx, code, opts) {
   if (mode === 'setup') {
     const e = ensureSetupCode(ctx.dir);
     if (e.fresh) ctx.log(`serve: no password set. The setup code is in ${e.file} (mem serve setup-code)`);
-    codeAt = path.relative(ctx.root ?? path.dirname(ctx.dir), e.file) || e.file;
+    codeAt = path.relative(ctx.root ?? path.dirname(ctx.dir), e.file).split(path.sep).join('/') || e.file;
   }
   // `same-origin`, not the house's `no-referrer`: under `no-referrer` a
   // browser sends `Origin: null` on a form POST, and the Origin check would

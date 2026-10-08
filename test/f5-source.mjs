@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { posix } from './helpers/relpath.mjs';
 
 export const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -16,13 +17,13 @@ export function stripComments(text) {
     .join('\n');
 }
 
-/** All files under `rel` (recursive) that pass `filter`; relative paths. */
+/** All files under `rel` (recursive) that pass `filter`; relative paths, ALWAYS forward-slashed. */
 export function files(rel, filter, root = ROOT) {
   const out = [];
   const full = path.join(root, rel);
   if (!fs.existsSync(full)) return out;
   for (const e of fs.readdirSync(full, { withFileTypes: true })) {
-    const r = path.join(rel, e.name);
+    const r = `${posix(rel)}/${e.name}`; // posix: caps and allowlists are keyed 'src/x.mjs'
     if (e.isDirectory()) { if (e.name !== 'node_modules' && e.name !== '.git') out.push(...files(r, filter, root)); }
     else if (filter(e.name)) out.push(r);
   }

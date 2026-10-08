@@ -1309,7 +1309,7 @@ async function handleCall(name, args) {
       const alike = neighbours.similarDecisions(root, type, data, { project });
       const { path: p, entry, findings, askedAsDropped } = memory.logCheckedEntry(root, type, data, { project });
       const lines = [
-        `Appended: ${path.relative(root, p)}`,
+        `Appended: ${memory.asSource(root, p)}`,
         `  id: ${entry.id}   agent: ${entry.agent}`,
       ];
       if (findings.length) lines.push(`  ${memory.findingsLine(findings)}`);
@@ -1668,7 +1668,7 @@ async function handleCall(name, args) {
       const p = res.path;
       // O1: inbox.write() redacted subject and text; say what.
       return textResult(
-        `Written: ${path.relative(root, p)}\n` +
+        `Written: ${memory.asSource(root, p)}\n` +
         (res.findings?.length ? `  ${memory.findingsLine(res.findings)}\n` : '') + '\n' +
         `Deliver with: git -C ${root} add . && git -C ${root} commit -m 'inbox: ${args.subject}' && git -C ${root} push`);
     }
@@ -1727,7 +1727,7 @@ async function handleCall(name, args) {
     case 'mem_project_init': {
       const { dir, created, existed } = memory.projectInit(root, args.name, { title: args.title ?? null });
       return textResult(
-        `Project: ${path.relative(root, dir)}\n` +
+        `Project: ${memory.asSource(root, dir)}\n` +
         (created.length ? `  created: ${created.join(', ')}\n` : '') +
         (existed.length ? `  existed: ${existed.join(', ')}\n` : ''));
     }
@@ -1737,7 +1737,7 @@ async function handleCall(name, args) {
         strict: Boolean(process.env.MEM_HEADLESS),
       });
       return textResult(
-        `Project created: ${path.relative(root, res.dir)} (status: new, awaits confirmation)\n` +
+        `Project created: ${memory.asSource(root, res.dir)} (status: new, awaits confirmation)\n` +
         `  event ${res.entry.id}; evidence: ${res.evidence.ok.length} capture(s) on ${res.evidence.days.length} day(s)\n` +
         res.evidence.rejected.map((r) => `  ! ${r.path}: ${r.why}\n`).join(''));
     }
