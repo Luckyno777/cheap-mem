@@ -16,7 +16,7 @@
 // file turns every uncaught page exception red (`lazyBrowser({ pageerror: true })`).
 // The search is a fragment from the middle of a word: the old palette finds the entry neither in the
 // excerpt nor via the ranked search (word search), the full text finds it as a substring.
-/* global document, getComputedStyle -- these run inside the page (browser), not in Node */
+/* global document, fulltextPalette, getComputedStyle -- these run inside the page (browser), not in Node */
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
