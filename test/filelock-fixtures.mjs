@@ -44,6 +44,19 @@ export function runChild(script, env = {}) {
   return { child, done };
 }
 
+/**
+ * A pid no OS can hand out (Linux caps at 2^22, macOS at 99999, Windows
+ * uses multiples of 4), so it is dead for good: `kill(pid, 0)` says ESRCH
+ * (asserted by `neverAssignedPid`). The pid of a child that has just exited
+ * is NOT dead for good: Windows reuses it within milliseconds, and without
+ * `/proc` a living pid is verdict `unknown`, never taken over.
+ */
+export const NEVER_ASSIGNED_PID = 2000000001;
+export function neverAssignedPid() {
+  try { process.kill(NEVER_ASSIGNED_PID, 0); } catch (e) { if (e && e.code === 'ESRCH') return NEVER_ASSIGNED_PID; throw e; }
+  throw new Error(`test set-up: pid ${NEVER_ASSIGNED_PID} must not exist`);
+}
+
 export const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /**

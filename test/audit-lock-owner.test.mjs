@@ -20,6 +20,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { exportCommit } from './helpers/export-commit.mjs';
+import { neverAssignedPid } from './filelock-fixtures.mjs';
 import { withLock, ownerVerdict, LockTimeoutError, takeOverIfStale } from '../src/filelock.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -190,8 +191,8 @@ test('verdicts: other host, other boot, other PID namespace, garbage', { skip: !
 test('verdicts, all platforms: garbage and a foreign host are unknown, a gone pid is dead', () => {
   for (const m of ['', 'x', '0 h i m']) assert.equal(ownerVerdict(m), 'unknown');
   assert.equal(ownerVerdict(`4242 another-host-entirely ${new Date().toISOString()} tok\n`), 'unknown');
-  const r = spawnSync(process.execPath, ['-e', '0']);
-  assert.equal(ownerVerdict(`${r.pid} ${os.hostname()} ${new Date().toISOString()} tok\n`), 'dead');
+  // dead for good, not the pid of a child that just ended (Windows reuses that at once -> `unknown`)
+  assert.equal(ownerVerdict(`${neverAssignedPid()} ${os.hostname()} ${new Date().toISOString()} tok\n`), 'dead');
 });
 
 test('competing takers of a dead lock: all get their turn, never two at once (barrier)', async () => {
