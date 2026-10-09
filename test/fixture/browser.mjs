@@ -141,9 +141,9 @@ export async function startBrowser(opts = {}) {
  * - The close (and the lock release) happens in `after()` if, and only if, a start ran.
  * `launch` is injectable for the probe in test/lazy-browser.test.mjs; real files never pass it.
  */
-export function lazyBrowser({ launch = launchBrowser, ...opts } = {}) {
+export function lazyBrowser({ launch = launchBrowser, pageerror = false, ...opts } = {}) {
   let started = null;
-  const get = () => (started ??= Promise.resolve().then(() => launch(opts)));
+  const get = () => (started ??= Promise.resolve().then(() => launch(opts)).then((h) => { if (pageerror && h.browser) watchPageErrors(h.browser); return h; }));
   after(async () => {
     if (!started) return;
     let h;
@@ -156,9 +156,52 @@ export function lazyBrowser({ launch = launchBrowser, ...opts } = {}) {
     async need(t) {
       const h = await get();
       if (!h.browser) { t.skip(h.reason || 'no browser'); return null; }
+      if (pageerror) guardPageErrors(h.browser, t);
       return h.browser;
     },
+    /**
+     * Opt out for ONE probe, with a reason (a call without `reason` throws). Only errors that match
+     * `allowed` are let through; every other uncaught page exception still turns the probe red.
+     */
+    allow(t, { allowed, reason }) {
+      if (!(allowed instanceof RegExp) || !String(reason || '').trim()) throw new Error('allow(t, { allowed: /pattern/, reason }) needs both');
+      t.diagnostic(`pageerror allowed: ${allowed} -- ${reason}`);
+      (t[ALLOWED] ??= []).push(allowed);
+    },
   };
+}
+
+// --- uncaught page exceptions turn the probe red (opt-in: lazyBrowser({ pageerror: true })) ---
+// Cause (2026-10-09, palette-typeerror-cm): the quick search threw a TypeError in an async step after the
+// ranked answer came in; the page kept running and only that block never appeared. A probe that checks
+// "the hit is there" stays green next to a thrown TypeError, so the exception itself is a failure.
+// Playwright's context event `weberror` carries every uncaught exception and unhandled rejection of every
+// page of a context -- also for pages made by `browser.newPage()` (which makes a context itself), so the
+// hook sits on `browser.newContext`. If a future Playwright built pages without it the list would stay
+// empty and silent: test/fixture-pageerror.test.mjs holds a probe that a thrown error is seen.
+const ERRORS = Symbol('pageErrors');
+const ALLOWED = Symbol('pageErrorAllowed');
+export function watchPageErrors(browser) {
+  if (browser[ERRORS]) return browser[ERRORS];
+  const list = (browser[ERRORS] = []);
+  const make = browser.newContext.bind(browser);
+  browser.newContext = async (...a) => {
+    const ctx = await make(...a);
+    ctx.on('weberror', (we) => list.push(String(we.error()?.stack || we.error()?.message || we.error()).split('\n').slice(0, 2).join(' | ')));
+    return ctx;
+  };
+  return list;
+}
+/** Empties the list now and checks it when the probe `t` ends (a `t.after` hook: a throw there fails the probe). */
+export function guardPageErrors(browser, t) {
+  const list = watchPageErrors(browser);
+  list.length = 0;
+  t.after(() => {
+    const allowed = t[ALLOWED] || [];
+    const bad = list.filter((m) => !allowed.some((re) => re.test(m)));
+    list.length = 0;
+    if (bad.length) throw new Error(`pageerror: ${bad.length} uncaught exception(s) in the page: ${bad.join(' || ')}`);
+  });
 }
 
 /**
