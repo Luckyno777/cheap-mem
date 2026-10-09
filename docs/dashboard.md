@@ -236,8 +236,10 @@ and the hook's bash test needs something to look for; a dead server leaves
 the marker, the client's connect then fails and the hook goes direct with
 `server-gone`). The
 recall hook `bin/mem-retrieve` (bash, also under Git Bash on Windows) asks it
-first; the PowerShell hook `bin/mem-retrieve.ps1` does not ask it yet and
-always searches direct; with no socket it runs `mem find` itself, exactly as before.
+first; the PowerShell hook `bin/mem-retrieve.ps1` asks it through the same
+Node client (`bin/mem-retrieve-client.mjs`, same exit codes, same journal
+reasons, same one time budget) - unverified on real Windows PowerShell;
+with no server it runs `mem find` itself, exactly as before.
 
 - **One search path.** The server runs the same `find` handler as
   `mem find <prompt> --top N --json`; the hook renders and books as

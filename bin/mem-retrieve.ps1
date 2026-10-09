@@ -50,6 +50,15 @@ $ErrorActionPreference = 'Continue'
 if ($env:MEM_RETRIEVE_OFF -eq '1') { exit 0 }
 if ($env:MEM_HOOK_OFF -eq '1') { exit 0 }
 
+# Hook start, in milliseconds since the epoch (M10, as in bin/mem-retrieve).
+# The ONE time budget is counted from here: the recall client reads
+# MEM_HOOK_START_MS to cap its wait for the warm server, and the journal's
+# duration_ms (MEM_RH_START_MS) counts from here too. Without this the
+# client started its own clock and the PowerShell hook booked no duration.
+$HookStartMs = [string][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$env:MEM_HOOK_START_MS = $HookStartMs
+$env:MEM_RH_START_MS = $HookStartMs
+
 # --- Where is the memory? -------------------------------------------
 #
 # CHEAP_MEM_ROOT first - the name the installer injects. The fallback
