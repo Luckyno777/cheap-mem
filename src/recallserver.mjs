@@ -46,6 +46,18 @@ import { writeAtomic } from './atomicwrite.mjs';
 
 const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Has the parent of a keeper-run server gone? POSIX reparents an orphan, so `process.ppid` changes.
+ * Windows does NOT: `ppid` keeps naming the dead parent forever, and a server that only compared it
+ * outlived `mem serve` for good (the hard kill of `mem serve` there is TerminateProcess, no child is
+ * taken down; a test file that spawned `mem serve` then never ended, cli-contract, CI 37860352636).
+ * So also ask whether the parent pid still exists (signal 0; EPERM means it does).
+ */
+export function parentGone(parent, ppid = process.ppid, probe = process.kill) {
+  if (ppid !== parent) return true;
+  try { probe(parent, 0); return false; } catch (e) { return e?.code !== 'EPERM'; }
+}
+
 /** Exit code of the server child process on a detected code change (EX_TEMPFAIL). */
 export const STALE_RC = 75;
 /**

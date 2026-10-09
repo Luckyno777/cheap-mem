@@ -35,5 +35,5 @@ process.on('SIGINT', stop);
 // tell the child). By hand (no MEM_RECALL_SERVER_PARENT) nothing changes.
 const parent = Number(process.env.MEM_RECALL_SERVER_PARENT);
 if (parent > 0) {
-  setInterval(() => { if (process.ppid !== parent) stop(); }, 1000).unref();
+  setInterval(() => { if (recallserver.parentGone(parent)) stop(); }, 1000).unref();
 }
