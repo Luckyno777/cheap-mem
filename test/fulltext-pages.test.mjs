@@ -24,7 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import * as memory from '../src/memory.mjs';
 import * as dashboard from '../src/dashboard.mjs';
@@ -74,14 +74,11 @@ function makeWorld() {
   return r;
 }
 const WORLD = makeWorld();
-const shared = await (async () => {
-  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(WORLD, {
-    ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '',
-  });
-  return { base: `http://127.0.0.1:${server.address().port}`, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
-})();
-after(() => shared.close());
+// warm: the cold start of the server is not part of the browser deadlines
+const shared = await startView(WORLD, {
+  ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '',
+});
+after(() => shared.stop());
 
 /** All pages of a query in a row; checks finiteness and page size on the way. */
 async function allPages(r, q, opt, limit) {

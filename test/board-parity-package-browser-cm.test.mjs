@@ -15,13 +15,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
-import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
-const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = 'deca5ad713f1dc7f3ec05cf21e0d5cf1ebb22a3b';
 
 const { browser, reason: why } = await startBrowser();
@@ -38,11 +37,8 @@ async function startServer() {
   memory.projectInit(r, 'demo'); // logEntry no longer creates a project
   for (let i = 0; i < 4; i++) memory.logEntry(r, 'learning', { title: `Global ${i}`, text: 'x' });
   for (let i = 0; i < 7; i++) memory.logEntry(r, 'learning', { title: `Demo ${i}`, text: 'x' }, { project: 'demo' });
-  const mod = await import(`${pathToFileURL(SERVE).href}?pkgb=${Math.random()}`);
-  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
-  const base = `http://127.0.0.1:${server.address().port}`;
-  await warmView(base); // the cold start of the server is not part of the browser deadlines
-  return { base, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
+  // warm: the cold start of the server is not part of the browser deadlines
+  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
 }
 
 async function openExport(base, oldScript = null) {

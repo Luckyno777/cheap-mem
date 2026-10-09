@@ -47,7 +47,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -69,15 +69,14 @@ async function root(prefix) {
   return r;
 }
 async function withServer(r, env, run) {
-  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(r, {
+  const view = await startView(r, {
     ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
     CHEAP_MEM_SERVE_TOKEN: '', ...env,
   });
   try {
-    return await run(`http://127.0.0.1:${server.address().port}`);
+    return await run(view.base);
   } finally {
-    await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
+    await view.stop();
   }
 }
 async function pageReady(page, base) {

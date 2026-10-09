@@ -29,6 +29,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test, { after } from 'node:test';
 
 // **One browser file at a time (2026-10-01).** In the full suite test files
@@ -242,14 +243,55 @@ export async function waitReady(page) {
  * probe that tests the cold start itself (board-tempo, dash-later).
  * `MEM_PROBE_NO_WARMUP` skips it -- only for the red proof.
  */
-export async function warmView(base) {
+export async function warmView(base, { cookie = '' } = {}) {
   if (process.env.MEM_PROBE_NO_WARMUP) return;
-  const html = await (await fetch(base + '/dashboard')).text();
+  const head = cookie ? { cookie } : {};
+  const html = await (await fetch(base + '/dashboard', { headers: head })).text();
   const ways = [...html.matchAll(/(?:src|href)="(\/[^"#]+)"/g)].map((m) => m[1]);
-  const first = await fetch(base + '/dashboard.json', { headers: { 'accept-encoding': 'gzip' } });
+  const first = await fetch(base + '/dashboard.json', { headers: { 'accept-encoding': 'gzip', ...head } });
   let parts = [];
   try { parts = Object.values((await first.json()).parts || {}).map((p) => p.path).filter(Boolean); } catch { /* no parts: warm the rest */ }
   for (const way of [...ways, ...parts, '/dashboard/appointments.json']) {
-    try { const r = await fetch(base + way, { headers: { 'accept-encoding': 'gzip' } }); await r.arrayBuffer(); } catch { /* a warm-up is never a probe */ }
+    try { const r = await fetch(base + way, { headers: { 'accept-encoding': 'gzip', ...head } }); await r.arrayBuffer(); } catch { /* a warm-up is never a probe */ }
   }
+}
+
+/**
+ * The view server for browser probes -- warm, ALWAYS (job browser-warm-cm, 2026-10-09; port of lucky-mem's
+ * `starteAnsicht`).
+ *
+ * **Cause (chain 2026-10-09 16:33Z, x3c "RED on the fixed old state ...": "page.waitForFunction: Timeout
+ * 30000ms exceeded." = `waitReady`).** Before this, every browser file built its server itself
+ * (`mod.serve(...)`) and only four of them remembered `warmView` afterwards. The others paid the cold
+ * start (first `/dashboard.json` build, the part routes, the gzip of the page files) on the first browser
+ * page, inside the browser's own deadlines -- and server and Playwright client share ONE event loop, so
+ * under load the whole cost lands there. Not a readiness race: `waitReady` waits for the loading tile to
+ * go (a timeout, not a wrong value), and the probe's own waits for the panel are real conditions with
+ * their own 15 s / 10 s text. Whoever starts the server here gets it warmed back; no probe has to
+ * remember. No deadline widened, nothing repeated.
+ *
+ * `env`: the server's environment EXACTLY as given (no process.env, no defaults added -- pass
+ * `...process.env` yourself if the file did). `serveOpts`: third argument of `serve()` (e.g.
+ * `{ allowWrites: true }`). `repo`: the tree whose `bin/mem-serve` runs (default: this one). `cookie`:
+ * a ready cookie header (`login.COOKIE=session`) when login is on, so the warm-up sees the dashboard and
+ * not the sign-in page. `afterFile`: close at the end of the file (else the caller closes per probe).
+ * `MEM_PROBE_NO_WARMUP=1` switches the warm-up off -- only for the red proof (test/browser-cold-start.test.mjs).
+ * Returns `{ base, server, mod, stop }`; `stop()` can be called repeatedly.
+ * Do NOT use it in a probe that measures the cold or stale state itself (board-tempo, dash-later,
+ * atlas-pass, cat-confirm: see the list in test/browser-cold-start.test.mjs).
+ */
+export async function startView(root, env, { serveOpts, repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..'), cookie = '', afterFile = false } = {}) {
+  const mod = await import(`${pathToFileURL(path.join(repo, 'bin', 'mem-serve')).href}?view=${Math.random()}`);
+  const { server } = await (serveOpts === undefined ? mod.serve(root, env) : mod.serve(root, env, serveOpts));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  let closed = null;
+  const stop = () => (closed ??= new Promise((res) => { server.closeAllConnections?.(); server.close(res); }));
+  if (afterFile) after(stop);
+  try {
+    await warmView(base, { cookie });
+  } catch (e) {
+    await stop();
+    throw e;
+  }
+  return { base, server, mod, stop };
 }

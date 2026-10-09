@@ -23,7 +23,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as goldlog from '../src/goldlog.mjs';
 import * as today from '../src/today.mjs';
 import { isoWeek } from '../src/measurements.mjs';
-import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -371,12 +371,10 @@ test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gol
   fs.mkdirSync(path.dirname(goldFile), { recursive: true });
   fs.writeFileSync(goldFile, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
 
-  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(root, {
+  const { base, stop } = await startView(root, {
     CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
     CHEAP_MEM_SERVE_TOKEN: '', CHEAP_MEM_GOLD_FILE: goldFile,
   });
-  const base = `http://127.0.0.1:${server.address().port}`;
   const context = await browser.newContext();
   const page = await context.newPage();
   try {
@@ -390,7 +388,7 @@ test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gol
     await page.waitForTimeout(300);
   } finally {
     await context.close();
-    await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
+    await stop();
   }
   const { rows: written } = goldlog.read(goldFile);
   assert.equal(written.length, 4, 'exactly one new line was appended');

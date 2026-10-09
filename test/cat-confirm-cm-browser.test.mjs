@@ -25,12 +25,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as categories from '../src/categories.mjs';
 import * as login from '../src/login.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -61,7 +61,6 @@ const lines = (root) => { try { return fs.readFileSync(path.join(root, 'global',
 // `repo`: the tree whose server runs. For the red proof it is the base commit, extracted to a temp directory,
 // with ONLY the test switch for the gap added (the base has `minGapMs: 0` under the sync switch).
 async function startServer(root, repo = REPO, { gapMs = 600000 } = {}) {
-  const mod = await import(`${pathToFileURL(path.join(repo, 'bin', 'mem-serve')).href}?cc=${Math.random()}`);
   const env = {
     CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '',
     CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0', CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS: String(gapMs),
@@ -69,13 +68,13 @@ async function startServer(root, repo = REPO, { gapMs = 600000 } = {}) {
   const dir = login.dirFor(root, env);
   login.setPassword(dir, 'a-proper-long-password');
   const session = login.newSession(dir);
-  const { server } = await mod.serve(root, env, { allowWrites: true });
-  const base = `http://127.0.0.1:${server.address().port}`;
+  // warm (with the session cookie); `prime()` below still makes its own stale state, so the cache gap starts there
+  const { base, stop } = await startView(root, env, { repo, serveOpts: { allowWrites: true }, cookie: `${login.COOKIE}=${session}` });
   const route = async () => {
     const j = await (await fetch(`${base}/dashboard.json`, { headers: { cookie: `${login.COOKIE}=${session}` } })).json();
     return { proposals: j.categories.proposals.length, builtAt: j.cache.built_at, fresh: j.cache.fresh, refreshing: j.cache.refreshing, projects: j.projectShelf?.projects ?? [] };
   };
-  return { base, session, route, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
+  return { base, session, route, stop };
 }
 
 // Prime the cache like a busy store: a new entry makes the cold answer stale, the background build that

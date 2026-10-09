@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -52,12 +52,12 @@ async function withServer(run) {
       if (type === 'error') d.class = 'flow';
       memory.logEntry(root, type, d, { project: ['payments', 'infra', null][i % 3], now: new Date(Date.parse('2026-09-01T09:00:00Z') + i * 3600e3) });
     }
-    const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?visible=${Math.random()}`);
-    const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+    // warm: the cold start of the server is not part of the browser deadlines
+    const view = await startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
     try {
-      return await run(`http://127.0.0.1:${server.address().port}`);
+      return await run(view.base);
     } finally {
-      await new Promise((r) => { server.closeAllConnections?.(); server.close(r); });
+      await view.stop();
     }
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -80,7 +80,6 @@ async function everyScreen(base, before) {
     // 'load' + loading marker gone, NOT 'networkidle': since tempo the page
     // fetches deferred parts and polls the MCP probe — under full load the
     // network never went quiet for 30 s (cm suite 2026-09-29, navigation timeout).
-    await warmView(base); // the cold start of the server is not part of the browser deadlines
     await page.goto(base + '/dashboard', { waitUntil: 'load' });
     await waitReady(page);
     if (before) await page.evaluate(before);

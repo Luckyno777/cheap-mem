@@ -22,14 +22,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as categories from '../src/categories.mjs';
 import * as login from '../src/login.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = '5f9170b';
 const { browser, reason } = await startBrowser();
 const SKIP = reason;
@@ -56,7 +55,6 @@ const lines = (root, rel) => { try { return fs.readFileSync(path.join(root, rel)
 const view = (root) => categories.view(root);
 
 async function start(root, { withLogin = true } = {}) {
-  const mod = await import(`${pathToFileURL(SERVE).href}?kk=${Math.random()}`);
   const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' };
   let session = null;
   if (withLogin) {
@@ -64,9 +62,9 @@ async function start(root, { withLogin = true } = {}) {
     login.setPassword(dir, 'a-proper-long-password');
     session = login.newSession(dir);
   } else env.CHEAP_MEM_SERVE_LOGIN = 'off';
-  const { server } = await mod.serve(root, env, { allowWrites: true });
-  const base = `http://127.0.0.1:${server.address().port}`;
-  return { base, session, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
+  // warm (with the session cookie when login is on, else the warm-up would only see the sign-in page)
+  const { base, stop } = await startView(root, env, { serveOpts: { allowWrites: true }, cookie: session ? `${login.COOKIE}=${session}` : '' });
+  return { base, session, stop };
 }
 
 async function open(s, { width = 1280, light = false, oldScript = null, dialogs = true } = {}) {
