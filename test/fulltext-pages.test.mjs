@@ -12,7 +12,7 @@
 //       FIXED commit c74adca), order included — umlauts, substrings, fields after character 220, short
 //       queries, merged (superseded) entries, generation change.
 //   (2) Pagination is finite and complete; a foreign/old cursor means `expired`, never an empty list.
-//   (3) Event-loop gate: with 100k entries the timer delay stays under the limit (new GREEN, the old
+//   (3) Event-loop gate: with 100k entries the loop gets turns in short stretches, counted in loop turns and rows on a virtual clock (new GREEN, the old
 //       state RED; positive control: the same setup sees the delay of the old state at all).
 //   (4) Route: ?limit=/&cursor=, answer size bounded.
 //   (5) Browser: "load more" (new client GREEN, the client of c74adca has no button = RED).
@@ -255,51 +255,53 @@ test('fulltext-pages: pagination finite and complete; limit is clamped; foreign 
 // ---------------------------------------------------------------- (3) event loop
 
 /**
- * **The measurement runs in a fresh child process and counts the CPU time of the main thread
- * (mirror of the sibling's CI round 3, 2026-10-07).** The old probe measured the wall-clock gap
- * between two 1 ms timers. Under machine load that gap (hundreds of ms to seconds) is the
- * scheduler not letting the process run, not the code holding the loop; and in the test process
- * itself the heap is dirtied by the old state, the equality probes and the browser set-up, so GC
- * pauses push the CPU time over the limit too. In a fresh child with only the 100k entries the
- * maximum stays far under the limit even under load; the old state sits well above it. The limit
- * of 60 ms stays. What is counted is how long JS REALLY held the loop: the main thread's run time
- * from /proc/thread-self/schedstat (ns; NOT process.cpuUsage(), which includes the GC helper
- * threads). Where schedstat is missing (macOS, Windows) the next honest measure is
- * process.threadCpuUsage() (the calling thread only; Node >= 22.19 / 23.9). Where neither exists
- * (macOS on Node 20) the probe is NOT MEASURABLE: it prints a NOTICE and does not judge on the
- * wall clock (CI run 37757849359: 66 ms wall gap under load on macOS). Never a silent pass: the
- * NOTICE names what was skipped. The wall gap is reported in every message.
+ * **The gate counts event-loop turns, not milliseconds (CI rounds 3 and 4, 2026-10-07 / 2026-10-09).**
+ * The first probe read the wall-clock gap between two 1 ms timers; the second read the CPU time of
+ * the main thread. Both are speeds: the RED side asked the OLD state to hold the loop for MORE than
+ * 60 ms, and on a fast runner it holds it for 49 or 53 ms and the probe sees nothing (macos-latest,
+ * node 22, twice: "49 ms main-thread CPU, wall gap 56 ms > 60"). A property that depends on how fast
+ * the machine is cannot be red or green on purpose.
+ *
+ * What the code under test promises is structural: it hands the loop back between slices. That is
+ * measured here without a stopwatch, in a fresh child process:
+ *   - a ticker re-arms itself with `setImmediate`; each tick is one turn of the event loop;
+ *   - the rows are handed over lazily (`readAll` is a generator that counts what it has delivered),
+ *     so "rows consumed between two turns" is the size of the longest synchronous stretch, in rows;
+ *   - the slicing code decides by `performance.now()`. The child replaces it by a VIRTUAL clock that
+ *     moves 1 ms per reading, whatever the CPU does. The slices (and so the counts below) are then
+ *     exactly the same on every machine, and "virtual ms between two turns" is the longest stretch
+ *     in the unit of the limit. A pass that never reads the clock is caught by the turn count.
+ * The old state never yields: the whole build is ONE stretch of 100000 rows, zero turns, whatever
+ * the machine. The new state stays within a few hundred rows and a few virtual ms per stretch.
+ * The real wall gap (real clock, kept apart) is printed in the message, never judged.
  */
 const MEASURE_CHILD = `
-import fs from 'node:fs';
 const [, , moduleUrl, kind] = process.argv;
 const m = await import(moduleUrl);
 const N = 100000;
-const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
-// Honest main-thread CPU only: schedstat, else process.threadCpuUsage(), else null (not measurable).
-let source = 'schedstat';
-const cpuMs = () => {
-  if (source === 'schedstat') { try { return Number(fs.readFileSync('/proc/thread-self/schedstat', 'utf8').split(' ')[0]) / 1e6; } catch { source = typeof process.threadCpuUsage === 'function' ? 'thread' : null; } }
-  if (source === 'thread') { const u = process.threadCpuUsage(); return (u.user + u.system) / 1e3; }
-  return null;
-};
+const realNow = performance.now.bind(performance);
+let virtual = 0;
+performance.now = () => ++virtual; // 1 virtual ms per reading: the slices are the same on every machine
 const Z = Array.from({ length: N }, (_, i) => ({ entry: { id: 'i' + i, title: 'Entry ' + i + ' lucky probe', text: 'x'.repeat(60) } }));
-let key = 1;
-const opt = { key: () => key, readAll: () => Z };
+let key = 1, rows = 0;
+function* counted() { for (const z of Z) { rows += 1; yield z; } }
+const opt = { key: () => key, readAll: () => counted() };
+// The ticker: one tick = one turn of the event loop.
+let turns = 0, stretchRows = 0, stretchVirtual = 0, wall = 0, lastRows = 0, lastVirtual = 0, lastReal = 0, running = false, timer = null;
+const mark = () => {
+  stretchRows = Math.max(stretchRows, rows - lastRows); stretchVirtual = Math.max(stretchVirtual, virtual - lastVirtual);
+  wall = Math.max(wall, realNow() - lastReal);
+  lastRows = rows; lastVirtual = virtual; lastReal = realNow();
+};
+const tick = () => { if (!running) return; turns += 1; mark(); timer = setImmediate(tick); };
 async function measure(run) {
-  globalThis.gc(); globalThis.gc(); // test data and old load stay out of the measurement
-  let last = performance.now(), lastCpu = cpuMs(), cpu = 0, wall = 0;
-  const watch = setInterval(() => {
-    const t = performance.now(), c = cpuMs();
-    if (c !== null) cpu = Math.max(cpu, c - lastCpu); wall = Math.max(wall, t - last);
-    last = t; lastCpu = c;
-  }, 1);
-  await wait(20);
-  cpu = 0; wall = 0; last = performance.now(); lastCpu = cpuMs();
+  await new Promise((ok) => setImmediate(ok)); // a quiet start: the previous run is over
+  turns = 0; stretchRows = 0; stretchVirtual = 0; wall = 0; lastRows = rows; lastVirtual = virtual; lastReal = realNow(); running = true;
+  timer = setImmediate(tick);
   await run();
-  await wait(3); // a blocked tick only reports after the run
-  clearInterval(watch);
-  return { cpu: cpuMs() === null ? null : cpu, wall, source };
+  mark(); // the last stretch, up to the end of the run
+  running = false; clearImmediate(timer);
+  return { turns, rows: stretchRows, virtual: stretchVirtual, wall };
 }
 const out = {};
 m.forget();
@@ -325,38 +327,39 @@ function measureInChild(moduleUrl, kind) {
   const dir = tmpDir('fulltext-measure-');
   const script = path.join(dir, 'measure.mjs');
   fs.writeFileSync(script, MEASURE_CHILD);
-  const r = spawnSync(process.execPath, ['--expose-gc', script, moduleUrl, kind], { encoding: 'utf8', maxBuffer: 1 << 24, timeout: 300000 });
+  const r = spawnSync(process.execPath, [script, moduleUrl, kind], { encoding: 'utf8', maxBuffer: 1 << 24, timeout: 300000 });
   assert.equal(r.status, 0, `measuring child (${kind}) ended with ${r.status}/${r.signal}: ${r.stderr}`);
   return JSON.parse(r.stdout);
 }
-const DELAY_LIMIT_MS = 60;
 const N_GATE = 100000;
-const show = (g) => `${g.cpu === null ? 'CPU not measurable' : `${g.cpu.toFixed(0)} ms main-thread CPU (${g.source})`}, wall gap ${g.wall.toFixed(0)} ms`;
+/** The longest synchronous stretch the new state may have: 1 % of the data, 60 virtual ms (the old limit's unit). */
+const STRETCH_ROWS_MAX = N_GATE / 100;
+const STRETCH_VIRTUAL_MS_MAX = 60;
+const show = (g) => `${g.turns} loop turns, longest stretch ${g.rows} rows / ${g.virtual} virtual ms (real wall gap ${g.wall.toFixed(0)} ms, not judged)`;
 
-test('fulltext-pages: event-loop gate at 100k — cold build and generation change keep the timer under the limit; the old state does not', (t) => {
+test('fulltext-pages: event-loop gate at 100k — cold build and generation change hand the loop back in short stretches; the old state does not', () => {
   // old state (RED): cold build + search with a hit in every entry
   const a = measureInChild(OLD_URL, 'old');
   assert.equal(a.ids, N_GATE, 'positive control: the old state really returns ALL ids in one answer');
-  const measurable = a.m.cpu !== null;
-  if (!measurable) {
-    // Not a pass: the CPU limit is NOT judged here. Everything that does not depend on time still is.
-    const notice = `NOTICE fulltext-pages event-loop gate: main-thread CPU is not measurable on ${process.platform} / node ${process.version} `
-      + `(no /proc/thread-self/schedstat, no process.threadCpuUsage); the ${DELAY_LIMIT_MS} ms CPU limit and the old-state-red check are NOT judged. `
-      + `Wall gap of the old state: ${a.m.wall.toFixed(0)} ms (load-sensitive, informational only).`;
-    console.log(notice);
-    t.diagnostic(notice);
-  }
-  if (measurable) assert.ok(a.m.cpu > DELAY_LIMIT_MS, `RED: the old state holds the timer back (${show(a.m)} > ${DELAY_LIMIT_MS})`);
+  assert.equal(a.m.rows, N_GATE, `positive control: the probe sees the old build consume all ${N_GATE} rows (${show(a.m)})`);
+  assert.equal(a.m.turns, 0, `RED: the old state never hands the loop back (${show(a.m)})`);
+  assert.ok(a.m.rows > STRETCH_ROWS_MAX, `RED: the old state's stretch of ${a.m.rows} rows is over ${STRETCH_ROWS_MAX}`);
   // new state (GREEN)
   const n = measureInChild(pathToFileURL(path.join(REPO, 'src/fulltext.mjs')).href, 'new');
   assert.equal(n.coldIds, fulltext.LIMIT_DEFAULT);
   assert.equal(n.coldMore, true);
-  if (measurable) assert.ok(n.cold.cpu < DELAY_LIMIT_MS, `cold build: ${show(n.cold)} < ${DELAY_LIMIT_MS} (old state: ${show(a.m)})`);
+  const within = (g, what) => {
+    assert.ok(g.turns > 1, `${what}: the loop gets turns (${show(g)}; old state: ${show(a.m)})`);
+    assert.ok(g.rows <= STRETCH_ROWS_MAX, `${what}: stretch in rows ${g.rows} <= ${STRETCH_ROWS_MAX} (${show(g)}; old state: ${show(a.m)})`);
+    assert.ok(g.virtual <= STRETCH_VIRTUAL_MS_MAX, `${what}: stretch ${g.virtual} virtual ms <= ${STRETCH_VIRTUAL_MS_MAX} (${show(g)})`);
+  };
+  within(n.cold, 'cold build');
+  assert.ok(n.cold.rows > 0, 'positive control: the cold build really consumed rows');
   assert.ok(n.coldBytes < 5000, 'the answer stays small (' + n.coldBytes + ' bytes instead of ~0.9 MB)');
   assert.equal(n.changeFresh, true, 'generation change: the answer waits for the new index');
   assert.equal(n.changeIds, fulltext.LIMIT_DEFAULT);
-  if (measurable) assert.ok(n.change.cpu < DELAY_LIMIT_MS, `generation change with rebuild: ${show(n.change)} < ${DELAY_LIMIT_MS}`);
-  if (measurable) assert.ok(n.rare.cpu < DELAY_LIMIT_MS, `full pass without a hit: ${show(n.rare)} < ${DELAY_LIMIT_MS}`);
+  within(n.change, 'generation change with rebuild');
+  within(n.rare, 'full pass without a hit');
   assert.equal(n.rareIds, 0);
 });
 
