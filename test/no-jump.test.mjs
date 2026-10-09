@@ -47,13 +47,16 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
 const OLD_STATE = 'dc155d0';
 
-const { browser, reason: REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe);
+// an uncaught exception in the page turns the probe red (fixture/browser.mjs, `pageerror: true`).
+const B = lazyBrowser({ pageerror: true });
+browserStartProbe(B);
 
 let memory;
 async function root(prefix) {
@@ -100,15 +103,15 @@ async function primeNotFresh(base, r) {
 
 // --- GREEN: the actual fix -------------------------------------------------
 
-test('no-jump: scroll, an open <details> and the 3-D canvas survive several real quiet background refetches', { skip: REASON }, async () => {
+test('no-jump: scroll, an open <details> and the 3-D canvas survive several real quiet background refetches', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   const r = await root('cm-no-jump-green-');
   await withServer(r, {
     CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0', // forces "not fresh" instead of instant sync (tiny store)
     CHEAP_MEM_SERVE_TEMPO_TEST_MS: '250', // otherwise 5000/20000 ms — the probe does not wait 20 s
   }, async (base) => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-    const errors = [];
-    page.on('pageerror', (e) => errors.push(e.message));
     let dashboardFetches = 0;
     page.on('request', (req) => { if (req.url().includes('/dashboard.json')) dashboardFetches += 1; });
     let running = true;
@@ -151,38 +154,115 @@ test('no-jump: scroll, an open <details> and the 3-D canvas survive several real
       assert.equal(await page.evaluate(() => window.scrollY), beforeScroll, 'the scroll is the same as before the background refetch');
       assert.equal(await page.evaluate(() => document.querySelector('.edge-inventory')?.open), true, 'the <details> is still open');
       assert.equal(await page.evaluate(() => document.querySelector('#brain')?.dataset.probeMark), 'unchanged', 'the same 3-D canvas — no render() replaced #screen');
-      assert.deepEqual(errors, [], 'no page errors');
       // There were real changes (the writer loop above) -> the quiet
-      // marker must appear.
-      assert.equal(await page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark'))), true, 'the "New data" marker appears on a real change');
-
-      // Stop the writer now: otherwise a background cycle between the
-      // click and the check below could show a new (correct) marker
-      // again, which would mask this different guarantee (click hides
-      // it). Wait a moment so the client has really caught up with the
-      // very last write (the server still finishes building for a
-      // moment with minGapMs=0 in the test) — otherwise the next,
-      // already-scheduled cycle could show a real change right after the
-      // click.
-      running = false;
-      await writer;
-      await page.waitForTimeout(1500);
+      // marker must appear. Wait for it (a real condition, bounded) rather
+      // than reading it at once: the request counter above ticks when a
+      // request is SENT, the marker when its answer has been taken in.
+      await page.waitForFunction(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark')), null, { timeout: 15000 });
 
       // Clicking the marker draws (a user action) — afterwards it is
       // hidden again, and the canvas really was rebuilt (render()
       // replaced #screen: the same test marker is gone).
+      //
+      // **What is measured, and when (nojump-cm, 2026-10-09).** The
+      // guarantee is "the click's own render() hides the marker". That
+      // happens inside the click event, synchronously. Reading the marker
+      // some time AFTER the click (this probe used to stop the writer, wait
+      // a fixed 1500 ms so the client "had caught up", click, wait 50 ms
+      // and read) measures something else: whether a LATER quiet answer
+      // shows it again — which it correctly does when the content changed
+      // once more. With the server rebuilding in the background (cache
+      // switch above) and the writer's last entries still trickling
+      // through, under load that happened after the click: "a click on the
+      // marker hides it again true !== false" (chain cm-7, 2026-10-09,
+      // load 5.8/7.3; green alone). No amount of waiting closes that
+      // window, so the state is taken in the click event itself: a
+      // listener added now sits after the product's on document and runs
+      // in the same dispatch, right after the product's handler. The
+      // writer keeps running — a re-show after the click is legitimate.
+      await page.evaluate(() => {
+        window.__atClick = null;
+        document.addEventListener('click', (ev) => {
+          if (ev.target.closest('#newDataMark')) {
+            window.__atClick = {
+              hidden: getComputedStyle(document.getElementById('newDataMark')).display === 'none',
+              canvasKept: document.querySelector('#brain')?.dataset.probeMark === 'unchanged',
+            };
+          }
+        }, { once: false });
+      });
       await page.click('#newDataMark');
-      await page.waitForTimeout(50);
-      assert.equal(await page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark'))), false, 'a click on the marker hides it again');
-      assert.notEqual(await page.evaluate(() => document.querySelector('#brain')?.dataset.probeMark), 'unchanged', 'the click on the marker really draws (render()) — the old canvas is gone');
+      const atClick = await page.evaluate(() => window.__atClick);
+      assert.ok(atClick, 'positive control: the click reached the marker (the listener ran)');
+      assert.equal(atClick.hidden, true, 'a click on the marker hides it again');
+      assert.equal(atClick.canvasKept, false, 'the click on the marker really draws (render()) — the old canvas is gone');
     } finally {
       running = false;
+      await writer;
       await page.close();
     }
   });
 });
 
-test('no-jump: text typed into the search field survives while the background keeps refetching', { skip: REASON }, async () => {
+// The cause of the cm-7 red, made deterministic: a quiet answer that is still
+// on its way when the marker is clicked shows the marker AGAIN afterwards —
+// by design (it carries a change the screen has not drawn). So "hidden by the
+// click" can only be read at the click; a read some time later depends on
+// where the network happens to be. The answer is held by hand here, no writer,
+// no load, no timing.
+test('no-jump: a quiet answer still in flight at the click shows the marker again AFTER it — the click itself hid it', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
+  const r = await root('cm-no-jump-late-');
+  await withServer(r, {}, async (base) => {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const shown = () => page.evaluate(() => ((e) => !!e && getComputedStyle(e).display !== 'none')(document.getElementById('newDataMark')));
+    // Every /dashboard.json answer is the real one plus a changing field, so
+    // "the content changed" is in our hands, not in the server's cache timing.
+    let tweak = 0;
+    let gate = Promise.resolve();
+    let held = () => {};
+    await page.route('**/dashboard.json', async (rt) => {
+      const res = await rt.fetch();
+      const body = await res.json();
+      if (tweak) body.probeTweak = tweak;
+      held();
+      await gate;
+      await rt.fulfill({ status: res.status(), contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    try {
+      await pageReady(page, base);
+      tweak = 1; // a first change -> the marker shows
+      await page.evaluate(() => window.loadData({ quiet: true }));
+      assert.equal(await shown(), true, 'a real change shows the marker');
+      // A second change is on its way, held at the route.
+      tweak = 2;
+      let release = () => {};
+      gate = new Promise((res) => { release = res; });
+      const reached = new Promise((res) => { held = res; });
+      const late = page.evaluate(() => window.loadData({ quiet: true }));
+      await reached;
+      await page.evaluate(() => {
+        window.__atClick = null;
+        document.addEventListener('click', (ev) => {
+          if (ev.target.closest('#newDataMark')) window.__atClick = getComputedStyle(document.getElementById('newDataMark')).display === 'none';
+        });
+      });
+      await page.click('#newDataMark');
+      assert.equal(await page.evaluate(() => window.__atClick), true, 'the click hid the marker (read in the click)');
+      assert.equal(await shown(), false, 'and it stays hidden while nothing new has arrived');
+      release();
+      await late;
+      assert.equal(await shown(), true, 'positive control: the answer that was in flight shows it again after the click — a read after the click would have seen "visible"');
+    } finally {
+      await page.close();
+    }
+  });
+});
+
+test('no-jump: text typed into the search field survives while the background keeps refetching', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   const r = await root('cm-no-jump-input-');
   await withServer(r, {
     CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0',
@@ -216,7 +296,9 @@ test('no-jump: text typed into the search field survives while the background ke
 
 // --- The marker: only on a real change, never otherwise --------------------
 
-test('no-jump: the "New data" marker appears ONLY when the content really changed', { skip: REASON }, async () => {
+test('no-jump: the "New data" marker appears ONLY when the content really changed', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   const r = await root('cm-no-jump-mark-');
   await withServer(r, {}, async (base) => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -246,7 +328,9 @@ test('no-jump: the "New data" marker appears ONLY when the content really change
   });
 });
 
-test('no-jump: a quiet refetch alone (without render()) does not replace #screen', { skip: REASON }, async () => {
+test('no-jump: a quiet refetch alone (without render()) does not replace #screen', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   const r = await root('cm-no-jump-alone-');
   await withServer(r, {}, async (base) => {
     const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -264,7 +348,9 @@ test('no-jump: a quiet refetch alone (without render()) does not replace #screen
 
 // --- Point 4: paused while the tab is not visible ---------------------------
 
-test('no-jump: no quiet refetch timer while the tab is not visible; exactly one call on becoming visible', { skip: REASON }, async () => {
+test('no-jump: no quiet refetch timer while the tab is not visible; exactly one call on becoming visible', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   const r = await root('cm-no-jump-visible-');
   await withServer(r, {
     CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS: '0',
@@ -327,7 +413,9 @@ test(`RED on the old state (${OLD_STATE}): the refetch timer calls render() unco
   assert.doesNotMatch(newScript, /refetchTimer = 0;\s*\n\s*if \(await loadData\(\{ quiet: true \}\)\) render\(\);/, 'at the current state the background timer no longer calls render() unconditionally');
 });
 
-test('RED behaviour, run directly: exactly the old line (reconstructed) throws away scroll/details/the 3-D marker', { skip: REASON }, async () => {
+test('RED behaviour, run directly: exactly the old line (reconstructed) throws away scroll/details/the 3-D marker', async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   // This probe does NOT run the old dashboard.js (the server/assets are at
   // the current state) — it runs, word for word, the same statement
   // sequence that stood in the pinned old state's refetch timer (see the
