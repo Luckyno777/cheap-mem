@@ -16,7 +16,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 import * as procedure from '../src/procedure.mjs';
 import * as memoryApi from '../src/memory.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
@@ -147,7 +148,9 @@ test('one function: the mark follows procedure.statusOf, there is no second calc
 
 // ---- Dashboard ----------------------------------------------------------
 
-const { browser, reason: REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
 async function withServer(r, run) {
   const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
@@ -166,6 +169,7 @@ const tabOf = (byTitle, word) => byTitle[Object.keys(byTitle).find((k) => (k || 
 
 /** Collects the visible labels the dashboard shows: list, tab, detail, palette. */
 async function dashboardPicture(base, ids, { client = null } = {}) {
+  const { browser } = await B.get();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const visible = `(el) => { const cs = getComputedStyle(el); return cs.display !== 'none' && cs.visibility !== 'hidden' && el.getClientRects().length > 0; }`;
   try {
@@ -239,7 +243,8 @@ async function dashboardPicture(base, ids, { client = null } = {}) {
   } finally { await page.close(); }
 }
 
-test('dashboard: list, tab, detail and palette carry a visible label; released/legacy do not — the old client is RED', { skip: REASON }, async () => {
+test('dashboard: list, tab, detail and palette carry a visible label; released/legacy do not — the old client is RED', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world();
   try {
     const ids = fill(r, path.join(REPO, 'bin', 'mem'));
@@ -276,5 +281,5 @@ test('dashboard: list, tab, detail and palette carry a visible label; released/l
       // Positive control: the rows themselves are there in the old state (the probe sees something).
       assert.ok(Object.hasOwn(red.list, ids.proposed) && Object.hasOwn(red.palette, ids.proposed));
     });
-  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+  } finally { removeTree(r); }
 });

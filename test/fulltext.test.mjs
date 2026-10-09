@@ -19,7 +19,7 @@
 // Visibility is always checked through getComputedStyle, never through
 // the hidden attribute.
 /* global document, getComputedStyle, location -- these run inside the page (browser), not in Node */
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import http from 'node:http';
@@ -27,7 +27,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 import * as memory from '../src/memory.mjs';
 import * as fulltext from '../src/fulltext.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
@@ -39,8 +40,12 @@ const old = (file) => execFileSync('git', ['-C', REPO, 'show', `${OLD_STATE}:${f
 
 const LONG = 'Fillerword '.repeat(30); // 330 characters, before the search word
 
+// Every world is removed once, in after() (waits for a background rebuild first).
+const ROOTS = [];
+after(() => { for (const r of ROOTS) removeTree(r); });
 function world(prefix) {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  ROOTS.push(r);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'notes', participants: { alex: { human: true }, builder: {} }, language: 'en' }));
   const t0 = Date.parse('2026-09-01T09:00:00Z');
@@ -152,7 +157,9 @@ test('fulltext: the query is capped at 200 characters', () => {
 
 // --- Route + browser ---------------------------------------------------------
 
-const { browser, reason: REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
 async function withServer(r, env, run) {
   const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
@@ -186,6 +193,7 @@ test('fulltext: the route answers { ids, measurable:true }, ids:null for an empt
 });
 
 async function searchInBrowser(base, typed, { client = null, route = null, delay = 0 } = {}) {
+  const { browser } = await B.get();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     if (client) await page.route('**/dashboard/app.js*', (rt) => rt.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: client }));
@@ -214,7 +222,8 @@ async function searchInBrowser(base, typed, { client = null, route = null, delay
   }
 }
 
-test('fulltext: browser — typing finds the why entry (GREEN); with the client of 4e9a7a4 it does not (RED); title word in both (positive control)', { skip: REASON }, async () => {
+test('fulltext: browser — typing finds the why entry (GREEN); with the client of 4e9a7a4 it does not (RED); title word in both (positive control)', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world('fulltext-browser-');
   await withServer(r, {}, async (base) => {
     const fresh = await searchInBrowser(base, 'zebrafinchcouncil');
@@ -242,7 +251,8 @@ test('fulltext: browser — typing finds the why entry (GREEN); with the client 
   });
 });
 
-test('fulltext: browser — route not measurable: local fallback plus a visible notice (getComputedStyle)', { skip: REASON }, async () => {
+test('fulltext: browser — route not measurable: local fallback plus a visible notice (getComputedStyle)', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world('fulltext-fallback-');
   await withServer(r, {}, async (base) => {
     const failing = (rt) => rt.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ measurable: false, reason: 'probe' }) });
@@ -255,7 +265,8 @@ test('fulltext: browser — route not measurable: local fallback plus a visible 
   });
 });
 
-test('fulltext: browser — a stale answer is dropped', { skip: REASON }, async () => {
+test('fulltext: browser — a stale answer is dropped', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world('fulltext-stale-');
   await withServer(r, {}, async (base) => {
     // The answer to the FIRST question arrives only after later input and

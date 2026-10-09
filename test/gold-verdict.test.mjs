@@ -23,7 +23,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import * as goldlog from '../src/goldlog.mjs';
 import * as today from '../src/today.mjs';
 import { isoWeek } from '../src/measurements.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD_COMMIT = '1d8adccfbc3d62f4a3a51edfdc2da3ab9b793de6';
@@ -351,11 +352,17 @@ test('GET is refused (405)', { timeout: 20000 }, async () => {
 // a click writes (login off in tests — same setup as test/no-jump.test.mjs).
 // =========================================================================
 
-const { browser, reason: SKIP_REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
-test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gold file, and a click writes', { skip: SKIP_REASON, timeout: 30000 }, async () => {
+test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gold file, and a click writes', { timeout: 30000 }, async (t) => {
+  if (!(await B.need(t))) return;
+  const { browser } = await B.get();
   const root = memoryRoot();
-  const goldFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cm-gold-browser-')), 'g.jsonl');
+  const goldDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-gold-browser-'));
+  const goldFile = path.join(goldDir, 'g.jsonl');
+  t.after(() => { removeTree(root); removeTree(goldDir); });
   const rows = [
     goldlog.buildRow({ question: 'how does X work', share: 'no', expected: ['e1'], occasion: 'question', source: 'raw-capture:hit:s1:a', kind: 'drawn', verdict: null }),
     goldlog.buildRow({ question: 'how does Y work', share: 'no', expected: [], occasion: 'question', source: 'raw-capture:near-miss:s2:b', kind: 'drawn', verdict: null }),

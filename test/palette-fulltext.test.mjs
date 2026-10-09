@@ -11,14 +11,15 @@
 // The search is a fragment from the middle of a word: the old palette finds the entry neither in the
 // excerpt nor via the ranked search (word search), the full text finds it as a substring.
 /* global document, getComputedStyle -- these run inside the page (browser), not in Node */
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 import * as memory from '../src/memory.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -26,8 +27,12 @@ const REPO = path.join(HERE, '..');
 const OLD_STATE = '0accc86b319cb11c2df0af15b35a905492b62ae2';
 const old = (file) => execFileSync('git', ['-C', REPO, 'show', `${OLD_STATE}:${file}`], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
+// Every world is removed once, in after() (waits for a background rebuild first).
+const ROOTS = [];
+after(() => { for (const r of ROOTS) removeTree(r); });
 function world() {
   const r = fs.mkdtempSync(path.join(os.tmpdir(), 'palette-fulltext-'));
+  ROOTS.push(r);
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'notes', participants: { alex: { human: true }, builder: {} }, language: 'en' }));
   const t0 = Date.parse('2026-09-01T09:00:00Z');
@@ -46,7 +51,9 @@ test('palette-fulltext: the fixed old state filters only `_s`; now it asks throu
   assert.equal((n.match(/\/api\/fulltext/g) || []).length, 1, 'one path, no second request');
 });
 
-const { browser, reason: REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
 async function withServer(r, env, run) {
   const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
@@ -62,6 +69,7 @@ async function withServer(r, env, run) {
 }
 
 async function paletteSearch(base, typed, { client = null, route = null, delay = 0 } = {}) {
+  const { browser } = await B.get();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     if (client) await page.route('**/dashboard/app.js*', (rt) => rt.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: client }));
@@ -104,7 +112,8 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
   }
 }
 
-test('palette-fulltext: browser — why word GREEN with the new client, RED with 0accc86; title word in both', { skip: REASON }, async () => {
+test('palette-fulltext: browser — why word GREEN with the new client, RED with 0accc86; title word in both', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world();
   await withServer(r, {}, async (base) => {
     const fresh = await paletteSearch(base, 'brafinchcounc');
@@ -122,7 +131,8 @@ test('palette-fulltext: browser — why word GREEN with the new client, RED with
   });
 });
 
-test('palette-fulltext: browser — route not measurable: title word still found, notice visible', { skip: REASON }, async () => {
+test('palette-fulltext: browser — route not measurable: title word still found, notice visible', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world();
   await withServer(r, {}, async (base) => {
     const fail = (rt) => rt.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ measurable: false, reason: 'probe' }) });
@@ -135,7 +145,8 @@ test('palette-fulltext: browser — route not measurable: title word still found
   });
 });
 
-test('palette-fulltext: browser — a stale answer is dropped', { skip: REASON }, async () => {
+test('palette-fulltext: browser — a stale answer is dropped', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world();
   await withServer(r, {}, async (base) => {
     let n = 0;

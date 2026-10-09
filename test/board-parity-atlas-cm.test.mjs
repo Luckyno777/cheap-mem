@@ -22,7 +22,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { startBrowser } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 import { atlasWorld, withServer, openAtlas, focusLargest, waitStill, COUNT_OVERLAP } from './fixture/board-parity-atlas-cm.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -139,10 +140,14 @@ test(`source: no layout read per frame in refreshProjected (new); the old state 
 });
 
 // ---- browser: the fixture memory in a real Chromium ------------------------
-const { browser, reason: WHY } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 const LIMIT = 6 * 60 * 1000;
 
-test(`browser: topics + focus and bundles + focus — no covered labels (1920 and 390); the old state ${OLD.slice(0, 8)} piles them up`, { skip: WHY, timeout: LIMIT }, async (t) => {
+test(`browser: topics + focus and bundles + focus — no covered labels (1920 and 390); the old state ${OLD.slice(0, 8)} piles them up`, { timeout: LIMIT }, async (t) => {
+  const browser = await B.need(t);
+  if (!browser) return;
   let old, oldCss;
   try { old = oldFile('dashboard.js'); oldCss = oldFile('dashboard.css'); } catch { t.skip(`commit ${OLD} not reachable — red proof unknown, not green`); return; }
   const root = await atlasWorld(REPO);
@@ -195,5 +200,5 @@ test(`browser: topics + focus and bundles + focus — no covered labels (1920 an
         } finally { await p.close(); }
       }
     });
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });

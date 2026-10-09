@@ -29,7 +29,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { after } from 'node:test';
+import test, { after } from 'node:test';
 
 // **One browser file at a time (2026-10-01).** In the full suite test files
 // run in parallel; several Chromium instances plus the rest of the suite
@@ -77,19 +77,13 @@ function loadPlaywright() {
 }
 
 /**
- * Starts a real Chromium (Playwright), with a fallback to
- * /opt/pw-browsers. Returns `{ browser: null, reason }` when no instance
- * starts — never an exception that would turn the file red instead of
- * skipped. On success, registers `after(() => browser.close())` itself.
- *
- * `args` (optional): launch WITHOUT the default swiftshader args when a
- * file launched with none before W3 (see file header) -- default
- * `undefined` means "as before", an empty array `[]` means "like
- * dash-fix4 before W3: chromium.launch() with no arguments at all".
+ * The launch itself, without registering anything: `{ browser, reason, close }`.
+ * `browser` is null (never an exception) when no Chromium starts; `close()` closes the browser
+ * and releases the file lock. `startBrowser()` and `lazyBrowser()` build on this.
  */
-export async function startBrowser({ args = DEFAULT_ARGS } = {}) {
+export async function launchBrowser({ args = DEFAULT_ARGS } = {}) {
   const pw = loadPlaywright();
-  if (!pw) return { browser: null, reason: 'playwright not installed' };
+  if (!pw) return { browser: null, reason: 'playwright not installed', close: async () => {} };
   const release = await takeLock();
   let browser = null;
   try { browser = await pw.chromium.launch({ args }); } catch { /* fall through */ }
@@ -100,15 +94,79 @@ export async function startBrowser({ args = DEFAULT_ARGS } = {}) {
       try { browser = await pw.chromium.launch({ executablePath: p, args }); } catch { /* fall through */ }
     }
   }
-  if (!browser) { release(); return { browser: null, reason: 'no startable Chromium' }; }
-  // Without this the browser keeps the process alive -- see file header.
-  after(async () => { try { await browser.close(); } finally { release(); } });
+  if (!browser) { release(); return { browser: null, reason: 'no startable Chromium', close: async () => {} }; }
   // `reason: false`, NOT `null` -- `test(name, { skip: null }, fn)` on
   // node:test 22.22.2 wrongly tags the TAP line "# SKIP" even though the
   // test body really runs (found 2026-09-29: "31 screens" in the log, yet
   // "ok … # SKIP", 0 pass/0 skip accounting). `false` is the only falsy
   // value that truly turns `skip` off.
-  return { browser, reason: false };
+  return { browser, reason: false, close: async () => { try { await browser.close(); } finally { release(); } } };
+}
+
+/**
+ * Starts a real Chromium (Playwright), with a fallback to
+ * /opt/pw-browsers. Returns `{ browser: null, reason }` when no instance
+ * starts — never an exception that would turn the file red instead of
+ * skipped. On success, registers `after(() => browser.close())` itself.
+ *
+ * NOT for a test file's top level: `const x = await startBrowser()` between the tests turns a
+ * failing start into an anonymous "test failed" for the whole file. Use `lazyBrowser()` there
+ * (test/no-top-level-await-after-test.test.mjs keeps it so).
+ *
+ * `args` (optional): launch WITHOUT the default swiftshader args when a
+ * file launched with none before W3 (see file header) -- default
+ * `undefined` means "as before", an empty array `[]` means "like
+ * dash-fix4 before W3: chromium.launch() with no arguments at all".
+ */
+export async function startBrowser(opts = {}) {
+  const h = await launchBrowser(opts);
+  // Without this the browser keeps the process alive -- see file header.
+  if (h.browser) after(h.close);
+  return { browser: h.browser, reason: h.reason };
+}
+
+/**
+ * The browser of a test file, started on first use instead of by a top-level await.
+ * Call it at the top of the file (it registers its own `after()` there, synchronously).
+ *
+ *   const B = lazyBrowser();
+ *   browserStartProbe(B);                      // one named probe that starts it (and is the red one)
+ *   test('...', async (t) => { const browser = await B.need(t); if (!browser) return; ... });
+ *
+ * - A start that THROWS is not swallowed: the promise stays rejected, so the probe that first
+ *   needs it fails with the error text and every later dependent probe fails with the same text.
+ *   Nothing outside the browser probes goes red.
+ * - No Chromium (`browser: null`): `need(t)` calls `t.skip(reason)` and returns null — the probe is
+ *   SKIPPED with the reason visible, never green.
+ * - The close (and the lock release) happens in `after()` if, and only if, a start ran.
+ * `launch` is injectable for the probe in test/lazy-browser.test.mjs; real files never pass it.
+ */
+export function lazyBrowser({ launch = launchBrowser, ...opts } = {}) {
+  let started = null;
+  const get = () => (started ??= Promise.resolve().then(() => launch(opts)));
+  after(async () => {
+    if (!started) return;
+    let h;
+    try { h = await started; } catch { return; }       // a failed start has nothing to close
+    await h.close();
+  });
+  return {
+    get,
+    /** The browser, or null after `t.skip(reason)`; throws the start error. */
+    async need(t) {
+      const h = await get();
+      if (!h.browser) { t.skip(h.reason || 'no browser'); return null; }
+      return h.browser;
+    },
+  };
+}
+
+/**
+ * The one test that pays the start (lock wait included) under a generous timeout of its own,
+ * so the dependent probes keep their short deadlines. It is the NAMED red probe when the start throws.
+ */
+export function browserStartProbe(lazy, name = 'browser: Chromium starts (dependent probes are skipped with the reason when it cannot)') {
+  return test(name, { timeout: LOCK_MAX_MS + 5 * 60 * 1000 }, async (t) => { await lazy.need(t); });
 }
 
 /**
