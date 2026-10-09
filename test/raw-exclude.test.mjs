@@ -99,7 +99,20 @@ test('MEM_RAW_EXCLUDE=1 excludes too; an unknown id is refused, not guessed', ()
   } finally { rm(root); }
 });
 
-test('fail-safe: an unreadable record means nothing is captured', { skip: process.getuid?.() === 0 ? 'root reads everything' : false }, () => {
+// A directory where the record file should be cannot be read (EISDIR) on any platform, as any user: the
+// way to an unreadable record that does not depend on POSIX modes (chmod 000 does nothing on Windows).
+test('fail-safe: an unreadable record (a directory in its place) means nothing is captured', () => {
+  const root = setup();
+  try {
+    const t = transcript(root, 'fs-session-dir');
+    fs.mkdirSync(path.join(root, archive.RECORD_FILE), { recursive: true });
+    const r = raw.capture(root, t);
+    assert.equal(r.status, 'broken');
+    assert.equal(r.reason, 'exclusion-unreadable');
+  } finally { rm(root); }
+});
+
+test('fail-safe: an unreadable record means nothing is captured', { skip: process.platform === 'win32' ? 'Windows: chmod 000 changes nothing (no POSIX modes); the directory variant above covers the rule there' : (process.getuid?.() === 0 ? 'root reads everything' : false) }, () => {
   const root = setup();
   try {
     const t = transcript(root, 'fs-session-1');

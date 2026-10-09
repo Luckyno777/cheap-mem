@@ -116,13 +116,18 @@ export function verdictFromRuns(runs) {
 /**
  * Ask `gh` for the CI runs of one commit. Never throws.
  * Returns `{state, runs, detail}`.
+ *
+ * `gh` is the program to run: a path or name, or -- for a probe on a platform
+ * that cannot execute a script as a program (Windows) -- a list
+ * `[program, ...leadingArgs]`, e.g. `[process.execPath, 'fake-gh.js']`.
  */
 function ciStatus(root, sha, { repo = null, gh = 'gh', timeoutMs = GH_TIMEOUT_MS } = {}) {
   const args = ['run', 'list', '--commit', sha, '--json', 'status,conclusion,workflowName,url', '--limit', '100'];
   if (repo) args.push('--repo', repo);
   let r;
   try {
-    r = spawnSync(gh, args, { cwd: root, encoding: 'utf8', timeout: timeoutMs });
+    const [program, ...lead] = Array.isArray(gh) ? gh : [gh];
+    r = spawnSync(program, [...lead, ...args], { cwd: root, encoding: 'utf8', timeout: timeoutMs });
   } catch (e) {
     return { state: 'unknown', runs: null, detail: `gh could not be started: ${e.message}` };
   }

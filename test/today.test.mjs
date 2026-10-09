@@ -139,6 +139,8 @@ test('verifyTarget in today() reflects CHEAP_MEM_VERIFY_FILE', () => {
   const root = memoryRoot();
   try {
     const r = today.today(root, { env: { CHEAP_MEM_VERIFY_FILE: '/tmp/somewhere/verdicts.jsonl' } });
-    assert.equal(r.verifyTarget, '/tmp/somewhere/verdicts.jsonl');
+    // The target is an absolute path in the platform's own notation: path.resolve('/tmp/...') is
+    // `C:\\tmp\\...` on Windows. The probe states the same resolution instead of a POSIX literal.
+    assert.equal(r.verifyTarget, path.resolve('/tmp/somewhere/verdicts.jsonl'));
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });

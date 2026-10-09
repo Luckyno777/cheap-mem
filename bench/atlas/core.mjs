@@ -522,15 +522,16 @@ export const CALIBRATION_BASELINE_MAX_ATTEMPTS = 3;
  */
 export function captureCalibrationBaselineOnce({
   reps = CALIBRATION_BASELINE_REPS, warmup = CALIBRATION_BASELINE_WARMUP,
-  platform = process.platform,
+  platform = process.platform, readPsiTotal = readPsiCpuSomeTotal,
 } = {}) {
-  const psiTotalBefore = readPsiCpuSomeTotal();
+  // `readPsiTotal`: injectable so a probe can drive "this kernel has no PSI" on a Linux box that has it.
+  const psiTotalBefore = readPsiTotal();
   const captureStartMs = Date.now();
   for (let i = 0; i < warmup; i += 1) calibrationLoopMs();
   const samples = [];
   for (let i = 0; i < reps; i += 1) samples.push(calibrationLoopMs());
   const captureWallMs = Date.now() - captureStartMs;
-  const psiTotalAfter = readPsiCpuSomeTotal();
+  const psiTotalAfter = readPsiTotal();
   const psiAvg10AtCapture = readPsiCpuSomeAvg10();
 
   const sorted = [...samples].sort((a, b) => a - b);
@@ -595,13 +596,13 @@ export function captureCalibrationBaselineOnce({
  * the machine quiets down, captures cleanly again.
  */
 export function captureQuietCalibrationBaseline({
-  maxAttempts = CALIBRATION_BASELINE_MAX_ATTEMPTS, reps, warmup, platform,
+  maxAttempts = CALIBRATION_BASELINE_MAX_ATTEMPTS, reps, warmup, platform, readPsiTotal,
 } = {}) {
   let attempt;
   let attempts = 0;
   do {
     attempts += 1;
-    attempt = captureCalibrationBaselineOnce({ reps, warmup, platform });
+    attempt = captureCalibrationBaselineOnce({ reps, warmup, platform, readPsiTotal });
     // Retrying cannot make an unverifiable platform verifiable.
   } while (!attempt.trustworthy && !attempt.unverifiable && attempts < maxAttempts);
   return { ...attempt, attempts, gaveUp: !attempt.trustworthy };
@@ -642,10 +643,14 @@ export const LOADAVG_OVER_PER_CPU = 1.0;
 /**
  * Platforms where the calibration loop was MEASURED to miss real 2x CPU
  * oversubscription (the scheduler favours the short-lived measuring thread):
- * macOS, ratio 1.016, CI run 37734741309. A quiet calibration reading there
- * is not evidence of a quiet machine. UNVERIFIED beyond that one run.
+ * macOS, ratio 1.016, CI run 37734741309; Windows, spread 1.021 under 8 eaters on
+ * 4 cores, CI run 37858307623. Neither has PSI (/proc/pressure) to cross-check,
+ * and os.loadavg() is [0,0,0] on Windows, so no other sensor exists there. A quiet
+ * calibration reading on these is not evidence of a quiet machine: the capture is
+ * flagged "unverifiable" (load not checkable on this platform), never accepted
+ * as quiet. UNVERIFIED beyond those runs.
  */
-export const CALIBRATION_INSENSITIVE_PLATFORMS = new Set(['darwin']);
+export const CALIBRATION_INSENSITIVE_PLATFORMS = new Set(['darwin', 'win32']);
 
 /**
  * One snapshot of every foreign-load signal, timestamped. Take one

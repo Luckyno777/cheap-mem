@@ -17,8 +17,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 import { withLock, ownerVerdict, LockTimeoutError, takeOverIfStale } from '../src/filelock.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -39,8 +40,7 @@ function oldSrc() {
   if (oldSrcDir !== undefined) return oldSrcDir;
   try {
     const d = path.join(tmp, 'old'); fs.mkdirSync(d);
-    execFileSync('git', ['-C', REPO, 'archive', '-o', path.join(d, 's.tar'), OLD, 'src']);
-    execFileSync('tar', ['-xf', path.join(d, 's.tar'), '-C', d]);
+    exportCommit(REPO, OLD, ['src'], d);
     oldSrcDir = path.join(d, 'src');
   } catch { oldSrcDir = null; }
   return oldSrcDir;

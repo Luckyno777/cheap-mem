@@ -187,7 +187,9 @@ test('the automatic retrieval hook: ranking for a query containing "*" is identi
 
   assert.equal(before.length, after.length, 'hit count must be identical');
   for (let i = 0; i < before.length; i += 1) {
-    assert.equal(after[i].source, before[i].source, `hit ${i} source must match`);
+    // The pinned old search.mjs built `source` with path.relative (backslashes on Windows); the product
+    // has stored "/" since (memory.asSource). Only that spelling is normalised -- file, line, score, order are not.
+    assert.equal(after[i].source, String(before[i].source).split('\\').join('/'), `hit ${i} source must match`);
     assert.equal(after[i].line, before[i].line, `hit ${i} line must match`);
     assert.equal(after[i].score, before[i].score, `hit ${i} score must match exactly`);
   }

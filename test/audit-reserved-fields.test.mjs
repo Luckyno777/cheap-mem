@@ -11,10 +11,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import { tempDir } from './temp-dir.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // FIXED state before the change (never a moving ref).
@@ -78,8 +78,7 @@ test('red proof: the old state writes id:null / ts:null into the drawer', async 
   let dir;
   try {
     dir = tempDir('cm-reserved-old-', t);
-    const tar = execFileSync('git', ['-C', REPO, 'archive', OLD, 'src', 'package.json'], { maxBuffer: 256 * 1024 * 1024 });
-    execFileSync('tar', ['-x', '-C', dir], { input: tar });
+    exportCommit(REPO, OLD, ['src', 'package.json'], dir);
   } catch { return t.skip('fixed old state not in this clone'); }
   const r = root(t);
   const old = await import(pathToFileURL(path.join(dir, 'src', 'memory.mjs')).href);

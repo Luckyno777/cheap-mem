@@ -29,7 +29,7 @@ the verification commands at the end.
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
 | **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3929 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 3949 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -155,6 +155,7 @@ directory. The section number in brackets is where it is explained.
 | `origin.mjs` | where the session ran (cloud, ssh, local, unknown): the closed vocabulary of the injection journal's `origin` field; `raw.detectSurface` asks here |
 | `pathcheck.mjs` | do the paths named in entries still point anywhere — per project, against ITS tree |
 | `pointer.mjs` | a pointer instead of silence when something was already shown |
+| `posixmode.mjs` | what a file mode may be claimed to say: POSIX bits are judged on Linux/macOS, and on Windows (where stat says 0666 and chmod does nothing) every report says "not checkable on this platform" instead of a verdict; `platform` is a parameter so the Windows answer is testable on Linux; used by `missgold.mjs` and `login.mjs` |
 | `prepush.mjs` | the opt-in pre-push WARNING: before a push to the default branch, asks CI (via `gh`) whether that exact commit has a green run — green/red/pending/none/unknown, never blocks, never says green without CI saying so ([6.2](#62-the-pre-push-ci-warning)) |
 | `probescaffold.mjs` | an error logged with `--file` gets its own test scaffold — marker, sabotage/positive-control/red-on-old-stand `test.todo` sections, empty never counted as passing or as F4 evidence (10.2) |
 | `procedure.mjs` | a norm only a human can issue (10.6) |

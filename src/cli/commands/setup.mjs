@@ -551,6 +551,8 @@ export const COMMANDS = {
       }
       out(`Setup code: ${login.readSetupCode(dir)}`);
       out(`  (file ${e.file}, valid until the setup)`);
+      const modeLine = login.modeNote(dir);
+      if (modeLine) out(`  ${modeLine}`);
       return;
     }
     if (isHelp(args)) {

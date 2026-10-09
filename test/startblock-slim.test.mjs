@@ -20,8 +20,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -41,8 +42,7 @@ function oldTree() {
   const dest = path.join(tmp, 'old');
   try {
     fs.mkdirSync(dest, { recursive: true });
-    const tar = execFileSync('git', ['-C', REPO, 'archive', OLD, 'src', 'package.json'], { maxBuffer: 256 * 1024 * 1024 });
-    execFileSync('tar', ['-x', '-C', dest], { input: tar });
+    exportCommit(REPO, OLD, ['src', 'package.json'], dest);
     return dest;
   } catch { return null; }
 }

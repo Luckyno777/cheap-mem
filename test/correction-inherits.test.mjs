@@ -9,12 +9,13 @@
 // merge and turns the proof itself red).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
 import * as memory from '../src/memory.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -49,9 +50,7 @@ test('RED PROOF: at the base commit --topic alone loses the title and tags (posi
   const w = makeRoot();
   const w2 = makeRoot();
   try {
-    const tar = execFileSync('git', ['archive', BASE, 'src', 'bin', 'shared', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-    const x = spawnSync('tar', ['-x', '-C', tmp], { input: tar });
-    assert.equal(x.status, 0, String(x.stderr));
+    exportCommit(REPO, BASE, ['src', 'bin', 'shared', 'package.json'], tmp);
     fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(tmp, 'node_modules'), 'dir');
     const a = seed(w);
     const r = run(path.join(tmp, 'bin', 'mem'), w, ['correction', 'learning', a.id, '--topic', 'tooling-2']);

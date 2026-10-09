@@ -71,6 +71,7 @@ import { LockTimeoutError, withLock } from './filelock.mjs';
 import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
+import * as posixmode from './posixmode.mjs';
 
 export const JOURNAL_FILE = 'invites.jsonl';
 const LOCK = path.join('.mem', 'appointment-invites.lock');
@@ -164,7 +165,7 @@ export function readConfig(root, env = process.env, { file = undefined } = {}) {
   return { active: true, route, reason: null, host, port, tls: kind, user: String(w.user), from, to, beforeMin, passwordFile: String(w.passwordFile), calendarId: null, keyFile: null };
 }
 
-const WINDOWS_PERMISSION_NOTICE = (name) => `${name} permissions cannot be checked on Windows (POSIX mode bits mean nothing there); protect it with NTFS ACLs, e.g. icacls <file> /inheritance:r /grant:r %USERNAME%:R`;
+const WINDOWS_PERMISSION_NOTICE = (name) => `${name} permissions are ${posixmode.NOT_CHECKABLE} (Windows: POSIX mode bits mean nothing there); protect it with NTFS ACLs, e.g. icacls <file> /inheritance:r /grant:r %USERNAME%:R`;
 
 /** Check the permissions of the credential file (SMTP password / service-account key) WITHOUT reading it: `{ ok, reason }`. */
 export function credentialState(config) {
@@ -178,7 +179,7 @@ export function credentialState(config) {
   // Windows has no POSIX modes: stat reports 0666 for every file and chmod is a no-op, so a mode
   // check would refuse every credential there. Sending stays allowed, but this is NOT "permissions
   // fine": the answer carries a notice (the doctor shows it as unknown) that nothing was checked.
-  const win = process.platform === 'win32';
+  const win = !posixmode.modesCheckable();
   if (!win && (st.mode & 0o077) !== 0) return { ok: false, reason: `${name} has permissions that are too wide (${(st.mode & 0o777).toString(8)}), expected 600` };
   if (st.size === 0) return { ok: false, reason: `${name} is empty` };
   return win ? { ok: true, reason: null, notice: WINDOWS_PERMISSION_NOTICE(name) } : { ok: true, reason: null };

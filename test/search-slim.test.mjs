@@ -18,8 +18,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
@@ -34,8 +35,7 @@ function oldTree() {
   const dest = path.join(tmp, 'old');
   try {
     fs.mkdirSync(dest, { recursive: true });
-    const tar = execFileSync('git', ['-C', REPO, 'archive', OLD, 'src', 'package.json'], { maxBuffer: 256 * 1024 * 1024 });
-    execFileSync('tar', ['-x', '-C', dest], { input: tar });
+    exportCommit(REPO, OLD, ['src', 'package.json'], dest);
     return dest;
   } catch { return null; }
 }
@@ -62,8 +62,12 @@ test('search: same hits as the old state (MMR, state question, minScore, retired
     // from the pinned old state; every other field (score, order, source,
     // entry) and every other question stays byte-identical.
     const FILLER = /\b(tell|me|explain|please|remind|about|what|how|why|when|where|which|who)\b/i;
-    const normal = (out) => JSON.stringify(JSON.parse(out).results.map((r) => (FILLER.test(r.q)
-      ? { ...r, hits: r.hits.map(({ covered: _covered, ...h }) => h) } : r)));
+    // The pinned old state built `source` with path.relative (backslashes on Windows); the product has
+    // stored "/" since (memory.asSource). Only that spelling is normalised -- hits, score, order are not.
+    const slash = (h) => ({ ...h, source: String(h.source).split('\\').join('/') });
+    const normal = (out) => JSON.stringify(JSON.parse(out).results.map((r) => ({
+      ...r, hits: r.hits.map((h) => slash(FILLER.test(r.q) ? (({ covered: _covered, ...x }) => x)(h) : h)),
+    })));
     assert.equal(normal(n.out), normal(a.out), 'hits differ from the old state');
     // Positive control: the probe compares real, varied hits and reaches the special paths.
     const results = JSON.parse(n.out).results;

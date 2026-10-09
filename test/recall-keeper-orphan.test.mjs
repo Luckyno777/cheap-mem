@@ -86,3 +86,16 @@ for (const sig of ['SIGTERM', 'SIGKILL']) {
     }
   });
 }
+
+// Windows: an orphaned child keeps `process.ppid` of the dead parent, so the keeper-run server must
+// also ask whether the parent pid still exists (src/recallserver.mjs parentGone).
+test('parentGone: a changed ppid, a dead parent pid with an unchanged ppid (Windows), but not a live or foreign-owned one', async () => {
+  const { parentGone } = await import('../src/recallserver.mjs');
+  const dead = () => { const e = new Error('ESRCH'); e.code = 'ESRCH'; throw e; };
+  const foreign = () => { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; };
+  assert.equal(parentGone(100, 1, () => true), true, 'POSIX: reparented');
+  assert.equal(parentGone(100, 100, dead), true, 'Windows: ppid unchanged but the parent is gone');
+  assert.equal(parentGone(100, 100, () => true), false, 'positive control: a live parent');
+  assert.equal(parentGone(100, 100, foreign), false, 'EPERM means it exists');
+  assert.equal(parentGone(process.ppid), false, 'the real probe on the real parent');
+});

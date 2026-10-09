@@ -50,15 +50,25 @@ function repo() {
   return d;
 }
 
-/** A fake `gh` that prints `stdout` and exits with `code`; returns its directory. */
+/**
+ * A fake `gh`; returns its directory, the program list for `prepush` (`gh`) and a call log.
+ * Two forms of the same fake: `gh.js` (run as `node gh.js ...`, which every platform can execute --
+ * Windows cannot run an extension-less script as a program) for the direct calls, and the bash
+ * script `gh` for the hook tests, which find it on PATH (those tests do not run on Windows).
+ */
 function fakeGh({ stdout = '[]', code = 0, stderr = '' } = {}) {
   const dir = tempDir('cm-fakegh-');
-  const file = path.join(dir, 'gh');
+  const js = path.join(dir, 'gh.js');
   fs.writeFileSync(path.join(dir, 'answer.json'), stdout);
+  fs.writeFileSync(js, `const fs = require('node:fs'); const path = require('node:path');\n`
+    + `fs.appendFileSync(path.join(__dirname, 'calls.txt'), process.argv.slice(2).join(' ') + '\\n');\n`
+    + `process.stdout.write(fs.readFileSync(path.join(__dirname, 'answer.json'), 'utf8'));\n`
+    + `${stderr ? `process.stderr.write(${JSON.stringify(`${stderr}\n`)});\n` : ''}process.exit(${code});\n`);
+  const file = path.join(dir, 'gh');
   fs.writeFileSync(file, `#!/usr/bin/env bash\necho "$@" >> "${dir}/calls.txt"\n`
     + `cat "${dir}/answer.json"\n${stderr ? `echo ${JSON.stringify(stderr)} >&2\n` : ''}exit ${code}\n`);
   fs.chmodSync(file, 0o755);
-  return { dir, gh: file, calls: () => (fs.existsSync(path.join(dir, 'calls.txt')) ? fs.readFileSync(path.join(dir, 'calls.txt'), 'utf8') : '') };
+  return { dir, gh: [process.execPath, js], calls: () => (fs.existsSync(path.join(dir, 'calls.txt')) ? fs.readFileSync(path.join(dir, 'calls.txt'), 'utf8') : '') };
 }
 
 const runs = (...list) => JSON.stringify(list.map(([status, conclusion]) => ({ status, conclusion, workflowName: 'CI', url: 'https://example.invalid/run' })));

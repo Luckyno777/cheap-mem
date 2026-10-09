@@ -31,6 +31,7 @@ import * as categories from '../src/categories.mjs';
 import * as login from '../src/login.mjs';
 import * as dashboardCache from '../src/dashboard-cache.mjs';
 import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // The integration branch before this fix (the base of agent/cat-confirm-cm).
@@ -90,8 +91,7 @@ async function prime(root, s) {
 function baseTree() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-cc-base-'));
   roots.push(dir);
-  const tar = execFileSync('git', ['archive', BASE], { cwd: REPO, maxBuffer: 256 << 20 });
-  execFileSync('tar', ['-x', '-C', dir], { input: tar });
+  exportCommit(REPO, BASE, ['.'], dir);
   const f = path.join(dir, 'bin', 'mem-serve');
   const src = fs.readFileSync(f, 'utf8');
   const patched = src.replace('{ syncUpToMs: Number(syncUpToMsTest), minGapMs: 0 }', '{ syncUpToMs: Number(syncUpToMsTest), minGapMs: Number(env.CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS ?? 0) }');

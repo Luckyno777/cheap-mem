@@ -219,12 +219,15 @@ export function isArchive(rel) {
   return rel === 'CHANGELOG.md' || /-\d{4}-\d{2}-\d{2}/.test(rel);
 }
 
+/** Stored and printed relative paths always use "/" (path.join / path.relative give "\\" on Windows). */
+export const slashed = (rel, sep = path.sep) => rel.split(sep).join('/');
+
 /** Living documents: `*.md` at the root and under `docs/`, archives out. */
 export function livingDocs(root = DEFAULT_ROOT) {
   const out = [];
   for (const rel of fs.readdirSync(root).filter((n) => n.endsWith('.md'))) out.push(rel);
   const d = path.join(root, 'docs');
-  if (fs.existsSync(d)) for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) out.push(path.join('docs', n));
+  if (fs.existsSync(d)) for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.md'))) out.push(`docs/${n}`);
   return out.filter((r) => !isArchive(r));
 }
 
@@ -236,7 +239,7 @@ export function allDocs(root = DEFAULT_ROOT) {
       if (['.git', 'node_modules'].includes(e.name)) continue;
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (e.name.endsWith('.md')) out.push(path.relative(root, p));
+      else if (e.name.endsWith('.md')) out.push(slashed(path.relative(root, p)));
     }
   };
   walk(root);

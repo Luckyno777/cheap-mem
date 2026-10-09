@@ -106,9 +106,27 @@ test('inbox: 999 names per second, the 1000th fails with the true number', (t) =
 
 // ---- recall keeper: busy socket -> quiet retry (lucky-mem ed176a5) ----
 import fs from 'node:fs';
+import net from 'node:net';
 import { spawn } from 'node:child_process';
 import * as keeper from '../src/recallserver-keeper.mjs';
 import * as place from '../src/recallserver-place.mjs';
+
+/** Does something accept connections on this socket path or pipe name? (A file's existence says nothing about a pipe.) */
+function listening(sock) {
+  return new Promise((resolve) => {
+    const c = net.connect(sock);
+    c.once('connect', () => { c.destroy(); resolve(true); });
+    c.once('error', () => resolve(false));
+  });
+}
+async function until(pred, ms, step = 25) {
+  const end = Date.now() + ms;
+  for (;;) {
+    if (await pred()) return true;
+    if (Date.now() >= end) return false;
+    await new Promise((r) => setTimeout(r, step));
+  }
+}
 
 test('keeper: a busy socket is retried quietly, and taken over once free', async (t) => {
   const root = tempDir('cheap-mem-w1-keeper-', t);
@@ -117,31 +135,26 @@ test('keeper: a busy socket is retried quietly, and taken over once free', async
     import(${JSON.stringify(pathToFileURL(path.join(ROOT, 'src', 'recallserver.mjs')).href)}).then((r) => r.start(${JSON.stringify(root)}))
       .then((x) => { if (!x.running) process.exit(1); process.on('SIGTERM', () => x.close().then(() => process.exit(0))); });
   `], { stdio: ['ignore', 'ignore', 'pipe'] });
+  // Whatever happens below, the occupier must not outlive the test: a live child with an open pipe kept
+  // the whole test file waiting until the 900 s limit (Windows, CI 37849587982).
+  t.after(() => { if (occupier.exitCode == null && occupier.signalCode == null) occupier.kill('SIGKILL'); });
   let err = '';
   occupier.stderr.on('data', (c) => { err += c; });
-  const sock = place.place(root, {}).socket;
-  const until = Date.now() + 15000;
-  while (!fs.existsSync(sock) && Date.now() < until && occupier.exitCode == null) await new Promise((r) => setTimeout(r, 25));
-  assert.ok(fs.existsSync(sock), `occupier not listening: ${err}`);
+  const sock = place.place(root, {}).socket;   // a unix socket path, or on Windows the pipe name
+  assert.ok(await until(() => listening(sock), 15000), `occupier not listening: ${err}`);
   const said = [];
   const k = keeper.keep(root, { env: { ...process.env, MEM_RECALL_SERVER_RESTART_MS: '100' }, log: (x) => said.push(x) });
   try {
-    const bis = Date.now() + 10000;
-    while (!said.some((x) => /busy/.test(x)) && Date.now() < bis) await new Promise((r) => setTimeout(r, 25));
-    assert.ok(said.some((x) => /busy/.test(x)), `no busy line: ${said.join(' | ')}`);
+    assert.ok(await until(() => said.some((x) => /busy/.test(x)), 10000), `no busy line: ${said.join(' | ')}`);
     assert.equal(said.filter((x) => /busy/.test(x)).length, 1, 'only the start of the series is logged');
     const gone = new Promise((r) => occupier.once('exit', r));
     occupier.kill('SIGTERM');
     await gone;
-    const bis2 = Date.now() + 15000;
-    while (k.starts.length < 2 && Date.now() < bis2) await new Promise((r) => setTimeout(r, 50));
-    assert.ok(k.starts.length >= 2, `the keeper never retried: ${said.join(' | ')}`);
-    const bis3 = Date.now() + 15000;
-    while (!fs.existsSync(sock) && Date.now() < bis3) await new Promise((r) => setTimeout(r, 50));
-    assert.ok(fs.existsSync(sock), 'the new server listens after the occupier is gone');
+    assert.ok(await until(() => k.starts.length >= 2, 15000, 50), `the keeper never retried: ${said.join(' | ')}`);
+    // Positive: a connection is accepted again, by the keeper's server (the occupier is gone).
+    assert.ok(await until(() => listening(sock), 15000, 50), 'the new server listens after the occupier is gone');
   } finally {
     await k.stop();
-    if (occupier.exitCode == null) occupier.kill('SIGTERM');
   }
 });
 

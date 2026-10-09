@@ -17,8 +17,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 import { appendLine, AppendError } from '../src/append.mjs';
 import { iterLogFile } from '../src/memory.mjs';
 
@@ -39,8 +40,7 @@ function oldSrc() {
   if (oldSrcDir !== undefined) return oldSrcDir;
   try {
     const d = path.join(tmp, 'old'); fs.mkdirSync(d);
-    execFileSync('git', ['-C', REPO, 'archive', '-o', path.join(d, 's.tar'), OLD, 'src']);
-    execFileSync('tar', ['-xf', path.join(d, 's.tar'), '-C', d]);
+    exportCommit(REPO, OLD, ['src'], d);
     oldSrcDir = path.join(d, 'src');
   } catch { oldSrcDir = null; }
   return oldSrcDir;
@@ -86,6 +86,11 @@ test('two processes: short write + confirmed foreign append -- every confirmed l
 });
 
 test('red proof: the old state deletes the confirmed foreign line and reports torn:false', async (t) => {
+  // The defect proved here is the old state's ftruncate cutting a confirmed foreign line. Windows opens
+  // an append-mode handle without FILE_WRITE_DATA (libuv), so there that ftruncate fails with EPERM and the
+  // old code leaves the line (reported torn:true): the finding cannot be reproduced where it does not exist.
+  // The NEW state is probed on every platform by the tests around this one.
+  if (process.platform === 'win32') return t.skip('Windows: ftruncate on an append-mode handle is refused (no FILE_WRITE_DATA), the old state cannot lose the foreign line there');
   const old = oldSrc();
   if (!old) return t.skip('fixed old state not in this clone');
   const { result, content } = await race(old);

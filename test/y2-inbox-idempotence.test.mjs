@@ -7,6 +7,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as inbox from '../src/inbox.mjs';
 import { tempDir } from './temp-dir.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const PARTS = { alice: 'a', bob: 'b' };
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +23,7 @@ const tmp = (t) => tempDir('cheap-mem-y2-', t);
 
 test('red proof: the START commit writes two messages for one request id', (t) => {
   const old = tmp(t);
-  execFileSync('sh', ['-c', `git -C ${REPO} archive ${START} src | tar -x -C ${old}`]);
+  exportCommit(REPO, START, ['src'], old);
   return import(pathToFileURL(path.join(old, 'src', 'inbox.mjs')).href).then((o) => {
     const root = tmp(t);
     const w = (n) => o.write(root, PARTS, {

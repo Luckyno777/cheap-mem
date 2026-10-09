@@ -8,9 +8,9 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { EventEmitter } from 'node:events';
-import { execFileSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { readBoundedBody } from '../src/body-reader.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD = '4bbca61';
@@ -79,8 +79,7 @@ function oldState() {
   const env = { ...process.env };
   delete env.NODE_TEST_CONTEXT;
   try {
-    const tar = execFileSync('git', ['-C', REPO, 'archive', OLD, 'bin', 'src', 'shared', 'assets', 'package.json'], { env, maxBuffer: 256 * 1024 * 1024 });
-    execFileSync('tar', ['-x', '-C', dest], { input: tar, env });
+    exportCommit(REPO, OLD, ['bin', 'src', 'shared', 'assets', 'package.json'], dest);
     oldTree = dest;
   } catch { oldTree = null; }
   return oldTree;

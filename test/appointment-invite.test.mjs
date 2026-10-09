@@ -389,7 +389,7 @@ test('credential files: wider than 600 is refused WITHOUT any network access; th
   } finally { await smtp.close(); }
 });
 
-test('doctor finding: off is good; on and healthy is good; open failing entries warn, after six hours error', async () => {
+test('doctor finding: off is good; on and healthy is good (Windows: unknown, "not checkable"); open failing entries warn, after six hours error', async () => {
   const r = world();
   assert.equal(doctor.checkAppointmentInvite(r).level, 'good');
   const smtp = await fakeSmtp({ behaviour: () => 'reject-data' });
@@ -397,7 +397,16 @@ test('doctor finding: off is good; on and healthy is good; open failing entries 
     const conf = smtpConf(r, smtp.port);
     const cfgPath = path.join(r, '.mem', 'config.json');
     const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8')); cfg.calendar = conf.calendar; fs.writeFileSync(cfgPath, JSON.stringify(cfg));
-    assert.equal(doctor.checkAppointmentInvite(r, { now: new Date(NOW) }).level, 'good');
+    const healthy = doctor.checkAppointmentInvite(r, { now: new Date(NOW) });
+    if (process.platform !== 'win32') {
+      assert.equal(healthy.level, 'good');
+    } else {
+      // On Windows nothing about the credential file's mode can be checked, so "good" would be a claim
+      // nobody verified: the product answers unknown and says why (the simulated-Windows test below
+      // drives the same answer on every platform).
+      assert.equal(healthy.level, 'unknown');
+      assert.match(healthy.text, /not checkable on this platform/);
+    }
     make(r, { title: 'Dentist', atMs: wall(2026, 10, 20, 10, 0) });
     await I.tick(r, { now: NOW, env: {} });
     const w = doctor.checkAppointmentInvite(r, { now: new Date(NOW + 60000) });
@@ -636,11 +645,11 @@ test('Windows (simulated): a wide credential file still sends, but the state say
     if (process.platform !== 'win32') assert.equal(I.credentialState(c).ok, false);
     const s = await asWindows(() => I.credentialState(c));
     assert.equal(s.ok, true);
-    assert.match(s.notice, /cannot be checked on Windows/);
+    assert.match(s.notice, /not checkable on this platform/);
     assert.match(s.notice, /icacls/);
     const f = await asWindows(() => doctor.checkAppointmentInvite(r, { now: new Date(NOW) }));
     assert.equal(f.level, 'unknown', 'not good: nothing was checked');
-    assert.match(f.text, /cannot be checked on Windows/);
+    assert.match(f.text, /not checkable on this platform/);
     make(r, { title: 'Dentist', atMs: wall(2026, 10, 7, 10, 0) });
     const t = await asWindows(() => I.tick(r, { now: NOW, config: c }));
     assert.equal(t.failures.length, 0, 'sending is allowed');

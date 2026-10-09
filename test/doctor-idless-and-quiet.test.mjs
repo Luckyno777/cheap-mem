@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkEntryForm } from '../src/doctor.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** cheap-mem main before these two changes. */
@@ -69,7 +70,7 @@ test('entry-form: handled by a finding line of class idless-line naming <file>:<
 
 test('RED: on the pinned old state entry-form stays good for a line without an id; the control is green there', (t) => {
   const old = tmp(t, 'cm-idless-old-');
-  execFileSync('tar', ['-x', '-C', old], { input: execFileSync('git', ['-C', REPO, 'archive', OLD_STATE], { maxBuffer: 256 * 1024 * 1024 }) });
+  exportCommit(REPO, OLD_STATE, ['.'], old);
   try { fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(old, 'node_modules')); } catch { /* none needed */ }
   const oldBin = path.join(old, 'bin', 'mem');
   const control = form(oldBin, memoryWith(t, oldBin, { idless: false }));
@@ -111,7 +112,7 @@ test('parity in a fresh clone: no raw git message on stderr, the reason explains
 
 test('RED: on the pinned old state the same call prints the raw git fatal line; the probe sees the failure', (t) => {
   const old = tmp(t, 'cm-fresh-old-');
-  execFileSync('tar', ['-x', '-C', old], { input: execFileSync('git', ['-C', REPO, 'archive', OLD_STATE], { maxBuffer: 256 * 1024 * 1024 }) });
+  exportCommit(REPO, OLD_STATE, ['.'], old);
   const { stderr, result } = evaluateIn(old, freshRepo(t));
   assert.equal(result.measurable, false, 'positive control: the old state also finds the cutoff missing');
   assert.match(stderr, /fatal:/);

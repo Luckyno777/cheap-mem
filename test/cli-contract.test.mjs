@@ -87,8 +87,13 @@ test('every command: --help exits 0, prints something, and leaves no file behind
       encoding: 'utf8',
       cwd: root,
       env,
+      timeout: 30000, // one command that never ends must be NAMED, not cost the whole file's 15 minutes
     });
     const after = snapshot(root);
+    if (r.error?.code === 'ETIMEDOUT') {
+      failures.push(`${name}: --help did not end within 30 s (stdout so far: ${String(r.stdout).slice(0, 200)})`);
+      continue;
+    }
     if (r.status !== 0) {
       failures.push(`${name}: exit ${r.status} (stderr: ${r.stderr.trim().slice(0, 200)})`);
       continue;
@@ -177,7 +182,7 @@ test('mem version --help shows help, not the version', () => {
   assert.doesNotMatch(r.stdout, /^cheap-mem \d/);
 });
 
-test('mem serve actually starts and binds a real port, as a process (defect 1)', async () => {
+test('mem serve actually starts and binds a real port, as a process (defect 1)', { timeout: 90000 }, async () => {
   const root = freshRoot();
   spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8' });
 
@@ -211,8 +216,14 @@ test('mem serve actually starts and binds a real port, as a process (defect 1)',
     const body = await res.text();
     assert.equal(body, 'ok');
   } finally {
+    const gone = new Promise((resolve) => child.once('exit', resolve));
     child.kill('SIGTERM');
-    await new Promise((resolve) => child.on('exit', resolve));
+    await gone;
+    // Windows: the kill is a hard kill and `mem serve`'s own child (the recall server) is not taken with
+    // it, so it may still hold the two pipes. Without this the test process keeps its event loop busy
+    // on pipes nobody reads and the file never ends (a 900 s timeout on Windows node 20).
+    child.stdout.destroy();
+    child.stderr.destroy();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

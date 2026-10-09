@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync, execFileSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { maskText, maskEntry, maskOutput } from '../src/outputguard.mjs';
 import { compactLine } from '../src/cli/display.mjs';
@@ -20,6 +20,7 @@ import { shortLine } from '../src/shortline.mjs';
 import { redact } from '../src/redaction.mjs';
 import * as dashboard from '../src/dashboard.mjs';
 import * as viewer from '../src/viewer.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The state before the output guard (cheap-mem main). Pinned, never `merge-base`. */
@@ -268,8 +269,7 @@ test('the dashboard (readPass, the entry card) and the viewer headline mask the 
 
 test('RED: on the pinned old state every CLI surface hands the key out; the positive control is green there', async (t) => {
   const old = tmp(t, 'cm-outguard-old-');
-  const tar = execFileSync('git', ['-C', REPO, 'archive', OLD_STATE], { maxBuffer: 256 * 1024 * 1024 });
-  execFileSync('tar', ['-x', '-C', old], { input: tar });
+  exportCommit(REPO, OLD_STATE, ['.'], old);
   try { fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(old, 'node_modules')); } catch { /* none needed for the CLI */ }
   const oldBin = path.join(old, 'bin', 'mem');
   const { root, key } = plantedRoot(t, oldBin);

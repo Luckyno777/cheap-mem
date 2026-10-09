@@ -19,6 +19,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { startBrowser, waitReady } from './fixture/browser.mjs';
 import * as procedure from '../src/procedure.mjs';
 import * as memoryApi from '../src/memory.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -117,8 +118,7 @@ test('RED: on the fixed old state find/show show the proposed rule without a mar
   const r = world();
   const old = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-x3b-old-'));
   try {
-    const tar = execFileSync('git', ['-C', REPO, 'archive', OLD_STATE], { maxBuffer: 256 * 1024 * 1024 });
-    execFileSync('tar', ['-x', '-C', old], { input: tar });
+    exportCommit(REPO, OLD_STATE, ['.'], old);
     try { fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(old, 'node_modules')); } catch { /* no dependencies needed */ }
     const bin = path.join(old, 'bin', 'mem');
     const ids = fill(r, bin);

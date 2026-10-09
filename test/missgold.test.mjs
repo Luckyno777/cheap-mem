@@ -12,7 +12,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tempDir } from './temp-dir.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 import * as memory from '../src/memory.mjs';
 import * as rewrites from '../src/rewrites.mjs';
 import * as mg from '../src/missgold.mjs';
@@ -24,6 +26,10 @@ import {
 
 const BIN = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'mem');
 afterEach(cleanup);
+
+const WIN = process.platform === 'win32';
+// Fixed old state (cm main before the mode honesty): `status` returned a verdict from stat on every platform.
+const BEFORE_MODES = 'b2b5db1b1af138a53ee426b4fce2fdf597b34b6d';
 
 const mem = (root, ...a) => spawnSync(process.execPath, [BIN, '--root', root, ...a], { encoding: 'utf8' });
 
@@ -49,8 +55,15 @@ test('collect: dry run writes nothing; --write gives 0600 in 0700, atomic, idemp
   assert.equal(b.written, true);
   assert.ok(!JSON.stringify(b).includes(QUESTION), 'the report never carries the question');
   const file = mg.filePath(root);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+  if (!WIN) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
+  } else {
+    // Windows has no POSIX modes (stat says 0666 / 0777): asserting 0600 there would test the OS.
+    // What is asserted is that the product says so instead of giving a verdict.
+    assert.equal(mg.status(root).modeOk, null, 'Windows: the mode must be reported as not checkable');
+    assert.match(mg.modeNote(mg.status(root)), /not checkable on this platform/);
+  }
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['miss-gold.jsonl'], 'no temp file left behind');
   assert.equal(mg.read(file).rows[0].question, QUESTION);
   assert.equal(mg.collect(root, { write: true }).fresh, 0, 'a second run adds nothing twice');
@@ -207,9 +220,48 @@ test('rights: a file open to others is reported; control: 0600 is fine', () => {
   mg.collect(root, { write: true });
   const file = mg.filePath(root);
   fs.chmodSync(file, 0o644);
-  assert.equal(mg.status(root).modeOk, false);
-  fs.chmodSync(file, 0o600);
-  assert.equal(mg.status(root).modeOk, true);
+  if (!WIN) {
+    assert.equal(mg.status(root).modeOk, false);
+    assert.match(mg.modeNote(mg.status(root)), /WARNING: .*readable by group\/others/);
+    fs.chmodSync(file, 0o600);
+    assert.equal(mg.status(root).modeOk, true);
+    assert.equal(mg.modeNote(mg.status(root)), null);
+  } else {
+    // chmod is a no-op there and stat says 0666: neither "open" nor "0600 fine" may be claimed.
+    assert.equal(mg.status(root).modeOk, null);
+    fs.chmodSync(file, 0o600);
+    assert.equal(mg.status(root).modeOk, null);
+    assert.match(mg.modeNote(mg.status(root)), /not checkable on this platform/);
+  }
+});
+
+test('rights, win32 behaviour driven on every platform: no verdict, the words "not checkable on this platform"', () => {
+  const root = world();
+  mg.collect(root, { write: true });
+  const file = mg.filePath(root);
+  for (const mode of [0o600, 0o644, 0o666]) {
+    if (!WIN) fs.chmodSync(file, mode);
+    const st = mg.status(root, process.env, { platform: 'win32' });
+    assert.equal(st.modeOk, null, `mode ${mode.toString(8)}: no verdict on win32`);
+    assert.match(mg.modeNote(st), /not checkable on this platform/);
+    assert.equal(mg.read(file, { platform: 'win32' }).modeOk, null);
+  }
+});
+
+test('red proof: the base commit gave a verdict for win32 (open for 0644, a verdict not "not checkable")', (t) => {
+  const dest = tempDir('cm-mg-base-', t);
+  exportCommit(path.join(path.dirname(fileURLToPath(import.meta.url)), '..'), BEFORE_MODES, ['src', 'package.json'], dest);
+  const root = world();
+  mg.collect(root, { write: true });
+  const file = mg.filePath(root);
+  if (WIN) { t.diagnostic('NOTICE: chmod has no effect on Windows; the old state is compared with the numbers stat gives there'); } else fs.chmodSync(file, 0o644);
+  return import(pathToFileURL(path.join(dest, 'src', 'missgold.mjs')).href).then((old) => {
+    const st = old.status(root, process.env, { platform: 'win32' });
+    assert.notEqual(st.modeOk, null, 'the old state has no "not checkable"');
+    assert.equal(typeof st.modeOk, 'boolean');
+    // positive control: the new code, same call, says null
+    assert.equal(mg.status(root, process.env, { platform: 'win32' }).modeOk, null);
+  });
 });
 
 test('CLI `mem gold miss`: numbers only; score under 20 exits 2 without a number', () => {

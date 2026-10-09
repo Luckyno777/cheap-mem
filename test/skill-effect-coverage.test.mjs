@@ -11,13 +11,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as memory from '../src/memory.mjs';
 import * as injection from '../src/injection.mjs';
 import * as raw from '../src/raw.mjs';
 import * as effect from '../src/skilleffect.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -101,8 +102,7 @@ test('measure(): the capture of the session begins at hour 5 - the five earlier 
   assert.equal(now.overall.fetched, 1);
   // the base counts all ten as observed
   const tmp = tempDir('cm-effect-cov-base-', t);
-  const tar = execFileSync('git', ['archive', BASE, 'src', 'package.json'], { cwd: REPO, maxBuffer: 1 << 28 });
-  assert.equal(spawnSync('tar', ['-x', '-C', tmp], { input: tar }).status, 0);
+  exportCommit(REPO, BASE, ['src', 'package.json'], tmp);
   const old = await import(pathToFileURL(path.join(tmp, 'src', 'skilleffect.mjs')).href);
   assert.equal(old.measure(root).overall.observed, 10, 'RED PROOF: the base counts every offer as observed');
 });

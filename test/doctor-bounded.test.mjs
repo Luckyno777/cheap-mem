@@ -37,6 +37,7 @@ import * as memory from '../src/memory.mjs';
 import * as search from '../src/search.mjs';
 import * as authority from '../src/authority.mjs';
 import * as doctor from '../src/doctor.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 
 const REPO = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // Fixed prior state (origin/main before this change). Never `merge-base`:
@@ -64,9 +65,7 @@ function withEnv(values, fn) {
 
 function oldCode() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dbd-old-'));
-  const tar = execFileSync('git', ['archive', OLD_STATE, 'src', 'bin', 'shared', 'package.json'],
-    { cwd: REPO, maxBuffer: 256 * 1024 * 1024 });
-  execFileSync('tar', ['-x', '-C', dir], { input: tar });
+  exportCommit(REPO, OLD_STATE, ['src', 'bin', 'shared', 'package.json'], dir);
   return dir;
 }
 

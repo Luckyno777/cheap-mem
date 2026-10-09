@@ -29,6 +29,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -41,7 +42,7 @@ function world() {
   spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', timeout: 30000 });
   return root;
 }
-const done = (root) => fs.rmSync(root, { recursive: true, force: true });
+const done = (root) => removeTree(root);
 
 /** A workflow line written straight to the drawer — the only way to plant a non-human or draft one. */
 function plant(root, fields) {

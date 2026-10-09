@@ -16,8 +16,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { exportCommit } from './helpers/export-commit.mjs';
 import * as memory from '../src/memory.mjs';
 import * as doctor from '../src/doctor.mjs';
 import * as neighbours from '../src/neighbours.mjs';
@@ -45,8 +45,7 @@ async function oldMem() {
   if (oldMemory !== undefined) return oldMemory;
   try {
     const d = path.join(tmp, 'old'); fs.mkdirSync(d);
-    execFileSync('git', ['-C', REPO, 'archive', '-o', path.join(d, 's.tar'), OLD, 'src', 'package.json']);
-    execFileSync('tar', ['-xf', path.join(d, 's.tar'), '-C', d]);
+    exportCommit(REPO, OLD, ['src', 'package.json'], d);
     // eslint-disable-next-line require-atomic-updates -- memoised import; a second caller would store the same module
     oldMemory = await import(pathToFileURL(path.join(d, 'src', 'memory.mjs')).href);
   // eslint-disable-next-line require-atomic-updates -- memoised import; a second caller would store the same module

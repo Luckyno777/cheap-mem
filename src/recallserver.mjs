@@ -46,6 +46,18 @@ import { writeAtomic } from './atomicwrite.mjs';
 
 const CODE_ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * Has the parent of a keeper-run server gone? POSIX reparents an orphan, so `process.ppid` changes.
+ * Windows does NOT: `ppid` keeps naming the dead parent forever, and a server that only compared it
+ * outlived `mem serve` for good (the hard kill of `mem serve` there is TerminateProcess, no child is
+ * taken down; a test file that spawned `mem serve` then never ended, cli-contract, CI 37860352636).
+ * So also ask whether the parent pid still exists (signal 0; EPERM means it does).
+ */
+export function parentGone(parent, ppid = process.ppid, probe = process.kill) {
+  if (ppid !== parent) return true;
+  try { probe(parent, 0); return false; } catch (e) { return e?.code !== 'EPERM'; }
+}
+
 /** Exit code of the server child process on a detected code change (EX_TEMPFAIL). */
 export const STALE_RC = 75;
 /**
@@ -156,12 +168,17 @@ export async function start(root, {
     say(`not started: ${e.message}`);
     return { running: false, reason: e.message };
   }
-  if (process.platform !== 'win32' && fs.existsSync(where.socket)) {
+  // POSIX: a socket file may be there, live or dead. Windows: a pipe leaves no file, so ask the pipe
+  // itself (a missing pipe answers at once with an error). Without this a second server on Windows
+  // replaced the live one's key file below, then failed to listen and removed it: the first server
+  // kept running, but no client could authenticate to it any more.
+  const win = process.platform === 'win32';
+  if (win || fs.existsSync(where.socket)) {
     if (await someoneListens(where.socket)) {
       say(`not started: a server already listens on ${where.socket}`);
       return { running: false, reason: 'busy' };
     }
-    try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ }
+    if (!win) { try { fs.rmSync(where.socket, { force: true }); } catch { /* listen will say */ } }
   }
 
   const { COMMANDS } = await import('./cli/commands/search.mjs');

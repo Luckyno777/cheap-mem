@@ -42,6 +42,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { tempDir } from './temp-dir.mjs';
+import { exportCommit } from './helpers/export-commit.mjs';
 import { spawn, execFileSync } from 'node:child_process';
 import {
   readLoadavgPerCpu,
@@ -517,6 +521,25 @@ test('decision #1, darwin: a stable capture without PSI is flagged unverifiable,
   }
   const lin = captureCalibrationBaselineOnce({ platform: 'linux' });
   assert.equal(lin.unverifiable, false, 'control: other platforms are not flagged');
+});
+
+test('decision #1, win32 (and darwin), no PSI: a stable capture is flagged unverifiable, not trustworthy; red on the base', async (t) => {
+  const noPsi = () => null;
+  for (const platform of ['win32', 'darwin']) {
+    const sim = captureCalibrationBaselineOnce({ platform, readPsiTotal: noPsi });
+    assert.equal(sim.psiQuiet, null, 'the injected "no PSI" reached the capture');
+    assert.equal(sim.unverifiable, true, `${platform}: load is not checkable here, so it must be flagged`);
+    assert.equal(sim.trustworthy, false, `${platform}: never accepted as quiet without a load signal`);
+    assert.equal(captureQuietCalibrationBaseline({ platform, readPsiTotal: noPsi }).attempts, 1, 'no pointless retries');
+  }
+  // control: a platform with the signal is not flagged, with or without PSI injected away
+  assert.equal(captureCalibrationBaselineOnce({ platform: 'linux', readPsiTotal: noPsi }).unverifiable, false);
+  // red proof on the fixed base: win32 was not in the set, so the same capture there was never flagged
+  const dest = tempDir('cm-atlas-base-', t);
+  exportCommit(path.join(path.dirname(fileURLToPath(import.meta.url)), '..'), 'b2b5db1b1af138a53ee426b4fce2fdf597b34b6d', ['bench', 'src', 'shared', 'package.json'], dest);
+  const old = await import(pathToFileURL(path.join(dest, 'bench', 'atlas', 'core.mjs')).href);
+  assert.equal(old.captureCalibrationBaselineOnce({ platform: 'win32' }).unverifiable, false, 'the base never flagged win32');
+  assert.equal(old.CALIBRATION_INSENSITIVE_PLATFORMS.has('win32'), false);
 });
 
 test('decision #1, GRUEN (positive control): captureQuietCalibrationBaseline recovers once the load is gone', { timeout: 40000 }, async (t) => {
