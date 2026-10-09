@@ -47,7 +47,8 @@
 # --- A time cap, or none -------------------------------------------
 #
 # GNU timeout, else gtimeout (coreutils via brew), else the perl
-# watchdog below, else run it plain.
+# watchdog below, else the node watchdog, else run it plain - and SAY so
+# (mem_cap_kind=none; see `capped`).
 #
 # **The plain run used to be the answer on a stock Mac, and it was wrong
 # (CI run 37692975754).** A "cap" that does not cap is not a cap: the
@@ -80,15 +81,58 @@ mem_cap_perl() {
     exit(($? & 127) ? 128 + ($? & 127) : ($? >> 8));
   ' "$@"
 }
-if command -v timeout > /dev/null 2>&1; then MEM_CAP=(timeout)
-elif command -v gtimeout > /dev/null 2>&1; then MEM_CAP=(gtimeout)
-elif command -v perl > /dev/null 2>&1; then MEM_CAP=(mem_cap_perl)
-else MEM_CAP=(); fi
+# The same contract with Node as the watchdog, for a box that has neither
+# a GNU timeout nor perl (minimal containers, a Windows Git Bash without
+# perl). Every hook already needs node, so this is the cap of last resort
+# that is still a cap. It only ever signals ITS OWN child (TERM, then KILL
+# two seconds later) - never a process it did not start.
+mem_cap_node() {
+  node -e '
+    const { spawn } = require("node:child_process");
+    const secs = Number(process.argv[1]);
+    const argv = process.argv.slice(2);
+    const child = spawn(argv[0], argv.slice(1), { stdio: "inherit" });
+    let hit = false;
+    let hard = null;
+    const soft = setTimeout(() => {
+      hit = true;
+      try { child.kill("SIGTERM"); } catch { /* already gone */ }
+      hard = setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* already gone */ } }, 2000);
+    }, Math.max(1, secs * 1000));
+    child.on("error", (e) => {
+      clearTimeout(soft);
+      const nf = e && e.code === "ENOENT";
+      process.stderr.write("timeout: failed to run command \x27" + argv[0] + "\x27: " + (e && e.message) + "\n");
+      process.exit(nf ? 127 : 126);
+    });
+    child.on("exit", (code, sig) => {
+      clearTimeout(soft); if (hard) clearTimeout(hard);
+      if (hit) process.exit(124);
+      if (sig) process.exit(128 + (require("node:os").constants.signals[sig] || 0));
+      process.exit(code === null ? 1 : code);
+    });
+  ' "$@"
+}
+# mem_cap_kind says WHICH cap this shell got: timeout | gtimeout | perl |
+# node | none. "none" is the only dishonest one, so it is never silent:
+# `capped` says so on stderr (once per process), and the Stop hook says
+# so to the session.
+if command -v timeout > /dev/null 2>&1; then MEM_CAP=(timeout); mem_cap_kind=timeout
+elif command -v gtimeout > /dev/null 2>&1; then MEM_CAP=(gtimeout); mem_cap_kind=gtimeout
+elif command -v perl > /dev/null 2>&1; then MEM_CAP=(mem_cap_perl); mem_cap_kind=perl
+elif command -v node > /dev/null 2>&1; then MEM_CAP=(mem_cap_node); mem_cap_kind=node
+else MEM_CAP=(); mem_cap_kind=none; fi
 
+mem_cap_warned=0
 # capped <seconds> <cmd...>
 capped() {
   local secs="$1"; shift
-  if [ "${#MEM_CAP[@]}" -gt 0 ]; then "${MEM_CAP[@]}" "$secs" "$@"; else "$@"; fi
+  if [ "${#MEM_CAP[@]}" -gt 0 ]; then "${MEM_CAP[@]}" "$secs" "$@"; return $?; fi
+  if [ "$mem_cap_warned" != 1 ]; then
+    mem_cap_warned=1
+    echo "cheap-mem: NO time cap available (no timeout, gtimeout, perl or node on PATH) - '$1' runs without a limit" >&2
+  fi
+  "$@"
 }
 
 # --- An exclusive claim --------------------------------------------
