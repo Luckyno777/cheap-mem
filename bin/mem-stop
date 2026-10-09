@@ -78,14 +78,26 @@ HERE="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 STDIN_JSON=""
 if [ ! -t 0 ]; then STDIN_JSON="$(cat 2>/dev/null || true)"; fi
 
-# Portable time cap: GNU `timeout` is absent on macOS by default (there
-# it is `gtimeout`, if installed). Without either, run directly — the
-# push is synchronous but best-effort; a hang costs at most the cap that
-# then does not exist.
-if   command -v timeout  >/dev/null 2>&1; then CAP=(timeout)
-elif command -v gtimeout >/dev/null 2>&1; then CAP=(gtimeout)
-else CAP=(); fi
-cap() { local s="$1"; shift; if [ "${#CAP[@]}" -gt 0 ]; then "${CAP[@]}" "$s" "$@"; else "$@"; fi; }
+# Portable time cap, from the shared file: GNU `timeout`, else
+# `gtimeout`, else a perl watchdog, else a Node watchdog (every step below
+# needs node anyway). This hook used to carry its own copy that knew only
+# the first two and otherwise ran the command UNCAPPED without a word - a
+# "cap" that does not cap, on a box with no GNU tools (minimal container,
+# Windows Git Bash without perl). Now the way is named, and "no cap at
+# all" is said out loud (stderr here, a systemMessage at the end).
+if [ -f "$HERE/_portable.sh" ]; then
+  # shellcheck source=bin/_portable.sh
+  . "$HERE/_portable.sh"
+else
+  mem_cap_kind=none
+  capped() { shift; "$@"; }
+fi
+cap() { capped "$@"; }
+case "$mem_cap_kind" in
+  timeout | gtimeout) ;;
+  none) echo "mem-stop: NO time cap available (no timeout, gtimeout, perl or node on PATH, or bin/_portable.sh missing) - git and checks run without a limit" >&2 ;;
+  *) echo "mem-stop: time cap via $mem_cap_kind watchdog (no GNU timeout on PATH)" >&2 ;;
+esac
 
 # --- 0) Answer check (see the header) -------------------------------
 # Computed FIRST and printed LAST (after capture/persist/reflect below),
@@ -251,5 +263,10 @@ fi
 [ -n "$ANSWER_JSON" ] && printf '%s\n' "$ANSWER_JSON"
 # The closing report (0c) only when no answer correction went out.
 [ -z "$ANSWER_JSON" ] && [ -n "$REPORT_JSON" ] && printf '%s\n' "$REPORT_JSON"
+# No cap at all is never silent: when nothing else went to stdout, the
+# session is told (a systemMessage, never a block).
+if [ "$mem_cap_kind" = none ] && [ -z "$ANSWER_JSON" ] && [ -z "$REPORT_JSON" ]; then
+  printf '%s\n' '{"systemMessage":"cheap-mem Stop hook: no time cap available (no timeout, gtimeout, perl or node) - git steps ran without a limit"}'
+fi
 
 exit 0
