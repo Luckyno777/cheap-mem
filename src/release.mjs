@@ -266,7 +266,19 @@ export function createRelease(root, {
         fs.rmSync(tmp, { recursive: true, force: true });
         return { created: false, reason: 'archive-failed', error: String(e?.message ?? e) };
       }
-      const tar = spawnSync('tar', ['-x', '-C', tmp], { input: archiveBytes });
+      // The extraction directory goes to tar RESOLVED and RELATIVE: the real path
+      // of `tmp` becomes the child's working directory, and tar gets `-C .`. An
+      // absolute path that runs through a link (macOS /var -> /private/var, a
+      // junction or symlink under %TEMP% on Windows, or an 8.3 short name) is
+      // read by a tar that is not the platform's own (GNU tar from Git for
+      // Windows) through its own path translation, which does not follow the
+      // link: "Cannot open: No such file or directory" (windows-latest, 2026-10).
+      // Resolving first leaves no link in what tar sees; `.` leaves no drive
+      // letter for it to take for a host (`C:` is `host:file` to GNU tar).
+      let extractDir;
+      try { extractDir = fs.realpathSync.native(tmp); }
+      catch { extractDir = tmp; } // cannot resolve: hand over what we have, as before
+      const tar = spawnSync('tar', ['-x', '-C', '.'], { input: archiveBytes, cwd: extractDir });
       if (tar.status !== 0 || tar.error) {
         fs.rmSync(tmp, { recursive: true, force: true });
         return {
