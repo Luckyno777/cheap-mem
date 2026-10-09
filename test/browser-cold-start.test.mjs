@@ -31,7 +31,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import * as fixture from './fixture/browser.mjs';
@@ -60,7 +60,7 @@ async function builtAt(base) {
 }
 
 test('POSITIVE CONTROL: a server started raw builds its state in the FIRST request', async () => {
-  const mod = await import(`${path.join(REPO, 'bin', 'mem-serve')}?cold=${Math.random()}`);
+  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?cold=${Math.random()}`);
   const { server } = await mod.serve(world(), ENV);
   try {
     const before = Date.now();
