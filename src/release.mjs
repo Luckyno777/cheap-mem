@@ -332,15 +332,27 @@ export function rollback(root, { env = process.env, now = new Date() } = {}) {
 export function codePath(root, { env = process.env } = {}) {
   const base = defaultBase(root, env);
   const current = currentLink(base);
+  // Three states, never one (design commitment 2): no pointer at all, a
+  // pointer that does not resolve (dangling, or the OS refused), a pointer
+  // that resolves to something without `bin/`. The fallback is the same
+  // for all three; the REASON must say which one it was, or a flaky CI
+  // failure ("fromRelease: false") cannot be told apart from a missing release.
   let real = null;
-  try { real = fs.realpathSync(current); } catch { /* no current pointer yet */ }
-  if (real && fs.existsSync(path.join(real, 'bin'))) {
-    return { path: real, fromRelease: true, reason: null };
+  let why;
+  try {
+    real = fs.realpathSync(current);
+    if (fs.existsSync(path.join(real, 'bin'))) return { path: real, fromRelease: true, reason: null };
+    why = `"current" resolves to ${real}, which has no bin/`;
+  } catch (e) {
+    let pointer = false;
+    try { fs.lstatSync(current); pointer = true; } catch { /* no pointer at all */ }
+    why = !pointer ? 'no "current" pointer yet'
+      : `"current" exists but does not resolve (${e?.code || e?.message || 'unknown error'})`;
   }
   return {
     path: root,
     fromRelease: false,
-    reason: `no usable release under ${current} — falling back to the source checkout ${root} `
+    reason: `no usable release under ${current} (${why}) — falling back to the source checkout ${root} `
       + '(run `mem-release create` once to enable this)',
   };
 }

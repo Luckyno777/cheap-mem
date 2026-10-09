@@ -219,10 +219,58 @@ test('codePath: falls back to the source root when no release exists yet ("unkno
 test('codePath: points at the frozen copy once one exists', () => {
   const { root, base } = releasedFixture();
   try {
-    release.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    const made = release.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    // Not taken for granted: CI (macos-latest node 20) saw `fromRelease: false` here three times with no
+    // word on why. A failed create or an unusable pointer now names itself in the failure message.
+    assert.equal(made.created, true, `createRelease did not create: ${JSON.stringify(made)}`);
     const r = release.codePath(root, { env: { CHEAP_MEM_RELEASE_BASE: base } });
-    assert.equal(r.fromRelease, true);
+    assert.equal(r.fromRelease, true, `codePath fell back: ${r.reason}`);
     assert.equal(fs.realpathSync(r.path), fs.realpathSync(path.join(base, 'current')));
+  } finally { away(root); fs.rmSync(base, { recursive: true, force: true }); }
+});
+
+test('codePath: through a symlinked temp directory (macOS /var -> /private/var) it returns the resolved copy', () => {
+  const { root, base: realBase } = releasedFixture();
+  const holder = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-release-link-'));
+  const viaLink = path.join(holder, 'var'); // the way /var points at /private/var
+  fs.symlinkSync(os.tmpdir(), viaLink, 'dir');
+  const base = path.join(viaLink, path.basename(realBase));
+  try {
+    const made = release.createRelease(root, { ref: 'HEAD', fetch: false, env: { CHEAP_MEM_RELEASE_BASE: base } });
+    assert.equal(made.created, true, `createRelease did not create: ${JSON.stringify(made)}`);
+    const r = release.codePath(root, { env: { CHEAP_MEM_RELEASE_BASE: base } });
+    assert.equal(r.fromRelease, true, `codePath fell back: ${r.reason}`);
+    assert.equal(r.path, fs.realpathSync(path.join(os.tmpdir(), path.basename(realBase), made.kurzhash)),
+      'the returned path is fully resolved: no symlinked ancestor left in it');
+    assert.ok(!r.path.startsWith(viaLink), 'the link path itself is not what a service starts from');
+  } finally {
+    away(root);
+    fs.rmSync(path.join(os.tmpdir(), path.basename(realBase)), { recursive: true, force: true });
+    fs.rmSync(holder, { recursive: true, force: true });
+  }
+});
+
+test('codePath: the fallback reason tells the three states apart (no pointer / dangling / no bin)', () => {
+  const root = fixtureRepo();
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-release-states-'));
+  const env = { CHEAP_MEM_RELEASE_BASE: base };
+  try {
+    const none = release.codePath(root, { env });
+    assert.equal(none.fromRelease, false);
+    assert.match(none.reason, /no "current" pointer yet/);
+
+    fs.symlinkSync(path.join(base, 'gone'), path.join(base, 'current'), 'dir');
+    const dangling = release.codePath(root, { env });
+    assert.equal(dangling.fromRelease, false);
+    assert.match(dangling.reason, /exists but does not resolve \(ENOENT\)/);
+    fs.unlinkSync(path.join(base, 'current'));
+
+    fs.mkdirSync(path.join(base, 'binless'));
+    fs.symlinkSync(path.join(base, 'binless'), path.join(base, 'current'), 'dir');
+    const binless = release.codePath(root, { env });
+    assert.equal(binless.fromRelease, false);
+    assert.match(binless.reason, /resolves to .*binless, which has no bin\//);
+    for (const r of [none, dangling, binless]) assert.match(r.reason, /no usable release/);
   } finally { away(root); fs.rmSync(base, { recursive: true, force: true }); }
 });
 
