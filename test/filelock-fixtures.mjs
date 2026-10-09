@@ -57,6 +57,19 @@ export function neverAssignedPid() {
   throw new Error(`test set-up: pid ${NEVER_ASSIGNED_PID} must not exist`);
 }
 
+/**
+ * The pid of a child that has ended, as a "gone" pid -- but only while the OS has not handed it out
+ * again. Windows reuses pids within milliseconds (CI windows-latest node 22, 2026-10-09: the pid of
+ * an ended child answered "alive"), and there is no start time to tell a reused pid from the old
+ * owner. So: `pid` itself if `kill(pid, 0)` says ESRCH right now, else `neverAssignedPid()`, which
+ * states the same thing ("this pid is dead") and cannot be reused. The window between this check
+ * and the caller's use is microseconds, not the milliseconds a bare child pid leaves open.
+ */
+export function endedPidOrNeverAssigned(pid) {
+  try { process.kill(pid, 0); } catch (e) { if (e && e.code === 'ESRCH') return pid; }
+  return neverAssignedPid();
+}
+
 export const sleepMs = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /**

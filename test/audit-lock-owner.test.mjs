@@ -20,7 +20,7 @@ import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { exportCommit } from './helpers/export-commit.mjs';
-import { neverAssignedPid } from './filelock-fixtures.mjs';
+import { neverAssignedPid, endedPidOrNeverAssigned } from './filelock-fixtures.mjs';
 import { withLock, ownerVerdict, LockTimeoutError, takeOverIfStale } from '../src/filelock.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -133,6 +133,11 @@ test('dead owner (SIGKILL inside the section): taken over at once, without age (
   const dir = newDir(); const h = await holder(NEW_SRC, dir);
   try {
     h.k.kill('SIGKILL'); await ended(h.k);
+    // The killed owner left its lock behind. If the OS has handed its pid out again (Windows does,
+    // within milliseconds) the line is rewritten with a pid that cannot be reused: same statement.
+    const left = fs.readFileSync(h.lock, 'utf8').split(' ');
+    left[0] = String(endedPidOrNeverAssigned(Number(left[0])));
+    fs.writeFileSync(h.lock, left.join(' '));
     assert.equal(ownerVerdict(fs.readFileSync(h.lock, 'utf8')), 'dead');
     assert.equal(withLock(h.lock, () => 'inside', { waitMs: 2000 }), 'inside');
     assert.ok(!fs.existsSync(h.lock));
