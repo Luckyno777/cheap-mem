@@ -19,12 +19,25 @@
 // of 15. In lucky-mem the same probe was red 10 of 10. In the test the red
 // proof is deterministic: "a fresh bar blocks" fails on the pinned old
 // state (the old code ignores the bar and takes over at once).
+//
+// Finding (2026-10-09, CI windows-latest node 20, twice before as well): the
+// 8 x 20 probe was red with "two inside at once (or timeout)", and the
+// lines were all `ELOCKTIMEOUT ... verdict: unknown`, owner = the untouched
+// orphan: NO overlap. The orphan's pid came from a child that had just
+// exited; Windows reuses pids at once, and without `/proc` a living pid is
+// `unknown` and never taken over (src/filelock.mjs, "PLATFORMS"). A product
+// property, documented, not a lock failure. So: (1) the orphans now carry a
+// pid no OS can hand out, (2) the probe tells OVERLAP (a real failure) from
+// TIMEOUT (lock never acquired) from ERROR, and says which one it was.
+// Red proof (Linux, same picture): the previous version of this test with
+// `deadPid()` returning a LIVE pid fails with exactly those TIMEOUT lines;
+// the control "a taker that never gets the lock ..." keeps the split honest.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync, execFileSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { NEW_SRC, HERE, mkTmp, url, runChild } from './filelock-fixtures.mjs';
 import { withLock, LockTimeoutError, takeoverPath, TAKEOVER_ORPHAN_S } from '../src/filelock.mjs';
 
@@ -32,14 +45,24 @@ const LOCK_URL = url(NEW_SRC, 'filelock.mjs');
 /** The state BEFORE the bar. FIXED on purpose. */
 const PRE_BAR_COMMIT = '95ce820bcd641dded4923051f5befd11f297ec36';
 
+/**
+ * A pid that is dead AND STAYS dead. A pid taken from a child that has just
+ * exited does not: Windows hands freed pids out again within milliseconds,
+ * and without `/proc` a LIVING pid is verdict `unknown` and never taken
+ * over (header of src/filelock.mjs, "PLATFORMS"). CI saw exactly that twice
+ * on windows-latest (2026-10-08 round 9 and 10, 2026-10-09 round 2): the
+ * orphan's pid had been reused by another process, all eight takers ran
+ * into `LockTimeoutError` (verdict unknown, owner = the untouched orphan),
+ * never into an overlap. A pid above every OS's pid range cannot be
+ * reused: Linux caps at 2^22, macOS at 99999, Windows hands out multiples
+ * of 4 only; `kill(pid, 0)` answers ESRCH on all three (asserted below).
+ */
+const NEVER_ASSIGNED_PID = 2000000001;
 function deadPid() {
-  const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
-  const pid = Number(r.stdout);
-  assert.ok(pid > 0, `child without pid: ${r.stderr}`);
-  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, 'probe: the pid must really be dead');
-  return pid;
+  assert.throws(() => process.kill(NEVER_ASSIGNED_PID, 0), { code: 'ESRCH' }, 'probe: the pid must really be dead');
+  return NEVER_ASSIGNED_PID;
 }
-const orphan = (lock, token = 'token') => fs.writeFileSync(lock, `${deadPid()} ${os.hostname()} ${new Date().toISOString()} ${token}\n`);
+const orphan = (lock, token = 'token', pid = deadPid()) => fs.writeFileSync(lock, `${pid} ${os.hostname()} ${new Date().toISOString()} ${token}\n`);
 const foreignBar = (lock) => fs.writeFileSync(takeoverPath(lock), `1 other-host ${new Date().toISOString()} foreign\n`);
 
 /**
@@ -47,10 +70,18 @@ const foreignBar = (lock) => fs.writeFileSync(takeoverPath(lock), `1 other-host 
  * at the same moment. Inside, each child creates the marker 'inside<k>'
  * with O_EXCL — EEXIST means two inside at once. `bare`: no withLock
  * (positive control — the probe must be able to see an overlap).
+ *
+ * The probe tells three outcomes apart, because they mean different things:
+ *  - `overlap`  : two inside at once. A REAL lock failure.
+ *  - `timeout`  : a taker never got the lock within its bound (`LockTimeoutError`),
+ *                 nobody was inside twice. Not a lock failure; the lock stayed
+ *                 closed (e.g. the orphan's owner counts as alive/unknown).
+ *  - `error`    : anything else thrown out of `withLock` (EPERM, EBUSY ...).
+ * `ownerPid(k)`: the pid written into round k's orphan (default: a dead one).
  */
-async function stress({ n, rounds, bare = false }) {
+async function stress({ n, rounds, bare = false, waitMs = 5000, ownerPid = () => deadPid() }) {
   const dir = mkTmp('takeoverbar-');
-  for (let k = 0; k < rounds; k += 1) orphan(path.join(dir, `x${k}.lock`), `token${k}`);
+  for (let k = 0; k < rounds; k += 1) orphan(path.join(dir, `x${k}.lock`), `token${k}`, ownerPid(k));
   const gap = 250; const start = Date.now() + 700 + n * 50;
   const kids = Array.from({ length: n }, (_, i) => runChild(`
     import fs from 'node:fs';
@@ -59,26 +90,46 @@ async function stress({ n, rounds, bare = false }) {
     for (let k = 0; k < ${rounds}; k++) {
       while (Date.now() < ${start} + k * ${gap}) {} // common start
       const inside = ${JSON.stringify(dir)} + '/inside' + k;
-      const body = () => { fs.writeFileSync(inside, '${i}', { flag: 'wx' }); sleep(3); fs.rmSync(inside); };
+      const body = () => {
+        try { fs.writeFileSync(inside, '${i}', { flag: 'wx' }); }
+        catch (e) { if (e && e.code === 'EEXIST') { console.log('OVERLAP ' + k + ' ${i}'); return; } throw e; }
+        sleep(3); fs.rmSync(inside);
+      };
       try {
-        ${bare ? 'body();' : `withLock(${JSON.stringify(dir)} + '/x' + k + '.lock', body, { waitMs: 5000, staleS: 120 });`}
-      } catch (e) { console.log('RED ' + k + ' ${i} ' + (e.code || '') + ' ' + String(e.message).split('\\n')[0]); }
+        ${bare ? 'body();' : `withLock(${JSON.stringify(dir)} + '/x' + k + '.lock', body, { waitMs: ${waitMs}, staleS: 120 });`}
+      } catch (e) {
+        const kind = e && e.code === 'ELOCKTIMEOUT' ? 'TIMEOUT' : 'ERROR';
+        console.log(kind + ' ' + k + ' ${i} ' + (e.code || '') + ' ' + String(e.message).split('\\n')[0]);
+      }
     }
   `));
   const res = await Promise.all(kids.map((k) => k.done));
   for (const [i, r] of res.entries()) assert.equal(r.code, 0, `child ${i}: ${r.out}`);
-  const red = res.flatMap((r) => r.out.split('\n').filter((l) => l.startsWith('RED ')));
-  return { red, left: fs.readdirSync(dir) };
+  const lines = res.flatMap((r) => r.out.split('\n'));
+  const pick = (tag) => lines.filter((l) => l.startsWith(`${tag} `));
+  return { overlap: pick('OVERLAP'), timeout: pick('TIMEOUT'), error: pick('ERROR'), left: fs.readdirSync(dir) };
 }
 
 test('positive control: without the lock the probe sees an overlap', async () => {
-  const { red } = await stress({ n: 8, rounds: 2, bare: true });
-  assert.ok(red.some((l) => / EEXIST /.test(l)), `no overlap seen: ${red.join(' | ')}`);
+  const { overlap } = await stress({ n: 8, rounds: 2, bare: true });
+  assert.ok(overlap.length > 0, 'no overlap seen: the probe cannot see two inside at once');
+});
+
+test('positive control: a taker that never gets the lock is reported as a timeout, NOT as an overlap', async () => {
+  // The orphan's owner is a LIVE process on this host (this test process): never taken over (src/filelock.mjs).
+  // Same picture as a pid reused on Windows. A short bound only keeps the control fast; the real probe below keeps 5000.
+  const { overlap, timeout, error, left } = await stress({ n: 3, rounds: 2, waitMs: 300, ownerPid: () => process.pid });
+  assert.deepEqual(overlap, [], 'nobody got in, so nobody can be inside twice');
+  assert.deepEqual(error, []);
+  assert.equal(timeout.length, 3 * 2, `every taker of every round times out: ${timeout.join(' | ')}`);
+  assert.ok(left.includes('x0.lock') && left.includes('x1.lock'), 'the live-owned locks stay');
 });
 
 test('eight simultaneous takers x 20 rounds: never two inside at once, nothing left behind', async () => {
-  const { red, left } = await stress({ n: 8, rounds: 20 });
-  assert.deepEqual(red, [], 'two inside at once (or timeout)');
+  const { overlap, timeout, error, left } = await stress({ n: 8, rounds: 20 });
+  assert.deepEqual(overlap, [], 'TWO INSIDE AT ONCE: a real lock failure');
+  assert.deepEqual(timeout, [], 'no overlap, but a taker ran out of its 5000 ms bound: the lock was never acquired (owner verdict is in the line)');
+  assert.deepEqual(error, [], 'withLock threw something other than a timeout');
   assert.deepEqual(left, [], 'no lock, no bar, no grave/temp file left');
 });
 
