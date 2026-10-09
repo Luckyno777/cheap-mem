@@ -17,20 +17,18 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { withLock, LockTimeoutError } from '../src/filelock.mjs';
-import { NEW_SRC, mkTmp, url, runChild, sleepMs } from './filelock-fixtures.mjs';
+import { NEW_SRC, mkTmp, url, runChild, sleepMs, neverAssignedPid } from './filelock-fixtures.mjs';
 
 const LOCK_URL = url(NEW_SRC, 'filelock.mjs');
 
-/** A pid that was alive a moment ago and is dead now. */
-function deadPid() {
-  const r = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
-  const pid = Number(r.stdout);
-  assert.ok(pid > 0);
-  assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' }, 'probe: the pid must really be dead');
-  return pid;
-}
+/**
+ * A pid that is dead and stays dead. The pid of a child that has just
+ * exited is not enough: Windows hands it out again at once, and a reused
+ * pid without a start time is "unknown", never taken over
+ * (test/filelock-fixtures.mjs#neverAssignedPid).
+ */
+const deadPid = neverAssignedPid;
 
 function waitForFile(p, ms = 20000) {
   const t0 = Date.now();
