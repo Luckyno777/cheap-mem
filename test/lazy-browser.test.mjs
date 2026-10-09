@@ -36,7 +36,9 @@ function run(source) {
 }
 
 const HEAD = `import test from 'node:test';
-import { lazyBrowser, browserStartProbe } from ${JSON.stringify(FIXTURE)};
+// A dynamic import of the file URL (FIXTURE is a pathToFileURL(...).href): the child source template
+// keeps no static import-from-interpolation (test/windows-paths.test.mjs).
+const { lazyBrowser, browserStartProbe } = await import(${JSON.stringify(FIXTURE)});
 `;
 
 test('a THROWING start: the start probe and every dependent probe are red BY NAME with the error text; independent probes stay green', () => {
