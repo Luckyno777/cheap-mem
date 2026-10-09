@@ -11,14 +11,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import * as A from '../src/appointments.mjs';
 import * as C from '../src/appointment-clock.mjs';
 import * as tm from '../src/appointment-time.mjs';
-import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = '24cd9a9';
 
 const { browser, reason: why } = await startBrowser();
@@ -42,11 +41,8 @@ async function startServer() {
   A.create(r, { title: 'Rotate credentials', atMs: t0 + 3 * 86400000, wake: 'vm-admin', task: 't', actor: { name: 'vm-admin', human: false }, now, env });
   A.create(r, { title: 'Water the plants', atMs: t0 + 2 * 86400000 + 9 * 3600000, repeat: 'weekly', actor: human, now, env });
   C.tick(r, { now, env });
-  const mod = await import(`${pathToFileURL(SERVE).href}?cal=${Math.random()}`);
-  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
-  const base = `http://127.0.0.1:${server.address().port}`;
-  await warmView(base); // the cold start of the server is not part of the browser deadlines
-  return { base, stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }) };
+  // warm: the cold start of the server is not part of the browser deadlines
+  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
 }
 
 async function open(base, { width, light, oldScript = null }) {

@@ -14,9 +14,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import * as procedure from '../src/procedure.mjs';
 import * as memoryApi from '../src/memory.mjs';
@@ -153,15 +153,14 @@ const B = lazyBrowser();
 browserStartProbe(B);
 
 async function withServer(r, run) {
-  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(r, {
+  const view = await startView(r, {
     ...process.env, CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
     CHEAP_MEM_SERVE_TOKEN: '',
   });
   try {
-    return await run(`http://127.0.0.1:${server.address().port}`);
+    return await run(view.base);
   } finally {
-    await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
+    await view.stop();
   }
 }
 

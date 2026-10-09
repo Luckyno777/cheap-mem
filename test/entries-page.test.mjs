@@ -23,7 +23,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as entriesPage from '../src/entries-page.mjs';
-import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -215,15 +215,18 @@ test('the JSON twin still answers the same list (the dashboard palette reads it)
 const B = lazyBrowser();
 browserStartProbe(B);
 
+// The server for the browser probes: warm (the HTTP probes above keep the plain `start`).
+const startBrowserView = (root) => startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+
 test('browser: the state badge and the rows are visible, unknown looks different from warning', async (t) => {
   if (!(await B.need(t))) return;
   const r = world();
   events(r, 3);
-  const s = await start(r);
+  const s = await startBrowserView(r);
   const { browser } = await B.get();
   const page = await browser.newPage();
   try {
-    const base = `http://127.0.0.1:${s.port}`;
+    const base = s.base;
     await page.goto(`${base}/entries`, { waitUntil: 'load' });
     const look = (sel) => page.evaluate((x) => {
       const el = document.querySelector(x); if (!el) return null;
@@ -257,11 +260,11 @@ test('browser: the dashboard offers the list page in a new tab', async (t) => {
   if (!(await B.need(t))) return;
   const r = world();
   events(r, 2);
-  const s = await start(r);
+  const s = await startBrowserView(r);
   const { browser } = await B.get();
   const page = await browser.newPage();
   try {
-    await page.goto(`http://127.0.0.1:${s.port}/dashboard#knowledge/entries`, { waitUntil: 'domcontentloaded' });
+    await page.goto(`${s.base}/dashboard#knowledge/entries`, { waitUntil: 'domcontentloaded' });
     await waitReady(page);
     await page.waitForSelector('#entriesPageLink', { timeout: 15000 });
     const a = await page.evaluate(() => {

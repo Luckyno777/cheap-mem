@@ -17,11 +17,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const SERVE = path.join(HERE, '..', 'bin', 'mem-serve');
 const made = [];
 process.on('exit', () => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
 
@@ -47,14 +44,12 @@ function store(n) {
 }
 
 async function withServer(root, env, fn) {
-  const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(root, {
+  // warm: the cold start of the server (here: the compact build over the big store) is not part of the browser deadlines
+  const view = await startView(root, {
     CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0',
     CHEAP_MEM_SERVE_TEMPO_TEST_MS: '250', ...env,
   });
-  try { await fn(`http://127.0.0.1:${server.address().port}`); } finally {
-    await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
-  }
+  try { await fn(view.base); } finally { await view.stop(); }
 }
 
 test('browser: the atlas is condensed, asks for no page before zooming, then loads 60 and 120', { skip: SKIP }, async () => {

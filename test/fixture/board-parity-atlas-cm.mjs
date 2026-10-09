@@ -15,6 +15,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { startView } from './browser.mjs';
 
 export const LONG_HUB = 'Capture bundle: the collecting point for every raw note from sessions that has not been sorted into a topic yet and waits for the librarian, with origin, timestamp and evidence from the retrieval trail';
 
@@ -46,12 +47,12 @@ export async function atlasWorld(REPO) {
 }
 
 export async function withServer(REPO, root, run) {
-  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin/mem-serve')).href}?atlas=${Math.random()}`);
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
+  // warm: the cold start of the server is not part of the browser deadlines (job browser-warm-cm, test/fixture/browser.mjs)
+  const view = await startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
     // The red proofs run an OLD client that does not page: it must get every entry in the first answer.
-    CHEAP_MEM_SERVE_HEAD_ENTRIES: '100000' });
-  try { return await run(`http://127.0.0.1:${server.address().port}`); }
-  finally { await new Promise((res) => { server.closeAllConnections?.(); server.close(res); }); }
+    CHEAP_MEM_SERVE_HEAD_ENTRIES: '100000' }, { repo: REPO });
+  try { return await run(view.base); }
+  finally { await view.stop(); }
 }
 
 /** Opens the page, the knowledge network in mode `mode`, waits for the net. `client`/`css`: another state of dashboard.js/.css. */

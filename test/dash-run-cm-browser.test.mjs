@@ -19,12 +19,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { startBrowser, waitReady, warmView } from './fixture/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 import * as inbox from '../src/inbox.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = '4bbca61';
 const IMAGES = process.env.DASH_RUN_IMAGES || null;
 const TAGS = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta', 'theta'];
@@ -60,15 +59,13 @@ function world({ n, textLength = 20, messages = 0 }) {
 
 // Opens the page of a real server; everything that was opened is torn down in finally.
 async function withPage(root, { script = null, env = {} } = {}, fn) {
-  const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(root, {
+  // warm: the cold start of the server is not part of the browser deadlines
+  const { base, stop } = await startView(root, {
     CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0',
     CHEAP_MEM_SERVE_TEMPO_TEST_MS: '5', ...env,
   });
-  const base = `http://127.0.0.1:${server.address().port}`;
   let ctx = null;
   try {
-    await warmView(base); // the cold start of the server is not part of the browser deadlines
     ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
     await ctx.addInitScript(() => { try { localStorage.setItem('cm-dash-light', '0'); } catch { /* without storage */ } });
     const page = await ctx.newPage();
@@ -79,7 +76,7 @@ async function withPage(root, { script = null, env = {} } = {}, fn) {
     await fn(page, base, errors);
   } finally {
     await ctx?.close().catch(() => {});
-    await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
+    await stop();
   }
 }
 

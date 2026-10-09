@@ -32,13 +32,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
-const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = 'deca5ad713f1dc7f3ec05cf21e0d5cf1ebb22a3b';
 
 const { browser, reason: why } = await startBrowser();
@@ -53,9 +52,7 @@ async function startServer() {
   fs.mkdirSync(path.join(r, '.mem'), { recursive: true });
   fs.writeFileSync(path.join(r, '.mem', 'config.json'), JSON.stringify({ name: 'agents', participants: { alex: { human: true } }, language: 'en' }));
   memory.logEntry(r, 'learning', { title: 'One entry so the page has data', text: 'Evidence.' });
-  const mod = await import(`${pathToFileURL(SERVE).href}?agents=${Math.random()}`);
-  const { server } = await mod.serve(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
-  return { base: `http://127.0.0.1:${server.address().port}`, stop: () => new Promise((res) => server.close(res)) };
+  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
 }
 
 /** Eight agents, one per rule. Times relative to "now" in the browser. */

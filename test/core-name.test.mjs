@@ -20,7 +20,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as consolePage from '../src/console.mjs';
-import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -188,15 +188,14 @@ async function withServer(coreName, run) {
     spawnSync(process.execPath, [MEM, '--root', root, 'log', 'learning',
       '--title', 'a short note', '--text', 'kept for the network to draw something'], { encoding: 'utf8' });
     if (coreName != null) consolePage.apply(root, 'core-name', coreName);
-    const mod = await import(`${pathToFileURL(SERVE).href}?corenamepage=${Math.random()}`);
-    const { server } = await mod.serve(root, {
+    const view = await startView(root, {
       CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
       CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '',
     });
     try {
-      return await run(`http://127.0.0.1:${server.address().port}`);
+      return await run(view.base);
     } finally {
-      await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
+      await view.stop();
     }
   } finally {
     removeTree(root);

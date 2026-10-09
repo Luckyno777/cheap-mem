@@ -17,12 +17,11 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { pathToFileURL, fileURLToPath } from 'node:url';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { fileURLToPath } from 'node:url';
+import { startBrowser, waitReady, startView } from './fixture/browser.mjs';
 import * as inbox from '../src/inbox.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SERVE = path.join(REPO, 'bin', 'mem-serve');
 const OLD = '4ed3a08';
 const made = [];
 process.on('exit', () => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
@@ -44,9 +43,8 @@ function world() {
 }
 
 async function scenario({ script = null }, fn) {
-  const mod = await import(`${pathToFileURL(SERVE).href}?t=${Math.random()}`);
-  const { server } = await mod.serve(world(), { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0', CHEAP_MEM_SERVE_TEMPO_TEST_MS: '5' });
-  const base = `http://127.0.0.1:${server.address().port}`;
+  // warm: the inbox part is answered by page.route (building) or by the real server later; the cold start is not part of the deadlines
+  const { base, stop } = await startView(world(), { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0', CHEAP_MEM_SERVE_TEMPO_TEST_MS: '5' });
   let ctx = null;
   try {
     ctx = await browser.newContext({ viewport: { width: 1400, height: 900 } });
@@ -66,7 +64,7 @@ async function scenario({ script = null }, fn) {
     await fn(page, answers, errors);
   } finally {
     await ctx?.close().catch(() => {});
-    await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
+    await stop();
   }
 }
 

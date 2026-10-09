@@ -18,7 +18,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import { COUNTER, measureLoad, sampleFrames } from './fixture/renderload.mjs';
 
@@ -59,10 +59,9 @@ async function withServer(run) {
       if (type === 'error') d.class = 'flow';
       memory.logEntry(root, type, d, { project: ['payments', 'infra', null][i % 3], now: new Date(Date.parse('2026-09-01T09:00:00Z') + i * 3600e3) });
     }
-    const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?load=${Math.random()}`);
-    const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
-    try { return await run(`http://127.0.0.1:${server.address().port}`); }
-    finally { await new Promise((r) => { server.closeAllConnections?.(); server.close(r); }); }
+    const view = await startView(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
+    try { return await run(view.base); }
+    finally { await view.stop(); }
   } finally { removeTree(root); }
 }
 
