@@ -9,7 +9,7 @@
 // Red proof: the pinned stand 8a24c64 (origin/main before this change) draws
 // on with the palette open (a probe loads its client through page.route).
 // Positive control: a visible, moving network draws on both stands.
-// Without Chromium the browser probes are SKIPPED (not measured is not passed).
+// Without Chromium the browser probes are SKIPPED with the reason (not measured is not passed).
 /* global Event, document, window -- these run inside the page (browser), not in Node */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -18,7 +18,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 import { COUNTER, measureLoad, sampleFrames } from './fixture/renderload.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -39,7 +40,9 @@ test('source: the old stand has no RESTING(), the new one has it on every draw l
   assert.ok(!/1100 \/ innerWidth/.test(n), 'background shader at most 800 px wide');
 });
 
-const { browser, reason: REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
 async function withServer(run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-render-load-'));
@@ -60,13 +63,14 @@ async function withServer(run) {
     const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' });
     try { return await run(`http://127.0.0.1:${server.address().port}`); }
     finally { await new Promise((r) => { server.closeAllConnections?.(); server.close(r); }); }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 }
 
 async function measure(base, { client = null, before = null, opt = {}, idleMs = 0, small = false, sample = 0 } = {}) {
   // `small`: software GL (swiftshader) renders the full size at only a handful of
   // frames/s, which would hide a throttle; a small viewport lets the loops run
   // at the rate they are ALLOWED to.
+  const { browser } = await B.get();
   const page = await browser.newPage({ viewport: small ? { width: 480, height: 300 } : { width: 1440, height: 900 }, ...opt });
   page.setDefaultTimeout(60000);
   try {
@@ -93,7 +97,8 @@ const PALETTE = async (p) => {
 };
 const HIDDEN = (p) => p.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
 
-test('palette open: no steady drawing now; the old stand draws on; positive control: visible network draws', { skip: REASON, timeout: DEADLINE }, async () => {
+test('palette open: no steady drawing now; the old stand draws on; positive control: visible network draws', { timeout: DEADLINE }, async (t) => {
+  if (!(await B.need(t))) return;
   await withServer(async (base) => {
     const visible = await measure(base);
     assert.ok(visible.draws > 0.5, `positive control: a visible network draws (${visible.draws}/s)`);
@@ -104,7 +109,8 @@ test('palette open: no steady drawing now; the old stand draws on; positive cont
   });
 });
 
-test('after Escape the view draws again; hidden page and reduced motion draw nothing', { skip: REASON, timeout: DEADLINE }, async () => {
+test('after Escape the view draws again; hidden page and reduced motion draw nothing', { timeout: DEADLINE }, async (t) => {
+  if (!(await B.need(t))) return;
   await withServer(async (base) => {
     const back = await measure(base, { before: async (p) => { await PALETTE(p); await p.keyboard.press('Escape'); await p.waitForFunction(() => !document.querySelector('dialog[open]')); } });
     assert.ok(back.draws > 0.5, `after Escape it runs again (${back.draws}/s)`);
@@ -115,7 +121,8 @@ test('after Escape the view draws again; hidden page and reduced motion draw not
   });
 });
 
-test('idle (no input): keeps drawing at <= ~10 frames/s per loop, input lifts to full rate; palette/hidden stay at 0', { skip: REASON, timeout: DEADLINE }, async () => {
+test('idle (no input): keeps drawing at <= ~10 frames/s per loop, input lifts to full rate; palette/hidden stay at 0', { timeout: DEADLINE }, async (t) => {
+  if (!(await B.need(t))) return;
   await withServer(async (base) => {
     // Load-proof: no frames-per-second in a fixed window (a loaded machine draws
     // fewer frames than allowed). Instead: wait for N frames (still draws) and

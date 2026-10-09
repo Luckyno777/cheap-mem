@@ -20,7 +20,8 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import * as consolePage from '../src/console.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -176,7 +177,9 @@ test('the write gate applies to core-name exactly like every other setting (403 
 
 // --- The rendered page: label, eyebrow, breadcrumb, and the single select ---
 
-const { browser, reason: REASON } = await startBrowser();
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
 async function withServer(coreName, run) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-core-name-page-'));
@@ -196,11 +199,12 @@ async function withServer(coreName, run) {
       await new Promise((res) => { server.closeAllConnections?.(); server.close(res); });
     }
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    removeTree(root);
   }
 }
 
 async function openNetwork(base) {
+  const { browser } = await B.get();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.goto(base + '/dashboard', { waitUntil: 'load' });
   await waitReady(page);
@@ -213,7 +217,8 @@ async function openNetwork(base) {
   return page;
 }
 
-test('DEFAULT (unset): the core label, eyebrow and breadcrumb show today\'s fixed text', { skip: REASON }, async () => {
+test('DEFAULT (unset): the core label, eyebrow and breadcrumb show today\'s fixed text', async (t) => {
+  if (!(await B.need(t))) return;
   await withServer(null, async (base) => {
     const page = await openNetwork(base);
     try {
@@ -224,7 +229,8 @@ test('DEFAULT (unset): the core label, eyebrow and breadcrumb show today\'s fixe
   });
 });
 
-test('a custom core-name shows on the label, the eyebrow and the breadcrumb', { skip: REASON }, async () => {
+test('a custom core-name shows on the label, the eyebrow and the breadcrumb', async (t) => {
+  if (!(await B.need(t))) return;
   await withServer('Team Atlas', async (base) => {
     const page = await openNetwork(base);
     try {
@@ -247,7 +253,8 @@ test('a custom core-name shows on the label, the eyebrow and the breadcrumb', { 
   });
 });
 
-test('a value with markup is escaped, never injected as HTML (esc())', { skip: REASON }, async () => {
+test('a value with markup is escaped, never injected as HTML (esc())', async (t) => {
+  if (!(await B.need(t))) return;
   await withServer('<b>hack</b>', async (base) => {
     const page = await openNetwork(base);
     try {
@@ -259,7 +266,8 @@ test('a value with markup is escaped, never injected as HTML (esc())', { skip: R
   });
 });
 
-test('no duplicate button row: the mode buttons and "Reset view" button are gone', { skip: REASON }, async () => {
+test('no duplicate button row: the mode buttons and "Reset view" button are gone', async (t) => {
+  if (!(await B.need(t))) return;
   await withServer(null, async (base) => {
     const page = await openNetwork(base);
     try {
@@ -277,7 +285,8 @@ test('no duplicate button row: the mode buttons and "Reset view" button are gone
   });
 });
 
-test('every graph mode is reachable through #graphModeSelect, incl. "Further modes"', { skip: REASON }, async () => {
+test('every graph mode is reachable through #graphModeSelect, incl. "Further modes"', async (t) => {
+  if (!(await B.need(t))) return;
   await withServer(null, async (base) => {
     const page = await openNetwork(base);
     try {

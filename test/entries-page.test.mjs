@@ -23,7 +23,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as entriesPage from '../src/entries-page.mjs';
-import { startBrowser, waitReady } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady } from './fixture/browser.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -45,7 +46,7 @@ function events(root, n) {
     title: `Event number ${i}`, text: 'ordinary content',
   })).join('\n') + '\n');
 }
-const gone = (r) => fs.rmSync(r, { recursive: true, force: true });
+const gone = removeTree;
 const q = (s) => new URLSearchParams(s);
 const tone = (html) => /class="badge ([a-z]*)" id="state"/.exec(html)?.[1];
 
@@ -210,13 +211,16 @@ test('the JSON twin still answers the same list (the dashboard palette reads it)
 
 // --- in a real browser -----------------------------------------------------------
 
-const { browser, reason: why } = await startBrowser();
-const NEEDS = why ? { skip: why } : {};
+// The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
+const B = lazyBrowser();
+browserStartProbe(B);
 
-test('browser: the state badge and the rows are visible, unknown looks different from warning', NEEDS, async () => {
+test('browser: the state badge and the rows are visible, unknown looks different from warning', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world();
   events(r, 3);
   const s = await start(r);
+  const { browser } = await B.get();
   const page = await browser.newPage();
   try {
     const base = `http://127.0.0.1:${s.port}`;
@@ -249,10 +253,12 @@ test('browser: the state badge and the rows are visible, unknown looks different
   } finally { await page.close(); await s.stop(); gone(r); }
 });
 
-test('browser: the dashboard offers the list page in a new tab', NEEDS, async () => {
+test('browser: the dashboard offers the list page in a new tab', async (t) => {
+  if (!(await B.need(t))) return;
   const r = world();
   events(r, 2);
   const s = await start(r);
+  const { browser } = await B.get();
   const page = await browser.newPage();
   try {
     await page.goto(`http://127.0.0.1:${s.port}/dashboard#knowledge/entries`, { waitUntil: 'domcontentloaded' });
