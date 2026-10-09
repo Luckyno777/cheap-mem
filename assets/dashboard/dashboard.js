@@ -5126,7 +5126,11 @@ async function paletteMemorySearch(q, localHits) {
     if (r.ok && b && Array.isArray(b.entries)) hits = b.entries;
   } catch { /* the ranked search stays empty — the substring hits above stay */ }
   if (mine !== paletteRun || !target()) return; // a newer input overtook this answer
-  const already = new Set([...(localHits || []).map((e) => e.id), ...$('#commandResults').querySelectorAll(':scope > [data-search-entry]')].map((e) => e.id || e.dataset.searchEntry));
+  // Two separate lists, each mapped ONCE: the local hits are entries (ids), the drawn buttons carry the id in the dataset.
+  // (Mapping the ids a second time threw "reading 'searchEntry'" and the ranked search never appeared.)
+  const idsLocal = (localHits || []).map((e) => e.id);
+  const idsDrawn = [...$('#commandResults').querySelectorAll(':scope > [data-search-entry]')].map((x) => x.dataset.searchEntry);
+  const already = new Set([...idsLocal, ...idsDrawn]);
   const extra = hits.filter((t) => !already.has(t.id)).slice(0, 8);
   target().innerHTML = extra.length
     ? `<div class="label" style="margin:14px 0 4px">Ranked search in the memory (like "mem find")</div>${extra
