@@ -52,6 +52,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -79,7 +80,7 @@ function makePackageCopy() {
 }
 
 const PKG = makePackageCopy();
-test.after(() => fs.rmSync(PKG, { recursive: true, force: true }));
+test.after(() => removeTree(PKG));
 
 const MEM_BIN = path.join(PKG, 'bin', 'mem');
 const MCP_BIN = path.join(PKG, 'bin', 'mem-mcp');
@@ -164,7 +165,7 @@ function buildLatticeCorpus() {
   return root;
 }
 
-function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
+function cleanup(root) { removeTree(root); }
 
 /**
  * Patch a file of the throwaway package COPY for the duration of `fn`,

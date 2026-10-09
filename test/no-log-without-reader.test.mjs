@@ -26,6 +26,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as observations from '../src/observations.mjs';
 import { NOT_YET_WIRED, TTL_DAYS, isExpired } from './not-yet-wired.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(HERE, '..');
@@ -83,7 +84,7 @@ test('the ledger has a reader, and it is reachable from the CLI', () => {
     assert.equal(out.status, 0, `the command failed: ${out.stderr}`);
     assert.match(out.stdout, /retrieve/, 'the reader does not show the lane');
     assert.match(out.stdout, /a question/, 'the reader does not show the query');
-  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+  } finally { removeTree(r); }
 });
 
 test('THREE STATES: no ledger is not an empty ledger', () => {
@@ -102,7 +103,7 @@ test('THREE STATES: no ledger is not an empty ledger', () => {
     assert.match(empty.stdout, /empty/i, 'an empty ledger reads as a missing one');
     assert.ok(!/no ledger yet/i.test(empty.stdout),
       'the two states are rendered identically');
-  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+  } finally { removeTree(r); }
 });
 
 test('a line that will not parse is SHOWN, not silently dropped', () => {
@@ -113,7 +114,7 @@ test('a line that will not parse is SHOWN, not silently dropped', () => {
     const out = run(r, 'observations');
     assert.match(out.stdout, /unreadable/i,
       'a corrupt line vanished — silence hides exactly what an audit trail is for');
-  } finally { fs.rmSync(r, { recursive: true, force: true }); }
+  } finally { removeTree(r); }
 });
 
 test('NO LOG WITHOUT A READER: every appending log module is reachable', () => {
@@ -626,7 +627,7 @@ test('SABOTAGE / CONTROL: the guard on a synthetic house, red -> green -> red ag
       declarations: { orphan: { since: almost, reason: 'declared for the sabotage probe, one day inside the TTL' } },
     });
     assert.deepEqual(r.unreachable, [], `${TTL_DAYS - 1} days old should still be inside the ${TTL_DAYS}-day TTL`);
-  } finally { fs.rmSync(w, { recursive: true, force: true }); }
+  } finally { removeTree(w); }
 });
 
 test('SABOTAGE CONTROL: a declaration naming a module that does not exist is caught', () => {

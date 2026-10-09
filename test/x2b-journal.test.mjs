@@ -18,6 +18,7 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as injection from '../src/injection.mjs';
 import * as latency from '../src/latencybudget.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -26,7 +27,7 @@ const START = path.join(REPO, 'install', 'hooks', 'session-start.sh');
 const OLD = '201a087f2d2f634f9b061f4681bd1f78f27408be';
 
 const made = [];
-process.on('exit', () => { for (const d of made) fs.rmSync(d, { recursive: true, force: true }); });
+process.on('exit', () => { for (const d of made) removeTree(d); });
 const temp = (p) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), p)); made.push(d); return d; };
 
 function memory() {

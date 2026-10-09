@@ -24,10 +24,11 @@ import * as timeexpr from '../src/timeexpr.mjs';
 import * as viewer from '../src/viewer.mjs';
 import { retrieve } from '../src/retrieval.mjs';
 import { grantAll } from '../src/capability.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
-const away = (r) => fs.rmSync(r, { recursive: true, force: true });
+const away = (r) => removeTree(r);
 const read = (rel) => fs.readFileSync(path.join(REPO, rel), 'utf8');
 
 function cleanEnv(extra = {}) {

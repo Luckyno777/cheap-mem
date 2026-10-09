@@ -71,6 +71,7 @@ import { fileURLToPath } from 'node:url';
 import * as retrieval from '../src/retrieval.mjs';
 import * as capability from '../src/capability.mjs';
 import * as viewerModule from '../src/viewer.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM_BIN = path.join(REPO, 'bin', 'mem');
@@ -166,7 +167,7 @@ function hookJournalTail(root) {
   return `; hook journal tail: ${tail.slice(-900)}; same find, default levers: ${String(f.stdout).replace(/\s+/g, ' ').slice(0, 500)}`;
 }
 
-function cleanup(root) { fs.rmSync(root, { recursive: true, force: true }); }
+function cleanup(root) { removeTree(root); }
 
 // --- MCP bridge helper (same shape as test/bridge-reach.test.mjs) -------
 

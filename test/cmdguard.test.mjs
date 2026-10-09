@@ -19,6 +19,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import * as cg from '../src/commandguard.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(REPO, 'bin', 'mem');
@@ -29,7 +30,7 @@ function world() {
   spawnSync(process.execPath, [MEM, 'init', '--root', root], { encoding: 'utf8', timeout: 30000 });
   return root;
 }
-const done = (root) => fs.rmSync(root, { recursive: true, force: true });
+const done = (root) => removeTree(root);
 const mem = (root, ...a) => spawnSync(process.execPath, [MEM, '--root', root, ...a], { encoding: 'utf8', timeout: 30000 });
 
 function err(root, title, pattern, extra = {}) {
@@ -171,7 +172,7 @@ test('prefilter: node starts only on a keyword hit (nothing armed: never)', () =
     const o = bash(root, 'pkill -f chrome', 'n2', env);
     assert.equal(calls(), 1, 'keyword present: exactly one guard process (positive control)');
     assert.match(said(o), /mishandling/);
-  } finally { done(root); fs.rmSync(shim, { recursive: true, force: true }); }
+  } finally { done(root); removeTree(shim); }
 });
 
 test('prefilter: a booklet built in the same second as its drawer is fresh, not stale (bash 3.2 granularity)', () => {
@@ -199,7 +200,7 @@ test('prefilter: a booklet built in the same second as its drawer is fresh, not 
     tie();
     bash(root, 'ls -la', 't2', env);
     assert.equal(calls(), 1, 'tie but the drawer grew: stale, node rebuilds (positive control)');
-  } finally { done(root); fs.rmSync(shim, { recursive: true, force: true }); }
+  } finally { done(root); removeTree(shim); }
 });
 
 test('prefilter: a missing booklet with a pattern in a drawer is built by the first guard run', () => {

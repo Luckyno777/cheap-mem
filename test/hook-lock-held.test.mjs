@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { withLock, LockTimeoutError } from '../src/filelock.mjs';
 import * as memory from '../src/memory.mjs';
 import * as shred from '../src/shred.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const CODE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MEM = path.join(CODE, 'bin', 'mem');
@@ -68,7 +69,7 @@ test('positive control: the held lock is seen as held', () => {
     holdAll(root);
     assert.throws(() => withLock(memory.drawerLockPath(root, 'error'), () => {}, { waitMs: 200, staleS: 120 }), LockTimeoutError);
     assert.throws(() => withLock(shred.keyringLockPath(root), () => {}, { waitMs: 200, staleS: 60 }), LockTimeoutError);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 for (const [name, [script, input]] of Object.entries(HOOKS)) {
@@ -94,6 +95,6 @@ for (const [name, [script, input]] of Object.entries(HOOKS)) {
       assert.doesNotMatch(r.stderr, /LockTimeout|ELOCKTIMEOUT/);
       for (const h of held) assert.ok(fs.existsSync(h), 'a hook removed a lock it does not own');
       if (name === 'mem-retrieve' || name === 'mem-before-edit' || name === 'mem-catch-fail') assert.ok(r.stdout, `${name} gave no output (test input too weak)\nstderr: ${r.stderr.slice(0, 600)}`);
-    } finally { fs.rmSync(root, { recursive: true, force: true }); fs.rmSync(rootFree, { recursive: true, force: true }); }
+    } finally { removeTree(root); removeTree(rootFree); }
   });
 }

@@ -16,6 +16,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTree } from './fixture/cleanup.mjs';
 
 /**
  * A handshake that fails must SAY why.
@@ -88,7 +89,7 @@ test('THE CASE: the six tools are offered at all', () => {
   try {
     const names = bridge(root).at(-1).result.tools.map((t) => t.name);
     for (const n of REQUIRED) assert.ok(names.includes(n), `${n} is missing from the bridge`);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('and they ANSWER too, instead of only appearing in the list', () => {
@@ -105,7 +106,7 @@ test('and they ANSWER too, instead of only appearing in the list', () => {
       assert.ok(!a.result?.isError, `isError: ${JSON.stringify(a.result)}`);
       assert.ok(a.result.content[0].text.trim().length > 0, 'empty answer');
     }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_facts names the value valid right now', () => {
@@ -114,7 +115,7 @@ test('mem_facts names the value valid right now', () => {
     const [, a] = bridge(root, [['mem_facts', {}]]);
     assert.match(a.result.content[0].text, /server\.users/);
     assert.match(a.result.content[0].text, /13/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_topics without a key lists topics, with a key the thread', () => {
@@ -127,7 +128,7 @@ test('mem_topics without a key lists topics, with a key the thread', () => {
     assert.match(list.result.content[0].text, /install\/windows/);
     const lines = thread.result.content[0].text.trim().split('\n');
     assert.equal(lines.length, 2, 'the thread should show both entries');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('the descriptions of the new tools name the OCCASION', () => {
@@ -141,7 +142,7 @@ test('the descriptions of the new tools name the OCCASION', () => {
       assert.match(tools[n], /\b(call it|use it|use this|ask this|read this)\b/i,
         `${n}: the description says only WHAT, not WHEN`);
     }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 // --- Three more, added 2026-09-08: the file store -------------------
@@ -158,7 +159,7 @@ test('THE GAP: the three store tools are actually offered', () => {
   try {
     const names = bridge(root).at(-1).result.tools.map((t) => t.name);
     for (const n of STORE_TOOLS) assert.ok(names.includes(n), `${n} missing from the bridge`);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('their descriptions name the OCCASION, not just the capability', () => {
@@ -169,7 +170,7 @@ test('their descriptions name the OCCASION, not just the capability', () => {
       assert.match(tools[n], /\b(call it|use it|use this|ask this|read this)\b/i,
         `${n}: the description says only WHAT, not WHEN`);
     }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_store_put really stores a file, mem_store_list and mem_store_get find it again', () => {
@@ -194,7 +195,7 @@ test('mem_store_put really stores a file, mem_store_list and mem_store_get find 
     const at = get.result.content[0].text.trim();
     assert.ok(fs.existsSync(at), `mem_store_get pointed at a path that does not exist: ${at}`);
     assert.equal(fs.readFileSync(at, 'utf8'), 'a harmless generated report\n');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 // --- Round 3, 2026-09-08 --------------------------------------------
@@ -219,7 +220,7 @@ test('REACH: the six new capabilities are at the bridge', () => {
     const missing = ROUND3.filter((n) => !toolNames.includes(n));
     assert.deepEqual(missing, [],
       `CLI-only, and therefore absent for a bridge agent: ${missing.join(', ')}`);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('THE EXPENSIVE ONE: a bridge agent can record a heartbeat', () => {
@@ -231,7 +232,7 @@ test('THE EXPENSIVE ONE: a bridge agent can record a heartbeat', () => {
     assert.match(JSON.stringify(r.result), /Heartbeat for 'chatgpt' recorded/, JSON.stringify(r.result));
     const raw = fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8');
     assert.equal(JSON.parse(raw.trim().split('\n').pop()).agent, 'chatgpt');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('and the identity does NOT come from a parameter', () => {
@@ -243,7 +244,7 @@ test('and the identity does NOT come from a parameter', () => {
     const raw = fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8');
     assert.equal(JSON.parse(raw.trim().split('\n').pop()).agent, 'chatgpt',
       'the identity was taken from a parameter');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('the quiet period holds at the bridge too, and says so', () => {
@@ -254,7 +255,7 @@ test('the quiet period holds at the bridge too, and says so', () => {
     assert.match(JSON.stringify(second.result), /No new one needed/, JSON.stringify(second.result));
     assert.equal(fs.readFileSync(path.join(root, 'heartbeat.jsonl'), 'utf8')
       .trim().split('\n').length, 1, 'the quiet period does not hold at the bridge');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_procedures does not hand out a rule without its author', () => {
@@ -271,7 +272,7 @@ test('mem_procedures does not hand out a rule without its author', () => {
     assert.match(all, /Procedure, issued by owner/,
       'the foreign agent would get the instruction text without its author');
     assert.match(all, /data with an author/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_answer refuses a link into the void', () => {
@@ -283,7 +284,7 @@ test('mem_answer refuses a link into the void', () => {
     assert.match(JSON.stringify(invented.result), /No entry with id/);
     const [, notAQuestion] = bridge(root, [['mem_answer', { question_id: 'nosuch', with: 'q1' }]]);
     assert.match(JSON.stringify(notAQuestion.result), /No entry with id/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('THE BOUNDARY: mem_source takes no local paths', () => {
@@ -299,7 +300,7 @@ test('THE BOUNDARY: mem_source takes no local paths', () => {
     assert.match(all, /mem_store_put|CLI/, 'a no without a way out');
     assert.ok(!fs.existsSync(path.join(root, 'global', 'sources.jsonl')),
       'something was taken in anyway');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('an address goes through, with a redacted excerpt', () => {
@@ -321,7 +322,7 @@ test('an address goes through, with a redacted excerpt', () => {
     assert.ok(!e.excerpt.includes(value), `unredacted: ${e.excerpt}`);
     assert.match(JSON.stringify(r.result), /redacted/,
       'redacted, but silently — nobody looks');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_component finds across both spellings, and says which', () => {
@@ -334,7 +335,7 @@ test('mem_component finds across both spellings, and says which', () => {
     const all = JSON.stringify(r.result);
     assert.match(all, /base-only/, `not found: ${all.slice(0, 200)}`);
     assert.match(all, /base/, 'the form of the evidence is missing');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 // --- The tool list, asserted by name ---------------------------------
@@ -369,7 +370,7 @@ test('the tool list is exactly this, by name', () => {
     const names = bridge(root).at(-1).result.tools.map((t) => t.name).sort();
     assert.deepEqual(names, TOOLS,
       'the bridge surface changed — that is a decision, so it belongs in this list');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('no tool edits, deletes, commits or pushes', () => {
@@ -394,7 +395,7 @@ test('no tool edits, deletes, commits or pushes', () => {
       assert.ok(!/delete|remove|edit|update|overwrite|commit|push|reset|purge/i.test(n),
         `${n} sounds like more than appending and reading`);
     }
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 // --- The board and the bridge report ---------------------------------
@@ -423,7 +424,7 @@ test('a foreign agent can report its checkout, and the board shows it', () => {
     const text = boardAnswer.result.content[0].text;
     assert.match(text, /cafe123/, 'reported, and the tile does not see it');
     assert.ok(!/no state reported/.test(text));
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('without a report the board says unknown, not calm', () => {
@@ -434,7 +435,7 @@ test('without a report the board says unknown, not calm', () => {
     const [, a] = bridge(root, [['mem_board', {}]]);
     assert.match(a.result.content[0].text, /no state reported/);
     assert.match(a.result.content[0].text, /unmeasured/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_bridge_report appends, so an earlier report survives', () => {
@@ -455,7 +456,7 @@ test('mem_bridge_report appends, so an earlier report survives', () => {
     // And the tile takes the NEWEST, not the first.
     const [, a] = bridge(root, [['mem_board', {}]]);
     assert.match(a.result.content[0].text, /bbb2222/);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('mem_bridge_report without a version writes nothing', () => {
@@ -467,7 +468,7 @@ test('mem_bridge_report without a version writes nothing', () => {
     assert.ok(a.error || /error|hash|version/i.test(a.result?.content?.[0]?.text ?? ''),
       'an empty report was accepted');
     assert.equal(fs.existsSync(path.join(root, '.mem', 'bridge-reports.jsonl')), false);
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });
 
 test('the identity in a report comes from the connection, not a parameter', () => {
@@ -480,5 +481,5 @@ test('the identity in a report comes from the connection, not a parameter', () =
     const line = JSON.parse(fs.readFileSync(
       path.join(root, '.mem', 'bridge-reports.jsonl'), 'utf8').trim());
     assert.equal(line.by, 'session');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 });

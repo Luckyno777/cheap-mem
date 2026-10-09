@@ -9,8 +9,18 @@
 // and if that still fails, try again when the process exits instead of
 // turning the run red. Same rule as lucky-mem's test/fixture/tempwurzel.mjs.
 import fs from 'node:fs';
+import { waitForRebuildIdle } from '../../src/component-table.mjs';
 
+/**
+ * Remove a test's temp tree. FIRST wait (event-based: the rebuild lock file goes away, then a
+ * short grace for the process to exit) for the detached background rebuild that `mem-before-edit`
+ * / `component --hook` starts with this tree as its cwd: on Windows that child holds the directory
+ * open and rmdir fails with EBUSY (CI run 37860352636: cm-p13-*, cm-hooklock-*). The retries below
+ * stay as a belt, not a substitute. test/cleanup-waits-for-rebuild.test.mjs keeps tests that start
+ * hooks from calling a bare fs.rmSync on their tree.
+ */
 export function removeTree(dir) {
+  waitForRebuildIdle(dir);
   try {
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   } catch {

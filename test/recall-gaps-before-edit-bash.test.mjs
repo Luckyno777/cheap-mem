@@ -18,6 +18,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { writeTargets } from '../src/bashtargets.mjs';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOOK = path.join(REPO, 'bin', 'mem-before-edit');
@@ -83,7 +84,7 @@ test('HOOK: a shell write to a known file brings the entry (sed -i, tee, redirec
       assert.ok(raw, `silent for: ${c}\n${stderr}`);
       assert.match(JSON.parse(raw).hookSpecificOutput.additionalContext, /unquoted-path/, c);
     }
-  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+  } finally { removeTree(root); }
 });
 
 test('HOOK: a Bash call that writes no file stays silent and starts no lookup', () => {
@@ -95,7 +96,7 @@ test('HOOK: a Bash call that writes no file stays silent and starts no lookup', 
     const b = hook(root, "grep -n x install/claude-code.sh | sed 's/a/b/'", 'q2');
     assert.equal(b.raw, '');
     assert.match(b.stderr, /no-readable-path \(bash: no written file\)/);
-  } finally { fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }); }
+  } finally { removeTree(root); }
 });
 
 test('INSTALLERS: both register Bash for the before-edit hook, the ps1 hook reads it', () => {
