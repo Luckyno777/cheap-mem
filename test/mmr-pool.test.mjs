@@ -18,6 +18,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldModuleCopy } from './helpers/old-source-copy.mjs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -31,10 +32,9 @@ const OPTIONS = { top: 30, mmr: true, mmrLambda: 0.7 };
 
 async function loadOld() {
   const text = execFileSync('git', ['show', `${FIXED}:src/search.mjs`], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  // Same directory, so its relative imports resolve to the same modules.
-  const file = path.join(ROOT, 'src', `.search-${FIXED}-${process.pid}.mjs`);
-  fs.writeFileSync(file, text);
-  try { return await import(pathToFileURL(file).href); } finally { fs.rmSync(file, { force: true }); }
+  // A throwaway directory; its relative imports point at the same live modules.
+  const copy = oldModuleCopy(path.join(ROOT, 'src'), 'search.mjs', text);
+  try { return await import(pathToFileURL(copy.file).href); } finally { fs.rmSync(copy.dir, { recursive: true, force: true }); }
 }
 
 test('mmrPoolFor: n without MMR, 10 x n with MMR, at least 50', () => {

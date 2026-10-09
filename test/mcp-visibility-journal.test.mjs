@@ -12,6 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
@@ -73,11 +74,11 @@ test('POSITIVE CONTROL: the probe really sees something — tools/list answers w
 
 test('RED on the old commit (before this port): no visibility journal is written', () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:bin/mem-mcp`], { cwd: REPO, encoding: 'utf8' });
-  // Beside the real bin/, not an arbitrary temp dir: relative imports
-  // (`../src/...`) must resolve. Removed in `finally` regardless of
-  // outcome.
-  const tmpScript = path.join(REPO, 'bin', '.mcp-visibility-old-mem-mcp.mjs');
-  fs.writeFileSync(tmpScript, old);
+  // A throwaway package with its own bin/, so the relative imports
+  // (`../src/...`) resolve through links to the live tree and nothing is
+  // written into the live bin/. Removed in `finally` regardless of outcome.
+  const copy = oldBinCopy(REPO, 'mem-mcp.mjs', old);
+  const tmpScript = copy.script;
   const root = memory();
   try {
     const { r } = bridge(tmpScript, root);
@@ -86,7 +87,7 @@ test('RED on the old commit (before this port): no visibility journal is written
     assert.equal(fs.existsSync(journal), false,
       'the old commit must not produce a visibility journal at all — otherwise this red proof shows nothing');
   } finally {
-    fs.rmSync(tmpScript, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

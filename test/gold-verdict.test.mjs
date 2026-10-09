@@ -16,6 +16,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -249,15 +250,15 @@ test('mem gold rate: unknown id -> non-zero exit, nothing written', () => {
 
 test('RED on the old commit: /dashboard/gold-verdict does not exist at all (404)', { timeout: 20000 }, async () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:bin/mem-serve`], { cwd: REPO, encoding: 'utf8' });
-  const tmp = path.join(REPO, 'bin', '.gold-verdict-old-mem-serve.mjs');
-  fs.writeFileSync(tmp, old);
+  const copy = oldBinCopy(REPO, 'mem-serve.mjs', old); // a throwaway package, nothing written into the live bin/
+  const tmp = copy.script;
   const root = memoryRoot();
   let s;
   try {
     s = await start(tmp, root);
     const res = await s.post('/dashboard/gold-verdict', 'verdict=empty-correct&expected=%5B%5D');
     assert.equal(res.status, 404, 'the old commit must not answer this route at all');
-  } finally { await s?.stop(); fs.rmSync(tmp, { force: true }); fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { await s?.stop(); fs.rmSync(copy.dir, { recursive: true, force: true }); fs.rmSync(root, { recursive: true, force: true }); }
 });
 test('Positive control: the same old commit DOES answer /dashboard/verify-verdict — the probe really looks', () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:bin/mem-serve`], { cwd: REPO, encoding: 'utf8' });

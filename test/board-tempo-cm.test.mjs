@@ -33,6 +33,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -510,8 +511,8 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): the first answer carries 
     t.skip(`commit ${OLD_STATE.slice(0, 7)} not reachable (shallow clone?) — red proof unknown, not green`);
     return;
   }
-  const tmpScript = path.join(REPO, 'bin', `.btempo-old-mem-serve-${process.pid}.mjs`);
-  fs.writeFileSync(tmpScript, old.replace(/^#!.*\n/, ''));
+  const copy = oldBinCopy(REPO, 'mem-serve.mjs', old); // a throwaway package: nothing is written into the live bin/
+  const tmpScript = copy.script;
   try {
     const s = await start(world({ entries: 400 }), {}, tmpScript);
     try {
@@ -522,5 +523,5 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): the first answer carries 
       const part = await fetch(`${s.base}/dashboard/part.json?part=entries`);
       assert.equal(part.status, 404);
     } finally { await s.stop(); }
-  } finally { fs.rmSync(tmpScript, { force: true }); }
+  } finally { fs.rmSync(copy.dir, { recursive: true, force: true }); }
 });

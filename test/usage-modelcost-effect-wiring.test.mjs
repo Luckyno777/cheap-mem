@@ -13,6 +13,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldModuleCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -37,8 +38,8 @@ test.afterEach(() => dashboardData._clearEffectCache());
 
 test('RED on the old commit: usage carries no modelCost and no effect field', async () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:src/dashboard-data.mjs`], { cwd: REPO, encoding: 'utf8' });
-  const tmp = path.join(REPO, 'src', '.usage-wiring-old-dashboard-data.mjs');
-  fs.writeFileSync(tmp, old);
+  const copy = oldModuleCopy(path.join(REPO, 'src'), 'dashboard-data.mjs', old);
+  const tmp = copy.file;
   const root = memoryRoot();
   try {
     const mod = await import(pathToFileURL(tmp).href);
@@ -47,7 +48,7 @@ test('RED on the old commit: usage carries no modelCost and no effect field', as
     assert.equal('modelCost' in data.usage, false, 'the old commit must not carry usage.modelCost');
     assert.equal('effect' in data.usage, false, 'the old commit must not carry usage.effect');
   } finally {
-    fs.rmSync(tmp, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

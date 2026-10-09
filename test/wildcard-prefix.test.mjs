@@ -28,6 +28,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { oldModuleCopy } from './helpers/old-source-copy.mjs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as memory from '../src/memory.mjs';
 import {
@@ -169,20 +170,22 @@ test('the automatic retrieval hook: ranking for a query containing "*" is identi
 
   // The BEFORE ranking — the pristine, pre-wildcard `search.mjs`, loaded
   // from a fixed commit so this proof never drifts with history (rule
-  // 12). Dropped into `src/` itself (not a scratch dir) so its own
-  // relative imports (`./memory.mjs`, `./language.mjs`, ...) — none of
-  // which this change touched — resolve exactly as they did back then.
+  // 12). Written to a throwaway directory, its own relative imports
+  // (`./memory.mjs`, `./language.mjs`, ...) — none of which this change
+  // touched — pointed at the live `src/`, so they resolve exactly as they
+  // did back then. Never into the live `src/` itself: a file that exists
+  // there for a moment breaks every parallel test that copies `src/`.
   const oldSrc = execFileSync('git', ['show', `${PRE_WILDCARD_COMMIT}:src/search.mjs`],
     { cwd: REPO, encoding: 'utf8' });
-  const baselinePath = path.join(REPO, 'src', `__wildcard_baseline_${process.pid}.mjs`);
-  fs.writeFileSync(baselinePath, oldSrc);
+  const copy = oldModuleCopy(path.join(REPO, 'src'), 'search.mjs', oldSrc);
+  const baselinePath = copy.file;
   let before;
   try {
     const old = await import(`${pathToFileURL(baselinePath).href}?bust=${Date.now()}`);
     const oldIndex = old.loadIndex(root, { fresh: true });
     before = old.search(oldIndex, hookQuery, { top: 10, mmr: true });
   } finally {
-    fs.rmSync(baselinePath, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
   }
 
   assert.equal(before.length, after.length, 'hit count must be identical');

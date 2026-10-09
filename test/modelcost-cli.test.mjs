@@ -12,6 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldModuleCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
@@ -36,12 +37,12 @@ test('RED on the old commit: admin.mjs\'s COMMANDS table has no `modelcost` at a
   // module that actually changed, imported from beside its own
   // relative imports (`../../today.mjs` etc. must still resolve).
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:src/cli/commands/admin.mjs`], { cwd: REPO, encoding: 'utf8' });
-  const tmp = path.join(REPO, 'src', 'cli', 'commands', '.modelcost-cli-old-admin.mjs');
-  fs.writeFileSync(tmp, old);
+  const copy = oldModuleCopy(path.join(REPO, 'src', 'cli', 'commands'), 'admin.mjs', old);
+  const tmp = copy.file;
   try {
     const mod = await import(`${pathToFileURL(tmp).href}?t=${Math.random()}`);
     assert.ok(!('modelcost' in mod.COMMANDS), '`modelcost` must not exist on the old commit');
-  } finally { fs.rmSync(tmp, { force: true }); }
+  } finally { fs.rmSync(copy.dir, { recursive: true, force: true }); }
 });
 
 test('GREEN: an empty journal says "not measured yet", never a dash or 0', () => {
