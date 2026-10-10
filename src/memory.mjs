@@ -22,6 +22,7 @@ import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
+import * as timetrack from './timetrack.mjs';
 import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
 import { appendLine } from './append.mjs';
@@ -1518,6 +1519,8 @@ export function find(root, pattern, capability, opts = {}) {
     withRetired = false,  // include retired (done/discarded/superseded)?
     windowMs = null,   // { from, to } in ms, half-open [from, to): cheap pre-filter, no parse
     accept = null,     // check on the finished hit; false = do not keep it
+    track = true,      // false = never use the time track (full scan, as before it existed)
+    report = null,     // optional object: filled with how the window question was answered
   } = opts;
   if (!(capability instanceof capabilityMod.Capability)) {
     throw new TypeError(
@@ -1553,6 +1556,45 @@ export function find(root, pattern, capability, opts = {}) {
     }
   }
 
+  // A window question may skip what the time track proves cannot be in the
+  // window (src/timetrack.mjs). Anything the track cannot answer exactly
+  // (state lines touching a candidate, a stale or missing track) falls back
+  // to the full scan below; `report` says which way was taken and why.
+  if (report) Object.assign(report, timetrack.newReport());
+  const tracked = hasWindow && track && files.length
+    ? candidatesFromTrack(root, files, needle, fromMs, toMs, report)
+    : null;
+  if (!tracked && report) {
+    report.way = 'full';
+    report.reason ??= !hasWindow ? 'no-window' : (track ? 'no-files' : 'disabled');
+  }
+  const { candidates, retired } = tracked ?? scanAllLines(files, needle, hasWindow, fromMs, toMs);
+
+  // Tombstone lines never surface as hits; retired entries only with
+  // withRetired (then annotated _retired).
+  const hits = [];
+  for (const { entry, p, line } of candidates) {
+    if (isClosingLine(entry)) continue;
+    if (sinceTs && (!entry.ts || entry.ts < sinceTs)) continue;
+    const info = entry.id ? retired.get(entry.id) : null;
+    if (info && !withRetired) continue;
+    const hit = {
+      ...entry,
+      _source: asSource(root, p),
+      _line: line,
+      ...(info ? { _retired: info } : {}),
+    };
+    if (accept && !accept(hit)) continue;
+    hits.push(hit);
+  }
+  return hits;
+}
+
+/**
+ * The full scan: every line of every file, twice. Returns the hit candidates
+ * (whatever passes pattern and window) and the retired map.
+ */
+function scanAllLines(files, needle, hasWindow, fromMs, toMs) {
   // Pass 1 (STREAMING, the mass is never parsed): only lines that carry a
   // state field (tombstones, corrections) are parsed. A tombstone may sit far
   // below its target, so the whole log is walked, but as a text search; only
@@ -1602,26 +1644,70 @@ export function find(root, pattern, capability, opts = {}) {
     }
   }
   const retired = retiredMap(forMap);
+  return { candidates, retired };
 
-  // Tombstone lines never surface as hits; retired entries only with
-  // withRetired (then annotated _retired).
-  const hits = [];
-  for (const { entry, p, line } of candidates) {
-    if (isClosingLine(entry)) continue;
-    if (sinceTs && (!entry.ts || entry.ts < sinceTs)) continue;
-    const info = entry.id ? retired.get(entry.id) : null;
-    if (info && !withRetired) continue;
-    const hit = {
-      ...entry,
-      _source: asSource(root, p),
-      _line: line,
-      ...(info ? { _retired: info } : {}),
-    };
-    if (accept && !accept(hit)) continue;
-    hits.push(hit);
-  }
-  return hits;
 }
+/**
+ * The window answer through the time track (src/timetrack.mjs): read only
+ * what can hold a line in the window. Returns { candidates, retired } like
+ * `scanAllLines`, or `null` when it cannot answer EXACTLY and the full scan
+ * must run: a stale track (the drawer moved), or a candidate whose retired
+ * state depends on lines outside the window (it is named by a state line, or
+ * it is a correction line itself). A tombstone in the window is no hit and
+ * does not force the full scan.
+ */
+function candidatesFromTrack(root, files, needle, fromMs, toMs, report) {
+  const rep = report ?? timetrack.newReport();
+  const acc = { stateIds: new Set(), report: rep };
+  const fail = (file, cause, partial) => new ReadError(file, cause, { partial });
+  const candidates = [];
+  try {
+    for (const p of files) {
+      for (const { text, nr } of timetrack.windowLines(root, p, fromMs, toMs, acc, fail)) {
+        const marked = hasStateField(text);
+        if (marked) for (const id of timetrack.stateIdsOfLine(text)) acc.stateIds.add(id);
+        const patternOk = !needle || text.toLowerCase().includes(needle);
+        if (!patternOk || !tsMayBeInWindow(text, fromMs, toMs)) continue;
+        let entry;
+        try { entry = JSON.parse(text); }
+        catch { entry = { __broken: true, raw: text }; }
+        candidates.push({ entry, p, line: nr, marked });
+      }
+    }
+  } catch (e) {
+    if (!(e instanceof timetrack.StaleTrack)) throw e;
+    rep.way = 'full'; rep.reason = 'stale'; rep.buildNeeded = true;
+    return null;
+  }
+  for (const c of candidates) {
+    const e = c.entry;
+    if (e.__broken || isClosingLine(e)) continue;
+    if (c.marked || (e.id != null && acc.stateIds.has(String(e.id)))) {
+      rep.way = 'full'; rep.reason = 'state';
+      return null;
+    }
+  }
+  rep.way = 'track'; rep.reason = null;
+  return { candidates, retired: new Map() };
+}
+
+/**
+ * Build or extend the time track of every drawer of this memory (what the
+ * detached child of `timetrack.kickBuild` runs). Per drawer file a failure
+ * is counted, not thrown. Returns the counts by action.
+ */
+export function buildTimeTracks(root, opts = {}) {
+  const out = { built: 0, extended: 0, kept: 0, small: 0, failed: 0 };
+  for (const project of [null, ...listProjects(root)]) {
+    for (const type of Object.keys(TYPES)) {
+      const p = logPath(root, type, project);
+      if (!fs.existsSync(p)) continue;
+      try { out[timetrack.buildFile(root, p, opts).action] += 1; } catch { out.failed += 1; }
+    }
+  }
+  return out;
+}
+
 
 // Line by line (number 1-based over ALL lines, empty ones too, like
 // `split('\n')`), BOM stripped, blank lines not delivered. Never holds more
@@ -1659,13 +1745,10 @@ function* rawLinesOfFile(p, chunkBytes = 256 * 1024) {
   } finally { fs.closeSync(fd); }
 }
 
-const STATE_MARKS = authority.STATE_FIELDS.map((f) => `"${f}"`);
-// Real keys always appear as "field" in JSON; a false hit (text inside a
-// value) costs one parse, a missed one is impossible.
-function hasStateField(text) {
-  for (const m of STATE_MARKS) { if (text.includes(m)) return true; }
-  return false;
-}
+// Does the line carry a state field? The one rule lives in timetrack.hasStateMark
+// (the track and this share it): real keys always appear as "field" in JSON; a
+// false hit costs one parse, a missed one is impossible.
+const hasStateField = timetrack.hasStateMark;
 
 // id of a line without parsing: string = read unambiguously, null = no id,
 // undefined = ambiguous (then parse).
@@ -1680,17 +1763,11 @@ function idOfLine(text) {
 // Can this line's ts lie in the window [fromMs, toMs)? False only when
 // CERTAINLY not (every "ts" occurrence is a readable string outside it).
 function tsMayBeInWindow(text, fromMs, toMs) {
-  const count = text.split('"ts"').length - 1;
-  if (count === 0) return false;           // no ts key: no ts, NaN, out
-  const re = /"ts"\s*:\s*"([^"\\]*)"/g;
-  let found = 0;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    found += 1;
-    const t = new Date(m[1]).getTime();
-    if (!Number.isNaN(t) && t >= fromMs && t < toMs) return true;
-  }
-  return found !== count;
+  // The one rule lives in timetrack.tsFindings (the track and this share it).
+  const f = timetrack.tsFindings(text);
+  if (f.count === 0) return false;           // no ts key: no ts, NaN, out
+  for (const t of f.ms) { if (!Number.isNaN(t) && t >= fromMs && t < toMs) return true; }
+  return f.found !== f.count;
 }
 
 /** Does the project exist (directory `projects/<name>/`)? An invalid name: no. */

@@ -10,6 +10,7 @@
 // turning the run red. Same rule as lucky-mem's test/fixture/tempwurzel.mjs.
 import fs from 'node:fs';
 import { waitForRebuildIdle } from '../../src/component-table.mjs';
+import { waitForBuildIdle } from '../../src/timetrack.mjs';
 
 /**
  * Remove a test's temp tree. FIRST wait (event-based: the rebuild lock file goes away, then a
@@ -21,6 +22,7 @@ import { waitForRebuildIdle } from '../../src/component-table.mjs';
  */
 export function removeTree(dir) {
   waitForRebuildIdle(dir);
+  waitForBuildIdle(dir); // the detached time-track build of a window question (src/timetrack.mjs)
   try {
     fs.rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
   } catch {
