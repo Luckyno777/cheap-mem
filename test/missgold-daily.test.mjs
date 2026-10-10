@@ -92,12 +92,26 @@ test('CLI: daily/status carry numbers only, never the question; status reads the
 
 // --- the digest tick, against a throwaway copy of the program ----------------
 
-/** bin/ and src/ copied (so a test can break a module), deps linked. */
+/**
+ * bin/ and src/ copied (so a test can break a module), deps linked.
+ * Only the VERSIONED files are copied (`git ls-files`), not a walk of the live
+ * directories: a parallel test, an editor or another agent may leave a file in
+ * bin/ or src/ for a moment, and a directory copy that meets it dies with
+ * `ENOENT ... '<copy>/src'` (measured: 147 of 300 copies against one flickering
+ * file). A tracked file is there for the whole run.
+ */
 function program(work, { digestFrom = null } = {}) {
   const k = path.join(work, 'cm');
   fs.mkdirSync(k);
-  fs.cpSync(path.join(REPO, 'bin'), path.join(k, 'bin'), { recursive: true });
-  fs.cpSync(path.join(REPO, 'src'), path.join(k, 'src'), { recursive: true });
+  const tracked = execFileSync('git', ['ls-files', '-z', '--', 'bin', 'src'], { cwd: REPO, encoding: 'utf8', maxBuffer: 1 << 26 })
+    .split('\0').filter(Boolean);
+  for (const rel of tracked) {
+    const from = path.join(REPO, ...rel.split('/'));
+    const to = path.join(k, ...rel.split('/'));
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
+    fs.chmodSync(to, fs.statSync(from).mode & 0o777);
+  }
   fs.copyFileSync(path.join(REPO, 'package.json'), path.join(k, 'package.json'));
   fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(k, 'node_modules'));
   if (digestFrom) {

@@ -11,6 +11,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -51,8 +52,8 @@ async function start(scriptPath, root, env = {}) {
 
 test('RED on the old commit: the route does not exist at all (404)', { timeout: 20000 }, async () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:bin/mem-serve`], { cwd: REPO, encoding: 'utf8' });
-  const tmp = path.join(REPO, 'bin', '.verify-verdict-old-mem-serve.mjs');
-  fs.writeFileSync(tmp, old);
+  const copy = oldBinCopy(REPO, 'mem-serve.mjs', old); // a throwaway package, nothing written into the live bin/
+  const tmp = copy.script;
   const root = memoryRoot();
   let s;
   try {
@@ -61,7 +62,7 @@ test('RED on the old commit: the route does not exist at all (404)', { timeout: 
     assert.equal(res.status, 404, 'the old commit must not answer this route at all');
   } finally {
     await s?.stop();
-    fs.rmSync(tmp, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

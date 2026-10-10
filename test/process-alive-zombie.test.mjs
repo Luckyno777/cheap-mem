@@ -21,6 +21,7 @@ import { tempDir } from './temp-dir.mjs';
 import { processAlive } from '../src/processalive.mjs';
 import { withLock, LockTimeoutError } from '../src/filelock.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
+import { neverAssignedPid, endedPidOrNeverAssigned } from './filelock-fixtures.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = '0cec5683212e9721fdac0813f1561e50dbb6081f';
@@ -76,9 +77,16 @@ test('a zombie: the old rule says alive (red), processAlive says dead', { skip: 
 
 test('positive control: a running process lives; an ended or invalid pid does not', () => {
   assert.equal(processAlive(process.pid), true);
+  // "Ended": the pid of a child that has exited, unless the OS has already handed it out again
+  // (Windows does, within milliseconds; `true !== false` on CI windows-latest node 22). Then the
+  // equivalent statement is made about a pid no OS can assign.
   const r = spawnSync('bash', ['-c', 'echo $$']);
   assert.equal(r.status, 0, String(r.stderr));
-  assert.equal(processAlive(Number(String(r.stdout).trim())), false);
+  assert.equal(processAlive(endedPidOrNeverAssigned(Number(String(r.stdout).trim()))), false);
+  assert.equal(processAlive(neverAssignedPid()), false);
+  // control for the helper: a pid that lives (= reused) is replaced, an ESRCH pid is kept
+  assert.equal(endedPidOrNeverAssigned(process.pid), neverAssignedPid(), 'a living pid is never passed on as "ended"');
+  assert.equal(endedPidOrNeverAssigned(neverAssignedPid()), neverAssignedPid());
   for (const bad of [0, -3, 1.5, NaN, undefined, '12']) assert.equal(processAlive(bad), false);
 });
 
@@ -94,14 +102,27 @@ test('a file lock held by a zombie is taken over at once, not waited out', { ski
   } finally { z.drop(); }
 });
 
+// The "gone" owner is a pid that is dead for good (above every OS's range), NOT the pid of a child
+// that just ended: Windows reuses such a pid at once, and without /proc a living pid is verdict
+// `unknown` and never taken over (CI windows-latest node 22, 2026-10-09: "owner: 6432 ... verdict: unknown").
+function goneLockTakenOver(dir, gonePid, waitMs = 3000) {
+  const gone = path.join(dir, 'y.lock');
+  fs.writeFileSync(gone, `${gonePid} ${os.hostname()} 2026-10-03T00:00:00Z feedfacefeed\n`);
+  return withLock(gone, () => 'ran', { waitMs, staleS: 3600 });
+}
+
 test('positive control: a lock held by a LIVING pid still blocks; one held by a gone pid is taken over', (t) => {
   const dir = tempDir('cm-living-lock-', t);
   const alive = lockWith(dir, process.ppid);
   assert.throws(() => withLock(alive, () => 'ran', { waitMs: 200, staleS: 3600 }), LockTimeoutError);
-  const r = spawnSync('bash', ['-c', 'echo $$']);
-  const gone = path.join(dir, 'y.lock');
-  fs.writeFileSync(gone, `${Number(String(r.stdout).trim())} ${os.hostname()} 2026-10-03T00:00:00Z feedfacefeed\n`);
-  assert.equal(withLock(gone, () => 'ran', { waitMs: 3000, staleS: 3600 }), 'ran');
+  assert.equal(goneLockTakenOver(dir, neverAssignedPid()), 'ran');
+});
+
+test('control: the "gone" slot filled by a pid that is alive again (a reused pid) is NOT taken over: verdict unknown', (t) => {
+  // The picture CI showed on Windows, reproduced on every OS: the 4-field owner line has no start
+  // time, so a living pid cannot be told from the owner. This is what a recycled child pid does.
+  const dir = tempDir('cm-reused-lock-', t);
+  assert.throws(() => goneLockTakenOver(dir, process.pid, 300), (e) => e instanceof LockTimeoutError && /verdict: unknown/.test(e.message));
 });
 
 test('RED PROOF for the lock: at the base commit the same zombie lock times out (positive control: today it does not)', { skip: !hasProc && 'no /proc' }, async (t) => {

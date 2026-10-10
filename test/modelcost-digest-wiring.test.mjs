@@ -12,6 +12,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawnSync, execFileSync } from 'node:child_process';
@@ -66,8 +67,9 @@ function runDigest(script, root, cmdPath) {
 
 test('RED on the old commit: no cost journal appears, whatever the fake model answers', () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:bin/mem-digest`], { cwd: REPO, encoding: 'utf8' });
-  const oldScript = path.join(REPO, 'bin', '.modelcost-old-mem-digest.sh');
-  fs.writeFileSync(oldScript, old);
+  // HERE of the script is its own bin/: the shell helpers and bin/mem sit beside it, src/ is linked.
+  const copy = oldBinCopy(REPO, 'mem-digest', old, ['_portable.sh', 'mem']);
+  const oldScript = copy.script;
   const root = memoryWithRawMaterial();
   try {
     const cmd = fakeModelScript(root);
@@ -77,7 +79,7 @@ test('RED on the old commit: no cost journal appears, whatever the fake model an
     assert.equal(fs.existsSync(journal), false,
       'the old bin/mem-digest must not produce a cost journal at all — otherwise this red proof shows nothing');
   } finally {
-    fs.rmSync(oldScript, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

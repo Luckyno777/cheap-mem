@@ -266,7 +266,19 @@ export function createRelease(root, {
         fs.rmSync(tmp, { recursive: true, force: true });
         return { created: false, reason: 'archive-failed', error: String(e?.message ?? e) };
       }
-      const tar = spawnSync('tar', ['-x', '-C', tmp], { input: archiveBytes });
+      // The extraction directory goes to tar RESOLVED and RELATIVE: the real path
+      // of `tmp` becomes the child's working directory, and tar gets `-C .`. An
+      // absolute path that runs through a link (macOS /var -> /private/var, a
+      // junction or symlink under %TEMP% on Windows, or an 8.3 short name) is
+      // read by a tar that is not the platform's own (GNU tar from Git for
+      // Windows) through its own path translation, which does not follow the
+      // link: "Cannot open: No such file or directory" (windows-latest, 2026-10).
+      // Resolving first leaves no link in what tar sees; `.` leaves no drive
+      // letter for it to take for a host (`C:` is `host:file` to GNU tar).
+      let extractDir;
+      try { extractDir = fs.realpathSync.native(tmp); }
+      catch { extractDir = tmp; } // cannot resolve: hand over what we have, as before
+      const tar = spawnSync('tar', ['-x', '-C', '.'], { input: archiveBytes, cwd: extractDir });
       if (tar.status !== 0 || tar.error) {
         fs.rmSync(tmp, { recursive: true, force: true });
         return {
@@ -332,15 +344,27 @@ export function rollback(root, { env = process.env, now = new Date() } = {}) {
 export function codePath(root, { env = process.env } = {}) {
   const base = defaultBase(root, env);
   const current = currentLink(base);
+  // Three states, never one (design commitment 2): no pointer at all, a
+  // pointer that does not resolve (dangling, or the OS refused), a pointer
+  // that resolves to something without `bin/`. The fallback is the same
+  // for all three; the REASON must say which one it was, or a flaky CI
+  // failure ("fromRelease: false") cannot be told apart from a missing release.
   let real = null;
-  try { real = fs.realpathSync(current); } catch { /* no current pointer yet */ }
-  if (real && fs.existsSync(path.join(real, 'bin'))) {
-    return { path: real, fromRelease: true, reason: null };
+  let why;
+  try {
+    real = fs.realpathSync(current);
+    if (fs.existsSync(path.join(real, 'bin'))) return { path: real, fromRelease: true, reason: null };
+    why = `"current" resolves to ${real}, which has no bin/`;
+  } catch (e) {
+    let pointer = false;
+    try { fs.lstatSync(current); pointer = true; } catch { /* no pointer at all */ }
+    why = !pointer ? 'no "current" pointer yet'
+      : `"current" exists but does not resolve (${e?.code || e?.message || 'unknown error'})`;
   }
   return {
     path: root,
     fromRelease: false,
-    reason: `no usable release under ${current} — falling back to the source checkout ${root} `
+    reason: `no usable release under ${current} (${why}) — falling back to the source checkout ${root} `
       + '(run `mem-release create` once to enable this)',
   };
 }

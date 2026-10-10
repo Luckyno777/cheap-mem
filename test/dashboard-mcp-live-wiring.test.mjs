@@ -13,6 +13,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -49,8 +50,8 @@ test.afterEach(() => mcplive._clearCache());
 
 test('RED on the old commit: catalog.mcp carries no live/clientVisible field at all', { timeout: 20000 }, async () => {
   const old = execFileSync('git', ['show', `${OLD_COMMIT}:bin/mem-serve`], { cwd: REPO, encoding: 'utf8' });
-  const tmpScript = path.join(REPO, 'bin', '.dash-mcplive-old-mem-serve.mjs');
-  fs.writeFileSync(tmpScript, old);
+  const copy = oldBinCopy(REPO, 'mem-serve.mjs', old); // a throwaway package, nothing written into the live bin/
+  const tmpScript = copy.script;
   const root = memoryRoot();
   let s;
   try {
@@ -62,7 +63,7 @@ test('RED on the old commit: catalog.mcp carries no live/clientVisible field at 
     assert.equal('clientVisible' in body.catalog.mcp, false, 'the old commit must not carry catalog.mcp.clientVisible');
   } finally {
     await s?.stop();
-    fs.rmSync(tmpScript, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

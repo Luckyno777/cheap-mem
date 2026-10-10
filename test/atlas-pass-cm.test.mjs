@@ -35,6 +35,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -396,8 +397,8 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): over the line only a ligh
     t.skip(`commit ${OLD_STATE.slice(0, 7)} not reachable (shallow clone?) — red proof unknown, not green`);
     return;
   }
-  const tmpScript = path.join(REPO, 'bin', `.apass-old-mem-serve-${process.pid}.mjs`);
-  fs.writeFileSync(tmpScript, old.replace(/^#!.*\n/, ''));
+  const copy = oldBinCopy(REPO, 'mem-serve.mjs', old); // a throwaway package: nothing is written into the live bin/
+  const tmpScript = copy.script;
   try {
     const { root } = synth(1500, { extraBytes: 800 });
     const s = await start(root, COMPACT, tmpScript);
@@ -408,7 +409,7 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): over the line only a ligh
       const part = await fetch(`${s.base}/dashboard/part.json?part=atlas&theme=queue`);
       assert.equal(part.status, 404);
     } finally { await s.stop(); }
-  } finally { fs.rmSync(tmpScript, { force: true }); }
+  } finally { fs.rmSync(copy.dir, { recursive: true, force: true }); }
 });
 
 test('cache: a quick head may be skipped (buildHead answers null) — nothing null is stored as a state', async () => {

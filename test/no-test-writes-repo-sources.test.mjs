@@ -19,8 +19,10 @@
 //   1. repo-root names: a binding initialised from `import.meta.url`
 //      and `..` (the usual `const REPO = path.join(path.dirname(
 //      fileURLToPath(import.meta.url)), '..')`);
-//   2. repo-source names: a top-level `const X = path.join(<root>,
-//      'bin' | 'src' | 'hooks', ...)`, and anything joined onto one;
+//   2. repo-source names: a `const X = path.join(<root>, 'bin' | 'src' |
+//      'hooks', ...)` at any indentation (a name made inside a test body
+//      counts: that is how the live-tree writers of 2026-10-09 slipped
+//      through), and anything joined onto one;
 //   3. writers: the fs calls that change a file (write, append, remove,
 //      rename, truncate, copy/symlink onto it), plus any function in the
 //      same file that passes its own parameter to one of those (that is
@@ -106,7 +108,7 @@ function scan(text) {
   for (let grew = true; grew;) {
     grew = false;
     const named = [...srcNames].map(escape).join('|');
-    const re = new RegExp(`^(?:export\\s+)?const\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${inline}|path\\.(?:join|resolve)\\(\\s*(?:${named || '(?!)'})\\s*[,)])`, 'gm');
+    const re = new RegExp(`^[ \\t]*(?:export\\s+)?const\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*(?:${inline}|path\\.(?:join|resolve)\\(\\s*(?:${named || '(?!)'})\\s*[,)])`, 'gm');
     for (const m of text.matchAll(re)) {
       if (!srcNames.has(m[1])) { srcNames.add(m[1]); grew = true; }
     }
@@ -167,6 +169,19 @@ test('positive control: the scanner flags the pre-2026-09-27 P13 shape (withSabo
   const found = scan(sample);
   assert.equal(found.length, 3, `expected 3 violations, got ${found.length}: ${found.join('; ')}`);
   assert.ok(found.some((f) => f.includes('withSabotage') && f.includes('CLI_SEARCH_FILE')), found.join('; '));
+});
+
+test('positive control: a repo-source name made INSIDE a test body is caught (the 2026-10-09 shape)', () => {
+  const sample = [
+    "const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');",
+    "test('x', async () => {",
+    "  const tmpScript = path.join(REPO, 'bin', `.old-mem-serve-${process.pid}.mjs`);",
+    "  fs.writeFileSync(tmpScript, 'x');",
+    "  const baseline = path.join(REPO, 'src', `__baseline_${process.pid}.mjs`);",
+    "  fs.writeFileSync(baseline, 'y');",
+    '});',
+  ].join('\n');
+  assert.equal(scan(sample).length, 2, scan(sample).join('; '));
 });
 
 test('negative control: reading a repo source, copying FROM it, or patching a temp copy is not a violation', () => {

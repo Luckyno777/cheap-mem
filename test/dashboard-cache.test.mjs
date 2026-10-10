@@ -22,6 +22,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { oldBinCopy } from './helpers/old-source-copy.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
@@ -342,8 +343,8 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): no cache, no deferred rou
     t.skip(`commit ${OLD_STATE} not reachable (shallow clone?) — red proof unknown, not green`);
     return;
   }
-  const tmpScript = path.join(REPO, 'bin', `.tempo-old-mem-serve-${process.pid}.mjs`);
-  fs.writeFileSync(tmpScript, old.replace(/^#!.*\n/, ''));
+  const copy = oldBinCopy(REPO, 'mem-serve.mjs', old); // a throwaway package: nothing is written into the live bin/
+  const tmpScript = copy.script;
   try {
     const s = await start(world(), {}, tmpScript);
     try {
@@ -355,6 +356,6 @@ test(`RED on the old state (${OLD_STATE.slice(0, 7)}): no cache, no deferred rou
       assert.equal(js.headers.etag, undefined, 'the old state serves app.js without an ETag');
     } finally { await s.stop(); }
   } finally {
-    fs.rmSync(tmpScript, { force: true });
+    fs.rmSync(copy.dir, { recursive: true, force: true });
   }
 });
