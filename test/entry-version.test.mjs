@@ -57,9 +57,29 @@ function tmpRoot() {
 // exactly what made this suite fail at first (`ERR_MODULE_NOT_FOUND`
 // resolving it from the sandboxed `memory.mjs`, not a version-guard
 // finding at all).
-const DEPS = ['freshness.mjs', 'authority.mjs', 'bidi.mjs', 'config.mjs', 'agents.mjs', 'append.mjs',
-  'capability.mjs', 'probescaffold.mjs', 'filelock.mjs', 'redaction.mjs', 'frozenset.mjs', 'outputguard.mjs', 'expand.mjs',
-  'bodyfields.mjs', 'chain.mjs', 'processalive.mjs'];
+//
+// 2026-10-10: the list is no longer typed by hand. A new `import` in
+// memory.mjs (timetrack.mjs, drawermemo.mjs) broke this sandbox with
+// ERR_MODULE_NOT_FOUND each time -- and timetrack.mjs brings its own
+// imports (atomicwrite.mjs). The list is now the transitive closure of
+// the static relative imports, read from the source, starting at
+// memory.mjs; `chain.mjs` and `processalive.mjs` stay as extra roots
+// because memory.mjs loads chain.mjs by a tolerant dynamic import().
+function staticClosure(roots) {
+  const seen = new Set();
+  const todo = [...roots];
+  const re = /^\s*(?:import|export)\s+(?:[^'"]*?\s+from\s+)?['"]\.\/([\w.-]+\.mjs)['"]/gm;
+  while (todo.length) {
+    const f = todo.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    const src = fs.readFileSync(path.join(SRC, f), 'utf8');
+    for (const m of src.matchAll(re)) todo.push(m[1]);
+  }
+  seen.delete('memory.mjs');
+  return [...seen].sort();
+}
+const DEPS = staticClosure(['memory.mjs', 'chain.mjs', 'processalive.mjs']);
 
 /**
  * A private, disposable copy of memory.mjs (with `patch` applied to its
