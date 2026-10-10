@@ -1652,26 +1652,32 @@ function scanAllLines(files, needle, hasWindow, fromMs, toMs) {
  * what can hold a line in the window. Returns { candidates, retired } like
  * `scanAllLines`, or `null` when it cannot answer EXACTLY and the full scan
  * must run: a stale track (the drawer moved), or a candidate whose retired
- * state depends on lines outside the window (it is named by a state line, or
- * it is a correction line itself). A tombstone in the window is no hit and
- * does not force the full scan.
+ * state cannot be settled from the lines already read plus the few blocks the
+ * track names for it (`timetrack.resolveRetired` says when). A tombstone in
+ * the window is no hit and does not force anything.
  */
 function candidatesFromTrack(root, files, needle, fromMs, toMs, report) {
   const rep = report ?? timetrack.newReport();
-  const acc = { stateIds: new Set(), report: rep };
+  const scan = timetrack.newScan(rep);
   const fail = (file, cause, partial) => new ReadError(file, cause, { partial });
   const candidates = [];
   try {
-    for (const p of files) {
-      for (const { text, nr } of timetrack.windowLines(root, p, fromMs, toMs, acc, fail)) {
+    for (const [fi, p] of files.entries()) {
+      for (const { text, nr } of timetrack.windowLines(root, p, fromMs, toMs, scan, fail, fi)) {
         const marked = hasStateField(text);
-        if (marked) for (const id of timetrack.stateIdsOfLine(text)) acc.stateIds.add(id);
+        if (marked) {
+          const info = timetrack.stateInfoOfLine(text);
+          if (info) {
+            for (const id of info.ids) scan.stateIds.add(id);
+            scan.stateLines.push({ fi, nr, text, info });
+          }
+        }
         const patternOk = !needle || text.toLowerCase().includes(needle);
         if (!patternOk || !tsMayBeInWindow(text, fromMs, toMs)) continue;
         let entry;
         try { entry = JSON.parse(text); }
         catch { entry = { __broken: true, raw: text }; }
-        candidates.push({ entry, p, line: nr, marked });
+        candidates.push({ entry, p, fi, line: nr, marked });
       }
     }
   } catch (e) {
@@ -1679,16 +1685,16 @@ function candidatesFromTrack(root, files, needle, fromMs, toMs, report) {
     rep.way = 'full'; rep.reason = 'stale'; rep.buildNeeded = true;
     return null;
   }
-  for (const c of candidates) {
-    const e = c.entry;
-    if (e.__broken || isClosingLine(e)) continue;
-    if (c.marked || (e.id != null && acc.stateIds.has(String(e.id)))) {
-      rep.way = 'full'; rep.reason = 'state';
-      return null;
-    }
+  const needsState = candidates.some(({ entry: e, marked }) => !e.__broken && !isClosingLine(e)
+    && (marked || (e.id != null && scan.stateIds.has(String(e.id)))));
+  let retired = new Map();
+  if (needsState) {
+    retired = timetrack.resolveRetired(root, scan, candidates, { retiredMap, isClosing: isClosingLine, fail });
+    if (!retired) { rep.way = 'full'; rep.reason = 'state'; return null; }
   }
-  rep.way = 'track'; rep.reason = null;
-  return { candidates, retired: new Map() };
+  // Every drawer was read in full (no usable track anywhere): one pass, but nothing was skipped.
+  if (rep.blocksSkipped === 0 && rep.drawers.valid === 0) { rep.way = 'full'; rep.reason = 'no-track'; } else { rep.way = 'track'; rep.reason = null; }
+  return { candidates, retired };
 }
 
 /**
@@ -1697,7 +1703,7 @@ function candidatesFromTrack(root, files, needle, fromMs, toMs, report) {
  * is counted, not thrown. Returns the counts by action.
  */
 export function buildTimeTracks(root, opts = {}) {
-  const out = { built: 0, extended: 0, kept: 0, small: 0, failed: 0 };
+  const out = { built: 0, extended: 0, kept: 0, small: 0, failed: 0, swept: timetrack.sweepTemps(root) };
   for (const project of [null, ...listProjects(root)]) {
     for (const type of Object.keys(TYPES)) {
       const p = logPath(root, type, project);
@@ -1705,9 +1711,10 @@ export function buildTimeTracks(root, opts = {}) {
       try { out[timetrack.buildFile(root, p, opts).action] += 1; } catch { out.failed += 1; }
     }
   }
+  // A build that failed on a drawer leaves a note, so the next nudge holds back for a while.
+  if (out.failed || out.built || out.extended || out.kept) timetrack.noteBuild(root, { ok: out.failed === 0, ...out });
   return out;
 }
-
 
 // Line by line (number 1-based over ALL lines, empty ones too, like
 // `split('\n')`), BOM stripped, blank lines not delivered. Never holds more
@@ -1751,14 +1758,8 @@ function* rawLinesOfFile(p, chunkBytes = 256 * 1024) {
 const hasStateField = timetrack.hasStateMark;
 
 // id of a line without parsing: string = read unambiguously, null = no id,
-// undefined = ambiguous (then parse).
-function idOfLine(text) {
-  const count = text.split('"id"').length - 1;
-  if (count === 0) return null;
-  const m = /"id"\s*:\s*"([^"\\]*)"/.exec(text);
-  if (count === 1 && m) return m[1];
-  return undefined;
-}
+// undefined = ambiguous (then parse). The one rule lives in timetrack.idOfLine.
+const idOfLine = timetrack.idOfLine;
 
 // Can this line's ts lie in the window [fromMs, toMs)? False only when
 // CERTAINLY not (every "ts" occurrence is a readable string outside it).

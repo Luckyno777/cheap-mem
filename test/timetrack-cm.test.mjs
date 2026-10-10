@@ -39,6 +39,7 @@ import * as memory from '../src/memory.mjs';
 import * as timetrack from '../src/timetrack.mjs';
 import * as timesearch from '../src/timesearch.mjs';
 import * as capability from '../src/capability.mjs';
+import * as shardarchive from '../src/shardarchive.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 
@@ -47,6 +48,8 @@ const REPO = path.join(HERE, '..');
 // A FIXED commit, never merge-base (it moves with the merge and turns the proof red):
 // cheap-mem main before the time track.
 const OLD_STAND = 'b5959ed38a2d859a762df7da893f6ce17b0ee0cb';
+// The first version of the track (before the review): it asked for a rebuild on every question for a giant last line.
+const FIRST_TRACK = '6f54b586ccca3a89974b47d7ccc1aefc3c97a3b0';
 const SMALL = { blockBytes: 4096, minBytes: 0 };
 const BASE = Date.UTC(2026, 0, 1);
 const HOUR = 3600 * 1000;
@@ -265,7 +268,7 @@ test('EQUIVALENCE at every block edge: windows hugging the min and the max ts of
 // The state cases
 // ---------------------------------------------------------------------------
 
-test('STATE: a retired or corrected candidate falls back to the full scan and keeps its _retired note; a tombstone in the window does not', () => {
+test('STATE: a retired or corrected candidate is settled from a few extra blocks (exact, with its _retired note); only a correction line as candidate takes the full scan', () => {
   const root = tmpRoot();
   try {
     const r = rng(3);
@@ -274,40 +277,100 @@ test('STATE: a retired or corrected candidate falls back to the full scan and ke
     lines.push(JSON.stringify({ id: 'tomb', ts: iso(BASE + 100 * HOUR), retires_id: 'x5', state: 'done' }));         // tombstone in window 100h, target at 5h
     lines.push(JSON.stringify({ id: 'tomb2', ts: iso(BASE + 500 * HOUR), retires_id: 'x300', state: 'discarded' }));  // target at 300h
     lines.push(JSON.stringify({ id: 'corr', ts: iso(BASE + 520 * HOUR), replaces_id: 'x40', title: 'fixed' }));
+    // many more plain lines AFTER the state lines, so the state lines sit in closed, skipped blocks
+    for (let i = 600; i < 1400; i += 1) lines.push(plain(`x${i}`, i, r));
     put(root, 'decision', lines);
     memory.buildTimeTracks(root, SMALL);
 
-    // 1) window around hour 100: holds the tombstone line (not a hit) and plain entries -> track
+    // 1) window around hour 100: holds the tombstone line (not a hit) and plain entries -> track, nothing extra
     const a = ask(root, BASE + 98 * HOUR, BASE + 102 * HOUR, { root });
     assert.equal(a.report.way, 'track', `a tombstone in the window must not force the full scan (${a.report.reason})`);
+    assert.equal(a.report.extraBlocks, 0);
     assert.deepEqual(a.tracked, a.full);
     assert.ok(a.tracked.length >= 4);
 
-    // 2) window around hour 300: its candidate x300 is named by a tombstone far away -> state, retired note kept
+    // 2) window around hour 300: x300 is named by a tombstone far away, in a block the window does not touch
     const b = ask(root, BASE + 299 * HOUR, BASE + 301 * HOUR, { root });
-    assert.equal(b.report.way, 'full');
-    assert.equal(b.report.reason, 'state');
+    assert.equal(b.report.way, 'track', `exact: ${b.report.reason}`);
+    assert.equal(b.report.stateResolved, true);
     assert.deepEqual(b.tracked, b.full);
     const x300 = b.tracked.find((e) => e.id === 'x300');
     assert.ok(x300?._retired, 'the retired entry is still annotated');
     assert.equal(x300._retired.by, 'tomb2');
 
-    // 3) window with the correction line itself (a candidate that is a state line, not closing)
+    // 3) window with the correction line itself (a candidate that is a state line, not closing): full scan
     const c = ask(root, BASE + 519 * HOUR, BASE + 521 * HOUR, { root });
+    assert.equal(c.report.way, 'full');
     assert.equal(c.report.reason, 'state');
     assert.deepEqual(c.tracked, c.full);
     assert.ok(c.tracked.some((e) => e.id === 'corr'));
 
-    // 4) window around hour 40: the corrected entry x40 is named by a replaces_id line -> state, superseded note
+    // 4) window around hour 40: x40 is corrected by a far line -> exact, superseded note
     const d = ask(root, BASE + 39 * HOUR, BASE + 41 * HOUR, { root });
-    assert.equal(d.report.reason, 'state');
+    assert.equal(d.report.way, 'track', `exact: ${d.report.reason}`);
     assert.deepEqual(d.tracked, d.full);
     assert.equal(d.tracked.find((e) => e.id === 'x40')?._retired?.state, 'superseded');
 
-    // 5) a window far from every named id: track
+    // 5) a window far from every named id: track, nothing extra
     const e = ask(root, BASE + 200 * HOUR, BASE + 202 * HOUR, { root });
     assert.equal(e.report.way, 'track');
+    assert.equal(e.report.extraBlocks, 0);
     assert.deepEqual(e.tracked, e.full);
+  } finally { removeTree(root); }
+});
+
+test('STATE exact: a state line in a closed, skipped block, window on its target (gap probe for the track\'s state ids and records)', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(41);
+    const lines = [];
+    for (let i = 0; i < 300; i += 1) lines.push(plain(`m${i}`, i, r));
+    lines.push(JSON.stringify({ id: 'mt1', ts: iso(BASE + 3000 * HOUR), retires_id: 'm150', state: 'done', why: 'finished' }));
+    lines.push(JSON.stringify({ id: 'mc1', ts: iso(BASE + 3001 * HOUR), replaces_id: 'm200', title: 'newer' }));
+    lines.push(JSON.stringify({ id: 'mt2', ts: iso(BASE + 3002 * HOUR), closes_id: 'm250' }));
+    for (let i = 300; i < 900; i += 1) lines.push(plain(`m${i}`, i + 4000, r));      // pushes the state lines into closed blocks
+    put(root, 'duty', lines);
+    memory.buildTimeTracks(root, SMALL);
+    const d = JSON.parse(fs.readFileSync(timetrack.trackPath(root, drawerFile(root, 'duty')), 'utf8'));
+    const stateBlock = d.blocks.findIndex((b) => b[2] <= BASE + 3002 * HOUR && b[3] >= BASE + 3000 * HOUR);
+    assert.ok(stateBlock >= 0 && stateBlock < d.blocks.length - 1, 'the state lines sit in a closed block');
+    for (const [id, h] of [['m150', 150], ['m200', 200], ['m250', 250]]) {
+      const q = ask(root, BASE + h * HOUR, BASE + h * HOUR + 1, { root });
+      assert.equal(q.report.way, 'track', `${id}: ${q.report.reason}`);
+      assert.equal(q.report.stateResolved, true, id);
+      assert.deepEqual(q.tracked, q.full, id);
+      assert.ok(q.tracked[0]?._retired, `${id} must carry its retired note`);
+      assert.ok(q.report.extraBlocks >= 1 && q.report.extraBlocks <= 2, `${id}: only the state block is read extra (${q.report.extraBlocks})`);
+    }
+  } finally { removeTree(root); }
+});
+
+test('STATE falls back, never guesses: a state line with by_id, a duplicate id, a state line sharing a candidate id', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(43);
+    const lines = [];
+    for (let i = 0; i < 400; i += 1) {
+      // line 250: a second n20, far from the state lines; line 60: an EARLIER n61 right before the real one, outside the window
+      lines.push(i === 250 ? plain('n20', 5000, r) : (i === 60 ? plain('n61', 6000, r) : plain(`n${i}`, i, r)));
+    }
+    lines.push(JSON.stringify({ id: 'tn61', ts: iso(BASE + 2004 * HOUR), retires_id: 'n61', state: 'done' }));
+    lines.push(JSON.stringify({ id: 'sup', ts: iso(BASE + 2000 * HOUR), retires_id: 'n10', state: 'superseded', by_id: 'n11' }));   // the successor's line is needed
+    lines.push(JSON.stringify({ id: 'tn20', ts: iso(BASE + 2001 * HOUR), retires_id: 'n20', state: 'done' }));
+    lines.push(JSON.stringify({ id: 'n30', ts: iso(BASE + 2003 * HOUR), retires_id: 'n31', state: 'done' }));                  // a state line with a candidate's id
+    for (let i = 400; i < 800; i += 1) lines.push(plain(`n${i}`, i + 3000, r));
+    put(root, 'thought', lines);
+    memory.buildTimeTracks(root, SMALL);
+    const expectations = { 10: 'state', 20: 'state', 30: 'state', 61: 'state', 11: null, 31: null, 100: null };
+    for (const [h, reason] of Object.entries(expectations)) {
+      const q = ask(root, BASE + Number(h) * HOUR, BASE + Number(h) * HOUR + 1, { root });
+      assert.deepEqual(q.tracked, q.full, `n${h}`);
+      assert.equal(q.report.reason, reason, `n${h}: ${q.report.way}/${q.report.reason}`);
+    }
+    // the exact ones carry the right notes
+    const n31 = ask(root, BASE + 31 * HOUR, BASE + 31 * HOUR + 1, { root });
+    assert.equal(n31.tracked[0]._retired.state, 'done');
+    assert.equal(n31.report.stateResolved, true);
   } finally { removeTree(root); }
 });
 
@@ -343,11 +406,13 @@ test('THREE STATES: missing / broken / stale are read in full, said in the repor
     const none = ask(root, from, to, { root });
     assert.deepEqual(none.tracked, reference);
     assert.equal(none.report.drawers.valid, 0);
+    assert.equal(none.report.way, 'full', 'nothing was skipped: that is not a track answer');
+    assert.equal(none.report.reason, 'no-track');
     assert.equal(none.report.drawers.missing + none.report.drawers.small, 7, JSON.stringify(none.report.drawers)); // 5 with lines, 2 empty (projectInit)
 
     memory.buildTimeTracks(root, SMALL);
     const ok = ask(root, from, to, { root });
-    assert.equal(ok.report.drawers.valid, 5, JSON.stringify(ok.report));
+    assert.equal(ok.report.drawers.valid, 7, JSON.stringify(ok.report)); // the two empty ones get a track with nothing covered
     assert.deepEqual(ok.tracked, reference);
 
     // broken: garbage, wrong version, wrong file name, wrong shape
@@ -436,6 +501,57 @@ test('MUTATION: a track that wrongly skips a block makes the equivalence probe r
   } finally { removeTree(root); }
 });
 
+test('ts as a number and as a JSON escape: such a block is open and the line is found (it cannot be read from the text)', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(51);
+    const lines = [];
+    for (let i = 0; i < 500; i += 1) lines.push(plain(`q${i}`, i, r));
+    const numberTs = BASE + 6000 * HOUR;
+    const escapedTs = iso(BASE + 7000 * HOUR);
+    lines[250] = JSON.stringify({ id: 'qnum', ts: numberTs, text: wordsOf(r, 20) });
+    lines[300] = `{"id":"qesc","ts":"${escapedTs.slice(0, 4)}\\u002d${escapedTs.slice(5)}","text":"escaped"}`;
+    put(root, 'learning', lines);
+    memory.buildTimeTracks(root, SMALL);
+    const d = JSON.parse(fs.readFileSync(timetrack.trackPath(root, drawerFile(root, 'learning')), 'utf8'));
+    assert.ok(d.blocks.filter((b) => b[4] === 1).length >= 2, 'both odd lines sit in open blocks');
+    for (const [id, ms] of [['qnum', numberTs], ['qesc', BASE + 7000 * HOUR]]) {
+      const q = ask(root, ms - HOUR, ms + HOUR, { root });
+      assert.deepEqual(q.tracked, q.full, id);
+      assert.ok(q.tracked.some((e) => e.id === id), `${id} must be found`);
+      assert.equal(q.report.way, 'track');
+    }
+  } finally { removeTree(root); }
+});
+
+test('after shard archiving (the drawer lost its oldest lines) the track is stale, said, and rebuilt', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(52);
+    const lines = [];
+    for (let i = 0; i < 800; i += 1) lines.push(plain(`a${i}`, i, r));
+    put(root, 'decision', lines);
+    memory.buildTimeTracks(root, SMALL);
+    const from = BASE + 500 * HOUR; const to = from + 6 * HOUR;
+    const before = ask(root, from, to, { root });
+    assert.equal(before.report.drawers.valid, 1);
+    assert.equal(before.report.way, 'track');
+
+    shardarchive.archiveOldest(root, 'decision', { count: 100 });
+    const stale = ask(root, from, to, { root });
+    assert.equal(stale.report.drawers.stale, 1, JSON.stringify(stale.report.drawers));
+    assert.deepEqual(stale.tracked, stale.full);
+    assert.ok(stale.tracked.length >= 5);
+    assert.equal(stale.report.buildNeeded, false, 'the drawer is small (default minimum): no child for it');
+
+    assert.equal(memory.buildTimeTracks(root, SMALL).built, 1, 'rebuilt from scratch, not extended');
+    const after = ask(root, from, to, { root });
+    assert.equal(after.report.drawers.valid, 1);
+    assert.equal(after.report.way, 'track');
+    assert.deepEqual(after.tracked, after.full);
+  } finally { removeTree(root); }
+});
+
 // ---------------------------------------------------------------------------
 // Time zone: the process that builds and the one that asks may differ
 // ---------------------------------------------------------------------------
@@ -515,8 +631,9 @@ test('EXTEND: appended lines are found at once (tail), and extending equals a fr
     assert.deepEqual(old.tracked, old.full);
     assert.ok(old.tracked.some((e) => e.id === 'late'));
     const named = ask(root, BASE + 2 * HOUR, BASE + 4 * HOUR, { root });
-    assert.equal(named.report.reason, 'state', 'g3 is retired by a line in the tail');
+    assert.equal(named.report.way, 'track', `g3 is retired by a line in the tail: exact (${named.report.reason})`);
     assert.deepEqual(named.tracked, named.full);
+    assert.equal(named.tracked.find((e) => e.id === 'g3')?._retired?.state, 'done');
 
     const b = timetrack.buildFile(root, p, SMALL);
     assert.equal(b.action, 'extended');
@@ -595,6 +712,81 @@ test('kickBuild: one child at a time (lock), the track appears, the lock goes aw
     assert.equal(tr.status, 'valid');
     assert.ok(tr.data.blocks.length >= 1);
     assert.equal(timetrack.readTrack(root, drawerFile(root, 'learning')).status, 'valid');
+  } finally { removeTree(root); }
+});
+
+function giantLastLineRoot() {
+  const root = tmpRoot();
+  const r = rng(61);
+  const lines = [];
+  for (let i = 0; i < 1200; i += 1) lines.push(plain(`v${i}`, i, r));
+  lines.push(JSON.stringify({ id: 'giant', ts: iso(BASE + 1300 * HOUR), text: 'x'.repeat(400 * 1024) })); // a last line of ~3 blocks
+  put(root, 'decision', lines);
+  return root;
+}
+
+test('a giant last line does not ask for a rebuild on every question (red at the first version of the track)', async () => {
+  const win = { from: BASE + 100 * HOUR, to: BASE + 101 * HOUR };
+  const askNeeded = (m, cap, root) => {
+    m.buildTimeTracks(root);
+    const rep = {};
+    m.find(root, '', cap, { withRetired: true, windowMs: win, report: rep });
+    return rep.buildNeeded;
+  };
+  const rootNew = giantLastLineRoot();
+  const rootOld = giantLastLineRoot();
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-timetrack-first-'));
+  try {
+    exportCommit(REPO, FIRST_TRACK, ['src', 'package.json'], tmp);
+    fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(tmp, 'node_modules'), 'dir');
+    const old = await import(pathToFileURL(path.join(tmp, 'src', 'memory.mjs')).href);
+    const oldCap = (await import(pathToFileURL(path.join(tmp, 'src', 'capability.mjs')).href)).grantAll('probe');
+    assert.equal(askNeeded(old, oldCap, rootOld), true, 'the first version asks again after its own build (the defect)');
+    assert.equal(askNeeded(memory, ALL(), rootNew), false, 'today the same bytes do not ask again');
+    // positive control: bytes that CAN be covered ask again once a block's worth has arrived
+    const p = drawerFile(rootNew, 'decision');
+    const r = rng(62);
+    fs.appendFileSync(p, `${Array.from({ length: 700 }, (_, i) => plain(`w${i}`, 1400 + i, r)).join('\n')}\n`);
+    const rep = {};
+    memory.find(rootNew, '', ALL(), { windowMs: win, report: rep });
+    assert.equal(rep.buildNeeded, true);
+    memory.buildTimeTracks(rootNew);
+    const rep2 = {};
+    memory.find(rootNew, '', ALL(), { windowMs: win, report: rep2 });
+    assert.equal(rep2.buildNeeded, false);
+    assert.ok(timetrack.readTrack(rootNew, p).data.covered > 256 * 1024);
+  } finally { removeTree(tmp); removeTree(rootOld); removeTree(rootNew); }
+});
+
+test('a failed build is written down and holds the next nudge back; a sweep removes only old orphan temp files', () => {
+  const root = bigRoot();
+  try {
+    const dir = path.join(root, '.mem', 'timetrack');
+    fs.mkdirSync(path.dirname(timetrack.trackPath(root, drawerFile(root, 'decision'))), { recursive: true });
+    fs.mkdirSync(timetrack.trackPath(root, drawerFile(root, 'decision')));          // a directory where the track file belongs: the write fails
+    const oldTmp = path.join(dir, 'global_x.jsonl.abcd1234.json.4242.0123456789.tmp');
+    const freshTmp = path.join(dir, 'global_y.jsonl.abcd1234.json.4242.9876543210.tmp');
+    const other = path.join(dir, 'keep-me.txt');
+    for (const f of [oldTmp, freshTmp, other]) fs.writeFileSync(f, 'x');
+    const longAgo = new Date(Date.now() - 3600 * 1000);
+    fs.utimesSync(oldTmp, longAgo, longAgo);
+    fs.utimesSync(other, longAgo, longAgo);
+
+    const out = memory.buildTimeTracks(root);
+    assert.ok(out.failed >= 1, JSON.stringify(out));
+    assert.equal(out.swept, 1);
+    assert.equal(fs.existsSync(oldTmp), false);
+    assert.equal(fs.existsSync(freshTmp), true, 'a young temp file may belong to a live writer');
+    assert.equal(fs.existsSync(other), true, 'only the writer\'s own pattern is swept');
+    const note = JSON.parse(fs.readFileSync(path.join(dir, 'build-note.json'), 'utf8'));
+    assert.equal(note.ok, false);
+    assert.ok(note.failed >= 1);
+
+    assert.equal(timetrack.kickBuild(root), 'backoff', 'no new child right after a failure');
+    note.at = new Date(Date.now() - 3600 * 1000).toISOString();
+    fs.writeFileSync(path.join(dir, 'build-note.json'), JSON.stringify(note));
+    assert.equal(timetrack.kickBuild(root), 'started', 'after the pause it tries again');
+    assert.ok(timetrack.waitForBuildIdle(root, 60000));
   } finally { removeTree(root); }
 });
 

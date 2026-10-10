@@ -408,8 +408,13 @@ to delete) records per ~128 KiB block of a drawer the smallest and largest
 not-yet-covered tail. The first question on a big drawer reads in full and
 starts a detached background build (a lock file keeps it to one); the
 next one is fast. Same hits as the full scan, including retired entries:
-a window candidate that a tombstone or correction names (or that is a
-correction itself) makes the question fall back to the full scan.
+a window entry that a tombstone or correction names is settled by reading
+only the blocks of those state lines (the track records them and the
+hashes of all ids, to prove the entry is the first line with its id); the
+question falls back to the full scan only when that cannot be proved (the
+entry is itself a correction line, a state line with `by_id`, a duplicate
+id, a drawer without a track). A failed background build leaves a note
+and the next one waits ten minutes.
 Measured: `bench/timetrack-measure.mjs`.
 
 ### 2.6 Literal search
