@@ -18,9 +18,9 @@
 #   MEM_HOOK_OFF=1        turn ALL cheap-mem hooks off (shared with the others)
 #   MEM_RETRIEVE_MIN      minimum BM25 score to show (default 5.0)
 #   MEM_RETRIEVE_TOP      at most this many hits (default 3)
-#   MEM_RETRIEVE_TIE      relative score spread (default 0.01) within which ONE
-#                         more hit comes along when it ties the last one shown;
-#                         0 = the hard cut (`mem find --recall`, src/tiecut.mjs)
+#   MEM_RETRIEVE_TIE      relative score spread within which ONE more hit comes
+#                         along when it ties the last one shown (`mem find --recall`,
+#                         src/tiecut.mjs); default 0 = off, the hard cut; 0.01 = 1 %
 #   MEM_RETRIEVE_REQUEST_FRAME=0  search the request frame ("explain", "can you
 #                         show me") like every other word (src/requestframe.mjs)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone

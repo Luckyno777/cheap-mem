@@ -21,7 +21,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { cutWithTie, tieSpread, TIE_DEFAULT } from '../src/tiecut.mjs';
+import { cutWithTie, tieSpread, TIE_DEFAULT, TIE_SPREAD_LM } from '../src/tiecut.mjs';
 import * as place from '../src/recallserver-place.mjs';
 import { CODE, tiedMemory, find, hookIds, oldTree, oldStateMissing, drop } from './fixture/recall-parity.mjs';
 
@@ -59,7 +59,7 @@ test('function: spread 0 is the old hard cut, as are values outside 0 < x <= 0.5
     assert.equal(cutWithTie(l, 3, bad).length, 3, `spread ${String(bad)}`);
   }
   assert.equal(cutWithTie(l, 3, 0.5).length, 4, 'the bound itself is valid');
-  assert.equal(cutWithTie(l, 3).length, 4, 'the default is 1 %');
+  assert.equal(cutWithTie(l, 3).length, 4, 'the function\'s own spread is 1 %');
 });
 
 test('function: a hit already shown is skipped, a hit without a score never qualifies', () => {
@@ -82,15 +82,22 @@ test('function: nothing to take (short list, no score on the last shown, zero), 
 });
 
 test('switch: MEM_RETRIEVE_TIE unset or empty is the default, a number is taken as given', () => {
-  assert.equal(TIE_DEFAULT, 0.01);
-  assert.equal(tieSpread({}), 0.01);
-  assert.equal(tieSpread({ MEM_RETRIEVE_TIE: '' }), 0.01);
+  assert.equal(TIE_DEFAULT, 0, 'ships off');
+  assert.equal(TIE_SPREAD_LM, 0.01);
+  assert.equal(tieSpread({}), 0);
+  assert.equal(tieSpread({ MEM_RETRIEVE_TIE: '' }), 0);
   assert.equal(tieSpread({ MEM_RETRIEVE_TIE: '0' }), 0);
+  assert.equal(tieSpread({ MEM_RETRIEVE_TIE: '0.01' }), TIE_SPREAD_LM);
   assert.equal(tieSpread({ MEM_RETRIEVE_TIE: '0.05' }), 0.05);
   assert.ok(Number.isNaN(tieSpread({ MEM_RETRIEVE_TIE: 'abc' })));
 });
 
 // --- B + C. `mem find` --------------------------------------------------
+
+// The rule ships OFF; every probe of the rule itself switches it on the way a user would.
+const ON = { MEM_RETRIEVE_TIE: String(TIE_SPREAD_LM) };
+const findOn = (tree, root, q, o = {}) => find(tree, root, q, { ...o, env: { ...ON, ...o.env } });
+const hookOn = (tree, root, prompt, o = {}) => hookIds(tree, root, prompt, { ...o, env: { ...ON, ...o.env } });
 
 const QUESTION = 'payment retry policy';
 // ages in days: three at the top, rank 4 and 5 a day or two behind (inside 1 %), rank 6 three weeks back (outside 2 %)
@@ -98,7 +105,7 @@ const NEAR = [0, 1, 2, 3, 4, 21];
 
 test('find --recall: the fixture really ties (precondition read from the scores)', () => {
   const root = tiedMemory(NEAR);
-  const r = find(CODE, root, QUESTION, { top: 6, recall: true, weak: true });
+  const r = findOn(CODE, root, QUESTION, { top: 6, recall: true, weak: true });
   assert.equal(r.status, 0, r.stderr);
   const gap = (a, b) => (a - b) / a;
   assert.ok(gap(r.scores[2], r.scores[3]) <= 0.01, `rank 4 inside: ${r.scores}`);
@@ -109,8 +116,8 @@ test('find --recall: the fixture really ties (precondition read from the scores)
 
 test('find --recall --top 3: ONE more comes along, the cap holds although two lie inside; without the flag it stays 3', () => {
   const root = tiedMemory(NEAR);
-  const hand = find(CODE, root, QUESTION, { top: 3, weak: true });
-  const hook = find(CODE, root, QUESTION, { top: 3, recall: true, weak: true });
+  const hand = findOn(CODE, root, QUESTION, { top: 3, weak: true });
+  const hook = findOn(CODE, root, QUESTION, { top: 3, recall: true, weak: true });
   assert.equal(hand.ids.length, 3, 'an explicit --top 3 is exactly 3');
   assert.equal(hook.ids.length, 4, 'the hook call: 3 + 1');
   assert.deepEqual(hook.ids.slice(0, 3), hand.ids, 'the first three are untouched');
@@ -119,19 +126,34 @@ test('find --recall --top 3: ONE more comes along, the cap holds although two li
 
 test('find --recall: rank 4 at 2 % stays out (positive control)', () => {
   const root = tiedMemory([0, 1, 2, 20]);
-  const hook = find(CODE, root, QUESTION, { top: 3, recall: true, weak: true });
+  const hook = findOn(CODE, root, QUESTION, { top: 3, recall: true, weak: true });
   assert.equal(hook.ids.length, 3, `${hook.scores}`);
   drop(root);
 });
 
 test('find --recall: MEM_RETRIEVE_TIE=0 is the old cut, 0.05 reaches further', () => {
   const root = tiedMemory([0, 1, 2, 12]);
-  assert.equal(find(CODE, root, QUESTION, { top: 3, recall: true, weak: true }).ids.length, 3, 'rank 4 is about 1.5 % behind');
-  assert.equal(find(CODE, root, QUESTION, { top: 3, recall: true, weak: true, env: { MEM_RETRIEVE_TIE: '0.05' } }).ids.length, 4);
+  assert.equal(findOn(CODE, root, QUESTION, { top: 3, recall: true, weak: true }).ids.length, 3, 'rank 4 is about 1.5 % behind');
+  assert.equal(findOn(CODE, root, QUESTION, { top: 3, recall: true, weak: true, env: { MEM_RETRIEVE_TIE: '0.05' } }).ids.length, 4);
   const root2 = tiedMemory(NEAR);
-  assert.equal(find(CODE, root2, QUESTION, { top: 3, recall: true, weak: true, env: { MEM_RETRIEVE_TIE: '0' } }).ids.length, 3);
-  assert.equal(find(CODE, root2, QUESTION, { top: 3, recall: true, weak: true, env: { MEM_RETRIEVE_TIE: '1' } }).ids.length, 3, '1 means 100 %: the hard cut, not "take everything"');
+  assert.equal(findOn(CODE, root2, QUESTION, { top: 3, recall: true, weak: true, env: { MEM_RETRIEVE_TIE: '0' } }).ids.length, 3);
+  assert.equal(findOn(CODE, root2, QUESTION, { top: 3, recall: true, weak: true, env: { MEM_RETRIEVE_TIE: '1' } }).ids.length, 3, '1 means 100 %: the hard cut, not "take everything"');
   drop(root); drop(root2);
+});
+
+// --- the default: OFF ------------------------------------------------------
+
+test('default: the rule is off -- MEM_RETRIEVE_TIE unset is the hard cut, in `find --recall` and in the real hook', () => {
+  assert.equal(TIE_DEFAULT, 0);
+  assert.equal(tieSpread({}), 0);
+  const root = tiedMemory(NEAR);
+  try {
+    // precondition: with the switch on the same memory does give a fourth hit
+    assert.equal(find(CODE, root, QUESTION, { top: 3, recall: true, weak: true, env: ON }).ids.length, 4);
+    assert.equal(find(CODE, root, QUESTION, { top: 3, recall: true, weak: true }).ids.length, 3, 'find --recall cuts hard at top');
+    assert.equal(hookIds(CODE, root, QUESTION, { session: 'def1', env: ON }).ids.length, 4);
+    assert.equal(hookIds(CODE, root, QUESTION, { session: 'def2' }).ids.length, 3, 'the hook cuts hard at top');
+  } finally { drop(root); }
 });
 
 // --- D. the real hook, old state against now -----------------------------
@@ -143,13 +165,13 @@ test('hook: the OLD state shows three entries on a tie, the hook now four (RED o
   const old = oldTree();
   try {
     const prompt = QUESTION;
-    const before = hookIds(old, root, prompt, { session: 'old' });
-    const after = hookIds(CODE, root, prompt, { session: 'new' });
+    const before = hookOn(old, root, prompt, { session: 'old' });
+    const after = hookOn(CODE, root, prompt, { session: 'new' });
     assert.equal(before.ids.length, 3, `RED: the old hook cuts hard (${before.ids})`);
     assert.equal(after.ids.length, 4, `the hook now (${after.text})`);
     assert.deepEqual(after.ids.slice(0, 3), before.ids, 'the first three are the same');
     // control: the switch gives the old picture back on the NEW code
-    assert.equal(hookIds(CODE, root, prompt, { session: 'off', env: { MEM_RETRIEVE_TIE: '0' } }).ids.length, 3);
+    assert.equal(hookOn(CODE, root, prompt, { session: 'off', env: { MEM_RETRIEVE_TIE: '0' } }).ids.length, 3);
   } finally { drop(root); drop(old); }
 });
 
@@ -158,10 +180,10 @@ test('hook: with H5 the extra hit never lifts the hook past its five-line cap; b
   try {
     const h5 = { MEM_SEARCH_LEVERS: 'h5' };
     // top 5 (the H5 default) + 1 = 6 asked for, the H5 renderer holds five
-    assert.equal(hookIds(CODE, root, QUESTION, { session: 'h5a', env: h5 }).ids.length, 5);
+    assert.equal(hookOn(CODE, root, QUESTION, { session: 'h5a', env: h5 }).ids.length, 5);
     // top 4 + 1 = 5 fits under the cap; with the switch at 0 it is the hard cut 4
-    assert.equal(hookIds(CODE, root, QUESTION, { session: 'h5b', env: { ...h5, MEM_RETRIEVE_TOP: '4' } }).ids.length, 5);
-    assert.equal(hookIds(CODE, root, QUESTION, { session: 'h5c', env: { ...h5, MEM_RETRIEVE_TOP: '4', MEM_RETRIEVE_TIE: '0' } }).ids.length, 4);
+    assert.equal(hookOn(CODE, root, QUESTION, { session: 'h5b', env: { ...h5, MEM_RETRIEVE_TOP: '4' } }).ids.length, 5);
+    assert.equal(hookOn(CODE, root, QUESTION, { session: 'h5c', env: { ...h5, MEM_RETRIEVE_TOP: '4', MEM_RETRIEVE_TIE: '0' } }).ids.length, 4);
   } finally { drop(root); }
 });
 
@@ -176,7 +198,7 @@ test('server: the warm recall server answers a tie like the direct path (one fin
         const stop = () => x.close().then(() => process.exit(0));
         process.on('message', (m) => { if (m === 'stop') stop(); });
       });
-  `], { env: { ...process.env, MEM_RECALL_SERVER_DIR: '' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  `], { env: { ...process.env, ...ON, MEM_RECALL_SERVER_DIR: '' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
   try {
     let err = '';
     kid.stderr.on('data', (s) => { err += s; });
@@ -186,7 +208,7 @@ test('server: the warm recall server answers a tie like the direct path (one fin
     const client = path.join(CODE, 'bin', 'mem-retrieve-client.mjs');
     const out = execFileSync(process.execPath, [client, root, QUESTION, '3'], { encoding: 'utf8', env: { ...process.env, MEM_HOOK_START_MS: String(Date.now()) } });
     const viaServer = JSON.parse(out).hits.map((h) => h.entry.id);
-    const direct = find(CODE, root, QUESTION, { top: 3, recall: true }).ids;
+    const direct = findOn(CODE, root, QUESTION, { top: 3, recall: true }).ids;
     assert.equal(viaServer.length, 4, `server: ${viaServer}`);
     assert.deepEqual(viaServer, direct);
     assert.ok(place.CLIENT_RC);

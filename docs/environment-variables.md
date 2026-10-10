@@ -105,7 +105,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_FRESH_MIN` | 10 | Minutes the clone counts as fresh before the recall hook pulls. |
 | `MEM_RETRIEVE_MIN` | 5.0 | Score a hit needs before the recall hook shows it. |
 | `MEM_RETRIEVE_REMOTE` | origin | Remote the recall hook pulls from. |
-| `MEM_RETRIEVE_TIE` | 0.01 | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0` = the hard cut; valid above 0 up to 0.5, anything else is the hard cut). |
+| `MEM_RETRIEVE_TIE` | 0 (off) | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`). |
 | `MEM_RETRIEVE_TIME` | 5 seconds | Time budget of one recall search, server and direct fallback alike. |
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
 | `MEM_SKILLUSAGE_DAYS` | 30 | Days of capture coverage `mem skills usage` needs before it gives a verdict. |

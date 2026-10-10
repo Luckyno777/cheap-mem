@@ -10,7 +10,12 @@
  * of two near-equal hits decided by accident which of them went out. Now
  * the first remaining hit whose score is at most `spread` (relative, 1 %)
  * below the last shown one comes along. Cap: ONE hit more, however many
- * others lie inside the spread.
+ * others lie inside the spread. As in lucky-mem a remaining hit that scores
+ * ABOVE the last shown one (MMR had moved it back) qualifies too.
+ *
+ * **Ships OFF in cheap-mem.** Measured on the gold set (3000 notes) 7 of 10
+ * extra hits lay above the score of rank 3, none was a wanted entry, and the
+ * only gold loss was an older version of the same decision (see below).
  *
  * **Where it acts.** Only on the recall hook's own call (`mem find
  * --recall`, which `bin/mem-retrieve`, its PowerShell twin and the warm
@@ -23,8 +28,16 @@
  * ONE place for the rule, so that the cut has no second copy.
  */
 
-/** Relative spread, default 1 % (`MEM_RETRIEVE_TIE`; `0` switches it off). */
-export const TIE_DEFAULT = 0.01;
+/**
+ * Default: OFF (0). The rule is built and measured, and ships switched off:
+ * on cheap-mem's gold set it gained nothing and cost one gold case (see
+ * docs/recall-levers-2026-10-10.md, `node bench/recall-levers.mjs`).
+ * `MEM_RETRIEVE_TIE=0.01` is the 1 % of lucky-mem.
+ */
+export const TIE_DEFAULT = 0;
+
+/** The spread lucky-mem ships with (1 %); what `MEM_RETRIEVE_TIE=0.01` asks for. */
+export const TIE_SPREAD_LM = 0.01;
 
 // Upper bound for the spread: 0.5 = 50 %. Someone who sets `MEM_RETRIEVE_TIE=1`
 // meaning "1 %" means 0.01 and would take EVERY remaining hit with 1 (= 100 %);
@@ -53,7 +66,7 @@ export function tieSpread(env = process.env) {
  * qualifies, and a hit whose id is already among those shown is skipped
  * (the same entry must not stand twice). Always returns a new array.
  */
-export function cutWithTie(ordered, top, spread = TIE_DEFAULT) {
+export function cutWithTie(ordered, top, spread = TIE_SPREAD_LM) {
   const base = ordered.slice(0, top);
   if (!(finite(spread) && spread > 0 && spread <= SPREAD_MAX) || top < 1 || ordered.length <= top) return base;
   const last = ordered[top - 1]?.score;
