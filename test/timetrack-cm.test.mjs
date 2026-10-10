@@ -374,6 +374,123 @@ test('STATE falls back, never guesses: a state line with by_id, a duplicate id, 
   } finally { removeTree(root); }
 });
 
+test('STATE exact with a big tracked drawer next to a small drawer without a track (the usual shape of a real memory)', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(71);
+    const big = []; for (let i = 0; i < 1500; i += 1) big.push(plain(`b${i}`, i, r));
+    big.push(JSON.stringify({ id: 'tb1', ts: iso(BASE + 3000 * HOUR), retires_id: 'b900', state: 'done' }));
+    for (let i = 1500; i < 2500; i += 1) big.push(plain(`b${i}`, i, r));
+    const small = []; for (let i = 0; i < 200; i += 1) small.push(plain(`s${i}`, 5000 + i, r));
+    small.push(JSON.stringify({ id: 'ts1', ts: iso(BASE + 6000 * HOUR), retires_id: 's100', state: 'discarded' }));   // a small entry
+    small.push(JSON.stringify({ id: 'ts2', ts: iso(BASE + 6001 * HOUR), retires_id: 'b1200', state: 'done' }));        // a big entry, retired from the small drawer
+    put(root, 'learning', big);                                          // 'decision' comes before 'learning' in the file order
+    put(root, 'decision', small);
+    memory.buildTimeTracks(root);                                       // default sizes: only the big drawer gets a track
+    assert.equal(timetrack.readTrack(root, drawerFile(root, 'learning')).status, 'valid');
+    assert.equal(timetrack.readTrack(root, drawerFile(root, 'decision')).status, 'missing');
+    for (const [id, h] of [['b900', 900], ['s100', 5100], ['b1200', 1200]]) {
+      const q = ask(root, BASE + h * HOUR, BASE + h * HOUR + 1, { root });
+      assert.equal(q.report.drawers.small, 1, JSON.stringify(q.report.drawers));
+      assert.equal(q.report.way, 'track', `${id}: ${q.report.reason}`);
+      assert.equal(q.report.stateResolved, true, id);
+      assert.deepEqual(q.tracked, q.full, id);
+      assert.equal(q.tracked[0]?._retired?.state, id === 's100' ? 'discarded' : 'done', id);
+    }
+    // a EARLIER line with the id b900 in the small drawer (read in full, so seen): the candidate is no longer the first line
+    fs.appendFileSync(drawerFile(root, 'decision'), `${plain('b900', 7000, r)}\n`);
+    const dup = ask(root, BASE + 900 * HOUR, BASE + 900 * HOUR + 1, { root });
+    assert.deepEqual(dup.tracked, dup.full);
+    assert.equal(dup.report.reason, 'state', 'a second line with the id b900 (in the small drawer) means the first-line proof does not hold');
+  } finally { removeTree(root); }
+});
+
+test('a valid track whose side file is missing, broken, torn or of another prefix asks for a rebuild and takes the full scan; the rebuild repairs it', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(72);
+    const lines = [];
+    for (let i = 0; i < 300; i += 1) lines.push(plain(`m${i}`, i, r));
+    lines.push(JSON.stringify({ id: 'mt1', ts: iso(BASE + 3000 * HOUR), retires_id: 'm150', state: 'done' }));
+    for (let i = 300; i < 900; i += 1) lines.push(plain(`m${i}`, i + 4000, r));
+    const p = put(root, 'duty', lines);
+    memory.buildTimeTracks(root, SMALL);
+    const aux = timetrack.trackPath(root, p).replace(/\.json$/, '.aux.json');
+    const good = fs.readFileSync(aux, 'utf8');
+    const first = JSON.parse(good);
+    const probe = () => ask(root, BASE + 150 * HOUR, BASE + 150 * HOUR + 1, { root });
+    const ok = probe();
+    assert.equal(ok.report.stateResolved, true);
+    assert.equal(ok.report.buildNeeded, false);
+
+    // an older side file: append so the track is extended, then put the old side file back (torn pair)
+    fs.appendFileSync(p, `${Array.from({ length: 400 }, (_, i) => plain(`z${i}`, 9000 + i, r)).join('\n')}\n`);
+    memory.buildTimeTracks(root, SMALL);
+    const extended = fs.readFileSync(aux, 'utf8');
+    assert.notEqual(JSON.parse(extended).covered, first.covered, 'the side file moved with the extension');
+    const cases = {
+      missing: null,
+      'not JSON': 'torn{',
+      'old prefix (torn pair)': good,
+      'other fingerprint': JSON.stringify({ ...JSON.parse(extended), fp: 'deadbeef' }),
+    };
+    for (const [name, content] of Object.entries(cases)) {
+      if (content === null) fs.rmSync(aux, { force: true }); else fs.writeFileSync(aux, content);
+      const q = probe();
+      assert.deepEqual(q.tracked, q.full, name);
+      assert.equal(q.report.reason, 'state', `${name}: ${q.report.way}/${q.report.reason}`);
+      assert.equal(q.report.buildNeeded, true, `${name}: a rebuild is asked for`);
+      assert.equal(memory.buildTimeTracks(root, SMALL).built, 1, `${name}: the track is rebuilt from scratch`);
+      const again = probe();
+      assert.equal(again.report.stateResolved, true, `${name}: exact again after the rebuild`);
+      assert.equal(again.report.buildNeeded, false);
+      fs.writeFileSync(aux, fs.readFileSync(aux, 'utf8'));
+    }
+  } finally { removeTree(root); }
+});
+
+test('a line with two "id" keys in a skipped block switches the exact answer off for the question (it could hide a duplicate id)', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(73);
+    const lines = [];
+    for (let i = 0; i < 300; i += 1) lines.push(plain(`k${i}`, i, r));
+    lines[10] = `{"id":"other","id":"k150","ts":"${iso(BASE + 10 * HOUR)}","text":"two id keys: JSON.parse reads the last; its block lies outside the window"}`;
+    lines.push(JSON.stringify({ id: 'kt', ts: iso(BASE + 3000 * HOUR), retires_id: 'k150', state: 'done' }));
+    for (let i = 300; i < 900; i += 1) lines.push(plain(`k${i}`, i + 4000, r));
+    put(root, 'duty', lines);
+    memory.buildTimeTracks(root, SMALL);
+    const q = ask(root, BASE + 150 * HOUR, BASE + 150 * HOUR + 1, { root });
+    assert.deepEqual(q.tracked, q.full);
+    assert.equal(q.report.way, 'full');
+    assert.equal(q.report.reason, 'state', 'the ambiguous line makes the first-line proof impossible');
+    const free = ask(root, BASE + 100 * HOUR, BASE + 100 * HOUR + 1, { root });
+    assert.equal(free.report.way, 'track', 'a window without a named candidate is not affected');
+  } finally { removeTree(root); }
+});
+
+test('a candidate in the TAIL that a state line in the covered prefix names is settled exactly', () => {
+  const root = tmpRoot();
+  try {
+    const r = rng(74);
+    const lines = [];
+    for (let i = 0; i < 200; i += 1) lines.push(plain(`t${i}`, i, r));
+    lines.push(JSON.stringify({ id: 'tt', ts: iso(BASE + 3000 * HOUR), retires_id: 'tail1', state: 'done' }));   // the tombstone comes BEFORE its target
+    for (let i = 200; i < 800; i += 1) lines.push(plain(`t${i}`, i + 4000, r));
+    const p = put(root, 'duty', lines);
+    memory.buildTimeTracks(root, SMALL);
+    fs.appendFileSync(p, `${plain('tail1', 9500, r)}\n`);                                                      // the target arrives later, in the tail
+    const data = timetrack.readTrack(root, p).data;
+    assert.ok(data.covered < fs.statSync(p).size);
+    const q = ask(root, BASE + 9500 * HOUR, BASE + 9500 * HOUR + 1, { root });
+    assert.equal(q.tracked.length, 1);
+    assert.equal(q.report.way, 'track', `${q.report.reason}`);
+    assert.equal(q.report.stateResolved, true);
+    assert.deepEqual(q.tracked, q.full);
+    assert.equal(q.tracked[0]._retired?.state, 'done');
+  } finally { removeTree(root); }
+});
+
 test('STATE: a duplicate id shared with a state line is still annotated (the state line\'s own id is in the track)', () => {
   const root = tmpRoot();
   try {

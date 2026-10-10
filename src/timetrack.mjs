@@ -63,9 +63,19 @@
 // read. Whatever cannot be settled that way takes the full scan, `reason:
 // 'state'`: a candidate that is itself a correction line, a state line with a
 // `by_id` (the successor's line is needed), a state line sharing the id of a
-// candidate, a duplicate id outside the lines read, an id that cannot be read
-// from the text, a drawer without a track. A tombstone in the window is no hit
-// and forces nothing.
+// candidate, a duplicate id outside the lines read, a drawer that is big and has
+// no usable track (a build is asked for), a missing or torn side file (a
+// rebuild is asked for). A small drawer without a track is read in full, so
+// everything in it is seen and it takes part in the proof. A line whose id
+// cannot be read from the text (two "id" keys) is counted in the side file;
+// one such line anywhere in the covered prefix, or among the lines read, turns
+// the exact answer off for the question, because it could hide a duplicate id.
+// A tombstone in the window is no hit and forces nothing.
+//
+// The side file grows linearly with the memory: about 5.3 bytes per line for
+// the id hashes (base64 of 4 bytes) plus the state records, so roughly 5 MB per
+// million lines; it is read and its hashes counted only when a named candidate
+// is in the window.
 //
 // ## Known limits
 //
@@ -501,7 +511,11 @@ export function* windowLines(root, drawerFile, fromMs, toMs, scan, fail, fi = 0)
       && (!data || (size - data.builtSize >= data.blockBytes && size - data.covered >= 2 * data.blockBytes))) report.buildNeeded = true;
 
     const readBlocks = new Set();
-    scan.info.set(drawerFile, { fi, data, readBlocks });
+    // A small drawer without a track is read in full, so every id and state line in it is seen:
+    // it takes part in the exact answer (`counted`). A big one without a usable track is not
+    // counted (a build is asked for) and the question takes the full scan if it needs the exact answer.
+    const counted = data !== null || status === 'small';
+    scan.info.set(drawerFile, { fi, data, counted, readBlocks });
     const runs = [];
     if (!data) {
       runs.push({ from: 0, to: Infinity, n0: 0 });
@@ -533,7 +547,7 @@ export function* windowLines(root, drawerFile, fromMs, toMs, scan, fail, fi = 0)
         if (r.from > 0 && readAt(fd, r.from - 1, 1)[0] !== 10) throw new StaleTrack(rel, `offset ${r.from} is not a line start`);
         for (const line of linesFrom(fd, r.from, r.to, r.n0, count)) {
           delivered = true;
-          if (data) noteId(scan, fi, line.nr, line.text, line.off < data.covered);
+          if (counted) noteId(scan, fi, line.nr, line.text, data !== null && line.off < data.covered);
           yield line;
         }
       }
@@ -588,9 +602,13 @@ export function resolveRetired(root, scan, candidates, { retiredMap, isClosing, 
   if (named.size === 0) return new Map();
   const aux = new Map();
   for (const [p, inf] of scan.info) {
-    if (!inf.data) return null;
+    if (!inf.data) {
+      if (inf.counted) continue;      // read in full: its ids and state lines are all in the scan
+      return null;
+    }
     const a = readAux(root, p, inf.data);
-    if (!a || a.ambiguous > 0) return null;
+    if (!a) { scan.report.buildNeeded = true; return null; }   // a valid track without its side file: rebuild it
+    if (a.ambiguous > 0) return null;
     aux.set(p, a);
   }
   // (1) the state lines naming a candidate: the ones already read, and the recorded blocks
