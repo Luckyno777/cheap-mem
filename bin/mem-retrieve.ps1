@@ -80,10 +80,10 @@ $env:MEM_RH_START_MS = $HookStartMs
 # still works.
 function Get-ProbeRoots {
   if (-not $env:MEM_RETRIEVE_ROOTS) {
-    # The two POSIX defaults are kept verbatim for parity with the bash
-    # hook: on Windows they simply never exist, which costs one failed
-    # Test-Path each.
-    return @((Join-Path $HOME 'cheap-mem'), '/work/cheap-mem', '/home/user/cheap-mem')
+    # Same default as the bash hook: the home directory's cheap-mem
+    # (on Windows %USERPROFILE%\cheap-mem), nothing else. No fixed path of
+    # another machine is ever probed.
+    return @(Join-Path $HOME 'cheap-mem')
   }
   if ($env:MEM_RETRIEVE_ROOTS.Contains(';')) {
     return $env:MEM_RETRIEVE_ROOTS -split ';' | Where-Object { $_ }

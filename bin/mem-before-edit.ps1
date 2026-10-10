@@ -74,7 +74,7 @@ if ($env:MEM_HOOK_OFF -eq '1') { Write-Trace 'hook-off'; exit 0 }
 # a whitespace split would tear `C:\Program Files\...` in half.
 function Get-ProbeRoots {
   if (-not $env:MEM_RETRIEVE_ROOTS) {
-    return @((Join-Path $HOME 'cheap-mem'), '/work/cheap-mem', '/home/user/cheap-mem')
+    return @(Join-Path $HOME 'cheap-mem')
   }
   if ($env:MEM_RETRIEVE_ROOTS.Contains(';')) {
     return $env:MEM_RETRIEVE_ROOTS -split ';' | Where-Object { $_ }

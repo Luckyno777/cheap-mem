@@ -14,6 +14,20 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — the hooks no longer probe the maintainer's machine paths (behaviour change)
+
+The default root chain of the recall, before-edit, after-failure, catch-fail,
+subagent-start and stop hooks (six POSIX scripts and their six `.ps1` twins) is now `CHEAP_MEM_ROOT`, then `$HOME/cheap-mem` (`%USERPROFILE%\cheap-mem` on
+Windows), and nothing else. `/work/cheap-mem` and `/home/user/cheap-mem` are
+gone: on a shared machine a hook could read a stranger's memory from there and
+the stop hook could push into it; on Windows `/work` means nothing.
+`MEM_RETRIEVE_ROOTS` and `MEM_STOP_ROOTS` still replace the list.
+
+**Release note.** If your memory lives at `/work/cheap-mem` and you ran the
+hooks without `CHEAP_MEM_ROOT`, set `CHEAP_MEM_ROOT` (the installer does) or
+`MEM_RETRIEVE_ROOTS` / `MEM_STOP_ROOTS`. `test/hook-root-chain.test.mjs` proves
+it: the old source finds a root at a relocated old place, the new one does not.
+
 ### Added — the injection journal says where the session ran (`origin`), and `bench/injection-by-origin.mjs`
 
 A line of `.pipeline/injections.jsonl` carries `origin`: `cloud`, `ssh`, `local` or

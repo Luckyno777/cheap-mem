@@ -38,7 +38,7 @@ $env:MEM_AF_START_MS = [string][DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 
 function Get-ProbeRoots {
   if (-not $env:MEM_RETRIEVE_ROOTS) {
-    return @((Join-Path $HOME 'cheap-mem'), '/work/cheap-mem', '/home/user/cheap-mem')
+    return @(Join-Path $HOME 'cheap-mem')
   }
   if ($env:MEM_RETRIEVE_ROOTS.Contains(';')) {
     return $env:MEM_RETRIEVE_ROOTS -split ';' | Where-Object { $_ }

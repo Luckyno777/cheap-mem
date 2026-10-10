@@ -53,7 +53,7 @@ _sig='(not ok|(Uncaught[[:space:]]+)?[A-Za-z]*Error:|FAIL([^A-Za-z0-9_]|$)|fatal
 [[ "$IN" =~ $_start$_sig ]] || exit 0
 unset _start _sig
 
-PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
 ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do

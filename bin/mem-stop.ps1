@@ -71,7 +71,7 @@ if ($env:MEM_HEADLESS) { exit 0 }
 # `C:\Program Files\...` in half.
 function Get-ProbeRoots {
   if (-not $env:MEM_STOP_ROOTS) {
-    return @((Join-Path $HOME 'cheap-mem'), '/work/cheap-mem', '/home/user/cheap-mem')
+    return @(Join-Path $HOME 'cheap-mem')
   }
   if ($env:MEM_STOP_ROOTS.Contains(';')) {
     return $env:MEM_STOP_ROOTS -split ';' | Where-Object { $_ }
