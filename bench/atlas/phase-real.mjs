@@ -12,7 +12,7 @@
 // against it inherits whatever gap sits between the guess and the
 // grown thing.
 //
-// `/home/user/lucky-mem` is the closest thing to ground truth this repo
+// The sister clone (lucky-mem) is the closest thing to ground truth this repo
 // can reach: the same design under German names (`TYPEN`, `bin/mem`,
 // `LUCKY_MEM_*`), grown by a person's daily use for months. Nobody
 // shaped its type mix, its entry lengths or its tag habits to be
@@ -68,10 +68,16 @@ import {
   captureQuietCalibrationBaseline, CALIBRATION_LOAD_FACTOR,
 } from './core.mjs';
 import { FIELD_WEIGHTS } from '../../src/search.mjs';
+import { siblingClone } from '../../src/sibling.mjs';
 
 // --- where the sister house lives, and how to drive it -----------------
 
-const LUCKY_MEM_ROOT = '/home/user/lucky-mem';
+// No fixed machine path: the sister clone is found the way the doctor finds it
+// (beside this checkout, or beside the main checkout of a linked worktree).
+// Where there is none, the first candidate is a path that does not exist, and
+// the phase reports "not measured" instead of reading somebody else's tree.
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const LUCKY_MEM_ROOT = siblingClone(REPO_ROOT) ?? path.join(path.dirname(REPO_ROOT), 'lucky-mem');
 const LUCKY_MEM_BIN = path.join(LUCKY_MEM_ROOT, 'bin', 'mem');
 
 // Verified against that checkout's `bin/mem` (the line reading
