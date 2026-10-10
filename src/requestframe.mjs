@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 /**
  * requestframe — the form of a request is not the subject of a question.
- * Ported from lucky-mem (`src/suche.mjs#ohneBittRahmen`, finding zcq542jvmifj).
+ * A port of the sibling house's request-frame strip (finding zcq542jvmifj).
  *
  * **The finding (lucky-mem).** Asked "explain the theory of relativity", the
  * word "explain" carried the search (its stem stood in 20 entries) and

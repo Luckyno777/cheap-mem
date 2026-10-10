@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 /**
- * tiecut — the cut at `top` with a guard for a tie. Ported from lucky-mem
- * (`src/gleichstand.mjs#schneideMitGleichstand`, decision 11p8eskakvf5).
+ * tiecut — the cut at `top` with a guard for a tie. A port of the sibling
+ * house's tie cut (decision 11p8eskakvf5).
  *
  * **The finding.** The recall hook asks `mem find --top N` and shows what
  * comes back. When the first hit that did NOT make the cut scores almost

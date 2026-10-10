@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 //
-// The cut with a guard for a tie -- port of lucky-mem's "Antwortschranke bei
-// Gleichstand" (src/gleichstand.mjs, decision 11p8eskakvf5).
+// The cut with a guard for a tie -- port of the sibling house's tie cut
+// (decision 11p8eskakvf5).
 //
 // The recall hook cut the ordered list hard at `top`. When the first hit behind
 // the cut scored almost exactly like the last one before it, the order of two
