@@ -22,10 +22,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { build } from './corpus.mjs';
 import { TASKS, grade, erfundeneZahlen } from './tasks.mjs';
 import * as arms from './arms.mjs';
+import {
+  callModel, standaloneProbe, paidPreflight, harnessOptions, thinkingLevel, accountFindings, redactAccount,
+} from './model-call.mjs';
 import * as retrieval from '../src/retrieval.mjs';
 import { grantProject } from '../src/capability.mjs';
 import { PROJECT } from './world.mjs';
@@ -41,6 +43,13 @@ const TOP = Number(arg('top', '5'));
 // new records stay comparable with the old ones.
 const COND = arg('corpus', 'sauber');
 const OUT = arg('out', `eval/runs/pair-${COND}-${Date.now()}.jsonl`);
+
+// The test model has NO tools, and that is proven, not assumed (see
+// eval/model-call.mjs): --tool-probe / --account-check, each one call and
+// each needing --yes; pass the --out the run will use.
+const { thinking: THINKING, ident: IDENT, factor: LOAD_FACTOR } = harnessOptions(argv);
+const probeExit = standaloneProbe(argv, { out: OUT, model: MODEL, system: arms.SYSTEM });
+if (probeExit !== null) process.exit(probeExit);
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-paar-'));
 build(root, {
@@ -95,6 +104,12 @@ const calls = pairs.length * 2 * RUNS;
 console.log(`\nModel calls: ${calls}   Rough cost: ~${(calls * 0.05).toFixed(2)} USD`);
 if (!argv.includes('--yes')) { console.log('\nDry run. Pass --yes to actually run it.'); fs.rmSync(root, { recursive: true, force: true }); process.exit(0); }
 
+{
+  const pre = paidPreflight({ out: OUT, model: MODEL, thinking: THINKING, factor: LOAD_FACTOR, system: arms.SYSTEM });
+  if (!pre.ok) { console.log(`Abort: ${pre.reason}.`); fs.rmSync(root, { recursive: true, force: true }); process.exit(pre.reason.startsWith('load gate') ? 3 : 2); }
+}
+const THINKING_LEVEL = thinkingLevel({ thinking: THINKING });
+
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 const sink = fs.createWriteStream(OUT, { flags: 'a' });
 const CC = 'cache_creation_input' + '_tok' + 'ens';
@@ -102,34 +117,16 @@ const CR = 'cache_read_input' + '_tok' + 'ens';
 const OT = 'output' + '_tok' + 'ens';
 
 function ask(prompt) {
-  const t0 = Date.now();
+  // One shared call (eval/model-call.mjs): `--restricted`, `--tools ""` (an
+  // allow list of nothing, no deny list), no skills, no MCP, an empty working
+  // directory and an explicit thinking level. The reasons sit there.
   try {
-    const d = JSON.parse(execFileSync('claude', [
-      // **`--restricted`, and it is not a mere precaution.**
-      //
-      // Measured on 2026-09-16: without this flag the measurement run
-      // inherits the measuring machine's startup context. The CLI runs
-      // the user-level SessionStart hooks, and their output sits in the
-      // context of every question. In the paired run from that same day,
-      // 9 of 192 answers cited notes foreign to the test corpus — counted
-      // as "invented numbers," even though the model had read them, not
-      // invented them.
-      //
-      // Positive control used to verify the flag: a question answerable
-      // ONLY from the hook text. Without the flag the answer came
-      // through; with it, "NO CONTEXT". `--settings` with empty hooks is
-      // NOT enough, the user-level file still gets mixed in; `--bare`
-      // does turn the hooks off, but breaks login.
-      '--restricted',
-      '-p', prompt, '--model', MODEL, '--output-format', 'json',
-      '--system-prompt', arms.SYSTEM, '--exclude-dynamic-system-prompt-sections',
-      '--disallowedTools', 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch', 'Task',
-    ], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 240000 }));
+    const { result: d, ms } = callModel(prompt, { system: arms.SYSTEM, model: MODEL, thinking: THINKING });
     const u = d.usage ?? {};
-    return { text: String(d.result ?? ''), ms: Date.now() - t0,
+    return { text: String(d.result ?? ''), ms,
       cli: (u[CC] ?? 0) + (u[CR] ?? 0), out: u[OT] ?? 0, cost: d.total_cost_usd ?? 0, error: null };
   } catch (e) {
-    return { text: '', ms: Date.now() - t0, cli: 0, out: 0, cost: 0, error: String(e.message).slice(0, 160) };
+    return { text: '', ms: 0, cli: 0, out: 0, cost: 0, error: String(e.message).slice(0, 160) };
   }
 }
 
@@ -146,13 +143,16 @@ for (const p of pairs) {
       // answer that occur neither in the question nor in the context.
       // Meaningful only for tasks with gold — class F rightly counts as 0.
       const inv = erfundeneZahlen(a.text, p.t.prompt, context);
+      // The grade ran on the original; what is STORED has the account's name taken out.
+      const own = `${arms.SYSTEM}\n${prompt}`;
       sink.write(JSON.stringify({
         lauf: RUN_ID, task_id: p.t.id, klasse: p.t.klasse, bedingung: bed, run,
         korpus: COND, model: MODEL, schwelle: MIN,
+        thinking: THINKING_LEVEL, tools: 'off', account_findings: accountFindings(a.text, own, IDENT),
         claim_ids: claims.map((c) => c.id), entfernt: p.entfernt,
         prompt_tok: est(arms.SYSTEM) + est(prompt), cli_tok: a.cli, aus_tok: a.out,
         ms: a.ms, kosten: a.cost, fehler: a.error,
-        antwort: a.text, erfolg: g.success, gates: g.gates,
+        antwort: redactAccount(a.text, IDENT, own), erfolg: g.success, gates: g.gates,
         zahlen: inv.gesamt, erfunden: inv.erfunden, welche: inv.welche,
       }) + '\n');
       n += 1;

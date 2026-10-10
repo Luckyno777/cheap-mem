@@ -31,6 +31,10 @@
 //   `--settings`    with empty hooks does NOT help — the user-level file
 //                   is merged in anyway
 //   `--restricted`  the positive control answered "KEIN-KONTEXT"
+// Since the hardening of the eval harness the call lives in ONE module,
+// eval/model-call.mjs (test/eval-model-call.test.mjs tests its behaviour); this
+// guard keeps watching that nobody calls the CLI a second way next to it.
+//
 // Covers assurances from shared/invariants.jsonl. The id is the
 // shared language between the houses; the prose there names the
 // incident that forced it.
@@ -43,59 +47,69 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Every file that shells out to the agent CLI. */
-function caller() {
-  const drop = [];
+const SHELL_OUT = /\b(?:execFileSync|spawnSync|execSync|execFile|spawn)\(\s*['"`]claude['"`]/;
+
+/** The shared call module and the harness scripts that must go through it. */
+const SHARED = path.join(REPO, 'eval', 'model-call.mjs');
+const HARNESS = ['eval/run.mjs', 'eval/pair.mjs'];
+
+/** Every file in eval/ and bench/ that shells out to the agent CLI by itself (not through the shared module). */
+function directCallers() {
+  const out = [];
   for (const dir of ['eval', 'bench']) {
     const d = path.join(REPO, dir);
     if (!fs.existsSync(d)) continue;
     for (const n of fs.readdirSync(d).filter((x) => x.endsWith('.mjs'))) {
-      const rel = path.join(dir, n);
-      const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
-      if (/execFileSync\(\s*'claude'/.test(text)) drop.push({ rel, text });
+      const rel = `${dir}/${n}`;
+      if (SHELL_OUT.test(fs.readFileSync(path.join(REPO, rel), 'utf8'))) out.push(rel);
     }
   }
-  return drop;
+  return out;
 }
 
-test('POSITIVE: the probe finds the files that call the CLI', () => {
-  // Without this, a renamed harness would make the guard below pass by
+/** The text of the argument list `buildArgs` returns. */
+function argList() {
+  const text = fs.readFileSync(SHARED, 'utf8');
+  const i = text.indexOf('export function buildArgs');
+  const j = text.indexOf('return [', i);
+  const k = text.indexOf('\n  ];', j);
+  assert.ok(i > 0 && j > i && k > j, 'cannot find the argument list of buildArgs');
+  return { text, start: i, list: text.slice(j, k) };
+}
+
+test('POSITIVE: the shared module exists and the harness scripts go through it', () => {
+  // Without this, a renamed module would make the guards below pass by
   // finding nothing — the failure mode this whole file exists to catch.
-  const a = caller();
-  assert.ok(a.length >= 2,
-    `only ${a.length} CLI callers found — the probe looks in the wrong place, `
-    + 'or the harness moved. Either way this guard is checking nothing.');
+  assert.ok(fs.existsSync(SHARED), 'eval/model-call.mjs is gone — the guards below check nothing');
+  for (const rel of HARNESS) {
+    const text = fs.readFileSync(path.join(REPO, rel), 'utf8');
+    assert.match(text, /from '\.\/model-call\.mjs'/, `${rel} does not import the shared call`);
+    assert.match(text, /\bcallModel\(/, `${rel} does not call the model through callModel`);
+  }
 });
 
-test('every CLI call in a measurement passes --restricted', () => {
-  // The flag keeps the operator's SessionStart hooks out of the answer.
-  // Without it the run measures the machine as much as the memory.
-  const without = caller().filter((a) => !/'--restricted'/.test(a.text));
-  assert.deepEqual(without.map((a) => a.rel), [],
-    'these measurement harnesses would inherit the operator\'s session context');
+test('POSITIVE: the probe that finds a direct CLI call does find one', () => {
+  assert.ok(SHELL_OUT.test("execFileSync('claude', ['-p'])"));
+  assert.ok(SHELL_OUT.test('spawnSync("claude", args)'));
+  assert.ok(!SHELL_OUT.test('spawnSync(command, args)'));
+});
+
+test('no harness script calls the CLI by itself (one call, one set of flags)', () => {
+  assert.deepEqual(directCallers(), [],
+    'these scripts call `claude` directly: they would miss --restricted, --tools "" and the thinking level');
 });
 
 test('--restricted sits in the argument list, not in a comment', () => {
   // A guard that a comment can satisfy is not a guard. The flag has to
-  // be inside the execFileSync argument array to do anything.
-  for (const { rel, text } of caller()) {
-    const i = text.indexOf("execFileSync('claude'");
-    const bis = text.indexOf('], {', i);
-    assert.ok(bis > i, `${rel}: cannot find the end of the argument list`);
-    const args = text.slice(i, bis);
-    assert.match(args, /'--restricted'/,
-      `${rel}: --restricted is mentioned somewhere, but not in the arguments`);
-  }
+  // be inside the argument array to do anything.
+  assert.match(argList().list, /'--restricted'/);
 });
 
 test('the reason is written down where the flag is', () => {
   // A flag nobody understands gets removed by the next person who finds
   // it in the way. The measurement that justified it has to travel with
   // it — this project has lost guards to "looked unnecessary" before.
-  for (const { rel, text } of caller()) {
-    const i = text.indexOf("'--restricted'");
-    const before = text.slice(Math.max(0, i - 1400), i);
-    assert.match(before, /SessionStart|Hook/i,
-      `${rel}: --restricted stands there without saying what it keeps out`);
-  }
+  const { text, start } = argList();
+  const before = text.slice(Math.max(0, start - 2600), start);
+  assert.match(before, /SessionStart|Hook/i, '--restricted stands there without saying what it keeps out');
 });

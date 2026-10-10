@@ -32,6 +32,7 @@ wasted money.
 | `flood.mjs` | at what volume does sheer mass displace the truth? | no |
 | `metrics.mjs` | ceiling and floor of the benefit, all gates | no |
 | `run.mjs` | do agents solve the task better with memory? | **yes** |
+| `model-call.mjs` | the one hardened call that `run.mjs` and `pair.mjs` make, and its probes | only the probes (1 call each) |
 
 `run.mjs` without `--yes` is a dry run and only names the cost.
 
@@ -410,6 +411,55 @@ displacement, concretely measured, without a model.
 real one's density (median 563 versus 551 characters), but not yet its
 score distribution (42% over the threshold versus 93%). The 28% is a
 property of this benchmark, not a statement about real operation.
+
+## Test model without tools (2026-10-10)
+
+Every call of the harness goes through `model-call.mjs`. It runs
+`claude --restricted --tools "" --disable-slash-commands --strict-mcp-config
+--no-session-persistence` in an empty temp directory, with the thinking level
+set explicitly. Three findings stand behind that.
+
+**Allow list of nothing, not a deny list.** `run.mjs` and `pair.mjs` used to
+pass `--disallowedTools Bash Read Write …`. A measurement run elsewhere with the
+same kind of deny list (ten names) still saw the test model use artifact and
+session-message tools: tools the list had never heard of. A deny list forgets
+the next new tool; `--tools ""` ("disable all tools", `claude --help`) cannot.
+`test/eval-model-call.test.mjs` fails if a deny list comes back, and
+`test/eval-context-guard.test.mjs` fails if a script calls the CLI next to the
+shared module.
+
+**The proof is the init event, not the flag and not the model's answer.**
+
+```
+node eval/run.mjs  --tool-probe --yes --out eval/runs/<name>.jsonl
+node eval/pair.mjs --tool-probe --yes --out eval/runs/<name>.jsonl
+```
+
+One call, `--output-format stream-json`; the receipt (`<out>.tool-probe.json`)
+passes only if the init event lists `tools: []`. No init event is no proof, and
+neither is the model's answer: asked for its tools, a tool-free Haiku call still
+listed names (`Read`, `Edit` … or `bash`, `curl` …), guessed from its prompt.
+A
+paid run (`--yes`) takes the proof itself first, unless a receipt for the same
+model sits beside its `--out`, and stops if the model has any tool. The load
+gate (`--load-factor`, default 2 x cores) runs before a paid call as well.
+
+**Thinking level.** A call inherits the thinking budget of the session that
+measures (one session had `MAX_THINKING_TOKENS=31999`, `CLAUDE_EFFORT=high`:
+about ten times the cost per call). The level is set on the child: thinking off
+by default, `--thinking` turns it on, and every result line carries `thinking`
+and `tools: "off"`.
+
+**Account context.** In a run elsewhere the test model named the account
+holder's full surname, which stood in no prompt: account context travels with
+the login. cheap-mem ships empty, so the identity is not written down; it is
+derived from `git config user.name` / `user.email` or passed with
+`--account-name` / `--account-email`. Result lines carry `account_findings` as
+labels (`account:name`, `account:email`, `account:name-part`), never as text,
+and the stored answer has those pieces replaced by `[NAME-REDACTED]`; what the
+call's own prompt contained is reading, not a leak. `--account-check --yes` is
+the positive control: one call that asks for the user's full name without
+context and only counts the result.
 
 ## Open
 
