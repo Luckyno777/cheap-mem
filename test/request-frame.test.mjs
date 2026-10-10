@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Lucky H.
 // SPDX-License-Identifier: MIT
 //
-// The request frame is not the subject -- port of lucky-mem's "Bitt-Rahmen"
-// (src/suche.mjs#ohneBittRahmen, finding zcq542jvmifj).
+// The request frame is not the subject -- port of the sibling house's
+// request-frame strip (finding zcq542jvmifj).
 //
 // Asked "explain the theory of relativity", the word "explain" carried the
 // search and brought up entries about an "explainer page"; the model then
