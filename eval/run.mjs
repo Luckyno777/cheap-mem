@@ -9,10 +9,12 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { build } from './corpus.mjs';
 import { TASKS, grade } from './tasks.mjs';
 import * as arms from './arms.mjs';
+import {
+  callModel, standaloneProbe, paidPreflight, harnessOptions, thinkingLevel, accountFindings, redactAccount,
+} from './model-call.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : d; };
@@ -27,6 +29,15 @@ const MIN = Number(arg('min', '5.0'));
 const TOP = Number(arg('top', '5'));
 const OUT = arg('out', `eval/runs/${SPLIT}-${Date.now()}.jsonl`);
 const SEED = Number(arg('seed', '7'));
+
+// The test model has NO tools, and that is proven, not assumed:
+//   --tool-probe     one call, the init event must say `tools: []`
+//   --account-check  one call, does the call see the account's name? (counted)
+// Both need --yes; pass the same --out the run will use (the receipt sits
+// beside it). A paid run takes the tool proof itself if none is on file.
+const { thinking: THINKING, ident: IDENT, factor: LOAD_FACTOR } = harnessOptions(argv);
+const probeExit = standaloneProbe(argv, { out: OUT, model: MODEL, system: arms.SYSTEM });
+if (probeExit !== null) process.exit(probeExit);
 
 // `--only A1,B2` for a follow-up run: as the task set grows, tasks
 // already measured need not be paid for again. The old lines stay
@@ -46,6 +57,11 @@ console.log(`Tasks ${tasks.length} (${SPLIT}) x arms ${ARMS.join('')} x corpus $
 console.log(`Model calls: ${totalCalls}`);
 console.log(`Rough cost at ~0.05 USD/call: ~${(totalCalls * 0.05).toFixed(2)} USD`);
 if (!flag('yes')) { console.log('\nDry run. Pass --yes to actually run it.'); process.exit(0); }
+{
+  const pre = paidPreflight({ out: OUT, model: MODEL, thinking: THINKING, factor: LOAD_FACTOR, system: arms.SYSTEM });
+  if (!pre.ok) { console.log(`Abort: ${pre.reason}.`); process.exit(pre.reason.startsWith('load gate') ? 3 : 2); }
+}
+const THINKING_LEVEL = thinkingLevel({ thinking: THINKING });
 
 fs.mkdirSync(path.dirname(OUT), { recursive: true });
 const sink = fs.createWriteStream(OUT, { flags: 'a' });
@@ -61,35 +77,14 @@ const CR = 'cache_read_input' + '_tok' + 'ens';
 const IN = 'input' + '_tok' + 'ens';
 
 function ask(prompt) {
-  const t0 = Date.now();
-  const out = execFileSync('claude', [
-    // **`--restricted`, and it is not a mere precaution.**
-    //
-    // Measured on 2026-09-16: without this flag the measurement run
-    // inherits the measuring machine's startup context. The CLI runs
-    // the user-level SessionStart hooks, and their output sits in the
-    // context of every question. In the paired run from that same day,
-    // 9 of 192 answers cited notes foreign to the test corpus — counted
-    // as "invented numbers," even though the model had read them, not
-    // invented them.
-    //
-    // Positive control used to verify the flag: a question answerable
-    // ONLY from the hook text. Without the flag the answer came through;
-    // with it, "NO CONTEXT". `--settings` with empty hooks is NOT
-    // enough, the user-level file still gets mixed in; `--bare` does
-    // turn the hooks off, but breaks login.
-    '--restricted',
-    '-p', prompt, '--model', MODEL, '--output-format', 'json',
-    '--system-prompt', arms.SYSTEM,
-    '--exclude-dynamic-system-prompt-sections',
-    '--disallowedTools', 'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep',
-    'WebFetch', 'WebSearch', 'Task', 'NotebookEdit',
-  ], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024, timeout: 240000 });
-  const d = JSON.parse(out);
+  // One shared call (eval/model-call.mjs): `--restricted`, `--tools ""` (an
+  // allow list of nothing, no deny list), no skills, no MCP, an empty working
+  // directory and an explicit thinking level. The reasons sit there.
+  const { result: d, ms } = callModel(prompt, { system: arms.SYSTEM, model: MODEL, thinking: THINKING });
   const u = d.usage ?? {};
   return {
     text: String(d.result ?? ''),
-    ms: Date.now() - t0,
+    ms,
     cliTok: (u[CC] ?? 0) + (u[CR] ?? 0) + (u[IN] ?? 0),
     outTok: u[String.fromCharCode(111,117,116,112,117,116)+"_t"+"okens"] ?? 0,
     cost: d.total_cost_usd ?? null,
@@ -136,20 +131,25 @@ for (const cond of CORPORA) {
     for (const arm of ARMS) {
       for (let run = 0; run < RUNS; run += 1) {
         const p1 = arms.buildPrompt(arm, task, ctx);
-        let a1, a2 = null, answer, promptTok = est(arms.SYSTEM) + est(p1);
+        let a1, a2 = null, p2 = '', answer, promptTok = est(arms.SYSTEM) + est(p1);
         try { a1 = ask(p1); } catch (e) { a1 = { text: '', ms: 0, cliTok: 0, outTok: 0, cost: null, apiError: String(e.message).slice(0, 200) }; }
         answer = a1.text;
         if (arm === 'E' || arm === 'F') {
           // F retrieves ONLY AFTER the draft — using the draft as the query.
           const cl = arm === 'F' ? arms.recall(root, `${task.prompt} ${a1.text}`, { top: TOP, min: MIN }).claims : r.claims;
-          const p2 = arms.contradictionPrompt(task, a1.text, cl);
+          p2 = arms.contradictionPrompt(task, a1.text, cl);
           promptTok += est(p2);
           try { a2 = ask(p2); answer = a2.text; } catch (e) { a2 = { text: '', ms: 0, cliTok: 0, outTok: 0, cost: null, apiError: String(e.message).slice(0, 200) }; }
         }
         const g = grade(task, answer);
+        // The grade ran on the original; what is STORED has the account's name
+        // taken out (labels of what was found go beside it, never the text).
+        const own = `${arms.SYSTEM}\n${p1}\n${p2}`;
+        const findings = accountFindings(`${a1.text}\n${a2?.text ?? ''}`, own, IDENT);
         const rec = {
           run_id: RUN_ID, task_id: task.id, klasse: task.klasse, split: task.split,
           arm, corpus: cond, run, model: MODEL, seed: SEED,
+          thinking: THINKING_LEVEL, tools: 'off', account_findings: findings,
           retrieval: {
             threshold: MIN, top: TOP,
             claim_ids: r.claims.map((c) => c.id), scores: r.claims.map((c) => Number(c.score.toFixed(3))),
@@ -163,7 +163,7 @@ for (const cond of CORPORA) {
           latency_ms: a1.ms + (a2?.ms ?? 0),
           cost_usd: (a1.cost ?? 0) + (a2?.cost ?? 0),
           api_error: a1.apiError ?? a2?.apiError ?? null,
-          answer, draft: a2 ? a1.text : null,
+          answer: redactAccount(answer, IDENT, own), draft: a2 ? redactAccount(a1.text, IDENT, own) : null,
           success: g.success, must: g.must, must_not: g.mustNot, gates: g.gates,
         };
         sink.write(JSON.stringify(rec) + '\n');
