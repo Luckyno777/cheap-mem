@@ -42,6 +42,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import * as memory from './memory.mjs';
 import * as integrity from './integrity.mjs';
+import * as drawermemo from './drawermemo.mjs';
 import * as semantics from './semantics.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
 
@@ -63,12 +64,18 @@ export function observe(root) {
   let newestTs = null;
 
   for (const f of integrity.logFiles(root)) {
-    let raw;
-    try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
     const entries = [];
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try { entries.push(JSON.parse(line)); } catch { /* integrity reports this */ }
+    // Inside a doctor run the drawer was parsed once already (src/drawermemo.mjs).
+    const memoRows = drawermemo.rowsOf(f.abs);
+    if (memoRows) {
+      for (const e of memoRows.vals) if (e !== drawermemo.NOT_JSON) entries.push(drawermemo.copyOf(e));
+    } else {
+      let raw;
+      try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        try { entries.push(JSON.parse(line)); } catch { /* integrity reports this */ }
+      }
     }
     claims += entries.length;
     for (const e of entries) {
