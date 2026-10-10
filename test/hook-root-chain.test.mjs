@@ -24,6 +24,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { removeTree } from './fixture/cleanup.mjs';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Fixed commit (origin/main before the change), never a moving merge-base.
@@ -101,9 +102,9 @@ for (const h of HOOKS) {
         assert.equal(before.root, place, `positive control: the old chain must find ${f}`);
         const after = run(relocate(chainOf(now), fake), env);
         assert.equal(after.root, '', `the new chain must not probe ${f}`);
-        fs.rmSync(place, { recursive: true });
+        removeTree(place);
       }
-    } finally { fs.rmSync(base, { recursive: true, force: true }); }
+    } finally { removeTree(base); }
   });
 
   test(`${h.name}: CHEAP_MEM_ROOT, $HOME/cheap-mem and the override still find a memory`, posixOnly, () => {
@@ -125,7 +126,7 @@ for (const h of HOOKS) {
       assert.equal(ov.probe, elsewhere);
       const none = run(chain, { HOME: home, [h.roots]: path.join(base, 'nope') });
       assert.equal(none.root, '', 'an override that points nowhere does not fall back to $HOME');
-    } finally { fs.rmSync(base, { recursive: true, force: true }); }
+    } finally { removeTree(base); }
   });
 
   test(`${h.name}.ps1: the default list is Join-Path $HOME 'cheap-mem' and nothing else`, () => {
