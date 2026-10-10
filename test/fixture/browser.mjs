@@ -24,7 +24,7 @@
 // (2 of 9, reproducible, orchestrator-confirmed). So: whoever calls the
 // fixture picks the args -- `startBrowser({ args: [] })` for dash-fix4,
 // every other caller unchanged (no argument = default).
-/* global document -- these run inside the page (browser), not in Node */
+/* global document, graphAPI -- these run inside the page (browser), not in Node */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -223,6 +223,30 @@ export async function waitReady(page) {
     () => typeof sections === 'object' && !document.querySelector('#screen .loading'),
     null,
     { timeout: 30000 },
+  );
+}
+
+/**
+ * Ready WITH the network: `waitReady` plus "the 3-D network build of the start page is through"
+ * (job fresh-cm, 2026-10-10; mirrors lucky-mem's `warteNetz`, commit de69a930, report palette-wettlauf-lm).
+ *
+ * **Cause (measured in lucky-mem; cheap-mem defers `initGraph()` the same way, assets/dashboard/dashboard.js in
+ * `render()`).** `waitReady` is true as soon as the loading tile is gone. The page builds the 3-D network ON PURPOSE one
+ * frame LATER (`requestAnimationFrame` + `setTimeout 0`, tempo 2026-09-28), and that build holds the page's main
+ * thread synchronously: context, shaders, first frame - 1 to 3 s quiet, 35 to 45 s under machine load (software GL).
+ * A probe that types right after `waitReady` can finish typing BEFORE the build; then the debounce timer and the request
+ * of the page stand still until the build ends, and every deadline of the probe runs out meanwhile (lucky-mem:
+ * "answer false, 0 questions", request sent 27 s after the typing; here: "new: palette finds the why entry 0 !== 1").
+ *
+ * **Fix.** Also wait for the END of that build: `graphAPI` is set (it is set at the very end of `initGraph()`), or the
+ * list view stands (no WebGL: `.graph-fallback` visible). Same upper bound as `waitReady`'s neighbours, no waiting
+ * time of its own: when the network is there, it goes on at once. Only for pages that show the start page with the network.
+ */
+export async function waitGraph(page) {
+  await page.waitForFunction(
+    () => (typeof graphAPI === 'object' && graphAPI !== null) || document.querySelector('.graph-fallback')?.hidden === false,
+    null,
+    { timeout: 90000, polling: 100 }, // a timer, not rAF: with a busy compositor no frames come
   );
 }
 

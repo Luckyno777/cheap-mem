@@ -16,7 +16,17 @@
 // file turns every uncaught page exception red (`lazyBrowser({ pageerror: true })`).
 // The search is a fragment from the middle of a word: the old palette finds the entry neither in the
 // excerpt nor via the ranked search (word search), the full text finds it as a substring.
-/* global document, fulltextPalette, getComputedStyle -- these run inside the page (browser), not in Node */
+//
+// 2026-10-10 (job fresh-cm; mirrors lucky-mem de69a930 / report palette-wettlauf-lm): the chain flake "new: palette finds
+// the why entry 0 !== 1" (first browser probe) was a race of the probe's READINESS. `waitReady` is true when the loading
+// tile is gone; the page builds the 3-D network (`initGraph`) one frame LATER and holds its main thread meanwhile (1-3 s
+// quiet, 35-45 s under load). A probe that typed in the gap finished typing before the page could serve its debounce and
+// its request, and the 8 s deadline of `waitForResponse` (which also started BEFORE the typing) ran out: no answer, 0 hits.
+// Now: `waitGraph` first (the build is through before anything is typed), the answer is recognised by the page's own
+// state (`fulltextPalette.q` is the typed text, set only when an answer to the CURRENT input was applied), the deadline
+// counts from AFTER the typing, and the fixed 300 ms wait is gone. Probe "race" pins the order of events with an
+// emulation (positive control: the build really began; old readiness RED, `waitGraph` GREEN).
+/* global document, window, requestAnimationFrame, fulltextPalette, getComputedStyle -- these run inside the page (browser), not in Node */
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -24,7 +34,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
-import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
+import { lazyBrowser, browserStartProbe, waitReady, waitGraph, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
 import * as memory from '../src/memory.mjs';
 
@@ -80,7 +90,35 @@ async function withServer(r, env, run) {
   }
 }
 
-async function paletteSearch(base, typed, { client = null, route = null, delay = 0, settle = null, ranked = false } = {}) {
+// The emulated race (see waitGraph in test/fixture/browser.mjs): the start page's network build (`initGraph`, deferred in
+// render() by requestAnimationFrame + setTimeout 0) is HELD and begins LATE: as soon as the input has `chars` characters,
+// else after `start` ms (the fallback is for probes that do not type before the network: waitGraph waits for it). It then
+// holds the page's main thread for `stall` ms (software GL under load: measured 35-45 s). Holding makes the order "typed
+// first, build after" compulsory; in the chain it was chance.
+async function emulateLateNetwork(page, { start, stall, chars }) {
+  await page.addInitScript(([s0, s1, z]) => {
+    const st = window.setTimeout.bind(window);
+    const raf = window.requestAnimationFrame.bind(window);
+    let release = null, typedEnough = false;
+    const go = () => { if (!release) return; const f = release; release = null; st(f, 0); };
+    window.requestAnimationFrame = (f) => {
+      if (typeof f === 'function' && String(f).includes('initGraph')) {
+        release = () => { window.__stallBegan = true; const e = performance.now() + s1; while (performance.now() < e); raf(f); };
+        if (typedEnough) go(); else st(go, s0);
+        return 0;
+      }
+      return raf(f);
+    };
+    document.addEventListener('input', (ev) => { if ((ev.target?.value || '').length >= z) { typedEnough = true; go(); } }, true);
+  }, [start, stall, chars]);
+}
+
+// The answer to EXACTLY this input has arrived in the page AND been applied: `fulltextPalette.q` is set only when an answer
+// to the current input was processed (reset when the field is emptied), and `redrawPalette()` follows in the same call. A state
+// of the page instead of a network event: it stays, so there is no race between "the answer came" and "the probe waits already".
+const answerApplied = (page, typed, ms) => page.waitForFunction((q) => fulltextPalette.q === q, typed, { timeout: ms, polling: 50 }).then(() => true, () => false);
+
+async function paletteSearch(base, typed, { client = null, route = null, delay = 0, settle = null, ranked = false, network = true, emulate = null } = {}) {
   const { browser } = await B.get();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   const errors = []; // what the page threw (the fixture guard also reports it when the probe ends)
@@ -88,8 +126,13 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
   try {
     if (client) await page.route('**/dashboard/app.js*', (rt) => rt.fulfill({ status: 200, contentType: 'text/javascript; charset=utf-8', body: client }));
     if (route) await page.route('**/api/fulltext*', (rt) => route(rt, page));
+    if (emulate) await emulateLateNetwork(page, emulate);
     await page.goto(base + '/dashboard', { waitUntil: 'load' }); // never networkidle
     await waitReady(page);
+    // Race (chain 2026-10-10, "0 !== 1"): "ready" only means the loading tile is gone. The page builds the 3-D network one
+    // frame LATER and holds its main thread for 1-3 s, under load 35-45 s; whoever types before has its debounce and its
+    // request standing until every deadline below has run out. `network: false` is the old readiness (race probe only).
+    if (network) await waitGraph(page);
     // Under load the key press can arrive before the handler: press again until the field has focus.
     let open = false;
     for (let i = 0; i < 6 && !open; i++) {
@@ -97,17 +140,22 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
       open = await page.waitForFunction(() => document.activeElement?.id === 'commandInput', null, { timeout: 5000 }).then(() => true, () => false);
     }
     assert.ok(open, 'the palette opens');
-    // No fixed wait (900 ms was not enough under a full suite, chain red
-    // 2026-09-30): wait for the full-text answer to the LAST input, then
-    // one paint tick. The old client never asks — there the cap runs out,
-    // and the result is what it shows without full text.
-    const answer = page.waitForResponse((r) => r.url().includes('/api/fulltext') && new URL(r.url()).searchParams.get('q') === typed, { timeout: 8000 }).catch(() => null);
+    // No fixed wait (900 ms was not enough under a full suite, chain red 2026-09-30): wait for the answer to the LAST
+    // input (`answerApplied`; deadline 20 s counted AFTER the typing, the typing itself does not belong in the deadline
+    // of the answer). The old client has no `fulltextPalette` and never asks: nothing to wait for, all inputs are
+    // processed after two frames and a timer round, and the result is what it shows without full text.
+    // The two probes with `settle` (stale answers) synchronise on the late answer themselves and keep the event of
+    // the final response plus one paint tick.
+    const answer = settle ? page.waitForResponse((r) => r.url().includes('/api/fulltext') && new URL(r.url()).searchParams.get('q') === typed, { timeout: 8000 }).catch(() => null) : null;
+    const asked = [];
+    page.on('request', (r) => { if (r.url().includes('/api/fulltext')) asked.push(r.url()); });
     await page.keyboard.type(typed, { delay });
-    await answer;
-    if (settle) await settle(page);
+    let answered = null; // diagnosis: was the answer to the last input applied? (null: old client / settle probes)
+    if (settle) { await answer; await settle(page); await page.waitForTimeout(300); }
+    else if (client) await page.evaluate(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(ok, 0)))));
+    else answered = await answerApplied(page, typed, emulate ? emulate.deadlineAfterTyping : 20000);
     // The ranked block: wait for its heading (cap 5 s) — the broken client never draws it.
     if (ranked) await page.waitForFunction(() => document.querySelector('#commandMemory .label'), null, { timeout: 5000 }).catch(() => null);
-    await page.waitForTimeout(300);
     // With a failing route: wait for the VISIBLE notice (cap 5 s) — 300 ms
     // after the 500 answer was not enough under a full suite (2026-09-30).
     if (route) {
@@ -119,13 +167,15 @@ async function paletteSearch(base, typed, { client = null, route = null, delay =
       rankedHits: [...document.querySelectorAll('#commandMemory [data-search-entry]')].map((b) => b.textContent),
       focus: document.activeElement?.id,
       value: document.getElementById('commandInput')?.value,
+      empty: /Nothing found/.test(document.getElementById('commandResults')?.textContent || ''), // the input was processed and the result is empty
+      stallBegan: window.__stallBegan === true,
       notice: (() => {
         const h = document.getElementById('fulltextNoticePalette');
         if (!h) return null;
         const cs = getComputedStyle(h);
         return { visible: cs.display !== 'none' && cs.visibility !== 'hidden' && h.getClientRects().length > 0, text: h.textContent };
       })(),
-    })).then((x) => ({ ...x, errors }));
+    })).then((x) => ({ ...x, errors, answered, asked: asked.length }));
   } finally {
     await page.close();
   }
@@ -136,17 +186,48 @@ test('palette-fulltext: browser — why word GREEN with the new client, RED with
   const r = world();
   await withServer(r, {}, async (base) => {
     const fresh = await paletteSearch(base, 'brafinchcounc');
-    assert.equal(fresh.hits.filter((z) => /First choice/.test(z)).length, 1, 'new: palette finds the why entry');
+    assert.equal(fresh.hits.filter((z) => /First choice/.test(z)).length, 1, `new: palette finds the why entry (diagnosis: answer applied ${fresh.answered}, ${fresh.asked} questions, ${fresh.hits.length} hits, field '${fresh.value}')`);
     assert.equal(fresh.focus, 'commandInput');
     assert.equal(fresh.value, 'brafinchcounc');
     assert.equal(fresh.notice, null);
     const oldClient = old('assets/dashboard/dashboard.js');
     const red = await paletteSearch(base, 'brafinchcounc', { client: oldClient });
     assert.equal(red.hits.filter((z) => /First choice/.test(z)).length, 0, 'RED: the old client does not find it in the palette');
+    // The RED side must not be red "by chance" because the input was not processed yet: the palette shows its empty
+    // result ("Nothing found") for exactly this input, and the field holds the whole word.
+    assert.equal(red.value, 'brafinchcounc', 'RED: the input is complete in the field');
+    assert.equal(red.empty, true, 'RED: the palette processed the input and shows "Nothing found" (not: nothing has happened yet)');
+    assert.equal(red.asked, 0, 'the old client never asks the full text (so there is nothing to wait for)');
+    assert.ok(fresh.asked >= 1, 'positive control: the new client asks the full text');
     for (const [name, opt] of [['new', {}], ['old', { client: oldClient }]]) {
       const x = await paletteSearch(base, 'penguinpath', opt);
       assert.equal(x.hits.filter((z) => /Penguinpath/.test(z)).length, 1, `positive control (${name}): title word`);
     }
+  });
+});
+
+// RED proof of the race (job fresh-cm, 2026-10-10; mirrors lucky-mem's probe "Wettlauf"). The chain saw "new: palette finds
+// the why entry 0 !== 1": the probe had finished typing, the page had begun its 3-D network build only AFTERWARDS and held
+// its main thread (debounce, request) beyond every deadline. Here with the emulation, deterministic: the build begins as
+// soon as the last character stands in the field and lasts STALL ms; the deadline after the typing is shorter than the build.
+//   OLD readiness (`waitReady` only): the answer is not applied within the deadline - RED.
+//   NEW readiness (`waitGraph`):       the build is through BEFORE the typing; the answer comes - GREEN.
+// Positive control: in both cases the build really began (`stallBegan`) - the emulation bites. The numbers are scaled down
+// (real: deadline 20 s, build 35-45 s); they do not change the order of the events.
+const STALL_MS = 6000, DEADLINE_AFTER_TYPING_MS = 2500;
+test('palette-fulltext: browser — race: a long network build after the typing: old readiness RED, with waitGraph GREEN', async (t) => {
+  if (!(await B.need(t))) return;
+  const r = world();
+  await withServer(r, {}, async (base) => {
+    // old: the build begins ONLY with the last character (a fallback after `start` would be too early under load);
+    // new: types only after the build, so it may begin at once.
+    const old = await paletteSearch(base, 'brafinchcounc', { network: false, emulate: { start: 10 * 60 * 1000, stall: STALL_MS, chars: 13, deadlineAfterTyping: DEADLINE_AFTER_TYPING_MS } });
+    assert.equal(old.stallBegan, true, 'positive control (old): the network build began - the emulation bites');
+    assert.equal(old.answered, false, 'RED: without waitGraph the answer is not applied within the deadline after the typing (page in the network build)');
+    const now = await paletteSearch(base, 'brafinchcounc', { network: true, emulate: { start: 300, stall: STALL_MS, chars: 13, deadlineAfterTyping: DEADLINE_AFTER_TYPING_MS } });
+    assert.equal(now.stallBegan, true, 'positive control (new): the network build began - the emulation bites');
+    assert.equal(now.answered, true, 'GREEN: with waitGraph the build is through before the typing, the answer is applied within the deadline');
+    assert.equal(now.hits.filter((z) => /First choice/.test(z)).length, 1);
   });
 });
 
