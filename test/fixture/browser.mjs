@@ -24,7 +24,7 @@
 // (2 of 9, reproducible, orchestrator-confirmed). So: whoever calls the
 // fixture picks the args -- `startBrowser({ args: [] })` for dash-fix4,
 // every other caller unchanged (no argument = default).
-/* global document -- these run inside the page (browser), not in Node */
+/* global document, graphAPI -- these run inside the page (browser), not in Node */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -96,6 +96,7 @@ export async function launchBrowser({ args = DEFAULT_ARGS } = {}) {
     }
   }
   if (!browser) { release(); return { browser: null, reason: 'no startable Chromium', close: async () => {} }; }
+  keepPagesFresh(browser);
   // `reason: false`, NOT `null` -- `test(name, { skip: null }, fn)` on
   // node:test 22.22.2 wrongly tags the TAP line "# SKIP" even though the
   // test body really runs (found 2026-09-29: "31 screens" in the log, yet
@@ -226,6 +227,30 @@ export async function waitReady(page) {
 }
 
 /**
+ * Ready WITH the network: `waitReady` plus "the 3-D network build of the start page is through"
+ * (job fresh-cm, 2026-10-10; mirrors lucky-mem's `warteNetz`, commit de69a930, report palette-wettlauf-lm).
+ *
+ * **Cause (measured in lucky-mem; cheap-mem defers `initGraph()` the same way, assets/dashboard/dashboard.js in
+ * `render()`).** `waitReady` is true as soon as the loading tile is gone. The page builds the 3-D network ON PURPOSE one
+ * frame LATER (`requestAnimationFrame` + `setTimeout 0`, tempo 2026-09-28), and that build holds the page's main
+ * thread synchronously: context, shaders, first frame - 1 to 3 s quiet, 35 to 45 s under machine load (software GL).
+ * A probe that types right after `waitReady` can finish typing BEFORE the build; then the debounce timer and the request
+ * of the page stand still until the build ends, and every deadline of the probe runs out meanwhile (lucky-mem:
+ * "answer false, 0 questions", request sent 27 s after the typing; here: "new: palette finds the why entry 0 !== 1").
+ *
+ * **Fix.** Also wait for the END of that build: `graphAPI` is set (it is set at the very end of `initGraph()`), or the
+ * list view stands (no WebGL: `.graph-fallback` visible). Same upper bound as `waitReady`'s neighbours, no waiting
+ * time of its own: when the network is there, it goes on at once. Only for pages that show the start page with the network.
+ */
+export async function waitGraph(page) {
+  await page.waitForFunction(
+    () => (typeof graphAPI === 'object' && graphAPI !== null) || document.querySelector('.graph-fallback')?.hidden === false,
+    null,
+    { timeout: 90000, polling: 100 }, // a timer, not rAF: with a busy compositor no frames come
+  );
+}
+
+/**
  * Pay the cold start of the view server BEFORE the browser opens the page
  * (chain, 2026-10-07; mirrors lucky-mem commit 748f4b1e `waermeAnsicht`).
  *
@@ -257,6 +282,66 @@ export async function warmView(base, { cookie = '' } = {}) {
 }
 
 /**
+ * Bring the state of the view server up to date BEFORE a page asks for it (job fresh-cm, 2026-10-10; mirrors
+ * lucky-mem's `frischeAnsicht`, commits 8dff252b / 0d70358d).
+ *
+ * **Cause (measured in lucky-mem, the same code here).** The server's cache (`src/dashboard-cache.mjs`) holds a
+ * built state for `TTL_MS` = 60 s, counted from the END of the build. After that the next request rebuilds it, and for
+ * a small store (last build under `SYNC_UP_TO_MS` = 1 s, so in every probe) SYNCHRONOUSLY, inside that request.
+ * Server and Playwright client share ONE event loop: the rebuild holds it (the cold build here takes ~0.8 s even
+ * when the machine is quiet, a multiple of that under suite load), and it stands inside the deadline of the page
+ * that asked, because it is the page's own `/dashboard.json` request that pays for it. `warmView` at the start
+ * helps for one minute only; a file with several browser probes runs longer (palette-fulltext: eight probes, 2 min).
+ *
+ * **Fix.** Ask once for the same thing the page would ask for, before the page: if the state is too old, THIS
+ * request pays the rebuild (no deadline of a page runs meanwhile), and the page finds a fresh state and builds
+ * nothing. It applies to the synchronous lane (last build under 1 s); a longer build goes to the worker and does not
+ * freeze the client, then the request costs nothing and changes nothing. A fresh state costs a few milliseconds. No
+ * deadline lengthened, nothing repeated. Returns the cache part of the answer (`built_at`, `fresh`, ...), so a probe
+ * can see WHO built the state; `null` when the answer is no JSON (e.g. the sign-in page - it has still warmed).
+ */
+export async function freshView(base, { cookie = '' } = {}) {
+  const r = await fetch(base + '/dashboard.json', { headers: { 'accept-encoding': 'gzip', ...(cookie ? { cookie } : {}) } });
+  const text = await r.text();
+  try { return JSON.parse(text).cache ?? null; } catch { return null; }
+}
+
+// The view servers `startView` started and keeps fresh before every page navigation (base -> { fresh }).
+const VIEWS = new Map();
+const viewOf = (url) => {
+  for (const [base, v] of VIEWS) if (url === base || url.startsWith(base + '/') || url.startsWith(base + '?') || url.startsWith(base + '#')) return v;
+  return null;
+};
+
+/**
+ * Every navigation of a page to a view of this fixture (`page.goto`, `page.reload`) first brings the state up to
+ * date (`freshView`) - in ONE place instead of in every file. A page that goes anywhere else is untouched; an error
+ * of the request does not stop the navigation (it then fails with its own cause).
+ */
+export function freshPage(page) {
+  for (const name of ['goto', 'reload']) {
+    const orig = page[name].bind(page);
+    page[name] = async (...a) => {
+      const view = viewOf(name === 'goto' ? String(a[0]) : page.url());
+      if (view) { try { await view.fresh(); } catch { /* the navigation reports it itself */ } }
+      return orig(...a);
+    };
+  }
+  return page;
+}
+
+/** Every page of every context of this browser (also `browser.newPage`, which calls `newContext` itself) gets `freshPage`. */
+function keepPagesFresh(browser) {
+  const make = browser.newContext.bind(browser);
+  browser.newContext = async (...a) => {
+    const ctx = await make(...a);
+    const newPage = ctx.newPage.bind(ctx);
+    ctx.newPage = async (...b) => freshPage(await newPage(...b));
+    return ctx;
+  };
+}
+
+/**
  * The view server for browser probes -- warm, ALWAYS (job browser-warm-cm, 2026-10-09; port of lucky-mem's
  * `starteAnsicht`).
  *
@@ -276,16 +361,22 @@ export async function warmView(base, { cookie = '' } = {}) {
  * a ready cookie header (`login.COOKIE=session`) when login is on, so the warm-up sees the dashboard and
  * not the sign-in page. `afterFile`: close at the end of the file (else the caller closes per probe).
  * `MEM_PROBE_NO_WARMUP=1` switches the warm-up off -- only for the red proof (test/browser-cold-start.test.mjs).
- * Returns `{ base, server, mod, stop }`; `stop()` can be called repeatedly.
+ * `keepFresh` (default true): every navigation of a page of this fixture to this view first brings the state up to
+ * date (`freshPage`) - off when the file steers the cache itself with the probe switch
+ * `CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS` (there the "not fresh" answers and background builds come from the probe, a
+ * request before the page would change them), or with `keepFresh: false` (only with a reason in
+ * test/browser-fresh.test.mjs).
+ * Returns `{ base, server, mod, stop, fresh }`; `stop()` can be called repeatedly. `fresh()` brings the state up to
+ * date once more (`freshView`, with the same cookie).
  * Do NOT use it in a probe that measures the cold or stale state itself (board-tempo, dash-later,
  * atlas-pass, cat-confirm: see the list in test/browser-cold-start.test.mjs).
  */
-export async function startView(root, env, { serveOpts, repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..'), cookie = '', afterFile = false } = {}) {
+export async function startView(root, env, { serveOpts, repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..'), cookie = '', afterFile = false, keepFresh = true } = {}) {
   const mod = await import(`${pathToFileURL(path.join(repo, 'bin', 'mem-serve')).href}?view=${Math.random()}`);
   const { server } = await (serveOpts === undefined ? mod.serve(root, env) : mod.serve(root, env, serveOpts));
   const base = `http://127.0.0.1:${server.address().port}`;
   let closed = null;
-  const stop = () => (closed ??= new Promise((res) => { server.closeAllConnections?.(); server.close(res); }));
+  const stop = () => (closed ??= new Promise((res) => { VIEWS.delete(base); server.closeAllConnections?.(); server.close(res); }));
   if (afterFile) after(stop);
   try {
     await warmView(base, { cookie });
@@ -293,5 +384,9 @@ export async function startView(root, env, { serveOpts, repo = path.join(path.di
     await stop();
     throw e;
   }
-  return { base, server, mod, stop };
+  const fresh = () => freshView(base, { cookie });
+  // Not when the file steers the cache itself (the probe switch): "not fresh" answers and background builds come from the probe.
+  const steersItself = env?.CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS !== undefined;
+  if (keepFresh && !steersItself) VIEWS.set(base, { fresh });
+  return { base, server, mod, stop, fresh };
 }
