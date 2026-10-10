@@ -52,6 +52,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_REFLECT` | off (opt-in) | With `1` the stop hook starts the model-backed reflector. |
 | `MEM_RETRIEVE_NO_PULL` | off (the hook pulls when the clone is older than `MEM_RETRIEVE_FRESH_MIN`) | With `1` the recall hook never runs `git pull` first. |
 | `MEM_RETRIEVE_OFF` | off | The recall hook (the relevant entries shown on a question) is switched off by `1` |
+| `MEM_RETRIEVE_REQUEST_FRAME` | on (`0` switches it off) | With `0` the request frame at the start of a question ("explain", "can you show me") is searched like every other word, in the recall hook and in the content-word query. |
 | `MEM_REWRITES` | on (the table ships empty) | `off` switches the whole query-rewrite table off. |
 | `MEM_SEARCH_LEVERS` | the levers' own defaults | `off`, `all` or a list such as `h1,h3`: which Block H search levers are on (`mem search-levers`). |
 | `MEM_SKILL_ACCOUNT_OFFER` | on (`0` switches it off) | With `0` a skill offer no longer brings the two most important lines of the skill's experience account. |

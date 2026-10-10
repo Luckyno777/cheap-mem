@@ -43,6 +43,7 @@ import * as indexcache from './indexcache.mjs';
 import * as expand from './expand.mjs';
 import * as statequestion from './statequestion.mjs';
 import { dateAnchors } from './timeexpr.mjs';
+import { dropRequestFrame, requestFrameOn } from './requestframe.mjs';
 
 // Crypto-shredding reader (src/shred.mjs), loaded as tolerantly as
 // `memory.mjs` loads it: absent module -> encrypted entries read as
@@ -3082,9 +3083,13 @@ const FILLER = new Set([
 
 const SHORT_OK = new Set(['mem', 'pwa', 'api', 'css', 'git', 'vm', 'ui', 'ux', 'js', 'id']);
 
-/** Content words: at least four characters, not filler. */
-export function contentWords(text) {
-  const raw = String(text ?? '').toLowerCase()
+/**
+ * Content words: at least four characters, not filler. With `withoutRequest`
+ * the request frame at the start of the question ("explain", "can you show
+ * me") is not a word of the subject (src/requestframe.mjs).
+ */
+export function contentWords(text, { withoutRequest = false } = {}) {
+  const raw = (withoutRequest ? dropRequestFrame(text) : String(text ?? '')).toLowerCase()
     .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
@@ -3115,7 +3120,7 @@ export function contentWords(text) {
  */
 export const RETRIEVE_WORDS_MAX = 8;
 
-export function retrievalQuery(text, { root = null, index = null } = {}) {
+export function retrievalQuery(text, { root = null, index = null, requestFrame = undefined } = {}) {
   // **Date anchors survive the shortening (ported from lucky-mem,
   // 2026-10-01).** "what was on 2028-10-04" came out as "2028": "on" is
   // filler and the date crumbled into its parts. `mem find
@@ -3125,7 +3130,10 @@ export function retrievalQuery(text, { root = null, index = null } = {}) {
   // question (`hasTimeIntent`), and must not become one here either.
   const anchors = dateAnchors(String(text ?? ''));
   const anchorParts = new Set(anchors.flatMap((a) => a.split(/[^a-z0-9]+/)).filter(Boolean));
-  const w = contentWords(text).filter((x) => !anchorParts.has(x));
+  // The request frame ("explain me X") is no subject word (src/requestframe.mjs);
+  // `requestFrame` false = the old way, undefined = the switch MEM_RETRIEVE_REQUEST_FRAME.
+  const w = contentWords(text, { withoutRequest: requestFrame ?? requestFrameOn() })
+    .filter((x) => !anchorParts.has(x));
   const withAnchors = (words) => [...anchors, ...words].join(' ');
   if (!w.length) return anchors.length ? withAnchors([]) : String(text ?? '').trim();
   if (w.length <= RETRIEVE_WORDS_MAX) return withAnchors(w);

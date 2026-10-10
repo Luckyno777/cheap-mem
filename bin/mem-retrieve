@@ -21,6 +21,8 @@
 #   MEM_RETRIEVE_TIE      relative score spread (default 0.01) within which ONE
 #                         more hit comes along when it ties the last one shown;
 #                         0 = the hard cut (`mem find --recall`, src/tiecut.mjs)
+#   MEM_RETRIEVE_REQUEST_FRAME=0  search the request frame ("explain", "can you
+#                         show me") like every other word (src/requestframe.mjs)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
 #   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)

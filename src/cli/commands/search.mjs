@@ -30,6 +30,7 @@ import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import * as levers from '../../searchlevers.mjs';
 import * as questionsplit from '../../questionsplit.mjs';
+import * as requestframe from '../../requestframe.mjs';
 import * as tiecut from '../../tiecut.mjs';
 import * as variants from '../../variants.mjs';
 import * as workflow from '../../workflow.mjs';
@@ -133,9 +134,10 @@ export const COMMANDS = {
         '             by Reciprocal Rank Fusion (src/variants.mjs). No model here;',
         '             without it the search is unchanged.',
         '  --recall   the call of the recall hook (bin/mem-retrieve and the warm server pass',
-        '             it): a hit within 1 % of the last one shown comes along (at most one',
-        '             more than --top). Switch: MEM_RETRIEVE_TIE. A plain `mem find --top N`',
-        '             stays exactly N.',
+        '             it): the request frame of the question ("explain", "can you show me")',
+        '             is not searched, and a hit within 1 % of the last one shown comes',
+        '             along (at most one more than --top). Switches: MEM_RETRIEVE_REQUEST_FRAME,',
+        '             MEM_RETRIEVE_TIE. A plain `mem find --top N` stays exactly N.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
         '  --category only entries whose topic is assigned to this category',
         '             (confirmed or proposal; see `mem category list`)',
@@ -338,8 +340,18 @@ export const COMMANDS = {
     // question as typed.
     let rankedQuery = query;
     let extraTerms = wildcard.extraTerms;
+    // **The request frame (port of lucky-mem's Bitt-Rahmen), recall hook only.**
+    // "explain relativity" asks about relativity: "explain" is the form of the
+    // request, not its subject (src/requestframe.mjs). Only the RANKED query
+    // loses it; the exact lane, the echo filter and the time router below keep
+    // the question as typed. A question that would be left without a content
+    // word keeps the frame (better a vague search than none).
+    if (args.recall && requestframe.requestFrameOn()) {
+      const bare = requestframe.dropRequestFrame(rankedQuery);
+      if (bare !== rankedQuery && search.contentWords(bare).length) rankedQuery = bare;
+    }
     if (levers.active('h1')) {
-      const built = questionsplit.buildQuery(query, index);
+      const built = questionsplit.buildQuery(rankedQuery, index);
       if (built) {
         rankedQuery = built.query;
         if (built.extraTerms) {

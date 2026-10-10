@@ -59,6 +59,7 @@ directory. The section number in brackets is where it is explained.
 | `askedlearn.mjs` | query words learned from recall misses: a miss the same session then fetched by id teaches the entry the words it was asked with, in any language (`mem asked-learn`, M18b) |
 | `searchlevers.mjs` | Block H search levers, one switch `MEM_SEARCH_LEVERS` (`mem search-levers`): threshold by score gap (h3: a flat field of weak hits is withheld), context reorder (h2), short recall lines with counted loads (h5) |
 | `questionsplit.mjs` | Block H lever h1: the question split into core words (searched) and common words (damped by-catch that does not count in coverage) |
+| `requestframe.mjs` | the request frame of a question ("explain", "can you show me") is not its subject: the words are cut from the ranked query of the recall hook's `mem find --recall` and from the content-word query; `MEM_RETRIEVE_REQUEST_FRAME=0` is the old way |
 | `tiecut.mjs` | the cut at `top` with a guard for a tie: the recall hook's `mem find --recall` takes ONE more hit when the first one behind the cut scores within 1 % of the last shown (`MEM_RETRIEVE_TIE`; `0` = hard cut); an explicit `--top N` stays N |
 | `expand.mjs` | document expansion: the field `asked_as` (8 to 12 everyday phrasings written at capture time, checked at write time), read by the search only behind the switch `MEM_EXPAND=1` (weight 0.3, half coverage, stop words stripped, its own index cache) |
 | `archive.mjs` | the raw capture lives outside the repo — location, record, migration, export |
