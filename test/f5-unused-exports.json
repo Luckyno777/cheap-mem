@@ -22,7 +22,7 @@
  "src/component-table.mjs": 4,
  "src/config.mjs": 2,
  "src/console.mjs": 2,
- "src/dashboard-cache.mjs": 2,
+ "src/dashboard-cache.mjs": 1,
  "src/dashboard-data.mjs": 6,
  "src/dashboard-page.mjs": 1,
  "src/doctor.mjs": 6,
