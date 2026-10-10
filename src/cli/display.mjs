@@ -18,6 +18,7 @@ import fs from 'node:fs';
 import * as memory from '../memory.mjs';
 import * as retrieval from '../retrieval.mjs';
 import * as timesearch from '../timesearch.mjs';
+import * as timetrack from '../timetrack.mjs';
 import * as capability from '../capability.mjs';
 import * as procedure from '../procedure.mjs';
 import * as bidi from '../bidi.mjs';
@@ -109,9 +110,13 @@ export function showWindow(root, query, window, args, { asOf = null } = {}) {
   const windowCapability = args.project
     ? capability.grantProject(String(args.project), { subject: 'cli' })
     : capability.grantAll('cli');
+  const trackReport = timetrack.newReport();
   const all = timesearch.entriesInWindow(root, windowCapability, {
-    from: window.from, to: window.to, words,
+    from: window.from, to: window.to, words, report: trackReport,
   });
+  // A drawer big enough to matter has no usable time track (or a long tail):
+  // build it in the background, so the NEXT window question is fast.
+  if (trackReport.buildNeeded) timetrack.kickBuild(root);
   // **The time-window lane filters too.** Two different times, and they
   // do not clash: the window says WHEN something was written down,
   // `--as-of` says what HELD at a moment. Give both and you want both.

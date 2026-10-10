@@ -52,9 +52,16 @@ export function keywordsOf(query) {
  * caller (`cli/display.mjs`'s `showWindow`) mints the SAME capability
  * every other lane mints from `--project`, and `memory.find` alone
  * decides what that admits.
+ *
+ * **The time track.** `memory.find` reads only the blocks of each drawer
+ * that can hold a line in the window when a track exists (same hits, same
+ * order, same `_retired` annotations as the full scan — see
+ * `src/timetrack.mjs` for the limits). `track: false` forces the full scan;
+ * `report` (an object) receives `way`, `reason`, the counts and
+ * `buildNeeded`, which the CLI turns into a background build.
  */
 export function entriesInWindow(root, capability, {
-  from, to, words = [],
+  from, to, words = [], report = null, track = true,
 } = {}) {
   const fMs = from ? new Date(from).getTime() : -Infinity;
   const tMs = to ? new Date(to).getTime() : Infinity;
@@ -65,6 +72,9 @@ export function entriesInWindow(root, capability, {
   const hits = find(root, '', capability, {
     since: from || null, withRetired: true,
     windowMs: { from: fMs, to: tMs },
+    // `track` / `report`: the time track (src/timetrack.mjs) lets `find` skip
+    // what cannot be in the window; `report` says how the question was answered.
+    track, report,
     accept: (e) => {
       const t = e.ts ? new Date(e.ts).getTime() : NaN;
       if (Number.isNaN(t) || t < fMs || t >= tMs) return false;

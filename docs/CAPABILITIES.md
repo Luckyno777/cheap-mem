@@ -211,6 +211,7 @@ directory. The section number in brackets is where it is explained.
 | `thesaurus.mjs` | curated word groups plus what the memory learned |
 | `timeexpr.mjs` | natural language to a time window |
 | `timesearch.mjs` | retrieval by time window, no model |
+| `timetrack.mjs` | the time track: a derived block table per big drawer (`.mem/timetrack/`) so a time-window question reads only the blocks that can hold a line in the window; stale, missing or broken is read in full and said; built in the background, never in the asking process |
 | `userhabits.mjs` | generic, code-only habit meter over the user's own captures, configurable patterns (`mem user`) |
 | `goldlog.mjs` | the owner's rating of a real retrieval question (hit / near miss / no hit, from the journal's recorded reason — no invented scores), appended OUTSIDE the memory root; `mem gold today`/`mem gold rate` and the dashboard's Rate-today card share it (7.5) |
 | `variants.mjs` | variant fusion: up to 4 rewordings the CALLING agent writes are each searched with the same options and merged by Reciprocal Rank Fusion; the score stays a real search score; no model in the recall path (`mem find --variants "a\|b"`, `mem_find` field `variants`) |
@@ -399,6 +400,22 @@ at exactly BM25's cost. **No silent dependency.**
 `mem when "last friday between 3 and 8pm"` parses natural-language time
 expressions into a window and returns what was written in it, with
 provenance. No model. `src/timeexpr.mjs`, `src/timesearch.mjs`.
+
+On a big memory the window question does not read every drawer line: a
+derived **time track** (`src/timetrack.mjs`, under `.mem/timetrack/`, safe
+to delete) records per ~128 KiB block of a drawer the smallest and largest
+`ts`, and a window is answered from the blocks that can hold it plus the
+not-yet-covered tail. The first question on a big drawer reads in full and
+starts a detached background build (a lock file keeps it to one); the
+next one is fast. Same hits as the full scan, including retired entries:
+a window entry that a tombstone or correction names is settled by reading
+only the blocks of those state lines (the track records them and the
+hashes of all ids, to prove the entry is the first line with its id); the
+question falls back to the full scan only when that cannot be proved (the
+entry is itself a correction line, a state line with `by_id`, a duplicate
+id, a drawer without a track). A failed background build leaves a note
+and the next one waits ten minutes.
+Measured: `bench/timetrack-measure.mjs`.
 
 ### 2.6 Literal search
 
