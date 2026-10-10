@@ -30,6 +30,7 @@ import * as browse from '../../browse.mjs';
 import * as observations from '../../observations.mjs';
 import * as levers from '../../searchlevers.mjs';
 import * as questionsplit from '../../questionsplit.mjs';
+import * as tiecut from '../../tiecut.mjs';
 import * as variants from '../../variants.mjs';
 import * as workflow from '../../workflow.mjs';
 import * as snippet from '../../snippet.mjs';
@@ -131,6 +132,10 @@ export const COMMANDS = {
         '             cause. Each is searched on its own, the hit lists are merged',
         '             by Reciprocal Rank Fusion (src/variants.mjs). No model here;',
         '             without it the search is unchanged.',
+        '  --recall   the call of the recall hook (bin/mem-retrieve and the warm server pass',
+        '             it): a hit within 1 % of the last one shown comes along (at most one',
+        '             more than --top). Switch: MEM_RETRIEVE_TIE. A plain `mem find --top N`',
+        '             stays exactly N.',
         `  --type     one of ${Object.keys(memory.TYPES).join(', ')}`,
         '  --category only entries whose topic is assigned to this category',
         '             (confirmed or proposal; see `mem category list`)',
@@ -139,7 +144,7 @@ export const COMMANDS = {
     }
     checkFlags(args, ['type', 'project', 'since', 'as-of', 'top', 'literal', 'fresh',
       'no-raw', 'only-raw', 'json', 'with-retired', 'brief', 'no-mmr', 'mmr-lambda',
-      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak', 'variants', 'category'], 'find');
+      'content-words', 'with-echo', 'journal-session', 'journal-min', 'wildcard', 'weak', 'variants', 'category', 'recall'], 'find');
     const root = findRoot(args);
     const cfg = requireConfig(root);
     let query = rest[0];
@@ -449,9 +454,15 @@ export const COMMANDS = {
     // it one line further down would be absurd.
     const heldThen = (h) => !retrieval.blocksRecall(h.retired, withRetiredFlag)
       && (!asOf || retrieval.validAt({ ...(h.entry ?? h), retired: h.retired ?? null }, asOf));
-    const listed = [...exactMatches.filter(heldThen),
-      ...filtered.filter((h) => !exactIds.has(h.entry?.id)).filter(heldThen)]
-      .slice(0, wanted);
+    const ordered = [...exactMatches.filter(heldThen),
+      ...filtered.filter((h) => !exactIds.has(h.entry?.id)).filter(heldThen)];
+    const base = ordered.slice(0, wanted);
+    // **The cut with a guard for a tie (port of lucky-mem's Antwortschranke),
+    // recall hook only** (src/tiecut.mjs): the first hit behind the cut that
+    // scores within 1 % of the last one shown comes along, at most one. The
+    // answer gate below decides on the hard cut `base` alone, so the extra hit
+    // never turns a withheld answer into a shown one.
+    const listed = args.recall ? tiecut.cutWithTie(ordered, wanted, tiecut.tieSpread()) : base;
     // **H3 (Block H, ported from lucky-mem): threshold by score gap, for
     // the answer as a whole.** A list in which no hit is exact, strong, or
     // clearly ahead of the second is a flat field of near-equal scores —
@@ -461,8 +472,8 @@ export const COMMANDS = {
     // The rule and its calibration: `src/searchlevers.mjs` (occasion
     // `find`). `--weak` shows the list anyway.
     const gated = !args.weak && levers.active('h3')
-      && !levers.answerHolds(listed, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) });
-    const withheld = gated ? listed.length : 0;
+      && !levers.answerHolds(base, { occasion: 'find', bar: levers.findBar(index.statsN ?? index.N) });
+    const withheld = gated ? base.length : 0;
     for (const h of listed) delete h.covered;   // the gate's input, not part of the answer
     const hits = gated ? [] : listed;
     const ms = Date.now() - t0;
