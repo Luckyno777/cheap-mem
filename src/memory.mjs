@@ -32,6 +32,7 @@ import * as probescaffold from './probescaffold.mjs';
 import * as redaction from './redaction.mjs';
 import { maskEntry } from './outputguard.mjs';
 import * as expand from './expand.mjs';
+import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
 
 /**
@@ -1306,6 +1307,10 @@ function isMissing(e) { return Boolean(e) && (e.code === 'ENOENT' || e.code === 
 
 export function readLog(root, type, { project = null } = {}) {
   const p = logPath(root, type, project);
+  // Inside a doctor run the drawer was read and parsed once already
+  // (src/drawermemo.mjs); null = no run, missing or unreadable: read it here.
+  const memoRows = drawermemo.rowsOf(p);
+  if (memoRows) return { path: p, missing: false, entries: drawermemo.entriesOf(memoRows) };
   let text;
   try { text = fs.readFileSync(p, 'utf8'); } catch (e) {
     if (isMissing(e)) return { path: p, missing: true, entries: [] };
@@ -1381,6 +1386,10 @@ export function readLog(root, type, { project = null } = {}) {
  * `readLog` when it truly wants everything materialised.
  */
 export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
+  // Inside a doctor run (src/drawermemo.mjs) the lines are already parsed:
+  // the same sequence, from the memo. null = read it below, as always.
+  const memoRows = drawermemo.rowsOf(absPath);
+  if (memoRows) { yield* drawermemo.entriesOf(memoRows); return; }
   let fd;
   // Audit F04: only ENOENT/ENOTDIR is "there is none" (an empty sequence, as
   // before). Any other error throws `ReadError`; before: an empty sequence.
@@ -3113,11 +3122,22 @@ export function openDuties(root, { project = undefined } = {}) {
   for (const p of targets) {
     const file = logPath(root, 'duty', p);
     if (!fs.existsSync(file)) continue;
-    const lines = withoutBom(fs.readFileSync(file, 'utf8')).split('\n');
-    for (let i = 0; i < lines.length; i += 1) {
-      if (!lines[i].trim()) continue;
+    // Inside a doctor run the drawer was parsed once already (src/drawermemo.mjs).
+    const memoRows = drawermemo.rowsOf(file);
+    const lines = memoRows ? null : withoutBom(fs.readFileSync(file, 'utf8')).split('\n');
+    const count = memoRows ? memoRows.vals.length : lines.length;
+    for (let k = 0; k < count; k += 1) {
       let e;
-      try { e = JSON.parse(lines[i]); } catch { continue; }
+      let lineNo;
+      if (memoRows) {
+        if (memoRows.vals[k] === drawermemo.NOT_JSON) continue;
+        e = drawermemo.copyOf(memoRows.vals[k]);
+        lineNo = memoRows.nos[k];
+      } else {
+        if (!lines[k].trim()) continue;
+        try { e = JSON.parse(lines[k]); } catch { continue; }
+        lineNo = k + 1;
+      }
       if (e.closes_id) {
         closers.push(e);
         continue;
@@ -3127,7 +3147,7 @@ export function openDuties(root, { project = undefined } = {}) {
       all.set(e.id, {
         ...e,
         _source: asSource(root, file),
-        _line: i + 1,
+        _line: lineNo,
         _project: p,
       });
     }

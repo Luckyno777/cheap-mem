@@ -43,6 +43,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as chain from './chain.mjs';
+import * as drawermemo from './drawermemo.mjs';
 
 /** Longest supersession chain we follow before calling it pathological. */
 export const MAX_CHAIN = 64;
@@ -149,30 +150,32 @@ export function scanIntegrity(root) {
   const FUTURE_SLACK_MS = 5 * 60 * 1000;   // clock skew, not time travel
 
   for (const f of logFiles(root)) {
+    // Inside a doctor run the drawer was read and parsed once already
+    // (src/drawermemo.mjs): same lines, same numbers, no second parse.
+    const memoRows = drawermemo.rowsOf(f.abs);
     let raw;
-    try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); }
-    catch (e) { broken.push({ file: f.rel, line: 0, why: `unreadable: ${e?.code ?? 'ERROR'} ${e?.message ?? e}` }); continue; }
+    if (memoRows) raw = memoRows.raw;
+    else {
+      try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); }
+      catch (e) { broken.push({ file: f.rel, line: 0, why: `unreadable: ${e?.code ?? 'ERROR'} ${e?.message ?? e}` }); continue; }
+    }
     chainFiles.push({ rel: f.rel, raw, project: f.project, type: f.type });
 
-    const rows = raw.split('\n');
-    for (let i = 0; i < rows.length; i += 1) {
-      const row = rows[i];
-      if (!row.trim()) continue;
+    // One non-blank line, parsed (`e`; NOT_JSON when it is not JSON) at its 1-based line `no`.
+    const visit = (e, no) => {
       lines += 1;
-      let e;
-      try { e = JSON.parse(row); }
-      catch { broken.push({ file: f.rel, line: i + 1, why: 'not JSON' }); continue; }
+      if (e === drawermemo.NOT_JSON) { broken.push({ file: f.rel, line: no, why: 'not JSON' }); return; }
       if (!e || typeof e !== 'object' || Array.isArray(e)) {
-        broken.push({ file: f.rel, line: i + 1, why: 'not an object' });
-        continue;
+        broken.push({ file: f.rel, line: no, why: 'not an object' });
+        return;
       }
       entries += 1;
 
       if (typeof e.id === 'string' && e.id) {
         const at = seen.get(e.id);
-        if (at) at.push({ file: f.rel, line: i + 1 });
-        else seen.set(e.id, [{ file: f.rel, line: i + 1 }]);
-        claims.set(e.id, { replaces: e.replaces_id ?? e.replaces ?? null, file: f.rel, line: i + 1 });
+        if (at) at.push({ file: f.rel, line: no });
+        else seen.set(e.id, [{ file: f.rel, line: no }]);
+        claims.set(e.id, { replaces: e.replaces_id ?? e.replaces ?? null, file: f.rel, line: no });
       }
 
       // Timestamps.
@@ -196,21 +199,34 @@ export function scanIntegrity(root) {
       // corpus made entirely of `logEntry` writes will never trip this
       // by construction: nothing here fires on ordinary use.
       if (e.ts === undefined) {
-        badTimestamp.push({ file: f.rel, line: i + 1, id: e.id ?? null, why: 'missing ts' });
+        badTimestamp.push({ file: f.rel, line: no, id: e.id ?? null, why: 'missing ts' });
       } else {
         const t = Date.parse(e.ts);
         if (!Number.isFinite(t)) {
-          badTimestamp.push({ file: f.rel, line: i + 1, id: e.id ?? null, why: 'unparseable ts' });
+          badTimestamp.push({ file: f.rel, line: no, id: e.id ?? null, why: 'unparseable ts' });
         } else if (t > now + FUTURE_SLACK_MS) {
-          badTimestamp.push({ file: f.rel, line: i + 1, id: e.id ?? null, why: 'ts in the future' });
+          badTimestamp.push({ file: f.rel, line: no, id: e.id ?? null, why: 'ts in the future' });
         }
       }
       if (e.valid_from && e.valid_until) {
         const a = Date.parse(e.valid_from);
         const b = Date.parse(e.valid_until);
         if (Number.isFinite(a) && Number.isFinite(b) && b < a) {
-          badTimestamp.push({ file: f.rel, line: i + 1, id: e.id ?? null, why: 'valid_until before valid_from' });
+          badTimestamp.push({ file: f.rel, line: no, id: e.id ?? null, why: 'valid_until before valid_from' });
         }
+      }
+    };
+
+    if (memoRows) {
+      for (let i = 0; i < memoRows.vals.length; i += 1) visit(memoRows.vals[i], memoRows.nos[i]);
+    } else {
+      const rows = raw.split('\n');
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (!row.trim()) continue;
+        let e;
+        try { e = JSON.parse(row); } catch { e = drawermemo.NOT_JSON; }
+        visit(e, i + 1);
       }
     }
   }

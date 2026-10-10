@@ -31,6 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import * as memory from './memory.mjs';
+import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS, NON_BODY_FIELDS } from './bodyfields.mjs';
 import * as thesaurus from './thesaurus.mjs';
 import * as langbridge from './langbridge.mjs';
@@ -841,6 +842,19 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
       try { p = memory.logPath(root, type, project); }
       catch { continue; }
       if (!fs.existsSync(p)) continue;
+      // Inside a doctor run the drawer was parsed once already (src/drawermemo.mjs).
+      const memoRows = drawermemo.rowsOf(p);
+      if (memoRows) {
+        for (let k = 0; k < memoRows.vals.length; k += 1) {
+          if (memoRows.vals[k] === drawermemo.NOT_JSON) continue;
+          rawEntries.push({
+            entry: drawermemo.copyOf(memoRows.vals[k]), type, project,
+            source: memory.asSource(root, p),
+            line: memoRows.nos[k],
+          });
+        }
+        continue;
+      }
       const lines = memory.withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         if (!lines[i].trim()) continue;

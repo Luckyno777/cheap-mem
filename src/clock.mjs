@@ -72,6 +72,7 @@
 
 import fs from 'node:fs';
 import * as integrity from './integrity.mjs';
+import * as drawermemo from './drawermemo.mjs';
 import { writerOf } from './chain.mjs';
 import { agentDefault, withoutBom } from './memory.mjs';
 
@@ -105,17 +106,26 @@ export const ERROR_AHEAD_MINUTES = 5;
 export function collectTimestampedEntries(root) {
   const out = [];
   for (const f of integrity.logFiles(root)) {
+    const take = (e) => {
+      if (!e || typeof e !== 'object' || Array.isArray(e)) return;
+      if (typeof e.ts !== 'string') return;
+      const t = Date.parse(e.ts);
+      if (!Number.isFinite(t)) return;
+      out.push({ writer: writerOf(e), ts: e.ts, t });
+    };
+    // Inside a doctor run the drawer was parsed once already (src/drawermemo.mjs).
+    const memoRows = drawermemo.rowsOf(f.abs);
+    if (memoRows) {
+      for (const e of memoRows.vals) if (e !== drawermemo.NOT_JSON) take(e);
+      continue;
+    }
     let raw;
     try { raw = withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
       let e;
       try { e = JSON.parse(line); } catch { continue; }
-      if (!e || typeof e !== 'object' || Array.isArray(e)) continue;
-      if (typeof e.ts !== 'string') continue;
-      const t = Date.parse(e.ts);
-      if (!Number.isFinite(t)) continue;
-      out.push({ writer: writerOf(e), ts: e.ts, t });
+      take(e);
     }
   }
   return out;

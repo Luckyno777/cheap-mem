@@ -34,6 +34,7 @@ import * as mirror from './findingmirror.mjs';
 import * as provenanceMod from './provenance.mjs';
 import * as environment from './environment.mjs';
 import * as clock from './clock.mjs';
+import * as drawermemo from './drawermemo.mjs';
 import * as epoch from './epoch.mjs';
 import * as agents from './agents.mjs';
 import * as inbox from './inbox.mjs';
@@ -392,12 +393,28 @@ function guardedAll(fnName, checks) {
   return Array.isArray(r) ? r : [r];
 }
 
-export function checkAll(root) {
+/**
+ * Share of this process's heap the drawer memo may hold as FILE bytes
+ * (src/drawermemo.mjs). The memo keeps each file's text plus its parsed
+ * lines, about four times the file size, so a tenth of the heap in file
+ * bytes stays under half of it; whatever does not fit is read the old,
+ * streaming way. `drawerMemoBytes` is the probe-able number.
+ */
+const DRAWER_MEMO_HEAP_DIVISOR = 10;
+export function drawerMemoBytes() { return v8.getHeapStatistics().heap_size_limit / DRAWER_MEMO_HEAP_DIVISOR; }
+
+export function checkAll(root, { memo = true } = {}) {
   // One doctor run = one index context: the full index is built AT MOST
-  // ONCE, however many findings read it (see `doctorIndex`).
+  // ONCE, however many findings read it (see `doctorIndex`), and every
+  // drawer file is read and parsed ONCE however many findings walk it
+  // (`drawermemo`; `memo: false` is the old walk-per-finding, for probes).
   const before = RUN_INDEX;
   RUN_INDEX = { root, result: null };
-  try { return checkAllCore(root); } finally { RUN_INDEX = before; }
+  try {
+    return memo
+      ? drawermemo.runWithMemo({ maxBytes: drawerMemoBytes() }, () => checkAllCore(root))
+      : checkAllCore(root);
+  } finally { RUN_INDEX = before; }
 }
 
 function checkAllCore(root) {
@@ -3102,7 +3119,7 @@ export function checkAppendOnlyGit(root) {
     if (committed === null) { untracked.push(f.rel); continue; }
 
     let current;
-    try { current = fs.readFileSync(f.abs, 'utf8'); } catch { untracked.push(f.rel); continue; }
+    try { current = drawermemo.textOf(f.abs) ?? fs.readFileSync(f.abs, 'utf8'); } catch { untracked.push(f.rel); continue; }
 
     // core.autocrlf on a Windows checkout: the blob is LF, the working
     // file CRLF. Line endings are not an edit of a line. (UNVERIFIED.)
