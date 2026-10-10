@@ -2,8 +2,8 @@
 // the user's own `$HOME/cheap-mem`, nothing else.
 //
 // **The defect (2026-10-10).** Six POSIX hooks and their six PowerShell twins
-// carried `$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem` as the default
-// probe list. The last two are paths of the maintainer's machine. On a shared
+// carried `$HOME/cheap-mem` plus two fixed absolute locations as the default
+// probe list. Those two are paths of the maintainer's machine. On a shared
 // host a hook run by hand (or with `CHEAP_MEM_ROOT` unset) would read a
 // stranger's memory from there, and the stop hook would push into it; on
 // Windows `/work` means nothing. The overrides (`MEM_RETRIEVE_ROOTS`,

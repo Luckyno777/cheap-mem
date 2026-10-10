@@ -64,7 +64,7 @@ to_slashes() { printf '%s' "${1//\\//}"; }
 # CHEAP_MEM_ROOT first — the name the installer injects. The fallback
 # list keeps the hook usable when it is run by hand: only $HOME/cheap-mem,
 # never a path of somebody else's machine (on a shared host a fixed
-# /work/... would read, and the stop hook push, a stranger's memory).
+# location would read, and the stop hook push, a stranger's memory).
 # A hook that no test can reach is a hook that breaks unnoticed, so the
 # list is overridable via MEM_RETRIEVE_ROOTS.
 PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"

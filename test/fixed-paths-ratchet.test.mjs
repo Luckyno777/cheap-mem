@@ -59,9 +59,6 @@ const PATTERNS = {
 };
 const ARBEIT = /\/home\/user\/arbeit/g;
 
-const WHY_PROBE = 'Documented, overridable hook probe list: the fallback after CHEAP_MEM_ROOT '
-  + '(which the installer injects); MEM_RETRIEVE_ROOTS / MEM_STOP_ROOTS replace it and every test does';
-const WHY_ENVDOC = 'Echo of the probe-list default in the env register (docs table is generated from it)';
 const WHY_COMMENT = 'Comment or prose only (an example path, a history note); no runtime path';
 const WHY_FIXTURE = 'Test fixture: the path is the input or the expectation of a probe, the test never enters it';
 const WHY_WIN_EXAMPLE = 'Comment/test text describing a Windows temp or profile path (the bug being guarded), '
@@ -70,19 +67,6 @@ const WHY_WIN_EXAMPLE = 'Comment/test text describing a Windows temp or profile 
 /** file -> { max, why } per pattern. Shrink only. */
 const EXCEPTIONS = {
   '/home/user/': {
-    'src/envregister.mjs': { max: 2, why: WHY_ENVDOC },
-    'bin/mem-after-failure': { max: 1, why: WHY_PROBE },
-    'bin/mem-after-failure.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-before-edit': { max: 1, why: WHY_PROBE },
-    'bin/mem-before-edit.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-catch-fail': { max: 1, why: WHY_PROBE },
-    'bin/mem-catch-fail.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-retrieve': { max: 1, why: WHY_PROBE },
-    'bin/mem-retrieve.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-stop': { max: 1, why: WHY_PROBE },
-    'bin/mem-stop.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-subagent-start': { max: 1, why: WHY_PROBE },
-    'bin/mem-subagent-start.ps1': { max: 1, why: WHY_PROBE },
     'bench/docs-images.mjs': { max: 1, why: 'An invented archive location for the demo board image (a fixed fake, written through the real writers); never read' },
     'test/cmdguard.test.mjs': { max: 1, why: WHY_FIXTURE },
     'test/component-table.test.mjs': { max: 1, why: WHY_COMMENT },
@@ -92,19 +76,6 @@ const EXCEPTIONS = {
   },
   '/work/': {
     'src/commandguard.mjs': { max: 1, why: 'Comment: the example wording "git pull & /work/" of the command-guard rule syntax' },
-    'src/envregister.mjs': { max: 2, why: WHY_ENVDOC },
-    'bin/mem-after-failure': { max: 1, why: WHY_PROBE },
-    'bin/mem-after-failure.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-before-edit': { max: 1, why: WHY_PROBE },
-    'bin/mem-before-edit.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-catch-fail': { max: 1, why: WHY_PROBE },
-    'bin/mem-catch-fail.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-retrieve': { max: 1, why: WHY_PROBE },
-    'bin/mem-retrieve.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-stop': { max: 1, why: WHY_PROBE },
-    'bin/mem-stop.ps1': { max: 1, why: WHY_PROBE },
-    'bin/mem-subagent-start': { max: 1, why: WHY_PROBE },
-    'bin/mem-subagent-start.ps1': { max: 1, why: WHY_PROBE },
     'test/before-edit-journal-file.test.mjs': { max: 3, why: WHY_FIXTURE },
     'test/cmdguard.test.mjs': { max: 6, why: WHY_FIXTURE },
     'test/raw.test.mjs': { max: 1, why: WHY_FIXTURE },
@@ -204,15 +175,12 @@ test('the tree: no fixed path beyond the list, and the list is not too generous'
 });
 
 test('shipped code (src/, install/, shared/) has no fixed path of the maintainer, except documented echoes', () => {
-  // src/ ships. Only the env register (default of the probe list) and two
-  // comments may name such a path; a runtime path here is a stranger's bug.
+  // src/ ships. Only two comments may name such a path; a runtime path here is a stranger's bug.
   const shippedRuntime = Object.entries(EXCEPTIONS).flatMap(([name, files]) =>
     Object.keys(files).filter((f) => f.startsWith('src/') || f.startsWith('install/') || f.startsWith('shared/'))
       .map((f) => `${name} ${f}`));
   assert.deepEqual(shippedRuntime.sort(), [
-    '/home/user/ src/envregister.mjs',
     '/work/ src/commandguard.mjs',
-    '/work/ src/envregister.mjs',
     'C:\\Users\\ src/doctor.mjs',
     'C:\\Users\\ src/redaction.mjs',
   ].sort());
