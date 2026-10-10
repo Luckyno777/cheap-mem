@@ -49,7 +49,7 @@ else
 fi
 export MEM_AF_START_MS
 
-PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
 ROOT=""
 # shellcheck disable=SC2086
 for k in "${CHEAP_MEM_ROOT:-}" $PROBE; do

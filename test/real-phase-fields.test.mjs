@@ -26,8 +26,10 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { buildCorpus } from '../bench/atlas/core.mjs';
 import { FIELD_WEIGHTS } from '../src/search.mjs';
+import { siblingClone } from '../src/sibling.mjs';
 import {
   WEIGHTED_FIELDS_DE, WEIGHTED_FIELDS_EN, weightedWordCount,
 } from '../bench/atlas/phase-real.mjs';
@@ -103,8 +105,9 @@ test('every content field the generator writes is one this house ranks on', () =
 });
 
 test('the German mirror still matches what lucky-mem actually ranks on', (t) => {
-  const search = '/home/user/lucky-mem/src/suche.mjs';
-  if (!fs.existsSync(search)) {
+  const sister = siblingClone(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'));
+  const search = sister && path.join(sister, 'src', 'suche.mjs');
+  if (!search || !fs.existsSync(search)) {
     // Third state, not a pass: on a machine without the sister checkout
     // this question cannot be answered, and answering it green anyway
     // is the class of defect this whole file is about.

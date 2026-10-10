@@ -58,8 +58,9 @@ to_slashes() { printf '%s' "${1//\\//}"; }
 [ -n "${MEM_HEADLESS:-}" ] && exit 0
 
 # Resolve the memory root (has .mem/config.json). CHEAP_MEM_ROOT is what
-# the installer hardcodes; the probe keeps the hook usable by hand.
-PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+# the installer hardcodes; the probe (only $HOME/cheap-mem unless
+# MEM_STOP_ROOTS says otherwise) keeps the hook usable by hand.
+PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem}"
 
 ROOT=""
 # shellcheck disable=SC2086

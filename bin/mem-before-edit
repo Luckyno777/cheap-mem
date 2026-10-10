@@ -83,7 +83,7 @@ else
   MEM_BE_START_MS="$(( $(date +%s) * 1000 ))"
 fi
 
-PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
 
 # **Backslashes become slashes before anything is looked up.**
 #

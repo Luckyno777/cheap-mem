@@ -62,10 +62,12 @@ to_slashes() { printf '%s' "${1//\\//}"; }
 [ "${MEM_HOOK_OFF:-}" = "1" ] && exit 0
 
 # CHEAP_MEM_ROOT first — the name the installer injects. The fallback
-# list keeps the hook usable when it is run by hand, but a hook that no
-# test can reach is a hook that breaks unnoticed, so the list is
-# overridable via MEM_RETRIEVE_ROOTS.
-PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+# list keeps the hook usable when it is run by hand: only $HOME/cheap-mem,
+# never a path of somebody else's machine (on a shared host a fixed
+# location would read, and the stop hook push, a stranger's memory).
+# A hook that no test can reach is a hook that breaks unnoticed, so the
+# list is overridable via MEM_RETRIEVE_ROOTS.
+PROBE="${MEM_RETRIEVE_ROOTS:-$HOME/cheap-mem}"
 
 ROOT=""
 # shellcheck disable=SC2086

@@ -26,7 +26,7 @@ SELF_DIR="$(cd "$(dirname "$(to_slashes "$0")")" && pwd)"
 # shellcheck source=bin/_portable.sh
 . "$SELF_DIR/_portable.sh"
 
-PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem /work/cheap-mem /home/user/cheap-mem}"
+PROBE="${MEM_STOP_ROOTS:-$HOME/cheap-mem}"
 
 ROOT=""
 # shellcheck disable=SC2086
