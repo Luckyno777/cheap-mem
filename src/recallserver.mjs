@@ -225,7 +225,8 @@ export async function start(root, {
     if (Number.isFinite(deadline) && Date.now() > deadline) return { ok: false, reason: 'timeout' };
     const query = String(req.query ?? '');
     const top = Number(req.top);
-    const args = { json: true, root };
+    // `recall`: the same flag the hook's direct path passes (`mem find --top N --recall --json`).
+    const args = { json: true, recall: true, root };
     if (Number.isFinite(top) && top > 0) args.top = String(top);
     try {
       const stdout = await shell.captureOutput(() => COMMANDS.find({ rest: [query], args }));

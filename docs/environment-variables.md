@@ -52,6 +52,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_REFLECT` | off (opt-in) | With `1` the stop hook starts the model-backed reflector. |
 | `MEM_RETRIEVE_NO_PULL` | off (the hook pulls when the clone is older than `MEM_RETRIEVE_FRESH_MIN`) | With `1` the recall hook never runs `git pull` first. |
 | `MEM_RETRIEVE_OFF` | off | The recall hook (the relevant entries shown on a question) is switched off by `1` |
+| `MEM_RETRIEVE_REQUEST_FRAME` | on (`0` switches it off) | With `0` the request frame at the start of a question ("explain", "can you show me") is searched like every other word, in the recall hook and in the content-word query. |
 | `MEM_REWRITES` | on (the table ships empty) | `off` switches the whole query-rewrite table off. |
 | `MEM_SEARCH_LEVERS` | the levers' own defaults | `off`, `all` or a list such as `h1,h3`: which Block H search levers are on (`mem search-levers`). |
 | `MEM_SKILL_ACCOUNT_OFFER` | on (`0` switches it off) | With `0` a skill offer no longer brings the two most important lines of the skill's experience account. |
@@ -104,6 +105,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_FRESH_MIN` | 10 | Minutes the clone counts as fresh before the recall hook pulls. |
 | `MEM_RETRIEVE_MIN` | 5.0 | Score a hit needs before the recall hook shows it. |
 | `MEM_RETRIEVE_REMOTE` | origin | Remote the recall hook pulls from. |
+| `MEM_RETRIEVE_TIE` | 0 (off) | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`). |
 | `MEM_RETRIEVE_TIME` | 5 seconds | Time budget of one recall search, server and direct fallback alike. |
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
 | `MEM_SKILLUSAGE_DAYS` | 30 | Days of capture coverage `mem skills usage` needs before it gives a verdict. |

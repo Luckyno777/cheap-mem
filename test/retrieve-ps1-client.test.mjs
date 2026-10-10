@@ -90,7 +90,7 @@ test('both hooks honour the same switch and the same directory and key names', (
   assert.match(PS1, /\.pipeline\/recall\/key/);
   assert.equal(place.KEY_NAME, 'key');
   // Server gone / not answering -> the direct `find` runs (same line in both, no early exit between).
-  assert.match(PS1, /if \(\$RecallPath -ne 'server'\) \{\s*\n\s*\$Hits = \(& node @MemArgv find \$Prompt --top \$Top --json/);
+  assert.match(PS1, /if \(\$RecallPath -ne 'server'\) \{\s*\n\s*\$Hits = \(& node @MemArgv find \$Prompt --top \$Top --recall --json/);
 });
 
 test('one budget: the .ps1 sets the hook start BEFORE its first node call', () => {

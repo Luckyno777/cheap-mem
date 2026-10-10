@@ -18,6 +18,11 @@
 #   MEM_HOOK_OFF=1        turn ALL cheap-mem hooks off (shared with the others)
 #   MEM_RETRIEVE_MIN      minimum BM25 score to show (default 5.0)
 #   MEM_RETRIEVE_TOP      at most this many hits (default 3)
+#   MEM_RETRIEVE_TIE      relative score spread within which ONE more hit comes
+#                         along when it ties the last one shown (`mem find --recall`,
+#                         src/tiecut.mjs); default 0 = off, the hard cut; 0.01 = 1 %
+#   MEM_RETRIEVE_REQUEST_FRAME=0  search the request frame ("explain", "can you
+#                         show me") like every other word (src/requestframe.mjs)
 #   MEM_RETRIEVE_NO_PULL=1  read only, never refresh the clone
 #   MEM_RETRIEVE_FRESH_MIN  minutes between background pulls (default 10)
 #   MEM_RETRIEVE_REMOTE / _BRANCH  where to pull from (default origin/main)
@@ -390,7 +395,7 @@ if [ "$RECALL_PATH" != server ] || [ "$FIND_RC" -ne 0 ]; then
     HITS=""
     FIND_RC=124
   else
-    HITS="$(capped "$LEFT" "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --json 2>/dev/null)"
+    HITS="$(capped "$LEFT" "${RUN_MEM[@]}" find "$PROMPT" --top "$TOP" --recall --json 2>/dev/null)"
     FIND_RC=$?
   fi
 fi

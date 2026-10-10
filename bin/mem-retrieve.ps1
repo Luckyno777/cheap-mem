@@ -347,7 +347,7 @@ if ($env:MEM_RECALL_SERVER -ne '0' -and (Test-Path -LiteralPath $RecallKey) -and
   }
 }
 if ($RecallPath -ne 'server') {
-  $Hits = (& node @MemArgv find $Prompt --top $Top --json 2>$null) -join "`n"
+  $Hits = (& node @MemArgv find $Prompt --top $Top --recall --json 2>$null) -join "`n"
 }
 # K3 (mirrored from bin/mem-retrieve, not runnable here): the POSIX hook
 # books reason `timeout` when the 5-second cap kills `find` (exit 124/137).

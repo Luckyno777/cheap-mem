@@ -112,6 +112,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_CORRECTION_WARN_OFF', SWITCH, 'off', 'With `1` `mem correction` does not warn when a rare word of the old entry is missing from the correction.'),
   sw('MEM_RAW_EXCLUDE', SWITCH, 'off', 'With `1` the raw capture skips the session (the environment form of the exclude mark).'),
   sw('MEM_EXPAND', SWITCH, 'off', 'With `1` the search also reads the `asked_as` phrasings stored next to an entry (document expansion, weight 0.3). Off, the search is bit-identical to before.'),
+  sw('MEM_RETRIEVE_REQUEST_FRAME', SWITCH, 'on (`0` switches it off)', 'With `0` the request frame at the start of a question ("explain", "can you show me") is searched like every other word, in the recall hook and in the content-word query.'),
   sw('MEM_SEARCH_LEVERS', SWITCH, 'the levers\' own defaults', '`off`, `all` or a list such as `h1,h3`: which Block H search levers are on (`mem search-levers`).'),
   sw('MEM_REWRITES', SWITCH, 'on (the table ships empty)', '`off` switches the whole query-rewrite table off.'),
   sw('MEM_GOLD_DAILY', SWITCH, 'yes', 'With `no` the digest does not run the daily gold-miss collection.'),
@@ -132,6 +133,7 @@ export const REGISTER = Object.freeze([
   // --- tuning ------------------------------------------------------------------
   sw('MEM_RETRIEVE_MIN', TUNING, '5.0', 'Score a hit needs before the recall hook shows it.'),
   sw('MEM_RETRIEVE_TOP', TUNING, '3', 'How many hits the recall hook shows at most.'),
+  sw('MEM_RETRIEVE_TIE', TUNING, '0 (off)', 'Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`).'),
   sw('MEM_SUBAGENT_TASK_SECONDS', TUNING, '2 seconds', 'Time budget of the sub-agent start block for the assignment; past it the base block comes alone (the POSIX hook runs a first, tighter pass and falls back).'),
   sw('MEM_RETRIEVE_TIME', TUNING, '5 seconds', 'Time budget of one recall search, server and direct fallback alike.'),
   sw('MEM_RETRIEVE_FRESH_MIN', TUNING, '10', 'Minutes the clone counts as fresh before the recall hook pulls.'),
