@@ -64,8 +64,11 @@ export const MUTANTS=[
 
  { name:'integrity: stop counting broken lines',
    file:'src/integrity.mjs',
-   from:"      catch { broken.push({ file: f.rel, line: i + 1, why: 'not JSON' }); continue; }",
-   to:'      catch { continue; }  // MUTANT: silent again',
+   // Re-anchored 2026-10-10: since the doctor memo (src/drawermemo.mjs)
+   // both read paths -- memoized and plain -- hand the line to one
+   // `visit`, and that is where a NOT_JSON line is counted as broken.
+   from:"      if (e === drawermemo.NOT_JSON) { broken.push({ file: f.rel, line: no, why: 'not JSON' }); return; }",
+   to:'      if (e === drawermemo.NOT_JSON) { return; }  // MUTANT: silent again',
    tests:['test/integrity.test.mjs'] },
 
  { name:'integrity: never report cycles',
