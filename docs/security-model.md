@@ -427,6 +427,12 @@ each was reproduced against a throwaway root here first.
   `.mem/keyring.json`, so a connected foreign agent read entries written with `shred` that a clone of the git data cannot.
   Now they show as unreadable over the bridge unless the operator sets `CHEAP_MEM_MCP_DECRYPT=1`. The CLI and the
   dashboard are unchanged. `test/bridge-no-decrypt.test.mjs`.
+- **An old index is not served.** The search-index cache is version 15; a cache built before `fieldshape` could still
+  hold documents of poisoned lines and was valid by its file stamps. `test/stale-index-fieldshape.test.mjs`.
+- **A tunnel is not "local"** (lucky-mem B9/B14). With no token and no login behind the door (the viewer with the login
+  off, the MCP bridge over HTTP), a request that carries a proxy header (`cf-connecting-ip`, `cf-ray`, `x-forwarded-*`,
+  `x-real-ip`, `forwarded`) no longer counts as loopback, since a tunnel on this machine connects from 127.0.0.1. With
+  the login on, the password stands behind the door. `test/loopback-proxy-headers.test.mjs`.
 - **Checked and not a gap here:** an `In-Reply-To` letter never closes a request (the state is its own act, addressee
   only since B2, and `inbox.write` checks the direction); the dashboard's archive location (session + allowed bases) and
   the CLI (unchecked, the operator's own hand) split the way lucky-mem's does.

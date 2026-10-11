@@ -94,6 +94,14 @@ a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, 
   `.mem/keyring.json`, so a connected agent read entries written with `shred` that a clone of the git data cannot.
   They show as unreadable over the bridge now; `CHEAP_MEM_MCP_DECRYPT=1` restores the old behaviour. CLI and dashboard
   unchanged.
+- **An index built before this fix is rebuilt once.** The search-index cache is version 15: a version-14 cache stays valid
+  by its file stamps and could still hold documents of poisoned lines (`mem find` listed them, `mem retrieve` threw
+  after the upgrade). `test/stale-index-fieldshape.test.mjs`.
+- **No loopback trust behind a tunnel (lucky-mem B9/B14).** A request that carries a proxy header
+  (`cf-connecting-ip`, `cf-ray`, `x-forwarded-*`, `x-real-ip`, `forwarded`) is not "local" for the token-less door when
+  nothing stands behind it: the viewer with the login off, and the MCP bridge over HTTP. With the login on the password
+  stands behind the door and nothing changes; with a token nothing changes. **Breaking** for a token-less, login-less
+  viewer or bridge that is reached through a local tunnel: set a token. `test/loopback-proxy-headers.test.mjs`.
 - Checked, no gap here: an `In-Reply-To` letter never closes a request (state is addressee-only since B2); the
   dashboard's archive location (session + allowed bases) and the CLI split like lucky-mem's.
 
