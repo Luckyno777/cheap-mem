@@ -14,6 +14,8 @@ added the same day for the same reason: `mem store` was built, tested
 and documented, and unreachable from the bridge. `mem store verify` and
 `mem store remove` are deliberately left off — deletion stays a human's
 call at the CLI.
+`mem_store_put` over the bridge reads only from `store/intake` under the memory root
+and from the folders in `CHEAP_MEM_STORE_INTAKE` (by real path); every other path is refused.
 
 **First: install the SDK.** `mem-mcp` needs `@modelcontextprotocol/sdk`,
 which is an *optional peer* — it is 28 MB across 91 packages, so it is not fetched unless

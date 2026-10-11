@@ -14,6 +14,117 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
+
+Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`, red on fb48a54.
+
+- **A counterpart id is an entry id.** `replaces_id` / `retires_id` count only as a string in the
+  shape of an entry id (4 to 64 of letters, digits, `-`, `_`). `false`, `0`, `[]`, `{}`, `"x"` used to
+  count as "an id is named" and let `state` / `by_id` through; they are refused by name now. A null
+  or blank string is "no id" (and `state` / `by_id` stay refused without one).
+- **A duty can be closed only by `mem_duty_close`.** `mem_log` with `closes_id` + `state: done`
+  closed a duty WITHOUT the F4 proof (a guard on the error, or a test file) that `mem_duty_close`
+  asks for. The bridge refuses `closes_id` on `mem_log` and names `mem_duty_close`. `guard` on an
+  error is refused too: `memory.dutyHasEvidence` counts a guard object as F4 evidence, so a latch the
+  writer wrote itself (pointing at a file that does not exist) opened that door. A human sets a guard
+  at the CLI, which checks it at creation. (The F4 test that seeded its guard over the bridge now
+  seeds it with `mem log error --guard-kind ...`.)
+- **The sender of `mem_inbox_write` is the bridge's identity.** `from: "user"` wrote as the human.
+  The sender is `CHEAP_MEM_AGENT` (else `mem whoami`), like `mem_inbox_claim`; a `from` that names
+  someone else is refused, the same name is accepted.
+- **`mem_store_put` reads only from an intake folder.** It took any path the server could read
+  (`/etc/...`, a key file, another project's database) and an `agent` from the caller. Now the file
+  must lie in `<root>/store/intake` or in a folder listed in the new `CHEAP_MEM_STORE_INTAKE`
+  (compared by real path: a symlink out of the folder, `..` and a sibling folder with the same prefix
+  do not count; the refusal does not say whether a path outside exists). The register's `agent` is
+  the bridge's identity. The CLI (`mem store put <path>`) is a person at the keyboard and is unchanged.
+- **The intake check and the read are one act (third round).** `store.put` with `noFollow` opens the
+  file with `O_NOFOLLOW`, reads from the descriptor and re-checks that the path is still its own real path
+  (a link swapped in for the file, or for a folder above it, after the check is refused). Size and the 25 MB
+  limit come from the bytes read, not from `stat` (a `/proc` file reports 0), also at the CLI. A file named
+  `..x` inside the intake folder is inside. `CHEAP_MEM_STORE_INTAKE` takes absolute paths only (a relative
+  entry is ignored and named in the refusal); `/` opens everything, the operator's decision.
+- The duty list takes `due`, `due_date`, `until`, `deadline`, `by`, `to`; the `mem_log` tool schema
+  says which type takes `choice` / `class` / `from` and advertises `replaces_id`.
+- The quote of the unverified appointment note is embedded as a JSON string: it cannot close the
+  note and start a line that reads as verified.
+
+**Release note.** Bridge clients that close duties through `mem_log`, send a `from`, hand
+`mem_store_put` an arbitrary path or set a `guard` must change: use `mem_duty_close`, leave `from` out,
+put the file in `store/intake`. Ship it with a minor-version bump.
+
+### Fixed — hostile values: one entry with `<!--` blanked the standalone viewer, and one long title froze the dashboard build (A9)
+
+A probe that feeds the same hostile corpus (script tags, event-handler breakouts out of
+double and single quoted attributes, `javascript:` text, HTML entities, `</script>` and
+`<!--` in the embedded data, U+2028/9, very long values) into title / text / tags / topic
+and the type's own fields, and then looks at the DOM, found **no script injection**: the
+dashboard (`mem serve`, all 32 screens, every drawer tab, the search box), `/entries`,
+`mem board --html` and the viewer show every value as text, and a text typed as an entity
+stays as typed. It found two other defects, both a hostile value stopping a surface:
+
+- **`mem viewer` file stayed blank** when any entry contained `<!--`. `safeJson` wrote
+  `<\!--`, which is not a JSON escape; `JSON.parse` of the data block threw. It now writes
+  `\u003c` for the `<` of `</` and `<!--` (what `src/readview.mjs` always did).
+- **One long title froze `mem serve`.** The write path accepts an entry up to 1 MiB, and
+  `entity.PATTERNS` ('name', 'path') and `netderive.FILE_RE` were quadratic in the length of an
+  unbroken run of characters: 60 000 characters cost `collectDashboard` 22 s of CPU, 150 000
+  more than 90 s, event loop blocked; the same patterns run for the search index and the recall
+  hook. `entity.boundRuns` now limits an unbroken run to 512 characters before those patterns
+  scan it (no identifier, path or file name is longer). Text without such a run is
+  untouched; a differential probe pins that. 150 000 characters now cost under a second.
+
+**Release note.** A pasted blob or minified line longer than 512 characters without a space
+is no longer scanned for identifiers and file names past its 512th character; everything
+else about search is unchanged. `test/hostile-surfaces.test.mjs`.
+
+### Changed — an appointment made over the bridge is always a proposal, also with `requested_by` + `quote` (behaviour change of a documented intent)
+
+Port of lucky-mem's A12 (2026-10-10). The tool description and `docs/appointments.md`
+said that a plain reminder with `requested_by: "user"` and the user's quoted sentence is
+active at once. Nobody verified who said the sentence: `appointments.create` only checked
+that `by` is `user` and the quote is not empty, so any connected agent got an active
+reminder (it fires, it reaches the human's calendar) that also stayed out of the daily
+cap on agent proposals. Same class as a claimed authority tier (Y4b).
+
+Now `mem_appointment_new` over the bridge always creates a `proposed` appointment that
+counts towards the cap. `requested_by` / `quote` are still required together (and only
+`user` is accepted), but the claim is written into the text as a marked note
+(`[Unverified: <agent> claims over the bridge that the user asked for this: "..."]`),
+never as the `requested_by` field the clock and the cap read as a proven wish; the answer
+carries `wishVerified: false`. A `private` appointment stores neither the text nor the
+quote. **The CLI is unchanged:** `mem appointment new --requested-by user --quote "..."`
+(what the digest uses) still makes a plain reminder active at once.
+
+**Release note.** A client that relied on the bridge to get an active reminder now gets a
+proposal; the human confirms it (`mem appointment confirm <id> --authority user`, or the
+dashboard). `test/bridge-appointment-claim.test.mjs`.
+
+### Changed — `mem_log` over the bridge takes an allow-list of fields per type; machine and audit fields are the bridge's, not the caller's (breaking for bridge clients)
+
+Port of lucky-mem's A1/A6 (2026-10-10). `bin/mem-mcp` used to write every argument
+key except `type/project/tags/agent/id/ts`, and `memory.logCheckedEntry` passed the
+machine fields (`state`, `status`, `v`, `authority_clamped_from`, `guard_at_creation`)
+through as stamps: a bridge caller could forge the record of a demotion it never had,
+an audit result, a `status`, or switch the write to the encrypted-body mode with
+`shred`. A block-list is as good as its author's memory, so it is now
+`src/bridgefields.mjs`: per type, the fields that are allowed (body fields, access
+words, validity dates, the few type fields the readers look at); any other field is
+**refused by name, with the list of what is allowed, and nothing is written**, never
+silently dropped. `replaces_id` / `retires_id` stay (their effect is
+judged on read by `authority.mayChangeState`; `closes_id` was taken out again in the second round), and `state` / `by_id` travel only next
+to one of them. `authority` stays clamped to `agent`; `authority_clamped_from` is
+written by the bridge only. `agent`, `id` and `ts` are still set by the write path and
+ignored if sent. A non-array `tags` is refused instead of dropped. The refusal is a
+pure loop over the keys, before any read.
+
+**Release note.** A client that used to send free extra fields over `mem_log` now gets
+an error naming them. Put the content in `title` / `text` / `why`, or, if the field is
+a legitimate one, add it to `src/bridgefields.mjs` with a reason. The CLI (`mem log`)
+is unchanged: a human at the keyboard may still write any field.
+`test/bridge-fields.test.mjs`. **Breaking for bridge clients: the release that ships this
+needs a minor-version bump** (see the second round below, which tightens it further).
+
 ### Changed — the hooks no longer probe the maintainer's machine paths (behaviour change)
 
 The default root chain of the recall, before-edit, after-failure, catch-fail,

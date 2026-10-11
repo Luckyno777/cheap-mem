@@ -34,6 +34,7 @@
 import { tokenize } from './search.mjs';
 import { linksOf } from './net.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
+import { boundRuns } from './entity.mjs';
 
 /** A word in more entries than this is not rare. */
 export const RARE_DF = 6;
@@ -53,9 +54,10 @@ const pairKey = (a, b) => (a < b ? `${a}\u001f${b}` : `${b}\u001f${a}`);
 
 /** One entry's evidence: `{ id, ts, files:Set, words:Set }`. */
 export function features(entry) {
-  const text = BODY_FIELDS.flatMap((f) => list(entry[f])).join(' ');
+  // `boundRuns`: FILE_RE is quadratic on a long unbroken run of path characters (see src/entity.mjs).
+  const text = boundRuns(BODY_FIELDS.flatMap((f) => list(entry[f])).join(' '));
   const files = new Set(text.match(FILE_RE) ?? []);
-  for (const f of FILE_FIELDS) for (const w of list(entry[f])) for (const m of w.match(FILE_RE) ?? [w]) if (m.includes('.')) files.add(m);
+  for (const f of FILE_FIELDS) for (const raw of list(entry[f])) { const w = boundRuns(raw); for (const m of w.match(FILE_RE) ?? [w]) if (m.includes('.')) files.add(m); }
   const words = new Set(tokenize(text.replace(FILE_RE, ' ')).filter((w) => w.length >= 3 && !/\d/.test(w)));
   return { id: entry.id, ts: String(entry.ts ?? ''), files, words };
 }

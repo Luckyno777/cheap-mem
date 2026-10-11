@@ -101,6 +101,7 @@ import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
+import * as bridgefields from '../src/bridgefields.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -433,8 +434,9 @@ const TOOLS = [
     description:
       'Append an entry to the memory log. The `type` enum lists every type (for example ' +
       'decision, error, event, timeline, thought, learning, duty, skill, update). ' +
-      'Provide `type`, optionally `project`, and any string fields (title, text, topic, choice, why, class). ' +
-      '`tags` can be an array. Use this whenever the user makes a decision, hits an error, ' +
+      'Provide `type`, optionally `project`, and the fields that type takes (title, text, topic, choice, why, class, ...). ' +
+      '`tags` can be an array. A field the type does not take is REFUSED by name with the list of allowed ones (nothing is written). ' +
+      'Use this whenever the user makes a decision, hits an error, ' +
       'completes something notable, or a fact about them changes. ' +
       // The occasion belongs in the description, not only in the house
       // rules: those are heard once on connect, this is read in EVERY
@@ -450,14 +452,15 @@ const TOOLS = [
         title: { type: 'string' },
         text: { type: 'string' },
         topic: { type: 'string' },
-        choice: { type: 'string' },
+        choice: { type: 'string', description: 'Type decision only: what was chosen' },
         why: { type: 'string' },
-        class: { type: 'string' },
+        class: { type: 'string', description: 'Type error: the error class (the closed vocabulary); other types may use it as an access word' },
         tags: { type: 'array', items: { type: 'string' } },
-        retires_id: { type: 'string', description: 'With state "superseded" and by_id: mark this entry superseded by an existing one (same as mem supersede)' },
-        state: { type: 'string' },
-        by_id: { type: 'string', description: 'The successor for state "superseded"' },
-        from: { type: 'string', description: 'For type learning: the error id(s) this lesson is drawn from (comma-separated) — written as generalizes links, not as a field. For type link: the source id.' },
+        retires_id: { type: 'string', description: 'Any type: the id of an entry this line retires. With state "superseded" and by_id: mark it superseded by an existing one (same as mem supersede). The authority rule judges the effect on read' },
+        replaces_id: { type: 'string', description: 'Any type: the id of an entry this line corrects. The authority rule judges the effect on read' },
+        state: { type: 'string', description: 'Only together with retires_id or replaces_id; refused alone. Closing a duty is mem_duty_close, not this' },
+        by_id: { type: 'string', description: 'The successor for state "superseded"; only together with retires_id or replaces_id' },
+        from: { type: 'string', description: 'Type learning: the error id(s) this lesson is drawn from (comma-separated) — written as generalizes links, not as a field. Type link: the source id. No other type takes it.' },
       },
       required: ['type'],
     },
@@ -721,7 +724,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        from: { type: 'string', description: 'Participant (else uses whoami)' },
+        from: { type: 'string', description: 'Optional, and only your own identity (the bridge\'s CHEAP_MEM_AGENT, else whoami); any other value is refused' },
         to: { type: 'string' },
         subject: { type: 'string' },
         text: { type: 'string' },
@@ -871,15 +874,17 @@ const TOOLS = [
   //
   // An agent can SUGGEST and list; it can never arm an action, confirm a
   // proposal or set a cap (those need `--authority user` at the CLI, and a
-  // bridge is never a human). Whatever it creates here is a proposal unless it
-  // brings the user's own sentence as evidence AND it is a plain reminder.
+  // bridge is never a human). Whatever it creates here is a proposal, always:
+  // since A12 (2026-10-11) the user's sentence (`requested_by` + `quote`) is a
+  // claim the bridge cannot verify, so it is noted in the text, not believed.
   {
     name: 'mem_appointment_new',
     description:
       'Propose an appointment: a reminder for the human, or a scheduled action for an agent ' +
       '(wake + task). It is a PROPOSAL and does nothing until a human confirms it ' +
-      '(`mem appointment confirm <id> --authority user`, CLI only) - except a plain reminder the user ' +
-      'asked for in their own words (requested_by "user" + a verbatim quote), which is active at once. ' +
+      '(`mem appointment confirm <id> --authority user`, CLI only) - ALWAYS, also with requested_by "user" + a quote: ' +
+      'the bridge cannot verify who said it, so that claim is not evidence. It is noted in the text as unverified ' +
+      'for the human to see, and the proposal counts towards the daily limit. ' +
       'Time expressions are English ("tomorrow 9:00", "friday 3pm", "in 2 hours", "2026-10-25 14:30"); ' +
       'relative ones count from relative_to (pass the moment of the user\'s line, not now). ' +
       'Refuses a duplicate (same title, time within 10 minutes). An agent may make only a few proposals a day.',
@@ -896,8 +901,8 @@ const TOOLS = [
         max_minutes: { type: 'number', description: 'Time budget written into the letter (default 30, at most 240); not enforced' },
         briefing: { type: 'boolean', description: 'A day list "Today in the calendar" as a letter to the human (wakes nobody)' },
         relative_to: { type: 'string', description: 'ISO time that relative expressions count from (default now)' },
-        requested_by: { type: 'string', enum: ['user'], description: 'Set when the user asked for it in a conversation; needs quote' },
-        quote: { type: 'string', description: 'The user\'s sentence, verbatim (at most 200 characters)' },
+        requested_by: { type: 'string', enum: ['user'], description: 'Claim that the user asked for it in a conversation; needs quote. Only a note for the human - it grants nothing (the appointment stays a proposal)' },
+        quote: { type: 'string', description: 'The user\'s sentence, verbatim (at most 200 characters); shown to the human as an unverified claim' },
         private: { type: 'boolean', description: 'Store only "Private appointment", no text' },
       },
       required: ['at', 'title'],
@@ -942,7 +947,8 @@ const TOOLS = [
   {
     name: 'mem_store_put',
     description:
-      'Register a local file in the content-addressed store: hash it, keep the bytes ' +
+      'Register a file from the intake folder (store/intake under the memory root, plus any folder the operator lists in ' +
+      'CHEAP_MEM_STORE_INTAKE; every other path is refused) in the content-addressed store: hash it, keep the bytes ' +
       'under store/objects/, and append one line to the audit register (hash, size, ' +
       'mime, purpose). Text is REJECTED on a redaction hit rather than cleaned, so the ' +
       'hash always proves what was actually produced. ' +
@@ -952,9 +958,8 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        source: { type: 'string', description: 'Path to the local file to store' },
+        source: { type: 'string', description: 'Path of a file inside the intake folder (store/intake)' },
         purpose: { type: 'string', description: 'Why this file exists' },
-        agent: { type: 'string' },
         project: { type: 'string' },
         session: { type: 'string' },
         entry_id: { type: 'string', description: 'A memory entry this artifact belongs to' },
@@ -1248,6 +1253,20 @@ async function handleCall(name, args) {
           + 'for ALL agents and therefore cannot come from one of them. A human creates '
           + 'one at the CLI: mem log workflow --issued-by owner. To propose one: '
           + 'mem_log with type thought, or a message to the owner.');
+      }
+      // **The fields are an ALLOW-list per type** (src/bridgefields.mjs, A6 +
+      // A1 remainder, 2026-10-11). Anything not on it — an audit stamp such as
+      // `authority_clamped_from` or `guard_at_creation`, `status`, `v`, the
+      // `shred` switch, a field some reader gives a meaning tomorrow — is
+      // refused LOUDLY with its name and the list of what is allowed; nothing
+      // is written, nothing silently dropped. Before any read on purpose
+      // (pure, no I/O): a refusal costs a loop over the keys.
+      {
+        const { type: _t, project: _p, ...offered } = args;
+        bridgefields.refuse(args.type, offered);
+        if (args.tags !== undefined && args.tags !== null && !Array.isArray(args.tags)) {
+          throw new Error("Field 'tags' must be an array of strings over the bridge — nothing was written.");
+        }
       }
       // Identity is not a parameter. Fields that determine origin cannot
       // be set by the caller, or `agent` would be a claim instead of a
@@ -1652,8 +1671,13 @@ async function handleCall(name, args) {
       return textResult(pre + raw);
     }
     case 'mem_inbox_write': {
-      const from = args.from ?? inbox.whoAmI(root);
-      if (!from) throw new Error("no 'from' and whoami not set");
+      // Identity is not a parameter (V2a, 2026-10-11): `from: "user"` wrote as the human. The sender is the
+      // identity of this bridge (CHEAP_MEM_AGENT, else whoami); a `from` that names someone else is refused.
+      const from = String(process.env.CHEAP_MEM_AGENT ?? '').trim() || inbox.whoAmI(root);
+      if (!from) throw new Error('No identity: set CHEAP_MEM_AGENT for this bridge, or mem whoami <name>.');
+      if (args.from !== undefined && args.from !== null && args.from !== '' && args.from !== from) {
+        throw new Error(`'from' is the identity of this bridge ('${from}'), not a parameter: a message cannot be written as '${args.from}'. Nothing was written.`);
+      }
       const res = inbox.write(root, cfg.participants, {
         from, to: args.to, subject: args.subject, text: args.text,
         requestId: args.request_id ?? null,
@@ -1759,14 +1783,36 @@ async function handleCall(name, args) {
         before = appointmentTime.durationMinutes(String(args.remind_before));
         if (before === null) throw new Error('remind_before is a duration like 15m, 2h, 1d.');
       }
-      const wish = args.requested_by === 'user' ? { by: 'user', quote: String(args.quote ?? '') } : null;
+      // **The bridge cannot verify who said it (A12, 2026-10-11).** `requested_by: "user"` + a quote is
+      // the CALLER'S claim; `appointments.create` only checks that it is there. Taken as evidence it made a
+      // plain reminder active at once and kept it out of the daily cap on agent proposals - the same
+      // self-assertion as a claimed authority tier (Y4b). So over the bridge an appointment is ALWAYS a
+      // proposal and counts towards the cap. The claim stays as a marked, unverified note in the text - never
+      // as the `requested_by` field, which the clock and the cap read as a proven wish - so the human sees
+      // what was claimed when confirming. The CLI (`--requested-by user --quote`) is unchanged.
+      if (args.requested_by !== undefined && args.requested_by !== null && args.requested_by !== '' && args.requested_by !== 'user') {
+        throw new Error("requested_by is only 'user'.");
+      }
+      const claimsUser = args.requested_by === 'user';
+      let noteText = args.text ? String(args.text) : '';
+      if (claimsUser) {
+        const claimed = String(args.quote ?? '').replace(/[\p{Cc}\s]+/gu, ' ').trim();
+        if (!claimed) throw new Error("requested_by needs the user's sentence in their words (quote, at most 200 characters) as evidence.");
+        if (claimed.length > 200) throw new Error(`quote is too long (${claimed.length} > 200)`);
+        if (args.private !== true) {
+          // JSON.stringify: a quote or bracket inside the claim stays inside the string; it cannot close the
+          // note and start a line that reads like a verified one.
+          const note = `[Unverified: ${me} claims over the bridge that the user asked for this: ${JSON.stringify(claimed)}]`;
+          noteText = noteText.trim() ? `${noteText.trim()}\n${note}` : note;
+        }
+      }
       let r;
       try {
         r = appointments.create(root, {
-          title: String(args.title ?? ''), text: args.text ? String(args.text) : '', atMs: z.ms, repeat, beforeMin: before,
+          title: String(args.title ?? ''), text: noteText, atMs: z.ms, repeat, beforeMin: before,
           wake: args.wake ? String(args.wake) : null, task: args.task ? String(args.task) : null,
           maxMinutes: args.max_minutes ?? null, kind: args.briefing === true ? 'briefing' : 'reminder',
-          source: 'mcp', requestedBy: wish, reminderActive: Boolean(wish), isPrivate: args.private === true,
+          source: 'mcp', requestedBy: null, reminderActive: false, isPrivate: args.private === true,
           // A bridge is never a human: it cannot arm anything.
           actor: { name: me, human: false, reason: 'MCP bridge' }, now: Date.now(),
         });
@@ -1779,7 +1825,8 @@ async function handleCall(name, args) {
         : [r.duplicate ? `Already there: appointment ${r.id} (${r.status}) - nothing created.` : `Appointment ${r.id} ${r.status === 'proposed' ? 'proposed' : 'created'}: ${text}${repeat ? ` (${repeat})` : ''} [${r.status}]`];
       for (const w of r.warnings) lines.push(`  ${w}`);
       if (r.status === 'proposed') lines.push(`  Does nothing until a human confirms: mem appointment confirm ${r.id} --authority user`);
-      return structuredResult({ id: r.id, status: r.status, duplicate: r.duplicate, dropped: r.dropped, at: new Date(z.ms).toISOString(), atText: text, warnings: r.warnings }, lines);
+      if (claimsUser && !r.duplicate && !r.dropped) lines.push('  requested_by / quote are not evidence over the bridge: the appointment is a proposal and counts towards the daily limit; the claim is noted in the text as unverified.');
+      return structuredResult({ id: r.id, status: r.status, duplicate: r.duplicate, dropped: r.dropped, at: new Date(z.ms).toISOString(), atText: text, warnings: r.warnings, ...(claimsUser ? { wishVerified: false } : {}) }, lines);
     }
     case 'mem_appointment_list': {
       const now = Date.now();
@@ -1812,8 +1859,13 @@ async function handleCall(name, args) {
     case 'mem_store_put': {
       const source = String(args.source ?? '').trim();
       if (!source) throw new Error('mem_store_put needs a source file path.');
-      const r = store.put(root, source, {
-        purpose: args.purpose ?? '', agent: args.agent ?? null, project: args.project ?? null,
+      // V2b (2026-10-11): the bridge reads files only from an intake folder, by real path (store.intakeFile), and
+      // the agent in the register is the bridge's identity - it used to take any local path the server could
+      // read, and an `agent` from the caller.
+      const real = store.intakeFile(root, source);
+      const r = store.put(root, real, {
+        noFollow: true,
+        purpose: args.purpose ?? '', agent: resolveAgent(), project: args.project ?? null,
         session: args.session ?? null, entry_id: args.entry_id ?? null,
         retention: args.retention ?? null, large: Boolean(args.large),
       });

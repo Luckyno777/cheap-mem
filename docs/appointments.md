@@ -71,10 +71,14 @@ process ceiling `CHEAP_MEM_MAX_AUTHORITY` is below `user`.
 
 - A human's reminder is active at once. An **action** is armed only with
   `--authority user` (at creation, or later with `confirm`).
-- What an agent creates is a **proposal** (`proposed`) and does nothing. A plain
-  reminder an agent records together with the user's own sentence
+- What an agent creates is a **proposal** (`proposed`) and does nothing. At the
+  CLI, a plain reminder an agent records together with the user's own sentence
   (`--requested-by user --quote "..."`, at most 200 characters, verbatim) is active
-  at once; an action never becomes active that way.
+  at once; an action never becomes active that way. **Over the MCP bridge this does
+  not apply** (changed 2026-10-11): the bridge cannot tell who said the sentence, so
+  `requested_by` + `quote` there is only a marked, unverified note in the text, the
+  appointment stays `proposed` and counts towards the daily limit. Before, the same
+  two arguments made the reminder active and free of the limit.
 - Only a human confirms, moves or cancels an armed appointment and sets a cap. An
   agent may cancel or move only its own proposal or its own plain reminder. A
   correction by anyone else is listed as `disputed` and changes nothing.
@@ -135,8 +139,10 @@ calendar outlet is on. The folder is deliberately not under `global/` or
 ## Surfaces
 
 - **CLI**: `mem appointment ...` (see above and `mem appointment --help`).
-- **MCP**: `mem_appointment_new` (always a proposal, unless a quoted user request
-  makes a plain reminder active), `mem_appointment_list` (read only; `today: true`
+- **MCP**: `mem_appointment_new` (always a proposal; since 2026-10-11 also with
+  `requested_by` + `quote`, which is a claim the bridge cannot verify: it is noted
+  in the text as unverified and the proposal counts towards the daily limit),
+  `mem_appointment_list` (read only; `today: true`
   for the day list), `mem_appointment_cancel` (own proposals only). A bridge is
   never a human: it cannot arm, confirm or set a cap. Under
   `CHEAP_MEM_MCP_READONLY=1` only the list remains.

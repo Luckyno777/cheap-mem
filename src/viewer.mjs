@@ -455,14 +455,22 @@ function sanitizeDeep(value) {
   return value;
 }
 
-// Embed JSON safely inside <script>. The only sequence that can break
-// out of a script element is "</" (case-insensitive, e.g. </script>);
-// escaping the slash neutralises it while staying valid JSON. Also guard
-// against a lone "<!--" starting a comment.
+// Embed JSON safely inside <script>. Two sequences matter to the HTML
+// parser: "</" (case-insensitive, e.g. </script>) ends the element, and
+// "<!--" followed by "<script" switches it into the double-escaped state in
+// which the real end tag no longer closes it. Both start with "<", so the
+// "<" of each is written as the JSON escape \u003c (what src/readview.mjs
+// always did): still valid JSON, and `JSON.parse` of the block returns the
+// text as typed.
+//
+// **A9 (2026-10-11).** This used to write "<\!--" for the comment opener.
+// That is not a JSON escape: `JSON.parse` of the block threw "Bad escaped
+// character", and the viewer stayed BLANK for everybody as soon as one entry
+// anywhere contained "<!--" (a connected agent can write one).
+// test/hostile-surfaces.test.mjs.
 function safeJson(value) {
   return JSON.stringify(value)
-    .replace(/<\//g, '<\\/')
-    .replace(/<!--/g, '<\\!--');
+    .replace(/<(?=\/|!--)/g, '\\u003c');
 }
 
 /**

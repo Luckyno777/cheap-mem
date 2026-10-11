@@ -172,7 +172,7 @@ test('MCP: an agent proposes and lists, can cancel only its own proposal, can ne
   assert.ok(!made.error && !made.result.isError, JSON.stringify(made));
   assert.equal(payload(made).status, 'proposed');
   assert.equal(payload(plain).status, 'proposed');
-  assert.equal(payload(quoted).status, 'active', 'an explicit user quote makes a plain reminder active');
+  assert.equal(payload(quoted).status, 'proposed', 'A12: over the bridge a user quote is a claim, not evidence: still a proposal (test/bridge-appointment-claim.test.mjs)');
   assert.equal(payload(action).status, 'proposed', 'a quote never arms an action');
   assert.equal(payload(listed).appointments.length, 4);
   assert.ok('empty' in payload(today));
