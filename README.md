@@ -470,7 +470,7 @@ enforced fails the build rather than waiting for someone to audit it.
 | `bench/cache-attack.mjs` | an unsigned local file changed what the memory means |
 | `bench/query-independence.mjs` | two queries disagreed about whether the same claim is active |
 | `bench/merge-driver.mjs` | the `*.jsonl merge=union` contract stopped holding |
-| `npm run atlas` | the full-surface run: every command executed as a process, 8 phases, four verdicts — including `not-measured`, which is not a pass |
+| `npm run atlas` | the full-surface run: every command executed as a process, 12 phases, four verdicts — including `not-measured`, which is not a pass |
 
 Each of these also refuses to pass for the wrong reason: mutation needs a
 green baseline and will not credit a mutant it could not apply, and every

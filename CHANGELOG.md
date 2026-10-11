@@ -65,6 +65,49 @@ Each finding was reproduced against a throwaway root first (red), then fixed (gr
 - **One server line** (never the header value) when `CF-Connecting-IP` arrives from loopback without
   `CHEAP_MEM_SERVE_BEHIND_TUNNEL`. Docs: with `CHEAP_MEM_SERVE_LOGIN=off` the owner-writing routes answer `403`; use the shell.
 
+### Added — atlas phases `bridge` and `silent-errors`
+
+Plan step 3 (T3, part 2). Quick sizes only (about four and six seconds); no full atlas run.
+
+- **`bridge`** (`bench/atlas/phase-bridge.mjs`, a stdio client in `bench/atlas/bridge-client.mjs`): the
+  doors the security ports closed, counted against a real `bin/mem-mcp`: fields refused per writable type
+  and class (machine, shred, unknown), `closes_id` with the pointer to `mem_duty_close`, `guard`, the
+  clamped authority, an appointment with `requested_by` + quote stays a proposal, a foreign `from` on
+  `mem_inbox_write`, `mem_store_put` outside the intake (absolute, `..`, symlink, in the root, missing),
+  and the longest unbroken run any pattern scan is handed for a very long title (preload
+  `bench/atlas/run-counter.mjs`, bound 512, no wall clock). A positive control per group. 75 records;
+  against `91b1afc` 52 of them are red, on this state none.
+- **`silent-errors`** (`bench/atlas/phase-silent-errors.mjs`, injector `bench/atlas/inject-search-failure.mjs`):
+  the three-state rule as records: `readLog` in five states, the same states on `mem find` / `mem context`
+  over the CLI and the bridge, the client-visibility journal (E1) and the subagent task lane (E3). First
+  measurement: E1 `fail` (`src/mcpvisibility.mjs` `read()` answers an unreadable journal like a missing
+  one), E3 `fail` (`src/subagenttask.mjs`: a lane that throws is answered `null`, like "nothing found"),
+  six `degraded` (a broken line is skipped without a word on `find` and `context`, over both doors; an
+  unreadable log in `mem find` is an error that does not name the file). Recorded, not fixed.
+- `test/atlas-phase-parity.json`: `bridge`/`bruecke` and `silent-errors`/`stille-fehler` mapped, and the
+  sister house's other phases (wiederherstellung, lesekreis, weiche, netz-tempo, partition, nutzung, guard)
+  listed as only there, each with its reason.
+
+### Added — atlas phases `skala` and `identifiers`, and a phase-parity test with the sister house
+
+Plan step 3 (T3, part 1). Quick sizes only so far; the real scale run comes later on a quiet machine.
+
+- **`skala`** (`bench/atlas/phase-skala.mjs`): per rung (`--rungs`, quick 1,000 and 4,000, full 10,000 and
+  100,000, 1,000,000 on request), the lines and bytes `mem find`, the retrieval hook and `mem context` read
+  (a counting preload, `bench/atlas/io-counter.mjs`), documents visited and candidates per query, index
+  bytes and peak RSS; wall-clock p50/p95 as a companion that reads `not-measured` under foreign load. The
+  corpus comes from `bench/scale-gate.mjs` (`buildRoot` is exported, one owner). Growth across rungs is
+  judged by slope. First measurement, at 1,000 and 4,000 entries: a warm `mem find` reads each typed log
+  about three times (opened four times), the index once.
+- **`identifiers`** (`bench/atlas/phase-identifiers.mjs`): identifiers with underscores and umlauts, with
+  transliterated and in-sentence forms and comparison forms; counter is the rank, expected 3 or better,
+  asked of `find`, `find --recall` and `find --content-words`. First measurement: red on the
+  `--content-words` path for every underscore and umlaut form (`src/search.mjs` splits at `_`, the index
+  keeps it), and red on `find` and `find --recall` for an umlaut identifier typed as its transliteration.
+  Recorded, not fixed.
+- `test/atlas-phase-parity.json` and `test/atlas-phase-parity.test.mjs`: the sister house's phase ids as a
+  fixed list, deliberate differences with reasons, a positive control. `bench/atlas.mjs` takes `--rungs`.
+
 ### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
 
 Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`, red on fb48a54.

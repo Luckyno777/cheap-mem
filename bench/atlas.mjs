@@ -8,6 +8,7 @@
 //     node bench/atlas.mjs --phase surface,load # only these
 //     node bench/atlas.mjs --compare <old.json> # what changed since then
 //     node bench/atlas.mjs --out <dir>          # where to write
+//     node bench/atlas.mjs --phase skala --rungs 100000,1000000   # the scale rungs
 //
 // **Why this exists next to the other two dozen benches.** They are each
 // honest about one question and print for themselves. What was missing is a
@@ -50,6 +51,15 @@ const PHASES = [
   ['defence', './atlas/phase-defence.mjs', 'Neutralisation coverage, flooding curve, tamper detection'],
   ['robust', './atlas/phase-robust.mjs', 'Broken state and concurrent writers'],
   ['ceiling', './atlas/phase-ceiling.mjs', 'Where this design stops working, and why'],
+  // `skala` is the id the sister house uses for its scale phase (shared across
+  // the two houses so their records line up; see bench/atlas/phase-skala.mjs).
+  ['skala', './atlas/phase-skala.mjs', 'Scale: lines and bytes read per call at 10k, 100k and 1M entries'],
+  // Its sister house calls this phase `kennungen` (mapping: test/atlas-phase-parity.json).
+  ['identifiers', './atlas/phase-identifiers.mjs', 'Identifiers with underscores and umlauts: found at rank 3 or better, per path'],
+  // Its sister house calls this phase `bruecke` (mapping: test/atlas-phase-parity.json).
+  ['bridge', './atlas/phase-bridge.mjs', 'The MCP bridge: what a foreign agent cannot claim, refusals counted per door, each with a control'],
+  // Its sister house calls this phase `stille-fehler` (mapping: test/atlas-phase-parity.json).
+  ['silent-errors', './atlas/phase-silent-errors.mjs', 'Silent errors: a read that failed must not look like a read that found nothing'],
   ['register', './atlas/phase-register.mjs', 'The register prototype (sqlite+FTS5) against today\'s linear scan'],
   ['real', './atlas/phase-real.mjs', 'The same measurements against a real, grown memory'],
 ];
@@ -65,7 +75,7 @@ const PHASES = [
 function parseArgs(argv) {
   const o = {
     quick: false, out: null, compare: null, saveBaseline: false,
-    phases: PHASES.map(([id]) => id), label: 'full',
+    phases: PHASES.map(([id]) => id), label: 'full', rungs: null,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
@@ -77,7 +87,7 @@ function parseArgs(argv) {
     } else if (a === '--phase' || a === '--phases') {
       o.phases = String(argv[++i]).split(',').map((s) => s.trim()).filter(Boolean);
       o.label = o.phases.join('+');
-    } else if (a === '--label') { o.label = argv[++i]; } else if (a === '--help' || a === '-h') { o.help = true; }
+    } else if (a === '--rungs') { o.rungs = String(argv[++i]); } else if (a === '--label') { o.label = argv[++i]; } else if (a === '--help' || a === '-h') { o.help = true; }
   }
   return o;
 }
@@ -89,6 +99,7 @@ const BASELINE = path.join(REPO, 'bench', 'atlas-baseline.json');
 const HELP = `mem atlas — full-surface benchmark
 
   node bench/atlas.mjs [--quick] [--phase a,b] [--out DIR] [--label NAME]
+  node bench/atlas.mjs --rungs 100000,1000000   entry counts for the skala phase
   node bench/atlas.mjs --compare [FILE]     default: bench/atlas-baseline.json
   node bench/atlas.mjs --save-baseline      also write bench/atlas-baseline.json
 
@@ -211,7 +222,7 @@ async function main() {
     try {
       const m = await import(pathToFileURL(abs).href);
       if (typeof m.run !== 'function') throw new Error('module exports no run()');
-      await m.run(atlas, { quick: opt.quick });
+      await m.run(atlas, { quick: opt.quick, rungs: opt.rungs });
     } catch (e) {
       // A phase that throws has not passed. It is recorded as a failure of
       // the harness, with the stack, and the run continues — one broken

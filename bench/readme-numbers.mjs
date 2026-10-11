@@ -130,7 +130,7 @@ export function buildCounters(root = DEFAULT_ROOT) {
     // hook in `install/hooks/`.
     hooks: () => fs.readdirSync(path.join(root, 'install', 'hooks')).filter((n) => n.endsWith('.sh')).length,
     // The phases `bench/atlas.mjs` runs: one `[id, './atlas/phase-…']` row each.
-    atlasPhases: () => [...read('bench/atlas.mjs').matchAll(/^\s*\['[a-z]+', '\.\/atlas\/phase-[a-z]+\.mjs'/gm)].length,
+    atlasPhases: () => [...read('bench/atlas.mjs').matchAll(/^\s*\['[a-z-]+', '\.\/atlas\/phase-[a-z-]+\.mjs'/gm)].length,
     // Cannot be had exactly without running the suite, and a test that
     // starts the suite contains itself — so this counts `test(` call
     // sites, close enough (0.3 % apart, measured 2026-09-19 in
