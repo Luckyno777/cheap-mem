@@ -358,6 +358,40 @@ The sabotage recipes for the `root` and `config` doctor findings, listed
 here in earlier runs as structurally unreachable, are no longer a blind
 spot: this run reaches both (see "What is confirmed broken" above).
 
+## Two phases added after this run: `skala` and `identifiers`
+
+Both are in `bench/atlas.mjs` but not in the committed baseline above, which
+was taken before them; the first run on a quiet machine adds them.
+
+**`skala` (scale).** The phase counts what one call READS at a rung of
+entries instead of timing it: lines and bytes read from the logs and from the
+index cache by `mem find`, by the retrieval hook and by `mem context`, the
+documents the search visits and the candidates per query, the index next to the
+logs, and peak RSS. Wall-clock p50/p95 of the cold finds ride along as a
+companion value and read `not-measured` when the load sensor saw foreign load.
+The rungs come from `--rungs` (`node bench/atlas.mjs --phase skala --rungs
+100000,1000000`); without it a quick run does 1,000 and 4,000 entries and a full
+run 10,000 and 100,000. The 1,000,000 rung is never a default (about 1.5 GB of
+RAM and, at the gate's build speed, the better part of an hour). A reference
+rung (100,000, 1,000,000) that a run did not cover is a `not-measured` record
+with the reason, and a named blind spot. The corpus is built by
+`bench/scale-gate.mjs`, which stays its only owner; the pass bounds for RSS and
+the time companion are that gate's pre-registered ones. The id `skala` is the
+one the sister house uses, so the two atlases line up.
+
+**`identifiers`.** Identifiers with an underscore, with an umlaut, and the same
+typed as a transliteration (`prüfe_größe_limit` against `pruefe_groesse_limit`),
+each planted with decoys that carry only the parts of the name, then asked for
+by three paths (`find`, `find --recall`, `find --content-words`). The counter is
+the rank of the entry that names the identifier; the expectation is rank 3 or
+better. A plain word, a hyphenated and a camelCase name are the comparison
+forms. A red here is a finding about the search, recorded as such; the phase
+does not fix it. The sister house calls this phase `kennungen`.
+
+`test/atlas-phase-parity.json` lists the sister house's phase ids and every
+deliberate difference between the two atlases, with its reason;
+`test/atlas-phase-parity.test.mjs` fails on any difference that is not named.
+
 ## Keeping it honest over time
 
 `bench/atlas-baseline.json` is the one committed artefact: the run a

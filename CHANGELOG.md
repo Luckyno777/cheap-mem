@@ -14,6 +14,26 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — atlas phases `skala` and `identifiers`, and a phase-parity test with the sister house
+
+Plan step 3 (T3, part 1). Quick sizes only so far; the real scale run comes later on a quiet machine.
+
+- **`skala`** (`bench/atlas/phase-skala.mjs`): per rung (`--rungs`, quick 1,000 and 4,000, full 10,000 and
+  100,000, 1,000,000 on request), the lines and bytes `mem find`, the retrieval hook and `mem context` read
+  (a counting preload, `bench/atlas/io-counter.mjs`), documents visited and candidates per query, index
+  bytes and peak RSS; wall-clock p50/p95 as a companion that reads `not-measured` under foreign load. The
+  corpus comes from `bench/scale-gate.mjs` (`buildRoot` is exported, one owner). Growth across rungs is
+  judged by slope. First measurement, at 1,000 and 4,000 entries: a warm `mem find` reads each typed log
+  about three times (opened four times), the index once.
+- **`identifiers`** (`bench/atlas/phase-identifiers.mjs`): identifiers with underscores and umlauts, with
+  transliterated and in-sentence forms and comparison forms; counter is the rank, expected 3 or better,
+  asked of `find`, `find --recall` and `find --content-words`. First measurement: red on the
+  `--content-words` path for every underscore and umlaut form (`src/search.mjs` splits at `_`, the index
+  keeps it), and red on `find` and `find --recall` for an umlaut identifier typed as its transliteration.
+  Recorded, not fixed.
+- `test/atlas-phase-parity.json` and `test/atlas-phase-parity.test.mjs`: the sister house's phase ids as a
+  fixed list, deliberate differences with reasons, a positive control. `bench/atlas.mjs` takes `--rungs`.
+
 ### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
 
 Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`, red on fb48a54.
