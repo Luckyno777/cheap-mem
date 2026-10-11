@@ -1790,7 +1790,7 @@ async function handleCall(name, args) {
       const claimsUser = args.requested_by === 'user';
       let noteText = args.text ? String(args.text) : '';
       if (claimsUser) {
-        const claimed = String(args.quote ?? '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+        const claimed = String(args.quote ?? '').replace(/[\p{Cc}\s]+/gu, ' ').trim();
         if (!claimed) throw new Error("requested_by needs the user's sentence in their words (quote, at most 200 characters) as evidence.");
         if (claimed.length > 200) throw new Error(`quote is too long (${claimed.length} > 200)`);
         if (args.private !== true) {

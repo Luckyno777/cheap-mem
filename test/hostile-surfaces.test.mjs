@@ -25,7 +25,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as memory from '../src/memory.mjs';
 import * as inbox from '../src/inbox.mjs';
@@ -38,8 +37,6 @@ import * as entity from '../src/entity.mjs';
 import * as netderive from '../src/netderive.mjs';
 import * as dashboardData from '../src/dashboard-data.mjs';
 import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
-
-const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 // --- The corpus -----------------------------------------------------------------------------------
 
@@ -57,9 +54,6 @@ function payloads(n) {
     `line\u2028separator\u2029here ${n}`,
   ];
 }
-/** What the scanner counts as "the corpus is on the page as text". */
-const LITERAL = /<script>window\.__xss|<img src=x onerror|javascript:window|&lt;img src=x onerror/g;
-
 const PARTICIPANTS = { alex: { human: true }, bot: {}, 'vm-admin': 'agent' };
 
 function hostileRoot(t, { long = false } = {}) {
