@@ -1522,9 +1522,18 @@ export function buildHandler(root, cfg, env = process.env) {
           return;
         }
         // /task/cancel
-        tasks.cancel(root, kind).then((result) => {
+        // Cancelling needs the password session, like starting a `humanOnly` kind (Fable run 2026-10-11).
+        tasks.cancel(root, kind, { user: personSignedIn(req) }).then((result) => {
           answer(200, { state: 'ok', ...result });
         }).catch((e) => {
+          if (e?.code === 'NOT_A_PERSON') {
+            answer(403, { state: 'error', reason: e.message });
+            return;
+          }
+          if (e?.code === 'NOT_CANCELLABLE') {
+            answer(409, { state: 'warning', reason: e.message });
+            return;
+          }
           if (e?.code === 'UNKNOWN_KIND') {
             answer(400, { state: 'unknown', reason: e.message, known: Object.keys(tasks.KINDS) });
             return;

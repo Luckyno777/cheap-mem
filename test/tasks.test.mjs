@@ -23,6 +23,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import * as tasks from '../src/tasks.mjs';
+import { personCookie } from './person-session.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -116,7 +117,7 @@ test('kind "export" on an empty record: exit 0, no JSON -- the exact quirk found
   // shape as lucky-mem's own finding for `roh export`.
   const r = world();
   try {
-    const { id } = tasks.start(r, 'export');
+    const { id } = tasks.start(r, 'export', {}, { user: true });
     const b = await waitForTerminal(r, id);
     assert.equal(b.state, 'warning', `unexpected state: ${b.state}`);
     assert.match(b.reason, /No captures in that range|JSON/);
@@ -148,7 +149,7 @@ test('two DIFFERENT kinds may run at the same time', async () => {
   const r = world();
   try {
     const a = tasks.start(r, 'integrity');
-    const b = tasks.start(r, 'export');
+    const b = tasks.start(r, 'export', {}, { user: true });
     assert.notEqual(a.id, b.id);
     await Promise.all([waitForTerminal(r, a.id), waitForTerminal(r, b.id)]);
   } finally { gone(r); }
@@ -172,7 +173,7 @@ test('cancel() really ends the child process (pid is provably gone afterwards)',
       return JSON.parse(lines[0]).pid;
     })();
 
-    const result = await tasks.cancel(r, 'integrity');
+    const result = await tasks.cancel(r, 'integrity', { user: true });
     assert.equal(result.id, id);
     assert.equal(result.reallyEnded, true, 'cancel() must wait for the real end, not just send a signal');
 
@@ -186,7 +187,7 @@ test('cancel() really ends the child process (pid is provably gone afterwards)',
     // would just move the same problem one step over.
     const fresh = tasks.start(r, 'integrity');
     assert.notEqual(fresh.id, id);
-    await tasks.cancel(r, 'integrity').catch(() => {}); // clean up regardless of how fast it ran
+    await tasks.cancel(r, 'integrity', { user: true }).catch(() => {}); // clean up regardless of how fast it ran
     // cancel() returns when the pid is gone; the lock (entry.ended) is released by the child's 'close'
     // event a moment later -- on Windows late enough for the NEXT test's start() to meet LOCK_ACTIVE.
     // The terminal line is written after ended is set, so waiting for it is waiting for the lock.
@@ -197,14 +198,14 @@ test('cancel() really ends the child process (pid is provably gone afterwards)',
 test('cancel() with nothing running of that kind throws NOTHING_ACTIVE', async () => {
   const r = world();
   try {
-    await assert.rejects(tasks.cancel(r, 'export'), (e) => e.code === 'NOTHING_ACTIVE');
+    await assert.rejects(tasks.cancel(r, 'export', { user: true }), (e) => e.code === 'NOTHING_ACTIVE');
   } finally { gone(r); }
 });
 
 test('cancel() of an unknown kind throws UNKNOWN_KIND', async () => {
   const r = world();
   try {
-    await assert.rejects(tasks.cancel(r, 'not-a-real-kind'), (e) => e.code === 'UNKNOWN_KIND');
+    await assert.rejects(tasks.cancel(r, 'not-a-real-kind', { user: true }), (e) => e.code === 'UNKNOWN_KIND');
   } finally { gone(r); }
 });
 
@@ -271,7 +272,7 @@ test('overview() of another root does not show a task that runs in this one (and
     const { id } = tasks.start(a, 'integrity');
     assert.equal(tasks.overview(b).integrity, null, 'a task of root A is not root B\'s task');
     assert.equal(tasks.overview(a).integrity?.id, id, 'positive control: root A sees its own running task');
-    await tasks.cancel(a, 'integrity').catch(() => {});
+    await tasks.cancel(a, 'integrity', { user: true }).catch(() => {});
     await waitForTerminal(a, id);
   } finally { gone(a); gone(b); }
 });
@@ -434,9 +435,10 @@ test('two POST /task of the same kind back to back: the second gets 409', async 
   const r = world();
   const s = await start(r);
   try {
+    // `export` writes (decompressed raw captures), so it needs a password session since the Fable run 2026-10-11.
     const post = () => fetch(`${s.base}/task`, {
       method: 'POST',
-      headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...WITH_DOOR, cookie: personCookie(r), origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
       body: 'kind=export',
     });
     const r1 = await post();
@@ -463,9 +465,10 @@ test('POST /task/cancel with nothing running of that kind -> 409, no crash', asy
   const r = world();
   const s = await start(r);
   try {
+    // cancelling needs a password session (Fable run 2026-10-11); the person asks about a kind that is idle
     const res = await fetch(`${s.base}/task/cancel`, {
       method: 'POST',
-      headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...WITH_DOOR, cookie: personCookie(r), origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
       body: 'kind=integrity',
     });
     assert.equal(res.status, 409);
