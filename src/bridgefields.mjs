@@ -213,3 +213,28 @@ export function shapeCheck(schema, args) {
     throw new Error(`${quoted(bad)} must be a string, not ${bad.map((k) => (Array.isArray(args[k]) ? 'an array' : 'an object')).join(' / ')} — nothing was run.`);
   }
 }
+
+/** The `mem_log` fields that may carry a list of strings. Every other field is a scalar. */
+const LIST_FIELDS = Object.freeze(['tags', 'symbols', 'asked_as', 'asked-as', 'placeholders', 'files', 'used_by']);
+
+/**
+ * The shape of the fields of a `mem_log` call (review, 2026-10-11, after `shapeCheck`): the schema declares only
+ * a few of them, and an undeclared one slipped through - `owner: ["digest"]`, `owner: {a: 1}`, `authority: {a: 1}`
+ * and `tags: [{a: 1}]` were written as given. Now: the list fields are arrays of strings, every other field is a
+ * scalar (string, number, boolean, or null / absent). Refused by name, nothing is written.
+ */
+export function logFieldShape(args) {
+  const bad = [];
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (v === null || v === undefined) continue;
+    if (LIST_FIELDS.includes(k)) {
+      // a plain string is a one-word list (`symbols: "mem_log"` is in use)
+      if (typeof v !== 'string' && (!Array.isArray(v) || v.some((x) => typeof x !== 'string'))) bad.push(`${k} (an array of strings)`);
+    } else if (typeof v === 'object') {
+      bad.push(`${k} (a string, number or boolean)`);
+    }
+  }
+  if (bad.length) {
+    throw new Error(`Wrong shape over the bridge: ${bad.join(', ')} — nothing was written.`);
+  }
+}

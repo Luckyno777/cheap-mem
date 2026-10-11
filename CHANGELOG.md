@@ -55,6 +55,12 @@ Each finding was reproduced against a throwaway root first (red), then fixed (gr
   and `["procedure"]` passed the strict comparisons and were written. `mem_log` wants a string `type`, and every tool
   refuses an array or an object where its schema says string (stdio and `--http`). **Breaking** for a client that
   sent an array where a string is declared.
+- **An auto-duty extension adds only its own errors.** Every newly added `error_id` must be an error of the duty's
+  class at the duty's file, else the replacement is refused (an unrelated error with a `guard` let a duty close
+  without evidence for its own errors). Applies to any replacement of a duty that grew out of errors.
+- **`mem_log` field shapes (breaking for odd clients).** `tags`, `symbols`, `asked_as`, `placeholders`, `files` and
+  `used_by` may be arrays of strings; every other field must be a scalar. `owner: ["x"]`, `authority: {..}` and
+  `tags: [{..}]` were written as given; they are refused by name now.
 - **Host check is central.** Every dashboard route that is not an asset checks the Host (`/dashboard` was missing).
 - **One server line** (never the header value) when `CF-Connecting-IP` arrives from loopback without
   `CHEAP_MEM_SERVE_BEHIND_TUNNEL`. Docs: with `CHEAP_MEM_SERVE_LOGIN=off` the owner-writing routes answer `403`; use the shell.

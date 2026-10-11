@@ -56,7 +56,7 @@ function seed(root) {
   const user = memory.logEntry(root, 'duty', { title: 'pay the rent', duty: 'pay', owner: 'user', agent: 'user', authority: 'user' }).entry;
   const err = memory.logEntry(root, 'error', { title: 'e1', text: 'x', class: 'c', file: 'a.js', agent: 'digest' }).entry;
   const auto = memory.logEntry(root, 'duty', {
-    title: 'Guard for c at a.js', text: 'auto', owner: 'digest', agent: 'digest', error_ids: [err.id], automatic: true,
+    title: 'Guard for c at a.js', text: 'auto', owner: 'digest', agent: 'digest', class: 'c', file: 'a.js', error_ids: [err.id], automatic: true,
   }).entry;
   return { user, auto, err };
 }
@@ -98,7 +98,9 @@ test('B1: an open replacement of an auto-duty carries the error_ids on, so closi
 test('B1 positive control: the library path an auto-duty uses (correctionEntry, ids kept) still replaces', (t) => {
   const root = world(t);
   const { auto } = seed(root);
-  memory.correctionEntry(root, 'duty', auto.id, { error_ids: [...auto.error_ids, 'extra0000001'] });
+  // a real error of the duty's class and file (an unrelated id is refused, see test/b1-auto-duty-chain.test.mjs)
+  const again = memory.logEntry(root, 'error', { title: 'e2', text: 'x', class: 'c', file: 'a.js', agent: 'digest' }).entry;
+  memory.correctionEntry(root, 'duty', auto.id, { error_ids: [...auto.error_ids, again.id] });
   const d = memory.openDuties(root);
   assert.equal(d.open.filter((x) => x.title === 'Guard for c at a.js').length, 1);
   assert.ok(!d.open.some((x) => x.id === auto.id), 'the old stage should be folded away');

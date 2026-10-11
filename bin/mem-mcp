@@ -1279,7 +1279,8 @@ async function handleCall(name, args) {
       // (pure, no I/O): a refusal costs a loop over the keys.
       {
         const { type: _t, project: _p, ...offered } = args;
-        bridgefields.refuse(args.type, offered);
+        bridgefields.refuse(args.type, offered); // names its own refusals first (closes_id, guard, unknown fields)
+        bridgefields.logFieldShape(offered);
         if (args.tags !== undefined && args.tags !== null && !Array.isArray(args.tags)) {
           throw new Error("Field 'tags' must be an array of strings over the bridge — nothing was written.");
         }

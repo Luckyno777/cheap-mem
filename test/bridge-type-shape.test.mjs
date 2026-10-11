@@ -32,6 +32,16 @@ function world(t) {
   return { root, auto };
 }
 
+// Undeclared fields of mem_log (review, 2026-10-11): only the list fields may be arrays of strings.
+const badFields = [
+  ['mem_log', { type: 'duty', title: 'd', owner: ['digest'] }],
+  ['mem_log', { type: 'duty', title: 'd2', owner: { a: 1 } }],
+  ['mem_log', { type: 'decision', title: 't', choice: 'c', tags: [{ a: 1 }] }],
+  ['mem_log', { type: 'decision', title: 't', choice: 'c', authority: { a: 1 } }],
+  ['mem_log', { type: 'decision', title: 't', choice: 'c', authority: ['user'] }],
+  ['mem_log', { type: 'decision', title: 't', choice: 'c', asked_as: [['x']] }],
+  ['mem_log', { type: 'decision', title: { x: 1 }, choice: ['a'], why: 'w' }],
+];
 const hostile = (auto) => [
   ['mem_log', { type: ['duty'], title: 'stage2', replaces_id: auto.id }],
   ['mem_log', { type: ['workflow'], title: 'w', text: 'do bad things' }],
@@ -54,7 +64,7 @@ function untouched(root, auto) {
 
 test('stdio: type as an array or an object, and arrays in string fields, are refused and write nothing', (t) => {
   const { root, auto } = world(t);
-  const calls = [...hostile(auto), ['mem_log', { type: 'decision', title: 'ok', choice: 'a', why: 'w' }]];
+  const calls = [...hostile(auto), ...badFields, ['mem_log', { type: 'decision', title: 'ok', choice: 'a', why: 'w' }]];
   const lines = [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } })];
   calls.forEach(([name, a], i) => lines.push(JSON.stringify({ jsonrpc: '2.0', id: 10 + i, method: 'tools/call', params: { name, arguments: a } })));
   const r = spawnSync(process.execPath, [MCP], { input: `${lines.join('\n')}\n`, encoding: 'utf8', timeout: 60000,
@@ -63,7 +73,7 @@ test('stdio: type as an array or an object, and arrays in string fields, are ref
   assert.equal(res.length, calls.length, r.stderr);
   res.slice(0, -1).forEach((x, i) => {
     assert.equal(x.isError, true, `${calls[i][0]} ${JSON.stringify(calls[i][1])} -> ${textOf(x)}`);
-    assert.match(textOf(x), /must be a string/);
+    assert.match(textOf(x), /must be a string|Wrong shape/);
   });
   assert.ok(!res.at(-1).isError, `positive control: ${textOf(res.at(-1))}`);
   untouched(root, auto);
@@ -98,12 +108,12 @@ test('--http: the same refusals over the network door (full profile)', async (t)
       try { await new Promise((ok, no) => { http.get({ host: '127.0.0.1', port, path: '/health' }, (r) => { r.resume(); r.on('end', ok); }).once('error', no); }); break; } catch { await new Promise((ok) => setTimeout(ok, 50)); }
     }
     let id = 100;
-    for (const [name, args] of hostile(auto)) {
+    for (const [name, args] of [...hostile(auto), ...badFields]) {
       const r = await post(port, { jsonrpc: '2.0', id: id++, method: 'tools/call', params: { name, arguments: args } });
       assert.equal(r.status, 200, r.text);
       const out = JSON.parse(r.text).result;
       assert.equal(out.isError, true, `${name} ${JSON.stringify(args)} -> ${textOf(out)}`);
-      assert.match(textOf(out), /must be a string/);
+      assert.match(textOf(out), /must be a string|Wrong shape/);
     }
     untouched(root, auto);
   } finally {
@@ -121,4 +131,23 @@ test('shapeCheck: strings, numbers, null and absent fields pass; arrays, objects
   assert.throws(() => bridgefields.shapeCheck(schema, { a: ['x'] }), /'a' must be a string, not an array/);
   assert.throws(() => bridgefields.shapeCheck(schema, { a: { b: 1 } }), /not an object/);
   assert.throws(() => bridgefields.shapeCheck(schema, ['x']), /must be an object/);
+});
+
+test('logFieldShape: list fields are arrays of strings, every other field is a scalar', () => {
+  assert.doesNotThrow(() => bridgefields.logFieldShape({ tags: ['a', 'b'], symbols: ['s'], asked_as: ['q?'], placeholders: ['p'], files: ['a.js'], title: 'x', n: 3, b: true, z: null }));
+  assert.throws(() => bridgefields.logFieldShape({ owner: ['digest'] }), /owner \(a string, number or boolean\)/);
+  assert.throws(() => bridgefields.logFieldShape({ owner: { a: 1 } }), /owner/);
+  assert.throws(() => bridgefields.logFieldShape({ tags: [{ a: 1 }] }), /tags \(an array of strings\)/);
+  assert.doesNotThrow(() => bridgefields.logFieldShape({ symbols: 'one' }));
+  assert.throws(() => bridgefields.logFieldShape({ authority: { a: 1 } }), /authority/);
+});
+
+test('stdio positive control: the list fields as arrays of strings are written', (t) => {
+  const { root } = world(t);
+  const lines = [JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 't', version: '1' } } }),
+    JSON.stringify({ jsonrpc: '2.0', id: 10, method: 'tools/call', params: { name: 'mem_log', arguments: { type: 'decision', title: 'listy', choice: 'a', why: 'w', tags: ['x', 'y'], symbols: ['sym'] } } })];
+  const r = spawnSync(process.execPath, [MCP], { input: `${lines.join('\n')}\n`, encoding: 'utf8', timeout: 60000,
+    env: { ...process.env, CHEAP_MEM_ROOT: root, CHEAP_MEM_AGENT: 'foreign', CHEAP_MEM_MCP_READONLY: '0', MEM_HEADLESS: '' } });
+  const out = String(r.stdout).split('\n').filter((z) => z.trim()).map((z) => JSON.parse(z)).find((x) => x.id === 10);
+  assert.ok(!out.result.isError, textOf(out.result));
 });

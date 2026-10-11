@@ -143,3 +143,25 @@ test('7: a refusal of the fold is worded as the fold acts (the duty stays open) 
     assert.match(f.text, /^1 contested claim of 1 state pointer/, f.text);
   });
 });
+
+test('1: an extension may add only errors of the duty\'s own class and file - a foreign guarded error id is refused', (t) => {
+  const root = world(t);
+  repeat(root, 'alice'); repeat(root, 'alice');
+  const [auto] = autoOpen(root);
+  const foreign = memory.logEntry(root, 'error', { title: 'other', text: 'x', class: 'zzz', file: 'zzz.js', agent: 'digest', guard: { kind: 'file', path: 'x' } }).entry;
+  const sameFile = memory.logEntry(root, 'error', { title: 'same file other class', text: 'x', class: 'zzz', file: auto.file, agent: 'digest' }).entry;
+  const ghost = 'doesnotexist1';
+  for (const extra of [foreign.id, sameFile.id, ghost]) {
+    memory.correctionEntry(root, 'duty', auto.id, { ...pickSame(auto), automatic: true, error_ids: [...auto.error_ids, extra] }, {});
+  }
+  const d = memory.openDuties(root);
+  assert.ok(d.open.some((x) => x.id === auto.id), 'the auto-duty was replaced by an extension with a foreign error id');
+  assert.equal(d.refused.filter((r) => r.target === auto.id).length, 3, JSON.stringify(d.refused));
+  assert.throws(() => memory.closeDuty(root, auto.id, { state: 'done', why: 'x' }), /no evidence|F4/);
+  // positive control: an error of the same class and file extends it
+  const mine = memory.logEntry(root, 'error', { title: 'again', text: 'x', class: auto.class, file: auto.file, agent: 'digest' }).entry;
+  memory.correctionEntry(root, 'duty', auto.id, { ...pickSame(auto), automatic: true, error_ids: [...auto.error_ids, mine.id] }, {});
+  assert.ok(!memory.openDuties(root).open.some((x) => x.id === auto.id), 'a genuine extension was refused');
+});
+
+function pickSame(d) { return { title: d.title, text: d.text, owner: d.owner, class: d.class, file: d.file }; }

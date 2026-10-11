@@ -22,6 +22,7 @@ import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
+import * as errorfile from './errorfile.mjs';
 import * as timetrack from './timetrack.mjs';
 import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
@@ -3087,7 +3088,7 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   // ceiling already applied), so the warning and the replay agree.
   return {
     ...written, old, closing, findings, encrypted: newData.shred === true,
-    verdict: type === 'duty' ? warnIfDutyReplaceRefused(written.entry, old) : warnIfRefused(written.entry, old, 'replaces_id'),
+    verdict: type === 'duty' ? warnIfDutyReplaceRefused(root, written.entry, old) : warnIfRefused(written.entry, old, 'replaces_id'),
   };
 }
 
@@ -3105,12 +3106,24 @@ const AUTO_DUTY_SAME = ['class', 'file', 'title', 'text', 'owner'];
  * CHEAP_MEM_MAX_AUTHORITY sits below the agent that made the duty): refusing it left the old stage open AND added
  * the extension as a second duty on every repeat. It cannot reword, close or shed ids, so it needs no rank.
  */
-function isAutoDutyExtension(e, target, heldIds) {
+function isAutoDutyExtension(e, target, heldIds, errorOf) {
   if (e?.automatic !== true || target?.automatic !== true) return false;
   if (AUTO_DUTY_SAME.some((f) => e[f] !== target[f])) return false;
   if ([DUTY_STATE.DONE, DUTY_STATE.DROPPED].includes(String(e.state ?? ''))) return false;
   const ids = Array.isArray(e.error_ids) ? e.error_ids : [];
-  return heldIds.every((x) => ids.includes(x));
+  if (!heldIds.every((x) => ids.includes(x))) return false;
+  return ids.filter((x) => !heldIds.includes(x)).every((x) => namesOwnError(target, x, errorOf));
+}
+
+/**
+ * Is error `id` one of THIS duty's own errors - the same class, at the same file? Every NEWLY added id has to be
+ * (review, 2026-10-11): an unrelated error id, one that carries a `guard` say, would be evidence for closing a
+ * duty it has nothing to do with. An id nobody can look up is not.
+ */
+function namesOwnError(duty, id, errorOf) {
+  const err = errorOf?.(id);
+  return Boolean(err) && String(err.class ?? '').trim() === String(duty.class ?? '').trim()
+    && errorfile.files(err).includes(duty.file);
 }
 
 /**
@@ -3120,9 +3133,9 @@ function isAutoDutyExtension(e, target, heldIds) {
  * a duty that grew out of errors (`heldIds`) is replaced only by a stage that stays open and keeps those ids.
  * Returns `{ status: 'allowed' | 'refused', reason }`.
  */
-export function dutyReplaceVerdict(e, target, heldIds = []) {
+export function dutyReplaceVerdict(e, target, heldIds = [], errorOf = null) {
   const ids = Array.isArray(heldIds) ? heldIds : [];
-  let verdict = isAutoDutyExtension(e, target, ids)
+  let verdict = isAutoDutyExtension(e, target, ids, errorOf)
     ? { status: 'allowed', reason: 'an automatic duty extended by more error ids' }
     : authority.mayChangeState(e, target, 'closes_id');
   if (verdict.status !== 'refused' && ids.length) {
@@ -3133,6 +3146,17 @@ export function dutyReplaceVerdict(e, target, heldIds = []) {
         status: 'refused',
         reason: `F4: '${target.id}' grew out of errors (error_ids: ${ids.join(', ')}); `
           + 'a replacement has to stay open and keep those ids - closing needs evidence (mem_duty_close)',
+      };
+    }
+  }
+  if (verdict.status !== 'refused' && ids.length) {
+    const added = (Array.isArray(e.error_ids) ? e.error_ids : []).filter((x) => !ids.includes(x));
+    const foreign = added.filter((x) => !namesOwnError(target, x, errorOf));
+    if (foreign.length) {
+      verdict = {
+        status: 'refused',
+        reason: `F4: error id ${foreign.join(', ')} added to '${target.id}' is not an error of its class and file - `
+          + 'an unrelated error (a guard of its own, say) would be evidence for closing this duty',
       };
     }
   }
@@ -3246,6 +3270,19 @@ export function openDuties(root, { project = undefined } = {}) {
   // holds (`held`) are known from its already judged predecessor. (A first version recursed backwards without a
   // memo: quadratic, and a stack overflow at 30000 stages.) A chain that is a cycle has no root and is never
   // honoured.
+  // The errors a duty's ids name, read once and only when an automatic extension adds an id.
+  let errorsById = null;
+  const errorOf = (id) => {
+    if (errorsById === null) {
+      errorsById = new Map();
+      for (const project of [null, ...listProjects(root)]) {
+        let rows;
+        try { ({ entries: rows } = readLog(root, 'error', { project })); } catch { continue; }
+        for (const x of rows ?? []) if (x && typeof x.id === 'string' && !errorsById.has(x.id)) errorsById.set(x.id, x);
+      }
+    }
+    return errorsById.get(id);
+  };
   const judged = new Map(); // replacer id -> true (honoured) | false (refused)
   const held = new Map();   // id -> the error_ids the stage holds (its own, else the honoured chain behind it)
   const ownIds = (e) => (Array.isArray(e.error_ids) ? e.error_ids : []);
@@ -3263,7 +3300,7 @@ export function openDuties(root, { project = undefined } = {}) {
     for (const id of children.get(queue[i]) ?? []) {
       const e = all.get(id);
       const target = all.get(e.replaces_id);
-      const verdict = dutyReplaceVerdict(e, target, held.get(target.id) ?? []);
+      const verdict = dutyReplaceVerdict(e, target, held.get(target.id) ?? [], errorOf);
       if (verdict.status === 'refused') {
         refused.push({ by: id, target: target.id, field: 'replaces_id', reason: verdict.reason, ts: e.ts });
         judged.set(id, false);
@@ -3422,8 +3459,8 @@ export function closeDuty(root, id, {
 }
 
 /** The same early warning for a duty replacement, worded as the fold acts (`dutyReplaceVerdict`): the duty stays open. */
-function warnIfDutyReplaceRefused(entry, target) {
-  const verdict = dutyReplaceVerdict(entry, target, Array.isArray(target?.error_ids) ? target.error_ids : []);
+function warnIfDutyReplaceRefused(root, entry, target) {
+  const verdict = dutyReplaceVerdict(entry, target, Array.isArray(target?.error_ids) ? target.error_ids : [], (id) => entriesById(root).get(id));
   if (verdict.status === 'refused') {
     process.emitWarning(
       `replaces_id ${target?.id ?? ''} not honoured: ${verdict.reason}. The duty stays open and this line `
