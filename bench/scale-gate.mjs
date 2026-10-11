@@ -372,8 +372,8 @@ function tempDir(prefix) {
   made.add(d);
   return d;
 }
-function removeDir(d) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* going away */ } made.delete(d); }
-function cleanupAll() { for (const d of [...made]) removeDir(d); }
+export function removeDir(d) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* going away */ } made.delete(d); }
+export function cleanupAll() { for (const d of [...made]) removeDir(d); }
 
 /** Refuse any root that is not under the temp directory: the real store must be impossible to hit. */
 export function underTemp(dir) {
@@ -710,8 +710,13 @@ function tryDropCaches() {
   try { spawnSync('sync'); fs.writeFileSync('/proc/sys/vm/drop_caches', '3\n'); return true; } catch { return false; }
 }
 
-/** Build the root for `n` entries and the first index. Shared by the rung and the calibration. */
-async function buildRoot(n, opts, log) {
+/**
+ * Build the root for `n` entries and the first index. Shared by the rung, the calibration and the
+ * atlas phase `skala` (bench/atlas/phase-skala.mjs), which calls this instead of building its own
+ * corpus: one owner for how a scale root is made. The caller removes the three directories with
+ * `removeDir` (ctx.root, ctx.home, ctx.scratch).
+ */
+export async function buildRoot(n, opts, log) {
   const root = tempDir(`cm-scale-gate-${n}-`);
   const home = tempDir('cm-scale-gate-home-');
   const scratch = tempDir('cm-scale-gate-scratch-');
