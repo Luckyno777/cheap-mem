@@ -268,6 +268,8 @@ test('B9: one server line (never the header value) when CF-Connecting-IP arrives
   const lines = [];
   const real = process.stderr.write.bind(process.stderr);
   process.stderr.write = (z, ...rest) => { lines.push(String(z)); return real(z, ...rest); };
+  // Restoring through a function keeps the write outside the awaited flow (require-atomic-updates).
+  const restore = () => { process.stderr.write = real; };
   const s = await start(r);
   const s2 = await start(memory(), { CHEAP_MEM_SERVE_BEHIND_TUNNEL: '1' });
   const seenIp = '203.0.113.77';
@@ -277,5 +279,5 @@ test('B9: one server line (never the header value) when CF-Connecting-IP arrives
     const noted = lines.filter((z) => z.includes('CHEAP_MEM_SERVE_BEHIND_TUNNEL'));
     assert.equal(noted.length, 1, `one line, got ${noted.length}: ${noted.join('')}`);
     assert.ok(!lines.some((z) => z.includes(seenIp)), 'the header value was logged');
-  } finally { process.stderr.write = real; await s.stop(); await s2.stop(); gone(r); }
+  } finally { restore(); await s.stop(); await s2.stop(); gone(r); }
 });
