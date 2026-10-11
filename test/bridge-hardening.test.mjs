@@ -346,7 +346,7 @@ test('cosmetic: a file whose name starts with two dots is inside the intake fold
 test('CHEAP_MEM_STORE_INTAKE takes absolute paths only: a relative entry is ignored, and the refusal says so', (t) => {
   const { root, outside } = intakeWorld(t);
   fs.writeFileSync(path.join(outside, 'x.txt'), 'x\n');
-  const rel = path.relative(process.cwd(), outside);
+  const rel = path.relative(process.cwd(), outside); // rel-ok: handed straight back to path APIs on this host, never stored or compared as a key
   assert.ok(!path.isAbsolute(rel));
   assert.deepEqual(store.intakeDirs(root, { [store.INTAKE_ENV]: rel }), [path.join(root, 'store', 'intake')]);
   assert.throws(() => store.intakeFile(root, path.join(outside, 'x.txt'), { [store.INTAKE_ENV]: rel }), /Ignored \(a relative path/);
