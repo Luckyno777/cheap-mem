@@ -72,9 +72,32 @@ test('the shape rule: what is broken and what stays readable', () => {
     { origin: { derived_from: ['abc'] } }, { provenance: { inferred_from: ['x'] } }, { guard: { kind: 'test', path: 'a' } },
     { chain_seal: { writer: 'w', hash: 'h' } }, { error_ids: ['a', 'b'] }, { steps: ['one', 'two'] }, { tags: null }, { owner: undefined },
     { _source: 'global/x.jsonl', _line: 4 }, {},
+    // lists the CLI really writes (found by writing every type through it): `--rejected a,b`, a workflow's match lists, a procedure's classes
+    { rejected: ['mysql', 'sqlite'] }, { rejected: 'mysql' }, { triggers: ['deploy'], path_patterns: ['bin/mem'], tool_patterns: ['npm publish'], tools: ['git'] },
+    { on_class: 'a,b' }, { on_class: ['a', 'b'] }, { references: { procedure: ['p1'] }, on_instruction: true },
   ]) assert.equal(shapeProblem(ok), null, `should stay readable: ${JSON.stringify(ok)}`);
   assert.equal(shapeProblem(null), null);
   assert.equal(shapeProblem([1]), null);
+});
+
+test('positive control: what the CLI itself writes for every kind of entry is NOT broken', (t) => {
+  const root = world(t);
+  const run = (...args) => {
+    const r = cli(root, ...args);
+    assert.equal(r.status, 0, `mem ${args.join(' ')}: ${r.stderr}`);
+  };
+  run('log', 'decision', '--topic', 'db', '--choice', 'pg', '--why', 'speed', '--tags', 'a,b', '--asked', 'which db', '--rejected', 'mysql,sqlite');
+  run('log', 'error', '--title', 'boom', '--text', 't', '--class', 'looks-right-does-nothing', '--file', 'src/a.mjs');
+  run('log', 'timeline', '--key', 'db.engine', '--value', 'postgres', '--text', 'x', '--valid-from', '2026-01-01');
+  run('log', 'thought', '--title', 't', '--text', 't', '--symbols', 'foo,bar');
+  run('log', 'procedure', '--title', 'p', '--rule', 'always', '--on-class', 'looks-right-does-nothing,assumed-not-measured', '--issued-by', 'owner', '--triggers', 'deploy,publish');
+  run('workflow', 'new', '--title', 'wf', '--steps', 'a;b', '--issued-by', 'owner', '--triggers', 'x,y', '--path-patterns', 'a,b', '--tool-patterns', 'npm publish', '--tools', 'git');
+  run('snippet', 'new', '--title', 'sn', '--body', 'hello {{NAME}}', '--placeholders', 'NAME,AGE', '--kind', 'text', '--language', 'en');
+  run('log', 'question', '--question', 'why?');
+  run('log', 'duty', '--title', 'd', '--text', 't', '--owner', 'lucky');
+  const scan = integrity.scanIntegrity(root);
+  assert.deepEqual(scan.broken, [], 'a form the CLI writes was reported as broken');
+  assert.ok(scan.entries >= 11);
 });
 
 test('parseLine: unreadable and wrongly shaped are BROKEN (never swallowed, never healthy); a healthy line passes untouched', () => {

@@ -31,12 +31,12 @@
 
 /** Fields that are ONE text; a number or a boolean is tolerated (older CLI parsers wrote `--title` without a value as `true`). */
 const SCALAR_FIELDS = Object.freeze([
-  'title', 'text', 'why', 'topic', 'class', 'choice', 'rejected', 'learning', 'duty', 'question', 'skill', 'rule',
+  'title', 'text', 'why', 'topic', 'class', 'choice', 'learning', 'duty', 'question', 'skill', 'rule',
   'fact', 'description', 'excerpt', 'body', 'key', 'value', 'file', 'owner', 'who', 'kind', 'from', 'to', 'by',
   'by_id', 'replaces_id', 'retires_id', 'closes_id', 'state', 'status', 'authority', 'agent', 'valid_from',
   'valid_until', 'due', 'due_date', 'until', 'deadline', 'address', 'language', 'version', 'test', 'when', 'scope',
   'family', 'subject', 'project', 'type', 'source', 'target', 'start_status', 'status_of', 'issued_by', 'on_instruction',
-  'trigger_words', 'triggers', 'hash', 'author',
+  'hash', 'author',
 ]);
 
 /** Fields that must be a TEXT (string) and nothing else: they are compared and sorted (`localeCompare`, `slice`). */
@@ -45,6 +45,10 @@ const STRICT_TEXT_FIELDS = Object.freeze(['id', 'ts']);
 /** Fields that are a list of texts (a single text is a one-word list and stays readable). */
 const LIST_FIELDS = Object.freeze([
   'tags', 'symbols', 'asked', 'asked_as', 'asked-as', 'placeholders', 'files', 'used_by', 'error_ids', 'steps',
+  // a workflow's match lists and a procedure's classes (a comma-separated text or a list, see workflow.OPTIONAL_ARRAY_FIELDS)
+  'triggers', 'trigger_words', 'path_patterns', 'tool_patterns', 'tools', 'on_class',
+  // what a decision turned down: `--rejected a,b` is stored as a list
+  'rejected',
 ]);
 
 const SCALAR = new Set(SCALAR_FIELDS);
