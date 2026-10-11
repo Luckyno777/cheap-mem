@@ -102,9 +102,14 @@ import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
+import * as shred from '../src/shred.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
+
+// Fable run 2026-10-11: this process can read the keyring beside the data, a connected foreign agent cannot - so the
+// bridge shows an encrypted entry as unreadable unless the operator opts in. Read once, at start-up, like the profile.
+shred.refuseDecryption(process.env.CHEAP_MEM_MCP_DECRYPT !== '1');
 
 /**
  * Who this bridge writes as.
