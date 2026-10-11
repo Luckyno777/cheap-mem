@@ -119,6 +119,46 @@ export function holdings(root) {
 }
 
 /**
+ * The folders the MCP bridge may read a file from (V2b, 2026-10-11).
+ *
+ * `mem_store_put` took ANY path the server could read: a connected agent
+ * could have `/etc/...`, a key file or another project's database hashed and
+ * kept in the store. The bridge now reads only from an intake folder:
+ * `<root>/store/intake`, plus the folders the operator names in
+ * `CHEAP_MEM_STORE_INTAKE` (a path-delimited list, `:` or `;`). The CLI
+ * (`mem store put <path>`) is a person at a keyboard and keeps reading any
+ * path.
+ */
+export const INTAKE_ENV = 'CHEAP_MEM_STORE_INTAKE';
+export function intakeDirs(root, env = process.env) {
+  const extra = String(env[INTAKE_ENV] ?? '').split(path.delimiter).map((d) => d.trim()).filter(Boolean);
+  return [path.join(root, STORE, 'intake'), ...extra.map((d) => path.resolve(d))];
+}
+
+/**
+ * The real path of `source` when it lies inside an intake folder, else a
+ * refusal that does not say whether the path exists. Symlinks are resolved
+ * on both sides (`realpath`), so a link inside the folder that points out of
+ * it is outside; the path is compared by whole segments (`/a/in` is not
+ * inside `/a/in-evil`). Returns the real path: read THAT, not the link.
+ */
+export function intakeFile(root, source, env = process.env) {
+  const refuse = () => new Error(
+    `Not in an intake folder: the bridge reads files only from ${path.join(STORE, 'intake')} under the memory root`
+    + `${String(env[INTAKE_ENV] ?? '').trim() ? ' or the folders in CHEAP_MEM_STORE_INTAKE' : ' (the operator can add folders with CHEAP_MEM_STORE_INTAKE)'}. `
+    + 'Put the file there, or ask a person to run `mem store put <path>`. Nothing was stored.');
+  let real;
+  try { real = fs.realpathSync(String(source)); } catch { throw refuse(); }
+  for (const dir of intakeDirs(root, env)) {
+    let base;
+    try { base = fs.realpathSync(dir); } catch { continue; }
+    const rel = path.relative(base, real);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) return real;
+  }
+  throw refuse();
+}
+
+/**
  * Take one artifact in.
  *
  * Text files pass redaction and are REJECTED on a hit rather than quietly

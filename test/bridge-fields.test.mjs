@@ -73,12 +73,12 @@ const rows = (root, type) => {
 const LEGIT = {
   decision: { title: 't', choice: 'a', why: 'b', text: 'x', rejected: 'c', topic: 'probe', tags: ['t'], class: 'k' },
   error: { title: 't', class: 'wrong-cause', text: 'x', why: 'w', file: 'src/a.mjs', files: ['src/b.mjs'],
-    guard: { kind: 'file-there', path: 'README.md' }, tags: ['t'] },
+    tags: ['t'] },
   event: { title: 't', text: 'x', tags: ['t'], topic: 'probe', valid_from: '2026-10-01' },
   timeline: { title: 't', key: 'server.users', value: 13, fact: 'f', source: 'ops', valid_from: '2026-10-01', valid_until: '2026-12-01' },
   thought: { title: 't', text: 'x', why: 'w', tags: ['t'], symbols: 'a.b', asked_as: ['x handling'] },
   learning: { title: 't', learning: 'l', text: 'x', why: 'w', tags: ['t'] },
-  duty: { title: 't', duty: 'd', text: 'x', owner: 'foreign', tags: ['t'] },
+  duty: { title: 't', duty: 'd', text: 'x', owner: 'foreign', due: '2026-11-01', tags: ['t'] },
   question: { title: 't', question: 'Does it?', text: 'x', tags: ['t'] },
   skill: { title: 't', skill: 's', text: 'x', when: 'w', scope: 'repo', family: 'f', tags: ['t'] },
   source: { title: 't', description: 'd', excerpt: 'e', address: 'https://example.org/x', tags: ['t'] },
@@ -109,18 +109,12 @@ test('positive control: counterpart ids still work, and state/by_id travel only 
   ]);
   assert.ok(!a.isError && !b.isError);
   const [old, successor] = rows(root, 'decision');
-  const [fix, sup, duty] = bridge(root, [
+  const [fix, sup] = bridge(root, [
     ['mem_log', { type: 'decision', title: 'old, fixed', choice: 'c', why: 'w', replaces_id: old.id }],
     ['mem_log', { type: 'decision', retires_id: successor.id, state: 'superseded', by_id: old.id }],
-    ['mem_log', { type: 'duty', title: 'owed', duty: 'x' }],
   ]);
   assert.ok(!fix.isError, textOf(fix));
   assert.ok(!sup.isError, textOf(sup));
-  assert.ok(!duty.isError, textOf(duty));
-  const d = rows(root, 'duty')[0];
-  const [closed] = bridge(root, [['mem_log', { type: 'duty', closes_id: d.id, state: 'done', why: 'finished' }]]);
-  assert.ok(!closed.isError, textOf(closed));
-  assert.equal(rows(root, 'duty').at(-1).closes_id, d.id);
 });
 
 // --- A6: a field outside the list is refused loudly, with its name -------------------------------
@@ -237,7 +231,7 @@ test('table: every type is listed or expressly refused; no list holds a machine 
   }
   assert.deepEqual([...bf.REFUSED_TYPES].sort(), ['procedure', 'workflow']);
   const NEVER = ['v', 'status', 'state', 'by_id', 'authority_clamped_from', 'guard_at_creation', 'shred', 'body_enc',
-    'shredded_of', 'id', 'ts', 'agent', 'project', 'hash'];
+    'shredded_of', 'id', 'ts', 'agent', 'project', 'hash', 'closes_id', 'guard'];
   for (const [type, list] of Object.entries(bf.ALLOWED_FIELDS)) {
     for (const n of NEVER) assert.ok(!list.includes(n), `${type}: '${n}' is on the allowed list`);
     for (const f of bodyfields.BODY_FIELDS_BY_TYPE[type] ?? []) {

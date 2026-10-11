@@ -48,9 +48,10 @@ function world() {
 }
 
 /** Seed an earlier error through the CLI, where --ts is actually honoured. */
-function seedEarlier(root, { klass, file, ts }) {
+function seedEarlier(root, { klass, file, ts, guard = null }) {
   const r = spawnSync('node', [MEM, '--root', root, 'log', 'error',
-    '--class', klass, '--title', 'earlier one', '--text', `found in ${file}`, '--ts', ts],
+    '--class', klass, '--title', 'earlier one', '--text', `found in ${file}`, '--ts', ts,
+    ...(guard ? ['--guard-kind', guard.kind, '--guard-path', guard.path] : [])],
     { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 }
@@ -130,13 +131,12 @@ test('mem_duty_close refuses an error-derived duty with no evidence, same as `me
 test('POSITIVE CONTROL: mem_duty_close succeeds once the guard is real', () => {
   const root = world();
   try {
-    seedEarlier(root, { klass: 'wrong-cause', file: 'src/bridge.mjs', ts: daysAgo(5) });
-    // The guard lands directly on the triggering error, as a plain
-    // field — the bridge composes no --guard-* flags the way the CLI's
-    // `log` command does, so the object is passed as-is.
+    // The guard is set where a human sets it, at the CLI (A6/V1: the bridge refuses a `guard` field -
+    // a latch the writer wrote itself would count as F4 evidence and prove nothing).
+    seedEarlier(root, { klass: 'wrong-cause', file: 'src/bridge.mjs', ts: daysAgo(5),
+      guard: { kind: 'file-gone', path: 'src/bridge-guarded.mjs' } });
     bridge(root, [['mem_log', {
       type: 'error', class: 'wrong-cause', title: 'second', text: 'again in src/bridge.mjs',
-      guard: { kind: 'file-gone', path: 'src/bridge-guarded.mjs' },
     }]]);
     const [id] = openDutyIds(root);
     assert.ok(id, 'no open duty found — the repetition did not fire, so this test proves nothing');

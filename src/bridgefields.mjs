@@ -33,8 +33,9 @@
  * (`body_enc`, `shredded_of`), the content hash of a source. Whoever needs a
  * field that is missing adds it HERE, in the diff, with a reason.
  *
- * **The counterpart ids stay.** `replaces_id`, `closes_id` and `retires_id`
- * say that ANOTHER entry is superseded, closed or retired. Their effect is not
+ * **The counterpart ids stay.** `replaces_id` and `retires_id` say that
+ * ANOTHER entry is superseded or retired (`closes_id` is refused with a
+ * pointer to `mem_duty_close`, see `NAMED_REFUSALS`). Their effect is not
  * decided here: it hangs on `authority.mayChangeState`, judged on read (the
  * early warning in the write path, the verdict in `memory.retiredMap` /
  * `openDuties`). `state` and `by_id` are allowed only next to one of them
@@ -66,9 +67,34 @@ export const REFUSED_TYPES = Object.freeze([procedure.TYPE, workflow.TYPE]);
 
 /**
  * The ids of ANOTHER entry whose state this line changes. Allowed on every
- * type; the authority rule judges the effect on read.
+ * type; the authority rule judges the effect on read. `closes_id` is NOT one
+ * of them over the bridge: see `NAMED_REFUSALS`.
  */
-export const COUNTERPART_IDS = Object.freeze(['replaces_id', 'closes_id', 'retires_id']);
+export const COUNTERPART_IDS = Object.freeze(['replaces_id', 'retires_id']);
+
+/**
+ * The shape of an entry id (`src/tasks.mjs` ENTRY_ID). A counterpart id counts
+ * only as a non-empty string of this shape: `false`, `0`, `[]`, `{}`, "x" are
+ * not ids, and must not unlock `state` / `by_id`.
+ */
+export const ENTRY_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/;
+
+/**
+ * Fields that are refused over the bridge WITH a reason and a way out, not
+ * only "not on the list".
+ *
+ * - `closes_id`: `mem_log` with `closes_id` + `state: done` closed a duty
+ *   WITHOUT the F4 proof that `mem_duty_close` asks for (a guard on the error
+ *   or a test file, `memory.evidenceOrThrow`). Closing goes through that tool.
+ * - `guard`: `memory.dutyHasEvidence` counts a `guard` object on an error as
+ *   F4 evidence. A latch the writer wrote itself proves nothing (it can point
+ *   at a file that does not exist); the CLI checks it at creation and records
+ *   `guard_at_creation`, the bridge does neither. A human sets it at the CLI.
+ */
+export const NAMED_REFUSALS = Object.freeze({
+  closes_id: "closing a duty over mem_log skips the F4 proof; close it with mem_duty_close (id, state, why), which asks for it",
+  guard: 'a guard the writer wrote itself counts as F4 evidence for closing a duty and proves nothing; set it at the CLI (mem log error --guard-kind ... --guard-path ...), which checks it',
+});
 
 /** Allowed only next to a counterpart id: the closing state and the successor. */
 export const COUNTERPART_COMPANIONS = Object.freeze(['state', 'by_id']);
@@ -81,12 +107,13 @@ const COMMON = Object.freeze([
 
 const PER_TYPE = Object.freeze({
   decision: ['choice', 'rejected'],
-  error: ['file', 'files', 'guard'],
+  error: ['file', 'files'],
   event: [],
   timeline: ['key', 'value', 'fact', 'source'],
   thought: [],
   learning: ['learning', 'from'],
-  duty: ['duty', 'owner', 'who'],
+  // due / due_date / until / deadline: src/appointment-today.mjs; by / to: src/today.mjs (the day list reads them).
+  duty: ['duty', 'owner', 'who', 'due', 'due_date', 'until', 'deadline', 'by', 'to'],
   question: ['question'],
   skill: ['skill', 'when', 'scope', 'family'],
   source: ['excerpt', 'description', 'address'],
@@ -111,8 +138,24 @@ const quoted = (names) => names.map((n) => `'${n}'`).join(', ');
 export function refuse(type, fields) {
   const allowed = Object.hasOwn(ALLOWED_FIELDS, type)
     ? ALLOWED_FIELDS[type] : Object.freeze([...COMMON, ...COUNTERPART_IDS]);
-  const hasCounterpart = COUNTERPART_IDS.some((k) => Object.hasOwn(fields, k)
-    && fields[k] !== undefined && fields[k] !== null && fields[k] !== '');
+  // A counterpart id: absent (undefined, null, blank string), an entry id, or refused by name.
+  let hasCounterpart = false;
+  const badIds = [];
+  for (const k of COUNTERPART_IDS) {
+    if (!Object.hasOwn(fields, k)) continue;
+    const v = fields[k];
+    if (v === undefined || v === null) continue;
+    if (typeof v === 'string' && v.trim() === '') continue;
+    if (typeof v === 'string' && ENTRY_ID.test(v)) { hasCounterpart = true; continue; }
+    badIds.push(k);
+  }
+  if (badIds.length) {
+    throw new Error(`${quoted(badIds)} must be the id of an entry (a string of 4 to 64 letters, digits, - or _) — nothing was written.`);
+  }
+  const named = Object.keys(fields).filter((k) => Object.hasOwn(NAMED_REFUSALS, k));
+  if (named.length) {
+    throw new Error(`${named.map((k) => `Field '${k}' is not allowed over the bridge: ${NAMED_REFUSALS[k]}`).join('. ')} — nothing was written.`);
+  }
   const foreign = [];
   for (const k of Object.keys(fields)) {
     if (WRITE_PATH_OWNS.includes(k) || allowed.includes(k)) continue;
@@ -126,7 +169,7 @@ export function refuse(type, fields) {
     `${many ? 'Fields' : 'Field'} ${quoted(foreign)} ${many ? 'are' : 'is'} not allowed over the bridge for type `
     + `'${type}' — nothing was written. Allowed: ${allowed.join(', ')}`
     + ` (plus ${COUNTERPART_COMPANIONS.join(' / ')} next to ${COUNTERPART_IDS.join(' / ')}). `
-    + `${companions.length ? `${quoted(companions)} only travel${companions.length > 1 ? '' : 's'} with an entry that supersedes, closes or retires another. ` : ''}`
+    + `${companions.length ? `${quoted(companions)} only travel${companions.length > 1 ? '' : 's'} with an entry that supersedes or retires another. ` : ''}`
     + 'Everything else (audit stamps such as v / status / authority_clamped_from / guard_at_creation, the shred '
     + 'switch, hashes) is set by the write path or by a human at the CLI, never by the caller.');
 }

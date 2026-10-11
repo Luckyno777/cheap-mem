@@ -330,12 +330,19 @@ machine fields (`state`, `status`, `v`, `authority_clamped_from`,
 `guard_at_creation`) straight through as stamps. It is now an allow-list per
 type (`src/bridgefields.mjs`): a field outside it is REFUSED by name with the
 list of what is allowed, nothing is written, nothing is dropped silently. The
-counterpart ids (`replaces_id`, `closes_id`, `retires_id`) stay, because their
+counterpart ids (`replaces_id`, `retires_id`) stay, because their
 effect is judged on read by `authority.mayChangeState`; `state` and `by_id`
 travel only next to one of them. `authority` stays clamped, and the record of
 the demotion (`authority_clamped_from`) is the bridge's to write, not the
 caller's. `agent`, `id` and `ts` are still set by the write path and ignored
 if sent. `test/bridge-fields.test.mjs`.
+
+**Closing, identity and files over the bridge (second round, 2026-10-11).** A duty is closed only by
+`mem_duty_close`, which asks for the F4 proof: `mem_log` refuses `closes_id`, and refuses `guard` (a latch
+the writer wrote itself counts as F4 evidence and proves nothing; a human sets it at the CLI). The
+sender of `mem_inbox_write` and the `agent` of `mem_store_put` are the identity of the bridge, never a
+parameter. `mem_store_put` reads only from `store/intake` and from `CHEAP_MEM_STORE_INTAKE`, by real path.
+A counterpart id must be an entry id. `test/bridge-hardening.test.mjs`.
 
 **A claim of who said it is not evidence (A12, 2026-10-11).** Over the bridge
 `mem_appointment_new` with `requested_by: "user"` and a quote used to make a
@@ -345,6 +352,12 @@ self-assertion as a claimed authority tier. An appointment made over the
 bridge is now always a proposal and counts towards the cap; the claim stays in
 the text as a marked, unverified note. The CLI (`--requested-by user --quote`)
 is unchanged. `test/bridge-appointment-claim.test.mjs`.
+
+**Scope, said plainly.** This hardening protects against clients WITHOUT a shell (a chat connector on the
+bridge). Whoever has a shell on the machine is a person for the CLI: `mem appointment new --requested-by
+user --quote ...` without `MEM_HEADLESS` creates an active appointment, `mem store put <path>` reads any
+path, `mem log` writes any field. The bridge cannot make that safer; the environment (who gets a shell)
+has to.
 
 **Hostile values on the pages (A9, 2026-10-11).** `test/hostile-surfaces.test.mjs` feeds one
 corpus (script tags, attribute breakouts, `javascript:` text, entities, `</script>` / `<!--`,

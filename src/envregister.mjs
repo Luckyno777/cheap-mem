@@ -63,6 +63,7 @@ export const REGISTER = Object.freeze([
   // --- where the memory lives --------------------------------------------------
   sw('CHEAP_MEM_ROOT', PATH, 'not set (the CLI walks up from the current directory to a `.mem/config.json`)', 'The memory root. The installer writes it into every hook; the CLI, the hooks and the servers read it.'),
   sw('CHEAP_MEM_CODE', PATH, 'not set (the hook uses the root as the code directory)', 'Where the cheap-mem code lives when it is not the memory root itself (the sub-agent and session-start hooks).'),
+  sw('CHEAP_MEM_STORE_INTAKE', PATH, 'not set (only `store/intake` under the memory root)', 'Extra folders (a `:`-separated list, `;` on Windows) the MCP bridge may read files from for `mem_store_put`. Compared by real path; a symlink out of a folder does not count. The CLI (`mem store put`) reads any path.'),
   sw('CHEAP_MEM_PKG', PATH, 'set by the git hook installer', 'The package directory the installed git hooks call back into.'),
   sw('CHEAP_MEM_ARCHIVE', PATH, 'not set (`raw/YYYY/MM/` inside the root, or the place `mem archive` recorded)', 'Where the raw archive is kept; a mount outside the repository.'),
   sw('CHEAP_MEM_RELEASE_BASE', PATH, '`<root>-release`', 'Base directory of the release copies.'),

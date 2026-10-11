@@ -14,6 +14,39 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
+
+Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`, red on fb48a54.
+
+- **A counterpart id is an entry id.** `replaces_id` / `retires_id` count only as a string in the
+  shape of an entry id (4 to 64 of letters, digits, `-`, `_`). `false`, `0`, `[]`, `{}`, `"x"` used to
+  count as "an id is named" and let `state` / `by_id` through; they are refused by name now. A null
+  or blank string is "no id" (and `state` / `by_id` stay refused without one).
+- **A duty can be closed only by `mem_duty_close`.** `mem_log` with `closes_id` + `state: done`
+  closed a duty WITHOUT the F4 proof (a guard on the error, or a test file) that `mem_duty_close`
+  asks for. The bridge refuses `closes_id` on `mem_log` and names `mem_duty_close`. `guard` on an
+  error is refused too: `memory.dutyHasEvidence` counts a guard object as F4 evidence, so a latch the
+  writer wrote itself (pointing at a file that does not exist) opened that door. A human sets a guard
+  at the CLI, which checks it at creation. (The F4 test that seeded its guard over the bridge now
+  seeds it with `mem log error --guard-kind ...`.)
+- **The sender of `mem_inbox_write` is the bridge's identity.** `from: "user"` wrote as the human.
+  The sender is `CHEAP_MEM_AGENT` (else `mem whoami`), like `mem_inbox_claim`; a `from` that names
+  someone else is refused, the same name is accepted.
+- **`mem_store_put` reads only from an intake folder.** It took any path the server could read
+  (`/etc/...`, a key file, another project's database) and an `agent` from the caller. Now the file
+  must lie in `<root>/store/intake` or in a folder listed in the new `CHEAP_MEM_STORE_INTAKE`
+  (compared by real path: a symlink out of the folder, `..` and a sibling folder with the same prefix
+  do not count; the refusal does not say whether a path outside exists). The register's `agent` is
+  the bridge's identity. The CLI (`mem store put <path>`) is a person at the keyboard and is unchanged.
+- The duty list takes `due`, `due_date`, `until`, `deadline`, `by`, `to`; the `mem_log` tool schema
+  says which type takes `choice` / `class` / `from` and advertises `replaces_id`.
+- The quote of the unverified appointment note is embedded as a JSON string: it cannot close the
+  note and start a line that reads as verified.
+
+**Release note.** Bridge clients that close duties through `mem_log`, send a `from`, hand
+`mem_store_put` an arbitrary path or set a `guard` must change: use `mem_duty_close`, leave `from` out,
+put the file in `store/intake`. Ship it with a minor-version bump.
+
 ### Fixed — hostile values: one entry with `<!--` blanked the standalone viewer, and one long title froze the dashboard build (A9)
 
 A probe that feeds the same hostile corpus (script tags, event-handler breakouts out of
@@ -61,7 +94,7 @@ quote. **The CLI is unchanged:** `mem appointment new --requested-by user --quot
 proposal; the human confirms it (`mem appointment confirm <id> --authority user`, or the
 dashboard). `test/bridge-appointment-claim.test.mjs`.
 
-### Changed — `mem_log` over the bridge takes an allow-list of fields per type; machine and audit fields are the bridge's, not the caller's (behaviour change)
+### Changed — `mem_log` over the bridge takes an allow-list of fields per type; machine and audit fields are the bridge's, not the caller's (breaking for bridge clients)
 
 Port of lucky-mem's A1/A6 (2026-10-10). `bin/mem-mcp` used to write every argument
 key except `type/project/tags/agent/id/ts`, and `memory.logCheckedEntry` passed the
@@ -72,8 +105,8 @@ an audit result, a `status`, or switch the write to the encrypted-body mode with
 `src/bridgefields.mjs`: per type, the fields that are allowed (body fields, access
 words, validity dates, the few type fields the readers look at); any other field is
 **refused by name, with the list of what is allowed, and nothing is written**, never
-silently dropped. `replaces_id` / `closes_id` / `retires_id` stay (their effect is
-judged on read by `authority.mayChangeState`), and `state` / `by_id` travel only next
+silently dropped. `replaces_id` / `retires_id` stay (their effect is
+judged on read by `authority.mayChangeState`; `closes_id` was taken out again in the second round), and `state` / `by_id` travel only next
 to one of them. `authority` stays clamped to `agent`; `authority_clamped_from` is
 written by the bridge only. `agent`, `id` and `ts` are still set by the write path and
 ignored if sent. A non-array `tags` is refused instead of dropped. The refusal is a
@@ -83,7 +116,8 @@ pure loop over the keys, before any read.
 an error naming them. Put the content in `title` / `text` / `why`, or, if the field is
 a legitimate one, add it to `src/bridgefields.mjs` with a reason. The CLI (`mem log`)
 is unchanged: a human at the keyboard may still write any field.
-`test/bridge-fields.test.mjs`.
+`test/bridge-fields.test.mjs`. **Breaking for bridge clients: the release that ships this
+needs a minor-version bump** (see the second round below, which tightens it further).
 
 ### Changed — the hooks no longer probe the maintainer's machine paths (behaviour change)
 

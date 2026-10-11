@@ -728,7 +728,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_project_init` | create a project skeleton |
 | `mem_project_new` | create a NEW project the guarded way: refused when the name is too like a project or topic alias, written with a reason and an event, marked new until a person confirms it |
 | `mem_project_suggestions` | read only: which topics without a project hang on 2 captures on 2 days (dry run, same as `mem project suggestions`) |
-| `mem_store_put` | register a local file in the content-addressed store |
+| `mem_store_put` | register a file from the intake folder (`store/intake`, plus `CHEAP_MEM_STORE_INTAKE`) in the content-addressed store; other paths are refused over the bridge |
 | `mem_store_list` | what is held in the file store right now |
 | `mem_store_get` | resolve a hash to the local path of the stored bytes |
 | `mem_user_habits` | generic, code-only habit meter over the user's own captures |

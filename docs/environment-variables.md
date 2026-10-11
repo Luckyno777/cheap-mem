@@ -131,6 +131,7 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_ROOT` | not set (the CLI walks up from the current directory to a `.mem/config.json`) | The memory root. The installer writes it into every hook; the CLI, the hooks and the servers read it. |
 | `CHEAP_MEM_SERVE_LOGIN_DIR` | `.pipeline/` of the root (gitignored) | Where the viewer keeps its login state. |
 | `CHEAP_MEM_STATE_SIGNAL_WORDS` | not set (the built-in word list) | A file of the words that mark a question as being about the current state. |
+| `CHEAP_MEM_STORE_INTAKE` | not set (only `store/intake` under the memory root) | Extra folders (a `:`-separated list, `;` on Windows) the MCP bridge may read files from for `mem_store_put`. Compared by real path; a symlink out of a folder does not count. The CLI (`mem store put`) reads any path. |
 | `CHEAP_MEM_USER_PATTERNS` | not set (the built-in patterns) | A JSON file of the user-habit patterns for `mem user`. |
 | `CHEAP_MEM_VERIFY_FILE` | `~/.cheap-mem-verify/...` outside the repository | The verification log. |
 | `CLAUDE_CONFIG_DIR` | not set | Claude Code's own configuration directory; its `skills/` is added to the skill catalogue and the MCP setup looks there. |

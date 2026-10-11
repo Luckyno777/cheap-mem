@@ -177,7 +177,9 @@ test('mem_store_put really stores a file, mem_store_list and mem_store_get find 
   // A tool that is listed and throws on call is worse than a missing
   // one — the agent believes it asked.
   const root = memory();
-  const src = path.join(root, 'to-store.txt');
+  // V2b: the bridge reads files only from the intake folder.
+  const src = path.join(root, 'store', 'intake', 'to-store.txt');
+  fs.mkdirSync(path.dirname(src), { recursive: true });
   fs.writeFileSync(src, 'a harmless generated report\n');
   try {
     const [, put] = bridge(root, [['mem_store_put', { source: src, purpose: 'test artifact' }]]);
