@@ -859,8 +859,9 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
       const lines = memory.withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         if (!lines[i].trim()) continue;
-        let e;
-        try { e = JSON.parse(lines[i]); } catch { continue; }
+        // Unreadable OR wrongly shaped (an object in a text field) stays out of the index: the doctor reports it.
+        const e = memory.parseLine(lines[i]);
+        if (e?.__broken) continue;
         rawEntries.push({
           entry: e, type, project,
           source: memory.asSource(root, p),
@@ -2359,8 +2360,8 @@ function parseLogTail(root, rel, info, from) {
   const out = [];
   for (const line of text.split('\n')) {
     if (line.trim()) {
-      let e;
-      try { e = JSON.parse(line); } catch { lineNo += 1; continue; }
+      const e = memory.parseLine(line);
+      if (e?.__broken) { lineNo += 1; continue; } // unreadable or wrongly shaped: not indexed (the doctor reports it)
       out.push({ entry: e, type: info.type, project: info.project, source: rel, line: lineNo });
     }
     lineNo += 1;

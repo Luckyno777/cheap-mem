@@ -618,7 +618,7 @@ test('MUTATION: a track that wrongly skips a block makes the equivalence probe r
   } finally { removeTree(root); }
 });
 
-test('ts as a number and as a JSON escape: such a block is open and the line is found (it cannot be read from the text)', () => {
+test('ts as a number and as a JSON escape: such a block is open; the escaped line is found, the number one is broken (it cannot be read from the text)', () => {
   const root = tmpRoot();
   try {
     const r = rng(51);
@@ -635,7 +635,10 @@ test('ts as a number and as a JSON escape: such a block is open and the line is 
     for (const [id, ms] of [['qnum', numberTs], ['qesc', BASE + 7000 * HOUR]]) {
       const q = ask(root, ms - HOUR, ms + HOUR, { root });
       assert.deepEqual(q.tracked, q.full, id);
-      assert.ok(q.tracked.some((e) => e.id === id), `${id} must be found`);
+      // Fable run 2026-10-11: a `ts` that is a NUMBER is a wrongly shaped line (it crashed the readers that sort by it). It is
+      // broken - reported by the doctor, never an entry - so the track and the full read agree that it is not found. The
+      // escaped text form is a real timestamp and stays found.
+      assert.equal(q.tracked.some((e) => e.id === id), id === 'qesc', `${id}: found only when its ts is text`);
       assert.equal(q.report.way, 'track');
     }
   } finally { removeTree(root); }

@@ -74,7 +74,8 @@ export function observe(root) {
       try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
       for (const line of raw.split('\n')) {
         if (!line.trim()) continue;
-        try { entries.push(JSON.parse(line)); } catch { /* integrity reports this */ }
+        const e = memory.parseLine(line);
+        if (!e?.__broken) entries.push(e); // unreadable or wrongly shaped: integrity reports this
       }
     }
     claims += entries.length;

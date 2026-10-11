@@ -35,6 +35,7 @@ import { maskEntry } from './outputguard.mjs';
 import * as expand from './expand.mjs';
 import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
+import { shapeProblem } from './fieldshape.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1075,8 +1076,7 @@ export function tailEntries(root, type, { project = null, tailBytes = 512 * 1024
   const entries = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
-    try { entries.push(JSON.parse(line)); }
-    catch { entries.push({ __broken: true, raw: line }); }
+    entries.push(parseLine(line));
   }
   return { entries, scannedWholeFile: whole, scannedEntries: entries.length, missing: false };
 }
@@ -1306,6 +1306,19 @@ export class ReadError extends Error {
 /** Does this system error mean "the file does not exist"? Only ENOENT/ENOTDIR; everything else is an error. */
 function isMissing(e) { return Boolean(e) && (e.code === 'ENOENT' || e.code === 'ENOTDIR'); }
 
+/**
+ * Read ONE log line: unreadable OR wrongly shaped (`fieldshape.shapeProblem`: an object in a text field, a number as
+ * `ts`) is BROKEN — not healthy and not silently gone (the three-states rule). A line with `tags: {toString: "x"}`
+ * crashed every reader that concatenates or sorts the field (Fable run 2026-10-11, lucky-mem error 5katltp7cfkr).
+ * `reason` is set only for the shape case; an unparsable line has none.
+ */
+export function parseLine(line) {
+  let o;
+  try { o = JSON.parse(line); } catch { return { __broken: true, raw: line }; }
+  const problem = shapeProblem(o);
+  return problem ? { __broken: true, raw: line, reason: problem } : o;
+}
+
 export function readLog(root, type, { project = null } = {}) {
   const p = logPath(root, type, project);
   // Inside a doctor run the drawer was read and parsed once already
@@ -1321,11 +1334,7 @@ export function readLog(root, type, { project = null } = {}) {
   const entries = [];
   for (const line of raw.split('\n')) {
     if (!line.trim()) continue;
-    try {
-      entries.push(JSON.parse(line));
-    } catch {
-      entries.push({ __broken: true, raw: line });
-    }
+    entries.push(parseLine(line));
   }
   return { path: p, missing: false, entries };
 }
@@ -1420,8 +1429,7 @@ export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
         const line = pending.slice(start, nl);
         if (line.trim()) {
           delivered = true;
-          try { yield JSON.parse(line); }
-          catch { yield { __broken: true, raw: line }; }
+          yield parseLine(line);
         }
         start = nl + 1;
         nl = pending.indexOf('\n', start);
@@ -1433,8 +1441,7 @@ export function* iterLogFile(absPath, { chunkBytes = 256 * 1024 } = {}) {
     }
     pending += decoder.end();
     if (pending.trim()) {
-      try { yield JSON.parse(pending); }
-      catch { yield { __broken: true, raw: pending }; }
+      yield parseLine(pending);
     }
   } finally {
     try { fs.closeSync(fd); } catch { /* already gone */ }
@@ -1613,8 +1620,8 @@ function scanAllLines(files, needle, hasWindow, fromMs, toMs) {
   for (const p of files) {
     for (const { text } of rawLinesOfFile(p)) {
       if (!hasStateField(text)) continue;
-      let e;
-      try { e = JSON.parse(text); } catch { continue; }
+      const e = parseLine(text);
+      if (e?.__broken) continue; // unreadable or wrongly shaped: it names no state (the doctor counts it)
       for (const f of authority.STATE_FIELDS) if (e?.[f]) neededIds.add(String(e[f]));
       if (e?.by_id) neededIds.add(String(e.by_id));
     }
@@ -1640,9 +1647,7 @@ function scanAllLines(files, needle, hasWindow, fromMs, toMs) {
       const windowOk = !hasWindow || tsMayBeInWindow(text, fromMs, toMs);
       const candidate = patternOk && windowOk;
       if (!needsMap && !candidate) continue;
-      let entry;
-      try { entry = JSON.parse(text); }
-      catch { entry = { __broken: true, raw: text }; }
+      const entry = parseLine(text);
       if (needsMap) {
         if (typeof entry?.id === 'string' && entry.id) seenIds.add(entry.id);
         forMap.push(entry);
@@ -1684,9 +1689,7 @@ function candidatesFromTrack(root, files, needle, fromMs, toMs, report) {
         }
         const patternOk = !needle || text.toLowerCase().includes(needle);
         if (!patternOk || !tsMayBeInWindow(text, fromMs, toMs)) continue;
-        let entry;
-        try { entry = JSON.parse(text); }
-        catch { entry = { __broken: true, raw: text }; }
+        const entry = parseLine(text);
         candidates.push({ entry, p, fi, line: nr, marked });
       }
     }
@@ -2771,9 +2774,8 @@ export function recentEntries(root, type, n) {
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (!line.trim()) continue;
-      let e;
-      try { e = JSON.parse(line); }
-      catch { e = { __broken: true, raw: line, ts: '0' }; }
+      const e = { ...parseLine(line) };
+      if (e.__broken) e.ts = '0';
       all.push({ ...e, _source: asSource(root, p), _line: i + 1 });
     }
   }
@@ -3212,7 +3214,8 @@ export function openDuties(root, { project = undefined } = {}) {
         lineNo = memoRows.nos[k];
       } else {
         if (!lines[k].trim()) continue;
-        try { e = JSON.parse(lines[k]); } catch { continue; }
+        e = parseLine(lines[k]);
+        if (e?.__broken) continue; // unreadable or wrongly shaped: opens and closes nothing (the doctor counts it)
         lineNo = k + 1;
       }
       if (e.closes_id) {

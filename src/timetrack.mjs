@@ -105,6 +105,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as authority from './authority.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
+import { shapeProblem } from './fieldshape.mjs';
 import { tryLock, releaseLock, lockAgeS, takeOverIfStale } from './filelock.mjs';
 
 const TRACK_VERSION = 2;
@@ -566,6 +567,7 @@ export function* windowLines(root, drawerFile, fromMs, toMs, scan, fail, fi = 0)
 export function stateInfoOfLine(text) {
   let e;
   try { e = JSON.parse(text); } catch { return null; }
+  if (shapeProblem(e)) return null; // wrongly shaped (an object in a text field): names no state, String() would throw
   const targets = [];
   for (const f of authority.STATE_FIELDS) if (e?.[f]) targets.push(String(e[f]));
   const by = e?.by_id ? String(e.by_id) : null;
@@ -684,6 +686,7 @@ export function resolveRetired(root, scan, candidates, { retiredMap, isClosing, 
     if (!info.targets.some((t) => named.has(t))) continue;
     let entry;
     try { entry = JSON.parse(text); } catch { continue; }
+    if (shapeProblem(entry)) continue;
     forMap.push({ fi, nr, entry });
   }
   forMap.sort((x, y) => x.fi - y.fi || x.nr - y.nr);

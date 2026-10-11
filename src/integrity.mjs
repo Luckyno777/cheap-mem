@@ -44,6 +44,7 @@ import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as chain from './chain.mjs';
 import * as drawermemo from './drawermemo.mjs';
+import { shapeProblem } from './fieldshape.mjs';
 
 /** Longest supersession chain we follow before calling it pathological. */
 export const MAX_CHAIN = 64;
@@ -160,11 +161,13 @@ export function scanIntegrity(root) {
       catch (e) { broken.push({ file: f.rel, line: 0, why: `unreadable: ${e?.code ?? 'ERROR'} ${e?.message ?? e}` }); continue; }
     }
     chainFiles.push({ rel: f.rel, raw, project: f.project, type: f.type });
+    // Line number -> why a line that did parse is still broken (a wrongly shaped field, src/fieldshape.mjs).
+    const reasons = new Map();
 
     // One non-blank line, parsed (`e`; NOT_JSON when it is not JSON) at its 1-based line `no`.
     const visit = (e, no) => {
       lines += 1;
-      if (e === drawermemo.NOT_JSON) { broken.push({ file: f.rel, line: no, why: 'not JSON' }); return; }
+      if (e === drawermemo.NOT_JSON) { broken.push({ file: f.rel, line: no, why: reasons.get(no) ?? 'not JSON' }); return; }
       if (!e || typeof e !== 'object' || Array.isArray(e)) {
         broken.push({ file: f.rel, line: no, why: 'not an object' });
         return;
@@ -218,6 +221,10 @@ export function scanIntegrity(root) {
     };
 
     if (memoRows) {
+      for (let i = 0; i < memoRows.vals.length; i += 1) {
+        const why = memoRows.reason(i);
+        if (why) reasons.set(memoRows.nos[i], why);
+      }
       for (let i = 0; i < memoRows.vals.length; i += 1) visit(memoRows.vals[i], memoRows.nos[i]);
     } else {
       const rows = raw.split('\n');
@@ -225,7 +232,9 @@ export function scanIntegrity(root) {
         const row = rows[i];
         if (!row.trim()) continue;
         let e;
-        try { e = JSON.parse(row); } catch { e = drawermemo.NOT_JSON; }
+        let problem = null;
+        try { e = JSON.parse(row); problem = shapeProblem(e); } catch { e = drawermemo.NOT_JSON; }
+        if (problem) { e = drawermemo.NOT_JSON; reasons.set(i + 1, problem); }
         visit(e, i + 1);
       }
     }
