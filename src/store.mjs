@@ -141,7 +141,7 @@ const intakeEntries = (env) => String(env[INTAKE_ENV] ?? '').split(path.delimite
 export function intakeDirs(root, env = process.env) {
   return [path.join(root, STORE, 'intake'), ...intakeEntries(env).filter((d) => path.isAbsolute(d)).map((d) => path.resolve(d))];
 }
-export const ignoredIntake = (env = process.env) => intakeEntries(env).filter((d) => !path.isAbsolute(d));
+const ignoredIntake = (env = process.env) => intakeEntries(env).filter((d) => !path.isAbsolute(d));
 
 /**
  * The real path of `source` when it lies inside an intake folder, else a

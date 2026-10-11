@@ -60,7 +60,7 @@ import * as workflow from './workflow.mjs';
  * timestamp are the store's). Not a refusal: a client that sends its own id
  * would otherwise fail on a field it cannot know is reserved.
  */
-export const WRITE_PATH_OWNS = Object.freeze(['agent', 'id', 'ts']);
+const WRITE_PATH_OWNS = Object.freeze(['agent', 'id', 'ts']);
 
 /** Types the bridge does not write at all (a norm for ALL agents). */
 export const REFUSED_TYPES = Object.freeze([procedure.TYPE, workflow.TYPE]);
@@ -91,13 +91,13 @@ export const ENTRY_ID = /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/;
  *   at a file that does not exist); the CLI checks it at creation and records
  *   `guard_at_creation`, the bridge does neither. A human sets it at the CLI.
  */
-export const NAMED_REFUSALS = Object.freeze({
+const NAMED_REFUSALS = Object.freeze({
   closes_id: "closing a duty over mem_log skips the F4 proof; close it with mem_duty_close (id, state, why), which asks for it",
   guard: 'a guard the writer wrote itself counts as F4 evidence for closing a duty and proves nothing; set it at the CLI (mem log error --guard-kind ... --guard-path ...), which checks it',
 });
 
 /** Allowed only next to a counterpart id: the closing state and the successor. */
-export const COUNTERPART_COMPANIONS = Object.freeze(['state', 'by_id']);
+const COUNTERPART_COMPANIONS = Object.freeze(['state', 'by_id']);
 
 // On every type: content, access words, validity, the tier claim (clamped).
 const COMMON = Object.freeze([
