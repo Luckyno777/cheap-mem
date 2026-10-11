@@ -127,6 +127,12 @@ export const ALLOWED_FIELDS = Object.freeze(Object.fromEntries(
   Object.entries(PER_TYPE).map(([type, own]) => [type,
     Object.freeze([...COMMON, ...own, ...COUNTERPART_IDS])])));
 
+/** Is `fields[key]` an entry id (blank / null / undefined count as "no id")? */
+function hasCounterpartKey(fields, key) {
+  const v = fields[key];
+  return typeof v === 'string' && ENTRY_ID.test(v);
+}
+
 const quoted = (names) => names.map((n) => `'${n}'`).join(', ');
 
 /**
@@ -151,6 +157,15 @@ export function refuse(type, fields) {
   }
   if (badIds.length) {
     throw new Error(`${quoted(badIds)} must be the id of an entry (a string of 4 to 64 letters, digits, - or _) — nothing was written.`);
+  }
+  // B1 (external review 2026-10-11): a correction of a DUTY over the bridge replaced any duty (user duties,
+  // auto-duties included) and the replacement carried no error_ids, so it closed without the F4 proof. The
+  // fold judges it now (`memory.openDuties`), and the bridge does not offer the door at all: like `closes_id`,
+  // changing a duty's life cycle is `mem_duty_close`; a new duty is a new `mem_log`.
+  if (type === 'duty' && Object.hasOwn(fields, 'replaces_id') && hasCounterpartKey(fields, 'replaces_id')) {
+    throw new Error("Field 'replaces_id' is not allowed over the bridge for type 'duty': replacing a duty skips the "
+      + 'authority rule and the F4 proof for a duty that grew out of errors; close it with mem_duty_close '
+      + '(id, state, why), or log a new duty — nothing was written.');
   }
   const named = Object.keys(fields).filter((k) => Object.hasOwn(NAMED_REFUSALS, k));
   if (named.length) {

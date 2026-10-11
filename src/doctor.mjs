@@ -1286,6 +1286,16 @@ export function checkContestedClaims(root) {
       }
     }
   }
+  // B1: a duty replacement the authority rule let through but the F4 rule turned down (it closes, or drops the
+  // error_ids of, a duty that grew out of errors) is a contested claim as well. The authority refusals above
+  // are already in `contested` through `retiredMap`; only the F4 ones are added here.
+  try {
+    for (const r of memory.openDuties(root).refused) {
+      if (r.field === 'replaces_id' && String(r.reason).startsWith('F4') && !contested.some((c) => c.id === r.by)) {
+        contested.push({ id: r.by, ts: r.ts ?? null, why: r.reason, target: r.target, drawer: 'duty (F4)' });
+      }
+    }
+  } catch { /* duties unreadable: the other checks say so */ }
   if (!read) return finding('contested-claims', LEVEL.UNKNOWN, 'no drawer readable — not measurable');
   if (!pointers) {
     return finding('contested-claims', LEVEL.UNKNOWN,

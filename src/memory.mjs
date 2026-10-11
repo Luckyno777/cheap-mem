@@ -3163,7 +3163,7 @@ export function openDuties(root, { project = undefined } = {}) {
   for (const e of closers) {
     const verdict = authority.mayChangeState(e, all.get(e.closes_id), 'closes_id');
     if (verdict.status === 'refused') {
-      refused.push({ by: e.id, target: e.closes_id, reason: verdict.reason, ts: e.ts });
+      refused.push({ by: e.id, target: e.closes_id, field: 'closes_id', reason: verdict.reason, ts: e.ts });
       continue;
     }
     closed.set(e.closes_id, {
@@ -3173,6 +3173,71 @@ export function openDuties(root, { project = undefined } = {}) {
       why: e.why ?? e.text ?? null,
       ...(verdict.status === 'unresolved' ? { unresolved: true } : {}),
     });
+  }
+
+  // B1 (external review 2026-10-11): a correction (`replaces_id`) used to
+  // retire its predecessor with NO check at all - any writer could make a
+  // user duty or an auto-duty vanish with one line, and the replacement
+  // stage had no `error_ids`, so it closed without the F4 proof. Now:
+  //   1. the SAME authority rule as for closing (`mayChangeState`, field
+  //      closes_id: lateral-tolerant - an auto-duty is re-written by whichever
+  //      session repeats the error - but never over a higher tier);
+  //   2. a duty that grew out of errors (`error_ids`, found by walking the
+  //      chain BACK to the stage that carries them) is replaced only by a
+  //      stage that stays open and does not drop those ids. The newest stage
+  //      then carries the ids for `closeDuty`'s evidence check.
+  // A refused replacement is NOT obeyed: the predecessor stays open, the
+  // replacing line is just another open duty, and it is reported in
+  // `refused` (field replaces_id) and counted by `mem doctor`.
+  const judged = new Map(); // replacer id -> true (honoured) | false (refused)
+  // The error_ids a stage holds: its own, else the ones of the honoured chain behind it.
+  function boundIds(id, seen = new Set()) {
+    const e = all.get(id);
+    if (!e || seen.has(id)) return [];
+    seen.add(id);
+    if (Array.isArray(e.error_ids) && e.error_ids.length) return e.error_ids;
+    return e.replaces_id && honoured(id) ? boundIds(e.replaces_id, seen) : [];
+  }
+  function honoured(id) {
+    if (judged.has(id)) return judged.get(id);
+    judged.set(id, false); // a cycle is never honoured
+    const e = all.get(id);
+    const target = e?.replaces_id ? all.get(e.replaces_id) : null;
+    if (!target) { judged.set(id, Boolean(e?.replaces_id)); return judged.get(id); } // unresolved: as before
+    let verdict = authority.mayChangeState(e, target, 'closes_id');
+    if (verdict.status !== 'refused') {
+      const held = boundIds(target.id);
+      if (held.length) {
+        const own = Array.isArray(e.error_ids) ? e.error_ids : [];
+        const closing = [DUTY_STATE.DONE, DUTY_STATE.DROPPED].includes(String(e.state ?? ''));
+        if (closing || (own.length && !held.every((x) => own.includes(x)))) {
+          verdict = {
+            status: 'refused',
+            reason: `F4: '${target.id}' grew out of errors (error_ids: ${held.join(', ')}); `
+              + 'a replacement has to stay open and keep those ids - closing needs evidence (mem_duty_close)',
+          };
+        }
+      }
+    }
+    if (verdict.status === 'refused') {
+      refused.push({
+        by: id, target: target.id, field: 'replaces_id', ts: e.ts,
+        reason: String(verdict.reason).replace(/\bmay not close\b/, 'may not replace'),
+      });
+      return false;
+    }
+    judged.set(id, true);
+    return true;
+  }
+  for (const [id, e] of all) {
+    if (e.replaces_id && !honoured(id)) predecessor.delete(id);
+  }
+  // The honoured chain hands its error_ids on to the newest stage.
+  for (const [id, e] of all) {
+    if (e.replaces_id && judged.get(id) && !(Array.isArray(e.error_ids) && e.error_ids.length)) {
+      const held = boundIds(id);
+      if (held.length) { e.error_ids = held; e._error_ids_inherited = true; }
+    }
   }
 
   // Whoever was later replaced is no longer "the" duty — only the
