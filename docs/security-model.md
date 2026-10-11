@@ -392,8 +392,12 @@ roots first, then fixed; `test/b1-duty-replace.test.mjs`, `test/b2-b4-inbox-owne
   archive can be pointed only into an allowed base; the Host check covers `/`, `/desk.json`,
   `/console.json`, `/entry.json`, `/task.json`; the sign-in lock is per source, and `CF-Connecting-IP`
   counts only with `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1`.
-- **Left open on purpose.** `done`, `restore`, `merge` tasks stay open to the bearer: they append lines
-  and the rank rule judges them on read (a bearer start carries no `--authority user`). `retires_id` on a
+- **Review of the fixes.** `done`, `restore`, `merge` are `humanOnly` too (they write the human stamp; a
+  bearer-only `restore` revived an entry a person had closed). An automatic duty extended by more error ids
+  is exempt from the rank rule (a digest under `CHEAP_MEM_MAX_AUTHORITY` must not add a duty per repeat) and
+  the fold, the write warning and `mem doctor` share one rule (`memory.dutyReplaceVerdict`). The bridge refuses
+  an array or an object where a tool's schema says string (`type: ["duty"]` passed the strict type locks).
+  The Host check is central. Still open: `retires_id` on a
   duty over the bridge is judged by the same rule on read; it does not close a duty in the duty list.
 
 ### Unsolved, explicitly

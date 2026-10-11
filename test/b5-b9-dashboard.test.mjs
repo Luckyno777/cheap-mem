@@ -23,6 +23,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as login from '../src/login.mjs';
 import * as inbox from '../src/inbox.mjs';
+import * as dashboardPage from '../src/dashboard-page.mjs';
 import { personCookie } from './person-session.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -202,7 +203,7 @@ test('B8: every data route and the page refuse a foreign Host (control: the righ
   const r = memory();
   const s = await start(r);
   try {
-    for (const route of ['/', '/desk.json', '/console.json', '/entry.json?name=x', '/task.json', '/dashboard.json']) {
+    for (const route of ['/', '/dashboard', '/desk.json', '/console.json', '/entry.json?name=x', '/task.json', '/dashboard.json']) {
       const evil = await raw(s, route, { headers: { ...BEARER, host: 'evil.example:18848' } });
       assert.equal(evil.status, 403, `${route} with a foreign Host`);
       assert.match(evil.text, /foreign-host/);
@@ -210,6 +211,19 @@ test('B8: every data route and the page refuse a foreign Host (control: the righ
     for (const route of ['/desk.json', '/console.json', '/task.json']) {
       const ok = await raw(s, route, { headers: BEARER });
       assert.notEqual(ok.status, 403, `${route} with the right Host`);
+    }
+    // Central (review of B8): EVERY route of the server that is not an asset refuses a foreign Host - a route
+    // nobody named in a list included.
+    const mod = await import(pathToFileURL(SERVE).href);
+    const asset = new Set([
+      ...Object.keys(dashboardPage.FILES), ...dashboardPage.FONTS.map((f) => f.path), ...login.ALL_PATHS,
+      '/favicon.ico', '/sw.js', '/manifest.webmanifest', dashboardPage.PATHS.swRegister,
+    ]);
+    const routes = mod.PATHS.filter((p) => !asset.has(p));
+    assert.ok(routes.length > 20 && routes.includes('/dashboard'), 'positive control: the route list is real');
+    for (const route of routes) {
+      const evil = await raw(s, route, { headers: { ...BEARER, host: 'evil.example:18848' } });
+      assert.equal(evil.status, 403, `${route} with a foreign Host`);
     }
   } finally { await s.stop(); gone(r); }
 });
@@ -247,4 +261,21 @@ test('B9: behind a declared tunnel the sources stay separate, and failures of ma
   assert.equal(b.wait('the-owner'), 0, 'strangers locked the owner out');
   for (let i = 0; i < 4; i += 1) b.failure('one');
   assert.ok(b.wait('one') > 0, 'positive control: the per-source lock bites');
+});
+
+test('B9: one server line (never the header value) when CF-Connecting-IP arrives from loopback without the declaration', async () => {
+  const r = memory();
+  const lines = [];
+  const real = process.stderr.write.bind(process.stderr);
+  process.stderr.write = (z, ...rest) => { lines.push(String(z)); return real(z, ...rest); };
+  const s = await start(r);
+  const s2 = await start(memory(), { CHEAP_MEM_SERVE_BEHIND_TUNNEL: '1' });
+  const seenIp = '203.0.113.77';
+  try {
+    for (let i = 0; i < 3; i += 1) await raw(s, '/health', { headers: { 'cf-connecting-ip': seenIp } }) && await raw(s, '/login', { headers: { ...BEARER, 'cf-connecting-ip': seenIp } });
+    await raw(s2, '/login', { headers: { ...BEARER, 'cf-connecting-ip': seenIp } });
+    const noted = lines.filter((z) => z.includes('CHEAP_MEM_SERVE_BEHIND_TUNNEL'));
+    assert.equal(noted.length, 1, `one line, got ${noted.length}: ${noted.join('')}`);
+    assert.ok(!lines.some((z) => z.includes(seenIp)), 'the header value was logged');
+  } finally { process.stderr.write = real; await s.stop(); await s2.stop(); gone(r); }
 });

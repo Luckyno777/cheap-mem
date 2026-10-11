@@ -34,9 +34,30 @@ Each finding was reproduced against a throwaway root first (red), then fixed (gr
   dashboard can point the raw archive only into the root, home, temp or `CHEAP_MEM_ARCHIVE_BASES` (new).
   **Breaking:** a script that wrote through these routes with the bearer token alone loses that.
 - **B8.** Host check on `/`, `/desk.json`, `/console.json`, `/entry.json`, `/task.json`.
-- **B9.** The sign-in lock takes the socket address; `CF-Connecting-IP` only with the new
+- **B9 (breaking for tunnel setups).** The sign-in lock takes the socket address; `CF-Connecting-IP` only with the new
   `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1` (set it if a tunnel on this machine fronts the viewer, else all visitors
   share one lock). The lock across all sources is gone.
+
+### Security — review of the Fable fixes (2026-10-11), follow-ups on `agent/fable-sicher-cm`
+
+`test/b1-auto-duty-chain.test.mjs`, `test/b7-human-tasks.test.mjs`, `test/bridge-type-shape.test.mjs`, `test/b5-b9-dashboard.test.mjs`.
+
+- **Auto-duty chain (regression of B1).** A digest/reflector (`CHEAP_MEM_MAX_AUTHORITY=inferred`) extending an
+  agent's auto-duty was refused by the new fold; every repeat added one more open duty (3 for one file+class,
+  base 1). An automatic duty extended by more error ids (same class/file/title/text/owner, stays open, keeps
+  every id) is exempt from the rank rule; it cannot reword, close or shed ids. The write warning, the duty list
+  and `mem doctor` use one rule now (`memory.dutyReplaceVerdict`); the warning says "the duty stays open".
+  The fold is iterative and linear (a 30000-stage chain overflowed the stack, 2000 stages took 1.5 s).
+- **`done`, `restore`, `merge` are `humanOnly` (breaking for tools).** They write the human stamp; a bearer-only
+  `POST /task kind=restore` brought back an entry a person had closed. They need a password session, like
+  `raw-delete`.
+- **`type` as an array or an object bypassed the bridge locks.** `mem_log {type: ["duty"], replaces_id}`, `["workflow"]`
+  and `["procedure"]` passed the strict comparisons and were written. `mem_log` wants a string `type`, and every tool
+  refuses an array or an object where its schema says string (stdio and `--http`). **Breaking** for a client that
+  sent an array where a string is declared.
+- **Host check is central.** Every dashboard route that is not an asset checks the Host (`/dashboard` was missing).
+- **One server line** (never the header value) when `CF-Connecting-IP` arrives from loopback without
+  `CHEAP_MEM_SERVE_BEHIND_TUNNEL`. Docs: with `CHEAP_MEM_SERVE_LOGIN=off` the owner-writing routes answer `403`; use the shell.
 
 ### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
 

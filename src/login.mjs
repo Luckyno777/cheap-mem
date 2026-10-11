@@ -331,6 +331,22 @@ export function sourceOf(req, { tunnel = false } = {}) {
   return tunnel && isLoopbackAddress(a) && cf ? cf : (a || 'unknown');
 }
 
+const NOTED = new WeakSet();
+/**
+ * One server line (the first time, never the header value): a request over loopback carries `CF-Connecting-IP`
+ * but the operator did not declare a tunnel (`CHEAP_MEM_SERVE_BEHIND_TUNNEL`). Since 2026-10-11 the sign-in lock
+ * then counts the socket address, i.e. everyone behind the tunnel shares ONE lock - say so, once, where the
+ * operator looks, instead of leaving the change silent.
+ */
+function noteUntrustedTunnelHeader(req, ctx) {
+  if (ctx.behindTunnel === true || NOTED.has(ctx.limiter)) return; // keyed by the limiter: the ctx is copied per request
+  if (!isLoopbackAddress(req?.socket?.remoteAddress ?? '') || !String(req?.headers?.['cf-connecting-ip'] ?? '').trim()) return;
+  NOTED.add(ctx.limiter);
+  ctx.log('serve: a request over loopback carried CF-Connecting-IP, but CHEAP_MEM_SERVE_BEHIND_TUNNEL is not set - '
+    + 'the sign-in lock uses the socket address, so everyone behind a tunnel shares one lock. '
+    + 'Set CHEAP_MEM_SERVE_BEHIND_TUNNEL=1 if a tunnel on this machine fronts the viewer.');
+}
+
 /** Secure flag: on https (also behind a tunnel) and on every non-local host. */
 export function secureConnection(req) {
   if (req?.socket?.encrypted) return true;
@@ -459,6 +475,7 @@ function bouncePage() {
  */
 export function gate(req, res, url, ctx) {
   const p = url.pathname;
+  noteUntrustedTunnelHeader(req, ctx);
   const bearerOk = Boolean(ctx.token && ctx.bearer && ctx.equal(ctx.token, ctx.bearer));
   const sessionToken = cookieFrom(req);
   const session = checkSession(ctx.dir, sessionToken);

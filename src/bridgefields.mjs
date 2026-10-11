@@ -188,3 +188,28 @@ export function refuse(type, fields) {
     + 'Everything else (audit stamps such as v / status / authority_clamped_from / guard_at_creation, the shred '
     + 'switch, hashes) is set by the write path or by a human at the CLI, never by the caller.');
 }
+
+/**
+ * The SHAPE of a tool call, before any tool looks at a value (review of the B1 fix, 2026-10-11). Nothing in the
+ * bridge validates the arguments against the tool's schema, and a strict comparison in one place meets a coerced
+ * one in another: `mem_log {type: ["duty"]}` slipped past `type === 'duty'` (the replaces_id lock) and
+ * `type === 'procedure'` / `'workflow'` (the norm locks) while `TYPES[type]` and `Object.hasOwn(.., type)` turned
+ * the array into the string 'duty' and wrote it. A property the schema declares as a string is a string here: an
+ * array or an object in its place is refused by name, nothing is run. (Numbers and booleans are left to the tool,
+ * which coerces them with String(); they cannot be a different thing than their text.)
+ */
+export function shapeCheck(schema, args) {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('The arguments of a tool call must be an object — nothing was run.');
+  }
+  const props = schema?.properties ?? {};
+  const bad = [];
+  for (const [k, def] of Object.entries(props)) {
+    if (def?.type !== 'string' || !Object.hasOwn(args, k)) continue;
+    const v = args[k];
+    if (v !== null && typeof v === 'object') bad.push(k);
+  }
+  if (bad.length) {
+    throw new Error(`${quoted(bad)} must be a string, not ${bad.map((k) => (Array.isArray(args[k]) ? 'an array' : 'an object')).join(' / ')} — nothing was run.`);
+  }
+}
