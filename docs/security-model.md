@@ -337,6 +337,15 @@ the demotion (`authority_clamped_from`) is the bridge's to write, not the
 caller's. `agent`, `id` and `ts` are still set by the write path and ignored
 if sent. `test/bridge-fields.test.mjs`.
 
+**A claim of who said it is not evidence (A12, 2026-10-11).** Over the bridge
+`mem_appointment_new` with `requested_by: "user"` and a quote used to make a
+plain reminder active at once and kept it out of the daily cap on agent
+proposals: the bridge cannot verify who said the sentence, the same
+self-assertion as a claimed authority tier. An appointment made over the
+bridge is now always a proposal and counts towards the cap; the claim stays in
+the text as a marked, unverified note. The CLI (`--requested-by user --quote`)
+is unchanged. `test/bridge-appointment-claim.test.mjs`.
+
 ### Unsolved, explicitly
 
 - **Ranking eviction.** A short claim containing the query terms outranks

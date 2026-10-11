@@ -873,15 +873,17 @@ const TOOLS = [
   //
   // An agent can SUGGEST and list; it can never arm an action, confirm a
   // proposal or set a cap (those need `--authority user` at the CLI, and a
-  // bridge is never a human). Whatever it creates here is a proposal unless it
-  // brings the user's own sentence as evidence AND it is a plain reminder.
+  // bridge is never a human). Whatever it creates here is a proposal, always:
+  // since A12 (2026-10-11) the user's sentence (`requested_by` + `quote`) is a
+  // claim the bridge cannot verify, so it is noted in the text, not believed.
   {
     name: 'mem_appointment_new',
     description:
       'Propose an appointment: a reminder for the human, or a scheduled action for an agent ' +
       '(wake + task). It is a PROPOSAL and does nothing until a human confirms it ' +
-      '(`mem appointment confirm <id> --authority user`, CLI only) - except a plain reminder the user ' +
-      'asked for in their own words (requested_by "user" + a verbatim quote), which is active at once. ' +
+      '(`mem appointment confirm <id> --authority user`, CLI only) - ALWAYS, also with requested_by "user" + a quote: ' +
+      'the bridge cannot verify who said it, so that claim is not evidence. It is noted in the text as unverified ' +
+      'for the human to see, and the proposal counts towards the daily limit. ' +
       'Time expressions are English ("tomorrow 9:00", "friday 3pm", "in 2 hours", "2026-10-25 14:30"); ' +
       'relative ones count from relative_to (pass the moment of the user\'s line, not now). ' +
       'Refuses a duplicate (same title, time within 10 minutes). An agent may make only a few proposals a day.',
@@ -898,8 +900,8 @@ const TOOLS = [
         max_minutes: { type: 'number', description: 'Time budget written into the letter (default 30, at most 240); not enforced' },
         briefing: { type: 'boolean', description: 'A day list "Today in the calendar" as a letter to the human (wakes nobody)' },
         relative_to: { type: 'string', description: 'ISO time that relative expressions count from (default now)' },
-        requested_by: { type: 'string', enum: ['user'], description: 'Set when the user asked for it in a conversation; needs quote' },
-        quote: { type: 'string', description: 'The user\'s sentence, verbatim (at most 200 characters)' },
+        requested_by: { type: 'string', enum: ['user'], description: 'Claim that the user asked for it in a conversation; needs quote. Only a note for the human - it grants nothing (the appointment stays a proposal)' },
+        quote: { type: 'string', description: 'The user\'s sentence, verbatim (at most 200 characters); shown to the human as an unverified claim' },
         private: { type: 'boolean', description: 'Store only "Private appointment", no text' },
       },
       required: ['at', 'title'],
@@ -1775,14 +1777,34 @@ async function handleCall(name, args) {
         before = appointmentTime.durationMinutes(String(args.remind_before));
         if (before === null) throw new Error('remind_before is a duration like 15m, 2h, 1d.');
       }
-      const wish = args.requested_by === 'user' ? { by: 'user', quote: String(args.quote ?? '') } : null;
+      // **The bridge cannot verify who said it (A12, 2026-10-11).** `requested_by: "user"` + a quote is
+      // the CALLER'S claim; `appointments.create` only checks that it is there. Taken as evidence it made a
+      // plain reminder active at once and kept it out of the daily cap on agent proposals - the same
+      // self-assertion as a claimed authority tier (Y4b). So over the bridge an appointment is ALWAYS a
+      // proposal and counts towards the cap. The claim stays as a marked, unverified note in the text - never
+      // as the `requested_by` field, which the clock and the cap read as a proven wish - so the human sees
+      // what was claimed when confirming. The CLI (`--requested-by user --quote`) is unchanged.
+      if (args.requested_by !== undefined && args.requested_by !== null && args.requested_by !== '' && args.requested_by !== 'user') {
+        throw new Error("requested_by is only 'user'.");
+      }
+      const claimsUser = args.requested_by === 'user';
+      let noteText = args.text ? String(args.text) : '';
+      if (claimsUser) {
+        const claimed = String(args.quote ?? '').replace(/[\u0000-\u001f\u007f\s]+/g, ' ').trim();
+        if (!claimed) throw new Error("requested_by needs the user's sentence in their words (quote, at most 200 characters) as evidence.");
+        if (claimed.length > 200) throw new Error(`quote is too long (${claimed.length} > 200)`);
+        if (args.private !== true) {
+          const note = `[Unverified: ${me} claims over the bridge that the user asked for this: "${claimed}"]`;
+          noteText = noteText.trim() ? `${noteText.trim()}\n${note}` : note;
+        }
+      }
       let r;
       try {
         r = appointments.create(root, {
-          title: String(args.title ?? ''), text: args.text ? String(args.text) : '', atMs: z.ms, repeat, beforeMin: before,
+          title: String(args.title ?? ''), text: noteText, atMs: z.ms, repeat, beforeMin: before,
           wake: args.wake ? String(args.wake) : null, task: args.task ? String(args.task) : null,
           maxMinutes: args.max_minutes ?? null, kind: args.briefing === true ? 'briefing' : 'reminder',
-          source: 'mcp', requestedBy: wish, reminderActive: Boolean(wish), isPrivate: args.private === true,
+          source: 'mcp', requestedBy: null, reminderActive: false, isPrivate: args.private === true,
           // A bridge is never a human: it cannot arm anything.
           actor: { name: me, human: false, reason: 'MCP bridge' }, now: Date.now(),
         });
@@ -1795,7 +1817,8 @@ async function handleCall(name, args) {
         : [r.duplicate ? `Already there: appointment ${r.id} (${r.status}) - nothing created.` : `Appointment ${r.id} ${r.status === 'proposed' ? 'proposed' : 'created'}: ${text}${repeat ? ` (${repeat})` : ''} [${r.status}]`];
       for (const w of r.warnings) lines.push(`  ${w}`);
       if (r.status === 'proposed') lines.push(`  Does nothing until a human confirms: mem appointment confirm ${r.id} --authority user`);
-      return structuredResult({ id: r.id, status: r.status, duplicate: r.duplicate, dropped: r.dropped, at: new Date(z.ms).toISOString(), atText: text, warnings: r.warnings }, lines);
+      if (claimsUser && !r.duplicate && !r.dropped) lines.push('  requested_by / quote are not evidence over the bridge: the appointment is a proposal and counts towards the daily limit; the claim is noted in the text as unverified.');
+      return structuredResult({ id: r.id, status: r.status, duplicate: r.duplicate, dropped: r.dropped, at: new Date(z.ms).toISOString(), atText: text, warnings: r.warnings, ...(claimsUser ? { wishVerified: false } : {}) }, lines);
     }
     case 'mem_appointment_list': {
       const now = Date.now();

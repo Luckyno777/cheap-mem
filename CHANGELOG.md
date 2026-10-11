@@ -14,6 +14,28 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — an appointment made over the bridge is always a proposal, also with `requested_by` + `quote` (behaviour change of a documented intent)
+
+Port of lucky-mem's A12 (2026-10-10). The tool description and `docs/appointments.md`
+said that a plain reminder with `requested_by: "user"` and the user's quoted sentence is
+active at once. Nobody verified who said the sentence: `appointments.create` only checked
+that `by` is `user` and the quote is not empty, so any connected agent got an active
+reminder (it fires, it reaches the human's calendar) that also stayed out of the daily
+cap on agent proposals. Same class as a claimed authority tier (Y4b).
+
+Now `mem_appointment_new` over the bridge always creates a `proposed` appointment that
+counts towards the cap. `requested_by` / `quote` are still required together (and only
+`user` is accepted), but the claim is written into the text as a marked note
+(`[Unverified: <agent> claims over the bridge that the user asked for this: "..."]`),
+never as the `requested_by` field the clock and the cap read as a proven wish; the answer
+carries `wishVerified: false`. A `private` appointment stores neither the text nor the
+quote. **The CLI is unchanged:** `mem appointment new --requested-by user --quote "..."`
+(what the digest uses) still makes a plain reminder active at once.
+
+**Release note.** A client that relied on the bridge to get an active reminder now gets a
+proposal; the human confirms it (`mem appointment confirm <id> --authority user`, or the
+dashboard). `test/bridge-appointment-claim.test.mjs`.
+
 ### Changed — `mem_log` over the bridge takes an allow-list of fields per type; machine and audit fields are the bridge's, not the caller's (behaviour change)
 
 Port of lucky-mem's A1/A6 (2026-10-10). `bin/mem-mcp` used to write every argument

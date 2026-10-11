@@ -697,7 +697,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 |---|---|
 | `mem_log` | append an entry; only the fields the type takes (an allow-list, `src/bridgefields.mjs`), any other is refused by name |
 | `mem_heartbeat` | report that this agent is running (hourly quiet period) |
-| `mem_appointment_new` | propose an appointment: a reminder, or an action for an agent at a time. Always a proposal until a human confirms; only a plain reminder carrying the user's quoted request is active at once |
+| `mem_appointment_new` | propose an appointment: a reminder, or an action for an agent at a time. Always a proposal until a human confirms, also with a quoted user request (the bridge cannot verify it: noted as unverified, counts towards the daily limit) |
 | `mem_appointment_list` | read only: the next 14 days, or every appointment, or the day list |
 | `mem_appointment_cancel` | cancel your own proposal (an armed appointment is the user's) |
 | `mem_questions` | what is open — and with `all`, what was answered |
