@@ -108,10 +108,10 @@ test('positive control: counterpart ids still work, and state/by_id travel only 
     ['mem_log', { type: 'decision', title: 'new', choice: 'b', why: 'w' }],
   ]);
   assert.ok(!a.isError && !b.isError);
-  const [old, neu] = rows(root, 'decision');
+  const [old, successor] = rows(root, 'decision');
   const [fix, sup, duty] = bridge(root, [
     ['mem_log', { type: 'decision', title: 'old, fixed', choice: 'c', why: 'w', replaces_id: old.id }],
-    ['mem_log', { type: 'decision', retires_id: neu.id, state: 'superseded', by_id: old.id }],
+    ['mem_log', { type: 'decision', retires_id: successor.id, state: 'superseded', by_id: old.id }],
     ['mem_log', { type: 'duty', title: 'owed', duty: 'x' }],
   ]);
   assert.ok(!fix.isError, textOf(fix));
@@ -218,9 +218,9 @@ test('the late supersede door takes no foreign field either', (t) => {
     ['mem_log', { type: 'decision', title: 'old', choice: 'a', why: 'w' }],
     ['mem_log', { type: 'decision', title: 'new', choice: 'b', why: 'w' }],
   ]);
-  const [old, neu] = rows(root, 'decision');
+  const [old, successor] = rows(root, 'decision');
   const before = rows(root, 'decision').length;
-  const [r] = bridge(root, [['mem_log', { type: 'decision', retires_id: old.id, state: 'superseded', by_id: neu.id, zzz_unknown: 1 }]]);
+  const [r] = bridge(root, [['mem_log', { type: 'decision', retires_id: old.id, state: 'superseded', by_id: successor.id, zzz_unknown: 1 }]]);
   assert.equal(r.isError, true);
   assert.match(textOf(r), /'zzz_unknown'/);
   assert.equal(rows(root, 'decision').length, before, 'a tombstone was written despite the refusal');
