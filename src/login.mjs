@@ -12,12 +12,13 @@
 // It replaces no latch; it adds one.
 //
 // **First setup — who may set the first password?** "Whoever comes
-// first" would be an open flank. Two proofs of ownership are accepted:
-//   1. the SETUP CODE the server (or `mem serve setup-code`) creates and
-//      keeps ONLY on this machine (file, mode 600); the log says WHERE it
-//      is, never the code itself;
-//   2. the existing bearer `CHEAP_MEM_SERVE_TOKEN` in the `Authorization`
-//      header (tools, tests — a browser never sends it on its own).
+// first" would be an open flank. ONE proof of ownership is accepted: the
+// SETUP CODE the server (or `mem serve setup-code`) creates and keeps ONLY
+// on this machine (file, mode 600); the log says WHERE it is, never the code
+// itself. The bearer `CHEAP_MEM_SERVE_TOKEN` is NOT a proof (B5, external
+// review 2026-10-11): it is what tools, probes and anyone handed the link
+// carry, and with it the first password - and a person session - was one
+// request away; the code on the machine was bypassed.
 // **Loopback is deliberately NOT a proof.** Behind a tunnel whose client
 // runs on the same machine (cloudflared, a reverse proxy on localhost),
 // EVERY request arrives from 127.0.0.1. "Local = owner" would mean
@@ -58,7 +59,12 @@ export const DELAY_MS = 400;
 /** From this many failures per source the lock starts (exponential). */
 export const LOCK_FROM = 3;
 export const LOCK_MAX_MS = 15 * 60 * 1000;
-/** Across all sources: this many failures lock everyone out for a while. */
+/**
+ * Counted across all sources, for the log line only. It no longer locks anybody
+ * (B9, external review 2026-10-11): a lock on EVERYONE, fed by failures any
+ * holder of the link can make, is a switch to lock the owner out. The lock is
+ * per source; see `sourceOf` for what a source is.
+ */
 export const GLOBAL_LOCK_FROM = 20;
 const FORGET_AFTER_MS = 15 * 60 * 1000;
 
@@ -260,10 +266,9 @@ export function endSession(dir, token) {
 
 /**
  * A lock per source, exponential: from the LOCK_FROM-th failure 1 s, 2 s,
- * 4 s … up to LOCK_MAX_MS. Plus a counter across all sources, because
- * behind a tunnel the source comes from a header only the tunnel sets —
- * whoever reached loopback directly could change it. In memory: a
- * restart resets the counters, never the password.
+ * 4 s … up to LOCK_MAX_MS. In memory: a restart resets the counters, never
+ * the password. (There used to be a lock across all sources as well; it let
+ * a stranger lock the owner out - see GLOBAL_LOCK_FROM.)
  */
 export function newLimiter({ now = () => Date.now() } = {}) {
   const state = new Map();
@@ -277,12 +282,12 @@ export function newLimiter({ now = () => Date.now() } = {}) {
     /** How long this source still has to wait (0 = may try). */
     wait(source) {
       const t = now();
-      return Math.max(0, ...['s:' + source, 'global'].map((k) => (entry(k)?.until ?? 0) - t));
+      return Math.max(0, (entry('s:' + source)?.until ?? 0) - t);
     },
     failure(source) {
       const t = now();
       const out = {};
-      for (const [k, from] of [['s:' + source, LOCK_FROM], ['global', GLOBAL_LOCK_FROM]]) {
+      for (const [k, from] of [['s:' + source, LOCK_FROM], ['global', Infinity]]) {
         const e = entry(k) ?? { n: 0, until: 0, last: t };
         e.n += 1; e.last = t; e.until = t + lockMs(e.n, from);
         state.set(k, e);
@@ -307,11 +312,23 @@ function isLoopbackAddress(a) {
   return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
 }
 
-/** The source for the lock: behind the tunnel, the one Cloudflare names. */
-export function sourceOf(req) {
+/** `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1`: the operator says a tunnel / reverse proxy on this machine sets `CF-Connecting-IP`. */
+export function behindTunnel(env = process.env) {
+  return ['1', 'yes', 'on', 'true'].includes(String(env.CHEAP_MEM_SERVE_BEHIND_TUNNEL ?? '').trim().toLowerCase());
+}
+
+/**
+ * The source for the lock. The socket address, unless the operator declared
+ * the server to sit behind a tunnel (`CHEAP_MEM_SERVE_BEHIND_TUNNEL`) AND the
+ * request came over loopback: only then is `CF-Connecting-IP` the tunnel's
+ * word. Without the declaration the header is just a header any client can
+ * set to a new value per attempt (B9, external review 2026-10-11: six wrong
+ * passwords with six different headers were six 401, no lock).
+ */
+export function sourceOf(req, { tunnel = false } = {}) {
   const a = req?.socket?.remoteAddress ?? '';
   const cf = String(req?.headers?.['cf-connecting-ip'] ?? '').trim();
-  return isLoopbackAddress(a) && cf ? cf : (a || 'unknown');
+  return tunnel && isLoopbackAddress(a) && cf ? cf : (a || 'unknown');
 }
 
 /** Secure flag: on https (also behind a tunnel) and on every non-local host. */
@@ -435,6 +452,7 @@ function bouncePage() {
  * @param ctx.head       shared security headers
  * @param ctx.csp        content security policy
  * @param ctx.limiter    newLimiter()
+ * @param ctx.behindTunnel true = trust CF-Connecting-IP from loopback (CHEAP_MEM_SERVE_BEHIND_TUNNEL)
  * @param ctx.page       { fontCss, mark }
  * @param ctx.log        (line) => void
  * @param ctx.equal      (a, b) => bool, constant time
@@ -448,7 +466,7 @@ export function gate(req, res, url, ctx) {
   const signedIn = session.valid || bearerOk;
 
   if (ALL_PATHS.includes(p)) {
-    handleLoginRoute(req, res, url, ctx, { signedIn, sessionToken, bearerOk }).catch((e) => {
+    handleLoginRoute(req, res, url, ctx, { signedIn, sessionToken, bearerOk, session: session.valid === true }).catch((e) => {
       ctx.log(`serve: ${p} threw: ${e?.message || e}`);
       if (!res.headersSent) sendJson(res, ctx, 500, { state: 'error', reason: 'login-broken' });
     });
@@ -499,7 +517,7 @@ function wantsJson(req) {
 
 async function handleLoginRoute(req, res, url, ctx, where) {
   const p = url.pathname;
-  const source = sourceOf(req);
+  const source = sourceOf(req, { tunnel: ctx.behindTunnel === true });
 
   if (p === PATHS.page && (req.method === 'GET' || req.method === 'HEAD')) {
     if (where.signedIn && isSet(ctx.dir)) { res.writeHead(303, { ...ctx.head, location: '/' }).end(); return; }
@@ -522,6 +540,12 @@ async function handleLoginRoute(req, res, url, ctx, where) {
   if (body === null) { sendJson(res, ctx, 413, { state: 'error', reason: 'too-large' }); return; }
 
   if (p === PATHS.logout) {
+    // Signing out belongs to a person's session. The bearer is no session: with it alone there is nothing to
+    // end, and it must not be able to clear a person's cookie or cache (external review 2026-10-11).
+    if (!where.session) {
+      sendJson(res, ctx, 401, { state: 'error', reason: 'login-required', login: PATHS.page });
+      return;
+    }
     endSession(ctx.dir, where.sessionToken);
     const heads = { 'set-cookie': cookieHeader(req, '', 0), 'clear-site-data': '"cache"' };
     if (wantsJson(req)) sendJson(res, ctx, 200, { state: 'ok', signedOut: true, next: PATHS.page + '?signedout=1' }, heads);
@@ -561,8 +585,8 @@ async function handleLoginRoute(req, res, url, ctx, where) {
 
   if (p === PATHS.setup) {
     if (isSet(ctx.dir)) { await refuse(409, 'The password is already set. Change it in the settings.', false); return; }
-    // Proof: bearer OR setup code. Loopback does not count (tunnel).
-    if (!where.bearerOk && !codeMatches(ctx.dir, body.code)) {
+    // Proof: the setup code on the machine, nothing else. Neither loopback (tunnel) nor the bearer (B5).
+    if (!codeMatches(ctx.dir, body.code)) {
       await refuse(403, 'The setup code is wrong. It is on the machine: mem serve setup-code');
       return;
     }
@@ -572,7 +596,7 @@ async function handleLoginRoute(req, res, url, ctx, where) {
     remove(files(ctx.dir).code);
     ctx.limiter.success(source);
     const token = newSession(ctx.dir);
-    ctx.log(`serve: password set up (source=${source}, proof=${where.bearerOk ? 'bearer' : 'code'})`);
+    ctx.log(`serve: password set up (source=${source}, proof=code)`);
     const heads = { 'set-cookie': cookieHeader(req, token) };
     if (wantsJson(req)) sendJson(res, ctx, 201, { state: 'ok', setUp: true }, heads);
     else res.writeHead(303, { ...ctx.head, ...heads, location: '/' }).end();

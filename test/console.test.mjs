@@ -19,6 +19,7 @@ import { spawnSync } from 'node:child_process';
 import * as consolePage from '../src/console.mjs';
 import * as archive from '../src/archive.mjs';
 import * as webauth from '../src/webauth.mjs';
+import { personCookie } from './person-session.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVE = path.join(HERE, '..', 'bin', 'mem-serve');
@@ -62,6 +63,8 @@ async function start(root, env = {}, opts = { allowWrites: true }) {
   return {
     cfg,
     server,
+    // B6/B7: /setting writes as the owner, so it needs a password session next to the door.
+    cookie: personCookie(root, { ...process.env, ...env }),
     base: `http://127.0.0.1:${server.address().port}`,
     // `closeAllConnections` first: `close()` alone waits for existing
     // sockets, and `fetch` keeps them alive.
@@ -164,7 +167,7 @@ test('a POST from the same origin really changes something', async () => {
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
       redirect: 'manual',
-      headers: { ...WITH_DOOR, origin: s.base,
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base,
         'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id: 'raw-archive', value: target }).toString(),
     });
@@ -192,7 +195,7 @@ test('a POST from a foreign page changes NOTHING', async () => {
   try {
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
-      headers: { ...WITH_DOOR, origin: 'https://evil.example',
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: 'https://evil.example',
         'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id: 'raw-archive', value: '/tmp/hijacked' }).toString(),
     });
@@ -207,7 +210,7 @@ test('a POST with NO origin is refused as well', async () => {
   try {
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
-      headers: { ...WITH_DOOR, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...WITH_DOOR, cookie: s.cookie, 'content-type': 'application/x-www-form-urlencoded' },
       body: 'id=error-window&value=30',
     });
     assert.equal(res.status, 403);
@@ -222,7 +225,7 @@ test('an unknown field name is refused, not ignored', async () => {
   try {
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
-      headers: { ...WITH_DOOR, origin: s.base,
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base,
         'content-type': 'application/x-www-form-urlencoded' },
       body: 'id=nosuchsetting&value=whatever',
     });
@@ -241,7 +244,7 @@ test('setting always sends you back to the dashboard, never to a submitted targe
     const post = (from) => fetch(`${s.base}/setting`, {
       method: 'POST',
       redirect: 'manual',
-      headers: { ...WITH_DOOR, origin: s.base,
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base,
         'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id: 'raw-archive', value: target, ...from }).toString(),
     });
@@ -272,7 +275,7 @@ test('READONLY=1 turns setting off, and the page says so', async () => {
     assert.match(d.meta.writes.reason, /read-only/);
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
-      headers: { ...WITH_DOOR, origin: s.base,
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base,
         'content-type': 'application/x-www-form-urlencoded' },
       body: 'id=error-window&value=30',
     });

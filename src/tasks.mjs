@@ -242,6 +242,8 @@ export const KINDS = Object.freeze({
       + 'BYTES of one capture from the archive (irreversible) and appends a tombstone to the '
       + 'register. The dashboard runs it once per capture, after a preview and a confirmation.',
     resume: 'restart',
+    // B7 (external review 2026-10-11): the one irreversible kind. The bearer token alone no longer starts it.
+    humanOnly: true,
     params: {
       path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/') && !v.startsWith('-'),
         why: 'a relative capture path as `mem raw review` lists it' },

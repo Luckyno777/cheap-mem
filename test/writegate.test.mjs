@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { personCookie } from './person-session.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVE = path.join(HERE, '..', 'bin', 'mem-serve');
@@ -89,6 +90,8 @@ async function start(root, env = {}, opts = undefined) {
   return {
     mod,
     cfg,
+    // B6/B7: the owner-writing routes need a password session next to the door (the write switch asks first).
+    cookie: personCookie(root, { ...process.env, ...env }),
     base: `http://127.0.0.1:${server.address().port}`,
     stop: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }),
   };
@@ -97,7 +100,7 @@ async function start(root, env = {}, opts = undefined) {
 function post(s, route, body) {
   return fetch(`${s.base}${route}`, {
     method: 'POST', redirect: 'manual',
-    headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
+    headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
     body,
   });
 }

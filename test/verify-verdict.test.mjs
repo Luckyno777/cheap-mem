@@ -17,6 +17,7 @@ import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 import * as verifylog from '../src/verifylog.mjs';
+import { personCookie } from './person-session.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD_COMMIT = 'ddca89d5430b7c2866a93788edd6fe14822af337';
@@ -39,11 +40,13 @@ async function start(scriptPath, root, env = {}) {
     CHEAP_MEM_SERVE_TOKEN: DOOR, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', ...env,
   });
   const base = `http://127.0.0.1:${server.address().port}`;
+  // B7: a verdict writes as the owner, so it needs a password session next to the door.
+  const cookie = personCookie(root, { ...process.env, ...env });
   return {
     base,
     post: (route, body) => fetch(`${base}${route}`, {
       method: 'POST', redirect: 'manual',
-      headers: { authorization: `Bearer ${DOOR}`, origin: base, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { authorization: `Bearer ${DOOR}`, cookie, origin: base, 'content-type': 'application/x-www-form-urlencoded' },
       body,
     }),
     stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }),

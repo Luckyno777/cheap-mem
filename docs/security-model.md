@@ -370,6 +370,32 @@ the page-level script count does not grow. It found no injection; it found a vie
 blank on `<!--` and quadratic patterns that let one long title freeze the dashboard build
 (bounded now: `entity.boundRuns`). bidi controls are covered by the atlas (`bench/atlas`).
 
+**External security review (Fable, 2026-10-11), bridge and dashboard.** Reproduced against throwaway
+roots first, then fixed; `test/b1-duty-replace.test.mjs`, `test/b2-b4-inbox-ownership.test.mjs`,
+`test/b5-b9-dashboard.test.mjs`.
+
+- **B1 `replaces_id` on a duty.** `openDuties` retired the predecessor of any `replaces_id` line without a
+  rule, so one `mem_log` removed a user duty or an auto-duty, and the replacing stage had no `error_ids`
+  and closed without the F4 proof. Now the fold judges a replacement like a close
+  (`authority.mayChangeState`); a duty that grew out of errors is replaced only by a stage that stays
+  open and keeps its ids, the chain walked back to the stage that carries them (the newest stage inherits
+  them, so closing it still asks for evidence). A refused replacement is not obeyed (the predecessor stays
+  open) and is counted by `mem doctor` (`contested-claims`). The bridge does not offer `replaces_id` on a
+  duty at all (the smaller safe option, like `closes_id`): a duty is closed by `mem_duty_close`, a new
+  one is a new `mem_log`.
+- **B2/B4 other people's mail over the bridge.** `mem_inbox_ack` and `mem_inbox_claim` work on mail
+  addressed to the connected agent (ack: or held by it under a valid claim). One claim is at most
+  `claim.MAX_EXTENSION_MIN` (120) minutes and a renew is capped at that total beyond the original
+  `until`. The shell is unchanged.
+- **B5-B9 dashboard.** The bearer no longer sets the first password or signs out; `/setting`,
+  `/inbox/reply`, `/inbox/state`, the verdict routes and `raw-delete` need a password session; the raw
+  archive can be pointed only into an allowed base; the Host check covers `/`, `/desk.json`,
+  `/console.json`, `/entry.json`, `/task.json`; the sign-in lock is per source, and `CF-Connecting-IP`
+  counts only with `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1`.
+- **Left open on purpose.** `done`, `restore`, `merge` tasks stay open to the bearer: they append lines
+  and the rank rule judges them on read (a bearer start carries no `--authority user`). `retires_id` on a
+  duty over the bridge is judged by the same rule on read; it does not close a duty in the duty list.
+
 ### Unsolved, explicitly
 
 - **Ranking eviction.** A short claim containing the query terms outranks

@@ -14,6 +14,30 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security — external review 2026-10-11 (Fable): duty replacement, other people's mail, dashboard doors (breaking for bridge clients and tools)
+
+Each finding was reproduced against a throwaway root first (red), then fixed (green).
+`test/b1-duty-replace.test.mjs`, `test/b2-b4-inbox-ownership.test.mjs`, `test/b5-b9-dashboard.test.mjs`.
+
+- **B1 (high).** `mem_log` with `replaces_id` made any duty vanish (user duties, auto-duties) and its
+  replacement closed without the F4 proof. `openDuties` now judges a replacement with the closing rule
+  (`authority.mayChangeState`) and keeps `error_ids` along the chain, so a replaced F4 duty still asks for
+  evidence; refused replacements are listed in `refused` and counted by `mem doctor` (`contested-claims`).
+  **Breaking:** the bridge refuses `replaces_id` on type `duty` (use `mem_duty_close` / a new `mem_log`).
+- **B2 + B4.** `mem_inbox_ack` and `mem_inbox_claim` only for the addressee (ack also for the holder of a
+  valid claim). **Breaking:** an agent can no longer ack or claim mail addressed to someone else over the
+  bridge. A single claim over the bridge is at most 120 minutes (the cap renewals already had).
+- **B5.** The bearer token no longer sets the first password (setup code only) and `/login/logout` needs a
+  session. **Breaking:** tools that set the first password with the bearer must use the setup code.
+- **B6 + B7.** `/inbox/reply`, `/inbox/state`, `/setting` and the two verdict routes need a password
+  session (403 otherwise, also with `CHEAP_MEM_SERVE_LOGIN=off`); the `raw-delete` task is `humanOnly`; the
+  dashboard can point the raw archive only into the root, home, temp or `CHEAP_MEM_ARCHIVE_BASES` (new).
+  **Breaking:** a script that wrote through these routes with the bearer token alone loses that.
+- **B8.** Host check on `/`, `/desk.json`, `/console.json`, `/entry.json`, `/task.json`.
+- **B9.** The sign-in lock takes the socket address; `CF-Connecting-IP` only with the new
+  `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1` (set it if a tunnel on this machine fronts the viewer, else all visitors
+  share one lock). The lock across all sources is gone.
+
 ### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
 
 Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`, red on fb48a54.

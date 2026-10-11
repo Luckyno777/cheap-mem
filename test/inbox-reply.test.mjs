@@ -29,6 +29,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { personCookie } from './person-session.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SERVE = path.join(HERE, '..', 'bin', 'mem-serve');
@@ -98,6 +99,8 @@ async function start(root, env = {}, opts = undefined) {
     ...env,
   }, opts);
   return {
+    // B6: replying writes as the human, so it needs a password session next to the door.
+    cookie: personCookie(root, { ...process.env, ...env }),
     base: `http://127.0.0.1:${server.address().port}`,
     stop: () => new Promise((ok) => { server.closeAllConnections?.(); server.close(ok); }),
   };
@@ -106,7 +109,7 @@ async function start(root, env = {}, opts = undefined) {
 function reply(s, fields, headers = {}) {
   return fetch(`${s.base}/inbox/reply`, {
     method: 'POST', redirect: 'manual',
-    headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded', ...headers },
+    headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base, 'content-type': 'application/x-www-form-urlencoded', ...headers },
     body: new URLSearchParams({ from: '/', ...fields }).toString(),
   });
 }
