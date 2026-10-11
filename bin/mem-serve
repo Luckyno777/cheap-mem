@@ -632,7 +632,8 @@ export function buildHandler(root, cfg, env = process.env) {
     const decision = webauth.authDecision({
       token,
       given: tokenFrom(req, url),
-      remoteLoopback: webauth.remoteIsLoopback(req),
+      // No token and no login: nothing stands behind this door, so a request through a tunnel (proxy header) is not local.
+      remoteLoopback: webauth.remoteIsLoopback(req, { strict: !loginOn }),
     });
     if (!decision.allowed) {
       // **Invisible principle**: no valid token gets EXACTLY the answer
