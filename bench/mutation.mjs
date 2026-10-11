@@ -67,7 +67,7 @@ export const MUTANTS=[
    // Re-anchored 2026-10-10: since the doctor memo (src/drawermemo.mjs)
    // both read paths -- memoized and plain -- hand the line to one
    // `visit`, and that is where a NOT_JSON line is counted as broken.
-   from:"      if (e === drawermemo.NOT_JSON) { broken.push({ file: f.rel, line: no, why: 'not JSON' }); return; }",
+   from:"      if (e === drawermemo.NOT_JSON) { broken.push({ file: f.rel, line: no, why: reasons.get(no) ?? 'not JSON' }); return; }",
    to:'      if (e === drawermemo.NOT_JSON) { return; }  // MUTANT: silent again',
    tests:['test/integrity.test.mjs'] },
 

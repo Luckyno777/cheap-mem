@@ -832,21 +832,6 @@ export async function cancel(root, kind, context = {}) {
 }
 
 /**
- * Read one task's state.
- *
- * ```
- * unknown (id never seen)      { state:'unknown', id, reason }               -> 404
- * unknown (server restarted)   { state:'unknown', kind, started,
- *                                 running:'unknown', reason }                -> 200
- * running                      { state:'ok', kind, started, running:true,
- *                                 progress }                                 -> 200
- * finished, nothing to flag    { state:'ok', ..., running:false, result }    -> 200
- * finished, with a finding     { state:'warning', ..., result, reason }      -> 200
- * cancelled                    { state:'ok', ..., cancelled:true, reason }   -> 200
- * unreadable state file        { state:'error', id, reason }                 -> 500
- * ```
- */
-/**
  * What the dashboard may show: the root as `<root>` and the code folder as `<code>`, not the absolute server paths
  * (Fable run 2026-10-11, lucky-mem B11/B14: `/task.json` named `/home/<user>/cheap-mem/bin/mem` and the root). The
  * journal on disk keeps the full command; a restart and a bug hunt need it. The longer path goes first, so a root inside
@@ -866,6 +851,21 @@ function withoutServerPaths(root, value) {
   return walk(value);
 }
 
+/**
+ * Read one task's state.
+ *
+ * ```
+ * unknown (id never seen)      { state:'unknown', id, reason }               -> 404
+ * unknown (server restarted)   { state:'unknown', kind, started,
+ *                                 running:'unknown', reason }                -> 200
+ * running                      { state:'ok', kind, started, running:true,
+ *                                 progress }                                 -> 200
+ * finished, nothing to flag    { state:'ok', ..., running:false, result }    -> 200
+ * finished, with a finding     { state:'warning', ..., result, reason }      -> 200
+ * cancelled                    { state:'ok', ..., cancelled:true, reason }   -> 200
+ * unreadable state file        { state:'error', id, reason }                 -> 500
+ * ```
+ */
 export function read(root, id) {
   return withoutServerPaths(root, readFull(root, id));
 }
