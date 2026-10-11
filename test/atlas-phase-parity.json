@@ -1,0 +1,29 @@
+{
+  "about": "The atlas phase ids of the sister house (lucky-mem), as a fixed list, and every deliberate difference between the two atlases. test/atlas-phase-parity.test.mjs compares bench/atlas.mjs against it. Update it in the same commit that adds, renames or removes a phase in either house; a difference that is not listed here, with a reason, turns the test red.",
+  "recordedOn": "2026-10-11",
+  "luckyMemPhases": [
+    "surface", "load", "doctor", "defence", "robust", "ceiling", "real",
+    "guard", "skala", "kennungen"
+  ],
+  "luckyMemPending": {
+    "skala": "being built in the sibling house on branch agent/atlas-skala-lm; the id is the one this house uses",
+    "kennungen": "being built in the sibling house on branch agent/atlas-skala-lm; this house calls it identifiers"
+  },
+  "idMap": {
+    "identifiers": "kennungen"
+  },
+  "idMapReason": "The identifiers phase has one name per house because the houses speak different languages (this one ships English only). The scale phase has the same id in both houses, `skala`: it is a name, not prose, and the English ratchet allows it (checked 2026-10-11).",
+  "cmOnly": [
+    {
+      "id": "register",
+      "reason": "The register prototype (sqlite+FTS5) against the linear scan. It answers a question about this house's search design that the sister house has not asked."
+    }
+  ],
+  "lmOnly": [
+    {
+      "id": "guard",
+      "reason": "The sister house's runner records a tree fingerprint (path, size, mtime) of the real memory before and after the run. This house guards the same thing inside its real phase (test/atlas-real-guard-origin.test.mjs)."
+    }
+  ],
+  "newInLm": []
+}
