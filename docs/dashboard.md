@@ -190,11 +190,14 @@ loopback counts. Behind a tunnel whose client runs on the same machine,
 every request arrives from 127.0.0.1.
 
 **Who writes as the owner.** `/setting`, `/inbox/reply`, `/inbox/state`,
-the two verdict routes and the `raw-delete`, `done`, `restore` and `merge` tasks need a signed-in PERSON
+the two verdict routes and the `raw-delete`, `done`, `restore`, `merge` and `export` tasks need a signed-in PERSON
 (a valid password session cookie): `403` for the bearer token alone and
 for a server with `CHEAP_MEM_SERVE_LOGIN=off`. Reading with the bearer is
 unchanged. `/login/logout` needs the session too (`401` with the bearer
-alone). The raw archive can be pointed from the dashboard only into the
+alone). So does `POST /task/cancel` (`403` otherwise); `raw-delete` is not
+cancellable (`409`): it frees the bytes and then writes the tombstone. The
+command, result and reason of `/task.json` name `<root>` and `<code>`, not
+the server's absolute folders. The raw archive can be pointed from the dashboard only into the
 memory root, the home folder, the temp folder or a folder listed in
 `CHEAP_MEM_ARCHIVE_BASES`; any other place is set from the shell
 (`mem archive`).

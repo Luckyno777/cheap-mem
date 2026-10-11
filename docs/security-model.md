@@ -400,6 +400,37 @@ roots first, then fixed; `test/b1-duty-replace.test.mjs`, `test/b2-b4-inbox-owne
   The Host check is central. Still open: `retires_id` on a
   duty over the bridge is judged by the same rule on read; it does not close a duty in the duty list.
 
+**Port of the sister house's Fable run (2026-10-11).** lucky-mem's own security run found gaps cheap-mem shared;
+each was reproduced against a throwaway root here first.
+
+- **A poisoned line must not take the readers down** (lucky-mem error 5katltp7cfkr). A line whose text field is an
+  object (`tags: {toString: "x"}`, `owner: {a: 1}`, a `title` that is a list) or whose `ts` / `id` is not text crashed
+  `find`, `context`, `duties`, `viewer`, `doctor` and the dashboard (an uncaught throw in `/entries.json` ended
+  the server), and the recall hook failed silently for everybody. The bridge already refused such values when writing;
+  a raw line, an old CLI or a merge never meets that gate. Now every reader goes through `memory.parseLine`
+  (`src/fieldshape.mjs` names the text and list fields): the line is BROKEN (`{__broken: true, raw, reason}`, the
+  three-states rule), `mem doctor` names it with the field (`drawers`, `integrity`), and it is out of every other
+  denominator. Nothing is deleted (append-only). Legitimate old forms stay readable: a single tag as a text, a boolean
+  or number where a scalar is allowed, the structured fields (`origin`, `provenance`, `guard`, `chain_seal`, ...).
+  `test/poison-lines.test.mjs`.
+- **Cancelling needs the person too** (lucky-mem N1/N9). `POST /task/cancel` took the bearer token alone, so anybody
+  handed the link could end a task an owner started. It needs a password session (403 otherwise, before the kind and
+  the state are looked at). `raw-delete` is not cancellable (`interruptible: false`: it frees the bytes, then writes the
+  tombstone). `export`, which decompresses the raw captures into a folder, is `humanOnly` now; `integrity` only reads.
+  `test/task-cancel-person.test.mjs`.
+- **`/task.json` names no server path** (lucky-mem B11). The command, result and reason show `<root>` and `<code>`
+  instead of the absolute folders; the state file on disk keeps the full command. `test/task-json-paths.test.mjs`.
+- **The viewer's own ways in are redacted** (lucky-mem B14/N6). `?k=<token>`, the cookies `mem_k=` and `mem_session=`,
+  also URL-encoded (`%3Fk%3D`), JSON-escaped and HTML-escaped, fall in raw capture, stored lines and every output
+  (`viewer-access`, canary 14). `test/redaction-viewer-access.test.mjs`.
+- **The bridge does not decrypt** (lucky-mem "no decryption without a switch"). The bridge process can read
+  `.mem/keyring.json`, so a connected foreign agent read entries written with `shred` that a clone of the git data cannot.
+  Now they show as unreadable over the bridge unless the operator sets `CHEAP_MEM_MCP_DECRYPT=1`. The CLI and the
+  dashboard are unchanged. `test/bridge-no-decrypt.test.mjs`.
+- **Checked and not a gap here:** an `In-Reply-To` letter never closes a request (the state is its own act, addressee
+  only since B2, and `inbox.write` checks the direction); the dashboard's archive location (session + allowed bases) and
+  the CLI (unchecked, the operator's own hand) split the way lucky-mem's does.
+
 ### Unsolved, explicitly
 
 - **Ranking eviction.** A short claim containing the query terms outranks

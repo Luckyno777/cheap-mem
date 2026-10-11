@@ -210,6 +210,15 @@ in `.mem/config.json` or `mem serve --allow-writes`, see
 token/loopback guard every other path in `PATHS` does, ahead of the
 routing in `buildHandler`.
 
+**Who may cancel, and what the answer shows (Fable run 2026-10-11).** `POST /task/cancel`
+needs a password session like starting a `humanOnly` kind: `403` for the bearer token
+alone, checked before the kind and the state, so the answer says nothing about what runs.
+`raw-delete` is not cancellable (`409`): it frees the bytes first and then appends the
+tombstone. `export` is `humanOnly` now (it decompresses the raw captures into a folder);
+`integrity` only reads and stays open to the token. `GET /task.json` names the memory root
+as `<root>` and the code folder as `<code>` in the command, result and reason; the state
+file under `.mem/tasks/` keeps the full command.
+
 **History.** When E1.7 landed, the brief made a new opt-in flag
 conditional on the server having no writing route yet; `/setting` was
 already writable by default, so the task routes joined it under the

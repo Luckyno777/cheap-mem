@@ -65,6 +65,38 @@ Each finding was reproduced against a throwaway root first (red), then fixed (gr
 - **One server line** (never the header value) when `CF-Connecting-IP` arrives from loopback without
   `CHEAP_MEM_SERVE_BEHIND_TUNNEL`. Docs: with `CHEAP_MEM_SERVE_LOGIN=off` the owner-writing routes answer `403`; use the shell.
 
+### Security — port of the sister house's Fable run (lucky-mem, 2026-10-11)
+
+lucky-mem's own security run (branch `agent/fable-sicher-lm`) found gaps cheap-mem shares. Each was reproduced against
+a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, `test/task-cancel-person.test.mjs`,
+`test/task-json-paths.test.mjs`, `test/redaction-viewer-access.test.mjs`, `test/bridge-no-decrypt.test.mjs`.
+
+- **A poisoned line no longer takes the readers down (lucky-mem error 5katltp7cfkr).** A line whose text field is an
+  object (`tags: {toString: "x"}`, `owner: {a: 1}`, a list as `title`) or whose `ts` / `id` is not text crashed
+  `mem find`, `context`, `duties`, `viewer`, `doctor` ("Cannot convert object to primitive value", "localeCompare is
+  not a function"), ended the dashboard server (`/entries.json`), and made the recall hook fail silently for everybody.
+  The bridge refused such values when writing; a raw line, an old CLI or a merge never meets that gate. Every reader
+  now goes through `memory.parseLine` (`src/fieldshape.mjs`): the line is BROKEN (`{__broken, raw, reason}`, the
+  three-states rule), `mem doctor` names it with the field, and it leaves every other denominator. Nothing is
+  deleted. Legitimate forms stay readable (a single tag as text, a boolean or number in a scalar field, `origin`,
+  `provenance`, `guard`, `chain_seal`). **Behaviour change:** a line with a numeric `ts` was found before and is
+  reported as broken now.
+- **Cancelling a task needs a password session (breaking for tools).** `POST /task/cancel` took the bearer token alone;
+  now `403` without a session, checked before the kind and the state. `raw-delete` cannot be cancelled (`409`: it frees
+  the bytes, then writes the tombstone). **`export` is `humanOnly` (breaking for tools):** it decompresses the raw
+  captures into a folder; `integrity` only reads and stays open. `tasks.cancel(root, kind, { user: true })`.
+- **`/task.json` names no server path.** Command, result and reason show `<root>` and `<code>`; the state file on disk
+  keeps the full command.
+- **The viewer's own ways in are redacted.** `?k=<token>`, `mem_k=` and `mem_session=` (also `%3Fk%3D`, `\u0026k=`,
+  `&amp;k=`) fell in clear text in raw captures, stored lines and every output. New pattern `viewer-access`, canary 14
+  (`redaction.CANARY_COUNT`); the value falls whole, the name stays.
+- **The MCP bridge does not decrypt unless the operator says so (behaviour change).** The bridge process can read
+  `.mem/keyring.json`, so a connected agent read entries written with `shred` that a clone of the git data cannot.
+  They show as unreadable over the bridge now; `CHEAP_MEM_MCP_DECRYPT=1` restores the old behaviour. CLI and dashboard
+  unchanged.
+- Checked, no gap here: an `In-Reply-To` letter never closes a request (state is addressee-only since B2); the
+  dashboard's archive location (session + allowed bases) and the CLI split like lucky-mem's.
+
 ### Added — atlas phases `bridge` and `silent-errors`
 
 Plan step 3 (T3, part 2). Quick sizes only (about four and six seconds); no full atlas run.
