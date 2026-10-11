@@ -184,9 +184,30 @@ browser. `CHEAP_MEM_SERVE_LOGIN=off` switches it off
 **First setup: the code, not loopback.** With no password set, the
 server keeps a one-time code in `.pipeline/serve-setup-code` (mode 600)
 and logs only WHERE it is; `mem serve setup-code` prints it. Setting the
-first password needs that code (or the bearer). Loopback does not count:
-behind a tunnel whose client runs on the same machine, every request
-arrives from 127.0.0.1.
+first password needs that code, and only that code: neither the bearer
+token (it would turn a tool credential into a person session) nor
+loopback counts. Behind a tunnel whose client runs on the same machine,
+every request arrives from 127.0.0.1.
+
+**Who writes as the owner.** `/setting`, `/inbox/reply`, `/inbox/state`,
+the two verdict routes and the `raw-delete`, `done`, `restore` and `merge` tasks need a signed-in PERSON
+(a valid password session cookie): `403` for the bearer token alone and
+for a server with `CHEAP_MEM_SERVE_LOGIN=off`. Reading with the bearer is
+unchanged. `/login/logout` needs the session too (`401` with the bearer
+alone). The raw archive can be pointed from the dashboard only into the
+memory root, the home folder, the temp folder or a folder listed in
+`CHEAP_MEM_ARCHIVE_BASES`; any other place is set from the shell
+(`mem archive`).
+
+**With `CHEAP_MEM_SERVE_LOGIN=off` the dashboard reads, it does not
+answer for you.** Replying to a letter, acknowledging it, changing a
+setting and the verdict buttons need a signed-in person, and with the
+login off there is none: those routes answer `403`. Use the shell
+meanwhile (`mem inbox write` / `mem inbox ack`, `mem console` settings,
+`mem done`, ...). The buttons stay in the page; a hint for the
+login-off case is left for later. `done`, `restore`, `merge` and
+`raw-delete` (the tasks that write as the human) need a password session
+as well.
 
 **Storage.** `.pipeline/serve-password.json`: only a salted scrypt hash
 (compared with `timingSafeEqual`), mode 600, gitignored. The sessions
@@ -198,9 +219,14 @@ identity-provider round trip the page reloads once same-site (no script)
 so the strict cookie comes along.
 
 **Failed attempts.** Every refusal waits 0.4 s; from the 3rd failure per
-source (behind the tunnel `CF-Connecting-IP`) an exponential lock of
-1 s, 2 s, 4 s … up to 15 min; 20 failures overall lock everyone for a
-while. Logged with source and counters, never with a password.
+source an exponential lock of 1 s, 2 s, 4 s … up to 15 min. The source is
+the socket address. Only with `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1` (a tunnel
+on this machine) is `CF-Connecting-IP` from a loopback connection taken
+as the source; without it every visitor behind a tunnel shares the
+tunnel's address and one lock (the server logs one line the first time
+it sees the header without the declaration, never the value). There is no lock across all sources (it
+let a stranger lock the owner out). Logged with source and counters,
+never with a password.
 
 **Change / sign out:** Settings › Access (current password, new one
 twice, at least 10 characters). A change ends every other session.

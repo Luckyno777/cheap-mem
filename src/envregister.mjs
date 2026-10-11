@@ -66,6 +66,8 @@ export const REGISTER = Object.freeze([
   sw('CHEAP_MEM_STORE_INTAKE', PATH, 'not set (only `store/intake` under the memory root)', 'Extra folders (a `:`-separated list, `;` on Windows) the MCP bridge may read files from for `mem_store_put`. Absolute paths only (a relative entry is ignored and named in the refusal). Compared by real path; a symlink out of a folder does not count. `/` opens everything: that is the operator\'s decision. The CLI (`mem store put`) reads any path.'),
   sw('CHEAP_MEM_PKG', PATH, 'set by the git hook installer', 'The package directory the installed git hooks call back into.'),
   sw('CHEAP_MEM_ARCHIVE', PATH, 'not set (`raw/YYYY/MM/` inside the root, or the place `mem archive` recorded)', 'Where the raw archive is kept; a mount outside the repository.'),
+  sw('CHEAP_MEM_ARCHIVE_BASES', PATH, 'not set (only the memory root, the home folder and the temp folder)', 'Extra folders (a `:`-separated list, `;` on Windows) the dashboard may point the raw archive into. Compared by real path. The shell (`mem archive`) is not limited by it.'),
+  sw('CHEAP_MEM_SERVE_BEHIND_TUNNEL', SWITCH, 'off', 'With `1` the viewer trusts `CF-Connecting-IP` from a loopback connection as the source of a sign-in attempt (a tunnel on this machine). Without it the socket address counts.'),
   sw('CHEAP_MEM_RELEASE_BASE', PATH, '`<root>-release`', 'Base directory of the release copies.'),
   sw('CHEAP_MEM_GOLD_FILE', PATH, '`~/.cheap-mem-gold/...` outside the repository', 'The gold-question log; kept outside the repository on purpose.'),
   sw('CHEAP_MEM_VERIFY_FILE', PATH, '`~/.cheap-mem-verify/...` outside the repository', 'The verification log.'),

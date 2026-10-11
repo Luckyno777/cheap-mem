@@ -242,6 +242,8 @@ export const KINDS = Object.freeze({
       + 'BYTES of one capture from the archive (irreversible) and appends a tombstone to the '
       + 'register. The dashboard runs it once per capture, after a preview and a confirmation.',
     resume: 'restart',
+    // B7 (external review 2026-10-11): the one irreversible kind. The bearer token alone no longer starts it.
+    humanOnly: true,
     params: {
       path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/') && !v.startsWith('-'),
         why: 'a relative capture path as `mem raw review` lists it' },
@@ -267,6 +269,9 @@ export const KINDS = Object.freeze({
     description: 'mem done <id> --why "..." — appends a tombstone line with state done; the '
       + 'original stays in the log (append-only).',
     resume: 'restart',
+    // Review of B7 (2026-10-11): these write with the human stamp (`human:<os-user>`) - without a password session
+    // that signature is forged, and a bearer-only `restore` brought back what a person had closed.
+    humanOnly: true,
     params: {
       id: { required: true, check: (v) => /^[A-Za-z0-9_][A-Za-z0-9_-]{3,63}$/.test(v), why: 'an entry id' },
       // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
@@ -297,6 +302,9 @@ export const KINDS = Object.freeze({
     description: 'mem restore <id> --why "..." — takes a closed entry up again as a NEW line '
       + 'with restored_from; the original and its tombstone stay.',
     resume: 'restart',
+    // Review of B7 (2026-10-11): these write with the human stamp (`human:<os-user>`) - without a password session
+    // that signature is forged, and a bearer-only `restore` brought back what a person had closed.
+    humanOnly: true,
     params: {
       id: { required: true, check: (v) => ENTRY_ID.test(v), why: 'an entry id' },
       // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
@@ -314,6 +322,9 @@ export const KINDS = Object.freeze({
     description: 'mem merge <id> <id> ... — a correction of the first entry carries the joined '
       + 'content and merged_from; the others get an obsolete tombstone. Nothing is deleted.',
     resume: 'restart',
+    // Review of B7 (2026-10-11): these write with the human stamp (`human:<os-user>`) - without a password session
+    // that signature is forged, and a bearer-only `restore` brought back what a person had closed.
+    humanOnly: true,
     params: {
       ids: { required: true, check: (v) => { const l = mergeIds(v); return l.length >= 2 && l.length <= 20 && l.every((x) => ENTRY_ID.test(x)); },
         why: 'two to twenty different entry ids, comma separated' },

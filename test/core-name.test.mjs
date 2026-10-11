@@ -22,6 +22,7 @@ import { spawnSync } from 'node:child_process';
 import * as consolePage from '../src/console.mjs';
 import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
+import { personCookie } from './person-session.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.join(HERE, '..');
@@ -122,6 +123,8 @@ async function start(root, env = {}, opts = { allowWrites: true }) {
   }, opts);
   return {
     server,
+    // B6/B7: /setting writes as the owner, so it needs a password session next to the door.
+    cookie: personCookie(root, { ...process.env, ...env }),
     base: `http://127.0.0.1:${server.address().port}`,
     stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }),
   };
@@ -134,7 +137,7 @@ test('POST /setting id=core-name really changes it, through the same route and l
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
       redirect: 'manual',
-      headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id: 'core-name', value: 'Ops Hub' }).toString(),
     });
     assert.equal(res.status, 303);
@@ -152,7 +155,7 @@ test('POST /setting id=core-name with a control character is REFUSED (400), noth
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
       redirect: 'manual',
-      headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id: 'core-name', value: 'bad\nname' }).toString(),
     });
     assert.equal(res.status, 400);
@@ -167,7 +170,7 @@ test('the write gate applies to core-name exactly like every other setting (403 
     const res = await fetch(`${s.base}/setting`, {
       method: 'POST',
       redirect: 'manual',
-      headers: { ...WITH_DOOR, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { ...WITH_DOOR, cookie: s.cookie, origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ id: 'core-name', value: 'Should Not Land' }).toString(),
     });
     assert.equal(res.status, 403);

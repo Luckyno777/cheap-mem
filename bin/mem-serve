@@ -176,10 +176,13 @@ export const PATHS = Object.freeze([
 export const WRITE_PATHS = Object.freeze(['/setting', '/task', '/task/cancel', '/inbox/reply', '/inbox/state', VERIFY_VERDICT_PATH, GOLD_VERDICT_PATH]);
 
 /**
- * The routes that hand out memory content as JSON to a script. Each one
- * checks the Host header first (`hostOk`) — never a CORS header.
+ * The routes that hand out memory content to a script or a page. Each one
+ * checks the Host header first (`hostOk`) — never a CORS header. The check itself
+ * is central now (it covers every route that is not an asset); this is the list probes pin.
  */
 export const HOST_GUARDED = Object.freeze([
+  // B8 (external review 2026-10-11): the page and four data routes were missing from this list.
+  '/', '/desk.json', '/console.json', '/entry.json', '/task.json', dashboardPage.PATHS.page,
   dashboardPage.PATHS.data, dashboardPage.PATHS.entry, dashboardPage.PATHS.message,
   dashboardPage.PATHS.probe, dashboardPage.PATHS.factsAt, dashboardPage.PATHS.part, fulltext.PATH,
   // The project package export (src/projectpackage.mjs): memory content too.
@@ -283,6 +286,7 @@ export function buildHandler(root, cfg, env = process.env) {
     head: HEAD,
     csp: CSP,
     limiter: login.newLimiter(),
+    behindTunnel: login.behindTunnel(env),
     page: { fontCss: dashboardPage.fontCss(), mark: icon.markSvg() },
     log: (line) => process.stderr.write(line + '\n'),
     equal: webauth.constantEqual,
@@ -300,6 +304,15 @@ export function buildHandler(root, cfg, env = process.env) {
     if (!loginOn) return false;
     try { return login.checkSession(loginCtx.dir, login.cookieFrom(req)).valid === true; } catch { return false; }
   };
+  // **B6/B7 (external review 2026-10-11): who may write as the owner.** `/setting`, `/inbox/reply`,
+  // `/inbox/state` and the two verdict routes write as the human (`lucky`, `by: console`) or change where
+  // memory goes. With only the bearer token (or no login at all) anyone handed the link could do that.
+  // They need a PASSWORD session, like the `humanOnly` task kinds - 403 otherwise, after the write switch.
+  const personRefusal = (req) => (personSignedIn(req) ? null : {
+    code: 403,
+    text: 'This needs a signed-in person (password session): the bearer token alone, or a server with '
+      + 'CHEAP_MEM_SERVE_LOGIN=off, does not write as the owner. Sign in at /login.',
+  });
   // --- tempo: /dashboard.json from the cache --------------------------------
   // ONE cache per handler (not per module): a probe that builds its own
   // handler never sees another one's result.
@@ -750,7 +763,11 @@ export function buildHandler(root, cfg, env = process.env) {
     }
 
     // --- The dashboard: the Host check for every data route ------------
-    if (HOST_GUARDED.includes(url.pathname) && !hostOk(req.headers.host, cfg)) {
+    // CENTRAL (review of B8, 2026-10-11): every route that gets here - the assets, the fonts, the PWA shell and
+    // the login routes were answered above - checks the Host. A list of guarded routes was forgotten twice
+    // (five routes, then `/dashboard`); a route added tomorrow is covered without being named. HOST_GUARDED stays
+    // as the documented list the probes pin.
+    if (!hostOk(req.headers.host, cfg)) {
       res.writeHead(403, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
         .end(JSON.stringify({ state: 'error', reason: 'foreign-host' }));
       return;
@@ -1036,7 +1053,7 @@ export function buildHandler(root, cfg, env = process.env) {
         res.writeHead(405, { allow: 'POST', 'content-type': 'text/plain; charset=utf-8' }).end('POST only');
         return;
       }
-      const no = writegate.refusal(root, cfg, req);
+      const no = writegate.refusal(root, cfg, req) ?? personRefusal(req);
       if (no) { short(res, no.code, no.text); return; }
       // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
       readBoundedBody(req, res, 4096, (read) => {
@@ -1086,7 +1103,7 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       // The write switch, then readonly, Host, Origin — all in ONE
       // function (`src/writegate.mjs`), shared by every writing route.
-      const no = writegate.refusal(root, cfg, req);
+      const no = writegate.refusal(root, cfg, req) ?? personRefusal(req);
       if (no) { short(res, no.code, no.text); return; }
       // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
       // A cap, so a form cannot fill the process. Two named fields do
@@ -1134,7 +1151,7 @@ export function buildHandler(root, cfg, env = process.env) {
           .end('POST only');
         return;
       }
-      const no = writegate.refusal(root, cfg, req);
+      const no = writegate.refusal(root, cfg, req) ?? personRefusal(req);
       if (no) {
         res.writeHead(no.code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify({ state: 'error', reason: no.text }));
@@ -1197,7 +1214,7 @@ export function buildHandler(root, cfg, env = process.env) {
           .end('POST only');
         return;
       }
-      const no = writegate.refusal(root, cfg, req);
+      const no = writegate.refusal(root, cfg, req) ?? personRefusal(req);
       if (no) {
         res.writeHead(no.code, { ...HEAD, 'content-type': 'application/json; charset=utf-8' })
           .end(JSON.stringify({ state: 'error', reason: no.text }));
@@ -1277,7 +1294,7 @@ export function buildHandler(root, cfg, env = process.env) {
       }
       // The write switch, then readonly, Host, Origin — all in ONE
       // function (`src/writegate.mjs`), shared by every writing route.
-      const no = writegate.refusal(root, cfg, req);
+      const no = writegate.refusal(root, cfg, req) ?? personRefusal(req);
       if (no) { short(res, no.code, no.text); return; }
       // F21: one bounded body reader (src/body-reader.mjs); the cap counts BYTES incl. the current chunk.
       // A reply is a few paragraphs; 16 KB is room for that and a cap

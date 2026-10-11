@@ -109,6 +109,8 @@ export const SETTINGS = Object.freeze({
         try { fs.unlinkSync(path.join(root, archive.LOCATION_FILE)); } catch { /* none */ }
         return { location: archive.readConfig({}, root).location, reset: true };
       }
+      const allowed = archive.locationAllowed(root, v);
+      if (!allowed.ok) throw new Error(allowed.reason);
       return archive.setLocation(root, v);
     },
   },

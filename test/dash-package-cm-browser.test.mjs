@@ -184,7 +184,8 @@ test('(1c) red proof: the base commit has no topic list; the new page does', { s
 });
 
 test('(2) settings: saving gives feedback; a refused value says why', { skip: SKIP, timeout: 400000 }, async () => {
-  const s = await start(world());
+  // B7: /setting writes as the owner, so it runs with the login and a password session.
+  const s = await start(world(), { withLogin: true });
   try {
     const { ctx, page } = await open(s, 'settings/system');
     const field = page.locator('.setting-field[data-id="error-window"]');

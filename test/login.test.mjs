@@ -149,7 +149,7 @@ test('wrong password: refused, delayed, locked after failures; the right one wor
   } finally { await s.stop(); }
 });
 
-test('limiter: exponential per source, capped globally', () => {
+test('limiter: exponential per source; no lock across all sources (B9: strangers could lock the owner out)', () => {
   let t = 0;
   const b = login.newLimiter({ now: () => t });
   for (let i = 0; i < login.LOCK_FROM - 1; i++) b.failure('a');
@@ -158,14 +158,14 @@ test('limiter: exponential per source, capped globally', () => {
   b.failure('a'); assert.equal(b.wait('a'), 2000);
   assert.equal(b.wait('b'), 0);
   for (let i = 0; i < login.GLOBAL_LOCK_FROM; i++) b.failure('q' + i);
-  assert.ok(b.wait('new') > 0, 'global lock');
+  assert.equal(b.wait('new'), 0, 'failures of other sources locked a new source');
   t += 60 * 60 * 1000;
   assert.equal(b.wait('a'), 0, 'forgets after an hour');
 });
 
 // --- 3. First setup only with proof -----------------------------------------
 
-test('first setup without proof refused — loopback too; with the code or the bearer allowed', async () => {
+test('first setup without proof refused — loopback and the bearer too; only the code allowed', async () => {
   const root = newRoot();
   const s = await start(root);
   try {
@@ -193,13 +193,22 @@ test('first setup without proof refused — loopback too; with the code or the b
     assert.equal(again.status, 409);
   } finally { await s.stop(); }
 
-  const s2 = await start(newRoot(), { CHEAP_MEM_SERVE_TOKEN: 'door-secret' });
+  const root2 = newRoot();
+  const door2 = ['door', 'two', String(process.pid)].join('-'); // assembled, not a literal
+  const s2 = await start(root2, { CHEAP_MEM_SERVE_TOKEN: door2 });
   try {
+    // B5 (external review 2026-10-11): the bearer is a tool credential, not the owner's proof.
     const r = await fetch(s2.base + '/login/setup', {
-      method: 'POST', headers: { authorization: 'Bearer door-secret', 'content-type': 'application/json', accept: 'application/json' },
+      method: 'POST', headers: { authorization: `Bearer ${door2}`, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ password: PW, password2: PW }),
     });
-    assert.equal(r.status, 201);
+    assert.equal(r.status, 403);
+    assert.equal(login.isSet(path.join(root2, '.pipeline')), false);
+    const ok = await fetch(s2.base + '/login/setup', {
+      method: 'POST', headers: { authorization: `Bearer ${door2}`, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ code: code(root2), password: PW, password2: PW }),
+    });
+    assert.equal(ok.status, 201, 'the code on the machine still sets it');
   } finally { await s2.stop(); }
 });
 

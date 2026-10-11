@@ -37,6 +37,7 @@
 // control, so it is evidence.
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
@@ -152,6 +153,44 @@ export function readConfig(env = process.env, root = '.') {
   } catch { /* no file, broken file — then the default */ }
 
   return { kind: 'file', location: path.resolve(root, DEFAULT_LOCATION), source: 'default', explicit: false };
+}
+
+/** `CHEAP_MEM_ARCHIVE_BASES`: extra folders the DASHBOARD may point the archive into (`;` on Windows, `:` elsewhere). */
+function extraBases(env) {
+  return String(env.CHEAP_MEM_ARCHIVE_BASES ?? '').split(path.delimiter).map((x) => x.trim()).filter((x) => path.isAbsolute(x));
+}
+
+/** The real path of `p`, or of its deepest existing ancestor plus the rest (the target may not exist yet). */
+function realOrAncestor(p) {
+  let cur = path.resolve(p);
+  const rest = [];
+  for (;;) {
+    try { return path.join(fs.realpathSync(cur), ...rest.reverse()); } catch { /* go up */ }
+    const up = path.dirname(cur);
+    if (up === cur) return path.join(cur, ...rest.reverse());
+    rest.push(path.basename(cur));
+    cur = up;
+  }
+}
+
+/**
+ * B7 (external review 2026-10-11): may the DASHBOARD point the archive at this folder?
+ * Raw captures follow the setting, so "any directory" meant "write the owner's raw material anywhere
+ * the server can write". Allowed: inside the memory root, the user's home, the temp directory, or a
+ * folder listed in `CHEAP_MEM_ARCHIVE_BASES`; compared by real path (a symlink out does not count).
+ * The CLI (`mem archive set`, `CHEAP_MEM_ARCHIVE`) is the operator's own hand and is not asked.
+ */
+export function locationAllowed(root, location, env = process.env) {
+  const target = realOrAncestor(path.resolve(root, stripScheme(String(location).trim())));
+  const bases = [root, os.homedir(), os.tmpdir(), ...extraBases(env)].map(realOrAncestor);
+  const fold = (x) => (process.platform === 'win32' ? x.toLowerCase() : x);
+  const inside = (base) => {
+    const rel = path.relative(fold(base), fold(target));
+    return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  };
+  return bases.some(inside)
+    ? { ok: true }
+    : { ok: false, reason: `'${target}' is outside the places the dashboard may point the archive at (the memory root, your home folder, the temp folder, or a folder in CHEAP_MEM_ARCHIVE_BASES). Use the shell (mem archive ...) for any other place.` };
 }
 
 /**
