@@ -14,6 +14,31 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Fixed — hostile values: one entry with `<!--` blanked the standalone viewer, and one long title froze the dashboard build (A9)
+
+A probe that feeds the same hostile corpus (script tags, event-handler breakouts out of
+double and single quoted attributes, `javascript:` text, HTML entities, `</script>` and
+`<!--` in the embedded data, U+2028/9, very long values) into title / text / tags / topic
+and the type's own fields, and then looks at the DOM, found **no script injection**: the
+dashboard (`mem serve`, all 32 screens, every drawer tab, the search box), `/entries`,
+`mem board --html` and the viewer show every value as text, and a text typed as an entity
+stays as typed. It found two other defects, both a hostile value stopping a surface:
+
+- **`mem viewer` file stayed blank** when any entry contained `<!--`. `safeJson` wrote
+  `<\!--`, which is not a JSON escape; `JSON.parse` of the data block threw. It now writes
+  `\u003c` for the `<` of `</` and `<!--` (what `src/readview.mjs` always did).
+- **One long title froze `mem serve`.** The write path accepts an entry up to 1 MiB, and
+  `entity.PATTERNS` ('name', 'path') and `netderive.FILE_RE` were quadratic in the length of an
+  unbroken run of characters: 60 000 characters cost `collectDashboard` 22 s of CPU, 150 000
+  more than 90 s, event loop blocked; the same patterns run for the search index and the recall
+  hook. `entity.boundRuns` now limits an unbroken run to 512 characters before those patterns
+  scan it (no identifier, path or file name is longer). Text without such a run is
+  untouched; a differential probe pins that. 150 000 characters now cost under a second.
+
+**Release note.** A pasted blob or minified line longer than 512 characters without a space
+is no longer scanned for identifiers and file names past its 512th character; everything
+else about search is unchanged. `test/hostile-surfaces.test.mjs`.
+
 ### Changed — an appointment made over the bridge is always a proposal, also with `requested_by` + `quote` (behaviour change of a documented intent)
 
 Port of lucky-mem's A12 (2026-10-10). The tool description and `docs/appointments.md`

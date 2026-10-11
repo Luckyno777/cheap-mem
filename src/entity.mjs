@@ -80,9 +80,27 @@ export const PATTERNS = Object.freeze([
   { name: 'qualified', re: /\b(?![\d.]+\b)\w{2,}(?:\.\w{2,})+\b/g },
 ]);
 
+/**
+ * The longest unbroken run (no whitespace) the patterns below and `netderive`'s file-name pattern scan.
+ *
+ * **Why a bound (A9, 2026-10-11).** 'name' and 'path' above, and `netderive.FILE_RE`, have two adjacent
+ * quantifiers over overlapping classes. On a long run of word characters they try every split, so the time
+ * is QUADRATIC in the run: 40 000 characters took 3 s, 150 000 more than a minute. The write path accepts
+ * an entry up to `maxEntryBytes` (1 MiB), so one `mem_log` with a long title froze the dashboard build, the
+ * index build and the recall hook for every session. No identifier, path or file name is 512 characters
+ * long; what lies beyond in one unbroken run (a pasted blob, minified code, a hostile value) is not scanned.
+ * Text without such a run comes back untouched, the same string.
+ */
+export const MAX_RUN = 512;
+const LONG_RUN = new RegExp(`\\S{${MAX_RUN + 1},}`, 'g');
+export function boundRuns(text) {
+  const s = String(text ?? '');
+  return s.length <= MAX_RUN ? s : s.replace(LONG_RUN, (run) => run.slice(0, MAX_RUN));
+}
+
 /** Every machine-shaped identifier in a text, lower-cased. */
 export function identifiers(text) {
-  const s = String(text ?? '');
+  const s = boundRuns(text);
   const out = new Set();
   for (const { re } of PATTERNS) {
     re.lastIndex = 0;

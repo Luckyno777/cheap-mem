@@ -346,6 +346,14 @@ bridge is now always a proposal and counts towards the cap; the claim stays in
 the text as a marked, unverified note. The CLI (`--requested-by user --quote`)
 is unchanged. `test/bridge-appointment-claim.test.mjs`.
 
+**Hostile values on the pages (A9, 2026-10-11).** `test/hostile-surfaces.test.mjs` feeds one
+corpus (script tags, attribute breakouts, `javascript:` text, entities, `</script>` / `<!--`,
+U+2028/9, 150 000-character values) through the dashboard, `/entries`, the standalone viewer and
+`mem board --html` and checks the DOM, not the source: nothing is live, the typed text is shown,
+the page-level script count does not grow. It found no injection; it found a viewer that went
+blank on `<!--` and quadratic patterns that let one long title freeze the dashboard build
+(bounded now: `entity.boundRuns`). bidi controls are covered by the atlas (`bench/atlas`).
+
 ### Unsolved, explicitly
 
 - **Ranking eviction.** A short claim containing the query terms outranks
