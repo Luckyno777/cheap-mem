@@ -95,11 +95,21 @@ test('the phase ids of the two atlases line up, or every difference is named wit
   assert.deepEqual(problems, [], `\n${problems.join('\n')}\nUpdate test/atlas-phase-parity.json in the same commit as the phase change.`);
 });
 
-test('the scale phase has the same id in both houses and the identifiers phase is mapped', () => {
+test('the scale phase has the same id in both houses and the three phases named in two languages are mapped', () => {
   const ids = cmPhaseIds();
   assert.ok(ids.includes('skala') && PARITY.luckyMemPhases.includes('skala'));
-  assert.equal(PARITY.idMap.identifiers, 'kennungen');
-  assert.ok(ids.includes('identifiers') && PARITY.luckyMemPhases.includes('kennungen'));
+  for (const [here, there] of [['identifiers', 'kennungen'], ['bridge', 'bruecke'], ['silent-errors', 'stille-fehler']]) {
+    assert.equal(PARITY.idMap[here], there);
+    assert.ok(ids.includes(here) && PARITY.luckyMemPhases.includes(there), `${here} / ${there}`);
+  }
+});
+
+test('every phase only the sister house has is listed with a reason, and the ones this house lacks are exactly those', () => {
+  const lmOnly = new Set(PARITY.lmOnly.map((e) => e.id));
+  for (const id of ['wiederherstellung', 'lesekreis', 'weiche', 'netz-tempo', 'partition', 'nutzung', 'guard']) {
+    assert.ok(lmOnly.has(id), `${id} is not in lmOnly`);
+    assert.ok(PARITY.lmOnly.find((e) => e.id === id).reason.length >= 60, `${id}: the reason is too short to be one`);
+  }
 });
 
 test('positive control: an invented phase here, and a missing one, turn the comparison red', () => {
@@ -116,8 +126,8 @@ test('positive control: an invented phase here, and a missing one, turn the comp
 
 test('a new phase in the sister house needs a reason, and with one it is accepted', () => {
   const real = cmPhaseIds();
-  const withNew = { ...PARITY, luckyMemPhases: [...PARITY.luckyMemPhases, 'bruecke'], newInLm: [{ id: 'bruecke', reason: 'the bridge phase, built in the sister house first' }] };
+  const withNew = { ...PARITY, luckyMemPhases: [...PARITY.luckyMemPhases, 'invented-lm-phase'], newInLm: [{ id: 'invented-lm-phase', reason: 'a phase built in the sister house first, for the test' }] };
   assert.deepEqual(compare(real, withNew), []);
-  const bare = { ...PARITY, luckyMemPhases: [...PARITY.luckyMemPhases, 'bruecke'], newInLm: [{ id: 'bruecke', reason: '' }] };
+  const bare = { ...PARITY, luckyMemPhases: [...PARITY.luckyMemPhases, 'invented-lm-phase'], newInLm: [{ id: 'invented-lm-phase', reason: '' }] };
   assert.ok(compare(real, bare).some((p) => p.includes('no reason')));
 });

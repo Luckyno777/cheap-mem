@@ -56,6 +56,10 @@ const PHASES = [
   ['skala', './atlas/phase-skala.mjs', 'Scale: lines and bytes read per call at 10k, 100k and 1M entries'],
   // Its sister house calls this phase `kennungen` (mapping: test/atlas-phase-parity.json).
   ['identifiers', './atlas/phase-identifiers.mjs', 'Identifiers with underscores and umlauts: found at rank 3 or better, per path'],
+  // Its sister house calls this phase `bruecke` (mapping: test/atlas-phase-parity.json).
+  ['bridge', './atlas/phase-bridge.mjs', 'The MCP bridge: what a foreign agent cannot claim, refusals counted per door, each with a control'],
+  // Its sister house calls this phase `stille-fehler` (mapping: test/atlas-phase-parity.json).
+  ['silent-errors', './atlas/phase-silent-errors.mjs', 'Silent errors: a read that failed must not look like a read that found nothing'],
   ['register', './atlas/phase-register.mjs', 'The register prototype (sqlite+FTS5) against today\'s linear scan'],
   ['real', './atlas/phase-real.mjs', 'The same measurements against a real, grown memory'],
 ];

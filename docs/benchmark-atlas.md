@@ -392,6 +392,49 @@ does not fix it. The sister house calls this phase `kennungen`.
 deliberate difference between the two atlases, with its reason;
 `test/atlas-phase-parity.test.mjs` fails on any difference that is not named.
 
+## Two more phases: `bridge` and `silent-errors`
+
+Both are in `bench/atlas.mjs` and not in the committed baseline, like `skala`
+and `identifiers`. Neither has an overall score and neither uses the clock:
+every record carries what was expected, what was counted, the verdict and the
+evidence; a group whose positive control fails reads `not-measured` and names
+the control.
+
+**`bridge`** (the sister house calls it `bruecke`). A real stdio client
+(`bench/atlas/bridge-client.mjs`, the SDK's transport) against `bin/mem-mcp`
+on a throwaway root, one door at a time, the doors the security ports closed:
+`mem_log` with a machine or audit field, a shred switch or an unknown field,
+for every writable type (refused of asked, naming the field, rows written);
+`closes_id` and `guard`; a claimed authority; an appointment with
+`requested_by` and a quote; `mem_inbox_write` with a foreign `from`;
+`mem_store_put` outside the intake folder (absolute, `..`, in the root, a
+symlink, a path that does not exist); and one `mem_log` with a title of tens of
+thousands of characters without whitespace. The last is a counter, not a
+timer: a preload (`bench/atlas/run-counter.mjs`) reports the longest unbroken
+run any pattern scan was handed, and the expectation is the bound in
+`src/entity.mjs` (512). The quick run takes about four seconds. Against
+`91b1afc`, before the ports, 52 of its 75 records read `fail`; on the current
+state they all pass.
+
+**`silent-errors`** (the sister house calls it `stille-fehler`). The three-state
+rule of CLAUDE.md as measured records: `memory.readLog` in five states (ok,
+missing, empty, broken, unreadable); the same five states on the files `mem
+find` and `mem context` read, over the CLI and over the bridge; the
+client-visibility journal (E1); and the task block a subagent gets (E3), for
+which `bench/atlas/inject-search-failure.mjs` makes one search lane throw in a
+child process. Missing and empty may share an answer; an unreadable log must be
+an error that names the file (`degraded` when it is an error that does not);
+a broken line that is skipped without a word makes the answer `degraded`.
+Measured on 2026-10-11: E1 is `fail` (an unreadable journal reads as "no tool
+was ever seen", `src/mcpvisibility.mjs` `read()`), E3 is `fail` (a failed
+lane returns `null`, the same as an assignment nothing matches,
+`src/subagenttask.mjs`, the catch after lane 1). Both are recorded, not fixed.
+E2 and E4 of the sister house's list are named as blind spots.
+
+`test/atlas-phase-parity.json` now lists, besides the mapping
+`bridge`/`bruecke` and `silent-errors`/`stille-fehler`, the sister house's
+phases this house does not have, each with its reason.
+
 ## Keeping it honest over time
 
 `bench/atlas-baseline.json` is the one committed artefact: the run a

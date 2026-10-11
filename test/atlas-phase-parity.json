@@ -2,17 +2,43 @@
   "about": "The atlas phase ids of the sister house (lucky-mem), as a fixed list, and every deliberate difference between the two atlases. test/atlas-phase-parity.test.mjs compares bench/atlas.mjs against it. Update it in the same commit that adds, renames or removes a phase in either house; a difference that is not listed here, with a reason, turns the test red.",
   "recordedOn": "2026-10-11",
   "luckyMemPhases": [
-    "surface", "load", "doctor", "defence", "robust", "ceiling", "real",
-    "guard", "skala", "kennungen"
+    "surface",
+    "load",
+    "doctor",
+    "defence",
+    "robust",
+    "ceiling",
+    "real",
+    "guard",
+    "skala",
+    "kennungen",
+    "bruecke",
+    "stille-fehler",
+    "wiederherstellung",
+    "lesekreis",
+    "weiche",
+    "netz-tempo",
+    "partition",
+    "nutzung"
   ],
   "luckyMemPending": {
     "skala": "being built in the sibling house on branch agent/atlas-skala-lm; the id is the one this house uses",
-    "kennungen": "being built in the sibling house on branch agent/atlas-skala-lm; this house calls it identifiers"
+    "kennungen": "being built in the sibling house on branch agent/atlas-skala-lm; this house calls it identifiers",
+    "bruecke": "being built in the sibling house (T3 part 2); this house calls it bridge",
+    "stille-fehler": "being built in the sibling house (T3 part 2); this house calls it silent-errors",
+    "wiederherstellung": "planned in the sibling house (T3); see lmOnly",
+    "lesekreis": "planned in the sibling house (T3); see lmOnly",
+    "weiche": "planned in the sibling house (T3); see lmOnly",
+    "netz-tempo": "planned in the sibling house after the merge of agent/netz-tempo-lm; see lmOnly",
+    "partition": "planned in the sibling house (T3); see lmOnly",
+    "nutzung": "planned in the sibling house (T3); see lmOnly"
   },
   "idMap": {
-    "identifiers": "kennungen"
+    "identifiers": "kennungen",
+    "bridge": "bruecke",
+    "silent-errors": "stille-fehler"
   },
-  "idMapReason": "The identifiers phase has one name per house because the houses speak different languages (this one ships English only). The scale phase has the same id in both houses, `skala`: it is a name, not prose, and the English ratchet allows it (checked 2026-10-11).",
+  "idMapReason": "Three phases have one name per house because the houses speak different languages (this one ships English only): identifiers/kennungen, bridge/bruecke, silent-errors/stille-fehler. The scale phase has the same id in both houses, `skala`: it is a name, not prose, and the English ratchet allows it (checked 2026-10-11).",
   "cmOnly": [
     {
       "id": "register",
@@ -23,6 +49,30 @@
     {
       "id": "guard",
       "reason": "The sister house's runner records a tree fingerprint (path, size, mtime) of the real memory before and after the run. This house guards the same thing inside its real phase (test/atlas-real-guard-origin.test.mjs)."
+    },
+    {
+      "id": "wiederherstellung",
+      "reason": "Not built in cm. The sister house proves one full restore (clone, raw-capture archive, key) against a throwaway bare origin (its F1). The procedure being proved is the sister house's own; no phase here asks for a restore, and whether this house needs one is open."
+    },
+    {
+      "id": "lesekreis",
+      "reason": "Not built in cm. The sister house counts, per read path, the entries of other participants that a reader gets to see (its P13). This house has no phase that crosses readers and read paths that way; the write side (what a foreign agent may claim) is the bridge phase."
+    },
+    {
+      "id": "weiche",
+      "reason": "No counterpart in cm. The sister house walks the states of its own `beendet` switch (true, false, missing, broken). This house has no field or switch of that name (searched src/ and bin/ on 2026-10-11); its three-state rule for reads is asked by silent-errors."
+    },
+    {
+      "id": "netz-tempo",
+      "reason": "No counterpart in cm yet. The sister house counts contexts, programs and model calls of its network-speed branch (agent/netz-tempo-lm), which exists only there; there is nothing in this house to count until a counterpart is built."
+    },
+    {
+      "id": "partition",
+      "reason": "Not built in cm. The sister house deletes an occupied index partition and expects a throw (its R1). This house's index cache is built in shards (src/indexcache.mjs); a probe that deletes an occupied shard is not part of the robust phase yet, so the question is open, not answered."
+    },
+    {
+      "id": "nutzung",
+      "reason": "Not built in cm. The sister house counts the journal lines one recall reads and checks that the incremental fold equals the full one (its R5). No phase here counts journal reads per recall; the skala phase counts reads of the entry logs and the index only."
     }
   ],
   "newInLm": []
