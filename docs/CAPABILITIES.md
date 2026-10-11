@@ -72,6 +72,7 @@ directory. The section number in brackets is where it is explained.
 | `board.mjs` | the operating state on one screen (10.17) |
 | `bodyfields.mjs` | O2: the ONE source for which fields carry an entry's content, per type and in reading order — every display and the set of indexed fields read it; a leaf with no imports |
 | `body-reader.mjs` | audit F21: the ONE bounded body reader of the dashboard server's writing routes — counts bytes including the current chunk, refuses a too-large Content-Length unread, and delivers exactly one of `ok` / `too-big` (the caller answers 413) / `aborted` |
+| `bridgefields.mjs` | A6/A1: the ALLOW-list of fields a connected agent may write per type over `mem_log` (any other field is refused by name, nothing written); the counterpart ids stay and `state`/`by_id` travel only next to one; pure, no I/O |
 | `broadcast.mjs` | an error goes into the inboxes of whoever it will hit (10.5) |
 | `browse.mjs` | the interactive search that re-ranks as you type |
 | `capability.mjs` | scope as a boundary, not an argument (5) |
@@ -694,7 +695,7 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 
 | Tool | Purpose |
 |---|---|
-| `mem_log` | append an entry |
+| `mem_log` | append an entry; only the fields the type takes (an allow-list, `src/bridgefields.mjs`), any other is refused by name |
 | `mem_heartbeat` | report that this agent is running (hourly quiet period) |
 | `mem_appointment_new` | propose an appointment: a reminder, or an action for an agent at a time. Always a proposal until a human confirms; only a plain reminder carrying the user's quoted request is active at once |
 | `mem_appointment_list` | read only: the next 14 days, or every appointment, or the day list |

@@ -14,6 +14,30 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — `mem_log` over the bridge takes an allow-list of fields per type; machine and audit fields are the bridge's, not the caller's (behaviour change)
+
+Port of lucky-mem's A1/A6 (2026-10-10). `bin/mem-mcp` used to write every argument
+key except `type/project/tags/agent/id/ts`, and `memory.logCheckedEntry` passed the
+machine fields (`state`, `status`, `v`, `authority_clamped_from`, `guard_at_creation`)
+through as stamps: a bridge caller could forge the record of a demotion it never had,
+an audit result, a `status`, or switch the write to the encrypted-body mode with
+`shred`. A block-list is as good as its author's memory, so it is now
+`src/bridgefields.mjs`: per type, the fields that are allowed (body fields, access
+words, validity dates, the few type fields the readers look at); any other field is
+**refused by name, with the list of what is allowed, and nothing is written**, never
+silently dropped. `replaces_id` / `closes_id` / `retires_id` stay (their effect is
+judged on read by `authority.mayChangeState`), and `state` / `by_id` travel only next
+to one of them. `authority` stays clamped to `agent`; `authority_clamped_from` is
+written by the bridge only. `agent`, `id` and `ts` are still set by the write path and
+ignored if sent. A non-array `tags` is refused instead of dropped. The refusal is a
+pure loop over the keys, before any read.
+
+**Release note.** A client that used to send free extra fields over `mem_log` now gets
+an error naming them. Put the content in `title` / `text` / `why`, or, if the field is
+a legitimate one, add it to `src/bridgefields.mjs` with a reason. The CLI (`mem log`)
+is unchanged: a human at the keyboard may still write any field.
+`test/bridge-fields.test.mjs`.
+
 ### Changed — the hooks no longer probe the maintainer's machine paths (behaviour change)
 
 The default root chain of the recall, before-edit, after-failure, catch-fail,

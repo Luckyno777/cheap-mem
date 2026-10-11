@@ -324,6 +324,19 @@ and `bin/mem-reflect` sets the same ceiling as the digest. A line the
 rule refuses is still written, warned about on stderr and read as
 disputed; `mem doctor` counts those as `contested-claims`.
 
+**What a bridge caller may write at all (A6 + A1 remainder, 2026-10-11).**
+`mem_log` used to pass every argument key on, and the write path passed the
+machine fields (`state`, `status`, `v`, `authority_clamped_from`,
+`guard_at_creation`) straight through as stamps. It is now an allow-list per
+type (`src/bridgefields.mjs`): a field outside it is REFUSED by name with the
+list of what is allowed, nothing is written, nothing is dropped silently. The
+counterpart ids (`replaces_id`, `closes_id`, `retires_id`) stay, because their
+effect is judged on read by `authority.mayChangeState`; `state` and `by_id`
+travel only next to one of them. `authority` stays clamped, and the record of
+the demotion (`authority_clamped_from`) is the bridge's to write, not the
+caller's. `agent`, `id` and `ts` are still set by the write path and ignored
+if sent. `test/bridge-fields.test.mjs`.
+
 ### Unsolved, explicitly
 
 - **Ranking eviction.** A short claim containing the query terms outranks

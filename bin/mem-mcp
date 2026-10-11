@@ -101,6 +101,7 @@ import * as mcpvisibility from '../src/mcpvisibility.mjs';
 import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
+import * as bridgefields from '../src/bridgefields.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -433,8 +434,9 @@ const TOOLS = [
     description:
       'Append an entry to the memory log. The `type` enum lists every type (for example ' +
       'decision, error, event, timeline, thought, learning, duty, skill, update). ' +
-      'Provide `type`, optionally `project`, and any string fields (title, text, topic, choice, why, class). ' +
-      '`tags` can be an array. Use this whenever the user makes a decision, hits an error, ' +
+      'Provide `type`, optionally `project`, and the fields that type takes (title, text, topic, choice, why, class, ...). ' +
+      '`tags` can be an array. A field the type does not take is REFUSED by name with the list of allowed ones (nothing is written). ' +
+      'Use this whenever the user makes a decision, hits an error, ' +
       'completes something notable, or a fact about them changes. ' +
       // The occasion belongs in the description, not only in the house
       // rules: those are heard once on connect, this is read in EVERY
@@ -1248,6 +1250,20 @@ async function handleCall(name, args) {
           + 'for ALL agents and therefore cannot come from one of them. A human creates '
           + 'one at the CLI: mem log workflow --issued-by owner. To propose one: '
           + 'mem_log with type thought, or a message to the owner.');
+      }
+      // **The fields are an ALLOW-list per type** (src/bridgefields.mjs, A6 +
+      // A1 remainder, 2026-10-11). Anything not on it — an audit stamp such as
+      // `authority_clamped_from` or `guard_at_creation`, `status`, `v`, the
+      // `shred` switch, a field some reader gives a meaning tomorrow — is
+      // refused LOUDLY with its name and the list of what is allowed; nothing
+      // is written, nothing silently dropped. Before any read on purpose
+      // (pure, no I/O): a refusal costs a loop over the keys.
+      {
+        const { type: _t, project: _p, ...offered } = args;
+        bridgefields.refuse(args.type, offered);
+        if (args.tags !== undefined && args.tags !== null && !Array.isArray(args.tags)) {
+          throw new Error("Field 'tags' must be an array of strings over the bridge — nothing was written.");
+        }
       }
       // Identity is not a parameter. Fields that determine origin cannot
       // be set by the caller, or `agent` would be a claim instead of a
