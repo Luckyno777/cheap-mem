@@ -122,9 +122,9 @@ test('idempotent and linear', () => {
   }
 });
 
-test('self-test knows the class (canary 13)', () => {
-  assert.equal(redaction.CANARY_COUNT, 13);
-  assert.deepEqual(redaction.selfTest(), { ok: true, checked: 13 });
+test('self-test knows the class (canary 14)', () => {
+  assert.equal(redaction.CANARY_COUNT, 14);
+  assert.deepEqual(redaction.selfTest(), { ok: true, checked: 14 });
 });
 
 // --- capture path: the real capture function, stored file read back ------

@@ -79,6 +79,19 @@ export const PATTERNS = Object.freeze([
   ['signed-url',
     /(?<=[?&]|%26|\\u0026|&amp;)(sig(?:=|%3D))((?:\\\/|(?!%26|&amp;)[^&\s"'`<>\\]){16,4096})(?=(?:[^\s"'`<>\\]|\\u0026){0,800}?(?:[?&]|%26|\\u0026|&amp;)sv(?:=|%3D)\d{4}-\d{2}-\d{2})/gi],
 
+  // --- The viewer's own ways in (Fable run 2026-10-11, ported from lucky-mem) ------------
+  //
+  // The access token travels as a link (`/?k=<token>`) and as the cookie `mem_k=<token>`; the password session as the
+  // cookie `mem_session=<token>`. None of these forms carries the word token, secret or password, so the assignment
+  // patterns below never saw them, and raw capture, output and the stored lines gave them away in clear text. The
+  // name and the `=` stay, the value falls (like the signed URL). `k=` counts only after `?`, `&`, `;` (also encoded:
+  // %3F, %26, %3B) and from 16 characters of value on: a single letter as a name is too general, a short `k=5` is no
+  // access. The value falls WHOLE, there is no upper cap (a cap would leave the tail of a long value behind).
+  ['viewer-access',
+    /(?<=[?&;]|%3F|%26|%3B|\\u0026|&amp;)(k(?:=|%3D))([A-Za-z0-9_.~%+/-]{16,})/gi],
+  ['viewer-access',
+    /(?<![A-Za-z0-9_])((?:mem_k|mem_session)(?:=|%3D))([A-Za-z0-9_.~%+/-]{8,})/gi],
+
   // --- Provider keys with an unambiguous prefix ----------------------
   ['anthropic-key',   /\bsk-ant-[A-Za-z0-9_-]{20,}/g],
   ['openai-key',      /\bsk-(?!ant-)[A-Za-z0-9_-]{20,}/g],
@@ -415,7 +428,7 @@ export function redact(text) {
         return replaceValue(match, value, `[REDACTED:${type}]`);
       }
       // Signed URL: the name and the equals sign stay, the value falls.
-      if (type === 'signed-url' && real.length >= 2) {
+      if ((type === 'signed-url' || type === 'viewer-access') && real.length >= 2) {
         const [head, value] = real;
         if (isHarmless(value)) return match;
         counter.set(type, (counter.get(type) ?? 0) + 1);
@@ -631,6 +644,7 @@ export const CANARIES = Object.freeze([
   ['url-credentials', 'postgres://user:SecretWord99@host:5432/db'],
   ['pem-block',     '-----BEGIN RSA PRIVATE KEY-----\nKKKK==\n-----END RSA PRIVATE KEY-----'],
   ['signed-url',    `https://example.test/x?X-Amz-Signature=${'k7'.repeat(32)}&X-Amz-Expires=60`],
+  ['viewer-access', `https://mem.example.test/?k=${'K'.repeat(32)}`],
 ]);
 
 /**
@@ -642,7 +656,7 @@ export const CANARIES = Object.freeze([
  * that is exactly the point: whoever removes a canary has to say so
  * here.
  */
-export const CANARY_COUNT = 13;
+export const CANARY_COUNT = 14;
 
 /**
  * Check that the redaction still does what it claims.

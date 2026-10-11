@@ -157,7 +157,9 @@ function normal(result) {
     .replace(/[\d.]+ min ahead/gi, 'N min ahead')
     .replace(/[\d.]+ min behind/gi, 'N min behind')
     .replace(/\d+(\.\d+)? ?ms\b/g, 'N ms')
-    .replace(/\((fresh build|cached)\)/g, '(index)');
+    .replace(/\((fresh build|cached)\)/g, '(index)')
+    // the old state has fewer redaction canaries than the code today (the class `viewer-access` was added): not a drawer matter
+    .replace(/intact, \d+ canaries/g, 'intact, N canaries');
   return { findings: JSON.parse(text) };
 }
 
