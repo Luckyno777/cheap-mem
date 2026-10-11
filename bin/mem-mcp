@@ -457,7 +457,7 @@ const TOOLS = [
         class: { type: 'string', description: 'Type error: the error class (the closed vocabulary); other types may use it as an access word' },
         tags: { type: 'array', items: { type: 'string' } },
         retires_id: { type: 'string', description: 'Any type: the id of an entry this line retires. With state "superseded" and by_id: mark it superseded by an existing one (same as mem supersede). The authority rule judges the effect on read' },
-        replaces_id: { type: 'string', description: 'Any type: the id of an entry this line corrects. The authority rule judges the effect on read' },
+        replaces_id: { type: 'string', description: 'Any type but duty: the id of an entry this line corrects. The authority rule judges the effect on read. Not for a duty (refused): close it with mem_duty_close, or log a new one' },
         state: { type: 'string', description: 'Only together with retires_id or replaces_id; refused alone. Closing a duty is mem_duty_close, not this' },
         by_id: { type: 'string', description: 'The successor for state "superseded"; only together with retires_id or replaces_id' },
         from: { type: 'string', description: 'Type learning: the error id(s) this lesson is drawn from (comma-separated) — written as generalizes links, not as a field. Type link: the source id. No other type takes it.' },
@@ -743,7 +743,8 @@ const TOOLS = [
   {
     name: 'mem_inbox_ack',
     description: 'Change the state of a message (open|replied|processed|closed). Written as an '
-      + 'event line in inbox/states.jsonl; the message file is never rewritten. Reopening needs a reason.',
+      + 'event line in inbox/states.jsonl; the message file is never rewritten. Reopening needs a reason. '
+      + 'Only the addressee (or the agent holding a valid claim on it) may set the state of a message.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -760,12 +761,12 @@ const TOOLS = [
       'CLAIM a message for work, with an expiry (default 30 min). Git is not a lock: the '
       + 'claim tells the others you are on it. The reply names the claim_id — '
       + 'mem_inbox_renew and mem_inbox_done need it. Same operation as `mem inbox claim`; '
-      + 'you always claim as the connected agent.',
+      + 'you always claim as the connected agent. Only the addressee claims a message; one claim is at most 120 minutes.',
     inputSchema: {
       type: 'object',
       properties: {
         name: { type: 'string', description: 'The message file name (from mem_inbox_new)' },
-        minutes: { type: 'number', description: 'How long the claim holds (default 30)' },
+        minutes: { type: 'number', description: 'How long the claim holds (default 30, at most 120)' },
       },
       required: ['name'],
     },
@@ -1030,6 +1031,16 @@ const TOOLS = [
 // (CHEAP_MEM_AGENT, else whoami), never a parameter — otherwise a
 // foreign agent could claim for somebody else or close their claim. A
 // line that does NOT count comes back as isError (the CLI exits 1).
+/**
+ * B2/B4 (external review 2026-10-11): who may touch a letter over the bridge. The addressee, and for the
+ * state the agent that holds a valid claim on it. Anybody else could close (`mem_inbox_ack`) or claim
+ * (`mem_inbox_claim`) another agent's mail: the real recipient never saw it, or was locked out by a claim
+ * renewed again and again. The shell (`mem inbox ...`) is outside the model and unchanged.
+ */
+function mailAddressee(root, msg) {
+  return String(inbox.parse(inbox.readMessage(root, msg)).to ?? '').trim().toLowerCase();
+}
+
 function claimContext(root, args) {
   const msg = String(args.name ?? '');
   if (!msg) throw new Error('No name — nothing to claim.');
@@ -1698,8 +1709,18 @@ async function handleCall(name, args) {
     }
     case 'mem_inbox_ack': {
       // Z3/A8: an event line (states.jsonl), the message is left as it is.
+      const ackBy = String(process.env.CHEAP_MEM_AGENT ?? '').trim() || inbox.whoAmI(root);
+      {
+        const me = String(ackBy ?? '').trim().toLowerCase();
+        const st = claim.status(root, String(args.name ?? ''));
+        const holder = String(st.holder?.claimed_by ?? '').toLowerCase();
+        const live = st.status === claim.STATUS.CLAIMED;
+        if (!me || (mailAddressee(root, String(args.name ?? '')) !== me && !(live && holder === me))) {
+          throw new Error(`'${args.name}' is not your mail: only the addressee (or the agent holding a valid claim on it) sets its state — nothing was written.`);
+        }
+      }
       const m = inbox.setState(root, cfg.participants, args.name, args.state, {
-        by: String(process.env.CHEAP_MEM_AGENT ?? '').trim() || inbox.whoAmI(root),
+        by: ackBy,
         reason: typeof args.reason === 'string' ? args.reason : null,
       });
       return textResult(m.unchanged ? `${args.name}: already ${m.state} — nothing written`
@@ -1708,6 +1729,14 @@ async function handleCall(name, args) {
     // O1: thin adapters, see claimContext()/claimReply() above.
     case 'mem_inbox_claim': {
       const c = claimContext(root, args);
+      // B4: only the addressee claims (a claim by someone else locks the real recipient out), and one
+      // claim is at most MAX_EXTENSION_MIN long; a renew is capped by the same figure beyond the original.
+      if (mailAddressee(root, c.msg) !== String(c.by).trim().toLowerCase()) {
+        throw new Error(`'${c.msg}' is not addressed to '${c.by}': only the addressee claims a letter — nothing was written.`);
+      }
+      if (c.minutes !== undefined && c.minutes > claim.MAX_EXTENSION_MIN) {
+        throw new Error(`minutes: at most ${claim.MAX_EXTENSION_MIN} per claim (renew is capped at the same total) — nothing was written.`);
+      }
       return claimReply('claim', c, claim.claim(root, c.msg, { by: c.by, minutes: c.minutes }));
     }
     case 'mem_inbox_renew': {
