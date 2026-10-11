@@ -220,7 +220,11 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 // 14: the learned term graph needs `minDistinct` documents that are not
 //     near-copies of each other behind every pair (thesaurus.buildTermGraph).
 //     A version-13 cache holds a graph learned from repeated notes.
-export const CACHE_VERSION = 14;
+// 15: Fable run 2026-10-11 - a line whose text field is an object (or whose ts/id is not text) is
+//     BROKEN now and stays out of the index (`memory.parseLine`, `src/fieldshape.mjs`). A version-14
+//     cache may still hold documents of such lines; it stays valid by its file stamps and would be
+//     served as it stands (`mem find` listed them, `mem retrieve` threw). Rebuilt once.
+export const CACHE_VERSION = 15;
 
 /**
  * Field weights. The same word means more in a title than in a body:
