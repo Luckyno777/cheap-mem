@@ -22,6 +22,7 @@ import { randomBytes } from 'node:crypto';
 import { StringDecoder } from 'node:string_decoder';
 import * as freshness from './freshness.mjs';
 import * as authority from './authority.mjs';
+import * as errorfile from './errorfile.mjs';
 import * as timetrack from './timetrack.mjs';
 import * as cfgmod from './config.mjs';
 import * as bidi from './bidi.mjs';
@@ -3085,9 +3086,85 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   // but does NOT replace the original; the writer hears it now, not at
   // the next recall. Judged on the line as WRITTEN (default tier and
   // ceiling already applied), so the warning and the replay agree.
-  return { ...written, old, closing, findings, encrypted: newData.shred === true, verdict: warnIfRefused(written.entry, old, 'replaces_id') };
+  return {
+    ...written, old, closing, findings, encrypted: newData.shred === true,
+    verdict: type === 'duty' ? warnIfDutyReplaceRefused(root, written.entry, old) : warnIfRefused(written.entry, old, 'replaces_id'),
+  };
 }
 
+
+/**
+ * The fields an automatic duty keeps when `errorcontext.checkAndDuty` extends it with a new error id.
+ * Everything that says WHAT the duty is; only `error_ids` (and the machine fields) may differ.
+ */
+const AUTO_DUTY_SAME = ['class', 'file', 'title', 'text', 'owner'];
+
+/**
+ * Is `e` the extension of an automatic duty by more error ids - and nothing else? Both stages automatic, the same
+ * class / file / title / text / owner, the line stays open and keeps every id the duty holds. Such a line is
+ * what `errorcontext.checkAndDuty` writes, at the tier of whoever repeated the error (a digest or reflector under
+ * CHEAP_MEM_MAX_AUTHORITY sits below the agent that made the duty): refusing it left the old stage open AND added
+ * the extension as a second duty on every repeat. It cannot reword, close or shed ids, so it needs no rank.
+ */
+function isAutoDutyExtension(e, target, heldIds, errorOf) {
+  if (e?.automatic !== true || target?.automatic !== true) return false;
+  if (AUTO_DUTY_SAME.some((f) => e[f] !== target[f])) return false;
+  if ([DUTY_STATE.DONE, DUTY_STATE.DROPPED].includes(String(e.state ?? ''))) return false;
+  const ids = Array.isArray(e.error_ids) ? e.error_ids : [];
+  if (!heldIds.every((x) => ids.includes(x))) return false;
+  return ids.filter((x) => !heldIds.includes(x)).every((x) => namesOwnError(target, x, errorOf));
+}
+
+/**
+ * Is error `id` one of THIS duty's own errors - the same class, at the same file? Every NEWLY added id has to be
+ * (review, 2026-10-11): an unrelated error id, one that carries a `guard` say, would be evidence for closing a
+ * duty it has nothing to do with. An id nobody can look up is not.
+ */
+function namesOwnError(duty, id, errorOf) {
+  const err = errorOf?.(id);
+  return Boolean(err) && String(err.class ?? '').trim() === String(duty.class ?? '').trim()
+    && errorfile.files(err).includes(duty.file);
+}
+
+/**
+ * THE rule for a line that replaces a duty (`replaces_id`), read by the fold (`openDuties`), the write-time warning
+ * and `mem doctor`: the closing rule (`authority.mayChangeState`, field closes_id - the same rank sideways is
+ * allowed, never over a higher tier), except that an automatic duty may be extended (`isAutoDutyExtension`); and
+ * a duty that grew out of errors (`heldIds`) is replaced only by a stage that stays open and keeps those ids.
+ * Returns `{ status: 'allowed' | 'refused', reason }`.
+ */
+export function dutyReplaceVerdict(e, target, heldIds = [], errorOf = null) {
+  const ids = Array.isArray(heldIds) ? heldIds : [];
+  let verdict = isAutoDutyExtension(e, target, ids, errorOf)
+    ? { status: 'allowed', reason: 'an automatic duty extended by more error ids' }
+    : authority.mayChangeState(e, target, 'closes_id');
+  if (verdict.status !== 'refused' && ids.length) {
+    const own = Array.isArray(e.error_ids) ? e.error_ids : [];
+    const closing = [DUTY_STATE.DONE, DUTY_STATE.DROPPED].includes(String(e.state ?? ''));
+    if (closing || (own.length && !ids.every((x) => own.includes(x)))) {
+      verdict = {
+        status: 'refused',
+        reason: `F4: '${target.id}' grew out of errors (error_ids: ${ids.join(', ')}); `
+          + 'a replacement has to stay open and keep those ids - closing needs evidence (mem_duty_close)',
+      };
+    }
+  }
+  if (verdict.status !== 'refused' && ids.length) {
+    const added = (Array.isArray(e.error_ids) ? e.error_ids : []).filter((x) => !ids.includes(x));
+    const foreign = added.filter((x) => !namesOwnError(target, x, errorOf));
+    if (foreign.length) {
+      verdict = {
+        status: 'refused',
+        reason: `F4: error id ${foreign.join(', ')} added to '${target.id}' is not an error of its class and file - `
+          + 'an unrelated error (a guard of its own, say) would be evidence for closing this duty',
+      };
+    }
+  }
+  if (verdict.status === 'refused') {
+    verdict = { ...verdict, reason: String(verdict.reason).replace(/\bmay not close\b/, 'may not replace') };
+  }
+  return verdict;
+}
 
 /**
  * Fold the duty log into "still open" and "closed".
@@ -3163,7 +3240,7 @@ export function openDuties(root, { project = undefined } = {}) {
   for (const e of closers) {
     const verdict = authority.mayChangeState(e, all.get(e.closes_id), 'closes_id');
     if (verdict.status === 'refused') {
-      refused.push({ by: e.id, target: e.closes_id, reason: verdict.reason, ts: e.ts });
+      refused.push({ by: e.id, target: e.closes_id, field: 'closes_id', reason: verdict.reason, ts: e.ts });
       continue;
     }
     closed.set(e.closes_id, {
@@ -3173,6 +3250,77 @@ export function openDuties(root, { project = undefined } = {}) {
       why: e.why ?? e.text ?? null,
       ...(verdict.status === 'unresolved' ? { unresolved: true } : {}),
     });
+  }
+
+  // B1 (external review 2026-10-11): a correction (`replaces_id`) used to
+  // retire its predecessor with NO check at all - any writer could make a
+  // user duty or an auto-duty vanish with one line, and the replacement
+  // stage had no `error_ids`, so it closed without the F4 proof. Now:
+  //   1. the SAME authority rule as for closing (`mayChangeState`, field
+  //      closes_id: lateral-tolerant - an auto-duty is re-written by whichever
+  //      session repeats the error - but never over a higher tier);
+  //   2. a duty that grew out of errors (`error_ids`, found by walking the
+  //      chain BACK to the stage that carries them) is replaced only by a
+  //      stage that stays open and does not drop those ids. The newest stage
+  //      then carries the ids for `closeDuty`'s evidence check.
+  // A refused replacement is NOT obeyed: the predecessor stays open, the
+  // replacing line is just another open duty, and it is reported in
+  // `refused` (field replaces_id) and counted by `mem doctor`.
+  // ITERATIVE and linear: the stages are judged from the roots of the chains forward, so the error_ids a stage
+  // holds (`held`) are known from its already judged predecessor. (A first version recursed backwards without a
+  // memo: quadratic, and a stack overflow at 30000 stages.) A chain that is a cycle has no root and is never
+  // honoured.
+  // The errors a duty's ids name, read once and only when an automatic extension adds an id.
+  let errorsById = null;
+  const errorOf = (id) => {
+    if (errorsById === null) {
+      errorsById = new Map();
+      for (const project of [null, ...listProjects(root)]) {
+        let rows;
+        try { ({ entries: rows } = readLog(root, 'error', { project })); } catch { continue; }
+        for (const x of rows ?? []) if (x && typeof x.id === 'string' && !errorsById.has(x.id)) errorsById.set(x.id, x);
+      }
+    }
+    return errorsById.get(id);
+  };
+  const judged = new Map(); // replacer id -> true (honoured) | false (refused)
+  const held = new Map();   // id -> the error_ids the stage holds (its own, else the honoured chain behind it)
+  const ownIds = (e) => (Array.isArray(e.error_ids) ? e.error_ids : []);
+  const children = new Map(); // id -> the stages that name it as their predecessor
+  const queue = [];
+  for (const [id, e] of all) {
+    if (!e.replaces_id) { held.set(id, ownIds(e)); queue.push(id); } else if (!all.has(e.replaces_id)) {
+      judged.set(id, true); held.set(id, ownIds(e)); queue.push(id); // target not in this view: unresolved, as before
+    } else {
+      if (!children.has(e.replaces_id)) children.set(e.replaces_id, []);
+      children.get(e.replaces_id).push(id);
+    }
+  }
+  for (let i = 0; i < queue.length; i += 1) {
+    for (const id of children.get(queue[i]) ?? []) {
+      const e = all.get(id);
+      const target = all.get(e.replaces_id);
+      const verdict = dutyReplaceVerdict(e, target, held.get(target.id) ?? [], errorOf);
+      if (verdict.status === 'refused') {
+        refused.push({ by: id, target: target.id, field: 'replaces_id', reason: verdict.reason, ts: e.ts });
+        judged.set(id, false);
+        held.set(id, ownIds(e));
+      } else {
+        judged.set(id, true);
+        held.set(id, ownIds(e).length ? ownIds(e) : (held.get(target.id) ?? []));
+      }
+      queue.push(id);
+    }
+  }
+  for (const [id, e] of all) {
+    if (e.replaces_id && judged.get(id) !== true) predecessor.delete(id);
+  }
+  // The honoured chain hands its error_ids on to the newest stage.
+  for (const [id, e] of all) {
+    if (e.replaces_id && judged.get(id) === true && !ownIds(e).length) {
+      const inherited = held.get(id) ?? [];
+      if (inherited.length) { e.error_ids = inherited; e._error_ids_inherited = true; }
+    }
   }
 
   // Whoever was later replaced is no longer "the" duty — only the
@@ -3308,6 +3456,19 @@ export function closeDuty(root, id, {
     ...(tier && authorityClampedFrom ? { authority_clamped_from: authorityClampedFrom } : {}),
   }, { project });
   return { ...written, verdict: warnIfRefused(written.entry, target, 'closes_id') };
+}
+
+/** The same early warning for a duty replacement, worded as the fold acts (`dutyReplaceVerdict`): the duty stays open. */
+function warnIfDutyReplaceRefused(root, entry, target) {
+  const verdict = dutyReplaceVerdict(entry, target, Array.isArray(target?.error_ids) ? target.error_ids : [], (id) => entriesById(root).get(id));
+  if (verdict.status === 'refused') {
+    process.emitWarning(
+      `replaces_id ${target?.id ?? ''} not honoured: ${verdict.reason}. The duty stays open and this line `
+      + `${entry?.id ?? ''} is another open duty. Write it with an authority that is not lower than the duty's `
+      + '(e.g. --authority user) if the change is meant.',
+      { code: 'CM_STATE_CHANGE_REFUSED' });
+  }
+  return verdict;
 }
 
 /**

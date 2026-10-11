@@ -31,6 +31,7 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_MAX_AUTHORITY` | not set (no ceiling; the digest sets `inferred`) | The highest authority a process may claim in what it writes. A model-backed writer must never produce a `user` entry; the digest and the reflector run under a lower ceiling. |
 | `CHEAP_MEM_MCP_READONLY` | off (full tool profile) | With `1` the MCP bridge offers only the read tools. |
 | `CHEAP_MEM_PROFILE` | off | With `1` the hooks write a profile of where their time went. |
+| `CHEAP_MEM_SERVE_BEHIND_TUNNEL` | off | With `1` the viewer trusts `CF-Connecting-IP` from a loopback connection as the source of a sign-in attempt (a tunnel on this machine). Without it the socket address counts. |
 | `CHEAP_MEM_SERVE_LOGIN` | on | With `off` the viewer's login is skipped (tests, local only). |
 | `CHEAP_MEM_SERVE_OFFLINE` | off | With `1` the viewer loads nothing from outside. |
 | `CHEAP_MEM_SERVE_READONLY` | off | With `1` the viewer shows everything and sets nothing. |
@@ -122,6 +123,7 @@ A variable that is not in the table is not a switch: there is none.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHEAP_MEM_ARCHIVE` | not set (`raw/YYYY/MM/` inside the root, or the place `mem archive` recorded) | Where the raw archive is kept; a mount outside the repository. |
+| `CHEAP_MEM_ARCHIVE_BASES` | not set (only the memory root, the home folder and the temp folder) | Extra folders (a `:`-separated list, `;` on Windows) the dashboard may point the raw archive into. Compared by real path. The shell (`mem archive`) is not limited by it. |
 | `CHEAP_MEM_CHECK_FILE` | `<root>/checked.jsonl` | Where `bin/mem-check-record` writes its rows. |
 | `CHEAP_MEM_CODE` | not set (the hook uses the root as the code directory) | Where the cheap-mem code lives when it is not the memory root itself (the sub-agent and session-start hooks). |
 | `CHEAP_MEM_GOLD_FILE` | `~/.cheap-mem-gold/...` outside the repository | The gold-question log; kept outside the repository on purpose. |

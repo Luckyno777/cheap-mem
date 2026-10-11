@@ -39,6 +39,7 @@ import * as data from '../src/dashboard-data.mjs';
 import * as memory from '../src/memory.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as icon from '../src/icon.mjs';
+import { personCookie } from './person-session.mjs';
 import * as measurements from '../src/measurements.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -287,8 +288,10 @@ test('acknowledge: only a message addressed to the human, only behind the write 
   const toHuman = inbox.write(on, participants, { from: 'bot', to: 'alex', subject: 'hello', text: 'hi' }).name;
   const toBot = inbox.write(on, participants, { from: 'alex', to: 'bot', subject: 'yo', text: 'hi' }).name;
   const sOff = await start(off);
-  const sOn = await start(on);
-  const post = (s, body) => fetch(`${s.base}/inbox/state`, { method: 'POST', redirect: 'manual', headers: { origin: s.base }, body: new URLSearchParams(body) });
+  // B6: acknowledging writes as the human, so the switched-on server runs with the login and a password session.
+  const sOn = await start(on, { CHEAP_MEM_SERVE_LOGIN: 'on' });
+  const cookie = personCookie(on);
+  const post = (s, body) => fetch(`${s.base}/inbox/state`, { method: 'POST', redirect: 'manual', headers: { origin: s.base, cookie }, body: new URLSearchParams(body) });
   try {
     assert.equal((await post(sOff, { name: 'x.md', state: 'closed' })).status, 403, 'wrote with the switch off');
     assert.equal((await post(sOn, { name: toBot, state: 'closed' })).status, 400, 'acknowledged a message to someone else');
@@ -311,8 +314,10 @@ test('raw capture delete: the task needs a reason, and really deletes through me
   const rows = raw.capturesWithState(r);
   if (!rows.length) { t.skip(`no capture written (${JSON.stringify(captured)})`); fs.rmSync(r, { recursive: true, force: true }); return; }
   const target = rows[0].path;
-  const s = await start(r);
-  const post = (body) => fetch(`${s.base}/task`, { method: 'POST', headers: { origin: s.base, accept: 'application/json' }, body: new URLSearchParams(body) });
+  // B7: raw-delete is a humanOnly task: it needs the login and a password session.
+  const s = await start(r, { CHEAP_MEM_SERVE_LOGIN: 'on' });
+  const cookie = personCookie(r);
+  const post = (body) => fetch(`${s.base}/task`, { method: 'POST', headers: { origin: s.base, accept: 'application/json', cookie }, body: new URLSearchParams(body) });
   try {
     const noReason = await post({ kind: 'raw-delete', path: target });
     assert.equal(noReason.status, 400, 'a delete without a reason was accepted');
@@ -323,7 +328,7 @@ test('raw capture delete: the task needs a reason, and really deletes through me
     const { id } = await res.json();
     let st;
     for (let i = 0; i < 100; i += 1) {
-      st = await (await fetch(`${s.base}/task.json?id=${id}`)).json();
+      st = await (await fetch(`${s.base}/task.json?id=${id}`, { headers: { cookie } })).json();
       if (st.running !== true) break;
       await new Promise((ok) => setTimeout(ok, 100));
     }

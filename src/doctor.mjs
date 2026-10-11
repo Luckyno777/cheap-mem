@@ -1279,13 +1279,28 @@ export function checkContestedClaims(root) {
           else if (authority.STATE_FIELDS.some((f) => e[f])) entries.push(e);
         }
       } catch { continue; }
+      // A DUTY replacement is judged by the duty fold (`memory.dutyReplaceVerdict`), not by the strict
+      // supersede rule of `retiredMap`: the duty list, the write warning and this finding give one answer.
+      // Its refusals are added below from `openDuties().refused`.
+      const replacers = type === 'duty' ? new Set(entries.filter((e) => e.replaces_id && !e.closes_id && !e.retires_id).map((e) => e.id)) : null;
       for (const [id, rec] of memory.retiredMap(entries)) {
         if (rec.state !== 'disputed') continue;
+        if (replacers?.has(id)) continue;
         contested.push({ id, ts: rec.ts ?? null, why: rec.why, target: rec.by,
           drawer: `${project ?? 'global'}/${type}` });
       }
     }
   }
+  // B1: a duty replacement the fold turned down (the closing rank rule, or F4: it closes, or drops the error_ids
+  // of, a duty that grew out of errors) is a contested claim. Counted here from the fold itself; the duty
+  // drawer's replacements were left out of the `retiredMap` count above, so nothing is counted twice.
+  try {
+    for (const r of memory.openDuties(root).refused) {
+      if (r.field === 'replaces_id' && !contested.some((c) => c.id === r.by)) {
+        contested.push({ id: r.by, ts: r.ts ?? null, why: r.reason, target: r.target, drawer: 'duty' });
+      }
+    }
+  } catch { /* duties unreadable: the other checks say so */ }
   if (!read) return finding('contested-claims', LEVEL.UNKNOWN, 'no drawer readable — not measurable');
   if (!pointers) {
     return finding('contested-claims', LEVEL.UNKNOWN,

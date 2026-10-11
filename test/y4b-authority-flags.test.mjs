@@ -276,7 +276,7 @@ async function waitForLine(root, id) {
   }
 }
 
-test('dashboard: a password session marks done as user; the bearer token alone stays agent', async (t) => {
+test('dashboard: a password session marks done as user; the bearer token alone is refused (humanOnly, 2026-10-11)', async (t) => {
   const root = world(t);
   const [a, b] = withCeiling(null, () => [
     memory.logEntry(root, 'decision', { title: 'one', choice: 'c', why: 'w' }).entry,
@@ -284,12 +284,13 @@ test('dashboard: a password session marks done as user; the bearer token alone s
   ]);
   const s = await serveStart(root, { CHEAP_MEM_SERVE_TOKEN: 'door' }, { allowWrites: true });
   try {
-    // Bearer only (tools, probes, whoever holds the link): not a person.
+    // Bearer only (tools, probes, whoever holds the link): not a person. `done` writes the human stamp, so it is
+    // refused outright now (it used to be written as an agent line).
     const r1 = await fetch(`${s.base}/task`, { method: 'POST', redirect: 'manual',
       headers: { authorization: 'Bearer door', origin: s.base, 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ kind: 'done', id: a.id }) });
-    assert.equal(r1.status, 201, await r1.text());
-    assert.equal((await waitForLine(root, a.id)).authority, 'agent', 'the bearer token made itself the user');
+    assert.equal(r1.status, 403, await r1.text());
+    assert.equal(memory.readLog(root, 'decision').entries.filter((x) => x.closes_id === a.id || x.retires_id === a.id).length, 0, 'the bearer closed it');
 
     // A password session: set up with the setup code, then act.
     const code = fs.readFileSync(path.join(root, '.pipeline', 'serve-setup-code'), 'utf8').trim();

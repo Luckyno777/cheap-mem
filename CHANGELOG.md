@@ -14,6 +14,57 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security — external review 2026-10-11 (Fable): duty replacement, other people's mail, dashboard doors (breaking for bridge clients and tools)
+
+Each finding was reproduced against a throwaway root first (red), then fixed (green).
+`test/b1-duty-replace.test.mjs`, `test/b2-b4-inbox-ownership.test.mjs`, `test/b5-b9-dashboard.test.mjs`.
+
+- **B1 (high).** `mem_log` with `replaces_id` made any duty vanish (user duties, auto-duties) and its
+  replacement closed without the F4 proof. `openDuties` now judges a replacement with the closing rule
+  (`authority.mayChangeState`) and keeps `error_ids` along the chain, so a replaced F4 duty still asks for
+  evidence; refused replacements are listed in `refused` and counted by `mem doctor` (`contested-claims`).
+  **Breaking:** the bridge refuses `replaces_id` on type `duty` (use `mem_duty_close` / a new `mem_log`).
+- **B2 + B4.** `mem_inbox_ack` and `mem_inbox_claim` only for the addressee (ack also for the holder of a
+  valid claim). **Breaking:** an agent can no longer ack or claim mail addressed to someone else over the
+  bridge. A single claim over the bridge is at most 120 minutes (the cap renewals already had).
+- **B5.** The bearer token no longer sets the first password (setup code only) and `/login/logout` needs a
+  session. **Breaking:** tools that set the first password with the bearer must use the setup code.
+- **B6 + B7.** `/inbox/reply`, `/inbox/state`, `/setting` and the two verdict routes need a password
+  session (403 otherwise, also with `CHEAP_MEM_SERVE_LOGIN=off`); the `raw-delete` task is `humanOnly`; the
+  dashboard can point the raw archive only into the root, home, temp or `CHEAP_MEM_ARCHIVE_BASES` (new).
+  **Breaking:** a script that wrote through these routes with the bearer token alone loses that.
+- **B8.** Host check on `/`, `/desk.json`, `/console.json`, `/entry.json`, `/task.json`.
+- **B9 (breaking for tunnel setups).** The sign-in lock takes the socket address; `CF-Connecting-IP` only with the new
+  `CHEAP_MEM_SERVE_BEHIND_TUNNEL=1` (set it if a tunnel on this machine fronts the viewer, else all visitors
+  share one lock). The lock across all sources is gone.
+
+### Security — review of the Fable fixes (2026-10-11), follow-ups on `agent/fable-sicher-cm`
+
+`test/b1-auto-duty-chain.test.mjs`, `test/b7-human-tasks.test.mjs`, `test/bridge-type-shape.test.mjs`, `test/b5-b9-dashboard.test.mjs`.
+
+- **Auto-duty chain (regression of B1).** A digest/reflector (`CHEAP_MEM_MAX_AUTHORITY=inferred`) extending an
+  agent's auto-duty was refused by the new fold; every repeat added one more open duty (3 for one file+class,
+  base 1). An automatic duty extended by more error ids (same class/file/title/text/owner, stays open, keeps
+  every id) is exempt from the rank rule; it cannot reword, close or shed ids. The write warning, the duty list
+  and `mem doctor` use one rule now (`memory.dutyReplaceVerdict`); the warning says "the duty stays open".
+  The fold is iterative and linear (a 30000-stage chain overflowed the stack, 2000 stages took 1.5 s).
+- **`done`, `restore`, `merge` are `humanOnly` (breaking for tools).** They write the human stamp; a bearer-only
+  `POST /task kind=restore` brought back an entry a person had closed. They need a password session, like
+  `raw-delete`.
+- **`type` as an array or an object bypassed the bridge locks.** `mem_log {type: ["duty"], replaces_id}`, `["workflow"]`
+  and `["procedure"]` passed the strict comparisons and were written. `mem_log` wants a string `type`, and every tool
+  refuses an array or an object where its schema says string (stdio and `--http`). **Breaking** for a client that
+  sent an array where a string is declared.
+- **An auto-duty extension adds only its own errors.** Every newly added `error_id` must be an error of the duty's
+  class at the duty's file, else the replacement is refused (an unrelated error with a `guard` let a duty close
+  without evidence for its own errors). Applies to any replacement of a duty that grew out of errors.
+- **`mem_log` field shapes (breaking for odd clients).** `tags`, `symbols`, `asked_as`, `placeholders`, `files` and
+  `used_by` may be arrays of strings; every other field must be a scalar. `owner: ["x"]`, `authority: {..}` and
+  `tags: [{..}]` were written as given; they are refused by name now.
+- **Host check is central.** Every dashboard route that is not an asset checks the Host (`/dashboard` was missing).
+- **One server line** (never the header value) when `CF-Connecting-IP` arrives from loopback without
+  `CHEAP_MEM_SERVE_BEHIND_TUNNEL`. Docs: with `CHEAP_MEM_SERVE_LOGIN=off` the owner-writing routes answer `403`; use the shell.
+
 ### Changed — bridge hardening, second round: counterpart ids, `closes_id` / `guard`, sender identity, store intake (breaking for bridge clients)
 
 Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`, red on fb48a54.

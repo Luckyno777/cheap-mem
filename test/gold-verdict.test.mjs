@@ -26,6 +26,7 @@ import * as today from '../src/today.mjs';
 import { isoWeek } from '../src/measurements.mjs';
 import { lazyBrowser, browserStartProbe, waitReady, startView } from './fixture/browser.mjs';
 import { removeTree } from './fixture/cleanup.mjs';
+import { personCookie } from './person-session.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD_COMMIT = '1d8adccfbc3d62f4a3a51edfdc2da3ab9b793de6';
@@ -48,11 +49,13 @@ async function start(scriptPath, root, env = {}) {
     CHEAP_MEM_SERVE_TOKEN: DOOR, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', ...env,
   });
   const base = `http://127.0.0.1:${server.address().port}`;
+  // B7: a verdict writes as the owner, so it needs a password session next to the door.
+  const cookie = personCookie(root, { ...process.env, ...env });
   return {
     base,
     post: (route, body, extraHeaders = {}) => fetch(`${base}${route}`, {
       method: 'POST', redirect: 'manual',
-      headers: { authorization: `Bearer ${DOOR}`, origin: base, 'content-type': 'application/x-www-form-urlencoded', ...extraHeaders },
+      headers: { authorization: `Bearer ${DOOR}`, cookie, origin: base, 'content-type': 'application/x-www-form-urlencoded', ...extraHeaders },
       body,
     }),
     stop: () => new Promise((res) => { server.closeAllConnections?.(); server.close(res); }),
@@ -350,7 +353,7 @@ test('GET is refused (405)', { timeout: 20000 }, async () => {
 
 // =========================================================================
 // Browser probe: the "Rate today" card shows the fixture candidates and
-// a click writes (login off in tests — same setup as test/no-jump.test.mjs).
+// a click writes (login on, a password session in the browser context: B7).
 // =========================================================================
 
 // The browser starts on first use, not by a top-level await (a throwing start is a named red probe).
@@ -372,11 +375,15 @@ test('Browser probe: the "Rate today" card renders 3 candidates on a fixture gol
   fs.mkdirSync(path.dirname(goldFile), { recursive: true });
   fs.writeFileSync(goldFile, `${rows.map((r) => JSON.stringify(r)).join('\n')}\n`);
 
-  const { base, stop } = await startView(root, {
-    CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
+  // B7: a verdict needs a password session, so this one runs with the login on and a session in the context.
+  const viewEnv = {
+    CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0',
     CHEAP_MEM_SERVE_TOKEN: '', CHEAP_MEM_GOLD_FILE: goldFile,
-  });
+  };
+  const sessionCookie = personCookie(root, { ...process.env, ...viewEnv });
+  const { base, stop } = await startView(root, viewEnv, { cookie: sessionCookie });
   const context = await browser.newContext();
+  await context.addCookies([{ name: sessionCookie.split('=')[0], value: sessionCookie.slice(sessionCookie.indexOf('=') + 1), url: base }]);
   const page = await context.newPage();
   try {
     await page.goto(`${base}/dashboard`, { waitUntil: 'load' });

@@ -127,6 +127,12 @@ export const ALLOWED_FIELDS = Object.freeze(Object.fromEntries(
   Object.entries(PER_TYPE).map(([type, own]) => [type,
     Object.freeze([...COMMON, ...own, ...COUNTERPART_IDS])])));
 
+/** Is `fields[key]` an entry id (blank / null / undefined count as "no id")? */
+function hasCounterpartKey(fields, key) {
+  const v = fields[key];
+  return typeof v === 'string' && ENTRY_ID.test(v);
+}
+
 const quoted = (names) => names.map((n) => `'${n}'`).join(', ');
 
 /**
@@ -152,6 +158,15 @@ export function refuse(type, fields) {
   if (badIds.length) {
     throw new Error(`${quoted(badIds)} must be the id of an entry (a string of 4 to 64 letters, digits, - or _) — nothing was written.`);
   }
+  // B1 (external review 2026-10-11): a correction of a DUTY over the bridge replaced any duty (user duties,
+  // auto-duties included) and the replacement carried no error_ids, so it closed without the F4 proof. The
+  // fold judges it now (`memory.openDuties`), and the bridge does not offer the door at all: like `closes_id`,
+  // changing a duty's life cycle is `mem_duty_close`; a new duty is a new `mem_log`.
+  if (type === 'duty' && Object.hasOwn(fields, 'replaces_id') && hasCounterpartKey(fields, 'replaces_id')) {
+    throw new Error("Field 'replaces_id' is not allowed over the bridge for type 'duty': replacing a duty skips the "
+      + 'authority rule and the F4 proof for a duty that grew out of errors; close it with mem_duty_close '
+      + '(id, state, why), or log a new duty — nothing was written.');
+  }
   const named = Object.keys(fields).filter((k) => Object.hasOwn(NAMED_REFUSALS, k));
   if (named.length) {
     throw new Error(`${named.map((k) => `Field '${k}' is not allowed over the bridge: ${NAMED_REFUSALS[k]}`).join('. ')} — nothing was written.`);
@@ -172,4 +187,54 @@ export function refuse(type, fields) {
     + `${companions.length ? `${quoted(companions)} only travel${companions.length > 1 ? '' : 's'} with an entry that supersedes or retires another. ` : ''}`
     + 'Everything else (audit stamps such as v / status / authority_clamped_from / guard_at_creation, the shred '
     + 'switch, hashes) is set by the write path or by a human at the CLI, never by the caller.');
+}
+
+/**
+ * The SHAPE of a tool call, before any tool looks at a value (review of the B1 fix, 2026-10-11). Nothing in the
+ * bridge validates the arguments against the tool's schema, and a strict comparison in one place meets a coerced
+ * one in another: `mem_log {type: ["duty"]}` slipped past `type === 'duty'` (the replaces_id lock) and
+ * `type === 'procedure'` / `'workflow'` (the norm locks) while `TYPES[type]` and `Object.hasOwn(.., type)` turned
+ * the array into the string 'duty' and wrote it. A property the schema declares as a string is a string here: an
+ * array or an object in its place is refused by name, nothing is run. (Numbers and booleans are left to the tool,
+ * which coerces them with String(); they cannot be a different thing than their text.)
+ */
+export function shapeCheck(schema, args) {
+  if (args === null || typeof args !== 'object' || Array.isArray(args)) {
+    throw new Error('The arguments of a tool call must be an object — nothing was run.');
+  }
+  const props = schema?.properties ?? {};
+  const bad = [];
+  for (const [k, def] of Object.entries(props)) {
+    if (def?.type !== 'string' || !Object.hasOwn(args, k)) continue;
+    const v = args[k];
+    if (v !== null && typeof v === 'object') bad.push(k);
+  }
+  if (bad.length) {
+    throw new Error(`${quoted(bad)} must be a string, not ${bad.map((k) => (Array.isArray(args[k]) ? 'an array' : 'an object')).join(' / ')} — nothing was run.`);
+  }
+}
+
+/** The `mem_log` fields that may carry a list of strings. Every other field is a scalar. */
+const LIST_FIELDS = Object.freeze(['tags', 'symbols', 'asked_as', 'asked-as', 'placeholders', 'files', 'used_by']);
+
+/**
+ * The shape of the fields of a `mem_log` call (review, 2026-10-11, after `shapeCheck`): the schema declares only
+ * a few of them, and an undeclared one slipped through - `owner: ["digest"]`, `owner: {a: 1}`, `authority: {a: 1}`
+ * and `tags: [{a: 1}]` were written as given. Now: the list fields are arrays of strings, every other field is a
+ * scalar (string, number, boolean, or null / absent). Refused by name, nothing is written.
+ */
+export function logFieldShape(args) {
+  const bad = [];
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (v === null || v === undefined) continue;
+    if (LIST_FIELDS.includes(k)) {
+      // a plain string is a one-word list (`symbols: "mem_log"` is in use)
+      if (typeof v !== 'string' && (!Array.isArray(v) || v.some((x) => typeof x !== 'string'))) bad.push(`${k} (an array of strings)`);
+    } else if (typeof v === 'object') {
+      bad.push(`${k} (a string, number or boolean)`);
+    }
+  }
+  if (bad.length) {
+    throw new Error(`Wrong shape over the bridge: ${bad.join(', ')} — nothing was written.`);
+  }
 }

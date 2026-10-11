@@ -11,6 +11,7 @@ import { EventEmitter } from 'node:events';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 import { readBoundedBody } from '../src/body-reader.mjs';
 import { exportCommit } from './helpers/export-commit.mjs';
+import { personCookie } from './person-session.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OLD = '4bbca61';
@@ -85,13 +86,17 @@ function oldState() {
   return oldTree;
 }
 
+// The cookie of the server `start()` made last (one server at a time here).
+let sessionCookie = '';
 async function start(moduleRoot) {
   const mod = await import(`${pathToFileURL(path.join(moduleRoot, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
   const root = tmp('cm-body-');
   fs.mkdirSync(path.join(root, '.mem'), { recursive: true });
   fs.mkdirSync(path.join(root, 'global'), { recursive: true });
   fs.writeFileSync(path.join(root, '.mem', 'config.json'), JSON.stringify({ name: 'bodyprobe', participants: { alex: { human: true }, bot: {} }, language: 'en' }));
-  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', MEM_RECALL_SERVER: '0' }, { allowWrites: true });
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', MEM_RECALL_SERVER: '0' }, { allowWrites: true });
+  // B6/B7: the owner-writing routes ask for a password session BEFORE they read the body.
+  sessionCookie = personCookie(root);
   return { server, root, port: server.address().port, paths: { verdict: mod.VERIFY_VERDICT_PATH, gold: mod.GOLD_VERDICT_PATH } };
 }
 const stop = (srv) => new Promise((res) => { srv.closeAllConnections?.(); srv.close(res); });
@@ -105,7 +110,7 @@ function post(port, pathName, chunks) {
   return new Promise((ok, no) => {
     const answers = [];
     const r = http.request({ host: '127.0.0.1', port, path: pathName, method: 'POST', headers: {
-      host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } },
+      host: `127.0.0.1:${port}`, cookie: sessionCookie, origin: `http://127.0.0.1:${port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } },
     (res) => { answers.push(res.statusCode); res.resume(); res.on('end', () => ok(answers)); res.on('close', () => ok(answers)); });
     r.on('error', (e) => ((e.code === 'ECONNRESET' || e.code === 'EPIPE') && answers.length ? ok(answers) : no(e)));
     (async () => { for (const c of chunks) { if (!r.write(c)) await new Promise((t) => r.once('drain', t)); } r.end(); })().catch(() => {});
@@ -159,7 +164,7 @@ test('green: the client aborts in the middle of the body -> the server stays who
     const before = tree(s.root);
     await new Promise((ok) => {
       const r = http.request({ host: '127.0.0.1', port: s.port, path: '/setting', method: 'POST', headers: {
-        host: `127.0.0.1:${s.port}`, origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } });
+        host: `127.0.0.1:${s.port}`, cookie: sessionCookie, origin: `http://127.0.0.1:${s.port}`, 'content-type': 'application/x-www-form-urlencoded', 'transfer-encoding': 'chunked' } });
       r.on('error', () => ok());
       r.write('id=x&value=1');
       setTimeout(() => r.destroy(), 30);
