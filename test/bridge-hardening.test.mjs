@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { tempDir } from './temp-dir.mjs';
 import * as memory from '../src/memory.mjs';
 import * as appointments from '../src/appointments.mjs';
+import * as store from '../src/store.mjs';
 
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MCP = path.join(REPO, 'bin', 'mem-mcp');
@@ -273,4 +274,83 @@ test('V2b: CHEAP_MEM_STORE_INTAKE adds folders (real paths), nothing else widens
   const [prefix] = bridge(root, [['mem_store_put', { source: path.join(sibling, 'x.txt') }]], { CHEAP_MEM_STORE_INTAKE: outside });
   assert.equal(prefix.isError, true, textOf(prefix));
   assert.ok(os.tmpdir());
+});
+
+// --- Third round (2026-10-11): the intake check and the read are one act -----------------------------
+
+function intakeWorld(t) {
+  const root = world(t);
+  const outside = tempDir('cm-bridge-outside-', t);
+  const intake = path.join(root, 'store', 'intake');
+  fs.mkdirSync(intake, { recursive: true });
+  return { root, outside, intake };
+}
+
+test('N4a: a file swapped for a symlink between the check and the read is refused (the read does not follow links)', (t) => {
+  const { root, outside, intake } = intakeWorld(t);
+  const target = path.join(outside, 'private.txt');
+  fs.writeFileSync(target, 'not for the store\n');
+  const file = path.join(intake, 'report.txt');
+  fs.writeFileSync(file, 'a report\n');
+  const real = store.intakeFile(root, file);          // the check passes ...
+  fs.rmSync(real); fs.symlinkSync(target, real);      // ... then the file becomes a link to the outside
+  assert.throws(() => store.put(root, real, { noFollow: true }), /symbolic link|not a regular file|Refused/i);
+  assert.equal(register(root), '', 'a register line was written');
+  assert.deepEqual(objects(root), [], 'bytes were stored');
+});
+
+test('N4a: a directory swapped for a symlink after the check is refused, too', (t) => {
+  const { root, outside, intake } = intakeWorld(t);
+  fs.mkdirSync(path.join(intake, 'sub'));
+  fs.writeFileSync(path.join(intake, 'sub', 'f.txt'), 'inside\n');
+  fs.mkdirSync(path.join(outside, 'sub'));
+  fs.writeFileSync(path.join(outside, 'sub', 'f.txt'), 'outside\n');
+  const real = store.intakeFile(root, path.join(intake, 'sub', 'f.txt'));
+  fs.renameSync(path.join(intake, 'sub'), path.join(intake, 'sub-moved'));
+  fs.symlinkSync(path.join(outside, 'sub'), path.join(intake, 'sub'));
+  assert.throws(() => store.put(root, real, { noFollow: true }), /changed|symbolic|Refused/i);
+  assert.deepEqual(objects(root), []);
+});
+
+test('N4a positive control: an unchanged intake file is stored with noFollow', (t) => {
+  const { root, intake } = intakeWorld(t);
+  const file = path.join(intake, 'ok.txt');
+  fs.writeFileSync(file, 'fine\n');
+  const r = store.put(root, store.intakeFile(root, file), { noFollow: true, purpose: 'ok' });
+  assert.equal(r.size, 5);
+});
+
+test('N4b: size and the 25 MB limit come from the bytes read, not from stat (CLI path, too)', (t) => {
+  const { root } = intakeWorld(t);
+  if (fs.existsSync('/proc/self/status')) {
+    assert.equal(fs.statSync('/proc/self/status').size, 0, 'this platform reports a size for /proc after all');
+    const r = store.put(root, '/proc/self/status', { purpose: 'stat says 0' });
+    assert.ok(r.size > 0, 'size was taken from stat (0)');
+    assert.equal(r.size, fs.readFileSync(path.join(root, r.at)).length, 'size is not the length of the stored bytes');
+  } else t.diagnostic('no /proc/self/status here: the stat-size mismatch probe is skipped');
+  const big = path.join(tempDir('cm-big-', t), 'big.bin');
+  fs.writeFileSync(big, Buffer.alloc(store.LARGE_OVER_BYTES + 1, 1));
+  assert.throws(() => store.put(root, big, {}), /exceeds/);
+  assert.ok(store.put(root, big, { large: true }).size === store.LARGE_OVER_BYTES + 1);
+  assert.throws(() => store.put(root, path.join(root, 'nope'), {}), /Not found/);
+  assert.throws(() => store.put(root, root, {}), /Not a file/);
+});
+
+test('cosmetic: a file whose name starts with two dots is inside the intake folder', (t) => {
+  const { root, intake } = intakeWorld(t);
+  fs.writeFileSync(path.join(intake, '..dots.txt'), 'x\n');
+  assert.doesNotThrow(() => store.intakeFile(root, path.join(intake, '..dots.txt')));
+  assert.throws(() => store.intakeFile(root, path.join(intake, '..', 'notes.txt')), /intake/);
+});
+
+test('CHEAP_MEM_STORE_INTAKE takes absolute paths only: a relative entry is ignored, and the refusal says so', (t) => {
+  const { root, outside } = intakeWorld(t);
+  fs.writeFileSync(path.join(outside, 'x.txt'), 'x\n');
+  const rel = path.relative(process.cwd(), outside);
+  assert.ok(!path.isAbsolute(rel));
+  assert.deepEqual(store.intakeDirs(root, { [store.INTAKE_ENV]: rel }), [path.join(root, 'store', 'intake')]);
+  assert.throws(() => store.intakeFile(root, path.join(outside, 'x.txt'), { [store.INTAKE_ENV]: rel }), /Ignored \(a relative path/);
+  assert.doesNotThrow(() => store.intakeFile(root, path.join(outside, 'x.txt'), { [store.INTAKE_ENV]: outside }));
+  const [viaBridge] = bridge(root, [['mem_store_put', { source: path.join(outside, 'x.txt') }]], { CHEAP_MEM_STORE_INTAKE: rel });
+  assert.equal(viaBridge.isError, true);
 });

@@ -1864,6 +1864,7 @@ async function handleCall(name, args) {
       // read, and an `agent` from the caller.
       const real = store.intakeFile(root, source);
       const r = store.put(root, real, {
+        noFollow: true,
         purpose: args.purpose ?? '', agent: resolveAgent(), project: args.project ?? null,
         session: args.session ?? null, entry_id: args.entry_id ?? null,
         retention: args.retention ?? null, large: Boolean(args.large),

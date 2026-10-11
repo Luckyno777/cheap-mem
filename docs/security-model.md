@@ -356,8 +356,11 @@ is unchanged. `test/bridge-appointment-claim.test.mjs`.
 **Scope, said plainly.** This hardening protects against clients WITHOUT a shell (a chat connector on the
 bridge). Whoever has a shell on the machine is a person for the CLI: `mem appointment new --requested-by
 user --quote ...` without `MEM_HEADLESS` creates an active appointment, `mem store put <path>` reads any
-path, `mem log` writes any field. The bridge cannot make that safer; the environment (who gets a shell)
-has to.
+path, `mem log` writes any field; so does putting a hard link or a copy of a file into the intake
+folder, which also takes a shell. The bridge cannot make that safer; the environment (who gets a
+shell) has to. The store read itself is one act: the bridge opens the file without following a link,
+reads from that descriptor, and checks again after the read that the path is still its own real
+path, so a link swapped in after the intake check is refused.
 
 **Hostile values on the pages (A9, 2026-10-11).** `test/hostile-surfaces.test.mjs` feeds one
 corpus (script tags, attribute breakouts, `javascript:` text, entities, `</script>` / `<!--`,

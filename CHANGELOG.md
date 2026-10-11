@@ -38,6 +38,12 @@ Counter-check of the A6/A12 port (2026-10-11). `test/bridge-hardening.test.mjs`,
   (compared by real path: a symlink out of the folder, `..` and a sibling folder with the same prefix
   do not count; the refusal does not say whether a path outside exists). The register's `agent` is
   the bridge's identity. The CLI (`mem store put <path>`) is a person at the keyboard and is unchanged.
+- **The intake check and the read are one act (third round).** `store.put` with `noFollow` opens the
+  file with `O_NOFOLLOW`, reads from the descriptor and re-checks that the path is still its own real path
+  (a link swapped in for the file, or for a folder above it, after the check is refused). Size and the 25 MB
+  limit come from the bytes read, not from `stat` (a `/proc` file reports 0), also at the CLI. A file named
+  `..x` inside the intake folder is inside. `CHEAP_MEM_STORE_INTAKE` takes absolute paths only (a relative
+  entry is ignored and named in the refusal); `/` opens everything, the operator's decision.
 - The duty list takes `due`, `due_date`, `until`, `deadline`, `by`, `to`; the `mem_log` tool schema
   says which type takes `choice` / `class` / `from` and advertises `replaces_id`.
 - The quote of the unverified appointment note is embedded as a JSON string: it cannot close the
