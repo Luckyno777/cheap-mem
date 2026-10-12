@@ -173,6 +173,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_DIGEST_VOLUME_MIN_KB', TUNING, 'not set (the due check\'s own default, 32 KB)', 'Pending raw volume in KB below which a digest is not worth a call, until the ceiling.'),
   sw('MEM_DIGEST_QUIET_MIN', TUNING, 'not set (the due check\'s own default)', 'Minutes without a new capture before a digest becomes due.'),
   sw('MEM_DIGEST_CEILING_H', TUNING, 'not set (the due check\'s own default)', 'Hours after which a digest is due regardless.'),
+  sw('MEM_DIGEST_AGE_WITHOUT_BELL_H', TUNING, 'not set (the due check\'s own default, 24 hours)', 'AU4: without a bell, hours the OLDEST open capture may wait before a digest is due (besides the 500 KB volume rule).'),
   sw('MEM_DIGEST_CMD', PATH, '`claude -p`', 'The model command the digest starts (Windows: `claude`, arguments from `MEM_DIGEST_ARGS`).'),
   sw('MEM_DIGEST_ARGS', TUNING, '`-p`', 'Windows digest: arguments of the model command.'),
   sw('MEM_GOLD_TIMEOUT', TUNING, '300', 'Seconds the digest gives the daily gold-miss collection.'),

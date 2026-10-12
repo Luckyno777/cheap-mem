@@ -1023,9 +1023,13 @@ export const COMMANDS = {
     if (isHelp(args) || rest.length === 0) {
       out([
         'mem digest due [--volume-now KB] [--volume-min KB] [--quiet MIN] [--ceiling H]',
+        '               [--age-without-bell H]',
         'mem digest bell                 when the bell last rang',
         '',
         '  `due` exits 0 = not due, 1 = due, 3 = cannot tell.',
+        '  Without a bell the digest is due from 500 KB, or when the OLDEST',
+        '  open capture is 24 h old (--age-without-bell H); a name without a',
+        '  readable time is reported as "age not measurable", never as young.',
         '  Meant for a timer that runs often and cheaply: it does no',
         '  work and starts no model, it only answers the question.',
       ].join('\n'));
@@ -1042,20 +1046,23 @@ export const COMMANDS = {
     }
 
     if (rest[0] === 'due') {
-      checkFlags(args, ['volume-now', 'volume-min', 'quiet', 'ceiling', 'json'], 'digest due');
+      checkFlags(args, ['volume-now', 'volume-min', 'quiet', 'ceiling', 'age-without-bell', 'json'], 'digest due');
       const th = {};
       if (args['volume-now']) th.volumeNow = numberFlag('volume-now', args['volume-now'], { min: 0 }) * 1024;
       if (args['volume-min']) th.volumeMin = numberFlag('volume-min', args['volume-min'], { min: 0 }) * 1024;
       if (args.quiet) th.quietMs = numberFlag('quiet', args.quiet, { min: 0 }) * 60000;
       if (args.ceiling) th.ceilingMs = numberFlag('ceiling', args.ceiling, { min: 0 }) * 3600000;
+      if (args['age-without-bell']) th.ageWithoutBellMs = numberFlag('age-without-bell', args['age-without-bell'], { min: 0 }) * 3600000;
       let d;
       try { d = raw.due(root, { thresholds: th }); }
       catch (e) { out(`cannot tell: ${e.message}`); process.exit(3); }
       if (args.json) { out(JSON.stringify(d)); process.exit(d.due ? 1 : 0); }
       const size = d.bytes ? `${Math.round(d.bytes / 1024)} KB` : '0 KB';
+      const age = d.oldestMin !== undefined ? `, oldest open capture ${Math.round(d.oldestMin / 60)} h`
+        : (d.ageReason ? ', age not measurable' : '');
       out(d.due
-        ? `DUE (${d.reason}), ${d.captures ?? 0} captures, ${size}`
-        : `not due (${d.reason}), ${d.captures ?? 0} captures, ${size}`);
+        ? `DUE (${d.reason}), ${d.captures ?? 0} captures, ${size}${age}`
+        : `not due (${d.reason}), ${d.captures ?? 0} captures, ${size}${age}`);
       process.exit(d.due ? 1 : 0);
     }
     die(`digest: unknown subcommand '${rest[0]}'. Known: due, bell`);

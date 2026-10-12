@@ -18,6 +18,7 @@
 #   MEM_DIGEST_VOLUME_MIN_KB  dueness threshold: below this, never
 #   MEM_DIGEST_QUIET_MIN      dueness threshold: quiet minutes
 #   MEM_DIGEST_CEILING_H      dueness threshold: ceiling in hours
+#   MEM_DIGEST_AGE_WITHOUT_BELL_H  without a bell: hours the OLDEST open capture may wait
 #   MEM_DIGEST_STALE_MIN      age at which a lock left by a crashed run
 #                             counts as stale (default 120; only used
 #                             where there is no flock, e.g. macOS)
@@ -133,6 +134,7 @@ DUE_ARGS=""
 [ -n "${MEM_DIGEST_VOLUME_MIN_KB:-}" ] && DUE_ARGS="$DUE_ARGS --volume-min $MEM_DIGEST_VOLUME_MIN_KB"
 [ -n "${MEM_DIGEST_QUIET_MIN:-}" ]     && DUE_ARGS="$DUE_ARGS --quiet $MEM_DIGEST_QUIET_MIN"
 [ -n "${MEM_DIGEST_CEILING_H:-}" ]     && DUE_ARGS="$DUE_ARGS --ceiling $MEM_DIGEST_CEILING_H"
+[ -n "${MEM_DIGEST_AGE_WITHOUT_BELL_H:-}" ] && DUE_ARGS="$DUE_ARGS --age-without-bell $MEM_DIGEST_AGE_WITHOUT_BELL_H"
 # DUE_ARGS is built here and word splitting is wanted.
 #
 # The reason goes on its OWN line, not behind the directive: written as

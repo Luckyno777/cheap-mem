@@ -66,9 +66,14 @@ in the dueness check, not in the schedule:
 | quiet | 45 min since the **last** capture | `--quiet` | `MEM_DIGEST_QUIET_MIN` |
 | ceiling | 8 h since the **first** | `--ceiling` | `MEM_DIGEST_CEILING_H` |
 | floor | below 32 KB pending a call is not worth it, until the ceiling | `--volume-min` | `MEM_DIGEST_VOLUME_MIN_KB` |
+| age, no bell | with NO bell (a crash, the bell file gone): the **oldest** open capture is 24 h old | `--age-without-bell` | `MEM_DIGEST_AGE_WITHOUT_BELL_H` |
 
 **No capture means no bell, and no bell means no call.** A week away
-costs exactly zero.
+costs exactly zero. The one exception is material that is already lying
+there without a bell: from 500 KB, or when its oldest capture has waited
+24 h, the digest runs once and clears it. The age comes from the capture's
+file name; a name without a readable time is reported as "age not
+measurable", never as young.
 
 Quiet counts from the last bell, not the first. Counting from the first
 would fire the digest in the middle of your working day, when the

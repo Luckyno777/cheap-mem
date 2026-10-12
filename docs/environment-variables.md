@@ -85,6 +85,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_CATCH_FAIL_TOP` | 3 | How many hits the swallowed-failure hook shows at most. |
 | `MEM_CORRECTION_RARE_DF` | 3 | Document frequency at or below which a word counts as rare in the correction warning. |
 | `MEM_DIGEST_AGE_RESERVE_PCT` | 25 | Share of a digest batch reserved for the oldest captures. |
+| `MEM_DIGEST_AGE_WITHOUT_BELL_H` | not set (the due check's own default, 24 hours) | AU4: without a bell, hours the OLDEST open capture may wait before a digest is due (besides the 500 KB volume rule). |
 | `MEM_DIGEST_ARGS` | `-p` | Windows digest: arguments of the model command. |
 | `MEM_DIGEST_CEILING_H` | not set (the due check's own default) | Hours after which a digest is due regardless. |
 | `MEM_DIGEST_DEDUP_SINCE` | not set (whole memory) | Window such as `30d`, `24h` or `90m` of entries the digest compares against for duplicates. |
