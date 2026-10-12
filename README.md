@@ -235,8 +235,10 @@ Nowhere. That is not a policy, it is the architecture:
 - **Redacted before it touches the disk.** Everything captured goes
   through a redaction pass first: tokens, API keys, passwords and
   credential-shaped strings are masked before a single line is written.
-  `mem hooks install` arms a pre-commit check that proves itself against
-  a decoy token rather than asserting it works.
+  `mem hooks install` (done for you by `mem init` and `mem setup claude` in a
+  git repository) arms a pre-commit check that proves itself against a decoy
+  token rather than asserting it works, and refuses any commit that changes or
+  deletes a line a log already holds.
 - **Zero runtime dependencies.** `npm install` pulls nothing. The core —
   capture, search, digest — runs on Node's standard library. There is no
   supply chain to audit because there is no supply.
@@ -425,7 +427,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 195 modules, 4281
+As of 2026-09-26: **85 CLI commands, 42 MCP tools, 196 modules, 4281
 tests**; as of 2026-09-20, about 81757 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 

@@ -172,4 +172,43 @@ if [ -n "$FINDINGS" ]; then
   exit 1
 fi
 
+# Second check (AU11): append-only. No committed line of a memory log may be
+# changed or deleted - new lines only at the END. The rule, the file list (the
+# memory's logs, so no list of exceptions is needed) and the approval variable
+# are in src/appendonly.mjs. Read from the index, not the working tree. A crash
+# of the check refuses the commit (nothing printed + exit != 0 is not "all fine").
+if [ -f "$PKG/hooks/append-only.mjs" ] && [ -f "$PKG/src/appendonly.mjs" ]; then
+  APPEND_OUT="$(node "$PKG/hooks/append-only.mjs" 2>&1)"
+  APPEND_RC=$?
+  if [ "$APPEND_RC" -ne 0 ] && [ -z "$APPEND_OUT" ]; then
+    echo "pre-commit: the append-only check did not finish (exit $APPEND_RC)." >&2
+    echo "  The commit is refused, because nothing was actually checked." >&2
+    exit 1
+  fi
+  if [ "$APPEND_RC" -ne 0 ]; then
+    echo "" >&2
+    echo "pre-commit: APPEND-ONLY broken - committed log lines changed or deleted:" >&2
+    echo "" >&2
+    echo "$APPEND_OUT" | sed 's/^/  /' >&2
+    echo "" >&2
+    echo "  Logs are append-only: new lines only at the END. A correction is a new" >&2
+    echo "  line (mem correction ...), never an edit." >&2
+    echo "" >&2
+    echo "  Rescue path, by accident (merge, editor, reformatting, a branch on an" >&2
+    echo "  old state): reset the file to HEAD and append only what is new:" >&2
+    echo "    git restore --staged --worktree -- <file>     (discards the change to that file)" >&2
+    echo "  Save what was new first: git diff --cached -- <file> > /tmp/new.patch" >&2
+    echo "" >&2
+    echo "  Deliberate (a real redaction, an entry moved to another drawer) - ONLY" >&2
+    echo "  with the owner's approval, the approval goes into the text:" >&2
+    echo "    CHEAP_MEM_JSONL_APPROVAL=\"<reason, approval id>\" git commit ..." >&2
+    echo "  The check then names reason and files in the log and lets that commit through." >&2
+    echo "" >&2
+    exit 1
+  fi
+  # Approval case: the check spoke on stderr (exit 0, merged into the output) -
+  # pass it on so it stands in the log.
+  [ -n "$APPEND_OUT" ] && echo "$APPEND_OUT" >&2
+fi
+
 exit 0

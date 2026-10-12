@@ -67,6 +67,12 @@ git config, so every clone needs this once:
 mem hooks install     # installs the pre-commit scan and proves it with a decoy token
 ```
 
+If the memory already is a git repository, `mem init` and `mem setup claude` arm
+it for you (and leave a `core.hooksPath` that is set alone). The same pre-commit
+hook also refuses any commit that changes or deletes a line a log already holds -
+logs only grow at the end; a deliberate change needs
+`CHEAP_MEM_JSONL_APPROVAL="<reason, approval id>"` for that one commit.
+
 ## 5. Edit FACTS.md
 
 Put things a session should know without asking:

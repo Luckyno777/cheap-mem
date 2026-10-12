@@ -106,6 +106,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_SOLUTION_ATTACH', SWITCH, 'on (`0` switches it off)', 'With `0` the recall hooks no longer put the newest valid solution (a `resolves` link) as one line under a shown error.'),
   sw('MEM_SKILL_ACCOUNT_OFFER', SWITCH, 'on (`0` switches it off)', 'With `0` a skill offer no longer brings the two most important lines of the skill\'s experience account.'),
   sw('MEM_CAPTURE_OFF', SWITCH, 'off', OFF('The raw capture of a session transcript')),
+  sw('CHEAP_MEM_JSONL_APPROVAL', SWITCH, 'not set (the pre-commit hook refuses any changed or deleted committed log line)', 'AU11: lets ONE commit change or delete committed lines of a memory log (a real redaction, an entry moved to another drawer). The value is the reason and the approval id; the hook names it and the files in the log. Set it inline before `git commit`, never export it.'),
   sw('MEM_STOP_NO_PUSH', SWITCH, 'off (the stop hook commits and pushes)', 'With `1` the stop hook does not push.'),
   sw('MEM_REFLECT', SWITCH, 'off (opt-in)', 'With `1` the stop hook starts the model-backed reflector.'),
   sw('MEM_HEADLESS', SWITCH, 'not set', 'Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, and may not confirm projects, categories, appointments or mail permits.'),

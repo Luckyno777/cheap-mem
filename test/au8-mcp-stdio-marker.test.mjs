@@ -20,6 +20,11 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as runningmark from '../src/runningmark.mjs';
 
+// Temp directories made by this file are removed when the process ends.
+const MADE = [];
+process.on('exit', () => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* gone */ } } });
+const mkTmp = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); MADE.push(d); return d; };
+
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MCP = process.env.AU8_MCP_PATH || path.join(REPO, 'bin', 'mem-mcp');
 
@@ -28,7 +33,7 @@ const sdk = spawnSync(process.execPath, ['--input-type=module', '-e',
 const skip = sdk ? false : 'SDK @modelcontextprotocol/sdk not installed - stdio probe cannot run';
 
 function memory() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-au8-'));
+  const root = mkTmp('cm-au8-');
   const r = spawnSync('node', [path.join(REPO, 'bin', 'mem'), 'init'], { cwd: root, encoding: 'utf8', timeout: 30000 });
   assert.equal(r.status, 0, r.stderr);
   return root;

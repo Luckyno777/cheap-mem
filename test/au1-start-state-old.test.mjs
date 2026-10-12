@@ -24,6 +24,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+// Temp directories made by this file are removed when the process ends.
+const MADE = [];
+process.on('exit', () => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* gone */ } } });
+const mkTmp = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); MADE.push(d); return d; };
+
 const REPO = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const HOOK = process.env.AU1_HOOK_PATH || path.join(REPO, 'install', 'hooks', 'session-start.sh');
 const ID = ['-c', 'user.name=probe', '-c', 'user.email=probe@example.test', '-c', 'commit.gpgsign=false'];
@@ -40,7 +45,7 @@ function commit(cwd, file, text, msg) {
 }
 
 function setup() {
-  const t = fs.mkdtempSync(path.join(os.tmpdir(), 'au1-'));
+  const t = mkTmp('au1-');
   const home = path.join(t, 'home');
   fs.mkdirSync(home, { recursive: true });
   const origin = path.join(t, 'origin.git');

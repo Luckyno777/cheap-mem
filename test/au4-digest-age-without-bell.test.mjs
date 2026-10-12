@@ -18,12 +18,17 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as raw from '../src/raw.mjs';
 
+// Temp directories made by this file are removed when the process ends.
+const MADE = [];
+process.on('exit', () => { for (const d of MADE) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* gone */ } } });
+const mkTmp = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); MADE.push(d); return d; };
+
 const REPO = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HOUR = 3600 * 1000;
 const NOW = new Date('2026-10-12T12:00:00Z');
 
 function memory() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-au4-'));
+  const root = mkTmp('cm-au4-');
   const r = spawnSync('node', [path.join(REPO, 'bin', 'mem'), 'init'], { cwd: root, encoding: 'utf8', timeout: 30000 });
   assert.equal(r.status, 0, r.stderr);
   return root;

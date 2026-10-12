@@ -28,6 +28,7 @@ A variable that is not in the table is not a switch: there is none.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `CHEAP_MEM_CALENDAR_ROUTE` | not set (no outside calendar) | Which route puts an appointment into a real calendar: SMTP invitation or the Google Calendar API. |
+| `CHEAP_MEM_JSONL_APPROVAL` | not set (the pre-commit hook refuses any changed or deleted committed log line) | AU11: lets ONE commit change or delete committed lines of a memory log (a real redaction, an entry moved to another drawer). The value is the reason and the approval id; the hook names it and the files in the log. Set it inline before `git commit`, never export it. |
 | `CHEAP_MEM_MAX_AUTHORITY` | not set (no ceiling; the digest sets `inferred`) | The highest authority a process may claim in what it writes. A model-backed writer must never produce a `user` entry; the digest and the reflector run under a lower ceiling. |
 | `CHEAP_MEM_MCP_DECRYPT` | off (the bridge shows encrypted entries as unreadable) | With `1` the MCP bridge decrypts entries written with `shred` for the agents connected to it. The keyring sits beside the data, so without this a connected foreign agent could read what a clone of the git data cannot. |
 | `CHEAP_MEM_MCP_READONLY` | off (full tool profile) | With `1` the MCP bridge offers only the read tools. |
