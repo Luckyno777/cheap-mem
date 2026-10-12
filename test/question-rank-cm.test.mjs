@@ -285,7 +285,7 @@ test('POSITIVE CONTROL: a legacy question without any tier closes on any edge, a
 // --- The guard sits in the write core: a headless run never writes tier user ----------
 
 const FORMS = [
-  ['log decision --authority user', (a) => ['log', 'decision', '--title', 'forged', '--choice', 'x', '--why', 'y', '--authority', 'user'], 'decision'],
+  ['log decision --authority user', () => ['log', 'decision', '--title', 'forged', '--choice', 'x', '--why', 'y', '--authority', 'user'], 'decision'],
   ['log decision with blanks and capitals', () => ['log', 'decision', '--title', 'forged', '--choice', 'x', '--why', 'y', '--authority', ' User\t'], 'decision'],
   ['log question --authority user', () => ['log', 'question', '--question', 'Forged person question?', '--authority', 'user'], 'question'],
   ['log link resolves --authority user', (a) => ['log', 'link', '--from', a.a.id, '--to', a.q.id, '--kind', 'resolves', '--authority', 'user'], 'link'],
@@ -333,4 +333,132 @@ test('the core refuses in-process too: memory.logEntry with tier user under MEM_
     if (before === undefined) delete process.env.MEM_HEADLESS; else process.env.MEM_HEADLESS = before;
   }
   assert.deepEqual(lines(root, 'decision').map((e) => e.title).sort(), ['t2', 't3']);
+});
+
+// --- Display: waiting is its own state, in every surface and in both builds ------------
+
+test('board tile, work tile and dashboard payload show "answered, waiting for you" apart from open and closed - full and compact build alike', async (t) => {
+  const board = await import('../src/board.mjs');
+  const dd = await import('../src/dashboard-data.mjs');
+  const compact = await import('../src/dashboard-compact.mjs');
+  const { root, q, a } = setup(t);
+  const open = memory.logEntry(root, 'question', { question: 'Still unanswered?', agent: 'session' }).entry;
+  assert.equal(cli(root, ['answer', q.id, '--with', a.id]).status, 0);
+
+  const tile = board.tileQuestions(root);
+  assert.match(tile.line, /1 open/);
+  assert.match(tile.line, /1 answered, waiting for you/);
+  assert.equal(tile.numbers.waiting, 1);
+
+  for (const [label, d] of [
+    ['full', dd.collectDashboard(root, {})],
+    ['compact', compact.collectCompact(root, { bytes: 1 * 1048576 })],
+  ]) {
+    assert.deepEqual(d.openQuestions.map((x) => x.id), [open.id], `${label}: open questions`);
+    assert.deepEqual(d.waitingQuestions.map((x) => x.id), [q.id], `${label}: waiting questions`);
+    const w = d.work.find((x) => x.title === 'Questions');
+    assert.equal(w.open, 1, label);
+    assert.equal(w.waiting, 1, label);
+    assert.match(w.note, /1 answered and waiting for you/, label);
+    assert.equal(d.system.find((x) => x.id === 'questions').numbers.waiting, 1, label);
+  }
+
+  // The person confirms: the question is closed in both builds, and the waiting list is empty.
+  assert.equal(cli(root, ['questions', 'confirm', q.id, '--authority', 'user']).status, 0);
+  for (const d of [dd.collectDashboard(root, {}), compact.collectCompact(root, { bytes: 1 * 1048576 })]) {
+    assert.deepEqual(d.waitingQuestions, []);
+    assert.deepEqual(d.openQuestions.map((x) => x.id), [open.id]);
+  }
+});
+
+test('the dashboard\'s single pass and question.all() are ONE rule: the same ids open, waiting and closed', async (t) => {
+  const { runPass } = await import('../src/dashboard-pass.mjs');
+  const { root, q, a } = setup(t);
+  const qa = memory.logEntry(root, 'question', { question: 'Agent asked?', agent: 'session' }).entry;
+  const qo = memory.logEntry(root, 'question', { question: 'Left alone?', agent: 'session', authority: 'user' }).entry;
+  cli(root, ['answer', q.id, '--with', a.id]);
+  cli(root, ['answer', qa.id, '--with', a.id]);
+  const all = question.all(root);
+  const pass = runPass(root, {}).questions;
+  const ids = (st) => all.filter((x) => stateOf(x) === st).map((x) => x.id).sort();
+  assert.deepEqual([...pass.openIds].sort(), ids('open'));
+  assert.deepEqual([...pass.waitingIds].sort(), ids('waiting'));
+  assert.deepEqual(ids('waiting'), [q.id]);
+  assert.deepEqual(ids('open'), [qo.id]);
+  assert.equal(pass.total, 3);
+});
+
+// --- The dashboard button: a task for a person only ---------------------------------
+
+test('task question-confirm: humanOnly, takes only an id (and a why), --authority user only from a password session', async () => {
+  const tasks = await import('../src/tasks.mjs');
+  const k = tasks.KINDS['question-confirm'];
+  assert.equal(k.humanOnly, true);
+  assert.throws(() => tasks.checkParams('question-confirm', { id: 'abcd1234', authority: 'user' }), /takes no parameter 'authority'/);
+  assert.throws(() => tasks.checkParams('question-confirm', { id: '--authority=user' }));
+  const none = k.command('/r', 'x', { id: 'abcd1234' }, {});
+  assert.ok(!none.args.includes('--authority'), 'no context must never mean user');
+  const viaBearer = k.command('/r', 'x', { id: 'abcd1234' }, { user: 'yes' });
+  assert.ok(!viaBearer.args.includes('--authority'), 'only a strict true counts');
+  const person = k.command('/r', 'x', { id: 'abcd1234', why: 'ok' }, { user: true });
+  assert.deepEqual(person.args.slice(0, 3), ['questions', 'confirm', 'abcd1234']);
+  assert.deepEqual(person.args.slice(-2), ['--authority', 'user']);
+  assert.ok(person.args.includes('--why=ok'));
+});
+
+test('the command the task builds closes the question - and only with the claim from the session', (t) => {
+  const { root, q, a } = setup(t);
+  cli(root, ['answer', q.id, '--with', a.id]);
+  const withoutClaim = cli(root, ['questions', 'confirm', q.id, '--json']);
+  assert.notEqual(withoutClaim.status, 0);
+  assert.equal(stateOf(find(root, q.id)), 'waiting');
+  const r = cli(root, ['questions', 'confirm', q.id, '--json', '--authority', 'user']);
+  assert.equal(r.status, 0, r.stderr);
+  const j = JSON.parse(r.stdout);
+  assert.equal(j.confirmed, true);
+  assert.equal(j.question, q.id);
+  assert.ok(j.new);
+  assert.equal(stateOf(find(root, q.id)), 'closed');
+});
+
+test('dashboard script: state, badge, button and task are wired', () => {
+  const js = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'), 'utf8');
+  assert.match(js, /D\._waitingQuestion = new Set\(\(d\.waitingQuestions/);
+  assert.match(js, /D\._waitingQuestion\?\.has\(id\) \? 'waiting'/);
+  assert.match(js, /answered, waiting for you/);
+  assert.match(js, /btn\('Confirm answer', 'question-confirm'/);
+  assert.match(js, /case 'question-confirm':/);
+  assert.match(js, /taskStart\(\{ kind: 'question-confirm', id \}\)/);
+  assert.match(js, /'question-confirm': 'Started in the entry/);
+});
+
+test('dashboard live: the bearer token alone confirms nothing (403), the password session closes the question', async (t) => {
+  const { pathToFileURL } = await import('node:url');
+  const { personCookie } = await import('./person-session.mjs');
+  const { root, q, a } = setup(t);
+  cli(root, ['answer', q.id, '--with', a.id]);
+  const DOOR = ['probe', 'qrank', String(process.pid)].join('-');
+  const BEARER = { authorization: `Bearer ${DOOR}` };
+  const mod = await import(`${pathToFileURL(path.join(REPO, 'bin', 'mem-serve')).href}?t=${Math.random()}`);
+  const { server } = await mod.serve(root, { CHEAP_MEM_SERVE_TOKEN: DOOR, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0' }, { allowWrites: true });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const bearer = await fetch(`${base}/task`, { method: 'POST', headers: { ...BEARER, origin: base, accept: 'application/json' }, body: new URLSearchParams({ kind: 'question-confirm', id: q.id }) });
+    assert.equal(bearer.status, 403, await bearer.text());
+    assert.equal(stateOf(find(root, q.id)), 'waiting', 'the bearer closed a person\'s question');
+    assert.equal(lines(root, 'link').length, 1);
+    const cookie = `${personCookie(root)}; mem_k=${DOOR}`;
+    const ok = await fetch(`${base}/task`, { method: 'POST', headers: { ...BEARER, cookie, origin: base, accept: 'application/json' }, body: new URLSearchParams({ kind: 'question-confirm', id: q.id }) });
+    const started = await ok.json();
+    assert.equal(ok.status, 201, JSON.stringify(started));
+    let st;
+    for (let i = 0; i < 100; i += 1) {
+      st = await (await fetch(`${base}/task.json?id=${started.id}`, { headers: { ...BEARER, cookie } })).json();
+      if (st.running !== true) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    assert.equal(st.state, 'ok', JSON.stringify(st));
+    assert.equal(stateOf(find(root, q.id)), 'closed');
+    assert.equal(lines(root, 'link')[1].authority, 'user');
+  } finally { await new Promise((r) => { server.closeAllConnections?.(); server.close(r); }); }
 });

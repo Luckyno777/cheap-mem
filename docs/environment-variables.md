@@ -47,7 +47,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_CORRECTION_WARN_OFF` | off | With `1` `mem correction` does not warn when a rare word of the old entry is missing from the correction. |
 | `MEM_EXPAND` | off | With `1` the search also reads the `asked_as` phrasings stored next to an entry (document expansion, weight 0.3). Off, the search is bit-identical to before. |
 | `MEM_GOLD_DAILY` | yes | With `no` the digest does not run the daily gold-miss collection. |
-| `MEM_HEADLESS` | not set | Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, and may not confirm projects, categories, appointments or mail permits. |
+| `MEM_HEADLESS` | not set | Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, may not confirm projects, categories, appointments or mail permits, and never writes a line of tier `user` (refused in the write core). |
 | `MEM_HOOK_OFF` | off (all hook stages active) | Emergency stop for the whole hook chain in one session: every hook stage is switched off by `1`. A session without hooks has no memory. |
 | `MEM_RAW_EXCLUDE` | off | With `1` the raw capture skips the session (the environment form of the exclude mark). |
 | `MEM_RECALL_SERVER` | on (the hook asks the warm server when its socket exists) | With `0` the recall hook never asks the warm recall server and always searches directly. |

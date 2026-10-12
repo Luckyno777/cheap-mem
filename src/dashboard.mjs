@@ -163,17 +163,19 @@ export function* readRowsLazy(root, { onSkip = null } = {}) {
  * "0 open" and looks healthy. So a total of zero is `unknown`, not
  * `calm`, and says which of the two it is.
  */
-export function workTile(title, open, total, { noun, whenEmpty }) {
+export function workTile(title, open, total, { noun, whenEmpty, waiting = 0 }) {
   if (total === 0) {
     return { title, value: null, state: 'unknown', note: whenEmpty, open: null, total: 0 };
   }
   return {
     title,
     value: `${open} / ${total}`,
-    state: open > 0 ? 'watch' : 'calm',
-    note: `${open} of ${total} ${noun} still open`,
+    // `waiting`: answered, but only by someone below the person who asked it - it waits for that person.
+    state: open > 0 || waiting > 0 ? 'watch' : 'calm',
+    note: `${open} of ${total} ${noun} still open${waiting > 0 ? `, ${waiting} answered and waiting for you` : ''}`,
     open,
     total,
+    ...(waiting > 0 ? { waiting } : {}),
   };
 }
 
@@ -526,7 +528,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
   else try {
     const qs = question.all(root);
     questions = workTile('Questions', qs.filter((q) => q.open).length, qs.length,
-      { noun: 'questions', whenEmpty: 'no question has ever been asked' });
+      { noun: 'questions', whenEmpty: 'no question has ever been asked', waiting: qs.filter((q) => q.waiting).length });
   } catch (e) {
     questions = { title: 'Questions', value: null, state: 'unknown', note: `not measurable: ${e.message}`, open: null, total: null };
   }

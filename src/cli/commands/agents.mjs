@@ -547,7 +547,7 @@ export const COMMANDS = {
       out([
         'mem questions                    [--all] [--project <name>]',
         'mem questions new "<text>"       [--why "..."] [--topic ...] [--authority user]',
-        'mem questions confirm <id>       --authority user [--with <answer-id>] [--why "..."]',
+        'mem questions confirm <id>       --authority user [--with <answer-id>] [--why "..."] [--json]',
         '',
         '  What we do NOT know. Without a subcommand: the open ones, and the',
         '  answered ones that wait for a person\'s confirmation.',
@@ -602,7 +602,7 @@ export const COMMANDS = {
       return;
     }
     if (rest[0] === 'confirm') {
-      checkFlags(args, ['authority', 'with', 'why', 'project', 'root'], 'questions confirm');
+      checkFlags(args, ['authority', 'with', 'why', 'project', 'root', 'json'], 'questions confirm');
       const qid = rest[1];
       if (!qid) die('questions confirm: question id missing (mem questions confirm <question-id> --authority user).');
       // Confirming is the person's act: the explicit claim, not headless, not capped. Nothing is written otherwise.
@@ -624,6 +624,10 @@ export const COMMANDS = {
         why: args.why && args.why !== true ? String(args.why) : undefined,
         authority: 'user', confirmed: true, project: args.project ?? null,
       });
+      if (args.json) {
+        out(JSON.stringify({ confirmed: true, new: r.entry.id, question: qid, answer: pick.id, state: r.state }));
+        return;
+      }
       out(`${pick.id} resolves ${qid}, confirmed (link ${r.entry.id}) - the question is closed.`);
       return;
     }

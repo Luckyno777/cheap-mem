@@ -313,7 +313,7 @@ export function checkUserWrite(env = process.env) {
 }
 
 /** The tier a question carries when a human asked it. */
-export const HUMAN_QUESTION_TIER = 'user';
+const HUMAN_QUESTION_TIER = 'user';
 
 /**
  * Does this `resolves` edge CLOSE the question, or only record an answer?

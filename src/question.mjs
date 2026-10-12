@@ -48,7 +48,7 @@ export const TYPE = 'question';
 export const STATE = Object.freeze({ OPEN: 'open', WAITING: 'waiting', CLOSED: 'closed' });
 
 /** The edge that closes a question. From the existing vocabulary. */
-export const RESOLVES = 'resolves';
+const RESOLVES = 'resolves';
 
 /**
  * Check the fields. A question needs exactly one thing: the question.
