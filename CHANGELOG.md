@@ -92,7 +92,14 @@ a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, 
   written; `mem_log` refuses a number or a boolean in a text field. **Behaviour change:** old lines that carry `"key":
   true` or `"title": true` are broken and vanish from the readers (the doctor lists them); old lines with `"tags": true`
   (a list flag without a value) stay readable as an empty list, and `mem doctor` WARNS (`drawers`). A line nested deeper
-  than 64 levels is broken (an `origin` nested 40,000 deep overflowed the stack of find, viewer and doctor).
+  than 32 levels is broken (an `origin` nested 40,000 deep overflowed the stack of find, viewer and doctor).
+- **The shape rule is inverted (the same in lucky-mem).** A field the readers touch that the list did not name still
+  crashed them (the search field weights, the subject field per type). Now EVERY top-level field is judged: a text, a
+  number, a boolean, null, or a list of those; an object is wrong. The exception is a named allowlist of structured
+  fields (`origin`, `provenance`, `guard`, `chain_seal`, `body_enc`, `references`, `asked_evidence`), derived from the
+  real data (the CLI for every type, the fixtures, the bench corpora). No object carries a key that converts it
+  (`toString`, `valueOf`, `constructor`, ...), nothing nests deeper than 32 levels. **Behaviour change:** a hand-written
+  line with an object in a field outside the allowlist is broken now. `test/field-shape-inverted.test.mjs`.
 - **Cancelling a task needs a password session (breaking for tools).** `POST /task/cancel` took the bearer token alone;
   now `403` without a session, checked before the kind and the state. `raw-delete` cannot be cancelled (`409`: it frees
   the bytes, then writes the tombstone). **`export` is `humanOnly` (breaking for tools):** it decompresses the raw
@@ -114,6 +121,9 @@ a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, 
   nothing stands behind it: the viewer with the login off, and the MCP bridge over HTTP. With the login on the password
   stands behind the door and nothing changes; with a token nothing changes. **Breaking** for a token-less, login-less
   viewer or bridge that is reached through a local tunnel: set a token. `test/loopback-proxy-headers.test.mjs`.
+- **`mem doctor`'s `entry-form` still names the old swallowed-value damage** (`title: true` plus a field name with
+  whitespace) although the readers call such a line broken: it looks at the parsed line, with its place and its advice
+  (`drawers` counts the line too).
 - **Derived files are rebuilt once:** `backlinks.json` (version 2), `component-table.json` (2), the dashboard head (2)
   and the time track of a drawer (3) join the search index (15), so nothing built from lines that are broken now is
   served. **Restart note:** a long-running `mem serve` or `mem-mcp` process keeps its old code and its old in-memory

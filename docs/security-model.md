@@ -431,7 +431,9 @@ each was reproduced against a throwaway root here first.
   `context`, `facts`, `viewer`, `today` and the dashboard while the doctor was ok, and `--key` without a value wrote
   `true`. A text field is text now (the line is broken otherwise), `mem log` refuses a flag without a value except the
   real switches, `mem_log` refuses a number or a boolean there, and an old `tags: true` is read as an empty list with a
-  doctor warning. A line nested deeper than 64 levels is broken. `test/field-text-strict.test.mjs`,
+  doctor warning. A line nested deeper than 32 levels is broken. The rule is inverted: every top-level field is a scalar or a list of
+  scalars, objects only in a named allowlist (`origin`, `provenance`, `guard`, `chain_seal`, `body_enc`, `references`,
+  `asked_evidence`), and no object carries a key like `toString`. `test/field-text-strict.test.mjs`,
   `test/neighbours-poison.test.mjs` (the write-time neighbour hints read the drawer through the same rule).
 - **Derived files** (`backlinks.json`, `component-table.json`, the dashboard head, the time track) carry a new format
   version like the search index, so data built from lines that are broken now is not served.
