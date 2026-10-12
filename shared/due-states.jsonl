@@ -1,0 +1,32 @@
+{"id": "z01", "value": "2026-10-12", "now": "2026-10-11T21:59:59Z", "zone": "Europe/Berlin", "state": "fresh", "remark": "one second before Berlin midnight"}
+{"id": "z02", "value": "2026-10-12", "now": "2026-10-11T22:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "Berlin midnight (00:00 CEST)"}
+{"id": "z03", "value": "2026-10-12", "now": "2026-10-12T12:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "noon"}
+{"id": "z04", "value": "2026-10-12", "now": "2026-10-12T21:59:59Z", "zone": "Europe/Berlin", "state": "due", "remark": "one second before midnight of the following day"}
+{"id": "z05", "value": "2026-10-12", "now": "2026-10-12T22:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "overdue from 00:00 of the following day"}
+{"id": "z06", "value": "2026-10-12", "now": "2026-10-12T23:30:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "a UTC day would still say due"}
+{"id": "z07", "value": "2026-10-13", "now": "2026-10-12T23:30:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "a UTC day would still say fresh"}
+{"id": "z08", "value": "2026-10-25", "now": "2026-10-24T21:59:59Z", "zone": "Europe/Berlin", "state": "fresh", "remark": "before midnight CEST"}
+{"id": "z09", "value": "2026-10-25", "now": "2026-10-24T22:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "00:00 CEST"}
+{"id": "z10", "value": "2026-10-25", "now": "2026-10-25T22:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "23:00 CET — a 24-hour calculation says overdue already"}
+{"id": "z11", "value": "2026-10-25", "now": "2026-10-25T22:59:59Z", "zone": "Europe/Berlin", "state": "due", "remark": "last second of the 25-hour day"}
+{"id": "z12", "value": "2026-10-25", "now": "2026-10-25T23:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "00:00 CET of the 26th"}
+{"id": "z13", "value": "2026-10-24", "now": "2026-10-24T22:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "the day before ends on the same boundary"}
+{"id": "z14", "value": "2027-03-28", "now": "2027-03-27T22:59:59Z", "zone": "Europe/Berlin", "state": "fresh", "remark": "before midnight CET"}
+{"id": "z15", "value": "2027-03-28", "now": "2027-03-27T23:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "00:00 CET"}
+{"id": "z16", "value": "2027-03-28", "now": "2027-03-28T21:59:59Z", "zone": "Europe/Berlin", "state": "due", "remark": "23:59:59 CEST"}
+{"id": "z17", "value": "2027-03-28", "now": "2027-03-28T22:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "00:00 CEST of the 29th — a 24-hour calculation says an hour later"}
+{"id": "z18", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-11T21:59:59Z", "zone": "Europe/Berlin", "state": "fresh", "remark": "point: the day before"}
+{"id": "z19", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-11T22:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "point: the day begins"}
+{"id": "z20", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-12T12:59:59Z", "zone": "Europe/Berlin", "state": "due", "remark": "point: one second before"}
+{"id": "z21", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-12T13:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "point: from the point on"}
+{"id": "z22", "value": "2026-10-12", "now": "2026-10-12T03:59:59Z", "zone": "America/New_York", "state": "fresh", "remark": "before midnight EDT (04:00Z)"}
+{"id": "z23", "value": "2026-10-12", "now": "2026-10-12T04:00:00Z", "zone": "America/New_York", "state": "due", "remark": "00:00 EDT"}
+{"id": "z24", "value": "2026-10-12", "now": "2026-10-13T03:59:59Z", "zone": "America/New_York", "state": "due", "remark": "last second of the day"}
+{"id": "z25", "value": "2026-10-12", "now": "2026-10-13T04:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EDT of the 13th"}
+{"id": "z26", "value": "2026-11-01", "now": "2026-11-02T04:59:59Z", "zone": "America/New_York", "state": "due", "remark": "23:59:59 EST — the 25-hour day (Berlin changed a week earlier)"}
+{"id": "z27", "value": "2026-11-01", "now": "2026-11-02T05:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EST of the 2nd"}
+{"id": "z28", "value": "2027-03-14", "now": "2027-03-15T03:59:59Z", "zone": "America/New_York", "state": "due", "remark": "23:59:59 EDT — the 23-hour day"}
+{"id": "z29", "value": "2027-03-14", "now": "2027-03-15T04:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EDT of the 15th"}
+{"id": "z30", "value": "soon", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "no readable value"}
+{"id": "z31", "value": "2026-11-01T17:00", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "zone-less: unreadable"}
+{"id": "z32", "value": "2026-02-30", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "not a calendar day"}

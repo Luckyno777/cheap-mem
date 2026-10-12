@@ -1,0 +1,7 @@
+{"id": "field-due", "kind": "field", "lm": "frist", "cm": "due", "meaning": "due date of a duty (a follow-up is a duty that names its subject and carries a due date); YYYY-MM-DD in the house zone or an ISO point in time with a zone"}
+{"id": "field-shelf-life", "kind": "field", "lm": "gueltig_bis", "cm": "valid_until", "meaning": "shelf life of a fact; its own field, not the due date"}
+{"id": "type-duty", "kind": "type", "lm": "pflicht", "cm": "duty", "meaning": "the only type that may carry a due date"}
+{"id": "state-fresh", "kind": "state", "lm": "frisch", "cm": "fresh", "meaning": "the due date lies before the day it falls due"}
+{"id": "state-due", "kind": "state", "lm": "faellig", "cm": "due", "meaning": "the day of the due date is running (a point in time: up to it)"}
+{"id": "state-overdue", "kind": "state", "lm": "ueberfaellig", "cm": "overdue", "meaning": "passed: a day from 00:00 of the following day in the house zone, a point in time from it"}
+{"id": "state-unknown", "kind": "state", "lm": "unbekannt", "cm": "unknown", "meaning": "no readable value; never guessed fresh or overdue"}
