@@ -839,7 +839,18 @@ export async function cancel(root, kind, context = {}) {
  * (command, result, reason, progress), nested objects and lists too; other types pass unchanged.
  */
 function withoutServerPaths(root, value) {
-  const swaps = [[path.resolve(root), '<root>'], [path.resolve(HERE, '..'), '<code>']]
+  // Every spelling of the two folders: as given, as the file system names them (a symlinked root: the child reports the real
+  // path), and with either separator (a Windows path with `/`, a POSIX one with `\\`). The longer path first, so a root inside
+  // the code folder (or the other way round) is not replaced by halves.
+  const spellings = (dir, mark) => {
+    const given = path.resolve(dir);
+    let real = given;
+    try { real = fs.realpathSync(given); } catch { /* not there (any more): the given spelling alone */ }
+    const out = new Set();
+    for (const p of [given, real]) for (const q of [p, p.replace(/[\\/]/g, '\\'), p.replace(/[\\/]/g, '/')]) out.add(q);
+    return [...out].map((from) => [from, mark]);
+  };
+  const swaps = [...spellings(root, '<root>'), ...spellings(path.join(HERE, '..'), '<code>')]
     .filter(([from]) => from.length > path.parse(from).root.length) // never the bare drive root: that would eat every separator
     .sort((a, b) => b[0].length - a[0].length);
   const walk = (v) => {

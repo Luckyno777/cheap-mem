@@ -88,3 +88,44 @@ test('GET /task.json?id= over the real server carries no absolute path', async (
     assert.deepEqual(absolute(ov, r), []);
   } finally { await new Promise((ok) => { server.closeAllConnections?.(); server.close(ok); }); gone(r); }
 });
+
+// --- review 2026-10-12: a symlinked root, and paths written with the other separator -----------------------------------------
+
+test('tasks.read: a symlinked root (the child reports the real path) and both separators are covered', () => {
+  const real = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-taskpaths-real-'));
+  const linkBase = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-taskpaths-link-'));
+  const link = path.join(linkBase, 'root-link');
+  try {
+    fs.symlinkSync(real, link, 'dir');
+  } catch { fs.rmSync(real, { recursive: true, force: true }); fs.rmSync(linkBase, { recursive: true, force: true }); return; } // no symlinks here (Windows without the right)
+  try {
+    fs.mkdirSync(path.join(real, '.mem'), { recursive: true });
+    fs.writeFileSync(path.join(real, '.mem', 'config.json'), JSON.stringify({ name: 'tp', participants: ['someone'], language: 'en' }));
+    const realRoot = fs.realpathSync(real);
+    const back = (p) => p.replace(/[\\/]/g, '\\');
+    const fwd = (p) => p.replace(/[\\/]/g, '/');
+    const id = 'symlinktest01';
+    const file = tasks.statePath(link, id);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const code = path.resolve(REPO);
+    fs.appendFileSync(file, `${JSON.stringify({
+      event: 'started', ts: new Date().toISOString(), id, kind: 'export', pid: 1, serverEpoch: 'other',
+      command: [path.join(code, 'bin', 'mem'), 'raw', 'export', '--into', path.join(realRoot, '.mem', 'tasks', id, 'export')],
+    })}\n${JSON.stringify({
+      event: 'result', ts: new Date().toISOString(), id, state: 'warning',
+      result: { into: back(path.join(realRoot, 'x')), also: fwd(path.join(realRoot, 'y')), code: back(path.join(code, 'bin')) },
+      reason: `could not write ${path.join(path.resolve(link), 'z')} nor ${back(path.join(realRoot, 'z'))}`,
+    })}\n`);
+    const text = JSON.stringify(tasks.read(link, id));
+    for (const p of [realRoot, path.resolve(link), code]) {
+      for (const form of [p, back(p), fwd(p), JSON.stringify(back(p)).slice(1, -1)]) {
+        assert.ok(!text.includes(form), `${form} is still in the answer: ${text.slice(0, 600)}`);
+      }
+    }
+    assert.match(text, /<root>/);
+    assert.match(text, /<code>/);
+  } finally {
+    fs.rmSync(real, { recursive: true, force: true });
+    fs.rmSync(linkBase, { recursive: true, force: true });
+  }
+});
