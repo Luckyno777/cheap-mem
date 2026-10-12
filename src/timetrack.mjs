@@ -108,7 +108,8 @@ import { writeAtomic } from './atomicwrite.mjs';
 import { shapeProblem } from './fieldshape.mjs';
 import { tryLock, releaseLock, lockAgeS, takeOverIfStale } from './filelock.mjs';
 
-const TRACK_VERSION = 2;
+// 3 (review 2026-10-12): a version-2 track was built over lines that are read differently since the read-side fix.
+const TRACK_VERSION = 3;
 const TRACK_DIR = path.join('.mem', 'timetrack');
 /** Block size of the block table, in bytes (rounded up to a line boundary). */
 const BLOCK_BYTES = 128 * 1024;
