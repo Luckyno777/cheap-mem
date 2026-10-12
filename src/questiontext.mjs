@@ -63,11 +63,11 @@ import { redact, redactAgainstEnv, envSecrets } from './redaction.mjs';
 
 export const DIR_REL = path.join('.mem', 'local', 'question-text');
 export const ERRORS_REL = path.join('.pipeline', 'question-text-errors.jsonl');
-export const SHELF_DAYS = 30;
+const SHELF_DAYS = 30;
 /** Nothing longer is stored: pasted text is not a question and carries more that is private. */
 export const QUESTION_MAX_CHARS = 2000;
 /** The redaction sees at most this much text (run time of the patterns). */
-export const RAW_MAX_CHARS = 8000;
+const RAW_MAX_CHARS = 8000;
 const ERRORS_MAX_BYTES = 64 * 1024;
 const DAY_FILE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
 const DAY_MS = 86_400_000;
@@ -306,7 +306,7 @@ export function assess(root, { env = process.env, now = Date.now(), platform = p
     return {
       level: 'warn',
       text: `today's question-text file is readable by group/others (should be 0600) (${counts}).`,
-      advice: `chmod 600 ${DIR_REL}/*.jsonl`,
+      advice: `chmod 600 the day files in ${DIR_REL}/`,
     };
   }
   if (!st.on) {
