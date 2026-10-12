@@ -135,6 +135,9 @@ test('MCP bridge over HTTP without a token: a proxy header is refused (403), pla
   }
 });
 
+/** Put the real stderr writer back (a function of its own: eslint's require-atomic-updates dislikes an assignment after an await). */
+function restoreStderr(original) { process.stderr.write = original; }
+
 test('the viewer says ONCE on stderr why it turned a proxy-header request away (no token, login off), never the header value', async () => {
   const lines = [];
   const orig = process.stderr.write;
@@ -149,5 +152,5 @@ test('the viewer says ONCE on stderr why it turned a proxy-header request away (
     assert.equal(hint.length, 1, `exactly one hint expected: ${JSON.stringify(hint)}`);
     assert.match(hint[0], /CHEAP_MEM_SERVE_TOKEN/);
     assert.ok(!lines.join('').includes(headerValue), 'the header value must never be printed');
-  } finally { process.stderr.write = orig; await s.stop(); }
+  } finally { restoreStderr(orig); await s.stop(); }
 });
