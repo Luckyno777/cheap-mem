@@ -228,3 +228,87 @@ test('AU11: mem setup claude arms the memory\'s git hook as well (installer, not
   assert.equal(hooksPath(x, dir), path.join(dir, '.mem', 'hooks'));
   assert.ok(fs.existsSync(path.join(x.t, '.claude', 'settings.json')), 'the installer did not run in the temp home');
 });
+
+// --- merge commits (MERGE_HEAD): union merges reorder lines but lose none -----
+
+const jl = (...ids) => ids.map((i) => `{"id":"${i}"}`).join('\n') + '\n';
+
+/**
+ * A README conflict AND a union merge of a log in the same merge. With this order of lines (this side
+ * appends O1,X; the other side appends T1,C,X) git puts T1,C BEFORE this side's last X: HEAD is no
+ * byte prefix any more, no line was lost (the shape of the sibling's real cases 787da554a, 236fb06a9, 63658be1f).
+ */
+function mergeSetup() {
+  const x = tmp();
+  const dir = path.join(x.t, 'm'); fs.mkdirSync(dir);
+  gitOk(x, dir, 'init', '-q', '-b', 'main');
+  assert.equal(mem(x, dir, 'init').status, 0);
+  const w = (rel, text) => fs.writeFileSync(path.join(dir, rel), text);
+  w('global/errors.jsonl', jl('B', 'Y', 'A')); w('README.md', 'base\n');
+  gitOk(x, dir, 'add', '-A'); gitOk(x, dir, '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'base');
+  gitOk(x, dir, 'checkout', '-q', '-b', 'side');
+  w('global/errors.jsonl', jl('B', 'Y', 'A', 'O1', 'X')); w('README.md', 'side\n');
+  gitOk(x, dir, '-c', 'core.hooksPath=/dev/null', 'commit', '-qam', 'side');
+  gitOk(x, dir, 'checkout', '-q', 'main');
+  w('global/errors.jsonl', jl('B', 'Y', 'A', 'T1', 'C', 'X')); w('README.md', 'main\n');
+  gitOk(x, dir, '-c', 'core.hooksPath=/dev/null', 'commit', '-qam', 'main');
+  gitOk(x, dir, 'checkout', '-q', 'side');
+  assert.equal(hooksPath(x, dir), path.join(dir, '.mem', 'hooks'), 'precondition: `mem init` armed the hook');
+  const m = git(x, dir, 'merge', '--no-commit', 'main');
+  assert.notEqual(m.status, 0, 'precondition: the merge stops at the README');
+  w('README.md', 'resolved\n'); gitOk(x, dir, 'add', 'README.md');
+  const head = gitOk(x, dir, 'show', 'HEAD:global/errors.jsonl');
+  assert.ok(!fs.readFileSync(path.join(dir, 'global', 'errors.jsonl'), 'utf8').startsWith(head), 'precondition: HEAD is NO byte prefix of the united file');
+  return { x, dir, w };
+}
+
+test('AU11 merge: a union merge (no prefix, nothing lost) goes through as a merge commit', () => {
+  const m = mergeSetup();
+  const c = git(m.x, m.dir, 'commit', '--no-edit');
+  assert.equal(c.status, 0, c.stderr);
+  const lines = gitOk(m.x, m.dir, 'show', 'HEAD:global/errors.jsonl').split('\n').filter(Boolean);
+  for (const id of ['B', 'Y', 'A', 'O1', 'X', 'T1', 'C']) assert.ok(lines.includes(`{"id":"${id}"}`), `line ${id} missing`);
+});
+
+test('AU11 merge counter-probe: the same state WITHOUT MERGE_HEAD (a plain commit) is refused', () => {
+  const m = mergeSetup();
+  fs.rmSync(path.join(m.dir, '.git', 'MERGE_HEAD'));
+  const c = git(m.x, m.dir, 'commit', '-m', 'plain');
+  assert.notEqual(c.status, 0);
+  assert.match(c.stderr, /changed or removed/);
+});
+
+test('AU11 merge: a line lost in the merge is refused - with the merge rescue path, not "git restore"', () => {
+  const m = mergeSetup();
+  const p = path.join(m.dir, 'global', 'errors.jsonl');
+  fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace('{"id":"O1"}\n', ''));
+  gitOk(m.x, m.dir, 'add', 'global/errors.jsonl');
+  const c = git(m.x, m.dir, 'commit', '--no-edit');
+  assert.notEqual(c.status, 0);
+  assert.match(c.stderr, /the merge lost 1 line\(s\) of this side/);
+  assert.match(c.stderr, /DURING A MERGE/);
+  assert.match(c.stderr, /git merge --abort/);
+  assert.match(c.stderr, /NOT 'git restore --staged --worktree'/);
+});
+
+test('AU11 merge: the multiset counts - a line HEAD holds twice that the merge leaves once is lost', () => {
+  const x = tmp();
+  const dir = path.join(x.t, 'm'); fs.mkdirSync(dir);
+  gitOk(x, dir, 'init', '-q', '-b', 'main');
+  assert.equal(mem(x, dir, 'init').status, 0);
+  const w = (rel, text) => fs.writeFileSync(path.join(dir, rel), text);
+  w('global/errors.jsonl', jl('A', 'D', 'D'));
+  gitOk(x, dir, 'add', '-A'); gitOk(x, dir, '-c', 'core.hooksPath=/dev/null', 'commit', '-q', '-m', 'base');
+  // a (pretended) merge in progress whose result keeps D only once
+  w('global/errors.jsonl', jl('D', 'A'));
+  gitOk(x, dir, 'add', '-A');
+  fs.writeFileSync(path.join(dir, '.git', 'MERGE_HEAD'), `${gitOk(x, dir, 'rev-parse', 'HEAD')}\n`);
+  const c = git(x, dir, 'commit', '--no-edit', '-m', 'merge');
+  assert.notEqual(c.status, 0);
+  assert.match(c.stderr, /the merge lost 1 line\(s\)/);
+  // and the same file with D kept twice, only reordered, passes
+  w('global/errors.jsonl', jl('D', 'A', 'D'));
+  gitOk(x, dir, 'add', '-A');
+  const ok = git(x, dir, 'commit', '--no-edit', '-m', 'merge');
+  assert.equal(ok.status, 0, ok.stderr);
+});

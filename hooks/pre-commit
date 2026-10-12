@@ -194,10 +194,22 @@ if [ -f "$PKG/hooks/append-only.mjs" ] && [ -f "$PKG/src/appendonly.mjs" ]; then
     echo "  Logs are append-only: new lines only at the END. A correction is a new" >&2
     echo "  line (mem correction ...), never an edit." >&2
     echo "" >&2
-    echo "  Rescue path, by accident (merge, editor, reformatting, a branch on an" >&2
-    echo "  old state): reset the file to HEAD and append only what is new:" >&2
-    echo "    git restore --staged --worktree -- <file>     (discards the change to that file)" >&2
-    echo "  Save what was new first: git diff --cached -- <file> > /tmp/new.patch" >&2
+    if git rev-parse -q --verify MERGE_HEAD >/dev/null 2>&1; then
+      echo "  Rescue path DURING A MERGE (MERGE_HEAD present): NOT 'git restore --staged --worktree'" >&2
+      echo "  (that would throw away the whole merge of the file). Lines of this side were lost in" >&2
+      echo "  the merge. Drop the merge and start again:" >&2
+      echo "    git merge --abort     then merge again; unite log conflicts, never pick one side" >&2
+      echo "  Or unite the file by hand (keep both sides) and stage it again:" >&2
+      echo "    git checkout --merge -- <file>    (restores the conflicted state)" >&2
+    elif git rev-parse -q --verify REVERT_HEAD >/dev/null 2>&1; then
+      echo "  Rescue path DURING A REVERT (REVERT_HEAD present): the revert removes appended lines." >&2
+      echo "  Deliberate: commit with the approval below. Otherwise: git revert --abort" >&2
+    else
+      echo "  Rescue path, by accident (editor, reformatting, a branch on an old state): reset the" >&2
+      echo "  file to HEAD and append only what is new:" >&2
+      echo "    git restore --staged --worktree -- <file>     (discards the change to that file)" >&2
+      echo "  Save what was new first: git diff --cached -- <file> > /tmp/new.patch" >&2
+    fi
     echo "" >&2
     echo "  Deliberate (a real redaction, an entry moved to another drawer) - ONLY" >&2
     echo "  with the owner's approval, the approval goes into the text:" >&2

@@ -252,6 +252,12 @@ export const COMMANDS = {
     });
     if (r.status !== 0) die(`setup: ${script} failed (exit ${r.status})`);
 
+    // AU11: the installer arms the git hook of the memory itself (git repo, nothing set yet). Right
+    // after the wiring succeeded and BEFORE the optional MCP part: a missing SDK returns early below
+    // and must not leave the secret check unarmed.
+    const armedHook = armHookIfRepo(root);
+    if (armedHook.lines.length) { out(''); for (const l of armedHook.lines) out(l); }
+
     // The MCP server is the one piece the install script does not do.
     // Registering it needs the claude CLI; when that is absent, say the
     // command rather than pretending the step happened.
@@ -284,9 +290,6 @@ export const COMMANDS = {
     } else {
       out(`claude CLI not found. Register the MCP server yourself:\n  ${mcpCmd}`);
     }
-    // AU11: the installer arms the git hook of the memory itself (git repo, nothing set yet).
-    const armedHook = armHookIfRepo(root);
-    if (armedHook.lines.length) { out(''); for (const l of armedHook.lines) out(l); }
     out('');
     out('Check it took: mem doctor   (the stop-hook and git-hook findings)');
   },

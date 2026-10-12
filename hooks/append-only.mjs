@@ -20,6 +20,7 @@ if (found.length === 0) process.exit(0);
 
 const text = found.map((f) => {
   if (f.kind === 'deleted') return `${f.rel}: file deleted (HEAD had ${f.committedLines} lines)`;
+  if (f.kind === 'merge-lost') return `${f.rel}: the merge lost ${f.missing} line(s) of this side (HEAD has ${f.committedLines} lines)`;
   if (f.kind === 'changed') return `${f.rel}: a committed line was changed or removed (first difference at line ${f.line}, HEAD has ${f.committedLines} lines)`;
   return `${f.rel}: cannot be checked (git did not hand over a version)`;
 });

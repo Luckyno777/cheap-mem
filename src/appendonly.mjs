@@ -17,6 +17,12 @@
  * tool's own tables and measurements (`shared/`, `eval/`, `bench/`, `test/`) are
  * not on it, because their lines are rewritten on purpose.
  *
+ * **A merge commit (MERGE_HEAD present).** `*.jsonl merge=union` (written by `mem init`) puts lines of
+ * the other side partly BEFORE the last line of this side - no byte prefix any more, no line lost
+ * (the sibling's real cases 787da554a, 236fb06a9, 63658be1f). In a merge the rule is looser: every HEAD
+ * line is still contained (as a multiset - a line held twice must still be there twice). A lost line
+ * is still refused.
+ *
  * **A deliberate change** (a real redaction, an entry moved to another drawer)
  * goes through with `CHEAP_MEM_JSONL_APPROVAL="<reason, approval id>"`: the hook
  * lets that ONE commit pass and names reason and files on stderr. Without it the
@@ -57,6 +63,19 @@ export function onlyAppended(committed, current) {
   return { ok: false, line };
 }
 
+/** How many lines of `committed` are missing from `current`, counted as a multiset (order and extras do not matter). */
+function missingLines(committed, current) {
+  const have = new Map();
+  for (const l of lf(current).split('\n')) if (l !== '') have.set(l, (have.get(l) ?? 0) + 1);
+  let missing = 0;
+  for (const l of lf(committed).split('\n')) {
+    if (l === '') continue;
+    const n = have.get(l) ?? 0;
+    if (n > 0) have.set(l, n - 1); else missing += 1;
+  }
+  return missing;
+}
+
 function git(root, args) {
   return execFileSync('git', ['-C', root, ...args], {
     encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: 20000, stdio: ['ignore', 'pipe', 'ignore'],
@@ -65,11 +84,13 @@ function git(root, args) {
 
 /**
  * What the next commit (the INDEX, not the working tree) does to the memory's
- * logs: `[{ rel, kind: 'changed'|'deleted'|'unreadable', line?, committedLines }]`.
+ * logs: `[{ rel, kind: 'changed'|'merge-lost'|'deleted'|'unreadable', line?, missing?, committedLines }]`.
  * New files are not findings; `unreadable` (git could not hand over a version)
  * is reported, never waved through.
  */
 export function stagedViolations(root) {
+  let merging = false;
+  try { git(root, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']); merging = true; } catch { merging = false; }
   const raw = git(root, ['diff', '--cached', '--name-status', '--no-renames', '--diff-filter=MD', '-z']);
   const parts = raw.split('\0').filter((p) => p !== '');
   const out = [];
@@ -84,7 +105,14 @@ export function stagedViolations(root) {
     let staged;
     try { staged = git(root, ['show', `:${rel}`]); } catch { out.push({ rel, kind: 'unreadable', committedLines }); continue; }
     const v = onlyAppended(committed, staged);
-    if (!v.ok) out.push({ rel, kind: 'changed', line: v.line, committedLines });
+    if (v.ok) continue;
+    if (merging) {
+      const missing = missingLines(committed, staged);
+      if (missing === 0) continue;   // union merge: reordered, nothing lost
+      out.push({ rel, kind: 'merge-lost', missing, committedLines });
+      continue;
+    }
+    out.push({ rel, kind: 'changed', line: v.line, committedLines });
   }
   return out;
 }
