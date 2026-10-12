@@ -143,8 +143,10 @@ claims inside a request.
 The safe reverse-proxy shape needs a **token**:
 
 ```bash
-# CHEAP_MEM_MCP_TOKEN: a long random string (for example the output of `openssl rand -hex 32`)
-# exported in the environment of this process, not written into a file that is committed
+# Replace <long-random-string> with one, for example the output of `openssl rand -hex 32` (left as it stands, the
+# shell refuses this line, so a copied block never starts token-less). Keep it in the environment of this process,
+# not in a file that is committed.
+CHEAP_MEM_MCP_TOKEN=<long-random-string> \
 CHEAP_MEM_ROOT=/absolute/path/to/your-memory \
 CHEAP_MEM_AGENT=chat-client \
 CHEAP_MEM_MCP_HOSTS=memory.example.org \

@@ -1435,10 +1435,14 @@ function* checkDrawers(root) {
   if (scan.broken.length > 0) {
     const first = scan.broken[0];
     const where = first.line ? `${first.file}:${first.line}` : first.file;
+    // The legacy-list warning must not vanish behind the broken line (second review 2026-10-12): it is named in the same finding.
+    const legacy = scan.listWithoutValue?.[0];
     yield finding('drawers', LEVEL.ERROR,
-      `${scan.broken.length} unparsable lines in ${files.length} files, first at ${where} (${first.why})`,
+      `${scan.broken.length} unparsable lines in ${files.length} files, first at ${where} (${first.why})`
+      + (legacy ? `; also ${scan.listWithoutValue.length} line(s) carry a list field without a list (${legacy.fields.join(', ')} at ${legacy.file}:${legacy.line})` : ''),
       'A JSONL line that is not JSON was hand-edited or half-written. '
-      + 'The answer to a broken line in an append-only log is a new line, never a repair.');
+      + 'The answer to a broken line in an append-only log is a new line, never a repair.'
+      + (legacy ? ' The list field without a list is read as an empty list; the answer is a correction with the real list (`mem correction`).' : ''));
     return;
   }
   if (scan.listWithoutValue?.length) {
