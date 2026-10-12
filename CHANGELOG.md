@@ -32,6 +32,38 @@ Reproduced in a real Chromium on the previous tip first (red), then fixed (green
   the whole entry stock (done, restore, merge) stay with the rebuild. New probe switch
   `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS`.
 
+### Security - a person's question closes only on the person's confirmation; a headless run never writes tier `user` (2026-10-12)
+
+Port of lucky-mem `fragen-rang-lm` (owner decision, variant A). Reproduced on the previous tip first (red), then fixed
+(green): `test/question-rank-cm.test.mjs`.
+
+- **The `resolves` gap.** `question.all()` read "some `resolves` edge points at it" and never asked who wrote the edge, so
+  `mem answer`, the bridge's `mem_answer` and a raw `mem log link --kind resolves` closed a question the owner had asked
+  himself. A question of tier `user` is now closed only by an edge of tier `user` (`authority.mayCloseQuestion`); an
+  agent's answer leaves it `waiting` ("answered, waiting for you") in `mem questions`, the board tile, the work tile, the
+  dashboard payload (`waitingQuestions`, full and compact build) and the entry state. Every other question closes on any
+  edge, as before. Nothing is rewritten: the state is folded from the graph (`question.stateFrom`).
+- **The person's way.** `mem questions new "..." --authority user` asks as the person, `mem questions confirm <id>
+  --authority user` closes an answered question, `mem answer ... --authority user` answers and closes at once; the
+  dashboard has a "Confirm answer" button (task `question-confirm`, password session only, 403 for the token alone).
+  The bridge has no confirm tool on purpose.
+- **A headless run never writes as the person.** The guard moved from single commands into the write core
+  (`memory.logEntry`): a line that would carry tier `user` from a run with `MEM_HEADLESS` set is refused, whatever the
+  route. Under a lower `CHEAP_MEM_MAX_AUTHORITY` the claim is still lowered and recorded (digest, reflector unchanged).
+  `authority.checkNotHeadless / checkUnderUserCeiling / checkUserWrite` are the shared parts; `mailpermit` uses them.
+- **Existing data changes state, once, on update.** A question a person asked (tier `user`) that an agent has ALREADY
+  closed before this update reads as `waiting` afterwards, not as closed: the rule is folded from the graph on every read,
+  so no migration runs and no line changes. Look for them with `mem questions` and close each with
+  `mem questions confirm <id> --authority user` (or leave it waiting). Questions asked by agents, and old ones without a
+  tier, are unaffected.
+- **What the headless guard is for.** It protects against accidental and injected writing (a watcher-woken or
+  reflector session, a prompt that talks an agent into claiming the person's word). It is not a defence against an agent
+  that has its own shell: whoever has a shell is a person for the CLI, as in `docs/security-model.md`.
+- **Counts.** Waiting questions are counted apart, beside `open` and never inside it: the per-project `waitingQuestions`
+  (full and compact build), the weekly metric `waitingQuestions` in the measurement series, and the board/work tiles.
+- **The button.** "Confirm answer" is a live button only where the dashboard has a password session (the same test as the
+  category clicks); otherwise it is shown disabled with the command to copy, instead of a click that ends in a 403.
+
 ### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
 
 Each finding was reproduced on the previous tip first (red), then fixed (green). `test/closing-why-gate.test.mjs`,

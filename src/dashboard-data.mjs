@@ -810,7 +810,7 @@ export function collectDashboard(root, {
   doctorCheck = doctor.checkAll,
   // The compact build (src/dashboard-compact.mjs) answers these from its single
   // pass or marks them unknown; in service they read the whole store.
-  dutiesOpen = memory.openDuties, questionsOpen = question.open,
+  dutiesOpen = memory.openDuties, questionsOpen = question.open, questionsWaiting = question.waiting,
   todayOf = today.today, integrityOf = integrity.scanIntegrity,
 } = {}) {
   const d = collect(root, { env, now, cfg });
@@ -864,6 +864,11 @@ export function collectDashboard(root, {
   try {
     for (const q of questionsOpen(root)) if (q?.id) openQuestions.push({ id: q.id });
   } catch (e) { reasons.push(`questions not readable: ${e?.message || e}`); }
+  // Answered, waiting for the person who asked (a question of tier user with only agent answers).
+  const waitingQuestions = [];
+  try {
+    for (const q of questionsWaiting(root)) if (q?.id) waitingQuestions.push({ id: q.id });
+  } catch (e) { reasons.push(`waiting questions not readable: ${e?.message || e}`); }
 
   // --- 4. the raw capture: the old desk's four-state review + topics ------
   const rawOut = rawSection(d.raw, (path) => [...(topicsByCapture.get(path) ?? [])].slice(0, 12), (path) => entriesByCapture.get(path) ?? []);
@@ -1008,6 +1013,7 @@ export function collectDashboard(root, {
     work: d.work,
     openDuties,
     openQuestions,
+    waitingQuestions,
     agents: d.agents,
     bell,
     humanTray: tray,

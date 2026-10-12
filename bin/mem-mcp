@@ -322,8 +322,11 @@ const TOOLS = [
   {
     name: 'mem_questions',
     description:
-      'What we do NOT know. By default only the open questions. Open means no '
-      + '`resolves` edge points at it — the state lives in the graph, not in a field. '
+      'What we do NOT know. By default the open questions, and the answered ones that '
+      + 'wait for a person\'s confirmation. Open means no `resolves` edge points at it — '
+      + 'the state lives in the graph, not in a field. A question a person asked (tier '
+      + '`user`) is not closed by your answer: it shows as `waiting` until the person '
+      + 'confirms. '
       + 'Call it before treating something as settled: it may be exactly the question '
       + 'that has been open here for weeks. Note a new one with mem_log, type `question`.',
     inputSchema: {
@@ -337,8 +340,11 @@ const TOOLS = [
   {
     name: 'mem_answer',
     description:
-      'Close an open question by naming the entry that answers it. Writes a '
-      + '`resolves` link, nothing else. Both entries must exist and the first must '
+      'Answer an open question by naming the entry that answers it. Writes a '
+      + '`resolves` link, nothing else. A question you or another agent asked is closed '
+      + 'by it; a question a person asked (tier `user`) then shows as `waiting` and is '
+      + 'closed only by the person\'s confirmation - you cannot do that. '
+      + 'Both entries must exist and the first must '
       + 'really be a `question` — a link into the void looks like an answer and is '
       + 'not one. Call it after logging something that settles an open question.',
     inputSchema: {
@@ -1126,7 +1132,7 @@ async function handleCall(name, args) {
       const project = args.project ? String(args.project) : undefined;
       const list = args.all
         ? question.all(root, { project })
-        : question.open(root, { project });
+        : question.all(root, { project }).filter((q) => q.open || q.waiting);
       if (!list.length) {
         return textResult(args.all
           ? 'No questions noted yet.'
@@ -1145,11 +1151,14 @@ async function handleCall(name, args) {
       if (!q.question) throw new Error(`'${qid}' is not an entry of type question.`);
       // A link into the void looks like an answer and is not one.
       if (!byId.get(withId)) throw new Error(`No entry with id '${withId}'. Log it first, then link.`);
-      const { entry } = memory.logEntry(root, 'link', {
-        from: withId, to: qid, kind: question.RESOLVES, agent: resolveAgent(),
-        why: args.why ? String(args.why) : undefined,
-      });
-      return textResult(`${withId} resolves ${qid}  (link ${entry.id})`);
+      // No tier from the call: the write path stamps `agent`. Whether the edge CLOSES the question is the rule of
+      // `authority.mayCloseQuestion` - a question a person asked waits for the person.
+      const r = question.answer(root, qid, withId, { agent: resolveAgent(), why: args.why ? String(args.why) : undefined });
+      const lines = [`${withId} resolves ${qid}  (link ${r.entry.id})`];
+      if (r.state === question.STATE.WAITING) {
+        lines.push(`${qid} was asked by a person: answered, waiting for the person's confirmation - NOT closed.`);
+      }
+      return textResult(lines.join('\n'));
     }
 
     case 'mem_skill_find': {

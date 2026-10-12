@@ -99,7 +99,7 @@ export function collectCompact(root, {
   const rowsAll = [...p.window].sort(newestFirst);
   const inWindow = new Set(rowsAll.map((r) => r.id));
   const extraRows = [];
-  for (const r of [...p.openRows, ...p.questions.rows]) {
+  for (const r of [...p.openRows, ...p.questions.rows, ...p.questions.waitingRows]) {
     if (!inWindow.has(r.id)) { inWindow.add(r.id); extraRows.push(r); }
   }
 
@@ -129,8 +129,9 @@ export function collectCompact(root, {
   const questions = p.questions;
   const questionsTile = () => ({
     id: 'questions', title: 'Open questions', state: board.STATE.CALM,
-    line: questions.open ? `${questions.open} open` : 'none open',
-    numbers: { count: questions.open },
+    line: (questions.open ? `${questions.open} open` : 'none open')
+      + (questions.waiting ? ` · ${questions.waiting} answered, waiting for you` : ''),
+    numbers: { count: questions.open, waiting: questions.waiting },
   });
   const pre = {
     console: time('console', () => consolePage.collect(root, {
@@ -160,13 +161,14 @@ export function collectCompact(root, {
       duties: duties
         ? dashboard.workTile('Duties', duties.open.length, duties.open.length + duties.done.length, { noun: 'duties', whenEmpty: 'no duty has ever been recorded' })
         : { title: 'Duties', value: null, state: 'unknown', note: dutiesError, open: null, total: null },
-      questions: dashboard.workTile('Questions', questions.open, questions.total, { noun: 'questions', whenEmpty: 'no question has ever been asked' }),
+      questions: dashboard.workTile('Questions', questions.open, questions.total, { noun: 'questions', whenEmpty: 'no question has ever been asked', waiting: questions.waiting }),
     },
     projects: (agentList) => p.projects.map((x) => ({
       name: x.name, entries: x.entries, retired: x.retired, drawers: x.drawers, last: x.last,
       agents: agentList.filter((a) => Object.keys(a.projects || {}).includes(dashboard.agentKey(x.name)))
         .map((a) => ({ name: a.name, entries: (a.projects || {})[dashboard.agentKey(x.name)] ?? 0 })),
       openQuestions: questions.openPerProject[x.name] ?? 0,
+      waitingQuestions: questions.waitingPerProject[x.name] ?? 0,
     })),
   };
 
@@ -180,6 +182,7 @@ export function collectCompact(root, {
     doctorCheck: () => { throw new Error(DOCTOR_REASON); },
     dutiesOpen: () => { if (duties) return duties; throw new Error(dutiesError); },
     questionsOpen: () => questions.rows,
+    questionsWaiting: () => questions.waitingRows,
     todayOf: () => { throw new Error(`the today card needs the doctor: ${DOCTOR_REASON}`); },
     ...(modulesOn ? {} : { integrityOf: unavailable('the integrity scan') }),
   }));

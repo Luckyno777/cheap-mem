@@ -108,7 +108,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_CAPTURE_OFF', SWITCH, 'off', OFF('The raw capture of a session transcript')),
   sw('MEM_STOP_NO_PUSH', SWITCH, 'off (the stop hook commits and pushes)', 'With `1` the stop hook does not push.'),
   sw('MEM_REFLECT', SWITCH, 'off (opt-in)', 'With `1` the stop hook starts the model-backed reflector.'),
-  sw('MEM_HEADLESS', SWITCH, 'not set', 'Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, and may not confirm projects, categories, appointments or mail permits.'),
+  sw('MEM_HEADLESS', SWITCH, 'not set', 'Marks an unattended run (the digest, the reflector, any `claude -p` worker); its value names the run. Such a run is not captured, writes with a lowered authority, may not confirm projects, categories, appointments or mail permits, and never writes a line of tier `user` (refused in the write core).'),
   sw('MEM_ANSWER_CHECK', SWITCH, 'on', 'With `0` the stop-time answer check never blocks a turn.'),
   sw('MEM_CLOSING_REPORT', SWITCH, 'on', 'With `0` the closing report of open duties is not shown.'),
   sw('MEM_BROADCAST_OFF', SWITCH, 'off (a new error entry is broadcast)', 'With `1` `mem log error` does not broadcast the new error to the other sessions.'),

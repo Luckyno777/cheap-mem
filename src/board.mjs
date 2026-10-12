@@ -239,17 +239,23 @@ export function tileAgents(root, { now = new Date(), quietMin = 60 * 24 } = {}) 
 /** What is open and belongs to nobody. */
 export function tileQuestions(root) {
   let open;
-  try { open = question.open(root); }
-  catch (e) {
+  let waiting;
+  try {
+    const all = question.all(root);
+    open = all.filter((q) => q.open);
+    waiting = all.filter((q) => q.waiting);
+  } catch (e) {
     return { id: 'questions', title: 'Open questions', state: STATE.UNKNOWN,
       line: `not measurable: ${e.message}` };
   }
+  // Answered by an agent, asked by a person: neither open nor closed, and not silent - it waits for the person.
+  const waits = waiting.length ? ` · ${waiting.length} answered, waiting for you` : '';
   return {
     id: 'questions', title: 'Open questions', state: STATE.CALM,
-    line: open.length
+    line: (open.length
       ? `${open.length} open — ${String(open[0]?.question ?? '').slice(0, 60)}`
-      : 'none open',
-    numbers: { count: open.length },
+      : 'none open') + waits,
+    numbers: { count: open.length, waiting: waiting.length },
   };
 }
 
