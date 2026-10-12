@@ -90,6 +90,15 @@ mem log decision --topic memory-backend --choice sqlite --why "smaller than post
 mem log error    --class flake --title "CI timed out on test/e2e/*" --text "reproduced locally"
 ```
 
+A duty can carry a due date — a day (`YYYY-MM-DD`, in your time zone) or a point in time
+with a zone (`2026-11-01T17:00:00+01:00`); anything else is refused:
+```bash
+mem log duty --title "send the tax papers" --owner human --due 2026-11-01
+mem deadlines                       # open duties with a due date: fresh / due / overdue
+mem correction duty <id> --due 2026-11-15      # move it: the old line stays, the new one replaces it
+mem correction duty <id> --without due         # take the date away again
+```
+
 A project is created once, before anything is logged into it
 (`--project <unknown>` is refused rather than creating a half-made
 directory):

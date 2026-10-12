@@ -425,7 +425,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 195 modules, 4281
+As of 2026-09-26: **86 CLI commands, 43 MCP tools, 196 modules, 4281
 tests**; as of 2026-09-20, about 81757 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
@@ -533,7 +533,10 @@ mem find "<query>"             ranked search, no model    [--literal --fresh]
                                recorded now (same rule as `mem retrieve`)
 mem browse                     interactive search: re-ranks on every keystroke
 mem discard <id> / done <id>   retire a thought/task (recall hides it)
-mem duties                     what is still owed
+mem duties                     what is still owed (a due date shows behind the title with its state)
+mem deadlines [--json]         the open duties WITH a due date, earliest first, each fresh / due / overdue / unknown
+                               (`mem log duty --title ... --due 2026-11-01`; move it with `mem correction duty <id> --due ...`,
+                               remove it with `--without due`; a day is overdue from 00:00 of the next day in the house zone)
 mem duties close <id>          append a closing line — refused with no
                                evidence (a `guard` field on the error, or a
                                test/ file with `// error: <id>` and `test(`)

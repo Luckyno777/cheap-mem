@@ -97,6 +97,7 @@ if (!head || head === '--help' || head === '-h' || head === 'help') {
   out("  browse           [--fresh]            interactive: it re-ranks as you type");
   out("  duties           [--all]              what is still owed");
   out("  duties close <id> [--why \"...\"]      append a closing line");
+  out("  deadlines        [--json]             open duties with a due date and their state");
   out("  context          [--n 20]");
   out("  facts            [--stale] [--conflicts] [--key k] [--stale-days N]");
   out("                    current value of every fact that changes over time");

@@ -27,7 +27,7 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 86 CLI commands, 43 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
 | **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4281 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
@@ -50,6 +50,7 @@ directory. The section number in brackets is where it is explained.
 | `appointment-invite.mjs` | the calendar outlet: reminders as RFC 5545 invitations over SMTP or the Google Calendar API (service account), journal with backoff and idempotence, secrets only from 0600 files, the doctor's `appointment-invite` state |
 | `appointment-time.mjs` | points in time for appointments: any IANA zone, UTC stored, English expressions, repeats in wall time, clock-change rules |
 | `appointment-today.mjs` | "Today in the calendar": the day list, the briefing text, the session-start line, the state of fired actions, the dashboard's overview |
+| `due.mjs` | the due-date core: when a duty is fresh, due or overdue — the field `due` (a day in the house zone or an ISO point in time with a zone), the day boundary at midnight of the zone (never UTC), the aliases still read, "open since" from the start of the chain; the one place that knows the field name (`shared/calculations.jsonl`, `due-one-place`) |
 | `appointments.mjs` | the calendar's store: append-only `appointments/`, the fold, who may do what, the plan, the caps (`docs/appointments.md`) |
 | `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
 | `afterfailure.mjs` | X2b: the after-error occasion — what the PostToolUseFailure hook (`bin/mem-after-failure`, bash and PowerShell) asks and shows after a tool call really failed: parse the failure, pick the error and learning lanes, book the journal line with its reason |
@@ -652,7 +653,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 85 commands
+### 7.1 CLI — 86 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -664,7 +665,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience command-guard appointment category envvars
+experience command-guard appointment category envvars deadlines
 ```
 
 `mem appointment` is the calendar: reminders, a day briefing and agent actions
@@ -689,7 +690,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 42 tools
+### 7.2 MCP — 43 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio (or `--http`).
@@ -718,7 +719,8 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_facts` | the facts that hold right now |
 | `mem_explain` | why an entry did NOT come back |
 | `mem_context` | compact dump for the start of a task |
-| `mem_duties` | what is still owed |
+| `mem_duties` | what is still owed, each duty with `due` and `due_state` |
+| `mem_deadlines` | the open duties with a due date, earliest first, each fresh / due / overdue / unknown |
 | `mem_duty_close` | close a fulfilled duty — appends a line, the original stays |
 | `mem_inbox_new` | new inbox messages addressed to you |
 | `mem_inbox_show` | one inbox message in full |

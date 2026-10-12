@@ -14,6 +14,27 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Added — the due-date core (build plan Q1, step 6b, branch A)
+
+A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list
+`due / due_date / until / deadline`) and written by nobody. Now one module owns it: `src/due.mjs`.
+
+- **`mem log duty --due`** (and `mem_log` with `due`, and a named `--due` in `mem correction`): exactly two forms, `YYYY-MM-DD` in
+  the house zone or an ISO point in time WITH a zone; a date-time without a zone is refused loudly, nothing is written.
+  Only a duty may carry it (any other type refuses the field). The check stands in the write core (`logCheckedEntry`,
+  `correctionEntry`), so the CLI and the bridge cannot differ.
+- **States** `fresh | due | overdue | unknown`, computed from the due date, never from the age of a line. The day boundary is
+  midnight of the house zone (`.mem/config.json` timezone, else `CHEAP_MEM_TZ`, else the system zone), never UTC - also on
+  the two clock changes (a day of 25 and one of 23 hours) and in a second zone. A broken value is `unknown`, not an error.
+- **`mem deadlines [--json]`** and the MCP tool `mem_deadlines`; `mem duties` and `mem_duties` show the due date and its state.
+- **Moving is append-only**: `mem correction duty <id> --due ...` inherits the rest, `--without due` removes the date; the
+  duty replacement rule (authority, debtor) applies unchanged. "Open since" comes from the START of the chain (`_since`),
+  so a moved due date does not make a duty look young.
+- The bridge writes only `due` (the older names `due_date / until / deadline / by` are still READ, `due.aliasUsed` names
+  them for the doctor). The due date of an encrypted duty stays readable (`shred.NEVER_ENCRYPT`).
+- Invariant `frist-eine-stelle` / calculation `due-one-place`; the field names and states are paired with lucky-mem in
+  `shared/field-names-parity.jsonl`, and `shared/due-states.jsonl` is the fixture both houses must answer the same.
+
 ### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
 
 Each finding was reproduced on the previous tip first (red), then fixed (green). `test/closing-why-gate.test.mjs`,
