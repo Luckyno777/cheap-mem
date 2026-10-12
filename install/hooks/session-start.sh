@@ -87,13 +87,79 @@ echo ""
 
 # Best-effort: bring the memory up to date, and force main so a
 # feature-branch checkout doesn't misroute later writes.
-git -C "$CHEAP_MEM_ROOT" fetch origin main 2>&1 | tail -1 || true
+#
+# The explicit refspec keeps refs/remotes/origin/main current even in a
+# clone that has no tracking ref (a single-URL or shallow clone), and the
+# count of commits behind below reads exactly that ref.
+fetch_out="$(git -C "$CHEAP_MEM_ROOT" fetch origin main +main:refs/remotes/origin/main 2>&1)"; fetch_rc=$?
+[ -n "$fetch_out" ] && printf '%s\n' "$fetch_out" | tail -n 1
 if git -C "$CHEAP_MEM_ROOT" rev-parse --verify main >/dev/null 2>&1; then
   git -C "$CHEAP_MEM_ROOT" checkout main 2>&1 | tail -1 || true
 else
   git -C "$CHEAP_MEM_ROOT" checkout -B main origin/main 2>&1 | tail -1 || true
 fi
 git -C "$CHEAP_MEM_ROOT" pull --ff-only 2>&1 | tail -1 || true
+
+# AU1 (lucky-mem parity): if the clone is STILL behind origin/main after the
+# pull, the session is about to read an OLD memory - say so loudly, with the
+# rescue path from the doctor finding (hook-root-stranded), and reset
+# NOTHING. An automatic `reset --hard` would throw away exactly the captures
+# the rescue path exists to save. Only after a successful fetch: without a
+# fresh origin the "behind" count is unknown, and the line above says so.
+if [ "$fetch_rc" -eq 0 ]; then
+  behind_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count HEAD..origin/main 2>/dev/null)"
+  if [ -n "$behind_n" ] && [ "$behind_n" -gt 0 ] 2>/dev/null; then
+    ahead_n="$(git -C "$CHEAP_MEM_ROOT" rev-list --count origin/main..HEAD 2>/dev/null)"
+    echo "[hook] ================================================================"
+    if [ -n "$ahead_n" ] && [ "$ahead_n" -gt 0 ] 2>/dev/null; then
+      echo "[hook] MEMORY STATE OLD: $behind_n commits behind origin/main, $ahead_n only local (diverged)."
+    else
+      echo "[hook] MEMORY STATE OLD: $behind_n commits behind origin/main (fast-forward failed)."
+    fi
+    echo "[hook] This session reads the OLD state: newer entries, errors and decisions are missing."
+    echo "[hook] The hook resets nothing (no reset --hard: that would throw local work away)."
+    if [ -n "$ahead_n" ] && [ "$ahead_n" -gt 0 ] 2>/dev/null; then
+      echo "[hook] Rescue path (mem doctor, finding hook-root-stranded): do not rebase/merge (diverged): create a"
+      echo "[hook]   separate worktree from origin/main (git -C $CHEAP_MEM_ROOT worktree add --detach <place> origin/main),"
+      echo "[hook]   copy raw/ and raw-record.jsonl from $CHEAP_MEM_ROOT over there, commit and push there -"
+      echo "[hook]   only THEN bring $CHEAP_MEM_ROOT up to the new origin/main with fetch + reset --hard."
+    else
+      echo "[hook] Rescue path: secure local changes in $CHEAP_MEM_ROOT (git -C $CHEAP_MEM_ROOT status), then"
+      echo "[hook]   git -C $CHEAP_MEM_ROOT merge --ff-only origin/main; the finding is hook-root-stranded (mem doctor)."
+    fi
+    echo "[hook] ================================================================"
+    echo ""
+  fi
+fi
+
+# AU1 addendum: the git identity of the memory clone. Without its own, every
+# session commits under the global one (a placeholder identity in cloud
+# sessions) and GitHub may show the commits as Unverified. Set ONLY when the
+# clone itself (--local) has none AND an explicit source exists:
+# CHEAP_MEM_GIT_EMAIL + CHEAP_MEM_GIT_NAME, both. Nothing is invented or
+# guessed from the memory's contents; without a source the line says so.
+if [ -d "$CHEAP_MEM_ROOT/.git" ] \
+   && [ -z "$(git -C "$CHEAP_MEM_ROOT" config --local --get user.email 2>/dev/null)" ] \
+   && [ -z "$(git -C "$CHEAP_MEM_ROOT" config --local --get user.name 2>/dev/null)" ]; then
+  id_mail="${CHEAP_MEM_GIT_EMAIL:-}"
+  id_name="${CHEAP_MEM_GIT_NAME:-}"
+  nl='
+'
+  case "$id_mail$id_name" in *"$nl"*|*'<'*|*'>'*) id_mail=""; id_name="" ;; esac
+  if [ -n "$id_mail" ] && [ -n "$id_name" ]; then
+    if git -C "$CHEAP_MEM_ROOT" config --local user.email "$id_mail" 2>/dev/null \
+       && git -C "$CHEAP_MEM_ROOT" config --local user.name "$id_name" 2>/dev/null; then
+      echo "[hook] git identity set in the clone (from CHEAP_MEM_GIT_EMAIL/CHEAP_MEM_GIT_NAME): $id_name <$id_mail>"
+    else
+      echo "[hook] WARNING: could not set the git identity in the clone - commits may show as Unverified on GitHub"
+    fi
+  else
+    id_effective="$(git -C "$CHEAP_MEM_ROOT" config --get user.email 2>/dev/null)"
+    echo "[hook] WARNING: the clone has no git identity and there is no source (CHEAP_MEM_GIT_EMAIL + CHEAP_MEM_GIT_NAME)."
+    echo "[hook]   Commits go out as ${id_effective:-<no identity at all>} and may show as Unverified on GitHub."
+    echo "[hook]   Fix: set both variables in the environment; the hook adopts them at the next start."
+  fi
+fi
 
 echo ""
 if [ -f "$CHEAP_MEM_ROOT/FACTS.md" ]; then

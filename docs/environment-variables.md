@@ -186,6 +186,8 @@ A variable that is not in the table is not a switch: there is none.
 | `CHEAP_MEM_AGENT` | `MEM_AGENT`, else the system user | Names the agent behind a write; a deployment sets it for an MCP-bridged agent. |
 | `CHEAP_MEM_CHECK_HOUSE` | `package.json` name, else the directory name | The house a check-record row names. |
 | `CHEAP_MEM_CHECK_MACHINE` | `cloud` or a short hostname | The machine a check-record row names; tests override it. |
+| `CHEAP_MEM_GIT_EMAIL` | not set (the session-start hook says so and sets nothing) | AU1: source for the git e-mail in the memory clone. The session-start hook sets `user.email` there (locally) only when the clone has none AND this and `CHEAP_MEM_GIT_NAME` are both set; nothing is guessed. |
+| `CHEAP_MEM_GIT_NAME` | not set (see `CHEAP_MEM_GIT_EMAIL`) | AU1: source for the git name in the memory clone; the pair of `CHEAP_MEM_GIT_EMAIL`, only a label on the commits. |
 | `CHEAP_MEM_SERVE_TITLE` | `cheap-mem` | Title of the viewer page. |
 | `CHEAP_MEM_SMTP_FROM` | not set | Sender of the invitation. |
 | `CHEAP_MEM_SMTP_TO` | not set | Recipient of the invitation. |

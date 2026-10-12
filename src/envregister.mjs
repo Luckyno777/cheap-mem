@@ -191,6 +191,8 @@ export const REGISTER = Object.freeze([
   sw('MEM_WATCH_WHO', IDENTITY, 'required by the watcher and the letter handler', 'Who this installation is in the inbox (a participant name from `.mem/config.json`).'),
   sw('CHEAP_MEM_AGENT', IDENTITY, '`MEM_AGENT`, else the system user', 'Names the agent behind a write; a deployment sets it for an MCP-bridged agent.'),
   sw('MEM_AGENT', IDENTITY, 'not set', 'Older spelling of `CHEAP_MEM_AGENT`; read when that is not set.'),
+  sw('CHEAP_MEM_GIT_EMAIL', IDENTITY, 'not set (the session-start hook says so and sets nothing)', 'AU1: source for the git e-mail in the memory clone. The session-start hook sets `user.email` there (locally) only when the clone has none AND this and `CHEAP_MEM_GIT_NAME` are both set; nothing is guessed.'),
+  sw('CHEAP_MEM_GIT_NAME', IDENTITY, 'not set (see `CHEAP_MEM_GIT_EMAIL`)', 'AU1: source for the git name in the memory clone; the pair of `CHEAP_MEM_GIT_EMAIL`, only a label on the commits.'),
   sw('MEM_SURFACE', IDENTITY, 'detected (`cloud`, `ssh`, `headless:<run>`, `local`)', 'Overrides where a session says it runs; only a known value counts for the origin.'),
   sw('CLAUDE_CODE_REMOTE', IDENTITY, 'set by Claude Code in its cloud', 'Marks the cloud surface; read, never set.'),
   sw('CLAUDE_CODE_SESSION_ID', IDENTITY, 'set by Claude Code', 'The session `mem raw-capture` captures when `--session` is not given.'),
