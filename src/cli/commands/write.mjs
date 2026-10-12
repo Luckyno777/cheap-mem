@@ -1127,15 +1127,16 @@ export const COMMANDS = {
     const zone = zoneOf(root);
     const s = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (d) => String(d.title ?? d.text ?? d.id ?? '') });
     const deadlines = s.list.map(({ overdueFromMs: _ms, ...row }) => row);
+    const { fresh, due: dueNow, overdue, unknown } = s; // counts of the situation, not a read of a duty's field
     if (args.json) {
       out(JSON.stringify({
         as_of: new Date(nowMs).toISOString(), zone, open: s.open, with_due: s.withDue, without_due: s.withoutDue,
-        fresh: s.fresh, due: s.due, overdue: s.overdue, unknown: s.unknown, deadlines,
+        fresh, due: dueNow, overdue, unknown, deadlines,
       }));
       return;
     }
-    out(`${s.withDue} open duties with a due date (${s.overdue} overdue, ${s.due} due, ${s.fresh} fresh, `
-      + `${s.unknown} unknown), ${s.withoutDue} without`);
+    out(`${s.withDue} open duties with a due date (${overdue} overdue, ${dueNow} due, ${fresh} fresh, `
+      + `${unknown} unknown), ${s.withoutDue} without`);
     for (const { state: st, due: value, id, who, title } of deadlines) {
       out(`  ${st.padEnd(8)}  ${value ?? '(unreadable)'}  [${id}]${who ? `  @${who}` : ''}  ${title}`);
     }

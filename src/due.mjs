@@ -29,8 +29,9 @@
  *   YYYY-MM-DDThh:mm[:ss[.f]]Zone  a point in time WITH a zone (`Z` or +hh:mm); overdue from exactly that point
  *
  * A date-time WITHOUT a zone is refused: it would be another hour on every machine. When writing that is a loud error
- * (`checkWrite`); when reading, an unreadable value is not a shape error but the state `unknown` — a duty never vanishes
- * because its due date is broken.
+ * (`checkWrite`); when reading, an unreadable SCALAR (text, number, boolean) is not a shape error but the state `unknown` — the
+ * duty stays open. That does not hold for an object or a list of objects in the field: by the general field-shape rule
+ * (src/fieldshape.mjs) that is a broken line, and a broken line opens and closes nothing.
  *
  * ## The states
  *
@@ -132,8 +133,11 @@ export function parseDue(value, { zone = systemZone() } = {}) {
 
 /** The state of a due value at `now` (ms or Date) in `zone`. `unknown` when the value or the clock is not readable. */
 export function state(value, now = Date.now(), { zone = systemZone() } = {}) {
-  const p = parseDue(value, { zone });
-  const t = toMs(now);
+  return stateOfRead(parseDue(value, { zone }), toMs(now));
+}
+
+/** The state from a value that was already read (`parseDue`), so `situationFromOpen` reads each value once. */
+function stateOfRead(p, t) {
   if (!p.ok || !Number.isFinite(t)) return STATE.UNKNOWN;
   if (t >= p.overdueFromMs) return STATE.OVERDUE;
   if (t >= p.dueFromMs) return STATE.DUE;
@@ -151,6 +155,16 @@ export function dueValue(duty) {
     if (v !== undefined && v !== null && v !== '') return v;
   }
   return null;
+}
+
+/**
+ * The due value of a duty for PASSING ON (day list, dashboard, display): text or `null`. An old value that is no text (a
+ * number, a boolean) never travels raw — to a reader it is "no readable due date"; the state `unknown` is said by `state` and
+ * `situationFromOpen`.
+ */
+export function dueText(duty) {
+  const v = dueValue(duty);
+  return typeof v === 'string' ? v : null;
 }
 
 /** The alias (`due_date`, `until`, `deadline`, `by`) a duty uses INSTEAD of `due`, or `null` (for `mem doctor`). */
@@ -184,7 +198,7 @@ export function situationFromOpen(open, { now = Date.now(), zone = systemZone(),
     const value = dueValue(d);
     if (value === null) { withoutDue += 1; continue; }
     const read = parseDue(value, { zone });
-    const s = state(value, t, { zone });
+    const s = stateOfRead(read, t);
     count[s] += 1;
     list.push({
       id: d.id ?? null,
@@ -211,6 +225,16 @@ export function situationFromOpen(open, { now = Date.now(), zone = systemZone(),
  * is written. Without `due` in the data: nothing.
  */
 export function checkWrite(type, data) {
+  if (data && typeof data === 'object') {
+    // The older names are READ, never written: one field, one name. `--due-date` arrives hyphenated.
+    for (const key of Object.keys(data)) {
+      const name = key.replace(/-/g, '_');
+      if (ALIASES.includes(name)) {
+        throw new Error(`Field '${name}' is not written any more: use 'due' (--due) for the due date - nothing was written. `
+          + 'Older lines that carry it are still read.');
+      }
+    }
+  }
   if (!data || typeof data !== 'object' || !Object.hasOwn(data, 'due') || data.due === undefined) return;
   if (type !== 'duty') {
     throw new Error(`Field 'due' exists only on a duty (type duty), not on '${type}' - nothing was written. `

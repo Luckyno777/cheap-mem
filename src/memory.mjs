@@ -3155,9 +3155,21 @@ function namesOwnError(duty, id, errorOf) {
  */
 export function dutyReplaceVerdict(e, target, heldIds = [], errorOf = null) {
   const ids = Array.isArray(heldIds) ? heldIds : [];
-  let verdict = isAutoDutyExtension(e, target, ids, errorOf)
-    ? { status: 'allowed', reason: 'an automatic duty extended by more error ids' }
-    : authority.mayChangeState(e, target, 'closes_id');
+  // Owner decision R (2026-10-12): a replacement that CHANGES or REMOVES the due date counts only from the author or a higher
+  // tier - not from the debtor, not sideways from the same tier (`authority.maySupersede`, the strict rule). Closing stays
+  // with the debtor (`closeDuty`, `closes_id`). Everything else about a replacement keeps the closing rule below.
+  const dueChanged = JSON.stringify(dueCore.dueValue(e)) !== JSON.stringify(dueCore.dueValue(target));
+  let verdict;
+  if (dueChanged) {
+    verdict = authority.mayChangeState(e, target, 'replaces_id');
+    if (verdict.status === 'refused') {
+      verdict = { ...verdict, reason: `moving or removing a due date needs the author or a higher tier (${verdict.reason})` };
+    }
+  } else if (isAutoDutyExtension(e, target, ids, errorOf)) {
+    verdict = { status: 'allowed', reason: 'an automatic duty extended by more error ids' };
+  } else {
+    verdict = authority.mayChangeState(e, target, 'closes_id');
+  }
   if (verdict.status !== 'refused' && ids.length) {
     const own = Array.isArray(e.error_ids) ? e.error_ids : [];
     const closing = [DUTY_STATE.DONE, DUTY_STATE.DROPPED].includes(String(e.state ?? ''));

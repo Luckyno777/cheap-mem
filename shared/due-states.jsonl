@@ -19,14 +19,15 @@
 {"id": "z19", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-11T22:00:00Z", "zone": "Europe/Berlin", "state": "due", "remark": "point: the day begins"}
 {"id": "z20", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-12T12:59:59Z", "zone": "Europe/Berlin", "state": "due", "remark": "point: one second before"}
 {"id": "z21", "value": "2026-10-12T15:00:00+02:00", "now": "2026-10-12T13:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "point: from the point on"}
-{"id": "z22", "value": "2026-10-12", "now": "2026-10-12T03:59:59Z", "zone": "America/New_York", "state": "fresh", "remark": "before midnight EDT (04:00Z)"}
-{"id": "z23", "value": "2026-10-12", "now": "2026-10-12T04:00:00Z", "zone": "America/New_York", "state": "due", "remark": "00:00 EDT"}
-{"id": "z24", "value": "2026-10-12", "now": "2026-10-13T03:59:59Z", "zone": "America/New_York", "state": "due", "remark": "last second of the day"}
-{"id": "z25", "value": "2026-10-12", "now": "2026-10-13T04:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EDT of the 13th"}
-{"id": "z26", "value": "2026-11-01", "now": "2026-11-02T04:59:59Z", "zone": "America/New_York", "state": "due", "remark": "23:59:59 EST — the 25-hour day (Berlin changed a week earlier)"}
-{"id": "z27", "value": "2026-11-01", "now": "2026-11-02T05:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EST of the 2nd"}
-{"id": "z28", "value": "2027-03-14", "now": "2027-03-15T03:59:59Z", "zone": "America/New_York", "state": "due", "remark": "23:59:59 EDT — the 23-hour day"}
-{"id": "z29", "value": "2027-03-14", "now": "2027-03-15T04:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EDT of the 15th"}
-{"id": "z30", "value": "soon", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "no readable value"}
-{"id": "z31", "value": "2026-11-01T17:00", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "zone-less: unreadable"}
-{"id": "z32", "value": "2026-02-30", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "not a calendar day"}
+{"id": "z22", "value": "2026-10-12T15:00:00Z", "now": "2026-10-12T15:00:00Z", "zone": "Europe/Berlin", "state": "overdue", "remark": "the same clock time in UTC is another Berlin hour"}
+{"id": "u01", "value": "soon", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "no readable value"}
+{"id": "u02", "value": "2026-11-01T17:00", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "zone-less: unreadable"}
+{"id": "u03", "value": "2026-02-30", "now": "2026-10-12T10:00:00Z", "zone": "Europe/Berlin", "state": "unknown", "remark": "not a calendar day"}
+{"id": "ny01", "value": "2026-10-12", "now": "2026-10-12T03:59:59Z", "zone": "America/New_York", "state": "fresh", "remark": "before midnight EDT (04:00Z)", "only": "cm"}
+{"id": "ny02", "value": "2026-10-12", "now": "2026-10-12T04:00:00Z", "zone": "America/New_York", "state": "due", "remark": "00:00 EDT", "only": "cm"}
+{"id": "ny03", "value": "2026-10-12", "now": "2026-10-13T03:59:59Z", "zone": "America/New_York", "state": "due", "remark": "last second of the day", "only": "cm"}
+{"id": "ny04", "value": "2026-10-12", "now": "2026-10-13T04:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EDT of the 13th", "only": "cm"}
+{"id": "ny05", "value": "2026-11-01", "now": "2026-11-02T04:59:59Z", "zone": "America/New_York", "state": "due", "remark": "23:59:59 EST — the 25-hour day (Berlin changed a week earlier)", "only": "cm"}
+{"id": "ny06", "value": "2026-11-01", "now": "2026-11-02T05:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EST of the 2nd", "only": "cm"}
+{"id": "ny07", "value": "2027-03-14", "now": "2027-03-15T03:59:59Z", "zone": "America/New_York", "state": "due", "remark": "23:59:59 EDT — the 23-hour day", "only": "cm"}
+{"id": "ny08", "value": "2027-03-14", "now": "2027-03-15T04:00:00Z", "zone": "America/New_York", "state": "overdue", "remark": "00:00 EDT of the 15th", "only": "cm"}

@@ -205,6 +205,7 @@ const TABLE = [
   ['2026-10-12T15:00:00+02:00', '2026-10-11T22:00:00Z', 'due', 'point: the day begins'],
   ['2026-10-12T15:00:00+02:00', '2026-10-12T12:59:59Z', 'due', 'point: one second before'],
   ['2026-10-12T15:00:00+02:00', '2026-10-12T13:00:00Z', 'overdue', 'point: from the point on'],
+  ['2026-10-12T15:00:00Z', '2026-10-12T15:00:00Z', 'overdue', 'the same clock time in UTC is another Berlin hour'],
 ];
 for (const [value, now, expected, remark] of TABLE) {
   test(`state table (${BERLIN}): ${value} at ${now} -> ${expected} (${remark})`, () => {
@@ -310,30 +311,61 @@ test('moving: a correction inherits the rest, the original stays byte for byte, 
   assert.equal(due.dueValue(memory.openDuties(root).open[0]), null);
 });
 
-test('authority when moving: a lower tier is refused (the original keeps its date, the refusal is reported), the debtor and the same author may', (t) => {
-  const root = world(t);
-  const { entry: p } = memory.logCheckedEntry(root, 'duty', { title: 'Report', owner: 'agent-b', due: '2026-11-01', agent: 'agent-a', authority: 'user' });
+test('authority when moving or removing a due date (owner decision R): only the author or a higher tier counts — not the debtor, not the same tier', (t) => {
   const warnings = [];
   const keep = process.emitWarning;
-  process.emitWarning = (m, o) => warnings.push(`${o?.code ?? ''} ${m}`);
+  const quiet = () => { process.emitWarning = (m, o) => warnings.push(`${o?.code ?? ''} ${m}`); };
+  const loud = () => { process.emitWarning = keep; };
+  const root = world(t);
+  const { entry: p } = memory.logCheckedEntry(root, 'duty', { title: 'Report', owner: 'agent-b', due: '2026-11-01', agent: 'agent-a' });
   const before = raw(root);
-  try {
-    memory.correctionEntry(root, 'duty', p.id, { due: '2026-12-31', agent: 'agent-c' }); // a lower tier, a stranger
-  } finally { process.emitWarning = keep; }
-  assert.ok(warnings.some((w) => /CM_STATE_CHANGE_REFUSED/.test(w)), 'the writer hears about it now');
+  // (a) a stranger of the SAME tier: disputed — the original keeps its date, the writer hears it now
+  quiet();
+  try { memory.correctionEntry(root, 'duty', p.id, { due: '2026-12-31', agent: 'agent-c' }); } finally { loud(); }
+  assert.ok(warnings.some((w) => /CM_STATE_CHANGE_REFUSED/.test(w)), '(a) the writer hears about it now');
   assert.ok(raw(root).subarray(0, before.length).equals(before), 'append-only');
-  let { open, refused } = memory.openDuties(root);
-  assert.equal(refused.length, 1, 'the refusal is on record');
-  assert.equal(due.dueValue(open.find((d) => d.id === p.id)), '2026-11-01', 'the original keeps holding with its date');
-  // the debtor (owner) may, even on a lower tier
-  memory.correctionEntry(root, 'duty', p.id, { due: '2026-11-20', agent: 'agent-b' });
-  ({ open } = memory.openDuties(root));
-  assert.ok(!open.some((d) => d.id === p.id), 'replaced by the debtor`s correction');
-  assert.ok(open.some((d) => due.dueValue(d) === '2026-11-20' && d.agent === 'agent-b'));
-  // the same author may
-  const { entry: q } = memory.logCheckedEntry(root, 'duty', { title: 'Own', owner: 'agent-a', due: '2026-11-01', agent: 'agent-a' });
-  memory.correctionEntry(root, 'duty', q.id, { due: '2026-11-09', agent: 'agent-a' });
-  assert.equal(due.dueValue(memory.openDuties(root).open.find((d) => d.title === 'Own')), '2026-11-09');
+  let st = memory.openDuties(root);
+  assert.equal(st.refused.length, 1, '(a) the refusal is on record');
+  assert.equal(due.dueValue(st.open.find((d) => d.id === p.id)), '2026-11-01', '(a) the original keeps its date');
+  // (b) the debtor (owner) is NOT enough to move the date
+  quiet();
+  try { memory.correctionEntry(root, 'duty', p.id, { due: '2026-11-20', agent: 'agent-b' }); } finally { loud(); }
+  st = memory.openDuties(root);
+  assert.equal(st.refused.length, 2, '(b) refused as well');
+  assert.equal(due.dueValue(st.open.find((d) => d.id === p.id)), '2026-11-01', '(b) the original keeps its date');
+  // removing the date is moving it: the debtor cannot do that either
+  quiet();
+  try { memory.correctionEntry(root, 'duty', p.id, { agent: 'agent-b' }, { without: ['due'] }); } finally { loud(); }
+  assert.equal(memory.openDuties(root).refused.length, 3, '(b2) removing needs the same standing');
+  assert.equal(due.dueValue(memory.openDuties(root).open.find((d) => d.id === p.id)), '2026-11-01');
+  // (c) the author may
+  memory.correctionEntry(root, 'duty', p.id, { due: '2026-11-10', agent: 'agent-a' });
+  st = memory.openDuties(root);
+  assert.ok(!st.open.some((d) => d.id === p.id), '(c) replaced by the author');
+  assert.ok(st.open.some((d) => due.dueValue(d) === '2026-11-10' && d.agent === 'agent-a'));
+  // (d) a higher tier may
+  const { entry: q } = memory.logCheckedEntry(root, 'duty', { title: 'Other', owner: 'agent-b', due: '2026-11-01', agent: 'agent-a' });
+  memory.correctionEntry(root, 'duty', q.id, { due: '2026-11-25', agent: 'agent-d', authority: 'user' });
+  st = memory.openDuties(root);
+  assert.ok(!st.open.some((d) => d.id === q.id), '(d) replaced by a higher tier');
+  assert.ok(st.open.some((d) => due.dueValue(d) === '2026-11-25' && d.agent === 'agent-d'));
+});
+
+test('the debtor still closes a duty and still corrects what is not the due date', (t) => {
+  const root = world(t);
+  const { entry: p } = memory.logCheckedEntry(root, 'duty', { title: 'Mine to do', owner: 'agent-b', due: '2026-11-01', agent: 'agent-a', authority: 'user' });
+  // a correction that leaves the due date as it is (here: a tag) is not a due-date change: the closing rule applies as before
+  memory.correctionEntry(root, 'duty', p.id, { tags: ['x'], agent: 'agent-b' });
+  let st = memory.openDuties(root);
+  assert.equal(st.refused.length, 0, 'the debtor may correct everything but the date');
+  const stage = st.open.find((d) => d.agent === 'agent-b');
+  assert.ok(stage, 'the debtor`s stage holds');
+  assert.equal(due.dueValue(stage), '2026-11-01', 'the date was inherited, not changed');
+  // closing: the debtor may
+  memory.logEntry(root, 'duty', { closes_id: stage.id, state: 'done', why: 'done', agent: 'agent-b' });
+  st = memory.openDuties(root);
+  assert.equal(st.open.length, 0, 'the debtor closed it');
+  assert.equal(st.refused.length, 0);
 });
 
 // ------------------------------------------------------------ 4. age doping
@@ -472,8 +504,68 @@ test('an encrypted duty keeps its due date READABLE (owner decision 2026-10-12):
   const j = JSON.parse(cli(root, 'deadlines', '--json').stdout);
   assert.deepEqual([j.with_due, j.overdue], [1, 1]);
   assert.equal(JSON.stringify(j).includes(CANARY), false);
-  // field shape: the due fields are text fields on the READ side too
-  assert.ok(fieldshape.shapeProblem({ id: 'x', ts: 't', due: { a: 1 } }), 'an object as due is a broken line');
+});
+
+test('old lines with a broken due value (123, true, "soon") stay open duties with the state unknown; only text or null is passed on', (t) => {
+  for (const name of ['due', 'due_date', 'until', 'deadline', 'by']) {
+    for (const v of [123, true, 'soon']) assert.equal(fieldshape.shapeProblem({ id: 'x', ts: 't', [name]: v }), null, `${name}: ${JSON.stringify(v)} is a scalar, no shape error`);
+    // an object or a list of objects is a broken line by the GENERAL rule (accepted): "never vanishes" holds for scalars only
+    assert.ok(fieldshape.shapeProblem({ id: 'x', ts: 't', [name]: { a: 1 } }), `${name}: an object is broken by the general rule`);
+  }
+  const root = world(t);
+  handWritten(root, [
+    { id: 'k0000001', ts: '2026-09-01T00:00:00Z', title: 'Number', owner: 'human', due: 123 },
+    { id: 'k0000002', ts: '2026-09-01T00:00:00Z', title: 'Boolean', owner: 'human', due: true },
+    { id: 'k0000003', ts: '2026-09-01T00:00:00Z', title: 'Text', owner: 'human', due: 'soon' },
+    { id: 'k0000004', ts: '2026-09-01T00:00:00Z', title: 'Good', owner: 'human', due: '2099-01-01' },
+    { id: 'k0000005', ts: '2026-09-01T00:00:00Z', title: 'Alias number', owner: 'human', deadline: 456 },
+  ]);
+  const open = memory.openDuties(root).open;
+  assert.deepEqual(open.map((d) => d.id).sort(), ['k0000001', 'k0000002', 'k0000003', 'k0000004', 'k0000005'], 'no duty vanishes');
+  const s = due.situationFromOpen(open, { now: ms('2026-10-12T10:00:00Z'), zone: BERLIN });
+  assert.deepEqual([s.withDue, s.unknown, s.fresh], [5, 4, 1]);
+  for (const d of open) { const x = due.dueText(d); assert.ok(x === null || typeof x === 'string', `${d.id}: ${typeof x}`); }
+  assert.equal(due.dueText(open.find((d) => d.id === 'k0000001')), null);
+  assert.equal(due.dueText(open.find((d) => d.id === 'k0000003')), 'soon');
+  for (const x of todayMod.decisionsForHuman(root, { human: 'human' }).list) assert.ok(x.due === null || typeof x.due === 'string', `today: ${x.title}`);
+  const j = JSON.parse(cli(root, 'deadlines', '--json').stdout);
+  assert.deepEqual([j.open, j.with_due, j.unknown], [5, 5, 4]);
+  assert.match(cli(root, 'duties').stdout, /Number\s+due \(unreadable\) \(unknown\)/);
+});
+
+test('the old due names are no longer WRITTEN: --deadline / --due_date / --until / --by are refused with a hint to use --due (duty and every other type)', (t) => {
+  const root = world(t);
+  for (const type of ['duty', 'thought']) {
+    for (const name of ['deadline', 'due_date', 'until', 'by']) {
+      const r = cli(root, 'log', type, '--title', 'T', '--text', 't', `--${name}`, '2026-11-01');
+      assert.notEqual(r.status, 0, `${type} --${name}`);
+      assert.match(r.stderr, new RegExp(`'${name}'`), r.stderr);
+      assert.match(r.stderr, /--due/, 'the hint names the field to use');
+      assert.throws(() => memory.logCheckedEntry(root, type, { title: 'T', text: 't', [name]: '2026-11-01' }), /use 'due'/, `${type} ${name} (write core)`);
+    }
+  }
+  const { entry } = memory.logCheckedEntry(root, 'duty', { title: 'Tax', owner: 'human', due: '2026-11-01' });
+  const c = cli(root, 'correction', 'duty', entry.id, '--deadline', '2026-11-09');
+  assert.notEqual(c.status, 0);
+  assert.match(c.stderr, /--due/);
+  const before = raw(root);
+  assert.throws(() => memory.correctionEntry(root, 'duty', entry.id, { until: '2026-11-09' }), /use 'due'/);
+  assert.deepEqual(raw(root), before, 'nothing was written');
+  assert.deepEqual(fs.readdirSync(path.join(root, 'global')).filter((f) => f.startsWith('thought') && fs.statSync(file(root, f)).size > 0), []);
+  // reading stays: a hand-written line with the old name is still a duty with a state
+  handWritten(root, [{ id: 'old0000a', ts: '2026-09-01T00:00:00Z', title: 'Old name', owner: 'human', deadline: '2020-01-01' }]);
+  const open = memory.openDuties(root).open.find((d) => d.id === 'old0000a');
+  assert.equal(due.state(due.dueValue(open), ms('2026-10-12T10:00:00Z'), { zone: BERLIN }), 'overdue');
+});
+
+test('situationFromOpen reads every due value only once', () => {
+  const real = Date.parse;
+  const now = ms('2026-10-12T10:00:00Z');
+  const points = [{ id: 'a', due: '2026-12-01T10:00:00Z' }, { id: 'b', due: '2026-10-01T10:00:00+02:00' }];
+  let n = 0;
+  Date.parse = (...a) => { n += 1; return real(...a); };
+  try { due.situationFromOpen(points, { now, zone: BERLIN }); } finally { Date.parse = real; }
+  assert.equal(n, points.length, `Date.parse ${n} times for ${points.length} points in time`);
 });
 
 // ----------------------------------------------------- 7. one place
@@ -488,7 +580,7 @@ test('due-one-place: the calculation catalogue knows it, the anchor holds, no mo
   assert.deepEqual(x.seconds, [], `second calculations: ${JSON.stringify(x.seconds)}`);
 });
 
-test('due-one-place: positive control — a reader that guesses the field itself is found; the digest due check is not', (t) => {
+test('due-one-place: positive control — a reader that guesses the field itself is found; a file named in `except` (other domains with the same words) is not', (t) => {
   const w = tempDir('cheap-mem-due-src-', t);
   fs.mkdirSync(path.join(w, 'src'), { recursive: true });
   fs.mkdirSync(path.join(w, 'bin'), { recursive: true });
@@ -499,7 +591,8 @@ test('due-one-place: positive control — a reader that guesses the field itself
   fs.writeFileSync(path.join(w, 'src', 'reader-a.mjs'), 'export const a = (p) => p.due ?? p.by;\n');
   fs.writeFileSync(path.join(w, 'src', 'reader-b.mjs'), "for (const f of ['due', 'due_date', 'until', 'deadline']) read(p[f]);\n");
   fs.writeFileSync(path.join(w, 'src', 'reader-c.mjs'), 'export const c = (duty) => duty?.deadline;\n');
-  fs.writeFileSync(path.join(w, 'bin', 'digest-check'), 'if (d.due) { run(); } const x = s.due; const until = e.until + 1;\n');
+  fs.writeFileSync(path.join(w, 'bin', 'mem-mcp'), 'if (d.due) { run(); } const x = s.due; const until = e.until + 1; // claim lines\n');
+  fs.writeFileSync(path.join(w, 'src', 'reader-d.mjs'), 'const { due: dueNow } = s; export const d = dueNow;\n');
   const r = calculations.check(w);
   const x = r.results[0];
   assert.equal(x.anchorHolds, true);
@@ -542,4 +635,5 @@ test('shared fixture (shared/due-states.jsonl): every row gives the expected sta
     assert.ok(fix.some((z) => z.value === value && z.now === now && z.zone === 'America/New_York' && z.state === expected), `second-zone row missing: ${value} ${now}`);
   }
   assert.ok(fix.some((z) => z.state === 'unknown'));
+  for (const z of fix.filter((x) => x.zone !== BERLIN)) assert.equal(z.only, 'cm', `${z.id}: rows of another zone are marked cm-only (lucky-mem knows only Europe/Berlin)`);
 });

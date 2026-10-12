@@ -115,7 +115,7 @@ export function decisionsForHuman(root, { human = null } = {}) {
   }
   const list = open
     .filter((p) => (p.who ?? p.owner ?? p.to ?? null) === who)
-    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueValue(p), since: dueCore.openSince(p) }))
+    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p) }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
   return { readable: true, reason: null, who, list };
 }
@@ -506,7 +506,7 @@ export function asText(result) {
 
   lines.push(`DECISIONS FOR THE HUMAN: ${result.decisions.readable ? result.decisions.list.length : 'unknown'}`);
   if (!result.decisions.readable) lines.push(`  ${result.decisions.reason}`);
-  for (const d of result.decisions.list ?? []) lines.push(`  [duty] ${d.id}  ${d.title}${d.due ? `  (due ${d.due})` : ''}`);
+  for (const { id, title, due: dueText } of result.decisions.list ?? []) lines.push(`  [duty] ${id}  ${title}${dueText ? `  (due ${dueText})` : ''}`);
   lines.push('');
 
   lines.push(`TO VERIFY: ${result.verify.readable ? result.verify.list.length : 'unknown'} (of ${result.verify.totalUncertain ?? 0} uncertain)`);

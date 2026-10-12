@@ -806,7 +806,7 @@ export function collectDashboard(root, {
   const openQuestions = [];
   try {
     for (const p of dutiesOpen(root).open) {
-      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: dueCore.dueValue(p) });
+      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: dueCore.dueText(p) });
     }
   } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
   try {

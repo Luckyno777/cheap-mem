@@ -162,11 +162,12 @@ export function machine(h, { cap = null } = {}) {
     remindBeforeMin: t.beforeMin ?? null, wake: t.wake ?? null, state: t.state ?? null, status: t.status,
   });
   const appointments = h.appointments.map(item);
-  const empty = appointments.length === 0 && h.duties.due.length === 0 && !(h.letters.n > 0) && h.yesterday.length === 0;
+  const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
+  const empty = appointments.length === 0 && dutiesDue.length === 0 && !(h.letters.n > 0) && h.yesterday.length === 0;
   return {
     date: h.day, weekday: h.weekday, zone: h.zone, empty,
     appointments, actions: appointments.filter((t) => t.type === 'action'),
-    duties: { due: h.duties.due, open: h.duties.open, withDate: h.duties.withDate },
+    duties: { due: dutiesDue, open: h.duties.open, withDate: h.duties.withDate },
     letters: { waiting: h.letters.n, subjects: h.letters.subjects },
     yesterday: h.yesterday,
     ...(cap ? { cap } : {}),
@@ -190,10 +191,11 @@ export function briefingText(h, { late = null } = {}) {
     for (const t of h.actions) z.push(`- ${t.time} ${t.title} -> ${t.wake}: ${t.state ?? 'planned'}`);
   }
   z.push('');
+  const { due: dutiesDue } = h.duties; // the day list's own result (due today or overdue), not a duty's field
   if (h.duties.open === null) z.push('Duties: not readable.');
-  else if (h.duties.due.length) {
-    z.push(`Duties due today or overdue: ${h.duties.due.length} (of ${h.duties.open} open)`);
-    for (const p of h.duties.due) z.push(`- ${p.date}${p.overdue ? ' (overdue)' : ''} ${p.title} [${p.id}]`);
+  else if (dutiesDue.length) {
+    z.push(`Duties due today or overdue: ${dutiesDue.length} (of ${h.duties.open} open)`);
+    for (const p of dutiesDue) z.push(`- ${p.date}${p.overdue ? ' (overdue)' : ''} ${p.title} [${p.id}]`);
   } else {
     z.push(`Duties: ${h.duties.open} open, ${h.duties.withDate ? `${h.duties.withDate} with a date, none due today` : 'none carries a due date'}.`);
   }
