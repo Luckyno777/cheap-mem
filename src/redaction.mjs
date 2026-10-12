@@ -84,11 +84,16 @@ export const PATTERNS = Object.freeze([
   // The access token travels as a link (`/?k=<token>`) and as the cookie `mem_k=<token>`; the password session as the
   // cookie `mem_session=<token>`. None of these forms carries the word token, secret or password, so the assignment
   // patterns below never saw them, and raw capture, output and the stored lines gave them away in clear text. The
-  // name and the `=` stay, the value falls (like the signed URL). `k=` counts only after `?`, `&`, `;` (also encoded:
-  // %3F, %26, %3B) and from 16 characters of value on: a single letter as a name is too general, a short `k=5` is no
+  // name and the `=` stay, the value falls (like the signed URL). `k=` counts only after `?`, `&` (also encoded:
+  // %3F, %26; `;k=` inside a URL, below) and from 16 characters of value on: a single letter as a name is too general, a short `k=5` is no
   // access. The value falls WHOLE, there is no upper cap (a cap would leave the tail of a long value behind).
+  // The value is token-shaped (review 2026-10-12: `let a=1;k=someObject.longName` was caught): letters, digits, `_ ~ + / -`
+  // and %XX escapes, and it must not run on into code - not `.name`, not a call. `;k=` counts only INSIDE a URL (after a `?`
+  // or `&` without a space in between), as a URL path parameter; in code a `;` is a statement end.
   ['viewer-access',
-    /(?<=[?&;]|%3F|%26|%3B|\\u0026|&amp;)(k(?:=|%3D))([A-Za-z0-9_.~%+/-]{16,})/gi],
+    /(?<=[?&]|%3F|%26|\\u0026|&amp;)(k(?:=|%3D))((?:[A-Za-z0-9_~+/-]|%[0-9A-Fa-f]{2}){16,})(?![A-Za-z0-9_~+/%-]|\.[A-Za-z_$]|\()/gi],
+  ['viewer-access',
+    /(?=k(?:=|%3D))(?<=(?:[?&]|%3F|%26)[^\s"'<>]{0,200}(?:;|%3B))(k(?:=|%3D))((?:[A-Za-z0-9_~+/-]|%[0-9A-Fa-f]{2}){16,})(?![A-Za-z0-9_~+/%-]|\.[A-Za-z_$]|\()/gi],
   ['viewer-access',
     /(?<![A-Za-z0-9_])((?:mem_k|mem_session)(?:=|%3D))([A-Za-z0-9_.~%+/-]{8,})/gi],
 

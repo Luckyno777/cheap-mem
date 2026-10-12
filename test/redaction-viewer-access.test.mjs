@@ -29,7 +29,9 @@ const FORMS = [
   ['link, encoded ampersand', `http://h/?a=1%26k=${TOKEN}`, 'k='],
   ['link, JSON-escaped', `{"u":"http://h/?a=1\\u0026k=${TOKEN}"}`, 'k='],
   ['link, HTML-escaped', `http://h/?a=1&amp;k=${TOKEN}`, 'k='],
-  ['link, semicolon', `x;k=${TOKEN}`, 'k='],
+  ['link, semicolon inside a URL', `http://h/?a=1;k=${TOKEN}`, 'k='],
+  ['link, encoded semicolon inside a URL', `http://h/?a=1%3Bk=${TOKEN}`, 'k='],
+  ['link, sentence ends with the URL', `Open http://h/?k=${TOKEN}. Then wait.`, 'k='],
   ['token cookie', `Cookie: mem_k=${TOKEN}; other=1`, 'mem_k='],
   ['token cookie, capital letters', `Cookie: MEM_K=${TOKEN}`, 'MEM_K='],
   ['session cookie', `Cookie: mem_session=${TOKEN}`, 'mem_session='],
@@ -59,12 +61,27 @@ test('what is no access stays: a short k=, a longer word that ends in k, a value
   ]) assert.equal(redaction.redact(t).text, t, `changed wrongly: ${t}`);
 });
 
+test('code that merely looks like it stays: ";k=" outside a URL, an identifier or a member access as the value', () => {
+  for (const t of [
+    'let a=1;k=someObject.longName',
+    'let a=1;k=someLongObjectNameForTheCall.property',
+    'a=1;k=someFunctionNameThatIsLong(x)',
+    'for(i=0;k=items[i];i++)',
+    'x=1;k=someLongIdentifierName_that_isLongEnough;',
+    'q=1&k=someObjectWithALongName.field.sub',
+    'cfg?.a&k=firstItemOfTheCollection.name',
+  ]) assert.equal(redaction.redact(t).text, t, `changed wrongly: ${t}`);
+  // positive control: the same shapes with a token-like value are still caught
+  assert.ok(!redaction.redact(`http://h/?x=1&k=${TOKEN}`).text.includes(TOKEN));
+  assert.ok(!redaction.redact(`http://h/?x=1;k=${TOKEN}`).text.includes(TOKEN));
+});
+
 test('idempotent, and linear on hostile input', () => {
   const once = redaction.redact(`?k=${TOKEN} Cookie: mem_k=${TOKEN}`);
   const twice = redaction.redact(once.text);
   assert.equal(twice.text, once.text);
   assert.deepEqual(twice.found, []);
-  for (const t of ['?k='.repeat(20000), 'mem_k='.repeat(20000), '&k=' + 'a'.repeat(200000), `${'%3F'.repeat(30000)}k=`]) {
+  for (const t of ['?k='.repeat(20000), 'mem_k='.repeat(20000), '&k=' + 'a'.repeat(200000), `${'%3F'.repeat(30000)}k=`, ';k='.repeat(30000), `?${'a'.repeat(100)};k=`.repeat(2000), `?${'x'.repeat(200000)}`]) {
     const t0 = process.hrtime.bigint();
     redaction.redact(t);
     const ms = Number(process.hrtime.bigint() - t0) / 1e6;
