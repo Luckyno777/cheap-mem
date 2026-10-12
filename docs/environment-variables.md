@@ -213,6 +213,7 @@ A variable that is not in the table is not a switch: there is none.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
+| `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS` | 0 | Probes only: a pause (ms) before every background build of the viewer's cache, to imitate the duration of a real store's build. |
 | `CHEAP_MEM_SERVE_CACHE_GAP_TEST_MS` | 0 | Probes only (with the sync switch): the minimum gap between two background builds of the viewer's cache. |
 | `CHEAP_MEM_SERVE_CACHE_SYNC_TEST_MS` | not set | Probes only: the sync window of the viewer's cache. |
 | `CHEAP_MEM_SERVE_TEMPO_TEST_MS` | not set | Probes only: delays the viewer's build so a test can watch the tempo. |

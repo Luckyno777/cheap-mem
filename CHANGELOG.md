@@ -14,6 +14,24 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Dashboard — full width on a desktop, and a write of your own is what you see at once (2026-10-12)
+
+Reproduced in a real Chromium on the previous tip first (red), then fixed (green). `test/dash-width-cm.test.mjs`,
+`test/dash-write-fresh-cm.test.mjs`.
+
+- **Width.** `main` no longer stops at 1700 px: at 2560 px it left 636 px empty. It fills the column next to the
+  sidebar (1696 px at 1920, 2336 px at 2560). Reading text in cards keeps 110 characters per line (it ran to 208), the
+  setting inputs 720 px (they ran to 1608). 390/720/950 px measure the same as before.
+- **A write of your own.** Saving a setting, acknowledging or answering a message, rating a gold question, confirming a
+  project and deleting a raw capture wrote correctly, and the page showed the OLD state, also after a reload, until the
+  cache's rebuild (seconds on a real store, minutes with the gap) was through. `invalidate(parts)` now remembers which
+  parts of `/dashboard.json` a write changed; `src/dashboard-live.mjs` computes just those from the small read functions
+  (0.3-1.5 ms against a 3.2 s build on 2000 entries) and the server lays them over the stored answer, the deferred lists
+  included. Holds until a build that started after the write is through. A read without a write computes nothing. A part
+  that cannot be computed is named in `cache.live_errors` and said at its card, never silently old. Writes that change
+  the whole entry stock (done, restore, merge) stay with the rebuild. New probe switch
+  `CHEAP_MEM_SERVE_BUILD_PAUSE_TEST_MS`.
+
 ### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
 
 Each finding was reproduced on the previous tip first (red), then fixed (green). `test/closing-why-gate.test.mjs`,

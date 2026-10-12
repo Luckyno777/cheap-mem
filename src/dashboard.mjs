@@ -347,6 +347,28 @@ function humanInboxState(participants, inboxMessages, inboxBroken) {
 }
 
 /**
+ * Z3/A9: unreadable state/claim lines count as broken mail too — a state change in them may be missing from
+ * every number on the page.
+ */
+function brokenMail(ib) {
+  return [...ib.broken,
+    ...(ib.eventsBroken ?? []).map((b) => ({ name: `${b.log}${b.line ? `:${b.line}` : ''}`, reason: b.reason }))];
+}
+
+/**
+ * The human's tray as of NOW, the same shape `collect()` carries as `humanInbox` (board-width-fresh-cm: after an
+ * acknowledge or a reply the server lays this over the stored state at once, src/dashboard-live.mjs). Unlike
+ * `collect()`, which counts an unreadable inbox as empty, this THROWS: the caller names the reason instead of
+ * showing a made-up empty tray.
+ */
+export function humanInboxNow(root) {
+  let participants = null;
+  try { participants = cfgmod.readConfig(root).participants; } catch { participants = null; }
+  const ib = inboxModule.read(root, participants ?? {}, {});
+  return humanInboxState(participants, ib.messages, brokenMail(ib));
+}
+
+/**
  * Everything the desk shows — as data, not as HTML.
  *
  * Separate for the same reason `console.collect` is: it goes out as
@@ -404,10 +426,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
   try {
     const ib = inboxModule.read(root, participants ?? {}, {});
     inboxMessages = ib.messages;
-    // Z3/A9: unreadable state/claim lines count as broken mail too — a
-    // state change in them may be missing from every number on the page.
-    inboxBroken = [...ib.broken,
-      ...(ib.eventsBroken ?? []).map((b) => ({ name: `${b.log}${b.line ? `:${b.line}` : ''}`, reason: b.reason }))];
+    inboxBroken = brokenMail(ib);
   } catch { /* stays empty: an unreadable inbox has no messages to show */ }
   const agentCtx = { now, participants, inboxMessages };
   const agentsOut = mem.agents.map((a) => ({ ...a, ...agentSignals(root, a, agentCtx) }));

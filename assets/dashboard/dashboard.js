@@ -291,8 +291,20 @@ const link = (text, to) => `<button class="textlink" data-route="${to}">${text} 
 const coreRuleHolds = (e) => !e.ruleStatus || e.ruleStatus === 'trial';
 const ruleTag = (status) => (status ? `<span class="badge warn rule-status" data-rule-status="${esc(status)}" title="Not a rule in force: ${esc(status)}">${esc(status)}</span>` : '');
 const open = (id, text, cls = 'btn small') => `<button class="${cls}" data-entry="${esc(id)}">${esc(text || byId(id)?.title || id)}</button>`;
-const panel = (title, body, sub = '', extra = '') =>
-  `<article class="panel pad ${extra}"><div class="panelhead"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>${body}</article>`;
+// board-width-fresh-cm: after a write of the person's own the server computes the affected parts fresh. Could it not
+// compute one, the answer names it in `cache.live_errors` (per part, or `all`). The affected card says so as the LAST
+// thing in the panel (nothing above it jumps): the part then shows the stored state - never silently old.
+const liveNote = (parts = []) => {
+  const le = D?.cache?.live_errors;
+  if (!le || !parts.length) return '';
+  const hit = parts.find((x) => le[x]) || (le.all ? 'all' : null);
+  if (!hit) return '';
+  const t = new Date(D.cache.built_at);
+  const clock = Number.isNaN(t.getTime()) ? 'an unknown time' : t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return `<p class="small quiet live-note" role="status">Could not be computed fresh (${esc(String(le[hit]).slice(0, 140))}) — showing the state of ${clock}.</p>`;
+};
+const panel = (title, body, sub = '', extra = '', liveParts = []) =>
+  `<article class="panel pad ${extra}"><div class="panelhead"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>${body}${liveNote(liveParts)}</article>`;
 // Machine reasons from the server turned into a sentence with the remedy
 // (dash-fix4: "foreign-host" alone told nobody anything on a phone).
 function reasonPlain(r) {
@@ -1024,7 +1036,7 @@ function todayCard() {
     ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
     : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayProjectsPart(projects) + todayVerifyPart(verify) + todayGoldPart(t.gold))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
-  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.', '', ['gold', 'projects'])}</div>`;
 }
 
 // The day strip above the figures. cheap-mem has no appointment clock yet, so there is nothing to
@@ -1576,6 +1588,7 @@ const pages = {
           esc(p.name) + (r?.isNew ? ' ' + badge('warning', 'new · unconfirmed') : ''),
           `${r?.isNew ? `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p><div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
           p.last ? 'Newest entry ' + when(p.last) : '',
+          '', ['projects'],
         );
       })
       .join('') || empty('No project yet. <code class="mono">mem project init &lt;name&gt;</code> creates one; the global drawer needs none.')}</div>${note('Missing and empty project drawers stand on the shelf: filled, empty and missing are three different findings.')}`;
@@ -1762,6 +1775,7 @@ function systemPage() {
   return `${panel(
     'Settings with origin and effect',
     `<div class="row"><div><strong>Writing from the dashboard</strong><p>${esc(w.reason || 'unknown')}${w.howTo ? ' ' + esc(w.howTo) : ''}</p></div>${badge(w.state === 'on' ? 'on' : w.state === 'off' ? 'off' : w.state === 'error' ? 'error' : 'unknown', w.state || 'unknown')}</div>${rows}<div class="drawer-actions">${btn('Save settings', 'save-config', state.readonly ? 'disabled' : '', 'primary')}</div><p class="small quiet" id="configStatus" role="status" aria-live="polite" style="margin-top:8px"></p>${note('Saved through POST /setting — the same route as the console, behind the write switch, the Host check and the Origin check, with a closed field list. No folder is created beyond the one a setting names, no service is switched.')}<div id="configHistory">${(D.log || []).map((x) => `<p class="small muted">${esc(whenTime(x.ts))} · ${esc(x.id || '')}: ${esc(x.before ?? '—')} → ${esc(x.after ?? '—')} · ${esc(x.by || '')}</p>`).join('') || '<p class="small quiet">Nothing changed yet.</p>'}</div>`,
+    '', '', ['settings'],
   )}<div class="grid two" style="margin-top:18px">${panel('Installation', steps || empty('No setup step readable.'), `${num((D.setup || []).filter((s) => s.state !== 'done').length)} of ${num((D.setup || []).length)} still open`)}${panel('Stores on this machine', (D.stores || []).length ? (D.stores || []).map((x) => `<div class="row"><span class="mono small">${esc(x.id)}</span><span class="small">${esc(x.label)}${x.found.length > 1 ? ` · ${num(x.found.length)} candidates — ambiguous` : ''}</span></div>`).join('') + '<p class="small quiet" style="margin-top:10px">Usable as a raw-archive value above.</p>' : empty('No cloud store found on this machine. A folder path works.'), 'Only what was actually found')}</div>`;
 }
 
@@ -1963,7 +1977,7 @@ function inboxPage() {
   ])}${p.human ? '' : note('No participant is marked human in .mem/config.json — so the inbox shows every recipient, and nothing can be answered from here. A recipient is not guessed. ' + esc(p.humanReason || ''))}${panel(
     'Messages',
     `<div class="toolbar"><select class="field" id="inboxTo" aria-label="Recipient"><option value="all" ${state.inboxTo === 'all' ? 'selected' : ''}>All recipients</option>${(p.participants || []).map((t) => `<option value="${esc(t.name)}" ${state.inboxTo === t.name ? 'selected' : ''}>${esc(t.name)}${p.human === t.name ? ' · human' : ''}</option>`).join('')}</select><input class="field searchfield" id="inboxQuery" placeholder="Subject, sender or name …" value="${esc(state.inboxQuery)}" aria-label="Filter messages"><label class="check"><input type="checkbox" id="inboxAll" ${state.inboxAll ? 'checked' : ''}> Include done</label></div><div id="inboxRows">${p.present === false && !messages.length ? empty('No inbox yet — the first message creates inbox/. <code class="mono">mem inbox write --to &lt;name&gt;</code> writes one.') : inboxRows()}</div>`,
-    'Reading changes no delivery state. Acknowledging happens only on purpose.',
+    'Reading changes no delivery state. Acknowledging happens only on purpose.', '', ['inbox'],
   )}<div style="margin-top:18px">${btn('Write a new message', 'new-message', '', 'primary')}</div>${note('Delivery happens through git (commit and push), as on the command line — never through this page. A reply lands as a new file in inbox/.')}${p.broken?.length ? note(`${num(p.broken.length)} messages not readable: ${p.broken.map((k) => esc(k.name)).join(', ')}`, 'bad') : ''}`;
 }
 async function showMessageLatest(name) {
@@ -2407,7 +2421,7 @@ function rawPage() {
   ])}${rawExportPanel()}<div style="height:18px"></div>${panel(
     'Raw capture review',
     `<div class="toolbar"><input class="field" id="rawQuery" value="${esc(rawFilter.query)}" placeholder="Topic or project" aria-label="Filter raw captures"><label class="small quiet">from <input class="field" type="date" id="rawSince" value="${esc(rawFilter.since)}" aria-label="Raw captures from date"></label><label class="small quiet">to <input class="field" type="date" id="rawUntil" value="${esc(rawFilter.until)}" aria-label="Raw captures to date"></label><select class="field" id="rawProject" aria-label="Raw capture project"><option value="all">All projects</option>${projects.map((p) => `<option ${rawFilter.project === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select><select class="field" id="rawState" aria-label="Raw capture state"><option value="all">All states</option>${['present', 'elsewhere', 'unreachable', 'deleted'].map((s) => `<option value="${s}" ${rawFilter.state === s ? 'selected' : ''}>${esc(rawWord[s])}</option>`).join('')}</select>${btn('Select hits', 'raw-select-all', state.readonly ? 'disabled' : '', 'ghost')}${btn('Delete selection …', 'raw-delete-preview', state.readonly ? 'disabled' : '', 'ghost danger')}</div><div id="rawRows">${rawRows()}</div>${note('Four states from the capture contract (mem raw review). A capture\'s topic is the tags of the entries digested from it. No automatic deletion date: deleting happens deliberately after review, with a reason, through "mem raw delete" — the tombstone stays in the register. Unreachable means recorded here with its bytes missing: a defect, not a decision.')}${state.readonly ? `<p>${readonlyMark('mem raw delete <path> --reason "…" --yes')}</p>` : ''}`,
-    `${mb(rf.bytes)} in the register · by project: ${(rf.projects || []).map((p) => `${esc(p.project ?? 'none')} ${num(p.count)}`).join(' · ') || '—'}`,
+    `${mb(rf.bytes)} in the register · by project: ${(rf.projects || []).map((p) => `${esc(p.project ?? 'none')} ${num(p.count)}`).join(' · ') || '—'}`, '', ['raw'],
   )}`;
 }
 function rawReview(path) {
