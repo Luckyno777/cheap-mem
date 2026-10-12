@@ -111,12 +111,24 @@ const isNoList = (v) => typeof v === 'boolean' || typeof v === 'number';
 
 /**
  * What is wrong with the shape of this entry, as one sentence naming the field, or `null` when it can be read.
- * Pure, no I/O. `null` / `undefined` as a value count as "not set".
+ * Pure, no I/O. `null` / `undefined` as a FIELD value count as "not set"; an entry that is itself not an object is wrong.
  */
 export function shapeProblem(entry) {
-  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  // A line that is not an object at all (`null`, a number, a text, a boolean, a list) is no entry: every reader that
+  // opens a field of it ("Cannot read properties of null") crashed on it (second review 2026-10-12, 43 of 85 read commands).
+  if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+    return `the line is ${entry === null ? 'null' : Array.isArray(entry) ? 'a list' : `a ${typeof entry}`}, expected: a JSON object`;
+  }
   for (const [k, v] of Object.entries(entry)) {
     if (v === null || v === undefined) continue;
+    if (k === 'asked_evidence') {
+      // the paraphrase learner's records: a LIST of objects (`mem asked-learn`, `mem gold miss` iterate it; a number or an object
+      // there ended in "not iterable", second review 2026-10-12)
+      if (!(Array.isArray(v) && v.every((x) => x !== null && typeof x === 'object' && !Array.isArray(x)))) {
+        return `field 'asked_evidence' is ${Array.isArray(v) ? 'a list with non-objects' : what(v)}, expected: a list of records`;
+      }
+      continue;
+    }
     if (STRUCTURED.has(k)) continue; // may hold an object; the depth cap above covers it
     if (k.startsWith('_')) {
       // `_source`, `_line`, `_type`, `_project`, ... are the READERS' own annotations: a stored line has none, and a
