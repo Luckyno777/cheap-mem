@@ -35,7 +35,7 @@ const MEMORY_LOGS = [
 ];
 
 /** Is this repo-relative path one of the memory's append-only logs? */
-export function isMemoryLog(rel) {
+function isMemoryLog(rel) {
   return MEMORY_LOGS.some((re) => re.test(String(rel)));
 }
 
