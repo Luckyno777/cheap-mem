@@ -127,6 +127,26 @@ export function checkFlags(args, known, sub) {
 export function isHelp(args) { return args.help === true; }
 
 /**
+ * A text from a switch -- or a loud refusal. `mem done <id> --why` (no value) arrives as `true`; written as it stood it made a
+ * closing line the readers call broken, so the target stayed open (second review 2026-10-12). Returns `null` when the switch is
+ * absent. The same wording as the log commands use for a value-less flag.
+ */
+export function textFlag(args, name, command) {
+  const v = args[name];
+  if (v === undefined || v === null) return null;
+  if (v === true || v === false) {
+    die([
+      `${command}: --${name} arrived without a value.`,
+      `  Write it with one: --${name} "<text>".`,
+      '  If the value starts with --, the parser eats it as a switch:',
+      `    --${name}="--your text"`,
+      '  Nothing was written.',
+    ].join('\n'));
+  }
+  return String(v);
+}
+
+/**
  * A number from a switch -- or a loud refusal.
  *
  * `Number('abc')` is `NaN`, and `NaN` does not break a comparison, it just

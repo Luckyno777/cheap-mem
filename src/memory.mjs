@@ -35,7 +35,7 @@ import { maskEntry } from './outputguard.mjs';
 import * as expand from './expand.mjs';
 import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
-import { shapeProblem, withoutListFlags } from './fieldshape.mjs';
+import { shapeProblem, legacyLists, withoutListFlags } from './fieldshape.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -677,6 +677,18 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
   const { v: _callerVersion, shred: shredRequested, ...rest0 } = data;
   let rest = rest0;
 
+  // The ONE write gate for the shape (second review 2026-10-12): the readers call a line of the wrong shape BROKEN
+  // (`parseLine`), so a writer must not make one. Judged BEFORE the shredding below, so a refused write leaves no
+  // orphan key. Every door goes through here: the CLI, the bridge, `closeDuty`, `retireEntry`, `supersedeEntry`, an
+  // import. `mem done <id> --why` used to write `"why": true`, a line the readers call broken, so the target stayed
+  // open. A list flag without a list (`tags: true`) is refused too, as the CLI does.
+  const candidate = { id, ts, ...rest0 };
+  const wrong = shapeProblem(candidate) ?? (legacyLists(candidate).length ? `field '${legacyLists(candidate)[0]}' came without a value, expected: a list of texts` : null);
+  if (wrong) {
+    const err = new Error(`Refused: ${wrong}; nothing was written. A text field is text, a list field is a list of texts.`);
+    err.code = 'FIELD_SHAPE';
+    throw err;
+  }
   // Crypto-shredding (P14, src/shred.mjs) — OFF unless a caller
   // explicitly asks (`shred: true`), the same "ships off, explicit
   // switch" shape `chainSealCadenceFor` already uses just below. Turning

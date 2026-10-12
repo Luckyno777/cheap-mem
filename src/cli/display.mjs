@@ -25,7 +25,7 @@ import * as bidi from '../bidi.mjs';
 import { maskText, maskEntry } from '../outputguard.mjs';
 import * as bodyfields from '../bodyfields.mjs';
 import * as injection from '../injection.mjs';
-import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig, authorityArg } from './shell.mjs';
+import { out, die, checkFlags, numberFlag, isHelp, findRoot, requireConfig, authorityArg, textFlag } from './shell.mjs';
 
 /**
  * Parse `--as-of`, and REFUSE what cannot be parsed.
@@ -347,6 +347,7 @@ export function retireCmd(state, rest, args) {
   }
   checkFlags(args, ['why', 'type', 'project', 'authority'], verb);
   const tier = authorityArg(args, verb);
+  const why = textFlag(args, 'why', verb);
   const root = findRoot(args);
   requireConfig(root);
   const id = rest[0];
@@ -355,6 +356,6 @@ export function retireCmd(state, rest, args) {
     ? { type: args.type, project: args.project ? (args.project === 'global' ? null : args.project) : null }
     : memory.findEntryLocation(root, id);
   if (!loc) die(`${verb}: id '${id}' not found in any log. (a tombstone? already retired?)`);
-  memory.retireEntry(root, loc.type, id, { state, why: args.why ?? null, project: loc.project, authority: tier });
+  memory.retireEntry(root, loc.type, id, { state, why, project: loc.project, authority: tier });
   out(`${state}: ${id} (${loc.type}${loc.project ? `/${loc.project}` : ''})`);
 }
