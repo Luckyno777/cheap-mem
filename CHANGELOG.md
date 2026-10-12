@@ -33,6 +33,18 @@ Port of lucky-mem `fragen-rang-lm` (owner decision, variant A). Reproduced on th
   (`memory.logEntry`): a line that would carry tier `user` from a run with `MEM_HEADLESS` set is refused, whatever the
   route. Under a lower `CHEAP_MEM_MAX_AUTHORITY` the claim is still lowered and recorded (digest, reflector unchanged).
   `authority.checkNotHeadless / checkUnderUserCeiling / checkUserWrite` are the shared parts; `mailpermit` uses them.
+- **Existing data changes state, once, on update.** A question a person asked (tier `user`) that an agent has ALREADY
+  closed before this update reads as `waiting` afterwards, not as closed: the rule is folded from the graph on every read,
+  so no migration runs and no line changes. Look for them with `mem questions` and close each with
+  `mem questions confirm <id> --authority user` (or leave it waiting). Questions asked by agents, and old ones without a
+  tier, are unaffected.
+- **What the headless guard is for.** It protects against accidental and injected writing (a watcher-woken or
+  reflector session, a prompt that talks an agent into claiming the person's word). It is not a defence against an agent
+  that has its own shell: whoever has a shell is a person for the CLI, as in `docs/security-model.md`.
+- **Counts.** Waiting questions are counted apart, beside `open` and never inside it: the per-project `waitingQuestions`
+  (full and compact build), the weekly metric `waitingQuestions` in the measurement series, and the board/work tiles.
+- **The button.** "Confirm answer" is a live button only where the dashboard has a password session (the same test as the
+  category clicks); otherwise it is shown disabled with the command to copy, instead of a click that ends in a 403.
 
 ### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
 

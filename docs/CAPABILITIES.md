@@ -1230,8 +1230,14 @@ carry tier `user` from a run with `MEM_HEADLESS` set is refused, whatever
 the route (`--authority user` on any type, a raw link, `mem done`,
 `mem answer`). Under a lower `CHEAP_MEM_MAX_AUTHORITY` the claim is
 lowered and recorded, as before (the digest and the reflector keep
-working). As in 10.1, the limit is that whoever has a shell is a person
-for the CLI. `test/question-rank-cm.test.mjs`.
+working). The guard protects against accidental and injected writing,
+not against an agent with its own shell: as in 10.1, whoever has a shell is a
+person for the CLI. `test/question-rank-cm.test.mjs`.
+
+**After the update.** A person's question that an agent had already closed
+reads as `waiting` (the state is folded on every read; no migration, no line
+changes). `mem questions` lists them; `mem questions confirm <id> --authority
+user` closes each.
 
 ### 10.8 Neighbours at write time — `src/neighbours.mjs`
 
