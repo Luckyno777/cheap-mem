@@ -628,11 +628,12 @@ export const COMMANDS = {
   // print the draft `mem log procedure` command for a repeated error
   // class. Writes NOTHING; a procedure is a human's act.
   suggest: async ({ rest = [], args }) => {
-    if (isHelp(args) || rest[0] !== 'procedure') {
+    if (isHelp(args) || (rest[0] !== 'procedure' && rest[0] !== 'rules')) {
       out([
         'mem suggest procedure <class>',
+        'mem suggest rules [--write] [--weekly] [--json] [--now <ISO time>]',
         '',
-        '  Prints a ready `mem log procedure ...` command for an error class',
+        '  procedure: prints a ready `mem log procedure ...` command for an error class',
         '  (mem classes lists the twelve). The rule text comes ONLY from the',
         '  `remedy`/`correct` field or one sentence of the NEWEST error of that',
         '  class, no model call. Nothing is written; `mem log procedure',
@@ -640,7 +641,35 @@ export const COMMANDS = {
         '',
         '  Refused when the class already has a procedure in force, or when no',
         '  error of that class exists.',
+        '',
+        '  rules (AU6): the weekly collection list of rule DRAFTS. For each error',
+        '  class with a repetition pattern (the same class and the same file OR the',
+        '  same title, at least 3x in 14 days) and no procedure in force, one',
+        '  `thought` tagged rule-proposal, at most one per class and ISO week.',
+        '  Without --write only a preview. --weekly is the cheap tick used by',
+        '  bin/mem-digest (a no-op after the first call of a week). A draft is NOT a',
+        '  procedure; only the owner can enact one (mem log procedure --issued-by owner).',
       ].join('\n'));
+      return;
+    }
+    if (rest[0] === 'rules') {
+      checkFlags(args, ['root', 'write', 'weekly', 'json', 'now'], 'suggest rules');
+      const root = findRoot(args);
+      requireConfig(root);
+      let now = new Date();
+      if (typeof args.now === 'string') {
+        now = new Date(args.now);
+        if (Number.isNaN(now.getTime())) die(`suggest rules: --now '${args.now}' is not a time.`);
+      }
+      const ruledraft = await import('../../ruledraft.mjs');
+      const res = args.weekly ? ruledraft.runWeekly(root, { now }) : ruledraft.run(root, { now, write: Boolean(args.write) });
+      if (args.json) { out(JSON.stringify(res)); return; }
+      if (res.ranNow === false) { out(`Rule drafts: week ${res.week} already done (stamp).`); return; }
+      out(`Rule drafts, week ${res.week} (pattern from ${res.threshold}x in ${res.windowDays} days, ${res.candidates} class(es)):`);
+      for (const c of res.created) out(`  ${c.dry ? 'would create' : `created ${c.id}`}  ${c.class} (${c.count} errors)`);
+      for (const k of res.skipped) out(`  skipped  ${k.class} (${k.reason})`);
+      if (!res.created.length && !res.skipped.length) out('  no class with a repetition pattern.');
+      if (!args.write && !args.weekly && res.created.length) out('  (preview - add --write to store them as thoughts)');
       return;
     }
     checkFlags(args, ['root'], 'suggest procedure');

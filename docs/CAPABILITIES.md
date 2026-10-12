@@ -46,6 +46,7 @@ directory. The section number in brackets is where it is explained.
 
 | Module | What it is |
 |---|---|
+| `appendonly.mjs` | AU11: the ONE append-only rule (a log's committed text must be a prefix of the new text, CRLF folded) for the pre-commit hook and the doctor finding `append-only-git`; which files count as the memory's logs; the `CHEAP_MEM_JSONL_APPROVAL` variable |
 | `appointment-clock.mjs` | the calendar's clock: what is due now becomes a letter, exactly once (intent, letter, delivered, under a file lock; repair after a dead run; the cap; the daily proposal summary) |
 | `appointment-invite.mjs` | the calendar outlet: reminders as RFC 5545 invitations over SMTP or the Google Calendar API (service account), journal with backoff and idempotence, secrets only from 0600 files, the doctor's `appointment-invite` state |
 | `appointment-time.mjs` | points in time for appointments: any IANA zone, UTC stored, English expressions, repeats in wall time, clock-change rules |
@@ -188,6 +189,7 @@ directory. The section number in brackets is where it is explained.
 | `categories.mjs` | categories ABOVE topics, shipped empty: four append-only tables under `global/` (`categories`, `topic-category`, `category-aliases`, `category-wishes`), applied on read; `mem category list/open/assign/confirm/create/acknowledge/rename/merge`; a new category creates itself from 3 different topics with the project-name similarity protection (a near-duplicate lands on the existing one, a project name is refused); `mem find --category`; the doctor finding `categories`; `categories` and `topics.list[].category` in the dashboard data. `create --suggested` adopts a neutral starter list, nothing is baked in |
 | `categories-initial.mjs` | `mem category initial-assign`: deterministic keyword rules propose a category for topics without one (clear lead only, never guessed); a person confirms |
 | `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
+| `ruledraft.mjs` | AU6: the weekly collection list of rule DRAFTS - per error class with a repetition pattern (same class and file, or same class and title, 3x in 14 days) and no procedure in force one `thought` tagged `rule-proposal`, at most one per class and ISO week; a draft is not a procedure, no model (`mem suggest rules`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |

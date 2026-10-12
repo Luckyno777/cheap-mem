@@ -112,6 +112,19 @@ if [ "${MEM_GOLD_DAILY:-yes}" != "no" ]; then
   capped "${MEM_GOLD_TIMEOUT:-300}" node "$MEM" --root "$ROOT" gold miss daily >/dev/null 2>&1 || true
 fi
 
+# --- Rule drafts, once per ISO week (AU6) ---------------------------
+#
+# `mem suggest rules --weekly` stores, per error class with a repetition
+# pattern and no procedure in force, ONE `thought` tagged rule-proposal (a
+# DRAFT, not a procedure: a procedure stays a human's act). Piggybacks on this
+# tick like the miss gold above: no new timer. The command stamps the week
+# itself (.mem/rule-draft-week), so every tick but the first of a week is a
+# no-op. Its own time cap, output discarded, failure ignored: neither this
+# job's exit code nor its course changes. MEM_RULE_DRAFT=no switches it off.
+if [ "${MEM_RULE_DRAFT:-yes}" != "no" ]; then
+  capped "${MEM_RULE_DRAFT_TIMEOUT:-120}" node "$MEM" --root "$ROOT" suggest rules --weekly >/dev/null 2>&1 || true
+fi
+
 # --- Check dueness BEFORE taking the lock ---------------------------
 #
 # The tick runs often. In the normal case it must be back out within

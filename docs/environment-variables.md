@@ -57,6 +57,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_OFF` | off | The recall hook (the relevant entries shown on a question) is switched off by `1` |
 | `MEM_RETRIEVE_REQUEST_FRAME` | on (`0` switches it off) | With `0` the request frame at the start of a question ("explain", "can you show me") is searched like every other word, in the recall hook and in the content-word query. |
 | `MEM_REWRITES` | on (the table ships empty) | `off` switches the whole query-rewrite table off. |
+| `MEM_RULE_DRAFT` | on (`no` switches it off) | AU6: with `no` the digest tick does not write the weekly rule drafts (thoughts tagged `rule-proposal`, at most one per error class and week). |
 | `MEM_SEARCH_LEVERS` | the levers' own defaults | `off`, `all` or a list such as `h1,h3`: which Block H search levers are on (`mem search-levers`). |
 | `MEM_SKILL_ACCOUNT_OFFER` | on (`0` switches it off) | With `0` a skill offer no longer brings the two most important lines of the skill's experience account. |
 | `MEM_SKIP_DIGEST` | off | Windows installer: with `1` the digest task is not registered. |
@@ -112,6 +113,7 @@ A variable that is not in the table is not a switch: there is none.
 | `MEM_RETRIEVE_TIE` | 0 (off) | Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`). |
 | `MEM_RETRIEVE_TIME` | 5 seconds | Time budget of one recall search, server and direct fallback alike. |
 | `MEM_RETRIEVE_TOP` | 3 | How many hits the recall hook shows at most. |
+| `MEM_RULE_DRAFT_TIMEOUT` | 120 | AU6: seconds the weekly rule-draft step of the digest tick may take. |
 | `MEM_SKILLUSAGE_DAYS` | 30 | Days of capture coverage `mem skills usage` needs before it gives a verdict. |
 | `MEM_SKILLUSAGE_TIME_MS` | 8000 | Time cap, in milliseconds, for reading the captures. |
 | `MEM_SUBAGENT_TASK_SECONDS` | 2 seconds | Time budget of the sub-agent start block for the assignment; past it the base block comes alone (the POSIX hook runs a first, tighter pass and falls back). |

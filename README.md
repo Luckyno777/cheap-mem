@@ -427,7 +427,7 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **85 CLI commands, 42 MCP tools, 196 modules, 4281
+As of 2026-09-26: **85 CLI commands, 42 MCP tools, 197 modules, 4281
 tests**; as of 2026-09-20, about 81757 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
@@ -692,6 +692,7 @@ mem today                          operations, decisions and facts to verify
 mem guard run|quote|gaps           every latch: is the error back, which has none
 mem gaps [rate]                    open and closed knowledge gaps
 mem suggest procedure <class>      draft a procedure for a repeated error class
+mem suggest rules [--write]        the weekly list of rule drafts (thoughts `rule-proposal`), never a procedure
 mem raw review|delete|archive|migrate|export   audit, remove, relocate captures
 mem observations                   what the memory injected, and when (local)
 mem ledger | mem gauges | mem modelcost   what agents did, occupancy, token estimate
