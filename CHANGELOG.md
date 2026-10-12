@@ -14,6 +14,35 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
+
+Each finding was reproduced on the previous tip first (red), then fixed (green). `test/closing-why-gate.test.mjs`,
+`test/non-object-line.test.mjs`, `test/search-cache-round-two.test.mjs`, `test/asked-evidence-shape.test.mjs`,
+`test/doctor-drawers-both.test.mjs`, `test/mcp-setup-token-doc.test.mjs`.
+
+- **A closing line with `"why": true` (regression, blocker).** `mem done <id> --why`, `mem discard`, `mem supersede --by
+  <id> --why`, `mem duties close <id> --why` and `mem_duty_close` with `why: true` / `why: 5` reported success and wrote
+  a closing line the readers call broken, so the target stayed open and `mem doctor` failed. `memory.logEntry` is now the
+  ONE write gate: it judges the line with `fieldshape.shapeProblem` before anything is written (and before a shred key is
+  stored) and refuses with the field named - so the CLI, the bridge, `closeDuty`, `retireEntry`, `supersedeEntry` and an
+  import are covered, and `logEntry(root, 'decision', {topic: {a: 1}})` no longer writes. A list flag without a list
+  (`tags: true`) is refused there as well. The CLI also refuses a value-less `--why` (and `--title` / `--text` of `merge`)
+  in `done`, `discard`, `supersede`, `duties close`, `restore`, `merge` and `topic-merge`, naming the flag; nothing is
+  written. **Breaking for a script** that passed a bare `--why`.
+- **A drawer line that is `null` (or a number, a text, a boolean, a list) crashed 43 of 85 read commands.** `shapeProblem`
+  answered "fine" for everything that is not an object and `parseLine` handed the parsed `null` through. Any top-level
+  non-object is a BROKEN line now, with a reason, in `parseLine`, the drawer memo and `shapeProblem`; `mem doctor` names
+  it and `mem status` (the `content` step) does not count it as an entry.
+- **Search-index cache format 16.** A version-15 index (built by the first round of the strict rule) still held the
+  documents of `key: 5` / `title: true` lines and lacked the `tags: true` ones, and was served as it stood. Rebuilt once.
+- **`asked_evidence` is a strict list of records.** A number or an object there ended `mem asked-learn` in "not
+  iterable"; such a line is broken now, and both readers (`askedlearn.learnedWords`, `missgold` places) iterate only a
+  real list.
+- **`mem doctor` keeps the legacy-list warning next to a broken line.** The `drawers` finding returned at the first
+  broken line and hid the "list field without a list" lines; it names both now.
+- **`docs/mcp-setup.md`:** the proxy-shape code block carries the `CHEAP_MEM_MCP_TOKEN=` line itself (a placeholder the
+  shell refuses until it is replaced), so a copied block does not start token-less.
+
 ### Security — external review 2026-10-11 (Fable): duty replacement, other people's mail, dashboard doors (breaking for bridge clients and tools)
 
 Each finding was reproduced against a throwaway root first (red), then fixed (green).

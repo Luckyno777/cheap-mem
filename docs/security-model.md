@@ -438,8 +438,13 @@ each was reproduced against a throwaway root here first.
 - **Derived files** (`backlinks.json`, `component-table.json`, the dashboard head, the time track) carry a new format
   version like the search index, so data built from lines that are broken now is not served.
   `test/derived-caches-version.test.mjs`. A long-running `mem serve` / `mem-mcp` needs a restart after the update.
-- **An old index is not served.** The search-index cache is version 15; a cache built before `fieldshape` could still
+- **An old index is not served.** The search-index cache is version 16 (15 held the lines of the first round of the strict rule); a cache built before `fieldshape` could still
   hold documents of poisoned lines and was valid by its file stamps. `test/stale-index-fieldshape.test.mjs`.
+- **One write gate for the shape.** `memory.logEntry` judges the line with `fieldshape.shapeProblem` before anything is
+  written and refuses a field of the wrong shape (an object in a text field, `why: true`, a list flag without a list), so
+  no door - CLI, bridge, `closeDuty`, `retireEntry`, `supersedeEntry`, an import - can write a line the readers call
+  broken. A top-level non-object line (`null`, a number, a text, a list) is broken on read. `test/closing-why-gate.test.mjs`,
+  `test/non-object-line.test.mjs`.
 - **A tunnel is not "local"** (lucky-mem B9/B14). With no token and no login behind the door (the viewer with the login
   off, the MCP bridge over HTTP), a request that carries a proxy header (`cf-connecting-ip`, `cf-ray`, `x-forwarded-*`,
   `x-real-ip`, `forwarded`) no longer counts as loopback, since a tunnel on this machine connects from 127.0.0.1. With
