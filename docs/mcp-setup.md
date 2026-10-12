@@ -140,21 +140,34 @@ Run one process per agent. `CHEAP_MEM_AGENT`, the capability profile and
 the memory root are process-wide facts; they are never accepted as
 claims inside a request.
 
-The safe reverse-proxy shape is:
+The safe reverse-proxy shape needs a **token**:
 
 ```bash
+# CHEAP_MEM_MCP_TOKEN: a long random string (for example the output of `openssl rand -hex 32`)
+# exported in the environment of this process, not written into a file that is committed
 CHEAP_MEM_ROOT=/absolute/path/to/your-memory \
 CHEAP_MEM_AGENT=chat-client \
 CHEAP_MEM_MCP_HOSTS=memory.example.org \
 node /absolute/path/to/cheap-mem/bin/mem-mcp --http
 ```
 
-It listens on `127.0.0.1:8849` by default. Point an authenticated tunnel
-or reverse proxy at it and configure the remote client with:
+It listens on `127.0.0.1:8849` by default. Point a tunnel or reverse proxy
+at it and configure the remote client with the URL and the token as a
+bearer header:
 
 ```text
 https://memory.example.org/mcp
+Authorization: Bearer <the token>
 ```
+
+A tunnel or proxy on the same machine connects from `127.0.0.1`, so
+"the connection is local" says nothing about who is asking. Without a
+token the process therefore treats a request that carries a proxy header
+(`CF-Connecting-IP`, `X-Forwarded-For`, `X-Real-IP`, `Forwarded`, ...) as
+**not local and answers `403`** (changed 2026-10-11; before, whoever
+reached the tunnel was in). A setup that put an unauthenticated proxy in
+front of the loopback listener must set `CHEAP_MEM_MCP_TOKEN`. A plain local
+client (no proxy header) still needs no token.
 
 The public name is an exact allowlist entry. `memory.example.org` passes;
 `memory.example.org.attacker.invalid` does not. If the proxy preserves a
@@ -179,18 +192,21 @@ Other HTTP settings:
 | `CHEAP_MEM_MCP_READONLY` | read-only in HTTP mode | `0` explicitly exposes the full profile |
 
 A non-loopback bind without `CHEAP_MEM_MCP_TOKEN` is refused at startup.
-When the process stays on loopback, authentication may live at the
-reverse proxy; do not publish the loopback listener through an
-unauthenticated proxy. A client that mandates OAuth still needs an OAuth
-capable proxy or gateway — Cheap Mem does not pretend a static bearer
-token is OAuth.
+On loopback without a token only a request with no proxy header is served;
+anything that comes through a tunnel or reverse proxy needs the token (the
+proxy's own login in front of it is not enough: the process cannot see it).
+A client that mandates OAuth still needs an OAuth capable proxy or gateway,
+which then forwards the bearer token — Cheap Mem does not pretend a static
+bearer token is OAuth.
 
-Probe both sides of the Host boundary after deployment:
+Probe both sides of the Host boundary after deployment (with the token in
+`CHEAP_MEM_MCP_TOKEN`; without one, drop the `Authorization` lines):
 
 ```bash
 # expected: 200
 curl -sS -o /dev/null -w '%{http_code}\n' \
   -H 'Host: memory.example.org' \
+  -H "Authorization: Bearer $CHEAP_MEM_MCP_TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' \
   http://127.0.0.1:8849/mcp
@@ -198,6 +214,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 # expected: 403 (send an MCP request, because /health reveals no memory)
 curl -sS -o /dev/null -w '%{http_code}\n' \
   -H 'Host: memory.example.org.attacker.invalid' \
+  -H "Authorization: Bearer $CHEAP_MEM_MCP_TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}' \
   http://127.0.0.1:8849/mcp

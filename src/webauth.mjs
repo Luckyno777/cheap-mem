@@ -95,8 +95,13 @@ export function remoteIsLoopback(req, { strict = false } = {}) {
   const a = req?.socket?.remoteAddress ?? '';
   if (!(a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1')) return false;
   if (!strict) return true;
+  return !hasProxyHeader(req);
+}
+
+/** Does the request carry a header only a proxy or tunnel sets? (The name only: the value is never looked at or printed.) */
+export function hasProxyHeader(req) {
   const headers = req?.headers ?? {};
-  return !PROXY_HEADERS.some((h) => headers[h] !== undefined);
+  return PROXY_HEADERS.some((h) => headers[h] !== undefined);
 }
 
 /**

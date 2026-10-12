@@ -134,3 +134,20 @@ test('MCP bridge over HTTP without a token: a proxy header is refused (403), pla
     fs.rmSync(memory, { recursive: true, force: true });
   }
 });
+
+test('the viewer says ONCE on stderr why it turned a proxy-header request away (no token, login off), never the header value', async () => {
+  const lines = [];
+  const orig = process.stderr.write;
+  process.stderr.write = function capture(chunk, ...rest) { lines.push(String(chunk)); return orig.call(this, chunk, ...rest); };
+  const s = await viewer({ CHEAP_MEM_SERVE_LOGIN: 'off' });
+  try {
+    const headerValue = 'zz-header-value-8.8.8.8';
+    await raw(s.port, '/dashboard.json', { 'cf-connecting-ip': headerValue });
+    await raw(s.port, '/dashboard.json', { 'x-forwarded-for': headerValue });
+    await raw(s.port, '/dashboard.json'); // plain loopback: no hint
+    const hint = lines.filter((l) => /proxy header/i.test(l));
+    assert.equal(hint.length, 1, `exactly one hint expected: ${JSON.stringify(hint)}`);
+    assert.match(hint[0], /CHEAP_MEM_SERVE_TOKEN/);
+    assert.ok(!lines.join('').includes(headerValue), 'the header value must never be printed');
+  } finally { process.stderr.write = orig; await s.stop(); }
+});

@@ -2179,7 +2179,7 @@ async function startHttp(pkg) {
     network.listen(cfg.port, cfg.host, resolve);
   });
   process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
-  process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (loopback only)'}\n`);
+  process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (plain loopback only; a request with a proxy header is refused)'}\n`);
   markRunningIfPossible();
 
   const stop = () => network.close(() => process.exit(0));

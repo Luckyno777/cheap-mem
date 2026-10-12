@@ -276,6 +276,7 @@ export function buildHandler(root, cfg, env = process.env) {
   // failures in this process's memory. A `cfg` without a `login` field
   // (built by hand) counts as ON: the default is the lock, not the open door.
   const loginOn = cfg.login !== false;
+  let proxyHintGiven = false;
   const loginCtx = {
     root,
     dir: login.dirFor(root, env),
@@ -636,6 +637,15 @@ export function buildHandler(root, cfg, env = process.env) {
       remoteLoopback: webauth.remoteIsLoopback(req, { strict: !loginOn }),
     });
     if (!decision.allowed) {
+      // Once per process, on stderr: a request over loopback that carries a proxy header, with no token and no login, is
+      // not local (webauth.remoteIsLoopback, strict) - say why the door stayed shut, or a tunnel setup that used to work
+      // just looks dead. The header's value is never printed.
+      if (!token && !loginOn && !proxyHintGiven && webauth.hasProxyHeader(req) && webauth.remoteIsLoopback(req)) {
+        proxyHintGiven = true;
+        process.stderr.write('serve: a request over loopback carried a proxy header (CF-Connecting-IP, X-Forwarded-For, ...) but the viewer has '
+          + 'no token and no login, so it is not treated as local and was turned away (404). Behind a tunnel set CHEAP_MEM_SERVE_TOKEN '
+          + '(or turn the login on).\n');
+      }
       // **Invisible principle**: no valid token gets EXACTLY the answer
       // an unknown path gets — a bare 404. No "token required", no
       // product name, no 401 that would reveal something guarded is
