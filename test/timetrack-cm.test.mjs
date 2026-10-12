@@ -114,7 +114,7 @@ function trickyRoot({ n = 1500, seed = 7 } = {}) {
     if (i % 79 === 6) line = JSON.stringify({ id, ts: iso(BASE + i * HOUR).slice(0, 19), title: 'zone-less', text: wordsOf(r, 20) });
     if (i % 73 === 8) line = JSON.stringify({ id, ts: iso(BASE + i * HOUR).slice(0, 10), title: 'date only', text: wordsOf(r, 20) });
     if (i % 71 === 9) line = JSON.stringify({ id, ts: iso(BASE + i * HOUR).replace('Z', '+02:00'), title: 'offset', text: wordsOf(r, 20) });
-    if (i % 67 === 2) line = JSON.stringify({ id, meta: { ts: iso(BASE + (i + 300) * HOUR) }, ts: iso(BASE + i * HOUR), text: 'nested ts' });
+    if (i % 67 === 2) line = JSON.stringify({ id, origin: { ts: iso(BASE + (i + 300) * HOUR) }, ts: iso(BASE + i * HOUR), text: 'nested ts' });
     if (i % 61 === 1) line = JSON.stringify({ id, ts: 'soon', title: 'unreadable ts', text: wordsOf(r, 10) });
     if (i % 59 === 11) line = '{"id":"broken' + i + '","ts":"' + iso(BASE + i * HOUR) + '", "text": '; // does not parse
     if (i % 53 === 12) { target[type].push(''); }                                      // a blank line
@@ -618,7 +618,7 @@ test('MUTATION: a track that wrongly skips a block makes the equivalence probe r
   } finally { removeTree(root); }
 });
 
-test('ts as a number and as a JSON escape: such a block is open and the line is found (it cannot be read from the text)', () => {
+test('ts as a number and as a JSON escape: such a block is open; the escaped line is found, the number one is broken (it cannot be read from the text)', () => {
   const root = tmpRoot();
   try {
     const r = rng(51);
@@ -635,7 +635,10 @@ test('ts as a number and as a JSON escape: such a block is open and the line is 
     for (const [id, ms] of [['qnum', numberTs], ['qesc', BASE + 7000 * HOUR]]) {
       const q = ask(root, ms - HOUR, ms + HOUR, { root });
       assert.deepEqual(q.tracked, q.full, id);
-      assert.ok(q.tracked.some((e) => e.id === id), `${id} must be found`);
+      // Fable run 2026-10-11: a `ts` that is a NUMBER is a wrongly shaped line (it crashed the readers that sort by it). It is
+      // broken - reported by the doctor, never an entry - so the track and the full read agree that it is not found. The
+      // escaped text form is a real timestamp and stays found.
+      assert.equal(q.tracked.some((e) => e.id === id), id === 'qesc', `${id}: found only when its ts is text`);
       assert.equal(q.report.way, 'track');
     }
   } finally { removeTree(root); }

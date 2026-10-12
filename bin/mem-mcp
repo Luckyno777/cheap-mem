@@ -102,9 +102,14 @@ import * as injection from '../src/injection.mjs';
 import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
+import * as shred from '../src/shred.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
+
+// Fable run 2026-10-11: this process can read the keyring beside the data, a connected foreign agent cannot - so the
+// bridge shows an encrypted entry as unreadable unless the operator opts in. Read once, at start-up, like the profile.
+shred.refuseDecryption(process.env.CHEAP_MEM_MCP_DECRYPT !== '1');
 
 /**
  * Who this bridge writes as.
@@ -2133,7 +2138,7 @@ async function startHttp(pkg) {
     const auth = webauth.authDecision({
       token: cfg.token,
       given: webauth.bearerFrom(req),
-      remoteLoopback: webauth.remoteIsLoopback(req),
+      remoteLoopback: webauth.remoteIsLoopback(req, { strict: true }), // no login behind this door: a proxy header is not local
     });
     if (!auth.allowed) {
       if (auth.code === 401) res.setHeader('www-authenticate', 'Bearer');
@@ -2174,7 +2179,7 @@ async function startHttp(pkg) {
     network.listen(cfg.port, cfg.host, resolve);
   });
   process.stderr.write(`cheap-mem MCP (http): http://${cfg.host}:${cfg.port}/mcp\n`);
-  process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (loopback only)'}\n`);
+  process.stderr.write(`  agent=${resolveAgent()} profile=${PROFILE} token=${cfg.token ? 'set' : 'none (plain loopback only; a request with a proxy header is refused)'}\n`);
   markRunningIfPossible();
 
   const stop = () => network.close(() => process.exit(0));

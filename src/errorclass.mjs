@@ -265,6 +265,7 @@ export function coverage(entries) {
   const by = new Map();
   const open = new Map();
   for (const e of entries ?? []) {
+    if (e?.__broken) continue; // an unreadable or wrongly shaped line is the doctor's business, not part of the denominator
     const raw = e?.class ?? '(none)';
     const n = normalise(raw);
     if (n) by.set(n, (by.get(n) ?? 0) + 1);

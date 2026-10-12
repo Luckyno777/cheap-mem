@@ -29,6 +29,7 @@ A variable that is not in the table is not a switch: there is none.
 | --- | --- | --- |
 | `CHEAP_MEM_CALENDAR_ROUTE` | not set (no outside calendar) | Which route puts an appointment into a real calendar: SMTP invitation or the Google Calendar API. |
 | `CHEAP_MEM_MAX_AUTHORITY` | not set (no ceiling; the digest sets `inferred`) | The highest authority a process may claim in what it writes. A model-backed writer must never produce a `user` entry; the digest and the reflector run under a lower ceiling. |
+| `CHEAP_MEM_MCP_DECRYPT` | off (the bridge shows encrypted entries as unreadable) | With `1` the MCP bridge decrypts entries written with `shred` for the agents connected to it. The keyring sits beside the data, so without this a connected foreign agent could read what a clone of the git data cannot. |
 | `CHEAP_MEM_MCP_READONLY` | off (full tool profile) | With `1` the MCP bridge offers only the read tools. |
 | `CHEAP_MEM_PROFILE` | off | With `1` the hooks write a profile of where their time went. |
 | `CHEAP_MEM_SERVE_BEHIND_TUNNEL` | off | With `1` the viewer trusts `CF-Connecting-IP` from a loopback connection as the source of a sign-in attempt (a tunnel on this machine). Without it the socket address counts. |

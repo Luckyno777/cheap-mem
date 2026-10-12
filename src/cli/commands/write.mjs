@@ -33,7 +33,7 @@ import * as errorfixes from '../../errorfixes.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
 import * as categories from '../../categories.mjs';
 import * as expand from '../../expand.mjs';
-import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
 /** 14 commands. */
@@ -794,6 +794,7 @@ export const COMMANDS = {
     }
     checkFlags(args, ['by', 'why', 'type', 'project', 'authority'], 'supersede');
     const tier = authorityArg(args, 'supersede');
+    const why = textFlag(args, 'why', 'supersede');
     const root = findRoot(args);
     requireConfig(root);
     const id = rest[0];
@@ -804,7 +805,7 @@ export const COMMANDS = {
       : memory.findEntryLocation(root, id);
     if (!loc) die(`supersede: id '${id}' not found in any log.`);
     try {
-      memory.supersedeEntry(root, loc.type, id, { by, why: args.why ?? null, project: loc.project, authority: tier });
+      memory.supersedeEntry(root, loc.type, id, { by, why, project: loc.project, authority: tier });
     } catch (e) { die(`supersede: ${e.message}`); }
     out(`superseded: ${id} by ${by} (${loc.type}${loc.project ? `/${loc.project}` : ''})`);
   },
@@ -828,7 +829,7 @@ export const COMMANDS = {
     requireConfig(root);
     if (!rest[0]) die('restore: which id? Example: mem restore a1b2c3 --why "still needed"');
     try {
-      const r = entryops.restore(root, rest[0], { why: args.why ?? null });
+      const r = entryops.restore(root, rest[0], { why: textFlag(args, 'why', 'restore') });
       out(`restored: ${r.id} -> ${r.created} (${r.type}${r.project ? `/${r.project}` : ''}, was ${r.was})`);
     } catch (e) { die(`restore: ${e.message}`); }
   },
@@ -850,7 +851,7 @@ export const COMMANDS = {
     requireConfig(root);
     if (rest.length < 2) die('merge: at least two ids. Example: mem merge a1b2c3 d4e5f6 --why "same fact"');
     try {
-      const r = entryops.merge(root, rest, { title: args.title ?? null, text: args.text ?? null, why: args.why ?? null });
+      const r = entryops.merge(root, rest, { title: textFlag(args, 'title', 'merge'), text: textFlag(args, 'text', 'merge'), why: textFlag(args, 'why', 'merge') });
       out(`merged: ${r.ids.join(', ')} -> ${r.created} (${r.type}${r.project ? `/${r.project}` : ''}); tombstones: ${r.tombstones.join(', ')}`);
     } catch (e) { die(`merge: ${e.message}`); }
   },
@@ -967,7 +968,7 @@ export const COMMANDS = {
       out('  ' + fresh.formatFact(f));
       for (const h of f.history) {
         const val = h.value ?? h.fact ?? h.text ?? '';
-        const when = (h.valid_from ?? h.ts ?? '').slice(0, 10);
+        const when = String(h.valid_from ?? h.ts ?? '').slice(0, 10);
         out(`      was: ${val}  (${when})`);
       }
     }
@@ -1030,7 +1031,7 @@ export const COMMANDS = {
     checkFlags(args, ['to', 'why', 'agent'], 'topic-merge');
     const root = findRoot(args);
     requireConfig(root);
-    const r = memory.mergeTopics(root, rest, args.to, { why: args.why ?? '', agent: args.agent ?? null });
+    const r = memory.mergeTopics(root, rest, args.to, { why: textFlag(args, 'why', 'topic-merge') ?? '', agent: args.agent ?? null });
     if (!r.written.length) { out('Nothing to do (source equals target).'); return; }
     out(`${r.written.length} merged into '${r.target}':`);
     for (const l of r.written) out(`  ${l.from}`);
@@ -1055,11 +1056,12 @@ export const COMMANDS = {
     if (rest[0] === 'close') {
       checkFlags(args, ['why', 'state', 'project', 'authority'], 'duties close');
       const tier = authorityArg(args, 'duties close');
+      const why = textFlag(args, 'why', 'duties close');
       const id = rest[1];
       if (!id) die('duties close: which id? (mem duties lists them)');
       const { entry } = memory.closeDuty(root, id, {
         state: args.state ?? memory.DUTY_STATE.DONE,
-        why: args.why ?? null,
+        why,
         project: args.project ?? null,
         authority: tier,
       });

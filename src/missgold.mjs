@@ -278,7 +278,8 @@ export function status(root, env = process.env, { platform = process.platform } 
 function learnedPlaces(root, index) {
   const places = new Set();
   for (const d of index.documents ?? []) {
-    for (const b of d?.entry?.asked_evidence ?? []) if (b?.journal) places.add(b.journal);
+    const evidence = d?.entry?.asked_evidence;
+    for (const b of Array.isArray(evidence) ? evidence : []) if (b?.journal) places.add(b.journal);
   }
   for (const p of rewrites.folded(root).values()) {
     for (const b of p.evidence ?? []) if (b?.place) places.add(b.place);

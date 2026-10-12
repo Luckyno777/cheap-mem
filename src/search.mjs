@@ -220,7 +220,16 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 // 14: the learned term graph needs `minDistinct` documents that are not
 //     near-copies of each other behind every pair (thesaurus.buildTermGraph).
 //     A version-13 cache holds a graph learned from repeated notes.
-export const CACHE_VERSION = 14;
+// 15: Fable run 2026-10-11 - a line whose text field is an object (or whose ts/id is not text) is
+//     BROKEN now and stays out of the index (`memory.parseLine`, `src/fieldshape.mjs`). A version-14
+//     cache may still hold documents of such lines; it stays valid by its file stamps and would be
+//     served as it stands (`mem find` listed them, `mem retrieve` threw). Rebuilt once.
+// 16: second review 2026-10-12 - the shape rule was inverted and made strict after version 15 was written: a text field that
+//     is a number or a boolean (`key: 5`, `title: true`) is BROKEN and out of the index now, and a list flag without a list
+//     (`tags: true`) is read as an EMPTY list and IN. A version-15 cache built by the first round of that code still holds
+//     the documents of the `key: 5` / `title: true` lines and lacks the `tags: true` ones; it stays valid by its file
+//     stamps and would be served as it stands. Rebuilt once.
+export const CACHE_VERSION = 16;
 
 /**
  * Field weights. The same word means more in a title than in a body:
@@ -859,8 +868,9 @@ export function buildIndex(root, { types = null, language = 'en' } = {}) {
       const lines = memory.withoutBom(fs.readFileSync(p, 'utf8')).split('\n');
       for (let i = 0; i < lines.length; i += 1) {
         if (!lines[i].trim()) continue;
-        let e;
-        try { e = JSON.parse(lines[i]); } catch { continue; }
+        // Unreadable OR wrongly shaped (an object in a text field) stays out of the index: the doctor reports it.
+        const e = memory.parseLine(lines[i]);
+        if (e?.__broken) continue;
         rawEntries.push({
           entry: e, type, project,
           source: memory.asSource(root, p),
@@ -2359,8 +2369,8 @@ function parseLogTail(root, rel, info, from) {
   const out = [];
   for (const line of text.split('\n')) {
     if (line.trim()) {
-      let e;
-      try { e = JSON.parse(line); } catch { lineNo += 1; continue; }
+      const e = memory.parseLine(line);
+      if (e?.__broken) { lineNo += 1; continue; } // unreadable or wrongly shaped: not indexed (the doctor reports it)
       out.push({ entry: e, type: info.type, project: info.project, source: rel, line: lineNo });
     }
     lineNo += 1;

@@ -400,6 +400,59 @@ roots first, then fixed; `test/b1-duty-replace.test.mjs`, `test/b2-b4-inbox-owne
   The Host check is central. Still open: `retires_id` on a
   duty over the bridge is judged by the same rule on read; it does not close a duty in the duty list.
 
+**Port of the sister house's Fable run (2026-10-11).** lucky-mem's own security run found gaps cheap-mem shared;
+each was reproduced against a throwaway root here first.
+
+- **A poisoned line must not take the readers down** (lucky-mem error 5katltp7cfkr). A line whose text field is an
+  object (`tags: {toString: "x"}`, `owner: {a: 1}`, a `title` that is a list) or whose `ts` / `id` is not text crashed
+  `find`, `context`, `duties`, `viewer`, `doctor` and the dashboard (an uncaught throw in `/entries.json` ended
+  the server), and the recall hook failed silently for everybody. The bridge already refused such values when writing;
+  a raw line, an old CLI or a merge never meets that gate. Now every reader that interprets an entry's fields goes through `memory.parseLine`
+  (`src/fieldshape.mjs` names the text and list fields): the line is BROKEN (`{__broken: true, raw, reason}`, the
+  three-states rule), `mem doctor` names it with the field (`drawers`, `integrity`), and it is out of every other
+  denominator. Nothing is deleted (append-only). Legitimate old forms stay readable: a single tag as a text, a boolean
+  or number where a scalar is allowed, the structured fields (`origin`, `provenance`, `guard`, `chain_seal`, ...).
+  `test/poison-lines.test.mjs`.
+- **Cancelling needs the person too** (lucky-mem N1/N9). `POST /task/cancel` took the bearer token alone, so anybody
+  handed the link could end a task an owner started. It needs a password session (403 otherwise, before the kind and
+  the state are looked at). `raw-delete` is not cancellable (`interruptible: false`: it frees the bytes, then writes the
+  tombstone). `export`, which decompresses the raw captures into a folder, is `humanOnly` now; `integrity` only reads.
+  `test/task-cancel-person.test.mjs`.
+- **`/task.json` names no server path** (lucky-mem B11). The command, result and reason show `<root>` and `<code>`
+  instead of the absolute folders; the state file on disk keeps the full command. `test/task-json-paths.test.mjs`.
+- **The viewer's own ways in are redacted** (lucky-mem B14/N6). `?k=<token>`, the cookies `mem_k=` and `mem_session=`,
+  also URL-encoded (`%3Fk%3D`), JSON-escaped and HTML-escaped, fall in raw capture, stored lines and every output
+  (`viewer-access`, canary 14). `test/redaction-viewer-access.test.mjs`.
+- **The bridge does not decrypt** (lucky-mem "no decryption without a switch"). The bridge process can read
+  `.mem/keyring.json`, so a connected foreign agent read entries written with `shred` that a clone of the git data cannot.
+  Now they show as unreadable over the bridge unless the operator sets `CHEAP_MEM_MCP_DECRYPT=1`. The CLI and the
+  dashboard are unchanged. `test/bridge-no-decrypt.test.mjs`.
+- **A text field is text (review 2026-10-12).** A number or a boolean in `key`, `text`, `why`, `valid_from` ... crashed
+  `context`, `facts`, `viewer`, `today` and the dashboard while the doctor was ok, and `--key` without a value wrote
+  `true`. A text field is text now (the line is broken otherwise), `mem log` refuses a flag without a value except the
+  real switches, `mem_log` refuses a number or a boolean there, and an old `tags: true` is read as an empty list with a
+  doctor warning. A line nested deeper than 32 levels is broken. The rule is inverted: every top-level field is a scalar or a list of
+  scalars, objects only in a named allowlist (`origin`, `provenance`, `guard`, `chain_seal`, `body_enc`, `references`,
+  `asked_evidence`), and no object carries a key like `toString`. `test/field-text-strict.test.mjs`,
+  `test/neighbours-poison.test.mjs` (the write-time neighbour hints read the drawer through the same rule).
+- **Derived files** (`backlinks.json`, `component-table.json`, the dashboard head, the time track) carry a new format
+  version like the search index, so data built from lines that are broken now is not served.
+  `test/derived-caches-version.test.mjs`. A long-running `mem serve` / `mem-mcp` needs a restart after the update.
+- **An old index is not served.** The search-index cache is version 16 (15 held the lines of the first round of the strict rule); a cache built before `fieldshape` could still
+  hold documents of poisoned lines and was valid by its file stamps. `test/stale-index-fieldshape.test.mjs`.
+- **One write gate for the shape.** `memory.logEntry` judges the line with `fieldshape.shapeProblem` before anything is
+  written and refuses a field of the wrong shape (an object in a text field, `why: true`, a list flag without a list), so
+  no door - CLI, bridge, `closeDuty`, `retireEntry`, `supersedeEntry`, an import - can write a line the readers call
+  broken. A top-level non-object line (`null`, a number, a text, a list) is broken on read. `test/closing-why-gate.test.mjs`,
+  `test/non-object-line.test.mjs`.
+- **A tunnel is not "local"** (lucky-mem B9/B14). With no token and no login behind the door (the viewer with the login
+  off, the MCP bridge over HTTP), a request that carries a proxy header (`cf-connecting-ip`, `cf-ray`, `x-forwarded-*`,
+  `x-real-ip`, `forwarded`) no longer counts as loopback, since a tunnel on this machine connects from 127.0.0.1. With
+  the login on, the password stands behind the door. `test/loopback-proxy-headers.test.mjs`.
+- **Checked and not a gap here:** an `In-Reply-To` letter never closes a request (the state is its own act, addressee
+  only since B2, and `inbox.write` checks the direction); the dashboard's archive location (session + allowed bases) and
+  the CLI (unchecked, the operator's own hand) split the way lucky-mem's does.
+
 ### Unsolved, explicitly
 
 - **Ranking eviction.** A short claim containing the query terms outranks

@@ -55,8 +55,8 @@ const HEAD_OPEN = 150;
 /** At most this many entries per page of the `entries` part. */
 export const PAGE_MAX = 5000;
 
-/** Version of the head on disk: another layout is not read. */
-const HEAD_VERSION = 1;
+/** Version of the head on disk: another layout is not read. Version 2 (review 2026-10-12): a version-1 head may show entries of lines that are broken since the read-side fix. */
+const HEAD_VERSION = 2;
 
 /**
  * Above this size of the drawers (bytes) the full build is not even tried,

@@ -93,7 +93,8 @@ export function deriveStateMaterialized(root) {
     try { raw = memory.withoutBom(fs.readFileSync(f.abs, 'utf8')); } catch { continue; }
     for (const line of raw.split('\n')) {
       if (!line.trim()) continue;
-      try { all.push(JSON.parse(line)); } catch { /* integrity reports these */ }
+      const e = memory.parseLine(line);
+      if (!e?.__broken) all.push(e); // unreadable or wrongly shaped: integrity reports these
     }
   }
   return memory.retiredMap(all);

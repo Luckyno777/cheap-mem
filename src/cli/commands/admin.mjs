@@ -726,9 +726,8 @@ export const COMMANDS = {
             const lines = fs.readFileSync(file, 'utf8').split('\n');
             for (let i = 0; i < lines.length; i += 1) {
               if (!lines[i].trim()) continue;
-              let e;
-              try { e = JSON.parse(lines[i]); } catch { continue; }
-              if (!e.id) continue;
+              const e = memory.parseLine(lines[i]);
+              if (e?.__broken || !e?.id) continue; // unreadable or wrongly shaped: the doctor reports it
               const rel = path.relative(root, file).split(path.sep).join('/');
               if (!args.force && store.exists(db, rel, i + 1, e.id)) { skipped += 1; continue; }
               const r = await embedHook.embedEntry(root, file, i + 1, e);

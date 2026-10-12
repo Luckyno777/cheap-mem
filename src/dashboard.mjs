@@ -820,8 +820,8 @@ export function getEntryFast(root, id) {
   for (let i = 0; i < rawLines.length; i += 1) {
     const text = rawLines[i];
     if (!text.trim()) continue;
-    let entry;
-    try { entry = JSON.parse(text); } catch { ownDrawerBroken = true; continue; }
+    const entry = memory.parseLine(text);
+    if (entry?.__broken) { ownDrawerBroken = true; continue; } // unreadable or wrongly shaped
     rows.push({ entry, line: i + 1 });
   }
   const hit = rows.find((r) => r.entry.id === id && !memory.isClosingLine(r.entry));

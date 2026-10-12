@@ -43,6 +43,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { shapeProblem, legacyLists, withoutListFlags } from './fieldshape.mjs';
 
 /** A single file above this is never memoized (a V8 string tops out near 512 MiB anyway). */
 const MAX_FILE_BYTES = 128 * 1024 * 1024;
@@ -112,8 +113,9 @@ export function textOf(abs) {
  * The parsed lines of a drawer, or `null` when the memo cannot answer
  * (no run, missing, unreadable, over budget): then read the file the old way.
  *
- * `{ raw, vals, nos, rawLine }`: `raw` is the text without a BOM;
- * `vals[i]` is the parse of the i-th non-blank line or {@link NOT_JSON};
+ * `{ raw, vals, nos, rawLine, reason }`: `raw` is the text without a BOM;
+ * `vals[i]` is the parse of the i-th non-blank line or {@link NOT_JSON} (not JSON, or wrongly
+ * shaped: then `reason(i)` says why);
  * `nos[i]` is its 1-based line number in `raw.split('\n')`; `rawLine(i)`
  * the line's text.
  */
@@ -126,17 +128,28 @@ export function rowsOf(abs) {
     const vals = [];
     const nos = [];
     const failed = new Map();
+    const why = new Map();
+    const legacy = new Map();
     for (let i = 0; i < lines.length; i += 1) {
       const line = lines[i];
       if (!line.trim()) continue;
       let v;
       try { v = JSON.parse(line); } catch { v = NOT_JSON; failed.set(vals.length, line); }
+      // A wrongly shaped line (an object in a text field, src/fieldshape.mjs) is BROKEN like an unreadable one: it
+      // is marked NOT_JSON here and carries its reason, so no consumer of the memo meets a poisoned field.
+      const problem = v === NOT_JSON ? null : shapeProblem(v);
+      if (problem) { v = NOT_JSON; failed.set(vals.length, line); why.set(vals.length, problem); }
+      // A list flag without a value (`tags: true`) is read as an empty list; the integrity scan still names the line.
+      if (v !== NOT_JSON) {
+        const bare = legacyLists(v);
+        if (bare.length) { legacy.set(vals.length, bare); v = withoutListFlags(v); }
+      }
       if (ACTIVE.freeze && v !== NOT_JSON) deepFreeze(v);
       vals.push(v);
       nos.push(i + 1);
     }
     rec.raw = raw;
-    rec.rows = { raw, vals, nos, rawLine: (i) => failed.get(i) ?? lines[nos[i] - 1] };
+    rec.rows = { raw, vals, nos, rawLine: (i) => failed.get(i) ?? lines[nos[i] - 1], reason: (i) => why.get(i) ?? null, listFlags: (i) => legacy.get(i) ?? null };
   }
   return rec.rows;
 }
@@ -156,7 +169,9 @@ export function entriesOf(rows) {
   const out = new Array(rows.vals.length);
   for (let i = 0; i < out.length; i += 1) {
     const v = rows.vals[i];
-    out[i] = v === NOT_JSON ? { __broken: true, raw: rows.rawLine(i) } : copyOf(v);
+    out[i] = v === NOT_JSON
+      ? { __broken: true, raw: rows.rawLine(i), ...(rows.reason(i) ? { reason: rows.reason(i) } : {}) }
+      : copyOf(v);
   }
   return out;
 }

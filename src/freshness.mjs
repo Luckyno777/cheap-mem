@@ -21,7 +21,8 @@
 
 /** The subject a timeline entry is a version of, or null for a one-off. */
 export function subjectKey(e) {
-  return e.key ?? e.subject ?? null;
+  const k = e.key ?? e.subject;
+  return k === undefined || k === null ? null : String(k); // second line of defence: a number or a boolean as key must not reach localeCompare
 }
 
 // Without a readable date the time is UNKNOWN (null), not 0: `Date.parse(0)`

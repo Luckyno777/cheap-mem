@@ -124,6 +124,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_SKIP_DIGEST', SWITCH, 'off', 'Windows installer: with `1` the digest task is not registered.'),
   sw('CHEAP_MEM_PROFILE', SWITCH, 'off', 'With `1` the hooks write a profile of where their time went.'),
   sw('CHEAP_MEM_MAX_AUTHORITY', SWITCH, 'not set (no ceiling; the digest sets `inferred`)', 'The highest authority a process may claim in what it writes. A model-backed writer must never produce a `user` entry; the digest and the reflector run under a lower ceiling.'),
+  sw('CHEAP_MEM_MCP_DECRYPT', SWITCH, 'off (the bridge shows encrypted entries as unreadable)', 'With `1` the MCP bridge decrypts entries written with `shred` for the agents connected to it. The keyring sits beside the data, so without this a connected foreign agent could read what a clone of the git data cannot.'),
   sw('CHEAP_MEM_MCP_READONLY', SWITCH, 'off (full tool profile)', 'With `1` the MCP bridge offers only the read tools.'),
   sw('CHEAP_MEM_SERVE_READONLY', SWITCH, 'off', 'With `1` the viewer shows everything and sets nothing.'),
   sw('CHEAP_MEM_SERVE_OFFLINE', SWITCH, 'off', 'With `1` the viewer loads nothing from outside.'),

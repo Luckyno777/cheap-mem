@@ -501,11 +501,24 @@ export function readEntryBody(root, entry) {
   if (!entry.body_enc) {
     return { state: 'plain', reason: null, fields: plainBodyFields(entry) };
   }
+  if (decryptionRefused) return REFUSED; // before the keyring is even opened
   return readWithKeyring(loadKeyring(root), entry);
 }
 
+/**
+ * Fable run 2026-10-11 (ported from lucky-mem, "the bridge never decrypts without a switch"): the MCP bridge process can
+ * read the keyring that sits beside the data, so every connected foreign agent would get the plaintext of an encrypted
+ * entry - which a clone that holds only the git data cannot read. `bin/mem-mcp` switches decryption OFF for its own
+ * process unless the operator sets CHEAP_MEM_MCP_DECRYPT=1. Process-wide on purpose: every display and search path
+ * (`readEntryBody`, `makeReveal`) goes through the two functions below, so no tool can forget it. The CLI is untouched.
+ */
+let decryptionRefused = false;
+export function refuseDecryption(on) { decryptionRefused = Boolean(on); }
+const REFUSED = Object.freeze({ state: 'unreadable', reason: 'bridge-no-decrypt', fields: null });
+
 /** `readEntryBody`'s key lookup and decryption, against an already-loaded keyring. */
 function readWithKeyring({ present, keys }, entry) {
+  if (decryptionRefused) return REFUSED;
   if (!present) {
     return { state: 'unreadable', reason: 'keyring-absent', fields: null };
   }
@@ -536,6 +549,7 @@ function readWithKeyring({ present, keys }, entry) {
  */
 export function unreadableLabel(reason) {
   if (reason === 'no-key') return '[encrypted entry: not readable - key destroyed (shredded) or never recorded]';
+  if (reason === 'bridge-no-decrypt') return '[encrypted entry: not shown over the MCP bridge - read it at the CLI, or the operator sets CHEAP_MEM_MCP_DECRYPT=1]';
   if (reason === 'keyring-absent') return '[encrypted entry: not readable - key store unreachable, state unknown]';
   return `[encrypted entry: not readable - ${reason || 'unknown'}]`;
 }
@@ -564,10 +578,11 @@ export function makeReveal(root) {
       return { entry, state: 'plain', reason: null };
     }
     let res;
-    if (ring === undefined) {
+    if (ring === undefined && !decryptionRefused) {
       try { ring = loadKeyring(root); } catch { ring = null; }
     }
-    if (ring === null) res = { state: 'unreadable', reason: 'keyring-corrupt', fields: null };
+    if (decryptionRefused) res = REFUSED;
+    else if (ring === null) res = { state: 'unreadable', reason: 'keyring-corrupt', fields: null };
     else res = readWithKeyring(ring, entry);
     if (res.state === 'ok') {
       return { entry: { ...entry, ...res.fields, __body: { state: 'ok' } }, state: 'ok', reason: null };

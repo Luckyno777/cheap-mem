@@ -14,6 +14,35 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security — second review of the shape rule (2026-10-12): one write gate, non-object lines, cache format 16
+
+Each finding was reproduced on the previous tip first (red), then fixed (green). `test/closing-why-gate.test.mjs`,
+`test/non-object-line.test.mjs`, `test/search-cache-round-two.test.mjs`, `test/asked-evidence-shape.test.mjs`,
+`test/doctor-drawers-both.test.mjs`, `test/mcp-setup-token-doc.test.mjs`.
+
+- **A closing line with `"why": true` (regression, blocker).** `mem done <id> --why`, `mem discard`, `mem supersede --by
+  <id> --why`, `mem duties close <id> --why` and `mem_duty_close` with `why: true` / `why: 5` reported success and wrote
+  a closing line the readers call broken, so the target stayed open and `mem doctor` failed. `memory.logEntry` is now the
+  ONE write gate: it judges the line with `fieldshape.shapeProblem` before anything is written (and before a shred key is
+  stored) and refuses with the field named - so the CLI, the bridge, `closeDuty`, `retireEntry`, `supersedeEntry` and an
+  import are covered, and `logEntry(root, 'decision', {topic: {a: 1}})` no longer writes. A list flag without a list
+  (`tags: true`) is refused there as well. The CLI also refuses a value-less `--why` (and `--title` / `--text` of `merge`)
+  in `done`, `discard`, `supersede`, `duties close`, `restore`, `merge` and `topic-merge`, naming the flag; nothing is
+  written. **Breaking for a script** that passed a bare `--why`.
+- **A drawer line that is `null` (or a number, a text, a boolean, a list) crashed 43 of 85 read commands.** `shapeProblem`
+  answered "fine" for everything that is not an object and `parseLine` handed the parsed `null` through. Any top-level
+  non-object is a BROKEN line now, with a reason, in `parseLine`, the drawer memo and `shapeProblem`; `mem doctor` names
+  it and `mem status` (the `content` step) does not count it as an entry.
+- **Search-index cache format 16.** A version-15 index (built by the first round of the strict rule) still held the
+  documents of `key: 5` / `title: true` lines and lacked the `tags: true` ones, and was served as it stood. Rebuilt once.
+- **`asked_evidence` is a strict list of records.** A number or an object there ended `mem asked-learn` in "not
+  iterable"; such a line is broken now, and both readers (`askedlearn.learnedWords`, `missgold` places) iterate only a
+  real list.
+- **`mem doctor` keeps the legacy-list warning next to a broken line.** The `drawers` finding returned at the first
+  broken line and hid the "list field without a list" lines; it names both now.
+- **`docs/mcp-setup.md`:** the proxy-shape code block carries the `CHEAP_MEM_MCP_TOKEN=` line itself (a placeholder the
+  shell refuses until it is replaced), so a copied block does not start token-less.
+
 ### Security — external review 2026-10-11 (Fable): duty replacement, other people's mail, dashboard doors (breaking for bridge clients and tools)
 
 Each finding was reproduced against a throwaway root first (red), then fixed (green).
@@ -64,6 +93,79 @@ Each finding was reproduced against a throwaway root first (red), then fixed (gr
 - **Host check is central.** Every dashboard route that is not an asset checks the Host (`/dashboard` was missing).
 - **One server line** (never the header value) when `CF-Connecting-IP` arrives from loopback without
   `CHEAP_MEM_SERVE_BEHIND_TUNNEL`. Docs: with `CHEAP_MEM_SERVE_LOGIN=off` the owner-writing routes answer `403`; use the shell.
+
+### Security — port of the sister house's Fable run (lucky-mem, 2026-10-11)
+
+lucky-mem's own security run (branch `agent/fable-sicher-lm`) found gaps cheap-mem shares. Each was reproduced against
+a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, `test/task-cancel-person.test.mjs`,
+`test/task-json-paths.test.mjs`, `test/redaction-viewer-access.test.mjs`, `test/bridge-no-decrypt.test.mjs`.
+
+- **A poisoned line no longer takes the readers down (lucky-mem error 5katltp7cfkr).** A line whose text field is an
+  object (`tags: {toString: "x"}`, `owner: {a: 1}`, a list as `title`) or whose `ts` / `id` is not text crashed
+  `mem find`, `context`, `duties`, `viewer`, `doctor` ("Cannot convert object to primitive value", "localeCompare is
+  not a function"), ended the dashboard server (`/entries.json`), and made the recall hook fail silently for everybody.
+  The bridge refused such values when writing; a raw line, an old CLI or a merge never meets that gate. Every reader
+  that interprets the fields of an entry goes through `memory.parseLine` (`src/fieldshape.mjs`; the write-time
+  neighbour hints too, since the review of 2026-10-12): the line is BROKEN (`{__broken, raw, reason}`, the
+  three-states rule), `mem doctor` names it with the field, and it leaves every other denominator. Nothing is
+  deleted. The few raw scans that remain (the hash chain, the clock, the archive manifest) read only `id`, `ts` and the
+  seal with type checks. Legitimate forms stay readable (a single tag as text, `origin`, `provenance`, `guard`,
+  `chain_seal`). **Behaviour change:** a line with a numeric `ts` was found before and is reported as broken now.
+- **A text field is text; a list flag without a value is refused (review 2026-10-12).** A number or a boolean in `key`,
+  `text`, `why`, `valid_from` (and every other prose field) crashed `context`, `core`, `facts`, `viewer`, `today`,
+  `/desk.json` and `/dashboard.json` while `mem doctor` stayed ok; the CLI itself wrote `"key": true` when `--key` had no
+  value. Such a line is BROKEN now, like one with an object there, and the doctor names it; the readers that sort or slice
+  coerce with `String()` as a second line. **Breaking for the write side:** `mem log` / `mem correction` refuse a flag
+  without a value for every field except the real switches (`--shred`, `--automatic`, `--without-scaffold`,
+  `--no-broadcast`) - `--tags`, `--asked`, `--rejected`, `--symbols`, `--files`, `--key` alone are an error and nothing is
+  written; `mem_log` refuses a number or a boolean in a text field. **Behaviour change:** old lines that carry `"key":
+  true` or `"title": true` are broken and vanish from the readers (the doctor lists them); old lines with `"tags": true`
+  (a list flag without a value) stay readable as an empty list, and `mem doctor` WARNS (`drawers`). A line nested deeper
+  than 32 levels is broken (an `origin` nested 40,000 deep overflowed the stack of find, viewer and doctor).
+- **The shape rule is inverted (the same in lucky-mem).** A field the readers touch that the list did not name still
+  crashed them (the search field weights, the subject field per type). Now EVERY top-level field is judged: a text, a
+  number, a boolean, null, or a list of those; an object is wrong. The exception is a named allowlist of structured
+  fields (`origin`, `provenance`, `guard`, `chain_seal`, `body_enc`, `references`, `asked_evidence`), derived from the
+  real data (the CLI for every type, the fixtures, the bench corpora). No object carries a key that converts it
+  (`toString`, `valueOf`, `constructor`, ...), nothing nests deeper than 32 levels. **Behaviour change:** a hand-written
+  line with an object in a field outside the allowlist is broken now. `test/field-shape-inverted.test.mjs`.
+- **Cancelling a task needs a password session (breaking for tools).** `POST /task/cancel` took the bearer token alone;
+  now `403` without a session, checked before the kind and the state. `raw-delete` cannot be cancelled (`409`: it frees
+  the bytes, then writes the tombstone). **`export` is `humanOnly` (breaking for tools):** it decompresses the raw
+  captures into a folder; `integrity` only reads and stays open. `tasks.cancel(root, kind, { user: true })`.
+- **`/task.json` names no server path.** Command, result and reason show `<root>` and `<code>`; the state file on disk
+  keeps the full command.
+- **The viewer's own ways in are redacted.** `?k=<token>`, `mem_k=` and `mem_session=` (also `%3Fk%3D`, `\u0026k=`,
+  `&amp;k=`) fell in clear text in raw captures, stored lines and every output. New pattern `viewer-access`, canary 14
+  (`redaction.CANARY_COUNT`); the value falls whole, the name stays.
+- **The MCP bridge does not decrypt unless the operator says so (behaviour change).** The bridge process can read
+  `.mem/keyring.json`, so a connected agent read entries written with `shred` that a clone of the git data cannot.
+  They show as unreadable over the bridge now; `CHEAP_MEM_MCP_DECRYPT=1` restores the old behaviour. CLI and dashboard
+  unchanged.
+- **An index built before this fix is rebuilt once.** The search-index cache is version 15: a version-14 cache stays valid
+  by its file stamps and could still hold documents of poisoned lines (`mem find` listed them, `mem retrieve` threw
+  after the upgrade). `test/stale-index-fieldshape.test.mjs`.
+- **No loopback trust behind a tunnel (lucky-mem B9/B14).** A request that carries a proxy header
+  (`cf-connecting-ip`, `cf-ray`, `x-forwarded-*`, `x-real-ip`, `forwarded`) is not "local" for the token-less door when
+  nothing stands behind it: the viewer with the login off, and the MCP bridge over HTTP. With the login on the password
+  stands behind the door and nothing changes; with a token nothing changes. **Breaking** for a token-less, login-less
+  viewer or bridge that is reached through a local tunnel: set a token. `test/loopback-proxy-headers.test.mjs`.
+- **`mem doctor`'s `entry-form` still names the old swallowed-value damage** (`title: true` plus a field name with
+  whitespace) although the readers call such a line broken: it looks at the parsed line, with its place and its advice
+  (`drawers` counts the line too).
+- **Derived files are rebuilt once:** `backlinks.json` (version 2), `component-table.json` (2), the dashboard head (2)
+  and the time track of a drawer (3) join the search index (15), so nothing built from lines that are broken now is
+  served. **Restart note:** a long-running `mem serve` or `mem-mcp` process keeps its old code and its old in-memory
+  caches; restart it after the update (the unit file or `systemctl restart` for a service install).
+- **Redaction `viewer-access` is stricter about code (review 2026-10-12):** `;k=` counts only inside a URL, and the value
+  must be token-shaped and not run on into code (`k=someObject.longName`, a call). A dotted token is no longer caught.
+- **`/task.json`** also covers a symlinked root (the real path) and both path separators.
+- **Mem-mcp over HTTP (docs/mcp-setup.md):** the token-less reverse-proxy shape is `403` since the loopback change above;
+  the setup text now says a token is required behind a proxy. `mem serve` prints one hint on stderr when a proxy-header
+  request is turned away (no token, login off).
+- `errorclass.coverage` and the `content` status step leave broken lines out of their counts.
+- Checked, no gap here: an `In-Reply-To` letter never closes a request (state is addressee-only since B2); the
+  dashboard's archive location (session + allowed bases) and the CLI split like lucky-mem's.
 
 ### Added — atlas phases `bridge` and `silent-errors`
 

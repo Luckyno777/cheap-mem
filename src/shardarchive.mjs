@@ -238,7 +238,7 @@ function archiveOldestLocked(root, type, { project, count }) {
   for (const line of moving) {
     const bytes = Buffer.byteLength(line, 'utf8');
     let id = null;
-    try { id = JSON.parse(line).id ?? null; } catch { /* keep null, still archived and addressable by offset */ }
+    try { const j = JSON.parse(line).id; id = typeof j === 'string' ? j : null; } catch { /* keep null, still archived and addressable by offset */ }
     const checksum = archive.checksum(Buffer.from(line, 'utf8'));
     if (id != null && known.has(`${id}\u0000${checksum}`)) { alreadyArchived += 1; continue; }
     manifestRows.push({
@@ -344,8 +344,8 @@ export function resolveEntry(root, id) {
     };
   }
 
-  let entry;
-  try { entry = JSON.parse(raw); } catch { entry = { __broken: true, raw: raw.slice(0, 200) }; }
+  const parsed = memory.parseLine(raw);
+  const entry = parsed?.__broken ? { ...parsed, raw: raw.slice(0, 200) } : parsed;
   return {
     state: PASS,
     source: 'archive',
@@ -429,8 +429,8 @@ export function findWithArchiveNotice(root, pattern, opts = {}) {
       try {
         const raw = readArchivedBytes(cfg, row);
         if (raw.toLowerCase().includes(needle)) {
-          let entry;
-          try { entry = JSON.parse(raw); } catch { entry = { __broken: true, raw: raw.slice(0, 200) }; }
+          const parsed = memory.parseLine(raw);
+          const entry = parsed?.__broken ? { ...parsed, raw: raw.slice(0, 200) } : parsed;
           archiveHits.push({
             ...entry, _archived: true, _shard: row.shard,
             _source: `${row.type}${row.project ? `/${row.project}` : ''}`,

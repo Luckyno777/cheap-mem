@@ -148,8 +148,10 @@ export function neighbours(root, type, data = {}, {
   let broken = 0;
   for (const rawLine of tail.raw.split('\n')) {
     if (!rawLine.trim()) continue;
-    try { res.entries.push(JSON.parse(rawLine)); }
-    catch { broken += 1; res.entries.push({ __broken: true, raw: rawLine }); }
+    // memory.parseLine: unreadable OR wrongly shaped (an object in `topic`, ...) is BROKEN, never a neighbour (Fable review 2026-10-12)
+    const e = memory.parseLine(rawLine);
+    if (e?.__broken) broken += 1;
+    res.entries.push(e);
   }
 
   // **`readLog` does NOT filter.** It hands back the raw lines,
@@ -310,7 +312,8 @@ export function similarDecisions(root, type, data = {}, {
   const entries = [];
   for (const rawLine of tail.raw.split('\n')) {
     if (!rawLine.trim()) continue;
-    try { entries.push(JSON.parse(rawLine)); } catch { /* a broken line is no neighbour */ }
+    const e = memory.parseLine(rawLine);
+    if (!e?.__broken) entries.push(e); // a broken (unreadable or wrongly shaped) line is no neighbour
   }
   const retired = memory.retiredMap(entries);
   const scored = [];

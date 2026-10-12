@@ -99,8 +99,9 @@ export const TABLE_PATH = path.join('.mem', 'component-table.json');
  * The format's version. A shape change bumps this and an old table is
  * discarded rather than migrated — same principle as `backlinks.
  * BACKLINKS_VERSION`.
+ * Version 2 (review 2026-10-12): lines that are broken since the read-side fix (src/fieldshape.mjs) may sit in a version-1 table.
  */
-export const TABLE_VERSION = 1;
+export const TABLE_VERSION = 2;
 
 // --- 0. small tools ----------------------------------------------------
 

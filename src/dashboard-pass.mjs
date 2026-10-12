@@ -174,9 +174,7 @@ function* numberedLines(file, { chunkBytes = 256 * 1024 } = {}) {
         nr += 1;
         const line = rest.slice(start, nl);
         if (line.trim()) {
-          let e;
-          try { e = JSON.parse(line); } catch { e = { __broken: true }; }
-          yield [e, nr];
+          yield [memory.parseLine(line), nr]; // unreadable OR wrongly shaped: { __broken: true, raw, reason? }
         }
         start = nl + 1;
         nl = rest.indexOf('\n', start);
@@ -186,9 +184,7 @@ function* numberedLines(file, { chunkBytes = 256 * 1024 } = {}) {
     rest += decoder.end();
     if (rest.trim()) {
       nr += 1;
-      let e;
-      try { e = JSON.parse(rest); } catch { e = { __broken: true }; }
-      yield [e, nr];
+      yield [memory.parseLine(rest), nr];
     }
   } finally {
     try { fs.closeSync(fd); } catch { /* already closed */ }

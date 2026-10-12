@@ -78,8 +78,9 @@ export const BACKLINKS_PATH = path.join('.mem', 'backlinks.json');
  * is discarded rather than migrated — same principle as `search.
  * CACHE_VERSION`: the register is derived and always rebuildable, never
  * the one copy of anything.
+ * Version 2 (review 2026-10-12): lines that are broken since the read-side fix (src/fieldshape.mjs) may sit in a version-1 register.
  */
-export const BACKLINKS_VERSION = 1;
+export const BACKLINKS_VERSION = 2;
 
 /** Every log file, every drawer x project — the full-pass population. */
 function sourceFiles(root) {

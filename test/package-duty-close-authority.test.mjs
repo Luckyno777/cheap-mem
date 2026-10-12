@@ -25,7 +25,7 @@ function world() {
 }
 
 function openDuty(root, title) {
-  const r = spawnSync('node', [MEM, '--root', root, 'log', 'duty', '--title', title, '--json'], {
+  const r = spawnSync('node', [MEM, '--root', root, 'log', 'duty', '--title', title], {
     encoding: 'utf8', env: { ...process.env, CHEAP_MEM_AGENT: 'foreign' },
   });
   assert.equal(r.status, 0, r.stderr);

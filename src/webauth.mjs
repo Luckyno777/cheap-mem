@@ -72,10 +72,36 @@ export function bearerFrom(req) {
   return m ? m[1].trim() : '';
 }
 
-/** Is the peer this machine? */
-export function remoteIsLoopback(req) {
+/**
+ * Headers a proxy or tunnel (cloudflared, a reverse proxy) sets. A browser attached directly to the port and a local
+ * tool (curl, the probes) never set them.
+ */
+const PROXY_HEADERS = Object.freeze([
+  'cf-connecting-ip', 'cf-ray', 'cf-visitor', 'cf-access-jwt-assertion',
+  'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'x-real-ip', 'forwarded',
+]);
+
+/**
+ * Is the peer this machine? With `strict`, also: does the request NOT come through a tunnel or proxy?
+ *
+ * **Fable run 2026-10-11 (ported from lucky-mem B9/B14).** A tunnel on this machine connects from 127.0.0.1, so "the
+ * socket is loopback" proves nothing about the requester there. With no token that was the whole door: whoever reached
+ * the tunnel was in. Strict, a request carrying a proxy header is not local, and without a token the door stays shut.
+ * (With a token nothing changes.) The header can be forged, but only in the safe direction: whoever sets it loses the
+ * trust. The viewer asks strictly only when its login is off (with the login on, the password stands behind the door
+ * and a password-only setup behind a tunnel must keep working); the MCP bridge has no login and always asks strictly.
+ */
+export function remoteIsLoopback(req, { strict = false } = {}) {
   const a = req?.socket?.remoteAddress ?? '';
-  return a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1';
+  if (!(a === '127.0.0.1' || a === '::1' || a === '::ffff:127.0.0.1')) return false;
+  if (!strict) return true;
+  return !hasProxyHeader(req);
+}
+
+/** Does the request carry a header only a proxy or tunnel sets? (The name only: the value is never looked at or printed.) */
+export function hasProxyHeader(req) {
+  const headers = req?.headers ?? {};
+  return PROXY_HEADERS.some((h) => headers[h] !== undefined);
 }
 
 /**

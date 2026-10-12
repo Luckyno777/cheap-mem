@@ -77,7 +77,11 @@ function put(w, rel, lines, { eol = '\n', bom = false } = {}) {
 
 /** The forms of a memory old and new must answer alike on. */
 const FORMS = {
-  mixed() {
+  // `nonObjects`: lines that are no object (`null`, `[1,2]`, `7`). The OLD state crashed on them (`topics` / `categories` came
+  // out "unreadable", the orphan scan dropped the rest of the drawer); the new code reads past them on purpose (second review
+  // 2026-10-12, test/non-object-line.test.mjs). So the comparison with the old state is made without them (`mixed(false)`),
+  // every other probe keeps them in.
+  mixed(nonObjects = true) {
     const w = tempRoot('dm-mixed-');
     put(w, 'global/decisions.jsonl', [
       { id: 'd1', ts: TS, title: 'Cache', topic: 'cache', choice: 'Use zorbulax for the cache layer', why: 'fast' },
@@ -86,9 +90,7 @@ const FORMS = {
       { id: 'dup', ts: TS, title: 'Dup one', topic: 'x', choice: 'a', why: 'b' },
       { id: 'dup', ts: TS, title: 'Dup two', topic: 'x', choice: 'a', why: 'b' },
       '{"this is not json',
-      'null',
-      '[1,2]',
-      '7',
+      ...(nonObjects ? ['null', '[1,2]', '7'] : []),
       '',
       { ts: TS, title: 'no id', choice: 'a', why: 'b' },
       { id: 'nots', title: 'no timestamp', choice: 'a', why: 'b' },
@@ -157,7 +159,9 @@ function normal(result) {
     .replace(/[\d.]+ min ahead/gi, 'N min ahead')
     .replace(/[\d.]+ min behind/gi, 'N min behind')
     .replace(/\d+(\.\d+)? ?ms\b/g, 'N ms')
-    .replace(/\((fresh build|cached)\)/g, '(index)');
+    .replace(/\((fresh build|cached)\)/g, '(index)')
+    // the old state has fewer redaction canaries than the code today (the class `viewer-access` was added): not a drawer matter
+    .replace(/intact, \d+ canaries/g, 'intact, N canaries');
   return { findings: JSON.parse(text) };
 }
 
@@ -250,7 +254,7 @@ test('read passes: the old state opens a drawer many times, the new code a few (
 for (const [name, build] of Object.entries(FORMS)) {
   test(`same findings, old state / new / new without memo: ${name}`,
     { skip: !hasOld && 'NOTICE: fixed old state not in this clone' }, async () => {
-      const w = build();
+      const w = name === 'mixed' ? build(false) : build();
       const o = await old();
       doctor.checkAll(w);   // warm the index cache so both sides see "cached"
       const a = normal(o.checkAll(w));

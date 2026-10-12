@@ -179,6 +179,9 @@ export const KINDS = Object.freeze({
       + 'raw capture the record still names, over the full range (no '
       + '--from/--to).',
     resume: 'restart',
+    // Fable run 2026-10-11 (lucky-mem B11): it decompresses every raw capture into a folder - an effect, so a person
+    // starts it, not the bearer token alone. (`integrity` only reads and stays open to the token.)
+    humanOnly: true,
     command(root, id) {
       return { file: MEM_BIN, args: ['raw', 'export', '--into', exportTarget(root, id), '--json'] };
     },
@@ -244,6 +247,9 @@ export const KINDS = Object.freeze({
     resume: 'restart',
     // B7 (external review 2026-10-11): the one irreversible kind. The bearer token alone no longer starts it.
     humanOnly: true,
+    // `archive.remove` frees the bytes first and then appends the tombstone; a cancel in between would leave a half
+    // state. The operation takes milliseconds and repeating it is safe, so it runs to its end (Fable run, lucky-mem N9).
+    interruptible: false,
     params: {
       path: { required: true, check: (v) => /^[A-Za-z0-9._/-]{1,300}$/.test(v) && !v.includes('..') && !v.startsWith('/') && !v.startsWith('-'),
         why: 'a relative capture path as `mem raw review` lists it' },
@@ -775,14 +781,31 @@ function signalTree(pid, signal) {
 /**
  * End the kind's running task — really, not only a signal sent.
  * Throws with `e.code`:
- *  - 'UNKNOWN_KIND'    — `kind` is not in `KINDS`
- *  - 'NOTHING_ACTIVE'  — no task of this kind, started by THIS server
+ *  - 'NOT_A_PERSON'     — `context.user` is not `true` (no password session)
+ *  - 'UNKNOWN_KIND'     — `kind` is not in `KINDS`
+ *  - 'NOT_CANCELLABLE'  — the kind runs to its end (`interruptible: false`)
+ *  - 'NOTHING_ACTIVE'   — no task of this kind, started by THIS server
  *                         instance, is still running
+ *
+ * Fable run 2026-10-11 (ported from lucky-mem N1/N9): cancelling is the same right as starting a `humanOnly` kind.
+ * The bearer token is carried by tools and anyone handed the link; it must not end a task an owner started. The right
+ * comes FIRST - before the kind and the state - so the answer to someone without it says nothing about what runs.
  */
-export async function cancel(root, kind) {
+export async function cancel(root, kind, context = {}) {
+  if (context?.user !== true) {
+    const e = new Error('cancelling a task needs a password session - without a signed-in person nothing is ended');
+    e.code = 'NOT_A_PERSON';
+    throw e;
+  }
   if (!KINDS[kind]) {
     const e = new Error(`unknown kind '${kind}'.`);
     e.code = 'UNKNOWN_KIND';
+    throw e;
+  }
+  if (KINDS[kind].interruptible === false) {
+    const e = new Error(`'${kind}' is not interrupted: a cancel in the middle would leave a half state (the bytes freed, the `
+      + 'tombstone not yet written). It runs to its end.');
+    e.code = 'NOT_CANCELLABLE';
     throw e;
   }
   const entry = ACTIVE.get(kind);
@@ -809,6 +832,37 @@ export async function cancel(root, kind) {
 }
 
 /**
+ * What the dashboard may show: the root as `<root>` and the code folder as `<code>`, not the absolute server paths
+ * (Fable run 2026-10-11, lucky-mem B11/B14: `/task.json` named `/home/<user>/cheap-mem/bin/mem` and the root). The
+ * journal on disk keeps the full command; a restart and a bug hunt need it. The longer path goes first, so a root inside
+ * the code folder (or the other way round) is not replaced by halves. Strings anywhere in the value are covered
+ * (command, result, reason, progress), nested objects and lists too; other types pass unchanged.
+ */
+function withoutServerPaths(root, value) {
+  // Every spelling of the two folders: as given, as the file system names them (a symlinked root: the child reports the real
+  // path), and with either separator (a Windows path with `/`, a POSIX one with `\\`). The longer path first, so a root inside
+  // the code folder (or the other way round) is not replaced by halves.
+  const spellings = (dir, mark) => {
+    const given = path.resolve(dir);
+    let real = given;
+    try { real = fs.realpathSync(given); } catch { /* not there (any more): the given spelling alone */ }
+    const out = new Set();
+    for (const p of [given, real]) for (const q of [p, p.replace(/[\\/]/g, '\\'), p.replace(/[\\/]/g, '/')]) out.add(q);
+    return [...out].map((from) => [from, mark]);
+  };
+  const swaps = [...spellings(root, '<root>'), ...spellings(path.join(HERE, '..'), '<code>')]
+    .filter(([from]) => from.length > path.parse(from).root.length) // never the bare drive root: that would eat every separator
+    .sort((a, b) => b[0].length - a[0].length);
+  const walk = (v) => {
+    if (typeof v === 'string') return swaps.reduce((t, [from, to]) => t.split(from).join(to), v);
+    if (Array.isArray(v)) return v.map(walk);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)]));
+    return v;
+  };
+  return walk(value);
+}
+
+/**
  * Read one task's state.
  *
  * ```
@@ -824,6 +878,10 @@ export async function cancel(root, kind) {
  * ```
  */
 export function read(root, id) {
+  return withoutServerPaths(root, readFull(root, id));
+}
+
+function readFull(root, id) {
   if (!validId(id)) return { state: 'unknown', id, reason: 'id does not have the expected shape' };
   const file = statePath(root, id);
   let text;

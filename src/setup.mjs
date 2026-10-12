@@ -25,6 +25,7 @@ import path from 'node:path';
 import os from 'node:os';
 import * as archive from './archive.mjs';
 import * as stores from './stores.mjs';
+import { shapeProblem } from './fieldshape.mjs';
 
 /** A step that could not be checked is not a step that passed. */
 export const STATE = Object.freeze({
@@ -186,15 +187,32 @@ function contentStep(root) {
   // so is what turns "why does retrieval find nothing" from a bug
   // report into an answer.
   let n = 0;
+  let unreadable = 0;
   const dir = path.join(root, 'global');
   try {
     for (const name of fs.readdirSync(dir)) {
       if (!name.endsWith('.jsonl')) continue;
       const text = fs.readFileSync(path.join(dir, name), 'utf8');
-      n += text.split('\n').filter((l) => l.trim()).length;
+      // Only lines the readers can read are entries: an unreadable or wrongly shaped line (src/fieldshape.mjs) is the
+      // doctor's business and out of this count (review 2026-10-12).
+      for (const l of text.split('\n')) {
+        if (!l.trim()) continue;
+        let ok = false;
+        try { ok = !shapeProblem(JSON.parse(l)); } catch { ok = false; }
+        if (ok) n += 1; else unreadable += 1;
+      }
     }
   } catch { /* no global/ yet */ }
 
+  if (n === 0 && unreadable > 0) {
+    return {
+      id: 'content',
+      title: 'The memory holds something',
+      state: STATE.OPEN,
+      detail: `no readable entries — ${unreadable} line(s) are unreadable or wrongly shaped`,
+      fix: 'mem doctor   (it names the lines)',
+    };
+  }
   if (n === 0) {
     return {
       id: 'content',
@@ -204,7 +222,7 @@ function contentStep(root) {
       fix: 'mem log decision --topic … --choice … --why …',
     };
   }
-  return { id: 'content', title: 'The memory holds something', state: STATE.OK, detail: `${n} entries` };
+  return { id: 'content', title: 'The memory holds something', state: STATE.OK, detail: `${n} entries${unreadable ? ` (+ ${unreadable} unreadable, see mem doctor)` : ''}` };
 }
 
 /**

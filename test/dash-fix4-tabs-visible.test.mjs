@@ -41,6 +41,7 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as memory from '../src/memory.mjs';
+import * as login from '../src/login.mjs';
 import { startBrowser, startView } from './fixture/browser.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -71,8 +72,18 @@ function world() {
   return r;
 }
 
-async function startServer(r) {
-  return startView(r, { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' }, { serveOpts: { allowWrites: true } });
+async function startServer(r, { withLogin = false } = {}) {
+  const env = { CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_TOKEN: '' };
+  // `export` writes (decompressed raw captures), so it needs a password session since the Fable run 2026-10-11:
+  // the click that starts it is probed with a real session, everything else here only reads and runs with the login off.
+  let session = null;
+  if (withLogin) {
+    const dir = login.dirFor(r, env);
+    login.setPassword(dir, 'a-proper-long-password');
+    session = login.newSession(dir);
+  } else env.CHEAP_MEM_SERVE_LOGIN = 'off';
+  const v = await startView(r, env, { serveOpts: { allowWrites: true }, cookie: session ? `${login.COOKIE}=${session}` : '' });
+  return { ...v, session };
 }
 
 async function allTabs(page) {
@@ -121,8 +132,9 @@ async function visibility(page, route) {
   });
 }
 
-async function open(base, viewport, { oldScript } = {}) {
+async function open(base, viewport, { oldScript, session = null } = {}) {
   const ctx = await browser.newContext({ viewport });
+  if (session) await ctx.addCookies([{ name: login.COOKIE, value: session, url: base }]);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -218,8 +230,8 @@ async function exportClick(page) {
 
 test('raw export: the click starts the real task and shows state, counts and target folder', NEEDS, async () => {
   const r = world();
-  const s = await startServer(r);
-  const { page, ctx } = await open(s.base, { width: 390, height: 844 });
+  const s = await startServer(r, { withLogin: true });
+  const { page, ctx } = await open(s.base, { width: 390, height: 844 }, { session: s.session });
   try {
     const x = await exportClick(page);
     assert.match(x.state, /State/);

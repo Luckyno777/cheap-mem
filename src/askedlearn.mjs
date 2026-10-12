@@ -250,7 +250,8 @@ export function learnedWords(index) {
   const map = new Map();
   for (const d of index.documents ?? []) {
     if (d.retired) continue;
-    for (const e of d?.entry?.asked_evidence ?? []) {
+    const evidence = d?.entry?.asked_evidence;
+    for (const e of Array.isArray(evidence) ? evidence : []) {
       for (const w of String(e?.words ?? '').split(/\s+/).filter(Boolean)) {
         if (!map.has(w)) map.set(w, new Set());
         map.get(w).add(d.entry.id);
