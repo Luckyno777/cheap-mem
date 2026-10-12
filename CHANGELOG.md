@@ -76,11 +76,23 @@ a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, 
   `mem find`, `context`, `duties`, `viewer`, `doctor` ("Cannot convert object to primitive value", "localeCompare is
   not a function"), ended the dashboard server (`/entries.json`), and made the recall hook fail silently for everybody.
   The bridge refused such values when writing; a raw line, an old CLI or a merge never meets that gate. Every reader
-  now goes through `memory.parseLine` (`src/fieldshape.mjs`): the line is BROKEN (`{__broken, raw, reason}`, the
+  that interprets the fields of an entry goes through `memory.parseLine` (`src/fieldshape.mjs`; the write-time
+  neighbour hints too, since the review of 2026-10-12): the line is BROKEN (`{__broken, raw, reason}`, the
   three-states rule), `mem doctor` names it with the field, and it leaves every other denominator. Nothing is
-  deleted. Legitimate forms stay readable (a single tag as text, a boolean or number in a scalar field, `origin`,
-  `provenance`, `guard`, `chain_seal`). **Behaviour change:** a line with a numeric `ts` was found before and is
-  reported as broken now.
+  deleted. The few raw scans that remain (the hash chain, the clock, the archive manifest) read only `id`, `ts` and the
+  seal with type checks. Legitimate forms stay readable (a single tag as text, `origin`, `provenance`, `guard`,
+  `chain_seal`). **Behaviour change:** a line with a numeric `ts` was found before and is reported as broken now.
+- **A text field is text; a list flag without a value is refused (review 2026-10-12).** A number or a boolean in `key`,
+  `text`, `why`, `valid_from` (and every other prose field) crashed `context`, `core`, `facts`, `viewer`, `today`,
+  `/desk.json` and `/dashboard.json` while `mem doctor` stayed ok; the CLI itself wrote `"key": true` when `--key` had no
+  value. Such a line is BROKEN now, like one with an object there, and the doctor names it; the readers that sort or slice
+  coerce with `String()` as a second line. **Breaking for the write side:** `mem log` / `mem correction` refuse a flag
+  without a value for every field except the real switches (`--shred`, `--automatic`, `--without-scaffold`,
+  `--no-broadcast`) - `--tags`, `--asked`, `--rejected`, `--symbols`, `--files`, `--key` alone are an error and nothing is
+  written; `mem_log` refuses a number or a boolean in a text field. **Behaviour change:** old lines that carry `"key":
+  true` or `"title": true` are broken and vanish from the readers (the doctor lists them); old lines with `"tags": true`
+  (a list flag without a value) stay readable as an empty list, and `mem doctor` WARNS (`drawers`). A line nested deeper
+  than 64 levels is broken (an `origin` nested 40,000 deep overflowed the stack of find, viewer and doctor).
 - **Cancelling a task needs a password session (breaking for tools).** `POST /task/cancel` took the bearer token alone;
   now `403` without a session, checked before the kind and the state. `raw-delete` cannot be cancelled (`409`: it frees
   the bytes, then writes the tombstone). **`export` is `humanOnly` (breaking for tools):** it decompresses the raw
@@ -102,6 +114,17 @@ a throwaway root first (red), then fixed (green). `test/poison-lines.test.mjs`, 
   nothing stands behind it: the viewer with the login off, and the MCP bridge over HTTP. With the login on the password
   stands behind the door and nothing changes; with a token nothing changes. **Breaking** for a token-less, login-less
   viewer or bridge that is reached through a local tunnel: set a token. `test/loopback-proxy-headers.test.mjs`.
+- **Derived files are rebuilt once:** `backlinks.json` (version 2), `component-table.json` (2), the dashboard head (2)
+  and the time track of a drawer (3) join the search index (15), so nothing built from lines that are broken now is
+  served. **Restart note:** a long-running `mem serve` or `mem-mcp` process keeps its old code and its old in-memory
+  caches; restart it after the update (the unit file or `systemctl restart` for a service install).
+- **Redaction `viewer-access` is stricter about code (review 2026-10-12):** `;k=` counts only inside a URL, and the value
+  must be token-shaped and not run on into code (`k=someObject.longName`, a call). A dotted token is no longer caught.
+- **`/task.json`** also covers a symlinked root (the real path) and both path separators.
+- **Mem-mcp over HTTP (docs/mcp-setup.md):** the token-less reverse-proxy shape is `403` since the loopback change above;
+  the setup text now says a token is required behind a proxy. `mem serve` prints one hint on stderr when a proxy-header
+  request is turned away (no token, login off).
+- `errorclass.coverage` and the `content` status step leave broken lines out of their counts.
 - Checked, no gap here: an `In-Reply-To` letter never closes a request (state is addressee-only since B2); the
   dashboard's archive location (session + allowed bases) and the CLI split like lucky-mem's.
 

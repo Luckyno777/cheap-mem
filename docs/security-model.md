@@ -407,7 +407,7 @@ each was reproduced against a throwaway root here first.
   object (`tags: {toString: "x"}`, `owner: {a: 1}`, a `title` that is a list) or whose `ts` / `id` is not text crashed
   `find`, `context`, `duties`, `viewer`, `doctor` and the dashboard (an uncaught throw in `/entries.json` ended
   the server), and the recall hook failed silently for everybody. The bridge already refused such values when writing;
-  a raw line, an old CLI or a merge never meets that gate. Now every reader goes through `memory.parseLine`
+  a raw line, an old CLI or a merge never meets that gate. Now every reader that interprets an entry's fields goes through `memory.parseLine`
   (`src/fieldshape.mjs` names the text and list fields): the line is BROKEN (`{__broken: true, raw, reason}`, the
   three-states rule), `mem doctor` names it with the field (`drawers`, `integrity`), and it is out of every other
   denominator. Nothing is deleted (append-only). Legitimate old forms stay readable: a single tag as a text, a boolean
@@ -427,6 +427,15 @@ each was reproduced against a throwaway root here first.
   `.mem/keyring.json`, so a connected foreign agent read entries written with `shred` that a clone of the git data cannot.
   Now they show as unreadable over the bridge unless the operator sets `CHEAP_MEM_MCP_DECRYPT=1`. The CLI and the
   dashboard are unchanged. `test/bridge-no-decrypt.test.mjs`.
+- **A text field is text (review 2026-10-12).** A number or a boolean in `key`, `text`, `why`, `valid_from` ... crashed
+  `context`, `facts`, `viewer`, `today` and the dashboard while the doctor was ok, and `--key` without a value wrote
+  `true`. A text field is text now (the line is broken otherwise), `mem log` refuses a flag without a value except the
+  real switches, `mem_log` refuses a number or a boolean there, and an old `tags: true` is read as an empty list with a
+  doctor warning. A line nested deeper than 64 levels is broken. `test/field-text-strict.test.mjs`,
+  `test/neighbours-poison.test.mjs` (the write-time neighbour hints read the drawer through the same rule).
+- **Derived files** (`backlinks.json`, `component-table.json`, the dashboard head, the time track) carry a new format
+  version like the search index, so data built from lines that are broken now is not served.
+  `test/derived-caches-version.test.mjs`. A long-running `mem serve` / `mem-mcp` needs a restart after the update.
 - **An old index is not served.** The search-index cache is version 15; a cache built before `fieldshape` could still
   hold documents of poisoned lines and was valid by its file stamps. `test/stale-index-fieldshape.test.mjs`.
 - **A tunnel is not "local"** (lucky-mem B9/B14). With no token and no login behind the door (the viewer with the login
