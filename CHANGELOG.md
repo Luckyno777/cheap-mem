@@ -30,8 +30,15 @@ A due date on a duty was read by three readers with guessed names (`today.mjs` a
 - **Moving is append-only**: `mem correction duty <id> --due ...` inherits the rest, `--without due` removes the date; the
   duty replacement rule (authority, debtor) applies unchanged. "Open since" comes from the START of the chain (`_since`),
   so a moved due date does not make a duty look young.
-- The bridge writes only `due` (the older names `due_date / until / deadline / by` are still READ, `due.aliasUsed` names
-  them for the doctor). The due date of an encrypted duty stays readable (`shred.NEVER_ENCRYPT`).
+- Only `due` is WRITTEN: `--due_date / --until / --deadline / --by` (and the same fields over the bridge) are refused with a
+  hint to use `--due`, on a duty and on every other type. Older lines that carry them are still READ; `due.aliasUsed` names the
+  alias for the doctor. The due date of an encrypted duty stays readable (`shred.NEVER_ENCRYPT`).
+- **Who may move a due date**: a correction that changes or removes `due` counts only from the author or a higher tier - not
+  from the debtor and not sideways from the same tier (`dutyReplaceVerdict`, the strict `authority.maySupersede`); a refused
+  one stays on record and the original keeps its date. Closing a duty stays with the debtor.
+- A broken old value (a number, a boolean, nonsense text) in `due` or its aliases no longer makes a line "broken": the duty stays
+  open with the state `unknown`, and only text or null is passed on to the day list and the dashboard (`due.dueText`). An object
+  or a list of objects there is still a broken line by the general field-shape rule.
 - Invariant `frist-eine-stelle` / calculation `due-one-place`; the field names and states are paired with lucky-mem in
   `shared/field-names-parity.jsonl`, and `shared/due-states.jsonl` is the fixture both houses must answer the same.
 

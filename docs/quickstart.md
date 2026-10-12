@@ -98,6 +98,9 @@ mem deadlines                       # open duties with a due date: fresh / due /
 mem correction duty <id> --due 2026-11-15      # move it: the old line stays, the new one replaces it
 mem correction duty <id> --without due         # take the date away again
 ```
+Moving or removing a due date counts only from whoever wrote the duty or from a higher authority tier (`--authority`),
+not from the person it is owed to; that person still closes it. The old names (`--deadline`, `--due_date`, `--until`, `--by`)
+are refused when writing - use `--due`.
 
 A project is created once, before anything is logged into it
 (`--project <unknown>` is refused rather than creating a half-made
