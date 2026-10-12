@@ -205,11 +205,13 @@ async function workflowFor(root, prompt, env = process.env) {
  */
 export function recall(root, hitsJson, env = process.env, { offer = null, attach = null } = {}) {
   const hits = parseHits(hitsJson);
+  // The hits of this turn go along: mostly encrypted ones keep the question out of the local file.
+  const book = (extra) => booking(env, { questionHits: hits ?? undefined, ...extra });
   const min = num(env.MEM_RH_MIN, 5.0);
   // The skill offer: one line naming released skills, booked as `skill-offer`.
   const bookOffer = () => {
     if (offer && env.MEM_RH_SESSION) {
-      injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, reason: null,
+      injection.book(root, booking(env, { occasion: injection.OCCASION.SKILL_OFFER, questionText: undefined, reason: null,
         bytes: Buffer.byteLength(offer.line, 'utf8'), hits: offer.ids.length, searched: null, sources: offer.ids,
         ...(offer.accountIds?.length ? { ids: [...offer.ids, ...offer.accountIds] } : {}),
         recallPath: undefined, pathReason: undefined }));
@@ -218,11 +220,11 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   const offerOnly = (reason) => {
     const text = visible(`${RECALL_HEADER}\n${offer.line}`);
     const out = { suppressOutput: true, hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: text } };
-    return { out, book: () => { if (env.MEM_RH_SESSION) injection.book(root, booking(env, { reason, bytes: 0, hits: 0, searched: null })); bookOffer(); } };
+    return { out, book: () => { if (env.MEM_RH_SESSION) injection.book(root, book({ reason, bytes: 0, hits: 0, searched: null })); bookOffer(); } };
   };
   const nothing = (reason) => (offer && reason !== injection.REASON.ALREADY_SHOWN ? offerOnly(reason) : {
     out: null,
-    book: () => { if (env.MEM_RH_SESSION) injection.book(root, booking(env, { reason, bytes: 0, hits: 0, searched: null })); },
+    book: () => { if (env.MEM_RH_SESSION) injection.book(root, book({ reason, bytes: 0, hits: 0, searched: null })); },
   });
   // The search showed nothing: the miss is booked as before, and a
   // workflow block (if the hook handed one over) still goes out alone.
@@ -266,7 +268,7 @@ export function recall(root, hitsJson, env = process.env, { offer = null, attach
   return {
     out,
     book: () => {
-      injection.book(root, booking(env, {
+      injection.book(root, book({
         reason: null, bytes: Buffer.byteLength(json, 'utf8'),
         hits: r.lines.length, searched: null, sources: r.sources, ids: [...r.ids, ...r.attached],
       }));

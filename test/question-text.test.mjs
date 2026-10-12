@@ -20,6 +20,7 @@ import * as injection from '../src/injection.mjs';
 import * as memory from '../src/memory.mjs';
 import * as qt from '../src/questiontext.mjs';
 import * as envregister from '../src/envregister.mjs';
+import * as recallhook from '../src/recallhook.mjs';
 import { relPosix } from './helpers/relpath.mjs';
 
 const CODE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -355,4 +356,141 @@ test('doctor: assess (behind the finding question-text) states the situations ho
   const err = qt.assess(openRepo, { env: {}, now });
   assert.equal(err.level, 'error');
   assert.ok(err.advice && !/bug in doctor/.test(err.advice));
+});
+
+// --- Follow-ups (reviewer 2026-10-12) ---------------------------------------------------------------------
+
+/** A fake `git`: logs every call and answers per sub-command as ordered. */
+function fakeGit({ ignore = 0, revParse = 0, sleep = 0 } = {}) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'cm-qt-git-'));
+  roots.push(d);
+  const log = path.join(d, 'calls.log');
+  const bin = path.join(d, 'git');
+  fs.writeFileSync(bin, [
+    '#!/bin/sh',
+    `echo "$1" >> '${log}'`,
+    sleep ? `sleep ${sleep}` : '',
+    'case "$1" in',
+    `  check-ignore) exit ${ignore} ;;`,
+    `  rev-parse) [ ${revParse} -eq 0 ] && echo true; exit ${revParse} ;;`,
+    'esac',
+    'exit 0',
+    '',
+  ].join('\n'), { mode: 0o755 });
+  return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) };
+}
+
+test('git answers unclear (exit 128 but inside a work tree): nothing written, counted as git-unclear', () => {
+  const root = bare();
+  const g = fakeGit({ ignore: 128, revParse: 0 });
+  assert.equal(qt.keep(root, jl(), 'a question', { env: {}, gitBin: g.bin }), false);
+  assert.equal(qt.read(root).state, 'missing');
+  assert.equal(qt.failureCount(root).kinds['git-unclear'], 1);
+  // Control: rev-parse agrees "no repository" and no repo remnant lies there -> harmless, written.
+  const other = bare();
+  assert.equal(qt.keep(other, jl(), 'a question', { env: {}, gitBin: fakeGit({ ignore: 128, revParse: 128 }).bin }), true);
+});
+
+test('no git at all: written without a repo remnant, git-unclear with one; the hook\'s own .git/mem-* marks are no remnant', () => {
+  assert.equal(qt.keep(bare(), jl(), 'a question', { env: {}, gitBin: '/not/there/git' }), true);
+  const rem = bare();
+  fs.mkdirSync(path.join(rem, '.git'));
+  fs.writeFileSync(path.join(rem, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+  assert.equal(qt.keep(rem, jl(), 'a question', { env: {}, gitBin: '/not/there/git' }), false);
+  assert.equal(qt.failureCount(rem).kinds['git-unclear'], 1);
+  const marks = bare();
+  fs.mkdirSync(path.join(marks, '.git', 'mem-abruf-zuege'), { recursive: true });
+  assert.equal(qt.keep(marks, jl(), 'a question', { env: {}, gitBin: '/not/there/git' }), true);
+});
+
+test('a broken .git (real git): nothing written, git-unclear', () => {
+  const root = bare();
+  fs.mkdirSync(path.join(root, '.git'));
+  fs.writeFileSync(path.join(root, '.git', 'HEAD'), 'not a ref\n');
+  assert.equal(qt.keep(root, jl(), 'a question', { env: {} }), false);
+  assert.equal(qt.read(root).state, 'missing');
+  assert.equal(qt.failureCount(root).kinds['git-unclear'], 1);
+});
+
+test('a hanging git is cut off at the limit (2000 ms) and counted as git-unclear', () => {
+  assert.equal(qt.GIT_TIMEOUT_MS, 2000);
+  const root = bare();
+  const g = fakeGit({ ignore: 0, sleep: 20 });
+  // Had the limit not held, this line would hang for 20 s on the wrong git.
+  assert.equal(qt.keep(root, jl(), 'a question', { env: {}, gitBin: g.bin, gitTimeoutMs: 300 }), false);
+  assert.equal(qt.failureCount(root).kinds['git-unclear'], 1);
+});
+
+test('not ignored: the check is not repeated on every recall - one mark per day, then no git call until the day changes', () => {
+  const root = bare();
+  const g = fakeGit({ ignore: 1 });
+  const now = Date.parse('2026-12-01T09:00:00Z');
+  const keep = (extra) => qt.keep(root, jl(), 'a question', { env: {}, gitBin: g.bin, ...extra });
+  assert.equal(keep({ now }), false);
+  assert.equal(g.calls().length, 1, g.calls().join());
+  assert.equal(keep({ now: now + 60_000 }), false);
+  assert.equal(keep({ now: now + 3_600_000 }), false);
+  assert.equal(g.calls().length, 1, `more git calls on the same day: ${g.calls().join()}`);
+  assert.equal(qt.failureCount(root, { now }).kinds['not-ignored'], 1, 'counted once, not per recall');
+  assert.ok(fs.existsSync(path.join(root, qt.PLACE_MARK_REL)));
+  execFileSync('git', ['check-ignore', '-q', '--no-index', qt.PLACE_MARK_REL], { cwd: CODE }); // the mark itself never lands in git
+  assert.equal(keep({ now: now + DAY }), false);
+  assert.equal(g.calls().length, 2, 'the next day it asks again');
+  const fixed = fakeGit({ ignore: 0 });
+  assert.equal(qt.keep(root, jl(), 'a question', { env: {}, gitBin: fixed.bin, now: now + 2 * DAY }), true);
+});
+
+test('the skill offer is booked WITHOUT the question (no second line for the same prompt)', () => {
+  const root = bare();
+  const q = 'which skill fits the tunnel work, zibberwock?';
+  const env = { MEM_RH_SESSION: 'qt-sk', MEM_RH_PROMPT: q, MEM_RH_QB: String(Buffer.byteLength(q)), MEM_RH_TURNS: path.join(root, 'turns') };
+  const r = recallhook.recall(root, JSON.stringify({ hits: [] }), env, { offer: { line: 'Skills: tunnel-fix', ids: ['sk1'] } });
+  r.book();
+  const j = injection.read(root).lines.filter((l) => l.session === 'qt-sk');
+  assert.deepEqual(j.map((l) => l.occasion).sort(), ['question', 'skill-offer'], JSON.stringify(j));
+  const kept = qt.read(root).lines;
+  assert.equal(kept.length, 1, `a second line for the offer: ${JSON.stringify(kept.map((k) => k.key))}`);
+  assert.equal(kept[0].key, qt.key(j.find((l) => l.occasion === 'question')));
+});
+
+const hit = (entry) => ({ score: 9, source: 'global/decisions.jsonl', line: 1, entry: { id: 'e1', ts: '2026-09-01T10:00:00Z', title: 't', choice: 'c', why: 'w', ...entry } });
+
+test('encrypted entries (the counterpart of lucky-mem\'s sensitive filter): mostly encrypted hits keep no question, only a count', () => {
+  const root = bare();
+  const q = 'what did I decide about the vault, zibberwock?';
+  assert.equal(qt.keep(root, jl(), q, { env: {}, hits: [hit({ body_enc: { v: 1 } }), hit({ body_enc: { v: 1 } }), hit({})] }), false);
+  assert.equal(qt.read(root).state, 'missing');
+  const f = qt.failureCount(root);
+  assert.equal(f.count, 0, 'not a failure');
+  assert.equal(f.skipped, 1);
+  assert.equal(qt.status(root, { env: {} }).skipped, 1);
+  // Controls: one of three is not "mostly"; no hits at all neither.
+  assert.equal(qt.keep(root, jl(), q, { env: {}, hits: [hit({ body_enc: { v: 1 } }), hit({}), hit({})] }), true);
+  assert.equal(qt.keep(root, jl({ ts: '2026-10-12T10:00:05Z' }), q, { env: {}, hits: [] }), true);
+  const a = qt.assess(root, { env: {}, now: Date.now() });
+  assert.match(a.text, /1 not kept because the hits were encrypted/);
+  assert.ok(!a.text.includes('zibberwock'));
+});
+
+test('encrypted hits through the recall hook booking: journal line yes, question no', () => {
+  const root = bare();
+  const q = 'what did I decide about the vault, zibberwock?';
+  const env = { MEM_RH_SESSION: 'qt-enc', MEM_RH_PROMPT: q, MEM_RH_QB: String(Buffer.byteLength(q)), MEM_RH_TURNS: path.join(root, 'turns') };
+  const enc = recallhook.recall(root, JSON.stringify({ hits: [hit({ body_enc: { v: 1 } })] }), env);
+  enc.book();
+  assert.equal(injection.read(root).lines.filter((l) => l.session === 'qt-enc').length, 1);
+  assert.equal(qt.read(root).state, 'missing');
+  assert.equal(qt.failureCount(root).skipped, 1);
+  const env2 = { ...env, MEM_RH_SESSION: 'qt-clear', MEM_RH_TURNS: path.join(root, 'turns2') };
+  recallhook.recall(root, JSON.stringify({ hits: [hit({})] }), env2).book();
+  assert.equal(qt.read(root).lines.length, 1, 'control: a clear hit keeps the question');
+});
+
+test('doctor: git-unclear is a warning with advice; place mark named', () => {
+  const root = bare();
+  qt.keep(root, jl(), 'a question', { env: {}, gitBin: fakeGit({ ignore: 128, revParse: 0 }).bin });
+  const a = qt.assess(root, { env: {}, now: Date.now(), gitBin: fakeGit({ ignore: 128, revParse: 0 }).bin });
+  assert.equal(a.level, 'warn');
+  assert.match(a.text, /git does not answer/);
+  assert.ok(a.advice);
 });

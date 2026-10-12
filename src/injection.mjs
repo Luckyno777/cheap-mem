@@ -286,7 +286,7 @@ export function book(root, fields = {}) {
   // `question_bytes`). A caller that has it may hand it over as `questionText`:
   // it is redacted and kept in its own local, git-ignored, 30-day file
   // (src/questiontext.mjs), tied to this line by a key. Never throws.
-  if (typeof fields.questionText === 'string' && fields.questionText) questiontext.keep(root, line, fields.questionText);
+  if (typeof fields.questionText === 'string' && fields.questionText) questiontext.keep(root, line, fields.questionText, { hits: fields.questionHits });
   return true;
 }
 

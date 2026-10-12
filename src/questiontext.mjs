@@ -58,11 +58,18 @@ import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendLine } from './append.mjs';
+import { writeAtomic } from './atomicwrite.mjs';
 import * as posixmode from './posixmode.mjs';
 import { redact, redactAgainstEnv, envSecrets } from './redaction.mjs';
 
 export const DIR_REL = path.join('.mem', 'local', 'question-text');
 export const ERRORS_REL = path.join('.pipeline', 'question-text-errors.jsonl');
+/** One mark per day: once the place was found "not ignored" or git "unclear", nobody asks git again until the day changes. */
+export const PLACE_MARK_REL = path.join('.pipeline', 'question-text-place.json');
+/** The most a git call may take on the hook path. */
+export const GIT_TIMEOUT_MS = 2000;
+/** Not a failure, only a number: questions not kept because the hits were mostly encrypted. */
+const SKIPPED = 'sensitive-skipped';
 const SHELF_DAYS = 30;
 /** Nothing longer is stored: pasted text is not a question and carries more that is private. */
 export const QUESTION_MAX_CHARS = 2000;
@@ -105,16 +112,49 @@ export function key(journalLine) {
   return createHash('sha256').update(parts.join('|')).digest('hex').slice(0, 12);
 }
 
-/** Does git ignore this path? Not a repository -> nothing could commit it (true). */
-function gitIgnores(root, target) {
+/**
+ * How does git see this path? `ignored`, `not-ignored` or `git-unclear`.
+ *
+ * `git check-ignore` (exit 0 = ignored, 1 = not). Any other answer - exit 128, no git, a timeout -
+ * counts as "no repository, nothing could commit it" ONLY when `git rev-parse --is-inside-work-tree`
+ * fails too AND no repository remnant (`.git/HEAD` or a `.git` file) lies in the place; otherwise it
+ * is unclear (broken repository, hanging git) and nothing is written. Every call has
+ * {@link GIT_TIMEOUT_MS}: a hook must not hang on git.
+ */
+function placeVerdict(root, target, { gitBin = 'git', gitTimeoutMs = GIT_TIMEOUT_MS } = {}) {
   const rel = path.relative(root, target);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) return true; // outside the tree
+  if (rel.startsWith('..') || path.isAbsolute(rel)) return 'ignored'; // outside the tree
+  const run = (args) => {
+    try {
+      execFileSync(gitBin, args, { cwd: root, stdio: 'ignore', timeout: gitTimeoutMs });
+      return { status: 0 };
+    } catch (e) {
+      return { status: e?.status ?? null, timedOut: e?.code === 'ETIMEDOUT' || e?.signal === 'SIGTERM' };
+    }
+  };
+  const a = run(['check-ignore', '-q', '--no-index', '--', rel]);
+  if (a.status === 0) return 'ignored';
+  if (a.status === 1) return 'not-ignored';
+  if (a.timedOut) return 'git-unclear';
+  const b = run(['rev-parse', '--is-inside-work-tree']);
+  if (b.status === 0 || b.timedOut) return 'git-unclear';
+  // A repository remnant is a broken repository; a `.git` folder holding only the hook's marks
+  // (`.git/mem-abruf-zuege`, ...) is not - the hooks make those in memories that are no repository.
+  const g = path.join(root, '.git');
+  let remnant = false;
+  try { remnant = fs.existsSync(path.join(g, 'HEAD')) || fs.statSync(g).isFile(); } catch { /* no .git */ }
+  return remnant ? 'git-unclear' : 'ignored';
+}
+
+function readPlaceMark(root, day) {
   try {
-    execFileSync('git', ['check-ignore', '-q', '--no-index', '--', rel], { cwd: root, stdio: 'ignore' });
-    return true;
-  } catch (e) {
-    return e.status === 1 ? false : true; // 128 = no repository
-  }
+    const o = JSON.parse(fs.readFileSync(path.join(root, PLACE_MARK_REL), 'utf8'));
+    return o && o.day === day && typeof o.verdict === 'string' ? o.verdict : null;
+  } catch { return null; }
+}
+
+function writePlaceMark(root, day, verdict) {
+  try { writeAtomic(path.join(root, PLACE_MARK_REL), `${JSON.stringify({ day, verdict })}\n`); } catch { /* without a mark git is asked again next time */ }
 }
 
 /** Count a failure — the class only, never the message. Never throws. */
@@ -127,22 +167,29 @@ function countFailure(root, kind, now) {
   } catch { /* the counter itself must hold nothing up */ }
 }
 
-/** Failures of the last `days` days. `readable: false` when the counter itself cannot be read. */
+/**
+ * Failures of the last `days` days. `skipped` counts questions not kept because the hits were mostly
+ * encrypted - no failure, only a number. `readable: false` when the counter itself cannot be read.
+ */
 export function failureCount(root, { now = Date.now(), days = 7 } = {}) {
   let text;
   try { text = fs.readFileSync(path.join(root, ERRORS_REL), 'utf8'); }
-  catch (e) { return { count: 0, readable: e?.code === 'ENOENT', kinds: {} }; }
+  catch (e) { return { count: 0, skipped: 0, readable: e?.code === 'ENOENT', kinds: {} }; }
   const from = new Date(now).getTime() - days * DAY_MS;
   const kinds = {};
   let count = 0;
+  let skipped = 0;
   for (const l of text.split('\n')) {
     if (!l.trim()) continue;
     try {
       const o = JSON.parse(l);
-      if (Date.parse(o.ts) >= from) { count += 1; kinds[o.kind] = (kinds[o.kind] ?? 0) + 1; }
+      if (!(Date.parse(o.ts) >= from)) continue;
+      if (o.kind === SKIPPED) { skipped += 1; continue; }
+      count += 1;
+      kinds[o.kind] = (kinds[o.kind] ?? 0) + 1;
     } catch { /* a broken counter line is no failure of keeping */ }
   }
-  return { count, readable: true, kinds };
+  return { count, skipped, readable: true, kinds };
 }
 
 /** Delete the day files past the shelf life. Returns how many; never throws. */
@@ -174,14 +221,31 @@ export function prepare(text, { env = process.env } = {}) {
  * own write, and it NEVER throws (hook path). `journalLine` is what
  * `injection.buildLine` made.
  */
-export function keep(root, journalLine, text, { env = process.env, now = Date.now() } = {}) {
+export function keep(root, journalLine, text, {
+  env = process.env, now = Date.now(), gitBin = 'git', gitTimeoutMs = GIT_TIMEOUT_MS, hits = null,
+} = {}) {
   try {
     if (!root || typeof text !== 'string' || !text.trim()) return false;
     if (!isOn(env)) return false;
-    const file = fileForDay(root, dayOf(now));
+    // Mostly encrypted hits (`body_enc`, crypto-shredded entries - the counterpart of lucky-mem's
+    // sensitive-tag filter; cheap-mem has no sensitive-tag list): the question is likely about
+    // private content and is not kept. Only a number is counted.
+    if (Array.isArray(hits) && hits.length) {
+      const enc = hits.filter((h) => h && (h.enc || h.body_enc || h.entry?.body_enc)).length;
+      if (enc * 2 > hits.length) { countFailure(root, SKIPPED, now); return false; }
+    }
+    const day = dayOf(now);
+    const file = fileForDay(root, day);
     if (!fs.existsSync(file)) {
-      // First write of this day: check once, sweep once, create the file with 0600.
-      if (!gitIgnores(root, file)) { countFailure(root, 'not-ignored', now); return false; }
+      // First write of this day: check once, sweep once, create the file with 0600. Was the place
+      // found "not ignored" or git "unclear" today already, no recall asks git again.
+      if (readPlaceMark(root, day)) return false;
+      const verdict = placeVerdict(root, file, { gitBin, gitTimeoutMs });
+      if (verdict !== 'ignored') {
+        writePlaceMark(root, day, verdict);
+        countFailure(root, verdict, now);
+        return false;
+      }
       fs.mkdirSync(dir(root), { recursive: true, mode: 0o700 });
       sweep(root, { now });
       fs.closeSync(fs.openSync(file, 'a', 0o600));
@@ -252,17 +316,18 @@ export function questionFor(root, journalLine, opt = {}) {
 }
 
 /** Counts for the doctor — never question text. */
-export function status(root, { env = process.env, now = Date.now(), platform = process.platform } = {}) {
+export function status(root, { env = process.env, now = Date.now(), platform = process.platform, gitBin = 'git' } = {}) {
   const r = read(root, { now });
   const f = failureCount(root, { now });
   const today = fileForDay(root, dayOf(now));
+  const place = placeVerdict(root, today, { gitBin });
   let oldestDays = null;
   const stamps = r.lines.map((l) => Date.parse(l.ts)).filter(Number.isFinite);
   if (stamps.length) oldestDays = Math.floor((new Date(now).getTime() - Math.min(...stamps)) / DAY_MS);
   return {
     on: isOn(env), state: r.state, files: r.files, lines: r.lines.length, broken: r.broken, oldestDays,
-    failures: f.count, failuresReadable: f.readable, failureKinds: f.kinds,
-    ignored: gitIgnores(root, today),
+    failures: f.count, skipped: f.skipped, failuresReadable: f.readable, failureKinds: f.kinds,
+    place, ignored: place === 'ignored',
     mode: posixmode.fileState(today, platform),
   };
 }
@@ -274,10 +339,18 @@ export function status(root, { env = process.env, now = Date.now(), platform = p
  * a file open to group/others (warn). Off, or nothing kept yet: unknown, never good. Never
  * question text in the output.
  */
-export function assess(root, { env = process.env, now = Date.now(), platform = process.platform } = {}) {
-  const st = status(root, { env, now, platform });
-  const counts = `${st.lines} questions in ${st.files} day files, ${st.broken} unreadable, ${st.failures} failures in 7 days`;
-  if (!st.ignored) {
+export function assess(root, { env = process.env, now = Date.now(), platform = process.platform, gitBin = 'git' } = {}) {
+  const st = status(root, { env, now, platform, gitBin });
+  const counts = `${st.lines} questions in ${st.files} day files, ${st.broken} unreadable, ${st.failures} failures in 7 days, `
+    + `${st.skipped} not kept because the hits were encrypted`;
+  if (st.place === 'git-unclear') {
+    return {
+      level: 'warn',
+      text: `git does not answer clearly for ${DIR_REL}/ (broken .git, hanging or missing git): nothing is kept (${counts}).`,
+      advice: `check "git status" in this memory; the day mark ${PLACE_MARK_REL} holds the verdict until the day changes`,
+    };
+  }
+  if (st.place === 'not-ignored') {
     return {
       level: 'error',
       text: `${DIR_REL}/ sits in the work tree and git does NOT ignore it: nothing is kept (${counts}).`,

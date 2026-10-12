@@ -511,6 +511,7 @@ export const COMMANDS = {
         sources: shown.map((h) => `${h.source}:${h.line}`),
         questionBytes: Buffer.byteLength(String(query)),
         questionText: String(query), // local question-text file only, never the journal line
+        questionHits: shown,
         durationMs: Math.round(process.uptime() * 1000),
       });
     }
