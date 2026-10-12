@@ -54,7 +54,7 @@ function fixture() {
     // (a `ts` that is a number is a wrongly shaped line since the Fable run 2026-10-11: broken, not found - see test/poison-lines.test.mjs)
     e('bad-ts', 'not-a-date'),
     e('dup', '2026-08-29T15:30:00Z', { title: 'first dup' }),
-    { id: 'nest', ts: '2026-08-29T15:40:00Z', title: 'nested', meta: { ts: '2026-09-09T00:00:00Z', text: 'has "ts":"x" and "id":"s1a"' } },
+    { id: 'nest', ts: '2026-08-29T15:40:00Z', title: 'nested', origin: { ts: '2026-09-09T00:00:00Z', text: 'has "ts":"x" and "id":"s1a"' } },
     e('a1', '2026-08-29T16:00:00Z'),
     // Tombstones on targets earlier in the file and in another drawer.
     { id: 'g1', ts: '2026-08-29T16:05:00Z', closes_id: 's1a', state: 'done', why: 'finished', agent: 'a1' },

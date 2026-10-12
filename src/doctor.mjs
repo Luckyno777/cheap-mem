@@ -2702,7 +2702,12 @@ export function checkEntryForm(root) {
       const { entries, path: p } = memory.readLog(root, type, { project });
       total += entries.length;
       const rel = path.relative(root, p).replace(/\\/g, '/'); // `file:line` is posix on every platform
-      entries.forEach((e, i) => {
+      entries.forEach((e0, i) => {
+        // A wrongly shaped line (src/fieldshape.mjs) is BROKEN for the readers, but THIS check exists for exactly those
+        // swallowed-value shapes (`title: true` plus a field name with whitespace): it looks at the parsed line itself, so
+        // the damage is still named here with its place and its advice (and `drawers` counts the line as well).
+        let e = e0;
+        if (e0?.__broken && e0.reason) { try { e = JSON.parse(e0.raw); } catch { return; } }
         if (!e || typeof e !== 'object' || e.__broken) return;
         if (e.class === 'entry-form' && e.ts && (!cap || String(e.ts) > cap)) {
           cap = String(e.ts);

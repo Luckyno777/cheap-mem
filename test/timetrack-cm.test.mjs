@@ -114,7 +114,7 @@ function trickyRoot({ n = 1500, seed = 7 } = {}) {
     if (i % 79 === 6) line = JSON.stringify({ id, ts: iso(BASE + i * HOUR).slice(0, 19), title: 'zone-less', text: wordsOf(r, 20) });
     if (i % 73 === 8) line = JSON.stringify({ id, ts: iso(BASE + i * HOUR).slice(0, 10), title: 'date only', text: wordsOf(r, 20) });
     if (i % 71 === 9) line = JSON.stringify({ id, ts: iso(BASE + i * HOUR).replace('Z', '+02:00'), title: 'offset', text: wordsOf(r, 20) });
-    if (i % 67 === 2) line = JSON.stringify({ id, meta: { ts: iso(BASE + (i + 300) * HOUR) }, ts: iso(BASE + i * HOUR), text: 'nested ts' });
+    if (i % 67 === 2) line = JSON.stringify({ id, origin: { ts: iso(BASE + (i + 300) * HOUR) }, ts: iso(BASE + i * HOUR), text: 'nested ts' });
     if (i % 61 === 1) line = JSON.stringify({ id, ts: 'soon', title: 'unreadable ts', text: wordsOf(r, 10) });
     if (i % 59 === 11) line = '{"id":"broken' + i + '","ts":"' + iso(BASE + i * HOUR) + '", "text": '; // does not parse
     if (i % 53 === 12) { target[type].push(''); }                                      // a blank line

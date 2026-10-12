@@ -22,9 +22,12 @@
  * side is the real safety net, because the CLI, old lines and a merge never meet the
  * bridge's gate.
  *
- * Only fields the house knows as text or as a list of text are judged, by NAME. Every
- * other field (`origin`, `provenance`, `guard`, `seal`, `refs`, …) is a legitimate
- * object and is not touched here.
+ * **The rule is inverted (coordinator, 2026-10-12; the same in lucky-mem).** A field the readers touch that this file does
+ * not name still crashed them (the search field weights, the subject field per type). So EVERY top-level field is judged:
+ * a value is a string, a number, a boolean, null, or a LIST of those - an object is wrong. The exceptions are named:
+ * `STRUCTURED_FIELDS` may hold objects (`origin`, `provenance`, `guard`, `chain_seal`, ...); the list comes from real data
+ * (what the CLI writes for every type, the fixtures and the bench corpora) and a test keeps it honest. On top of that the
+ * prose fields are text, `id` and `ts` are text, and the list fields are lists of texts. Nothing nests deeper than 32 levels.
  *
  * A leaf module on purpose: no imports.
  */
@@ -50,6 +53,16 @@ const LOOSE_SCALAR_FIELDS = Object.freeze(['value', 'version', 'test', 'on_instr
 const STRICT_TEXT_FIELDS = Object.freeze(['id', 'ts']);
 
 /**
+ * The fields that may hold an OBJECT (or a list of objects) - everything else holds a scalar or a list of scalars. Derived
+ * from what is really written: the CLI for every type, the test fixtures, the bench corpora (test/field-shape-audit.test.mjs
+ * writes every type through the real CLI and asserts that none of its lines is broken).
+ */
+const STRUCTURED_FIELDS = Object.freeze([
+  'origin', 'provenance', 'guard', 'chain_seal', 'body_enc', 'references', 'asked_evidence',
+]);
+const STRUCTURED = new Set(STRUCTURED_FIELDS);
+
+/**
  * Fields that are a list of texts (a single text is a one-word list and stays readable). A list flag WITHOUT a value
  * (`--tags` alone) was written as `true` by older CLIs: that is no shape error, the line is read with an EMPTY list there
  * and the doctor warns about it (`legacyLists`). The write side refuses it now.
@@ -69,19 +82,28 @@ const LIST = new Set(LIST_FIELDS);
 const isScalar = (v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
 const what = (v) => (Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'an object' : typeof v);
 
-/** An entry is not nested deeper than this (`origin.derived_from` is two levels): a nesting bomb overflows every recursive reader. */
-const MAX_DEPTH = 64;
+/** An entry is not nested deeper than this (`origin.derived_from` is two levels; the same number in lucky-mem): a nesting bomb overflows every recursive reader. */
+const MAX_DEPTH = 32;
 
-/** Is anything inside `value` nested deeper than `max` levels? Iterative on purpose: this check must not overflow itself. */
-function deeperThan(value, max) {
+/** Keys that make an object turn into text or a prototype by themselves: a line that carries one anywhere is wrong. */
+const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype', 'toString', 'valueOf', 'toJSON', 'toLocaleString', 'hasOwnProperty']);
+
+/**
+ * What is wrong with the STRUCTURE of `value` (anywhere inside it): nested deeper than `max` levels, or an object key that
+ * would make it convert itself (`toString`, `valueOf`, ...). Iterative on purpose: this check must not overflow itself.
+ */
+function structureProblem(value, max) {
   const stack = [[value, 0]];
   while (stack.length) {
     const [v, d] = stack.pop();
     if (v === null || typeof v !== 'object') continue;
-    if (d >= max) return true;
+    if (d >= max) return `nested deeper than ${max} levels`;
+    if (!Array.isArray(v)) {
+      for (const k of Object.keys(v)) if (FORBIDDEN_KEYS.has(k)) return `has the key '${k}', which would turn the object into text or a prototype`;
+    }
     for (const x of Array.isArray(v) ? v : Object.values(v)) if (x !== null && typeof x === 'object') stack.push([x, d + 1]);
   }
-  return false;
+  return null;
 }
 
 /** A list flag that carries no list: `true` / `false` / a number (written by `--tags` without a value). */
@@ -93,9 +115,9 @@ const isNoList = (v) => typeof v === 'boolean' || typeof v === 'number';
  */
 export function shapeProblem(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-  if (deeperThan(entry, MAX_DEPTH)) return `nested deeper than ${MAX_DEPTH} levels`;
   for (const [k, v] of Object.entries(entry)) {
     if (v === null || v === undefined) continue;
+    if (STRUCTURED.has(k)) continue; // may hold an object; the depth cap above covers it
     if (k.startsWith('_')) {
       // `_source`, `_line`, `_type`, `_project`, ... are the READERS' own annotations: a stored line has none, and a
       // stored object there would crash the reader that trusts its own field (fuzz 2026-10-11: `_type`).
@@ -109,9 +131,13 @@ export function shapeProblem(entry) {
       if (!(typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string')))) {
         return `field '${k}' is ${Array.isArray(v) ? 'a list with non-text' : what(v)}, expected: a list of texts`;
       }
+    } else if (!isScalar(v) && !(Array.isArray(v) && v.every(isScalar))) {
+      // a field this file does not name: a scalar or a list of scalars, never an object (the inverted rule)
+      return `field '${k}' is ${Array.isArray(v) ? 'a list with objects or lists in it' : what(v)}, expected: a text, a number, a boolean or a list of those (an object is only allowed in ${STRUCTURED_FIELDS.join(', ')})`;
     }
   }
-  return null;
+  // last, so a message that names the field wins; this one catches what hides inside a structured field
+  return structureProblem(entry, MAX_DEPTH);
 }
 
 /** Is `name` a field that must be text (a number or a boolean there is wrong)? The bridge uses it when writing. */

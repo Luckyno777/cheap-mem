@@ -11,7 +11,7 @@
 //    first cut of fieldshape then made the entry vanish from every read. The write side refuses it with a clear message
 //    (nothing written); an OLD line that already carries `tags: true` stays readable (read as an empty list) and the
 //    doctor WARNS about it instead of calling it broken.
-// 4. An `origin` nested 40,000 deep made find, viewer and doctor overflow the stack. A line nested deeper than 64 levels is
+// 4. An `origin` nested 40,000 deep made find, viewer and doctor overflow the stack. A line nested deeper than 32 levels is
 //    broken.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -148,13 +148,13 @@ test('an OLD line with a list field that is true or a number stays readable (as 
   assert.doesNotMatch(doc, /FAIL\s+drawers/);
 });
 
-test('a line nested deeper than 64 levels is broken, nothing overflows the stack; a normal nesting stays', (t) => {
+test('a line nested deeper than 32 levels is broken, nothing overflows the stack; a normal nesting stays', (t) => {
   const root = world(t);
   const deep = (n) => { let o = 'x'; for (let i = 0; i < n; i += 1) o = { o }; return o; };
   const bomb = `{"id":"9bomb0001","ts":"2026-10-11T22:30:00Z","v":1,"title":"alpha bomb","text":"alpha","origin":${'{"o":'.repeat(40000)}1${'}'.repeat(40000)},"agent":"x","authority":"agent"}\n`;
   fs.appendFileSync(path.join(root, 'global', 'thoughts.jsonl'), bomb);
   append(root, 'thoughts.jsonl', { id: '9okay00001', title: 'alpha fine origin', text: 'alpha', origin: { derived_from: ['abc'], note: { deeper: { still: 'fine' } } } });
-  assert.ok(shapeProblem({ origin: deep(100) }), 'deeper than 64');
+  assert.ok(shapeProblem({ origin: deep(100) }), 'deeper than 32');
   assert.equal(shapeProblem({ origin: deep(10) }), null);
   assert.ok(memory.parseLine(bomb).__broken);
   for (const args of [['find', 'alpha'], ['find', 'alpha', '--fresh'], ['context'], ['duties'], ['facts'], ['viewer', '--out', path.join(root, 'v2.html')], ['doctor'], ['retrieve', 'alpha', '--json']]) {
