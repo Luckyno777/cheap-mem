@@ -1028,7 +1028,7 @@ export const COMMANDS = {
         '',
         '  `due` exits 0 = not due, 1 = due, 3 = cannot tell.',
         '  Without a bell the digest is due from 500 KB, or when the OLDEST',
-        '  open capture is 24 h old (--age-without-bell H); a name without a',
+        '  open capture is 24 h old and the pile has 32 KB (--age-without-bell H); a name without a',
         '  readable time is reported as "age not measurable", never as young.',
         '  Meant for a timer that runs often and cheaply: it does no',
         '  work and starts no model, it only answers the question.',
@@ -1060,9 +1060,10 @@ export const COMMANDS = {
       const size = d.bytes ? `${Math.round(d.bytes / 1024)} KB` : '0 KB';
       const age = d.oldestMin !== undefined ? `, oldest open capture ${Math.round(d.oldestMin / 60)} h`
         : (d.ageReason ? ', age not measurable' : '');
+      const floor = d.ageRule === 'below-floor' ? ', age rule waits for the volume floor (--volume-min)' : '';
       out(d.due
-        ? `DUE (${d.reason}), ${d.captures ?? 0} captures, ${size}${age}`
-        : `not due (${d.reason}), ${d.captures ?? 0} captures, ${size}${age}`);
+        ? `DUE (${d.reason}), ${d.captures ?? 0} captures, ${size}${age}${floor}`
+        : `not due (${d.reason}), ${d.captures ?? 0} captures, ${size}${age}${floor}`);
       process.exit(d.due ? 1 : 0);
     }
     die(`digest: unknown subcommand '${rest[0]}'. Known: due, bell`);

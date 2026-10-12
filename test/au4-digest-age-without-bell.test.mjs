@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import * as raw from '../src/raw.mjs';
@@ -34,10 +35,11 @@ function memory() {
   return root;
 }
 const stamp = (d) => d.toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '-');
-function capture(root, name) {
+/** A capture of `bytes` incompressible payload (default 40 KB: above the volume floor of 32 KB). */
+function capture(root, name, bytes = 40 * 1024) {
   const rel = path.join('raw', '2026', '10', name);
   fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
-  fs.writeFileSync(path.join(root, rel), zlib.gzipSync(Buffer.from('{"text":"x"}\n')));
+  fs.writeFileSync(path.join(root, rel), zlib.gzipSync(crypto.randomBytes(bytes)));
   return rel;
 }
 const ago = (root, hours, rest = 'a') => capture(root, `${stamp(new Date(NOW.getTime() - hours * HOUR))}--${rest}.jsonl.gz`);
@@ -51,6 +53,18 @@ test('AU4: no bell, oldest open capture 25 h old, far below 500 KB -> due (age-w
   assert.equal(d.reason, 'age-without-bell');
   assert.equal(d.oldestMin, 25 * 60);
   assert.ok(d.bytes < 500 * 1024);
+});
+
+test('AU4: a tiny old capture (below the 32 KB floor) starts no full model call - the answer says why', () => {
+  const root = memory();
+  capture(root, `${stamp(new Date(NOW.getTime() - 30 * HOUR))}--tiny.jsonl.gz`, 300);
+  const d = raw.due(root, { now: NOW });
+  assert.equal(d.due, false, JSON.stringify(d));
+  assert.equal(d.reason, 'no-bell');
+  assert.equal(d.ageRule, 'below-floor');
+  assert.equal(d.oldestMin, 30 * 60);
+  // same pile, floor lowered: the age rule fires (the floor is effective, not dead)
+  assert.equal(raw.due(root, { now: NOW, thresholds: { volumeMin: 1 } }).reason, 'age-without-bell');
 });
 
 test('AU4: the OLDEST counts, not the youngest', () => {

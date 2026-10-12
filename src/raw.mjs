@@ -1109,7 +1109,12 @@ export function due(root, { now = new Date(), thresholds = {} } = {}) {
     if (o.time) {
       const ageMs = new Date(now).getTime() - Date.parse(o.time);
       without.oldestMin = Math.round(ageMs / 60000);
-      if (ageMs >= s.ageWithoutBellMs) return { due: true, reason: 'age-without-bell', ...without };
+      if (ageMs >= s.ageWithoutBellMs) {
+        // Like the quiet rule: below the volume floor (volumeMin, 32 KB) a full model call costs more than
+        // it brings - a tiny old capture waits for the next bell (then the ceiling applies, without a floor).
+        if (state.bytes >= s.volumeMin) return { due: true, reason: 'age-without-bell', ...without };
+        without.ageRule = 'below-floor';
+      }
     } else {
       without.ageReason = o.reason;
     }
