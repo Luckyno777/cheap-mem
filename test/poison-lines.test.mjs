@@ -63,12 +63,12 @@ const CRASH = /Cannot convert object to primitive value|is not a function|TypeEr
 test('the shape rule: what is broken and what stays readable', () => {
   // broken: an object or a list in a text field, a non-list in a list field, a number as ts or id, an object in a reader's field
   for (const bad of [
-    { tags: { toString: 'x' } }, { tags: [{ a: 1 }] }, { tags: 5 }, { owner: { a: 1 } }, { title: ['a'] }, { ts: 12345 }, { id: 7 },
+    { tags: { toString: 'x' } }, { tags: [{ a: 1 }] }, { title: true }, { key: 5 }, { owner: { a: 1 } }, { title: ['a'] }, { ts: 12345 }, { id: 7 },
     { id: { a: 1 } }, { _type: { a: 1 } }, { subject: { a: 1 } }, { project: ['p'] },
   ]) assert.ok(shapeProblem(bad), `should be broken: ${JSON.stringify(bad)}`);
   // legitimate (legacy) forms stay readable
   for (const ok of [
-    { tags: 'solo' }, { tags: ['a', 'b'] }, { asked: 'one phrase' }, { title: true }, { value: 5000 }, { value: false }, { key: 'k' },
+    { tags: 'solo' }, { tags: ['a', 'b'] }, { asked: 'one phrase' }, { tags: true }, { files: 5 }, { value: 5000 }, { value: false }, { key: 'k' },
     { origin: { derived_from: ['abc'] } }, { provenance: { inferred_from: ['x'] } }, { guard: { kind: 'test', path: 'a' } },
     { chain_seal: { writer: 'w', hash: 'h' } }, { error_ids: ['a', 'b'] }, { steps: ['one', 'two'] }, { tags: null }, { owner: undefined },
     { _source: 'global/x.jsonl', _line: 4 }, {},

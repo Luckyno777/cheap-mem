@@ -1441,6 +1441,15 @@ function* checkDrawers(root) {
       + 'The answer to a broken line in an append-only log is a new line, never a repair.');
     return;
   }
+  if (scan.listWithoutValue?.length) {
+    const first = scan.listWithoutValue[0];
+    yield finding('drawers', LEVEL.WARN,
+      `${scan.listWithoutValue.length} line(s) carry a list field without a list (${first.fields.join(', ')} at ${first.file}:${first.line}), `
+      + `${files.length} files, ${scan.lines} lines`,
+      'An older `mem log --tags` (or --asked, --files, ...) without a value wrote `true` there. The line is read with an empty list; '
+      + 'the answer in an append-only log is a correction with the real list (`mem correction`). New writes refuse a list flag without a value.');
+    return;
+  }
   yield finding('drawers', LEVEL.GOOD, `${files.length} files, ${scan.lines} lines`);
 }
 

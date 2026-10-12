@@ -35,7 +35,7 @@ import { maskEntry } from './outputguard.mjs';
 import * as expand from './expand.mjs';
 import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
-import { shapeProblem } from './fieldshape.mjs';
+import { shapeProblem, withoutListFlags } from './fieldshape.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1316,7 +1316,7 @@ export function parseLine(line) {
   let o;
   try { o = JSON.parse(line); } catch { return { __broken: true, raw: line }; }
   const problem = shapeProblem(o);
-  return problem ? { __broken: true, raw: line, reason: problem } : o;
+  return problem ? { __broken: true, raw: line, reason: problem } : withoutListFlags(o); // `tags: true` (a flag without a value) reads as an empty list
 }
 
 export function readLog(root, type, { project = null } = {}) {
@@ -2813,9 +2813,9 @@ function shortText(e0) {
   if (e.title) parts.push(e.title);
   if (e.topic) parts.push(`[${e.topic}]`);
   if (e.class) parts.push(`[${e.class}]`);
-  if (e.text) parts.push(e.text.slice(0, 120).replace(/\s+/g, ' '));
+  if (e.text) parts.push(String(e.text).slice(0, 120).replace(/\s+/g, ' '));
   if (e.choice) parts.push(`→ ${e.choice}`);
-  if (e.why) parts.push(`because ${e.why.slice(0, 80)}`);
+  if (e.why) parts.push(`because ${String(e.why).slice(0, 80)}`);
   if (e.tags && Array.isArray(e.tags) && e.tags.length) parts.push(`#${e.tags.join(' #')}`);
   return bidi.visible(parts.join(' — '));
 }

@@ -148,10 +148,11 @@ export function numberFlag(name, value, { fallback = null, min = null, max = nul
   return n;
 }
 
-// Text fields, i.e. the ones whose value is prose a user typed. If one of
-// these arrives as `true`, the value was eaten — see fieldsFrom().
-export const TEXT_FIELDS = new Set(['title', 'text', 'topic', 'choice', 'why', 'fact',
-  'summary', 'class', 'source', 'subject']);
+// The few `mem log` / `mem correction` flags that are real SWITCHES (no value): everything else needs one. A flag without
+// a value used to be written as `true` for any field that was not on a short list of prose fields, so `--tags`, `--key`,
+// `--files` ... wrote `tags: true` / `key: true` and the readers broke on them (review 2026-10-12). See fieldsFrom().
+// (`without-scaffold` and `no-broadcast` are taken out of the entry by the log handler.)
+const SWITCH_FIELDS = new Set(['shred', 'automatic', 'without-scaffold', 'no-broadcast']);
 
 /**
  * A switch that NARROWLY misses a reserved name is a typo, not a field.
@@ -328,9 +329,10 @@ export function fieldsFrom(command, args, except = []) {
         '  Nothing was written.',
       ].join('\n'));
     }
-    if (v === true && TEXT_FIELDS.has(k)) {
+    if (v === true && !SWITCH_FIELDS.has(k)) {
       die([
         `${command}: --${k} arrived without a value.`,
+        `  Write it with one: --${k} <value> (a list: comma-separated, or as a JSON list).`,
         '  If the value starts with --, the parser eats it as a switch:',
         `    --${k}="--your text"`,
         '  Nothing was written.',

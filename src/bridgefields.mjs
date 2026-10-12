@@ -52,6 +52,7 @@
  */
 
 import * as procedure from './procedure.mjs';
+import { isTextField } from './fieldshape.mjs';
 import * as workflow from './workflow.mjs';
 
 /**
@@ -232,6 +233,10 @@ export function logFieldShape(args) {
       if (typeof v !== 'string' && (!Array.isArray(v) || v.some((x) => typeof x !== 'string'))) bad.push(`${k} (an array of strings)`);
     } else if (typeof v === 'object') {
       bad.push(`${k} (a string, number or boolean)`);
+    } else if (isTextField(k) && typeof v !== 'string') {
+      // review 2026-10-12: a text field is text since the read side broke on `key: true`; a line the bridge wrote with a
+      // number or a boolean there would be BROKEN for every reader.
+      bad.push(`${k} (a string)`);
     }
   }
   if (bad.length) {

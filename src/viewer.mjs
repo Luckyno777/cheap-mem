@@ -248,7 +248,7 @@ export function factsLens(root) {
     conflict: Boolean(f.conflict),
     history: (f.history || []).map((h) => ({
       value: String(h.value ?? h.fact ?? ''),
-      validFrom: h.valid_from || String(h.ts || '').slice(0, 10),
+      validFrom: h.valid_from === undefined || h.valid_from === null || h.valid_from === '' ? String(h.ts || '').slice(0, 10) : String(h.valid_from),
     })),
   }));
 }

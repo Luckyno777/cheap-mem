@@ -44,7 +44,7 @@ import path from 'node:path';
 import * as memory from './memory.mjs';
 import * as chain from './chain.mjs';
 import * as drawermemo from './drawermemo.mjs';
-import { shapeProblem } from './fieldshape.mjs';
+import { shapeProblem, legacyLists } from './fieldshape.mjs';
 
 /** Longest supersession chain we follow before calling it pathological. */
 export const MAX_CHAIN = 64;
@@ -138,6 +138,7 @@ export function orphanJsonlFiles(root) {
 export function scanIntegrity(root) {
   const broken = [];          // { file, line }        — unparseable
   const badTimestamp = [];    // { file, line, id, why }
+  const listWithoutValue = []; // { file, line, id, fields } — a list flag written without a value (`tags: true`): read as empty, warned about
   const duplicateIds = [];    // { id, files: [...] }
   const seen = new Map();     // id -> [{ file, line }]
   const claims = new Map();   // id -> { replaces, file, line }
@@ -163,6 +164,8 @@ export function scanIntegrity(root) {
     chainFiles.push({ rel: f.rel, raw, project: f.project, type: f.type });
     // Line number -> why a line that did parse is still broken (a wrongly shaped field, src/fieldshape.mjs).
     const reasons = new Map();
+    // Line number -> the list fields of that line that carry no list (`tags: true`).
+    const bareLists = new Map();
 
     // One non-blank line, parsed (`e`; NOT_JSON when it is not JSON) at its 1-based line `no`.
     const visit = (e, no) => {
@@ -173,6 +176,8 @@ export function scanIntegrity(root) {
         return;
       }
       entries += 1;
+      const bare = bareLists.get(no);
+      if (bare) listWithoutValue.push({ file: f.rel, line: no, id: typeof e.id === 'string' ? e.id : null, fields: bare });
 
       if (typeof e.id === 'string' && e.id) {
         const at = seen.get(e.id);
@@ -224,6 +229,8 @@ export function scanIntegrity(root) {
       for (let i = 0; i < memoRows.vals.length; i += 1) {
         const why = memoRows.reason(i);
         if (why) reasons.set(memoRows.nos[i], why);
+        const bare = memoRows.listFlags(i);
+        if (bare) bareLists.set(memoRows.nos[i], bare);
       }
       for (let i = 0; i < memoRows.vals.length; i += 1) visit(memoRows.vals[i], memoRows.nos[i]);
     } else {
@@ -234,7 +241,10 @@ export function scanIntegrity(root) {
         let e;
         let problem = null;
         try { e = JSON.parse(row); problem = shapeProblem(e); } catch { e = drawermemo.NOT_JSON; }
-        if (problem) { e = drawermemo.NOT_JSON; reasons.set(i + 1, problem); }
+        if (problem) { e = drawermemo.NOT_JSON; reasons.set(i + 1, problem); } else if (e !== drawermemo.NOT_JSON) {
+          const bare = legacyLists(e);
+          if (bare.length) bareLists.set(i + 1, bare);
+        }
         visit(e, i + 1);
       }
     }
@@ -248,6 +258,7 @@ export function scanIntegrity(root) {
     lines,
     entries,
     broken,
+    listWithoutValue,
     badTimestamp,
     duplicateIds,
     replacement: replacementGraph(claims),

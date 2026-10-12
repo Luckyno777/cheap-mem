@@ -967,7 +967,7 @@ export const COMMANDS = {
       out('  ' + fresh.formatFact(f));
       for (const h of f.history) {
         const val = h.value ?? h.fact ?? h.text ?? '';
-        const when = (h.valid_from ?? h.ts ?? '').slice(0, 10);
+        const when = String(h.valid_from ?? h.ts ?? '').slice(0, 10);
         out(`      was: ${val}  (${when})`);
       }
     }

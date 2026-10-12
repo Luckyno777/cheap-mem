@@ -29,20 +29,31 @@
  * A leaf module on purpose: no imports.
  */
 
-/** Fields that are ONE text; a number or a boolean is tolerated (older CLI parsers wrote `--title` without a value as `true`). */
-const SCALAR_FIELDS = Object.freeze([
+/**
+ * Fields that are ONE text. A text field is TEXT (review 2026-10-12): a number or a boolean there crashed `context`, `core`,
+ * `facts`, `viewer`, `today` and the dashboard ("localeCompare / slice is not a function") while the doctor stayed ok, and
+ * the CLI itself wrote `"key": true` when `--key` had no value. Such a line is broken now, like one with an object there.
+ */
+const TEXT_FIELDS = Object.freeze([
   'title', 'text', 'why', 'topic', 'class', 'choice', 'learning', 'duty', 'question', 'skill', 'rule',
-  'fact', 'description', 'excerpt', 'body', 'key', 'value', 'file', 'owner', 'who', 'kind', 'from', 'to', 'by',
+  'fact', 'description', 'excerpt', 'body', 'key', 'file', 'owner', 'who', 'kind', 'from', 'to', 'by',
   'by_id', 'replaces_id', 'retires_id', 'closes_id', 'state', 'status', 'authority', 'agent', 'valid_from',
-  'valid_until', 'due', 'due_date', 'until', 'deadline', 'address', 'language', 'version', 'test', 'when', 'scope',
-  'family', 'subject', 'project', 'type', 'source', 'target', 'start_status', 'status_of', 'issued_by', 'on_instruction',
+  'valid_until', 'due', 'due_date', 'until', 'deadline', 'address', 'language', 'when', 'scope',
+  'family', 'subject', 'project', 'type', 'source', 'target', 'start_status', 'status_of', 'issued_by',
   'hash', 'author',
 ]);
 
-/** Fields that must be a TEXT (string) and nothing else: they are compared and sorted (`localeCompare`, `slice`). */
+/** The few scalars that are not prose: a number, a boolean or a text. Never an object or a list. */
+const LOOSE_SCALAR_FIELDS = Object.freeze(['value', 'version', 'test', 'on_instruction']);
+
+/** Fields that must be a TEXT (string) and nothing else, and are also the ones sorted by `localeCompare`. */
 const STRICT_TEXT_FIELDS = Object.freeze(['id', 'ts']);
 
-/** Fields that are a list of texts (a single text is a one-word list and stays readable). */
+/**
+ * Fields that are a list of texts (a single text is a one-word list and stays readable). A list flag WITHOUT a value
+ * (`--tags` alone) was written as `true` by older CLIs: that is no shape error, the line is read with an EMPTY list there
+ * and the doctor warns about it (`legacyLists`). The write side refuses it now.
+ */
 const LIST_FIELDS = Object.freeze([
   'tags', 'symbols', 'asked', 'asked_as', 'asked-as', 'placeholders', 'files', 'used_by', 'error_ids', 'steps',
   // a workflow's match lists and a procedure's classes (a comma-separated text or a list, see workflow.OPTIONAL_ARRAY_FIELDS)
@@ -51,12 +62,30 @@ const LIST_FIELDS = Object.freeze([
   'rejected',
 ]);
 
-const SCALAR = new Set(SCALAR_FIELDS);
-const STRICT = new Set(STRICT_TEXT_FIELDS);
+const TEXT = new Set([...TEXT_FIELDS, ...STRICT_TEXT_FIELDS]);
+const LOOSE = new Set(LOOSE_SCALAR_FIELDS);
 const LIST = new Set(LIST_FIELDS);
 
 const isScalar = (v) => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean';
 const what = (v) => (Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'an object' : typeof v);
+
+/** An entry is not nested deeper than this (`origin.derived_from` is two levels): a nesting bomb overflows every recursive reader. */
+const MAX_DEPTH = 64;
+
+/** Is anything inside `value` nested deeper than `max` levels? Iterative on purpose: this check must not overflow itself. */
+function deeperThan(value, max) {
+  const stack = [[value, 0]];
+  while (stack.length) {
+    const [v, d] = stack.pop();
+    if (v === null || typeof v !== 'object') continue;
+    if (d >= max) return true;
+    for (const x of Array.isArray(v) ? v : Object.values(v)) if (x !== null && typeof x === 'object') stack.push([x, d + 1]);
+  }
+  return false;
+}
+
+/** A list flag that carries no list: `true` / `false` / a number (written by `--tags` without a value). */
+const isNoList = (v) => typeof v === 'boolean' || typeof v === 'number';
 
 /**
  * What is wrong with the shape of this entry, as one sentence naming the field, or `null` when it can be read.
@@ -64,21 +93,43 @@ const what = (v) => (Array.isArray(v) ? 'a list' : typeof v === 'object' ? 'an o
  */
 export function shapeProblem(entry) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+  if (deeperThan(entry, MAX_DEPTH)) return `nested deeper than ${MAX_DEPTH} levels`;
   for (const [k, v] of Object.entries(entry)) {
     if (v === null || v === undefined) continue;
     if (k.startsWith('_')) {
       // `_source`, `_line`, `_type`, `_project`, ... are the READERS' own annotations: a stored line has none, and a
       // stored object there would crash the reader that trusts its own field (fuzz 2026-10-11: `_type`).
       if (!isScalar(v)) return `field '${k}' is ${what(v)}, expected: text (names with a leading underscore belong to the readers)`;
-    } else if (STRICT.has(k)) {
+    } else if (TEXT.has(k)) {
       if (typeof v !== 'string') return `field '${k}' is ${what(v)}, expected: text`;
-    } else if (SCALAR.has(k)) {
+    } else if (LOOSE.has(k)) {
       if (!isScalar(v)) return `field '${k}' is ${what(v)}, expected: text`;
     } else if (LIST.has(k)) {
+      if (isNoList(v)) continue; // legacy: see `legacyLists`
       if (!(typeof v === 'string' || (Array.isArray(v) && v.every((x) => typeof x === 'string')))) {
         return `field '${k}' is ${Array.isArray(v) ? 'a list with non-text' : what(v)}, expected: a list of texts`;
       }
     }
   }
   return null;
+}
+
+/** Is `name` a field that must be text (a number or a boolean there is wrong)? The bridge uses it when writing. */
+export function isTextField(name) {
+  return TEXT.has(name);
+}
+
+/** The list fields of this entry that carry no list (`tags: true`): their names, or `[]`. */
+export function legacyLists(entry) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+  return Object.entries(entry).filter(([k, v]) => LIST.has(k) && isNoList(v)).map(([k]) => k);
+}
+
+/** The same entry with every such field read as an empty list (a copy; the entry itself when there is none). */
+export function withoutListFlags(entry) {
+  const bad = legacyLists(entry);
+  if (!bad.length) return entry;
+  const copy = { ...entry };
+  for (const k of bad) copy[k] = [];
+  return copy;
 }
