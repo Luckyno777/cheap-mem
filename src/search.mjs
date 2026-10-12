@@ -224,7 +224,12 @@ export const CACHE_DIR = path.join('.mem', 'search-index');
 //     BROKEN now and stays out of the index (`memory.parseLine`, `src/fieldshape.mjs`). A version-14
 //     cache may still hold documents of such lines; it stays valid by its file stamps and would be
 //     served as it stands (`mem find` listed them, `mem retrieve` threw). Rebuilt once.
-export const CACHE_VERSION = 15;
+// 16: second review 2026-10-12 - the shape rule was inverted and made strict after version 15 was written: a text field that
+//     is a number or a boolean (`key: 5`, `title: true`) is BROKEN and out of the index now, and a list flag without a list
+//     (`tags: true`) is read as an EMPTY list and IN. A version-15 cache built by the first round of that code still holds
+//     the documents of the `key: 5` / `title: true` lines and lacks the `tags: true` ones; it stays valid by its file
+//     stamps and would be served as it stands. Rebuilt once.
+export const CACHE_VERSION = 16;
 
 /**
  * Field weights. The same word means more in a title than in a body:
