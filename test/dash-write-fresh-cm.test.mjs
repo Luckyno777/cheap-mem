@@ -355,6 +355,70 @@ test('(3d) a part that cannot be computed is named in cache.live_errors, on the 
   } finally { await s.stop(); }
 });
 
+function rawWorld() {
+  const root = memoryRoot();
+  archive.setLocation(root, path.join(tmp('cm-wfresh-store-'), 'store'));
+  const cfg = archive.readConfig({}, root);
+  const rel = 'raw/2026/09/2026-09-01T00-00-00Z--s0.jsonl.gz';
+  const body = zlib.gzipSync(Buffer.from('{"line":0}\n'));
+  archive.put(cfg, rel, body);
+  archive.writeRecord(root, { path: rel, captured_at: '2026-09-01T00:00:00Z', ts_to: '2026-09-01T00:00:00Z', lines: 1, stored_bytes: body.length, stamp: { session_id: 's0', surface: 'test', project: null } });
+  return { root, rel, goldFile: path.join(tmp('cm-wfresh-nogold-'), 'none.jsonl') };
+}
+async function endOfTask(s, started) {
+  for (let i = 0; i < 100; i += 1) {
+    const t = await s.json(`/task.json?id=${encodeURIComponent(started.id)}`);
+    if (t.running === false) return t;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  return null;
+}
+
+test('(3e) the end of a raw-delete task: the counters are fresh at the next read, with a slow build', { timeout: 300000 }, async () => {
+  const w = rawWorld();
+  const s = await startServer(w);
+  try {
+    const before = await s.dash();
+    assert.equal(before.raw.counts.present, 1, 'positive control: one capture is present');
+    const list = (await s.part('raw')).data;
+    assert.equal(list.length, 1);
+    const started = await (await s.post('/task', { kind: 'raw-delete', path: w.rel, reason: 'probe' })).json();
+    assert.ok(started.id, JSON.stringify(started));
+    const t = await endOfTask(s, started);
+    assert.equal(t?.state, 'ok', JSON.stringify(t));
+    const d = await s.dash();
+    assert.equal(d.raw.counts.deleted, 1, 'the counter says deleted at once');
+    assert.equal(d.raw.counts.present, 0);
+    assert.equal(d.cache.fresh, false, 'the cache path is real: the rebuild is still held');
+    assert.ok(d.cache.live_parts.includes('raw'));
+    assert.equal(d.parts.raw.count, 1, 'the part path of the answer keeps the count');
+    const p = await s.part('raw');
+    assert.equal(p.data[0].state, 'deleted', 'and the list the page asks for says deleted');
+    assert.ok(!d.cache.live_errors, 'no error');
+  } finally { await s.stop(); }
+});
+
+test('(3f) raw-delete, error path: an unreadable register is named in live_errors at raw, on both routes; the stored list stays', { timeout: 300000 }, async () => {
+  const w = rawWorld();
+  const s = await startServer(w);
+  try {
+    await s.dash();
+    const started = await (await s.post('/task', { kind: 'raw-delete', path: w.rel, reason: 'probe' })).json();
+    assert.equal((await endOfTask(s, started))?.state, 'ok');
+    // the register becomes unreadable after the task (a folder in the place of the file)
+    fs.rmSync(path.join(w.root, archive.RECORD_FILE), { force: true });
+    fs.mkdirSync(path.join(w.root, archive.RECORD_FILE));
+    const d = await s.dash();
+    assert.ok(d.cache.live_errors?.raw, 'raw is named');
+    assert.ok(!String(d.cache.live_errors.raw).includes(w.root), 'no server path');
+    const p = await s.part('raw');
+    assert.ok(p.cache.live_errors?.raw, 'the part route names it too');
+    assert.equal(p.state, 'ok');
+    assert.equal(p.data.length, 1, 'the stored list stays (never an empty one)');
+    assert.equal(p.data[0].state, 'present', 'honestly the stored state, and said so');
+  } finally { await s.stop(); }
+});
+
 // ---------------------------------------------------------------- the page
 async function pageScenario(repo) {
   const w = world();

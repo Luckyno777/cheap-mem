@@ -25,6 +25,12 @@
 // server puts them into the cache part of the answer (`live_errors`) and the page says so at the card ("could not be
 // computed fresh (reason) - showing the state of HH:MM"). The part then stays the stored one.
 //
+// **The limit of a part: it refreshes its OWN sections only.** `settings` lays the settings list and the change log, not
+// the board tiles that depend on a setting (error-window, quiet-hours: the error-class and agents tiles, the
+// attention list); `raw` lays state and counters of the captures, not their reachability summary elsewhere on the
+// board, nor the topics of a capture (those stay the stored ones). The tiles, `agents[].channel` and everything else
+// derived from a setting or a message follow with the rebuild.
+//
 // **What is NOT here.** Writes whose effect sits in the whole entry stock (done, restore, merge: the entry list,
 // open duties and questions, counters) cannot be recomputed in milliseconds - they stay with the rebuild;
 // `REBUILD_ONLY` says so with a reason, and the probe holds that EVERY task kind and EVERY writing route is in
@@ -115,6 +121,7 @@ export const REBUILD_ONLY = Object.freeze({
   restore: 'entry stock (see done)',
   merge: 'entry stock (see done)',
   'inbox-permit': 'one grant line; the dashboard shows no permission list',
+  'question-confirm': 'entry stock (open/waiting questions, counters) - only the rebuild computes that (see done)',
   'category-assign': 'has its own live path (categoriesLive, cat-confirm-cm)',
   'category-confirm': 'like category-assign',
   'category-acknowledge': 'like category-assign',
