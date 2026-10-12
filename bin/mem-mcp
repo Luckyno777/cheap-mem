@@ -1606,6 +1606,7 @@ async function handleCall(name, args) {
           searched: index.N,
           sources: ranked.map((h) => `${h.source}:${h.line ?? 0}`),
           questionBytes: Buffer.byteLength(String(q)),
+          questionText: String(q), // local question-text file only, never the journal line
           durationMs: Date.now() - findStart,
         });
       } catch { /* a measurement, not an operation */ }

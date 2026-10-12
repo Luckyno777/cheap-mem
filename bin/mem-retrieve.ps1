@@ -270,6 +270,7 @@ function Send-WorkflowOnly {
     $env:MEM_RH_TURNS = if ($env:MEM_RETRIEVE_TURNS) { $env:MEM_RETRIEVE_TURNS } else { Join-Path $Root '.mem/retrieve-turns' }
     $env:MEM_RH_QB = [string]$QuestionBytes
     $env:MEM_RH_WORKFLOW = $WfText
+    $env:MEM_RH_PROMPT = $Prompt.Substring(0, [Math]::Min(8000, $Prompt.Length))
     & node $RecallJs workflow-only 2>$null
   } catch { }
 }
