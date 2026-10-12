@@ -568,12 +568,14 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
     if (ts > p.last) p.last = ts;
   }
   let openPerProject = new Map();
+  let waitingPerProject = new Map();
   if (!pre) try {
-    for (const q of question.open(root)) {
+    for (const q of question.all(root)) {
       const k = q._project ?? 'global';
-      openPerProject.set(k, (openPerProject.get(k) ?? 0) + 1);
+      if (q.open) openPerProject.set(k, (openPerProject.get(k) ?? 0) + 1);
+      else if (q.waiting) waitingPerProject.set(k, (waitingPerProject.get(k) ?? 0) + 1);
     }
-  } catch { openPerProject = new Map(); }
+  } catch { openPerProject = new Map(); waitingPerProject = new Map(); }
 
   const projects = pre ? pre.projects(mem.agents) : [...perProject.values()].map((p) => ({
     name: p.name,
@@ -589,6 +591,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
       .filter((a) => Object.keys(a.projects || {}).includes(agentKey(p.name)))
       .map((a) => ({ name: a.name, entries: (a.projects || {})[agentKey(p.name)] ?? 0 })),
     openQuestions: openPerProject.get(p.name) ?? 0,
+    waitingQuestions: waitingPerProject.get(p.name) ?? 0,
   })).sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
 
   const tiles = [...con.board.tiles]

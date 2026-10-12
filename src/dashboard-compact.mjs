@@ -168,6 +168,7 @@ export function collectCompact(root, {
       agents: agentList.filter((a) => Object.keys(a.projects || {}).includes(dashboard.agentKey(x.name)))
         .map((a) => ({ name: a.name, entries: (a.projects || {})[dashboard.agentKey(x.name)] ?? 0 })),
       openQuestions: questions.openPerProject[x.name] ?? 0,
+      waitingQuestions: questions.waitingPerProject[x.name] ?? 0,
     })),
   };
 

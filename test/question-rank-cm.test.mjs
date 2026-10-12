@@ -462,3 +462,38 @@ test('dashboard live: the bearer token alone confirms nothing (403), the passwor
     assert.equal(lines(root, 'link')[1].authority, 'user');
   } finally { await new Promise((r) => { server.closeAllConnections?.(); server.close(r); }); }
 });
+
+// --- One count: waiting questions are counted apart, never silently inside "open" or dropped ----------
+
+test('per-project count and the weekly measurement carry "waiting" as their own number, in the full and the compact build', async (t) => {
+  const dashboard = await import('../src/dashboard.mjs');
+  const compact = await import('../src/dashboard-compact.mjs');
+  const measurements = await import('../src/measurements.mjs');
+  const { root, q, a } = setup(t);
+  memory.logEntry(root, 'question', { question: 'Still unanswered?', agent: 'session' });
+  assert.equal(cli(root, ['answer', q.id, '--with', a.id]).status, 0);
+
+  const proj = (d) => (d.projects ?? []).find((p) => p.name === 'global');
+  const full = dashboard.collect(root, {});
+  assert.equal(proj(full).openQuestions, 1, 'full: open is only the open one');
+  assert.equal(proj(full).waitingQuestions, 1, 'full: waiting beside it');
+  const comp = compact.collectCompact(root, { bytes: 1 * 1048576 });
+  assert.equal(proj(comp).openQuestions, 1, 'compact: open');
+  assert.equal(proj(comp).waitingQuestions, 1, 'compact: waiting');
+
+  assert.ok(measurements.METRICS.some((m) => m.id === 'waitingQuestions'), 'the series has a waiting metric');
+  const snap = measurements.snapshot(root);
+  assert.equal(snap.metrics.openQuestions.value, 1);
+  assert.equal(snap.metrics.waitingQuestions.value, 1);
+});
+
+// --- The button is offered only where it can work -----------------------------------------------------
+
+test('dashboard script: "Confirm answer" is a live button only with a password session, else disabled with the command to copy', () => {
+  const js = fs.readFileSync(path.join(REPO, 'assets', 'dashboard', 'dashboard.js'), 'utf8');
+  // gated by the same test as the category clicks: sign-in on and the server accepts writes
+  assert.match(js, /isWaiting \? \(catMayClick\(\) \? btn\('Confirm answer', 'question-confirm'/);
+  assert.match(js, /btn\('Confirm answer', 'question-confirm', `data-id="\$\{esc\(id\)\}" disabled title="Needs a password session/);
+  assert.match(js, /mem questions confirm \$\{esc\(id\)\} --authority user/);
+  assert.match(js, /p\.waitingQuestions \? ` · \$\{num\(p\.waitingQuestions\)\} waiting for you`/);
+});

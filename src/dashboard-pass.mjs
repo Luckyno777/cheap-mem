@@ -628,6 +628,8 @@ export function runPass(root, {
   }
   const openPerProject = {};
   for (const q of openQuestions) openPerProject[q.project] = (openPerProject[q.project] ?? 0) + 1;
+  const waitingPerProject = {};
+  for (const q of waitingQuestions) waitingPerProject[q.project] = (waitingPerProject[q.project] ?? 0) + 1;
   const openQuestionIds = new Set(openQuestions.map((q) => q.id));
   const waitingQuestionIds = new Set(waitingQuestions.map((q) => q.id));
 
@@ -706,7 +708,7 @@ export function runPass(root, {
       total: heldQuestions.length, open: openQuestions.length, openIds: openQuestionIds, openPerProject,
       rows: questionTop.filter((r) => openQuestionIds.has(r.id)),
       // Answered, but only by edges below the person who asked: waits for that person's confirmation.
-      waiting: waitingQuestions.length, waitingIds: waitingQuestionIds,
+      waiting: waitingQuestions.length, waitingIds: waitingQuestionIds, waitingPerProject,
       waitingRows: questionTop.filter((r) => waitingQuestionIds.has(r.id)),
     },
     agents: agentList,
