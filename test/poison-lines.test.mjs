@@ -76,8 +76,9 @@ test('the shape rule: what is broken and what stays readable', () => {
     { rejected: ['mysql', 'sqlite'] }, { rejected: 'mysql' }, { triggers: ['deploy'], path_patterns: ['bin/mem'], tool_patterns: ['npm publish'], tools: ['git'] },
     { on_class: 'a,b' }, { on_class: ['a', 'b'] }, { references: { procedure: ['p1'] }, on_instruction: true },
   ]) assert.equal(shapeProblem(ok), null, `should stay readable: ${JSON.stringify(ok)}`);
-  assert.equal(shapeProblem(null), null);
-  assert.equal(shapeProblem([1]), null);
+  // a line that is no object at all is broken (second review 2026-10-12; test/non-object-line.test.mjs has the full set)
+  assert.ok(shapeProblem(null));
+  assert.ok(shapeProblem([1]));
 });
 
 test('positive control: what the CLI itself writes for every kind of entry is NOT broken', (t) => {
