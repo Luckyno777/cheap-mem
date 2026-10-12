@@ -2702,12 +2702,25 @@ export function checkEntryForm(root) {
       const { entries, path: p } = memory.readLog(root, type, { project });
       total += entries.length;
       const rel = path.relative(root, p).replace(/\\/g, '/'); // `file:line` is posix on every platform
-      entries.forEach((e0, i) => {
-        // A wrongly shaped line (src/fieldshape.mjs) is BROKEN for the readers, but THIS check exists for exactly those
-        // swallowed-value shapes (`title: true` plus a field name with whitespace): it looks at the parsed line itself, so
-        // the damage is still named here with its place and its advice (and `drawers` counts the line as well).
-        let e = e0;
-        if (e0?.__broken && e0.reason) { try { e = JSON.parse(e0.raw); } catch { return; } }
+      entries.forEach((e, i) => {
+        // A wrongly shaped line (src/fieldshape.mjs) is BROKEN for the readers, but THIS check exists for exactly the
+        // swallowed-value shapes (`title: true` plus a field name with whitespace): for such a line it looks at the parsed
+        // text and names ONLY those two shapes, with the place and the advice (`drawers` counts the line as well). Nothing
+        // else of a broken line is touched here - its other fields may hold objects.
+        if (e?.__broken && e.reason) {
+          let o;
+          try { o = JSON.parse(e.raw); } catch { return; }
+          if (!o || typeof o !== 'object' || Array.isArray(o)) return;
+          const at = `${rel}:${i + 1}`;
+          const when = typeof o.ts === 'string' ? o.ts : null;
+          const gap = Object.keys(o).find((k) => /\s/.test(k));
+          if (gap) broken.push({ where: at, ts: when, what: `field name with whitespace: "${gap.slice(0, 40)}…"` });
+          else {
+            const bare = TEXT_FIELDS.find((f) => o[f] === true);
+            if (bare) broken.push({ where: at, ts: when, what: `${bare} is true instead of text` });
+          }
+          return;
+        }
         if (!e || typeof e !== 'object' || e.__broken) return;
         if (e.class === 'entry-form' && e.ts && (!cap || String(e.ts) > cap)) {
           cap = String(e.ts);

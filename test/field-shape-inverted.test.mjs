@@ -102,3 +102,24 @@ test('writing every kind of entry through the real CLI leaves no broken line (th
   assert.deepEqual(scan.listWithoutValue, [], 'the CLI wrote a list flag without a value');
   assert.ok(scan.entries >= 20);
 });
+
+test('mem doctor survives a line for every field name with an object (or a list of objects) in it - no check aborts', (t) => {
+  const root = tempDir('cm-doctor-obj-', t);
+  const r0 = spawnSync(process.execPath, [MEM, '--root', root, 'init', '--participants', 'lucky,session', '--human', 'lucky'], { encoding: 'utf8' });
+  assert.equal(r0.status, 0, r0.stderr);
+  memory.logEntry(root, 'thought', { title: 'Normal alpha', text: 'findable alpha content', agent: 'lucky' });
+  const FIELDS = ['title', 'text', 'why', 'topic', 'class', 'choice', 'learning', 'duty', 'question', 'skill', 'rule', 'fact', 'description', 'excerpt', 'body',
+    'key', 'value', 'file', 'owner', 'who', 'kind', 'from', 'to', 'by', 'by_id', 'replaces_id', 'retires_id', 'closes_id', 'state', 'status', 'authority', 'agent',
+    'valid_from', 'valid_until', 'subject', 'project', 'type', 'source', 'target', 'hash', 'author', 'id', 'ts', 'tags', 'symbols', 'asked', 'files', 'steps',
+    'triggers', 'on_class', 'rejected', 'origin', 'guard', 'zz_unknown', '_type', 'closed', 'sensitivity'];
+  const lines = [];
+  FIELDS.forEach((f, i) => {
+    for (const v of [{ a: 1 }, [{ toString: 'x' }]]) {
+      lines.push(JSON.stringify({ id: `9obj${String(lines.length).padStart(5, '0')}`, ts: '2026-10-11T22:30:00Z', title: `alpha ${f}`, text: 'alpha', class: 'entry-form', [f]: v, [`field ${i}`]: true }));
+    }
+  });
+  for (const type of ['thoughts', 'errors', 'decisions', 'timeline', 'learnings', 'duties']) fs.appendFileSync(path.join(root, 'global', `${type}.jsonl`), `${lines.join('\n')}\n`);
+  const doc = spawnSync(process.execPath, [MEM, '--root', root, 'doctor'], { encoding: 'utf8', env: { ...process.env, CHEAP_MEM_ROOT: root }, timeout: 120000 });
+  assert.doesNotMatch(`${doc.stdout}\n${doc.stderr}`, /check aborted|TypeError|Cannot convert|is not a function|unreadable: .*(function|convert)/, doc.stdout.slice(0, 600));
+  assert.match(doc.stdout, /FAIL\s+drawers\s+\d+ unparsable lines/);
+});
