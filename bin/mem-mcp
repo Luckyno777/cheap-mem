@@ -172,8 +172,8 @@ function resolveRoot() {
  * just a boundary it cannot see past. Keeping this call site above the
  * switch keeps it out of every case's slice.
  */
-function markRunningIfPossible() {
-  try { runningmark.writeMarker(resolveRoot(), { service: 'mcp-http', codePath: PKG_ROOT }); }
+function markRunningIfPossible(service = 'mcp-http') {
+  try { runningmark.writeMarker(resolveRoot(), { service, codePath: PKG_ROOT }); }
   catch (e) { process.stderr.write(`mem-mcp: could not write the W1 start marker: ${e?.message || e}\n`); }
 }
 
@@ -2197,6 +2197,12 @@ async function main() {
     return;
   }
 
+  // AU8 (lucky-mem parity): stdio writes a start marker too, so the per-service
+  // version proof (B4) works there as well. Its own service name `mcp-stdio`:
+  // stdio processes come and go with each client and would overwrite the marker
+  // of the long-lived `mcp-http` bridge. Not writable -> the server still runs
+  // (a marker is proof, not a condition) and stderr names the reason.
+  markRunningIfPossible('mcp-stdio');
   const server = createServer(pkg);
   const transport = new StdioServerTransport();
   await server.connect(transport);
