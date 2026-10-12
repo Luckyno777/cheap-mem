@@ -30,7 +30,8 @@ import * as errorclass from '../../errorclass.mjs';
 import * as repetitionhint from '../../repetitionhint.mjs';
 import * as board from '../../board.mjs';
 import * as appointmentCli from '../appointments.mjs';
-import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding } from '../shell.mjs';
+import * as authority from '../../authority.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, findRoot, readStdin, requireConfig, whoAmIOrDie, receiptHint, showOnboarding, authorityArg } from '../shell.mjs';
 
 /** Duplicates are shown, never dropped: same id sent twice, folded into the older message. */
 function duplicateLines(duplicates) {
@@ -54,6 +55,19 @@ function brokenLines(broken, eventsBroken) {
   }
 }
 import { countLines } from '../display.mjs';
+
+/**
+ * `--authority <tier>` on a command that may carry the person's word (`questions new|confirm`, `answer`).
+ * `user` is checked HERE for a precise refusal (headless, ceiling), and again in the write core
+ * (`memory.logEntry`), which is the guard that holds for every route. Returns the tier or null.
+ */
+function userClaim(command, args) {
+  const tier = authorityArg(args, command);
+  if (tier === 'user') {
+    try { authority.checkUserWrite(); } catch (e) { die(`${command}: ${e.message} Nothing was written.`); }
+  }
+  return tier;
+}
 
 /** No machine wakes the human: mail to them never waits for permission. */
 function isHumanName(cfg, name) { return isHuman(cfg.participants?.[name]); }
@@ -532,9 +546,11 @@ export const COMMANDS = {
     if (isHelp(args)) {
       out([
         'mem questions                    [--all] [--project <name>]',
-        'mem questions new "<text>"       [--why "..."] [--topic ...]',
+        'mem questions new "<text>"       [--why "..."] [--topic ...] [--authority user]',
+        'mem questions confirm <id>       --authority user [--with <answer-id>] [--why "..."]',
         '',
-        '  What we do NOT know. Without a subcommand: only the open ones.',
+        '  What we do NOT know. Without a subcommand: the open ones, and the',
+        '  answered ones that wait for a person\'s confirmation.',
         '',
         '  Until 2026-09-08 this memory could only hold what was KNOWN:',
         '  decisions, errors, learnings, duties. An open question fit in',
@@ -547,6 +563,15 @@ export const COMMANDS = {
         '',
         '  It is closed by the entry that answers it:',
         '    mem answer <question-id> --with <entry-id>',
+        '',
+        '  Except a question a PERSON asked (tier user, `questions new',
+        '  --authority user`): an agent\'s answer does not close it. It then',
+        '  shows as "waiting" - answered, but not closed - until the person',
+        '  confirms (owner decision 2026-10-12):',
+        '    mem questions confirm <question-id> --authority user',
+        '  A question an agent asked stays the agents\' to close.',
+        '  `--authority user` is refused for an unattended run (MEM_HEADLESS)',
+        '  and under a lower ceiling (CHEAP_MEM_MAX_AUTHORITY).',
       ].join('\n'));
       return;
     }
@@ -554,12 +579,15 @@ export const COMMANDS = {
     requireConfig(root);
 
     if (rest[0] === 'new') {
-      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root'], 'questions new');
+      checkFlags(args, ['why', 'topic', 'project', 'tags', 'root', 'authority'], 'questions new');
       const text = rest.slice(1).join(' ').trim();
       const qr = question.check({ question: text });
       if (!qr.ok) die(`questions new:\n  ${qr.errors.join('\n  ')}`);
       for (const w of qr.warnings) warn(w);
       const data = { question: text };
+      // A question of tier user is the person's question: only a person writes it (not headless, not capped).
+      const tier = userClaim('questions new', args);
+      if (tier) data.authority = tier;
       for (const k of ['why', 'topic']) if (args[k] && args[k] !== true) data[k] = String(args[k]);
       if (args.tags && args.tags !== true) {
         data.tags = String(args.tags).split(',').map((x) => x.trim()).filter(Boolean);
@@ -568,16 +596,46 @@ export const COMMANDS = {
         { project: args.project ?? null });
       out(`Appended: ${memory.asSource(root, p)}:${countLines(p)}`);
       out(`  id: ${entry.id}`);
-      out('  open, until an entry resolves it.');
+      out(tier === 'user'
+        ? '  open (tier user): an agent\'s answer does not close it, only `mem questions confirm`.'
+        : '  open, until an entry resolves it.');
+      return;
+    }
+    if (rest[0] === 'confirm') {
+      checkFlags(args, ['authority', 'with', 'why', 'project', 'root'], 'questions confirm');
+      const qid = rest[1];
+      if (!qid) die('questions confirm: question id missing (mem questions confirm <question-id> --authority user).');
+      // Confirming is the person's act: the explicit claim, not headless, not capped. Nothing is written otherwise.
+      const tier = userClaim('questions confirm', args);
+      if (tier !== 'user') die('questions confirm: only the user confirms: --authority user is missing. Nothing was written.');
+      const q = question.all(root).find((x) => x.id === qid);
+      if (!q) die(`questions confirm: no question with id '${qid}'.`);
+      if (!q.waiting) {
+        die(q.open
+          ? `questions confirm: '${qid}' is not answered yet - nothing to confirm. `
+            + 'If you answer it yourself: mem answer <question-id> --with <entry-id> --authority user.'
+          : `questions confirm: '${qid}' is already closed.`);
+      }
+      const withArg = args.with && args.with !== true ? String(args.with) : null;
+      const candidates = q.answers.filter((a) => !a.closes);
+      const pick = withArg ? candidates.find((a) => a.id === withArg) : candidates[candidates.length - 1];
+      if (!pick) die(`questions confirm: '${withArg}' is not an answer to ${qid}. Waiting: ${candidates.map((a) => a.id).join(', ')}`);
+      const r = question.answer(root, qid, pick.id, {
+        why: args.why && args.why !== true ? String(args.why) : undefined,
+        authority: 'user', confirmed: true, project: args.project ?? null,
+      });
+      out(`${pick.id} resolves ${qid}, confirmed (link ${r.entry.id}) - the question is closed.`);
       return;
     }
     if (rest.length) {
-      die(`questions: '${rest[0]}' is not a subcommand. Known: new. `
+      die(`questions: '${rest[0]}' is not a subcommand. Known: new, confirm. `
         + 'Without one, the open questions are shown.');
     }
     checkFlags(args, ['all', 'project', 'root'], 'questions');
     const project = args.project ? (args.project === 'global' ? null : args.project) : undefined;
-    const list = args.all ? question.all(root, { project }) : question.open(root, { project });
+    // Without --all: what still needs something - the open ones AND the answered ones that wait for the person.
+    const list = args.all ? question.all(root, { project })
+      : question.all(root, { project }).filter((q) => q.open || q.waiting);
     if (!list.length) {
       out(args.all ? 'No questions noted yet.'
         : 'No open questions. (--all also shows the answered ones.)');
@@ -588,16 +646,24 @@ export const COMMANDS = {
       if (q.why) out(`                 because ${String(q.why).slice(0, 90)}`);
     }
     out('');
-    out(`${list.length} question(s), ${list.filter((q) => q.open).length} open.`);
+    const waits = list.filter((q) => q.waiting).length;
+    out(`${list.length} question(s), ${list.filter((q) => q.open).length} open`
+      + `${waits ? `, ${waits} answered and waiting for confirmation (mem questions confirm <id> --authority user)` : ''}.`);
   },
 
   answer: async ({ rest, args }) => {
     if (isHelp(args) || !rest.length) {
       out([
-        'mem answer <question-id> --with <entry-id> [--why "..."]',
+        'mem answer <question-id> --with <entry-id> [--why "..."] [--authority user]',
         '',
         '  Closes a question — by naming the entry that answers it.',
         '  Writes a `resolves` link, nothing else.',
+        '',
+        '  Exception (owner decision 2026-10-12): a question a PERSON asked',
+        '  (tier user) is not closed by an agent\'s answer; it shows as "waiting"',
+        '  until `mem questions confirm`. `--authority user` is the person\'s own',
+        '  word and closes at once; it is refused for an unattended run',
+        '  (MEM_HEADLESS) and under a lower ceiling (CHEAP_MEM_MAX_AUTHORITY).',
         '',
         '  No lifecycle of its own on the question: a second mechanism',
         '  would say the same thing twice, and two truths about one state',
@@ -607,7 +673,7 @@ export const COMMANDS = {
     }
     const root = findRoot(args);
     requireConfig(root);
-    checkFlags(args, ['with', 'why', 'project', 'root'], 'answer');
+    checkFlags(args, ['with', 'why', 'project', 'root', 'authority'], 'answer');
     const qid = rest[0];
     const withId = args.with && args.with !== true ? String(args.with) : null;
     if (!withId) die('answer: --with <entry-id> missing. A question does not close by itself.');
@@ -617,11 +683,16 @@ export const COMMANDS = {
     if (!q.question) die(`answer: '${qid}' is not an entry of type question.`);
     // A link into the void looks like an answer and is not one.
     if (!byId.get(withId)) die(`answer: no entry with id '${withId}'. Log it first, then link.`);
-    const { entry } = memory.logEntry(root, 'link', {
-      from: withId, to: qid, kind: question.RESOLVES,
+    const tier = userClaim('answer', args);
+    const r = question.answer(root, qid, withId, {
       why: args.why && args.why !== true ? String(args.why) : undefined,
-    }, { project: args.project ?? null });
-    out(`${withId} resolves ${qid}  (link ${entry.id})`);
+      authority: tier ?? undefined, project: args.project ?? null,
+    });
+    out(`${withId} resolves ${qid}  (link ${r.entry.id})`);
+    if (r.state === question.STATE.WAITING) {
+      out(`  ${qid} was asked by a person (tier user): answered, waiting for the confirmation - NOT closed.`);
+      out(`  It is closed by: mem questions confirm ${qid} --authority user`);
+    }
   },
 
   // Parity for the sibling's W11 (`mem vorschlag verfahren`, 9847a03):

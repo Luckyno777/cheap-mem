@@ -105,23 +105,14 @@ function newId(seed) {
  * the CLI and every later surface.
  */
 function checkGrantRight({ authority: claimed = null, env = process.env } = {}) {
-  if (env.MEM_HEADLESS) {
-    const e = new Error(`Only the user grants permission — a headless run (${env.MEM_HEADLESS}) cannot.`);
-    e.code = 'HEADLESS';
-    throw e;
-  }
+  authority.checkNotHeadless(env);
   if (String(claimed ?? '').trim().toLowerCase() !== 'user') {
     const e = new Error('Only the user grants permission: --authority user is missing. '
       + 'Agents cannot set a budget or permit a message.');
     e.code = 'AUTHORITY_MISSING';
     throw e;
   }
-  const ceiling = authority.ceilingFromEnv(env);
-  if (ceiling && ceiling !== 'user') {
-    const e = new Error(`Authority ceiling ${authority.CEILING_ENV}=${ceiling} — this process may not claim 'user'.`);
-    e.code = 'AUTHORITY_CAPPED';
-    throw e;
-  }
+  authority.checkUnderUserCeiling(env);
 }
 
 function positiveWhole(value, flag) {

@@ -629,6 +629,14 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
     }
   }
 
+  // **A headless run never writes as the person (question-rank-cm, 2026-10-12).** The question is asked at
+  // the write core, not at one input route: after the default, the normalisation and the ceiling, THIS is the
+  // tier the line will carry. `user` from a headless run (MEM_HEADLESS: the reflector, the watcher's
+  // `claude -p` session) is refused whatever the route was (`--authority`, a raw `mem log link`, `mem done`,
+  // `mem answer`). Under a ceiling the claim was already LOWERED above, not refused, so the digest and the
+  // reflector keep working unchanged; the not-headless CLI stays the person's way.
+  if (data.authority === 'user') authority.checkNotHeadless();
+
   const p = logPath(root, type, project);
   // **No silent project creation (2026-10-02, owner decision).** The
   // `mkdirSync` further down used to turn any unknown project name into a

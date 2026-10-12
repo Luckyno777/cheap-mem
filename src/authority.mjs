@@ -268,3 +268,82 @@ export function clampTier(tier, ceiling) {
   if (rank(t) < rank(ceiling)) return { tier: ceiling, clamped: true, from: t };
   return { tier: t, clamped: false, from: t };
 }
+
+// ---------------------------------------------------------------------
+// Who may write as the person, and what closes a question a person asked
+// (question-rank-cm, 2026-10-12; port of lucky-mem's `fragen-rang-lm`,
+// owner decision "a question a human asked closes only on the human's
+// confirmation").
+//
+// The measured hole: `question.all()` read "some `resolves` edge points
+// at it" and never asked WHO wrote the edge. `mem answer`, the bridge's
+// `mem_answer` and a raw `mem log link --kind resolves` therefore closed
+// a question the owner had asked himself - any agent, silently.
+//
+// The second hole is the one that makes the first one stay shut: a
+// headless run (MEM_HEADLESS: the reflector, the watcher's `claude -p`
+// session) could still write `--authority user` on a line, because only
+// some commands (permits, appointments, procedures) refused it one by
+// one. The guard now sits in the write core (`memory.logEntry`), so every
+// input form fails alike.
+
+/** A headless run (MEM_HEADLESS) is never a person. Throws with code `HEADLESS`. */
+export function checkNotHeadless(env = process.env) {
+  if (env.MEM_HEADLESS) {
+    const e = new Error(`Only the user does this - a headless run (${env.MEM_HEADLESS}) cannot.`);
+    e.code = 'HEADLESS';
+    throw e;
+  }
+}
+
+/** A process under a ceiling below `user` may not claim `user`. Throws with code `AUTHORITY_CAPPED`. */
+export function checkUnderUserCeiling(env = process.env) {
+  const ceiling = ceilingFromEnv(env);
+  if (ceiling && ceiling !== 'user') {
+    const e = new Error(`Authority ceiling ${CEILING_ENV}=${ceiling} - this process may not claim 'user'.`);
+    e.code = 'AUTHORITY_CAPPED';
+    throw e;
+  }
+}
+
+/** Both parts at once: may this process write a line of tier `user`? Throws with a `code`. */
+export function checkUserWrite(env = process.env) {
+  checkNotHeadless(env);
+  checkUnderUserCeiling(env);
+}
+
+/** The tier a question carries when a human asked it. */
+export const HUMAN_QUESTION_TIER = 'user';
+
+/**
+ * Does this `resolves` edge CLOSE the question, or only record an answer?
+ *
+ *   question of tier `user`   closes only on an edge of tier `user` (the
+ *                             person's confirmation: `mem questions
+ *                             confirm`, `mem answer --authority user`, the
+ *                             dashboard button behind a password session).
+ *                             Any other edge is an answer that waits.
+ *   any other question        any valid edge closes, as before. An agent's
+ *                             question stays the agents' to close; a line
+ *                             without a tier (`unknown`, written before
+ *                             tiers) keeps working without a migration.
+ *
+ * Deliberately NO "same author" shortcut as in `maySupersede`: an agent
+ * that wrote the owner's question down on his behalf (`--authority user`
+ * is then the owner's word, not the scribe's) must not close it again
+ * by itself - and a `user` edge needs a person anyway (`checkUserWrite`).
+ *
+ * Returns `{ ok, status, reason }`, `status` = `closes` | `waits`.
+ */
+export function mayCloseQuestion(edge, question) {
+  const qt = tierOf(question);
+  if (qt !== HUMAN_QUESTION_TIER) {
+    return { ok: true, status: 'closes', reason: `question of tier ${qt}: any answer closes, as before` };
+  }
+  const et = tierOf(edge);
+  if (et === HUMAN_QUESTION_TIER) return { ok: true, status: 'closes', reason: 'confirmation of tier user' };
+  return {
+    ok: false, status: 'waits',
+    reason: `question of tier user, answer of tier ${et}: waits for the person's confirmation`,
+  };
+}
