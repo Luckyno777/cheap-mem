@@ -40,6 +40,7 @@
  */
 
 import * as memory from './memory.mjs';
+import * as dueCore from './due.mjs';
 import * as doctorMod from './doctor.mjs';
 import * as cfgmod from './config.mjs';
 import * as verifylog from './verifylog.mjs';
@@ -114,7 +115,7 @@ export function decisionsForHuman(root, { human = null } = {}) {
   }
   const list = open
     .filter((p) => (p.who ?? p.owner ?? p.to ?? null) === who)
-    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: p.due ?? p.by ?? null, since: p.ts ?? null }))
+    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueValue(p), since: dueCore.openSince(p) }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
   return { readable: true, reason: null, who, list };
 }

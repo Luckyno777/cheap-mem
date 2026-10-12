@@ -113,8 +113,9 @@ const PER_TYPE = Object.freeze({
   timeline: ['key', 'value', 'fact', 'source'],
   thought: [],
   learning: ['learning', 'from'],
-  // due / due_date / until / deadline: src/appointment-today.mjs; by / to: src/today.mjs (the day list reads them).
-  duty: ['duty', 'owner', 'who', 'due', 'due_date', 'until', 'deadline', 'by', 'to'],
+  // `due` (Q1): the one due-date field, only on a duty; the form and the type are checked by the write path
+  // (src/due.mjs). The older names (due_date / until / deadline / by) are still READ, never written over the bridge.
+  duty: ['duty', 'owner', 'who', 'due', 'to'],
   question: ['question'],
   skill: ['skill', 'when', 'scope', 'family'],
   source: ['excerpt', 'description', 'address'],

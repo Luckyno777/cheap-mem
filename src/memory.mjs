@@ -36,6 +36,7 @@ import * as expand from './expand.mjs';
 import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
 import { shapeProblem, legacyLists, withoutListFlags } from './fieldshape.mjs';
+import * as dueCore from './due.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -1224,6 +1225,9 @@ export const NO_CONTENT_MESSAGE = 'this entry would have no content. At least on
   + 'is never findable again. Nothing was written.';
 
 export function logCheckedEntry(root, type, data, options = {}) {
+  // Q1 (due-date core): `due` only on a duty, only in the two forms - here, so that the CLI and the bridge get the same
+  // refusal. First of all: a refusal never wrote anything.
+  dueCore.checkWrite(type, data);
   if (!hasContent(data)) {
     const e = new Error(NO_CONTENT_MESSAGE);
     e.code = 'NO_CONTENT';
@@ -3010,6 +3014,8 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   if (typeof oldId !== 'string' || !oldId) {
     throw new Error('Correction needs an old id');
   }
+  // Q1: a NAMED due date (not an inherited one) is judged like a written one: duty only, the two forms.
+  dueCore.checkWrite(type, newData);
   // P12: wants ONE entry by id, not the whole drawer — `iterLog` stops
   // parsing the moment it is found instead of materialising every other
   // entry first. See the comment on `iterLogFile` for why this, and not
@@ -3356,10 +3362,27 @@ export function openDuties(root, { project = undefined } = {}) {
     return null;
   }
 
+  // Q1: "open since" is the START of the chain. A correction (a moved due date, say) has a new `ts`; the duty is not
+  // younger for it. `_since` is set only on a stage whose chain starts earlier than its own `ts`.
+  const chainStart = (e) => {
+    let since = e.ts;
+    const seen = new Set([e.id]);
+    let cur = e.id;
+    while (predecessor.has(cur)) {
+      const prev = all.get(predecessor.get(cur));
+      if (!prev || seen.has(prev.id)) break;
+      seen.add(prev.id);
+      if (typeof prev.ts === 'string' && (typeof since !== 'string' || prev.ts < since)) since = prev.ts;
+      cur = prev.id;
+    }
+    return since;
+  };
   const open = [];
   const done = [];
-  for (const [id, e] of all) {
+  for (const [id, e0] of all) {
     if (replacedIds.has(id)) continue; // an earlier stage — the newer line represents it
+    const since = predecessor.has(id) ? chainStart(e0) : e0.ts;
+    const e = since !== e0.ts ? { ...e0, _since: since } : e0;
     const shut = closedForChain(id);
     if (shut) done.push({ ...e, _closed: shut });
     else open.push(e);

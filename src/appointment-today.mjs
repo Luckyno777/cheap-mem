@@ -28,6 +28,7 @@ import * as memory from './memory.mjs';
 import * as cfgmod from './config.mjs';
 import * as A from './appointments.mjs';
 import * as tm from './appointment-time.mjs';
+import * as dueCore from './due.mjs';
 
 const NO_RESPONSE_MS = 2 * 3600000;
 /** The session-start line may carry at most this many bytes (a hook budget: one short line). */
@@ -68,24 +69,21 @@ function actionStates(root, state, nowMs, zone) {
   });
 }
 
-/** Open duties addressed to the human that have a date field ... or at least how many are open. */
-function dutiesSituation(root, dayText) {
+/**
+ * Open duties that are due today or overdue. The computation stands in the due-date core (src/due.mjs,
+ * `situationFromOpen`): this module guesses no field names any more. `withDate` counts the duties with a READABLE due
+ * value, `date` is the calendar day of the due date in the house zone.
+ */
+function dutiesSituation(root, nowMs, zone) {
   let open = [];
   try { open = memory.openDuties(root) ?? []; } catch { return { open: null, withDate: 0, due: [] }; }
   if (!Array.isArray(open)) open = open.open ?? [];
-  const due = []; let withDate = 0;
-  for (const p of open) {
-    let d = null;
-    for (const f of ['due', 'due_date', 'until', 'deadline']) {
-      const m = /^(\d{4}-\d{2}-\d{2})/.exec(String(p[f] ?? ''));
-      if (m) { d = m[1]; break; }
-    }
-    if (!d) continue;
-    withDate += 1;
-    if (d <= dayText) due.push({ id: p.id, title: String(p.title ?? p.text ?? '').slice(0, 120), date: d, overdue: d < dayText });
-  }
-  due.sort((a, b) => a.date.localeCompare(b.date));
-  return { open: open.length, withDate, due: due.slice(0, 8) };
+  const situation = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (p) => String(p.title ?? p.text ?? '') });
+  const due = situation.list
+    .filter((x) => x.state === dueCore.STATE.DUE || x.state === dueCore.STATE.OVERDUE)
+    .map((x) => ({ id: x.id, title: x.title.slice(0, 120), date: x.day, overdue: x.state === dueCore.STATE.OVERDUE }));
+  due.sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(String(b.id)));
+  return { open: situation.open, withDate: situation.withDue - situation.unknown, due: due.slice(0, 8) };
 }
 
 /** Letters waiting for the human (without the calendar's own reminders). */
@@ -148,7 +146,7 @@ export function today(root, { now = Date.now(), state = null, zone = null } = {}
   return {
     day: dayText, weekday: WEEKDAY[f.weekday], dateText: dayText, zone: z,
     appointments: items, actions: items.filter((t) => t.wake),
-    duties: dutiesSituation(root, dayText), letters: waitingForHuman(root), yesterday,
+    duties: dutiesSituation(root, nowMs, z), letters: waitingForHuman(root), yesterday,
   };
 }
 

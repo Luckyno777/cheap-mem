@@ -48,6 +48,7 @@ import { fileURLToPath } from 'node:url';
 import * as writegate from './writegate.mjs';
 import * as dashboard from './dashboard.mjs';
 import * as memory from './memory.mjs';
+import * as dueCore from './due.mjs';
 import { projectStatus } from './projectnew.mjs';
 import * as categoriesMod from './categories.mjs';
 import * as question from './question.mjs';
@@ -805,7 +806,7 @@ export function collectDashboard(root, {
   const openQuestions = [];
   try {
     for (const p of dutiesOpen(root).open) {
-      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: p.due ?? p.by ?? null });
+      if (p?.id) openDuties.push({ id: p.id, who: p.who ?? p.owner ?? p.to ?? null, due: dueCore.dueValue(p) });
     }
   } catch (e) { reasons.push(`duties not readable: ${e?.message || e}`); }
   try {
