@@ -13,6 +13,10 @@
 // through their ChildProcess handle (Node no longer signals after the exit); grandchildren (PIDs reported by
 // the driver) only while their start time from /proc is still the one noted at the report -- a recycled PID
 // falls through, neither a false alarm nor an innocent process killed.
+//
+// On Windows there is no red proof: libuv ends every non-detached child together with its parent (job object),
+// so (a) holds there even without our parent leash and proves only that platform fact. (a-red) holds that fact
+// on Windows instead and turns red should it ever change.
 import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -70,6 +74,7 @@ test('a) parent ended with SIGKILL: the load children are gone within seconds', 
 
 test('a-red) positive control: after the OLD shape the child lives on after SIGKILL of its parent', async (t) => {
   const { driver, children } = await startDriver('old', t);
+  assert.ok(children.every((k) => isAlive(k)), 'the old-shape children were not running before the kill');
   driver.kill('SIGKILL');
   await sleep(3000);
   if (process.platform === 'win32') {

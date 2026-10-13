@@ -37,7 +37,9 @@ async function ended(root, id) {
   return tasks.read(root, id);
 }
 const slashes = (text) => text.replace(/\\/g, '/');
-const absolute = (text, root) => [path.resolve(root), path.resolve(REPO)].filter((p) => text.includes(p));
+// The path as written and as JSON writes it (on Windows every backslash comes escaped in JSON text).
+const absolute = (text, root) => [path.resolve(root), path.resolve(REPO)]
+  .filter((p) => text.includes(p) || text.includes(JSON.stringify(p).slice(1, -1)));
 
 test('tasks.read: the command, result and reason name <root> and <code>, not the server paths', async () => {
   const r = world();
