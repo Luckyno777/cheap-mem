@@ -81,7 +81,8 @@ function clean(text) {
 
 /** Cut to `max` bytes, on a word boundary where possible, with an ellipsis. */
 export function capBytes(text, max) {
-  const s = String(text);
+  // Mask first (cheap, idempotent): the callers pass `clean()` output, but the cut must not depend on that.
+  const s = maskText(String(text));
   if (bytes(s) <= max) return s;
   let end = s.length;
   while (end > 0 && bytes(`${s.slice(0, end)}…`) > max) end -= 1;

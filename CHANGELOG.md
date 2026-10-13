@@ -107,6 +107,10 @@ the ratchet `test/mask-before-cut-ratchet.test.mjs`.
 - **`mem serve`: one exit for all JSON.** `src/servemask.mjs` masks every JSON answer at the request handler (gzip aware, byte for
   byte unchanged when nothing needs masking): inbox subjects, message bodies and replies, fact values and experience titles left the
   server in the clear. The field masks in the routes stay as the first layer; a route added later is covered anyway.
+- **Helpers that cut to a length they are handed** (`short(s, n)`, `clip`, `squash`, `cutAtBoundary`, `capBytes` ...) mask inside the
+  helper, whatever their callers do; the new rule 3 of the ratchet judges every such helper in `src/` and `bin/`. The MCP bridge masks
+  the text of a failed call (`Error: ...`) and the JSON-RPC error of its HTTP form. The static exports (`mem viewer`, the project
+  package JSON and its offline HTML view) were checked and are green controls.
 - **An open PEM block** (header and key material, no END line: a text cut inside the key) is masked by `redaction.mjs` too; before,
   ~1990 characters of a key survived `questiontext.prepare` (cut at 8000 before it redacts, a cost bound), and any window that
   ended inside a block. A header alone in prose is not touched.

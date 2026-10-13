@@ -2534,6 +2534,7 @@ export function coreFacts(root, { now = new Date(), staleDays = 120, max = 40 } 
     if (x === null || y === null) return (x === null) - (y === null);
     return y - x;
   });
+  // mask-ok: a list of facts
   const kept = byFresh.slice(0, Math.max(0, max));
   // ... but present in key order, so the block reads like a settled table.
   kept.sort((a, b) => a.key.localeCompare(b.key));
@@ -2573,6 +2574,7 @@ export function core(root, {
   // learning is still just a claim — and a contested one says so rather
   // than quietly passing as settled.
   if (maxExperiences > 0) {
+    // mask-ok: a list of experiences
     const exp = experiences(root, { minCited: 1 }).slice(0, maxExperiences);
     if (exp.length) {
       out.push('');
@@ -2818,6 +2820,7 @@ export function recentEntries(root, type, n) {
   const live = all.filter((e) => holds(e, retired));
 
   live.sort((a, b) => (b.ts ?? '').localeCompare(a.ts ?? ''));
+  // mask-ok: a list of entries
   return live.slice(0, n);
 }
 

@@ -2098,7 +2098,8 @@ function createServer(pkg) {
       return await handleCall(req.params.name, req.params.arguments ?? {});
     } catch (e) {
       return {
-        content: [{ type: 'text', text: `Error: ${e.message}` }],
+        // An error message can carry entry text (an id or a title the caller named, a parse error with a snippet): masked.
+        content: [{ type: 'text', text: maskText(`Error: ${e.message}`) }],
         isError: true,
       };
     }
@@ -2130,7 +2131,7 @@ function jsonError(res, status, message) {
     'content-type': 'application/json; charset=utf-8',
     'x-content-type-options': 'nosniff',
   }).end(JSON.stringify({
-    jsonrpc: '2.0', error: { code: -32000, message }, id: null,
+    jsonrpc: '2.0', error: { code: -32000, message: maskText(String(message)) }, id: null,
   }));
 }
 

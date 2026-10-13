@@ -81,6 +81,23 @@ function maskedNames(fn) {
   return names;
 }
 
+/** Is the end of the cut (second argument) computed from a parameter of the enclosing function? */
+function paramDriven(call, chain) {
+  const fn = chain.find(isFn);
+  if (!fn || call.arguments.length < 2) return false;
+  const params = new Set();
+  const take = (p) => {
+    if (p.type === 'Identifier') params.add(p.name);
+    else if (p.type === 'AssignmentPattern') take(p.left);
+    else if (p.type === 'ObjectPattern') p.properties.forEach((q) => take(q.value ?? q.argument ?? q));
+    else if (p.type === 'RestElement') take(p.argument);
+  };
+  fn.params.forEach(take);
+  let hit = false;
+  walk(call.arguments[1], null, (x) => { if (x.type === 'Identifier' && params.has(x.name)) hit = true; });
+  return hit;
+}
+
 /** Is the receiver the result of an array method (`.sort(..)`, `.filter(..)` ...)? Strings have none of those. */
 function arrayChain(recv) {
   let n = recv;
@@ -94,11 +111,15 @@ function arrayChain(recv) {
 /** Lines of `source` that cut text without a mask or an exception; `{ line, text }`. */
 export function unguardedCuts(source, { rule = 1 } = {}) {
   if (rule === 2) return inlineCuts(source);
+  // rule 3: in any file, a HELPER (a function whose cut length is one of its own parameters: `short(s, n)`,
+  // `clip`, `cap`, `excerpt` ...) is judged like a watched cut. Callers differ and are not all in view; the helper
+  // is where the mask has to stand.
   const acorn = loadAcorn();
   const program = acorn.parse(source, { ecmaVersion: 'latest', sourceType: 'module', locations: true, allowHashBang: true });
   const lines = source.split('\n');
   const found = [];
   for (const { call, chain } of findCuts(program)) {
+    if (rule === 3 && !paramDriven(call, chain)) continue;
     const line = call.loc.start.line;
     const text = lines[line - 1].trim().slice(0, 140);
     const nearby = lines.slice(Math.max(0, line - 5), line).join('\n');

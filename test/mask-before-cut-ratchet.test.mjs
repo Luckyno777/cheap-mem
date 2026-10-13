@@ -20,6 +20,8 @@
 // Red proof: the same scan runs on the files of acff04e (a FIXED hash, never a moving merge-base) and must find the
 // sites this round fixed. Mutation proof: the masks of the fixed sites are taken out one by one, IN MEMORY, and the
 // scan must turn red for each (a ratchet that bites only nine of twenty-six removals was the review's finding).
+// Rule 3 judges every HELPER anywhere in src/ and bin/ (a function whose cut length is one of its own parameters:
+// `short(s, n)`, `clip`, `cap`, `excerpt`, `squash`): the mask has to stand in the helper, whatever its callers do.
 // A structural pin covers what a scan cannot see (raw.snippet must cut through windowMasked). A watched file that is
 // gone is reported, not skipped: a ratchet over a moved file guards nothing.
 //
@@ -144,6 +146,35 @@ test('rule 2, red proof: on the files of acff04e it finds inline cuts', () => {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+// ------------------------------------------------------------------------------ rule 3: helpers, anywhere
+
+test('rule 3: no helper in src/ or bin/ cuts to a length it is handed without masking first', () => {
+  const bad = [];
+  for (const p of everySource(REPO)) {
+    const rel = path.relative(REPO, p).split(path.sep).join('/');
+    const src = fs.readFileSync(p, 'utf8');
+    if (/^#!.*\b(?:ba)?sh\b/.test(src.split('\n')[0])) continue;
+    for (const v of unguardedCuts(src, { rule: 3 })) bad.push(`${rel}:${v.line}: ${v.text}`);
+  }
+  assert.deepEqual(bad, [], `a helper cuts before it masks:\n${bad.join('\n')}`);
+});
+
+test('rule 3, red proof: on the files of acff04e it finds the helpers this round fixed', () => {
+  const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'cm-mbc-ratchet3-'));
+  try {
+    exportCommit(REPO, OLD_STATE, ['src', 'bin'], dir);
+    const hits = new Set();
+    for (const p of everySource(dir)) {
+      const src = fs.readFileSync(p, 'utf8');
+      if (/^#!.*\b(?:ba)?sh\b/.test(src.split('\n')[0])) continue;
+      if (unguardedCuts(src, { rule: 3 }).length) hits.add(path.relative(dir, p).split(path.sep).join('/'));
+    }
+    for (const rel of ['src/teach.mjs', 'src/closingreport.mjs', 'src/ruledraft.mjs', 'src/dashboard-data.mjs', 'src/answercheck.mjs', 'src/skillregistry.mjs', 'src/bodyfields.mjs']) {
+      assert.ok(hits.has(rel), `${rel}: the old helper should be found`);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 // ------------------------------------------------------------------------------ the helpers stay what they are
 
 test('outputguard keeps the order: mask first, cut second', async () => {
@@ -179,18 +210,27 @@ const MUTATIONS = [
   ['src/appointment-today.mjs', 'sessionLine', (s) => s.replace("maskText(String(next.title ?? ''))", "String(next.title ?? '')")],
   ['src/doctor.mjs', 'alarm short', (s) => s.replace("maskText(String(t ?? '')).split", "String(t ?? '').split")],
   ['src/neighbours.mjs', 'line', (s) => s.replace("maskText(String(core))", "String(core)")],
+  ['src/recallrender.mjs', 'cutAtBoundary', (s) => s.replace("squash(maskText(String(t ?? '')))", 'squash(t)')],
+  ['src/subagenttask.mjs', 'squash', (s) => s.replace("maskText(String(text ?? '')).replace", "String(text ?? '').replace")],
 ];
 
 for (const [rel, name, mutate] of MUTATIONS) {
   test(`mutation: ${rel} (${name}): taking the mask out is caught`, () => {
     const src = fs.readFileSync(path.join(REPO, rel), 'utf8');
-    assert.deepEqual(unguardedCuts(src), [], 'control: the real file is clean');
+    const count = (x) => unguardedCuts(x).length + unguardedCuts(x, { rule: 2 }).length + unguardedCuts(x, { rule: 3 }).length;
+    const watched = WATCHED.includes(rel);
+    if (watched) assert.deepEqual(unguardedCuts(src), [], 'control: the real file is clean');
     const out = mutate(src);
     assert.notEqual(out, src, 'the anchor is stale: the mutation changed nothing (update the table with the code)');
-    const hit = unguardedCuts(out).length + unguardedCuts(out, { rule: 2 }).length;
-    assert.ok(hit > 0, `not caught: ${rel} ${name}`);
+    assert.ok(count(out) > count(src), `not caught: ${rel} ${name}`);
   });
 }
+
+test('structure: the error paths of the MCP bridge mask their text', () => {
+  const src = fs.readFileSync(path.join(REPO, 'bin', 'mem-mcp'), 'utf8');
+  assert.match(src, /text: maskText\(`Error: \$\{e\.message\}`\)/, 'the text of a failed tool call');
+  assert.match(src, /message: maskText\(String\(message\)\)/, 'the JSON-RPC error of the HTTP bridge');
+});
 
 test('structure: raw.snippet cuts its window through windowMasked, and the other sites call the helpers they must', () => {
   const raw = fs.readFileSync(path.join(REPO, 'src', 'raw.mjs'), 'utf8');

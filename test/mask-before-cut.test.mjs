@@ -752,6 +752,68 @@ add({ id: 'E mem serve: inbox subject/text/replies, facts, experiences (all JSON
     } finally { await new Promise((r) => { s.server.close(r); s.server.closeAllConnections?.(); }); }
   } });
 
+add({ id: 'E bin/mem-mcp: the error text of a failed call (whole)', mode: 'whole', kinds: ['github', 'jwt', 'password'],
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    // the tool name is echoed by the failure; any caller-named text that reaches an error message is the same case
+    const [res] = await bridge(tree, root, [[b.text, {}]]);
+    const text = resultText(res);
+    assert.match(text, /Unknown tool|unknown tool|Error/i, `positive control: the call failed with an error text: ${text.slice(0, 200)}`);
+    return text;
+  } });
+
+/** A running server on a scratch root, in this process; `stop()` closes it. */
+async function withServer(tree, root, fn) {
+  const serve = await imp(tree, 'bin/mem-serve');
+  const s = await serve.serve(root, { ...process.env, CHEAP_MEM_SERVE_HOST: '127.0.0.1', CHEAP_MEM_SERVE_PORT: '0', CHEAP_MEM_SERVE_LOGIN: 'off', CHEAP_MEM_SERVE_TOKEN: '' }, { allowWrites: false });
+  try { return await fn(`http://127.0.0.1:${s.server.address().port}`); } finally { await new Promise((r) => { s.server.close(r); s.server.closeAllConnections?.(); }); }
+}
+
+add({ id: 'E mem serve: /dashboard/facts-at.json, the real route, title cut at 160', cut: 160, kinds: ['github', 'jwt', 'password'], serial: true,
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    await plant(tree, root, 'timeline', { key: 'mbc.k', value: b.text.slice('mbc.k = '.length), valid_from: '2026-01-01' });
+    return withServer(tree, root, async (base) => {
+      const r = await httpGet(base, '/dashboard/facts-at.json?known=2099-01-01&valid=2099-01-01');
+      assert.equal(r.status, 200, r.text.slice(0, 200));
+      assert.match(r.text, /mbc\.k/, 'positive control: the fact is served');
+      return r.text;
+    });
+  } });
+
+add({ id: 'E mem serve: the project package download, JSON and the offline HTML view (already safe: control)', controlOnly: true, mode: 'whole', kinds: ['github', 'jwt', 'password'], serial: true,
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    await plant(tree, root, 'learning', { title: b.text, text: `zebra ${b.text}`, why: b.text }, { project: 'pjt' });
+    return withServer(tree, root, async (base) => {
+      const got = [];
+      for (const q of ['', '&format=html', '&preview=1']) {
+        let r;
+        for (let i = 0; i < 60; i += 1) {
+          r = await httpGet(base, `/dashboard/project-package.json?project=pjt${q}`);
+          if (r.status !== 503) break;
+          await new Promise((x) => setTimeout(x, 250));
+        }
+        assert.equal(r.status, 200, `positive control: the package is built (${q || 'json'}): ${r.status} ${r.text.slice(0, 160)}`);
+        got.push(r.text);
+      }
+      assert.ok(got[0].includes('pjt') && got[1].length > 1000, 'positive control: package and HTML are real');
+      return got.join('\n');
+    });
+  } });
+
+add({ id: 'E mem viewer: the static HTML file embeds the entries masked (already safe: control)', controlOnly: true, mode: 'whole', kinds: ['github', 'jwt', 'password'],
+  async run({ tree, t }, b) {
+    const root = await mkroot(tree, t);
+    await plant(tree, root, 'learning', { title: b.text, text: `zebra ${b.text}`, why: b.text });
+    const outFile = path.join(root, 'view.html');
+    const r = await mem(tree, root, 'viewer', '--out', outFile);
+    assert.equal(r.status, 0, r.stderr);
+    const html = fs.readFileSync(outFile, 'utf8');
+    assert.ok(html.length > 2000, 'positive control: the file is a real viewer');
+    return html;
+  } });
+
 test('servemask: JSON is masked, an answer without a key is byte for byte unchanged, gzip stays gzip, other types pass', async () => {
   const b = bait('github', 200);
   const plain = JSON.stringify({ a: 1, list: ['x', 'y'], note: 'no key here' }, null, 2);
@@ -854,6 +916,7 @@ for (const c of CASES) {
       assert.ok(!r.leaked, `${kind}: a fragment of the key shows: ${r.out.slice(-120)}`);
     });
   });
+  if (c.controlOnly) continue; // a site that was already safe: green control only, there is no red to prove
   test(`old acff04e (red proof): ${c.id}: the key fragment leaks`, async (t) => {
     await forKinds(c, async (kind) => {
       const r = await outcome('old', c, kind, t);
