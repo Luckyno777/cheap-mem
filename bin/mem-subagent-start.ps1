@@ -23,7 +23,8 @@
 #   MEM_SUBAGENT_TASK_OFF=1  only the block for the assignment off
 #   MEM_SUBAGENT_TASK_SECONDS cap of that block (default 2). Here it is the
 #                            in-process cap only (a result past it is
-#                            dropped): PowerShell has no portable `timeout`
+#                            dropped and the block says the lookup did not
+#                            finish): PowerShell has no portable `timeout`
 #                            that could stop the search itself, which the
 #                            POSIX hook does with a first, tighter pass.
 #   MEM_STOP_ROOTS           fallback roots to probe
