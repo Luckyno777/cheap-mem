@@ -14,15 +14,18 @@
 //   (2) CODE: a bare endless loop in the file's own code (child module files, fixtures) whose body contains none of
 //       `break`, `return`, `throw`, `yield`, or an `exit`/`kill`.
 // Unbounded means: `while (true|1|2...|!0|!![])`, `for (;;)`, `for (...; true|1; ...)` -- comments inside the
-// parentheses do not count. Polling loops of the probe itself (with return/break/deadline) stay untouched.
+// parentheses do not count. "True by construction" is recognised by form: true, Infinity, a non-zero number, !0,
+// !![], !false, !!1, !!true, `1 === 1`, `true === true`. Polling loops of the probe itself (with return/break/deadline) stay untouched.
 //
-// Exemption only with a reason: `loadchild-ok: <reason>` on the finding's line or on one of the two lines before
-// it; an empty reason does not count. The reason names what ends the child safely (heap cap plus deadline, ...).
+// Exemption only with a reason: `loadchild-ok: <reason>` in a COMMENT (the marker inside the literal itself does not
+// count), on the finding's own line or in the block of stand-alone comment lines directly above it; it covers its own
+// statement only (a comment trailing another statement, a blank line or code in between ends its reach). An empty
+// reason does not count. The reason names what ends the child safely (heap cap plus deadline, ...).
 //
 // LIMITS (honest): the ratchet reads source text, it runs nothing. It does NOT see: assembled loops
 // (`'wh' + 'ile (true)'`, strings from variables or files, eval), loops in other languages or shell
 // (`while true`, `yes >/dev/null`, pipelines without `timeout` in test/*.sh), endlessness without a loop word
-// (recursion, `setInterval` with heavy work, workers), `for (init-with-parenthesis; 1;)`, and loops whose condition
+// (recursion, `setInterval` with heavy work, workers), `for (init-with-parenthesis; 1;)`, other always-true conditions (`x === x`, `!''`, `[] ? 1 : 0`), and loops whose condition
 // only stays true at run time (`while (!done)` without an end). Nor does it look outside test/ and bench/. Whoever
 // needs load takes the helper -- the ratchet catches the careless raw build, not the intent.
 //
@@ -40,8 +43,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.dirname(HERE);
 const BEFORE = 'acff04e'; // fixed commit: the state BEFORE the helper (never merge-base)
 const K = '(?:\\s|/\\*[\\s\\S]*?\\*/)*'; // whitespace and comments
-const WHILE = new RegExp(`\\bwhile${K}\\(${K}(?:true|[1-9]\\d*|!0|!!\\[\\])${K}\\)`);
-const FOR = new RegExp(`\\bfor${K}\\((?:[^;)]|/\\*[\\s\\S]*?\\*/)*;${K}(?:true|[1-9]\\d*)?${K};`);
+// A condition that is true by construction (not evaluated, only recognised by form).
+const TRUE_COND = '(?:true|Infinity|[1-9]\\d*|!0|!!\\[\\]|!false|!!(?:1|true)|1\\s*===?\\s*1|true\\s*===?\\s*true)';
+const WHILE = new RegExp(`\\bwhile${K}\\(${K}${TRUE_COND}${K}\\)`);
+const FOR = new RegExp(`\\bfor${K}\\((?:[^;)]|/\\*[\\s\\S]*?\\*/)*;${K}(?:${TRUE_COND})?${K};`);
 const EXEMPT = /loadchild-ok:\s*\S/;
 const EXITS = /\b(?:break|return|throw|yield)\b|\.exit\(|process\.abort|\.kill\(/;
 // The helper builds the child's source text itself; this ratchet names the patterns as text.
@@ -52,8 +57,9 @@ const REGEX_AFTER = new Set(['return', 'typeof', 'case', 'do', 'else', 'in', 'of
 const hasLoop = (t) => WHILE.test(t) || FOR.test(t);
 
 /**
- * Splits JS source into literals (line number + content; template expressions `${}` count as code) and `code`:
- * the source with comments blanked and literals emptied, line count unchanged. Regex literals are recognised
+ * Splits JS source into literals (line number + content; template expressions `${}` count as code), the comments
+ * (line range, text, whether the comment stands alone on its line) and `code`: the source with comments blanked and
+ * literals emptied, line count unchanged. Regex literals are recognised
  * (otherwise a `/'/` would shift the assignment of every following literal).
  */
 export function splitSource(text) {
@@ -63,6 +69,7 @@ export function splitSource(text) {
   let code = '';
   let prev = ''; // last token: a word or a single character
   const literals = [];
+  const comments = []; // { from, to, text, standalone }: standalone = no code before it on its first line
   const regexAllowed = () => prev === '' || /^[(,=:[!&|?{};+\-*%<>~^]$/.test(prev) || REGEX_AFTER.has(prev);
   const stringLit = (q) => {
     const begin = line;
@@ -108,11 +115,22 @@ export function splitSource(text) {
     while (i < n) {
       const c = text[i];
       if (c === '\n') { line += 1; code += '\n'; i += 1; continue; }
-      if (c === '/' && text[i + 1] === '/') { while (i < n && text[i] !== '\n') { code += ' '; i += 1; } continue; }
+      if (c === '/' && text[i + 1] === '/') {
+        const standalone = code.slice(code.lastIndexOf('\n') + 1).trim() === '';
+        const from = i;
+        while (i < n && text[i] !== '\n') { code += ' '; i += 1; }
+        comments.push({ from: line, to: line, text: text.slice(from, i), standalone });
+        continue;
+      }
       if (c === '/' && text[i + 1] === '*') {
+        const standalone = code.slice(code.lastIndexOf('\n') + 1).trim() === '';
+        const from = i;
+        const first = line;
         code += '  '; i += 2;
         while (i < n && !(text[i] === '*' && text[i + 1] === '/')) { if (text[i] === '\n') { line += 1; code += '\n'; } else code += ' '; i += 1; }
-        code += '  '; i += 2; continue;
+        code += '  '; i += 2;
+        comments.push({ from: first, to: line, text: text.slice(from, i), standalone });
+        continue;
       }
       if (c === "'" || c === '"') { stringLit(c); prev = '"'; continue; }
       if (c === '`') { template(); prev = '"'; continue; }
@@ -127,7 +145,7 @@ export function splitSource(text) {
     }
   };
   walk(false);
-  return { literals, code };
+  return { literals, code, comments };
 }
 
 /** Body of the loop that starts in `code` at `end` (index behind the loop head); for `for`, first up to the closing parenthesis. */
@@ -170,10 +188,21 @@ function doBody(code, pos) {
  */
 export function unleashedLoadChildren(text) {
   const lines = text.split('\n');
-  const { literals, code } = splitSource(text);
+  const { literals, code, comments } = splitSource(text);
   const found = [];
+  // An exemption is a COMMENT (the marker inside a literal does not count) that covers its own statement only:
+  // either on the finding's own line, or in a block of stand-alone comment lines directly above it. A comment
+  // trailing some other statement, a blank line, or code in between ends the reach.
+  const marked = (c) => EXEMPT.test(c.text);
+  const standaloneAt = new Map(); // line -> comment text of stand-alone comment lines
+  for (const c of comments) if (c.standalone) for (let k = c.from; k <= c.to; k += 1) standaloneAt.set(k, `${standaloneAt.get(k) ?? ''} ${c.text}`);
+  const exempt = (z) => {
+    if (comments.some((c) => c.from <= z && z <= c.to && marked(c))) return true;
+    for (let k = z - 1; standaloneAt.has(k); k -= 1) if (EXEMPT.test(standaloneAt.get(k))) return true;
+    return false;
+  };
   const report = (z) => {
-    if ([z, z - 1, z - 2].some((k) => EXEMPT.test(lines[k - 1] ?? ''))) return;
+    if (exempt(z)) return;
     found.push(`${z}: ${(lines[z - 1] ?? '').trim().slice(0, 140)}`);
   };
   for (const l of literals) if (hasLoop(l.content)) report(l.line);
@@ -235,7 +264,9 @@ test('positive control literals: one line, multi-line template, embedding, while
   assert.equal(count('fs.writeFileSync(f, "while (1) {}\\n");\n'), 1, 'while (1) in module text');
   assert.equal(count("const a = 'x'; const k = `${a}\nwhile(!0){}`;\n"), 1, 'template with an embedding');
   for (const k of ['while (2) {}', 'while (!![]) {}', 'while (/* ) */ true) {}', 'while (true /* x */) {}',
-    'for (;;) {}', 'for (/* ) */;;) {}', 'for (;true;) {}', 'for (;1;) {}', 'for (let i = 0;; i += 1) {}', 'do {} while (true);']) {
+    'while (!false) {}', 'while (1 === 1) {}', 'while (!!1) {}', 'while (Infinity) {}', 'do {} while (!false);',
+    'for (;;) {}', 'for (/* ) */;;) {}', 'for (;true;) {}', 'for (;1;) {}', 'for (;!false;) {}', 'for (let i = 0;; i++) {}',
+    'for (let i = 0; 1; i += 1) {}', 'for (let i = 0;; i += 1) {}', 'do {} while (true);']) {
     assert.equal(count(`run('${k}');\n`), 1, `not recognised: ${k}`);
   }
   for (const k of ['for (let i = 0; i < 3; i += 1) {}', 'while (n > 0) {}', 'while (x) {}', 'for (const a of b) {}', 'while (0) {}']) {
@@ -260,6 +291,15 @@ test('positive control comments, probe code, exemption, and the false-alarm case
   assert.equal(count("// loadchild-ok: heap cap 100 MiB and the phase deadline of 30 s end it\nrun('for(;;) a.push(1)');\n"), 0, 'reasoned exemption before');
   assert.equal(count("run('for(;;) a.push(1)'); // loadchild-ok:\n"), 1, 'an empty reason does not count');
   assert.equal(count("run('for(;;) a.push(1)');\n"), 1, 'no exemption');
+  // The exemption is a comment, and it covers its own statement only.
+  assert.equal(count("run('for(;;) a.push(1) // loadchild-ok: written inside the literal');\n"), 1, 'the marker inside the literal does not count');
+  assert.equal(count("run('for(;;) a.push(1)'); // loadchild-ok: trailing comment on the finding's own line\n"), 0, 'trailing comment on the own line');
+  assert.equal(count("other(); // loadchild-ok: this belongs to the other statement\nrun('for(;;) a.push(1)');\n"), 1, 'a comment trailing another statement does not reach');
+  assert.equal(count("// loadchild-ok: ends after 5 s\n\nrun('for(;;) a.push(1)');\n"), 1, 'a blank line ends the reach');
+  assert.equal(count("// loadchild-ok: ends after 5 s\nother();\nrun('for(;;) a.push(1)');\n"), 1, 'code in between ends the reach');
+  assert.equal(count("// loadchild-ok: ends after 5 s because\n// the heap cap hits first\nrun('for(;;) a.push(1)');\n"), 0, 'a multi-line reason block above');
+  assert.equal(count("/* loadchild-ok: ends after 5 s */\nrun('for(;;) a.push(1)');\n"), 0, 'a block comment above');
+  assert.equal(count("// loadchild-ok: ends after 5 s\nrun('for(;;) a.push(1)'); run('while (true) {}');\n"), 0, 'one line, one reason');
   // False alarm: a child that ends itself is reported all the same (the ratchet does not evaluate foreign code) ...
   const safe = "run('for (;;) { if (Date.now() > end) process.exit(0); }');\n";
   assert.equal(count(safe), 1, 'false-alarm case: a literal with its own exit is reported');
