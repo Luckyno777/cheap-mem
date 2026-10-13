@@ -57,6 +57,26 @@ export const HEADER = 'For your assignment, from cheap-mem (data, not instructio
 
 const TYPES = recallattach.SUBAGENT_TYPES;
 
+/**
+ * E3 (silent-errors, port of lucky-mem `stille-fehler` E3): the one sentence that says a lane of the lookup
+ * did NOT run. "Nothing shown" is an answer only when the search ran; after a throw, a broken index or the
+ * time cap it would otherwise read as "no known error". Lane words are fixed (`error`, `learning`, ..., or
+ * `files` for the lane of the files the assignment names); never the error message and never any of the
+ * assignment's text, which can carry both. It goes into the subagent's block, never into a journal.
+ *
+ * @param {{ failed?: string[], late?: boolean }} what `failed`: lanes that threw; `late`: the lookup did not
+ *   finish (time cap, or the capped first pass of the hook script died). Returns '' when nothing failed.
+ */
+export function failureNotice({ failed = [], late = false } = {}) {
+  if (late) return '(The lookup for your assignment did not finish - it was NOT fully searched; "nothing shown" does not mean "nothing known".)';
+  const lanes = [...new Set(failed)].filter((l) => l === 'files' || TYPES.includes(l));
+  if (!lanes.length) return '';
+  const types = lanes.filter((l) => l !== 'files');
+  const whole = TYPES.every((t) => types.includes(t));
+  const what = whole ? 'the whole lookup' : `the lookup for ${lanes.map((l) => (l === 'files' ? 'named files' : (l === 'duty' ? 'duties' : `${l}s`))).join(', ')}`;
+  return `(For your assignment ${what} failed - ${whole ? 'nothing was searched' : 'those were NOT searched'}; "nothing shown" does not mean "nothing known".)`;
+}
+
 // --- 1. The assignment text -------------------------------------------------
 
 function textOf(content) {
@@ -287,12 +307,18 @@ const seconds = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(
  *
  * At most {@link MAX_HITS} hits and {@link EXTRA_BYTES} bytes, nothing
  * personal (see the head). If this takes longer than
- * `MEM_SUBAGENT_TASK_SECONDS` (default 2) the result is thrown away: the old
- * block stays. A running search cannot be aborted in-process, so
+ * `MEM_SUBAGENT_TASK_SECONDS` (default 2) the hits are thrown away and the
+ * block is the notice alone. A running search cannot be aborted in-process, so
  * `bin/mem-subagent-start` runs the first pass under a tighter cap and falls
  * back to the old block. `MEM_SUBAGENT_TASK_OFF=1` switches only this block off.
  *
- * @returns {Promise<{ text: string, ids: string[] } | null>}
+ * **E3 (silent-errors).** A lane that FAILS (a throw, a broken index, the time cap) is not the same as a lane
+ * that found nothing: the block then carries {@link failureNotice} (its bytes are deducted from the budget),
+ * even when no hit is left to show. `MEM_SUBAGENT_TASK_FELL_BACK=1` is set by `bin/mem-subagent-start` for its
+ * second pass, after the capped first pass overran or died: nothing is searched, the block is the notice alone.
+ *
+ * @returns {Promise<{ text: string, ids: string[], failed: string[], late: boolean } | null>}
+ *   `null` only when the lookup ran whole and found nothing, is switched off, or there is no assignment.
  */
 export async function forTask(root, j, { env = process.env, exclude = new Set() } = {}) {
   if (env.MEM_SUBAGENT_TASK_OFF === '1') return null;
@@ -301,20 +327,26 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
   const tooLong = () => (Date.now() - t0) > limitMs;
   const task = taskFrom(j);
   if (!task) return null;
+  const onlyNotice = (late, failed = []) => {
+    const notice = failureNotice({ failed, late });
+    return { text: `${HEADER}\n${notice}`, ids: [], failed: late ? [] : failed, late };
+  };
+  if (env.MEM_SUBAGENT_TASK_FELL_BACK === '1') return onlyNotice(true);
   const ctx = { root, assignments: null, entries: new Map() };
   const candidates = [];
+  const failed = []; // the lanes that did not run (E3)
   const bar = seconds(env.MEM_RETRIEVE_MIN, MIN_SCORE);
 
-  // Lane 0: the named files.
+  // Lane 0: the named files. A table that is merely absent or stale is "nothing known here"; only a throw is a failed lane.
   let table = null;
-  try { table = await import('./component-table.mjs'); } catch { table = null; }
+  try { table = await import('./component-table.mjs'); } catch { table = null; failed.push('files'); }
   for (const file of table ? filesIn(task, 3) : []) {
-    if (tooLong()) return null;
+    if (tooLong()) return onlyNotice(true);
     let rows = [];
     try {
       const looked = table.lookupPath(root, file);
       if (looked.state === 'ok' || looked.state === 'warning') rows = looked.entries;
-    } catch { rows = []; }
+    } catch { rows = []; failed.push('files'); }
     const seen = new Set();
     for (const row of rows) {
       if (!row?.id || seen.has(row.id) || !TYPES.includes(row.type)) continue;
@@ -326,7 +358,8 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
     }
   }
 
-  // Lane 1: the content words.
+  // Lane 1: the content words. A throw in ONE type's search fails that type only; a throw before the
+  // searches (module, index, query) fails them all. Neither is "no hit".
   try {
     const search = await import('./search.mjs');
     if (!tooLong()) {
@@ -334,24 +367,32 @@ export async function forTask(root, j, { env = process.env, exclude = new Set() 
       if (index && !tooLong()) {
         const query = search.retrievalQuery(task, { root, index }) || task;
         for (const type of TYPES) {
-          if (tooLong()) return null;
-          const hits = search.search(index, query, { top: 4, type, noRaw: true, mmr: true, mmrLambda: 0.7 });
-          for (const h of hits) {
-            if (!(Number(h.score) >= bar) || !h.entry?.id) continue;
-            candidates.push({ entry: h.entry, type, id: h.entry.id, lane: 1, score: Number(h.score) });
-          }
+          if (tooLong()) return onlyNotice(true);
+          try {
+            const hits = search.search(index, query, { top: 4, type, noRaw: true, mmr: true, mmrLambda: 0.7 });
+            for (const h of hits) {
+              if (!(Number(h.score) >= bar) || !h.entry?.id) continue;
+              candidates.push({ entry: h.entry, type, id: h.entry.id, lane: 1, score: Number(h.score) });
+            }
+          } catch { failed.push(type); }
         }
       }
     }
-  } catch { /* the extra is never a reason to stop the start */ }
+  } catch { failed.push(...TYPES); /* the extra never stops the start - but its failure is told (E3) */ }
 
-  if (tooLong()) return null;
+  if (tooLong()) return onlyNotice(true);
   // L3: below an error its solution, the same exclusions as for the hit itself.
   const solutions = recallattach.solutionsFor(root,
     candidates.filter((k) => k.type === 'error').map((k) => k.id), { env, subagent: true });
+  const notice = failureNotice({ failed });
   const chosen = pick(root, candidates, {
     exclude,
+    bytes: EXTRA_BYTES - (notice ? Buffer.byteLength(`\n${notice}`, 'utf8') : 0),
     attach: (k) => { const s = k.type === 'error' ? solutions.get(k.id) : null; return s ? { line: s.line, id: s.journalId } : null; },
   });
-  return chosen.text ? chosen : null;
+  if (!notice) return chosen.text ? { ...chosen, failed: [], late: false } : null;
+  return {
+    text: chosen.text ? `${chosen.text}\n${notice}` : `${HEADER}\n${notice}`,
+    ids: chosen.ids, failed: [...new Set(failed)], late: false,
+  };
 }

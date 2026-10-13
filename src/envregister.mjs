@@ -143,7 +143,7 @@ export const REGISTER = Object.freeze([
   sw('MEM_RETRIEVE_MIN', TUNING, '5.0', 'Score a hit needs before the recall hook shows it.'),
   sw('MEM_RETRIEVE_TOP', TUNING, '3', 'How many hits the recall hook shows at most.'),
   sw('MEM_RETRIEVE_TIE', TUNING, '0 (off)', 'Relative score spread within which ONE more hit than `MEM_RETRIEVE_TOP` comes along when it ties the last one shown (the recall hook only; `0.01` is the 1 % of lucky-mem; valid above 0 up to 0.5, anything else is the hard cut). Off by default: on the gold set it gained nothing and cost one gold case (`docs/recall-levers-2026-10-10.md`).'),
-  sw('MEM_SUBAGENT_TASK_SECONDS', TUNING, '2 seconds', 'Time budget of the sub-agent start block for the assignment; past it the base block comes alone (the POSIX hook runs a first, tighter pass and falls back).'),
+  sw('MEM_SUBAGENT_TASK_SECONDS', TUNING, '2 seconds', 'Time budget of the sub-agent start block for the assignment; past it the base block comes with one sentence saying the lookup did not finish (the POSIX hook runs a first, tighter pass and falls back).'),
   sw('MEM_RETRIEVE_TIME', TUNING, '5 seconds', 'Time budget of one recall search, server and direct fallback alike.'),
   sw('MEM_RETRIEVE_FRESH_MIN', TUNING, '10', 'Minutes the clone counts as fresh before the recall hook pulls.'),
   sw('MEM_RETRIEVE_REMOTE', TUNING, 'origin', 'Remote the recall hook pulls from.'),
@@ -239,6 +239,7 @@ export const REGISTER = Object.freeze([
   // --- handed from one cheap-mem process to the next ---------------------------
   sw('CM_REBUILD_LOCK', INTERNAL, 'set by the component-table rebuild', 'Lock file the detached rebuild child removes when it ends.'),
   sw('MEM_RECALL_SERVER_PARENT', INTERNAL, 'set by the keeper', 'Pid of the keeper; the server exits when that process is gone.'),
+  sw('MEM_SUBAGENT_TASK_FELL_BACK', INTERNAL, 'set by the hook script', 'Sub-agent start hook, second pass: the capped first pass overran or died, so no assignment lookup runs and the block says so in one sentence.'),
   sw('MEM_AF_SESSION', INTERNAL, 'set by the hook script', 'After-failure hook: the session id handed to the journal.'),
   sw('MEM_AF_REASON', INTERNAL, 'set by the hook script', 'After-failure hook: why nothing was shown.'),
   sw('MEM_AF_START_MS', INTERNAL, 'set by the hook script', 'After-failure hook: start time for the latency figure.'),
