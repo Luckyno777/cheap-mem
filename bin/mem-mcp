@@ -54,7 +54,7 @@ try {
 } catch {
   process.stderr.write(
     'cheap-mem: the MCP server needs @modelcontextprotocol/sdk, which is not installed.\n'
-    + '  npm install -g @modelcontextprotocol/sdk     (or locally, next to cheap-mem)\n'
+    + '  npm install -g "@modelcontextprotocol/sdk@^1.30.0"     (or locally, next to cheap-mem)\n'
     + '\nEverything else — capture, search, digest — works without it.\n');
   process.exit(1);
 }

@@ -22,8 +22,14 @@ which is an *optional peer* — it is 28 MB across 91 packages, so it is not fet
 you want the MCP tools:
 
 ```bash
-npm install -g @modelcontextprotocol/sdk
+npm install -g "@modelcontextprotocol/sdk@^1.30.0"
 ```
+
+The range is the floor the bridge is built and tested on (`1.30.0`, pinned in
+`package-lock.json` for the development tree). An older release may lack the
+streamable HTTP transport that `mem-mcp --http` uses, and the 1 MiB limit on
+request bodies is cheap-mem's own code, so it does not depend on which release you
+install. The quotes matter on Windows: `^` is an escape character in `cmd.exe`.
 
 Without it `mem-mcp` exits with that command rather than a stack trace —
 an import failure inside an MCP client is otherwise invisible, since the
