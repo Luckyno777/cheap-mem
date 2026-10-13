@@ -28,6 +28,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { relPosix } from './helpers/relpath.mjs';
 import * as embed from '../src/embed/index.mjs';
 import * as loopback from '../src/embed/loopback.mjs';
 import * as embedHook from '../src/embed-hook.mjs';
@@ -566,7 +567,7 @@ test('rail: no vendor endpoint is spelled anywhere in the shipped code', () => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
-      else if (/api\.voyageai\.com|api\.openai\.com/.test(fs.readFileSync(p, 'utf8'))) hits.push(path.relative(REPO, p));
+      else if (/api\.voyageai\.com|api\.openai\.com/.test(fs.readFileSync(p, 'utf8'))) hits.push(relPosix(REPO, p));
     }
   };
   for (const d of ['src', 'bin', 'hooks', 'install', 'assets']) walk(path.join(REPO, d));
