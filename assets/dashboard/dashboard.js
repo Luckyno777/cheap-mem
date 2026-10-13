@@ -1010,7 +1010,7 @@ function workGroupsHtml(es, { limit = Infinity, render }) {
   for (const e of es) (itemForYou(e.id) ? mine : rest).push(e);
   // What is for the person goes by its deadline (overdue first, then due today, later, then no or an unreadable one in list order),
   // so a limit (the overview's three) cuts the least urgent; agent work keeps the list order.
-  mine.splice(0, mine.length, ...byDeadline(mine, (e) => D._dueAt?.get(e.id)));
+  mine.splice(0, mine.length, ...byDeadline(mine.map((e) => ({ e, dueAt: D._dueAt?.get(e.id) }))).map((x) => x.e));
   let left = limit;
   const part = (name, list, hint) => {
     const shown = list.slice(0, Math.max(0, left));
@@ -1043,10 +1043,10 @@ function dueChip(state) {
 }
 // Decisions by their deadline, overdue first: the duties with a readable due date by that date (earliest first, so the overdue
 // ones lead), then the rest - no due date, or an unreadable one - in the order the server gave them (stable).
-function byDeadline(items, at = (dt) => dt.dueAt) {
-  const dated = items.filter((dt) => Number.isFinite(at(dt)));
-  const rest = items.filter((dt) => !Number.isFinite(at(dt)));
-  return dated.map((dt, i) => [dt, i]).sort((a, b) => at(a[0]) - at(b[0]) || a[1] - b[1]).map((x) => x[0]).concat(rest);
+function byDeadline(items) {
+  const dated = items.filter((dt) => Number.isFinite(dt.dueAt));
+  const rest = items.filter((dt) => !Number.isFinite(dt.dueAt));
+  return dated.map((dt, i) => [dt, i]).sort((a, b) => a[0].dueAt - b[0].dueAt || a[1] - b[1]).map((x) => x[0]).concat(rest);
 }
 function todayDecisionsPart(list) {
   if (!list.length) return '';
