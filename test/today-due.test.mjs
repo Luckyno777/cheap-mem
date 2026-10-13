@@ -455,6 +455,7 @@ test('doctor `deadlines`: warn on an overdue duty without movement, on an unread
   const at = new Date('2026-10-12T10:00:00Z');
   handWritten(root, [duty({ id: 'st000001', title: 'Stale', owner: 'user', due: '2026-10-01' })]);
   const stale = doctor.checkDeadlines(root, at);
+  assert.equal(doctor.DEADLINE_GRACE_DAYS, 1, 'the grace the texts and the probes below speak of');
   assert.equal(stale.level, 'warn');
   assert.match(stale.text, /1 of 1 open duties carry a due date: 1 overdue by more than 1 day without movement, 0 with an unreadable value, 0 under an old field name/);
   assert.match(stale.advice, /st000001/);

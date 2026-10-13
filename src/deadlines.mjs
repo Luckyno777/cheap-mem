@@ -48,7 +48,7 @@ const TORN_MARKER = /\[REDACTED(?::[A-Za-z0-9-]*)?$/;
  * Entry text for the day brief: masked, THEN cut, then bidi-visible. One line. The cut never leaves a torn `[REDACTED:` marker
  * or half a surrogate pair behind.
  */
-export function safeText(text, max = TITLE_MAX) {
+function safeText(text, max = TITLE_MAX) {
   const masked = maskText(String(text ?? '')).replace(/\s+/g, ' ').trim();
   let cut = masked;
   if (masked.length > max) {
