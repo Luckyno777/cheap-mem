@@ -118,11 +118,14 @@ The measurements (`bench/board-tempo.mjs`, synthetic stores of
   stage (`written` on the entry, `added later` from the card shelf, or a
   `replacement card` made by rule, which says that nobody wrote it and has no
   recommendation). A card written by an agent says "Written by an agent, not
-  checked by you" unless it carries the tier `user`. Items are grouped into
-  **For you** (cards of kind decision or release) and **Agent work** (tasks, and
-  every posting owed to an agent, which gets no card, `src/cardfeed.mjs`). A
-  card draws every text through `esc`; the texts arrive already masked from
-  the server. After a write the freshly computed part (`projects`) carries the
+  checked by you" unless it carries the tier `user`. Items are grouped by
+  whom they are owed to (`owner` on each open item, named from the
+  configuration): **For you** is everything owed to the configured human,
+  whatever the kind of its card; **Agent work** is what is owed to an agent (no
+  card, `src/cardfeed.mjs`). An item owed to nobody goes by its card: a decision
+  or release is for you, a task is agent work. The Today card lists what is owed
+  to the human only. A card draws every text through `esc`; the texts arrive
+  already masked from the server. After a write the freshly computed part (`projects`) carries the
   cards of what is left. Probe: `test/card-view-cm-browser.test.mjs`.
 - **Knowledge**: entries, network, topics, facts, learnings, skills.
 - **Work**: duties and questions, agents, inbox, a calendar (today, the next

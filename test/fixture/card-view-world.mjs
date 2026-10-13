@@ -64,7 +64,7 @@ export function buildWorld(root) {
     },
     // 6c. a title with bidi and zero-width characters (they come back through the entry list, not through the card)
     { id: 'dbidi00001', ts, title: 'Decide\u202E reversed\u2066 now\u200B please', who: 'user', tags: ['decision'] },
-    // 7. a task for the human that is no decision (kind do-it): it belongs to "Agent work"
+    // 7. a task for the human that is no decision (kind do-it): owed to the human it is "For you" (card-group-cm: the owner decides the group, not the card kind)
     { id: 'dtask00001', ts, title: 'Rename the folder old-notes', who: 'user' },
   ]);
   lines(root, 'global/questions.jsonl', [

@@ -77,6 +77,7 @@ import { maskText, maskEntry } from './outputguard.mjs';
 import * as decisioncard from './decisioncard.mjs';
 import * as cardstore from './cardstore.mjs';
 import * as cardfeed from './cardfeed.mjs';
+import * as addressee from './addressee.mjs';
 import * as release from './release.mjs';
 import * as checkrecord from './checkrecord.mjs';
 import * as latencybudget from './latencybudget.mjs';
@@ -877,7 +878,9 @@ export function collectDashboard(root, {
       if (!p?.id) continue;
       const who = p.who ?? p.owner ?? p.to ?? null;
       openDuties.push({
-        id: p.id, who, due: dueCore.dueText(p),
+        // `owner`: whom the duty is owed to (human | agent | unassigned), named by the configuration - the page groups by it,
+        // not by the kind of the card (a replacement card of the human's duty is kind do-it and is still for the human).
+        id: p.id, who, owner: alloc.ownerOf(addressee.ofDuty(p)), due: dueCore.dueText(p),
         card: alloc.card('openDuties', who, () => decisioncard.cardOf(p, { type: 'duty', context: cardContext })),
       });
     }
@@ -886,7 +889,7 @@ export function collectDashboard(root, {
   const questionPost = (q, list) => {
     const e = q.snapshot ?? q;
     const who = question.whoOf(e);
-    return { id: q.id, who, card: alloc.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context: cardContext })) };
+    return { id: q.id, who, owner: alloc.ownerOf(addressee.ofQuestion({ who })), card: alloc.card(list, who, () => decisioncard.cardOf(e, { type: 'question', context: cardContext })) };
   };
   try {
     for (const q of questionsOpen(root)) if (q?.id) openQuestions.push(questionPost(q, 'openQuestions'));

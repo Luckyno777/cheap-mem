@@ -242,6 +242,21 @@ for (const [name, build] of Object.entries(builders)) {
   });
 }
 
+// card-group-cm: every open item says whom it is owed to, so the page groups by the owner and not by the kind of its card.
+for (const [name, build] of Object.entries(builders)) {
+  test(`${name} build: every open duty and question carries its owner (human | agent | unassigned), from the configuration`, (t) => {
+    const w = world(t, { human: 1, agent: 1, unassigned: 1, questions: 1 });
+    const d = build(w);
+    const owner = (id) => d.openDuties.find((x) => x.id === id)?.owner;
+    assert.equal(owner('ph0000'), 'human');
+    assert.equal(owner('pa0000'), 'agent');
+    assert.equal(owner('pu0000'), 'unassigned');
+    // the human's duty has a replacement card of kind do-it and is still owed to the human (the case the page used to file as agent work)
+    assert.equal(d.openDuties.find((x) => x.id === 'ph0000').card.kind, 'do-it');
+    assert.equal(d.openQuestions.find((x) => x.id === 'qu0000').owner, 'unassigned');
+  });
+}
+
 // --- the allocation, pure --------------------------------------------------------------------------------------
 
 test('cardfeed.ownerKind: the human, a known agent, anything else is unassigned; no name stands in the module', () => {
