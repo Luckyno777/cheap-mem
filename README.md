@@ -681,7 +681,7 @@ mem merge <id> <id> ...            merge entries of one drawer (append-only)
 mem when "<time expression>"       time-range recall, no model
 mem component <path>               everything about ONE file
 mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
-mem questions / mem answer <q> --with <entry>   what we do not know, and closing it
+mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`)
 mem procedures / mem teach         recorded steps; what a newcomer needs to hear
 mem sources add|bridge|list        where a claim came from
 mem store put|list|get|verify      files the memory keeps by hash
