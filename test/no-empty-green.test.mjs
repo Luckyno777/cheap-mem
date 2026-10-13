@@ -61,6 +61,7 @@ import * as cfgmod from '../src/config.mjs';
 import * as inbox from '../src/inbox.mjs';
 import * as raw from '../src/raw.mjs';
 import * as agents from '../src/agents.mjs';
+import * as environment from '../src/environment.mjs';
 
 const MEM = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'mem');
 
@@ -289,6 +290,22 @@ function honestUnknown(x) {
     && /none torn, none missing, none duplicated/.test(String(x.text ?? ''));
 }
 
+// **The production budget running out is not a verdict (task 6, chains of 2026-10-13).** The append
+// probe gives its six writer threads 400 ms (`APPEND_PROBE_DEFAULTS`). On a machine busy with a full
+// suite they miss it, and the check says honestly "could not measure ... N/6 writer threads finished
+// within 400ms" - which `honestUnknown` above rightly refuses, so this probe went red for load, not for
+// the guarantee. Such a TIMED-OUT unknown is measured once more with the generous budget the
+// append-atomicity probes already use on slow runners (`GENEROUS`, 4000 ms); only that second answer
+// counts. Clean or honest-unknown there clears it; torn, a second time-out or anything else stays flagged.
+// Any other unknown is never re-measured.
+const TIMED_OUT = /could not measure concurrent O_APPEND writes — \d+\/\d+ writer threads finished within \d+ms/;
+function remeasuredIfTimedOut(root, x) {
+  if (x.name !== 'env/append-atomicity' || x.level !== doctor.LEVEL.UNKNOWN || !TIMED_OUT.test(String(x.text ?? ''))) return x;
+  const c = environment.checkAppendAtomicity(root, { timeoutMs: 4000 });
+  const level = c.ok === true ? doctor.LEVEL.GOOD : (c.ok === false ? doctor.LEVEL.ERROR : doctor.LEVEL.UNKNOWN);
+  return { name: x.name, level, text: c.detail, remeasured: true };
+}
+
 test('INNOCENCE COUNTER-PROBE: the six environment guarantees stay ok on the same empty memory', () => {
   // "A bolt that reports the innocent gets switched off." If fixing
   // the ten above pushed one of these into `unknown` too, this is where
@@ -301,7 +318,7 @@ test('INNOCENCE COUNTER-PROBE: the six environment guarantees stay ok on the sam
     const { findings } = doctor.checkAll(root);
     const broken = SIX_INNOCENTS.map((name) => {
       const f = findings.find((x) => x.name === name);
-      return { name, level: f ? f.level : 'MISSING', text: f ? f.text : null };
+      return remeasuredIfTimedOut(root, { name, level: f ? f.level : 'MISSING', text: f ? f.text : null });
     }).filter((x) => !(x.level === doctor.LEVEL.GOOD || honestUnknown(x)));
     assert.deepEqual(broken, [],
       `an innocent got flagged: ${broken.map((x) => `${x.name}=${x.level}`).join(', ')}`);
@@ -365,6 +382,26 @@ test('INNOCENCE COUNTER-PROBE bites: unknown is honest only with the measured-cl
   }
 });
 
+test('re-measuring bites only on the production time-out: the real time-out text is recognised, a clean answer clears it, other unknowns are never re-measured', () => {
+  const root = buildEmptyMemory();
+  try {
+    // the real text of a time-out, from the check itself (budget 0: no writer can finish)
+    const real = environment.checkAppendAtomicity(root, { timeoutMs: 0 });
+    assert.equal(real.ok, null);
+    const timedOut = { name: 'env/append-atomicity', level: doctor.LEVEL.UNKNOWN, text: real.detail };
+    assert.match(timedOut.text, TIMED_OUT, 'the pattern still matches what the check writes');
+    assert.equal(honestUnknown(timedOut), false, 'positive control: without the re-measurement the time-out is flagged');
+    const again = remeasuredIfTimedOut(root, timedOut);
+    assert.equal(again.remeasured, true);
+    assert.ok(again.level === doctor.LEVEL.GOOD || honestUnknown(again), `${again.level}: ${again.text}`);
+    for (const text of ['could not measure concurrent O_APPEND writes — could not start writer threads: x', 'something else']) {
+      const other = { name: 'env/append-atomicity', level: doctor.LEVEL.UNKNOWN, text };
+      assert.equal(remeasuredIfTimedOut(root, other), other, `not a time-out, not re-measured: ${text}`);
+    }
+    assert.equal(remeasuredIfTimedOut(root, { ...timedOut, name: 'config' }).remeasured, undefined, 'only append-atomicity');
+  } finally { gone(root); }
+});
+
 test('INNOCENCE COUNTER-PROBE, macOS simulated: with a BSD-like `stat` (no -f -c %T) the guarantee is honest-unknown, never a false fail', async () => {
   const fsx = await import('node:fs'); const osx = await import('node:os'); const pathx = await import('node:path');
   const bin = fsx.mkdtempSync(pathx.join(osx.tmpdir(), 'cm-bsdstat-'));
@@ -373,10 +410,10 @@ test('INNOCENCE COUNTER-PROBE, macOS simulated: with a BSD-like `stat` (no -f -c
   const saved = process.env.PATH;
   try {
     process.env.PATH = `${bin}${pathx.delimiter}${saved}`;
-    const f = doctor.checkAll(root).findings.find((x) => x.name === 'env/append-atomicity');
-    assert.ok(f, 'finding present');
-    assert.ok(f.level === doctor.LEVEL.GOOD || honestUnknown({ name: f.name, level: f.level, text: f.text }),
-      `${f.level}: ${f.text}`);
+    const found = doctor.checkAll(root).findings.find((x) => x.name === 'env/append-atomicity');
+    assert.ok(found, 'finding present');
+    const f = remeasuredIfTimedOut(root, { name: found.name, level: found.level, text: found.text });
+    assert.ok(f.level === doctor.LEVEL.GOOD || honestUnknown(f), `${f.level}: ${f.text}`);
     assert.notEqual(f.level, doctor.LEVEL.ERROR);
   } finally { process.env.PATH = saved; gone(root); fsx.rmSync(bin, { recursive: true, force: true }); }
 });
