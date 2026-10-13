@@ -258,9 +258,12 @@ function statusOf(id) {
   if (!e) return 'unknown';
   if (e.state && e.state !== 'active') return e.state;
   if (e.type === 'duty') return D && D._openDuty.has(id) ? 'open' : 'done';
-  if (e.type === 'question') return D && D._openQuestion.has(id) ? 'open' : 'answered';
+  // A question a person asked that only an agent answered: neither open nor closed (rule: authority.mayCloseQuestion).
+  if (e.type === 'question') return D && D._openQuestion.has(id) ? 'open' : D && D._waitingQuestion?.has(id) ? 'waiting' : 'answered';
   return 'active';
 }
+// The words of a state: a waiting question says whom it waits for.
+const statusBadge = (id) => { const s = statusOf(id); return badge(s, s === 'waiting' ? 'answered, waiting for you' : undefined); };
 // Four states: "unknown" gets its own neutral tone (decision 2026-09-27
 // in the sibling house: house rule before pixel fidelity).
 function badge(s, label) {
@@ -291,8 +294,20 @@ const link = (text, to) => `<button class="textlink" data-route="${to}">${text} 
 const coreRuleHolds = (e) => !e.ruleStatus || e.ruleStatus === 'trial';
 const ruleTag = (status) => (status ? `<span class="badge warn rule-status" data-rule-status="${esc(status)}" title="Not a rule in force: ${esc(status)}">${esc(status)}</span>` : '');
 const open = (id, text, cls = 'btn small') => `<button class="${cls}" data-entry="${esc(id)}">${esc(text || byId(id)?.title || id)}</button>`;
-const panel = (title, body, sub = '', extra = '') =>
-  `<article class="panel pad ${extra}"><div class="panelhead"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>${body}</article>`;
+// board-width-fresh-cm: after a write of the person's own the server computes the affected parts fresh. Could it not
+// compute one, the answer names it in `cache.live_errors` (per part, or `all`). The affected card says so as the LAST
+// thing in the panel (nothing above it jumps): the part then shows the stored state - never silently old.
+const liveNote = (parts = []) => {
+  const le = D?.cache?.live_errors;
+  if (!le || !parts.length) return '';
+  const hit = parts.find((x) => le[x]) || (le.all ? 'all' : null);
+  if (!hit) return '';
+  const t = new Date(D.cache.built_at);
+  const clock = Number.isNaN(t.getTime()) ? 'an unknown time' : t.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  return `<p class="small quiet live-note" role="status">Could not be computed fresh (${esc(String(le[hit]).slice(0, 140))}) — showing the state of ${clock}.</p>`;
+};
+const panel = (title, body, sub = '', extra = '', liveParts = []) =>
+  `<article class="panel pad ${extra}"><div class="panelhead"><div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ''}</div></div>${body}${liveNote(liveParts)}</article>`;
 // Machine reasons from the server turned into a sentence with the remedy
 // (dash-fix4: "foreign-host" alone told nobody anything on a phone).
 function reasonPlain(r) {
@@ -439,7 +454,7 @@ function entryRows(list, emptyText) {
     list
       .map(
         (e) =>
-          `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.agent)}</p></div></div>${badge(statusOf(e.id))}</div>`,
+          `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(types[e.type])} · ${esc(e.project)} · ${esc(e.agent)}</p></div></div>${statusBadge(e.id)}</div>`,
       )
       .join('') || empty(emptyText)
   );
@@ -454,6 +469,7 @@ function prepare(d) {
   D._openDuty = new Set((d.openDuties || []).map((p) => p.id));
   D._dutyWho = new Map((d.openDuties || []).map((p) => [p.id, p.who]));
   D._openQuestion = new Set((d.openQuestions || []).map((f) => f.id));
+  D._waitingQuestion = new Set((d.waitingQuestions || []).map((f) => f.id));
   // board-tempo-cm: for a large store the first answer carries only the
   // newest entries (`d.parts.entries`); the rest comes page by page
   // (loadEntriesPart). A list that is already complete stays until the one of
@@ -914,7 +930,7 @@ function pageDesc() {
 
 // --- Overview -----------------------------------------------------------------
 function openWork(es) {
-  return es.filter((e) => ['duty', 'question'].includes(e.type) && statusOf(e.id) === 'open');
+  return es.filter((e) => ['duty', 'question'].includes(e.type) && ['open', 'waiting'].includes(statusOf(e.id)));
 }
 
 // --- Today (N8/N21 parity: one source, three surfaces — src/today.mjs) -------
@@ -1024,7 +1040,7 @@ function todayCard() {
     ? empty('Nothing pressing today — operations calm, no decisions open, nothing uncertain to verify, no gold questions.')
     : todayOperationsPart(ops) + todayDecisionsPart(decisions) + todayProjectsPart(projects) + todayVerifyPart(verify) + todayGoldPart(t.gold))
     + todayUnknownPart('Review suggestions', t.review) + todayUnknownPart('Word-pair suggestions', t.wordPairs);
-  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.')}</div>`;
+  return `<div class="today-card" style="margin-bottom:22px">${panel('Today', body, 'Operations, decisions, projects awaiting confirmation, facts to verify and gold questions — the same source as `mem today`.', '', ['gold', 'projects'])}</div>`;
 }
 
 // The day strip above the figures. cheap-mem has no appointment clock yet, so there is nothing to
@@ -1446,7 +1462,7 @@ const pages = {
     state.page = pg;
     return `<div class="toolbar"><input class="field searchfield" id="entrySearch" placeholder="Content, ID, agent or tag …" value="${esc(state.query)}" aria-label="Search entries">${fulltextNotice() ? `<span class="small quiet" id="fulltextNotice" role="status" title="${esc(fulltext.reason || '')}">Full text unavailable – searching excerpts only</span>` : ''}<select class="field" id="typeFilter" aria-label="Entry type"><option value="all">All types</option>${Object.entries(types)
       .map(([k, n]) => `<option value="${k}" ${state.type === k ? 'selected' : ''}>${n}</option>`)
-      .join('')}</select><select class="field" id="statusFilter" aria-label="Entry state">${['all', 'active', 'open', 'superseded', 'done', 'discarded', 'answered']
+      .join('')}</select><select class="field" id="statusFilter" aria-label="Entry state">${['all', 'active', 'open', 'waiting', 'superseded', 'done', 'discarded', 'answered']
       .map((x) => `<option value="${x}" ${state.status === x ? 'selected' : ''}>${x === 'all' ? 'All states' : x}</option>`)
       .join('')}</select><select class="field" id="sortFilter" aria-label="Sort">${[['new', 'Newest first'], ['old', 'Oldest first'], ['title', 'Title A–Z']]
       .map(([k, n]) => `<option value="${k}" ${state.sort === k ? 'selected' : ''}>${n}</option>`)
@@ -1454,7 +1470,7 @@ const pages = {
       .slice((pg - 1) * n, pg * n)
       .map(
         (e) =>
-          `<tr><td>${open(e.id, e.title, 'open-entry')}${ruleTag(e.ruleStatus)}<span class="sub">${esc(e.id)} · ${esc(e.agent)} · ${esc(e.memory)} / ${esc(drawerOf(e))}</span></td><td><span class="type">${esc(types[e.type])}</span></td><td>${esc(e.project)}</td><td>${badge(statusOf(e.id))}</td><td class="quiet small">${when(e.ts)}</td></tr>`,
+          `<tr><td>${open(e.id, e.title, 'open-entry')}${ruleTag(e.ruleStatus)}<span class="sub">${esc(e.id)} · ${esc(e.agent)} · ${esc(e.memory)} / ${esc(drawerOf(e))}</span></td><td><span class="type">${esc(types[e.type])}</span></td><td>${esc(e.project)}</td><td>${statusBadge(e.id)}</td><td class="quiet small">${when(e.ts)}</td></tr>`,
       )
       .join('')}</tbody></table>${!es.length ? empty(entries.length ? undefined : 'This memory holds no entry yet. <code class="mono">mem log learning "…"</code> writes the first one; it appears here on the next load.') : ''}</div><div class="tablefoot"><span>${num(es.length)} hits · page ${pg} / ${Math.max(1, Math.ceil(es.length / n))}</span><div>${btn('←', 'prev', pg === 1 ? 'disabled' : '', 'small ghost')} ${btn('→', 'next', pg >= Math.ceil(es.length / n) ? 'disabled' : '', 'small ghost')}</div></div>${fulltextFoot()}</article>`;
   },
@@ -1499,7 +1515,7 @@ const pages = {
     const exWait = D.parts?.experiences && partState.experiences !== 'ok';
     const rows = es.slice(0, 40).map((e) => {
       const x = ex.get(e.id);
-      return `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(e.project)} · ${esc(e.agent)}${x ? ` · cited ${num(x.cited)}×${(x.backedBy || []).length ? ` · backed by ${num(x.backedBy.length)}` : ''}` : ''}</p></div></div>${x?.contested ? badge('warning', 'contested') : badge(statusOf(e.id))}</div>`;
+      return `<div class="row"><div class="row-main"><span class="entry-icon">${esc(types[e.type]?.[0])}</span><div>${open(e.id, e.title, 'open-entry textlink')}${ruleTag(e.ruleStatus)}<p>${esc(e.project)} · ${esc(e.agent)}${x ? ` · cited ${num(x.cited)}×${(x.backedBy || []).length ? ` · backed by ${num(x.backedBy.length)}` : ''}` : ''}</p></div></div>${x?.contested ? badge('warning', 'contested') : statusBadge(e.id)}</div>`;
     }).join('');
     return panel('Learnings with an evidence trail', (rows || empty('No learning recorded yet. <code class="mono">mem log learning "…"</code> writes one.')) + limitNote(Math.min(40, es.length), es.length, 'knowledge/entries'), 'References show support. The count alone proves no independent sources.')
       + (exWait ? note(partState.experiences === 'error' ? 'Citation counts not loaded: ' + esc(partReason.experiences || 'unknown') : 'Citation counts are still loading — the rows show them as soon as they are here.') : '');
@@ -1514,9 +1530,9 @@ const pages = {
   // --- Work & agents ----------------------------------------------------------
   tasks: () => {
     const es = scoped().filter((e) => ['duty', 'question'].includes(e.type));
-    const openOnes = es.filter((e) => statusOf(e.id) === 'open'), closed = es.filter((e) => statusOf(e.id) !== 'open');
+    const openOnes = es.filter((e) => ['open', 'waiting'].includes(statusOf(e.id))), closed = es.filter((e) => !['open', 'waiting'].includes(statusOf(e.id)));
     const row = (e) =>
-      `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${esc(e.project)}</div><h3 style="margin:6px 0">${esc(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + esc(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${badge(statusOf(e.id))}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
+      `<div class="row"><div><div class="small quiet">${esc(types[e.type])} · ${esc(e.project)}</div><h3 style="margin:6px 0">${esc(e.title)}</h3><p>${e.type === 'duty' ? 'Owed by: ' + esc(D._dutyWho.get(e.id) || (statusOf(e.id) === 'open' ? 'not named' : '—')) : 'Link an answer through a concrete entry'}</p></div><div>${statusBadge(e.id)}<div style="margin-top:8px">${open(e.id, 'Open ↗')}</div></div></div>`;
     return panel('Open and finished work', (openOnes.map(row).join('') || empty(es.length ? 'Nothing open.' : 'No duty and no question recorded yet.')) + (closed.length ? `<details class="accordion"><summary>${num(closed.length)} finished</summary>${closed.slice(0, 60).map(row).join('')}${limitNote(Math.min(60, closed.length), closed.length, 'knowledge/entries')}</details>` : ''), `${num(openOnes.length)} open · decided by memory.openDuties and question.open`);
   },
   calendar: () => `<div id="calendarView">${calCache ? calendarHtml() : '<p class="small quiet">Reading the calendar …</p>'}</div>`,
@@ -1574,8 +1590,9 @@ const pages = {
         const r = shelf.get(p.name);
         return panel(
           esc(p.name) + (r?.isNew ? ' ' + badge('warning', 'new · unconfirmed') : ''),
-          `${r?.isNew ? `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p><div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
+          `${r?.isNew ? `<p class="small muted" style="margin-bottom:8px">Newly created${r.createdOn ? ' on ' + esc(r.createdOn) : ''}${r.createdBy ? ' by ' + esc(r.createdBy) : ''} — awaits confirmation.</p><div class="drawer-actions" style="margin-bottom:12px">${btn('Confirm project', 'project-confirm', `data-value="${esc(p.name)}" ${state.readonly ? 'disabled' : ''}`, 'small ghost')}</div><div class="small quiet" data-confirm-status="${esc(p.name)}" role="status" aria-live="polite"></div><details class="cmd-fallback"><summary class="small quiet">Details · command to copy</summary>${skCopy('node bin/mem project confirm ' + p.name)}</details>` : ''}<div class="number">${num(p.entries)}</div><p class="small muted" style="margin:5px 0 20px">entries · ${p.drawers.length} filled types${p.retired ? ` · ${num(p.retired)} retired` : ''}${p.openQuestions ? ` · ${num(p.openQuestions)} open questions` : ''}${p.waitingQuestions ? ` · ${num(p.waitingQuestions)} waiting for you` : ''}</p>${p.drawers.map((t) => `<span class="tag">${esc(types[t] || t)}</span>`).join('')}${r ? `<div class="stats-list" style="margin-top:14px"><div class="row"><span class="small">Shelf</span><span class="small">${num(r.filled)} filled · ${num(r.empty)} empty · ${num(r.missing)} missing of ${num(r.drawersTotal)}</span></div>${(r.files || []).map((f) => `<div class="row"><span class="small mono">${esc(f.name)}</span>${badge(f.where)}</div>`).join('')}</div>` : ''}${p.agents?.length ? `<p class="small quiet" style="margin-top:12px">Agents: ${p.agents.map((a) => esc(a.name) + ' (' + num(a.entries) + ')').join(', ')}</p>` : ''}<div class="drawer-actions">${btn('Open project', 'project', `data-value="${esc(p.name)}"`, 'ghost')}${btn('Export', 'export-project', `data-value="${esc(p.name)}"`, 'ghost')}</div>`,
           p.last ? 'Newest entry ' + when(p.last) : '',
+          '', ['projects'],
         );
       })
       .join('') || empty('No project yet. <code class="mono">mem project init &lt;name&gt;</code> creates one; the global drawer needs none.')}</div>${note('Missing and empty project drawers stand on the shelf: filled, empty and missing are three different findings.')}`;
@@ -1762,6 +1779,7 @@ function systemPage() {
   return `${panel(
     'Settings with origin and effect',
     `<div class="row"><div><strong>Writing from the dashboard</strong><p>${esc(w.reason || 'unknown')}${w.howTo ? ' ' + esc(w.howTo) : ''}</p></div>${badge(w.state === 'on' ? 'on' : w.state === 'off' ? 'off' : w.state === 'error' ? 'error' : 'unknown', w.state || 'unknown')}</div>${rows}<div class="drawer-actions">${btn('Save settings', 'save-config', state.readonly ? 'disabled' : '', 'primary')}</div><p class="small quiet" id="configStatus" role="status" aria-live="polite" style="margin-top:8px"></p>${note('Saved through POST /setting — the same route as the console, behind the write switch, the Host check and the Origin check, with a closed field list. No folder is created beyond the one a setting names, no service is switched.')}<div id="configHistory">${(D.log || []).map((x) => `<p class="small muted">${esc(whenTime(x.ts))} · ${esc(x.id || '')}: ${esc(x.before ?? '—')} → ${esc(x.after ?? '—')} · ${esc(x.by || '')}</p>`).join('') || '<p class="small quiet">Nothing changed yet.</p>'}</div>`,
+    '', '', ['settings'],
   )}<div class="grid two" style="margin-top:18px">${panel('Installation', steps || empty('No setup step readable.'), `${num((D.setup || []).filter((s) => s.state !== 'done').length)} of ${num((D.setup || []).length)} still open`)}${panel('Stores on this machine', (D.stores || []).length ? (D.stores || []).map((x) => `<div class="row"><span class="mono small">${esc(x.id)}</span><span class="small">${esc(x.label)}${x.found.length > 1 ? ` · ${num(x.found.length)} candidates — ambiguous` : ''}</span></div>`).join('') + '<p class="small quiet" style="margin-top:10px">Usable as a raw-archive value above.</p>' : empty('No cloud store found on this machine. A folder path works.'), 'Only what was actually found')}</div>`;
 }
 
@@ -1963,7 +1981,7 @@ function inboxPage() {
   ])}${p.human ? '' : note('No participant is marked human in .mem/config.json — so the inbox shows every recipient, and nothing can be answered from here. A recipient is not guessed. ' + esc(p.humanReason || ''))}${panel(
     'Messages',
     `<div class="toolbar"><select class="field" id="inboxTo" aria-label="Recipient"><option value="all" ${state.inboxTo === 'all' ? 'selected' : ''}>All recipients</option>${(p.participants || []).map((t) => `<option value="${esc(t.name)}" ${state.inboxTo === t.name ? 'selected' : ''}>${esc(t.name)}${p.human === t.name ? ' · human' : ''}</option>`).join('')}</select><input class="field searchfield" id="inboxQuery" placeholder="Subject, sender or name …" value="${esc(state.inboxQuery)}" aria-label="Filter messages"><label class="check"><input type="checkbox" id="inboxAll" ${state.inboxAll ? 'checked' : ''}> Include done</label></div><div id="inboxRows">${p.present === false && !messages.length ? empty('No inbox yet — the first message creates inbox/. <code class="mono">mem inbox write --to &lt;name&gt;</code> writes one.') : inboxRows()}</div>`,
-    'Reading changes no delivery state. Acknowledging happens only on purpose.',
+    'Reading changes no delivery state. Acknowledging happens only on purpose.', '', ['inbox'],
   )}<div style="margin-top:18px">${btn('Write a new message', 'new-message', '', 'primary')}</div>${note('Delivery happens through git (commit and push), as on the command line — never through this page. A reply lands as a new file in inbox/.')}${p.broken?.length ? note(`${num(p.broken.length)} messages not readable: ${p.broken.map((k) => esc(k.name)).join(', ')}`, 'bad') : ''}`;
 }
 async function showMessageLatest(name) {
@@ -2407,7 +2425,7 @@ function rawPage() {
   ])}${rawExportPanel()}<div style="height:18px"></div>${panel(
     'Raw capture review',
     `<div class="toolbar"><input class="field" id="rawQuery" value="${esc(rawFilter.query)}" placeholder="Topic or project" aria-label="Filter raw captures"><label class="small quiet">from <input class="field" type="date" id="rawSince" value="${esc(rawFilter.since)}" aria-label="Raw captures from date"></label><label class="small quiet">to <input class="field" type="date" id="rawUntil" value="${esc(rawFilter.until)}" aria-label="Raw captures to date"></label><select class="field" id="rawProject" aria-label="Raw capture project"><option value="all">All projects</option>${projects.map((p) => `<option ${rawFilter.project === p ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select><select class="field" id="rawState" aria-label="Raw capture state"><option value="all">All states</option>${['present', 'elsewhere', 'unreachable', 'deleted'].map((s) => `<option value="${s}" ${rawFilter.state === s ? 'selected' : ''}>${esc(rawWord[s])}</option>`).join('')}</select>${btn('Select hits', 'raw-select-all', state.readonly ? 'disabled' : '', 'ghost')}${btn('Delete selection …', 'raw-delete-preview', state.readonly ? 'disabled' : '', 'ghost danger')}</div><div id="rawRows">${rawRows()}</div>${note('Four states from the capture contract (mem raw review). A capture\'s topic is the tags of the entries digested from it. No automatic deletion date: deleting happens deliberately after review, with a reason, through "mem raw delete" — the tombstone stays in the register. Unreachable means recorded here with its bytes missing: a defect, not a decision.')}${state.readonly ? `<p>${readonlyMark('mem raw delete <path> --reason "…" --yes')}</p>` : ''}`,
-    `${mb(rf.bytes)} in the register · by project: ${(rf.projects || []).map((p) => `${esc(p.project ?? 'none')} ${num(p.count)}`).join(' · ') || '—'}`,
+    `${mb(rf.bytes)} in the register · by project: ${(rf.projects || []).map((p) => `${esc(p.project ?? 'none')} ${num(p.count)}`).join(' · ') || '—'}`, '', ['raw'],
   )}`;
 }
 function rawReview(path) {
@@ -2467,7 +2485,7 @@ function taskState(v) {
   return v.state === 'ok' ? 'finished' : v.state;
 }
 const TASK_STARTABLE = ['export', 'integrity'];
-const TASK_WHERE = { 'raw-delete': 'Started in Raw capture, per capture', 'project-confirm': 'Started on the overview under Today and in Projects, per waiting project' };
+const TASK_WHERE = { 'raw-delete': 'Started in Raw capture, per capture', 'project-confirm': 'Started on the overview under Today and in Projects, per waiting project', 'question-confirm': 'Started in the entry of an answered question that waits for you' };
 // no-jump point 6: the pieces per task kind, computed once — used by
 // operationsPage() for the first draw AND by taskUpdate() for the quiet
 // 2 s repatch, without redrawing the whole page.
@@ -5020,10 +5038,11 @@ async function showDetail(id, tab = 'content') {
   const text = typeof k.text === 'string' && k.text ? k.text : e.text;
   const out = e.rels, incoming = incomingIndex.get(id) || [];
   const isOpen = statusOf(id) === 'open' || statusOf(id) === 'active';
+  const isWaiting = statusOf(id) === 'waiting';
   const may = !state.readonly;
   let body = '';
   if (tab === 'content')
-    body = `${badge(statusOf(id))}${e.why ? `<p class="small muted" style="margin-top:8px">${esc(e.why)}</p>` : ''}<div class="detailtext">${esc(text || '(no text)')}</div>${e.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}<div class="metadata"><div><span>Author</span><b>${esc(e.agent)}</b></div><div><span>Time</span><b>${esc(e.ts)}</b></div><div><span>Memory / project</span><b>${esc(e.memory)} / ${esc(e.project)}</b></div><div><span>Drawer</span><b>${esc(drawerOf(e))}</b></div><div><span>Injected</span><b>${e.recall ? (e.recall.sessions ? num(e.recall.sessions) + ' sessions' : 'never') : 'not measurable'}</b></div><div><span>Place</span><b>${esc(e.source)}</b></div><div><span>Basis / authority</span><b>${esc(e.basis || 'not declared')} / ${esc(e.authority || '—')}</b></div><div><span>Scope / built on</span><b>${esc(e.scope || '—')} / ${e.derivedFrom.length ? e.derivedFrom.map(esc).join(', ') : 'nothing declared'}</b></div></div><div class="drawer-actions">${btn('Write a correction', 'correct', `data-id="${esc(id)}"`, 'primary')}${e.type === 'question' ? btn('Link an answer', 'answer', `data-id="${esc(id)}" ${!isOpen ? 'disabled' : ''}`, 'ghost') : btn('Mark done', 'done', `data-id="${esc(id)}" ${may && isOpen ? '' : 'disabled'}`, 'ghost')}${btn('Discard', 'retire', `data-id="${esc(id)}" ${!isOpen ? 'disabled' : ''}`, 'ghost danger')}${e.state !== 'active' ? btn('Restore', 'restore', `data-id="${esc(id)}"`, 'ghost') : ''}${btn('Merge …', 'merge', `data-id="${esc(id)}"`, 'ghost')}${btn('Show in the network', 'show-in-graph', `data-id="${esc(id)}"`, 'ghost')}</div>`;
+    body = `${statusBadge(id)}${e.why ? `<p class="small muted" style="margin-top:8px">${esc(e.why)}</p>` : ''}<div class="detailtext">${esc(text || '(no text)')}</div>${e.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}<div class="metadata"><div><span>Author</span><b>${esc(e.agent)}</b></div><div><span>Time</span><b>${esc(e.ts)}</b></div><div><span>Memory / project</span><b>${esc(e.memory)} / ${esc(e.project)}</b></div><div><span>Drawer</span><b>${esc(drawerOf(e))}</b></div><div><span>Injected</span><b>${e.recall ? (e.recall.sessions ? num(e.recall.sessions) + ' sessions' : 'never') : 'not measurable'}</b></div><div><span>Place</span><b>${esc(e.source)}</b></div><div><span>Basis / authority</span><b>${esc(e.basis || 'not declared')} / ${esc(e.authority || '—')}</b></div><div><span>Scope / built on</span><b>${esc(e.scope || '—')} / ${e.derivedFrom.length ? e.derivedFrom.map(esc).join(', ') : 'nothing declared'}</b></div></div><div class="drawer-actions">${btn('Write a correction', 'correct', `data-id="${esc(id)}"`, 'primary')}${e.type === 'question' ? btn('Link an answer', 'answer', `data-id="${esc(id)}" ${!isOpen && !isWaiting ? 'disabled' : ''}`, 'ghost') + (isWaiting ? (catMayClick() ? btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" ${may ? '' : 'disabled'}`, 'primary') : btn('Confirm answer', 'question-confirm', `data-id="${esc(id)}" disabled title="Needs a password session. On the command line: mem questions confirm ${esc(id)} --authority user"`, 'primary')) : '') : btn('Mark done', 'done', `data-id="${esc(id)}" ${may && isOpen ? '' : 'disabled'}`, 'ghost')}${btn('Discard', 'retire', `data-id="${esc(id)}" ${!isOpen ? 'disabled' : ''}`, 'ghost danger')}${e.state !== 'active' ? btn('Restore', 'restore', `data-id="${esc(id)}"`, 'ghost') : ''}${btn('Merge …', 'merge', `data-id="${esc(id)}"`, 'ghost')}${btn('Show in the network', 'show-in-graph', `data-id="${esc(id)}"`, 'ghost')}</div>`;
   else if (tab === 'evidence') {
     const bi = k.entry ? { state: k.state, reason: k.reason, sources: k.entry.backlinks || [] } : null;
     const rows = (list) =>
@@ -5574,6 +5593,32 @@ document.addEventListener('click', async (ev) => {
       toast(`Project ${name} confirmed.`);
       projectsConfirmed.add(name);
       projectsConfirmedApply();
+      await loadData({ quiet: true });
+      render();
+      break;
+    }
+    case 'question-confirm': {
+      // A question a person asked is closed only by the person: this click runs `mem questions confirm` behind the
+      // password session (the task is humanOnly; the bearer token alone is refused with 403).
+      if (state.readonly) return toast('Read only is on.');
+      const id = d.id;
+      if (!confirm(`Confirm the answer to question ${id}?\n\nThe question is closed; one line is appended, nothing is rewritten.`)) return;
+      el.disabled = true;
+      const rest = el.textContent;
+      el.textContent = 'writing …';
+      let s;
+      try { s = await taskStart({ kind: 'question-confirm', id }); } catch (e) { s = { ok: false, reason: 'network: ' + (e?.message || e) }; }
+      let done = null;
+      if (s.ok) done = await waitForTask(s.id, { maxMs: 30000 });
+      if (!s.ok || done.state !== 'ok') {
+        const why = s.ok ? (done.reason || done.state || 'unknown') : reasonPlain(s.reason);
+        el.disabled = false;
+        el.textContent = 'Error';
+        setTimeout(() => { if (el.isConnected) el.textContent = rest; }, 4000);
+        return toast('Not confirmed: ' + why);
+      }
+      el.textContent = 'confirmed ✓';
+      toast(`Question ${id} closed.`);
       await loadData({ quiet: true });
       render();
       break;

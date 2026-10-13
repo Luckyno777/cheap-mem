@@ -52,6 +52,7 @@ import { StringDecoder } from 'node:string_decoder';
 import * as memory from './memory.mjs';
 import * as net from './net.mjs';
 import * as authority from './authority.mjs';
+import * as question from './question.mjs';
 import * as basis from './basis.mjs';
 import * as capability from './capability.mjs';
 import { headline, TYPE_LABEL } from './viewer.mjs';
@@ -335,8 +336,8 @@ export function runPass(root, {
   const windowKeep = new Newest(window);
   const openRows = new Map(); // id -> row of an open duty
   const questionRows = new Newest(2000);
-  const questionList = []; // { id, project }
-  const resolves = []; // { id, from, to } — `resolves` lines of the link drawers
+  const questionList = []; // { id, project, tier }
+  const resolves = []; // { id, from, to, tier } — `resolves` lines of the link drawers (tier: who wrote the edge)
   const captures = new Map(); // origin.raw -> { topics:Set, ids:[] (capped), count }
 
   // atlas
@@ -436,7 +437,7 @@ export function runPass(root, {
         // A resolving link: whether it counts is settled at the end.
         if (type === 'link' && e.kind === 'resolves') {
           const from = e.from ?? e.source ?? null; const to = e.to ?? e.target ?? null;
-          if (from && to) resolves.push({ id: id ?? '', from: String(from), to: String(to) });
+          if (from && to) resolves.push({ id: id ?? '', from: String(from), to: String(to), tier: authority.tierOf(e) });
         }
         // An entry (also without an id: it counts in the overview).
         const tp = (overview.perProject[p] ??= fresh());
@@ -470,7 +471,7 @@ export function runPass(root, {
         const make = () => (row ??= rowOf(e, { id, type, project: p, source, line, tags, count, drawer: d }));
         windowKeep.offer(ts, id, make);
         if (openIds.has(id) && !openRows.has(id)) openRows.set(id, make());
-        if (type === 'question' && e.question) { questionList.push({ id, project: p }); questionRows.offer(ts, id, make); }
+        if (type === 'question' && e.question) { questionList.push({ id, project: p, tier: authority.tierOf(e) }); questionRows.offer(ts, id, make); }
         // The capture an entry came from -> its topics (the raw capture list)
         const capture = typeof e.origin?.raw === 'string' ? e.origin.raw : null;
         if (capture) {
@@ -609,13 +610,28 @@ export function runPass(root, {
     for (const { d } of linkDrawers) if (retirement.get(d)?.has(line.id)) return true;
     return false;
   };
-  const answered = new Set();
-  for (const l of resolves) if (lands(l.from) && lands(l.to) && !withdrawn(l)) answered.add(l.to);
+  // The tiers of the valid edges per question; the state is the ONE fold of `question.stateFrom`
+  // (the rule of `authority.mayCloseQuestion`: a question of tier user closes only on a user edge).
+  const edgeTiers = new Map();
+  for (const l of resolves) {
+    if (!lands(l.from) || !lands(l.to) || withdrawn(l)) continue;
+    if (!edgeTiers.has(l.to)) edgeTiers.set(l.to, []);
+    edgeTiers.get(l.to).push(l.tier);
+  }
   const heldQuestions = questionList.filter((q) => holdsId(q.id));
-  const openQuestions = heldQuestions.filter((q) => !answered.has(q.id));
+  const openQuestions = [];
+  const waitingQuestions = [];
+  for (const q of heldQuestions) {
+    const st = question.stateFrom(q.tier, edgeTiers.get(q.id) ?? []);
+    if (st === question.STATE.OPEN) openQuestions.push(q);
+    else if (st === question.STATE.WAITING) waitingQuestions.push(q);
+  }
   const openPerProject = {};
   for (const q of openQuestions) openPerProject[q.project] = (openPerProject[q.project] ?? 0) + 1;
+  const waitingPerProject = {};
+  for (const q of waitingQuestions) waitingPerProject[q.project] = (waitingPerProject[q.project] ?? 0) + 1;
   const openQuestionIds = new Set(openQuestions.map((q) => q.id));
+  const waitingQuestionIds = new Set(waitingQuestions.map((q) => q.id));
 
   // Agents: live counts (the rule of `agentState`: without the retired ids).
   for (const id of retiredIds) {
@@ -691,6 +707,9 @@ export function runPass(root, {
     questions: {
       total: heldQuestions.length, open: openQuestions.length, openIds: openQuestionIds, openPerProject,
       rows: questionTop.filter((r) => openQuestionIds.has(r.id)),
+      // Answered, but only by edges below the person who asked: waits for that person's confirmation.
+      waiting: waitingQuestions.length, waitingIds: waitingQuestionIds, waitingPerProject,
+      waitingRows: questionTop.filter((r) => waitingQuestionIds.has(r.id)),
     },
     agents: agentList,
     projects: [...projectStat.values()].map((x) => ({ name: x.name, entries: x.entries, retired: x.retired, drawers: [...x.drawers].sort(), last: x.last || null }))
