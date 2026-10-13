@@ -19,7 +19,7 @@ the verification commands at the end.
 
 | Area | What exists | Section |
 |---|---|---|
-| **Data model** | 15 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
+| **Data model** | 16 entry types, typed links (4 kinds), topics, projects, append-only JSONL, one line = one entry | [1](#1-the-data-model) |
 | **Provenance** | `author`, `authority` tiers, `origin.derived_from`, `origin.raw`, git history | [1.3](#13-provenance) |
 | **Retrieval** | BM25 over weighted fields, curated thesaurus, learned tag graph, compound splitting, exact-identifier lane, MMR diversity, raw-capture reserve lane, recency bonus, optional embeddings fused by RRF, time-window search | [2](#2-retrieval) |
 | **Truth over time** | `valid_from` / `valid_until`, `key`-tracked changing facts, `as_of` historical queries, staleness flagging, supersession via `replaces_id`, contradiction marking | [3](#3-truth-over-time) |
@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 86 CLI commands, 43 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 87 CLI commands, 45 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4475 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4542 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -94,6 +94,10 @@ directory. The section number in brackets is where it is explained.
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
 | `dashboard-cache.mjs` | `/dashboard.json` from a cache: generation stamp (drawers, git reflog, local sources), background rebuild in a worker thread with a heap cap the parent enforces, cold start from the head on disk or a placeholder, age counted from the end of the build, never stale as fresh (`cache.fresh`/`refreshing`/`reason`/`source`) (7.5) |
 | `dashboard-head.mjs` | the first answer of `/dashboard.json`: newest entries + server-side counters (`overview`), the rest paged through `/dashboard/part.json?part=entries`; the head kept on disk without free texts (0600, atomic); the light head only as the quick first state of a store the full build still handles |
+| `decisioncard.mjs` | the decision card, pure: `cardOf(entry, {type, context})` gives question, context, options with effects, advice with its author, evidence, the origin (stage `written` / `addendum` / `fallback`, author, tier, date) and which card it beat; no I/O, no clock, no model (10.31) |
+| `cardrules.mjs` | the rules a card is written under (lengths, at least two options, a No option, the form of the target) and the linear text tools; a leaf with no imports (10.31) |
+| `cardstore.mjs` | the card shelf `cards.jsonl`: write, read with three states, the card that counts per target (10.31) |
+| `cardfeed.mjs` | which items of a dashboard list get a card (the human's and the unassigned, never agent work) and the cap of 200 per list, the rest counted (10.31) |
 | `dashboard-live.mjs` | after a write of the person's own, the parts of `/dashboard.json` that write made stale, computed fresh with the same read functions the full build uses and laid over the cached answer until a build started after the write is done; a part that cannot be computed is named (`live_errors`), never silently old (7.5) |
 | `dashboard-pass.mjs` | ONE pass over the drawers for a store the full build cannot handle: line total, overview, net, open questions, agents, projects, the newest entries and the condensed 3D atlas (the 240 largest topics, drawers, pair counts, the newest 60 entries of each as the first page); fingerprint table of about 14 bytes an entry, no entry list in memory; `/dashboard/part.json?part=atlas` pages it 60 at a time |
 | `dashboard-compact.mjs` | the compact build above the full-build line (replaces the light head): the pass plus the same `collectDashboard()` as the full build; modules that read the whole store themselves (integrity, duties, facts, topics, learnings) run up to 128 MB of drawers, above they are unknown with a reason; the doctor and today never run there |
@@ -241,7 +245,7 @@ index), which is off unless configured.
 These five claims are the ones evaluators have gotten wrong. Each names
 where to check.
 
-1. **"No relationship system."** Wrong. `link` is one of the 15 entry
+1. **"No relationship system."** Wrong. `link` is one of the 16 entry
    types, with a closed vocabulary of four edge kinds
    (`causes`, `generalizes`, `contradicts`, `resolves`).
    `src/memory.mjs` → `LINK_KINDS`, `linksOf()`; CLI `mem links <id>`;
@@ -291,6 +295,7 @@ will need it for later**, which is the more useful axis in practice.
 | `link` | `links.jsonl` | a typed relation between two entries |
 | `workflow` | `workflows.jsonl` | a named SEQUENCE for all — the same authority question as `procedure`, same answer (see [10.26](#1026-workflows--srcworkflowmjs-mem-log-workflow)) |
 | `snippet` | `snippets.jsonl` | a reusable code/script/text/mail/letter block WITH PLACEHOLDERS, never real data (see [10.27](#1027-snippets--srcsnippetmjs-mem-log-snippet)) |
+| `card` | `cards.jsonl` | a decision card for a target (`target_id`): question, context, options with effects, advice, evidence; the card of the higher tier counts, then the youngest; not searched, not recalled (see [10.31](#1031-decision-cards--srcdecisioncardmjs-mem-card)) |
 
 One JSON object per line. Files are append-only: nothing is ever
 rewritten in place. A correction is a **new line** carrying
@@ -657,7 +662,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 86 commands
+### 7.1 CLI — 87 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -669,7 +674,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience command-guard appointment category envvars deadlines
+experience command-guard appointment category envvars deadlines card
 ```
 
 `mem appointment` is the calendar: reminders, a day briefing and agent actions
@@ -694,7 +699,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 43 tools
+### 7.2 MCP — 45 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio (or `--http`).
@@ -708,6 +713,8 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_appointment_cancel` | cancel your own proposal (an armed appointment is the user's) |
 | `mem_questions` | what is open and what waits for a person's confirmation — and with `all`, what was answered |
 | `mem_answer` | answer a question by naming the entry that answers it; closes an agent's question, leaves a person's question `waiting` |
+| `mem_card_add` | write a decision card to a target (an entry, `project:<name>`): question, context, options with effects, advice, evidence; checked in the write core, tier `agent` only |
+| `mem_card_list` | read only: the card that counts per target; an unreadable shelf is said to be unknown, never an empty list |
 | `mem_procedures` | the procedures in force, each with its author |
 | `mem_skill_find` / `mem_skill_fetch` | read only: released (and [trial]) skills, workflows, snippets, procedures for a task as short cards; the full text of one (`src/skillregistry.mjs`) |
 | `mem_component` | everything about one file, across both spellings |
@@ -2110,3 +2117,52 @@ hits and changes no rank. `mem command-guard show` prints the coverage
 (`mishandling` incidents carrying a pattern); `check "<command>"` is a dry
 run.
 
+
+### 10.31 Decision cards — `src/decisioncard.mjs`, `src/cardstore.mjs`, `mem card`
+
+What a person is meant to decide or release must be readable by a person. A **card** has five parts: the
+decision **question** (one sentence, ends in one `?`), the **context** (what is it about, why now), the
+**options** (at least two, each with its effect; ALWAYS one No or not-now), an **advice** (optional, always
+shown with its author, never preselected) and the **evidence** (ids, paths, URLs). Next to them the
+**origin**: author, tier, date and the stage the card comes from.
+
+```
+mem card add <target-id> --question "..." --context "..." --option "choice — effect" --option "..." [--advice ..] [--evidence ..]
+mem card list [--json]
+mem discard <card-id> --type card     withdraw one (it no longer counts)
+```
+
+**Three stages.** `written`: the fields `card_question`, `card_context`, `card_options` (a list of "choice —
+effect"), `card_advice`, `card_evidence`, `card_kind` stand on the entry itself (a duty or a question; `mem
+log duty --card_question ...`, or over the bridge). `addendum`: a card on the card shelf `cards.jsonl`, pointing
+with `target_id` at an entry that is never touched (a shelf of its own, owner decision 2026-10-13: a correction
+line on the old stock fails the authority rule for 11 of 28 open cases and floods the doctor). `fallback`: made
+deterministically from the type, the title and the first sentence, no model. A fallback card always has a No
+option, never an advice, and its origin is empty: nobody wrote it, and the display says so. A locked
+(encrypted) entry stays `[locked]`; an entry that cannot be read is the card "unknown", never an empty one.
+
+**The higher tier counts, then the youngest.** Per target one card counts: the one of the higher tier
+(`user` before `agent`), at equal tier the younger. The card it beat stays visible as `replaced`. Tier `user`
+on a card exists only from a person (`human:<name>`), on every road; a headless run and the bridge never write it.
+
+**One check for every road.** `memory.logEntry`, type `card`, checks the card (`src/cardrules.mjs`) and its
+target: the form of the id (a narrow character set, it is printed into hints), that it exists, and that it is
+not locked. `mem card add`, `mem log card`, `mem_log` and `mem_card_add` all run through it.
+
+**Not searched, not recalled.** A card repeats the words of its target and would stand before it. Search and
+recall skip the shelf (`memory.SEARCH_TYPES`); `mem card list` and `mem show <id>` reach it.
+
+**Where it is read.** `mem today` and the dashboard data of both builds carry the card of every item a
+person is meant to look at: the human's and the unassigned duties, open and waiting questions, waiting
+projects. Items of a known agent carry none. At most 200 cards per list; `cards_omitted` counts the rest. The
+shelf itself is reported as `cards` (readable with counts of broken and unusable lines, or unknown with a
+reason; then every card is a fallback card and the reasons say so).
+
+**Known limits** (also in `docs/security-model.md`). A name is a field in a file: tier `user` on a card is refused for
+an author who is not `owner` or `human:<name>`, but `--agent owner --authority user` typed from an agent's shell is not
+stopped (a headless run and the bridge are). `letter:` and `word-pair:` targets name things that are not entries of this
+house, so they are not looked up. `mem log card` takes a list flag twice (`--card_options a --card_options b`) or one
+value with one option per line.
+
+A question can name who it goes to: `mem questions new "..." --who <participant>`, `mem log question --who`.
+Open questions with an addressee are not counted as "decisions for the human" yet; that is the owner's call.

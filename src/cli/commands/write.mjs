@@ -34,11 +34,14 @@ import * as skillregistry from '../../skillregistry.mjs';
 import * as categories from '../../categories.mjs';
 import * as expand from '../../expand.mjs';
 import * as dueCore from '../../due.mjs';
+import * as cardstore from '../../cardstore.mjs';
+import * as decisioncard from '../../decisioncard.mjs';
+import * as authority from '../../authority.mjs';
 import { zoneOf } from '../../appointments.mjs';
-import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag } from '../shell.mjs';
+import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag, repeatedFlag } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
-/** 14 commands. */
+/** 15 commands. */
 export const COMMANDS = {
   log: async ({ rest, args }) => {
     if (isHelp(args)) {
@@ -61,6 +64,8 @@ export const COMMANDS = {
         "  --due <YYYY-MM-DD|ISO with zone>  only on a duty: a day in the house zone",
         "             (overdue from 00:00 of the following day) or a point in time with a",
         "             zone. Anything else is refused. Read it with `mem deadlines`.",
+        "  card (the card shelf, see `mem card --help`): --target_id <id> --card_question .. --card_context ..",
+        "             --card_options \"choice — effect\" (twice or more, or one per line in one value) [--card_evidence ..]",
         "  --valid_from / --valid_until  when the content HOLDS (not when it was",
         "             written — that is --ts). --valid_until is refused if it is",
         "             not a readable date. State it only when you know a real end",
@@ -84,6 +89,13 @@ export const COMMANDS = {
     // The rules live in fieldsFrom() — once, for `log` and `correction`
     // together. They used to be written out here and again below.
     Object.assign(data, fieldsFrom('log', args, ['category', 'category-new']));
+    // The list fields of a card may stand several times (`--card_options a --card_options b`); the parser keeps only the last value.
+    if (type === 'card') {
+      for (const name of ['card_options', 'card_evidence']) {
+        const all = repeatedFlag(name);
+        if (all.length > 1) data[name] = all;
+      }
+    }
 
     // `valid_until` is refused, not silently accepted, if it cannot be
     // read as a date — see `dateFieldOf`. `valid_from` had this exact
@@ -592,6 +604,82 @@ export const COMMANDS = {
 
     out('');
     out(`Delivered after:  git add . && git commit -m "log ${type}: ..." && git push`);
+  },
+
+  // H11 (owner request 2026-10-13): decision cards. `add` writes a card to a target into the SHELF of its own, `cards.jsonl`
+  // (append-only); the drawer of the target is never touched. The card of the higher tier counts, then the youngest.
+  card: async ({ rest, args }) => {
+    const subs = ['add', 'list'];
+    if (isHelp(args) || !rest[0]) {
+      out([
+        'mem card add <target-id> --question "..." --context "..." --option "choice — effect" --option "..." [--option ...]',
+        '                         [--advice "..."] [--evidence <id|path|url>]... [--kind decide|approve|do-it] [--project <name>]',
+        'mem card list            [--json]',
+        '',
+        '  What a person is meant to decide or release must be readable by a person: the question in one sentence, what it is',
+        '  about and why now, the options WITH their effects (always a No or not-now too), an advice with its author, the',
+        '  evidence. `add` writes that card to an entry that has none (the old stock).',
+        '',
+        '  - target-id: the id of the entry (duty, question), or project:<name> for a waiting project, letter:<file>,',
+        '    word-pair:<a>|<b>. An id that does not exist is refused (a card without a target is read by nobody); so is a',
+        '    locked (encrypted) target.',
+        '  - --option several times: "choice — effect", 2 to 6; at least one with No / Not / Not now / Discard.',
+        `  - Lengths: question at most ${decisioncard.LIMITS.question}, context ${decisioncard.LIMITS.context}, advice ${decisioncard.LIMITS.advice} characters.`,
+        '  - The write road stamps author and tier (agent). Tier user exists only from a person (--authority user).',
+        '  - Append-only into cards.jsonl; the target stays byte for byte. The card of the higher tier counts, at equal tier the',
+        '    youngest; the one it beat stays visible as "replaced". Withdraw: mem discard <card-id> --type card.',
+      ].join('\n'));
+      return;
+    }
+    const sub = rest[0];
+    if (!subs.includes(sub)) die(`card: unknown subcommand '${sub}'. Known: ${subs.join(', ')}`);
+    const root = findRoot(args);
+    requireConfig(root);
+    if (sub === 'list') {
+      checkFlags(args, ['json', 'root'], 'card list');
+      const shelf = cardstore.readCards(root);
+      if (!shelf.readable) die(`card list: ${shelf.reason} — unknown, not empty.`);
+      const list = [...shelf.cards.values()].sort((a, b) => String(a.ts ?? '').localeCompare(String(b.ts ?? '')));
+      if (args.json) {
+        out(JSON.stringify({ readable: true, cards: list.length, broken: shelf.broken, unusable: shelf.unusable, withdrawn: shelf.withdrawn, list }));
+        return;
+      }
+      out(`${list.length} card(s) on the shelf${shelf.broken ? `, ${shelf.broken} broken line(s)` : ''}${shelf.unusable ? `, ${shelf.unusable} unusable` : ''}.`);
+      for (const k of list) out(`  ${k.target_id}  ${k.question}  (by ${k.author ?? 'unknown'}, tier ${k.rank}, ${String(k.ts ?? '').slice(0, 10) || 'no date'})`);
+      return;
+    }
+    // add
+    checkFlags(args, ['question', 'context', 'option', 'advice', 'evidence', 'kind', 'project', 'authority', 'root'], 'card add');
+    const target = rest[1];
+    if (!target) die('card add: <target-id> missing. Example: mem card add 3demxykbnzkx --question "..." --context "..." --option "Yes — ..." --option "No — ..."');
+    // `--option` and `--evidence` may stand several times; the parser keeps only the last value, so read them from the command line.
+    const repeated = repeatedFlag;
+    const one = (v) => (v === undefined || v === true ? undefined : String(v));
+    for (const n of ['question', 'context', 'advice', 'kind', 'project', 'authority']) {
+      if (args[n] === true) die(`card add: --${n} came without a value. Nothing was written.`);
+    }
+    const tier = authorityArg(args, 'card add');
+    if (tier === 'user') {
+      try { authority.checkUserWrite(); } catch (e) { die(`card add: ${e.message} Nothing was written.`); }
+    }
+    // Target and card are checked by the write core — the same road `mem log card` and the bridge take.
+    let r;
+    try {
+      r = cardstore.write(root, {
+        target_id: target, question: one(args.question), context: one(args.context), options: repeated('option'),
+        advice: one(args.advice), evidence: repeated('evidence'), kind: one(args.kind),
+      }, { project: args.project && args.project !== true ? String(args.project) : null, authority: tier ?? undefined });
+    } catch (e) {
+      if (e.code === 'CARD_INVALID') die(`card add: ${e.message}`);
+      throw e;
+    }
+    for (const w of r.warnings) warn(`card add: ${w}`);
+    if (r.findings?.length) out(`${memory.findingsLine(r.findings)} (nothing secret was written in the clear)`);
+    out(`Card ${r.entry.id} for ${target} written (by ${r.entry.agent}, tier ${r.entry.authority}): ${r.entry.card_question}`);
+    out(`  ${memory.asSource(root, r.path)} — the target was not touched; the card of the higher tier counts, then the youngest.`);
+    out('');
+    // The target passed a narrow character check in the write core; still in single quotes.
+    out(`Delivered after:  git add . && git commit -m 'card: ${target}' && git push`);
   },
 
   teach: async ({ args }) => {

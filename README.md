@@ -51,7 +51,7 @@ code.
 | tokens per session | **96.8 % fewer** than pasting the memory in | `npm run bench` |
 | cost of a recall | **0** — no model, no network | `time mem find "..."` |
 | search latency | cold and warm, median and P95, per corpus size: see [Latency](#latency) | `node bench/cold-find.mjs` |
-| what you download | **1624 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
+| what you download | **1871 kB**<!--packed-size--> packed, zero runtime dependencies | `npm pack --dry-run` |
 
 The right-hand column is the point. Every figure here is either
 **re-derived from the code on every test run** — the counts and the
@@ -427,8 +427,8 @@ can only pass is decoration.
 
 <!-- NUMBERS: checked by test/readme-numbers.test.mjs. Do not edit by
      hand without having counted the code. -->
-As of 2026-09-26: **86 CLI commands, 43 MCP tools, 200 modules, 4475
-tests**; as of 2026-09-20, about 83819 lines in `bin/` and `src/`, at
+As of 2026-09-26: **87 CLI commands, 45 MCP tools, 204 modules, 4542
+tests**; as of 2026-09-20, about 85254 lines in `bin/` and `src/`, at
 **87.9 % statement coverage** (`npm run coverage`, enforced with a floor in CI).
 
 ### Reading it with a model, or evaluating it properly
@@ -509,6 +509,7 @@ your-memory/
     links.jsonl            a typed relation between two entries
     workflows.jsonl        a named sequence (issued by a person only)
     snippets.jsonl         a reusable block with {{PLACEHOLDERS}}
+    cards.jsonl            decision cards for targets (question, context, options with effects); not searched
   projects/<name>/         same shape, per project
   inbox/                   messages between sessions (git-synced)
   raw/YYYY/MM/*.jsonl.gz   captured transcripts, redacted
@@ -522,7 +523,7 @@ worse than no memory.
 
 ```
 mem init                       one-time setup
-mem log <type> --<field> ...   append an entry (15 types)
+mem log <type> --<field> ...   append an entry (16 types)
                                --asked "word, word" = words to FIND it by,
                                which the entry itself does not contain
                                `error`: shows up to 3 earlier errors for the
@@ -683,7 +684,8 @@ mem merge <id> <id> ...            merge entries of one drawer (append-only)
 mem when "<time expression>"       time-range recall, no model
 mem component <path>               everything about ONE file
 mem topic-merge <old> --to <new>   fold topics; applied on read, nothing rewritten
-mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`)
+mem questions / mem answer <q> --with <entry>   what we do not know, and closing it (a person's question: `mem questions confirm`; `--who` names who it goes to)
+mem card add|list                  a decision card for what a person is to decide: question, context, options with effects (docs/CAPABILITIES.md 10.31)
 mem procedures / mem teach         recorded steps; what a newcomer needs to hear
 mem sources add|bridge|list        where a claim came from
 mem store put|list|get|verify      files the memory keeps by hash
