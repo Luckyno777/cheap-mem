@@ -1139,7 +1139,7 @@ export function checkDecisionWithoutExplanation(root, now = new Date()) {
   try { r = humandecisions.withQuestions(root, { cards: shelf.cards }); } catch (e) { r = { readable: false, reason: `decisions not readable: ${e?.message || e}` }; }
   if (!r.readable) return finding('decision-without-explanation', LEVEL.UNKNOWN, `${r.reason} — the open decisions for the human are unknown, not zero`);
   const list = r.list;
-  if (!list.length) return finding('decision-without-explanation', LEVEL.GOOD, 'no open decision for the human');
+  if (!list.length) return finding('decision-without-explanation', LEVEL.GOOD, 'read the open duties and questions: none is a decision for the human');
 
   const lacking = list.filter((d) => decisioncard.lacksExplanation(d.card));
   const own = list.length - lacking.length;
