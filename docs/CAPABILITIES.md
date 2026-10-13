@@ -232,8 +232,9 @@ directory. The section number in brackets is where it is explained.
 | `workflowdetect.mjs` | finds the visible workflow (human, in force, no draft) for a prompt, a subagent assignment (`triggers`), a Bash command (`tool_patterns`) or a file (`path_patterns`, table role `works-on`); a tie shows titles only (10.26) |
 | `writegate.mjs` | the dashboard write switch: off by default, one check in front of every writing route (7.4) |
 
-Plus `src/embed/` — the optional embedding lane (provider, store,
-index), which is off unless configured.
+Plus `src/embed/` — the optional embedding lane (the local ollama
+adapter, its loopback gate, the store, the dispatcher), which is off
+unless configured and never sends entry text off the machine.
 
 ---
 ## Read this first if you are evaluating cheap-mem
@@ -398,12 +399,16 @@ There is no CLI flag for it: code calling `retrieve()` in `src/retrieval.mjs` ca
 
 ### 2.4 Optional semantic recall
 
-Embeddings are **off by default**. `src/embed-hook.mjs` is the seam
-where an embedding provider plugs in; `src/embed` holds the providers. When configured, `hybrid.mjs` runs
-BM25 and semantic search and fuses the two rankings with Reciprocal
-Rank Fusion — no score normalisation needed across the two very
-different scales. With embeddings unconfigured, hybrid is exactly BM25
-at exactly BM25's cost. **No silent dependency.**
+Embeddings are **off by default**, and **local only**: the one provider
+is ollama on a loopback address, and no entry text goes to an embedding
+vendor (Voyage and OpenAI were removed on 2026-10-13). `src/embed-hook.mjs`
+is the seam where the embedding is attached; `src/embed` holds the
+adapter. When configured, `hybrid.mjs` runs BM25 and semantic search and
+fuses the two rankings with Reciprocal Rank Fusion — no score
+normalisation needed across the two very different scales. With
+embeddings unconfigured, hybrid is exactly BM25 at exactly BM25's cost;
+a memory still set up for an external provider is refused out loud and
+searched lexically. **No silent dependency.**
 
 ### 2.5 Time-window retrieval
 

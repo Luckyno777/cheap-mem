@@ -14,6 +14,41 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Security / Privacy — no entry text goes to an embedding vendor; Voyage and OpenAI removed (2026-10-13; breaking for users of `voyage` / `openai`)
+
+Owner decision (2026-10-13), both houses: no text goes to an embedding third party, not even masked. External embedding paths
+are removed, only local ones stay. Before this, `mem embed backfill` and `mem find-embed` / `find-hybrid` sent the text of
+every entry (and of every query) to `api.voyageai.com` or `api.openai.com`, with the key from `VOYAGE_API_KEY` /
+`OPENAI_API_KEY` or `.mem/embed.env`. Red proof on the previous tip: with `{"provider":"voyage"}` in `.mem/embed.json` and a
+key in the environment, `embed.embed(root, text)` called `fetch('https://api.voyageai.com/v1/embeddings')` with the entry text
+in the body (OpenAI the same); `test/embed-local-only.test.mjs` makes the same calls and now sees none.
+
+- **Removed**: `src/embed/voyage.mjs` and `src/embed/openai.mjs`, and every way to reach them. `mem embed setup --provider
+  voyage|openai` is refused and writes nothing; the default provider is now `ollama`.
+- **ollama only on a loopback address** (`src/embed/loopback.mjs`): `127.0.0.0/8`, `::1`, `::ffff:127.x`, or the name `localhost`
+  if the resolver returns only loopback addresses. Any other host name is refused WITHOUT being resolved (a name is not
+  proof), as are private and link-local addresses, `0.0.0.0`, `https`, and credentials in the URL. The connection goes to the
+  approved address (not the name again), through a private agent (no proxy environment) and without following redirects.
+- **Old configuration is recognised and refused, never silent.** `.mem/embed.json` naming `voyage`, `openai`, no provider (the
+  old default was voyage) or any other non-local provider, or an `OLLAMA_HOST` that is not loopback: `mem find-hybrid` and
+  `mem find-embed` print `external embedding providers are disabled: no entry text leaves this machine; using lexical search`
+  on stderr and answer with the lexical search; the first line of the answer says `lexical only - REFUSED`. Three states are
+  told apart (local / not configured / refused), plus a config that cannot be read. A configured local model that is down no
+  longer reads as "no hits": `bm25 only - local semantic search failed: ...`. `mem embed backfill` refuses (exit 2) before
+  touching anything, also with `--force`.
+- **Stored vectors are kept, not used.** Entries an external provider embedded stay in `.mem/vectors.db` (it is your data);
+  search ranks only vectors of the current local model; `mem embed status` says how many came from a removed provider.
+  `mem embed backfill --force` with a local setup moves such a store to `.mem/local/kept-vectors/` instead of deleting it.
+- **`VOYAGE_API_KEY`, `OPENAI_API_KEY`, `.mem/embed.env`** are no longer read by anything (marked REMOVED in
+  `docs/environment-variables.md` and `src/envregister.mjs`); `mem embed status` names them when present, never their values.
+- **Rail**: a test fails when a file appears in `src/embed/` that is not on its allowlist, or when an allowlisted file imports
+  a network module, calls `fetch`, spawns a process or spells a non-loopback URL.
+
+**What you have to do if you used voyage or openai:** nothing breaks (`mem find`, `mem retrieve` and the hooks never used
+embeddings), but `find-hybrid` / `find-embed` are lexical from now on. For semantic search again, locally: install ollama,
+`ollama pull nomic-embed-text`, `mem embed setup`, `mem embed backfill --force` (the vector size differs, the old store is
+not reusable). Revoke the keys you only had for this, and delete `.mem/embed.env`.
+
 ### Added — the due-date core (build plan Q1, step 6b, branch A)
 
 A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list
