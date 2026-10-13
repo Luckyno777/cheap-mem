@@ -653,7 +653,7 @@ add({ id: 'B setup.mjs mem net --derived: listed titles (50)', cut: 50, kinds: [
 
 test('the output guard is ON for every command; the exception list is short and argued', () => {
   const shell = fs.readFileSync(path.join(REPO, 'src', 'cli', 'shell.mjs'), 'utf8');
-  const m = /const UNGUARDED = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\);/.exec(shell);
+  const m = /const UNGUARDED = frozenSet\(\[([\s\S]*?)\]\);/.exec(shell);
   assert.ok(m, 'UNGUARDED found');
   assert.deepEqual([...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]), ['serve'], 'only `serve` (its setup code is what it exists to show)');
   assert.match(shell, /guardOutput = !UNGUARDED\.has\(command\)/, 'the switch is the exception list, not an allow-list');
