@@ -59,6 +59,15 @@ row would be a `link`-drawer scan PER ENTRY of a page, which would blow
 the file-open ceiling immediately. A caller that needs the edges of one
 entry calls `/entry.json` (`dashboard.getEntryFast()`, D1) for that id.
 
+The `headline` NAMES the entry with exactly one field, never two joined: the
+`title`; without one, a `rule` (first sentence, at most 160 characters), a
+`question` or a `fact`; a decision without a title is named by the first
+sentence of its `choice`, else by its `topic`. With none of them the first
+whole sentence of the content stands there (markdown removed, longer than 90
+characters cut at a word boundary with an ellipsis). The class of an error is
+not part of the line. A procedure keeps its mark behind the name; a locked
+entry reads `[locked]`.
+
 ## Stable order and the cursor
 
 `ts` descending, `id` ascending on a tie — `id` is unique and immutable

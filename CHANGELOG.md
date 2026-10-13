@@ -14,6 +14,16 @@ are the day the work landed on `main`.
 
 ## Unreleased
 
+### Changed — the headline names an entry with one field (counterpart of lucky-mem "Lesbare Schlagzeilen in Suche und Netz")
+
+`viewer.headline(e)` took up to two filled fields from `class, title, topic, choice, ...` and joined them with " — ": an error
+read "<class> — <title>", a learning "<title> — <start of the text>". Now it is exactly one naming field (`title`; else `rule`,
+`question`, `fact`; a decision its `choice`, else its `topic`), or without one the first whole sentence of the content (markdown
+removed, never cut inside the first twelve characters, longer than 90 characters at a word boundary with "…"). Lists and objects
+are never printed as JSON. The output guard still masks first, a procedure keeps its mark (now behind the name), a locked entry
+stays `[locked]`. `headline(e, { type })` takes the drawer where the caller knows it (viewer, dashboard, pages, compact pass,
+light head, project package). The class is no longer part of the line.
+
 ### Added — the due-date core (build plan Q1, step 6b, branch A)
 
 A due date on a duty was read by three readers with guessed names (`today.mjs` and the dashboard `due ?? by`, the day list
