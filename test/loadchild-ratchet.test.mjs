@@ -15,7 +15,7 @@
 //       `break`, `return`, `throw`, `yield`, or an `exit`/`kill`.
 // Unbounded means: `while (true|1|2...|!0|!![])`, `for (;;)`, `for (...; true|1; ...)` -- comments inside the
 // parentheses do not count. "True by construction" is recognised by form: true, Infinity, a non-zero number, !0,
-// !![], !false, !!1, !!true, `1 === 1`, `true === true`. Polling loops of the probe itself (with return/break/deadline) stay untouched.
+// !![], !false, !!1, !!true, `1 === 1`, `true === true`; numbers in any form (0x1, 0b1, 0o7, 1.0, 1e3, .5). Polling loops of the probe itself (with return/break/deadline) stay untouched.
 //
 // Exemption only with a reason: `loadchild-ok: <reason>` in a COMMENT (the marker inside the literal itself does not
 // count), on the finding's own line or in the block of stand-alone comment lines directly above it; it covers its own
@@ -25,9 +25,14 @@
 // LIMITS (honest): the ratchet reads source text, it runs nothing. It does NOT see: assembled loops
 // (`'wh' + 'ile (true)'`, strings from variables or files, eval), loops in other languages or shell
 // (`while true`, `yes >/dev/null`, pipelines without `timeout` in test/*.sh), endlessness without a loop word
-// (recursion, `setInterval` with heavy work, workers), `for (init-with-parenthesis; 1;)`, other always-true conditions (`x === x`, `!''`, `[] ? 1 : 0`), and loops whose condition
-// only stays true at run time (`while (!done)` without an end). Nor does it look outside test/ and bench/. Whoever
-// needs load takes the helper -- the ratchet catches the careless raw build, not the intent.
+// (recursion, `setInterval` with heavy work, workers), `for (init-with-parenthesis; 1;)`, other always-true
+// conditions (`x === x`, `!''`, `[] ? 1 : 0`, `1_0`), and loops whose condition only stays true at run time
+// (`while (!done)` without an end). Nor does it look outside test/ and bench/.
+// In the CODE part (2) the exit search is textual and over-generous: a `break` of an INNER loop or a `return` of a
+// NESTED function inside the body counts as an exit of the endless loop, so `while (true) { for (const a of b) { break; } }`
+// and `while (true) { const f = () => { return 1; }; }` are NOT reported (documented, not solved: telling the
+// loops apart needs a parser). The same goes for an `exit`/`kill` call that sits in a branch never taken.
+// Whoever needs load takes the helper -- the ratchet catches the careless raw build, not the intent.
 //
 // Red proof: the old state of test/atlas-foreign-load.test.mjs (fixed commit acff04e) is reported; plus positive
 // controls on sample texts (see below), among them regex literals with quotes, which must not shift the
@@ -44,7 +49,8 @@ const ROOT = path.dirname(HERE);
 const BEFORE = 'acff04e'; // fixed commit: the state BEFORE the helper (never merge-base)
 const K = '(?:\\s|/\\*[\\s\\S]*?\\*/)*'; // whitespace and comments
 // A condition that is true by construction (not evaluated, only recognised by form).
-const TRUE_COND = '(?:true|Infinity|[1-9]\\d*|!0|!!\\[\\]|!false|!!(?:1|true)|1\\s*===?\\s*1|true\\s*===?\\s*true)';
+const NUMBER = '(?:0[xX]0*[1-9a-fA-F][0-9a-fA-F]*|0[bB]0*1[01]*|0[oO]0*[1-7][0-7]*|[1-9]\\d*(?:\\.\\d*)?(?:[eE][+-]?\\d+)?|0?\\.\\d*[1-9]\\d*|0\\.0*[1-9]\\d*)';
+const TRUE_COND = `(?:true|Infinity|${NUMBER}|!0|!!\\[\\]|!false|!!(?:1|true)|1\\s*===?\\s*1|true\\s*===?\\s*true)`;
 const WHILE = new RegExp(`\\bwhile${K}\\(${K}${TRUE_COND}${K}\\)`);
 const FOR = new RegExp(`\\bfor${K}\\((?:[^;)]|/\\*[\\s\\S]*?\\*/)*;${K}(?:${TRUE_COND})?${K};`);
 const EXEMPT = /loadchild-ok:\s*\S/;
@@ -266,10 +272,11 @@ test('positive control literals: one line, multi-line template, embedding, while
   for (const k of ['while (2) {}', 'while (!![]) {}', 'while (/* ) */ true) {}', 'while (true /* x */) {}',
     'while (!false) {}', 'while (1 === 1) {}', 'while (!!1) {}', 'while (Infinity) {}', 'do {} while (!false);',
     'for (;;) {}', 'for (/* ) */;;) {}', 'for (;true;) {}', 'for (;1;) {}', 'for (;!false;) {}', 'for (let i = 0;; i++) {}',
-    'for (let i = 0; 1; i += 1) {}', 'for (let i = 0;; i += 1) {}', 'do {} while (true);']) {
+    'for (let i = 0; 1; i += 1) {}', 'for (let i = 0;; i += 1) {}', 'do {} while (true);',
+    'while (0x1) {}', 'while (0b1) {}', 'while (0o7) {}', 'while (1.0) {}', 'while (1e3) {}', 'while (.5) {}', 'while (0.5) {}', 'for (;0x1;) {}']) {
     assert.equal(count(`run('${k}');\n`), 1, `not recognised: ${k}`);
   }
-  for (const k of ['for (let i = 0; i < 3; i += 1) {}', 'while (n > 0) {}', 'while (x) {}', 'for (const a of b) {}', 'while (0) {}']) {
+  for (const k of ['for (let i = 0; i < 3; i += 1) {}', 'while (n > 0) {}', 'while (x) {}', 'for (const a of b) {}', 'while (0) {}', 'while (0x0) {}', 'while (0.0) {}', 'while (0e3) {}', 'while (0b0) {}']) {
     assert.equal(count(`run('${k}');\n`), 0, `false alarm: ${k}`);
   }
 });
@@ -281,6 +288,10 @@ test('positive control assignment: regex literals with quotes do not shift the l
     assert.equal(f.length, 1, `slip-through after: ${before} -> ${JSON.stringify(f)}`);
     assert.match(f[0], /^2: /, `wrong line after: ${before} -> ${f[0]}`);
   }
+  // Regex detection must bite in both directions (with `if (false)` instead of the regex branch, all three go red):
+  assert.equal(count("const r = /`/;\n// loadchild-ok: x\nrun('for(;;){}');\n"), 0, 'regex with a backtick, then an exempted literal');
+  assert.equal(count("const r = /`/;\nfor(;;){ if (a) break; }\n"), 0, 'regex with a backtick, then a loop with an exit');
+  assert.equal(count("const r = /'/.test(a) && b('while (true) { break; }');\n"), 1, 'regex with a quote, then a literal on the same line');
   // the case that slipped through before: a regex with a backtick opened a template up to the end of the file
   assert.equal(count("const r = /`/;\nrun('for (;;) {}');\n"), 1, 'regex with a backtick');
 });
@@ -305,6 +316,11 @@ test('positive control comments, probe code, exemption, and the false-alarm case
   assert.equal(count(safe), 1, 'false-alarm case: a literal with its own exit is reported');
   // ... and with a reasoned exemption there is peace.
   assert.equal(count(`// loadchild-ok: ends by itself after 5 s (Date.now() deadline in the child)\n${safe}`), 0, 'false alarm with exemption');
+});
+
+test('documented limit: a break of an inner loop or a return of a nested function counts as an exit (not reported)', () => {
+  assert.equal(count('while (true) { for (const a of b) { break; } }\n'), 0);
+  assert.equal(count('while (true) { const f = () => { return 1; }; }\n'), 0);
 });
 
 test('positive control code: a bare endless loop in code (child module file) is reported, one with an exit is not', () => {
