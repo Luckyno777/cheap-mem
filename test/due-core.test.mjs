@@ -471,7 +471,7 @@ test('MCP: mem_duties carries due and due_state, mem_deadlines the whole situati
 
 test('output guard: `deadlines` runs with the guard on and masks a key shape that sits past the write path (text and --json)', (t) => {
   const shell = fs.readFileSync(path.join(REPO, 'src', 'cli', 'shell.mjs'), 'utf8');
-  const m = /const UNGUARDED = Object\.freeze\(new Set\(\[([\s\S]*?)\]\)\);/.exec(shell);
+  const m = /const UNGUARDED = frozenSet\(\[([\s\S]*?)\]\);/.exec(shell);
   assert.ok(m, 'UNGUARDED found');
   assert.doesNotMatch(m[1], /'deadlines'|'duties'/, 'the guard is on for these');
   assert.match(m[1], /'serve'/, 'positive control: the slice is the exception list');
