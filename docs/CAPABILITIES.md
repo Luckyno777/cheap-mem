@@ -705,7 +705,7 @@ its answer is, and a tile that could NOT be measured shows as
 installation steps has actually happened; `mem classes` is the error
 vocabulary and how much of this memory it covers.
 
-Every command takes `--help`. `mem doctor` is the self-check: it
+Every command takes `--help` (or `-h`, wherever a switch could stand; a `-h` that follows a parameter is that parameter's value). `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
