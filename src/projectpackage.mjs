@@ -219,7 +219,7 @@ export function build(root, data, opts, { cache = null, now = new Date(), secret
     const enc = z?.body_enc !== undefined;
     return {
       id, type: e.type, project: e.project || 'global',
-      title: z && !enc ? redactText(viewer.headline(z), found, secrets) : null,
+      title: z && !enc ? redactText(viewer.headline(z, { type: e.type }), found, secrets) : null,
       encrypted: enc, known: true,
     };
   });

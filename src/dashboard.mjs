@@ -947,7 +947,7 @@ export function getEntryFast(root, id) {
     typeLabel: viewer.TYPE_LABEL[drawer.type] || drawer.type,
     project: drawer.project || 'global',
     tags: Array.isArray(e.tags) ? e.tags : [],
-    headline: viewer.headline(e),
+    headline: viewer.headline(e, { type: drawer.type }),
     source,
     line,
     readable: true,
