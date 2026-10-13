@@ -60,7 +60,7 @@ export function forHuman(root, { human = null, cards = undefined } = {}) {
     .filter((p) => addressee.ofDuty(p) === who)
     .map((p) => ({
       id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p),
-      card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf } }),
+      card: decisioncard.cardOf(p, { type: 'duty', context: { cards: shelf, human: who } }),
     }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
   return { readable: true, reason: null, who, list };
@@ -83,7 +83,7 @@ export function withQuestions(root, { human = null, cards = undefined } = {}) {
     .filter((q) => addressee.ofQuestion(q) === duties.who)
     .map((q) => ({
       kind: 'question', id: q.id, title: q.question ?? q.id, due: null, since: q.ts ?? null,
-      card: decisioncard.cardOf(q, { type: 'question', context: { cards: shelf } }),
+      card: decisioncard.cardOf(q, { type: 'question', context: { cards: shelf, human: duties.who } }),
     }));
   const list = [...duties.list.map((d) => ({ kind: 'duty', ...d })), ...asked]
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));

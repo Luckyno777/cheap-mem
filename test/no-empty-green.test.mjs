@@ -118,6 +118,9 @@ const EXEMPT = new Map([
   ['archive-backlog', 'inspected the folder and found it empty, which answers "is anything '
     + 'piling up"; and if captures stop arriving, `capture` warns — a finding that stays '
     + 'quiet because a neighbour speaks hides nothing'],
+  ['decision-without-explanation', 'read the card shelf and the open duties and questions and found none '
+    + 'addressed to the human: measurably no decision that could lack its explanation; an unreadable '
+    + 'shelf or log is `unknown`, never this ok (H11)'],
   ['capture-rejected', 'asked git for staged, uncommitted raw captures and got an empty list — '
     + 'measurably nothing stuck; git not runnable is `unknown`, never this ok'],
 ]);
@@ -317,7 +320,8 @@ test('CONTROL: every exemption carries a reason that argues', () => {
   // And it must not grow without anyone noticing.
   // 12 -> 13 on 2026-09-30 (Z2/A12): 'claim-orphaned', argued above.
   // 13 -> 14 on 2026-10-03: 'capture-rejected', argued above.
-  assert.equal(EXEMPT.size, 14,
+  // 14 -> 15 on 2026-10-13: 'decision-without-explanation' (H11), argued above.
+  assert.equal(EXEMPT.size, 15,
     `the exemption list is now ${EXEMPT.size} long. Every addition needs an argument in `
     + 'the file and a deliberate change here — that is the point of pinning the number.');
 });

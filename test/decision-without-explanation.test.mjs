@@ -62,7 +62,7 @@ test('finding: nothing open for the human is good; an agent duty and a question 
   const f = doctor.checkDecisionWithoutExplanation(root, NOW_LATER);
   assert.equal(f.name, NAME);
   assert.equal(f.level, 'good');
-  assert.match(f.text, /no open decision for the human/);
+  assert.match(f.text, /none is a decision for the human/);
 });
 
 test('finding: a decision with a card of its own is good; one without, past the grace period, is a warning with the way out', (t) => {
