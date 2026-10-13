@@ -92,6 +92,7 @@ directory. The section number in brackets is where it is explained.
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
 | `dashboard-cache.mjs` | `/dashboard.json` from a cache: generation stamp (drawers, git reflog, local sources), background rebuild in a worker thread with a heap cap the parent enforces, cold start from the head on disk or a placeholder, age counted from the end of the build, never stale as fresh (`cache.fresh`/`refreshing`/`reason`/`source`) (7.5) |
 | `dashboard-head.mjs` | the first answer of `/dashboard.json`: newest entries + server-side counters (`overview`), the rest paged through `/dashboard/part.json?part=entries`; the head kept on disk without free texts (0600, atomic); the light head only as the quick first state of a store the full build still handles |
+| `dashboard-live.mjs` | after a write of the person's own, the parts of `/dashboard.json` that write made stale, computed fresh with the same read functions the full build uses and laid over the cached answer until a build started after the write is done; a part that cannot be computed is named (`live_errors`), never silently old (7.5) |
 | `dashboard-pass.mjs` | ONE pass over the drawers for a store the full build cannot handle: line total, overview, net, open questions, agents, projects, the newest entries and the condensed 3D atlas (the 240 largest topics, drawers, pair counts, the newest 60 entries of each as the first page); fingerprint table of about 14 bytes an entry, no entry list in memory; `/dashboard/part.json?part=atlas` pages it 60 at a time |
 | `dashboard-compact.mjs` | the compact build above the full-build line (replaces the light head): the pass plus the same `collectDashboard()` as the full build; modules that read the whole store themselves (integrity, duties, facts, topics, learnings) run up to 128 MB of drawers, above they are unknown with a reason; the doctor and today never run there |
 | `dashboard-data.mjs` | the dashboard's DATA layer: `/dashboard.json`, one entry, one message, the read-only retrieval probe, facts at a date (7.5) |
@@ -702,8 +703,8 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_appointment_new` | propose an appointment: a reminder, or an action for an agent at a time. Always a proposal until a human confirms, also with a quoted user request (the bridge cannot verify it: noted as unverified, counts towards the daily limit) |
 | `mem_appointment_list` | read only: the next 14 days, or every appointment, or the day list |
 | `mem_appointment_cancel` | cancel your own proposal (an armed appointment is the user's) |
-| `mem_questions` | what is open — and with `all`, what was answered |
-| `mem_answer` | close a question by naming the entry that answers it |
+| `mem_questions` | what is open and what waits for a person's confirmation — and with `all`, what was answered |
+| `mem_answer` | answer a question by naming the entry that answers it; closes an agent's question, leaves a person's question `waiting` |
 | `mem_procedures` | the procedures in force, each with its author |
 | `mem_skill_find` / `mem_skill_fetch` | read only: released (and [trial]) skills, workflows, snippets, procedures for a task as short cards; the full text of one (`src/skillregistry.mjs`) |
 | `mem_component` | everything about one file, across both spellings |
@@ -1192,8 +1193,10 @@ this". Everything the memory could hold was known.
 
 ```
 mem questions new "..."            note one
-mem questions [--all]              what is open
+mem questions [--all]              what is open, and what waits for a person
 mem answer <id> --with <entry-id>  close it
+mem questions new "..." --authority user     ask as the person
+mem questions confirm <id> --authority user  the person closes an answered question
 ```
 
 **Not a state on `duty`.** A duty has a debtor and counts as neglected
@@ -1209,6 +1212,35 @@ truth about one state, and the two would drift.
 A missing question mark warns but does not block: a question gets noted
 in passing or not at all, and refusing one over punctuation is
 formalism.
+
+**Who may close it (owner decision 2026-10-12).** A question a PERSON
+asked (tier `user`) is closed only by the person's confirmation, an
+edge of tier `user`. An agent's `resolves` edge (`mem answer`, the
+bridge's `mem_answer`, a raw `mem log link --kind resolves`) records the
+answer and leaves the question `waiting`: neither open nor closed, shown
+as "answered, waiting for you" (board tile, work tile, entry state, and a
+"Confirm answer" button in the entry drawer behind a password session).
+Every other question closes on any valid edge, as before: an agent's
+question stays the agents' to close. The state is folded from the graph by
+`question.stateFrom` (`authority.mayCloseQuestion` is the one rule); no
+line is rewritten. The bridge has no confirm tool: confirming is a
+person's act. Before this, any agent could close the owner's own
+question with one line.
+
+**A headless run never writes as the person.** The guard sits in the
+write core (`memory.logEntry`), not in one command: a line that would
+carry tier `user` from a run with `MEM_HEADLESS` set is refused, whatever
+the route (`--authority user` on any type, a raw link, `mem done`,
+`mem answer`). Under a lower `CHEAP_MEM_MAX_AUTHORITY` the claim is
+lowered and recorded, as before (the digest and the reflector keep
+working). The guard protects against accidental and injected writing,
+not against an agent with its own shell: as in 10.1, whoever has a shell is a
+person for the CLI. `test/question-rank-cm.test.mjs`.
+
+**After the update.** A person's question that an agent had already closed
+reads as `waiting` (the state is folded on every read; no migration, no line
+changes). `mem questions` lists them; `mem questions confirm <id> --authority
+user` closes each.
 
 ### 10.8 Neighbours at write time — `src/neighbours.mjs`
 

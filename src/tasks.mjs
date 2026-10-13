@@ -393,6 +393,30 @@ export const KINDS = Object.freeze({
       return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new event' };
     },
   },
+  // question-rank-cm (2026-10-12, parity with lucky-mem `frage-bestaetigen`): the dashboard button on a
+  // question a PERSON asked that an agent has answered ("waiting for you"). The same CLI call as on the
+  // command line (`mem questions confirm <id> --authority user --json`). `--authority user` comes ONLY from
+  // authorityArgs(context), i.e. a valid PASSWORD session; `humanOnly` refuses the task without one before
+  // any child, and the command itself refuses a missing claim, a headless run and a ceiling. The bearer
+  // token alone confirms nothing.
+  'question-confirm': {
+    title: 'Confirm an answered question',
+    description: 'mem questions confirm <id> --authority user --json - an edge of tier user; only it closes a question a person asked.',
+    resume: 'restart',
+    humanOnly: true,
+    params: {
+      id: { required: true, check: (v) => ENTRY_ID.test(v), why: 'a question id' },
+      // eslint-disable-next-line no-control-regex -- the control characters are exactly what this pattern matches
+      why: { required: false, check: (v) => v.length <= 2000 && !/[\u0000-\u0008\u000b-\u001f]/.test(v), why: 'up to 2000 characters' },
+    },
+    command(root, id, p, context) {
+      return { file: MEM_BIN, args: ['questions', 'confirm', p.id, '--json', ...(p.why ? [`--why=${p.why}`] : []), ...authorityArgs(context)] };
+    },
+    progressPattern: null,
+    classify(json) {
+      return json?.new ? { state: 'ok', reason: null } : { state: 'warning', reason: 'the command reported no new line' };
+    },
+  },
   // dash-kat-klicks-cm (2026-10-03, parity with lucky-mem `kategorie-*`): the
   // category click actions. One CLI call each (`mem category ... --json`, answer
   // `{ok, text}`), a person only (password session): the CLI itself refuses an

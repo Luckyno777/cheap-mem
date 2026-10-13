@@ -308,6 +308,20 @@ export function inventory(root, { known = null } = {}) {
 }
 
 /**
+ * The list of settings with their current value and origin, as `collect()` carries it. Its own function
+ * (board-width-fresh-cm): after a save the server lays exactly this list (and the log) over the stored dashboard
+ * state at once (src/dashboard-live.mjs), instead of waiting for the rebuild.
+ */
+export function settingsState(root, env = process.env) {
+  return Object.entries(SETTINGS).map(([id, s]) => {
+    let state;
+    try { state = s.read(root, env); }
+    catch (e) { state = { value: null, source: 'error', error: e.message }; }
+    return { id, title: s.title, kind: s.kind, description: s.description, effect: s.effect, ...state };
+  });
+}
+
+/**
  * Everything the console shows — as data, not as HTML.
  *
  * Separate so it also goes out as JSON, and so the probes can check the
@@ -322,12 +336,7 @@ export function collect(root, {
   const windowDays = SETTINGS['error-window'].read(root).value;
   const quietMin = SETTINGS['quiet-hours'].read(root).value * 60;
   const b = boardOf(root, { env, now, windowDays, quietMin });
-  const settings = Object.entries(SETTINGS).map(([id, s]) => {
-    let state;
-    try { state = s.read(root, env); }
-    catch (e) { state = { value: null, source: 'error', error: e.message }; }
-    return { id, title: s.title, kind: s.kind, description: s.description, effect: s.effect, ...state };
-  });
+  const settings = settingsState(root, env);
   let steps = [];
   try { steps = setup.check(root, { env }).steps; } catch { /* reported by the tile */ }
   return {

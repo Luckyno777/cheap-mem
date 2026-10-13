@@ -34,6 +34,14 @@
 // (it may have read before the write). Without it a reload right after a click
 // got the old state back for up to max(20 s, 4 x build time).
 //
+// **Parts (board-width-fresh-cm, 2026-10-12; sibling `dash-breite-lm`, bug 3fzbv8vxvosj).** `invalidate()` made the
+// next build start at once, but the answer BEFORE it was still the old state: a saved setting or an acknowledged
+// message looked unsaved until the rebuild was through (5-18 s on a real store, minutes with the gap). So a write
+// can name the PARTS of the answer it changed: `invalidate(['settings'])`. The cache remembers them (`live.parts`
+// of `get()`) until a build that STARTED after the write has finished; src/dashboard-live.mjs computes exactly
+// those parts fresh from the small read functions and the server lays them over the stored answer. A read without a
+// write has no parts and costs nothing extra.
+//
 // **The stamp.** Three parts, each cheap:
 //   1. `backlinks.stamp()` — size+mtime of EVERY drawer file of every
 //      project (a new entry always changes it),
@@ -299,6 +307,9 @@ export function createCache({
   // project": projects/<p>/facts.yaml lies in no stamped place). Holds until a build STARTS after the write.
   let invalidSince = null;
   let invalidCounter = 0;
+  // Which PARTS of the answer a write made stale since the last build: name -> counter of the write. A part holds
+  // until a build that began AFTER its write has finished (like `invalidSince`, but per part).
+  const staleParts = new Map();
 
   const store = (data, s, start, durationMs, source = 'build') => {
     counter += 1;
@@ -310,6 +321,7 @@ export function createCache({
     const data = build();
     store(data, s, start, Math.max(0, Math.round(now() - start)));
     invalidSince = null; // built synchronously, so after every write
+    staleParts.clear();
   };
   const background = (s) => {
     if (running) return;
@@ -343,6 +355,7 @@ export function createCache({
         store(data, s, start, Math.max(0, Math.round(now() - start)));
         // Only a build that BEGAN after the last write lifts the mark (an earlier one may have read before the write).
         if (invalidSince !== null && startedAt >= invalidSince) invalidSince = null;
+        for (const [part, at] of staleParts) if (startedAt >= at) staleParts.delete(part);
       })
       .catch((e) => { failure = `rebuild failed: ${e?.message || e}`; })
       .finally(() => {
@@ -385,11 +398,15 @@ export function createCache({
       else if (current.stamp !== s) reason = 'store changed since the build';
       else if (invalidSince !== null) reason = 'a write finished since the build';
       else if (tooOld) reason = `older than ${Math.round(ttlMs / 1000)} s`;
+      const liveParts = [...staleParts.keys()].sort();
       return {
         id: current.id,
         data: current.data,
         stamp: current.stamp,
         source: current.source,
+        // The parts the caller must compute fresh and lay over `data` (empty = the state holds as it is).
+        // `key` changes with every write to a part, also to the same one.
+        live: { parts: liveParts, key: liveParts.map((x) => `${x}@${staleParts.get(x)}`).join(',') },
         meta: {
           built_at: new Date(current.builtMs).toISOString(),
           build_ms: current.durationMs,
@@ -397,14 +414,21 @@ export function createCache({
           refreshing: Boolean(running),
           reason,
           source: current.source,
+          // Which parts the answer carries freshly laid on right now (the rest is the stored state).
+          live_parts: liveParts,
         },
       };
     },
     /**
      * A write (a finished task) is done: the stored state counts as stale, the next build starts
      * without the minimum gap, and a build that began before this call does not make it fresh.
+     * `parts`: the parts of the answer this write changed (see the header, "Parts"); `get().live.parts` names them
+     * until a build after the write is through. Without `parts` the old behaviour.
      */
-    invalidate() { invalidCounter += 1; invalidSince = invalidCounter; lastStart = -Infinity; },
+    invalidate(parts = []) {
+      invalidCounter += 1; invalidSince = invalidCounter; lastStart = -Infinity;
+      for (const part of parts) staleParts.set(part, invalidCounter);
+    },
     /** For probes only: wait for a running background build. */
     async waitForRebuild() { if (running) await running; },
   };
