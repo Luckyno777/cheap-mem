@@ -22,7 +22,6 @@
 // control feeds them a bad and a good snippet. A watched file that no longer exists or no longer cuts
 // anything is reported, not skipped: a ratchet over a moved file guards nothing.
 //
-// invariant: maske-vor-schnitt
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';

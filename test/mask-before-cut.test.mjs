@@ -15,7 +15,6 @@
 // is only a bait if `maskText(bait.slice(0, cut))` leaks and `maskText(bait).slice(0, cut)` does not.
 // Sibling-house note: the counterpart in lucky-mem is built on its own branch.
 //
-// invariant: maske-vor-schnitt
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
