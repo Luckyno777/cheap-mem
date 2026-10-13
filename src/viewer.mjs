@@ -170,6 +170,9 @@ export function firstSentence(raw, max = HEADLINE_MAX) {
   // First non-empty line: a paragraph is a boundary, even without a full stop.
   t = t.split(/\r?\n/).map((z) => z.trim()).find((z) => z && !/^[-*#>`\s]*$/.test(z)) ?? '';
   t = t.replace(/^#+\s*/, '').replace(/^[-*>]\s+/, '').replace(/[*`]/g, '').replace(/\s+/g, ' ').trim();
+  // Again: removing markdown characters can JOIN a key shape ("ghp_*body" becomes "ghp_body"),
+  // and that must be masked before the cut as well.
+  t = maskText(t);
   const m = /[.!?…](?=\s|$)/g;
   let hit;
   while ((hit = m.exec(t))) {
@@ -239,7 +242,7 @@ function buildHeadline(e, { type = null } = {}) {
   // bridge; a latch that hangs on two of three is not one. The name
   // stands first and the mark behind it, so twenty rules in a list do
   // not all begin the same way. Whatever the rule's text, the mark stays.
-  if (fieldText(e.rule)) return name ? `${name} — ${procedure.mark(e)}` : procedure.mark(e);
+  if (e.rule) return name ? `${name} — ${procedure.mark(e)}` : procedure.mark(e);
   if (name) return name;
   // Nothing named and no sentence: show what content the entry has, so an
   // unfamiliar shape still reads as something, not "[object]" — as ONE

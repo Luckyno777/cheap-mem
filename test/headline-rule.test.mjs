@@ -260,3 +260,75 @@ test('a rule that is only markdown characters falls on to question and fact, and
   assert.equal(viewer.headline({ ...base, rule: '***' }), mark, 'nothing else to name it: the mark alone, never lost');
   assert.equal(viewer.headline({ ...base, rule: '***', text: 'A sentence of its own. More.' }), `A sentence of its own. \u2014 ${mark}`);
 });
+
+// ---- more fields, markdown inside a key, rules that are not strings -----------
+
+test('a key over the cut is masked in every field the line can come from (title, choice, steps, a foreign field)', () => {
+  const shapes = {
+    title: (run) => ({ title: run }),
+    choice: (run) => ({ topic: 't', choice: run }),
+    steps: (run) => ({ steps: [run, 'second step'] }),
+    foreign: (run) => ({ odd_field: run }),
+    reason: (run) => ({ why: run }),
+  };
+  for (const [name, make] of Object.entries(shapes)) {
+    for (const { kind, lead, key, entry } of overTheCut(() => null)) {
+      const run = `${'x'.repeat(lead)}=${key} the end.`;
+      const out = viewer.headline(make(run), { type: 'decision' });
+      assert.equal(fragment(key, out), null, `${name}/${kind}/${lead}: a fragment of the key stays in "${out}"`);
+      assert.ok(entry === null);
+    }
+  }
+});
+
+test('markdown characters inside a key shape are removed BEFORE the cut and the key is masked after the removal', () => {
+  const key = ['gh', 'p_'].join('') + rnd(36);
+  for (const ins of ['*', '**', '`']) {
+    for (const lead of [40, 60, 80, 85]) {
+      const [head, tail] = [key.slice(0, 4), key.slice(4)];
+      const run = `${'x'.repeat(lead)}=${head}${ins}${tail}`;
+      for (const out of [viewer.headline({ text: run }), viewer.headline({ rule: run, issued_by: 'l' }), viewer.firstSentence(run)]) {
+        assert.equal(fragment(key, out), null, `${ins}/${lead}: a fragment stays in "${out}"`);
+      }
+    }
+  }
+});
+
+test('the mark hangs on the truthiness of `rule` exactly as procedure.mjs reads it', () => {
+  const base = { issued_by: 'lucky', ts: '2026-09-28T09:00:00Z' };
+  const mark = 'Procedure, issued by lucky on 2026-09-28';
+  for (const rule of [' ', ['', ' '], { a: 1 }, ['x'], 1, true]) {
+    const h = viewer.headline({ ...base, rule });
+    assert.ok(h === mark || h.endsWith(` \u2014 ${mark}`), `rule ${JSON.stringify(rule)} keeps the mark: "${h}"`);
+  }
+  for (const rule of [0, false, '', null]) {
+    assert.equal(viewer.headline({ ...base, rule, text: 'Plain sentence here. More.' }), 'Plain sentence here.', `rule ${JSON.stringify(rule)} is no procedure`);
+  }
+});
+
+test('RED on the second build (a112be5): markdown inside a key leaves a fragment, a blank rule loses its mark', async (t) => {
+  const PIN = 'a112be5';
+  let source;
+  try {
+    source = execFileSync('git', ['-C', REPO, 'show', `${PIN}:src/viewer.mjs`], { encoding: 'utf8', maxBuffer: 1 << 26, stdio: ['ignore', 'pipe', 'ignore'] });
+  } catch {
+    t.skip(`commit ${PIN} not reachable (shallow clone?) - red proof unknown, not green`);
+    return;
+  }
+  const copy = oldModuleCopy(path.join(REPO, 'src'), 'viewer.mjs', source);
+  t.after(() => fs.rmSync(copy.dir, { recursive: true, force: true }));
+  const old = await import(pathToFileURL(copy.file).href);
+  let leaked = 0;
+  const key = ['gh', 'p_'].join('') + rnd(36);
+  for (const ins of ['*', '**', '`']) {
+    for (const lead of [40, 60, 80, 85]) {
+      const run = `${'x'.repeat(lead)}=${key.slice(0, 4)}${ins}${key.slice(4)}`;
+      if (fragment(key, old.headline({ text: run }))) leaked += 1;
+    }
+  }
+  assert.ok(leaked > 0, 'the second build leaves fragments behind');
+  const mark = 'Procedure, issued by lucky on 2026-09-28';
+  const blank = { rule: ' ', issued_by: 'lucky', ts: '2026-09-28T09:00:00Z' };
+  assert.notEqual(old.headline(blank), mark, 'old: a blank rule loses the mark');
+  assert.equal(viewer.headline(blank), mark, 'green now');
+});
