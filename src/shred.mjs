@@ -180,7 +180,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { withLock } from './filelock.mjs';
-import { BODY_FIELDS } from './bodyfields.mjs';
+import { BODY_FIELDS, CARD_PROSE_FIELDS } from './bodyfields.mjs';
 import { writeAtomic } from './atomicwrite.mjs';
 
 export const KEYRING_DIR = '.mem';
@@ -231,7 +231,7 @@ const LEGACY_SHREDDABLE = Object.freeze([
  * The standard encryption itself is unchanged.
  */
 export const SHREDDABLE_FIELDS = Object.freeze([
-  ...new Set([...LEGACY_SHREDDABLE, ...BODY_FIELDS]),
+  ...new Set([...LEGACY_SHREDDABLE, ...BODY_FIELDS, ...CARD_PROSE_FIELDS]),
 ]);
 
 /** The fields this module refuses to encrypt, with the reason recorded

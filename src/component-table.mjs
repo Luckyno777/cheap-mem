@@ -283,7 +283,8 @@ export function commitHits(root, knownIds) {
 function idInfoMap(root) {
   const map = new Map(); // id -> { type, text }
   for (const project of [null, ...memory.listProjects(root)]) {
-    for (const type of Object.keys(memory.TYPES)) {
+    // Not the card shelf: a card repeats the paths of its target, and the pre-edit hook would show it before the original.
+    for (const type of memory.SEARCH_TYPES) {
       let it;
       try { it = memory.iterLog(root, type, { project }); } catch { continue; }
       for (const e of it) {

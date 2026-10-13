@@ -248,6 +248,21 @@ class Counter {
   }
 }
 
+/** The fields a question's card is made from (see `decisioncard.cardOf`); `body_enc` travels so a locked question stays locked. */
+const SNAPSHOT_FIELDS = ['id', 'ts', 'agent', 'author', 'authority', 'question', 'title', 'why', 'text', 'who', 'body_enc',
+  'card_question', 'card_context', 'card_options', 'card_advice', 'card_evidence', 'card_kind'];
+const SNAPSHOT_MAX = 1000;
+function questionSnapshot(e) {
+  const out = {};
+  for (const k of SNAPSHOT_FIELDS) {
+    const v = e[k];
+    if (typeof v === 'string') out[k] = v.slice(0, 700);
+    else if (Array.isArray(v)) out[k] = v.filter((x) => typeof x === 'string').slice(0, 12).map((x) => x.slice(0, 300));
+    else if (k === 'body_enc' && v) out[k] = true;
+  }
+  return out;
+}
+
 const withoutZero = (o) => Object.fromEntries(Object.entries(o).filter(([, n]) => n > 0));
 
 const agentOf = (e) => {
@@ -334,6 +349,10 @@ export function runPass(root, {
   const openRows = new Map(); // id -> row of an open duty
   const questionRows = new Newest(2000);
   const questionList = []; // { id, project, tier }
+  // H11: of each question exactly the fields its decision card is made from (`decisioncard.cardOf`), each capped. The pass reads
+  // the store as a stream and keeps counters and bounded lists; questions are few (hundreds), and the card needs more than the
+  // headline of the row. At most SNAPSHOT_MAX questions keep one.
+  const questionSnap = new Map();
   const resolves = []; // { id, from, to, tier } — `resolves` lines of the link drawers (tier: who wrote the edge)
   const captures = new Map(); // origin.raw -> { topics:Set, ids:[] (capped), count }
 
@@ -468,7 +487,11 @@ export function runPass(root, {
         const make = () => (row ??= rowOf(e, { id, type, project: p, source, line, tags, count, drawer: d }));
         windowKeep.offer(ts, id, make);
         if (openIds.has(id) && !openRows.has(id)) openRows.set(id, make());
-        if (type === 'question' && e.question) { questionList.push({ id, project: p, tier: authority.tierOf(e) }); questionRows.offer(ts, id, make); }
+        if (type === 'question' && e.question) {
+          questionList.push({ id, project: p, tier: authority.tierOf(e) });
+          questionRows.offer(ts, id, make);
+          if (questionSnap.size < SNAPSHOT_MAX) questionSnap.set(id, questionSnapshot(e));
+        }
         // The capture an entry came from -> its topics (the raw capture list)
         const capture = typeof e.origin?.raw === 'string' ? e.origin.raw : null;
         if (capture) {
@@ -706,6 +729,7 @@ export function runPass(root, {
       rows: questionTop.filter((r) => openQuestionIds.has(r.id)),
       // Answered, but only by edges below the person who asked: waits for that person's confirmation.
       waiting: waitingQuestions.length, waitingIds: waitingQuestionIds, waitingPerProject,
+      snapshots: questionSnap,
       waitingRows: questionTop.filter((r) => waitingQuestionIds.has(r.id)),
     },
     agents: agentList,

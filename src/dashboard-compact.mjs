@@ -181,8 +181,9 @@ export function collectCompact(root, {
     readJournal,
     doctorCheck: () => { throw new Error(DOCTOR_REASON); },
     dutiesOpen: () => { if (duties) return duties; throw new Error(dutiesError); },
-    questionsOpen: () => questions.rows,
-    questionsWaiting: () => questions.waitingRows,
+    // H11: the rows carry the snapshot of their question, so the card can be made from it (the pass keeps no free text otherwise)
+    questionsOpen: () => questions.rows.map((r) => ({ ...r, snapshot: questions.snapshots.get(r.id) ?? null })),
+    questionsWaiting: () => questions.waitingRows.map((r) => ({ ...r, snapshot: questions.snapshots.get(r.id) ?? null })),
     todayOf: () => { throw new Error(`the today card needs the doctor: ${DOCTOR_REASON}`); },
     ...(modulesOn ? {} : { integrityOf: unavailable('the integrity scan') }),
   }));

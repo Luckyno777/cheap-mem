@@ -47,9 +47,9 @@ test('POSITIVE: the probes really do read the surface', () => {
   // Fixed numbers, not lower bounds: a lower bound would have let the
   // growth from 10 to 12 (question, procedure on 2026-09-08), then to
   // 13 (source), then to 15 (workflow, snippet — wf-a-lm A2/A3, this
-  // house's port) through silently, and this test exists to force
+  // house's port), then to 16 (card — H11) through silently, and this test exists to force
   // somebody to touch the reference when the surface changes.
-  assert.equal(types().length, 15);
+  assert.equal(types().length, 16);
   assert.equal(edges().length, 4);
   assert.ok(modules().length >= 25);
 });
