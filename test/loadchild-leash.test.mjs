@@ -72,6 +72,14 @@ test('a-red) positive control: after the OLD shape the child lives on after SIGK
   const { driver, children } = await startDriver('old', t);
   driver.kill('SIGKILL');
   await sleep(3000);
+  if (process.platform === 'win32') {
+    // Windows has a leash of its own: libuv puts every child it spawns without `detached` into a job object that
+    // ends with the parent, so the old shape leaves no orphan there and this control cannot bite. Hold that fact
+    // instead: should it ever change, this turns red and probe a) needs its red proof on Windows again.
+    assert.deepEqual(children.filter(isAlive), [],
+      'Windows no longer ends a non-detached child with its parent: probe a) needs a red proof here again');
+    return;
+  }
   const living = children.filter(isAlive);
   assert.equal(living.length, children.length,
     'probe a) does not bite: even without a parent leash the children would have been gone within 3 s');
