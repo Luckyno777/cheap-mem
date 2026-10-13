@@ -36,6 +36,7 @@ import * as expand from './expand.mjs';
 import * as drawermemo from './drawermemo.mjs';
 import { BODY_FIELDS } from './bodyfields.mjs';
 import { shapeProblem, legacyLists, withoutListFlags } from './fieldshape.mjs';
+import * as dueCore from './due.mjs';
 
 /**
  * The per-writer hash chain (`src/chain.mjs`), loaded lazily and
@@ -628,6 +629,14 @@ export function logEntry(root, type, data, { project = null, now = new Date() } 
       data = { ...data, authority: c.tier, authority_clamped_from: c.from };
     }
   }
+
+  // **A headless run never writes as the person (question-rank-cm, 2026-10-12).** The question is asked at
+  // the write core, not at one input route: after the default, the normalisation and the ceiling, THIS is the
+  // tier the line will carry. `user` from a headless run (MEM_HEADLESS: the reflector, the watcher's
+  // `claude -p` session) is refused whatever the route was (`--authority`, a raw `mem log link`, `mem done`,
+  // `mem answer`). Under a ceiling the claim was already LOWERED above, not refused, so the digest and the
+  // reflector keep working unchanged; the not-headless CLI stays the person's way.
+  if (data.authority === 'user') authority.checkNotHeadless();
 
   const p = logPath(root, type, project);
   // **No silent project creation (2026-10-02, owner decision).** The
@@ -1224,6 +1233,9 @@ export const NO_CONTENT_MESSAGE = 'this entry would have no content. At least on
   + 'is never findable again. Nothing was written.';
 
 export function logCheckedEntry(root, type, data, options = {}) {
+  // Q1 (due-date core): `due` only on a duty, only in the two forms - here, so that the CLI and the bridge get the same
+  // refusal. First of all: a refusal never wrote anything.
+  dueCore.checkWrite(type, data);
   if (!hasContent(data)) {
     const e = new Error(NO_CONTENT_MESSAGE);
     e.code = 'NO_CONTENT';
@@ -3010,6 +3022,8 @@ export function correctionEntry(root, type, oldId, newData, { project = null, wi
   if (typeof oldId !== 'string' || !oldId) {
     throw new Error('Correction needs an old id');
   }
+  // Q1: a NAMED due date (not an inherited one) is judged like a written one: duty only, the two forms.
+  dueCore.checkWrite(type, newData);
   // P12: wants ONE entry by id, not the whole drawer — `iterLog` stops
   // parsing the moment it is found instead of materialising every other
   // entry first. See the comment on `iterLogFile` for why this, and not
@@ -3149,9 +3163,21 @@ function namesOwnError(duty, id, errorOf) {
  */
 export function dutyReplaceVerdict(e, target, heldIds = [], errorOf = null) {
   const ids = Array.isArray(heldIds) ? heldIds : [];
-  let verdict = isAutoDutyExtension(e, target, ids, errorOf)
-    ? { status: 'allowed', reason: 'an automatic duty extended by more error ids' }
-    : authority.mayChangeState(e, target, 'closes_id');
+  // Owner decision R (2026-10-12): a replacement that CHANGES or REMOVES the due date counts only from the author or a higher
+  // tier - not from the debtor, not sideways from the same tier (`authority.maySupersede`, the strict rule). Closing stays
+  // with the debtor (`closeDuty`, `closes_id`). Everything else about a replacement keeps the closing rule below.
+  const dueChanged = JSON.stringify(dueCore.dueValue(e)) !== JSON.stringify(dueCore.dueValue(target));
+  let verdict;
+  if (dueChanged) {
+    verdict = authority.mayChangeState(e, target, 'replaces_id');
+    if (verdict.status === 'refused') {
+      verdict = { ...verdict, reason: `moving or removing a due date needs the author or a higher tier (${verdict.reason})` };
+    }
+  } else if (isAutoDutyExtension(e, target, ids, errorOf)) {
+    verdict = { status: 'allowed', reason: 'an automatic duty extended by more error ids' };
+  } else {
+    verdict = authority.mayChangeState(e, target, 'closes_id');
+  }
   if (verdict.status !== 'refused' && ids.length) {
     const own = Array.isArray(e.error_ids) ? e.error_ids : [];
     const closing = [DUTY_STATE.DONE, DUTY_STATE.DROPPED].includes(String(e.state ?? ''));
@@ -3356,10 +3382,27 @@ export function openDuties(root, { project = undefined } = {}) {
     return null;
   }
 
+  // Q1: "open since" is the START of the chain. A correction (a moved due date, say) has a new `ts`; the duty is not
+  // younger for it. `_since` is set only on a stage whose chain starts earlier than its own `ts`.
+  const chainStart = (e) => {
+    let since = e.ts;
+    const seen = new Set([e.id]);
+    let cur = e.id;
+    while (predecessor.has(cur)) {
+      const prev = all.get(predecessor.get(cur));
+      if (!prev || seen.has(prev.id)) break;
+      seen.add(prev.id);
+      if (typeof prev.ts === 'string' && (typeof since !== 'string' || prev.ts < since)) since = prev.ts;
+      cur = prev.id;
+    }
+    return since;
+  };
   const open = [];
   const done = [];
-  for (const [id, e] of all) {
+  for (const [id, e0] of all) {
     if (replacedIds.has(id)) continue; // an earlier stage — the newer line represents it
+    const since = predecessor.has(id) ? chainStart(e0) : e0.ts;
+    const e = since !== e0.ts ? { ...e0, _since: since } : e0;
     const shut = closedForChain(id);
     if (shut) done.push({ ...e, _closed: shut });
     else open.push(e);

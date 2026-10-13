@@ -67,6 +67,12 @@ git config, so every clone needs this once:
 mem hooks install     # installs the pre-commit scan and proves it with a decoy token
 ```
 
+If the memory already is a git repository, `mem init` and `mem setup claude` arm
+it for you (and leave a `core.hooksPath` that is set alone). The same pre-commit
+hook also refuses any commit that changes or deletes a line a log already holds -
+logs only grow at the end; a deliberate change needs
+`CHEAP_MEM_JSONL_APPROVAL="<reason, approval id>"` for that one commit.
+
 ## 5. Edit FACTS.md
 
 Put things a session should know without asking:
@@ -89,6 +95,18 @@ mem log event    --title "shipped auth flow" --tags auth,shipped
 mem log decision --topic memory-backend --choice sqlite --why "smaller than postgres"
 mem log error    --class flake --title "CI timed out on test/e2e/*" --text "reproduced locally"
 ```
+
+A duty can carry a due date — a day (`YYYY-MM-DD`, in your time zone) or a point in time
+with a zone (`2026-11-01T17:00:00+01:00`); anything else is refused:
+```bash
+mem log duty --title "send the tax papers" --owner human --due 2026-11-01
+mem deadlines                       # open duties with a due date: fresh / due / overdue
+mem correction duty <id> --due 2026-11-15      # move it: the old line stays, the new one replaces it
+mem correction duty <id> --without due         # take the date away again
+```
+Moving or removing a due date counts only from whoever wrote the duty or from a higher authority tier (`--authority`),
+not from the person it is owed to; that person still closes it. The old names (`--deadline`, `--due_date`, `--until`, `--by`)
+are refused when writing - use `--due`.
 
 A project is created once, before anything is logged into it
 (`--project <unknown>` is refused rather than creating a half-made

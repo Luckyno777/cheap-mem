@@ -39,9 +39,9 @@
  */
 const TEXT_FIELDS = Object.freeze([
   'title', 'text', 'why', 'topic', 'class', 'choice', 'learning', 'duty', 'question', 'skill', 'rule',
-  'fact', 'description', 'excerpt', 'body', 'key', 'file', 'owner', 'who', 'kind', 'from', 'to', 'by',
+  'fact', 'description', 'excerpt', 'body', 'key', 'file', 'owner', 'who', 'kind', 'from', 'to',
   'by_id', 'replaces_id', 'retires_id', 'closes_id', 'state', 'status', 'authority', 'agent', 'valid_from',
-  'valid_until', 'due', 'due_date', 'until', 'deadline', 'address', 'language', 'when', 'scope',
+  'valid_until', 'address', 'language', 'when', 'scope',
   'family', 'subject', 'project', 'type', 'source', 'target', 'start_status', 'status_of', 'issued_by',
   'hash', 'author',
 ]);

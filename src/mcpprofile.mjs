@@ -54,7 +54,7 @@ export const READING = Object.freeze([
   'mem_procedures', 'mem_component', 'mem_links',
   'mem_skill_find', 'mem_skill_fetch',
   'mem_show', 'mem_experiences', 'mem_topics', 'mem_facts',
-  'mem_explain', 'mem_retrieve', 'mem_find', 'mem_duties',
+  'mem_explain', 'mem_retrieve', 'mem_find', 'mem_duties', 'mem_deadlines',
   'mem_context', 'mem_inbox_show', 'mem_store_list', 'mem_store_get',
   'mem_user_habits', 'mem_ledger',
   // 2026-10-02: counts topics against captures, creates nothing (dry run).

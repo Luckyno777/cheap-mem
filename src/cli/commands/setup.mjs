@@ -33,7 +33,7 @@ import * as board from '../../board.mjs';
 import * as errorcontext from '../../errorcontext.mjs';
 import { PKG_ROOT, out, die, warn, checkFlags, numberFlag, isHelp, findRoot, requireConfig } from '../shell.mjs';
 import { compactLine, countLines } from '../display.mjs';
-import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore } from '../githook.mjs';
+import { installHook, proveHook, writeMergeDriver, writeMemoryGitignore, armHookIfRepo } from '../githook.mjs';
 
 /** 15 commands. */
 export const COMMANDS = {
@@ -103,6 +103,8 @@ export const COMMANDS = {
       } else {
         out(`  .gitignore and merge driver are in order`);
       }
+      // AU11: the hook is part of "in order" - arm it when it is not (a git repo, nothing set yet).
+      for (const l of armHookIfRepo(root).lines) out(`  ${l}`);
       out(`Pass --force to overwrite the config.`);
       return;
     }
@@ -169,13 +171,21 @@ export const COMMANDS = {
     out(``);
     out(`  merge driver: .gitattributes (*.jsonl merge=union)`);
     out(``);
+    // AU11: if the memory already is a git repository, arm the hook now instead of advising it.
+    const armed = armHookIfRepo(root);
+    for (const l of armed.lines) out(l);
+    if (armed.lines.length) out(``);
     out(`Next:`);
     out(`  mem whoami <${Object.keys(cfg.participants).join('|')}>`);
     out(`  git init && git add -A && git commit -m "init cheap-mem" && git remote add origin <url>`);
-    out(`  mem hooks install       <- do this one. Without it nothing stops a`);
-    out(`                             secret from reaching git. core.hooksPath is`);
-    out(`                             local config: a clone does not inherit it,`);
-    out(`                             so every checkout needs it again.`);
+    if (armed.state === 'armed' || armed.state === 'already') {
+      out(`  (the git hook is armed above; a fresh clone needs \`mem hooks install\` once: core.hooksPath is local config)`);
+    } else {
+      out(`  mem hooks install       <- do this one, once the memory is a git repository.`);
+      out(`                             Without it nothing stops a secret from reaching`);
+      out(`                             git. core.hooksPath is local config: a clone does`);
+      out(`                             not inherit it, so every checkout needs it again.`);
+    }
     out(``);
     out(`Then: mem doctor --strict   (it verifies the guarantees above, and says`);
     out(`                             which layer owns each one)`);
@@ -241,6 +251,12 @@ export const COMMANDS = {
       stdio: 'inherit',
     });
     if (r.status !== 0) die(`setup: ${script} failed (exit ${r.status})`);
+
+    // AU11: the installer arms the git hook of the memory itself (git repo, nothing set yet). Right
+    // after the wiring succeeded and BEFORE the optional MCP part: a missing SDK returns early below
+    // and must not leave the secret check unarmed.
+    const armedHook = armHookIfRepo(root);
+    if (armedHook.lines.length) { out(''); for (const l of armedHook.lines) out(l); }
 
     // The MCP server is the one piece the install script does not do.
     // Registering it needs the claude CLI; when that is absent, say the

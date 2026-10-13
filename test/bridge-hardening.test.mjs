@@ -112,14 +112,20 @@ test('N1 positive control: a real entry id still unlocks state / by_id', (t) => 
 
 test('N2: a duty carries its due date and counterpart fields; the schema says which type takes what', (t) => {
   const root = world(t);
-  const fields = { due: '2026-11-01', due_date: '2026-11-01', until: '2026-11-02', deadline: '2026-11-03', by: 'user', to: 'librarian' };
-  const [r, list] = bridge(root, [
+  // Q1 (due-date core): the bridge writes only `due`; the older names `due_date / until / deadline / by` are still READ
+  // (src/due.mjs) but refused over the bridge, by name.
+  const fields = { due: '2026-11-01', to: 'librarian' };
+  const [r, list, old] = bridge(root, [
     ['mem_log', { type: 'duty', title: 'owed', duty: 'send it', owner: 'foreign', ...fields }],
     ['tools/list', {}],
+    ['mem_log', { type: 'duty', title: 'old names', due_date: '2026-11-01', until: '2026-11-02', deadline: '2026-11-03', by: 'user' }],
   ]);
   assert.ok(!r.isError, textOf(r));
   const e = rows(root, 'duty')[0];
   for (const [k, v] of Object.entries(fields)) assert.equal(e[k], v, k);
+  assert.equal(old.isError, true, 'the old due names are not written over the bridge any more');
+  for (const k of ['due_date', 'until', 'deadline', 'by']) assert.match(textOf(old), new RegExp(`'${k}'`), k);
+  assert.equal(rows(root, 'duty').length, 1, 'nothing was written for the refused call');
   const props = list.tools.find((x) => x.name === 'mem_log').inputSchema.properties;
   assert.match(props.choice.description ?? '', /decision/i, 'choice is advertised for every type');
   assert.match(props.from.description ?? '', /learning/i);

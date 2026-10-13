@@ -33,6 +33,8 @@ import * as errorfixes from '../../errorfixes.mjs';
 import * as skillregistry from '../../skillregistry.mjs';
 import * as categories from '../../categories.mjs';
 import * as expand from '../../expand.mjs';
+import * as dueCore from '../../due.mjs';
+import { zoneOf } from '../../appointments.mjs';
 import { out, die, warn, checkFlags, numberFlag, isHelp, fieldsFrom, findRoot, requireConfig, authorityArg, textFlag } from '../shell.mjs';
 import { dateFieldOf, compactLine, countLines, retireCmd } from '../display.mjs';
 
@@ -56,6 +58,9 @@ export const COMMANDS = {
         "  --category <key>  propose a category for the entry's NEW topic (an own",
         "             line, never an entry field); --category-new \"key|Label\" proposes",
         "             a new one. Code decides: see `mem category --help`.",
+        "  --due <YYYY-MM-DD|ISO with zone>  only on a duty: a day in the house zone",
+        "             (overdue from 00:00 of the following day) or a point in time with a",
+        "             zone. Anything else is refused. Read it with `mem deadlines`.",
         "  --valid_from / --valid_until  when the content HOLDS (not when it was",
         "             written — that is --ts). --valid_until is refused if it is",
         "             not a readable date. State it only when you know a real end",
@@ -1047,6 +1052,11 @@ export const COMMANDS = {
         '',
         '  Duty is the only type with a lifecycle. Closing appends a',
         '  new line; the original is never touched.',
+        '  A duty with a due date shows it behind the title with its state',
+        '  (fresh, due, overdue, unknown); only those: `mem deadlines`.',
+        '  Set:    mem log duty --title "..." --owner human --due 2026-11-01',
+        '  Move:   mem correction duty <id> --due 2026-11-15   (the old line stays)',
+        '  Remove: mem correction duty <id> --without due',
       ].join('\n'));
       return;
     }
@@ -1074,15 +1084,61 @@ export const COMMANDS = {
       { project: args.project === undefined ? undefined : args.project });
     out(`${open.length} open, ${done.length} closed`);
     out('');
+    const nowMs = Date.now();
+    const zone = zoneOf(root);
     for (const d of open) {
-      out(`  [${d.id}] ${d.owner ? `@${d.owner} ` : ''}${d.title ?? d.text ?? '?'}`);
-      out(`      since ${d.ts}  ${d._source}:${d._line}`);
+      const value = dueCore.dueValue(d);
+      const dueText = value === null ? '' : `  due ${typeof value === 'string' ? value : '(unreadable)'} (${dueCore.state(value, nowMs, { zone })})`;
+      out(`  [${d.id}] ${d.owner ? `@${d.owner} ` : ''}${d.title ?? d.text ?? '?'}${dueText}`);
+      out(`      since ${dueCore.openSince(d)}  ${d._source}:${d._line}`);
     }
     if (args.all) {
       out('');
       for (const d of done) {
         out(`  [done] ${d.title ?? d.text ?? '?'}  (${d._closed.state}, ${d._closed.ts})`);
       }
+    }
+  },
+
+  deadlines: async ({ args }) => {
+    if (isHelp(args)) {
+      out([
+        'mem deadlines [--project <name>|global] [--json]',
+        '',
+        '  The open duties WITH a due date, earliest first, each with its state:',
+        '    fresh     the due date lies before the day it falls due',
+        '    due       the day of the due date is running',
+        '    overdue   passed (a day: from 00:00 of the following day in the house zone)',
+        '    unknown   the duty carries a value that cannot be read',
+        '  Duties without a due date are only counted, not listed.',
+        '  --json: the same computation for a machine (as_of, zone, counts, deadlines).',
+        '',
+        '  Set:    mem log duty --title "..." --owner human --due 2026-11-01',
+        '  Move:   mem correction duty <id> --due 2026-11-15   (the old line stays)',
+        '  Remove: mem correction duty <id> --without due',
+      ].join('\n'));
+      return;
+    }
+    checkFlags(args, ['project', 'json'], 'deadlines');
+    const root = findRoot(args);
+    requireConfig(root);
+    const { open } = memory.openDuties(root, { project: args.project === undefined ? undefined : args.project });
+    const nowMs = Date.now();
+    const zone = zoneOf(root);
+    const s = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (d) => String(d.title ?? d.text ?? d.id ?? '') });
+    const deadlines = s.list.map(({ overdueFromMs: _ms, ...row }) => row);
+    const { fresh, due: dueNow, overdue, unknown } = s; // counts of the situation, not a read of a duty's field
+    if (args.json) {
+      out(JSON.stringify({
+        as_of: new Date(nowMs).toISOString(), zone, open: s.open, with_due: s.withDue, without_due: s.withoutDue,
+        fresh, due: dueNow, overdue, unknown, deadlines,
+      }));
+      return;
+    }
+    out(`${s.withDue} open duties with a due date (${overdue} overdue, ${dueNow} due, ${fresh} fresh, `
+      + `${unknown} unknown), ${s.withoutDue} without`);
+    for (const { state: st, due: value, id, who, title } of deadlines) {
+      out(`  ${st.padEnd(8)}  ${value ?? '(unreadable)'}  [${id}]${who ? `  @${who}` : ''}  ${title}`);
     }
   },
 

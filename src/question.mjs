@@ -23,13 +23,32 @@
  * else answers it — and the `resolves` edge already exists for that. A
  * second mechanism would say the same thing twice, and two truths
  * about one state drift apart.
+ *
+ * **Who may close it (owner decision, 2026-10-12, variant A).** A
+ * question a PERSON asked (tier `user`) is closed only by the person's
+ * confirmation - an edge of tier `user`. An agent's `resolves` edge on
+ * it records an answer and leaves the question `waiting`: neither open
+ * nor closed, and shown as "answered, waits for you". Every other
+ * question closes on any valid edge, as before. This is still the one
+ * mechanism (the edge) read by the one rule (`authority.mayCloseQuestion`);
+ * the third state is derived from the graph, never stored on the question.
  */
 import * as memory from './memory.mjs';
+import * as authority from './authority.mjs';
 
 export const TYPE = 'question';
 
+/**
+ * The three states of a question - derived from the graph, never stored.
+ *   open      no `resolves` edge points at it.
+ *   waiting   answered, but only by edges below the tier of the person who
+ *             asked: it waits for that person's confirmation.
+ *   closed    an edge closes it (`authority.mayCloseQuestion`).
+ */
+export const STATE = Object.freeze({ OPEN: 'open', WAITING: 'waiting', CLOSED: 'closed' });
+
 /** The edge that closes a question. From the existing vocabulary. */
-export const RESOLVES = 'resolves';
+const RESOLVES = 'resolves';
 
 /**
  * Check the fields. A question needs exactly one thing: the question.
@@ -53,10 +72,25 @@ export function check(fields = {}) {
 }
 
 /**
+ * The state of a question from its own tier and the tiers of the valid
+ * `resolves` edges pointing at it - the ONE fold, shared by `all()` and
+ * the dashboard's single pass (`src/dashboard-pass.mjs`, which reads the
+ * graph as a stream and so only has tiers, not entries).
+ */
+export function stateFrom(questionTier, edgeTiers) {
+  if (!edgeTiers.length) return STATE.OPEN;
+  const q = { authority: questionTier };
+  return edgeTiers.some((t) => authority.mayCloseQuestion({ authority: t }, q).ok) ? STATE.CLOSED : STATE.WAITING;
+}
+
+/**
  * Every question with its state.
  *
  * Open means: no `resolves` edge points at it. Answered means one does,
- * and the answering entry comes along.
+ * and the answering entry comes along. Whether that answer also CLOSES
+ * the question is the rule of `authority.mayCloseQuestion`: a question
+ * of tier `user` stays `waiting` until an edge of tier `user` confirms
+ * it. `open` stays "no edge at all"; `waiting` is its own flag.
  *
  * The GRAPH is read, not a field on the question — otherwise there
  * would be two truths about one state, and one of them would eventually
@@ -81,12 +115,19 @@ export function all(root, { project = undefined } = {}) {
   // the same path with one id - one rule, one place).
   const graph = memory.linksOfMany(root, questions.map(({ e }) => e.id), { byId: memory.entriesById(root) });
   return questions.map(({ e, p }) => {
-    const answers = graph.get(e.id).incoming.filter((r) => r.kind === RESOLVES);
+    const answers = graph.get(e.id).incoming.filter((r) => r.kind === RESOLVES).map((r) => ({
+      id: r.from, entry: r.entry, edge: r.link?.id ?? null,
+      tier: authority.tierOf(r.link), ts: r.link?.ts ?? null,
+      closes: authority.mayCloseQuestion(r.link, e).ok,
+    }));
+    const state = stateFrom(authority.tierOf(e), answers.map((a) => a.tier));
     return {
       ...e,
       _project: p,
-      open: answers.length === 0,
-      answers: answers.map((r) => ({ id: r.from, entry: r.entry })),
+      state,
+      open: state === STATE.OPEN,
+      waiting: state === STATE.WAITING,
+      answers,
     };
   });
 }
@@ -96,10 +137,39 @@ export function open(root, opt = {}) {
   return all(root, opt).filter((q) => q.open);
 }
 
-/** One line per question — open or answered. */
+/** Answered, but waiting for the confirmation of the person who asked. */
+export function waiting(root, opt = {}) {
+  return all(root, opt).filter((q) => q.waiting);
+}
+
+/**
+ * Put an answer to a question: one `resolves` edge, nothing else. ONE place
+ * for the CLI (`mem answer`, `mem questions confirm`) and the bridge
+ * (`mem_answer`), so neither answers the tier question on its own. The caller
+ * has already checked the right to claim `user` (`authority.checkUserWrite`
+ * and the explicit claim); without a tier the write path stamps `agent`.
+ * Returns `{ entry, path, state }`: the state of the question AFTER the edge.
+ */
+export function answer(root, questionId, withId, {
+  why = undefined, agent = undefined, authority: tier = undefined, confirmed = false, project = null,
+} = {}) {
+  const data = { from: withId, to: questionId, kind: RESOLVES };
+  if (why !== undefined && why !== null && why !== '') data.why = String(why);
+  if (agent) data.agent = agent;
+  if (tier) data.authority = String(tier);
+  if (confirmed) data.confirmed = true;
+  const { entry, path: p } = memory.logEntry(root, 'link', data, { project });
+  const q = all(root).find((x) => x.id === questionId);
+  return { entry, path: p, state: q?.state ?? null };
+}
+
+/** One line per question — open, answered and waiting, or closed. */
 export function line(q) {
-  const mark = q.open ? 'open   ' : 'closed ';
+  const mark = q.open ? 'open   ' : q.waiting ? 'waiting' : 'closed ';
   const short = String(q.question).replace(/\s+/g, ' ').slice(0, 100);
-  const rest = q.open ? '' : `  <- ${q.answers.map((a) => a.id).join(', ')}`;
+  const ids = q.answers.map((a) => a.id).join(', ');
+  const rest = q.open ? ''
+    : q.waiting ? `  <- ${ids}  (answered, waits for the person's confirmation)`
+      : `  <- ${ids}`;
   return `${mark} ${String(q.id).padEnd(14)} ${short}${rest}`;
 }

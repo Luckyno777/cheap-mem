@@ -40,6 +40,7 @@
  */
 
 import * as memory from './memory.mjs';
+import * as dueCore from './due.mjs';
 import * as doctorMod from './doctor.mjs';
 import * as cfgmod from './config.mjs';
 import * as verifylog from './verifylog.mjs';
@@ -114,7 +115,7 @@ export function decisionsForHuman(root, { human = null } = {}) {
   }
   const list = open
     .filter((p) => (p.who ?? p.owner ?? p.to ?? null) === who)
-    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: p.due ?? p.by ?? null, since: p.ts ?? null }))
+    .map((p) => ({ id: p.id, title: p.title ?? p.text ?? p.id, due: dueCore.dueText(p), since: dueCore.openSince(p) }))
     .sort((a, b) => String(a.since ?? '').localeCompare(String(b.since ?? '')));
   return { readable: true, reason: null, who, list };
 }
@@ -371,7 +372,7 @@ export function wordPairSuggestions() {
  * card shows nothing. Unreadable: `readable: false` with a reason — never
  * an invented 0.
  */
-function projectsAwaiting(root) {
+export function projectsAwaiting(root) {
   try {
     const list = [];
     for (const name of memory.listProjects(root)) {
@@ -424,7 +425,11 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
   const wordPairs = wordPairSuggestions();
   const gold = goldQuestions(root, { env, now });
   const projects = projectsAwaiting(root);
+  return assemble({ ops, decisions, verify, review, wordPairs, gold, projects }, { env, now });
+}
 
+/** The parts of a day result put together: reasons, state, counts, line — one place for `today()` and `refresh()`. */
+function assemble({ ops, decisions, verify, review, wordPairs, gold, projects }, { env, now }) {
   const reasons = [
     ...(ops.readable ? [] : [ops.reason]),
     ...(decisions.readable ? [] : [decisions.reason]),
@@ -453,6 +458,28 @@ export function today(root, { env = process.env, now = new Date(), doctorResult 
   result.counts = counts(result);
   result.line = line(result);
   return result;
+}
+
+/**
+ * A stored day result with some of its parts read again (board-width-fresh-cm): `names` is a subset of
+ * `gold`, `projects`. Everything else stays as stored; reasons, state, counts and line are put together anew
+ * by the same function `today()` uses. THROWS when the stored result is not a day result or a part cannot be
+ * read (the caller names the reason and keeps the stored part).
+ */
+export function refresh(stored, root, names, { env = process.env, now = new Date() } = {}) {
+  if (!stored || typeof stored !== 'object' || !stored.operations || !stored.gold || !stored.projects) throw new Error('no stored day result to refresh');
+  const parts = {
+    ops: stored.operations, decisions: stored.decisions, verify: stored.verify, review: stored.review, wordPairs: stored.wordPairs,
+    gold: stored.gold, projects: stored.projects,
+  };
+  for (const n of names) {
+    if (n === 'gold') parts.gold = goldQuestions(root, { env, now });
+    else if (n === 'projects') parts.projects = projectsAwaiting(root);
+    else throw new Error(`day part '${n}' cannot be refreshed`);
+  }
+  // `at` stays the time of the stored result (parts not read again are from then); NaN falls back to now.
+  const at = new Date(stored.at);
+  return assemble(parts, { env, now: Number.isNaN(at.getTime()) ? now : at });
 }
 
 /** Longest allowed session-start line (characters) — one line stays one line. */
@@ -505,7 +532,7 @@ export function asText(result) {
 
   lines.push(`DECISIONS FOR THE HUMAN: ${result.decisions.readable ? result.decisions.list.length : 'unknown'}`);
   if (!result.decisions.readable) lines.push(`  ${result.decisions.reason}`);
-  for (const d of result.decisions.list ?? []) lines.push(`  [duty] ${d.id}  ${d.title}${d.due ? `  (due ${d.due})` : ''}`);
+  for (const { id, title, due: dueText } of result.decisions.list ?? []) lines.push(`  [duty] ${id}  ${title}${dueText ? `  (due ${dueText})` : ''}`);
   lines.push('');
 
   lines.push(`TO VERIFY: ${result.verify.readable ? result.verify.list.length : 'unknown'} (of ${result.verify.totalUncertain ?? 0} uncertain)`);

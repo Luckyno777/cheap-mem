@@ -27,9 +27,9 @@ the verification commands at the end.
 | **Corruption & rollback** | broken-line counting (never silent skipping), epoch watermark detecting a memory that went backwards, semantics version, integrity checks over the replacement graph | [4](#4-integrity) |
 | **Boundaries** | capability object as scope boundary, redaction before disk, structured-claims gateway (no prose emitted), resource limits and context quotas | [5](#5-boundaries) |
 | **Automation** | 7 Claude Code hooks (session start, recall per message, recall per file edit, recall after a failed or failure-printing tool call, subagent start, answer check and capture at stop), one model call per few hours, watcher, git as sync | [6](#6-automation) |
-| **Surfaces** | 85 CLI commands, 42 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
+| **Surfaces** | 86 CLI commands, 43 MCP tools, an HTTP viewer, a status board (`mem board`, text or one self-contained HTML page), a self-check (`mem doctor`) | [7](#7-surfaces) |
 | **Multi-agent** | origin stamped on every write, error latches, heartbeats separating "dead" from "nothing to do", error broadcast into other agents' inboxes, procedures (a norm only a human can issue), open questions as a class of their own, neighbours shown at write time, an onboarding check that is evidenced rather than ticked, sources indexed without fetching, component-name resolution for the pre-edit hook | [10](#10-multi-agent) |
-| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4281 tests | [8](#8-how-to-verify-any-claim-here) |
+| **Measurement** | 17 benchmarks, an eval harness with a frozen reference run, 4440 tests | [8](#8-how-to-verify-any-claim-here) |
 | **Deliberately absent** | usage counters, `confidence` floats, decay-as-deletion, graph database, LLM per fact, second temporal axis | [9](#9-deliberately-absent) |
 
 **One-sentence positioning.** cheap-mem is a local, git-backed,
@@ -46,10 +46,12 @@ directory. The section number in brackets is where it is explained.
 
 | Module | What it is |
 |---|---|
+| `appendonly.mjs` | AU11: the ONE append-only rule (a log's committed text must be a prefix of the new text, CRLF folded) for the pre-commit hook and the doctor finding `append-only-git`; which files count as the memory's logs; the `CHEAP_MEM_JSONL_APPROVAL` variable |
 | `appointment-clock.mjs` | the calendar's clock: what is due now becomes a letter, exactly once (intent, letter, delivered, under a file lock; repair after a dead run; the cap; the daily proposal summary) |
 | `appointment-invite.mjs` | the calendar outlet: reminders as RFC 5545 invitations over SMTP or the Google Calendar API (service account), journal with backoff and idempotence, secrets only from 0600 files, the doctor's `appointment-invite` state |
 | `appointment-time.mjs` | points in time for appointments: any IANA zone, UTC stored, English expressions, repeats in wall time, clock-change rules |
 | `appointment-today.mjs` | "Today in the calendar": the day list, the briefing text, the session-start line, the state of fired actions, the dashboard's overview |
+| `due.mjs` | the due-date core: when a duty is fresh, due or overdue — the field `due` (a day in the house zone or an ISO point in time with a zone), the day boundary at midnight of the zone (never UTC), the aliases still read, "open since" from the start of the chain; the one place that knows the field name (`shared/calculations.jsonl`, `due-one-place`) |
 | `appointments.mjs` | the calendar's store: append-only `appointments/`, the fold, who may do what, the plan, the caps (`docs/appointments.md`) |
 | `agentledger.mjs` | counts agent job outcomes from the event log — never a claimed strength below 20 jobs for a group (`unknown (n<20)`) |
 | `afterfailure.mjs` | X2b: the after-error occasion — what the PostToolUseFailure hook (`bin/mem-after-failure`, bash and PowerShell) asks and shows after a tool call really failed: parse the failure, pick the error and learning lanes, book the journal line with its reason |
@@ -92,6 +94,7 @@ directory. The section number in brackets is where it is explained.
 | `dashboard.mjs` | the old desk's data collector, still the first pass under the dashboard's data (7.5) |
 | `dashboard-cache.mjs` | `/dashboard.json` from a cache: generation stamp (drawers, git reflog, local sources), background rebuild in a worker thread with a heap cap the parent enforces, cold start from the head on disk or a placeholder, age counted from the end of the build, never stale as fresh (`cache.fresh`/`refreshing`/`reason`/`source`) (7.5) |
 | `dashboard-head.mjs` | the first answer of `/dashboard.json`: newest entries + server-side counters (`overview`), the rest paged through `/dashboard/part.json?part=entries`; the head kept on disk without free texts (0600, atomic); the light head only as the quick first state of a store the full build still handles |
+| `dashboard-live.mjs` | after a write of the person's own, the parts of `/dashboard.json` that write made stale, computed fresh with the same read functions the full build uses and laid over the cached answer until a build started after the write is done; a part that cannot be computed is named (`live_errors`), never silently old (7.5) |
 | `dashboard-pass.mjs` | ONE pass over the drawers for a store the full build cannot handle: line total, overview, net, open questions, agents, projects, the newest entries and the condensed 3D atlas (the 240 largest topics, drawers, pair counts, the newest 60 entries of each as the first page); fingerprint table of about 14 bytes an entry, no entry list in memory; `/dashboard/part.json?part=atlas` pages it 60 at a time |
 | `dashboard-compact.mjs` | the compact build above the full-build line (replaces the light head): the pass plus the same `collectDashboard()` as the full build; modules that read the whole store themselves (integrity, duties, facts, topics, learnings) run up to 128 MB of drawers, above they are unknown with a reason; the doctor and today never run there |
 | `dashboard-data.mjs` | the dashboard's DATA layer: `/dashboard.json`, one entry, one message, the read-only retrieval probe, facts at a date (7.5) |
@@ -189,6 +192,7 @@ directory. The section number in brackets is where it is explained.
 | `categories.mjs` | categories ABOVE topics, shipped empty: four append-only tables under `global/` (`categories`, `topic-category`, `category-aliases`, `category-wishes`), applied on read; `mem category list/open/assign/confirm/create/acknowledge/rename/merge`; a new category creates itself from 3 different topics with the project-name similarity protection (a near-duplicate lands on the existing one, a project name is refused); `mem find --category`; the doctor finding `categories`; `categories` and `topics.list[].category` in the dashboard data. `create --suggested` adopts a neutral starter list, nothing is baked in |
 | `categories-initial.mjs` | `mem category initial-assign`: deterministic keyword rules propose a category for topics without one (clear lead only, never guessed); a person confirms |
 | `projectpackage.mjs` | the project package export behind the "Load JSON package" button in the dashboard's export studio (Sources → Export studio): same selection as the preview, plaintext through redaction, encrypted entries stay ciphertext, raw captures/mail/file bytes/keys excluded, "why" only from raw lines (`GET /dashboard/project-package.json`) |
+| `ruledraft.mjs` | AU6: the weekly collection list of rule DRAFTS - per error class with a repetition pattern (same class and file, or same class and title, 3x in 14 days) and no procedure in force one `thought` tagged `rule-proposal`, at most one per class and ISO week; a draft is not a procedure, no model (`mem suggest rules`) |
 | `runningmark.mjs` | W1 parity: an atomic start marker (`.pipeline/running/<service>.json`) so `doctor.checkRunningCode` can tell whether `mem serve`/`mem-mcp --http` still run the code they started with (Bauplan W1) |
 | `search.mjs` | BM25, thesaurus, tag graph, the index |
 | `semantics.mjs` | which rules produced this state (4) |
@@ -653,7 +657,7 @@ evidence, and a network answer that may be missing cannot carry a block.
 
 ## 7. Surfaces
 
-### 7.1 CLI — 85 commands
+### 7.1 CLI — 86 commands
 
 ```
 init whoami inbox log find discard done when show raw digest duties
@@ -665,7 +669,7 @@ bridge serve gauges shrink paths net teach maintenance observations
 find-embed find-hybrid raw-capture topic-merge archive chain user ledger
 asked-learn effect today modelcost gold skills restore merge supersede
 gaps suggest search-levers rewrites workflow snippet error-fixes
-experience command-guard appointment category envvars
+experience command-guard appointment category envvars deadlines
 ```
 
 `mem appointment` is the calendar: reminders, a day briefing and agent actions
@@ -690,7 +694,7 @@ Every command takes `--help`. `mem doctor` is the self-check: it
 reports what is configured, what is missing, and what is merely
 unknown — UNKNOWN is a distinct result from OK and ERROR, on purpose.
 
-### 7.2 MCP — 42 tools
+### 7.2 MCP — 43 tools
 
 For agents without hooks (ChatGPT, Codex, Gemini CLI, Cursor, Claude
 Desktop). `bin/mem-mcp`, stdio (or `--http`).
@@ -702,8 +706,8 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_appointment_new` | propose an appointment: a reminder, or an action for an agent at a time. Always a proposal until a human confirms, also with a quoted user request (the bridge cannot verify it: noted as unverified, counts towards the daily limit) |
 | `mem_appointment_list` | read only: the next 14 days, or every appointment, or the day list |
 | `mem_appointment_cancel` | cancel your own proposal (an armed appointment is the user's) |
-| `mem_questions` | what is open — and with `all`, what was answered |
-| `mem_answer` | close a question by naming the entry that answers it |
+| `mem_questions` | what is open and what waits for a person's confirmation — and with `all`, what was answered |
+| `mem_answer` | answer a question by naming the entry that answers it; closes an agent's question, leaves a person's question `waiting` |
 | `mem_procedures` | the procedures in force, each with its author |
 | `mem_skill_find` / `mem_skill_fetch` | read only: released (and [trial]) skills, workflows, snippets, procedures for a task as short cards; the full text of one (`src/skillregistry.mjs`) |
 | `mem_component` | everything about one file, across both spellings |
@@ -719,7 +723,8 @@ Desktop). `bin/mem-mcp`, stdio (or `--http`).
 | `mem_facts` | the facts that hold right now |
 | `mem_explain` | why an entry did NOT come back |
 | `mem_context` | compact dump for the start of a task |
-| `mem_duties` | what is still owed |
+| `mem_duties` | what is still owed, each duty with `due` and `due_state` |
+| `mem_deadlines` | the open duties with a due date, earliest first, each fresh / due / overdue / unknown |
 | `mem_duty_close` | close a fulfilled duty — appends a line, the original stays |
 | `mem_inbox_new` | new inbox messages addressed to you |
 | `mem_inbox_show` | one inbox message in full |
@@ -1191,8 +1196,10 @@ this". Everything the memory could hold was known.
 
 ```
 mem questions new "..."            note one
-mem questions [--all]              what is open
+mem questions [--all]              what is open, and what waits for a person
 mem answer <id> --with <entry-id>  close it
+mem questions new "..." --authority user     ask as the person
+mem questions confirm <id> --authority user  the person closes an answered question
 ```
 
 **Not a state on `duty`.** A duty has a debtor and counts as neglected
@@ -1208,6 +1215,35 @@ truth about one state, and the two would drift.
 A missing question mark warns but does not block: a question gets noted
 in passing or not at all, and refusing one over punctuation is
 formalism.
+
+**Who may close it (owner decision 2026-10-12).** A question a PERSON
+asked (tier `user`) is closed only by the person's confirmation, an
+edge of tier `user`. An agent's `resolves` edge (`mem answer`, the
+bridge's `mem_answer`, a raw `mem log link --kind resolves`) records the
+answer and leaves the question `waiting`: neither open nor closed, shown
+as "answered, waiting for you" (board tile, work tile, entry state, and a
+"Confirm answer" button in the entry drawer behind a password session).
+Every other question closes on any valid edge, as before: an agent's
+question stays the agents' to close. The state is folded from the graph by
+`question.stateFrom` (`authority.mayCloseQuestion` is the one rule); no
+line is rewritten. The bridge has no confirm tool: confirming is a
+person's act. Before this, any agent could close the owner's own
+question with one line.
+
+**A headless run never writes as the person.** The guard sits in the
+write core (`memory.logEntry`), not in one command: a line that would
+carry tier `user` from a run with `MEM_HEADLESS` set is refused, whatever
+the route (`--authority user` on any type, a raw link, `mem done`,
+`mem answer`). Under a lower `CHEAP_MEM_MAX_AUTHORITY` the claim is
+lowered and recorded, as before (the digest and the reflector keep
+working). The guard protects against accidental and injected writing,
+not against an agent with its own shell: as in 10.1, whoever has a shell is a
+person for the CLI. `test/question-rank-cm.test.mjs`.
+
+**After the update.** A person's question that an agent had already closed
+reads as `waiting` (the state is folded on every read; no migration, no line
+changes). `mem questions` lists them; `mem questions confirm <id> --authority
+user` closes each.
 
 ### 10.8 Neighbours at write time — `src/neighbours.mjs`
 

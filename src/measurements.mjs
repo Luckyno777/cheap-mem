@@ -49,6 +49,7 @@ export const METRICS = Object.freeze([
   { id: 'captures', unit: 'count', title: 'Raw captures' },
   { id: 'openDuties', unit: 'count', title: 'Open duties' },
   { id: 'openQuestions', unit: 'count', title: 'Open questions' },
+  { id: 'waitingQuestions', unit: 'count', title: 'Questions answered, waiting for the person' },
   { id: 'injectionsShown', unit: 'count', title: 'Injections shown (this week)' },
   { id: 'doctorProblems', unit: 'count', title: 'Doctor warnings + errors' },
 ]);
@@ -100,6 +101,8 @@ export function snapshot(root, { now = new Date(), doctorResult = null } = {}) {
     }),
     openDuties: take(() => memory.openDuties(root).open.length),
     openQuestions: take(() => question.open(root).length),
+    // Answered by an agent, asked by a person: counted apart, neither in `open` nor dropped.
+    waitingQuestions: take(() => question.waiting(root).length),
     injectionsShown: take(() => {
       const j = injection.read(root);
       if (!j.present) throw new Error('no injection journal on this machine');

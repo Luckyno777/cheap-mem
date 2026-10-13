@@ -103,6 +103,7 @@ import * as levers from '../src/searchlevers.mjs';
 import * as errorfixes from '../src/errorfixes.mjs';
 import * as bridgefields from '../src/bridgefields.mjs';
 import * as shred from '../src/shred.mjs';
+import * as dueCore from '../src/due.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_ROOT = path.dirname(HERE);
@@ -172,8 +173,8 @@ function resolveRoot() {
  * just a boundary it cannot see past. Keeping this call site above the
  * switch keeps it out of every case's slice.
  */
-function markRunningIfPossible() {
-  try { runningmark.writeMarker(resolveRoot(), { service: 'mcp-http', codePath: PKG_ROOT }); }
+function markRunningIfPossible(service = 'mcp-http') {
+  try { runningmark.writeMarker(resolveRoot(), { service, codePath: PKG_ROOT }); }
   catch (e) { process.stderr.write(`mem-mcp: could not write the W1 start marker: ${e?.message || e}\n`); }
 }
 
@@ -322,8 +323,11 @@ const TOOLS = [
   {
     name: 'mem_questions',
     description:
-      'What we do NOT know. By default only the open questions. Open means no '
-      + '`resolves` edge points at it — the state lives in the graph, not in a field. '
+      'What we do NOT know. By default the open questions, and the answered ones that '
+      + 'wait for a person\'s confirmation. Open means no `resolves` edge points at it — '
+      + 'the state lives in the graph, not in a field. A question a person asked (tier '
+      + '`user`) is not closed by your answer: it shows as `waiting` until the person '
+      + 'confirms. '
       + 'Call it before treating something as settled: it may be exactly the question '
       + 'that has been open here for weeks. Note a new one with mem_log, type `question`.',
     inputSchema: {
@@ -337,8 +341,11 @@ const TOOLS = [
   {
     name: 'mem_answer',
     description:
-      'Close an open question by naming the entry that answers it. Writes a '
-      + '`resolves` link, nothing else. Both entries must exist and the first must '
+      'Answer an open question by naming the entry that answers it. Writes a '
+      + '`resolves` link, nothing else. A question you or another agent asked is closed '
+      + 'by it; a question a person asked (tier `user`) then shows as `waiting` and is '
+      + 'closed only by the person\'s confirmation - you cannot do that. '
+      + 'Both entries must exist and the first must '
       + 'really be a `question` — a link into the void looks like an answer and is '
       + 'not one. Call it after logging something that settles an open question.',
     inputSchema: {
@@ -461,6 +468,7 @@ const TOOLS = [
         why: { type: 'string' },
         class: { type: 'string', description: 'Type error: the error class (the closed vocabulary); other types may use it as an access word' },
         tags: { type: 'array', items: { type: 'string' } },
+        due: { type: 'string', description: 'Type duty only: the due date, exactly YYYY-MM-DD (a day in the house zone, overdue from 00:00 of the following day) or an ISO point in time WITH a zone (2026-11-01T17:00:00+01:00). Anything else is refused. Any other type refuses the field' },
         retires_id: { type: 'string', description: 'Any type: the id of an entry this line retires. With state "superseded" and by_id: mark it superseded by an existing one (same as mem supersede). The authority rule judges the effect on read' },
         replaces_id: { type: 'string', description: 'Any type but duty: the id of an entry this line corrects. The authority rule judges the effect on read. Not for a duty (refused): close it with mem_duty_close, or log a new one' },
         state: { type: 'string', description: 'Only together with retires_id or replaces_id; refused alone. Closing a duty is mem_duty_close, not this' },
@@ -663,7 +671,21 @@ const TOOLS = [
     description:
       'What is still owed. Duty is the only type with a lifecycle: closing one appends ' +
       'a line rather than editing the original, and this folds the log into a current view. ' +
+      'Each duty carries `due` (YYYY-MM-DD in the house zone, an ISO point in time with a zone, or null) and ' +
+      '`due_state` (fresh, due, overdue, unknown). ' +
       'Call it when the user asks what is open, or at the start of a work session.',
+    inputSchema: {
+      type: 'object',
+      properties: { project: { type: 'string' } },
+    },
+  },
+  {
+    name: 'mem_deadlines',
+    description:
+      'The open duties that have a due date, earliest first, each with its state: fresh (not yet the day), ' +
+      'due (the day of the due date is running), overdue (passed; a day is overdue from 00:00 of the following day ' +
+      'in the house zone), unknown (the duty carries a value that cannot be read). Duties without a due date are ' +
+      'only counted. Call it when the user asks what is due or overdue.',
     inputSchema: {
       type: 'object',
       properties: { project: { type: 'string' } },
@@ -1126,7 +1148,7 @@ async function handleCall(name, args) {
       const project = args.project ? String(args.project) : undefined;
       const list = args.all
         ? question.all(root, { project })
-        : question.open(root, { project });
+        : question.all(root, { project }).filter((q) => q.open || q.waiting);
       if (!list.length) {
         return textResult(args.all
           ? 'No questions noted yet.'
@@ -1145,11 +1167,14 @@ async function handleCall(name, args) {
       if (!q.question) throw new Error(`'${qid}' is not an entry of type question.`);
       // A link into the void looks like an answer and is not one.
       if (!byId.get(withId)) throw new Error(`No entry with id '${withId}'. Log it first, then link.`);
-      const { entry } = memory.logEntry(root, 'link', {
-        from: withId, to: qid, kind: question.RESOLVES, agent: resolveAgent(),
-        why: args.why ? String(args.why) : undefined,
-      });
-      return textResult(`${withId} resolves ${qid}  (link ${entry.id})`);
+      // No tier from the call: the write path stamps `agent`. Whether the edge CLOSES the question is the rule of
+      // `authority.mayCloseQuestion` - a question a person asked waits for the person.
+      const r = question.answer(root, qid, withId, { agent: resolveAgent(), why: args.why ? String(args.why) : undefined });
+      const lines = [`${withId} resolves ${qid}  (link ${r.entry.id})`];
+      if (r.state === question.STATE.WAITING) {
+        lines.push(`${qid} was asked by a person: answered, waiting for the person's confirmation - NOT closed.`);
+      }
+      return textResult(lines.join('\n'));
     }
 
     case 'mem_skill_find': {
@@ -1632,9 +1657,36 @@ async function handleCall(name, args) {
       const { open, done } = memory.openDuties(root,
         { project: args.project === undefined ? undefined : args.project });
       if (!open.length) return textResult(`Nothing open (${done.length} closed).`);
-      return textResult([`${open.length} open:`, ...open.map((d) =>
-        `  [${d.id}] ${d.owner ? `@${d.owner} ` : ''}${d.title ?? d.text ?? '?'}  (since ${d.ts})`)]
-        .join('\n'));
+      // Q1: the due date and its state come from the due-date core (one place), never from a guessed field name.
+      const nowMs = Date.now();
+      const zone = appointments.zoneOf(root);
+      const duties = [];
+      const lines = [];
+      for (const d of open) {
+        const value = dueCore.dueValue(d);
+        const dueState = dueCore.state(value, nowMs, { zone });
+        duties.push({ ...d, due: typeof value === 'string' ? value : null, due_state: dueState });
+        lines.push(`  [${d.id}] ${d.owner ? `@${d.owner} ` : ''}${d.title ?? d.text ?? '?'}  (since ${dueCore.openSince(d)})`
+          + `${value === null ? '' : `  [due ${typeof value === 'string' ? value : 'unreadable'}: ${dueState}]`}`);
+      }
+      return structuredResult({ duties, zone }, [`${open.length} open:`, ...lines]);
+    }
+
+    case 'mem_deadlines': {
+      const { open } = memory.openDuties(root,
+        { project: args.project === undefined ? undefined : args.project });
+      const nowMs = Date.now();
+      const zone = appointments.zoneOf(root);
+      const s = dueCore.situationFromOpen(open, { now: nowMs, zone, title: (d) => String(d.title ?? d.text ?? d.id ?? '') });
+      const deadlines = s.list.map(({ overdueFromMs: _ms, ...row }) => row);
+      const { fresh, due: dueNow, overdue, unknown } = s; // counts of the situation, not a read of a duty's field
+      return structuredResult({
+        as_of: new Date(nowMs).toISOString(), zone, open: s.open, with_due: s.withDue, without_due: s.withoutDue,
+        fresh, due: dueNow, overdue, unknown, deadlines,
+      }, [
+        `${s.withDue} open duties with a due date (${overdue} overdue, ${dueNow} due, ${fresh} fresh, ${unknown} unknown), ${s.withoutDue} without`,
+        ...deadlines.map(({ state: st, due: value, id, who, title }) => `  ${st.padEnd(8)}  ${value ?? '(unreadable)'}  [${id}]${who ? `  @${who}` : ''}  ${title}`),
+      ]);
     }
 
     case 'mem_duty_close': {
@@ -2199,6 +2251,12 @@ async function main() {
     return;
   }
 
+  // AU8 (lucky-mem parity): stdio writes a start marker too, so the per-service
+  // version proof (B4) works there as well. Its own service name `mcp-stdio`:
+  // stdio processes come and go with each client and would overwrite the marker
+  // of the long-lived `mcp-http` bridge. Not writable -> the server still runs
+  // (a marker is proof, not a condition) and stderr names the reason.
+  markRunningIfPossible('mcp-stdio');
   const server = createServer(pkg);
   const transport = new StdioServerTransport();
   await server.connect(transport);

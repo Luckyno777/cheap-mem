@@ -163,17 +163,19 @@ export function* readRowsLazy(root, { onSkip = null } = {}) {
  * "0 open" and looks healthy. So a total of zero is `unknown`, not
  * `calm`, and says which of the two it is.
  */
-export function workTile(title, open, total, { noun, whenEmpty }) {
+export function workTile(title, open, total, { noun, whenEmpty, waiting = 0 }) {
   if (total === 0) {
     return { title, value: null, state: 'unknown', note: whenEmpty, open: null, total: 0 };
   }
   return {
     title,
     value: `${open} / ${total}`,
-    state: open > 0 ? 'watch' : 'calm',
-    note: `${open} of ${total} ${noun} still open`,
+    // `waiting`: answered, but only by someone below the person who asked it - it waits for that person.
+    state: open > 0 || waiting > 0 ? 'watch' : 'calm',
+    note: `${open} of ${total} ${noun} still open${waiting > 0 ? `, ${waiting} answered and waiting for you` : ''}`,
     open,
     total,
+    ...(waiting > 0 ? { waiting } : {}),
   };
 }
 
@@ -347,6 +349,28 @@ function humanInboxState(participants, inboxMessages, inboxBroken) {
 }
 
 /**
+ * Z3/A9: unreadable state/claim lines count as broken mail too — a state change in them may be missing from
+ * every number on the page.
+ */
+function brokenMail(ib) {
+  return [...ib.broken,
+    ...(ib.eventsBroken ?? []).map((b) => ({ name: `${b.log}${b.line ? `:${b.line}` : ''}`, reason: b.reason }))];
+}
+
+/**
+ * The human's tray as of NOW, the same shape `collect()` carries as `humanInbox` (board-width-fresh-cm: after an
+ * acknowledge or a reply the server lays this over the stored state at once, src/dashboard-live.mjs). Unlike
+ * `collect()`, which counts an unreadable inbox as empty, this THROWS: the caller names the reason instead of
+ * showing a made-up empty tray.
+ */
+export function humanInboxNow(root) {
+  let participants = null;
+  try { participants = cfgmod.readConfig(root).participants; } catch { participants = null; }
+  const ib = inboxModule.read(root, participants ?? {}, {});
+  return humanInboxState(participants, ib.messages, brokenMail(ib));
+}
+
+/**
  * Everything the desk shows — as data, not as HTML.
  *
  * Separate for the same reason `console.collect` is: it goes out as
@@ -404,10 +428,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
   try {
     const ib = inboxModule.read(root, participants ?? {}, {});
     inboxMessages = ib.messages;
-    // Z3/A9: unreadable state/claim lines count as broken mail too — a
-    // state change in them may be missing from every number on the page.
-    inboxBroken = [...ib.broken,
-      ...(ib.eventsBroken ?? []).map((b) => ({ name: `${b.log}${b.line ? `:${b.line}` : ''}`, reason: b.reason }))];
+    inboxBroken = brokenMail(ib);
   } catch { /* stays empty: an unreadable inbox has no messages to show */ }
   const agentCtx = { now, participants, inboxMessages };
   const agentsOut = mem.agents.map((a) => ({ ...a, ...agentSignals(root, a, agentCtx) }));
@@ -526,7 +547,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
   else try {
     const qs = question.all(root);
     questions = workTile('Questions', qs.filter((q) => q.open).length, qs.length,
-      { noun: 'questions', whenEmpty: 'no question has ever been asked' });
+      { noun: 'questions', whenEmpty: 'no question has ever been asked', waiting: qs.filter((q) => q.waiting).length });
   } catch (e) {
     questions = { title: 'Questions', value: null, state: 'unknown', note: `not measurable: ${e.message}`, open: null, total: null };
   }
@@ -566,12 +587,14 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
     if (ts > p.last) p.last = ts;
   }
   let openPerProject = new Map();
+  let waitingPerProject = new Map();
   if (!pre) try {
-    for (const q of question.open(root)) {
+    for (const q of question.all(root)) {
       const k = q._project ?? 'global';
-      openPerProject.set(k, (openPerProject.get(k) ?? 0) + 1);
+      if (q.open) openPerProject.set(k, (openPerProject.get(k) ?? 0) + 1);
+      else if (q.waiting) waitingPerProject.set(k, (waitingPerProject.get(k) ?? 0) + 1);
     }
-  } catch { openPerProject = new Map(); }
+  } catch { openPerProject = new Map(); waitingPerProject = new Map(); }
 
   const projects = pre ? pre.projects(mem.agents) : [...perProject.values()].map((p) => ({
     name: p.name,
@@ -587,6 +610,7 @@ export function collect(root, { env = process.env, now = new Date(), cfg = {}, p
       .filter((a) => Object.keys(a.projects || {}).includes(agentKey(p.name)))
       .map((a) => ({ name: a.name, entries: (a.projects || {})[agentKey(p.name)] ?? 0 })),
     openQuestions: openPerProject.get(p.name) ?? 0,
+    waitingQuestions: waitingPerProject.get(p.name) ?? 0,
   })).sort((a, b) => b.entries - a.entries || a.name.localeCompare(b.name));
 
   const tiles = [...con.board.tiles]
